@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Kernel-Align Contributors
+# Copyright (c) 2026 RL-Kernel Contributors
 
 from __future__ import annotations
 
@@ -45,9 +45,11 @@ class DeepSpeedTrainingWorker(RolloutBatchMixin):
     """
     Training worker implementation backed by a real DeepSpeed engine contract.
 
-    DeepSpeed is optional for Kernel-Align, so importing this module never imports
+    DeepSpeed is optional for RL-Kernel, so importing this module never imports
     DeepSpeed. The runtime is loaded only when a worker is constructed.
     """
+
+    config: DeepSpeedTrainingConfig
 
     def __init__(self, config: Optional[DeepSpeedTrainingConfig] = None):
         self.config = config or DeepSpeedTrainingConfig()

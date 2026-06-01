@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright (c) 2026 Kernel-Align Contributors
+// Copyright (c) 2026 RL-Kernel Contributors
 
 #include <torch/extension.h>
 
@@ -41,7 +41,7 @@ torch::Tensor fused_logp_forward_online_indexed_fp32(
 #endif
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    m.doc() = "Kernel-Align High-Performance Operator Extension Library";
+    m.doc() = "RL-Kernel High-Performance Operator Extension Library";
 
     m.def("fused_logp", &fused_logp_forward, "Fused logp forward fallback");
 

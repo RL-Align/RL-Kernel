@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Kernel-Align Contributors
+# Copyright (c) 2026 RL-Kernel Contributors
 
 from __future__ import annotations
 
@@ -364,7 +364,7 @@ def _write_rows(rows: list[dict[str, Any]], output: Path | None) -> None:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="RL-shaped Kernel-Align benchmark runner")
+    parser = argparse.ArgumentParser(description="RL-shaped RL-Kernel benchmark runner")
     parser.add_argument("--case", default="selected_logprob", choices=["selected_logprob"])
     parser.add_argument(
         "--candidate",

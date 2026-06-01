@@ -1,6 +1,6 @@
 # Runtime Dispatch
 
-Kernel-Align routes operators through `KernelRegistry`. Callers request an operator by
+RL-Kernel routes operators through `KernelRegistry`. Callers request an operator by
 logical type, and the registry selects the first available backend for the current device.
 
 ## Dispatch Flow

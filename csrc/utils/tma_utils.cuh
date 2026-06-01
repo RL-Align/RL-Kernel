@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright (c) 2026 Kernel-Align Contributors
+// Copyright (c) 2026 RL-Kernel Contributors
 
 #pragma once
 
@@ -45,7 +45,7 @@ inline void init_tensor_map(
     );
 
     if (res != CUDA_SUCCESS) {
-        std::cerr << "[Kernel-Align Error] cuTensorMapEncodeTiled failed!" << std::endl;
+        std::cerr << "[RL-Kernel Error] cuTensorMapEncodeTiled failed!" << std::endl;
         exit(EXIT_FAILURE);
     }
 }

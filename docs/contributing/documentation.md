@@ -1,6 +1,6 @@
 # Documentation Guide
 
-Kernel-Align documentation is built with MkDocs Material and published as a static GitHub
+RL-Kernel documentation is built with MkDocs Material and published as a static GitHub
 Pages site.
 
 ## Local Build

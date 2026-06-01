@@ -1,6 +1,6 @@
-site_name: Kernel-Align
-site_url: https://flink-ddd.github.io/Kernel-Align/
-repo_url: https://github.com/Flink-ddd/Kernel-Align
+site_name: RL-Kernel
+site_url: https://flink-ddd.github.io/RL-Kernel/
+repo_url: https://github.com/Flink-ddd/RL-Kernel
 edit_uri: edit/main/docs/
 exclude_docs: |
 

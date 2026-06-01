@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Kernel-Align Contributors
+# Copyright (c) 2026 RL-Kernel Contributors
 
 import torch
 import time
@@ -68,7 +68,7 @@ def run_benchmark(args, return_data: bool = False):
         t1 = time.perf_counter()
         native_time = (t1 - t0) * 1000
 
-        # 2. kernel-align FlashInfer Latency
+        # 2. RL-Kernel FlashInfer Latency
         torch.cuda.synchronize()
         t2 = time.perf_counter()
         _ = sampler.sample(logits, top_k=args.top_k, top_p=args.top_p)

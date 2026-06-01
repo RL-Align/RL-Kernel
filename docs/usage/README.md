@@ -1,6 +1,6 @@
 # User Guide
 
-This section is for Kernel-Align users who want to install the package, call operators,
+This section is for RL-Kernel users who want to install the package, call operators,
 and understand supported runtime behavior.
 
 Start with:

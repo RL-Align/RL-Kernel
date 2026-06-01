@@ -4,10 +4,10 @@ hide:
   - toc
 ---
 
-# Welcome to Kernel-Align
+# Welcome to RL-Kernel
 
 <figure markdown="span">
-  ![](./assets/rl-engine-log-display.png){ align="center" alt="Kernel-Align" width="38%" }
+  ![](./assets/rl-engine-log-display.png){ align="center" alt="RL-Kernel" width="38%" }
 </figure>
 
 <p style="text-align:center">
@@ -16,23 +16,23 @@ hide:
 
 <p style="text-align:center">
 <script async defer src="https://buttons.github.io/buttons.js"></script>
-<a class="github-button" href="https://github.com/Flink-ddd/Kernel-Align" data-show-count="true" data-size="large" aria-label="Star">Star</a>
-<a class="github-button" href="https://github.com/Flink-ddd/Kernel-Align/subscription" data-show-count="true" data-icon="octicon-eye" data-size="large" aria-label="Watch">Watch</a>
-<a class="github-button" href="https://github.com/Flink-ddd/Kernel-Align/fork" data-show-count="true" data-icon="octicon-repo-forked" data-size="large" aria-label="Fork">Fork</a>
+<a class="github-button" href="https://github.com/Flink-ddd/RL-Kernel" data-show-count="true" data-size="large" aria-label="Star">Star</a>
+<a class="github-button" href="https://github.com/Flink-ddd/RL-Kernel/subscription" data-show-count="true" data-icon="octicon-eye" data-size="large" aria-label="Watch">Watch</a>
+<a class="github-button" href="https://github.com/Flink-ddd/RL-Kernel/fork" data-show-count="true" data-icon="octicon-repo-forked" data-size="large" aria-label="Fork">Fork</a>
 </p>
 
-Kernel-Align bridges high-level alignment algorithms and low-level hardware optimizations.
+RL-Kernel bridges high-level alignment algorithms and low-level hardware optimizations.
 It targets GRPO, PPO, DPO, and other reinforcement learning post-training workloads where
 log probability computation, sampling, and memory pressure dominate the critical path.
 
 Where to get started depends on the type of user:
 
-- Run Kernel-Align locally with the [Quickstart Guide](./getting_started/quickstart.md).
+- Run RL-Kernel locally with the [Quickstart Guide](./getting_started/quickstart.md).
 - Understand supported kernels from the [Operators](./operators/README.md) section.
 - Add a new operator by following the [Developer Guide](./contributing/README.md).
 - Read dispatch details in the [Runtime Dispatch design document](./design/runtime-dispatch.md).
 
-Kernel-Align focuses on:
+RL-Kernel focuses on:
 
 - Hardware-aware dispatch for CUDA, ROCm, and PyTorch fallback paths.
 - Fused GPU operators for post-training bottlenecks.

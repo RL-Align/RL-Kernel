@@ -1,13 +1,13 @@
 # Installation
 
-Kernel-Align requires Python 3.10 or newer and PyTorch. CUDA builds require a working
+RL-Kernel requires Python 3.10 or newer and PyTorch. CUDA builds require a working
 CUDA toolchain; ROCm builds require a compatible ROCm environment.
 
 ## From Source
 
 ```bash
-git clone https://github.com/Flink-ddd/Kernel-Align.git
-cd Kernel-Align
+git clone https://github.com/Flink-ddd/RL-Kernel.git
+cd RL-Kernel
 pip install -e .
 ```
 

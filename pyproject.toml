@@ -3,14 +3,14 @@ requires = ["setuptools>=64", "wheel", "torch"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "kernel-align"
+name = "RL-Kernel"
 version = "0.1.0"
 description = "High-performance RL training engine focused on kernel fusion and memory efficiency."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
 authors = [
-    {name = "kernel-align Contributors"}
+    {name = "RL-Kernel Contributors"}
 ]
 dependencies = [
     "torch>=2.4.1",

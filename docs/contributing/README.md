@@ -1,7 +1,7 @@
 # Developer Guide
 
 This section collects general contribution material, design documents, and operator
-development notes for Kernel-Align.
+development notes for RL-Kernel.
 
 Before merging a new operator, include:
 

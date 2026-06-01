@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Kernel-Align Contributors
+# Copyright (c) 2026 RL-Kernel Contributors
 
 from __future__ import annotations
 
@@ -71,7 +71,7 @@ class RayWorkerSpec:
 
 
 class RayActorManager:
-    """Create, wrap, and clean up Ray actors for Kernel-Align workers."""
+    """Create, wrap, and clean up Ray actors for RL-Kernel workers."""
 
     def __init__(
         self,
@@ -156,7 +156,7 @@ class RayTrainingWorkerHandle:
 
 
 class _RayWorkerActor:
-    """Ray-hosted shim around an arbitrary local Kernel-Align worker."""
+    """Ray-hosted shim around an arbitrary local RL-Kernel worker."""
 
     def __init__(self, worker_factory: Any, *args: Any, **kwargs: Any):
         if callable(worker_factory):

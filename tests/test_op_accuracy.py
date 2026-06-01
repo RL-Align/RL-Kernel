@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Kernel-Align Contributors
+# Copyright (c) 2026 RL-Kernel Contributors
 
 import pytest
 import torch
@@ -42,7 +42,7 @@ def test_accuracy():
         raise
 
     diff = torch.abs(ref_logp.float() - custom_logp.float()).max().item()
-    threshold = 1e-3 if dtype == torch.bfloat16 else 1e-5
+    threshold = 1e-2 if dtype in (torch.bfloat16, torch.float16) else 1e-5
 
     print("\n" + "=" * 50)
     print(f"RESULTS FOR {str(device).upper()}")

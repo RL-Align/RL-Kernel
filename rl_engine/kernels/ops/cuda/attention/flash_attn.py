@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Kernel-Align Contributors
+# Copyright (c) 2026 RL-Kernel Contributors
 
 import torch
 from rl_engine.utils.logger import logger
@@ -26,7 +26,7 @@ class FlashAttentionOp:
         except ImportError:
             if hasattr(_C, "flash_attn_forward"):
                 self.op = _C.flash_attn_forward
-                logger.info("Successfully linked to Kernel-Align _C.flash_attn_forward.")
+                logger.info("Successfully linked to RL-Kernel _C.flash_attn_forward.")
             else:
                 raise RuntimeError(
                     "Neither external flash_attn nor _C.flash_attn_forward is available."

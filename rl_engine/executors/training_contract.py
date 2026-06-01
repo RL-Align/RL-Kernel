@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Kernel-Align Contributors
+# Copyright (c) 2026 RL-Kernel Contributors
 
 from __future__ import annotations
 
@@ -222,7 +222,7 @@ def make_rollout_result(
 
 
 def extract_rollout_token_groups(payload: Any) -> list[list[int]]:
-    """Extract generated token ids from Kernel-Align/vLLM-style rollout payloads."""
+    """Extract generated token ids from RL-Kernel/vLLM-style rollout payloads."""
 
     groups: list[list[int]] = []
     if not isinstance(payload, Mapping):

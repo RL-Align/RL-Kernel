@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Kernel-Align Contributors
+# Copyright (c) 2026 RL-Kernel Contributors
 
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ class VLLMSamplerConfig:
 
 @dataclass(frozen=True)
 class NormalizedRolloutCandidate:
-    """Stable Kernel-Align view over a vLLM request output candidate."""
+    """Stable RL-Kernel view over a vLLM request output candidate."""
 
     prompt_index: int
     candidate_index: int

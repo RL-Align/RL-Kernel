@@ -1,6 +1,6 @@
 # Benchmarking
 
-Kernel-Align benchmarks track operator latency, memory behavior, and dispatch overhead.
+RL-Kernel benchmarks track operator latency, memory behavior, and dispatch overhead.
 
 Current benchmark entry points:
 

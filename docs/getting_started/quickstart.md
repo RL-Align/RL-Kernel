@@ -1,6 +1,6 @@
 # Quick Start
 
-Kernel-Align exposes operators through a runtime registry. The registry selects a backend
+RL-Kernel exposes operators through a runtime registry. The registry selects a backend
 based on the current device and available compiled extensions.
 
 ```python

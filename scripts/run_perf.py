@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Kernel-Align Contributors
+# Copyright (c) 2026 RL-Kernel Contributors
 
 import time
 import torch
@@ -17,7 +17,7 @@ class PerfReport:
     @staticmethod
     def print_panel(metrics: Dict[str, Any]):
         print(f"\n\t{metrics['tip']}")
-        print(f"{'============ Kernel-Align Serving Benchmark ============':^60}")
+        print(f"{'============ RL-Kernel Serving Benchmark ============':^60}")
         PerfReport._row("Hardware Device", metrics["device"])
         PerfReport._row("Model Architecture", f"Vocab={metrics['vocab']}, Seq={metrics['seq']}")
         PerfReport._row("Dtype Precision", str(metrics["dtype"]))
@@ -43,7 +43,7 @@ class PerfReport:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Kernel-Align Production Benchmark Suite")
+    parser = argparse.ArgumentParser(description="RL-Kernel Production Benchmark Suite")
     parser.add_argument("--vocab-size", type=int, default=128256, help="Model vocab size")
     parser.add_argument("--seq-len", type=int, default=512, help="Sequence length")
     parser.add_argument("--g-sizes", type=str, default="64,128,256", help="Batch sizes to test")

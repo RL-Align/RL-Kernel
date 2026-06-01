@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Kernel-Align Contributors
+# Copyright (c) 2026 RL-Kernel Contributors
 
 from __future__ import annotations
 
@@ -168,7 +168,7 @@ def test_ray_manager_creates_actor_with_options_dispatches_and_cleans_up():
     manager = RayActorManager(
         RayRuntimeConfig(
             auto_init=True,
-            init_kwargs={"address": "local", "namespace": "kernel-align-test"},
+            init_kwargs={"address": "local", "namespace": "RL-Kernel-test"},
             shutdown_ray_on_close=True,
         ),
         ray_module=fake_ray,
@@ -192,7 +192,7 @@ def test_ray_manager_creates_actor_with_options_dispatches_and_cleans_up():
         {
             "ignore_reinit_error": True,
             "address": "local",
-            "namespace": "kernel-align-test",
+            "namespace": "RL-Kernel-test",
         }
     ]
     assert fake_ray.option_calls == [

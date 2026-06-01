@@ -1,6 +1,6 @@
 # CLI Reference
 
-This section is reserved for command-line tools exposed by Kernel-Align.
+This section is reserved for command-line tools exposed by RL-Kernel.
 
 Current developer commands:
 

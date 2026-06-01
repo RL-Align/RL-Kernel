@@ -1,6 +1,6 @@
 # Testing
 
-Kernel-Align uses focused tests for dispatch behavior and operator accuracy.
+RL-Kernel uses focused tests for dispatch behavior and operator accuracy.
 
 ## Dispatch Tests
 

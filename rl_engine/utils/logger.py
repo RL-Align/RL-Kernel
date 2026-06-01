@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Kernel-Align Contributors
+# Copyright (c) 2026 RL-Kernel Contributors
 
 import logging
 import sys
@@ -72,4 +72,4 @@ def init_logger(name: str) -> RLEngineLogger:
     return cast(RLEngineLogger, logger)
 
 
-logger = init_logger("Kernel-Align")
+logger = init_logger("RL-Kernel")

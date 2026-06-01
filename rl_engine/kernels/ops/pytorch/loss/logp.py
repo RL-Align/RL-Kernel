@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 Kernel-Align Contributors
+# Copyright (c) 2026 RL-Kernel Contributors
 
 import torch
 
@@ -18,8 +18,8 @@ class NativeLogpOp:
         orig_shape = logits.shape[:-1]
         logits_2d = logits.view(-1, logits.size(-1))
         token_ids_1d = token_ids.view(-1).unsqueeze(1)
-        log_probs = torch.nn.functional.log_softmax(logits_2d, dim=-1)
-        selected_log_probs = torch.gather(log_probs, dim=-1, index=token_ids_1d).squeeze(-1)
+        log_probs = torch.nn.functional.log_softmax(logits_2d.float(), dim=-1).to(logits.dtype)
+        selected_log_probs = torch.gather(log_probs, dim=-1, index=token_ids_1d.long()).squeeze(-1)
         return selected_log_probs.view(orig_shape)
 
     def apply_fp32(self, logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
