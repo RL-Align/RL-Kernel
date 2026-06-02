@@ -2,7 +2,7 @@
 # Copyright (c) 2026 RL-Kernel Contributors
 
 import torch
-from typing import Dict, Any
+from typing import Dict, Any, cast
 from rl_engine.utils.logger import logger
 
 
@@ -55,8 +55,9 @@ class IPCWeightBridge:
         remote_weights = {}
 
         for name, info in ipc_handles.items():
-            storage = torch.cuda.FloatTensor._new_shared_cuda(info["handle"])
-            tensor = torch.cuda.FloatTensor(storage).view(info["shape"])
+            cuda_float_tensor = cast(Any, torch.cuda).FloatTensor
+            storage = cuda_float_tensor._new_shared_cuda(info["handle"])
+            tensor = cuda_float_tensor(storage).view(info["shape"])
             remote_weights[name] = tensor
 
         return remote_weights

@@ -3,6 +3,7 @@
 
 import pytest
 import torch
+from rl_engine.kernels.ops.pytorch.loss.logp import NativeLogpOp
 from rl_engine.kernels.registry import kernel_registry
 from rl_engine.platforms.device import device_ctx
 from rl_engine.utils.logger import logger
@@ -10,6 +11,111 @@ from rl_engine.utils.logger import logger
 
 def _fused_logp_op(op_type: str = "logp"):
     return kernel_registry.get_op(op_type)
+
+
+def _reference_selected_logp(logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
+    ref_logp = torch.log_softmax(logits.float(), dim=-1)
+    return torch.gather(ref_logp, dim=-1, index=token_ids.long().unsqueeze(-1)).squeeze(-1)
+
+
+def test_native_logp_op_exposes_full_fused_logp_api():
+    op = NativeLogpOp()
+
+    for method_name in (
+        "apply",
+        "out",
+        "apply_fp32",
+        "indexed_out",
+        "indexed_fp32",
+        "online_out",
+        "online_fp32",
+        "online_indexed_out",
+        "online_indexed_fp32",
+    ):
+        assert callable(getattr(op, method_name))
+
+
+def test_native_fused_logp_out_reuses_output_storage_cpu():
+    logits = torch.randn(2, 3, 17)
+    token_ids = torch.randint(0, logits.size(-1), (2, 3))
+    output = torch.empty(logits.shape[:-1])
+
+    result = NativeLogpOp().out(logits, token_ids, output)
+
+    assert result is output
+    assert result.data_ptr() == output.data_ptr()
+    assert torch.allclose(result, _reference_selected_logp(logits, token_ids))
+
+
+def test_native_fused_logp_indexed_out_preserves_inactive_rows_cpu():
+    logits = torch.randn(3, 4, 19)
+    token_ids = torch.randint(0, logits.size(-1), (3, 4))
+    mask = torch.zeros((3, 4), dtype=torch.bool)
+    mask[0, 1] = True
+    mask[1, 3] = True
+    mask[2, 0] = True
+    row_indices = mask.reshape(-1).nonzero(as_tuple=False).squeeze(-1)
+    output = torch.full(logits.shape[:-1], 123.0)
+
+    result = NativeLogpOp().indexed_out(logits, token_ids, row_indices, output)
+    ref_logp = _reference_selected_logp(logits, token_ids)
+
+    assert result is output
+    assert result.data_ptr() == output.data_ptr()
+    assert torch.allclose(result[mask], ref_logp[mask])
+    assert torch.equal(result[~mask], torch.full_like(result[~mask], 123.0))
+
+
+def test_native_fused_logp_online_out_matches_reference_cpu():
+    logits = torch.randn(2, 5, 23)
+    token_ids = torch.randint(0, logits.size(-1), (2, 5))
+    output = torch.empty(logits.shape[:-1])
+
+    result = NativeLogpOp().online_out(logits, token_ids, output)
+
+    assert result is output
+    assert torch.allclose(result, _reference_selected_logp(logits, token_ids))
+
+
+def test_native_fused_logp_online_indexed_out_preserves_inactive_rows_cpu():
+    logits = torch.randn(2, 6, 29)
+    token_ids = torch.randint(0, logits.size(-1), (2, 6))
+    mask = torch.zeros((2, 6), dtype=torch.bool)
+    mask[:, 1::2] = True
+    row_indices = mask.reshape(-1).nonzero(as_tuple=False).squeeze(-1)
+    output = torch.full(logits.shape[:-1], -77.0)
+
+    result = NativeLogpOp().online_indexed_out(logits, token_ids, row_indices, output)
+    ref_logp = _reference_selected_logp(logits, token_ids)
+
+    assert result is output
+    assert torch.allclose(result[mask], ref_logp[mask])
+    assert torch.equal(result[~mask], torch.full_like(result[~mask], -77.0))
+
+
+@pytest.mark.parametrize("method_name", ("indexed_fp32", "online_indexed_fp32"))
+def test_native_fused_logp_indexed_fp32_zero_fills_inactive_rows_cpu(method_name: str):
+    logits = torch.randn(2, 5, 31)
+    token_ids = torch.randint(0, logits.size(-1), (2, 5))
+    mask = torch.zeros((2, 5), dtype=torch.bool)
+    mask[:, ::2] = True
+    row_indices = mask.reshape(-1).nonzero(as_tuple=False).squeeze(-1)
+
+    result = getattr(NativeLogpOp(), method_name)(logits, token_ids, row_indices)
+    ref_logp = _reference_selected_logp(logits, token_ids)
+
+    assert result.dtype == torch.float32
+    assert torch.allclose(result[mask], ref_logp[mask])
+    assert torch.equal(result[~mask], torch.zeros_like(result[~mask]))
+
+
+def test_native_fused_logp_rejects_out_of_range_row_indices_cpu():
+    logits = torch.randn(2, 3, 11)
+    token_ids = torch.randint(0, logits.size(-1), (2, 3))
+    output = torch.empty(logits.shape[:-1])
+
+    with pytest.raises(ValueError, match="out-of-range"):
+        NativeLogpOp().indexed_out(logits, token_ids, torch.tensor([0, 6]), output)
 
 
 def test_accuracy():
