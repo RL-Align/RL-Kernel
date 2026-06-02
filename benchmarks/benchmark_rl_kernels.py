@@ -28,7 +28,6 @@ from rl_engine.testing import (  # noqa: E402
     summarize_kernel_drift,
 )
 
-
 CSV_COLUMNS = [
     "timestamp",
     "case",

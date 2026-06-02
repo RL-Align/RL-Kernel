@@ -7,7 +7,7 @@ hide:
 # Welcome to RL-Kernel
 
 <figure markdown="span">
-  ![](./assets/rl-engine-log-display.png){ align="center" alt="RL-Kernel" width="38%" }
+  ![](./assets/logo.png){ align="center" alt="RL-Kernel" width="38%" }
 </figure>
 
 <p style="text-align:center">

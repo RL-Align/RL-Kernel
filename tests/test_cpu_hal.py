@@ -1,5 +1,7 @@
-import torch
 import logging
+
+import torch
+
 from rl_engine.kernels.registry import kernel_registry
 
 logging.basicConfig(level=logging.INFO)

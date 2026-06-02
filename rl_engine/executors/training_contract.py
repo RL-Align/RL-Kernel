@@ -9,10 +9,7 @@ from typing import Any, Mapping, Optional, Protocol, Sequence
 
 import torch
 
-from rl_engine.testing import (
-    SyntheticRLKernelBatch,
-    make_synthetic_rl_kernel_batch,
-)
+from rl_engine.testing import SyntheticRLKernelBatch, make_synthetic_rl_kernel_batch
 
 
 @dataclass(frozen=True)

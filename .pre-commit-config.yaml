@@ -1,8 +1,3 @@
-# SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 RL-Kernel Contributors
-
-fail_fast: false
-
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
@@ -10,12 +5,24 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
-        exclude: mkdocs\.yaml
+        exclude: 'mkdocs\.yaml$'
       - id: check-added-large-files
+        exclude: 'docs/assets/logo\.png$'
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.4.4
+  - repo: https://github.com/psf/black
+    rev: 24.4.2
     hooks:
-      - id: ruff
-        args: [ --fix ]
-      - id: ruff-format
+      - id: black
+        args: [--line-length=100]
+
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        args: ["--profile", "black", "--line-length=100"]
+
+  - repo: https://github.com/PyCQA/flake8
+    rev: 7.0.0
+    hooks:
+      - id: flake8
+        args: ["--max-line-length=100", "--extend-ignore=E203,E704"]

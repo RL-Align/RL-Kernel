@@ -11,10 +11,7 @@ from typing import Any, Sequence
 
 import pytest
 
-from rl_engine.executors.training_contract import (
-    RolloutStageResult,
-    TrainingStageResult,
-)
+from rl_engine.executors.training_contract import RolloutStageResult, TrainingStageResult
 
 
 @dataclass(frozen=True)

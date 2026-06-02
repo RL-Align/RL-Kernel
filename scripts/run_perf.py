@@ -1,16 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-import time
-import torch
 import argparse
-from typing import Dict, Any
-from rl_engine.utils.logger import logger
-from rl_engine.platforms.device import device_ctx
-from rl_engine.executors.bridge import IPCWeightBridge
+import time
+from typing import Any, Dict
+
+import torch
 
 from benchmarks.benchmark_grpo_op import run_benchmark as run_logp_perf
 from benchmarks.benchmark_sampling import run_benchmark as run_sample_perf
+from rl_engine.executors.bridge import IPCWeightBridge
+from rl_engine.platforms.device import device_ctx
+from rl_engine.utils.logger import logger
 
 
 class PerfReport:

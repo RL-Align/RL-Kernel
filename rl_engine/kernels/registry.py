@@ -3,7 +3,8 @@
 
 import importlib
 from enum import Enum, EnumMeta
-from typing import Optional, Dict, Any, Type, Set
+from typing import Any, Dict, Optional, Set, Type
+
 from rl_engine.platforms.device import device_ctx
 from rl_engine.utils.logger import logger
 
@@ -68,7 +69,7 @@ class KernelRegistry:
                     OpBackend.PYTORCH_NATIVE,
                 ],
                 "attn": [OpBackend.FLASH_ATTN, OpBackend.TRITON_GENERIC, OpBackend.PYTORCH_NATIVE],
-                ## Default dispatch logic for new operators
+                # Default dispatch logic for new operators
             },
             "rocm": {
                 "logp": [OpBackend.ROCM_AITER, OpBackend.TRITON_GENERIC, OpBackend.PYTORCH_NATIVE],

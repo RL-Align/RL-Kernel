@@ -3,8 +3,9 @@
 
 import torch
 import torch.nn as nn
-from rl_engine.utils.logger import logger
+
 from rl_engine.platforms.constants import constants
+from rl_engine.utils.logger import logger
 
 
 class SamplerBackend(nn.Module):
@@ -49,9 +50,9 @@ class SamplerBackend(nn.Module):
         if self.backend == constants.BackendLib.FLASHINFER.value:
             from flashinfer.sampling import (
                 sampling_from_logits,
+                top_k_renorm_probs,
                 top_k_top_p_sampling_from_logits,
                 top_p_sampling_from_probs,
-                top_k_renorm_probs,
             )
 
             logits = logits.float().contiguous()

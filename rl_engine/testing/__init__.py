@@ -3,7 +3,6 @@
 
 """Testing helpers for RL-shaped kernel validation."""
 
-from .rl_batch import SyntheticRLKernelBatch, make_synthetic_rl_kernel_batch
 from .reference_ops import (
     active_token_count,
     compute_policy_ratio,
@@ -13,6 +12,7 @@ from .reference_ops import (
     selected_logprobs_reference,
     summarize_kernel_drift,
 )
+from .rl_batch import SyntheticRLKernelBatch, make_synthetic_rl_kernel_batch
 
 __all__ = [
     "SyntheticRLKernelBatch",

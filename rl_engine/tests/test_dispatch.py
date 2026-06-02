@@ -2,10 +2,11 @@
 # Copyright (c) 2026 RL-Kernel Contributors
 
 import torch
-from rl_engine.utils.logger import logger
-from rl_engine.platforms.device import device_ctx
-from rl_engine.kernels.registry import kernel_registry
+
 from rl_engine.executors.rollout import RolloutExecutor
+from rl_engine.kernels.registry import kernel_registry
+from rl_engine.platforms.device import device_ctx
+from rl_engine.utils.logger import logger
 
 
 def test_logger_enhancements():

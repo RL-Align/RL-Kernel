@@ -2,8 +2,9 @@
 # Copyright (c) 2026 RL-Kernel Contributors
 
 import torch
-from rl_engine.utils.logger import logger
+
 from rl_engine.platforms.constants import DeviceType
+from rl_engine.utils.logger import logger
 
 
 class DeviceContext:
