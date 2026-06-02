@@ -216,6 +216,21 @@ def test_publish_requires_monotonic_weight_versions():
         bridge.publish(_model(), weight_version=3)
 
 
+def test_publish_accepts_zero3_after_full_state_export():
+    bridge = LocalTensorCopyBridge()
+
+    manifest = bridge.publish(
+        _model(),
+        weight_version=1,
+        metadata={"layout": {"zero_stage": 3}},
+    )
+
+    assert manifest.metadata["layout"]["kind"] == "full-state"
+    assert manifest.metadata["layout"]["zero_stage"] == 3
+    assert manifest.metadata["layout"]["world_size"] == 1
+    assert manifest.metadata["layout"]["rank"] == 0
+
+
 def test_publish_rejects_unsupported_weight_layouts():
     bridge = LocalTensorCopyBridge()
 
@@ -224,13 +239,6 @@ def test_publish_rejects_unsupported_weight_layouts():
             _model(),
             weight_version=1,
             metadata={"layout": {"kind": "zero-shard"}},
-        )
-
-    with pytest.raises(WeightBridgeUnavailableError, match="ZeRO-3"):
-        bridge.publish(
-            _model(),
-            weight_version=1,
-            metadata={"layout": {"zero_stage": 3}},
         )
 
     with pytest.raises(WeightBridgeUnavailableError, match="tensor-parallel"):

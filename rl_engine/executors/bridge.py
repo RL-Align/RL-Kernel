@@ -14,7 +14,7 @@ import weakref
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from multiprocessing import shared_memory
-from typing import Any, Mapping, Optional, Protocol
+from typing import Any, Mapping, Optional, Protocol, cast
 
 import torch
 
@@ -34,9 +34,10 @@ class WeightLayout:
     """
     Describes how model state is represented in a published update.
 
-    Issue #13 only supports complete full-state or replicated layouts. ZeRO-3,
-    tensor-parallel shards, and multi-node/RDMA transfers must pass through an
-    explicit blocker until a gather/merge transport is implemented and tested.
+    Issue #13 supports complete full-state or replicated layouts. ZeRO-3 is
+    allowed only after the training worker exports a gathered full-state view;
+    tensor-parallel shards and multi-node/RDMA transfers still pass through an
+    explicit blocker until layout-aware transports are implemented and tested.
     """
 
     kind: str = "full-state"
@@ -86,11 +87,6 @@ class WeightLayout:
                 f"weight layout {self.kind!r} is not supported by this bridge. "
                 "Publish a gathered full-state update or implement a layout-aware "
                 "transport before exposing it to rollout workers."
-            )
-        if self.zero_stage >= 3:
-            raise WeightBridgeUnavailableError(
-                "DeepSpeed ZeRO-3 partitioned state is not supported by this bridge. "
-                "Run a real all-gather/full-state export before publishing weights."
             )
         if self.tensor_parallel_size != 1:
             raise WeightBridgeUnavailableError(
@@ -521,6 +517,7 @@ def _install_vllm_cuda_vmm_aliases_on_worker(
     source_rank: int,
 ) -> Callable[[torch.nn.Module], dict[str, Any]]:
     def install(model: torch.nn.Module) -> dict[str, Any]:
+        model_handle = cast(Any, model)
         bridge = CUDAVMMTensorBridge(
             source_worker=source_worker,
             source_rank=source_rank,
@@ -528,7 +525,7 @@ def _install_vllm_cuda_vmm_aliases_on_worker(
         )
         imported = dict(bridge.import_update(manifest))
         rebound: list[str] = []
-        original_data = dict(getattr(model, "_kernel_align_cuda_vmm_original_data", {}))
+        original_data = dict(getattr(model_handle, "_kernel_align_cuda_vmm_original_data", {}))
         try:
             named_parameters = dict(model.named_parameters())
             with torch.no_grad():
@@ -552,10 +549,10 @@ def _install_vllm_cuda_vmm_aliases_on_worker(
             bridge.acknowledge(manifest.update_id)
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
-            model._kernel_align_cuda_vmm_bridge = bridge
-            model._kernel_align_cuda_vmm_update_id = manifest.update_id
-            model._kernel_align_cuda_vmm_tensors = imported
-            model._kernel_align_cuda_vmm_original_data = original_data
+            model_handle._kernel_align_cuda_vmm_bridge = bridge
+            model_handle._kernel_align_cuda_vmm_update_id = manifest.update_id
+            model_handle._kernel_align_cuda_vmm_tensors = imported
+            model_handle._kernel_align_cuda_vmm_original_data = original_data
             return {
                 "update_id": manifest.update_id,
                 "weight_version": manifest.weight_version,
@@ -725,7 +722,8 @@ def _create_shared_memory(size: int) -> shared_memory.SharedMemory:
 
 def _attach_shared_memory(name: str) -> shared_memory.SharedMemory:
     if _SHARED_MEMORY_HAS_TRACK:
-        return shared_memory.SharedMemory(name=name, track=False)
+        shared_memory_cls = cast(Any, shared_memory.SharedMemory)
+        return shared_memory_cls(name=name, track=False)
     return shared_memory.SharedMemory(name=name)
 
 
@@ -770,22 +768,34 @@ def _tensor_sha256(tensor: torch.Tensor) -> str:
 def _send_fd(sock: socket.socket, fd: int) -> None:
     import array
 
+    socket_module = cast(Any, socket)
+    socket_handle = cast(Any, sock)
     fds = array.array("i", [int(fd)])
-    sock.sendmsg([b"F"], [(socket.SOL_SOCKET, socket.SCM_RIGHTS, fds)])
+    socket_handle.sendmsg([b"F"], [(socket_module.SOL_SOCKET, socket_module.SCM_RIGHTS, fds)])
 
 
 def _recv_fd(sock: socket.socket) -> int:
     import array
 
+    socket_module = cast(Any, socket)
+    socket_handle = cast(Any, sock)
     fds = array.array("i")
-    message, ancdata, _flags, _address = sock.recvmsg(1, socket.CMSG_LEN(fds.itemsize))
+    message, ancdata, _flags, _address = socket_handle.recvmsg(
+        1,
+        socket_module.CMSG_LEN(fds.itemsize),
+    )
     if message != b"F":
         raise WeightBridgeUnavailableError("CUDA VMM broker returned an invalid fd message")
     for level, control_type, data in ancdata:
-        if level == socket.SOL_SOCKET and control_type == socket.SCM_RIGHTS:
+        if level == socket_module.SOL_SOCKET and control_type == socket_module.SCM_RIGHTS:
             fds.frombytes(data[: fds.itemsize])
             return int(fds[0])
     raise WeightBridgeUnavailableError("CUDA VMM broker did not send a POSIX fd")
+
+
+def _unix_stream_socket() -> socket.socket:
+    socket_module = cast(Any, socket)
+    return socket.socket(socket_module.AF_UNIX, socket.SOCK_STREAM)
 
 
 def _dtype_to_dlpack(dtype: torch.dtype) -> tuple[int, int, int]:
@@ -1331,6 +1341,12 @@ class WeightConsumer(Protocol):
     def acknowledge(self, update_id: str) -> None: ...
 
     def reject(self, update_id: str, reason: str) -> None: ...
+
+    def release(self, update_id: str) -> None: ...
+
+
+class WeightBridge(WeightPublisher, WeightConsumer, Protocol):
+    pass
 
 
 class WeightInstallAdapter(Protocol):
@@ -2043,7 +2059,7 @@ class CUDAVMMTensorBridge(LocalTensorCopyBridge):
         if allocation is not None:
             allocation.stop_event.set()
             try:
-                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                with _unix_stream_socket() as sock:
                     sock.settimeout(0.1)
                     sock.connect(allocation.socket_path)
             except OSError:
@@ -2102,7 +2118,7 @@ class CUDAVMMTensorBridge(LocalTensorCopyBridge):
         )
         tensor = owner.to_tensor()
         try:
-            tensor._kernel_align_dlpack_owner = owner
+            cast(Any, tensor)._kernel_align_dlpack_owner = owner
         except AttributeError:
             pass
         if owners is not None:
@@ -2122,7 +2138,7 @@ class CUDAVMMTensorBridge(LocalTensorCopyBridge):
         stop_event = threading.Event()
 
         def broker() -> None:
-            server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            server = _unix_stream_socket()
             try:
                 server.bind(socket_path)
                 server.listen(16)
@@ -2178,7 +2194,7 @@ class CUDAVMMTensorBridge(LocalTensorCopyBridge):
         address = 0
         owners: list[Any] = []
         try:
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock = _unix_stream_socket()
             socket_fd = int(sock.fileno())
             sock.connect(socket_path)
             posix_fd = _recv_fd(sock)
@@ -2277,6 +2293,14 @@ class IPCWeightBridge:
     def release(self, update_id: str) -> None:
         del update_id
 
+    def acknowledge(self, update_id: str) -> None:
+        del update_id
+        raise self._unavailable()
+
+    def reject(self, update_id: str, reason: str) -> None:
+        del update_id, reason
+        raise self._unavailable()
+
     def _unavailable(self) -> WeightBridgeUnavailableError:
         if torch.cuda.is_available() and torch.cuda.current_device() < 0:
             return WeightBridgeUnavailableError(
@@ -2308,7 +2332,7 @@ def make_weight_bridge(
     *,
     source_worker: str = "local-training",
     source_rank: int = 0,
-) -> WeightPublisher:
+) -> WeightBridge:
     if transport in {"local", "local-clone"}:
         return LocalTensorCopyBridge(
             source_worker=source_worker,
@@ -2345,6 +2369,7 @@ __all__ = [
     "VLLMInProcessWeightReloadAdapter",
     "VLLMIPCWeightUpdateRequestBuilder",
     "VLLMWeightInstallAdapter",
+    "WeightBridge",
     "WeightBridgeError",
     "WeightBridgeUnavailableError",
     "WeightConsumer",
