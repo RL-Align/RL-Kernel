@@ -15,7 +15,7 @@ from rl_engine.executors.bridge import (
     make_weight_bridge,
 )
 from rl_engine.executors.vllm_sampler import VLLMSamplerConfig, VLLMSharedPrefixSampler
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.kernels.registry import kernel_registry, resolve_logp_op_type
 from rl_engine.utils.logger import logger
 
 
@@ -40,6 +40,10 @@ class RolloutExecutor:
         self.weight_install_adapter = weight_install_adapter
         self.active_weight_version: Optional[int] = None
         self.active_weight_update_id: Optional[str] = None
+        self.logp_op_type = resolve_logp_op_type(
+            self.config.get("logp_backend"),
+            require_batch_invariant=bool(self.config.get("require_batch_invariant_logp", False)),
+        )
         self.logp_op = None
         self.attn_op = None
         self.sampler_config: Optional[VLLMSamplerConfig] = None
@@ -125,11 +129,11 @@ class RolloutExecutor:
         """
         if not self.logp_op:
             # Retrieves the best implementation based on hardware.
-            self.logp_op = kernel_registry.get_op("logp")
+            self.logp_op = kernel_registry.get_op(self.logp_op_type)
             self.attn_op = kernel_registry.get_op("attn")
 
             logger.info(
-                f"Active Kernels -> Logp: {type(self.logp_op).__name__},"
+                f"Active Kernels -> Logp({self.logp_op_type}): {type(self.logp_op).__name__},"
                 f" Attn: {type(self.attn_op).__name__}"
             )
 

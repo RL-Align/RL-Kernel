@@ -29,6 +29,7 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     # TMA-accelerated LogP for SM90+ (Warp Specialization)
     CUDA_FUSED_LOGP_SM90 = "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpSM90Op"
     CUDA_FUSED_LOGP_GENERIC = "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpGenericOp"
+    CUDA_DETERMINISTIC_LOGP = "rl_engine.kernels.ops.cuda.loss.logp.DeterministicLogpCUDAOp"
 
     # AMD ROCm optimized stack
     ROCM_AITER = "rl_engine.kernels.ops.rocm.aiter.AiterOp"
@@ -55,6 +56,53 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     PYTORCH_NATIVE = "rl_engine.kernels.ops.pytorch.loss.logp.NativeLogpOp"
     PYTORCH_NATIVE_SILU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSiLUOp"
     PYTORCH_NATIVE_SWIGLU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSwiGLUOp"
+
+
+def resolve_logp_op_type(
+    logp_backend: Optional[str] = None,
+    *,
+    require_batch_invariant: bool = False,
+) -> str:
+    """Normalize user-facing logp backend names to KernelRegistry op types."""
+
+    normalized = (logp_backend or "auto").strip().lower().replace("-", "_")
+    aliases = {
+        "auto": "logp",
+        "default": "logp",
+        "fused": "logp",
+        "fused_logp": "logp",
+        "generic": "logp",
+        "logp": "logp",
+        "indexed": "logp_indexed",
+        "logp_indexed": "logp_indexed",
+        "online": "logp_online",
+        "logp_online": "logp_online",
+        "online_indexed": "logp_online_indexed",
+        "logp_online_indexed": "logp_online_indexed",
+        "deterministic": "logp_deterministic",
+        "deterministic_cuda": "logp_deterministic",
+        "batch_invariant": "logp_deterministic",
+        "batch_invariant_deterministic": "logp_deterministic",
+        "logp_deterministic": "logp_deterministic",
+        "deterministic_indexed": "logp_deterministic_indexed",
+        "deterministic_cuda_indexed": "logp_deterministic_indexed",
+        "batch_invariant_indexed": "logp_deterministic_indexed",
+        "logp_deterministic_indexed": "logp_deterministic_indexed",
+    }
+    if normalized not in aliases:
+        valid = ", ".join(sorted(aliases))
+        raise ValueError(f"unsupported logp backend {logp_backend!r}; valid values: {valid}")
+
+    op_type = aliases[normalized]
+    if require_batch_invariant:
+        if normalized in {"auto", "default", "logp"}:
+            return "logp_deterministic"
+        if not op_type.startswith("logp_deterministic"):
+            raise ValueError(
+                "require_batch_invariant_logp=True requires a deterministic logp backend; "
+                f"got {logp_backend!r}"
+            )
+    return op_type
 
 
 class KernelRegistry:
@@ -87,6 +135,14 @@ class KernelRegistry:
                     OpBackend.CUDA_FUSED_LOGP_GENERIC,
                     OpBackend.PYTORCH_NATIVE,
                 ],
+                "logp_deterministic": [
+                    OpBackend.CUDA_DETERMINISTIC_LOGP,
+                    OpBackend.PYTORCH_NATIVE,
+                ],
+                "logp_deterministic_indexed": [
+                    OpBackend.CUDA_DETERMINISTIC_LOGP,
+                    OpBackend.PYTORCH_NATIVE,
+                ],
                 "attn": [OpBackend.FLASH_ATTN, OpBackend.TRITON_GENERIC, OpBackend.PYTORCH_ATTN],
                 "grpo_loss": [OpBackend.TRITON_GRPO_LOSS, OpBackend.PYTORCH_GRPO_LOSS],
                 "linear_logp": [OpBackend.TRITON_LINEAR_LOGP, OpBackend.PYTORCH_LINEAR_LOGP],
@@ -97,6 +153,8 @@ class KernelRegistry:
             },
             "rocm": {
                 "logp": [OpBackend.ROCM_AITER, OpBackend.TRITON_GENERIC, OpBackend.PYTORCH_NATIVE],
+                "logp_deterministic": [OpBackend.PYTORCH_NATIVE],
+                "logp_deterministic_indexed": [OpBackend.PYTORCH_NATIVE],
                 "attn": [
                     OpBackend.ROCM_FLASH_ATTN,
                     OpBackend.PYTORCH_ATTN,
@@ -110,6 +168,8 @@ class KernelRegistry:
             },
             "cpu": {
                 "logp": [OpBackend.PYTORCH_NATIVE],
+                "logp_deterministic": [OpBackend.PYTORCH_NATIVE],
+                "logp_deterministic_indexed": [OpBackend.PYTORCH_NATIVE],
                 "attn": [OpBackend.PYTORCH_ATTN],
                 "grpo_loss": [OpBackend.PYTORCH_GRPO_LOSS],
                 "linear_logp": [OpBackend.PYTORCH_LINEAR_LOGP],

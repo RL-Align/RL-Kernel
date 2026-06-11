@@ -49,6 +49,7 @@ class DeepSpeedTrainingConfig(TorchRLTrainingConfig):
     initialize_kwargs: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        super().__post_init__()
         if self.zero_stage < 0:
             raise ValueError("zero_stage must be >= 0")
 

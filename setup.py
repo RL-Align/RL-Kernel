@@ -57,11 +57,14 @@ def get_extensions():
         cuda_sources = [
             "csrc/ops.cpp",
             "csrc/fused_logp_kernel.cu",
+            "csrc/deterministic_logp_kernel.cu",
             "csrc/cuda/attention/prefix_shared_attention.cu",
         ]
 
         cc_major, cc_minor = torch.cuda.get_device_capability()
-        nvcc_flags = ["-O3", "--use_fast_math", "-Xfatbin", "-compress-all"]
+        nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
+        if os.environ.get("KERNEL_ALIGN_USE_FAST_MATH") == "1":
+            nvcc_flags.append("--use_fast_math")
         nvcc_flags.extend(
             _cuda_define_from_env(
                 "FUSED_LOGP_TWOPASS_BLOCK_SIZE",
@@ -106,6 +109,9 @@ def get_extensions():
         )
         if os.environ.get("KERNEL_ALIGN_NCU_LINEINFO") == "1":
             nvcc_flags.append("-lineinfo")
+        if os.name == "nt" and os.environ.get("KERNEL_ALIGN_ALLOW_UNSUPPORTED_MSVC") == "1":
+            nvcc_flags.append("-allow-unsupported-compiler")
+            nvcc_flags.append("-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH")
 
         cxx_flags = ["-O3", "-std=c++17", "-DKERNEL_ALIGN_WITH_CUDA"]
         extra_link_args = []
