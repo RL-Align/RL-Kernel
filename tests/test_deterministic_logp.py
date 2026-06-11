@@ -434,6 +434,28 @@ def test_deterministic_logp_invalid_token_ids_zero_fill_cuda():
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available")
+def test_deterministic_logp_extreme_logits_are_stable_cuda():
+    op = _deterministic_cuda_op()
+    device = torch.device("cuda")
+    vocab_size = 4099
+    rows = 5
+    logits = torch.empty(rows, vocab_size, device=device, dtype=torch.float32)
+
+    logits[0].fill_(0.0)
+    logits[1].fill_(80.0)
+    logits[2].fill_(-80.0)
+    logits[3] = torch.linspace(-80.0, 80.0, vocab_size, device=device)
+    logits[4] = torch.linspace(80.0, -80.0, vocab_size, device=device)
+    token_ids = torch.tensor([0, vocab_size - 1, vocab_size // 2, vocab_size - 1, 0], device=device)
+
+    actual = op.apply_fp32(logits, token_ids)
+    expected = _reference_selected_logp(logits, token_ids)
+
+    assert torch.isfinite(actual).all()
+    assert torch.allclose(actual, expected, atol=1e-4, rtol=1e-4)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available")
 def test_deterministic_logp_rejects_bad_shapes_and_output_dtype_cuda():
     op = _deterministic_cuda_op()
     device = torch.device("cuda")
