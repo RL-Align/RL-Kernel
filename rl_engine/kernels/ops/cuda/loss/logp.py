@@ -45,8 +45,8 @@ class FusedLogpGenericOp:
         token_ids: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Size]:
         orig_shape = logits.shape[:-1]
-        logits_2d = logits.view(-1, logits.size(-1))
-        token_ids_1d = token_ids.view(-1).to(device=logits.device, dtype=torch.long).contiguous()
+        logits_2d = logits.reshape(-1, logits.size(-1))
+        token_ids_1d = token_ids.reshape(-1).to(device=logits.device, dtype=torch.long).contiguous()
         return logits_2d, token_ids_1d, orig_shape
 
     def _prepare_output(self, output: torch.Tensor, orig_shape: torch.Size) -> torch.Tensor:
@@ -58,7 +58,7 @@ class FusedLogpGenericOp:
         return output.view(-1)
 
     def _prepare_indices(self, row_indices: torch.Tensor, logits: torch.Tensor) -> torch.Tensor:
-        return row_indices.view(-1).to(device=logits.device, dtype=torch.long).contiguous()
+        return row_indices.reshape(-1).to(device=logits.device, dtype=torch.long).contiguous()
 
     def apply(self, logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
         logits_2d, token_ids_1d, orig_shape = self._prepare_inputs(logits, token_ids)
