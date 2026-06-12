@@ -14,12 +14,21 @@ CUDA_SHAPE_CASES = (
     pytest.param(2, 5, 31, id="below-warp"),
     pytest.param(2, 7, 32, id="one-warp"),
     pytest.param(3, 4, 33, id="above-warp"),
+    pytest.param(3, 3, 127, id="below-small-bucket"),
+    pytest.param(3, 3, 128, id="small-bucket-boundary"),
+    pytest.param(3, 3, 129, id="medium-bucket-start"),
     pytest.param(4, 3, 255, id="below-block"),
     pytest.param(4, 5, 256, id="one-block"),
     pytest.param(4, 5, 257, id="above-block"),
     pytest.param(2, 6, 1024, id="multi-block-stride"),
+    pytest.param(2, 3, 4095, id="below-medium-boundary"),
+    pytest.param(2, 3, 4096, id="medium-bucket-boundary"),
+    pytest.param(2, 3, 4097, id="large-bucket-start"),
     pytest.param(2, 3, 4099, id="large-prime-vocab"),
+    pytest.param(1, 2, 8192, id="large-power-two-vocab"),
 )
+
+CUDA_BUCKET_BOUNDARY_VOCABS = (128, 129, 4096, 4097)
 
 
 def _tensor_bytes(tensor: torch.Tensor) -> bytes:
@@ -134,7 +143,13 @@ def test_deterministic_logp_source_locks_reduction_contract():
     source = Path(__file__).resolve().parents[1] / "csrc" / "deterministic_logp_kernel.cu"
     text = source.read_text(encoding="utf-8")
 
-    assert "kDeterministicLogpBlockSize = 256" in text
+    assert "kDeterministicLogpSmallBlockSize = 128" in text
+    assert "kDeterministicLogpMediumBlockSize = 256" in text
+    assert "kDeterministicLogpLargeBlockSize = 512" in text
+    assert "kDeterministicLogpSmallVocabLimit = 128" in text
+    assert "kDeterministicLogpMediumVocabLimit = 4096" in text
+    assert "vocab_size <= kDeterministicLogpSmallVocabLimit" in text
+    assert "vocab_size <= kDeterministicLogpMediumVocabLimit" in text
     assert "atomicAdd" not in text
     assert "cub::BlockReduce" not in text
     assert "select_deterministic" not in text
@@ -305,6 +320,49 @@ def test_deterministic_logp_batch_position_invariance_cuda():
         )
         actual = op.apply_fp32(logits, token_ids)[position]
         _assert_bitwise_equal(actual, baseline)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available")
+@pytest.mark.parametrize("vocab_size", CUDA_BUCKET_BOUNDARY_VOCABS)
+def test_deterministic_logp_bucket_boundaries_are_batch_and_indexed_invariant_cuda(
+    vocab_size: int,
+):
+    op = _deterministic_cuda_op()
+    device = torch.device("cuda")
+    target_logits, target_ids = _make_target(
+        device,
+        torch.float16,
+        seq_len=6,
+        vocab_size=vocab_size,
+    )
+    baseline = op.apply_fp32(target_logits.unsqueeze(0), target_ids.unsqueeze(0))[0]
+
+    for seed, batch_size, position in (
+        (210 + vocab_size, 1, 0),
+        (220 + vocab_size, 2, 1),
+        (230 + vocab_size, 8, 3),
+        (240 + vocab_size, 16, 9),
+    ):
+        logits, token_ids = _pack_target(
+            target_logits,
+            target_ids,
+            batch_size=batch_size,
+            position=position,
+            seed=seed,
+        )
+        dense = op.apply_fp32(logits, token_ids)
+        _assert_bitwise_equal(dense[position], baseline)
+
+        row_start = position * target_ids.numel()
+        row_indices = torch.arange(
+            row_start,
+            row_start + target_ids.numel(),
+            device=device,
+            dtype=torch.long,
+        )
+        indexed = op.indexed_fp32(logits, token_ids, row_indices)
+        indexed_flat = indexed.reshape(-1)
+        _assert_bitwise_equal(indexed_flat[row_indices], baseline)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available")

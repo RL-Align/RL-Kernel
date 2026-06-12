@@ -7,18 +7,29 @@
 
 namespace {
 
-constexpr int kDeterministicLogpBlockSize = 256;
+constexpr int kDeterministicLogpSmallBlockSize = 128;
+constexpr int kDeterministicLogpMediumBlockSize = 256;
+constexpr int kDeterministicLogpLargeBlockSize = 512;
+constexpr int kDeterministicLogpSmallVocabLimit = 128;
+constexpr int kDeterministicLogpMediumVocabLimit = 4096;
 constexpr int kDeterministicLogpWarpSize = 32;
-constexpr int kDeterministicLogpWarpCount =
-    kDeterministicLogpBlockSize / kDeterministicLogpWarpSize;
 constexpr float kDeterministicLogpNegInf = -3.4028234663852886e38F;
 
 template <int BlockSize>
-__device__ __forceinline__ float deterministicBlockReduceMax(float val) {
+struct DeterministicLogpBlockTraits {
     static_assert(
-        BlockSize == kDeterministicLogpBlockSize,
-        "deterministic logp reduction topology requires BlockSize=256");
-    __shared__ float shared[kDeterministicLogpWarpCount];
+        BlockSize == kDeterministicLogpSmallBlockSize ||
+            BlockSize == kDeterministicLogpMediumBlockSize ||
+            BlockSize == kDeterministicLogpLargeBlockSize,
+        "deterministic logp reduction topology requires a supported fixed block size");
+    static_assert(BlockSize % kDeterministicLogpWarpSize == 0, "block size must be warp-aligned");
+    static constexpr int WarpCount = BlockSize / kDeterministicLogpWarpSize;
+};
+
+template <int BlockSize>
+__device__ __forceinline__ float deterministicBlockReduceMax(float val) {
+    constexpr int WarpCount = DeterministicLogpBlockTraits<BlockSize>::WarpCount;
+    __shared__ float shared[WarpCount];
 
     int lane = threadIdx.x & (kDeterministicLogpWarpSize - 1);
     int wid = threadIdx.x / kDeterministicLogpWarpSize;
@@ -33,7 +44,7 @@ __device__ __forceinline__ float deterministicBlockReduceMax(float val) {
     }
     __syncthreads();
 
-    val = threadIdx.x < kDeterministicLogpWarpCount ? shared[lane] : kDeterministicLogpNegInf;
+    val = threadIdx.x < WarpCount ? shared[lane] : kDeterministicLogpNegInf;
     if (wid == 0) {
 #pragma unroll
         for (int offset = 16; offset > 0; offset >>= 1) {
@@ -45,10 +56,8 @@ __device__ __forceinline__ float deterministicBlockReduceMax(float val) {
 
 template <int BlockSize>
 __device__ __forceinline__ float deterministicBlockReduceSum(float val) {
-    static_assert(
-        BlockSize == kDeterministicLogpBlockSize,
-        "deterministic logp reduction topology requires BlockSize=256");
-    __shared__ float shared[kDeterministicLogpWarpCount];
+    constexpr int WarpCount = DeterministicLogpBlockTraits<BlockSize>::WarpCount;
+    __shared__ float shared[WarpCount];
 
     int lane = threadIdx.x & (kDeterministicLogpWarpSize - 1);
     int wid = threadIdx.x / kDeterministicLogpWarpSize;
@@ -63,7 +72,7 @@ __device__ __forceinline__ float deterministicBlockReduceSum(float val) {
     }
     __syncthreads();
 
-    val = threadIdx.x < kDeterministicLogpWarpCount ? shared[lane] : 0.0f;
+    val = threadIdx.x < WarpCount ? shared[lane] : 0.0f;
     if (wid == 0) {
 #pragma unroll
         for (int offset = 16; offset > 0; offset >>= 1) {
@@ -202,20 +211,56 @@ void launch_deterministic_logp_kernel(
                 "deterministic_logp_output_kernel",
                 ([&] {
                     using output_t = scalar_t;
-                    deterministic_logp_forward_kernel<
-                        input_t,
-                        output_t,
-                        kDeterministicLogpBlockSize><<<
-                        static_cast<int>(launch_rows),
-                        kDeterministicLogpBlockSize,
-                        0,
-                        at::cuda::getCurrentCUDAStream()>>>(
-                        logits.data_ptr<input_t>(),
-                        token_ids.data_ptr<int64_t>(),
-                        output.data_ptr<output_t>(),
-                        row_indices_ptr,
-                        total_rows,
-                        static_cast<int>(vocab_size));
+                    const int vocab_size_i32 = static_cast<int>(vocab_size);
+                    const int launch_rows_i32 = static_cast<int>(launch_rows);
+                    cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+
+                    if (vocab_size <= kDeterministicLogpSmallVocabLimit) {
+                        deterministic_logp_forward_kernel<
+                            input_t,
+                            output_t,
+                            kDeterministicLogpSmallBlockSize><<<
+                            launch_rows_i32,
+                            kDeterministicLogpSmallBlockSize,
+                            0,
+                            stream>>>(
+                            logits.data_ptr<input_t>(),
+                            token_ids.data_ptr<int64_t>(),
+                            output.data_ptr<output_t>(),
+                            row_indices_ptr,
+                            total_rows,
+                            vocab_size_i32);
+                    } else if (vocab_size <= kDeterministicLogpMediumVocabLimit) {
+                        deterministic_logp_forward_kernel<
+                            input_t,
+                            output_t,
+                            kDeterministicLogpMediumBlockSize><<<
+                            launch_rows_i32,
+                            kDeterministicLogpMediumBlockSize,
+                            0,
+                            stream>>>(
+                            logits.data_ptr<input_t>(),
+                            token_ids.data_ptr<int64_t>(),
+                            output.data_ptr<output_t>(),
+                            row_indices_ptr,
+                            total_rows,
+                            vocab_size_i32);
+                    } else {
+                        deterministic_logp_forward_kernel<
+                            input_t,
+                            output_t,
+                            kDeterministicLogpLargeBlockSize><<<
+                            launch_rows_i32,
+                            kDeterministicLogpLargeBlockSize,
+                            0,
+                            stream>>>(
+                            logits.data_ptr<input_t>(),
+                            token_ids.data_ptr<int64_t>(),
+                            output.data_ptr<output_t>(),
+                            row_indices_ptr,
+                            total_rows,
+                            vocab_size_i32);
+                    }
                 }));
         }));
 
