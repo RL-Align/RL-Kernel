@@ -1,0 +1,53 @@
+name: GPU CI
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'csrc/**'
+      - 'rl_engine/**'
+      - 'tests/**'
+      - 'pyproject.toml'
+      - 'setup.py'
+      - 'requirements*.txt'
+      - 'docker/Dockerfile.cuda'
+      - 'ci/run_gpu_ci.sh'
+      - '.github/workflows/gpu-ci.yml'
+    types: [ opened, synchronize, reopened, labeled ]
+
+concurrency:
+  group: gpu-ci-serial
+  cancel-in-progress: false
+
+
+jobs:
+  gpu-tests:
+    if: contains(github.event.pull_request.labels.*.name, 'needs-gpu-ci')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install runpodctl
+        run: |
+          wget -qO runpodctl https://github.com/runpod/runpodctl/releases/latest/download/runpodctl-linux-amd64
+          chmod +x runpodctl
+          sudo mv runpodctl /usr/local/bin/runpodctl
+          runpodctl version
+
+      - name: Configure runpodctl
+        run: runpodctl config --apiKey "${{ secrets.RUNPOD_API_KEY }}"
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.RUNPOD_SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keygen -y -f ~/.ssh/id_ed25519 > /dev/null && echo "key OK" || echo "key BROKEN"
+
+      - name: Run GPU tests on RunPod
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+          PR_REPO_URL: ${{ github.event.pull_request.head.repo.clone_url }}
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash ci/run_gpu_ci.sh

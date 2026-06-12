@@ -320,8 +320,8 @@ class VLLMIPCWeightUpdateRequestBuilder:
             raise WeightBridgeUnavailableError(
                 "vLLM IPC weight update requires CUDA, but torch.cuda.is_available() is false."
             )
-        device_index = torch.cuda.current_device()
-        return str(torch.cuda.get_device_properties(device_index).uuid)
+        device_index = int(torch.cuda.current_device())
+        return _resolve_cuda_device_uuid(device_index)
 
 
 class VLLMInProcessWeightReloadAdapter:
@@ -794,6 +794,39 @@ def _tensor_sha256(tensor: torch.Tensor) -> str:
     if not snapshot.is_contiguous():
         snapshot = snapshot.contiguous()
     return hashlib.sha256(bytes(snapshot.untyped_storage())).hexdigest()
+
+
+def _resolve_cuda_device_uuid(device_index: int) -> str:
+    """
+    Return a stable identifier for a CUDA device.
+
+    torch.cuda.get_device_properties(...).uuid only exists on PyTorch >= 2.6.
+    This project supports torch>=2.4.1, so fall back to pynvml and finally to a
+    name:index identifier when the property is unavailable.
+    """
+    props = torch.cuda.get_device_properties(device_index)
+    uuid_attr = getattr(props, "uuid", None)
+    if uuid_attr is not None:
+        return str(uuid_attr)
+
+    try:
+        import pynvml
+
+        pynvml.nvmlInit()
+        try:
+            handle = pynvml.nvmlDeviceGetHandleByIndex(int(device_index))
+            raw = pynvml.nvmlDeviceGetUUID(handle)
+            return raw.decode() if isinstance(raw, (bytes, bytearray)) else str(raw)
+        finally:
+            pynvml.nvmlShutdown()
+    except Exception:
+        logger.debug(
+            "pynvml GPU UUID lookup failed for device %s; " "falling back to name:index identifier",
+            device_index,
+            exc_info=True,
+        )
+
+    return f"{props.name}:{int(device_index)}"
 
 
 def _send_fd(sock: socket.socket, fd: int) -> None:
@@ -2592,7 +2625,7 @@ class IPCWeightBridge(LocalTensorCopyBridge):
 
     def _current_gpu_uuid(self) -> str:
         device_index = int(torch.cuda.current_device())
-        return str(torch.cuda.get_device_properties(device_index).uuid)
+        return _resolve_cuda_device_uuid(device_index)
 
 
 def make_weight_bridge(
