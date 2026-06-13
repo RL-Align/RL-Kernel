@@ -28,6 +28,38 @@ pip install -e ".[vllm]"
 Install the vLLM extra only on rollout or benchmark environments that need the
 vLLM runtime. Core CI and mocked integration tests do not require it.
 
+### ROCm Backend
+
+Use a ROCm PyTorch build that matches the installed ROCm toolchain. Then install
+FlashAttention with an AMD backend:
+
+```bash
+python -m pip install ninja packaging wheel psutil einops
+git clone --recurse-submodules https://github.com/Dao-AILab/flash-attention.git
+cd flash-attention
+FLASH_ATTENTION_TRITON_AMD_ENABLE=TRUE \
+  python -m pip install --no-build-isolation --no-deps .
+cd ..
+```
+
+Verify the environment from the RL-Kernel checkout:
+
+```bash
+python scripts/check_rocm_env.py --require-flash-attn
+FLASH_ATTENTION_TRITON_AMD_ENABLE=TRUE python - <<'PY'
+from flash_attn import flash_attn_func
+
+print(flash_attn_func)
+PY
+```
+
+RL-Kernel uses PyTorch SDPA as the default ROCm attention path. To opt in to
+external FlashAttention for ROCm attention dispatch, set:
+
+```bash
+export RL_KERNEL_ROCM_ATTN_BACKEND=flash_attn
+```
+
 ## Development Dependencies
 
 ```bash
