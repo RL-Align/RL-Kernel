@@ -45,8 +45,8 @@ class FusedLogpGenericOp:
         token_ids: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Size]:
         orig_shape = logits.shape[:-1]
-        logits_2d = logits.view(-1, logits.size(-1))
-        token_ids_1d = token_ids.view(-1).to(device=logits.device, dtype=torch.long).contiguous()
+        logits_2d = logits.reshape(-1, logits.size(-1))
+        token_ids_1d = token_ids.reshape(-1).to(device=logits.device, dtype=torch.long).contiguous()
         return logits_2d, token_ids_1d, orig_shape
 
     def _prepare_output(self, output: torch.Tensor, orig_shape: torch.Size) -> torch.Tensor:
@@ -58,7 +58,7 @@ class FusedLogpGenericOp:
         return output.view(-1)
 
     def _prepare_indices(self, row_indices: torch.Tensor, logits: torch.Tensor) -> torch.Tensor:
-        return row_indices.view(-1).to(device=logits.device, dtype=torch.long).contiguous()
+        return row_indices.reshape(-1).to(device=logits.device, dtype=torch.long).contiguous()
 
     def apply(self, logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
         logits_2d, token_ids_1d, orig_shape = self._prepare_inputs(logits, token_ids)
@@ -140,3 +140,84 @@ class FusedLogpGenericOp:
             logits_2d, token_ids_1d, row_indices_1d
         )
         return results.view(orig_shape)
+
+
+class DeterministicLogpCUDAOp(FusedLogpGenericOp):
+    """Batch-invariant deterministic CUDA LogP.
+
+    The default call path returns float32 output so tests and downstream KL
+    code observe the fixed reduction result before any lower-precision cast.
+    """
+
+    def __init__(self):
+        if not _EXT_AVAILABLE or not hasattr(_C, "deterministic_logp_forward_fp32"):
+            raise RuntimeError("Deterministic CUDA logp kernel is unavailable.")
+        self._backend = _C
+        self.op = self._backend.deterministic_logp_forward_fp32
+        logger.info("Successfully linked to precompiled _C.deterministic_logp kernel.")
+
+    def __call__(self, logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
+        return self.apply_fp32(logits, token_ids)
+
+    def apply(self, logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
+        return self.apply_fp32(logits, token_ids)
+
+    def apply_fp32(self, logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
+        logits_2d, token_ids_1d, orig_shape = self._prepare_inputs(logits, token_ids)
+        results = self._backend.deterministic_logp_forward_fp32(logits_2d, token_ids_1d)
+        return results.view(orig_shape)
+
+    def out(
+        self, logits: torch.Tensor, token_ids: torch.Tensor, output: torch.Tensor
+    ) -> torch.Tensor:
+        logits_2d, token_ids_1d, orig_shape = self._prepare_inputs(logits, token_ids)
+        output_1d = self._prepare_output(output, orig_shape)
+        results = self._backend.deterministic_logp_forward_out(logits_2d, token_ids_1d, output_1d)
+        return results.view(orig_shape)
+
+    def indexed_out(
+        self,
+        logits: torch.Tensor,
+        token_ids: torch.Tensor,
+        row_indices: torch.Tensor,
+        output: torch.Tensor,
+    ) -> torch.Tensor:
+        logits_2d, token_ids_1d, orig_shape = self._prepare_inputs(logits, token_ids)
+        row_indices_1d = self._prepare_indices(row_indices, logits)
+        output_1d = self._prepare_output(output, orig_shape)
+        results = self._backend.deterministic_logp_forward_indexed_out(
+            logits_2d, token_ids_1d, row_indices_1d, output_1d
+        )
+        return results.view(orig_shape)
+
+    def indexed_fp32(
+        self, logits: torch.Tensor, token_ids: torch.Tensor, row_indices: torch.Tensor
+    ) -> torch.Tensor:
+        logits_2d, token_ids_1d, orig_shape = self._prepare_inputs(logits, token_ids)
+        row_indices_1d = self._prepare_indices(row_indices, logits)
+        results = self._backend.deterministic_logp_forward_indexed_fp32(
+            logits_2d, token_ids_1d, row_indices_1d
+        )
+        return results.view(orig_shape)
+
+    def online_out(
+        self, logits: torch.Tensor, token_ids: torch.Tensor, output: torch.Tensor
+    ) -> torch.Tensor:
+        return self.out(logits, token_ids, output)
+
+    def online_fp32(self, logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
+        return self.apply_fp32(logits, token_ids)
+
+    def online_indexed_out(
+        self,
+        logits: torch.Tensor,
+        token_ids: torch.Tensor,
+        row_indices: torch.Tensor,
+        output: torch.Tensor,
+    ) -> torch.Tensor:
+        return self.indexed_out(logits, token_ids, row_indices, output)
+
+    def online_indexed_fp32(
+        self, logits: torch.Tensor, token_ids: torch.Tensor, row_indices: torch.Tensor
+    ) -> torch.Tensor:
+        return self.indexed_fp32(logits, token_ids, row_indices)
