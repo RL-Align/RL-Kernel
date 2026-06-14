@@ -18,6 +18,19 @@
 
 **RL-Kernel** is a high-performance, memory-efficient infrastructure for Reinforcement Learning post-training. It eliminates the memory and latency bottlenecks in Large Language Model alignment, This project targets AI infrastructure engineers, algorithm researchers, and enterprise-level large model alignment scenarios, providing specialized kernels for algorithms like **GRPO**, **PPO**, and **DPO**.
 
+
+---
+
+## Train-Inference Alignment
+
+The biggest hidden barrier in large-scale RL is the subtle numerical divergence between rollout engines like vLLM FP8/BF16 and training engines like PyTorch native ops. 
+
+RL-Kernel provides mathematically rigorous, fused operators like fused_logp, TritonGRPOLossOp that lock down the computational graph, guaranteeing absolute numerical consistency across the entire RL loop to prevent reward hacking and distribution drift.
+
+- **Compiler-Level Consistency:** We enforce identical FP32 accumulation paths across both forward and backward passes, completely eliminating the floating-point cascaded errors that typically lead to training collapse.
+
+- **Eliminating Autograd Traps:** Native PyTorch implementations often trigger NaN gradients during backward passes like sqrt(0) in variance calculation. Our custom kernels handle catastrophic cancellation and boundary limits gracefully inside the SRAM.
+
 ---
 
 ## Performance Benchmarks: Breaking the Memory Wall
