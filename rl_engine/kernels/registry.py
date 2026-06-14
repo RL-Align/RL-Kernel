@@ -2,6 +2,7 @@
 # Copyright (c) 2026 RL-Kernel Contributors
 
 import importlib
+import os
 from enum import Enum, EnumMeta
 from typing import Any, Dict, Optional, Set, Type
 
@@ -32,6 +33,7 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     # AMD ROCm optimized stack
     ROCM_AITER = "rl_engine.kernels.ops.rocm.aiter.AiterOp"
     ROCM_CK = "rl_engine.kernels.ops.rocm.composable_kernel.CKOp"
+    ROCM_FLASH_ATTN = "rl_engine.kernels.ops.rocm.attention.flash_attn.RocmFlashAttentionOp"
 
     # GRPO loss (group reward normalization + clipped surrogate + KL)
     TRITON_GRPO_LOSS = "rl_engine.kernels.ops.triton.triton_grpo_loss.TritonGRPOLossOp"
@@ -39,6 +41,7 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
 
     # Generic fallback
     TRITON_GENERIC = "rl_engine.kernels.ops.triton.generic.TritonOp"
+    PYTORCH_ATTN = "rl_engine.kernels.ops.pytorch.attention.NativeAttentionOp"
     PYTORCH_NATIVE = "rl_engine.kernels.ops.pytorch.loss.logp.NativeLogpOp"
 
 
@@ -72,23 +75,42 @@ class KernelRegistry:
                     OpBackend.CUDA_FUSED_LOGP_GENERIC,
                     OpBackend.PYTORCH_NATIVE,
                 ],
-                "attn": [OpBackend.FLASH_ATTN, OpBackend.TRITON_GENERIC, OpBackend.PYTORCH_NATIVE],
+                "attn": [OpBackend.FLASH_ATTN, OpBackend.TRITON_GENERIC, OpBackend.PYTORCH_ATTN],
                 "grpo_loss": [OpBackend.TRITON_GRPO_LOSS, OpBackend.PYTORCH_GRPO_LOSS],
                 # Default dispatch logic for new operators
             },
             "rocm": {
                 "logp": [OpBackend.ROCM_AITER, OpBackend.TRITON_GENERIC, OpBackend.PYTORCH_NATIVE],
-                "attn": [OpBackend.TRITON_GENERIC, OpBackend.PYTORCH_NATIVE],
+                "attn": [
+                    OpBackend.PYTORCH_ATTN,
+                    OpBackend.ROCM_FLASH_ATTN,
+                    OpBackend.TRITON_GENERIC,
+                ],
                 "grpo_loss": [OpBackend.TRITON_GRPO_LOSS, OpBackend.PYTORCH_GRPO_LOSS],
             },
             "cpu": {
                 "logp": [OpBackend.PYTORCH_NATIVE],
-                "attn": [OpBackend.PYTORCH_NATIVE],
+                "attn": [OpBackend.PYTORCH_ATTN],
                 "grpo_loss": [OpBackend.PYTORCH_GRPO_LOSS],
             },
         }
         logger.info(f"KernelRegistry initialized for {device_ctx.device_type}")
+        self._adjust_priority_from_env()
         self._adjust_priority_for_hardware()
+
+    def _adjust_priority_from_env(self):
+        rocm_attn_backend = os.getenv("RL_KERNEL_ROCM_ATTN_BACKEND", "").strip().lower()
+        if rocm_attn_backend in {"flash_attn", "flash-attn", "flash_attention"}:
+            self._priority_map["rocm"]["attn"] = [
+                OpBackend.ROCM_FLASH_ATTN,
+                OpBackend.PYTORCH_ATTN,
+                OpBackend.TRITON_GENERIC,
+            ]
+        elif rocm_attn_backend and rocm_attn_backend not in {"native", "pytorch", "sdpa"}:
+            logger.warning(
+                "Unknown RL_KERNEL_ROCM_ATTN_BACKEND=%s; using default ROCm attention priority.",
+                rocm_attn_backend,
+            )
 
     def _adjust_priority_for_hardware(self):
         """Prioritize the fused TMA LogP kernel only when it is compiled into the
