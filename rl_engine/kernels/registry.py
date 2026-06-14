@@ -34,8 +34,12 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     ROCM_CK = "rl_engine.kernels.ops.rocm.composable_kernel.CKOp"
 
     # GRPO loss (group reward normalization + clipped surrogate + KL)
-    TRITON_GRPO_LOSS = "rl_engine.kernels.ops.triton.triton_grpo_loss.TritonGRPOLossOp"
+    TRITON_GRPO_LOSS = "rl_engine.kernels.ops.triton.loss.grpo_loss.TritonGRPOLossOp"
     PYTORCH_GRPO_LOSS = "rl_engine.kernels.ops.pytorch.loss.grpo_loss.NativeGRPOLossOp"
+
+    # Fused policy-ratio + KL-penalty front-end (PPO/GRPO), logits -> (ratio, kl)
+    TRITON_RATIO_KL = "rl_engine.kernels.ops.triton.loss.ratio_kl.TritonRatioKLOp"
+    PYTORCH_RATIO_KL = "rl_engine.kernels.ops.pytorch.loss.ratio_kl.NativeRatioKLOp"
 
     # Generic fallback
     TRITON_GENERIC = "rl_engine.kernels.ops.triton.generic.TritonOp"
@@ -74,17 +78,20 @@ class KernelRegistry:
                 ],
                 "attn": [OpBackend.FLASH_ATTN, OpBackend.TRITON_GENERIC, OpBackend.PYTORCH_NATIVE],
                 "grpo_loss": [OpBackend.TRITON_GRPO_LOSS, OpBackend.PYTORCH_GRPO_LOSS],
+                "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 # Default dispatch logic for new operators
             },
             "rocm": {
                 "logp": [OpBackend.ROCM_AITER, OpBackend.TRITON_GENERIC, OpBackend.PYTORCH_NATIVE],
                 "attn": [OpBackend.TRITON_GENERIC, OpBackend.PYTORCH_NATIVE],
                 "grpo_loss": [OpBackend.TRITON_GRPO_LOSS, OpBackend.PYTORCH_GRPO_LOSS],
+                "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
             },
             "cpu": {
                 "logp": [OpBackend.PYTORCH_NATIVE],
                 "attn": [OpBackend.PYTORCH_NATIVE],
                 "grpo_loss": [OpBackend.PYTORCH_GRPO_LOSS],
+                "ratio_kl": [OpBackend.PYTORCH_RATIO_KL],
             },
         }
         logger.info(f"KernelRegistry initialized for {device_ctx.device_type}")

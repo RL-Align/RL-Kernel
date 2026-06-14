@@ -7,18 +7,26 @@ from typing import Optional, Sequence, Tuple
 
 import torch
 
+from rl_engine.kernels.ops.pytorch.loss.ratio_kl import NativeRatioKLOp
+
 
 class NativeGRPOLossOp:
-    """Pure PyTorch native fallback for the fused GRPO loss."""
+    """Pure PyTorch native fallback for the fused GRPO loss.
+
+    Consumes logits directly: the per-token ``policy_ratio`` / ``kl_penalty`` come
+    from the fused ratio/KL op, and the group-normalized advantages + clipped
+    surrogate + reference-KL reduction are applied on top.
+    """
 
     def __init__(self) -> None:
-        pass
+        self._ratio_kl = NativeRatioKLOp()
 
     def __call__(
         self,
-        current_logps: torch.Tensor,
+        policy_logits: torch.Tensor,
+        ref_logits: torch.Tensor,
+        action_ids: torch.Tensor,
         old_logps: torch.Tensor,
-        ref_logps: torch.Tensor,
         rewards: torch.Tensor,
         completion_mask: torch.Tensor,
         *,
@@ -29,9 +37,10 @@ class NativeGRPOLossOp:
         eps: float = 1e-6,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         return self.forward(
-            current_logps,
+            policy_logits,
+            ref_logits,
+            action_ids,
             old_logps,
-            ref_logps,
             rewards,
             completion_mask,
             clip_eps=clip_eps,
@@ -86,28 +95,30 @@ class NativeGRPOLossOp:
 
     def apply(
         self,
-        current_logps: torch.Tensor,
+        policy_logits: torch.Tensor,
+        ref_logits: torch.Tensor,
+        action_ids: torch.Tensor,
         old_logps: torch.Tensor,
-        ref_logps: torch.Tensor,
-        advantages: torch.Tensor,
+        sample_advantages: torch.Tensor,
         completion_mask: torch.Tensor,
         *,
         clip_eps: float = 0.2,
         beta: float = 0.0,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Compute ``(loss, policy_loss, kl)`` from per-token log-probabilities."""
-        bool_mask = completion_mask.bool()
+        """Compute ``(loss, policy_loss, kl)`` from logits + per-sequence advantages.
 
-        delta = (current_logps.float() - old_logps.float()).masked_fill(~bool_mask, 0.0)
-        diff = (ref_logps.float() - current_logps.float()).masked_fill(~bool_mask, 0.0)
-        ratio = torch.exp(delta)
-        adv = advantages.float()
+        ``sample_advantages`` is per-sequence and is broadcast to per-token here.
+        The ratio and KL come from the fused ratio/KL op; gradients flow into
+        ``policy_logits``.
+        """
+        ratio, kl_terms = self._ratio_kl(
+            policy_logits, ref_logits, action_ids, completion_mask, old_logps
+        )
+        bool_mask = completion_mask.bool()
+        adv = self.expand_advantages(sample_advantages, completion_mask).float()
         unclipped = ratio * adv
         clipped = torch.clamp(ratio, 1.0 - clip_eps, 1.0 + clip_eps) * adv
         policy_loss_terms = -torch.minimum(unclipped, clipped)
-
-        # k3 reference-KL estimator: exp(d) - d - 1, with d = ref - current.
-        kl_terms = torch.exp(diff) - diff - 1.0
 
         policy_loss = self._masked_mean(policy_loss_terms, bool_mask)
         kl = self._masked_mean(kl_terms, bool_mask)
@@ -115,9 +126,10 @@ class NativeGRPOLossOp:
 
     def forward(
         self,
-        current_logps: torch.Tensor,
+        policy_logits: torch.Tensor,
+        ref_logits: torch.Tensor,
+        action_ids: torch.Tensor,
         old_logps: torch.Tensor,
-        ref_logps: torch.Tensor,
         rewards: torch.Tensor,
         completion_mask: torch.Tensor,
         *,
@@ -133,12 +145,12 @@ class NativeGRPOLossOp:
             group_boundaries=group_boundaries,
             eps=eps,
         )
-        advantages = self.expand_advantages(sample_advantages, completion_mask)
         return self.apply(
-            current_logps,
+            policy_logits,
+            ref_logits,
+            action_ids,
             old_logps,
-            ref_logps,
-            advantages,
+            sample_advantages,
             completion_mask,
             clip_eps=clip_eps,
             beta=beta,
