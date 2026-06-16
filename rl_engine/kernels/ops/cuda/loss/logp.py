@@ -10,6 +10,8 @@ from rl_engine.utils.logger import logger
 class FusedLogpSM90Op:
     """TMA-accelerated Fused LogP for SM90+ cards."""
 
+    is_fused_logp = True
+
     def __init__(self):
         if not _EXT_AVAILABLE or not hasattr(_C, "fused_logp_sm90"):
             raise RuntimeError(
@@ -28,6 +30,8 @@ class FusedLogpSM90Op:
 
 class FusedLogpGenericOp:
     """Generic custom CUDA fallback Fused LogP with RL variants."""
+
+    is_fused_logp = True
 
     def __init__(self):
         if not _EXT_AVAILABLE or not hasattr(_C, "fused_logp"):
@@ -148,6 +152,8 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
     The default call path returns float32 output so tests and downstream KL
     code observe the fixed reduction result before any lower-precision cast.
     """
+
+    is_batch_invariant = True
 
     def __init__(self):
         if not _EXT_AVAILABLE or not hasattr(_C, "deterministic_logp_forward_fp32"):

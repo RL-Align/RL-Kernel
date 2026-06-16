@@ -5,6 +5,8 @@ import os
 
 from setuptools import find_packages, setup
 
+from rl_engine import envs
+
 
 def _load_torch_extension_tools():
     try:
@@ -63,7 +65,7 @@ def get_extensions():
 
         cc_major, cc_minor = torch.cuda.get_device_capability()
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
-        if os.environ.get("KERNEL_ALIGN_USE_FAST_MATH") == "1":
+        if envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH):
             nvcc_flags.append("--use_fast_math")
         nvcc_flags.extend(
             _cuda_define_from_env(
@@ -107,9 +109,9 @@ def get_extensions():
                 "FUSED_LOGP_ONLINE_MIN_BLOCKS_PER_SM",
             )
         )
-        if os.environ.get("KERNEL_ALIGN_NCU_LINEINFO") == "1":
+        if envs.env_flag(envs.KERNEL_ALIGN_NCU_LINEINFO):
             nvcc_flags.append("-lineinfo")
-        if os.name == "nt" and os.environ.get("KERNEL_ALIGN_ALLOW_UNSUPPORTED_MSVC") == "1":
+        if os.name == "nt" and envs.env_flag(envs.KERNEL_ALIGN_ALLOW_UNSUPPORTED_MSVC):
             nvcc_flags.append("-allow-unsupported-compiler")
             nvcc_flags.append("-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH")
 
@@ -120,7 +122,7 @@ def get_extensions():
             "csrc/cuda/fused_logp_sm90.cu",
             "csrc/cuda/fused_linear_logp_sm90.cu",  # TMA + WGMMA fused linear log-prob
         ]
-        enable_sm90 = os.environ.get("KERNEL_ALIGN_FORCE_SM90") == "1"
+        enable_sm90 = envs.env_flag(envs.KERNEL_ALIGN_FORCE_SM90)
         present_sm90 = [s for s in sm90_srcs if os.path.exists(s)]
         if enable_sm90 and present_sm90:
             tma_arch = f"{cc_major}{cc_minor}a"  # WGMMA/TMA require the arch-native 'a' variant

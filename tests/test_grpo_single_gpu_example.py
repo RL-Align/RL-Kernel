@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from examples.grpo_single_gpu import is_fused_logp_backend
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -79,3 +81,18 @@ def test_grpo_single_gpu_example_require_fused_rejects_cpu_fallback():
 
     assert result.returncode != 0
     assert "--require-fused-logp was set" in result.stderr
+
+
+def test_grpo_single_gpu_fused_backend_detection_uses_capability_flag():
+    class DummyBackend:
+        is_fused_logp = True
+
+    class RenamedBackend:
+        is_fused_logp = True
+
+    class PlainBackend:
+        pass
+
+    assert is_fused_logp_backend(DummyBackend())
+    assert is_fused_logp_backend(RenamedBackend())
+    assert not is_fused_logp_backend(PlainBackend())
