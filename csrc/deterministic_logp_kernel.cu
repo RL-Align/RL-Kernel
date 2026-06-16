@@ -44,7 +44,9 @@ __device__ __forceinline__ float deterministicBlockReduceMax(float val) {
     }
     __syncthreads();
 
-    val = threadIdx.x < WarpCount ? shared[lane] : kDeterministicLogpNegInf;
+    const bool has_warp_value = threadIdx.x < WarpCount;
+    const int shared_idx = has_warp_value ? threadIdx.x : 0;
+    val = has_warp_value ? shared[shared_idx] : kDeterministicLogpNegInf;
     if (wid == 0) {
 #pragma unroll
         for (int offset = 16; offset > 0; offset >>= 1) {
@@ -72,7 +74,9 @@ __device__ __forceinline__ float deterministicBlockReduceSum(float val) {
     }
     __syncthreads();
 
-    val = threadIdx.x < WarpCount ? shared[lane] : 0.0f;
+    const bool has_warp_value = threadIdx.x < WarpCount;
+    const int shared_idx = has_warp_value ? threadIdx.x : 0;
+    val = has_warp_value ? shared[shared_idx] : 0.0f;
     if (wid == 0) {
 #pragma unroll
         for (int offset = 16; offset > 0; offset >>= 1) {
@@ -123,6 +127,8 @@ __global__ void __launch_bounds__(BlockSize) deterministic_logp_forward_kernel(
     }
     __syncthreads();
 
+    // Indexed mode may launch duplicate row ids. The writes are idempotent:
+    // every duplicate writer computes and stores the same deterministic value.
     if (threadIdx.x == 0) {
         int64_t target_id = token_ids[row];
         if (target_id >= 0 && target_id < vocab_size) {

@@ -150,6 +150,10 @@ def test_deterministic_logp_source_locks_reduction_contract():
     assert "kDeterministicLogpMediumVocabLimit = 4096" in text
     assert "vocab_size <= kDeterministicLogpSmallVocabLimit" in text
     assert "vocab_size <= kDeterministicLogpMediumVocabLimit" in text
+    assert "shared[lane]" not in text
+    assert "shared[shared_idx]" in text
+    assert "duplicate row ids" in text
+    assert "writes are idempotent" in text
     assert "atomicAdd" not in text
     assert "cub::BlockReduce" not in text
     assert "select_deterministic" not in text

@@ -120,8 +120,8 @@ def resolve_logp_op(
     return kernel_registry.get_op(op_type)
 
 
-def is_fused_logp_backend(backend_name: str) -> bool:
-    return backend_name.startswith("FusedLogp") or backend_name == "DeterministicLogpCUDAOp"
+def is_fused_logp_backend(logp_op: Any) -> bool:
+    return bool(getattr(logp_op, "is_fused_logp", False))
 
 
 def make_group_advantages(
@@ -194,7 +194,7 @@ def run_training(args: argparse.Namespace) -> list[StepMetrics]:
         args.require_batch_invariant_logp,
     )
     backend_name = logp_op.__class__.__name__
-    if args.require_fused_logp and not is_fused_logp_backend(backend_name):
+    if args.require_fused_logp and not is_fused_logp_backend(logp_op):
         raise RuntimeError(
             "--require-fused-logp was set, but kernel dispatch selected "
             f"{backend_name}. Build the CUDA extension with `pip install -e .` "
