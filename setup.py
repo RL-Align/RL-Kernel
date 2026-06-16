@@ -1,11 +1,24 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
+import importlib.util
 import os
+from pathlib import Path
 
 from setuptools import find_packages, setup
 
-from rl_engine import envs
+
+def _load_envs_module():
+    envs_path = Path(__file__).with_name("envs.py")
+    spec = importlib.util.spec_from_file_location("_rl_kernel_envs", envs_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"failed to load environment helpers from {envs_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+envs = _load_envs_module()
 
 
 def _load_torch_extension_tools():

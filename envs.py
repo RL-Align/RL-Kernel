@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""Environment variable parsing helpers.
+"""Environment variable parsing helpers for build scripts.
 
 This module is intentionally import-safe for setup.py: keep it free of torch or
 other heavy runtime imports.

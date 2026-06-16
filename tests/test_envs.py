@@ -3,7 +3,7 @@
 
 import pytest
 
-from rl_engine import envs
+import envs
 
 
 @pytest.mark.parametrize("value", ("1", "true", "TRUE", "yes", "on"))
