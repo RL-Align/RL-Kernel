@@ -10,3 +10,4 @@ Start with:
 - [Single-GPU GRPO Example](grpo-single-gpu-example.md)
 - [Operators](../operators/README.md)
 - [Weight Sync Bridge](weight-sync-bridge.md)
+- [Vime Rollout LogP Probe](vime-rollout-logp-probe.md)
