@@ -20,5 +20,6 @@ Every operator page should include:
 
 - [Fused LogP](fused-logp.md)
 - [GRPO Loss](grpo-loss.md)
+- [Policy Ratio + KL Penalty](ratio-kl.md)
 - [Sampling](sampling.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)

@@ -5,8 +5,7 @@ import pytest
 import torch
 
 from rl_engine.kernels.ops.pytorch.loss.grpo_loss import NativeGRPOLossOp
-from rl_engine.kernels.ops.pytorch.loss.logp import NativeLogpOp
-from rl_engine.kernels.ops.triton.triton_grpo_loss import TritonGRPOLossOp
+from rl_engine.kernels.ops.triton.loss.grpo_loss import TritonGRPOLossOp
 from rl_engine.testing import (
     compute_policy_ratio,
     compute_reference_kl,
@@ -47,15 +46,14 @@ def _batch(seed=0, *, device="cpu", valid_density=0.9):
     )
 
 
-def _logits_like(batch, seed, device="cpu"):
+def _logits(batch, seed, *, device="cpu"):
     gen = torch.Generator(device=device).manual_seed(seed)
     return torch.randn(batch.batch_size, batch.completion_len, _VOCAB, generator=gen, device=device)
 
 
-def _current_logps(batch, seed, *, device="cpu"):
-    """A realistic per-token current-policy logp derived from synthetic logits."""
-    logits = _logits_like(batch, seed, device=device)
-    return selected_logprobs_reference(logits, batch.token_ids)
+def _logit_pair(batch, seed, *, device="cpu"):
+    """(policy_logits, ref_logits) for a batch."""
+    return _logits(batch, seed, device=device), _logits(batch, seed + 1, device=device)
 
 
 def _reference_group_advantages(rewards, samples_per_prompt, eps=1e-6):
@@ -66,19 +64,32 @@ def _reference_group_advantages(rewards, samples_per_prompt, eps=1e-6):
     return ((grouped - group_mean) / group_std).reshape(-1)
 
 
-def _reference_loss(current_logps, old_logps, ref_logps, advantages, mask, clip_eps, beta):
-    """Mirror of examples.grpo_single_gpu.grpo_loss using the testing helpers."""
-    ratio = compute_policy_ratio(current_logps, old_logps, mask)
+def _reference_loss(batch, policy_logits, ref_logits, advantages, clip_eps, beta):
+    """Independent reference: logits -> selected logp -> clipped surrogate + KL."""
+    current = selected_logprobs_reference(policy_logits, batch.token_ids).float()
+    ref = selected_logprobs_reference(ref_logits, batch.token_ids).float()
+    mask = batch.completion_mask
+    ratio = compute_policy_ratio(current, batch.old_logps, mask)
     unclipped = ratio * advantages.float()
     clipped = torch.clamp(ratio, 1.0 - clip_eps, 1.0 + clip_eps) * advantages.float()
     policy_loss_terms = -torch.minimum(unclipped, clipped)
-    kl_terms = compute_reference_kl(current_logps, ref_logps, mask)
+    kl_terms = compute_reference_kl(current, ref, mask)
     policy_loss = masked_mean(policy_loss_terms, mask)
     kl = masked_mean(kl_terms, mask)
     return policy_loss + beta * kl, policy_loss, kl
 
 
-# pure-PyTorch reference op
+def _adv_tokens(batch):
+    sample_adv = _reference_group_advantages(batch.rewards, _SPP)
+    return (
+        sample_adv[:, None]
+        .expand_as(batch.completion_mask)
+        .clone()
+        .masked_fill(~batch.completion_mask, 0.0)
+    )
+
+
+# pure-PyTorch reference op (group advantages)
 def test_group_advantages_matches_reference_uniform():
     op = NativeGRPOLossOp()
     rewards = _batch(seed=1).rewards
@@ -100,68 +111,10 @@ def test_variable_group_boundaries():
     op = NativeGRPOLossOp()
     rewards = torch.tensor([1.0, 3.0, 10.0, 20.0, 30.0])
     got = op.group_advantages(rewards, group_boundaries=[0, 2, 5])
-    # Group 0: [1, 3] -> mean 2, std 1 -> [-1, 1]
     g0 = torch.tensor([-1.0, 1.0])
-    # Group 1: [10, 20, 30] -> mean 20, std sqrt(200/3)
     g1 = (torch.tensor([10.0, 20.0, 30.0]) - 20.0) / (200.0 / 3.0) ** 0.5
     expected = torch.cat([g0, g1])
     assert torch.allclose(got, expected, atol=1e-5)
-
-
-def test_forward_loss_matches_reference():
-    op = NativeGRPOLossOp()
-    batch = _batch(seed=0)
-    current = _current_logps(batch, seed=100)
-    clip_eps, beta = 0.2, 0.01
-
-    loss, policy_loss, kl = op.forward(
-        current,
-        batch.old_logps,
-        batch.ref_logps,
-        batch.rewards,
-        batch.completion_mask,
-        clip_eps=clip_eps,
-        beta=beta,
-        samples_per_prompt=_SPP,
-    )
-
-    sample_adv = _reference_group_advantages(batch.rewards, samples_per_prompt=_SPP)
-    adv_tokens = (
-        sample_adv[:, None]
-        .expand_as(batch.completion_mask)
-        .clone()
-        .masked_fill(~batch.completion_mask, 0.0)
-    )
-    exp_loss, exp_policy, exp_kl = _reference_loss(
-        current, batch.old_logps, batch.ref_logps, adv_tokens, batch.completion_mask, clip_eps, beta
-    )
-
-    assert torch.allclose(loss, exp_loss, atol=1e-6)
-    assert torch.allclose(policy_loss, exp_policy, atol=1e-6)
-    assert torch.allclose(kl, exp_kl, atol=1e-6)
-
-
-def test_gradient_flows_to_policy_logits():
-    op = NativeGRPOLossOp()
-    batch = _batch(seed=4)
-    current = _current_logps(batch, seed=104).clone().requires_grad_(True)
-
-    loss, _, _ = op.forward(
-        current,
-        batch.old_logps,
-        batch.ref_logps,
-        batch.rewards,
-        batch.completion_mask,
-        clip_eps=0.2,
-        beta=0.01,
-        samples_per_prompt=_SPP,
-    )
-    loss.backward()
-
-    assert current.grad is not None
-    assert torch.isfinite(current.grad).all()
-    # Masked-out tokens must receive zero gradient.
-    assert torch.all(current.grad[~batch.completion_mask] == 0.0)
 
 
 def test_requires_exactly_one_group_spec():
@@ -173,16 +126,78 @@ def test_requires_exactly_one_group_spec():
         op.group_advantages(rewards, samples_per_prompt=_SPP, group_boundaries=[0, 4, 8, 12])
 
 
+# pure-PyTorch reference op (loss from logits)
+def test_forward_loss_matches_reference():
+    op = NativeGRPOLossOp()
+    batch = _batch(seed=0)
+    policy_logits, ref_logits = _logit_pair(batch, seed=100)
+    clip_eps, beta = 0.2, 0.01
+
+    loss, policy_loss, kl = op.forward(
+        policy_logits,
+        ref_logits,
+        batch.token_ids,
+        batch.old_logps,
+        batch.rewards,
+        batch.completion_mask,
+        clip_eps=clip_eps,
+        beta=beta,
+        samples_per_prompt=_SPP,
+    )
+
+    exp_loss, exp_policy, exp_kl = _reference_loss(
+        batch, policy_logits, ref_logits, _adv_tokens(batch), clip_eps, beta
+    )
+    assert torch.allclose(loss, exp_loss, atol=1e-5)
+    assert torch.allclose(policy_loss, exp_policy, atol=1e-5)
+    assert torch.allclose(kl, exp_kl, atol=1e-5)
+
+
+def test_gradient_flows_to_policy_logits():
+    op = NativeGRPOLossOp()
+    batch = _batch(seed=4)
+    policy_logits, ref_logits = _logit_pair(batch, seed=104)
+    policy_logits = policy_logits.clone().requires_grad_(True)
+    ref_logits = ref_logits.clone().requires_grad_(True)
+
+    loss, _, _ = op.forward(
+        policy_logits,
+        ref_logits,
+        batch.token_ids,
+        batch.old_logps,
+        batch.rewards,
+        batch.completion_mask,
+        clip_eps=0.2,
+        beta=0.01,
+        samples_per_prompt=_SPP,
+    )
+    loss.backward()
+
+    assert policy_logits.grad is not None
+    assert torch.isfinite(policy_logits.grad).all()
+    # Reference is frozen: no gradient should reach ref_logits.
+    assert ref_logits.grad is None
+    # Masked-out tokens (whole logits rows) must receive zero gradient.
+    assert torch.all(policy_logits.grad[~batch.completion_mask.bool()] == 0.0)
+
+
 # Triton fused op (validated against the native reference)
 @requires_triton_cuda
 def test_triton_forward_matches_native():
     native = NativeGRPOLossOp()
     fused = TritonGRPOLossOp()
     batch = _batch(seed=0, device="cuda")
-    current = _current_logps(batch, seed=100, device="cuda")
+    policy_logits, ref_logits = _logit_pair(batch, seed=100, device="cuda")
+    args = (
+        policy_logits,
+        ref_logits,
+        batch.token_ids,
+        batch.old_logps,
+        batch.rewards,
+        batch.completion_mask,
+    )
     kwargs = dict(clip_eps=0.2, beta=0.05, samples_per_prompt=_SPP)
 
-    args = (current, batch.old_logps, batch.ref_logps, batch.rewards, batch.completion_mask)
     n_loss, n_policy, n_kl = native.forward(*args, **kwargs)
     t_loss, t_policy, t_kl = fused.forward(*args, **kwargs)
 
@@ -196,41 +211,37 @@ def test_triton_backward_matches_native():
     native = NativeGRPOLossOp()
     fused = TritonGRPOLossOp()
     batch = _batch(seed=7, device="cuda")
-    current = _current_logps(batch, seed=107, device="cuda")
-    rest = (batch.old_logps, batch.ref_logps, batch.rewards, batch.completion_mask)
+    policy_logits, ref_logits = _logit_pair(batch, seed=107, device="cuda")
+    rest = (ref_logits, batch.token_ids, batch.old_logps, batch.rewards, batch.completion_mask)
     kwargs = dict(clip_eps=0.2, beta=0.05, samples_per_prompt=_SPP)
 
-    cur_n = current.clone().requires_grad_(True)
-    loss_n, _, _ = native.forward(cur_n, *rest, **kwargs)
-    loss_n.backward()
+    pol_n = policy_logits.clone().requires_grad_(True)
+    native.forward(pol_n, *rest, **kwargs)[0].backward()
 
-    cur_t = current.clone().requires_grad_(True)
-    loss_t, _, _ = fused.forward(cur_t, *rest, **kwargs)
-    loss_t.backward()
+    pol_t = policy_logits.clone().requires_grad_(True)
+    fused.forward(pol_t, *rest, **kwargs)[0].backward()
 
-    assert cur_t.grad is not None
-    assert torch.allclose(cur_t.grad, cur_n.grad, atol=1e-4, rtol=1e-4)
-    assert torch.all(cur_t.grad[~batch.completion_mask] == 0.0)
+    assert pol_t.grad is not None
+    assert torch.allclose(pol_t.grad, pol_n.grad, atol=1e-4, rtol=1e-4)
+    assert torch.all(pol_t.grad[~batch.completion_mask.bool()] == 0.0)
 
 
 @requires_triton_cuda
 def test_triton_backward_with_grad_scaling():
-    """A non-unit upstream gradient must scale the policy-logp gradient linearly."""
+    """A non-unit upstream gradient must scale the policy-logits gradient linearly."""
     fused = TritonGRPOLossOp()
     batch = _batch(seed=3, device="cuda")
-    current = _current_logps(batch, seed=103, device="cuda")
-    rest = (batch.old_logps, batch.ref_logps, batch.rewards, batch.completion_mask)
+    policy_logits, ref_logits = _logit_pair(batch, seed=103, device="cuda")
+    rest = (ref_logits, batch.token_ids, batch.old_logps, batch.rewards, batch.completion_mask)
     kwargs = dict(clip_eps=0.2, beta=0.05, samples_per_prompt=_SPP)
 
-    cur1 = current.clone().requires_grad_(True)
-    loss1, _, _ = fused.forward(cur1, *rest, **kwargs)
-    loss1.backward()
+    pol1 = policy_logits.clone().requires_grad_(True)
+    fused.forward(pol1, *rest, **kwargs)[0].backward()
 
-    cur2 = current.clone().requires_grad_(True)
-    loss2, _, _ = fused.forward(cur2, *rest, **kwargs)
-    (3.0 * loss2).backward()
+    pol2 = policy_logits.clone().requires_grad_(True)
+    (3.0 * fused.forward(pol2, *rest, **kwargs)[0]).backward()
 
-    assert torch.allclose(cur2.grad, 3.0 * cur1.grad, atol=1e-4, rtol=1e-4)
+    assert torch.allclose(pol2.grad, 3.0 * pol1.grad, atol=1e-4, rtol=1e-4)
 
 
 @requires_triton_cuda
@@ -241,7 +252,6 @@ def test_triton_group_advantages_matches_native():
     got = fused.group_advantages(rewards, samples_per_prompt=_SPP)
     expected = native.group_advantages(rewards, samples_per_prompt=_SPP)
     assert torch.allclose(got, expected, atol=1e-5)
-    # Variable group sizes via boundaries.
     got_b = fused.group_advantages(rewards, group_boundaries=[0, 5, 12])
     exp_b = native.group_advantages(rewards, group_boundaries=[0, 5, 12])
     assert torch.allclose(got_b, exp_b, atol=1e-5)
@@ -252,119 +262,40 @@ def test_triton_apply_with_per_sequence_advantages_matches_native():
     native = NativeGRPOLossOp()
     fused = TritonGRPOLossOp()
     batch = _batch(seed=11, device="cuda")
-    current = _current_logps(batch, seed=111, device="cuda")
-
-    sample_adv = native.group_advantages(batch.rewards, samples_per_prompt=_SPP)  # per-sequence
-    adv_tokens = native.expand_advantages(sample_adv, batch.completion_mask)  # per-token for native
-
-    n_loss, _, _ = native.apply(
-        current,
+    policy_logits, ref_logits = _logit_pair(batch, seed=111, device="cuda")
+    sample_adv = native.group_advantages(batch.rewards, samples_per_prompt=_SPP)
+    args = (
+        policy_logits,
+        ref_logits,
+        batch.token_ids,
         batch.old_logps,
-        batch.ref_logps,
-        adv_tokens,
-        batch.completion_mask,
-        clip_eps=0.2,
-        beta=0.05,
-    )
-    t_loss, _, _ = fused.apply(
-        current,
-        batch.old_logps,
-        batch.ref_logps,
         sample_adv,
         batch.completion_mask,
-        clip_eps=0.2,
-        beta=0.05,
     )
+    kwargs = dict(clip_eps=0.2, beta=0.05)
+
+    n_loss, _, _ = native.apply(*args, **kwargs)
+    t_loss, _, _ = fused.apply(*args, **kwargs)
     assert torch.allclose(t_loss, n_loss, atol=1e-4, rtol=1e-4)
 
 
-# Pipeline composition: logp op -> grpo_loss op
-def test_native_logp_composes_with_native_grpo():
-    logp_op = NativeLogpOp()
-    grpo = NativeGRPOLossOp()
-    batch = _batch(seed=21)
-    logits = _logits_like(batch, seed=121)
-    kwargs = dict(clip_eps=0.2, beta=0.05, samples_per_prompt=_SPP)
-    rest = (batch.old_logps, batch.ref_logps, batch.rewards, batch.completion_mask)
-
-    current = logp_op.apply_fp32(logits, batch.token_ids)
-    loss, _, _ = grpo.forward(current, *rest, **kwargs)
-
-    oracle = selected_logprobs_reference(logits, batch.token_ids)
-    exp, _, _ = grpo.forward(oracle, *rest, **kwargs)
-    assert torch.isfinite(loss)
-    assert torch.allclose(loss, exp, atol=1e-6)
-
-
-def test_native_logp_grpo_pipeline_is_differentiable_to_logits():
-    """NativeLogpOp uses log_softmax/gather, so grads flow logits -> loss."""
-    logp_op = NativeLogpOp()
-    grpo = NativeGRPOLossOp()
-    batch = _batch(seed=22)
-    logits = _logits_like(batch, seed=122).clone().requires_grad_(True)
-
-    current = logp_op.apply_fp32(logits, batch.token_ids)
-    loss, _, _ = grpo.forward(
-        current,
-        batch.old_logps,
-        batch.ref_logps,
-        batch.rewards,
-        batch.completion_mask,
-        clip_eps=0.2,
-        beta=0.05,
-        samples_per_prompt=_SPP,
-    )
-    loss.backward()
-
-    assert logits.grad is not None
-    assert torch.isfinite(logits.grad).all()
-
-
-@requires_triton_cuda
-def test_dispatched_logp_composes_with_triton_grpo():
-    """Real pipeline: dispatched CUDA fused logp -> Triton GRPO loss."""
-    from rl_engine.kernels.registry import kernel_registry
-
-    logp_op = kernel_registry.get_op("logp")
-    grpo = TritonGRPOLossOp()
-    batch = _batch(seed=23, device="cuda")
-    logits = _logits_like(batch, seed=123, device="cuda")
-    kwargs = dict(clip_eps=0.2, beta=0.05, samples_per_prompt=_SPP)
-    rest = (batch.old_logps, batch.ref_logps, batch.rewards, batch.completion_mask)
-
-    current = logp_op.apply_fp32(logits, batch.token_ids)
-    loss, _, _ = grpo.forward(current, *rest, **kwargs)
-
-    oracle = selected_logprobs_reference(logits, batch.token_ids)
-    exp, _, _ = NativeGRPOLossOp().forward(oracle, *rest, **kwargs)
-    assert torch.isfinite(loss)
-    assert torch.allclose(loss, exp, atol=1e-3, rtol=1e-3)
-
-
 # Loss step: masked-token invariance and a gradient step
-def _perturb_inactive(batch, current):
-    """Set garbage at masked positions; the loss must ignore them."""
-    inactive = ~batch.completion_mask
-    cur = current.clone()
-    old = batch.old_logps.clone()
-    ref = batch.ref_logps.clone()
-    cur[inactive] = 1000.0
-    old[inactive] = -1000.0
-    ref[inactive] = 500.0
-    return cur, old, ref
+def _perturb_inactive_logits(batch, policy_logits):
+    """Set garbage at masked positions' logits; the loss must ignore them."""
+    pol = policy_logits.clone()
+    pol[~batch.completion_mask.bool()] = 1000.0
+    return pol
 
 
 def test_masked_tokens_do_not_affect_native_loss():
     op = NativeGRPOLossOp()
     batch = _batch(seed=8, valid_density=0.75)
-    current = _current_logps(batch, seed=108)
+    policy_logits, ref_logits = _logit_pair(batch, seed=108)
+    args = (ref_logits, batch.token_ids, batch.old_logps, batch.rewards, batch.completion_mask)
     kwargs = dict(clip_eps=0.2, beta=0.05, samples_per_prompt=_SPP)
 
-    base, _, _ = op.forward(
-        current, batch.old_logps, batch.ref_logps, batch.rewards, batch.completion_mask, **kwargs
-    )
-    cur_p, old_p, ref_p = _perturb_inactive(batch, current)
-    pert, _, _ = op.forward(cur_p, old_p, ref_p, batch.rewards, batch.completion_mask, **kwargs)
+    base, _, _ = op.forward(policy_logits, *args, **kwargs)
+    pert, _, _ = op.forward(_perturb_inactive_logits(batch, policy_logits), *args, **kwargs)
     assert torch.allclose(base, pert)
 
 
@@ -372,22 +303,20 @@ def test_masked_tokens_do_not_affect_native_loss():
 def test_masked_tokens_do_not_affect_triton_loss():
     fused = TritonGRPOLossOp()
     batch = _batch(seed=8, device="cuda", valid_density=0.75)
-    current = _current_logps(batch, seed=108, device="cuda")
+    policy_logits, ref_logits = _logit_pair(batch, seed=108, device="cuda")
+    args = (ref_logits, batch.token_ids, batch.old_logps, batch.rewards, batch.completion_mask)
     kwargs = dict(clip_eps=0.2, beta=0.05, samples_per_prompt=_SPP)
 
-    base, _, _ = fused.forward(
-        current, batch.old_logps, batch.ref_logps, batch.rewards, batch.completion_mask, **kwargs
-    )
-    cur_p, old_p, ref_p = _perturb_inactive(batch, current)
-    pert, _, _ = fused.forward(cur_p, old_p, ref_p, batch.rewards, batch.completion_mask, **kwargs)
+    base, _, _ = fused.forward(policy_logits, *args, **kwargs)
+    pert, _, _ = fused.forward(_perturb_inactive_logits(batch, policy_logits), *args, **kwargs)
     assert torch.allclose(base, pert, atol=1e-5)
 
 
-def _descend(op, batch, seed, *, device="cpu", steps=5, lr=0.05):
-    rest = (batch.old_logps, batch.ref_logps, batch.rewards, batch.completion_mask)
+def _descend(op, batch, policy_logits, ref_logits, *, steps=5, lr=0.05):
+    rest = (ref_logits, batch.token_ids, batch.old_logps, batch.rewards, batch.completion_mask)
     kwargs = dict(clip_eps=0.2, beta=0.05, samples_per_prompt=_SPP)
-    initial = op.forward(_current_logps(batch, seed, device=device), *rest, **kwargs)[0]
-    params = _current_logps(batch, seed, device=device).clone().requires_grad_(True)
+    initial = op.forward(policy_logits, *rest, **kwargs)[0]
+    params = policy_logits.clone().requires_grad_(True)
     for _ in range(steps):
         loss, _, _ = op.forward(params, *rest, **kwargs)
         (grad,) = torch.autograd.grad(loss, params)
@@ -397,16 +326,20 @@ def _descend(op, batch, seed, *, device="cpu", steps=5, lr=0.05):
 
 
 def test_grpo_gradient_step_reduces_loss():
-    """Full loss step: forward -> backward -> SGD on the policy logps lowers the loss."""
+    """Full loss step: forward -> backward -> SGD on the policy logits lowers the loss."""
     op = NativeGRPOLossOp()
-    initial, final = _descend(op, _batch(seed=9), seed=109)
+    batch = _batch(seed=9)
+    policy_logits, ref_logits = _logit_pair(batch, seed=109)
+    initial, final = _descend(op, batch, policy_logits, ref_logits)
     assert final.item() < initial.item()
 
 
 @requires_triton_cuda
 def test_triton_grpo_gradient_step_reduces_loss():
     fused = TritonGRPOLossOp()
-    initial, final = _descend(fused, _batch(seed=9, device="cuda"), seed=109, device="cuda")
+    batch = _batch(seed=9, device="cuda")
+    policy_logits, ref_logits = _logit_pair(batch, seed=109, device="cuda")
+    initial, final = _descend(fused, batch, policy_logits, ref_logits)
     assert final.item() < initial.item()
 
 

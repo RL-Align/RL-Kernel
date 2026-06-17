@@ -11,6 +11,8 @@ nav:
     - Operators:
       - operators/README.md
       - operators/fused-logp.md
+      - operators/grpo-loss.md
+      - operators/ratio-kl.md
       - operators/sampling.md
   - Developer Guide:
     - contributing/README.md
