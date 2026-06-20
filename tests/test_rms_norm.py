@@ -7,8 +7,8 @@ import torch
 from rl_engine.kernels.ops.pytorch.norm.rms_norm import NativeRMSNormOp
 
 # Qwen3-8B normalized dims this op must cover.
-_HIDDEN = 4096      # input / post-attention norm
-_HEAD_DIM = 128     # QK-Norm (per-head RMSNorm on Q and K)
+_HIDDEN = 4096  # input / post-attention norm
+_HEAD_DIM = 128  # QK-Norm (per-head RMSNorm on Q and K)
 _EPS = 1e-6
 
 
@@ -39,8 +39,8 @@ def test_batch_invariance_slice(N):
     """A row's output must not depend on how many rows share the batch."""
     op = NativeRMSNormOp()
     w, x = _rand((N,), seed=1), _rand((8, 32, N), seed=2)
-    full = op.forward_fp32(x, w)                       # compute on full batch...
-    assert torch.equal(op.forward_fp32(x[:1], w), full[:1])    # ...then slice
+    full = op.forward_fp32(x, w)  # compute on full batch...
+    assert torch.equal(op.forward_fp32(x[:1], w), full[:1])  # ...then slice
     assert torch.equal(op.forward_fp32(x[3:5], w), full[3:5])
 
 
@@ -97,9 +97,9 @@ def test_bad_weight_shape_raises():
     op = NativeRMSNormOp()
     x = _rand((2, _HIDDEN), seed=9)
     with pytest.raises(ValueError):
-        op.forward_fp32(x, _rand((_HEAD_DIM,), seed=10))   # 128 != 4096
+        op.forward_fp32(x, _rand((_HEAD_DIM,), seed=10))  # 128 != 4096
     with pytest.raises(ValueError):
-        op.forward_fp32(x, _rand((1, _HIDDEN), seed=10))   # not 1-D
+        op.forward_fp32(x, _rand((1, _HIDDEN), seed=10))  # not 1-D
 
 
 # 8. Purity -- inputs not mutated in-place
