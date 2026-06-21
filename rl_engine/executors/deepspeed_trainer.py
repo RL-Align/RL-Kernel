@@ -29,7 +29,7 @@ from rl_engine.testing import (
     compute_policy_ratio,
     compute_reference_kl,
     masked_mean,
-    selected_logprobs_reference,
+    teacher_forced_logprobs_reference,
 )
 
 _TDestination = TypeVar("_TDestination", bound=dict[str, Any])
@@ -106,7 +106,7 @@ class DeepSpeedTrainingWorker(RolloutBatchMixin):
         batch, payload_metrics = self._batch_from_rollout_or_synthetic(rollout)
 
         logits = _extract_logits(self.engine(batch.token_ids.long()))
-        current_logps = selected_logprobs_reference(
+        current_logps = teacher_forced_logprobs_reference(
             logits,
             batch.token_ids,
             mask=batch.completion_mask,

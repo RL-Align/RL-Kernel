@@ -12,6 +12,7 @@ from rl_engine.testing import (
     masked_sum,
     selected_logprobs_reference,
     summarize_kernel_drift,
+    teacher_forced_logprobs_reference,
 )
 
 
@@ -74,6 +75,41 @@ def test_selected_logprobs_reference_temperature():
 def test_selected_logprobs_reference_rejects_bad_temperature():
     with pytest.raises(ValueError, match="temperature"):
         selected_logprobs_reference(torch.randn(1, 3), torch.tensor([0]), temperature=0.0)
+
+
+def test_teacher_forced_logprobs_match_unit_temperature_reference():
+    logits = torch.tensor([[[2.0, -1.0, 0.5], [0.25, 1.25, -0.5]]])
+    token_ids = torch.tensor([[0, 1]])
+    mask = torch.tensor([[True, False]])
+
+    actual = teacher_forced_logprobs_reference(logits, token_ids, mask=mask)
+    expected = selected_logprobs_reference(logits, token_ids, mask=mask, temperature=1.0)
+
+    assert torch.allclose(actual, expected)
+    assert actual[0, 1] == 0.0
+
+
+def test_teacher_forced_logprobs_do_not_apply_sampling_temperature():
+    logits = torch.tensor([[[4.0, 1.0, -1.0], [0.1, 2.0, -0.5]]])
+    token_ids = torch.tensor([[0, 1]])
+
+    actual = teacher_forced_logprobs_reference(logits, token_ids)
+    wrongly_temperature_scaled = selected_logprobs_reference(logits, token_ids, temperature=0.25)
+
+    assert not torch.allclose(actual, wrongly_temperature_scaled)
+
+
+def test_teacher_forced_logprobs_preserve_dtype_contract():
+    logits = torch.randn(2, 3, 5)
+    token_ids = torch.tensor([[0, 1, 2], [3, 4, 0]])
+
+    actual = teacher_forced_logprobs_reference(
+        logits,
+        token_ids,
+        output_dtype=torch.float16,
+    )
+
+    assert actual.dtype == torch.float16
 
 
 def test_masked_reductions_ignore_inactive_tokens():

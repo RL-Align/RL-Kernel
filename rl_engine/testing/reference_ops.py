@@ -47,6 +47,29 @@ def selected_logprobs_reference(
     return selected.to(dtype=output_dtype)
 
 
+def teacher_forced_logprobs_reference(
+    logits: torch.Tensor,
+    token_ids: torch.Tensor,
+    mask: torch.Tensor | None = None,
+    output_dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    """Reference logprobs for scoring a fixed token sequence.
+
+    Sampling parameters choose the sequence during rollout; they are not part of
+    teacher-forced scoring. This helper intentionally fixes temperature to 1.0
+    so cross-engine drift checks compare log p(token_ids | context), not sampling
+    variance.
+    """
+
+    return selected_logprobs_reference(
+        logits,
+        token_ids,
+        mask=mask,
+        temperature=1.0,
+        output_dtype=output_dtype,
+    )
+
+
 def masked_sum(values: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
     """Sum values while ignoring masked-out entries."""
 

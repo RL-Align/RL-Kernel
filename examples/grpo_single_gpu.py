@@ -27,8 +27,8 @@ from rl_engine.testing import (  # noqa: E402
     compute_reference_kl,
     make_synthetic_rl_kernel_batch,
     masked_mean,
-    selected_logprobs_reference,
     summarize_kernel_drift,
+    teacher_forced_logprobs_reference,
 )
 
 
@@ -199,7 +199,7 @@ def run_training(args: argparse.Namespace) -> list[StepMetrics]:
 
     with torch.no_grad():
         initial_logits = policy(batch.token_ids)
-        old_logps = selected_logprobs_reference(
+        old_logps = teacher_forced_logprobs_reference(
             initial_logits,
             batch.token_ids,
             mask=batch.completion_mask,
@@ -223,7 +223,7 @@ def run_training(args: argparse.Namespace) -> list[StepMetrics]:
     for step in range(args.steps):
         optimizer.zero_grad(set_to_none=True)
         logits = policy(batch.token_ids)
-        reference_logps = selected_logprobs_reference(
+        reference_logps = teacher_forced_logprobs_reference(
             logits,
             batch.token_ids,
             mask=batch.completion_mask,

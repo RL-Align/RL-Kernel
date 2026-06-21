@@ -78,6 +78,7 @@ class RolloutBatchMixin:
         if token_groups:
             return self._batch_from_token_groups(token_groups, rollout), {
                 "training_data_source": "rollout_payload",
+                "logprob_scoring_mode": "teacher_forcing",
                 "rollout_sequences": len(token_groups),
                 "rollout_tokens": sum(len(group) for group in token_groups),
             }
@@ -96,6 +97,7 @@ class RolloutBatchMixin:
         )
         return batch, {
             "training_data_source": "synthetic_fallback",
+            "logprob_scoring_mode": "synthetic_teacher_forcing",
             "rollout_sequences": 0,
             "rollout_tokens": 0,
         }
@@ -184,6 +186,7 @@ class RolloutBatchMixin:
             "device": str(self.device),
             "seed": self.config.seed + int(rollout.iteration),
             "source": "rollout_payload",
+            "logprob_scoring_mode": "teacher_forcing",
         }
         return SyntheticRLKernelBatch(
             input_ids=input_ids,

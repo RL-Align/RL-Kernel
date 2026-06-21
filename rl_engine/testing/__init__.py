@@ -11,6 +11,7 @@ from .reference_ops import (
     masked_sum,
     selected_logprobs_reference,
     summarize_kernel_drift,
+    teacher_forced_logprobs_reference,
 )
 from .rl_batch import SyntheticRLKernelBatch, make_synthetic_rl_kernel_batch
 
@@ -24,4 +25,5 @@ __all__ = [
     "masked_sum",
     "selected_logprobs_reference",
     "summarize_kernel_drift",
+    "teacher_forced_logprobs_reference",
 ]
