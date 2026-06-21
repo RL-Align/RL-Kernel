@@ -64,6 +64,10 @@ jobs:
         run: |
           python -m pytest rl_engine/tests/test_dispatch.py -v
 
+      - name: Run Forward Invariance Tests
+        run: |
+          python -m pytest tests/test_forward_invariance.py -v
+
   docs:
     runs-on: ubuntu-latest
     steps:
