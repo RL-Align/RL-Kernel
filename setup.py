@@ -1,9 +1,24 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
+import importlib.util
 import os
+from pathlib import Path
 
 from setuptools import find_packages, setup
+
+
+def _load_envs_module():
+    envs_path = Path(__file__).with_name("envs.py")
+    spec = importlib.util.spec_from_file_location("_rl_kernel_envs", envs_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"failed to load environment helpers from {envs_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+envs = _load_envs_module()
 
 
 def _load_torch_extension_tools():
@@ -57,11 +72,14 @@ def get_extensions():
         cuda_sources = [
             "csrc/ops.cpp",
             "csrc/fused_logp_kernel.cu",
+            "csrc/deterministic_logp_kernel.cu",
             "csrc/cuda/attention/prefix_shared_attention.cu",
         ]
 
         cc_major, cc_minor = torch.cuda.get_device_capability()
-        nvcc_flags = ["-O3", "--use_fast_math", "-Xfatbin", "-compress-all"]
+        nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
+        if envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH):
+            nvcc_flags.append("--use_fast_math")
         nvcc_flags.extend(
             _cuda_define_from_env(
                 "FUSED_LOGP_TWOPASS_BLOCK_SIZE",
@@ -104,14 +122,17 @@ def get_extensions():
                 "FUSED_LOGP_ONLINE_MIN_BLOCKS_PER_SM",
             )
         )
-        if os.environ.get("KERNEL_ALIGN_NCU_LINEINFO") == "1":
+        if envs.env_flag(envs.KERNEL_ALIGN_NCU_LINEINFO):
             nvcc_flags.append("-lineinfo")
+        if os.name == "nt" and envs.env_flag(envs.KERNEL_ALIGN_ALLOW_UNSUPPORTED_MSVC):
+            nvcc_flags.append("-allow-unsupported-compiler")
+            nvcc_flags.append("-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH")
 
         cxx_flags = ["-O3", "-std=c++17", "-DKERNEL_ALIGN_WITH_CUDA"]
         extra_link_args = []
 
         tma_src = "csrc/cuda/fused_logp_sm90.cu"
-        enable_sm90 = os.environ.get("KERNEL_ALIGN_FORCE_SM90") == "1"
+        enable_sm90 = envs.env_flag(envs.KERNEL_ALIGN_FORCE_SM90)
         if enable_sm90 and os.path.exists(tma_src):
             tma_arch = f"{cc_major}{cc_minor}a"
             cuda_sources.append(tma_src)

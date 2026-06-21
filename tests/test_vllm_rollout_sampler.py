@@ -287,6 +287,23 @@ def test_rollout_executor_defers_vllm_sampler_config_validation():
         executor.generate_candidates(["prompt-a"])
 
 
+def test_rollout_executor_accepts_deterministic_logp_backend_alias():
+    executor = RolloutExecutor({"backend": "not-vllm", "logp_backend": "deterministic"})
+
+    assert executor.logp_op_type == "logp_deterministic"
+
+
+def test_rollout_executor_rejects_non_deterministic_required_logp_backend():
+    with pytest.raises(ValueError, match="requires a deterministic logp backend"):
+        RolloutExecutor(
+            {
+                "backend": "not-vllm",
+                "logp_backend": "online",
+                "require_batch_invariant_logp": True,
+            }
+        )
+
+
 def test_rollout_executor_defaults_to_cuda_vmm_manifest_bridge():
     executor = RolloutExecutor()
 

@@ -137,6 +137,8 @@ def _selected_logprob_row(config: BenchmarkConfig) -> dict[str, Any]:
         "online_fp32": "FusedLogp.online_fp32",
         "online_indexed_out": "FusedLogp.online_indexed_out",
         "online_indexed_fp32": "FusedLogp.online_indexed_fp32",
+        "deterministic_fp32": "DeterministicLogp.apply_fp32",
+        "deterministic_indexed_fp32": "DeterministicLogp.indexed_fp32",
     }
     candidate_name = candidate_names[config.candidate]
 
@@ -200,7 +202,21 @@ def _selected_logprob_row(config: BenchmarkConfig) -> dict[str, Any]:
             indexed_op = kernel_registry.get_op("logp_indexed")
             online_op = kernel_registry.get_op("logp_online")
             online_indexed_op = kernel_registry.get_op("logp_online_indexed")
-            candidate_backend_name = "FusedLogpGenericOp"
+            deterministic_op = kernel_registry.get_op("logp_deterministic")
+            deterministic_indexed_op = kernel_registry.get_op("logp_deterministic_indexed")
+            candidate_backend_names = {
+                "apply": "FusedLogpGenericOp",
+                "out": "FusedLogpGenericOp",
+                "fp32": "FusedLogpGenericOp",
+                "indexed_out": "FusedLogpGenericOp",
+                "indexed_fp32": "FusedLogpGenericOp",
+                "online_out": "FusedLogpGenericOp",
+                "online_fp32": "FusedLogpGenericOp",
+                "online_indexed_out": "FusedLogpGenericOp",
+                "online_indexed_fp32": "FusedLogpGenericOp",
+                "deterministic_fp32": "DeterministicLogpCUDAOp",
+                "deterministic_indexed_fp32": "DeterministicLogpCUDAOp",
+            }
             required_backends = {
                 "apply": dense_op,
                 "out": dense_op,
@@ -211,8 +227,11 @@ def _selected_logprob_row(config: BenchmarkConfig) -> dict[str, Any]:
                 "online_fp32": online_op,
                 "online_indexed_out": online_indexed_op,
                 "online_indexed_fp32": online_indexed_op,
+                "deterministic_fp32": deterministic_op,
+                "deterministic_indexed_fp32": deterministic_indexed_op,
             }
             selected_backend = required_backends[config.candidate]
+            candidate_backend_name = candidate_backend_names[config.candidate]
             if selected_backend.__class__.__name__ != candidate_backend_name:
                 raise RuntimeError(f"{candidate_backend_name} backend is unavailable")
 
@@ -276,6 +295,17 @@ def _selected_logprob_row(config: BenchmarkConfig) -> dict[str, Any]:
                     batch.valid_indices,
                 )
                 notes = "online log-sum-exp valid-index float32 output"
+            elif config.candidate == "deterministic_fp32":
+                run_candidate = partial(deterministic_op.apply_fp32, logits, batch.token_ids)
+                notes = "batch-invariant deterministic float32 output"
+            elif config.candidate == "deterministic_indexed_fp32":
+                run_candidate = partial(
+                    deterministic_indexed_op.indexed_fp32,
+                    logits,
+                    batch.token_ids,
+                    batch.valid_indices,
+                )
+                notes = "batch-invariant deterministic valid-index float32 output"
             else:
                 raise ValueError(f"unsupported candidate: {config.candidate}")
 
@@ -378,6 +408,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "online_fp32",
             "online_indexed_out",
             "online_indexed_fp32",
+            "deterministic_fp32",
+            "deterministic_indexed_fp32",
         ],
     )
     parser.add_argument("--smoke", action="store_true", help="Run a small local-development shape")

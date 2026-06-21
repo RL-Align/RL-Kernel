@@ -21,6 +21,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from rl_engine.kernels.registry import resolve_logp_op_type  # noqa: E402
 from rl_engine.testing import (  # noqa: E402
     active_token_count,
     compute_policy_ratio,
@@ -72,6 +73,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--beta", type=float, default=0.01)
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument(
+        "--logp-backend",
+        default="auto",
+        help=(
+            "Selected-token logp backend. Use 'deterministic' or "
+            "'batch_invariant' for the CUDA deterministic path."
+        ),
+    )
+    parser.add_argument(
+        "--require-batch-invariant-logp",
+        action="store_true",
+        help="Require a batch-invariant deterministic logp backend.",
+    )
+    parser.add_argument(
         "--require-fused-logp",
         action="store_true",
         help="Fail if CUDA dispatch falls back instead of using RL-Kernel's fused logp backend.",
@@ -87,7 +101,15 @@ def select_device(requested: str) -> torch.device:
     return torch.device(requested)
 
 
-def resolve_logp_op(device: torch.device) -> Any:
+def resolve_logp_op(
+    device: torch.device,
+    logp_backend: str,
+    require_batch_invariant_logp: bool,
+) -> Any:
+    op_type = resolve_logp_op_type(
+        logp_backend,
+        require_batch_invariant=require_batch_invariant_logp,
+    )
     if device.type == "cpu":
         from rl_engine.kernels.ops.pytorch.loss.logp import NativeLogpOp
 
@@ -95,11 +117,11 @@ def resolve_logp_op(device: torch.device) -> Any:
 
     from rl_engine.kernels.registry import kernel_registry
 
-    return kernel_registry.get_op("logp")
+    return kernel_registry.get_op(op_type)
 
 
-def is_fused_logp_backend(backend_name: str) -> bool:
-    return backend_name.startswith("FusedLogp")
+def is_fused_logp_backend(logp_op: Any) -> bool:
+    return bool(getattr(logp_op, "is_fused_logp", False))
 
 
 def make_group_advantages(
@@ -166,9 +188,13 @@ def run_training(args: argparse.Namespace) -> list[StepMetrics]:
 
     torch.manual_seed(args.seed)
     device = select_device(args.device)
-    logp_op = resolve_logp_op(device)
+    logp_op = resolve_logp_op(
+        device,
+        args.logp_backend,
+        args.require_batch_invariant_logp,
+    )
     backend_name = logp_op.__class__.__name__
-    if args.require_fused_logp and not is_fused_logp_backend(backend_name):
+    if args.require_fused_logp and not is_fused_logp_backend(logp_op):
         raise RuntimeError(
             "--require-fused-logp was set, but kernel dispatch selected "
             f"{backend_name}. Build the CUDA extension with `pip install -e .` "
