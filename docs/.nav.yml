@@ -14,6 +14,7 @@ nav:
       - operators/grpo-loss.md
       - operators/ratio-kl.md
       - operators/sampling.md
+      - operators/lm_head.md
   - Developer Guide:
     - contributing/README.md
     - General:
