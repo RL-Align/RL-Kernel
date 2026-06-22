@@ -19,7 +19,9 @@ Every operator page should include:
 ## Current Pages
 
 - [Fused LogP](fused-logp.md)
+- [Fused Linear LogP](linear-logp.md)
 - [GRPO Loss](grpo-loss.md)
 - [Matmul](matmul.md)
+- [Policy Ratio + KL Penalty](ratio-kl.md)
 - [Sampling](sampling.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)

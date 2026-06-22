@@ -110,11 +110,15 @@ def get_extensions():
         cxx_flags = ["-O3", "-std=c++17", "-DKERNEL_ALIGN_WITH_CUDA"]
         extra_link_args = []
 
-        tma_src = "csrc/cuda/fused_logp_sm90.cu"
+        sm90_srcs = [
+            "csrc/cuda/fused_logp_sm90.cu",
+            "csrc/cuda/fused_linear_logp_sm90.cu",  # TMA + WGMMA fused linear log-prob
+        ]
         enable_sm90 = os.environ.get("KERNEL_ALIGN_FORCE_SM90") == "1"
-        if enable_sm90 and os.path.exists(tma_src):
-            tma_arch = f"{cc_major}{cc_minor}a"
-            cuda_sources.append(tma_src)
+        present_sm90 = [s for s in sm90_srcs if os.path.exists(s)]
+        if enable_sm90 and present_sm90:
+            tma_arch = f"{cc_major}{cc_minor}a"  # WGMMA/TMA require the arch-native 'a' variant
+            cuda_sources.extend(present_sm90)
             nvcc_flags.append(f"-gencode=arch=compute_{tma_arch},code=sm_{tma_arch}")
             cxx_flags.append("-DKERNEL_ALIGN_WITH_SM90")
             extra_link_args.append("-lcuda")

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 RL-Kernel Contributors
 
 #include "../utils/tma_utils.cuh"
+#include <math_constants.h>
 #include <torch/extension.h>
 #include <cub/cub.cuh>
 
@@ -112,7 +113,9 @@ torch::Tensor fused_logp_sm90_forward(torch::Tensor logits, torch::Tensor labels
     auto output = torch::empty({B}, logits.options().dtype(torch::kFloat));
 
     CUtensorMap logits_tmap;
-    init_tensor_map(&logits_tmap, logits.data_ptr<at::BFloat16>(), B, V, 1, TILE_V);
+    init_tensor_map(&logits_tmap,
+                    reinterpret_cast<const nv_bfloat16 *>(logits.data_ptr<at::BFloat16>()), B, V, 1,
+                    TILE_V);
 
     int smem_size = (TILE_V * sizeof(nv_bfloat16)) + 16;
     fused_logp_online_tma_kernel<4><<<B, 128, smem_size>>>(

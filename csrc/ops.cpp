@@ -9,6 +9,10 @@ torch::Tensor fused_logp_forward(torch::Tensor logits, torch::Tensor token_ids);
 
 #if defined(__CUDACC__) || defined(KERNEL_ALIGN_WITH_SM90)
 torch::Tensor fused_logp_sm90_forward(torch::Tensor logits, torch::Tensor labels);
+std::vector<torch::Tensor> fused_linear_logp_sm90_forward(torch::Tensor hidden,
+                                                          torch::Tensor weight,
+                                                          torch::Tensor target,
+                                                          torch::optional<torch::Tensor> bias);
 #endif
 
 #if defined(__CUDACC__) || defined(KERNEL_ALIGN_WITH_CUDA)
@@ -75,6 +79,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 
 #if defined(__CUDACC__) || defined(KERNEL_ALIGN_WITH_SM90)
     m.def("fused_logp_sm90", &fused_logp_sm90_forward, "TMA-accelerated Online Softmax Fused LogP");
+    m.def("fused_linear_logp_sm90", &fused_linear_logp_sm90_forward,
+          "TMA+WGMMA fused linear log-prob (hidden @ W^T -> selected-token logp), SM90");
 #endif
 
 #if defined(__CUDACC__) || defined(KERNEL_ALIGN_WITH_CUDA)

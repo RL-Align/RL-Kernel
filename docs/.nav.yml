@@ -7,9 +7,13 @@ nav:
     - Getting Started:
       - getting_started/quickstart.md
       - getting_started/installation.md
+      - getting_started/faq.md
     - Operators:
       - operators/README.md
       - operators/fused-logp.md
+      - operators/linear-logp.md
+      - operators/grpo-loss.md
+      - operators/ratio-kl.md
       - operators/sampling.md
   - Developer Guide:
     - contributing/README.md

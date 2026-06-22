@@ -10,13 +10,36 @@
 
 <p align="center">
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License"></a>
-  <a href="https://github.com/Flink-ddd/RL-Kernel"><img src="https://img.shields.io/badge/Hardware-NVIDIA%20CUDA%20%7C%20AMD%20ROCm-orange" alt="Hardware"></a>
+  <a href="https://github.com/RL-Align/RL-Kernel"><img src="https://img.shields.io/badge/Hardware-NVIDIA%20CUDA%20%7C%20AMD%20ROCm-orange" alt="Hardware"></a>
   <a href="https://discord.gg/RGUQrr74z"><img src="https://img.shields.io/badge/Discord-Join%20Us-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
-  <a href="https://github.com/RL-Align/RL-Kernel/tree/main/docs"><img src="https://img.shields.io/badge/Documentation-Docs-2ea44f" alt="Documentation"></a>
+  <a href="https://rl-align.github.io/RL-Kernel/"><img src="https://img.shields.io/badge/Documentation-Docs-2ea44f" alt="Documentation"></a>
   <a href="https://deepwiki.com/RL-Align/RL-Kernel"><img src="https://img.shields.io/badge/Ask-DeepWiki-7B3FE4" alt="Ask DeepWiki"></a>
 </p>
 
 **RL-Kernel** is a high-performance, memory-efficient infrastructure for Reinforcement Learning post-training. It eliminates the memory and latency bottlenecks in Large Language Model alignment, This project targets AI infrastructure engineers, algorithm researchers, and enterprise-level large model alignment scenarios, providing specialized kernels for algorithms like **GRPO**, **PPO**, and **DPO**.
+
+
+---
+
+## Our Core Philosophy
+
+**1. Operator-Level Train-Inference Consistency**
+The biggest hidden barrier in large-scale RL is the subtle numerical divergence between rollout engines (e.g., vLLM) and training engines (e.g., Megatron/DeepSpeed). RL-Kernel provides mathematically rigorous, fused operators that lock down the computational graph. By guaranteeing absolute numerical consistency and deterministic reduction orders across the entire RL loop, we prevent reward hacking and distribution drift at the operator level.
+
+**2. Extreme Memory & Compute Efficiency**
+We replace naive PyTorch paths—which suffer from $O(G \cdot L \cdot V)$ memory explosion—with specialized industrial-grade kernels (like `prefix_shared_attention` and `fused_logp`). This reduces VRAM consumption by up to 10x, unlocking massive batch sizes for GRPO workloads without triggering Out-Of-Memory (OOM) errors.
+
+---
+
+## Global Architecture
+
+RL-Kernel sits strictly at the operator layer, acting as a non-intrusive bridge between high-level alignment orchestration (e.g., vime, slime) and foundational execution engines. We ensure maximum throughput and rigorous numerical parity without modifying upstream framework source code.
+
+<p align="center">
+  <img src="docs/assets/RL-Kernel underlying operator library technical architecture.png" alt="RL-Kernel Global Architecture" width="800">
+</p>
+
+*Note: RL-Kernel integrates natively into Rollout Engines (vLLM, sglang, LMDeploy) and Training Engines (Megatron, DeepSpeed) via non-intrusive custom operator hooks, powered by underlying CUDA, Triton, and ROCm backends.*
 
 ---
 
@@ -89,7 +112,7 @@ RL-Kernel sits between high-level alignment libraries and low-level GPU kernels,
 ### Installation
 ```bash
 # Clone the repository
-git clone https://github.com/Flink-ddd/RL-Kernel.git
+git clone https://github.com/RL-Align/RL-Kernel.git
 cd RL-Kernel
 
 # Install core dependencies (CUDA 12.4+ recommended)

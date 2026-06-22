@@ -8,7 +8,7 @@ import torch
 import triton
 import triton.language as tl
 
-_BLOCK = 1024
+from rl_engine.kernels.ops.triton.loss.ratio_kl import TritonRatioKLOp
 
 
 def _next_pow2(x: int) -> int:
@@ -55,182 +55,26 @@ def _group_norm_kernel(
     tl.store(adv_ptr + start + offs, adv, mask=keep)
 
 
-@triton.jit
-def _grpo_fwd_kernel(
-    cur_ptr,
-    old_ptr,
-    ref_ptr,
-    adv_seq_ptr,  # float32[B], per-sequence advantages
-    mask_ptr,
-    partials_ptr,  # float32[grid, 2]: per-block (policy_sum, kl_sum)
-    n_elements,
-    T,  # completion length (tokens per sequence)
-    clip_eps,
-    BLOCK: tl.constexpr,
-):
-    pid = tl.program_id(0)
-    offs = pid * BLOCK + tl.arange(0, BLOCK)
-    bound = offs < n_elements
-    seq_id = offs // T
-
-    cur = tl.load(cur_ptr + offs, mask=bound, other=0.0).to(tl.float32)
-    old = tl.load(old_ptr + offs, mask=bound, other=0.0).to(tl.float32)
-    ref = tl.load(ref_ptr + offs, mask=bound, other=0.0).to(tl.float32)
-    adv = tl.load(adv_seq_ptr + seq_id, mask=bound, other=0.0).to(tl.float32)
-    active = tl.load(mask_ptr + offs, mask=bound, other=0).to(tl.float32)
-    keep = bound & (active != 0.0)
-
-    ratio = tl.exp(cur - old)
-    lo = 1.0 - clip_eps
-    hi = 1.0 + clip_eps
-    unclipped = ratio * adv
-    clipped = tl.minimum(tl.maximum(ratio, lo), hi) * adv
-    policy_term = -tl.minimum(unclipped, clipped)
-
-    diff = ref - cur
-    kl_term = tl.exp(diff) - diff - 1.0
-
-    policy_term = tl.where(keep, policy_term, 0.0)
-    kl_term = tl.where(keep, kl_term, 0.0)
-
-    tl.store(partials_ptr + pid * 2 + 0, tl.sum(policy_term, axis=0))
-    tl.store(partials_ptr + pid * 2 + 1, tl.sum(kl_term, axis=0))
-
-
-@triton.jit
-def _grpo_bwd_kernel(
-    cur_ptr,
-    old_ptr,
-    ref_ptr,
-    adv_seq_ptr,
-    mask_ptr,
-    grad_cur_ptr,
-    scale,  # grad_output / num_active
-    beta,
-    clip_eps,
-    n_elements,
-    T,
-    BLOCK: tl.constexpr,
-):
-    pid = tl.program_id(0)
-    offs = pid * BLOCK + tl.arange(0, BLOCK)
-    bound = offs < n_elements
-    seq_id = offs // T
-
-    cur = tl.load(cur_ptr + offs, mask=bound, other=0.0).to(tl.float32)
-    old = tl.load(old_ptr + offs, mask=bound, other=0.0).to(tl.float32)
-    ref = tl.load(ref_ptr + offs, mask=bound, other=0.0).to(tl.float32)
-    adv = tl.load(adv_seq_ptr + seq_id, mask=bound, other=0.0).to(tl.float32)
-    active = tl.load(mask_ptr + offs, mask=bound, other=0).to(tl.float32)
-    keep = bound & (active != 0.0)
-
-    ratio = tl.exp(cur - old)
-    lo = 1.0 - clip_eps
-    hi = 1.0 + clip_eps
-    unclipped = ratio * adv
-    clipped = tl.minimum(tl.maximum(ratio, lo), hi) * adv
-
-    # d(ratio)/d(cur) = ratio. The surrogate selects the smaller branch; the
-    # clamped branch has zero gradient outside (lo, hi).
-    in_range = (ratio > lo) & (ratio < hi)
-    d_clipped = tl.where(in_range, ratio * adv, 0.0)
-    sel_unclipped = unclipped <= clipped
-    deriv_sel = tl.where(sel_unclipped, ratio * adv, d_clipped)
-    d_policy = -deriv_sel
-
-    # d(kl)/d(cur) for kl = exp(ref - cur) - (ref - cur) - 1.
-    d_kl = 1.0 - tl.exp(ref - cur)
-
-    grad = scale * (d_policy + beta * d_kl)
-    grad = tl.where(keep, grad, 0.0)
-    tl.store(grad_cur_ptr + offs, grad, mask=bound)
-
-
-class _GRPOLossFunction(torch.autograd.Function):
-    """Autograd wrapper around the token-parallel Triton kernels."""
-
-    @staticmethod
-    def forward(
-        ctx, current_logps, old_logps, ref_logps, adv_seq, mask, completion_len, clip_eps, beta
-    ):
-        cur = current_logps.contiguous()
-        old = old_logps.contiguous().to(cur.dtype)
-        ref = ref_logps.contiguous().to(cur.dtype)
-        adv = adv_seq.contiguous().to(torch.float32)
-        mask_f = mask.contiguous().to(torch.float32)
-
-        n = cur.numel()
-        num_active = mask_f.sum().clamp_min(1e-8)
-
-        grid = (triton.cdiv(n, _BLOCK),)
-        partials = torch.empty(grid[0], 2, device=cur.device, dtype=torch.float32)
-        _grpo_fwd_kernel[grid](
-            cur.reshape(-1),
-            old.reshape(-1),
-            ref.reshape(-1),
-            adv,
-            mask_f.reshape(-1),
-            partials,
-            n,
-            int(completion_len),
-            float(clip_eps),
-            BLOCK=_BLOCK,
-        )
-
-        block_sums = partials.sum(dim=0)
-        policy_loss = block_sums[0] / num_active
-        kl = block_sums[1] / num_active
-        loss = policy_loss + beta * kl
-
-        ctx.save_for_backward(cur, old, ref, adv, mask_f)
-        ctx.clip_eps = float(clip_eps)
-        ctx.beta = float(beta)
-        ctx.completion_len = int(completion_len)
-        ctx.num_active = num_active
-        ctx.mark_non_differentiable(policy_loss, kl)
-        return loss, policy_loss, kl
-
-    @staticmethod
-    def backward(ctx, grad_loss, grad_policy, grad_kl):
-        cur, old, ref, adv, mask_f = ctx.saved_tensors
-        n = cur.numel()
-        grad_cur = torch.empty_like(cur, dtype=torch.float32)
-        scale = float((grad_loss / ctx.num_active).item())
-
-        grid = (triton.cdiv(n, _BLOCK),)
-        _grpo_bwd_kernel[grid](
-            cur.reshape(-1),
-            old.reshape(-1),
-            ref.reshape(-1),
-            adv,
-            mask_f.reshape(-1),
-            grad_cur.reshape(-1),
-            scale,
-            ctx.beta,
-            ctx.clip_eps,
-            n,
-            ctx.completion_len,
-            BLOCK=_BLOCK,
-        )
-
-        grad_cur = grad_cur.to(cur.dtype)
-        # Inputs: current, old, ref, adv_seq, mask, completion_len, clip_eps, beta.
-        return grad_cur, None, None, None, None, None, None, None
-
-
 class TritonGRPOLossOp:
     """Triton fused GRPO loss op.
 
-    ``forward`` is the drop-in equivalent of ``NativeGRPOLossOp.forward`` (raw
-    rewards in, scalar loss out). ``apply`` takes the per-sequence advantage
-    vector directly (the fused representation), not a per-token tensor.
+    The per-token ``policy_ratio`` / ``kl_penalty`` are produced by the fused
+    ``ratio_kl`` Triton kernel (logits -> ratio/KL via online softmax, with an
+    analytic backward into ``policy_logits``); reward normalization runs in the
+    ``_group_norm_kernel``; the clipped surrogate + reference-KL reduction are a
+    thin autograd-friendly PyTorch layer on top. ``forward`` takes raw rewards;
+    ``apply`` takes the per-sequence advantage vector directly.
     """
+
+    def __init__(self) -> None:
+        self._ratio_kl = TritonRatioKLOp()
 
     def __call__(
         self,
-        current_logps: torch.Tensor,
+        policy_logits: torch.Tensor,
+        ref_logits: torch.Tensor,
+        action_ids: torch.Tensor,
         old_logps: torch.Tensor,
-        ref_logps: torch.Tensor,
         rewards: torch.Tensor,
         completion_mask: torch.Tensor,
         *,
@@ -241,9 +85,10 @@ class TritonGRPOLossOp:
         eps: float = 1e-6,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         return self.forward(
-            current_logps,
+            policy_logits,
+            ref_logits,
+            action_ids,
             old_logps,
-            ref_logps,
             rewards,
             completion_mask,
             clip_eps=clip_eps,
@@ -319,39 +164,61 @@ class TritonGRPOLossOp:
         )
         return adv
 
+    @staticmethod
+    def expand_advantages(
+        sample_advantages: torch.Tensor,
+        completion_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """Broadcast per-sequence advantages to per-token, zeroing masked tokens."""
+        bool_mask = completion_mask.bool()
+        expanded = sample_advantages.reshape(-1, 1).expand_as(bool_mask).clone()
+        return expanded.masked_fill(~bool_mask, 0.0)
+
+    @staticmethod
+    def _masked_mean(
+        values: torch.Tensor, bool_mask: torch.Tensor, eps: float = 1e-8
+    ) -> torch.Tensor:
+        masked = values.masked_fill(~bool_mask, 0.0)
+        denom = bool_mask.sum().to(values.dtype).clamp_min(eps)
+        return masked.sum() / denom
+
     def apply(
         self,
-        current_logps: torch.Tensor,
+        policy_logits: torch.Tensor,
+        ref_logits: torch.Tensor,
+        action_ids: torch.Tensor,
         old_logps: torch.Tensor,
-        ref_logps: torch.Tensor,
         sample_advantages: torch.Tensor,
         completion_mask: torch.Tensor,
         *,
         clip_eps: float = 0.2,
         beta: float = 0.0,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Evaluate the loss from per-sequence advantages (gathered per token)."""
-        if not current_logps.is_cuda:
+        """Evaluate the loss from logits + per-sequence advantages."""
+        if not policy_logits.is_cuda:
             raise RuntimeError("TritonGRPOLossOp requires CUDA tensors.")
         if completion_mask.ndim != 2:
             raise ValueError("completion_mask must be 2D [num_sequences, completion_len].")
-        completion_len = completion_mask.shape[1]
-        return _GRPOLossFunction.apply(
-            current_logps,
-            old_logps,
-            ref_logps,
-            sample_advantages,
-            completion_mask,
-            completion_len,
-            clip_eps,
-            beta,
+
+        ratio, kl_terms = self._ratio_kl(
+            policy_logits, ref_logits, action_ids, completion_mask, old_logps
         )
+        bool_mask = completion_mask.bool()
+        adv = self.expand_advantages(sample_advantages, completion_mask).float()
+        unclipped = ratio * adv
+        clipped = torch.clamp(ratio, 1.0 - clip_eps, 1.0 + clip_eps) * adv
+        policy_loss_terms = -torch.minimum(unclipped, clipped)
+
+        policy_loss = self._masked_mean(policy_loss_terms, bool_mask)
+        kl = self._masked_mean(kl_terms, bool_mask)
+        return policy_loss + beta * kl, policy_loss, kl
 
     def forward(
         self,
-        current_logps: torch.Tensor,
+        policy_logits: torch.Tensor,
+        ref_logits: torch.Tensor,
+        action_ids: torch.Tensor,
         old_logps: torch.Tensor,
-        ref_logps: torch.Tensor,
         rewards: torch.Tensor,
         completion_mask: torch.Tensor,
         *,
@@ -368,9 +235,10 @@ class TritonGRPOLossOp:
             eps=eps,
         )
         return self.apply(
-            current_logps,
+            policy_logits,
+            ref_logits,
+            action_ids,
             old_logps,
-            ref_logps,
             sample_advantages,
             completion_mask,
             clip_eps=clip_eps,

@@ -9,24 +9,24 @@
 /rl_engine/utils/ @Flink-ddd
 
 # Kernel dispatch, Python fallbacks, and native extensions.
-/rl_engine/kernels/ @Flink-ddd @inaniloquentee
-/rl_engine/kernels/ops/base.py @Flink-ddd
-/rl_engine/kernels/registry.py @Flink-ddd @inaniloquentee
-/rl_engine/kernels/sampling.py @Flink-ddd @inaniloquentee
-/rl_engine/kernels/ops/cuda/ @Flink-ddd @inaniloquentee
-/rl_engine/kernels/ops/cuda/attention/ @Flink-ddd @EthanZero2Hero
-/rl_engine/kernels/ops/cuda/loss/ @Flink-ddd @inaniloquentee
-/rl_engine/kernels/ops/pytorch/ @inaniloquentee @Flink-ddd
-/rl_engine/kernels/ops/pytorch/norm/ @maxiaosong1124 @Flink-ddd
-/rl_engine/kernels/ops/triton/ @EthanZero2Hero @Flink-ddd
+/rl_engine/kernels/ @Flink-ddd @inaniloquentee @KJLdefeated
+/rl_engine/kernels/ops/base.py @Flink-ddd @KJLdefeated
+/rl_engine/kernels/registry.py @Flink-ddd @inaniloquentee @KJLdefeated
+/rl_engine/kernels/sampling.py @Flink-ddd @inaniloquentee @KJLdefeated
+/rl_engine/kernels/ops/cuda/ @Flink-ddd @inaniloquentee @KJLdefeated
+/rl_engine/kernels/ops/cuda/attention/ @Flink-ddd @EthanZero2Hero @KJLdefeated
+/rl_engine/kernels/ops/cuda/loss/ @Flink-ddd @inaniloquentee @KJLdefeated
+/rl_engine/kernels/ops/pytorch/ @inaniloquentee @Flink-ddd @KJLdefeated
+/rl_engine/kernels/ops/pytorch/norm/ @maxiaosong1124 @Flink-ddd @KJLdefeated
+/rl_engine/kernels/ops/triton/ @EthanZero2Hero @Flink-ddd @KJLdefeated
 /rl_engine/kernels/ops/rocm/ @Flink-ddd
 
 # C++/CUDA sources.
-/csrc/ @Flink-ddd @inaniloquentee @bitborne
-/csrc/fused_logp_kernel.cu @inaniloquentee @Flink-ddd @bitborne
-/csrc/cuda/fused_logp_sm90.cu @Flink-ddd @bitborne
-/csrc/cuda/attention/ @Flink-ddd @EthanZero2Hero @bitborne
-/csrc/utils/ @Flink-ddd @bitborne
+/csrc/ @Flink-ddd @inaniloquentee @bitborne @KJLdefeated
+/csrc/fused_logp_kernel.cu @inaniloquentee @Flink-ddd @bitborne @KJLdefeated
+/csrc/cuda/fused_logp_sm90.cu @Flink-ddd @bitborne @KJLdefeated
+/csrc/cuda/attention/ @Flink-ddd @EthanZero2Hero @bitborne @KJLdefeated
+/csrc/utils/ @Flink-ddd @bitborne @KJLdefeated
 
 # Rollout, training, and RL examples.
 /rl_engine/alignment/model_wrappers.py @inaniloquentee @Flink-ddd

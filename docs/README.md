@@ -16,9 +16,9 @@ hide:
 
 <p style="text-align:center">
 <script async defer src="https://buttons.github.io/buttons.js"></script>
-<a class="github-button" href="https://github.com/Flink-ddd/RL-Kernel" data-show-count="true" data-size="large" aria-label="Star">Star</a>
-<a class="github-button" href="https://github.com/Flink-ddd/RL-Kernel/subscription" data-show-count="true" data-icon="octicon-eye" data-size="large" aria-label="Watch">Watch</a>
-<a class="github-button" href="https://github.com/Flink-ddd/RL-Kernel/fork" data-show-count="true" data-icon="octicon-repo-forked" data-size="large" aria-label="Fork">Fork</a>
+<a class="github-button" href="https://github.com/RL-Align/RL-Kernel" data-show-count="true" data-size="large" aria-label="Star">Star</a>
+<a class="github-button" href="https://github.com/RL-Align/RL-Kernel/subscription" data-show-count="true" data-icon="octicon-eye" data-size="large" aria-label="Watch">Watch</a>
+<a class="github-button" href="https://github.com/RL-Align/RL-Kernel/fork" data-show-count="true" data-icon="octicon-repo-forked" data-size="large" aria-label="Fork">Fork</a>
 </p>
 
 RL-Kernel bridges high-level alignment algorithms and low-level hardware optimizations.

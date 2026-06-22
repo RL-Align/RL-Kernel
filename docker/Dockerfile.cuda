@@ -1,0 +1,20 @@
+# docker/Dockerfile.cuda
+# build: docker build -f docker/Dockerfile.cuda -t <registry>/rl-kernel-ci:cuda .
+# push: docker push <registry>/rl-kernel-ci:cuda
+
+FROM runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
+
+# A4000 = Ampere = sm_86. Multi-GPU support: "8.0;8.6;9.0"
+ENV TORCH_CUDA_ARCH_LIST="8.6"
+ENV FORCE_CUDA=1
+ENV MAX_JOBS=8
+
+WORKDIR /opt/rl-kernel
+
+COPY pyproject.toml setup.py* requirements*.txt ./
+
+RUN pip install --no-cache-dir -U pip \
+ && pip install --no-cache-dir -r requirements.txt \
+ && pip install --no-cache-dir pytest
+
+WORKDIR /workspace
