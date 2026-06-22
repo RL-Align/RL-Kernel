@@ -1,17 +1,21 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
+from __future__ import annotations
+
 import torch
 
 
 class NativeLogpOp:
     """Pure PyTorch native fallback for Fused LogP."""
 
-    def __init__(self):
+    op_class = "logprob"
+
+    def __init__(self) -> None:
         pass
 
     def __call__(self, logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
-        return self.apply(logits, token_ids)
+        return self.forward(logits, token_ids)
 
     def _selected_logps(
         self,
@@ -45,13 +49,21 @@ class NativeLogpOp:
                 f"{tuple(logits.shape[:-1])}"
             )
 
-    def apply(self, logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
+    def forward(self, logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
         """Baseline selected-token log probability extraction using torch.gather."""
         return self._selected_logps(logits, token_ids, output_dtype=logits.dtype)
 
-    def apply_fp32(self, logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
+    def forward_fp32(self, logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
         """Same as apply but forces float32 output for numerical stability."""
         return self._selected_logps(logits, token_ids, output_dtype=torch.float32)
+
+    def apply(self, logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
+        """Backward-compatible alias for forward."""
+        return self.forward(logits, token_ids)
+
+    def apply_fp32(self, logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
+        """Backward-compatible alias for forward_fp32."""
+        return self.forward_fp32(logits, token_ids)
 
     def indexed_out(
         self,
