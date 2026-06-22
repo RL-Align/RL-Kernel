@@ -7,7 +7,7 @@
 ## Environment
 
 - Host: `dedicated-developjob-wtl-t1wjo-7c6d5f4d56-qzkfm`
-- GPU: 8x `NVIDIA L20X` reported by `nvidia-smi`
+- GPU: physical machine confirmed by user as H200; `nvidia-smi` labels devices as `NVIDIA L20X`
 - CUDA: driver reports CUDA 12.8, driver version 570.172.08
 - PyTorch: `torch 2.11.0+cu128` in `.codex-nightly/envs/issue112-py312`
 - NCCL: `torch.cuda.nccl.version()` reports `(2, 28, 9)`
@@ -93,7 +93,7 @@
 
 ## GPU validation results
 
-Current machine is 8x `NVIDIA L20X`, not H200. No H200- or NVLS-specific claim is made.
+Physical machine is user-confirmed H200, while `nvidia-smi` labels devices as `NVIDIA L20X`. No NVLS- or H200-specific support claim is made from this label mismatch.
 
 2-rank NCCL ring smoke result:
 
@@ -142,7 +142,7 @@ Current machine is 8x `NVIDIA L20X`, not H200. No H200- or NVLS-specific claim i
 
 - `python` is not available on PATH.
 - System `python3 -m venv` cannot create venvs because `ensurepip` is unavailable; used workspace-local `virtualenv` bootstrap instead.
-- Current GPU model reported by `nvidia-smi` is `NVIDIA L20X`, not the H200 model assumed by the original overnight manual.
+- Hardware label mismatch: physical machine is user-confirmed H200, while `nvidia-smi` labels devices as `NVIDIA L20X`.
 - NVLS has not been probed or validated.
 - DeepSpeed DP gradient synchronization order is not controlled by the new helper yet; the DP gradient smoke uses a tiny local model rather than DeepSpeed internals.
 
