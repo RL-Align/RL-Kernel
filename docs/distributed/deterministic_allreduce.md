@@ -1,58 +1,42 @@
 # Deterministic All-Reduce
 
-RL-Kernel exposes a small deterministic all-reduce helper for WS2 distributed
-operator work. The helper is intentionally conservative: it defines an explicit
-contract, provides a slow ordered-rank reference path, and keeps the NCCL fast
-path opt-in.
+RL-Kernel provides a small all-reduce helper for distributed smoke tests and
+future WS2 integration work. It has two modes:
+
+- `torch_all_reduce`: calls `torch.distributed.all_reduce`.
+- `ordered_rank_reference`: gathers all rank tensors, accumulates them on process-group rank 0 in process-group rank order, then broadcasts the result.
+
+The helper reduces the input tensor in place and returns it.
 
 ## Contract
 
-`deterministic_all_reduce(tensor, config)` reduces `tensor` in place and returns
-the same tensor object. The result is expected to be stable when all of these
-inputs are the same:
+Results are expected to be stable only when the world size, process-group rank
+order, inputs, dtype, operation, backend, and environment are unchanged.
 
-- world size;
-- global rank order;
-- input tensor values;
-- dtype;
-- reduction op;
-- helper mode;
-- process-group and backend environment.
+`op="mean"` performs a sum and divides by world size at a fixed point. Integer
+tensors are rejected for `mean`.
 
-For `op="mean"`, RL-Kernel performs a sum and divides by `world_size` at a
-fixed point. Integer tensors are not accepted for `mean`.
+## Ordered-Rank Reference
 
-## Modes
-
-### `ordered_rank_fallback`
-
-This is the slow reference mode. Each rank contributes a tensor through
-`torch.distributed.all_gather`. Rank 0 then accumulates the gathered tensors in
-ascending global rank order, casts the result back to the original dtype, and
-broadcasts it to every rank.
-
-The operation order is:
+`ordered_rank_reference` is a reference path, not a high-performance transport.
+It uses `all_gather` and `broadcast`, so the active backend must support those
+collectives for the tensor device. The operation order is:
 
 1. make each rank input contiguous;
-2. gather rank inputs in global-rank order;
-3. on rank 0, accumulate rank `0, 1, ..., world_size - 1`;
-4. use FP32 accumulation for floating-point tensors when configured;
+2. gather tensors in process-group rank order;
+3. accumulate on process-group rank 0 in that order;
+4. optionally accumulate floating-point inputs in FP32;
 5. divide once for `op="mean"`;
-6. broadcast the final tensor from rank 0.
+6. broadcast from process-group rank 0.
 
-This path is memory-heavy because every rank receives the gathered input list. It
-is intended for small validation tensors, unsupported-hardware fallbacks, and
-test or debug oracles.
+This mode is meant for small tensors in tests, debug runs, and reference
+comparisons.
 
-### `nccl_ring`
+## Torch All-Reduce
 
-This mode uses `torch.distributed.all_reduce` and optionally the NCCL environment
-helper below. It is a fast path, not a blanket promise of bitwise determinism
-across all NCCL versions and hardware. Validate it on the target machine before
-claiming support.
-
-Call `configure_deterministic_nccl_env()` before
-`torch.distributed.init_process_group` when using NCCL:
+`torch_all_reduce` is a thin wrapper around `torch.distributed.all_reduce`. For
+NCCL runs, callers may set best-effort ring settings before process-group
+initialization:
 
 ```python
 from rl_engine.distributed import configure_deterministic_nccl_env
@@ -60,8 +44,7 @@ from rl_engine.distributed import configure_deterministic_nccl_env
 configure_deterministic_nccl_env(overwrite=True)
 ```
 
-The helper sets these variables when they are unset, or overwrites them when
-`overwrite=True`:
+The helper writes:
 
 ```bash
 NCCL_ALGO=Ring
@@ -70,36 +53,25 @@ NCCL_MIN_NCHANNELS=1
 NCCL_MAX_NCHANNELS=1
 ```
 
-If the process group is already initialized, the helper warns because NCCL may
-have already consumed its collective configuration.
+These settings do not prove bitwise determinism. Validate on the target machine
+before making a hardware-specific claim.
 
-## Fallback Behavior
+## Behavior
 
-- If `torch.distributed` is unavailable, RL-Kernel raises a clear runtime error.
-- If no process group is initialized and `WORLD_SIZE` is unset or `1`, the helper
-  returns the input tensor unchanged.
-- If no process group is initialized and `WORLD_SIZE > 1`, the helper raises a
-  runtime error.
-- If `world_size == 1`, the helper returns the input tensor unchanged.
-- `async_op=True` is not implemented for the deterministic helper.
+- `world_size == 1`: returns the input tensor unchanged.
+- no initialized process group and `WORLD_SIZE <= 1`: returns the input tensor unchanged.
+- no initialized process group and `WORLD_SIZE > 1`: raises `RuntimeError`.
+- `async_op=True`: raises `NotImplementedError`.
 
 ## Smoke Tests
 
-Run the unit checks:
+Unit and CPU/Gloo smoke checks:
 
 ```bash
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/distributed/test_deterministic_allreduce.py -q
 ```
 
-Run the ordered fallback smoke on CPU/Gloo:
-
-```bash
-torchrun --standalone --nproc_per_node=2 \
-  tests/distributed/test_deterministic_allreduce.py \
-  --backend gloo --mode ordered_rank_fallback --dtype fp32 --device cpu
-```
-
-Run the NCCL ring smoke on two GPUs:
+Manual NCCL all-reduce smoke:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1 \
@@ -109,49 +81,20 @@ NCCL_MIN_NCHANNELS=1 \
 NCCL_MAX_NCHANNELS=1 \
 torchrun --standalone --nproc_per_node=2 \
   tests/distributed/test_deterministic_allreduce.py \
-  --backend nccl --mode nccl_ring --dtype fp32 --device cuda
+  --backend nccl --mode torch_all_reduce --dtype fp32 --device cuda
 ```
 
-The smoke test prints rank-0 JSON with `max_abs_diff`, `max_rel_diff`,
-`mismatch_count`, and `bitwise_equal`.
-
-## DP Gradient Smoke Test
-
-The DP gradient smoke test compares a DP=1 baseline gradient on a fixed global
-batch against DP=N local gradients reduced with `deterministic_all_reduce(...,
-op="mean")`.
-
-Run the CPU/Gloo fallback test:
+DP gradient smoke compares a fixed DP=1 full-batch gradient with DP=N local
+gradients reduced by this helper:
 
 ```bash
 torchrun --standalone --nproc_per_node=2 \
   tests/distributed/test_dp_gradient_determinism.py \
-  --backend gloo --mode ordered_rank_fallback --dtype fp32 --device cpu
+  --backend gloo --mode ordered_rank_reference --dtype fp32 --device cpu
 ```
 
-Run the NCCL ring test on GPUs:
+## Limitations
 
-```bash
-CUDA_VISIBLE_DEVICES=0,1 \
-NCCL_ALGO=Ring \
-NCCL_PROTO=Simple \
-NCCL_MIN_NCHANNELS=1 \
-NCCL_MAX_NCHANNELS=1 \
-torchrun --standalone --nproc_per_node=2 \
-  tests/distributed/test_dp_gradient_determinism.py \
-  --backend nccl --mode nccl_ring --dtype fp32 --device cuda
-```
-
-The DP smoke reports aggregate and per-parameter `max_abs_diff`,
-`max_rel_diff`, `mismatch_count`, and `bitwise_equal` fields. The DP=N path is
-expected to match the DP=1 baseline within tolerance; it is not required to be
-bitwise equal because the model backward pass and cross-rank gradient averaging
-use a different arithmetic grouping than the single-rank full-batch backward.
-
-## Current Limitations
-
-- NVLS / NVLink-Sharp is not claimed by this helper. It needs a separate probe
-  with NCCL logs that prove NVLS was used.
-- Multi-node and RDMA behavior are not validated by this document.
-- DeepSpeed gradient synchronization order is not controlled by this helper
-  until a tested integration point is added.
+- NVLS / NVLink-Sharp is not implemented or claimed here.
+- Multi-node and RDMA behavior are not validated here.
+- DeepSpeed gradient synchronization is not controlled by this helper yet.

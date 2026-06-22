@@ -6,9 +6,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
+import pytest
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
@@ -49,13 +53,51 @@ def test_fixed_batch_is_reproducible():
     assert torch.equal(first[1], second[1])
 
 
+def test_dp_gradient_gloo_smoke_runs_under_torchrun():
+    if not (dist.is_available() and dist.is_gloo_available()):
+        pytest.skip("Gloo is unavailable")
+
+    repo = Path(__file__).resolve().parents[2]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = f"{repo}{os.pathsep}{env.get('PYTHONPATH', '')}"
+    cmd = [
+        sys.executable,
+        "-m",
+        "torch.distributed.run",
+        "--standalone",
+        "--nproc_per_node=2",
+        str(Path(__file__).resolve()),
+        "--backend",
+        "gloo",
+        "--mode",
+        "ordered_rank_reference",
+        "--dtype",
+        "fp32",
+        "--device",
+        "cpu",
+    ]
+    completed = subprocess.run(
+        cmd,
+        cwd=repo,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stdout
+    assert '"status": "pass"' in completed.stdout
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="DP gradient determinism smoke test")
     parser.add_argument("--backend", choices=("gloo", "nccl"), default="gloo")
     parser.add_argument(
         "--mode",
-        choices=("ordered_rank_fallback", "nccl_ring"),
-        default="ordered_rank_fallback",
+        choices=("ordered_rank_reference", "torch_all_reduce"),
+        default="ordered_rank_reference",
     )
     parser.add_argument("--dtype", choices=("fp32", "fp16", "bf16"), default="fp32")
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
@@ -221,7 +263,7 @@ def _compare_gradients(
 
 
 def _run_distributed_smoke(args: argparse.Namespace) -> None:
-    if args.configure_nccl_env or (args.backend == "nccl" and args.mode == "nccl_ring"):
+    if args.configure_nccl_env or (args.backend == "nccl" and args.mode == "torch_all_reduce"):
         configure_deterministic_nccl_env()
     device = _device(args)
     _set_deterministic_controls(args.seed)

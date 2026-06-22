@@ -21,9 +21,9 @@ DETERMINISTIC_NCCL_ENV = {
 
 @dataclass(frozen=True)
 class DeterministicAllReduceConfig:
-    """Configuration for :func:`deterministic_all_reduce`."""
+    """Options for :func:`deterministic_all_reduce`."""
 
-    mode: Literal["nccl_ring", "ordered_rank_fallback"] = "nccl_ring"
+    mode: Literal["torch_all_reduce", "ordered_rank_reference"] = "torch_all_reduce"
     op: Literal["sum", "mean"] = "sum"
     force_fp32_accumulation: bool = True
     async_op: bool = False
@@ -31,21 +31,11 @@ class DeterministicAllReduceConfig:
 
 
 def configure_deterministic_nccl_env(*, overwrite: bool = False) -> dict[str, Optional[str]]:
-    """Configure the opt-in NCCL single-ring fast path environment.
-
-    NCCL reads these variables during process-group initialization, so callers
-    should run this helper before ``torch.distributed.init_process_group``. The
-    helper returns the previous values so callers can log or restore them.
-
-    Existing environment values are preserved by default. Pass
-    ``overwrite=True`` to force the RL-Kernel deterministic NCCL settings.
-    """
+    """Set best-effort NCCL ring settings before process-group init."""
 
     if dist.is_available() and dist.is_initialized():
         warnings.warn(
-            "configure_deterministic_nccl_env() was called after "
-            "torch.distributed was initialized; NCCL may have already read its "
-            "collective configuration.",
+            "NCCL environment was configured after torch.distributed initialization",
             RuntimeWarning,
             stacklevel=2,
         )
@@ -55,10 +45,10 @@ def configure_deterministic_nccl_env(*, overwrite: bool = False) -> dict[str, Op
         previous[key] = os.environ.get(key)
         if overwrite or key not in os.environ:
             os.environ[key] = value
-        elif os.environ[key] != value:
+            continue
+        if os.environ[key] != value:
             warnings.warn(
-                f"{key} is already set to {os.environ[key]!r}; leaving it unchanged. "
-                f"Pass overwrite=True to set {value!r}.",
+                f"{key} is {os.environ[key]!r}; expected {value!r}",
                 RuntimeWarning,
                 stacklevel=2,
             )
@@ -69,58 +59,41 @@ def deterministic_all_reduce(
     tensor: torch.Tensor,
     config: Optional[DeterministicAllReduceConfig] = None,
 ) -> torch.Tensor:
-    """Reduce ``tensor`` in place and return it.
-
-    ``mode="nccl_ring"`` uses ``torch.distributed.all_reduce``. Call
-    :func:`configure_deterministic_nccl_env` before process-group initialization
-    when using NCCL and single-ring/single-channel behavior is desired.
-
-    ``mode="ordered_rank_fallback"`` gathers rank inputs, accumulates them on
-    rank 0 in ascending global rank order, and broadcasts the result. This path
-    is slow and memory-heavy, but it gives a concrete reference order for smoke
-    tests and unsupported hardware fallbacks.
-    """
+    """Reduce ``tensor`` in place and return it."""
 
     cfg = config or DeterministicAllReduceConfig()
-    _validate_config(tensor, cfg)
+    _validate(tensor, cfg)
 
     if cfg.async_op:
-        raise NotImplementedError("deterministic_all_reduce currently requires async_op=False")
-
+        raise NotImplementedError("async deterministic all-reduce is not implemented")
     if not dist.is_available():
-        raise RuntimeError("torch.distributed is unavailable in this PyTorch build")
-
+        raise RuntimeError("torch.distributed is unavailable")
     if not dist.is_initialized():
         if int(os.environ.get("WORLD_SIZE", "1")) > 1:
-            raise RuntimeError(
-                "torch.distributed is not initialized, but WORLD_SIZE indicates a "
-                "multi-rank launch"
-            )
+            raise RuntimeError("torch.distributed is not initialized")
         return tensor
 
     world_size = dist.get_world_size(group=cfg.group)
     if world_size == 1:
         return tensor
 
-    if cfg.mode == "nccl_ring":
-        return _all_reduce_fast_path(tensor, cfg, world_size)
-    if cfg.mode == "ordered_rank_fallback":
-        return _ordered_rank_fallback(tensor, cfg, world_size)
-    raise ValueError(f"unsupported deterministic all-reduce mode: {cfg.mode!r}")
+    if cfg.mode == "torch_all_reduce":
+        return _torch_all_reduce(tensor, cfg, world_size)
+    return _ordered_rank_reference(tensor, cfg, world_size)
 
 
-def _validate_config(tensor: torch.Tensor, cfg: DeterministicAllReduceConfig) -> None:
+def _validate(tensor: torch.Tensor, cfg: DeterministicAllReduceConfig) -> None:
     if not isinstance(tensor, torch.Tensor):
         raise TypeError(f"tensor must be a torch.Tensor, got {type(tensor)!r}")
+    if cfg.mode not in {"torch_all_reduce", "ordered_rank_reference"}:
+        raise ValueError(f"unsupported all-reduce mode: {cfg.mode!r}")
     if cfg.op not in {"sum", "mean"}:
         raise ValueError(f"unsupported reduction op: {cfg.op!r}")
-    if cfg.mode not in {"nccl_ring", "ordered_rank_fallback"}:
-        raise ValueError(f"unsupported deterministic all-reduce mode: {cfg.mode!r}")
     if cfg.op == "mean" and not (tensor.is_floating_point() or tensor.is_complex()):
         raise TypeError("op='mean' requires a floating-point or complex tensor")
 
 
-def _all_reduce_fast_path(
+def _torch_all_reduce(
     tensor: torch.Tensor,
     cfg: DeterministicAllReduceConfig,
     world_size: int,
@@ -131,7 +104,7 @@ def _all_reduce_fast_path(
     return tensor
 
 
-def _ordered_rank_fallback(
+def _ordered_rank_reference(
     tensor: torch.Tensor,
     cfg: DeterministicAllReduceConfig,
     world_size: int,
@@ -140,24 +113,34 @@ def _ordered_rank_fallback(
     gathered = [torch.empty_like(send) for _ in range(world_size)]
     dist.all_gather(gathered, send, group=cfg.group)
 
-    rank = dist.get_rank(group=cfg.group)
     result = torch.empty_like(send)
-    if rank == 0:
-        accumulation_dtype = _accumulation_dtype(send, cfg.force_fp32_accumulation)
-        reduced = gathered[0].to(dtype=accumulation_dtype)
-        for rank_tensor in gathered[1:]:
-            reduced.add_(rank_tensor.to(dtype=accumulation_dtype))
+    if dist.get_rank(group=cfg.group) == 0:
+        dtype = _accumulation_dtype(send, cfg.force_fp32_accumulation)
+        reduced = gathered[0].to(dtype=dtype)
+        for item in gathered[1:]:
+            reduced.add_(item.to(dtype=dtype))
         if cfg.op == "mean":
             reduced.div_(world_size)
         result.copy_(reduced.to(dtype=send.dtype))
 
-    dist.broadcast(result, src=0, group=cfg.group)
+    dist.broadcast(result, src=_group_root_global_rank(cfg.group), group=cfg.group)
     tensor.copy_(result.view_as(tensor))
     return tensor
 
 
-def _accumulation_dtype(tensor: torch.Tensor, force_fp32_accumulation: bool) -> torch.dtype:
-    if not force_fp32_accumulation or not tensor.is_floating_point():
+def _group_root_global_rank(group: Optional[dist.ProcessGroup]) -> int:
+    if group is None:
+        return 0
+    try:
+        return int(dist.get_global_rank(group, 0))
+    except AttributeError as exc:
+        raise RuntimeError(
+            "custom process groups require torch.distributed.get_global_rank"
+        ) from exc
+
+
+def _accumulation_dtype(tensor: torch.Tensor, force_fp32: bool) -> torch.dtype:
+    if not force_fp32 or not tensor.is_floating_point():
         return tensor.dtype
     if tensor.dtype == torch.float64:
         return torch.float64
