@@ -115,6 +115,39 @@ torchrun --standalone --nproc_per_node=2 \
 The smoke test prints rank-0 JSON with `max_abs_diff`, `max_rel_diff`,
 `mismatch_count`, and `bitwise_equal`.
 
+## DP Gradient Smoke Test
+
+The DP gradient smoke test compares a DP=1 baseline gradient on a fixed global
+batch against DP=N local gradients reduced with `deterministic_all_reduce(...,
+op="mean")`.
+
+Run the CPU/Gloo fallback test:
+
+```bash
+torchrun --standalone --nproc_per_node=2 \
+  tests/distributed/test_dp_gradient_determinism.py \
+  --backend gloo --mode ordered_rank_fallback --dtype fp32 --device cpu
+```
+
+Run the NCCL ring test on GPUs:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 \
+NCCL_ALGO=Ring \
+NCCL_PROTO=Simple \
+NCCL_MIN_NCHANNELS=1 \
+NCCL_MAX_NCHANNELS=1 \
+torchrun --standalone --nproc_per_node=2 \
+  tests/distributed/test_dp_gradient_determinism.py \
+  --backend nccl --mode nccl_ring --dtype fp32 --device cuda
+```
+
+The DP smoke reports aggregate and per-parameter `max_abs_diff`,
+`max_rel_diff`, `mismatch_count`, and `bitwise_equal` fields. The DP=N path is
+expected to match the DP=1 baseline within tolerance; it is not required to be
+bitwise equal because the model backward pass and cross-rank gradient averaging
+use a different arithmetic grouping than the single-rank full-batch backward.
+
 ## Current Limitations
 
 - NVLS / NVLink-Sharp is not claimed by this helper. It needs a separate probe
