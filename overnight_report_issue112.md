@@ -20,43 +20,90 @@
 - Created local working branch `cse/issue-112-deterministic-nccl`.
 - Audited repository call sites for all-reduce, reduce-scatter, all-gather,
   DDP/FSDP, DeepSpeed, NCCL, and gradient synchronization keywords.
-- Added a distributed audit document.
+- Added `docs/distributed/deterministic_allreduce_audit.md`.
 - Created an isolated workspace-local Python environment under `.codex-nightly/envs/issue112-py312`.
 - Installed PyTorch CUDA 12.8 and RL-Kernel dev/docs dependencies into that isolated environment.
+- Added `rl_engine.distributed.deterministic_allreduce` with:
+  - `configure_deterministic_nccl_env()`;
+  - `DeterministicAllReduceConfig`;
+  - `nccl_ring` fast path using `torch.distributed.all_reduce`;
+  - `ordered_rank_fallback` using all-gather, rank-ordered accumulation on rank 0, and broadcast.
+- Added user-facing docs for deterministic all-reduce modes and fallback behavior.
+- Added a torchrun-compatible distributed smoke test.
 
 ## Commits created
 
-- `docs(distributed): audit all-reduce call sites for issue 112`
+- `2bccb64 docs(distributed): audit all-reduce call sites for issue 112`
+- `feat(distributed): add deterministic all-reduce helper`
 
 ## Files changed
 
 - `docs/.nav.yml`
 - `docs/distributed/deterministic_allreduce_audit.md`
+- `docs/distributed/deterministic_allreduce.md`
+- `rl_engine/distributed/__init__.py`
+- `rl_engine/distributed/deterministic_allreduce.py`
+- `tests/distributed/test_deterministic_allreduce.py`
 - `overnight_report_issue112.md`
 
 ## Tests run
 
 - `git diff --check`
 - `.codex-nightly/envs/issue112-py312/bin/python -c "import torch; ..."`
+- `.codex-nightly/envs/issue112-py312/bin/black --check --line-length 100 rl_engine/distributed tests/distributed/test_deterministic_allreduce.py`
+- `.codex-nightly/envs/issue112-py312/bin/isort --check-only --profile black --line-length 100 rl_engine/distributed tests/distributed/test_deterministic_allreduce.py`
+- `.codex-nightly/envs/issue112-py312/bin/flake8 --max-line-length=100 --extend-ignore=E203,E704 rl_engine/distributed tests/distributed/test_deterministic_allreduce.py`
+- `.codex-nightly/envs/issue112-py312/bin/ruff check rl_engine/distributed tests/distributed/test_deterministic_allreduce.py`
+- `.codex-nightly/envs/issue112-py312/bin/python -m mypy --ignore-missing-imports rl_engine/distributed`
+- `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .codex-nightly/envs/issue112-py312/bin/python -m pytest tests/distributed/test_deterministic_allreduce.py -q`
+- `.codex-nightly/envs/issue112-py312/bin/torchrun --standalone --nproc_per_node=2 tests/distributed/test_deterministic_allreduce.py --backend gloo --mode ordered_rank_fallback --dtype fp32 --device cpu`
+- `CUDA_VISIBLE_DEVICES=0,1 NCCL_ALGO=Ring NCCL_PROTO=Simple NCCL_MIN_NCHANNELS=1 NCCL_MAX_NCHANNELS=1 .codex-nightly/envs/issue112-py312/bin/torchrun --standalone --nproc_per_node=2 tests/distributed/test_deterministic_allreduce.py --backend nccl --mode nccl_ring --dtype fp32 --device cuda`
+- `CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 NCCL_ALGO=Ring NCCL_PROTO=Simple NCCL_MIN_NCHANNELS=1 NCCL_MAX_NCHANNELS=1 .codex-nightly/envs/issue112-py312/bin/torchrun --standalone --nproc_per_node=8 tests/distributed/test_deterministic_allreduce.py --backend nccl --mode nccl_ring --dtype fp32 --device cuda`
+- `CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 .codex-nightly/envs/issue112-py312/bin/torchrun --standalone --nproc_per_node=8 tests/distributed/test_deterministic_allreduce.py --backend nccl --mode ordered_rank_fallback --dtype fp32 --device cuda`
 - `.codex-nightly/envs/issue112-py312/bin/mkdocs build --strict -f mkdocs.yaml`
+- `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .codex-nightly/envs/issue112-py312/bin/python -m pytest rl_engine/tests/test_dispatch.py -v`
 
 ## Test results
 
 - `git diff --check` passed.
 - PyTorch environment check passed: CUDA available, 8 devices visible, NCCL available.
-- `mkdocs build --strict -f mkdocs.yaml` passed. It emitted expected git revision-date warnings for the new uncommitted audit doc.
+- black, isort, flake8, ruff, and mypy passed for the new Python files.
+- `tests/distributed/test_deterministic_allreduce.py`: 3 passed.
+- 2-rank CPU/Gloo ordered fallback smoke passed with bitwise equality.
+- 2-rank CUDA/NCCL `nccl_ring` smoke passed with bitwise equality against the ordered fallback oracle.
+- 8-rank CUDA/NCCL `nccl_ring` smoke passed within tolerance against the ordered fallback oracle; it was not bitwise equal.
+- 8-rank CUDA/NCCL ordered fallback smoke passed with bitwise equality.
+- `mkdocs build --strict -f mkdocs.yaml` passed. It emitted expected git revision-date warnings for new uncommitted docs.
+- `rl_engine/tests/test_dispatch.py`: 3 passed.
 
 ## GPU validation results
 
-No distributed GPU validation has been run yet. `nvidia-smi` is available and reports 8 GPUs. The isolated venv can import PyTorch with CUDA and NCCL support.
+Current machine is 8x `NVIDIA L20X`, not H200. No H200- or NVLS-specific claim is made.
+
+2-rank NCCL ring smoke result:
+
+```json
+{"backend":"nccl","bitwise_equal":true,"device":"cuda:0","dtype":"fp32","iterations":3,"max_abs_diff":0.0,"max_rel_diff":0.0,"mismatch_count":0,"mode":"nccl_ring","op":"sum","status":"pass","world_size":2}
+```
+
+8-rank NCCL ring smoke result:
+
+```json
+{"backend":"nccl","bitwise_equal":false,"device":"cuda:0","dtype":"fp32","iterations":3,"max_abs_diff":4.76837158203125e-07,"max_rel_diff":3.2424927098873013e-07,"mismatch_count":62,"mode":"nccl_ring","op":"sum","status":"pass","world_size":8}
+```
+
+8-rank ordered fallback smoke result:
+
+```json
+{"backend":"nccl","bitwise_equal":true,"device":"cuda:0","dtype":"fp32","iterations":3,"max_abs_diff":0.0,"max_rel_diff":0.0,"mismatch_count":0,"mode":"ordered_rank_fallback","op":"sum","status":"pass","world_size":8}
+```
 
 ## PR split recommendation
 
 - PR 1: audit and deterministic all-reduce contract documentation.
-- PR 2: deterministic all-reduce helper with ordered rank fallback and smoke
-  tests.
-- PR 3: NCCL ring fast path and GPU validation report, after PyTorch/NCCL runtime
-  is available.
+- PR 2: deterministic all-reduce helper with ordered rank fallback and smoke tests.
+- PR 3: DP gradient fixed-step comparison against a DP=1 baseline.
+- PR 4: NVLS/NVLink-Sharp probe and documentation only if hardware and logs prove it.
 
 ## PR body files created
 
@@ -66,24 +113,25 @@ None yet.
 
 - `python` is not available on PATH.
 - System `python3 -m venv` cannot create venvs because `ensurepip` is unavailable; used workspace-local `virtualenv` bootstrap instead.
-- Current GPU model reported by `nvidia-smi` is `NVIDIA L20X`, not the H200 model
-  assumed by the original overnight manual.
+- Current GPU model reported by `nvidia-smi` is `NVIDIA L20X`, not the H200 model assumed by the original overnight manual.
+- NVLS has not been probed or validated.
+- DeepSpeed DP gradient synchronization order is not controlled by the new helper yet.
 
 ## Unsafe operations skipped
 
 - No push attempted.
 - No system dependency installation attempted; all Python dependencies were installed under `.codex-nightly/`.
 - No upstream branch or PR creation attempted.
+- No sudo used.
 
 ## Remaining work
 
-- Commit the audit phase.
-- Add deterministic all-reduce helper API and focused distributed tests.
-- Use `.codex-nightly/envs/issue112-py312` for GPU/NCCL validation.
-- Prepare PR body drafts and patch artifacts.
+- Commit the deterministic all-reduce helper phase.
+- Add DP gradient all-reduce deterministic fixed-step comparison.
+- Prepare PR body drafts.
+- Generate patch artifacts under `.codex-nightly/artifacts` if push/PR remains unsafe.
+- Probe NVLS only if the current hardware/software setup clearly supports it.
 
 ## Suggested next Codex prompt
 
-Continue issue #112 from `overnight_report_issue112.md`. Prioritize the next
-reviewable phase: add `rl_engine.distributed.deterministic_allreduce` with an
-ordered-rank fallback and focused smoke tests, then update this report.
+Continue issue #112 from `overnight_report_issue112.md`. Prioritize the next reviewable phase: add a DP gradient deterministic fixed-step test comparing DP=1 gradients against DP=N reduced gradients, then update this report.
