@@ -19,6 +19,8 @@ nav:
     - General:
       - contributing/*
       - contributing/operator-doc-template.md
+    - Distributed:
+      - distributed/*
     - Design Documents:
       - design/*
   - Benchmarking:
