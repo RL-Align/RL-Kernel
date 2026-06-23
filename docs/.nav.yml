@@ -11,6 +11,7 @@ nav:
     - Operators:
       - operators/README.md
       - operators/fused-logp.md
+      - operators/linear-logp.md
       - operators/grpo-loss.md
       - operators/ratio-kl.md
       - operators/sampling.md

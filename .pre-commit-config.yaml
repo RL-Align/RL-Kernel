@@ -7,7 +7,7 @@ repos:
       - id: check-yaml
         exclude: 'mkdocs\.yaml$'
       - id: check-added-large-files
-        exclude: 'docs/assets/logo\.png$'
+        exclude: 'docs/assets/.*'
 
   - repo: https://github.com/psf/black
     rev: 24.4.2
