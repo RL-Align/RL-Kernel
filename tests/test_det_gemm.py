@@ -14,6 +14,7 @@ from rl_engine.kernels.ops.cuda.matmul import deterministic_gemm
 
 try:
     from rl_engine.kernels.ops.triton.matmul import deterministic_gemm_triton
+
     _HAS_TRITON = True
 except ImportError:
     _HAS_TRITON = False
@@ -44,7 +45,8 @@ def test_forward_batch_invariance(name, gemm):
     b = _rand(K, N)
     row = _rand(1, K)
     out1 = gemm(row, b)
-    big = _rand(512, K); big[0] = row[0]
+    big = _rand(512, K)
+    big[0] = row[0]
     outN = gemm(big, b)
     assert torch.equal(out1[0], outN[0]), f"{name}: forward batch-invariance broken"
 
@@ -92,7 +94,8 @@ def test_backward_batch_invariance(name, gemm):
     row = _rand(1, K).requires_grad_(True)
     gemm(row, b).sum().backward()
     g1 = row.grad.clone()
-    big = _rand(256, K); big[0] = row.detach()[0]
+    big = _rand(256, K)
+    big[0] = row.detach()[0]
     big.requires_grad_(True)
     gemm(big, b).sum().backward()
     assert torch.equal(g1[0], big.grad[0]), f"{name}: backward dA batch-invariance broken"
@@ -115,20 +118,24 @@ def test_backward_correctness(name, gemm):
 
 
 @pytest.mark.parametrize("name,gemm", _BACKENDS)
-@pytest.mark.parametrize("shape", [
-    (4096, 4096, 12288),   # qkv
-    (4096, 4096, 4096),    # o_proj
-    (4096, 4096, 14336),   # mlp_up
-    (4096, 14336, 4096),   # mlp_dn
-    (4096, 4096, 32000),   # lm_head
-])
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (4096, 4096, 12288),  # qkv
+        (4096, 4096, 4096),  # o_proj
+        (4096, 4096, 14336),  # mlp_up
+        (4096, 14336, 4096),  # mlp_dn
+        (4096, 4096, 32000),  # lm_head
+    ],
+)
 def test_target_shapes_invariance(name, gemm, shape):
     # Standard-Transformer projection shapes stay batch-invariant.
     torch.manual_seed(6)
     M, K, N = shape
     b = _rand(K, N)
     row = _rand(1, K)
-    big = _rand(64, K); big[0] = row[0]
+    big = _rand(64, K)
+    big[0] = row[0]
     assert torch.equal(
         gemm(row, b)[0], gemm(big, b)[0]
     ), f"{name}: batch-invariance broken at shape {shape}"

@@ -27,9 +27,21 @@ if _TRITON_AVAILABLE:
 
     @triton.jit
     def _det_gemm_kernel(
-        a_ptr, b_ptr, c_ptr, M, N, K,
-        stride_am, stride_ak, stride_bk, stride_bn, stride_cm, stride_cn,
-        BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr,
+        a_ptr,
+        b_ptr,
+        c_ptr,
+        M,
+        N,
+        K,
+        stride_am,
+        stride_ak,
+        stride_bk,
+        stride_bn,
+        stride_cm,
+        stride_cn,
+        BLOCK_M: tl.constexpr,
+        BLOCK_N: tl.constexpr,
+        BLOCK_K: tl.constexpr,
     ):
         # One program = one output tile, walks the whole K in fixed order.
         # No split-K -> K-accumulation order independent of M -> batch-invariant.
@@ -60,9 +72,21 @@ def _triton_gemm(a, b):
     c = torch.empty((M, N), device=a.device, dtype=a.dtype)
     grid = (triton.cdiv(M, _BLOCK_M), triton.cdiv(N, _BLOCK_N))
     _det_gemm_kernel[grid](
-        a, b, c, M, N, K,
-        a.stride(0), a.stride(1), b.stride(0), b.stride(1), c.stride(0), c.stride(1),
-        BLOCK_M=_BLOCK_M, BLOCK_N=_BLOCK_N, BLOCK_K=_BLOCK_K,
+        a,
+        b,
+        c,
+        M,
+        N,
+        K,
+        a.stride(0),
+        a.stride(1),
+        b.stride(0),
+        b.stride(1),
+        c.stride(0),
+        c.stride(1),
+        BLOCK_M=_BLOCK_M,
+        BLOCK_N=_BLOCK_N,
+        BLOCK_K=_BLOCK_K,
     )
     return c
 

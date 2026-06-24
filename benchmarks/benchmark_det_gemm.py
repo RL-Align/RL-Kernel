@@ -8,6 +8,7 @@ no TF32). Reports overhead vs the fair baseline (cuBLAS, TF32 disabled), not a
 speedup. The naive CUDA kernel is correctness-first; a tensor-core pass follows.
 """
 import argparse
+
 import torch
 
 from rl_engine.kernels.ops.cuda.matmul import deterministic_gemm
@@ -15,6 +16,7 @@ from rl_engine.kernels.ops.pytorch.matmul import native_gemm
 
 try:
     from rl_engine.kernels.ops.triton.matmul import deterministic_gemm_triton
+
     _HAS_TRITON = True
 except ImportError:
     _HAS_TRITON = False
@@ -23,10 +25,10 @@ DEV = "cuda"
 WARMUP, ITERS = 10, 50
 
 SHAPES = [
-    ("qkv",     4096, 4096, 12288),
-    ("o_proj",  4096, 4096, 4096),
-    ("mlp_up",  4096, 4096, 14336),
-    ("mlp_dn",  4096, 14336, 4096),
+    ("qkv", 4096, 4096, 12288),
+    ("o_proj", 4096, 4096, 4096),
+    ("mlp_up", 4096, 4096, 14336),
+    ("mlp_dn", 4096, 14336, 4096),
     ("lm_head", 4096, 4096, 32000),
 ]
 
@@ -61,15 +63,22 @@ def run():
 
 
 def to_markdown(rows, dev, cap):
-    out = [f"## det_gemm overhead — {dev} (SM{cap[0]}{cap[1]})", "",
-           "| shape | M | K | N | cuBLAS tf32 | cuBLAS fp32 | det CUDA | det Triton | overhead |",
-           "|---|---|---|---|---|---|---|---|---|"]
+    out = [
+        f"## det_gemm overhead — {dev} (SM{cap[0]}{cap[1]})",
+        "",
+        "| shape | M | K | N | cuBLAS tf32 | cuBLAS fp32 | det CUDA | det Triton | overhead |",
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
     for n, M, K, N, t1, t2, t3, t4, ov in rows:
-        out.append(f"| {n} | {M} | {K} | {N} | {t1:.3f} | {t2:.3f} | {t3:.3f} | {t4:.3f} | {ov:.1f}x |")
-    out += ["",
-            "_Overhead = det CUDA vs cuBLAS (TF32 disabled). Naive CUDA kernel is "
-            "correctness-first; both det paths trade speed for bitwise "
-            "batch-invariance. Tensor-core pass is a follow-up (#146)._"]
+        out.append(
+            f"| {n} | {M} | {K} | {N} | {t1:.3f} | {t2:.3f} | {t3:.3f} | {t4:.3f} | {ov:.1f}x |"
+        )
+    out += [
+        "",
+        "_Overhead = det CUDA vs cuBLAS (TF32 disabled). Naive CUDA kernel is "
+        "correctness-first; both det paths trade speed for bitwise "
+        "batch-invariance. Tensor-core pass is a follow-up (#146)._",
+    ]
     return "\n".join(out)
 
 

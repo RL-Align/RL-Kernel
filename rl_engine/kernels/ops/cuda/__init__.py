@@ -1,2 +1,2 @@
 # append matmul to the existing imports
-from . import attention, loss, norm, matmul  # noqa: F401
+from . import attention, loss, matmul, norm  # noqa: F401
