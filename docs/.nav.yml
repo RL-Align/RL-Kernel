@@ -14,6 +14,7 @@ nav:
       - operators/fused-logp.md
       - operators/linear-logp.md
       - operators/grpo-loss.md
+      - operators/lm_head.md
       - operators/ratio-kl.md
       - operators/sampling.md
   - Developer Guide:
