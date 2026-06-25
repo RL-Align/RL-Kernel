@@ -72,6 +72,10 @@ jobs:
         run: |
           python -m pytest tests/test_attention.py -v -k "not large and not gpu"
 
+      - name: Run KV-Cache Attention Ground-Truth Tests (CPU-safe)
+        run: |
+          python -m pytest tests/test_kv_cache_attention.py -v -k "not large and not gpu"
+
   docs:
     runs-on: ubuntu-latest
     steps:
