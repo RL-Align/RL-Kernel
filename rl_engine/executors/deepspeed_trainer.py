@@ -7,6 +7,7 @@ import importlib
 import os
 import sysconfig
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Optional, TypeVar, overload
@@ -26,12 +27,9 @@ from rl_engine.executors.training_contract import (
     TrainingStageResult,
     objective_reference_logps,
 )
-from rl_engine.testing import (
-    compute_policy_ratio,
-    compute_reference_kl,
-    masked_mean,
-    selected_logprobs_reference,
-)
+from rl_engine.kernels.ops.pytorch.loss.linear_logp import NativeLinearLogpOp
+from rl_engine.kernels.registry import kernel_registry
+from rl_engine.testing import compute_policy_ratio, compute_reference_kl, masked_mean
 
 _TDestination = TypeVar("_TDestination", bound=dict[str, Any])
 
@@ -51,6 +49,25 @@ class DeepSpeedTrainingConfig(TorchRLTrainingConfig):
     def __post_init__(self) -> None:
         if self.zero_stage < 0:
             raise ValueError("zero_stage must be >= 0")
+
+
+class _EmbeddingLMHeadModel(torch.nn.Module):
+    def __init__(
+        self,
+        vocab_size: int,
+        hidden_dim: int,
+        *,
+        bias: bool = True,
+        tie_weights: bool = False,
+    ) -> None:
+        super().__init__()
+        self.embedding = torch.nn.Embedding(vocab_size, hidden_dim)
+        self.lm_head = torch.nn.Linear(hidden_dim, vocab_size, bias=bias)
+        if tie_weights:
+            self.lm_head.weight = self.embedding.weight
+
+    def forward(self, token_ids: torch.Tensor) -> torch.Tensor:
+        return self.embedding(token_ids.long())
 
 
 class DeepSpeedTrainingWorker(RolloutBatchMixin):
@@ -84,43 +101,39 @@ class DeepSpeedTrainingWorker(RolloutBatchMixin):
         deepspeed = _load_deepspeed()
         self._deepspeed = deepspeed
         torch.manual_seed(self.config.seed)
-        self.model = torch.nn.Sequential(
-            torch.nn.Embedding(self.config.vocab_size, self.config.hidden_dim),
-            torch.nn.Linear(self.config.hidden_dim, self.config.vocab_size),
+        self.model = _EmbeddingLMHeadModel(
+            self.config.vocab_size,
+            self.config.hidden_dim,
         ).to(device=self.device)
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr)
+        self._deepspeed_config = self._resolved_deepspeed_config()
+        self._deepspeed_zero_stage = _resolved_zero_stage(
+            self._deepspeed_config,
+            fallback=self.config.zero_stage,
+        )
 
         init_result = deepspeed.initialize(
             model=self.model,
             model_parameters=self.model.parameters(),
             optimizer=self.optimizer,
-            config=self._resolved_deepspeed_config(),
+            config=self._deepspeed_config,
             **dict(self.config.initialize_kwargs),
         )
         self.engine = _first_initialize_result(init_result)
         engine_device = getattr(self.engine, "device", None)
         if engine_device is not None:
             self.device = torch.device(engine_device)
+        self._linear_logp = _linear_logp_op_for_device(self.device)
 
     def train(self, rollout: RolloutStageResult) -> TrainingStageResult:
         started_at = time.perf_counter()
         batch, payload_metrics = self._batch_from_rollout_or_synthetic(rollout)
-
-        logits = _extract_logits(self.engine(batch.token_ids.long()))
-        current_logps = selected_logprobs_reference(
-            logits,
+        training_model = _unwrap_training_model(self.engine, self.model)
+        training_embedding = _embedding_layer(training_model)
+        _validate_model_input_token_ids(
             batch.token_ids,
-            mask=batch.completion_mask,
-            output_dtype=torch.float32,
+            vocab_size=training_embedding.num_embeddings,
         )
-        old_logps = current_logps.detach() - 0.01
-        ref_logps = objective_reference_logps(current_logps, batch)
-        ratio = compute_policy_ratio(current_logps, old_logps, batch.completion_mask)
-        unclipped = ratio * batch.advantages.float()
-        clipped = torch.clamp(ratio, 0.8, 1.2) * batch.advantages.float()
-        policy_loss = -torch.minimum(unclipped, clipped)
-        kl = compute_reference_kl(current_logps, ref_logps, batch.completion_mask)
-        loss = masked_mean(policy_loss + 0.01 * kl, batch.completion_mask)
 
         if hasattr(self.engine, "zero_grad"):
             try:
@@ -129,7 +142,30 @@ class DeepSpeedTrainingWorker(RolloutBatchMixin):
                 self.engine.zero_grad()
         elif hasattr(self.optimizer, "zero_grad"):
             self.optimizer.zero_grad(set_to_none=True)
-        self.engine.backward(loss)
+
+        with _linear_logp_parameter_context(
+            self._deepspeed,
+            training_model,
+            zero_stage=self._deepspeed_zero_stage,
+            world_size=self._engine_world_size(),
+        ):
+            current_logps = _extract_logps(
+                self.engine(batch.token_ids.long()),
+                training_model,
+                batch.token_ids,
+                batch.completion_mask,
+                self._linear_logp,
+                output_dtype=torch.float32,
+            )
+            old_logps = current_logps.detach() - 0.01
+            ref_logps = objective_reference_logps(current_logps, batch)
+            ratio = compute_policy_ratio(current_logps, old_logps, batch.completion_mask)
+            unclipped = ratio * batch.advantages.float()
+            clipped = torch.clamp(ratio, 0.8, 1.2) * batch.advantages.float()
+            policy_loss = -torch.minimum(unclipped, clipped)
+            kl = compute_reference_kl(current_logps, ref_logps, batch.completion_mask)
+            loss = masked_mean(policy_loss + 0.01 * kl, batch.completion_mask)
+            self.engine.backward(loss)
         self.engine.step()
 
         finished_at = time.perf_counter()
@@ -146,7 +182,9 @@ class DeepSpeedTrainingWorker(RolloutBatchMixin):
                 "training_backend": "deepspeed",
                 "training_device": str(self.device),
                 "deepspeed_engine": type(self.engine).__name__,
-                "deepspeed_zero_stage": self.config.zero_stage,
+                "deepspeed_zero_stage": self._deepspeed_zero_stage,
+                "current_logp_path": "linear_logp",
+                "current_logp_backend": type(self._linear_logp).__name__,
                 "active_advantage_mean_global": (
                     float(active_advantages.mean().detach().cpu().item())
                     if active_advantages.numel()
@@ -180,14 +218,14 @@ class DeepSpeedTrainingWorker(RolloutBatchMixin):
         manifest_metadata = dict(metadata or {})
         layout = {
             "kind": "full-state",
-            "zero_stage": self.config.zero_stage,
+            "zero_stage": self._deepspeed_zero_stage,
             "world_size": self._engine_world_size(),
             "rank": self._engine_rank(),
         }
         layout.update(dict(manifest_metadata.get("layout", {})))
         manifest_metadata["layout"] = layout
         publish_model: torch.nn.Module = self.model
-        if self.config.zero_stage >= 3:
+        if self._deepspeed_zero_stage >= 3:
             publish_model, export_metadata = self._export_zero3_full_state_model()
             manifest_metadata["deepspeed_zero3_full_state_export"] = export_metadata
         return self.weight_bridge.publish(
@@ -361,6 +399,15 @@ def _first_initialize_result(init_result: Any) -> Any:
     return init_result
 
 
+def _resolved_zero_stage(config: Mapping[str, Any], *, fallback: int) -> int:
+    zero_config = config.get("zero_optimization")
+    if isinstance(zero_config, Mapping):
+        return int(zero_config.get("stage", fallback))
+    if zero_config is False:
+        return 0
+    return int(fallback)
+
+
 def _extract_logits(model_output: Any) -> torch.Tensor:
     if isinstance(model_output, torch.Tensor):
         return model_output
@@ -372,6 +419,226 @@ def _extract_logits(model_output: Any) -> torch.Tensor:
     if isinstance(model_output, (tuple, list)) and model_output:
         return _extract_logits(model_output[0])
     raise TypeError(f"DeepSpeed model output does not expose logits: {type(model_output)!r}")
+
+
+def _extract_hidden_states(
+    model_output: Any,
+    *,
+    expected_hidden_dim: Optional[int] = None,
+) -> torch.Tensor:
+    hidden = _coerce_hidden_tensor(model_output, expected_hidden_dim=expected_hidden_dim)
+    if hidden is None:
+        raise TypeError(
+            f"DeepSpeed model output does not expose a hidden-state tensor: {type(model_output)!r}"
+        )
+    return hidden
+
+
+def _linear_logp_op_for_device(device: torch.device | str) -> Any:
+    resolved = torch.device(device)
+    if resolved.type == "cpu":
+        return NativeLinearLogpOp()
+    return kernel_registry.get_op("linear_logp")
+
+
+def _unwrap_training_model(engine: Any, fallback_model: torch.nn.Module) -> torch.nn.Module:
+    model = getattr(engine, "module", None)
+    if isinstance(model, torch.nn.Module):
+        return model
+    return fallback_model
+
+
+def _embedding_layer(model: torch.nn.Module) -> torch.nn.Embedding:
+    embedding = getattr(model, "embedding", None)
+    if not isinstance(embedding, torch.nn.Embedding):
+        raise TypeError(
+            "DeepSpeed training model must expose an embedding torch.nn.Embedding for "
+            "model-input validation"
+        )
+    return embedding
+
+
+def _coerce_hidden_tensor(
+    candidate: Any,
+    *,
+    expected_hidden_dim: Optional[int] = None,
+) -> Optional[torch.Tensor]:
+    if isinstance(candidate, torch.Tensor):
+        return candidate if _looks_like_hidden_tensor(candidate, expected_hidden_dim) else None
+    if isinstance(candidate, Mapping):
+        for key in ("last_hidden_state", "hidden"):
+            value = candidate.get(key)
+            hidden = _coerce_hidden_tensor(value, expected_hidden_dim=expected_hidden_dim)
+            if hidden is not None:
+                return hidden
+        hidden_states = candidate.get("hidden_states")
+        hidden = _last_hidden_state_tensor(
+            hidden_states,
+            expected_hidden_dim=expected_hidden_dim,
+        )
+        if hidden is not None:
+            return hidden
+        return None
+    for attr in ("last_hidden_state", "hidden"):
+        if hasattr(candidate, attr):
+            hidden = _coerce_hidden_tensor(
+                getattr(candidate, attr),
+                expected_hidden_dim=expected_hidden_dim,
+            )
+            if hidden is not None:
+                return hidden
+    if hasattr(candidate, "hidden_states"):
+        hidden = _last_hidden_state_tensor(
+            getattr(candidate, "hidden_states"),
+            expected_hidden_dim=expected_hidden_dim,
+        )
+        if hidden is not None:
+            return hidden
+    if isinstance(candidate, (tuple, list)):
+        for item in candidate:
+            if _has_hidden_state_metadata(item):
+                hidden = _coerce_hidden_tensor(item, expected_hidden_dim=expected_hidden_dim)
+                if hidden is not None:
+                    return hidden
+        tensor_candidates = [
+            item
+            for item in candidate
+            if isinstance(item, torch.Tensor)
+            and _looks_like_hidden_tensor(item, expected_hidden_dim)
+        ]
+        if len(tensor_candidates) == 1:
+            return tensor_candidates[0]
+        if tensor_candidates:
+            max_ndim = max(tensor.ndim for tensor in tensor_candidates)
+            deepest = [tensor for tensor in tensor_candidates if tensor.ndim == max_ndim]
+            if len(deepest) == 1:
+                return deepest[0]
+        for item in candidate:
+            if isinstance(item, torch.Tensor):
+                continue
+            hidden = _coerce_hidden_tensor(item, expected_hidden_dim=expected_hidden_dim)
+            if hidden is not None:
+                return hidden
+    return None
+
+
+def _has_hidden_state_metadata(candidate: Any) -> bool:
+    if isinstance(candidate, Mapping):
+        return any(key in candidate for key in ("last_hidden_state", "hidden", "hidden_states"))
+    return any(
+        hasattr(candidate, attr) for attr in ("last_hidden_state", "hidden", "hidden_states")
+    )
+
+
+def _looks_like_hidden_tensor(
+    tensor: torch.Tensor,
+    expected_hidden_dim: Optional[int],
+) -> bool:
+    if tensor.ndim < 2:
+        return False
+    if expected_hidden_dim is not None and int(tensor.size(-1)) != int(expected_hidden_dim):
+        return False
+    return True
+
+
+def _last_hidden_state_tensor(
+    candidate: Any,
+    *,
+    expected_hidden_dim: Optional[int] = None,
+) -> Optional[torch.Tensor]:
+    if isinstance(candidate, torch.Tensor):
+        return candidate if _looks_like_hidden_tensor(candidate, expected_hidden_dim) else None
+    if isinstance(candidate, (tuple, list)):
+        for item in reversed(candidate):
+            hidden = _coerce_hidden_tensor(item, expected_hidden_dim=expected_hidden_dim)
+            if hidden is not None:
+                return hidden
+    return None
+
+
+def _safe_token_ids(token_ids: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+    safe_token_ids = token_ids.long()
+    if mask is None:
+        return safe_token_ids
+    active_mask = mask.to(device=safe_token_ids.device, dtype=torch.bool)
+    if active_mask.shape != safe_token_ids.shape:
+        raise ValueError(
+            f"mask shape {tuple(active_mask.shape)} must match token_ids shape "
+            f"{tuple(safe_token_ids.shape)}"
+        )
+    return safe_token_ids.masked_fill(~active_mask, 0)
+
+
+def _validate_model_input_token_ids(token_ids: torch.Tensor, *, vocab_size: int) -> None:
+    invalid = (token_ids < 0) | (token_ids >= int(vocab_size))
+    if bool(invalid.any().item()):
+        t_min = int(token_ids.min().item())
+        t_max = int(token_ids.max().item())
+        raise ValueError(
+            f"model input token_ids must be in [0, {int(vocab_size) - 1}], got "
+            f"[{t_min}, {t_max}]. Keep ignore-index / padding sentinels out of the model "
+            "input path and apply masking only at the logprob/loss stage."
+        )
+
+
+def _linear_logp_parameter_context(
+    deepspeed_runtime: Any,
+    model: torch.nn.Module,
+    *,
+    zero_stage: int,
+    world_size: int,
+) -> Any:
+    if int(zero_stage) < 3 or int(world_size) <= 1:
+        return nullcontext()
+
+    lm_head = getattr(model, "lm_head", None)
+    if not isinstance(lm_head, torch.nn.Linear):
+        raise TypeError(
+            "DeepSpeed training model must expose an lm_head torch.nn.Linear for ZeRO-3 "
+            "linear_logp gathering"
+        )
+
+    gathered_parameters = getattr(
+        getattr(deepspeed_runtime, "zero", None),
+        "GatheredParameters",
+        None,
+    )
+    if not callable(gathered_parameters):
+        raise WeightBridgeUnavailableError(
+            "DeepSpeed ZeRO-3 linear_logp training requires deepspeed.zero.GatheredParameters "
+            "or an equivalent full-parameter gather API."
+        )
+
+    parameters = [lm_head.weight]
+    if lm_head.bias is not None:
+        parameters.append(lm_head.bias)
+    return gathered_parameters(parameters, modifier_rank=None)
+
+
+def _extract_logps(
+    model_output: Any,
+    model: torch.nn.Module,
+    token_ids: torch.Tensor,
+    completion_mask: Optional[torch.Tensor],
+    linear_logp_op: Any,
+    *,
+    output_dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    lm_head = getattr(model, "lm_head", None)
+    if not isinstance(lm_head, torch.nn.Linear):
+        raise TypeError(
+            "DeepSpeed training model must expose an lm_head torch.nn.Linear for linear_logp"
+        )
+
+    hidden = _extract_hidden_states(
+        model_output,
+        expected_hidden_dim=int(lm_head.in_features),
+    )
+    targets = _safe_token_ids(token_ids.to(device=hidden.device), completion_mask)
+    logps = linear_logp_op(hidden, lm_head.weight, targets, lm_head.bias)
+    if completion_mask is not None:
+        logps = logps.masked_fill(~completion_mask.to(device=logps.device, dtype=torch.bool), 0.0)
+    return logps.to(dtype=output_dtype)
 
 
 class _StateDictModule(torch.nn.Module):
