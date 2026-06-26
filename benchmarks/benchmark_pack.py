@@ -181,9 +181,7 @@ def _pack_row(config: BenchmarkConfig) -> dict[str, Any]:
         device=config.device,
         dtype=config.dtype,
     )
-    lm_head = torch.randn(
-        (hidden_dim, config.vocab_size), device=config.device, dtype=config.dtype
-    )
+    lm_head = torch.randn((hidden_dim, config.vocab_size), device=config.device, dtype=config.dtype)
     mask = batch.completion_mask
     ids = batch.token_ids
 
@@ -230,7 +228,7 @@ def _pack_row(config: BenchmarkConfig) -> dict[str, Any]:
             # (2) end-to-end peak VRAM: dense (full logits) vs pack-then-project.
             flat_ids = ids.reshape(-1)
             _reset_peak(config.device)
-            dense_logits = (hidden.reshape(-1, hidden_dim) @ lm_head)
+            dense_logits = hidden.reshape(-1, hidden_dim) @ lm_head
             _ = _selected_logp(dense_logits, flat_ids)
             del dense_logits
             _sync(config.device)
