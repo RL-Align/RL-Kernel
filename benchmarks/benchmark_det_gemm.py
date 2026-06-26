@@ -2,10 +2,12 @@
 # Copyright (c) 2026 RL-Kernel Contributors
 """Overhead of batch-invariant det_gemm vs cuBLAS + Triton (WS1 #146).
 
-det_gemm (CUDA, naive first milestone) and the Triton path are batch-invariant
-and SLOWER than cuBLAS by design (no split-K/stream-K, fixed accumulation, FP32,
-no TF32). Reports overhead vs the fair baseline (cuBLAS, TF32 disabled), not a
-speedup. The naive CUDA kernel is correctness-first; a tensor-core pass follows.
+det_gemm (CUDA: SM90 TMA + mma.sync tensor cores; naive scalar fallback below
+SM90) and the Triton path are batch-invariant and SLOWER than cuBLAS by design
+(no split-K/stream-K, fixed accumulation order, FP32 accum, no TF32). Reports
+overhead vs the fair baseline (cuBLAS, TF32 disabled), not a speedup. This is a
+correctness-and-invariance-first milestone; occupancy/throughput tuning of the
+tensor-core path is deferred per #146.
 """
 import argparse
 
@@ -75,9 +77,10 @@ def to_markdown(rows, dev, cap):
         )
     out += [
         "",
-        "_Overhead = det CUDA vs cuBLAS (TF32 disabled). Naive CUDA kernel is "
-        "correctness-first; both det paths trade speed for bitwise "
-        "batch-invariance. Tensor-core pass is a follow-up (#146)._",
+        "_Overhead = det CUDA vs cuBLAS (TF32 disabled). The det CUDA path uses "
+        "SM90 TMA + mma.sync tensor cores with a fixed single-CTA-per-tile "
+        "schedule (no split-K) for bitwise batch-invariance; both det paths "
+        "trade speed for invariance. Throughput tuning is deferred per #146._",
     ]
     return "\n".join(out)
 

@@ -2,11 +2,11 @@
 // Copyright (c) 2026 RL-Kernel Contributors
 // csrc/cuda/gemm/det_gemm_kernel.cu
 //
-// WS1 - Batch-invariant deterministic GEMM (hand-written, no CUTLASS).
+// WS1 Batch-invariant deterministic GEMM (hand-written, no CUTLASS).
 //
-//   SM90 path: TMA load + mma.sync (m16n8k16) tensor cores, single-CTA-per-tile,
-//              fixed K-accumulation order, NO split-K -> batch-invariant.
-//   Fallback : naive FP32 scalar kernel (also the correctness ground truth).
+//   SM90 path : TMA load + mma.sync (m16n8k16), FP32 accum, single-CTA-per-tile,
+//               fixed K order, NO split-K -> batch-invariant.
+//   Fallback  : naive FP32 scalar kernel (also the correctness ground truth).
 //
 // Both: BF16 in / FP32 accum / no TF32 / no split-K.
 //   fwd: C = A @ B   |   dA = dC @ B^T   |   dB = A^T @ dC
@@ -17,8 +17,7 @@
 #include <cuda_bf16.h>
 
 #if defined(RL_KERNEL_ENABLE_SM90)
-#include "../utils/tma_utils.cuh"
-#include <cudaTypedefs.h>
+#include "det_gemm_tma.cuh"
 #endif
 
 namespace {
@@ -27,7 +26,7 @@ using nv_bf16 = __nv_bfloat16;
 
 __host__ __device__ constexpr int cdiv(int a, int b) { return (a + b - 1) / b; }
 
-// Naive FP32 scalar kernel (SM80 fallback + ground truth). Batch-invariant by
+// Naive FP32 scalar kernel (fallback + ground truth). Batch-invariant by
 // construction: one thread = one output element, fixed ascending K loop.
 constexpr int NAIVE_TILE = 16;
 
@@ -52,38 +51,22 @@ void launch_naive(const nv_bf16* A, const nv_bf16* B, nv_bf16* C,
 }
 
 #if defined(RL_KERNEL_ENABLE_SM90)
-// ============================================================================
 // SM90 path: TMA load + mma.sync. C[M,N] = A[M,K] @ B[K,N].
-//
-// mma.sync.m16n8k16.row.col needs A row-major [m16,k16] and B col-major
-// [n8,k16] (i.e. B operand indexed as [n, k]). Our B is row-major [K,N], so we
-// load a B tile of shape [BK, BN] but feed the mma the (n,k) operand by
-// addressing smem as B[k][n] -> we ldmatrix B with the same trick as the logp
-// kernel (which loads W[V,D] = [n, k] directly). To match that validated path,
-// A tile is [BM, BK] (row=token, col=k), B tile is [BN, BK] (row=n, col=k),
-// which is exactly B^T. So the SM90 kernel computes C = A @ (Bt)^T where Bt is
-// the [BN,BK] tile = B[k,n] transposed. We materialize that by giving TMA a
-// descriptor over B viewed as [N,K]... but B is [K,N] row-major.
-//
-// To keep it simple and provably correct, the SM90 forward kernel REQUIRES its
-// B operand already in [N,K] layout (row=n, col=k). The host wrapper passes
-// B^T (contiguous) so the kernel sees Bt[N,K]; mathematically
-// C = A[M,K] @ B[K,N] = A @ (Bt[N,K])^T, and the per-tile mma contracts over K
-// in fixed order. This mirrors the logp kernel's W[V,D] @ hidden[N,D] pattern.
-// ============================================================================
-constexpr int BM = 64;     // rows (M) per CTA tile
-constexpr int BN = 64;     // cols (N) per CTA tile
-constexpr int BK = 32;     // K slice streamed per TMA load
+// Each CTA owns one [BM,BN] output tile, walks full K in fixed order (no
+// split-K). A tile [BM,BK] row-major; B operand col-major [n,k] supplied by
+// passing B^T ([N,K] row-major) so the B smem tile is [BN,BK] (row=n,col=k),
+// matching the validated logp ldmatrix addressing.
+constexpr int BM = 128, BN = 64, BK = 32;
 constexpr int WARPS = 4;
 constexpr int WG_THREADS = WARPS * 32;  // 128
 constexpr int STAGES = 2;
 
 constexpr int MMA_M = 16, MMA_N = 8, MMA_K = 16;
-constexpr int WARP_M = BM / WARPS;        // 16 -> 1 m-tile per warp
+constexpr int WARP_M = BM / WARPS;        // 16
 constexpr int M_TILES = WARP_M / MMA_M;   // 1
 constexpr int N_TILES = BN / MMA_N;       // 8
 constexpr int K_TILES = BK / MMA_K;       // 2
-constexpr int KK_GROUPS = BK / 32;        // 1 (ldmatrix.x4 spans 32 cols)
+constexpr int KK_GROUPS = BK / 32;        // 1
 
 __device__ __forceinline__ void ldmatrix_x4(uint32_t regs[4], uint32_t addr) {
   asm volatile("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0,%1,%2,%3}, [%4];"
@@ -98,9 +81,6 @@ __device__ __forceinline__ void mma_m16n8k16(const uint32_t A[4], const uint32_t
                  "f"(D[0]), "f"(D[1]), "f"(D[2]), "f"(D[3]));
 }
 
-// A: row-major [M,K] via TMA tile [BM,BK].  Bt: row-major [N,K] via TMA tile
-// [BN,BK].  C: row-major [M,N].  Each CTA owns one [BM,BN] output tile and
-// walks the full K in fixed order (no split-K).
 __global__ void det_gemm_sm90_kernel(const __grid_constant__ CUtensorMap a_tmap,
                                      const __grid_constant__ CUtensorMap bt_tmap,
                                      nv_bf16* __restrict__ C,
@@ -110,7 +90,7 @@ __global__ void det_gemm_sm90_kernel(const __grid_constant__ CUtensorMap a_tmap,
   const int lane = tid % 32;
   const int row_base = blockIdx.y * BM;
   const int col_base = blockIdx.x * BN;
-  const int kd = K / BK;  // K validated multiple of BK on host
+  const int kd = K / BK;
 
   extern __shared__ __align__(1024) char smem[];
   nv_bf16* sA = reinterpret_cast<nv_bf16*>(smem);
@@ -119,14 +99,14 @@ __global__ void det_gemm_sm90_kernel(const __grid_constant__ CUtensorMap a_tmap,
 
   const uint32_t sA_base = static_cast<uint32_t>(__cvta_generic_to_shared(sA));
   const uint32_t sB_base = static_cast<uint32_t>(__cvta_generic_to_shared(sB));
-  int mbar[STAGES];
+  uint32_t mbar[STAGES];
 #pragma unroll
   for (int s = 0; s < STAGES; ++s)
-    mbar[s] = static_cast<int>(__cvta_generic_to_shared(mbar_base + 2 * s));
+    mbar[s] = static_cast<uint32_t>(__cvta_generic_to_shared(mbar_base + 2 * s));
 
   if (tid == 0) {
 #pragma unroll
-    for (int s = 0; s < STAGES; ++s) mbarrier_init(mbar[s], 1);
+    for (int s = 0; s < STAGES; ++s) det_gemm::mbar_init(mbar[s], 1);
     asm volatile("fence.mbarrier_init.release.cluster;");
   }
   __syncthreads();
@@ -135,19 +115,16 @@ __global__ void det_gemm_sm90_kernel(const __grid_constant__ CUtensorMap a_tmap,
 
   auto issue_load = [&](int k) {
     const int buf = k % STAGES;
-    const int k_off = k * BK;
-    tma_2d_g2s(static_cast<int>(sA_base + buf * BM * BK * sizeof(nv_bf16)),
-               &a_tmap, k_off, row_base, mbar[buf]);
-    tma_2d_g2s(static_cast<int>(sB_base + buf * BN * BK * sizeof(nv_bf16)),
-               &bt_tmap, k_off, col_base, mbar[buf]);
-    mbarrier_arrive_expect_tx(mbar[buf], tile_bytes);
+    const int koff = k * BK;
+    det_gemm::tma_2d_g2s(sA_base + buf * BM * BK * sizeof(nv_bf16), &a_tmap, koff, row_base, mbar[buf]);
+    det_gemm::tma_2d_g2s(sB_base + buf * BN * BK * sizeof(nv_bf16), &bt_tmap, koff, col_base, mbar[buf]);
+    det_gemm::mbar_arrive_expect_tx(mbar[buf], tile_bytes);
   };
 
   int phase[STAGES];
 #pragma unroll
   for (int s = 0; s < STAGES; ++s) phase[s] = 0;
 
-  // accumulators: this warp's M_TILES m-tiles x N_TILES n-tiles
   float acc[M_TILES][N_TILES][4];
 #pragma unroll
   for (int mi = 0; mi < M_TILES; ++mi)
@@ -163,14 +140,13 @@ __global__ void det_gemm_sm90_kernel(const __grid_constant__ CUtensorMap a_tmap,
   for (int k = 0; k < kd; ++k) {       // fixed ascending K order, NO split-K
     const int buf = k % STAGES;
     if (tid == 0 && k + (STAGES - 1) < kd) issue_load(k + (STAGES - 1));
-    mbarrier_wait(mbar[buf], phase[buf]);
+    det_gemm::mbar_wait(mbar[buf], phase[buf]);
     phase[buf] ^= 1;
     __syncthreads();
 
     const uint32_t sA_buf = sA_base + buf * BM * BK * sizeof(nv_bf16);
     const uint32_t sB_buf = sB_base + buf * BN * BK * sizeof(nv_bf16);
 
-    // Load A operand (this warp's rows), all K-steps. Same addressing as logp.
     uint32_t A[M_TILES][K_TILES][4];
 #pragma unroll
     for (int mi = 0; mi < M_TILES; ++mi) {
@@ -183,7 +159,6 @@ __global__ void det_gemm_sm90_kernel(const __grid_constant__ CUtensorMap a_tmap,
       }
     }
 
-    // Load B operand (all n-tiles) and contract. Same addressing as logp's W.
 #pragma unroll
     for (int n = 0; n < N_TILES; ++n) {
 #pragma unroll
@@ -204,7 +179,6 @@ __global__ void det_gemm_sm90_kernel(const __grid_constant__ CUtensorMap a_tmap,
     __syncthreads();
   }
 
-  // Epilogue: write acc to C (row-major [M,N]). mma m16n8k16 output layout.
 #pragma unroll
   for (int mi = 0; mi < M_TILES; ++mi) {
     const int row = row_base + warp * WARP_M + mi * MMA_M + lane / 4;
@@ -223,30 +197,13 @@ __global__ void det_gemm_sm90_kernel(const __grid_constant__ CUtensorMap a_tmap,
   }
 }
 
-// noswizzle TMA descriptor (kernel uses plain row-major ldmatrix addressing).
-inline void init_tmap_noswizzle(CUtensorMap* tmap, const nv_bf16* gmem,
-                                uint64_t height, uint64_t width,
-                                uint32_t box_h, uint32_t box_w) {
-  uint64_t size[2] = {width, height};
-  uint64_t stride[1] = {width * sizeof(nv_bf16)};
-  uint32_t box[2] = {box_w, box_h};
-  uint32_t estride[2] = {1, 1};
-  CUresult res = cuTensorMapEncodeTiled(
-      tmap, CU_TENSOR_MAP_DATA_TYPE_BFLOAT16, 2, (void*)gmem, size, stride, box, estride,
-      CU_TENSOR_MAP_INTERLEAVE_NONE, CU_TENSOR_MAP_SWIZZLE_NONE,
-      CU_TENSOR_MAP_L2_PROMOTION_NONE, CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE);
-  TORCH_CHECK(res == CUDA_SUCCESS, "det_gemm: cuTensorMapEncodeTiled failed");
-}
-
-// Launch SM90 GEMM. A:[M,K] row-major, Bt:[N,K] row-major (= B transposed).
-// Requires M%BM==0, N%BN==0, K%BK==0 (host pads/falls back otherwise).
 bool launch_sm90(const nv_bf16* A, const nv_bf16* Bt, nv_bf16* C,
                  int M, int N, int K, cudaStream_t stream) {
   if (M % BM != 0 || N % BN != 0 || K % BK != 0) return false;  // fall back
 
   CUtensorMap a_tmap, bt_tmap;
-  init_tmap_noswizzle(&a_tmap, A, M, K, BM, BK);
-  init_tmap_noswizzle(&bt_tmap, Bt, N, K, BN, BK);
+  det_gemm::init_tmap_noswizzle(&a_tmap, A, M, K, BM, BK);
+  det_gemm::init_tmap_noswizzle(&bt_tmap, Bt, N, K, BN, BK);
 
   const int smem = STAGES * (BM * BK + BN * BK) * sizeof(nv_bf16) + STAGES * 8;
   if (smem > 48 * 1024)
@@ -275,18 +232,29 @@ void check_in(const torch::Tensor& t, const char* n) {
   TORCH_CHECK(t.scalar_type() == torch::kBFloat16, n, " must be bf16");
 }
 
-// Core dispatch: C = A[M,K] @ B[K,N]. SM90 kernel needs B^T ([N,K]); it is
-// materialized contiguous here. Falls back to naive on SM80 or odd shapes.
 torch::Tensor gemm_dispatch(const torch::Tensor& a, const torch::Tensor& b) {
   const int M = a.size(0), K = a.size(1), N = b.size(1);
   auto c = torch::empty({M, N}, a.options());
   auto stream = at::cuda::getCurrentCUDAStream();
 
 #if defined(RL_KERNEL_ENABLE_SM90)
-  if (sm_major() >= 9) {
+  // Tensor-core path requires N,K tile-aligned. M is padded up to a multiple of
+  // BM so that EVERY M (including M=1 and non-aligned M) takes the SAME kernel.
+  // Selecting a different kernel based on M would itself break batch-invariance
+  // because M is the batch dimension.
+  if (sm_major() >= 9 && K % BK == 0 && N % BN == 0) {
+    const int Mp = cdiv(M, BM) * BM;
+    torch::Tensor a_use = a;
+    if (Mp != M) {
+      a_use = torch::zeros({Mp, K}, a.options());
+      a_use.narrow(0, 0, M).copy_(a);
+    }
+    torch::Tensor c_use = (Mp != M) ? torch::empty({Mp, N}, a.options()) : c;
     auto bt = b.t().contiguous();  // [N,K]
-    if (launch_sm90(bf16(a), bf16(bt), bf16o(c), M, N, K, stream)) return c;
-    // else fall through to naive (shape not tile-aligned)
+    if (launch_sm90(bf16(a_use), bf16(bt), bf16o(c_use), Mp, N, K, stream)) {
+      if (Mp != M) c.copy_(c_use.narrow(0, 0, M));
+      return c;
+    }
   }
 #endif
   launch_naive(bf16(a), bf16(b), bf16o(c), M, N, K, stream);
@@ -306,7 +274,7 @@ torch::Tensor det_gemm_fwd(torch::Tensor a, torch::Tensor b) {
 torch::Tensor det_gemm_da(torch::Tensor dc, torch::Tensor b) {
   check_in(dc, "dC"); check_in(b, "B");
   dc = dc.contiguous();
-  auto bt = b.t().contiguous();  // [N,K]; dA[M,K] = dC[M,N] @ bt[N,K]
+  auto bt = b.t().contiguous();
   TORCH_CHECK(bt.size(0) == dc.size(1), "det_gemm_da: N mismatch");
   return gemm_dispatch(dc, bt);
 }
@@ -314,7 +282,7 @@ torch::Tensor det_gemm_da(torch::Tensor dc, torch::Tensor b) {
 torch::Tensor det_gemm_db(torch::Tensor a, torch::Tensor dc) {
   check_in(a, "A"); check_in(dc, "dC");
   dc = dc.contiguous();
-  auto at = a.t().contiguous();  // [K,M]; dB[K,N] = at[K,M] @ dC[M,N]
+  auto at = a.t().contiguous();
   TORCH_CHECK(dc.size(0) == at.size(1), "det_gemm_db: M mismatch");
   return gemm_dispatch(at, dc);
 }
