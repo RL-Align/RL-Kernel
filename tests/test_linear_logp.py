@@ -4,7 +4,12 @@
 import pytest
 import torch
 
-from rl_engine.kernels.ops.pytorch.loss.linear_logp import NativeLinearLogpOp
+from rl_engine.executors.deepspeed_trainer import _EmbeddingLMHeadModel, _safe_token_ids
+from rl_engine.kernels.ops.pytorch.loss.linear_logp import (
+    NativeLinearLogpOp,
+    chunked_linear_logp_backward,
+)
+from rl_engine.testing import selected_logprobs_reference
 
 try:
     import triton  # noqa: F401
@@ -83,6 +88,48 @@ def _manual_reference(hidden, weight, target, bias):
     return sel.reshape(target.shape)
 
 
+def _layout_inputs(base_hidden, base_target, base_mask, order, lead_shape):
+    order_t = torch.tensor(order, dtype=torch.long)
+    hidden = base_hidden.index_select(0, order_t).reshape(*lead_shape, base_hidden.size(-1))
+    target = base_target.index_select(0, order_t).reshape(*lead_shape)
+    mask = base_mask.index_select(0, order_t).reshape(*lead_shape)
+    masked_target = target.masked_fill(~mask, -100)
+    return hidden, masked_target, mask
+
+
+def _recover_canonical_rows(layout_values, order):
+    flat = layout_values.reshape(
+        layout_values.shape[0] * layout_values.shape[1], *layout_values.shape[2:]
+    )
+    recovered = torch.empty_like(flat)
+    recovered[torch.tensor(order, dtype=torch.long)] = flat
+    return recovered
+
+
+def _run_chunked_backward(hidden, weight, target, bias, grad_out, *, chunk_elems):
+    return chunked_linear_logp_backward(
+        grad_out,
+        hidden.reshape(-1, hidden.size(-1)).contiguous(),
+        weight,
+        target.reshape(-1).contiguous(),
+        hidden.reshape(-1, hidden.size(-1)).contiguous() if bias is None else bias,
+        has_bias=bias is not None,
+        lead_shape=target.shape,
+        hidden_dtype=hidden.dtype,
+        weight_dtype=weight.dtype,
+        bias_dtype=None if bias is None else bias.dtype,
+        chunk_elems=chunk_elems,
+    )
+
+
+def _run_autograd_linear_logp(hidden, weight, target, bias, grad_out):
+    h = hidden.detach().clone().requires_grad_(True)
+    w = weight.detach().clone().requires_grad_(True)
+    b = bias.detach().clone().requires_grad_(True) if bias is not None else None
+    NativeLinearLogpOp()(h, w, target, b).backward(grad_out)
+    return h.grad, w.grad, (None if b is None else b.grad)
+
+
 def test_native_matches_manual_reference():
     native = NativeLinearLogpOp()
     hidden, weight, target, bias = _inputs(0, device="cpu")
@@ -90,6 +137,146 @@ def test_native_matches_manual_reference():
     ref = _manual_reference(hidden, weight, target, bias)
     assert out.dtype == torch.float32
     assert torch.allclose(out, ref, atol=1e-5)
+
+
+def test_linear_logp_handoff_matches_masked_reference_across_layouts():
+    torch.manual_seed(2026)
+    op = NativeLinearLogpOp()
+    base_hidden = torch.randn(6, 5)
+    weight = torch.randn(17, 5)
+    bias = torch.randn(17)
+    base_target = torch.tensor([3, 7, 1, 9, 4, 6], dtype=torch.long)
+    base_mask = torch.tensor([True, False, True, True, False, True], dtype=torch.bool)
+    layouts = [
+        ((2, 3), [0, 1, 2, 3, 4, 5]),
+        ((3, 2), [5, 1, 3, 0, 4, 2]),
+        ((1, 6), [2, 4, 1, 5, 0, 3]),
+    ]
+
+    canonical = None
+    for lead_shape, order in layouts:
+        hidden, target, mask = _layout_inputs(
+            base_hidden, base_target, base_mask, order, lead_shape
+        )
+        actual = op(hidden, weight, _safe_token_ids(target, mask), bias).masked_fill(~mask, 0.0)
+        logits = torch.nn.functional.linear(hidden.float(), weight.float(), bias.float())
+        expected = selected_logprobs_reference(logits, target, mask=mask)
+        recovered = _recover_canonical_rows(actual.unsqueeze(-1), order).squeeze(-1)
+
+        assert torch.allclose(actual, expected, atol=1e-5)
+        if canonical is None:
+            canonical = recovered
+        else:
+            assert torch.allclose(recovered, canonical, atol=1e-6)
+
+
+@pytest.mark.parametrize("use_bias", [True, False])
+def test_chunked_linear_logp_backward_matches_autograd_and_layout_invariance(use_bias):
+    torch.manual_seed(2027)
+    weight = torch.randn(19, 7)
+    bias = torch.randn(19) if use_bias else None
+    base_hidden = torch.randn(6, 7)
+    base_target = torch.tensor([1, 7, 3, 5, 0, 9], dtype=torch.long)
+    base_mask = torch.tensor([True, False, True, True, False, True], dtype=torch.bool)
+    base_grad = torch.tensor([0.5, 0.0, -1.25, 0.75, 0.0, 1.5], dtype=torch.float32)
+    layouts = [
+        ((2, 3), [0, 1, 2, 3, 4, 5]),
+        ((3, 2), [5, 2, 1, 0, 4, 3]),
+    ]
+
+    canonical_hidden_grad = None
+    canonical_weight_grad = None
+    canonical_bias_grad = None
+    chunk_elems = weight.size(0) * 2
+
+    for lead_shape, order in layouts:
+        hidden, target, mask = _layout_inputs(
+            base_hidden, base_target, base_mask, order, lead_shape
+        )
+        safe_target = _safe_token_ids(target, mask)
+        grad_out = base_grad[torch.tensor(order, dtype=torch.long)].reshape(lead_shape)
+        grad_out = grad_out.masked_fill(~mask, 0.0)
+
+        grad_hidden, grad_weight, grad_bias = _run_chunked_backward(
+            hidden,
+            weight,
+            safe_target,
+            bias,
+            grad_out,
+            chunk_elems=chunk_elems,
+        )
+        ref_hidden, ref_weight, ref_bias = _run_autograd_linear_logp(
+            hidden,
+            weight,
+            safe_target,
+            bias,
+            grad_out,
+        )
+        recovered_hidden = _recover_canonical_rows(grad_hidden, order)
+
+        assert torch.allclose(grad_hidden, ref_hidden, atol=1e-5)
+        assert torch.allclose(grad_weight, ref_weight, atol=1e-5)
+        if use_bias:
+            assert torch.allclose(grad_bias, ref_bias, atol=1e-5)
+
+        if canonical_hidden_grad is None:
+            canonical_hidden_grad = recovered_hidden
+            canonical_weight_grad = grad_weight
+            canonical_bias_grad = grad_bias
+        else:
+            assert torch.allclose(recovered_hidden, canonical_hidden_grad, atol=1e-6)
+            assert torch.allclose(grad_weight, canonical_weight_grad, atol=1e-6)
+            if use_bias:
+                assert torch.allclose(grad_bias, canonical_bias_grad, atol=1e-6)
+
+
+def test_tied_embedding_lm_head_shared_gradient_is_layout_invariant():
+    torch.manual_seed(2028)
+    model = _EmbeddingLMHeadModel(vocab_size=13, hidden_dim=6, bias=False, tie_weights=True)
+    op = NativeLinearLogpOp()
+    base_input_ids = torch.tensor([2, 5, 1, 5, 2, 3], dtype=torch.long)
+    base_target = torch.tensor([4, 1, 0, 2, 6, 3], dtype=torch.long)
+    base_mask = torch.tensor([True, False, True, True, False, True], dtype=torch.bool)
+    base_upstream = torch.tensor([0.75, 0.0, -1.25, 0.5, 0.0, 1.0], dtype=torch.float32)
+    layouts = [
+        ((2, 3), [0, 1, 2, 3, 4, 5]),
+        ((3, 2), [5, 2, 1, 0, 4, 3]),
+    ]
+
+    assert model.lm_head.weight is model.embedding.weight
+    canonical_logps = None
+    canonical_grad = None
+
+    for lead_shape, order in layouts:
+        order_t = torch.tensor(order, dtype=torch.long)
+        input_ids = base_input_ids.index_select(0, order_t).reshape(lead_shape)
+        target = base_target.index_select(0, order_t).reshape(lead_shape)
+        mask = base_mask.index_select(0, order_t).reshape(lead_shape)
+        masked_target = target.masked_fill(~mask, -100)
+        upstream = (
+            base_upstream.index_select(0, order_t).reshape(lead_shape).masked_fill(~mask, 0.0)
+        )
+
+        model.zero_grad(set_to_none=True)
+        hidden = model(input_ids)
+        logps = op(
+            hidden, model.lm_head.weight, _safe_token_ids(masked_target, mask), model.lm_head.bias
+        )
+        logps = logps.masked_fill(~mask, 0.0)
+        logits = torch.nn.functional.linear(hidden.float(), model.lm_head.weight.float(), None)
+        expected = selected_logprobs_reference(logits, masked_target, mask=mask)
+        (logps * upstream).sum().backward()
+
+        recovered_logps = _recover_canonical_rows(logps.unsqueeze(-1), order).squeeze(-1)
+        shared_grad = model.embedding.weight.grad.detach().clone()
+
+        assert torch.allclose(logps, expected, atol=1e-5)
+        if canonical_logps is None:
+            canonical_logps = recovered_logps
+            canonical_grad = shared_grad
+        else:
+            assert torch.allclose(recovered_logps, canonical_logps, atol=1e-6)
+            assert torch.allclose(shared_grad, canonical_grad, atol=1e-6)
 
 
 def test_native_rejects_shape_mismatch():
