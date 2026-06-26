@@ -11,6 +11,7 @@ Current benchmark entry points:
 python scripts/run_profile_suite.py --smoke
 python scripts/run_profile_suite.py --output reports/profile.csv
 python benchmarks/profiler.py --format json --output reports/profile.json
+python benchmarks/logprob_cross_engine.py --smoke --output-dir reports/logprob_smoke
 python benchmarks/benchmark_sampling.py
 python benchmarks/benchmark_grpo_op.py
 python scripts/run_perf.py
@@ -48,6 +49,95 @@ python scripts/run_profile_suite.py \
   --top-k 50 \
   --top-p 0.9
 ```
+
+## Train-Inference Logprob Cross-Benchmark
+
+`benchmarks/logprob_cross_engine.py` validates the P0.3 identity that the same
+model, prompt/completion tokens, and policy state produce aligned selected
+logprobs across rollout and training engines.
+
+The CI-friendly smoke path uses a deterministic tiny causal LM. It performs a
+real greedy rollout and then teacher-forces the same tokens through the training
+replay path:
+
+```bash
+python benchmarks/logprob_cross_engine.py \
+  --smoke \
+  --output-dir reports/logprob_cross_engine/smoke
+```
+
+For a local Hugging Face model, run rollout capture and training replay against
+the same model path:
+
+```bash
+python benchmarks/logprob_cross_engine.py \
+  --rollout-engine hf \
+  --training-engine torch \
+  --model /models/policy \
+  --old-model /models/old-policy \
+  --reference-model /models/reference \
+  --tokenizer /models/policy \
+  --prompts fixtures/prompts.jsonl \
+  --device cuda \
+  --dtype bfloat16 \
+  --max-new-tokens 128 \
+  --rollout-batch-size 8 \
+  --training-micro-batch-size 4 \
+  --output-dir reports/logprob_cross_engine/hf_vs_torch
+```
+
+When rollout happens in production vLLM/sglang infrastructure, export or convert
+the rollout into the fixture schema and replay it offline:
+
+```json
+{
+  "sequence_id": "run-42-sample-0",
+  "prompt_token_ids": [1, 320, 42],
+  "completion_token_ids": [934, 18],
+  "rollout_logprobs": {
+    "policy": [-0.12, -1.34],
+    "old": [-0.13, -1.30],
+    "ref": [-0.22, -1.41]
+  },
+  "completion_mask": [true, true],
+  "metadata": {"weight_version": 42}
+}
+```
+
+Each line can be one JSONL sequence, or the file can be a full JSON fixture with
+a top-level `sequences` list. Replay it with:
+
+```bash
+python benchmarks/logprob_cross_engine.py \
+  --rollout-engine fixture \
+  --training-engine torch \
+  --rollout-fixture artifacts/rollout_logprobs.jsonl \
+  --model /models/policy \
+  --old-model /models/old-policy \
+  --reference-model /models/reference \
+  --tokenizer /models/policy \
+  --device cuda \
+  --dtype bfloat16 \
+  --output-dir reports/logprob_cross_engine/production_replay
+```
+
+The comparator maps rollout channels named `policy` or `current` to `--model`,
+channels named `old` or `old_policy` to `--old-model`, and channels named `ref`
+or `reference` to `--reference-model`. Channels without a configured replay
+model are listed in `skipped_channels` rather than silently compared against the
+wrong policy state.
+
+The output directory contains:
+
+- `rollout_fixture.json`: normalized prompt/completion tokens and rollout logprobs.
+- `report.json`: pass/fail status, thresholds, metadata, and worst drift.
+- `token_drifts.jsonl`: one row per compared active completion token.
+- `summary.md`: compact benchmark summary for CI artifacts or issue comments.
+
+Failures identify the sequence id, completion token index, absolute token
+position, target token id, engine pair, dtype, and per-token drift so they can be
+triaged against batch/cache/layout invariance, TP reductions, GRPO reduction
+semantics, or fused logprob kernels.
 
 When adding a new operator, document the benchmark command on the operator page and keep
 the tested shapes close to the target RL workload.
