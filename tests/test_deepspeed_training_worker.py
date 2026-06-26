@@ -98,6 +98,41 @@ def _rollout(iteration=2, weight_version=9):
     )
 
 
+def _ragged_rollout(iteration=2, weight_version=9):
+    return RolloutStageResult(
+        iteration=iteration,
+        weight_version=weight_version,
+        payload={
+            "normalized_outputs": [
+                [{"token_ids": [3, 4, 5], "text": "abc"}],
+                [{"token_ids": [6, 7], "text": "de"}],
+            ]
+        },
+        started_at=time.perf_counter(),
+        finished_at=time.perf_counter(),
+    )
+
+
+class SpyLinearLogpOp:
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, hidden, lm_head_weight, target_ids, bias=None):
+        self.calls.append(
+            {
+                "hidden_shape": tuple(hidden.shape),
+                "weight_shape": tuple(lm_head_weight.shape),
+                "target_shape": tuple(target_ids.shape),
+                "target_ids": target_ids.detach().cpu().clone(),
+                "has_bias": bias is not None,
+            }
+        )
+        logits = torch.nn.functional.linear(hidden, lm_head_weight, bias)
+        log_probs = torch.log_softmax(logits.float(), dim=-1)
+        selected = log_probs.gather(-1, target_ids.long().unsqueeze(-1)).squeeze(-1)
+        return selected
+
+
 def test_importing_module_does_not_import_deepspeed(monkeypatch):
     monkeypatch.delitem(sys.modules, "deepspeed", raising=False)
 
@@ -226,6 +261,63 @@ def test_deepspeed_training_worker_uses_engine_backward_and_step(monkeypatch):
     assert "advantage_std" not in result.metrics
     assert math.isfinite(result.metrics["active_advantage_mean_global"])
     assert result.metrics["active_advantage_std_global"] >= 0.0
+
+
+def test_deepspeed_training_worker_routes_lm_head_through_linear_logp(monkeypatch):
+    _install_fake_deepspeed(monkeypatch)
+    from rl_engine.executors import deepspeed_trainer
+    from rl_engine.executors.deepspeed_trainer import (
+        DeepSpeedTrainingConfig,
+        DeepSpeedTrainingWorker,
+    )
+
+    spy_op = SpyLinearLogpOp()
+    monkeypatch.setattr(deepspeed_trainer, "_linear_logp_op_for_device", lambda device: spy_op)
+    worker = DeepSpeedTrainingWorker(
+        DeepSpeedTrainingConfig(
+            num_prompts=1,
+            samples_per_prompt=2,
+            prompt_len=2,
+            completion_len=3,
+            vocab_size=16,
+            hidden_dim=8,
+            valid_density=1.0,
+            seed=5,
+        )
+    )
+
+    result = worker.train(_ragged_rollout())
+
+    assert len(spy_op.calls) == 1
+    assert {key: value for key, value in spy_op.calls[0].items() if key != "target_ids"} == {
+        "hidden_shape": (2, 3, 8),
+        "weight_shape": (16, 8),
+        "target_shape": (2, 3),
+        "has_bias": True,
+    }
+    assert torch.equal(spy_op.calls[0]["target_ids"], torch.tensor([[3, 4, 5], [6, 7, 0]]))
+    assert result.metrics["lm_head_projection_path"] == "linear_logp"
+    assert result.metrics["lm_head_projection_backend"] == "SpyLinearLogpOp"
+    assert math.isfinite(result.metrics["loss"])
+
+
+def test_deepspeed_training_safe_token_ids_allow_masked_ignore_index():
+    from rl_engine.executors.deepspeed_trainer import _safe_token_ids
+
+    token_ids = torch.tensor([[1, -100, 3]])
+    mask = torch.tensor([[True, False, True]])
+
+    assert torch.equal(_safe_token_ids(token_ids, mask, vocab_size=8), torch.tensor([[1, 0, 3]]))
+
+
+def test_deepspeed_training_safe_token_ids_reject_active_out_of_range():
+    from rl_engine.executors.deepspeed_trainer import _safe_token_ids
+
+    token_ids = torch.tensor([[1, -100, 9]])
+    mask = torch.tensor([[True, False, True]])
+
+    with pytest.raises(ValueError, match="active token_ids out of range"):
+        _safe_token_ids(token_ids, mask, vocab_size=8)
 
 
 def test_deepspeed_training_worker_synthetic_fallback(monkeypatch):
