@@ -25,6 +25,11 @@ torch::Tensor fused_logp_forward_online_fp32(torch::Tensor logits, torch::Tensor
 torch::Tensor fused_logp_forward_online_indexed_out(torch::Tensor logits, torch::Tensor token_ids, torch::Tensor row_indices, torch::Tensor output);
 torch::Tensor fused_logp_forward_online_indexed_fp32(torch::Tensor logits, torch::Tensor token_ids, torch::Tensor row_indices);
 
+// Batch-Invariant Deterministic GEMM Declarations
+torch::Tensor det_gemm_fwd(torch::Tensor a, torch::Tensor b);
+torch::Tensor det_gemm_da(torch::Tensor dc, torch::Tensor b);
+torch::Tensor det_gemm_db(torch::Tensor a, torch::Tensor dc);
+
 // Prefix-Shared Attention Declarations & Wrappers
 
 void prefix_shared_attention_forward(
@@ -95,5 +100,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 
     // registry Prefix-Shared Attention
     m.def("prefix_shared_attention", &prefix_shared_attention, "Prefix-Shared Fused Attention for GRPO");
+
+    // registry Batch-Invariant Deterministic GEMM
+    m.def("det_gemm_fwd", &det_gemm_fwd, "Batch-invariant deterministic GEMM forward (C=A@B)");
+    m.def("det_gemm_da", &det_gemm_da, "Batch-invariant deterministic GEMM backward dA (dC@B^T)");
+    m.def("det_gemm_db", &det_gemm_db, "Batch-invariant deterministic GEMM backward dB (A^T@dC)");
 #endif
 }
