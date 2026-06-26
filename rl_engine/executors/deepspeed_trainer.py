@@ -26,12 +26,7 @@ from rl_engine.executors.training_contract import (
     TrainingStageResult,
     objective_reference_logps,
 )
-from rl_engine.testing import (
-    compute_policy_ratio,
-    compute_reference_kl,
-    masked_mean,
-    selected_logprobs_reference,
-)
+from rl_engine.testing import compute_policy_ratio, compute_reference_kl, masked_mean
 
 _TDestination = TypeVar("_TDestination", bound=dict[str, Any])
 
@@ -84,9 +79,9 @@ class DeepSpeedTrainingWorker(RolloutBatchMixin):
         deepspeed = _load_deepspeed()
         self._deepspeed = deepspeed
         torch.manual_seed(self.config.seed)
-        self.model = torch.nn.Sequential(
-            torch.nn.Embedding(self.config.vocab_size, self.config.hidden_dim),
-            torch.nn.Linear(self.config.hidden_dim, self.config.vocab_size),
+        self.model = _EmbeddingLMHeadModel(
+            self.config.vocab_size,
+            self.config.hidden_dim,
         ).to(device=self.device)
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr)
 
@@ -101,17 +96,27 @@ class DeepSpeedTrainingWorker(RolloutBatchMixin):
         engine_device = getattr(self.engine, "device", None)
         if engine_device is not None:
             self.device = torch.device(engine_device)
+        self._linear_logp_op = _linear_logp_op_for_device(self.device)
+        self.model.linear_logp_op = self._linear_logp_op
 
     def train(self, rollout: RolloutStageResult) -> TrainingStageResult:
         started_at = time.perf_counter()
         batch, payload_metrics = self._batch_from_rollout_or_synthetic(rollout)
-
-        logits = _extract_logits(self.engine(batch.token_ids.long()))
-        current_logps = selected_logprobs_reference(
-            logits,
+        token_ids = _safe_token_ids(
             batch.token_ids,
-            mask=batch.completion_mask,
-            output_dtype=torch.float32,
+            batch.completion_mask,
+            vocab_size=self.config.vocab_size,
+        )
+
+        current_logps = _extract_logps(
+            self.engine(
+                token_ids,
+                target_ids=token_ids,
+            )
+        ).to(dtype=torch.float32)
+        current_logps = current_logps.masked_fill(
+            ~batch.completion_mask.to(device=current_logps.device, dtype=torch.bool),
+            0.0,
         )
         old_logps = current_logps.detach() - 0.01
         ref_logps = objective_reference_logps(current_logps, batch)
@@ -147,6 +152,8 @@ class DeepSpeedTrainingWorker(RolloutBatchMixin):
                 "training_device": str(self.device),
                 "deepspeed_engine": type(self.engine).__name__,
                 "deepspeed_zero_stage": self.config.zero_stage,
+                "lm_head_projection_path": "linear_logp",
+                "lm_head_projection_backend": type(self._linear_logp_op).__name__,
                 "active_advantage_mean_global": (
                     float(active_advantages.mean().detach().cpu().item())
                     if active_advantages.numel()
@@ -273,6 +280,67 @@ class DeepSpeedTrainingWorker(RolloutBatchMixin):
         return _deep_merge(base, dict(self.config.deepspeed_config))
 
 
+class _EmbeddingLMHeadModel(torch.nn.Sequential):
+    """Tiny policy model with an explicit deterministic LM-head logprob path."""
+
+    def __init__(self, vocab_size: int, hidden_dim: int) -> None:
+        super().__init__(
+            torch.nn.Embedding(vocab_size, hidden_dim),
+            torch.nn.Linear(hidden_dim, vocab_size),
+        )
+        self.linear_logp_op: Optional[Any] = None
+
+    @property
+    def embedding(self) -> torch.nn.Embedding:
+        return self[0]
+
+    @property
+    def lm_head(self) -> torch.nn.Linear:
+        return self[1]
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        *,
+        target_ids: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        hidden = self.embedding(input_ids.long())
+        if target_ids is None:
+            return self.lm_head(hidden)
+        if self.linear_logp_op is None:
+            raise ValueError("target_ids scoring requires a linear_logp_op")
+        return self.linear_logp_op(hidden, self.lm_head.weight, target_ids, self.lm_head.bias)
+
+
+def _linear_logp_op_for_device(device: torch.device) -> Any:
+    if device.type == "cpu":
+        from rl_engine.kernels.ops.pytorch.loss.linear_logp import NativeLinearLogpOp
+
+        return NativeLinearLogpOp()
+    from rl_engine.kernels.registry import kernel_registry
+
+    return kernel_registry.get_op("linear_logp")
+
+
+def _safe_token_ids(
+    token_ids: torch.Tensor,
+    mask: torch.Tensor,
+    *,
+    vocab_size: int,
+) -> torch.Tensor:
+    active = mask.to(device=token_ids.device, dtype=torch.bool)
+    safe_ids = token_ids.long().masked_fill(~active, 0)
+    if bool(((safe_ids < 0) | (safe_ids >= vocab_size)).any()):
+        active_ids = safe_ids[active]
+        t_min = int(active_ids.min()) if active_ids.numel() else 0
+        t_max = int(active_ids.max()) if active_ids.numel() else 0
+        raise ValueError(
+            f"active token_ids out of range: expected [0, {vocab_size - 1}], "
+            f"got [{t_min}, {t_max}]"
+        )
+    return safe_ids
+
+
 def _load_deepspeed() -> Any:
     _configure_cuda_home_from_python_packages()
     try:
@@ -372,6 +440,19 @@ def _extract_logits(model_output: Any) -> torch.Tensor:
     if isinstance(model_output, (tuple, list)) and model_output:
         return _extract_logits(model_output[0])
     raise TypeError(f"DeepSpeed model output does not expose logits: {type(model_output)!r}")
+
+
+def _extract_logps(model_output: Any) -> torch.Tensor:
+    if isinstance(model_output, torch.Tensor):
+        return model_output
+    if isinstance(model_output, Mapping) and "logps" in model_output:
+        return model_output["logps"]
+    logps = getattr(model_output, "logps", None)
+    if logps is not None:
+        return logps
+    if isinstance(model_output, (tuple, list)) and model_output:
+        return _extract_logps(model_output[0])
+    raise TypeError(f"DeepSpeed model output does not expose logps: {type(model_output)!r}")
 
 
 class _StateDictModule(torch.nn.Module):
