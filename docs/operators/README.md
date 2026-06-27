@@ -23,4 +23,5 @@ Every operator page should include:
 - [GRPO Loss](grpo-loss.md)
 - [Policy Ratio + KL Penalty](ratio-kl.md)
 - [Sampling](sampling.md)
+- [Token Embedding](embedding.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)
