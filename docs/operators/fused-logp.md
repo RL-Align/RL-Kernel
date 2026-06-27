@@ -17,7 +17,7 @@ output = logp_op(logits, token_ids)
 
 | Backend | Wrapper | Native symbol | Notes |
 | --- | --- | --- | --- |
-| CUDA SM90 | `FusedLogpSM90Op` | `_C.fused_logp_sm90` | TMA-oriented path for Hopper-class GPUs. |
+| CUDA SM90 | `FusedLogpSM90Op` | `_C.fused_logp_sm90` | Experimental TMA-oriented path for 2D contiguous bf16 logits on Hopper-class GPUs. It is disabled by default and requires `RL_KERNEL_ENABLE_EXPERIMENTAL_SM90_LOGP=1`; otherwise the wrapper delegates to the CUDA generic fallback. |
 | CUDA generic | `FusedLogpGenericOp` | `_C.fused_logp` | Generic compiled extension fallback. |
 | PyTorch native | `NativeOp` | None | Baseline fallback path. |
 
@@ -25,7 +25,7 @@ output = logp_op(logits, token_ids)
 
 | Argument | Shape | Dtype | Requirements |
 | --- | --- | --- | --- |
-| `logits` | `[N, V]` | `bfloat16` for SM90 path | Contiguous, on the target device. |
+| `logits` | `[N, V]` | `bfloat16` for the experimental SM90 fast path; fp16/fp32 use generic fallback | Contiguous, on the target device for the experimental SM90 fast path. |
 | `token_ids` / `labels` | `[N]` | Converted to `int32` | Same logical device as `logits`. |
 | Output | `[N]` | Backend-defined tensor dtype | One selected log probability per row. |
 

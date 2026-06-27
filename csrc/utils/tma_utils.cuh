@@ -6,6 +6,7 @@
 #include <cuda.h>
 #include <cuda_bf16.h>
 #include <cudaTypedefs.h>
+#include <cstdint>
 #include <iostream>
 
 // Type Traits for TMA
@@ -51,20 +52,20 @@ inline void init_tensor_map(
 }
 
 // Device API
-__device__ inline void mbarrier_init(int addr, int count) {
-    asm volatile("mbarrier.init.shared::cta.b64 [%0], %1;" :: "r"(addr), "r"(count));
+__device__ inline void mbarrier_init(uint64_t addr, int count) {
+    asm volatile("mbarrier.init.shared::cta.b64 [%0], %1;" :: "l"(addr), "r"(count));
 }
 
-__device__ inline void mbarrier_arrive(int addr) {
-    asm volatile("mbarrier.arrive.release.cta.shared::cta.b64 _, [%0];" :: "r"(addr) : "memory");
+__device__ inline void mbarrier_arrive(uint64_t addr) {
+    asm volatile("mbarrier.arrive.release.cta.shared::cta.b64 _, [%0];" :: "l"(addr) : "memory");
 }
 
-__device__ inline void mbarrier_arrive_expect_tx(int addr, int size) {
+__device__ inline void mbarrier_arrive_expect_tx(uint64_t addr, int size) {
     asm volatile("mbarrier.arrive.expect_tx.release.cta.shared::cta.b64 _, [%0], %1;"
-                 :: "r"(addr), "r"(size) : "memory");
+                 :: "l"(addr), "r"(size) : "memory");
 }
 
-__device__ inline void mbarrier_wait(int mbar_addr, int phase) {
+__device__ inline void mbarrier_wait(uint64_t mbar_addr, int phase) {
     int ticks = 0x989680;
     asm volatile(
         "{\n"
@@ -72,12 +73,18 @@ __device__ inline void mbarrier_wait(int mbar_addr, int phase) {
         "LAB_WAIT:\n"
         "mbarrier.try_wait.parity.acquire.cta.shared::cta.b64 P1, [%0], %1, %2;\n"
         "@!P1 bra.uni LAB_WAIT;\n"
-        "}" :: "r"(mbar_addr), "r"(phase), "r"(ticks)
+        "}" :: "l"(mbar_addr), "r"(phase), "r"(ticks)
     );
 }
 
-__device__ inline void tma_2d_g2s(int dst_smem_addr, const void *tmap_ptr, int x, int y, int mbar_addr) {
-    asm volatile("cp.async.bulk.tensor.2d.shared::cta.global.mbarrier::complete_tx::bytes "
+__device__ inline void tma_2d_g2s(
+    uint64_t dst_smem_addr,
+    const void *tmap_ptr,
+    int x,
+    int y,
+    uint64_t mbar_addr
+) {
+    asm volatile("cp.async.bulk.tensor.2d.shared::cluster.global.tile.mbarrier::complete_tx::bytes "
                  "[%0], [%1, {%2, %3}], [%4];"
-                 :: "r"(dst_smem_addr), "l"(tmap_ptr), "r"(x), "r"(y), "r"(mbar_addr) : "memory");
+                 :: "l"(dst_smem_addr), "l"(tmap_ptr), "r"(x), "r"(y), "l"(mbar_addr) : "memory");
 }

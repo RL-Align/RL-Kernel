@@ -85,12 +85,14 @@ __global__ void fused_linear_logp_sm90_kernel(const __grid_constant__ CUtensorMa
     float *sZt = sSum + BM;
     int *mbar_base = reinterpret_cast<int *>(sZt + BM); // STAGES mbarriers (8B each)
 
-    const uint32_t sH_base = static_cast<uint32_t>(__cvta_generic_to_shared(sH));
-    const uint32_t sW_base = static_cast<uint32_t>(__cvta_generic_to_shared(sW));
-    int mbar[STAGES];
+    const uint64_t sH_base_tma = __cvta_generic_to_shared(sH);
+    const uint64_t sW_base_tma = __cvta_generic_to_shared(sW);
+    const uint32_t sH_base = static_cast<uint32_t>(sH_base_tma);
+    const uint32_t sW_base = static_cast<uint32_t>(sW_base_tma);
+    uint64_t mbar[STAGES];
 #pragma unroll
     for (int s = 0; s < STAGES; ++s)
-        mbar[s] = static_cast<int>(__cvta_generic_to_shared(mbar_base + 2 * s));
+        mbar[s] = __cvta_generic_to_shared(mbar_base + 2 * s);
 
     for (int r = tid; r < num_rows; r += WG_THREADS) {
         sMax[r] = -CUDART_INF_F;
@@ -111,11 +113,11 @@ __global__ void fused_linear_logp_sm90_kernel(const __grid_constant__ CUtensorMa
     auto issue_load = [&](int k, int col_base) {
         const int buf = k % STAGES;
         const int k_off = k * BK;
-        tma_2d_g2s(static_cast<int>(sH_base + buf * BM * BK * sizeof(nv_bfloat16)), &h_tmap, k_off,
-                   row_base, mbar[buf]);
-        tma_2d_g2s(static_cast<int>(sW_base + buf * BN * BK * sizeof(nv_bfloat16)), &w_tmap, k_off,
-                   col_base, mbar[buf]);
         mbarrier_arrive_expect_tx(mbar[buf], tile_bytes);
+        tma_2d_g2s(sH_base_tma + buf * BM * BK * sizeof(nv_bfloat16), &h_tmap, k_off, row_base,
+                   mbar[buf]);
+        tma_2d_g2s(sW_base_tma + buf * BN * BK * sizeof(nv_bfloat16), &w_tmap, k_off, col_base,
+                   mbar[buf]);
     };
 
     int phase[STAGES];

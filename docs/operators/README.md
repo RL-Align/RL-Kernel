@@ -20,6 +20,7 @@ Every operator page should include:
 
 - [Fused LogP](fused-logp.md)
 - [Fused Linear LogP](linear-logp.md)
+- [Fused Linear LogP TP Test Runbook](linear-logp-tp-test.md)
 - [GRPO Loss](grpo-loss.md)
 - [Policy Ratio + KL Penalty](ratio-kl.md)
 - [Sampling](sampling.md)

@@ -105,14 +105,14 @@ def run_benchmark(args):
     for num_tokens, hidden_dim, vocab in args.configs:
         hidden, weight, target = _make_inputs(num_tokens, hidden_dim, vocab, device, dtype)
 
-        def fwd(op, h=hidden, w=weight):
+        def fwd(op, h=hidden, w=weight, t=target):
             with torch.no_grad():
-                op(h, w, target)
+                op(h, w, t)
 
-        def fwd_bwd(op):
-            h = hidden.clone().requires_grad_(True)
-            w = weight.clone().requires_grad_(True)
-            op(h, w, target).sum().backward()
+        def fwd_bwd(op, h_src=hidden, w_src=weight, t=target):
+            h = h_src.clone().requires_grad_(True)
+            w = w_src.clone().requires_grad_(True)
+            op(h, w, t).sum().backward()
 
         n_fwd = _time_ms(lambda: fwd(native), args.warmup, args.iters)
         t_fwd = _time_ms(lambda: fwd(triton_op), args.warmup, args.iters)

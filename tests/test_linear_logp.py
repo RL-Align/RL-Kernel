@@ -1,10 +1,21 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
+import queue
+import tempfile
+import traceback
+from pathlib import Path
+
 import pytest
 import torch
+import torch.multiprocessing as mp
 
-from rl_engine.kernels.ops.pytorch.loss.linear_logp import NativeLinearLogpOp
+from rl_engine.executors.deepspeed_trainer import _EmbeddingLMHeadModel, _safe_token_ids
+from rl_engine.kernels.ops.pytorch.loss.linear_logp import (
+    NativeLinearLogpOp,
+    chunked_linear_logp_backward,
+)
+from rl_engine.testing import selected_logprobs_reference
 
 try:
     import triton  # noqa: F401
@@ -38,6 +49,82 @@ requires_sm90 = pytest.mark.skipif(
     reason="Fused linear log-prob SM90 kernel requires a Hopper (sm_90) GPU with the "
     "extension built KERNEL_ALIGN_FORCE_SM90=1.",
 )
+
+
+def _gloo_available():
+    return torch.distributed.is_available() and torch.distributed.is_gloo_available()
+
+
+requires_gloo = pytest.mark.skipif(
+    not _gloo_available(),
+    reason="tensor-parallel linear_logp CPU test requires torch.distributed Gloo.",
+)
+
+
+def _tp_linear_logp_gloo_worker(rank, world_size, init_method, result_queue):
+    try:
+        import torch.distributed as dist
+
+        torch.set_num_threads(1)
+        dist.init_process_group(
+            backend="gloo",
+            init_method=init_method,
+            rank=rank,
+            world_size=world_size,
+        )
+
+        torch.manual_seed(2026)
+        n, d, vocab = 8, 5, 16
+        boundaries = [0, 3, 7, 12, vocab]
+        start = boundaries[rank]
+        end = boundaries[rank + 1]
+
+        hidden_base = torch.randn(n, d)
+        weight_full = torch.randn(vocab, d)
+        bias_full = torch.randn(vocab)
+        target = torch.tensor([0, 2, 3, 6, 7, 11, 12, 15], dtype=torch.long)
+        grad_out = torch.randn(n)
+        op = NativeLinearLogpOp()
+
+        ref_hidden = hidden_base.detach().clone().requires_grad_(True)
+        ref_weight = weight_full.detach().clone().requires_grad_(True)
+        ref_bias = bias_full.detach().clone().requires_grad_(True)
+        ref_out = op(ref_hidden, ref_weight, target, ref_bias)
+        ref_out.backward(grad_out)
+
+        tp_hidden = hidden_base.detach().clone().requires_grad_(True)
+        local_weight = weight_full[start:end].detach().clone().requires_grad_(True)
+        local_bias = bias_full[start:end].detach().clone().requires_grad_(True)
+        tp_out = op(
+            tp_hidden,
+            local_weight,
+            target,
+            local_bias,
+            tp_group=dist.group.WORLD,
+            vocab_start_index=start,
+            global_vocab_size=vocab,
+        )
+        tp_out.backward(grad_out)
+
+        result_queue.put(
+            {
+                "ok": True,
+                "rank": rank,
+                "out": float((tp_out - ref_out).abs().max().item()),
+                "hidden_grad": float((tp_hidden.grad - ref_hidden.grad).abs().max().item()),
+                "weight_grad": float(
+                    (local_weight.grad - ref_weight.grad[start:end]).abs().max().item()
+                ),
+                "bias_grad": float((local_bias.grad - ref_bias.grad[start:end]).abs().max().item()),
+            }
+        )
+    except Exception:  # pragma: no cover - forwarded to parent process
+        result_queue.put({"ok": False, "rank": rank, "traceback": traceback.format_exc()})
+        raise
+    finally:
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            torch.distributed.destroy_process_group()
+
 
 # SM90 forward needs bf16 and a hidden dim that is a multiple of the kernel's K
 # slice (32); N / V are deliberately left unaligned to the 64-wide tiles.
@@ -83,6 +170,48 @@ def _manual_reference(hidden, weight, target, bias):
     return sel.reshape(target.shape)
 
 
+def _layout_inputs(base_hidden, base_target, base_mask, order, lead_shape):
+    order_t = torch.tensor(order, dtype=torch.long)
+    hidden = base_hidden.index_select(0, order_t).reshape(*lead_shape, base_hidden.size(-1))
+    target = base_target.index_select(0, order_t).reshape(*lead_shape)
+    mask = base_mask.index_select(0, order_t).reshape(*lead_shape)
+    masked_target = target.masked_fill(~mask, -100)
+    return hidden, masked_target, mask
+
+
+def _recover_canonical_rows(layout_values, order):
+    flat = layout_values.reshape(
+        layout_values.shape[0] * layout_values.shape[1], *layout_values.shape[2:]
+    )
+    recovered = torch.empty_like(flat)
+    recovered[torch.tensor(order, dtype=torch.long)] = flat
+    return recovered
+
+
+def _run_chunked_backward(hidden, weight, target, bias, grad_out, *, chunk_elems):
+    return chunked_linear_logp_backward(
+        grad_out,
+        hidden.reshape(-1, hidden.size(-1)).contiguous(),
+        weight,
+        target.reshape(-1).contiguous(),
+        hidden.reshape(-1, hidden.size(-1)).contiguous() if bias is None else bias,
+        has_bias=bias is not None,
+        lead_shape=target.shape,
+        hidden_dtype=hidden.dtype,
+        weight_dtype=weight.dtype,
+        bias_dtype=None if bias is None else bias.dtype,
+        chunk_elems=chunk_elems,
+    )
+
+
+def _run_autograd_linear_logp(hidden, weight, target, bias, grad_out):
+    h = hidden.detach().clone().requires_grad_(True)
+    w = weight.detach().clone().requires_grad_(True)
+    b = bias.detach().clone().requires_grad_(True) if bias is not None else None
+    NativeLinearLogpOp()(h, w, target, b).backward(grad_out)
+    return h.grad, w.grad, (None if b is None else b.grad)
+
+
 def test_native_matches_manual_reference():
     native = NativeLinearLogpOp()
     hidden, weight, target, bias = _inputs(0, device="cpu")
@@ -92,11 +221,205 @@ def test_native_matches_manual_reference():
     assert torch.allclose(out, ref, atol=1e-5)
 
 
+def test_linear_logp_handoff_matches_masked_reference_across_layouts():
+    torch.manual_seed(2026)
+    op = NativeLinearLogpOp()
+    base_hidden = torch.randn(6, 5)
+    weight = torch.randn(17, 5)
+    bias = torch.randn(17)
+    base_target = torch.tensor([3, 7, 1, 9, 4, 6], dtype=torch.long)
+    base_mask = torch.tensor([True, False, True, True, False, True], dtype=torch.bool)
+    layouts = [
+        ((2, 3), [0, 1, 2, 3, 4, 5]),
+        ((3, 2), [5, 1, 3, 0, 4, 2]),
+        ((1, 6), [2, 4, 1, 5, 0, 3]),
+    ]
+
+    canonical = None
+    for lead_shape, order in layouts:
+        hidden, target, mask = _layout_inputs(
+            base_hidden, base_target, base_mask, order, lead_shape
+        )
+        actual = op(hidden, weight, _safe_token_ids(target, mask), bias).masked_fill(~mask, 0.0)
+        logits = torch.nn.functional.linear(hidden.float(), weight.float(), bias.float())
+        expected = selected_logprobs_reference(logits, target, mask=mask)
+        recovered = _recover_canonical_rows(actual.unsqueeze(-1), order).squeeze(-1)
+
+        assert torch.allclose(actual, expected, atol=1e-5)
+        if canonical is None:
+            canonical = recovered
+        else:
+            assert torch.allclose(recovered, canonical, atol=1e-6)
+
+
+@pytest.mark.parametrize("use_bias", [True, False])
+def test_chunked_linear_logp_backward_matches_autograd_and_layout_invariance(use_bias):
+    torch.manual_seed(2027)
+    weight = torch.randn(19, 7)
+    bias = torch.randn(19) if use_bias else None
+    base_hidden = torch.randn(6, 7)
+    base_target = torch.tensor([1, 7, 3, 5, 0, 9], dtype=torch.long)
+    base_mask = torch.tensor([True, False, True, True, False, True], dtype=torch.bool)
+    base_grad = torch.tensor([0.5, 0.0, -1.25, 0.75, 0.0, 1.5], dtype=torch.float32)
+    layouts = [
+        ((2, 3), [0, 1, 2, 3, 4, 5]),
+        ((3, 2), [5, 2, 1, 0, 4, 3]),
+    ]
+
+    canonical_hidden_grad = None
+    canonical_weight_grad = None
+    canonical_bias_grad = None
+    chunk_elems = weight.size(0) * 2
+
+    for lead_shape, order in layouts:
+        hidden, target, mask = _layout_inputs(
+            base_hidden, base_target, base_mask, order, lead_shape
+        )
+        safe_target = _safe_token_ids(target, mask)
+        grad_out = base_grad[torch.tensor(order, dtype=torch.long)].reshape(lead_shape)
+        grad_out = grad_out.masked_fill(~mask, 0.0)
+
+        grad_hidden, grad_weight, grad_bias = _run_chunked_backward(
+            hidden,
+            weight,
+            safe_target,
+            bias,
+            grad_out,
+            chunk_elems=chunk_elems,
+        )
+        ref_hidden, ref_weight, ref_bias = _run_autograd_linear_logp(
+            hidden,
+            weight,
+            safe_target,
+            bias,
+            grad_out,
+        )
+        recovered_hidden = _recover_canonical_rows(grad_hidden, order)
+
+        assert torch.allclose(grad_hidden, ref_hidden, atol=1e-5)
+        assert torch.allclose(grad_weight, ref_weight, atol=1e-5)
+        if use_bias:
+            assert torch.allclose(grad_bias, ref_bias, atol=1e-5)
+
+        if canonical_hidden_grad is None:
+            canonical_hidden_grad = recovered_hidden
+            canonical_weight_grad = grad_weight
+            canonical_bias_grad = grad_bias
+        else:
+            assert torch.allclose(recovered_hidden, canonical_hidden_grad, atol=1e-6)
+            assert torch.allclose(grad_weight, canonical_weight_grad, atol=1e-6)
+            if use_bias:
+                assert torch.allclose(grad_bias, canonical_bias_grad, atol=1e-6)
+
+
+def test_tied_embedding_lm_head_shared_gradient_is_layout_invariant():
+    torch.manual_seed(2028)
+    model = _EmbeddingLMHeadModel(vocab_size=13, hidden_dim=6, bias=False, tie_weights=True)
+    op = NativeLinearLogpOp()
+    base_input_ids = torch.tensor([2, 5, 1, 5, 2, 3], dtype=torch.long)
+    base_target = torch.tensor([4, 1, 0, 2, 6, 3], dtype=torch.long)
+    base_mask = torch.tensor([True, False, True, True, False, True], dtype=torch.bool)
+    base_upstream = torch.tensor([0.75, 0.0, -1.25, 0.5, 0.0, 1.0], dtype=torch.float32)
+    layouts = [
+        ((2, 3), [0, 1, 2, 3, 4, 5]),
+        ((3, 2), [5, 2, 1, 0, 4, 3]),
+    ]
+
+    assert model.lm_head.weight is model.embedding.weight
+    canonical_logps = None
+    canonical_grad = None
+
+    for lead_shape, order in layouts:
+        order_t = torch.tensor(order, dtype=torch.long)
+        input_ids = base_input_ids.index_select(0, order_t).reshape(lead_shape)
+        target = base_target.index_select(0, order_t).reshape(lead_shape)
+        mask = base_mask.index_select(0, order_t).reshape(lead_shape)
+        masked_target = target.masked_fill(~mask, -100)
+        upstream = (
+            base_upstream.index_select(0, order_t).reshape(lead_shape).masked_fill(~mask, 0.0)
+        )
+
+        model.zero_grad(set_to_none=True)
+        hidden = model(input_ids)
+        logps = op(
+            hidden, model.lm_head.weight, _safe_token_ids(masked_target, mask), model.lm_head.bias
+        )
+        logps = logps.masked_fill(~mask, 0.0)
+        logits = torch.nn.functional.linear(hidden.float(), model.lm_head.weight.float(), None)
+        expected = selected_logprobs_reference(logits, masked_target, mask=mask)
+        (logps * upstream).sum().backward()
+
+        recovered_logps = _recover_canonical_rows(logps.unsqueeze(-1), order).squeeze(-1)
+        shared_grad = model.embedding.weight.grad.detach().clone()
+
+        assert torch.allclose(logps, expected, atol=1e-5)
+        if canonical_logps is None:
+            canonical_logps = recovered_logps
+            canonical_grad = shared_grad
+        else:
+            assert torch.allclose(recovered_logps, canonical_logps, atol=1e-6)
+            assert torch.allclose(shared_grad, canonical_grad, atol=1e-6)
+
+
 def test_native_rejects_shape_mismatch():
     native = NativeLinearLogpOp()
     hidden, weight, _, bias = _inputs(0, device="cpu")
     with pytest.raises(ValueError):
         native(hidden, weight, torch.zeros(_N + 1, dtype=torch.long), bias)
+
+
+def test_tensor_parallel_metadata_requires_multi_rank_group():
+    native = NativeLinearLogpOp()
+    hidden, weight, target, bias = _inputs(0, device="cpu")
+    with pytest.raises(ValueError, match="vocab_start_index requires"):
+        native(hidden, weight, target, bias, vocab_start_index=4)
+    with pytest.raises(ValueError, match="global_vocab_size differs"):
+        native(hidden, weight, target, bias, global_vocab_size=weight.size(0) + 1)
+
+
+@requires_gloo
+def test_native_tensor_parallel_matches_full_reference_cpu_gloo_4_ranks():
+    ctx = mp.get_context("spawn")
+    world_size = 4
+    with tempfile.TemporaryDirectory() as tmpdir:
+        init_method = (Path(tmpdir) / "gloo_init").as_uri()
+        result_queue = ctx.Queue()
+        processes = [
+            ctx.Process(
+                target=_tp_linear_logp_gloo_worker,
+                args=(rank, world_size, init_method, result_queue),
+            )
+            for rank in range(world_size)
+        ]
+
+        for process in processes:
+            process.start()
+
+        results = []
+        try:
+            for _ in processes:
+                results.append(result_queue.get(timeout=45))
+        except queue.Empty:
+            for process in processes:
+                if process.is_alive():
+                    process.terminate()
+            pytest.fail("timed out waiting for tensor-parallel Gloo workers")
+        finally:
+            for process in processes:
+                process.join(timeout=10)
+                if process.is_alive():
+                    process.terminate()
+
+    sorted_results = sorted(results, key=lambda item: item["rank"])
+    for result in sorted_results:
+        assert result["ok"], result.get("traceback")
+    for process in processes:
+        assert process.exitcode == 0
+    for result in sorted_results:
+        assert result["out"] < 1e-5
+        assert result["hidden_grad"] < 1e-5
+        assert result["weight_grad"] < 1e-5
+        assert result["bias_grad"] < 1e-5
 
 
 @requires_triton_cuda
@@ -323,6 +646,94 @@ def test_sm90_rejects_out_of_range_target():
     # A valid target (all in [0, V)) still works.
     out = sm90(hidden, weight, target, bias)
     assert out.shape == target.shape and torch.isfinite(out).all()
+
+
+def test_sm90_tp_metadata_prefers_sm90_tp_helper(monkeypatch):
+    from rl_engine.kernels.ops.cuda.loss import linear_logp as cuda_linear_logp
+
+    op = object.__new__(cuda_linear_logp.FusedLinearLogpSM90Op)
+    hidden = torch.randn(2, 4)
+    weight = torch.randn(3, 4)
+    target = torch.tensor([3, 5])
+    sentinel = torch.full((2,), 7.0)
+    tp_group = object()
+    calls = {}
+
+    monkeypatch.setattr(
+        cuda_linear_logp,
+        "should_use_tensor_parallel_linear_logp",
+        lambda *args, **kwargs: True,
+    )
+    monkeypatch.setattr(cuda_linear_logp, "_sm90_supported", lambda h, w: True)
+
+    def fake_sm90_tp(hidden_arg, weight_arg, target_arg, bias_arg, **kwargs):
+        calls["sm90_tp"] = (hidden_arg, weight_arg, target_arg, bias_arg, kwargs)
+        return sentinel
+
+    def forbidden_portable_tp(*args, **kwargs):
+        raise AssertionError("portable TP path should not run when SM90 TP is available")
+
+    monkeypatch.setattr(cuda_linear_logp, "_sm90_tensor_parallel_linear_logp", fake_sm90_tp)
+    monkeypatch.setattr(cuda_linear_logp, "tensor_parallel_linear_logp", forbidden_portable_tp)
+
+    out = op(
+        hidden,
+        weight,
+        target,
+        tp_group=tp_group,
+        vocab_start_index=3,
+        global_vocab_size=6,
+    )
+
+    assert out is sentinel
+    assert calls["sm90_tp"][0] is hidden
+    assert calls["sm90_tp"][1] is weight
+    assert calls["sm90_tp"][2] is target
+    assert calls["sm90_tp"][4] == {
+        "tp_group": tp_group,
+        "vocab_start_index": 3,
+        "global_vocab_size": 6,
+    }
+
+
+def test_sm90_tp_metadata_falls_back_to_portable_tp_when_sm90_unsupported(monkeypatch):
+    from rl_engine.kernels.ops.cuda.loss import linear_logp as cuda_linear_logp
+
+    op = object.__new__(cuda_linear_logp.FusedLinearLogpSM90Op)
+    hidden = torch.randn(2, 4)
+    weight = torch.randn(3, 4)
+    target = torch.tensor([3, 5])
+    sentinel = torch.full((2,), 11.0)
+
+    monkeypatch.setattr(
+        cuda_linear_logp,
+        "should_use_tensor_parallel_linear_logp",
+        lambda *args, **kwargs: True,
+    )
+    monkeypatch.setattr(cuda_linear_logp, "_sm90_supported", lambda h, w: False)
+    monkeypatch.setattr(
+        cuda_linear_logp,
+        "_sm90_tensor_parallel_linear_logp",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("SM90 TP helper should not run for unsupported inputs")
+        ),
+    )
+    monkeypatch.setattr(
+        cuda_linear_logp,
+        "tensor_parallel_linear_logp",
+        lambda *args, **kwargs: sentinel,
+    )
+
+    out = op(
+        hidden,
+        weight,
+        target,
+        tp_group=object(),
+        vocab_start_index=3,
+        global_vocab_size=6,
+    )
+
+    assert out is sentinel
 
 
 def test_registry_dispatch_matches_native():

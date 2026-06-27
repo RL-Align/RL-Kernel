@@ -24,6 +24,9 @@ logp = linear_logp(
     lm_head_weight, # [V, D]               (differentiable)
     target_ids,     # [B, S] or [N]        int, in [0, V)
     bias=None,      # [V] optional         (differentiable)
+    tp_group=None,  # optional torch.distributed ProcessGroup for vocab TP
+    vocab_start_index=0,    # first global vocab id owned by this rank
+    global_vocab_size=None, # optional global/padded vocab size
 )                   # -> [B, S] or [N], float32
 
 logp.sum().backward()  # gradients flow into hidden, lm_head_weight, bias
@@ -63,10 +66,38 @@ logits and is the correctness oracle.
 Gradients flow into `hidden`, `lm_head_weight`, and `bias`; `target_ids` is
 integer and non-differentiable.
 
+## Tensor Parallel Vocab Shards
+
+For tensor-parallel LM heads sharded along the vocab dimension, pass each rank's
+local weight shard `[V_local, D]`, optional local bias shard `[V_local]`, the TP
+process group, and the shard's global vocab start:
+
+```python
+logp = linear_logp(
+    hidden,
+    local_lm_head_weight,
+    target_ids,                # global token ids, replicated across TP ranks
+    local_bias,
+    tp_group=tp_group,
+    vocab_start_index=vocab_start_index,
+    global_vocab_size=padded_vocab_size,
+)
+```
+
+The TP path streams local vocab chunks, computes local online-softmax state, then
+uses TP collectives to merge the global max, global sum, and selected target
+logit. Backward recomputes local logits in chunks and all-reduces `hidden.grad`
+across the TP group; `lm_head_weight.grad` and `bias.grad` remain local shards.
+Shard ranges must form a contiguous `[0, global_vocab_size)` partition.
+
 ## Reference Semantics
 
 ```python
-logits = torch.nn.functional.linear(hidden.float(), weight.float(), bias)  # [N, V]
+logits = torch.nn.functional.linear(
+    hidden.float(),
+    weight.float(),
+    None if bias is None else bias.float(),
+)  # [N, V]
 logp = torch.log_softmax(logits, dim=-1)
 out = logp.gather(-1, target_ids.long().unsqueeze(-1)).squeeze(-1)
 ```
@@ -127,6 +158,9 @@ Covers the native reference vs the materialized definition, Triton forward (fp32
 bf16) vs native, Triton backward vs native autograd (with and without bias), leading-
 shape preservation, a large-vocab smoke test, and registry dispatch. Triton tests
 skip without CUDA + Triton.
+
+For 4-GPU tensor-parallel validation, use
+[Fused Linear LogP TP Test Runbook](linear-logp-tp-test.md).
 
 ## Implementation Files
 

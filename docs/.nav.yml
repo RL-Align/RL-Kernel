@@ -13,6 +13,7 @@ nav:
       - operators/README.md
       - operators/fused-logp.md
       - operators/linear-logp.md
+      - operators/linear-logp-tp-test.md
       - operators/grpo-loss.md
       - operators/ratio-kl.md
       - operators/sampling.md

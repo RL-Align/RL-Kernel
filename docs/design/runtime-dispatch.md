@@ -15,12 +15,14 @@ logical type, and the registry selects the first available backend for the curre
 
 | Platform | Priority |
 | --- | --- |
-| CUDA | SM90 fused LogP when available, CUDA generic, FlashInfer, Triton generic, PyTorch native |
+| CUDA | CUDA generic LogP by default; experimental SM90 fused LogP only when explicitly enabled, FlashInfer, Triton generic, PyTorch native |
 | ROCm | AITER, Triton generic, PyTorch native |
 | CPU | PyTorch native |
 
-For CUDA devices with compute capability 9.0 or newer, the registry inserts the SM90
-LogP backend at the front of the CUDA priority list.
+For CUDA devices with compute capability 9.0 or newer, the registry only inserts
+the legacy SM90 LogP backend when `RL_KERNEL_ENABLE_EXPERIMENTAL_SM90_LOGP=1` is
+set. The fused linear logp SM90 backend is gated separately and remains the
+default linear logp backend when the extension is built on Hopper.
 
 ## Relevant Files
 

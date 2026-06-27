@@ -135,8 +135,7 @@ class KernelRegistry:
             )
 
     def _adjust_priority_for_hardware(self):
-        """Prioritize the fused TMA LogP kernel only when it is compiled into the
-        extension and the device is TMA-capable (SM90/100/120)."""
+        """Adjust CUDA priorities for hardware-gated experimental and production kernels."""
         if device_ctx.device_type != "cuda":
             return
         try:
@@ -148,10 +147,11 @@ class KernelRegistry:
             cc = cc_major * 10 + cc_minor
             tma_compiled = _EXT_AVAILABLE and hasattr(_C, "fused_logp_sm90")
 
-            if tma_compiled and cc_major in (9, 10, 12):
+            sm90_logp_enabled = os.getenv("RL_KERNEL_ENABLE_EXPERIMENTAL_SM90_LOGP") == "1"
+            if sm90_logp_enabled and tma_compiled and cc_major in (9, 10, 12):
                 logger.info(
                     f"Detected TMA-capable architecture (SM{cc}); "
-                    "prioritizing fused TMA LogP kernel."
+                    "prioritizing experimental fused TMA LogP kernel."
                 )
                 logp_list = self._priority_map["cuda"]["logp"]
                 if OpBackend.CUDA_FUSED_LOGP_SM90 not in logp_list:
@@ -166,8 +166,8 @@ class KernelRegistry:
                     ll_list.insert(0, OpBackend.CUDA_FUSED_LINEAR_LOGP_SM90)
             elif cc >= 90:
                 logger.debug(
-                    f"SM{cc}: fused TMA LogP kernel not compiled into _C; "
-                    "using generic fused kernel."
+                    f"SM{cc}: fused linear-logp SM90 kernel not compiled into _C; "
+                    "using generic linear-logp backend."
                 )
         except Exception as e:
             logger.warning(f"Failed to probe device capability: {e}")

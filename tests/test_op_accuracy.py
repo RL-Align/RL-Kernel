@@ -14,6 +14,27 @@ def _fused_logp_op(op_type: str = "logp"):
     return kernel_registry.get_op(op_type)
 
 
+def _sm90_logp_available():
+    if not torch.cuda.is_available():
+        return False
+    try:
+        from rl_engine.kernels.ops.base import _C, _EXT_AVAILABLE
+
+        return (
+            _EXT_AVAILABLE
+            and hasattr(_C, "fused_logp_sm90")
+            and torch.cuda.get_device_capability()[0] == 9
+        )
+    except Exception:  # pragma: no cover
+        return False
+
+
+requires_sm90_logp = pytest.mark.skipif(
+    not _sm90_logp_available(),
+    reason="SM90 fused logp requires a Hopper GPU and the extension built with SM90 enabled.",
+)
+
+
 def _reference_selected_logp(logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
     ref_logp = torch.log_softmax(logits.float(), dim=-1)
     return torch.gather(ref_logp, dim=-1, index=token_ids.long().unsqueeze(-1)).squeeze(-1)
@@ -164,6 +185,44 @@ def test_accuracy():
     print("=" * 50 + "\n")
 
     assert diff < threshold
+
+
+@requires_sm90_logp
+def test_sm90_logp_registry_uses_generic_default_on_sm90(monkeypatch):
+    from rl_engine.kernels.registry import KernelRegistry
+
+    monkeypatch.delenv("RL_KERNEL_ENABLE_EXPERIMENTAL_SM90_LOGP", raising=False)
+
+    op = KernelRegistry().get_op("logp")
+
+    assert op.__class__.__name__ == "FusedLogpGenericOp"
+
+
+@requires_sm90_logp
+def test_sm90_logp_bf16_defaults_to_generic_fallback(monkeypatch):
+    from rl_engine.kernels.ops.cuda.loss.logp import FusedLogpSM90Op
+
+    op = FusedLogpSM90Op()
+    monkeypatch.delenv("RL_KERNEL_ENABLE_EXPERIMENTAL_SM90_LOGP", raising=False)
+    calls = {}
+
+    class Fallback:
+        def apply(self, logits_arg, token_ids_arg):
+            calls["apply"] = True
+            return _reference_selected_logp(logits_arg, token_ids_arg)
+
+    monkeypatch.setattr(op, "_fallback_op", lambda: Fallback())
+
+    generator = torch.Generator(device="cuda").manual_seed(189)
+    logits = torch.randn(128, 4096, device="cuda", dtype=torch.bfloat16, generator=generator)
+    token_ids = torch.randint(0, logits.size(-1), (logits.size(0),), device="cuda")
+
+    result = op(logits.contiguous(), token_ids)
+    expected = _reference_selected_logp(logits, token_ids)
+
+    assert calls["apply"] is True
+    assert result.shape == token_ids.shape
+    assert torch.equal(result, expected)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available")

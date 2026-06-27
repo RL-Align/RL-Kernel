@@ -146,7 +146,7 @@ def test_minimal_rl_loss_step_fused_logp_candidate_cuda():
     old_logps = reference_logps - 0.01
     ref_logps = reference_logps - 0.02
     candidate_op = kernel_registry.get_op("logp")
-    if candidate_op.__class__.__name__ != "FusedLogpGenericOp":
+    if candidate_op.__class__.__name__ not in {"FusedLogpGenericOp", "FusedLogpSM90Op"}:
         pytest.skip("fused logp CUDA backend is unavailable")
 
     candidate_logps = candidate_op(logits, batch.token_ids).float()

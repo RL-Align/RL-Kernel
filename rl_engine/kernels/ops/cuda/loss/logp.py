@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
+import os
+
 import torch
 
 from rl_engine.kernels.ops.base import _C, _EXT_AVAILABLE
@@ -17,13 +19,74 @@ class FusedLogpSM90Op:
                 "Please rebuild extension using 'pip install -e .'"
             )
         self.op = _C.fused_logp_sm90
+        self._fallback = None
         logger.info("Successfully linked to precompiled _C.fused_logp_sm90 kernel.")
 
     def __call__(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-        assert logits.dtype == torch.bfloat16, "TMA logp currently requires bfloat16 logits"
-        assert logits.is_contiguous(), "Logits must be contiguous for TMA block loading"
+        return self.apply(logits, labels)
+
+    def _fallback_op(self):
+        if self._fallback is None:
+            self._fallback = FusedLogpGenericOp()
+        return self._fallback
+
+    def _can_use_sm90(self, logits: torch.Tensor) -> bool:
+        return (
+            os.getenv("RL_KERNEL_ENABLE_EXPERIMENTAL_SM90_LOGP") == "1"
+            and logits.dim() == 2
+            and logits.dtype == torch.bfloat16
+            and logits.is_contiguous()
+        )
+
+    def apply(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        if not self._can_use_sm90(logits):
+            return self._fallback_op().apply(logits, labels)
         labels_fused = labels.to(device=logits.device, dtype=torch.int32).contiguous()
         return self.op(logits, labels_fused)
+
+    def apply_fp32(self, logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
+        return self._fallback_op().apply_fp32(logits, token_ids)
+
+    def out(
+        self, logits: torch.Tensor, token_ids: torch.Tensor, output: torch.Tensor
+    ) -> torch.Tensor:
+        return self._fallback_op().out(logits, token_ids, output)
+
+    def indexed_out(
+        self,
+        logits: torch.Tensor,
+        token_ids: torch.Tensor,
+        row_indices: torch.Tensor,
+        output: torch.Tensor,
+    ) -> torch.Tensor:
+        return self._fallback_op().indexed_out(logits, token_ids, row_indices, output)
+
+    def indexed_fp32(
+        self, logits: torch.Tensor, token_ids: torch.Tensor, row_indices: torch.Tensor
+    ) -> torch.Tensor:
+        return self._fallback_op().indexed_fp32(logits, token_ids, row_indices)
+
+    def online_out(
+        self, logits: torch.Tensor, token_ids: torch.Tensor, output: torch.Tensor
+    ) -> torch.Tensor:
+        return self._fallback_op().online_out(logits, token_ids, output)
+
+    def online_fp32(self, logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
+        return self._fallback_op().online_fp32(logits, token_ids)
+
+    def online_indexed_out(
+        self,
+        logits: torch.Tensor,
+        token_ids: torch.Tensor,
+        row_indices: torch.Tensor,
+        output: torch.Tensor,
+    ) -> torch.Tensor:
+        return self._fallback_op().online_indexed_out(logits, token_ids, row_indices, output)
+
+    def online_indexed_fp32(
+        self, logits: torch.Tensor, token_ids: torch.Tensor, row_indices: torch.Tensor
+    ) -> torch.Tensor:
+        return self._fallback_op().online_indexed_fp32(logits, token_ids, row_indices)
 
 
 class FusedLogpGenericOp:
