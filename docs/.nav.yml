@@ -8,9 +8,11 @@ nav:
       - getting_started/quickstart.md
       - getting_started/installation.md
       - getting_started/faq.md
+      - Hardware Profiling Guide: getting_started/hardware-profiling.md
     - Operators:
       - operators/README.md
       - operators/fused-logp.md
+      - operators/linear-logp.md
       - operators/grpo-loss.md
       - operators/ratio-kl.md
       - operators/sampling.md
@@ -24,6 +26,7 @@ nav:
       - design/*
   - Benchmarking:
     - benchmarking/README.md
+    - benchmarking/hardware-dashboard.md
   - API Reference:
     - api/README.md
   - CLI Reference:

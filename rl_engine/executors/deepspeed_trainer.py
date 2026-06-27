@@ -24,6 +24,7 @@ from rl_engine.executors.training_contract import (
     RolloutStageResult,
     TorchRLTrainingConfig,
     TrainingStageResult,
+    objective_reference_logps,
 )
 from rl_engine.testing import (
     compute_policy_ratio,
@@ -113,7 +114,7 @@ class DeepSpeedTrainingWorker(RolloutBatchMixin):
             output_dtype=torch.float32,
         )
         old_logps = current_logps.detach() - 0.01
-        ref_logps = current_logps.detach() - 0.02
+        ref_logps = objective_reference_logps(current_logps, batch)
         ratio = compute_policy_ratio(current_logps, old_logps, batch.completion_mask)
         unclipped = ratio * batch.advantages.float()
         clipped = torch.clamp(ratio, 0.8, 1.2) * batch.advantages.float()
@@ -133,6 +134,7 @@ class DeepSpeedTrainingWorker(RolloutBatchMixin):
 
         finished_at = time.perf_counter()
         published = self._next_published_weight_version(rollout.weight_version)
+        active_advantages = batch.advantages.float()[batch.completion_mask]
         return TrainingStageResult(
             iteration=rollout.iteration,
             consumed_weight_version=rollout.weight_version,
@@ -145,6 +147,16 @@ class DeepSpeedTrainingWorker(RolloutBatchMixin):
                 "training_device": str(self.device),
                 "deepspeed_engine": type(self.engine).__name__,
                 "deepspeed_zero_stage": self.config.zero_stage,
+                "active_advantage_mean_global": (
+                    float(active_advantages.mean().detach().cpu().item())
+                    if active_advantages.numel()
+                    else 0.0
+                ),
+                "active_advantage_std_global": (
+                    float(active_advantages.std(unbiased=False).detach().cpu().item())
+                    if active_advantages.numel()
+                    else 0.0
+                ),
                 **payload_metrics,
             },
             started_at=started_at,
