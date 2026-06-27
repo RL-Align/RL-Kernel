@@ -8,6 +8,7 @@ nav:
       - getting_started/quickstart.md
       - getting_started/installation.md
       - getting_started/faq.md
+      - Hardware Profiling Guide: getting_started/hardware-profiling.md
     - Operators:
       - operators/README.md
       - operators/fused-logp.md
