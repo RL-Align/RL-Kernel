@@ -4,7 +4,7 @@
 import torch
 
 from rl_engine.executors.rollout import RolloutExecutor
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.kernels.registry import KernelRegistry, OpBackend, kernel_registry
 from rl_engine.platforms.device import device_ctx
 from rl_engine.utils.logger import logger
 
@@ -23,6 +23,23 @@ def test_device_and_registry():
     attn_op = kernel_registry.get_op("attn")
     logger.info(f"Retrieved Logp Operator: {logp_op}")
     logger.info(f"Retrieved Attention Operator: {attn_op}")
+
+
+def test_rocm_attention_uses_flash_attention_by_default(monkeypatch):
+    monkeypatch.delenv("RL_KERNEL_ROCM_ATTN_BACKEND", raising=False)
+
+    registry = KernelRegistry()
+
+    assert registry._priority_map["rocm"]["attn"][0] == OpBackend.ROCM_FLASH_ATTN
+
+
+def test_rocm_attention_native_sdpa_opt_out(monkeypatch):
+    monkeypatch.setenv("RL_KERNEL_ROCM_ATTN_BACKEND", " sdpa ")
+
+    registry = KernelRegistry()
+
+    assert registry._priority_map["rocm"]["attn"][0] == OpBackend.PYTORCH_ATTN
+    assert registry._priority_map["rocm"]["attn"][1] == OpBackend.ROCM_FLASH_ATTN
 
 
 def test_executor_flow():

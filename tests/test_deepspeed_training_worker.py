@@ -222,6 +222,10 @@ def test_deepspeed_training_worker_uses_engine_backward_and_step(monkeypatch):
     assert result.metrics["rollout_sequences"] == 2
     assert result.metrics["rollout_tokens"] == 6
     assert math.isfinite(result.metrics["loss"])
+    assert "advantage_mean" not in result.metrics
+    assert "advantage_std" not in result.metrics
+    assert math.isfinite(result.metrics["active_advantage_mean_global"])
+    assert result.metrics["active_advantage_std_global"] >= 0.0
 
 
 def test_deepspeed_training_worker_synthetic_fallback(monkeypatch):

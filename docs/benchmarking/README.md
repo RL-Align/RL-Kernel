@@ -2,6 +2,9 @@
 
 RL-Kernel benchmarks track operator latency, memory behavior, and dispatch overhead.
 
+See the [Hardware Benchmark Dashboard](hardware-dashboard.md) for the
+cross-hardware reporting template and result-status rules.
+
 Current benchmark entry points:
 
 ```bash
