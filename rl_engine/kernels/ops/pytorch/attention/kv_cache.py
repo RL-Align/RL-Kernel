@@ -91,6 +91,7 @@ class NativeKVCacheAttnOp:
         Canonical entry: concat cache+new, then attend in the input dtype.
         Delegates to ``NativeAttentionOp.forward`` (the Axis-B dtype path).
         """
+        self._validate_decode_alignment(q, k_new, v_new)
         k_full, v_full = self._concat_kv(k_cache, v_cache, k_new, v_new)
         return self._attn.forward(
             q, k_full, v_full, causal=causal, scale=scale, key_padding_mask=key_padding_mask
@@ -112,6 +113,7 @@ class NativeKVCacheAttnOp:
         Delegates to ``NativeAttentionOp.forward_fp32`` so the fp32 golden path
         is identical to prefill's.
         """
+        self._validate_decode_alignment(q, k_new, v_new)
         k_full, v_full = self._concat_kv(k_cache, v_cache, k_new, v_new)
         return self._attn.forward_fp32(
             q, k_full, v_full, causal=causal, scale=scale, key_padding_mask=key_padding_mask
@@ -120,6 +122,28 @@ class NativeKVCacheAttnOp:
     # ------------------------------------------------------------------ #
     # Helpers
     # ------------------------------------------------------------------ #
+    @staticmethod
+    def _validate_decode_alignment(
+        q: torch.Tensor,
+        k_new: torch.Tensor,
+        v_new: torch.Tensor,
+    ) -> None:
+        """Enforce the contract that ``q`` holds exactly the newly appended
+        positions: ``Sq == S_new``.
+
+        q's rows are the queries for ``k_new``, so the causal offset inside
+        ``NativeAttentionOp`` (``Skv - Sq + 1``) is only correct when their seq
+        lengths match. A mismatched ``q`` would otherwise silently attend with
+        the wrong offset and return a wrong-but-finite result. Seq axis is dim=2
+        in the ``[B, H, S, D]`` layout.
+        """
+        sq, s_new_k, s_new_v = q.size(2), k_new.size(2), v_new.size(2)
+        if sq != s_new_k or sq != s_new_v:
+            raise ValueError(
+                "kv_cache attention expects q to hold exactly the new positions "
+                f"(Sq == S_new): got Sq={sq}, k_new={s_new_k}, v_new={s_new_v}."
+            )
+
     @staticmethod
     def _concat_kv(
         k_cache: torch.Tensor,

@@ -9,9 +9,11 @@ prefill. Because it delegates to NativeAttentionOp, the central guarantees are:
   * Delegation equivalence: kv_cache(q, cache, new) == standard_attn(q,
     cat([cache,new])) bitwise -- validates the wiring (cat dim, arg order,
     fp32/dtype path pairing).
-  * Split-point invariance (Axis-A flavor): where you draw the cache/new
-    boundary must not change the result. Same full K/V width -> same reduction
-    -> bitwise identical (torch.equal).
+  * Split-point invariance (Axis-A flavor): a token's output is the same whether
+    computed in one prefill shot or at decode time (its position split into cache
+    + new), with the new queries taken as the suffix so Sq == S_new. The score
+    matmul's M dimension differs across splits, so this is near-equal
+    (allclose, atol=2e-6), not bitwise.
   * Prefill<->decode consistency: stepwise decode reproduces full-prefill outputs
     up to a small tolerance. Here the softmax reduction *width* differs (step t
     reduces over t+1 keys vs the full Skv with future positions masked to -inf),
@@ -136,25 +138,38 @@ def test_forward_equals_standard_attn_on_concat():
 # Split-point invariance: the cache/new boundary must not change the result.
 # --------------------------------------------------------------------------- #
 def test_cache_split_point_invariance():
-    """Splitting the same full K/V at different cache/new boundaries is bitwise identical.
+    """A decoded suffix matches the matching slice of full prefill (atol=2e-6).
 
     This is the soul of KV-cache correctness: a token computed during prefill (in
-    the cache) vs at decode time (as new) yields the same attention output.
+    one shot) vs at decode time (its position split into cache + new) yields the
+    same attention output. For each split, the *new* queries are the suffix
+    ``q_full[:, :, split:]`` -- the positions that correspond to ``k_new`` -- so
+    the op's Sq == S_new contract holds.
+
+    Not bitwise: although the decode call and prefill reduce over the same
+    Skv = total, the score matmul's M dimension differs (Sq = total - split vs
+    total), and the GEMM may tile/round that dimension differently, so IEEE 754
+    only guarantees near-equality. Observed drift is ~1.4e-6; 2e-6 carries
+    headroom (cf. key-padding tolerance in standard attention).
     """
     op = NativeKVCacheAttnOp()
+    ref = NativeAttentionOp()
     b, total = 2, 8
-    sq = total  # attend the whole sequence (prefill-shaped) so every split is valid
-    q = _q(b, sq, seed=10)
+    q_full = _q(b, total, seed=10)
     k_full, v_full = _kv(b, total, seed=11)
+    split_atol = 2.0e-6
 
-    outputs = []
     with _single_thread():
-        for split in (0, 1, 4, total):  # all-new, ..., all-cache
+        prefill = ref.forward_fp32(q_full, k_full, v_full, causal=True)
+        for split in (0, 1, 4):  # all-new ... mostly-cache (split=total -> empty new)
             k_cache, k_new = k_full[:, :, :split], k_full[:, :, split:]
             v_cache, v_new = v_full[:, :, :split], v_full[:, :, split:]
-            outputs.append(op.forward_fp32(q, k_cache, v_cache, k_new, v_new, causal=True))
-    for other in outputs[1:]:
-        assert torch.equal(outputs[0], other)
+            got = op.forward_fp32(q_full[:, :, split:], k_cache, v_cache, k_new, v_new, causal=True)
+            want = prefill[:, :, split:]
+            max_err = (got - want).abs().max().item()
+            assert torch.allclose(
+                got, want, atol=split_atol, rtol=0.0
+            ), f"split {split} diverges from prefill by {max_err:.3g} > {split_atol}"
 
 
 # --------------------------------------------------------------------------- #
@@ -339,6 +354,19 @@ def test_gqa_requires_divisible_heads():
     k_new, v_new = _kv(b, 1, seed=81)
     with pytest.raises(ValueError):
         op.forward_fp32(q, k_cache, v_cache, k_new, v_new)
+
+
+def test_misaligned_q_length_raises():
+    """q must hold exactly the new positions (Sq == S_new); a mismatch raises."""
+    op = NativeKVCacheAttnOp()
+    b, s_past, s_new = 2, 5, 3
+    k_cache, v_cache = _kv(b, s_past, seed=85)
+    k_new, v_new = _kv(b, s_new, seed=86)
+    q = _q(b, s_new + 1, seed=87)  # Sq=4 != S_new=3
+    with pytest.raises(ValueError):
+        op.forward_fp32(q, k_cache, v_cache, k_new, v_new, causal=True)
+    with pytest.raises(ValueError):
+        op.forward(q, k_cache, v_cache, k_new, v_new, causal=True)
 
 
 def test_inputs_not_mutated():
