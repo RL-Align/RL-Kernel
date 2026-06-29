@@ -2,6 +2,7 @@
 # Copyright (c) 2026 RL-Kernel Contributors
 
 import os
+from typing import Callable
 
 import torch
 
@@ -22,6 +23,7 @@ class RocmFlashAttentionOp:
     """
 
     def __init__(self):
+        self.op: Callable[..., torch.Tensor]
         if torch.version.hip is None:
             raise RuntimeError("RocmFlashAttentionOp requires a ROCm PyTorch build.")
 
