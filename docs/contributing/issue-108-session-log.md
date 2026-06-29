@@ -368,3 +368,24 @@ CPU CLI smoke test:
 ```bash
 python scripts/check_operator.py   --op logp   --candidate pytorch   --device cpu   --dtype fp32   --batch 1   --seq 2   --vocab 17
 ```
+
+## PR Review Updates
+
+### LogP Gradient Coverage
+
+Files:
+
+```text
+tests/test_logp.py
+docs/contributing/issue-108-session-log.md
+```
+
+Change:
+
+- Added a forward-gradient test for `NativeLogpOp.forward_fp32`.
+
+Reasoning:
+
+- The checker PR already validates forward output values, but review feedback called out that logprob coverage should also prove gradient propagation and batch invariance.
+- The new gradient test compares the op gradient against a direct PyTorch `log_softmax + gather` reference under a non-unit upstream gradient.
+- Batch invariance was already covered by `TestNativeLogpOpBatchInvariance` in `tests/test_logp.py`, so no duplicate batch-invariance test was added.

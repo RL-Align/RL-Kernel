@@ -78,6 +78,20 @@ class TestNativeLogpOpCorrectness:
         assert torch.equal(logits, logits_orig)
         assert torch.equal(token_ids, token_ids_orig)
 
+    def test_forward_fp32_gradient_matches_reference(self):
+        gen = torch.Generator().manual_seed(654)
+        logits = torch.randn(2, 4, 17, generator=gen, requires_grad=True)
+        ref_logits = logits.detach().clone().requires_grad_(True)
+        token_ids = torch.randint(0, logits.size(-1), (2, 4), generator=gen)
+        upstream = torch.randn(2, 4, generator=gen)
+
+        (NativeLogpOp().forward_fp32(logits, token_ids) * upstream).sum().backward()
+        (_reference_selected_logp(ref_logits, token_ids) * upstream).sum().backward()
+
+        assert logits.grad is not None
+        assert ref_logits.grad is not None
+        assert torch.allclose(logits.grad, ref_logits.grad, atol=1e-6, rtol=1e-6)
+
     def test_op_class_is_logprob(self):
         assert NativeLogpOp.op_class == "logprob"
 
