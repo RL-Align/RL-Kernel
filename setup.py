@@ -58,6 +58,7 @@ def get_extensions():
             "csrc/ops.cpp",
             "csrc/fused_logp_kernel.cu",
             "csrc/cuda/attention/prefix_shared_attention.cu",
+            "csrc/cuda/rmsnorm.cu",
         ]
 
         cc_major, cc_minor = torch.cuda.get_device_capability()

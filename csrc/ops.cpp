@@ -25,6 +25,114 @@ torch::Tensor fused_logp_forward_online_fp32(torch::Tensor logits, torch::Tensor
 torch::Tensor fused_logp_forward_online_indexed_out(torch::Tensor logits, torch::Tensor token_ids, torch::Tensor row_indices, torch::Tensor output);
 torch::Tensor fused_logp_forward_online_indexed_fp32(torch::Tensor logits, torch::Tensor token_ids, torch::Tensor row_indices);
 
+// RMSNorm Declarations & Wrappers
+
+void rmsnorm_forward_cuda(
+  torch::Tensor x,
+  torch::Tensor weight,
+  torch::Tensor y,
+  torch::Tensor rstd,
+  double eps);
+
+void rmsnorm_backward_dx_cuda(
+  torch::Tensor dy,
+  torch::Tensor x,
+  torch::Tensor weight,
+  torch::Tensor rstd,
+  torch::Tensor dx);
+
+void rmsnorm_backward_partial_dw_cuda(
+  torch::Tensor dy,
+  torch::Tensor x,
+  torch::Tensor rstd,
+  torch::Tensor mask,
+  torch::Tensor partial_dw);
+
+void rmsnorm_backward_reduce_dw_cuda(
+  torch::Tensor partial_dw,
+  torch::Tensor dw);
+
+static void rmsnorm_check_input(const torch::Tensor& x, const char* name) {
+  TORCH_CHECK(x.is_cuda(), name, " must be a CUDA tensor");
+  TORCH_CHECK(x.is_contiguous(), name, " must be contiguous");
+}
+
+std::vector<torch::Tensor> rmsnorm_forward(
+  torch::Tensor x,
+  torch::Tensor weight,
+  double eps)
+{
+  rmsnorm_check_input(x, "x");
+  rmsnorm_check_input(weight, "weight");
+
+  TORCH_CHECK(x.dim() == 2, "x must be 2D [T, H]");
+  TORCH_CHECK(weight.dim() == 1, "weight must be 1D [H]");
+  TORCH_CHECK(x.size(1) == weight.size(0), "x.size(1) must equal weight.size(0)");
+
+  auto T = x.size(0);
+  auto y = torch::empty_like(x);
+  auto rstd = torch::empty({T}, x.options().dtype(torch::kFloat32));
+
+  rmsnorm_forward_cuda(x, weight, y, rstd, eps);
+
+  return {y, rstd};
+}
+
+torch::Tensor rmsnorm_backward_dx(
+  torch::Tensor dy,
+  torch::Tensor x,
+  torch::Tensor weight,
+  torch::Tensor rstd)
+{
+  rmsnorm_check_input(dy, "dy");
+  rmsnorm_check_input(x, "x");
+  rmsnorm_check_input(weight, "weight");
+  rmsnorm_check_input(rstd, "rstd");
+
+  TORCH_CHECK(dy.sizes() == x.sizes(), "dy and x must have same shape");
+  TORCH_CHECK(x.dim() == 2, "x must be 2D [T, H]");
+  TORCH_CHECK(weight.dim() == 1, "weight must be 1D [H]");
+  TORCH_CHECK(rstd.dim() == 1, "rstd must be 1D [T]");
+  TORCH_CHECK(rstd.size(0) == x.size(0), "rstd.size(0) must equal x.size(0)");
+
+  auto dx = torch::empty_like(x);
+
+  rmsnorm_backward_dx_cuda(dy, x, weight, rstd, dx);
+
+  return dx;
+}
+
+torch::Tensor rmsnorm_backward_dw(
+  torch::Tensor dy,
+  torch::Tensor x,
+  torch::Tensor rstd,
+  torch::Tensor mask)
+{
+  rmsnorm_check_input(dy, "dy");
+  rmsnorm_check_input(x, "x");
+  rmsnorm_check_input(rstd, "rstd");
+  rmsnorm_check_input(mask, "mask");
+
+  TORCH_CHECK(dy.sizes() == x.sizes(), "dy and x must have same shape");
+  TORCH_CHECK(x.dim() == 2, "x must be 2D [T, H]");
+  TORCH_CHECK(rstd.dim() == 1, "rstd must be 1D [T]");
+  TORCH_CHECK(mask.dim() == 1, "mask must be 1D [T]");
+  TORCH_CHECK(mask.scalar_type() == torch::kBool, "mask must be bool");
+  TORCH_CHECK(rstd.size(0) == x.size(0), "rstd.size(0) must equal x.size(0)");
+  TORCH_CHECK(mask.size(0) == x.size(0), "mask.size(0) must equal x.size(0)");
+
+  auto T = x.size(0);
+  auto H = x.size(1);
+
+  auto partial_dw = torch::empty({T, H}, x.options().dtype(torch::kFloat32));
+  auto dw = torch::empty({H}, x.options().dtype(torch::kFloat32));
+
+  rmsnorm_backward_partial_dw_cuda(dy, x, rstd, mask, partial_dw);
+  rmsnorm_backward_reduce_dw_cuda(partial_dw, dw);
+
+  return dw;
+}
+
 // Prefix-Shared Attention Declarations & Wrappers
 
 void prefix_shared_attention_forward(
@@ -95,5 +203,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 
     // registry Prefix-Shared Attention
     m.def("prefix_shared_attention", &prefix_shared_attention, "Prefix-Shared Fused Attention for GRPO");
+
+    // registry RMSNorm
+    m.def("rmsnorm_forward", &rmsnorm_forward, "Batch-invariant RMSNorm forward CUDA");
+    m.def("rmsnorm_backward_dx", &rmsnorm_backward_dx, "Batch-invariant RMSNorm backward dx CUDA");
+    m.def("rmsnorm_backward_dw", &rmsnorm_backward_dw, "Deterministic RMSNorm backward dweight CUDA");
 #endif
 }
