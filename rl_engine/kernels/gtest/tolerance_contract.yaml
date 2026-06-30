@@ -1,0 +1,25 @@
+{
+  "batch_invariance": {"atol": 0.0, "rtol": 0.0},
+  "accuracy": {
+    "default": {
+      "elementwise": {
+        "float32": {"atol": 1.0e-5, "rtol": 1.0e-5},
+        "bfloat16": {"atol": 2.0e-2, "rtol": 1.6e-2},
+        "float16": {"atol": 1.0e-3, "rtol": 1.0e-3}
+      },
+      "reduction": {
+        "float32": {"atol": 1.0e-4, "rtol": 1.0e-4},
+        "bfloat16": {"atol": 5.0e-2, "rtol": 2.0e-2},
+        "float16": {"atol": 1.0e-3, "rtol": 1.0e-3}
+      },
+      "logprob": {
+        "float32": {"atol": 1.0e-5, "rtol": 0.0},
+        "bfloat16": {"atol": 5.0e-2, "rtol": 0.0},
+        "float16": {"atol": 5.0e-3, "rtol": 0.0}
+      }
+    },
+    "arch_overrides": {
+      "sm90": {}
+    }
+  }
+}
