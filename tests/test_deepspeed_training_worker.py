@@ -123,6 +123,26 @@ def test_missing_deepspeed_raises_explicit_blocker(monkeypatch):
         deepspeed_trainer.DeepSpeedTrainingWorker()
 
 
+def test_training_config_accepts_batch_invariant_logp_requirement():
+    from rl_engine.executors.training_contract import TorchRLTrainingConfig
+
+    TorchRLTrainingConfig(require_batch_invariant_logp=True)
+    TorchRLTrainingConfig(
+        logp_backend="deterministic",
+        require_batch_invariant_logp=True,
+    )
+
+
+def test_training_config_rejects_non_deterministic_batch_invariant_backend():
+    from rl_engine.executors.training_contract import TorchRLTrainingConfig
+
+    with pytest.raises(ValueError, match="requires a deterministic logp backend"):
+        TorchRLTrainingConfig(
+            logp_backend="online",
+            require_batch_invariant_logp=True,
+        )
+
+
 def test_deepspeed_loader_preserves_explicit_cuda_home(monkeypatch):
     import torch.utils.cpp_extension as cpp_extension
 

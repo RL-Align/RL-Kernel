@@ -14,6 +14,7 @@ from rl_engine.executors.stateless_executor import (
     StatelessForwardInputs,
     StatelessForwardResult,
 )
+from rl_engine.kernels.registry import resolve_logp_op_type
 from rl_engine.testing import SyntheticRLKernelBatch, make_synthetic_rl_kernel_batch
 
 
@@ -70,6 +71,14 @@ class TorchRLTrainingConfig:
     seed: int = 0
     min_completion_len: int = 1
     advantage_eps: float = 1e-8
+    logp_backend: str = "auto"
+    require_batch_invariant_logp: bool = False
+
+    def __post_init__(self) -> None:
+        resolve_logp_op_type(
+            self.logp_backend,
+            require_batch_invariant=self.require_batch_invariant_logp,
+        )
 
 
 class RolloutBatchMixin:
