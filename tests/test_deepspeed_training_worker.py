@@ -8,12 +8,15 @@ import math
 import os
 import sys
 import time
+from dataclasses import replace
 
 import pytest
 import torch
 
 from rl_engine.executors.bridge import LocalTensorCopyBridge, WeightBridgeUnavailableError
 from rl_engine.executors.training_contract import RolloutStageResult
+from rl_engine.kernels.ops.pytorch.loss.linear_logp import NativeLinearLogpOp
+from rl_engine.testing import make_synthetic_rl_kernel_batch, selected_logprobs_reference
 
 
 class FakeDeepSpeedEngine:
@@ -56,16 +59,25 @@ class FakeDeepSpeedModule:
 
 class FakeGatheredParameters:
     calls = 0
+    active = 0
+    max_active = 0
+    modifier_ranks = []
+    parameter_counts = []
 
     def __init__(self, parameters, modifier_rank=0):
         self.parameters = list(parameters)
         self.modifier_rank = modifier_rank
+        type(self).modifier_ranks.append(modifier_rank)
+        type(self).parameter_counts.append(len(self.parameters))
 
     def __enter__(self):
         type(self).calls += 1
+        type(self).active += 1
+        type(self).max_active = max(type(self).max_active, type(self).active)
         return self.parameters
 
     def __exit__(self, exc_type, exc, traceback):
+        type(self).active -= 1
         return False
 
 
@@ -78,6 +90,10 @@ def _install_fake_deepspeed(monkeypatch):
 def _install_fake_deepspeed_with_gather(monkeypatch):
     fake = FakeDeepSpeedModule()
     FakeGatheredParameters.calls = 0
+    FakeGatheredParameters.active = 0
+    FakeGatheredParameters.max_active = 0
+    FakeGatheredParameters.modifier_ranks = []
+    FakeGatheredParameters.parameter_counts = []
     fake.zero = type("FakeZeroNamespace", (), {"GatheredParameters": FakeGatheredParameters})()
     monkeypatch.setitem(sys.modules, "deepspeed", fake)
     return fake
@@ -96,6 +112,24 @@ def _rollout(iteration=2, weight_version=9):
         started_at=time.perf_counter(),
         finished_at=time.perf_counter(),
     )
+
+
+class SpyLinearLogpOp:
+    def __init__(self):
+        self.calls = []
+        self._delegate = NativeLinearLogpOp()
+
+    def __call__(self, hidden, lm_head_weight, target_ids, bias=None, **kwargs):
+        self.calls.append(
+            {
+                "hidden": hidden.detach().clone(),
+                "lm_head_weight": lm_head_weight.detach().clone(),
+                "target_ids": target_ids.detach().clone(),
+                "bias": None if bias is None else bias.detach().clone(),
+                "kwargs": dict(kwargs),
+            }
+        )
+        return self._delegate(hidden, lm_head_weight, target_ids, bias, **kwargs)
 
 
 def test_importing_module_does_not_import_deepspeed(monkeypatch):
@@ -218,14 +252,320 @@ def test_deepspeed_training_worker_uses_engine_backward_and_step(monkeypatch):
     assert result.consumed_weight_version == 9
     assert result.published_weight_version == 10
     assert result.metrics["training_backend"] == "deepspeed"
+    assert result.metrics["deepspeed_zero_stage"] == 1
     assert result.metrics["training_data_source"] == "rollout_payload"
     assert result.metrics["rollout_sequences"] == 2
     assert result.metrics["rollout_tokens"] == 6
+    assert result.metrics["current_logp_path"] == "linear_logp"
+    assert result.metrics["current_logp_backend"] == "NativeLinearLogpOp"
     assert math.isfinite(result.metrics["loss"])
     assert "advantage_mean" not in result.metrics
     assert "advantage_std" not in result.metrics
     assert math.isfinite(result.metrics["active_advantage_mean_global"])
     assert result.metrics["active_advantage_std_global"] >= 0.0
+
+
+def test_extract_logps_matches_masked_reference_with_ignore_index():
+    from rl_engine.executors.deepspeed_trainer import _EmbeddingLMHeadModel, _extract_logps
+
+    torch.manual_seed(2026)
+    model = _EmbeddingLMHeadModel(vocab_size=13, hidden_dim=7)
+    input_ids = torch.tensor([[4, 3, 2], [1, 0, 5]], dtype=torch.long)
+    token_ids = torch.tensor([[6, -100, 2], [-100, 1, 4]], dtype=torch.long)
+    mask = token_ids.ne(-100)
+
+    hidden = model(input_ids)
+    actual = _extract_logps(
+        hidden,
+        model,
+        token_ids,
+        mask,
+        NativeLinearLogpOp(),
+        output_dtype=torch.float32,
+    )
+    logits = torch.nn.functional.linear(
+        hidden.float(),
+        model.lm_head.weight.float(),
+        model.lm_head.bias.float(),
+    )
+    expected = selected_logprobs_reference(logits, token_ids, mask=mask)
+
+    assert torch.allclose(actual, expected, atol=1e-5)
+    assert actual[~mask].eq(0.0).all()
+
+
+def test_extract_logps_uses_hidden_dim_to_disambiguate_tuple_logits():
+    from rl_engine.executors.deepspeed_trainer import _EmbeddingLMHeadModel, _extract_logps
+
+    torch.manual_seed(2027)
+    model = _EmbeddingLMHeadModel(vocab_size=13, hidden_dim=5)
+    input_ids = torch.tensor([[4, 3, 2]], dtype=torch.long)
+    token_ids = torch.tensor([[6, 1, 4]], dtype=torch.long)
+    mask = torch.ones_like(token_ids, dtype=torch.bool)
+
+    hidden = model(input_ids)
+    logits = torch.randn(1, 3, model.lm_head.out_features)
+    actual = _extract_logps(
+        (torch.tensor(1.0), logits, hidden),
+        model,
+        token_ids,
+        mask,
+        NativeLinearLogpOp(),
+        output_dtype=torch.float32,
+    )
+    expected_logits = torch.nn.functional.linear(
+        hidden.float(),
+        model.lm_head.weight.float(),
+        model.lm_head.bias.float(),
+    )
+    expected = selected_logprobs_reference(expected_logits, token_ids, mask=mask)
+
+    assert torch.allclose(actual, expected, atol=1e-5)
+
+
+def test_extract_hidden_states_prefers_last_hidden_state_over_hidden_state_stack():
+    from rl_engine.executors.deepspeed_trainer import _extract_hidden_states
+
+    expected = torch.randn(2, 3, 5)
+    output = {
+        "hidden_states": (
+            torch.randn(2, 3, 5),
+            torch.randn(2, 3, 5),
+        ),
+        "last_hidden_state": expected,
+    }
+
+    actual = _extract_hidden_states(output)
+
+    assert actual is expected
+
+
+def test_extract_hidden_states_uses_last_tensor_from_hidden_state_stack():
+    from rl_engine.executors.deepspeed_trainer import _extract_hidden_states
+
+    layers = (
+        torch.randn(2, 3, 5),
+        torch.randn(2, 3, 5),
+        torch.randn(2, 3, 5),
+    )
+
+    actual = _extract_hidden_states({"hidden_states": layers})
+
+    assert actual is layers[-1]
+
+
+def test_extract_hidden_states_prefers_structured_hidden_over_tuple_logits():
+    from rl_engine.executors.deepspeed_trainer import _extract_hidden_states
+
+    logits = torch.randn(2, 3, 11)
+    expected = torch.randn(2, 3, 5)
+    output = (torch.tensor(1.0), logits, {"last_hidden_state": expected})
+
+    actual = _extract_hidden_states(output)
+
+    assert actual is expected
+
+
+def test_extract_hidden_states_rejects_ambiguous_multi_tensor_tuple():
+    from rl_engine.executors.deepspeed_trainer import _extract_hidden_states
+
+    with pytest.raises(TypeError, match="hidden-state tensor"):
+        _extract_hidden_states((torch.randn(2, 3, 11), torch.randn(2, 3, 5)))
+
+
+def test_deepspeed_training_worker_routes_linear_logp_and_zeroes_masked_targets(monkeypatch):
+    _install_fake_deepspeed(monkeypatch)
+    from rl_engine.executors import deepspeed_trainer
+
+    spy = SpyLinearLogpOp()
+    monkeypatch.setattr(deepspeed_trainer, "_linear_logp_op_for_device", lambda device: spy)
+
+    worker = deepspeed_trainer.DeepSpeedTrainingWorker(
+        deepspeed_trainer.DeepSpeedTrainingConfig(
+            num_prompts=1,
+            samples_per_prompt=2,
+            prompt_len=1,
+            completion_len=4,
+            vocab_size=23,
+            hidden_dim=8,
+            seed=31,
+        )
+    )
+    batch = make_synthetic_rl_kernel_batch(
+        num_prompts=1,
+        samples_per_prompt=2,
+        prompt_len=1,
+        completion_len=4,
+        vocab_size=23,
+        valid_density=1.0,
+        device="cpu",
+        seed=32,
+    )
+    completion_mask = torch.tensor(
+        [[True, False, True, False], [False, True, True, False]],
+        dtype=torch.bool,
+    )
+    patched_batch = replace(
+        batch,
+        completion_mask=completion_mask,
+        valid_indices=completion_mask.reshape(-1).nonzero(as_tuple=False).squeeze(-1),
+        metadata={
+            **batch.metadata,
+            "valid_density": float(completion_mask.float().mean().item()),
+            "valid_tokens": int(completion_mask.sum().item()),
+        },
+    )
+    monkeypatch.setattr(
+        worker,
+        "_batch_from_rollout_or_synthetic",
+        lambda rollout: (
+            patched_batch,
+            {
+                "training_data_source": "patched_fixture",
+                "rollout_sequences": patched_batch.batch_size,
+                "rollout_tokens": int(completion_mask.sum().item()),
+            },
+        ),
+    )
+
+    result = worker.train(_rollout())
+
+    assert len(spy.calls) == 1
+    recorded_targets = spy.calls[0]["target_ids"]
+    assert torch.equal(recorded_targets[completion_mask], patched_batch.token_ids[completion_mask])
+    assert torch.equal(
+        recorded_targets[~completion_mask],
+        torch.zeros_like(recorded_targets[~completion_mask]),
+    )
+    assert result.metrics["training_data_source"] == "patched_fixture"
+    assert result.metrics["current_logp_path"] == "linear_logp"
+    assert result.metrics["current_logp_backend"] == "SpyLinearLogpOp"
+    assert math.isfinite(result.metrics["loss"])
+
+
+def test_deepspeed_training_worker_rejects_ignore_index_in_model_inputs(monkeypatch):
+    _install_fake_deepspeed(monkeypatch)
+    from rl_engine.executors import deepspeed_trainer
+
+    worker = deepspeed_trainer.DeepSpeedTrainingWorker(
+        deepspeed_trainer.DeepSpeedTrainingConfig(
+            num_prompts=1,
+            samples_per_prompt=1,
+            prompt_len=1,
+            completion_len=3,
+            vocab_size=17,
+            hidden_dim=8,
+            seed=33,
+        )
+    )
+    batch = make_synthetic_rl_kernel_batch(
+        num_prompts=1,
+        samples_per_prompt=1,
+        prompt_len=1,
+        completion_len=3,
+        vocab_size=17,
+        valid_density=1.0,
+        device="cpu",
+        seed=34,
+    )
+    broken_batch = replace(
+        batch,
+        token_ids=batch.token_ids.clone(),
+    )
+    broken_batch.token_ids[0, 1] = -100
+    monkeypatch.setattr(
+        worker,
+        "_batch_from_rollout_or_synthetic",
+        lambda rollout: (broken_batch, {"training_data_source": "patched_fixture"}),
+    )
+
+    with pytest.raises(ValueError, match="ignore-index"):
+        worker.train(_rollout())
+
+
+def test_deepspeed_zero3_training_gathers_lm_head_parameters_during_backward(monkeypatch):
+    _install_fake_deepspeed_with_gather(monkeypatch)
+    from rl_engine.executors import deepspeed_trainer
+
+    worker = deepspeed_trainer.DeepSpeedTrainingWorker(
+        deepspeed_trainer.DeepSpeedTrainingConfig(
+            vocab_size=19,
+            hidden_dim=8,
+            zero_stage=3,
+            seed=35,
+        )
+    )
+    worker.engine.world_size = 2
+
+    active_during_backward = {"value": False}
+    original_backward = worker.engine.backward
+
+    def wrapped_backward(loss):
+        active_during_backward["value"] = FakeGatheredParameters.active > 0
+        return original_backward(loss)
+
+    worker.engine.backward = wrapped_backward
+
+    result = worker.train(_rollout())
+
+    assert result.metrics["current_logp_path"] == "linear_logp"
+    assert FakeGatheredParameters.calls == 1
+    assert FakeGatheredParameters.parameter_counts == [2]
+    assert FakeGatheredParameters.modifier_ranks == [None]
+    assert FakeGatheredParameters.max_active == 1
+    assert active_during_backward["value"] is True
+    assert FakeGatheredParameters.active == 0
+
+
+def test_deepspeed_zero3_training_without_gather_api_is_blocked(monkeypatch):
+    _install_fake_deepspeed(monkeypatch)
+    from rl_engine.executors import deepspeed_trainer
+
+    worker = deepspeed_trainer.DeepSpeedTrainingWorker(
+        deepspeed_trainer.DeepSpeedTrainingConfig(
+            vocab_size=19,
+            hidden_dim=8,
+            zero_stage=3,
+            seed=36,
+        )
+    )
+    worker.engine.world_size = 2
+
+    with pytest.raises(WeightBridgeUnavailableError, match="linear_logp training requires"):
+        worker.train(_rollout())
+
+
+def test_deepspeed_config_zero3_override_controls_training_and_publish(monkeypatch):
+    fake = _install_fake_deepspeed_with_gather(monkeypatch)
+    from rl_engine.executors import deepspeed_trainer
+
+    bridge = LocalTensorCopyBridge(source_worker="training", source_rank=0)
+    worker = deepspeed_trainer.DeepSpeedTrainingWorker(
+        deepspeed_trainer.DeepSpeedTrainingConfig(
+            vocab_size=19,
+            hidden_dim=8,
+            zero_stage=0,
+            deepspeed_config={"zero_optimization": {"stage": 3}},
+            seed=37,
+        ),
+        weight_bridge=bridge,
+    )
+    worker.engine.world_size = 2
+
+    result = worker.train(_rollout())
+    manifest = worker.publish_weights(weight_version=41)
+
+    assert fake.initialize_calls[0]["config"]["zero_optimization"]["stage"] == 3
+    assert result.metrics["deepspeed_zero_stage"] == 3
+    assert manifest.metadata["layout"]["zero_stage"] == 3
+    assert manifest.metadata["deepspeed_zero3_full_state_export"]["method"] == (
+        "deepspeed.zero.GatheredParameters"
+    )
+    assert FakeGatheredParameters.calls == 2
+    assert FakeGatheredParameters.parameter_counts == [2, 3]
+    assert FakeGatheredParameters.modifier_ranks == [None, 0]
+
+    bridge.release(manifest.update_id)
 
 
 def test_deepspeed_training_worker_synthetic_fallback(monkeypatch):
