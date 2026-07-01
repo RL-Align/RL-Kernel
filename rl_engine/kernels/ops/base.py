@@ -3,6 +3,8 @@
 
 from typing import Any
 
+import torch  # noqa: F401  # Load torch shared libraries before importing the binary extension.
+
 from rl_engine.utils.logger import logger
 
 _C: Any = None
