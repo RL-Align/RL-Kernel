@@ -59,6 +59,16 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     PYTORCH_NATIVE_SILU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSiLUOp"
     PYTORCH_NATIVE_SWIGLU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSwiGLUOp"
 
+    # WS1 pure-PyTorch ground-truth attention reference (hand-written fp32 softmax).
+    # Distinct from PYTORCH_ATTN above, which is the production SDPA fallback.
+    PYTORCH_NATIVE_ATTENTION = (
+        "rl_engine.kernels.ops.pytorch.attention.standard_attn.NativeAttentionOp"
+    )
+    # WS1 pure-PyTorch ground-truth KV-cache (decode/incremental) attention
+    # reference; concats cache+new then reuses the standard attention reduction.
+    PYTORCH_NATIVE_KV_CACHE_ATTN = (
+        "rl_engine.kernels.ops.pytorch.attention.kv_cache.NativeKVCacheAttnOp"
+    )
     # WS1 pure-PyTorch ground-truth linear ops
     PYTORCH_NATIVE_LM_HEAD = "rl_engine.kernels.ops.pytorch.linear.lm_head.NativeLMHeadOp"
     # WS1 pure-PyTorch ground-truth embedding ops
@@ -96,6 +106,8 @@ class KernelRegistry:
                     OpBackend.PYTORCH_NATIVE,
                 ],
                 "attn": [OpBackend.FLASH_ATTN, OpBackend.TRITON_GENERIC, OpBackend.PYTORCH_ATTN],
+                "attention": [OpBackend.PYTORCH_NATIVE_ATTENTION],
+                "kv_cache_attention": [OpBackend.PYTORCH_NATIVE_KV_CACHE_ATTN],
                 "grpo_loss": [OpBackend.TRITON_GRPO_LOSS, OpBackend.PYTORCH_GRPO_LOSS],
                 "linear_logp": [OpBackend.TRITON_LINEAR_LOGP, OpBackend.PYTORCH_LINEAR_LOGP],
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
@@ -113,6 +125,8 @@ class KernelRegistry:
                     OpBackend.PYTORCH_ATTN,
                     OpBackend.TRITON_GENERIC,
                 ],
+                "attention": [OpBackend.PYTORCH_NATIVE_ATTENTION],
+                "kv_cache_attention": [OpBackend.PYTORCH_NATIVE_KV_CACHE_ATTN],
                 "grpo_loss": [OpBackend.TRITON_GRPO_LOSS, OpBackend.PYTORCH_GRPO_LOSS],
                 "linear_logp": [OpBackend.TRITON_LINEAR_LOGP, OpBackend.PYTORCH_LINEAR_LOGP],
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
@@ -125,6 +139,8 @@ class KernelRegistry:
             "cpu": {
                 "logp": [OpBackend.PYTORCH_NATIVE],
                 "attn": [OpBackend.PYTORCH_ATTN],
+                "attention": [OpBackend.PYTORCH_NATIVE_ATTENTION],
+                "kv_cache_attention": [OpBackend.PYTORCH_NATIVE_KV_CACHE_ATTN],
                 "grpo_loss": [OpBackend.PYTORCH_GRPO_LOSS],
                 "linear_logp": [OpBackend.PYTORCH_LINEAR_LOGP],
                 "ratio_kl": [OpBackend.PYTORCH_RATIO_KL],
