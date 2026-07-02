@@ -12,6 +12,7 @@ nav:
     - Operators:
       - operators/README.md
       - operators/activation.md
+      - operators/attention.md
       - operators/fused-logp.md
       - operators/linear-logp.md
       - operators/linear-logp-tp-test.md

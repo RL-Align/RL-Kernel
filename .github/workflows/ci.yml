@@ -68,6 +68,10 @@ jobs:
           python -m pytest rl_engine/tests/test_dispatch.py -v
           PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/test_attention_correctness.py -q -rs
 
+      - name: Run Attention Ground-Truth Tests (CPU-safe)
+        run: |
+          python -m pytest tests/test_attention.py -v -k "not large and not gpu"
+
   docs:
     runs-on: ubuntu-latest
     steps:
