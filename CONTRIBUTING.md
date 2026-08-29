@@ -72,8 +72,11 @@ so commits are attributed to you and the DCO check passes.
 
 - `Co-authored-by:` trailers do not replace `Signed-off-by:`; each commit must
   be signed off by its own author.
-- Commits produced by bots or other automation must still be signed off by the
-  human who submits them. The submitting human is responsible for the change.
+- Commits authored by bots or other automation must satisfy the email-match
+  rule like any other commit: the sign-off must carry the bot's own author
+  email, or the automation must be exempted in the DCO app configuration.
+  A human who submits or merges automation results remains responsible for
+  the change.
 - AI-assisted contributions are welcome. The human submitter signs off and
   remains responsible for the correctness and licensing of the contribution.
 
