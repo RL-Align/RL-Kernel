@@ -125,7 +125,9 @@ RL_KERNEL_REQUIRE_EXT=1 python -m pip install --no-build-isolation -e .
 python -c "import rl_engine._C as _C; assert hasattr(_C, 'fused_logp'); print(_C.__file__)"
 ```
 
-### Contributions
+### Contributing
+Contributions are welcome! Before opening a pull request, please read [CONTRIBUTING.md](./CONTRIBUTING.md). Every commit must include a `Signed-off-by:` line, per the [Developer Certificate of Origin](./DCO).
+
 Inspired by the kernel designs of vLLM and DeepSpeed. As an active contributor to the AI Infrastructure ecosystem, RL-Kernel aims to push the boundaries of RL efficiency.
 
 Target: Building the most efficient RLHF toolchain for the open-source community.
