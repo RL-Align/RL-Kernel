@@ -14,7 +14,9 @@ requests, documentation improvements, and code contributions are all welcome.
 
 Every commit in a pull request must carry a `Signed-off-by:` trailer, per the
 [Developer Certificate of Origin](./DCO) (DCO), version 1.1. The DCO check is
-enforced as a required status check on every pull request.
+enforced as a required status check on every pull request. The only exception
+is automation explicitly exempted in the DCO app configuration (see the
+signing policies below).
 
 By signing off, you certify that you wrote the change or otherwise have the
 right to submit it under the project's open source license.
@@ -74,8 +76,9 @@ so commits are attributed to you and the DCO check passes.
   be signed off by its own author.
 - Commits authored by bots or other automation must satisfy the email-match
   rule like any other commit: the sign-off must carry the bot's own author
-  email, or the automation must be exempted in the DCO app configuration.
-  A human who submits or merges automation results remains responsible for
+  email. Automation that cannot sign its own commits may instead be exempted
+  in the DCO app configuration — the only exception to the rule above. A
+  human who submits or merges automation results remains responsible for
   the change.
 - AI-assisted contributions are welcome. The human submitter signs off and
   remains responsible for the correctness and licensing of the contribution.
