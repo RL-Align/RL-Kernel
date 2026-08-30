@@ -51,13 +51,22 @@ git push --force-with-lease
 ```
 
 The DCO check validates the **email address**: the `Signed-off-by:` email
-must match the commit author email. Using `git commit -s` guarantees this,
-since it signs with your configured `user.name` and `user.email`:
+must match the commit author email. `git commit -s` and
+`git rebase --signoff` sign with your configured `user.name` and
+`user.email` — the **committer** identity. The sign-off therefore matches
+whenever you are also the commit's author, which is the normal case for
+your own work:
 
 ```text
 Author:         Your Name <your.email@example.com>
 Signed-off-by:  Your Name <your.email@example.com>
 ```
+
+Your own sign-off cannot repair a commit authored by someone else — for
+example one you cherry-picked or applied from a patch: the trailer records
+your identity and will not match their author email. Such commits need a
+sign-off from their own author. Automation that cannot carry a matching
+sign-off falls under the exemption described in the signing policies below.
 
 Sign with a name that identifies you to the project — your real name, or a
 name or handle linked to your GitHub account. The automated check compares
@@ -67,8 +76,9 @@ certification.
 ### Email matching
 
 If you contribute from several machines, keep `git config user.email`
-consistent, and make sure the address is associated with your GitHub account
-so commits are attributed to you and the DCO check passes.
+consistent, and use an address associated with your GitHub account so commits
+are attributed to you. The DCO check itself only compares the commit author
+email with the sign-off email.
 
 ### Signing policies
 
