@@ -16,6 +16,7 @@ nav:
       - operators/README.md
       - operators/activation.md
       - operators/attention.md
+      - operators/attention-varlen.md
       - operators/fused-logp.md
       - operators/linear-logp.md
       - operators/batch-invariant-logp.md
