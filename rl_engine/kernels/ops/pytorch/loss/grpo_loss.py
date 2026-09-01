@@ -7,6 +7,7 @@ from typing import Optional, Sequence, Tuple
 
 import torch
 
+from rl_engine.kernels.ops.pytorch.loss.ratio_clip_aggregate import NativeRatioClipAggregateOp
 from rl_engine.kernels.ops.pytorch.loss.ratio_kl import NativeRatioKLOp
 
 
@@ -20,6 +21,7 @@ class NativeGRPOLossOp:
 
     def __init__(self) -> None:
         self._ratio_kl = NativeRatioKLOp()
+        self._ratio_clip_aggregate = NativeRatioClipAggregateOp()
 
     def __call__(
         self,
@@ -114,15 +116,16 @@ class NativeGRPOLossOp:
         ratio, kl_terms = self._ratio_kl(
             policy_logits, ref_logits, action_ids, completion_mask, old_logps
         )
-        bool_mask = completion_mask.bool()
-        adv = self.expand_advantages(sample_advantages, completion_mask).float()
-        unclipped = ratio * adv
-        clipped = torch.clamp(ratio, 1.0 - clip_eps, 1.0 + clip_eps) * adv
-        policy_loss_terms = -torch.minimum(unclipped, clipped)
-
-        policy_loss = self._masked_mean(policy_loss_terms, bool_mask)
-        kl = self._masked_mean(kl_terms, bool_mask)
-        return policy_loss + beta * kl, policy_loss, kl
+        loss, policy_loss, kl, _ = self._ratio_clip_aggregate(
+            ratio,
+            sample_advantages,
+            completion_mask,
+            clip_low=clip_eps,
+            clip_high=clip_eps,
+            penalty_terms=kl_terms,
+            penalty_coef=beta,
+        )
+        return loss, policy_loss, kl
 
     def forward(
         self,

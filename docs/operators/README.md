@@ -28,6 +28,7 @@ Every operator page should include:
 - [RoPE](rope.md)
 - [LM Head](lm_head.md)
 - [Policy Ratio + KL Penalty](ratio-kl.md)
+- [Ratio Clip Aggregate](ratio-clip-aggregate.md)
 - [Pack and Pad](pack-and-pad.md)
 - [Matmul](matmul.md)
 - [Sampling](sampling.md)

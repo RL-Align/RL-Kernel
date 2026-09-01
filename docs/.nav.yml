@@ -23,6 +23,7 @@ nav:
       - operators/grpo-loss.md
       - operators/lm_head.md
       - operators/ratio-kl.md
+      - operators/ratio-clip-aggregate.md
       - operators/pack-and-pad.md
       - operators/sampling.md
       - operators/det-gemm.md

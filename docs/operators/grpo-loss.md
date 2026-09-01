@@ -8,11 +8,13 @@ allocates several broadcasted `[batch, completion_len]` intermediates and a per-
 advantage tensor.
 
 The operator consumes **logits** directly and builds on the [Policy Ratio + KL
-Penalty](ratio-kl.md) operator: the per-token `policy_ratio` and `kl_penalty` come from the
-fused ratio/KL kernel (logits → ratio/KL via online softmax), and the group-normalized advantages + clipped surrogate are applied on top:
+Penalty](ratio-kl.md) and [Ratio Clip Aggregate](ratio-clip-aggregate.md)
+operators: the per-token `policy_ratio` and `kl_penalty` come from the fused
+ratio/KL kernel (logits → ratio/KL via online softmax), and the group-normalized
+advantages feed the fused clip/reduction stage:
 
-```
-logits --[ratio_kl op]--> (ratio, kl) --[group adv + clipped surrogate]--> loss
+```text
+logits --[ratio_kl]--> (ratio, kl) --[ratio_clip_aggregate + group adv]--> loss
 ```
 
 ## Entry Point
@@ -50,14 +52,16 @@ Provide **exactly one** of:
 
 | Backend | Wrapper | Native symbol | Status |
 | --- | --- | --- | --- |
-| CUDA / ROCm | `TritonGRPOLossOp` | `ratio_kl` + `_group_norm_kernel` | Fused ratio/KL + analytic backward. |
+| CUDA / ROCm | `TritonGRPOLossOp` | `ratio_kl` + `_group_norm_kernel` + `ratio_clip_aggregate` | Fused forward and analytic backward. |
 | PyTorch fallback | `NativeGRPOLossOp` | None | Reference path; CPU and Triton-less GPUs. |
 
 The Triton op composes the [`ratio_kl`](ratio-kl.md) kernel (per-token `ratio`/`kl` from
 logits, with the analytic backward into `policy_logits`) with the `_group_norm_kernel`
-(per-group reward mean/std in registers). The clipped surrogate + reference-KL reduction is
-a thin autograd-friendly PyTorch layer — no bespoke GRPO loss kernel is needed. The native
-op mirrors this using `NativeRatioKLOp`.
+(per-group reward mean/std in registers) and
+[`ratio_clip_aggregate`](ratio-clip-aggregate.md). The final operator fuses the
+clipped surrogate, active-token mask, KL reduction, and analytical backward
+without expanding per-sequence advantages to `[B, T]`. The native op mirrors
+this composition with PyTorch reference operators.
 
 ## Tensor Contract
 
@@ -70,7 +74,7 @@ op mirrors this using `NativeRatioKLOp`.
 | `rewards` | `[B]` | float | One scalar per sequence. |
 | `completion_mask` | `[B, T]` | bool / {0,1} | 2-D; `True` marks active tokens. |
 | `loss` (output) | scalar | float32 | `policy_loss + beta * kl`. |
-| `policy_loss`, `kl` (output) | scalar | float32 | Detached reporting values. |
+| `policy_loss`, `kl` (output) | scalar | float32 | Component values. |
 
 Gradients flow into `policy_logits` only (`ref_logits` is frozen; `old_logps` is cached).
 
@@ -130,6 +134,9 @@ skip without CUDA + Triton.
 - `rl_engine/kernels/ops/pytorch/loss/grpo_loss.py`
 - `rl_engine/kernels/ops/triton/loss/grpo_loss.py`
 - `rl_engine/kernels/ops/triton/loss/ratio_kl.py`, `rl_engine/kernels/ops/pytorch/loss/ratio_kl.py`
+- `rl_engine/kernels/ops/triton/loss/ratio_clip_aggregate.py`
+- `rl_engine/kernels/ops/pytorch/loss/ratio_clip_aggregate.py`
 - `rl_engine/kernels/registry.py`
 - `tests/test_grpo_loss.py`
 - `benchmarks/benchmark_ratio_kl.py`
+- `benchmarks/benchmark_ratio_clip_aggregate.py`

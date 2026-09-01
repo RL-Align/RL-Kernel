@@ -29,7 +29,7 @@ from rl_engine.executors.training_contract import (
 )
 from rl_engine.kernels.ops.pytorch.loss.linear_logp import NativeLinearLogpOp
 from rl_engine.kernels.registry import kernel_registry
-from rl_engine.testing import compute_policy_ratio, compute_reference_kl, masked_mean
+from rl_engine.testing import compute_policy_ratio, compute_reference_kl
 
 _TDestination = TypeVar("_TDestination", bound=dict[str, Any])
 
@@ -125,6 +125,9 @@ class DeepSpeedTrainingWorker(RolloutBatchMixin):
         if engine_device is not None:
             self.device = torch.device(engine_device)
         self._linear_logp = _linear_logp_op_for_device(self.device)
+        self._ratio_clip_aggregate = kernel_registry.get_op(
+            "ratio_clip_aggregate", device=self.device
+        )
 
     def train(self, rollout: RolloutStageResult) -> TrainingStageResult:
         started_at = time.perf_counter()
@@ -161,11 +164,16 @@ class DeepSpeedTrainingWorker(RolloutBatchMixin):
             old_logps = current_logps.detach() - 0.01
             ref_logps = objective_reference_logps(current_logps, batch)
             ratio = compute_policy_ratio(current_logps, old_logps, batch.completion_mask)
-            unclipped = ratio * batch.advantages.float()
-            clipped = torch.clamp(ratio, 0.8, 1.2) * batch.advantages.float()
-            policy_loss = -torch.minimum(unclipped, clipped)
             kl = compute_reference_kl(current_logps, ref_logps, batch.completion_mask)
-            loss = masked_mean(policy_loss + 0.01 * kl, batch.completion_mask)
+            loss = self._ratio_clip_aggregate(
+                ratio,
+                batch.advantages,
+                batch.completion_mask,
+                clip_low=0.2,
+                clip_high=0.2,
+                penalty_terms=kl,
+                penalty_coef=0.01,
+            )[0]
             self.engine.backward(loss)
         self.engine.step()
 
