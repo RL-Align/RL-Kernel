@@ -1,0 +1,15 @@
+# RL-Kernel linear_logp benchmark — raw output (native vs Triton vs SM90 TMA/WGMMA)
+# GPU: NVIDIA H100 80GB HBM3 (SXM5) | Driver 535.309.01 | CUDA 12.4 | PyTorch 2.6.0+cu124
+# Extension built with KERNEL_ALIGN_FORCE_SM90=1
+# Command: python benchmarks/benchmark_linear_logp.py
+# Date: 2026-07-19T08:45:44Z
+
+INFO 07-19 04:45:46 [RL-Kernel]: RL-Engine initialized with NVIDIA CUDA backend (Version: 12.4)
+INFO 07-19 04:45:46 [RL-Kernel]: Successfully linked to precompiled _C.fused_linear_logp_sm90 kernel.
+INFO 07-19 04:45:46 [RL-Kernel]: linear_logp benchmark on cuda (dtype=torch.bfloat16); SM90 TMA+MMA backend enabled
+INFO 07-19 04:45:50 [RL-Kernel]: Using fused_linear_logp_sm90_backward fast path.
+| shape (N x H x V)   |   native fwd ms |   triton fwd ms | fwd speedup   |   native f+b ms |   triton f+b ms | f+b speedup   |   native fwd MB |   triton fwd MB |   sm90 fwd ms | sm90 vs native   | sm90 vs triton   |   sm90 f+b ms |   sm90 fwd MB |
+|---------------------|-----------------|-----------------|---------------|-----------------|-----------------|---------------|-----------------|-----------------|---------------|------------------|------------------|---------------|---------------|
+| 4096x2048x32768     |           1.798 |           6.288 | 0.29x         |           4.347 |          47.181 | 0.09x         |            1280 |               0 |         3.653 | 0.49x            | 1.72x            |         7.818 |             2 |
+| 4096x2048x50257     |          10.268 |           9.878 | 1.04x         |          24.005 |          85.23  | 0.28x         |            1965 |               0 |         5.398 | 1.90x            | 1.83x            |        26.307 |             2 |
+| 4096x2048x131072    |           7.199 |          24.755 | 0.29x         |          17.097 |         264.012 | 0.06x         |            5120 |               0 |        14.107 | 0.51x            | 1.75x            |        30.434 |             2 |

@@ -94,6 +94,24 @@ Model weights consume 56.9 GB — only 23 GB headroom remaining for training com
   <img src="docs/assets/3. moe .png" alt="Real Model MoE Benchmark">
 </p>
 
+### 4. H100 SXM5 Independent Validation
+
+The numbers above were measured on A100. We re-ran a comparable set of checks on **NVIDIA H100
+80GB HBM3 (SM90)** with SM90 kernels built in (`KERNEL_ALIGN_FORCE_SM90=1`), including the
+**Qwen3-30B-A3B** memory claim against real downloaded weights (not synthetic tensors). Full
+methodology, exact commands, and raw CSVs are in the
+[Hardware Benchmark Dashboard](docs/benchmarking/hardware-dashboard.md); headline results:
+
+- **Qwen3-30B-A3B weight footprint, confirmed on real weights**: 56.87 GB / 79.11 GB total → 22.24 GB headroom, matching the A100 claim above. RL-Kernel's fused logprob path keeps ~0 GB extra VRAM through 24,576 tokens where the naive path OOMs past 12,288.
+- **Fused `logp` kernel (generic CUDA, vocab=128256, seq=512, batch=32)**: 23.29 ms / 19.57 GB (native) → 6.93 ms / 7.83 GB (fused), a 3.4x speedup *and* lower memory — no tradeoff here.
+- **FlashInfer sampling (vocab=128256, batch=256)**: 29.30 ms (native) → 1.65 ms (RL-Kernel), ~18x. Raw output: `reports/benchmark_sampling_NVIDIA_H100_80GB_HBM3.txt`.
+- **`linear_logp` SM90 kernel — reported honestly, not cherry-picked**: it beats the Triton path by 1.7–1.9x at ~600–2500x less memory than the naive materializing path, but does **not** uniformly beat naive on raw latency (naive wins forward at 2 of 3 vocab sizes tested, and wins backward across the board — the SM90 kernel trades FLOPs for memory via tile recomputation, same as Triton's approach). Its win is fitting at all in constrained memory, not raw speed everywhere.
+
+See the dashboard doc for the full sweep, exact reproduction commands, and two known limitations
+found while benchmarking (a profiler gap: no `sampling-fused` workload registered; and a bug: the
+experimental, off-by-default `fused_logp_sm90` standalone kernel currently crashes the process on
+a failed `cuTensorMapEncodeTiled` call instead of raising).
+
 # Key Features
 
 - **Zero-Growth Memory Pool**: Uses pre-allocated buffers and micro-chunking to prevent VRAM spikes during advantage calculation.

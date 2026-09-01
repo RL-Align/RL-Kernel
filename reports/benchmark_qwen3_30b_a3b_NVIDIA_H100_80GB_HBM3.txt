@@ -1,0 +1,31 @@
+# RL-Kernel real-model logprob benchmark — raw output (Qwen3-30B-A3B, real weights + real forward pass)
+# GPU: NVIDIA H100 80GB HBM3 (SXM5) | Driver 535.309.01 | CUDA 12.4 | PyTorch 2.6.0+cu124 | transformers 4.51.1
+# Extension built with KERNEL_ALIGN_FORCE_SM90=1
+# Command: python benchmarks/benchmark_qwen3_moe_real_model.py
+# Date: 2026-07-19T08:47:54Z
+
+INFO 07-19 04:47:57 [RL-Kernel]: RL-Engine initialized with NVIDIA CUDA backend (Version: 12.4)
+INFO 07-19 04:47:57 [RL-Kernel]: KernelRegistry initialized for cuda
+INFO 07-19 04:47:58 [RL-Kernel]: Loading Qwen/Qwen3-30B-A3B in torch.bfloat16 ...
+Loading checkpoint shards:   0%|          | 0/16 [00:00<?, ?it/s]Loading checkpoint shards:   6%|▋         | 1/16 [00:02<00:31,  2.10s/it]Loading checkpoint shards:  12%|█▎        | 2/16 [00:03<00:23,  1.68s/it]Loading checkpoint shards:  19%|█▉        | 3/16 [00:04<00:20,  1.57s/it]Loading checkpoint shards:  25%|██▌       | 4/16 [00:06<00:18,  1.52s/it]Loading checkpoint shards:  31%|███▏      | 5/16 [00:07<00:16,  1.49s/it]Loading checkpoint shards:  38%|███▊      | 6/16 [00:09<00:15,  1.51s/it]Loading checkpoint shards:  44%|████▍     | 7/16 [00:10<00:13,  1.50s/it]Loading checkpoint shards:  50%|█████     | 8/16 [00:12<00:13,  1.65s/it]Loading checkpoint shards:  56%|█████▋    | 9/16 [00:14<00:12,  1.76s/it]Loading checkpoint shards:  62%|██████▎   | 10/16 [00:16<00:10,  1.76s/it]Loading checkpoint shards:  69%|██████▉   | 11/16 [00:17<00:07,  1.54s/it]Loading checkpoint shards:  75%|███████▌  | 12/16 [00:18<00:05,  1.36s/it]Loading checkpoint shards:  81%|████████▏ | 13/16 [00:19<00:03,  1.23s/it]Loading checkpoint shards:  88%|████████▊ | 14/16 [00:20<00:02,  1.16s/it]Loading checkpoint shards:  94%|█████████▍| 15/16 [00:21<00:01,  1.10s/it]Loading checkpoint shards: 100%|██████████| 16/16 [00:21<00:00,  1.19it/s]Loading checkpoint shards: 100%|██████████| 16/16 [00:21<00:00,  1.36s/it]
+INFO 07-19 04:48:26 [RL-Kernel]: Loaded in 28.4s. Weight VRAM: 56.87 GB / 79.11 GB total -> headroom 22.24 GB
+INFO 07-19 04:48:26 [RL-Kernel]: hidden_size=2048 vocab_size=151936 lm_head shape=(151936, 2048)
+INFO 07-19 04:48:26 [RL-Kernel]: Running a real forward pass to obtain real hidden states...
+INFO 07-19 04:48:27 [RL-Kernel]: Real hidden states shape: (29, 2048)
+INFO 07-19 04:48:27 [RL-Kernel]: Successfully linked to precompiled _C.fused_linear_logp_sm90 kernel.
+INFO 07-19 04:48:27 [RL-Kernel]: Dispatched linear_logp backend: FusedLinearLogpSM90Op
+
+====================================================================================================
+Qwen/Qwen3-30B-A3B REAL MODEL LOGPROB BENCHMARK on NVIDIA H100 80GB HBM3
+Weight VRAM: 56.87 GB | Total: 79.11 GB | Headroom: 22.24 GB
+linear_logp backend: FusedLinearLogpSM90Op
+====================================================================================================
+|   N tokens | Native extra VRAM   | RL-Kernel extra VRAM   | Native ms   | RL-Kernel ms   | note                   |
+|------------|---------------------|------------------------|-------------|----------------|------------------------|
+|       2048 | 2.90 GB             | 0.00 GB                | 4.21 ms     | 8.06 ms        | current alloc: 56.9 GB |
+|       4096 | 5.80 GB             | 0.00 GB                | 8.36 ms     | 16.02 ms       | current alloc: 56.9 GB |
+|       8192 | 11.59 GB            | 0.00 GB                | 16.71 ms    | 33.02 ms       | current alloc: 56.9 GB |
+|      12288 | 17.39 GB            | 0.00 GB                | 25.08 ms    | 48.03 ms       | current alloc: 56.9 GB |
+|      16384 | OOM                 | 0.00 GB                | N/A         | 65.90 ms       | current alloc: 57.0 GB |
+|      20480 | OOM                 | 0.00 GB                | N/A         | 87.83 ms       | current alloc: 57.0 GB |
+|      24576 | OOM                 | 0.00 GB                | N/A         | 105.50 ms      | current alloc: 57.0 GB |

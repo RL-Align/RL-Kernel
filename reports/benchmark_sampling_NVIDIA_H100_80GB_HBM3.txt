@@ -1,0 +1,40 @@
+# RL-Kernel sampling benchmark — raw output
+# GPU: NVIDIA H100 80GB HBM3 (SXM5) | Driver 535.309.01 | CUDA 12.4 | PyTorch 2.6.0+cu124 | FlashInfer 0.2.5
+# Command: python benchmarks/benchmark_sampling.py --g-sizes 32,64,128,256 --vocab-size 128256 --top-k 50 --top-p 0.9
+# Date: 2026-07-19T08:44:50Z
+
+INFO 07-19 04:44:53 [RL-Kernel]: RL-Engine initialized with NVIDIA CUDA backend (Version: 12.4)
+INFO 07-19 04:44:53 [RL-Kernel]: Detected NVIDIA GPU (CUDA) - Using FlashInfer backend
+2026-07-19 04:44:54,082 - INFO - flashinfer.jit: Prebuilt kernels not found, using JIT backend
+INFO 07-19 04:44:54 [RL-Kernel]: FlashInfer kernels loaded successfully.
+INFO 07-19 04:44:54 [RL-Kernel]: Starting Sampling Benchmark on cuda
+INFO 07-19 04:44:54 [RL-Kernel]: Config: VocabSize=128256, TopK=50, TopP=0.9
+INFO 07-19 04:44:54 [RL-Kernel]: Warming up kernels...
+2026-07-19 04:44:54,376 - INFO - flashinfer.jit: Loading JIT ops: sampling
+/gpu02home/nkl5280/miniconda3/envs/mlaaware/lib/python3.10/site-packages/torch/utils/cpp_extension.py:2059: UserWarning: TORCH_CUDA_ARCH_LIST is not set, all archs for visible cards are included for compilation.
+If this is not desired, please set os.environ['TORCH_CUDA_ARCH_LIST'].
+  warnings.warn(
+/gpu02home/nkl5280/miniconda3/envs/mlaaware/lib/python3.10/site-packages/torch/utils/cpp_extension.py:2059: UserWarning: TORCH_CUDA_ARCH_LIST is not set, all archs for visible cards are included for compilation.
+If this is not desired, please set os.environ['TORCH_CUDA_ARCH_LIST'].
+  warnings.warn(
+2026-07-19 04:44:54,415 - INFO - flashinfer.jit: Finished loading JIT ops: sampling
+INFO 07-19 04:44:54 [RL-Kernel]: Testing Batch Size G=32...
+INFO 07-19 04:44:55 [RL-Kernel]: Testing Batch Size G=64...
+INFO 07-19 04:44:55 [RL-Kernel]: Testing Batch Size G=128...
+INFO 07-19 04:44:55 [RL-Kernel]: Testing Batch Size G=256...
+
+================================================================================
+RL-KERNEL SAMPLING BENCHMARK REPORT (TopK=50, TopP=0.9)
+================================================================================
+╒══════════════════╤══════════════════╤═════════════╤═══════════╕
+│   Batch Size (G) │ Native Latency   │ RL-Kernel   │ Speedup   │
+╞══════════════════╪══════════════════╪═════════════╪═══════════╡
+│               32 │ 711.22 ms        │ 0.97 ms     │ 732.86x   │
+├──────────────────┼──────────────────┼─────────────┼───────────┤
+│               64 │ 8.73 ms          │ 0.84 ms     │ 10.33x    │
+├──────────────────┼──────────────────┼─────────────┼───────────┤
+│              128 │ 15.56 ms         │ 1.00 ms     │ 15.62x    │
+├──────────────────┼──────────────────┼─────────────┼───────────┤
+│              256 │ 29.30 ms         │ 1.65 ms     │ 17.71x    │
+╘══════════════════╧══════════════════╧═════════════╧═══════════╛
+================================================================================
