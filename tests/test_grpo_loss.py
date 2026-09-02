@@ -6,6 +6,7 @@ import torch
 
 from rl_engine.kernels.ops.pytorch.loss.grpo_loss import NativeGRPOLossOp
 from rl_engine.kernels.ops.triton.loss.grpo_loss import TritonGRPOLossOp
+from rl_engine.platforms.device import device_ctx
 from rl_engine.testing import (
     compute_policy_ratio,
     compute_reference_kl,
@@ -349,7 +350,7 @@ def test_registry_dispatches_grpo_loss():
 
     op = kernel_registry.get_op("grpo_loss")
     assert hasattr(op, "forward") and hasattr(op, "group_advantages")
-    if _HAS_TRITON and torch.cuda.is_available():
+    if _HAS_TRITON and (torch.cuda.is_available() or device_ctx.is_musa):
         assert isinstance(op, TritonGRPOLossOp)
     else:
         assert isinstance(op, NativeGRPOLossOp)

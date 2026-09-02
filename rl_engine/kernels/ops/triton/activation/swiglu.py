@@ -180,13 +180,13 @@ class TritonSiLUOp:
         return self.forward(x)
 
     def forward(self, x: Tensor) -> Tensor:
-        if x.device.type not in ("cuda", "hip", "xpu"):
+        if x.device.type not in ("cuda", "hip", "xpu", "musa"):
             raise RuntimeError(f"TritonSiLUOp requires a GPU tensor, got device '{x.device}'.")
         _validate_dtype(x, "x")
         return _SiLUTritonFunction.apply(x)
 
     def forward_fp32(self, x: Tensor) -> Tensor:
-        if x.device.type not in ("cuda", "hip", "xpu"):
+        if x.device.type not in ("cuda", "hip", "xpu", "musa"):
             raise RuntimeError(f"TritonSiLUOp requires a GPU tensor, got device '{x.device}'.")
         _validate_dtype(x, "x")
         return _SiLUTritonFunction.apply(x.float())
@@ -201,10 +201,11 @@ class TritonSwiGLUOp:
         return self.forward(gate, up)
 
     def forward(self, gate: Tensor, up: Tensor) -> Tensor:
-        if gate.device.type not in ("cuda", "hip", "xpu") or up.device.type not in (
+        if gate.device.type not in ("cuda", "hip", "xpu", "musa") or up.device.type not in (
             "cuda",
             "hip",
             "xpu",
+            "musa",
         ):
             raise RuntimeError(
                 f"TritonSwiGLUOp requires GPU tensors, got gate='{gate.device}', up='{up.device}'."
@@ -226,10 +227,11 @@ class TritonSwiGLUOp:
         return _SwiGLUTritonFunction.apply(gate, up)
 
     def forward_fp32(self, gate: Tensor, up: Tensor) -> Tensor:
-        if gate.device.type not in ("cuda", "hip", "xpu") or up.device.type not in (
+        if gate.device.type not in ("cuda", "hip", "xpu", "musa") or up.device.type not in (
             "cuda",
             "hip",
             "xpu",
+            "musa",
         ):
             raise RuntimeError(
                 f"TritonSwiGLUOp requires GPU tensors, got gate='{gate.device}', up='{up.device}'."

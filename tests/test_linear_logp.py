@@ -29,6 +29,11 @@ requires_triton_cuda = pytest.mark.skipif(
     reason="Triton linear log-prob requires a CUDA device and Triton.",
 )
 
+requires_triton_musa = pytest.mark.skipif(
+    not (_HAS_TRITON and hasattr(torch, "musa") and torch.musa.is_available()),
+    reason="Triton linear log-prob requires a MUSA device and Triton.",
+)
+
 
 def _sm90_available():
     """SM90 forward needs a Hopper GPU and the kernel compiled into the extension."""
@@ -500,6 +505,32 @@ def test_triton_forward_matches_native_bf16():
     ref = native(hidden.float(), weight.float(), target, bias.float())
     out = trit(hidden, weight, target, bias)
     assert torch.allclose(out, ref, atol=2e-2)
+
+
+@requires_triton_musa
+def test_triton_musa_forward_backward_matches_fp32_reference():
+    from rl_engine.kernels.ops.triton.loss.linear_logp import TritonLinearLogpOp
+
+    hidden, weight, target, bias = _inputs(2, device="musa", dtype=torch.bfloat16)
+    gen = torch.Generator(device="musa").manual_seed(3)
+    grad_out = torch.randn(_N, device="musa", generator=gen)
+
+    trit_hidden = hidden.detach().clone().requires_grad_(True)
+    trit_weight = weight.detach().clone().requires_grad_(True)
+    trit_bias = bias.detach().clone().requires_grad_(True)
+    out = TritonLinearLogpOp()(trit_hidden, trit_weight, target, trit_bias)
+    out.backward(grad_out)
+
+    ref_hidden = hidden.float().requires_grad_(True)
+    ref_weight = weight.float().requires_grad_(True)
+    ref_bias = bias.float().requires_grad_(True)
+    ref = NativeLinearLogpOp()(ref_hidden, ref_weight, target, ref_bias)
+    ref.backward(grad_out)
+
+    assert torch.allclose(out.float(), ref, atol=2e-2)
+    assert torch.allclose(trit_hidden.grad.float(), ref_hidden.grad, atol=2e-2)
+    assert torch.allclose(trit_weight.grad.float(), ref_weight.grad, atol=2e-2)
+    assert torch.allclose(trit_bias.grad.float(), ref_bias.grad, atol=2e-2)
 
 
 @requires_triton_cuda
@@ -1261,8 +1292,11 @@ def test_registry_dispatch_matches_native():
     from rl_engine.platforms.device import device_ctx
 
     op = kernel_registry.get_op("linear_logp")
-    device = device_ctx.device if device_ctx.device_type == "cuda" else "cpu"
+    device = (
+        device_ctx.device if device_ctx.device_type in {"cuda", "hip", "xpu", "musa"} else "cpu"
+    )
     hidden, weight, target, bias = _inputs(6, device=device)
     out = op(hidden, weight, target, bias)
     ref = NativeLinearLogpOp()(hidden, weight, target, bias)
-    assert torch.allclose(out.cpu(), ref.cpu(), atol=1e-3)
+    atol = 5e-2 if device_ctx.device_type == "musa" else 1e-3
+    assert torch.allclose(out.cpu(), ref.cpu(), atol=atol)

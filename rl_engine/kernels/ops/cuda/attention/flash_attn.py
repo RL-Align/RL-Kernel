@@ -130,9 +130,7 @@ class StrictFlashAttention4Core:
         tensors, RNG state, or distributed collectives.
         """
         if torch.version.hip is not None:
-            raise StrictFlashAttentionUnavailable(
-                "FA4 CUDA precompile is unavailable on ROCm"
-            )
+            raise StrictFlashAttentionUnavailable("FA4 CUDA precompile is unavailable on ROCm")
         if not torch.cuda.is_available():
             raise StrictFlashAttentionUnavailable(
                 "FA4 CUDA precompile requires an available CUDA device"
@@ -144,11 +142,7 @@ class StrictFlashAttention4Core:
         if head_dim <= 0 or sequence_length <= 0:
             raise ValueError("head_dim and sequence_length must be positive")
 
-        target = (
-            torch.device("cuda", torch.cuda.current_device())
-            if device is None
-            else device
-        )
+        target = torch.device("cuda", torch.cuda.current_device()) if device is None else device
         if target.type != "cuda":
             raise ValueError("strict FA4 training precompile requires a CUDA device")
 

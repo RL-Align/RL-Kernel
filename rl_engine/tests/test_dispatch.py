@@ -4,7 +4,6 @@
 import sys
 from types import ModuleType
 
-import pytest
 import torch
 
 import rl_engine.platforms.device as device_module
@@ -106,20 +105,54 @@ class TestMusaPlatform:
         assert context.is_musa is True
         assert context.device.type == "musa"
 
-    def test_musa_dispatch_uses_only_pytorch_fallbacks(self, monkeypatch):
+    def test_musa_dispatch_prefers_validated_triton_backends(self, monkeypatch):
         self._mock_musa_device(monkeypatch)
         registry = KernelRegistry()
 
         assert registry._platform_for_device("musa") == "musa"
-        for candidates in registry._priority_map["musa"].values():
+        expected = {
+            "logp": [
+                OpBackend.TRITON_LOGP,
+                OpBackend.PYTORCH_NATIVE,
+            ],
+            "rope": [OpBackend.TRITON_ROPE, OpBackend.PYTORCH_NATIVE_ROPE],
+            "linear_logp": [
+                OpBackend.TRITON_LINEAR_LOGP,
+                OpBackend.PYTORCH_LINEAR_LOGP,
+            ],
+            "grpo_loss": [
+                OpBackend.TRITON_GRPO_LOSS,
+                OpBackend.PYTORCH_GRPO_LOSS,
+            ],
+            "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
+            "det_gemm": [OpBackend.TRITON_DET_GEMM],
+            "batch_invariant_logp": [
+                OpBackend.TRITON_BATCH_INVARIANT_LOGP,
+                OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
+            ],
+            "rms_norm": [
+                OpBackend.TRITON_RMS_NORM,
+                OpBackend.PYTORCH_NATIVE_RMS_NORM,
+            ],
+            "embedding": [
+                OpBackend.TRITON_EMBEDDING,
+                OpBackend.PYTORCH_NATIVE_EMBEDDING,
+            ],
+            "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
+            "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
+        }
+        for op_name, candidates in expected.items():
+            assert registry._priority_map["musa"][op_name] == candidates
+        for op_name, candidates in registry._priority_map["musa"].items():
+            if op_name in expected:
+                continue
             assert all(candidate.name.startswith("PYTORCH_") for candidate in candidates)
 
-    def test_musa_det_gemm_fails_closed(self, monkeypatch):
+    def test_musa_det_gemm_uses_only_validated_triton_backend(self, monkeypatch):
         self._mock_musa_device(monkeypatch)
         registry = KernelRegistry()
 
-        with pytest.raises(RuntimeError, match="No functional backend"):
-            registry.get_op("det_gemm", device="musa")
+        assert registry._priority_map["musa"]["det_gemm"] == [OpBackend.TRITON_DET_GEMM]
 
 
 def test_registry_explicit_device_selects_device_platform(monkeypatch):

@@ -192,6 +192,6 @@ class TritonRoPEOp:
         return self.forward(x, positions, theta=theta)
 
     def forward(self, x: Tensor, positions: Tensor, *, theta: float = 1_000_000.0) -> Tensor:
-        if x.device.type not in ("cuda", "hip", "xpu"):
+        if x.device.type not in ("cuda", "hip", "xpu", "musa"):
             raise RuntimeError(f"TritonRoPEOp requires a GPU tensor, got device '{x.device}'.")
         return _RoPEFunction.apply(x, positions, theta)

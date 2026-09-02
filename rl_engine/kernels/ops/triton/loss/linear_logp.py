@@ -198,9 +198,9 @@ class TritonLinearLogpOp:
         vocab_start_index: int = 0,
         global_vocab_size: Optional[int] = None,
     ) -> torch.Tensor:
-        if hidden.device.type not in ("cuda", "xpu", "hip"):
+        if hidden.device.type not in ("cuda", "xpu", "hip", "musa"):
             raise RuntimeError(
-                "TritonLinearLogpOp requires a GPU tensor (CUDA / ROCm / XPU), got "
+                "TritonLinearLogpOp requires a GPU tensor (CUDA / ROCm / XPU / MUSA), got "
                 f"device '{hidden.device}'."
             )
         if hidden.shape[:-1] != target_ids.shape:

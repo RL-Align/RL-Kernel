@@ -475,11 +475,7 @@ def _patch_qwen3_strict_model(
                 )[instance.tp_rank].contiguous()
 
             assert instance.quant_method is not None
-            bias_ = (
-                None
-                if (instance.tp_rank > 0 or instance.skip_bias_add)
-                else instance.bias
-            )
+            bias_ = None if (instance.tp_rank > 0 or instance.skip_bias_add) else instance.bias
             output_parallel = instance.quant_method.apply(instance, input_parallel, bias_)
 
             if instance.reduce_results and instance.tp_size > 1:

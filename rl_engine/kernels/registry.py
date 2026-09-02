@@ -113,11 +113,13 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     )
 
     # RMSNorm(pre-norm / QK-Norm) - pure Pytorch reference(ws1 ground-truth)
+    TRITON_RMS_NORM = "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp"
     PYTORCH_NATIVE_RMS_NORM = "rl_engine.kernels.ops.pytorch.norm.rms_norm.NativeRMSNormOp"
 
     # Generic fallback
     TRITON_GENERIC = "rl_engine.kernels.ops.triton.generic.TritonOp"
     PYTORCH_ATTN = "rl_engine.kernels.ops.pytorch.attention.NativeAttentionOp"
+    TRITON_LOGP = "rl_engine.kernels.ops.triton.loss.logp.TritonLogpOp"
     PYTORCH_NATIVE = "rl_engine.kernels.ops.pytorch.loss.logp.NativeLogpOp"
     PYTORCH_NATIVE_MATMUL = "rl_engine.kernels.ops.pytorch.linear.matmul.NativeMatmulOp"
     PYTORCH_NATIVE_ROPE = "rl_engine.kernels.ops.pytorch.rotary_embedding.rope.NativeRoPEOp"
@@ -149,6 +151,7 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     # WS1 pure-PyTorch ground-truth linear ops
     PYTORCH_NATIVE_LM_HEAD = "rl_engine.kernels.ops.pytorch.linear.lm_head.NativeLMHeadOp"
     # WS1 pure-PyTorch ground-truth embedding ops
+    TRITON_EMBEDDING = "rl_engine.kernels.ops.triton.linear.embedding.TritonEmbeddingOp"
     PYTORCH_NATIVE_EMBEDDING = "rl_engine.kernels.ops.pytorch.linear.embedding.NativeEmbeddingOp"
     CUDA_SM90_LM_HEAD = "rl_engine.kernels.ops.cuda.linear.lm_head.SM90LMHeadOp"
     CUDA_SM90_EMBEDDING = "rl_engine.kernels.ops.cuda.linear.embedding.SM90EmbeddingOp"
@@ -564,7 +567,7 @@ class KernelRegistry:
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
             },
             "musa": {
-                "logp": [OpBackend.PYTORCH_NATIVE],
+                "logp": [OpBackend.TRITON_LOGP, OpBackend.PYTORCH_NATIVE],
                 "logp_indexed": [OpBackend.PYTORCH_NATIVE],
                 "logp_online": [OpBackend.PYTORCH_NATIVE],
                 "logp_online_indexed": [OpBackend.PYTORCH_NATIVE],
@@ -572,20 +575,40 @@ class KernelRegistry:
                 "logp_deterministic_indexed": [OpBackend.PYTORCH_NATIVE],
                 "attn": [OpBackend.PYTORCH_ATTN],
                 "attention": [OpBackend.PYTORCH_NATIVE_ATTENTION],
+                "cp_attention": [OpBackend.PYTORCH_CP_ATTENTION],
+                "ws2_attention": [
+                    OpBackend.PYTORCH_CP_ATTENTION,
+                    OpBackend.PYTORCH_NATIVE_ATTENTION,
+                ],
                 "kv_cache_attention": [OpBackend.PYTORCH_NATIVE_KV_CACHE_ATTN],
-                "grpo_loss": [OpBackend.PYTORCH_GRPO_LOSS],
-                "rope": [OpBackend.PYTORCH_NATIVE_ROPE],
-                "linear_logp": [OpBackend.PYTORCH_LINEAR_LOGP],
-                "ratio_kl": [OpBackend.PYTORCH_RATIO_KL],
+                "grpo_loss": [
+                    OpBackend.TRITON_GRPO_LOSS,
+                    OpBackend.PYTORCH_GRPO_LOSS,
+                ],
+                "rope": [OpBackend.TRITON_ROPE, OpBackend.PYTORCH_NATIVE_ROPE],
+                "linear_logp": [
+                    OpBackend.TRITON_LINEAR_LOGP,
+                    OpBackend.PYTORCH_LINEAR_LOGP,
+                ],
+                "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
-                "det_gemm": [],
-                "batch_invariant_logp": [OpBackend.PYTORCH_BATCH_INVARIANT_LOGP],
+                "det_gemm": [OpBackend.TRITON_DET_GEMM],
+                "batch_invariant_logp": [
+                    OpBackend.TRITON_BATCH_INVARIANT_LOGP,
+                    OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
+                ],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
-                "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
+                "rms_norm": [
+                    OpBackend.TRITON_RMS_NORM,
+                    OpBackend.PYTORCH_NATIVE_RMS_NORM,
+                ],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
-                "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
-                "silu": [OpBackend.PYTORCH_NATIVE_SILU],
-                "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
+                "embedding": [
+                    OpBackend.TRITON_EMBEDDING,
+                    OpBackend.PYTORCH_NATIVE_EMBEDDING,
+                ],
+                "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
+                "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
             },
             "cpu": {
                 "logp": [OpBackend.PYTORCH_NATIVE],

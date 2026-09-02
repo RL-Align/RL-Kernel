@@ -185,7 +185,7 @@ class TritonBatchInvariantLogpOp:
     Computes ``logits[t, target_ids[t]] - logsumexp(logits[t, :])`` using a
     one-pass online softmax Triton kernel with locked reduction order.
 
-    Requires a GPU tensor (CUDA / ROCm).
+    Requires a GPU tensor (CUDA / ROCm / XPU / MUSA).
     """
 
     def __init__(self) -> None:
@@ -209,10 +209,10 @@ class TritonBatchInvariantLogpOp:
         *,
         validate: bool = False,
     ) -> torch.Tensor:
-        if logits.device.type not in ("cuda", "xpu", "hip"):
+        if logits.device.type not in ("cuda", "xpu", "hip", "musa"):
             raise RuntimeError(
                 "TritonBatchInvariantLogpOp requires a GPU tensor "
-                f"(CUDA / ROCm / XPU), got device '{logits.device}'."
+                f"(CUDA / ROCm / XPU / MUSA), got device '{logits.device}'."
             )
         if logits.dim() < 2:
             raise ValueError(

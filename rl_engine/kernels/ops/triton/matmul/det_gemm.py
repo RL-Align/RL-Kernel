@@ -146,7 +146,9 @@ class TritonDetGemmOp:
 
     def __call__(self, a, b):
         assert a.dtype == torch.bfloat16 and b.dtype == torch.bfloat16, "BF16 only"
-        assert a.is_cuda and b.is_cuda, "CUDA only"
+        assert a.device.type in ("cuda", "musa")
+        assert b.device.type in ("cuda", "musa")
+        assert a.device == b.device, "GEMM operands must be on the same device"
         return _TritonDetGemmFn.apply(a, b, False)
 
     def forward_fp32(self, a, b):
@@ -155,7 +157,9 @@ class TritonDetGemmOp:
             torch.float32,
         ):
             raise TypeError("FP32-output Triton GEMM requires BF16 or FP32 inputs")
-        assert a.is_cuda and b.is_cuda, "CUDA only"
+        assert a.device.type in ("cuda", "musa")
+        assert b.device.type in ("cuda", "musa")
+        assert a.device == b.device, "GEMM operands must be on the same device"
         return _TritonDetGemmFn.apply(a, b, True)
 
     forward_accum_fp32 = forward_fp32

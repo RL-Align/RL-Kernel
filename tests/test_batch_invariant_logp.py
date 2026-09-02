@@ -14,7 +14,7 @@ import torch
 
 from rl_engine.kernels.ops.pytorch.loss.batch_invariant_logp import NativeBatchInvariantLogpOp
 from rl_engine.kernels.ops.pytorch.loss.logp import NativeLogpOp
-from rl_engine.platforms.device import _npu_available
+from rl_engine.platforms.device import _npu_available, device_ctx
 
 _V = 300
 
@@ -1309,7 +1309,7 @@ def test_registry_dispatches_correctly():
         or type(op).__name__ == "BatchInvariantLogpSM90Op"
         or type(op).__name__ == "BatchInvariantLogpAscendOp"
     )
-    logits = torch.randn(4, _V, device="cuda" if torch.cuda.is_available() else "cpu")
+    logits = torch.randn(4, _V, device=device_ctx.device)
     target = torch.randint(0, _V, (4,), device=logits.device)
     out = op(logits, target)
     ref = _reference_logp(logits, target)

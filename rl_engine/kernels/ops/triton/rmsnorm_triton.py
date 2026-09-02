@@ -76,7 +76,8 @@ def _require_triton():
 
 def rmsnorm_triton_forward_with_rstd(x, weight, eps: float = 1e-6):
     _require_triton()
-    assert x.is_cuda and weight.is_cuda
+    assert x.device.type in ("cuda", "hip", "xpu", "musa")
+    assert weight.device.type in ("cuda", "hip", "xpu", "musa")
     assert x.dim() == 2 and weight.dim() == 1
     rows, hidden = x.shape
     assert weight.numel() == hidden
@@ -112,7 +113,8 @@ def rmsnorm_triton_backward_rows(grad_out, x, weight, rstd):
 class RMSNormTriton(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, weight, eps: float = 1e-6):
-        assert x.is_cuda and weight.is_cuda
+        assert x.device.type in ("cuda", "hip", "xpu", "musa")
+        assert weight.device.type in ("cuda", "hip", "xpu", "musa")
         assert x.dim() == 2 and weight.dim() == 1
         T, H = x.shape
         assert weight.numel() == H
