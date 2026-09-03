@@ -3,10 +3,15 @@
 
 import importlib.util
 import os
+import re
+import shutil
+import subprocess
+import sysconfig
 import warnings
+from distutils.errors import CompileError
 from pathlib import Path
 
-from setuptools import find_packages, setup
+from setuptools import Extension, find_packages, setup
 
 
 def _load_envs_module():
@@ -45,7 +50,120 @@ def _native_extension_required() -> bool:
         or bool(os.environ.get("PYTORCH_ROCM_ARCH", "").strip())
         or bool(os.environ.get("TORCH_CUDA_ARCH_LIST", "").strip())
         or envs.env_flag("FORCE_CUDA")
+        or envs.env_flag(envs.KERNEL_ALIGN_FORCE_ASCEND)
     )
+
+
+def _ascend_arch() -> str:
+    """Resolve the bisheng ``--npu-arch`` value for an explicit Ascend build."""
+    configured = os.environ.get(envs.KERNEL_ALIGN_ASCEND_ARCH, "").strip()
+    if configured:
+        if not re.fullmatch(r"dav-\d+", configured):
+            raise ValueError(
+                f"{envs.KERNEL_ALIGN_ASCEND_ARCH} must look like 'dav-2201' or "
+                f"'dav-3510', got {configured!r}"
+            )
+        return configured
+
+    try:
+        result = subprocess.run(
+            ["npu-smi", "info"],
+            capture_output=True,
+            check=True,
+            text=True,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "npu-smi was not found. Source the CANN environment or set "
+            f"{envs.KERNEL_ALIGN_ASCEND_ARCH}=dav-2201 (A2/A3) / dav-3510 (A5)."
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(
+            f"npu-smi info failed with exit code {exc.returncode}"
+        ) from exc
+
+    chip = re.search(
+        r"(?:Ascend\s*)?(910|950)[A-Za-z0-9]*", result.stdout, re.IGNORECASE
+    )
+    if chip is None:
+        raise RuntimeError(
+            "Could not infer the NPU architecture from 'npu-smi info'; set "
+            f"{envs.KERNEL_ALIGN_ASCEND_ARCH} explicitly."
+        )
+    return "dav-3510" if chip.group(1) == "950" else "dav-2201"
+
+
+def _ascend_dependency_paths(torch):
+    try:
+        import torch_npu
+        import torch.utils.cpp_extension as cpp_extension
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "An Ascend build requires torch_npu matching the installed PyTorch version."
+        ) from exc
+
+    python_include = sysconfig.get_config_var("INCLUDEPY")
+    python_lib = sysconfig.get_config_var("LIBDIR")
+    torch_npu_path = os.path.dirname(torch_npu.__file__)
+    include_dirs = [
+        *cpp_extension.include_paths(),
+        os.path.join(torch_npu_path, "include"),
+    ]
+    library_dirs = [
+        os.path.join(os.path.dirname(torch.__file__), "lib"),
+        os.path.join(torch_npu_path, "lib"),
+    ]
+    if python_include:
+        include_dirs.append(python_include)
+    if python_lib:
+        library_dirs.append(python_lib)
+    return include_dirs, library_dirs
+
+
+def _make_ascend_build_extension(torch, build_extension):
+    """Create the official bisheng-style build command for ``.asc`` sources."""
+
+    class AscendBuildExtension(build_extension):
+        def build_extension(self, ext):
+            if shutil.which("bisheng") is None:
+                raise RuntimeError(
+                    "bisheng was not found. Source the CANN toolkit environment before building."
+                )
+
+            include_dirs, library_dirs = _ascend_dependency_paths(torch)
+            ext_fullpath = self.get_ext_fullpath(ext.name)
+            os.makedirs(os.path.dirname(ext_fullpath), exist_ok=True)
+            abi_value = "1" if torch._C._GLIBCXX_USE_CXX11_ABI else "0"
+            module_name = ext.name.rsplit(".", 1)[-1]
+            if not module_name.isidentifier():
+                raise RuntimeError(
+                    f"Invalid Python extension module name: {module_name!r}"
+                )
+            command = [
+                "bisheng",
+                "-x",
+                "asc",
+                f"--npu-arch={_ascend_arch()}",
+                "-shared",
+                "-fPIC",
+                "-O3",
+                "-std=c++17",
+                f"-D_GLIBCXX_USE_CXX11_ABI={abi_value}",
+                "-DTORCH_API_INCLUDE_EXTENSION_H",
+                f"-DTORCH_EXTENSION_NAME={module_name}",
+                *ext.sources,
+                "-o",
+                ext_fullpath,
+            ]
+            command.extend(f"-I{path}" for path in include_dirs)
+            command.extend(f"-L{path}" for path in library_dirs)
+            command.extend(["-ltorch_npu", "-ltorch_python", "-ltorch", "-lc10"])
+            try:
+                self.spawn(command)
+            except Exception as exc:
+                raise CompileError(str(exc)) from exc
+
+    return AscendBuildExtension
 
 
 def _cuda_define_from_env(name: str, macro: str) -> list[str]:
@@ -109,6 +227,25 @@ def get_extensions():
             stacklevel=2,
         )
         return []
+
+    if envs.env_flag(envs.KERNEL_ALIGN_FORCE_ASCEND):
+        if os.name == "nt":
+            raise RuntimeError(
+                "Ascend C extensions must be built on a Linux CANN host."
+            )
+        # Fail early with an actionable torch_npu error.
+        _ascend_dependency_paths(torch)
+        return [
+            Extension(
+                name="rl_engine._C_npu",
+                sources=[
+                    "csrc/ascend/batch_invariant_logp_ascend.asc",
+                    "csrc/ascend/rope_ascend.asc",
+                    "csrc/ascend/npu_module.cpp",
+                ],
+                language="asc",
+            )
+        ]
 
     extensions = []
     torch_lib_dir = os.path.join(os.path.dirname(torch.__file__), "lib")
@@ -231,7 +368,9 @@ def get_extensions():
             if enable_sm90 and present_sm90:
                 tma_arch = f"{cc_major}{cc_minor}a"  # WGMMA/TMA require the arch-native 'a' variant
                 cuda_sources.extend(present_sm90)
-                nvcc_flags.append(f"-gencode=arch=compute_{tma_arch},code=sm_{tma_arch}")
+                nvcc_flags.append(
+                    f"-gencode=arch=compute_{tma_arch},code=sm_{tma_arch}"
+                )
                 cxx_flags.append("-DKERNEL_ALIGN_WITH_SM90")
                 if "-lcuda" not in extra_link_args:
                     extra_link_args.append("-lcuda")
@@ -277,9 +416,11 @@ def get_extensions():
 
 
 def get_cmdclass():
-    _, BuildExtension, _ = _load_torch_extension_tools()
+    torch, BuildExtension, _ = _load_torch_extension_tools()
     if BuildExtension is None:
         return {}
+    if envs.env_flag(envs.KERNEL_ALIGN_FORCE_ASCEND):
+        return {"build_ext": _make_ascend_build_extension(torch, BuildExtension)}
     return {"build_ext": BuildExtension}
 
 

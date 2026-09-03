@@ -123,6 +123,7 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     PYTORCH_NATIVE_ROPE = "rl_engine.kernels.ops.pytorch.rotary_embedding.rope.NativeRoPEOp"
     TRITON_ROPE = "rl_engine.kernels.ops.triton.rotary_embedding.rope.TritonRoPEOp"
     CUDA_ROPE_SM90 = "rl_engine.kernels.ops.cuda.rotary_embedding.rope.RoPESM90Op"
+    ASCEND_ROPE = "rl_engine.kernels.ops.ascend.rotary_embedding.rope.RoPEAscendOp"
     PYTORCH_NATIVE_SILU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSiLUOp"
     PYTORCH_NATIVE_SWIGLU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSwiGLUOp"
     CUDA_SILU = "rl_engine.kernels.ops.cuda.activation.swiglu.SiLUCudaOp"
@@ -621,6 +622,10 @@ class KernelRegistry:
         self._priority_map["npu"]["batch_invariant_logp"] = [
             OpBackend.ASCEND_BATCH_INVARIANT_LOGP,
             OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
+        ]
+        self._priority_map["npu"]["rope"] = [
+            OpBackend.ASCEND_ROPE,
+            OpBackend.PYTORCH_NATIVE_ROPE,
         ]
         logger.info(f"KernelRegistry initialized for {device_ctx.device_type}")
         self._adjust_priority_for_hardware()
