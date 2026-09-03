@@ -34,6 +34,13 @@ dev = ["pytest", "black", "isort", "ruff", "mypy", "pre-commit"]
 where = ["."]
 include = ["rl_engine*"]
 
+[tool.black]
+line-length = 100
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
 [tool.ruff]
 line-length = 100
 
