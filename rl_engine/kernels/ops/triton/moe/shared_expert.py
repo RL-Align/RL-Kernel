@@ -18,6 +18,7 @@ import torch
 try:
     import triton
     import triton.language as tl
+    import triton.language.extra.libdevice as tld
 
     TRITON_AVAILABLE = True
 except ImportError:  # pragma: no cover - exercised on non-GPU installs
@@ -72,7 +73,8 @@ if TRITON_AVAILABLE:
         gate_index = row * (2 * width) + col
         g = tl.load(Z + gate_index, mask=mask, other=0.0)
         u = tl.load(Z + gate_index + width, mask=mask, other=0.0)
-        sig = 1.0 / (1.0 + tl.exp(-g))
+        # libdevice exp (__nv_expf) bit-matches torch.sigmoid; tl.exp does not.
+        sig = 1.0 / (1.0 + tld.exp(-g))
         silu = g * sig
         h = (silu * u).to(tl.bfloat16)
         tl.store(H + offs, h, mask=mask)
@@ -97,7 +99,7 @@ if TRITON_AVAILABLE:
         g = tl.load(Z + gate_index, mask=mask, other=0.0)
         u = tl.load(Z + gate_index + width, mask=mask, other=0.0)
         dh = tl.load(DH + offs, mask=mask, other=0.0).to(tl.float32)
-        sig = 1.0 / (1.0 + tl.exp(-g))
+        sig = 1.0 / (1.0 + tld.exp(-g))
         silu = g * sig
         # dsilu = sig * (1 + g * (1 - sig)), each op rounded separately.
         t = 1.0 - sig
