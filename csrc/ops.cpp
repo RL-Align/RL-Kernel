@@ -131,6 +131,11 @@ std::vector<torch::Tensor> swiglu_packed_backward_cuda(
     torch::Tensor dy,
     torch::Tensor gate_up);
 
+// P5-5 (#64) Shared Expert MLP strict kernels (oracle-fp32-serial-v1)
+torch::Tensor p5_strict_gemm(torch::Tensor a, torch::Tensor b, bool trans_b);
+torch::Tensor p5_swiglu_shared_forward(torch::Tensor z);
+torch::Tensor p5_swiglu_shared_backward(torch::Tensor dh, torch::Tensor z);
+
 // RMSNorm Declarations & Wrappers
 
 void rmsnorm_forward_cuda(
@@ -502,6 +507,14 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Batch-invariant SwiGLU forward for [rows, 2 * intermediate]");
     m.def("swiglu_packed_backward", &swiglu_packed_backward,
           "Batch-invariant SwiGLU backward for [rows, 2 * intermediate]");
+
+    // P5-5 (#64) Shared Expert MLP strict kernels (oracle-fp32-serial-v1)
+    m.def("p5_strict_gemm", &p5_strict_gemm,
+          "Strict BF16-in/FP32-out GEMM, serial ascending-k, mul-then-add");
+    m.def("p5_swiglu_shared_forward", &p5_swiglu_shared_forward,
+          "One-round SwiGLU forward, shared-expert mode (p_s = None)");
+    m.def("p5_swiglu_shared_backward", &p5_swiglu_shared_backward,
+          "One-round SwiGLU backward, shared-expert mode (p_s = None)");
 
     // Deterministic standard-softmax attention (issue #147)
     m.def(
