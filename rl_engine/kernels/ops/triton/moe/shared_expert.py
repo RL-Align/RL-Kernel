@@ -9,6 +9,12 @@ cross-lane floating-point reduction and results are batch/padding invariant.
 
 The one-round SwiGLU core (FP32 math, single BF16 round on the output) is the
 shared-mode (``p_s = None``, no clamp) variant shared with P5-2 (#63).
+
+Sigmoid is transcendental and its bits depend on the libm implementation:
+neither ``tl.exp`` (exp2-based) nor libdevice ``__nv_expf`` bit-matches the
+nvcc ``expf`` inside ``torch.sigmoid``. The Triton path therefore sources the
+sigmoid tensor from ``torch.sigmoid`` (same-device oracle parity, per the P5
+transcendental rule) and fuses all remaining SwiGLU math in the kernel.
 """
 
 from __future__ import annotations
@@ -18,7 +24,6 @@ import torch
 try:
     import triton
     import triton.language as tl
-    import triton.language.extra.libdevice as tld
 
     TRITON_AVAILABLE = True
 except ImportError:  # pragma: no cover - exercised on non-GPU installs
@@ -58,6 +63,7 @@ if TRITON_AVAILABLE:
     @triton.jit
     def _swiglu_shared_fwd_kernel(
         Z,
+        SIG,
         H,
         n_elem,
         width,
@@ -65,6 +71,7 @@ if TRITON_AVAILABLE:
     ):
         # One-round SwiGLU, shared mode: h = BF16(SiLU(gate) * up), FP32 math,
         # gate = z[:, :F], up = z[:, F:] packed in one [T, 2F] FP32 tensor.
+        # SIG is torch.sigmoid(gate) (see module docstring).
         pid = tl.program_id(0)
         offs = pid * BLOCK + tl.arange(0, BLOCK)
         mask = offs < n_elem
@@ -73,8 +80,7 @@ if TRITON_AVAILABLE:
         gate_index = row * (2 * width) + col
         g = tl.load(Z + gate_index, mask=mask, other=0.0)
         u = tl.load(Z + gate_index + width, mask=mask, other=0.0)
-        # libdevice exp (__nv_expf) bit-matches torch.sigmoid; tl.exp does not.
-        sig = 1.0 / (1.0 + tld.exp(-g))
+        sig = tl.load(SIG + offs, mask=mask, other=0.0)
         silu = g * sig
         h = (silu * u).to(tl.bfloat16)
         tl.store(H + offs, h, mask=mask)
@@ -83,6 +89,7 @@ if TRITON_AVAILABLE:
     def _swiglu_shared_bwd_kernel(
         DH,
         Z,
+        SIG,
         DZ,
         n_elem,
         width,
@@ -99,7 +106,7 @@ if TRITON_AVAILABLE:
         g = tl.load(Z + gate_index, mask=mask, other=0.0)
         u = tl.load(Z + gate_index + width, mask=mask, other=0.0)
         dh = tl.load(DH + offs, mask=mask, other=0.0).to(tl.float32)
-        sig = 1.0 / (1.0 + tld.exp(-g))
+        sig = tl.load(SIG + offs, mask=mask, other=0.0)
         silu = g * sig
         # dsilu = sig * (1 + g * (1 - sig)), each op rounded separately.
         t = 1.0 - sig
@@ -161,9 +168,10 @@ def swiglu_shared_fwd(z: torch.Tensor) -> torch.Tensor:
     n_elem = h.numel()
     if n_elem == 0:
         return h
+    sig = torch.sigmoid(z[:, :width]).contiguous()
     block = 1024
     grid = (triton.cdiv(n_elem, block),)
-    _swiglu_shared_fwd_kernel[grid](z, h, n_elem, width, BLOCK=block)
+    _swiglu_shared_fwd_kernel[grid](z, sig, h, n_elem, width, BLOCK=block)
     return h
 
 
@@ -181,7 +189,9 @@ def swiglu_shared_bwd(dh: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
     n_elem = dh.numel()
     if n_elem == 0:
         return dz
+    width = dh.shape[1]
+    sig = torch.sigmoid(z[:, :width]).contiguous()
     block = 1024
     grid = (triton.cdiv(n_elem, block),)
-    _swiglu_shared_bwd_kernel[grid](dh, z, dz, n_elem, dh.shape[1], BLOCK=block)
+    _swiglu_shared_bwd_kernel[grid](dh, z, sig, dz, n_elem, width, BLOCK=block)
     return dz

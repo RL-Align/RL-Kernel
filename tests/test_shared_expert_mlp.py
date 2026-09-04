@@ -112,8 +112,13 @@ def test_shared_output_independent_of_routed(provider):
 
 
 @requires_cuda
-def test_cuda_triton_byte_equal():
-    """The two backends agree with each other bit-for-bit."""
+@pytest.mark.parametrize("shape", [(16, 128, 64), (256, 1024, 512)])
+def test_cuda_triton_byte_equal(shape):
+    """The two backends agree with each other bit-for-bit.
+
+    The larger shape samples enough values to expose rare transcendental
+    1-ulp divergences that survive the BF16 round (caught once at T=256).
+    """
     from rl_engine.moe.provider import resolve_provider
 
     providers = []
@@ -122,8 +127,14 @@ def test_cuda_triton_byte_equal():
             providers.append(resolve_provider(spec))
         except NotImplementedError as exc:
             pytest.skip(f"backend unavailable: {exc}")
-    batch = fixtures.make_shared_batch("shared_t16").to("cuda")
-    dy = fixtures.make_grad_output("shared_t16", (batch.x.shape[0], batch.x.shape[1])).to("cuda")
+    t, hidden, ffn = shape
+    gen = torch.Generator(device="cpu").manual_seed(hash(shape) % (2**31))
+    batch = SharedBatch(
+        x=torch.randn(t, hidden, generator=gen).to(torch.bfloat16).cuda(),
+        w_fc1=(torch.randn(2 * ffn, hidden, generator=gen) / hidden**0.5).to(torch.bfloat16).cuda(),
+        w_fc2=(torch.randn(hidden, ffn, generator=gen) / ffn**0.5).to(torch.bfloat16).cuda(),
+    )
+    dy = torch.randn(t, hidden, generator=gen).to(torch.bfloat16).cuda()
     results = [_run_provider(p, batch, dy) for p in providers]
     (y_a, dx_a), (y_b, dx_b) = results
     assert tensor_sha256(y_a) == tensor_sha256(y_b)

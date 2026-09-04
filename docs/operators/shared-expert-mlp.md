@@ -20,6 +20,12 @@ owns one output element and reduces serially in ascending k with
 there is no cross-lane floating-point reduction and results are
 batch/padding invariant.
 
+Sigmoid is transcendental, so its bits follow the libm implementation: nvcc
+`expf` (used by both `torch.sigmoid` and the CUDA kernel) bit-matches, while
+`tl.exp` and libdevice `__nv_expf` do not (~10-45% of values differ by 1 ulp).
+The Triton path therefore sources the sigmoid tensor from `torch.sigmoid` and
+fuses the remaining SwiGLU math in the kernel.
+
 ## Backends
 
 | backend | entry point |
