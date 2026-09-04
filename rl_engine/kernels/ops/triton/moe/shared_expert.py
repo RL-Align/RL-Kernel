@@ -15,6 +15,11 @@ neither ``tl.exp`` (exp2-based) nor libdevice ``__nv_expf`` bit-matches the
 nvcc ``expf`` inside ``torch.sigmoid``. The Triton path therefore sources the
 sigmoid tensor from ``torch.sigmoid`` (same-device oracle parity, per the P5
 transcendental rule) and fuses all remaining SwiGLU math in the kernel.
+
+All mul/add/sub go through libdevice ``*_rn`` (the Triton spelling of CUDA's
+``__fmul_rn``/``__fadd_rn``/``__fsub_rn``): the compiler is allowed to
+contract a plain ``a * b + c`` into an FMA, which changes the rounding (seen
+as 1-ulp dgate drift at T=256), and the ``_rn`` intrinsics forbid that.
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ import torch
 try:
     import triton
     import triton.language as tl
+    import triton.language.extra.libdevice as tld
 
     TRITON_AVAILABLE = True
 except ImportError:  # pragma: no cover - exercised on non-GPU installs
@@ -56,8 +62,7 @@ if TRITON_AVAILABLE:
         for k in range(0, K):
             a = tl.load(a_row + k).to(tl.float32)
             b = tl.load(b_cols + k * stride_bk, mask=mask_n, other=0.0).to(tl.float32)
-            prod = a * b
-            acc = acc + prod
+            acc = tld.add_rn(acc, tld.mul_rn(a, b))
         tl.store(C + m * N + offs_n, acc, mask=mask_n)
 
     @triton.jit
@@ -81,8 +86,8 @@ if TRITON_AVAILABLE:
         g = tl.load(Z + gate_index, mask=mask, other=0.0)
         u = tl.load(Z + gate_index + width, mask=mask, other=0.0)
         sig = tl.load(SIG + offs, mask=mask, other=0.0)
-        silu = g * sig
-        h = (silu * u).to(tl.bfloat16)
+        silu = tld.mul_rn(g, sig)
+        h = tld.mul_rn(silu, u).to(tl.bfloat16)
         tl.store(H + offs, h, mask=mask)
 
     @triton.jit
@@ -107,14 +112,14 @@ if TRITON_AVAILABLE:
         u = tl.load(Z + gate_index + width, mask=mask, other=0.0)
         dh = tl.load(DH + offs, mask=mask, other=0.0).to(tl.float32)
         sig = tl.load(SIG + offs, mask=mask, other=0.0)
-        silu = g * sig
+        silu = tld.mul_rn(g, sig)
         # dsilu = sig * (1 + g * (1 - sig)), each op rounded separately.
-        t = 1.0 - sig
-        t = g * t
-        t = 1.0 + t
-        dsilu = sig * t
-        dgate = (dh * u) * dsilu
-        dup = dh * silu
+        t = tld.sub_rn(1.0, sig)
+        t = tld.mul_rn(g, t)
+        t = tld.add_rn(1.0, t)
+        dsilu = tld.mul_rn(sig, t)
+        dgate = tld.mul_rn(tld.mul_rn(dh, u), dsilu)
+        dup = tld.mul_rn(dh, silu)
         tl.store(DZ + gate_index, dgate.to(tl.bfloat16), mask=mask)
         tl.store(DZ + gate_index + width, dup.to(tl.bfloat16), mask=mask)
 
