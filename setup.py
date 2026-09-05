@@ -211,7 +211,9 @@ def get_extensions():
             nvcc_flags.append("-allow-unsupported-compiler")
             nvcc_flags.append("-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH")
 
-        cxx_flags = ["-O3", "-std=c++17", "-DKERNEL_ALIGN_WITH_CUDA"]
+        # Let PyTorch's BuildExtension choose the C++ standard required by the
+        # installed PyTorch release (for example, C++20 in PyTorch 2.14).
+        cxx_flags = ["-O3", "-DKERNEL_ALIGN_WITH_CUDA"]
         extra_link_args = list(torch_rpath)
         if os.name != "nt":
             # CUDA IPC metadata queries use the driver API (cuPointerGetAttribute).
