@@ -187,6 +187,7 @@ OP_SPECS = {
             "pytorch": "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSwiGLUOp",
             "triton": "rl_engine.kernels.ops.triton.activation.swiglu.TritonSwiGLUOp",
             "cuda": "rl_engine.kernels.ops.cuda.activation.swiglu.SwiGLUCudaOp",
+            "ascend": "rl_engine.kernels.ops.ascend.activation.swiglu.SwiGLUAscendOp",
         },
         grad_input_names=("gate", "up"),
     ),

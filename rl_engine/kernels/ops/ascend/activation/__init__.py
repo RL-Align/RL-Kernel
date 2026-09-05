@@ -1,4 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-from . import activation, loss  # noqa: F401
+from .swiglu import SwiGLUAscendOp
+
+__all__ = ["SwiGLUAscendOp"]

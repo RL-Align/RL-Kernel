@@ -155,6 +155,7 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     PYTORCH_NATIVE_SWIGLU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSwiGLUOp"
     CUDA_SILU = "rl_engine.kernels.ops.cuda.activation.swiglu.SiLUCudaOp"
     CUDA_SWIGLU = "rl_engine.kernels.ops.cuda.activation.swiglu.SwiGLUCudaOp"
+    ASCEND_SWIGLU = "rl_engine.kernels.ops.ascend.activation.swiglu.SwiGLUAscendOp"
     TRITON_SILU = "rl_engine.kernels.ops.triton.activation.swiglu.TritonSiLUOp"
     TRITON_SWIGLU = "rl_engine.kernels.ops.triton.activation.swiglu.TritonSwiGLUOp"
 
@@ -682,13 +683,17 @@ class KernelRegistry:
             },
         }
         # Preserve the former CPU fallback behavior for every operator on NPU,
-        # then override only the operator with an Ascend-specific backend.
+        # then override operators with Ascend-specific backends.
         self._priority_map["npu"] = {
             op_type: candidates.copy() for op_type, candidates in self._priority_map["cpu"].items()
         }
         self._priority_map["npu"]["batch_invariant_logp"] = [
             OpBackend.ASCEND_BATCH_INVARIANT_LOGP,
             OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
+        ]
+        self._priority_map["npu"]["swiglu"] = [
+            OpBackend.ASCEND_SWIGLU,
+            OpBackend.PYTORCH_NATIVE_SWIGLU,
         ]
         logger.info(f"KernelRegistry initialized for {device_ctx.device_type}")
         self._adjust_priority_for_hardware()
