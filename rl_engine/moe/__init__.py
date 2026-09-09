@@ -14,7 +14,13 @@ from rl_engine.moe.contract import (
     tensor_sha256,
 )
 from rl_engine.moe.mx_format import MX_BLOCK, MXTensor, mx_dequantize, mx_quantize
-from rl_engine.moe.provider import ExpertProvider, ReferenceProvider, StubProvider, resolve_provider
+from rl_engine.moe.provider import (
+    CudaP5GemmProvider,
+    ExpertProvider,
+    ReferenceProvider,
+    StubProvider,
+    resolve_provider,
+)
 from rl_engine.moe.trace import ExpertTrace, first_divergence
 
 __all__ = [
@@ -32,6 +38,7 @@ __all__ = [
     "ReferenceProvider",
     "SharedBatch",
     "StubProvider",
+    "CudaP5GemmProvider",
     "first_divergence",
     "mx_dequantize",
     "mx_quantize",

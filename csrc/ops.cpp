@@ -118,6 +118,21 @@ torch::Tensor det_gemm_fwd_rhs_transposed(torch::Tensor a, torch::Tensor bt);
 torch::Tensor det_gemm_da(torch::Tensor dc, torch::Tensor b);
 torch::Tensor det_gemm_db(torch::Tensor a, torch::Tensor dc);
 torch::Tensor det_gemm_db_transposed(torch::Tensor a, torch::Tensor dc);
+
+// P5 MX routed-expert interface skeleton. Quantization returns independent
+// [E4M3 codes, E8M0 scales] tensors; grouped GEMM keeps MXFP4 weights packed.
+std::vector<torch::Tensor> moe_mxfp8_act_quant_forward(torch::Tensor input);
+torch::Tensor moe_mxfp8_mxfp4_grouped_gemm_forward(
+    torch::Tensor activation_codes,
+    torch::Tensor activation_scales,
+    torch::Tensor packed_weight_codes,
+    torch::Tensor weight_scales,
+    torch::Tensor expert_offsets);
+torch::Tensor moe_mxfp8_mxfp4_grouped_gemm_backward(
+    torch::Tensor dy,
+    torch::Tensor packed_weight_codes,
+    torch::Tensor weight_scales,
+    torch::Tensor expert_offsets);
 // SiLU / SwiGLU Declarations (elementwise activation, general CUDA)
 torch::Tensor silu_forward_cuda(torch::Tensor x);
 torch::Tensor silu_backward_cuda(torch::Tensor dy, torch::Tensor x);
@@ -482,6 +497,25 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "det_gemm_db_transposed",
         &det_gemm_db_transposed,
         "Batch-invariant deterministic GEMM backward in canonical [N,K] layout");
+    m.def(
+        "moe_mxfp8_act_quant_forward",
+        &moe_mxfp8_act_quant_forward,
+        "P5-1 MXFP8 activation quantization interface skeleton (codes, scales)",
+        py::arg("input"));
+    m.def(
+        "moe_mxfp8_mxfp4_grouped_gemm_forward",
+        &moe_mxfp8_mxfp4_grouped_gemm_forward,
+        "P5-4 strict grouped GEMM interface skeleton",
+        py::arg("activation_codes"), py::arg("activation_scales"),
+        py::arg("packed_weight_codes"), py::arg("weight_scales"),
+        py::arg("expert_offsets"));
+    m.def(
+        "moe_mxfp8_mxfp4_grouped_gemm_backward",
+        &moe_mxfp8_mxfp4_grouped_gemm_backward,
+        "P5-4 strict grouped GEMM dX-only interface skeleton",
+        py::arg("dy"), py::arg("packed_weight_codes"),
+        py::arg("weight_scales"), py::arg("expert_offsets"));
+
     // registry RMSNorm
     m.def("rmsnorm_forward", &rmsnorm_forward, "Batch-invariant RMSNorm forward CUDA");
     m.def("rmsnorm_backward_dx", &rmsnorm_backward_dx, "Batch-invariant RMSNorm backward dx CUDA");
