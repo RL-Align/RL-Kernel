@@ -202,11 +202,17 @@ def test_perf_backend_batch_invariance(perf_provider):
 
 @requires_cuda
 def test_perf_backend_close_to_oracle(perf_provider):
-    """Same round positions, different reduction order: close, not byte-equal."""
+    """Same round positions, different reduction order: close, not byte-equal.
+
+    Each provider declares its own tolerance: det_gemm merges the K dimension
+    with a BF16 mid-split tree (BF16-tree-sized deviation), while the tl.dot
+    path keeps FP32 accumulators (reduction-order noise only).
+    """
+    tol = perf_provider.oracle_tolerance
     batch, dy = _random_batch(64, 512, 256)
     y_gold, saved_gold = oracle.shared_expert_mlp_fwd(batch)
     dx_gold = oracle.shared_expert_mlp_bwd(dy, batch, saved_gold)
     y, dx = _run_provider(perf_provider, batch, dy)
     assert y.dtype == torch.bfloat16 and dx.dtype == torch.float32
-    torch.testing.assert_close(y.float(), y_gold.float(), rtol=2e-2, atol=2e-2)
-    torch.testing.assert_close(dx, dx_gold, rtol=2e-2, atol=2e-2)
+    torch.testing.assert_close(y.float(), y_gold.float(), **tol)
+    torch.testing.assert_close(dx, dx_gold, **tol)

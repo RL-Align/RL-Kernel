@@ -170,6 +170,10 @@ class CudaDetSharedExpertProvider(CudaSharedExpertProvider):
     name = "shared-expert-cuda-det"
     numeric_profile = "p5-det-gemm-v1"
     strict_profile = False
+    # det_gemm rounds each BK=32 partial to BF16 and merges the K dimension
+    # with a BF16 mid-split tree (its TP-equivalence design), so its deviation
+    # from the FP32-serial oracle is BF16-tree-sized, not FP32-sized.
+    oracle_tolerance = {"rtol": 1e-1, "atol": 6e-2}
 
     def _gemm(self, a: torch.Tensor, b: torch.Tensor, trans_b: bool) -> torch.Tensor:
         if trans_b:  # b is the logical [K, N] operand
@@ -199,6 +203,9 @@ class TritonDetSharedExpertProvider(TritonSharedExpertProvider):
     name = "shared-expert-triton-det"
     numeric_profile = "p5-triton-dot-v1"
     strict_profile = False
+    # Full-FP32 accumulators (only the contract's BF16 rounds), so deviation
+    # from the oracle is reduction-order noise only.
+    oracle_tolerance = {"rtol": 2e-2, "atol": 2e-2}
 
     def _gemm(self, a: torch.Tensor, b: torch.Tensor, trans_b: bool) -> torch.Tensor:
         return self._tk.det_dot_gemm(a, b, trans_b)
