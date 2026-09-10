@@ -331,7 +331,13 @@ def _ascend_extensions():
     asc_srcs = sorted(str(p) for p in Path("csrc/ascend").glob("*.asc"))
     if not asc_srcs:
         raise RuntimeError("KERNEL_ALIGN_FORCE_ASCEND=1 but no .asc sources under csrc/ascend/")
-    return [Extension(name="rl_engine._C_npu", sources=asc_srcs, language="asc")]
+    sources: list[str] = asc_srcs
+    # Some kernels ship a C++ pybind host alongside the .asc sources; include
+    # it when present (compiled per-source by _bisheng_compile_cmd).
+    host_cpp = Path("csrc/ascend/npu_module.cpp")
+    if host_cpp.is_file():
+        sources = [str(host_cpp), *asc_srcs]
+    return [Extension(name="rl_engine._C_npu", sources=sources, language="asc")]
 
 
 def _bisheng_compile_cmd(ext, ext_fullpath):
@@ -365,6 +371,49 @@ def _bisheng_compile_cmd(ext, ext_fullpath):
         os.path.join(torch_npu_dir, "lib"),
         os.path.join(ascend_home, "lib64"),
     ]
+
+    if any(not str(src).endswith(".asc") for src in ext.sources):
+        # Mixed extension (C++ pybind host + .asc kernels): the -x asc driver
+        # cannot compile C++, so compile each source to an object and link them
+        # in a second step.
+        import subprocess
+        import tempfile
+
+        build_temp = tempfile.mkdtemp(prefix="rl_kernel_ascend_")
+        objects = []
+        for src in ext.sources:
+            src = str(src)
+            obj = os.path.join(build_temp, Path(src).name + ".o")
+            src_cmd = [
+                "bisheng",
+                "-std=c++17",
+                "-O2",
+                "-fPIC",
+                "-c",
+                f"-D_GLIBCXX_USE_CXX11_ABI={abi_value}",
+                f"-DTORCH_EXTENSION_NAME={module_name}",
+            ]
+            if src.endswith(".asc"):
+                src_cmd += ["-x", "asc", f"--npu-arch={soc}"]
+            src_cmd += [f"-I{d}" for d in include_dirs if d]
+            src_cmd += [src, "-o", obj]
+            subprocess.check_call(src_cmd)
+            objects.append(obj)
+        cmd = [
+            "bisheng",
+            "-shared",
+            *objects,
+            "-lascendcl",
+            "-ltorch_npu",
+            "-ltorch",
+            "-ltorch_cpu",
+            "-ltorch_python",
+            "-lc10",
+            "-o",
+            ext_fullpath,
+        ]
+        cmd += [f"-L{d}" for d in lib_dirs if d]
+        return cmd
 
     cmd = [
         "bisheng",

@@ -1,19 +1,18 @@
 # RoPE
 
 RoPE applies rotary position embeddings to per-head query or key tensors. The
-current implementation is a pure PyTorch reference operator for Issue #108
-ground-truth validation; it is not a fused CUDA or Triton kernel.
-
-This page documents the PyTorch baseline version.
+project provides the pure PyTorch ground truth plus CUDA, Triton, and Ascend C
+candidate backends using the same GPT-NeoX/Hugging Face rotate-half convention.
 
 ## Entry Point
 
 ```python
 from rl_engine.kernels.registry import kernel_registry
+from rl_engine.kernels.ops.pytorch.rotary_embedding import NativeRoPEOp
 
 rope = kernel_registry.get_op("rope")
 output = rope.forward(x, positions, theta=1_000_000.0)
-reference = rope.forward_fp32(x, positions, theta=1_000_000.0)
+reference = NativeRoPEOp().forward_fp32(x, positions, theta=1_000_000.0)
 ```
 
 The operator can also be imported directly:
@@ -29,9 +28,12 @@ rope = NativeRoPEOp()
 | Backend | Wrapper | Native symbol | Notes |
 | --- | --- | --- | --- |
 | PyTorch native | `NativeRoPEOp` | None | Reference baseline for Qwen3-style RoPE. |
+| Ascend C | `RoPEAscendOp` | `_C_npu.rope_apply_ascend` | FP16/BF16/FP32, FP32 rotation math, autograd through the inverse rotation. |
+| CUDA SM90 | `RoPESM90Op` | `_C.rope_apply_sm90` | Hopper build only. |
+| Triton | `TritonRoPEOp` | JIT kernel | CUDA/ROCm candidate. |
 
-`kernel_registry.get_op("rope")` dispatches to the PyTorch native backend on CPU,
-CUDA, and ROCm. CUDA/Triton fused RoPE kernels should compare against this reference.
+`kernel_registry.get_op("rope")` prefers `RoPEAscendOp` on NPU, the SM90/Triton
+candidates on CUDA, and the PyTorch implementation as the portable fallback.
 
 ## Tensor Contract
 
@@ -93,6 +95,8 @@ as `[S]` and `[B, S]`, batch invariance, and Qwen3 query/key head shapes.
 ## Implementation Files
 
 - `rl_engine/kernels/ops/pytorch/rotary_embedding/rope.py`
+- `rl_engine/kernels/ops/ascend/rotary_embedding/rope.py`
+- `csrc/ascend/rope_ascend.asc`
 - `rl_engine/kernels/ops/pytorch/rotary_embedding/__init__.py`
 - `rl_engine/kernels/registry.py`
 - `tests/test_rope.py`
