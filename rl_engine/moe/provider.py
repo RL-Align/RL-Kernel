@@ -109,6 +109,62 @@ class ReferenceProvider:
     shared_expert_mlp_bwd = staticmethod(oracle.shared_expert_mlp_bwd)
 
 
+class NativeP5Provider(ReferenceProvider):
+    """Fail-closed adapter for the P5 CUDA ABI skeleton.
+
+    The native entry points currently expose the documented pointer/shape
+    contract but intentionally raise until strict kernels are implemented.
+    This adapter must never silently call the Python oracle.
+    """
+
+    name = "native-p5"
+    numeric_profile = "p5-strict-skeleton-unimplemented"
+
+    @staticmethod
+    def _extension():
+        try:
+            from rl_engine import _C
+        except ImportError as exc:
+            raise RuntimeError("P5 native extension is not built") from exc
+        return _C
+
+    def capabilities(self) -> dict[str, Any]:
+        return {
+            "backend": "cuda-p5-skeleton",
+            "geometry": ["one-row"],
+            "devices": ["cuda"],
+            "implemented": [],
+        }
+
+    def provenance(self) -> dict[str, Any]:
+        return {
+            "requested_backend": self.name,
+            "actual_backend": self.name,
+            "numeric_profile": self.numeric_profile,
+            "implementation": "interface-skeleton",
+        }
+
+    def mxfp8_act_quant_fwd(self, x: torch.Tensor) -> MXTensor:
+        raise NotImplementedError("P5-1 native forward is not part of this skeleton")
+
+    def mxfp8_mxfp4_grouped_gemm_fwd(
+        self, a: MXTensor, w: MXTensor, expert_offsets: torch.Tensor
+    ) -> torch.Tensor:
+        return self._extension().moe_mxfp8_mxfp4_grouped_gemm_forward(
+            a.codes, a.scales, w.codes, w.scales, expert_offsets
+        )
+
+    def mxfp8_mxfp4_grouped_gemm_bwd(
+        self, dy: torch.Tensor, w: MXTensor, expert_offsets: torch.Tensor
+    ) -> torch.Tensor:
+        return self._extension().moe_mxfp8_mxfp4_grouped_gemm_backward(
+            dy, w.codes, w.scales, expert_offsets
+        )
+
+    def mxfp8_act_quant_bwd(self, dy: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError("P5-1 native backward is not part of this skeleton")
+
+
 class StubProvider(ReferenceProvider):
     """Fail-closed placeholder: every operator raises until a backend claims it.
 
@@ -177,11 +233,70 @@ class StubProvider(ReferenceProvider):
         raise self._todo("P5-5 (#64)")
 
 
+class CudaP5GemmProvider(ReferenceProvider):
+    """Strict CUDA GEMM backend for P5-4 only.
+
+    Overrides the MXFP8xMXFP4 grouped GEMM fwd/bwd with the hand-written strict
+    FFMA kernel (bit-exact vs the FP32 oracle). Every other operator stays on
+    the oracle. Fail-closed: raises if the native extension is not built.
+    """
+
+    name = "cuda-p5-gemm"
+    numeric_profile = "p5-strict-ffma-v1"
+
+    @staticmethod
+    def _extension():
+        try:
+            from rl_engine import _C
+        except ImportError as exc:
+            raise RuntimeError("P5 CUDA extension is not built") from exc
+        return _C
+
+    def capabilities(self) -> dict[str, Any]:
+        return {
+            "backend": "cuda-p5-strict",
+            "geometry": ["one-row"],
+            "devices": ["cuda"],
+            "implemented": [
+                "mxfp8_mxfp4_grouped_gemm_fwd",
+                "mxfp8_mxfp4_grouped_gemm_bwd",
+            ],
+        }
+
+    def provenance(self) -> dict[str, Any]:
+        return {
+            "requested_backend": self.name,
+            "actual_backend": "cuda-strict",
+            "numeric_profile": self.numeric_profile,  # "p5-strict-ffma-v1"
+            "geometry": "one-row-unpadded",
+            "tile": None,  # no tiling in the strict one-row path
+            "split_k": 1,  # no split-K
+            "kernel_fingerprint": "mxfp8-mxfp4-grouped-gemm-strict-v1",
+            "torch_version": torch.__version__,
+            "cuda_version": torch.version.cuda,
+        }
+
+    def mxfp8_mxfp4_grouped_gemm_fwd(
+        self, a: MXTensor, w: MXTensor, expert_offsets: torch.Tensor
+    ) -> torch.Tensor:
+        return self._extension().moe_mxfp8_mxfp4_grouped_gemm_forward(
+            a.codes, a.scales, w.codes, w.scales, expert_offsets
+        )
+
+    def mxfp8_mxfp4_grouped_gemm_bwd(
+        self, dy: torch.Tensor, w: MXTensor, expert_offsets: torch.Tensor
+    ) -> torch.Tensor:
+        return self._extension().moe_mxfp8_mxfp4_grouped_gemm_backward(
+            dy, w.codes, w.scales, expert_offsets
+        )
+
+
 def resolve_provider(spec: str) -> ExpertProvider:
     """Instantiate a provider from ``"module.path:ClassName"`` (or an alias)."""
     aliases = {
         "reference": "rl_engine.moe.provider:ReferenceProvider",
         "stub": "rl_engine.moe.provider:StubProvider",
+        "cuda": "rl_engine.moe.provider:CudaP5GemmProvider",
     }
     spec = aliases.get(spec, spec)
     if ":" not in spec:
