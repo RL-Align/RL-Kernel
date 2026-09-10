@@ -25,3 +25,9 @@ def deterministic_attention_ascend(
     scale: float,
     key_padding_mask: torch.Tensor | None,
 ) -> list[torch.Tensor]: ...
+
+def prefix_shared_attention_ascend(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+) -> torch.Tensor: ...

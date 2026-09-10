@@ -80,6 +80,26 @@ OP_SPECS = {
         },
         grad_input_names=("q", "k", "v"),
     ),
+    # GRPO decode: every G group attends over one shared K/V sequence
+    # ([B, Skv, D] instead of [B, Hkv, Skv, D]). Forward-only (no backward),
+    # same surface as the CUDA PrefixSharedAttentionOp.
+    "prefix_shared_attention": OperatorSpec(
+        name="prefix_shared_attention",
+        op_class="attention",
+        gold_path="rl_engine.kernels.gtest.operator_specs.GtestPrefixSharedAttentionOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.kernels.gtest.operator_specs.GtestPrefixSharedAttentionOp",
+            "cuda": (
+                "rl_engine.kernels.ops.cuda.attention.prefix_shared_attn."
+                "PrefixSharedAttentionOp"
+            ),
+            "ascend": (
+                "rl_engine.kernels.ops.ascend.attention.prefix_shared_attn."
+                "PrefixSharedAttentionAscendOp"
+            ),
+        },
+    ),
     "cp_attention": OperatorSpec(
         name="cp_attention",
         op_class="attention",
@@ -246,6 +266,26 @@ class GtestPackOp:
     def forward_fp32(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         packed, _cu_seqlens = self._op(x.float(), mask)
         return packed
+
+
+class GtestPrefixSharedAttentionOp:
+    """gtest view of the prefix-shared layout: expand the shared K/V over the
+    G groups and reuse the standard fp32 attention reference (non-causal,
+    default scale), which is the gold for the CUDA/Ascend prefix-shared ops.
+    """
+
+    op_class = "attention"
+
+    def __init__(self) -> None:
+        from rl_engine.kernels.ops.pytorch.attention.standard_attn import NativeAttentionOp
+
+        self._op = NativeAttentionOp()
+
+    def __call__(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
+        return self._op(q, k.unsqueeze(1), v.unsqueeze(1), causal=False)
+
+    def forward_fp32(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
+        return self._op.forward_fp32(q, k.unsqueeze(1), v.unsqueeze(1), causal=False)
 
 
 class _LogpSM90CandidateAdapter:
