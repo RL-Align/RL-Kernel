@@ -434,13 +434,19 @@ def test_gradient_matches_reference():
 
 
 def test_registry_dispatches_native_attention_op():
-    """Resolve attention to the deterministic CUDA op or native fallback."""
+    """Resolve attention to the deterministic op of the active platform or native fallback."""
     op = kernel_registry.get_op("attention")
-    # On CUDA with the extension built, the registry prefers DeterministicAttentionOp.
-    # On CPU or without the CUDA extension, it falls back to NativeAttentionOp.
+    # On CUDA with the extension built, the registry prefers DeterministicAttentionOp;
+    # on NPU with the Ascend extension, DeterministicAttentionAscendOp. On CPU or
+    # without the platform extension, it falls back to NativeAttentionOp.
+    from rl_engine.kernels.ops.ascend.attention.deterministic_attn import (
+        DeterministicAttentionAscendOp,
+    )
     from rl_engine.kernels.ops.cuda.attention.deterministic_attn import DeterministicAttentionOp
 
-    assert isinstance(op, (NativeAttentionOp, DeterministicAttentionOp))
+    assert isinstance(
+        op, (NativeAttentionOp, DeterministicAttentionOp, DeterministicAttentionAscendOp)
+    )
 
 
 def test_deterministic_attention_op_exposes_shared_strict_identity():

@@ -139,6 +139,11 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     PYTORCH_DISTRIBUTED_GRPO_LOSS = (
         "rl_engine.kernels.ops.pytorch.loss.distributed_grpo_loss.DistributedGRPOLossOp"
     )
+    # Ascend NPU deterministic (batch-invariant, no split-K) standard-softmax
+    # attention (issue #147); Ascend C forward + reference backward.
+    ASCEND_DETERMINISTIC_ATTENTION = (
+        "rl_engine.kernels.ops.ascend.attention.deterministic_attn.DeterministicAttentionAscendOp"
+    )
 
     # RMSNorm(pre-norm / QK-Norm) - pure Pytorch reference(ws1 ground-truth)
     PYTORCH_NATIVE_RMS_NORM = "rl_engine.kernels.ops.pytorch.norm.rms_norm.NativeRMSNormOp"
@@ -681,9 +686,22 @@ class KernelRegistry:
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
             },
+            # Ascend NPU: op types without an entry fall back to their CPU
+            # candidates (see the runtime override below), so only
+            # Ascend-accelerated ops are listed.
+            "npu": {
+                "batch_invariant_logp": [
+                    OpBackend.ASCEND_BATCH_INVARIANT_LOGP,
+                    OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
+                ],
+                "attention": [
+                    OpBackend.ASCEND_DETERMINISTIC_ATTENTION,
+                    OpBackend.PYTORCH_NATIVE_ATTENTION,
+                ],
+            },
         }
         # Preserve the former CPU fallback behavior for every operator on NPU,
-        # then override only the operator with an Ascend-specific backend.
+        # then override only the operators with an Ascend-specific backend.
         self._priority_map["npu"] = {
             op_type: candidates.copy() for op_type, candidates in self._priority_map["cpu"].items()
         }
@@ -694,6 +712,10 @@ class KernelRegistry:
         self._priority_map["npu"]["rope"] = [
             OpBackend.ASCEND_ROPE,
             OpBackend.PYTORCH_NATIVE_ROPE,
+        ]
+        self._priority_map["npu"]["attention"] = [
+            OpBackend.ASCEND_DETERMINISTIC_ATTENTION,
+            OpBackend.PYTORCH_NATIVE_ATTENTION,
         ]
         logger.info(f"KernelRegistry initialized for {device_ctx.device_type}")
         self._adjust_priority_for_hardware()

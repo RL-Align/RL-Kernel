@@ -9,9 +9,19 @@ def batch_invariant_logp_ascend(
     ignore_index: int,
 ) -> list[torch.Tensor]: ...
 
+
 def rope_apply_ascend(
     x: torch.Tensor,
     cos: torch.Tensor,
     sin: torch.Tensor,
     sin_sign: float,
 ) -> torch.Tensor: ...
+
+def deterministic_attention_ascend(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    causal: bool,
+    scale: float,
+    key_padding_mask: torch.Tensor | None,
+) -> list[torch.Tensor]: ...
