@@ -46,3 +46,10 @@ def deterministic_collective_reduce(
     output: torch.Tensor,
     slice_offset: int,
 ) -> None: ...
+
+def rmsnorm_ascend(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    rstd: torch.Tensor,
+) -> torch.Tensor: ...
+

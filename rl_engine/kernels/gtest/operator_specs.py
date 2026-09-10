@@ -42,6 +42,7 @@ OP_SPECS = {
             "triton": "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp",
             "cuda": "rl_engine.kernels.ops.cuda.norm.rmsnorm.RMSNormCudaOp",
             "cuda-sm90": "rl_engine.kernels.ops.cuda.norm.rmsnorm.RMSNormCudaOp",
+            "ascend": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
         },
         grad_input_names=("x", "weight"),
     ),

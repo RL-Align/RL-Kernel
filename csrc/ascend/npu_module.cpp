@@ -25,6 +25,10 @@ std::vector<torch::Tensor> deterministic_attention_ascend_forward(
 torch::Tensor prefix_shared_attention_ascend_forward(
     torch::Tensor q, torch::Tensor k, torch::Tensor v);
 
+torch::Tensor rmsnorm_ascend_forward(torch::Tensor x,
+                                     torch::Tensor weight,
+                                     torch::Tensor rstd);
+
 int64_t deterministic_collective_create(
     torch::Tensor staging, int64_t world_size, int64_t rank);
 void deterministic_collective_destroy(int64_t handle);
@@ -58,4 +62,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
     m.def("deterministic_collective_reduce",
           &deterministic_collective_reduce,
           "Fixed-tree ordered reduction over gathered rank tensors (Ascend)");
+    m.def("rmsnorm_ascend",
+          &rmsnorm_ascend_forward,
+          "Batch-invariant RMSNorm (Ascend C forward, rstd precomputed)");
 }
