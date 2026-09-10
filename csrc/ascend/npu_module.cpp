@@ -25,6 +25,10 @@ std::vector<torch::Tensor> deterministic_attention_ascend_forward(
 torch::Tensor prefix_shared_attention_ascend_forward(
     torch::Tensor q, torch::Tensor k, torch::Tensor v);
 
+torch::Tensor embedding_ascend_forward(torch::Tensor token_ids,
+                                       torch::Tensor weight,
+                                       bool output_fp32);
+
 torch::Tensor rmsnorm_ascend_forward(torch::Tensor x,
                                      torch::Tensor weight,
                                      torch::Tensor rstd);
@@ -65,4 +69,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
     m.def("rmsnorm_ascend",
           &rmsnorm_ascend_forward,
           "Batch-invariant RMSNorm (Ascend C forward, rstd precomputed)");
+    m.def("embedding_ascend",
+          &embedding_ascend_forward,
+          "Batch-invariant token embedding (Ascend C forward)");
 }

@@ -152,6 +152,7 @@ OP_SPECS = {
             "pytorch": "rl_engine.kernels.ops.pytorch.linear.embedding.NativeEmbeddingOp",
             "triton": "rl_engine.kernels.ops.triton.linear.embedding.TritonEmbeddingOp",
             "cuda-sm90": "rl_engine.kernels.ops.cuda.linear.embedding.SM90EmbeddingOp",
+            "ascend": "rl_engine.kernels.ops.ascend.linear.embedding.AscendEmbeddingOp",
         },
         grad_input_names=("weight",),
     ),
