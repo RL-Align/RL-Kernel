@@ -71,14 +71,6 @@ constexpr const char* kMoeGroupedGemmKernelFingerprint =
 
 /****************************** launch descriptor structs***********/
 
-struct MoeQuantizeArgs {
-  const void* input_ptr;                 // BF16/FP32 [M,K]
-  std::uint8_t* activation_codes_ptr;   // E4M3 uint8 [M,K]
-  std::uint8_t* activation_scales_ptr;  // E8M0 uint8 [M,K/32]
-  int rows_m;
-  int input_k;
-};
-
 // These descriptors mirror the vLLM grouped-pointer preparation pattern, but
 // retain P5's independent code/scale allocations and [E+1] interval offsets.
 // They are written on device by the prep kernels and consumed by the strict
