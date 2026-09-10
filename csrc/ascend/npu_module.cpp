@@ -25,6 +25,13 @@ std::vector<torch::Tensor> deterministic_attention_ascend_forward(
 torch::Tensor prefix_shared_attention_ascend_forward(
     torch::Tensor q, torch::Tensor k, torch::Tensor v);
 
+int64_t deterministic_collective_create(
+    torch::Tensor staging, int64_t world_size, int64_t rank);
+void deterministic_collective_destroy(int64_t handle);
+void deterministic_collective_stage(int64_t handle, torch::Tensor input);
+void deterministic_collective_reduce(
+    int64_t handle, torch::Tensor gathered, torch::Tensor output, int64_t slice_offset);
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
     m.def("batch_invariant_logp_ascend",
@@ -39,4 +46,16 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
     m.def("prefix_shared_attention_ascend",
           &prefix_shared_attention_ascend_forward,
           "Prefix-shared fused attention (Ascend C forward)");
+    m.def("deterministic_collective_create",
+          &deterministic_collective_create,
+          "Deterministic TP-invariant collective state (Ascend)");
+    m.def("deterministic_collective_destroy",
+          &deterministic_collective_destroy,
+          "Release a deterministic collective state (Ascend)");
+    m.def("deterministic_collective_stage",
+          &deterministic_collective_stage,
+          "Stage a tensor into the collective staging buffer (Ascend)");
+    m.def("deterministic_collective_reduce",
+          &deterministic_collective_reduce,
+          "Fixed-tree ordered reduction over gathered rank tensors (Ascend)");
 }
