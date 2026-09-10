@@ -73,6 +73,10 @@ OP_SPECS = {
                 "rl_engine.kernels.ops.cuda.attention.deterministic_attn."
                 "DeterministicAttentionOp"
             ),
+            "ascend": (
+                "rl_engine.kernels.ops.ascend.attention.deterministic_attn."
+                "DeterministicAttentionAscendOp"
+            ),
         },
         grad_input_names=("q", "k", "v"),
     ),

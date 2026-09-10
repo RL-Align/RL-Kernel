@@ -49,6 +49,7 @@ The op exposes the WS1 dual-path contract:
 | --- | --- | --- | --- |
 | PyTorch fallback | `NativeAttentionOp` | None | fp32 ground-truth reference; CPU and any GPU. |
 | CUDA deterministic | `DeterministicAttentionOp` | `_C.deterministic_attention_forward/backward` | Batch-invariant CUDA implementation (issue #147). |
+| Ascend NPU deterministic | `DeterministicAttentionAscendOp` | `_C_npu.deterministic_attention_ascend` | Batch-invariant Ascend C implementation (issue #147). |
 
 ## Tensor Contract
 
@@ -80,6 +81,20 @@ the inputs' device.
 
 1. `CUDA_DETERMINISTIC_ATTENTION` — `DeterministicAttentionOp` (batch-invariant, fixed-order).
 2. `PYTORCH_NATIVE_ATTENTION` — `NativeAttentionOp` (fallback).
+
+On `npu` the priority is:
+
+1. `ASCEND_DETERMINISTIC_ATTENTION` — `DeterministicAttentionAscendOp` (batch-invariant,
+   fixed-order Ascend C forward; bf16/fp16 inputs, head dim 128).
+2. `PYTORCH_NATIVE_ATTENTION` — `NativeAttentionOp` (fallback).
+
+The Ascend kernel implements the same algorithm as the Triton reference and the CUDA op:
+every `(b, q_head, row)` is processed end-to-end by exactly one AI-core block, streaming the
+keys in a fixed 64-key tile order with a two-pass (max, then sum-exp + P·V) reduction. There
+is **no split-K** and no second-pass merge of per-split `(m, l, u)` summaries, so the
+reduction tree for a row depends only on `Skv`, `D` and the masks — never on batch size or
+block assignment. The backward recomputes the native reference forward under autograd
+(Triton is unavailable on NPU), matching the Triton op's portable backward.
 
 Calling it (`__call__` -> `forward(...)`) computes in the input dtype; `forward_fp32(...)` is
 the explicit fp32 golden path (NativeAttentionOp only). The production `"attn"` op_type

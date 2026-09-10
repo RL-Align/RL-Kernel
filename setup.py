@@ -328,7 +328,7 @@ def _ascend_extensions():
             "KERNEL_ALIGN_FORCE_ASCEND=1 requires torch and torch_npu to be installed"
         ) from e
 
-    asc_srcs = sorted(str(p) for p in Path("csrc/ascend").glob("*.asc"))
+    asc_srcs = sorted(str(p) for p in Path("csrc/ascend").glob("**/*.asc"))
     if not asc_srcs:
         raise RuntimeError("KERNEL_ALIGN_FORCE_ASCEND=1 but no .asc sources under csrc/ascend/")
     sources: list[str] = asc_srcs
