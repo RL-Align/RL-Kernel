@@ -174,6 +174,10 @@ def test_npu_registry_preserves_per_operator_cpu_fallbacks(monkeypatch):
         OpBackend.ASCEND_RMS_NORM,
         OpBackend.PYTORCH_NATIVE_RMS_NORM,
     ]
+    assert registry._priority_map["npu"]["embedding"] == [
+        OpBackend.ASCEND_EMBEDDING,
+        OpBackend.PYTORCH_NATIVE_EMBEDDING,
+    ]
 
 
 def test_npu_available_handles_runtime_failure(monkeypatch):

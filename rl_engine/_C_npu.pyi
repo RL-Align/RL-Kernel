@@ -53,3 +53,8 @@ def rmsnorm_ascend(
     rstd: torch.Tensor,
 ) -> torch.Tensor: ...
 
+def embedding_ascend(
+    token_ids: torch.Tensor,
+    weight: torch.Tensor,
+    output_fp32: bool,
+) -> torch.Tensor: ...
