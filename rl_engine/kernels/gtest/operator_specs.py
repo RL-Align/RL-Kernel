@@ -163,6 +163,7 @@ OP_SPECS = {
             "pytorch": "rl_engine.kernels.ops.pytorch.rotary_embedding.rope.NativeRoPEOp",
             "triton": "rl_engine.kernels.ops.triton.rotary_embedding.rope.TritonRoPEOp",
             "cuda-sm90": "rl_engine.kernels.ops.cuda.rotary_embedding.rope.RoPESM90Op",
+            "ascend": "rl_engine.kernels.ops.ascend.rotary_embedding.rope.RoPEAscendOp",
         },
         grad_input_names=("x",),
     ),

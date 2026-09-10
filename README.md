@@ -123,6 +123,10 @@ python -m pip install -e .
 # Native CUDA or ROCm extension (install a matching PyTorch build first)
 RL_KERNEL_REQUIRE_EXT=1 python -m pip install --no-build-isolation -e .
 python -c "import rl_engine._C as _C; assert hasattr(_C, 'fused_logp'); print(_C.__file__)"
+
+# Ascend C extension (Linux host with matching CANN + torch_npu)
+KERNEL_ALIGN_FORCE_ASCEND=1 python -m pip install --no-build-isolation -e .
+python -c "import rl_engine._C_npu as C; assert hasattr(C, 'rope_apply_ascend'); print(C.__file__)"
 ```
 
 ### Contributions
