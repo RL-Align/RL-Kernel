@@ -182,6 +182,10 @@ def test_npu_registry_preserves_per_operator_cpu_fallbacks(monkeypatch):
         OpBackend.ASCEND_FUSED_LOGP,
         OpBackend.PYTORCH_NATIVE,
     ]
+    assert registry._priority_map["npu"]["lm_head"] == [
+        OpBackend.ASCEND_LM_HEAD,
+        OpBackend.PYTORCH_NATIVE_LM_HEAD,
+    ]
 
 
 def test_npu_available_handles_runtime_failure(monkeypatch):

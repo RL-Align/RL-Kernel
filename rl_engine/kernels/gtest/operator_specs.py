@@ -166,6 +166,7 @@ OP_SPECS = {
             "pytorch": "rl_engine.kernels.ops.pytorch.linear.lm_head.NativeLMHeadOp",
             "triton": "rl_engine.kernels.ops.triton.linear.lm_head.TritonLMHeadOp",
             "cuda-sm90": "rl_engine.kernels.ops.cuda.linear.lm_head.SM90LMHeadOp",
+            "ascend": "rl_engine.kernels.ops.ascend.linear.lm_head.AscendLMHeadOp",
         },
         grad_input_names=("hidden", "weight"),
     ),

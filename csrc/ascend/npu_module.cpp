@@ -32,6 +32,11 @@ torch::Tensor embedding_ascend_forward(torch::Tensor token_ids,
 torch::Tensor fused_logp_ascend_forward(torch::Tensor logits,
                                         torch::Tensor target);
 
+torch::Tensor lm_head_ascend_forward(torch::Tensor hidden,
+                                     torch::Tensor weight,
+                                     torch::optional<torch::Tensor> bias,
+                                     bool output_fp32);
+
 torch::Tensor rmsnorm_ascend_forward(torch::Tensor x,
                                      torch::Tensor weight,
                                      torch::Tensor rstd);
@@ -78,4 +83,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
     m.def("fused_logp_ascend",
           &fused_logp_ascend_forward,
           "Batch-invariant fused selected-token log-probability (Ascend C forward)");
+    m.def("lm_head_ascend",
+          &lm_head_ascend_forward,
+          "Batch-invariant LM-head projection (Ascend C forward)");
 }
