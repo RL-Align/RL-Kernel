@@ -141,6 +141,7 @@ OP_SPECS = {
             "pytorch": "rl_engine.kernels.ops.pytorch.loss.linear_logp.NativeLinearLogpOp",
             "triton": "rl_engine.kernels.ops.triton.loss.linear_logp.TritonLinearLogpOp",
             "cuda-sm90": "rl_engine.kernels.ops.cuda.loss.linear_logp.FusedLinearLogpSM90Op",
+            "ascend": "rl_engine.kernels.ops.ascend.loss.linear_logp.FusedLinearLogpAscendOp",
         },
         grad_input_names=("hidden", "lm_head_weight"),
     ),

@@ -129,6 +129,9 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     ASCEND_EMBEDDING = "rl_engine.kernels.ops.ascend.linear.embedding.AscendEmbeddingOp"
     ASCEND_FUSED_LOGP = "rl_engine.kernels.ops.ascend.loss.logp.FusedLogpAscendOp"
     ASCEND_LM_HEAD = "rl_engine.kernels.ops.ascend.linear.lm_head.AscendLMHeadOp"
+    ASCEND_FUSED_LINEAR_LOGP = (
+        "rl_engine.kernels.ops.ascend.loss.linear_logp.FusedLinearLogpAscendOp"
+    )
     # Deterministic vocab-parallel TP logprob reference (WS2 #241 PR3)
     PYTORCH_VOCAB_PARALLEL_LOGP = (
         "rl_engine.kernels.ops.pytorch.loss.vocab_parallel_logp.VocabParallelLogprobOp"
@@ -736,6 +739,10 @@ class KernelRegistry:
         self._priority_map["npu"]["lm_head"] = [
             OpBackend.ASCEND_LM_HEAD,
             OpBackend.PYTORCH_NATIVE_LM_HEAD,
+        ]
+        self._priority_map["npu"]["linear_logp"] = [
+            OpBackend.ASCEND_FUSED_LINEAR_LOGP,
+            OpBackend.PYTORCH_LINEAR_LOGP,
         ]
         logger.info(f"KernelRegistry initialized for {device_ctx.device_type}")
         self._adjust_priority_for_hardware()

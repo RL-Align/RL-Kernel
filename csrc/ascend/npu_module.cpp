@@ -37,6 +37,11 @@ torch::Tensor lm_head_ascend_forward(torch::Tensor hidden,
                                      torch::optional<torch::Tensor> bias,
                                      bool output_fp32);
 
+torch::Tensor fused_linear_logp_ascend_forward(torch::Tensor hidden,
+                                               torch::Tensor weight,
+                                               torch::optional<torch::Tensor> bias,
+                                               torch::Tensor target);
+
 torch::Tensor rmsnorm_ascend_forward(torch::Tensor x,
                                      torch::Tensor weight,
                                      torch::Tensor rstd);
@@ -86,4 +91,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
     m.def("lm_head_ascend",
           &lm_head_ascend_forward,
           "Batch-invariant LM-head projection (Ascend C forward)");
+    m.def("fused_linear_logp_ascend",
+          &fused_linear_logp_ascend_forward,
+          "Batch-invariant fused linear log-probability (Ascend C forward)");
 }

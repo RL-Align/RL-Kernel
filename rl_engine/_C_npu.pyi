@@ -69,3 +69,10 @@ def lm_head_ascend(
     bias: torch.Tensor | None,
     output_fp32: bool,
 ) -> torch.Tensor: ...
+
+def fused_linear_logp_ascend(
+    hidden: torch.Tensor,
+    weight: torch.Tensor,
+    bias: torch.Tensor | None,
+    target: torch.Tensor,
+) -> torch.Tensor: ...

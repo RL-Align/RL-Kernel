@@ -2,4 +2,5 @@
 # Copyright (c) 2026 RL-Kernel Contributors
 
 from . import batch_invariant_logp  # noqa: F401
+from . import linear_logp  # noqa: F401
 from . import logp  # noqa: F401
