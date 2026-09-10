@@ -234,13 +234,18 @@ def test_backward_batch_invariance_slice():
     assert torch.equal(x_slice.grad, grad_x_full_sliced)
 
 
-# 10. Registry dispatch resolves to the native op
+# 10. Registry dispatch resolves to the hardware op when available
 def test_registry_dispatches_rms_norm():
     from rl_engine.kernels.registry import kernel_registry
 
     op = kernel_registry.get_op("rms_norm")
     if torch.cuda.is_available() and _HAS_CUDA_RMSNORM:
         assert isinstance(op, RMSNormCudaOp)
+        assert hasattr(op, "forward")
+    elif _ascend_rmsnorm_available():
+        from rl_engine.kernels.ops.ascend.norm.rmsnorm import RMSNormAscendOp
+
+        assert isinstance(op, RMSNormAscendOp)
         assert hasattr(op, "forward")
     else:
         assert isinstance(op, NativeRMSNormOp)
@@ -426,3 +431,118 @@ def test_cuda_rms_norm_masked_dw_layout_invariance():
     torch.testing.assert_close(dw1.float(), ref_dw1.float(), atol=atol, rtol=rtol)
     torch.testing.assert_close(dw2.float(), ref_dw2.float(), atol=atol, rtol=rtol)
     torch.testing.assert_close(dw3.float(), ref_dw3.float(), atol=atol, rtol=rtol)
+
+
+# ---------------------------------------------------------------------------
+# Ascend C kernel (rl_engine._C_npu.rmsnorm_ascend)
+# ---------------------------------------------------------------------------
+
+from rl_engine.platforms.device import _npu_available  # noqa: E402
+
+
+def _ascend_rmsnorm_available() -> bool:
+    if not _npu_available():
+        return False
+    try:
+        from rl_engine.kernels.ops.ascend.norm.rmsnorm import _NPU_EXT_AVAILABLE, _C_npu
+    except Exception:
+        return False
+    return _NPU_EXT_AVAILABLE and hasattr(_C_npu, "rmsnorm_ascend")
+
+
+requires_ascend_rmsnorm = pytest.mark.skipif(
+    not _ascend_rmsnorm_available(),
+    reason="rmsnorm_ascend kernel not compiled "
+    "(needs KERNEL_ALIGN_FORCE_ASCEND=1 on an Ascend NPU host).",
+)
+
+
+@requires_ascend_rmsnorm
+@pytest.mark.parametrize("hidden", [_HIDDEN, _HEAD_DIM, 1000, 12288])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+def test_ascend_rms_norm_forward_matches_manual_reference(hidden, dtype):
+    """Ascend forward vs the hand-written fp32 reference (tolerance-based)."""
+    from rl_engine.kernels.ops.ascend.norm.rmsnorm import RMSNormAscendOp
+
+    torch.manual_seed(0)
+    x = torch.randn((32, hidden), device="npu", dtype=torch.float32).to(dtype)
+    w = torch.randn((hidden,), device="npu", dtype=torch.float32).to(dtype)
+
+    y = RMSNormAscendOp()(x, w, eps=_EPS)
+    ref = _manual_rms_norm(x, w)
+
+    atol, rtol = _dtype_tolerance(dtype)
+    torch.testing.assert_close(y.float(), ref, atol=atol, rtol=rtol)
+
+
+@requires_ascend_rmsnorm
+@pytest.mark.parametrize("hidden", [_HIDDEN, _HEAD_DIM, 1000, 12288])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("rows", [1, 7, 64, 257])
+def test_ascend_rms_norm_bitwise_identical_to_native(hidden, dtype, rows):
+    """Ascend forward must be bitwise identical to the PyTorch reference.
+
+    The row scale rstd is computed with the exact reference torch ops
+    (fp32 mean of squares + torch.rsqrt), so the fused kernel — which only
+    performs order-free elementwise multiplies and an RNE cast — must match
+    NativeRMSNormOp bit-for-bit on every dtype, including the H > tile and
+    H % 8 != 0 paths.
+    """
+    from rl_engine.kernels.ops.ascend.norm.rmsnorm import RMSNormAscendOp
+
+    torch.manual_seed(0)
+    op = RMSNormAscendOp()
+    native = NativeRMSNormOp()
+
+    x = torch.randn((rows, hidden), device="npu", dtype=torch.float32).to(dtype)
+    w = torch.randn((hidden,), device="npu", dtype=torch.float32).to(dtype)
+
+    y_ascend = op(x, w, eps=_EPS)
+    y_native = native(x, w, eps=_EPS)
+
+    assert y_ascend.dtype == y_native.dtype == dtype
+    assert torch.equal(y_ascend, y_native)
+
+
+@requires_ascend_rmsnorm
+@pytest.mark.parametrize("hidden", [_HIDDEN, _HEAD_DIM, 12288])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_ascend_rms_norm_backward_matches_native(hidden, dtype):
+    """Ascend forward + VJP backward vs the native op's forward/backward."""
+    from rl_engine.kernels.ops.ascend.norm.rmsnorm import RMSNormAscendOp
+
+    torch.manual_seed(0)
+    op = RMSNormAscendOp()
+    native = NativeRMSNormOp()
+    x = torch.randn((64, hidden), device="npu", dtype=torch.float32).to(dtype)
+    w = torch.randn((hidden,), device="npu", dtype=torch.float32).to(dtype)
+    dy = torch.randn((64, hidden), device="npu", dtype=torch.float32).to(dtype)
+
+    y_a, dx_a, dw_a = _run_forward_backward(lambda a, b: op(a, b, eps=_EPS), x, w, dy)
+    y_n, dx_n, dw_n = _run_forward_backward(lambda a, b: native(a, b, eps=_EPS), x, w, dy)
+
+    atol, rtol = _dtype_tolerance(dtype)
+    torch.testing.assert_close(y_a.float(), y_n.float(), atol=atol, rtol=rtol)
+    torch.testing.assert_close(dx_a.float(), dx_n.float(), atol=atol, rtol=rtol)
+    # dw accumulates over rows, so allow the tolerance to grow with sqrt(rows).
+    torch.testing.assert_close(dw_a.float(), dw_n.float(), atol=8 * atol, rtol=rtol)
+
+
+@requires_ascend_rmsnorm
+@pytest.mark.parametrize("hidden", [_HIDDEN, _HEAD_DIM, 12288])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_ascend_rms_norm_batch_invariance_bitwise(hidden, dtype):
+    """A row's output must not depend on how many rows share the batch."""
+    from rl_engine.kernels.ops.ascend.norm.rmsnorm import RMSNormAscendOp
+
+    torch.manual_seed(0)
+    op = RMSNormAscendOp()
+    x_full = torch.randn((64, hidden), device="npu", dtype=torch.float32).to(dtype)
+    w = torch.randn((hidden,), device="npu", dtype=torch.float32).to(dtype)
+
+    y_full = op(x_full, w, eps=_EPS)
+    y_slice = op(x_full[:7].clone(), w, eps=_EPS)
+    y_single = op(x_full[13:14].clone(), w, eps=_EPS)
+
+    assert torch.equal(y_full[:7], y_slice)
+    assert torch.equal(y_full[13:14], y_single)
