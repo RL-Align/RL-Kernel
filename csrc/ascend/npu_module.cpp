@@ -29,6 +29,9 @@ torch::Tensor embedding_ascend_forward(torch::Tensor token_ids,
                                        torch::Tensor weight,
                                        bool output_fp32);
 
+torch::Tensor fused_logp_ascend_forward(torch::Tensor logits,
+                                        torch::Tensor target);
+
 torch::Tensor rmsnorm_ascend_forward(torch::Tensor x,
                                      torch::Tensor weight,
                                      torch::Tensor rstd);
@@ -72,4 +75,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
     m.def("embedding_ascend",
           &embedding_ascend_forward,
           "Batch-invariant token embedding (Ascend C forward)");
+    m.def("fused_logp_ascend",
+          &fused_logp_ascend_forward,
+          "Batch-invariant fused selected-token log-probability (Ascend C forward)");
 }
