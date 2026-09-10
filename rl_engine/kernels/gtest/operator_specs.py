@@ -128,6 +128,7 @@ OP_SPECS = {
             "cuda": "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpGenericOp",
             "cuda-generic": "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpGenericOp",
             "cuda-sm90": "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpSM90Op",
+            "ascend": "rl_engine.kernels.ops.ascend.loss.logp.FusedLogpAscendOp",
         },
         grad_input_names=("logits",),
     ),

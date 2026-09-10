@@ -58,3 +58,8 @@ def embedding_ascend(
     weight: torch.Tensor,
     output_fp32: bool,
 ) -> torch.Tensor: ...
+
+def fused_logp_ascend(
+    logits: torch.Tensor,
+    target: torch.Tensor,
+) -> torch.Tensor: ...
