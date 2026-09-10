@@ -56,6 +56,17 @@ def _select_device(value: str) -> torch.device:
     device = torch.device(value)
     if device.type == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("--device cuda was requested, but CUDA is not available")
+    if device.type == "npu":
+        # torch.npu only exists after torch_npu is imported (mirrors the
+        # defensive probe in rl_engine.platforms.device).
+        try:
+            import torch_npu  # noqa: F401
+        except ImportError as exc:
+            raise RuntimeError(
+                "--device npu was requested, but torch_npu is not installed"
+            ) from exc
+        if not torch.npu.is_available():
+            raise RuntimeError("--device npu was requested, but no NPU is available")
     return device
 
 

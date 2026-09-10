@@ -22,6 +22,9 @@ std::vector<torch::Tensor> deterministic_attention_ascend_forward(
     double scale,
     c10::optional<torch::Tensor> key_padding_mask);
 
+torch::Tensor prefix_shared_attention_ascend_forward(
+    torch::Tensor q, torch::Tensor k, torch::Tensor v);
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
     m.def("batch_invariant_logp_ascend",
@@ -33,4 +36,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
     m.def("deterministic_attention_ascend",
           &deterministic_attention_ascend_forward,
           "Deterministic batch-invariant standard-softmax attention (Ascend C forward)");
+    m.def("prefix_shared_attention_ascend",
+          &prefix_shared_attention_ascend_forward,
+          "Prefix-shared fused attention (Ascend C forward)");
 }

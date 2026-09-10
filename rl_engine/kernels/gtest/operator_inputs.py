@@ -31,6 +31,7 @@ def make_operator_inputs(
         "matmul": _make_matmul_inputs,
         "det_gemm": _make_det_gemm_inputs,
         "attention": _make_attention_inputs,
+        "prefix_shared_attention": _make_prefix_shared_attention_inputs,
         "cp_attention": _make_cp_attention_inputs,
         "logp": _make_logp_inputs,
         "linear_logp": _make_linear_logp_inputs,
@@ -59,6 +60,8 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "matmul": f"{batch}x{seq}x{_matmul_k(args)}x{_matmul_n(args)}",
         "det_gemm": f"{batch}x{seq}x{_matmul_k(args)}x{_matmul_n(args)}",
         "attention": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}",
+        "prefix_shared_attention": f"{batch}x{_arg_int(args, 'n_heads', DEFAULT_N_HEADS)}"
+        f"x{seq}x{DEFAULT_HEAD_DIM}",
         "cp_attention": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}xcp2",
         "logp": f"{batch}x{seq}x{vocab}",
         "linear_logp": f"{batch}x{seq}x{_normalized_dim(args)}x{vocab}",
@@ -175,6 +178,20 @@ def _make_attention_inputs(
         inputs["key_padding_mask"] = key_padding_mask
 
     return inputs
+
+
+def _make_prefix_shared_attention_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    """Prefix-shared layout: k/v are 3-D [B, Skv, D] shared by all G groups."""
+    batch, seq = _batch_seq(args)
+    skv = _arg_int(args, "skv", seq)
+    n_groups = _arg_int(args, "n_heads", DEFAULT_N_HEADS)
+    return {
+        "q": _floating_tensor((batch, n_groups, seq, DEFAULT_HEAD_DIM), args, dtype, device, 0),
+        "k": _floating_tensor((batch, skv, DEFAULT_HEAD_DIM), args, dtype, device, 1),
+        "v": _floating_tensor((batch, skv, DEFAULT_HEAD_DIM), args, dtype, device, 2),
+    }
 
 
 def _make_cp_attention_inputs(
