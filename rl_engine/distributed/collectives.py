@@ -125,8 +125,18 @@ def deterministic_all_reduce_staged(
     return _deterministic_staged_all_reduce(staging, collective_handle)
 
 
+def _npu_available() -> bool:
+    """torch.npu only exists after torch_npu is imported; probe defensively."""
+    try:
+        import torch_npu  # noqa: F401
+
+        return hasattr(torch, "npu") and torch.npu.is_available()
+    except Exception:
+        return False
+
+
 class DeterministicCollective:
-    """Correctness-first TP-invariant CUDA collectives for one eight-GPU node.
+    """Correctness-first TP-invariant collectives for one eight-device node.
 
     TP sizes 1, 2, 4, and 8 use nested prefixes of the same balanced tree.
     A reduction is cross-TP bitwise invariant when every rank input is the
@@ -134,10 +144,15 @@ class DeterministicCollective:
     reduction, as produced by a TBIK-compatible row-parallel kernel. Every
     node evaluates the lower logical subtree before the higher one.
 
-    One instance owns a symmetric CUDA IPC staging buffer. All ranks must call
-    its methods in the same order with matching shapes and dtypes. Device-side
-    IPC sequence fences order staging and payload access without a steady-state
-    host barrier and advance correctly during CUDA Graph replay.
+    CUDA: one instance owns a symmetric CUDA IPC staging buffer; the reduction
+    kernel reads every peer's staged data directly. Ascend NPU: no device IPC
+    exists, so each reduction first gathers every rank's staged input with an
+    HCCL all_gather (bitwise-exact data movement) and then applies the same
+    fixed-tree kernel locally -- the reduction order never depends on the HCCL
+    algorithm. All ranks must call the methods in the same order with matching
+    shapes and dtypes. Calls are host-synchronizing by design; the first
+    version prioritizes determinism and lifetime safety over overlap or
+    throughput.
     """
 
     def __init__(
@@ -149,8 +164,6 @@ class DeterministicCollective:
     ) -> None:
         if not dist.is_available() or not dist.is_initialized():
             raise RuntimeError("torch.distributed must be initialized before collectives")
-        if not torch.cuda.is_available():
-            raise RuntimeError("deterministic collectives require CUDA")
         if max_size_bytes <= 0:
             raise ValueError("max_size_bytes must be positive")
 
@@ -162,23 +175,64 @@ class DeterministicCollective:
                 "deterministic collectives require world_size in "
                 f"{_SUPPORTED_WORLD_SIZES}, got {self.world_size}"
             )
+        self.max_size_bytes = int(max_size_bytes)
 
-        if device is None:
+        is_cuda = torch.cuda.is_available()
+        is_npu = _npu_available()
+        if is_cuda:
+            self._backend = "cuda"
             normalized_device = torch.device("cuda", torch.cuda.current_device())
-        elif isinstance(device, int):
-            normalized_device = torch.device("cuda", device)
+            if device is not None:
+                normalized_device = (
+                    torch.device("cuda", device)
+                    if isinstance(device, int)
+                    else torch.device(device)
+                )
+                if normalized_device.type != "cuda":
+                    raise ValueError(
+                        f"deterministic collectives require a CUDA device, got {device!r}"
+                    )
+                if normalized_device.index is None:
+                    normalized_device = torch.device("cuda", torch.cuda.current_device())
+                if normalized_device.index != torch.cuda.current_device():
+                    raise ValueError(
+                        "the collective device must be the current CUDA device; call "
+                        f"torch.cuda.set_device({normalized_device.index}) first"
+                    )
+            self._load_cuda_extension()
+            self.device = normalized_device
+            self._create_cuda_state()
+        elif is_npu:
+            self._backend = "npu"
+            normalized_device = torch.device("npu", torch.npu.current_device())
+            if device is not None:
+                normalized_device = (
+                    torch.device("npu", device) if isinstance(device, int) else torch.device(device)
+                )
+                if normalized_device.type != "npu":
+                    raise ValueError(
+                        f"deterministic collectives require an NPU device, got {device!r}"
+                    )
+                if normalized_device.index is None:
+                    normalized_device = torch.device("npu", torch.npu.current_device())
+                if normalized_device.index != torch.npu.current_device():
+                    raise ValueError(
+                        "the collective device must be the current NPU device; call "
+                        f"torch.npu.set_device({normalized_device.index}) first"
+                    )
+            self._load_npu_extension()
+            self.device = normalized_device
+            self._create_npu_state()
         else:
-            normalized_device = torch.device(device)
-        if normalized_device.type != "cuda":
-            raise ValueError(f"deterministic collectives require a CUDA device, got {device!r}")
-        if normalized_device.index is None:
-            normalized_device = torch.device("cuda", torch.cuda.current_device())
-        if normalized_device.index != torch.cuda.current_device():
-            raise ValueError(
-                "the collective device must be the current CUDA device; call "
-                f"torch.cuda.set_device({normalized_device.index}) first"
-            )
+            raise RuntimeError("deterministic collectives require CUDA or Ascend NPU devices")
 
+        self._synchronize_ranks()
+
+    # ------------------------------------------------------------------ #
+    # Backend setup
+    # ------------------------------------------------------------------ #
+
+    def _load_cuda_extension(self) -> None:
         try:
             from rl_engine import _C
         except ImportError as exc:
@@ -204,10 +258,31 @@ class DeterministicCollective:
                 "the RL-Kernel CUDA extension lacks deterministic collectives: "
                 + ", ".join(missing)
             )
-
-        self.device = normalized_device
-        self.max_size_bytes = int(max_size_bytes)
         self._extension = _C
+
+    def _load_npu_extension(self) -> None:
+        try:
+            from rl_engine import _C_npu
+        except ImportError as exc:
+            raise RuntimeError(
+                "the RL-Kernel Ascend extension is required; rebuild with "
+                "KERNEL_ALIGN_FORCE_ASCEND=1 and `pip install --no-build-isolation -e .`"
+            ) from exc
+        required_symbols = (
+            "deterministic_collective_create",
+            "deterministic_collective_destroy",
+            "deterministic_collective_stage",
+            "deterministic_collective_reduce",
+        )
+        missing = [name for name in required_symbols if not hasattr(_C_npu, name)]
+        if missing:
+            raise RuntimeError(
+                "the RL-Kernel Ascend extension lacks deterministic collectives: "
+                + ", ".join(missing)
+            )
+        self._extension = _C_npu
+
+    def _create_cuda_state(self) -> None:
         self._lock = threading.Lock()
         self._handle = 0
         self._validated_signatures: set[tuple[Any, ...]] = set()
@@ -225,11 +300,50 @@ class DeterministicCollective:
             "capacity": self.max_size_bytes,
             "hostname": socket.gethostname(),
         }
+        gathered_meta = self._exchange_meta(local_meta)
+        self._validate_meta(gathered_meta)
+
+        handles = [meta["handle"] for meta in gathered_meta]
+        offsets = [meta["offset"] for meta in gathered_meta]
+        self._handle = self._extension.deterministic_collective_create(
+            self._staging,
+            handles,
+            offsets,
+            self.rank,
+        )
+
+    def _create_npu_state(self) -> None:
+        self._lock = threading.Lock()
+        self._handle = 0
+        self._staging = torch.empty(
+            self.max_size_bytes,
+            dtype=torch.uint8,
+            device=self.device,
+        )
+
+        # No device IPC on Ascend: only the capacity / hostname invariants are
+        # exchanged (the data itself moves through HCCL all_gather per call).
+        local_meta = {
+            "capacity": self.max_size_bytes,
+            "hostname": socket.gethostname(),
+        }
+        gathered_meta = self._exchange_meta(local_meta)
+        self._validate_meta(gathered_meta)
+
+        self._handle = self._extension.deterministic_collective_create(
+            self._staging,
+            self.world_size,
+            self.rank,
+        )
+
+    def _exchange_meta(self, local_meta: dict[str, Any]) -> list[dict[str, Any]]:
         gathered_meta: list[dict[str, Any] | None] = [None] * self.world_size
         dist.all_gather_object(gathered_meta, local_meta, group=self.group)
         if any(meta is None for meta in gathered_meta):
-            raise RuntimeError("failed to exchange CUDA IPC metadata")
-        complete_meta = [meta for meta in gathered_meta if meta is not None]
+            raise RuntimeError("failed to exchange collective metadata")
+        return [meta for meta in gathered_meta if meta is not None]
+
+    def _validate_meta(self, complete_meta: list[dict[str, Any]]) -> None:
         hostnames = {meta["hostname"] for meta in complete_meta}
         if len(hostnames) != 1:
             raise ValueError("deterministic collectives require all ranks on one host")
@@ -237,15 +351,9 @@ class DeterministicCollective:
         if capacities != {self.max_size_bytes}:
             raise ValueError("all ranks must use the same max_size_bytes")
 
-        handles = [meta["handle"] for meta in complete_meta]
-        offsets = [meta["offset"] for meta in complete_meta]
-        self._handle = self._extension.deterministic_collective_create(
-            self._staging,
-            handles,
-            offsets,
-            self.rank,
-        )
-        self._synchronize_ranks()
+    # ------------------------------------------------------------------ #
+    # Public collectives
+    # ------------------------------------------------------------------ #
 
     def prepare_direct_staging_views(
         self,
@@ -295,8 +403,9 @@ class DeterministicCollective:
         """Return the TBIK-compatible fixed-tree sum on every rank.
 
         Supported dtypes are float32, float16, and bfloat16. ``out`` may alias
-        ``input``; the input is staged before the output kernel starts. Cross-TP
-        invariance requires inputs to follow the class-level subtree contract.
+        ``input``; the input is staged before the reduction kernel starts.
+        Cross-TP invariance requires inputs to follow the class-level subtree
+        contract.
         """
 
         self._check_open()
@@ -308,7 +417,13 @@ class DeterministicCollective:
         with self._lock:
             if validate_signature:
                 self._validate_matching_signature("all_reduce", input)
-            self._extension.deterministic_collective_all_reduce_fused(self._handle, input, out)
+            if self._backend == "cuda":
+                self._extension.deterministic_collective_all_reduce_fused(self._handle, input, out)
+            else:
+                self._extension.deterministic_collective_stage(self._handle, input)
+                self._synchronize_ranks()
+                self._run_reduction(input, out, slice_offset=0)
+                self._synchronize_ranks()
         return out
 
     def all_gather(
@@ -334,7 +449,16 @@ class DeterministicCollective:
         with self._lock:
             if validate_signature:
                 self._validate_matching_signature("all_gather", input)
-            self._extension.deterministic_collective_all_gather_fused(self._handle, input, out)
+            if self._backend == "cuda":
+                self._extension.deterministic_collective_all_gather_fused(self._handle, input, out)
+            else:
+                self._extension.deterministic_collective_stage(self._handle, input)
+                self._synchronize_ranks()
+                staged = self._staged_view(input)
+                shard = input.size(0)
+                slices = [out[index : index + shard] for index in range(0, out.size(0), shard)]
+                dist.all_gather(slices, staged, group=self.group)
+                self._synchronize_ranks()
         return out
 
     def all_gather_many(
@@ -396,7 +520,12 @@ class DeterministicCollective:
             if validate_signature:
                 self._validate_matching_signature("reduce_scatter", input)
             self._extension.deterministic_collective_stage(self._handle, input)
-            self._extension.deterministic_collective_reduce_scatter(self._handle, out)
+            self._synchronize_ranks()
+            if self._backend == "cuda":
+                self._extension.deterministic_collective_reduce_scatter(self._handle, out)
+            else:
+                self._run_reduction(input, out, slice_offset=self.rank * out.numel())
+            self._synchronize_ranks()
         return out
 
     def reduce_scatter_many(
@@ -413,13 +542,50 @@ class DeterministicCollective:
             self.reduce_scatter(input, validate_signature=validate_signature) for input in inputs
         )
 
+    # ------------------------------------------------------------------ #
+    # Backend helpers
+    # ------------------------------------------------------------------ #
+
+    def _staged_view(self, input: torch.Tensor) -> torch.Tensor:
+        """The staged input as a typed view of the staging buffer."""
+        return self._staging.narrow(0, 0, input.numel() * input.element_size()).view(input.dtype)
+
+    def _run_reduction(
+        self,
+        input: torch.Tensor,
+        out: torch.Tensor,
+        *,
+        slice_offset: int,
+    ) -> None:
+        """NPU reduction: HCCL-gather every rank's staged input, then apply the
+        fixed-tree kernel locally over the [world_size, N] gathered buffer."""
+        gathered = torch.empty(
+            (self.world_size, input.numel()),
+            dtype=input.dtype,
+            device=input.device,
+        )
+        dist.all_gather(
+            list(gathered.unbind(0)),
+            self._staged_view(input),
+            group=self.group,
+        )
+        self._extension.deterministic_collective_reduce(
+            self._handle,
+            gathered,
+            out,
+            slice_offset,
+        )
+
     def close(self) -> None:
-        """Release imported CUDA IPC mappings after the last collective call."""
+        """Release the collective state (and CUDA IPC mappings) after the last call."""
 
         handle = getattr(self, "_handle", 0)
         if not handle:
             return
-        torch.cuda.synchronize(self.device)
+        if self._backend == "cuda":
+            torch.cuda.synchronize(self.device)
+        else:
+            torch.npu.synchronize(self.device)
         self._handle = 0
         self._extension.deterministic_collective_destroy(handle)
 
@@ -446,7 +612,7 @@ class DeterministicCollective:
             raise RuntimeError("deterministic collective is closed")
 
     def _validate_reduction_input(self, input: torch.Tensor) -> None:
-        if not input.is_cuda or input.device != self.device:
+        if input.device != self.device:
             raise ValueError(f"input must be on {self.device}, got {input.device}")
         if not input.is_contiguous():
             raise ValueError("input must be contiguous")
@@ -462,7 +628,7 @@ class DeterministicCollective:
             )
 
     def _validate_gather_input(self, input: torch.Tensor) -> None:
-        if not input.is_cuda or input.device != self.device:
+        if input.device != self.device:
             raise ValueError(f"input must be on {self.device}, got {input.device}")
         if not input.is_contiguous():
             raise ValueError("input must be contiguous")
@@ -541,11 +707,15 @@ class DeterministicCollective:
             )
 
     def _synchronize_ranks(self) -> None:
-        torch.cuda.synchronize(self.device)
-        backend = dist.get_backend(self.group)
-        if backend == dist.Backend.NCCL or str(backend).lower() == "nccl":
-            dist.barrier(group=self.group, device_ids=[self.device.index])
+        if self._backend == "cuda":
+            torch.cuda.synchronize(self.device)
+            backend = dist.get_backend(self.group)
+            if backend == dist.Backend.NCCL or str(backend).lower() == "nccl":
+                dist.barrier(group=self.group, device_ids=[self.device.index])
+            else:
+                dist.barrier(group=self.group)
         else:
+            torch.npu.synchronize(self.device)
             dist.barrier(group=self.group)
 
 
