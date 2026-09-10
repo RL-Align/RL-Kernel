@@ -42,6 +42,10 @@ torch::Tensor fused_linear_logp_ascend_forward(torch::Tensor hidden,
                                                torch::optional<torch::Tensor> bias,
                                                torch::Tensor target);
 
+torch::Tensor swiglu_ascend_forward(torch::Tensor gate, torch::Tensor up);
+std::vector<torch::Tensor> swiglu_ascend_backward(
+    torch::Tensor grad, torch::Tensor gate, torch::Tensor up);
+
 torch::Tensor rmsnorm_ascend_forward(torch::Tensor x,
                                      torch::Tensor weight,
                                      torch::Tensor rstd);
@@ -94,4 +98,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
     m.def("fused_linear_logp_ascend",
           &fused_linear_logp_ascend_forward,
           "Batch-invariant fused linear log-probability (Ascend C forward)");
+    m.def("swiglu_forward", &swiglu_ascend_forward, "SwiGLU forward (Ascend C)");
+    m.def("swiglu_backward", &swiglu_ascend_backward, "SwiGLU backward (Ascend C)");
 }
