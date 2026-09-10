@@ -185,6 +185,29 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
     return (
         OperatorBackendDescriptor(
+            semantic_op="shared_residual_merge",
+            backend_id="rlkernel.moe.shared_residual_merge.reference.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"cpu", "cuda", "rocm"}),
+            supported_dtypes=frozenset({"float32"}),
+            supported_topologies={"*": "*"},
+            determinism_or_alignment_properties={
+                "algorithm": "fp32_routed_plus_shared_then_residual_final_bf16",
+                "reference_only": True,
+                "forward_only": True,
+                "requires_merge_context": True,
+                "strict_observable": True,
+                "gpu_launch_observable": False,
+                "certification": "pending_T01_and_GPU_evidence",
+            },
+            lifecycle=OperatorLifecycle.ENGINE_CONSTRUCTION,
+            implementation_class_or_factory=(
+                "rl_engine.kernels.ops.pytorch.moe.SharedResidualMergeReferenceOp"
+            ),
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="p6.t04.merge-receipt.v1-proposal",
+        ),
+        OperatorBackendDescriptor(
             semantic_op="selected_logprob",
             backend_id="rlkernel.reference_logp",
             supported_targets=frozenset({"rollout", "training"}),
