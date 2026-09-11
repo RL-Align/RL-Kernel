@@ -67,18 +67,32 @@ def _rand(*shape, seed=0):
 
 
 def _k_tree_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """Canonical FP32-leaf / BF16-node midpoint tree (the CUDA/Triton reference)."""
+    """Canonical FP32-leaf / BF16-node midpoint tree (the CUDA/Triton reference).
+
+    The tree splits in LEAF space (32-element leaves, the kernel's fixed
+    reduction granularity), matching the kernel's MidTreeMergeCount exactly.
+    Splitting in element space would produce sub-32-element leaves whenever
+    K is not 32 * 2**j (e.g. K=12288 -> 24-element leaves), which is a
+    different tree than the kernel evaluates.
+    """
 
     a = a.detach().contiguous()
     b = b.detach().contiguous()
+    k = a.size(1)
+    num_leaves = (k + _K_TREE_LEAF - 1) // _K_TREE_LEAF
 
     def reduce_range(lo: int, hi: int) -> torch.Tensor:
-        if hi - lo <= _K_TREE_LEAF:
-            return (a[:, lo:hi].float() @ b[lo:hi, :].float()).to(torch.bfloat16)
+        # [lo, hi) is a range of LEAF indices.
+        if hi - lo == 1:
+            start = lo * _K_TREE_LEAF
+            end = min(start + _K_TREE_LEAF, k)
+            return (a[:, start:end].float() @ b[start:end, :].float()).to(
+                torch.bfloat16
+            )
         midpoint = lo + (hi - lo) // 2
         return reduce_range(lo, midpoint) + reduce_range(midpoint, hi)
 
-    return reduce_range(0, a.size(1))
+    return reduce_range(0, num_leaves)
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +110,16 @@ class TestAscendDetGemmCorrectness:
             (31, 70, 65),  # ragged scalar-fallback shape
             (1, 32, 32),  # single leaf, no tree merges
             (4, 12288, 64),  # non-power-of-two midpoint tree (Qwen down-proj K)
+            # Regression sweep: tail-leaf padding, partial-column tiles, and
+            # the DataCopyPad gap-stride fast paths (both layouts).
+            (2, 1, 128),  # R=1 tail leaf
+            (2, 17, 32),  # R=17 tail leaf, pad < 32 B
+            (2, 33, 64),  # R=33 tail leaf, pad == 32 B boundary
+            (2, 65, 128),  # R=65 non-power-of-two leaf count
+            (2, 96, 128),  # R=96 three full leaves
+            (2, 32, 129),  # N=129 partial last tile
+            (2, 32, 257),  # N=257 three tiles, partial last tile
+            (1, 32768, 32),  # R=32768 max contract depth
         ],
     )
     def test_forward_matches_tree_reference(self, shape):
@@ -128,7 +152,9 @@ class TestAscendDetGemmCorrectness:
         # tolerance suffices against the reference.
         torch.testing.assert_close(out, ref.float(), atol=_ATOL, rtol=_RTOL)
 
-    @pytest.mark.parametrize("shape", [(128, 128, 128), (31, 70, 65)])
+    @pytest.mark.parametrize(
+        "shape", [(128, 128, 128), (31, 70, 65), (2, 17, 32), (2, 32, 129)]
+    )
     def test_rhs_transposed_layout_matches_forward_bitwise(self, shape):
         m, k, n = shape
         op = _get_op()
