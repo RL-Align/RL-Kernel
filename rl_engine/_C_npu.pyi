@@ -80,3 +80,28 @@ def fused_linear_logp_ascend(
     bias: torch.Tensor | None,
     target: torch.Tensor,
 ) -> torch.Tensor: ...
+
+def det_gemm_ascend_fwd(
+    a: torch.Tensor,
+    b: torch.Tensor,
+) -> torch.Tensor: ...
+def det_gemm_ascend_fwd_rhs_transposed(
+    a: torch.Tensor,
+    bt: torch.Tensor,
+) -> torch.Tensor: ...
+def det_gemm_ascend_fwd_fp32(
+    a: torch.Tensor,
+    b: torch.Tensor,
+) -> torch.Tensor: ...
+def det_gemm_ascend_da(
+    dc: torch.Tensor,
+    b: torch.Tensor,
+) -> torch.Tensor: ...
+def det_gemm_ascend_db(
+    a: torch.Tensor,
+    dc: torch.Tensor,
+) -> torch.Tensor: ...
+def det_gemm_ascend_db_transposed(
+    a: torch.Tensor,
+    dc: torch.Tensor,
+) -> torch.Tensor: ...

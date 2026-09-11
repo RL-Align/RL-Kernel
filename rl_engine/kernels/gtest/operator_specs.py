@@ -180,6 +180,7 @@ OP_SPECS = {
             "pytorch": "rl_engine.kernels.ops.pytorch.matmul.det_gemm.NativeGemmOp",
             "cuda": "rl_engine.kernels.ops.cuda.matmul.det_gemm.DetGemmOp",
             "triton": "rl_engine.kernels.ops.triton.matmul.det_gemm.TritonDetGemmOp",
+            "ascend": "rl_engine.kernels.ops.ascend.matmul.det_gemm.DetGemmAscendOp",
         },
         grad_input_names=("a", "b"),
     ),
