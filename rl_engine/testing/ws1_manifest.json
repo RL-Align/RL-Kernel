@@ -1,5 +1,5 @@
 {
-  "version": "ws1-c2-v7",
+  "version": "ws1-c2-v8",
   "workload_id": "ws1-qwen3-8b-dense-primary-v6",
   "seed": 20260812,
   "model_identity": {
@@ -385,7 +385,18 @@
         "lm-head-short-t8-cuda-v2",
         "lm-head-short-t8-triton-v2",
         "batch-invariant-logp-short-vocab151936-t4-cuda-v1",
-        "batch-invariant-logp-short-vocab151936-t4-triton-v1"
+        "batch-invariant-logp-short-vocab151936-t4-triton-v1",
+        "gemm-short-m8-k4096-n4096-ascend-v2",
+        "logp-short-vocab151936-t4-ascend-v2",
+        "attn-short-prefill-gqa-b1-sq8-skv8-ascend-v2",
+        "rms-norm-short-t8-ascend-v2",
+        "qk-norm-short-t8-ascend-v2",
+        "silu-short-t8-ascend-v2",
+        "swiglu-short-t8-ascend-v2",
+        "rope-short-t8-ascend-v2",
+        "embedding-short-t8-ascend-v2",
+        "lm-head-short-t8-ascend-v2",
+        "batch-invariant-logp-short-vocab151936-t4-ascend-v1"
       ]
     },
     "long_full_model_fixture": {
@@ -429,7 +440,8 @@
       "note": "Long fixed sequence on the same full architecture and pinned weight snapshot.",
       "candidate_case_ids": [
         "attn-long-decode-gqa-b1-sq1-skv32-cuda-v2",
-        "attn-long-decode-gqa-b1-sq1-skv32-triton-v2"
+        "attn-long-decode-gqa-b1-sq1-skv32-triton-v2",
+        "attn-long-decode-gqa-b1-sq1-skv32-ascend-v2"
       ]
     },
     "representative_full_model_fixture": {
@@ -465,7 +477,18 @@
         "logp-primary-vocab151936-t27-cuda-v1",
         "logp-primary-vocab151936-t27-triton-v1",
         "batch-invariant-logp-primary-vocab151936-t27-cuda-v1",
-        "batch-invariant-logp-primary-vocab151936-t27-triton-v1"
+        "batch-invariant-logp-primary-vocab151936-t27-triton-v1",
+        "gemm-primary-m59-k4096-n12288-ascend-v2",
+        "attn-primary-prefill-gqa-b4-sq19-skv19-ascend-v2",
+        "rms-norm-primary-t59-ascend-v2",
+        "qk-norm-primary-t59-ascend-v2",
+        "silu-primary-t59-ascend-v2",
+        "swiglu-primary-t59-ascend-v2",
+        "rope-primary-t59-ascend-v2",
+        "embedding-primary-t59-ascend-v2",
+        "lm-head-primary-t59-ascend-v2",
+        "logp-primary-vocab151936-t27-ascend-v1",
+        "batch-invariant-logp-primary-vocab151936-t27-ascend-v1"
       ]
     },
     "prompt_lens": [
@@ -735,6 +758,89 @@
           "node": "batch_invariant_logp",
           "expected_backend_id": "triton",
           "expected_kernel_config_id": "triton_batch_invariant_logp",
+          "algorithm_property": "batch_invariant_logprob_reduction",
+          "status": "declared"
+        }
+      ]
+    },
+    "ascend_bf16": {
+      "backend_family": "ascend",
+      "execution_dtype": "bfloat16",
+      "required_nodes": [
+        {
+          "node": "embedding",
+          "expected_backend_id": "ascend",
+          "expected_kernel_config_id": "ascend_embedding",
+          "algorithm_property": "deterministic_table_lookup",
+          "status": "declared"
+        },
+        {
+          "node": "rms_norm",
+          "expected_backend_id": "ascend",
+          "expected_kernel_config_id": "ascend_rmsnorm_bf16",
+          "algorithm_property": "fused_batch_invariant_rmsnorm",
+          "status": "declared"
+        },
+        {
+          "node": "det_gemm",
+          "expected_backend_id": "ascend",
+          "expected_kernel_config_id": "ascend_det_gemm_no_splitk",
+          "algorithm_property": "no_split_k_deterministic_gemm",
+          "status": "declared"
+        },
+        {
+          "node": "qk_norm",
+          "expected_backend_id": "ascend",
+          "expected_kernel_config_id": "ascend_rmsnorm_qk",
+          "algorithm_property": "per_head_rms_on_q_k",
+          "status": "declared"
+        },
+        {
+          "node": "rope",
+          "expected_backend_id": "ascend",
+          "expected_kernel_config_id": "ascend_rope",
+          "algorithm_property": "rotate_half_theta_1e6",
+          "status": "declared"
+        },
+        {
+          "node": "attention",
+          "expected_backend_id": "ascend",
+          "expected_kernel_config_id": "ascend_deterministic_attn_no_splitkv",
+          "algorithm_property": "no_split_kv_batch_invariant_attention",
+          "status": "declared"
+        },
+        {
+          "node": "swiglu",
+          "expected_backend_id": "ascend",
+          "expected_kernel_config_id": "ascend_swiglu",
+          "algorithm_property": "elementwise_swiglu",
+          "status": "declared"
+        },
+        {
+          "node": "silu",
+          "expected_backend_id": "ascend",
+          "expected_kernel_config_id": "ascend_silu",
+          "algorithm_property": "elementwise_silu",
+          "status": "declared"
+        },
+        {
+          "node": "lm_head",
+          "expected_backend_id": "ascend",
+          "expected_kernel_config_id": "ascend_lm_head",
+          "algorithm_property": "deterministic_untied_lm_head",
+          "status": "declared"
+        },
+        {
+          "node": "logprob",
+          "expected_backend_id": "ascend",
+          "expected_kernel_config_id": "ascend_fused_logp",
+          "algorithm_property": "deterministic_selected_logprob",
+          "status": "declared"
+        },
+        {
+          "node": "batch_invariant_logp",
+          "expected_backend_id": "ascend",
+          "expected_kernel_config_id": "ascend_batch_invariant_logp",
           "algorithm_property": "batch_invariant_logprob_reduction",
           "status": "declared"
         }
@@ -2169,9 +2275,723 @@
         "algorithm_source": "rl_engine/kernels/ops/triton/loss/batch_invariant_logp.py:_batch_invariant_logp_kernel",
         "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id batch-invariant-logp-primary-vocab151936-t27-triton-v1"
       }
+    },
+    {
+      "case_id": "gemm-short-m8-k4096-n4096-ascend-v2",
+      "family": "gemm",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "det_gemm",
+      "shape": {
+        "M": 8,
+        "K": 4096,
+        "N": 4096,
+        "note": "Short-fixture flattened-token M; non-tile-aligned on full-model projection K/N."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.matmul.det_gemm.DetGemmAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.matmul.det_gemm.DetGemmAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "no_split_k_deterministic_gemm",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.matmul.det_gemm.DetGemmAscendOp",
+        "algorithm_source": "csrc/ascend/gemm/det_gemm_ascend.asc:det_gemm_ascend_fwd",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id gemm-short-m8-k4096-n4096-ascend-v2"
+      }
+    },
+    {
+      "case_id": "gemm-primary-m59-k4096-n12288-ascend-v2",
+      "family": "gemm",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "det_gemm",
+      "shape": {
+        "M": 59,
+        "K": 4096,
+        "N": 12288,
+        "note": "Primary varlen fixture total tokens; full gate/up projection width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.matmul.det_gemm.DetGemmAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.matmul.det_gemm.DetGemmAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "no_split_k_deterministic_gemm",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.matmul.det_gemm.DetGemmAscendOp",
+        "algorithm_source": "csrc/ascend/gemm/det_gemm_ascend.asc:det_gemm_ascend_fwd",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id gemm-primary-m59-k4096-n12288-ascend-v2"
+      }
+    },
+    {
+      "case_id": "attn-primary-prefill-gqa-b4-sq19-skv19-ascend-v2",
+      "family": "attention",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "attention",
+      "shape": {
+        "B": 4,
+        "Hq": 32,
+        "Hkv": 8,
+        "Sq": 19,
+        "Skv": 19,
+        "D": 128,
+        "mode": "prefill",
+        "note": "Primary max-varlen prefill; non-tile-aligned sequence and official GQA."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.attention.deterministic_attn.DeterministicAttentionAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.attention.deterministic_attn.DeterministicAttentionAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "no_split_kv_batch_invariant_attention",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.attention.deterministic_attn.DeterministicAttentionAscendOp",
+        "algorithm_source": "csrc/ascend/attention/deterministic_attention_ascend.asc:deterministic_attention_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id attn-primary-prefill-gqa-b4-sq19-skv19-ascend-v2"
+      }
+    },
+    {
+      "case_id": "attn-long-decode-gqa-b1-sq1-skv32-ascend-v2",
+      "family": "attention",
+      "revision": 2,
+      "fixture_id": "long_full_model_seq32",
+      "operator_spec": "attention",
+      "shape": {
+        "B": 1,
+        "Hq": 32,
+        "Hkv": 8,
+        "Sq": 1,
+        "Skv": 32,
+        "D": 128,
+        "mode": "decode",
+        "note": "Decode step over the fixed long fixture KV length."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.attention.deterministic_attn.DeterministicAttentionAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.attention.deterministic_attn.DeterministicAttentionAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "no_split_kv_batch_invariant_attention",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.attention.deterministic_attn.DeterministicAttentionAscendOp",
+        "algorithm_source": "csrc/ascend/attention/deterministic_attention_ascend.asc:deterministic_attention_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id attn-long-decode-gqa-b1-sq1-skv32-ascend-v2"
+      }
+    },
+    {
+      "case_id": "logp-short-vocab151936-t4-ascend-v2",
+      "family": "logprob",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "logp",
+      "shape": {
+        "B": 1,
+        "T": 4,
+        "vocab": 151936,
+        "note": "Short-fixture active selected tokens; full vocab crosses the CUDA reduction boundary."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.loss.logp.FusedLogpAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.loss.logp.FusedLogpAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "deterministic_selected_logprob",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.loss.logp.FusedLogpAscendOp",
+        "algorithm_source": "csrc/ascend/fused_logp_ascend.asc:fused_logp_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id logp-short-vocab151936-t4-ascend-v2"
+      }
+    },
+    {
+      "case_id": "attn-short-prefill-gqa-b1-sq8-skv8-ascend-v2",
+      "family": "attention",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "attention",
+      "op_name": "attention",
+      "shape": {
+        "B": 1,
+        "Hq": 32,
+        "Hkv": 8,
+        "Sq": 8,
+        "Skv": 8,
+        "D": 128,
+        "mode": "prefill",
+        "note": "Short-fixture prefill; official GQA head_dim=128."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.attention.deterministic_attn.DeterministicAttentionAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.attention.deterministic_attn.DeterministicAttentionAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "no_split_kv_batch_invariant_attention",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.attention.deterministic_attn.DeterministicAttentionAscendOp",
+        "algorithm_source": "csrc/ascend/attention/deterministic_attention_ascend.asc:deterministic_attention_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id attn-short-prefill-gqa-b1-sq8-skv8-ascend-v2"
+      }
+    },
+    {
+      "case_id": "rms-norm-short-t8-ascend-v2",
+      "family": "norm",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "rms_norm",
+      "op_name": "rms_norm",
+      "shape": {
+        "T": 8,
+        "note": "Short-fixture flattened tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "fused_batch_invariant_rmsnorm",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+        "algorithm_source": "csrc/ascend/rmsnorm_ascend.asc:rmsnorm_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id rms-norm-short-t8-ascend-v2"
+      }
+    },
+    {
+      "case_id": "rms-norm-primary-t59-ascend-v2",
+      "family": "norm",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "rms_norm",
+      "op_name": "rms_norm",
+      "shape": {
+        "T": 59,
+        "note": "Primary varlen fixture total tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "fused_batch_invariant_rmsnorm",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+        "algorithm_source": "csrc/ascend/rmsnorm_ascend.asc:rmsnorm_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id rms-norm-primary-t59-ascend-v2"
+      }
+    },
+    {
+      "case_id": "qk-norm-short-t8-ascend-v2",
+      "family": "norm",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "qk_norm",
+      "op_name": "qk_norm",
+      "shape": {
+        "T": 8,
+        "note": "Per-head RMSNorm (head_dim=128) over the fixture token rows; not a hidden-width RMSNorm stand-in.",
+        "head_dim": 128
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "per_head_rms_on_q_k",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+        "algorithm_source": "csrc/ascend/rmsnorm_ascend.asc:rmsnorm_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id qk-norm-short-t8-ascend-v2"
+      }
+    },
+    {
+      "case_id": "qk-norm-primary-t59-ascend-v2",
+      "family": "norm",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "qk_norm",
+      "op_name": "qk_norm",
+      "shape": {
+        "T": 59,
+        "note": "Per-head RMSNorm (head_dim=128) over the fixture token rows; not a hidden-width RMSNorm stand-in.",
+        "head_dim": 128
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "per_head_rms_on_q_k",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+        "algorithm_source": "csrc/ascend/rmsnorm_ascend.asc:rmsnorm_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id qk-norm-primary-t59-ascend-v2"
+      }
+    },
+    {
+      "case_id": "silu-short-t8-ascend-v2",
+      "family": "elementwise",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "silu",
+      "op_name": "silu",
+      "shape": {
+        "T": 8,
+        "note": "Short-fixture flattened tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.activation.silu.SiLUAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.activation.silu.SiLUAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "elementwise_silu",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.activation.silu.SiLUAscendOp",
+        "algorithm_source": "csrc/ascend/activation.asc:silu_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id silu-short-t8-ascend-v2"
+      }
+    },
+    {
+      "case_id": "silu-primary-t59-ascend-v2",
+      "family": "elementwise",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "silu",
+      "op_name": "silu",
+      "shape": {
+        "T": 59,
+        "note": "Primary varlen fixture total tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.activation.silu.SiLUAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.activation.silu.SiLUAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "elementwise_silu",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.activation.silu.SiLUAscendOp",
+        "algorithm_source": "csrc/ascend/activation.asc:silu_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id silu-primary-t59-ascend-v2"
+      }
+    },
+    {
+      "case_id": "swiglu-short-t8-ascend-v2",
+      "family": "elementwise",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "swiglu",
+      "op_name": "swiglu",
+      "shape": {
+        "T": 8,
+        "note": "Short-fixture flattened tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.activation.swiglu.SwiGLUAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.activation.swiglu.SwiGLUAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "elementwise_swiglu",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.activation.swiglu.SwiGLUAscendOp",
+        "algorithm_source": "csrc/ascend/activation.asc:swiglu_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id swiglu-short-t8-ascend-v2"
+      }
+    },
+    {
+      "case_id": "swiglu-primary-t59-ascend-v2",
+      "family": "elementwise",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "swiglu",
+      "op_name": "swiglu",
+      "shape": {
+        "T": 59,
+        "note": "Primary varlen fixture total tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.activation.swiglu.SwiGLUAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.activation.swiglu.SwiGLUAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "elementwise_swiglu",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.activation.swiglu.SwiGLUAscendOp",
+        "algorithm_source": "csrc/ascend/activation.asc:swiglu_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id swiglu-primary-t59-ascend-v2"
+      }
+    },
+    {
+      "case_id": "rope-short-t8-ascend-v2",
+      "family": "elementwise",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "rope",
+      "op_name": "rope",
+      "shape": {
+        "T": 8,
+        "note": "Short-fixture flattened tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.rotary_embedding.rope.RoPEAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.rotary_embedding.rope.RoPEAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "rotate_half_theta_1e6",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.rotary_embedding.rope.RoPEAscendOp",
+        "algorithm_source": "csrc/ascend/rope_ascend.asc:rope_apply_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id rope-short-t8-ascend-v2"
+      }
+    },
+    {
+      "case_id": "rope-primary-t59-ascend-v2",
+      "family": "elementwise",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "rope",
+      "op_name": "rope",
+      "shape": {
+        "T": 59,
+        "note": "Primary varlen fixture total tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.rotary_embedding.rope.RoPEAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.rotary_embedding.rope.RoPEAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "rotate_half_theta_1e6",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.rotary_embedding.rope.RoPEAscendOp",
+        "algorithm_source": "csrc/ascend/rope_ascend.asc:rope_apply_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id rope-primary-t59-ascend-v2"
+      }
+    },
+    {
+      "case_id": "embedding-short-t8-ascend-v2",
+      "family": "embedding",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "embedding",
+      "op_name": "embedding",
+      "shape": {
+        "T": 8,
+        "note": "Short-fixture flattened tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.linear.embedding.AscendEmbeddingOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.linear.embedding.AscendEmbeddingOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "deterministic_table_lookup",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.linear.embedding.AscendEmbeddingOp",
+        "algorithm_source": "csrc/ascend/embedding_ascend.asc:embedding_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id embedding-short-t8-ascend-v2"
+      }
+    },
+    {
+      "case_id": "embedding-primary-t59-ascend-v2",
+      "family": "embedding",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "embedding",
+      "op_name": "embedding",
+      "shape": {
+        "T": 59,
+        "note": "Primary varlen fixture total tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.linear.embedding.AscendEmbeddingOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.linear.embedding.AscendEmbeddingOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "deterministic_table_lookup",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.linear.embedding.AscendEmbeddingOp",
+        "algorithm_source": "csrc/ascend/embedding_ascend.asc:embedding_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id embedding-primary-t59-ascend-v2"
+      }
+    },
+    {
+      "case_id": "lm-head-short-t8-ascend-v2",
+      "family": "lm_head",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "lm_head",
+      "op_name": "lm_head",
+      "shape": {
+        "T": 8,
+        "note": "Short-fixture flattened tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.linear.lm_head.AscendLMHeadOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.linear.lm_head.AscendLMHeadOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "deterministic_untied_lm_head",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.linear.lm_head.AscendLMHeadOp",
+        "algorithm_source": "csrc/ascend/lm_head_ascend.asc:lm_head_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id lm-head-short-t8-ascend-v2"
+      }
+    },
+    {
+      "case_id": "lm-head-primary-t59-ascend-v2",
+      "family": "lm_head",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "lm_head",
+      "op_name": "lm_head",
+      "shape": {
+        "T": 59,
+        "note": "Primary varlen fixture total tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.linear.lm_head.AscendLMHeadOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.linear.lm_head.AscendLMHeadOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "deterministic_untied_lm_head",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.linear.lm_head.AscendLMHeadOp",
+        "algorithm_source": "csrc/ascend/lm_head_ascend.asc:lm_head_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id lm-head-primary-t59-ascend-v2"
+      }
+    },
+    {
+      "case_id": "logp-primary-vocab151936-t27-ascend-v1",
+      "family": "logprob",
+      "revision": 1,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "logp",
+      "shape": {
+        "B": 4,
+        "T": 27,
+        "vocab": 151936,
+        "note": "Selected-token logprob on the fixture completion tokens; full vocab."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.loss.logp.FusedLogpAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.loss.logp.FusedLogpAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "deterministic_selected_logprob",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.loss.logp.FusedLogpAscendOp",
+        "algorithm_source": "csrc/ascend/fused_logp_ascend.asc:fused_logp_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id logp-primary-vocab151936-t27-ascend-v1"
+      }
+    },
+    {
+      "case_id": "batch-invariant-logp-short-vocab151936-t4-ascend-v1",
+      "family": "batch_invariant_logp",
+      "revision": 1,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "batch_invariant_logp",
+      "shape": {
+        "B": 1,
+        "T": 4,
+        "vocab": 151936,
+        "note": "Selected-token logprob on the fixture completion tokens; full vocab."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.loss.batch_invariant_logp.BatchInvariantLogpAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.loss.batch_invariant_logp.BatchInvariantLogpAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "batch_invariant_logprob_reduction",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.loss.batch_invariant_logp.BatchInvariantLogpAscendOp",
+        "algorithm_source": "csrc/ascend/batch_invariant_logp_ascend.asc:batch_invariant_logp_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id batch-invariant-logp-short-vocab151936-t4-ascend-v1"
+      }
+    },
+    {
+      "case_id": "batch-invariant-logp-primary-vocab151936-t27-ascend-v1",
+      "family": "batch_invariant_logp",
+      "revision": 1,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "batch_invariant_logp",
+      "shape": {
+        "B": 4,
+        "T": 27,
+        "vocab": 151936,
+        "note": "Selected-token logprob on the fixture completion tokens; full vocab."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.loss.batch_invariant_logp.BatchInvariantLogpAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.loss.batch_invariant_logp.BatchInvariantLogpAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "batch_invariant_logprob_reduction",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.loss.batch_invariant_logp.BatchInvariantLogpAscendOp",
+        "algorithm_source": "csrc/ascend/batch_invariant_logp_ascend.asc:batch_invariant_logp_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id batch-invariant-logp-primary-vocab151936-t27-ascend-v1"
+      }
     }
   ],
-  "fixture_identity_sha256": "3fa8a5913795a4a0011e038a5a33831dc63b096fce67c9817766f493dd66c222",
+  "fixture_identity_sha256": "fe17c160af1c3ca87bb8b2c043494480c591af991675aa6c9b4a975c7a9d16d4",
   "provenance_boundary": {
     "c2_scope": "logical_workload_identity_and_executed_representative_candidate_binding",
     "not_in_c2": [

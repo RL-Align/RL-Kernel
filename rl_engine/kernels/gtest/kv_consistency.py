@@ -15,6 +15,12 @@ from typing import Any
 
 import torch
 
+from rl_engine.kernels.gtest.accelerator import (
+    ACCELERATOR_TYPES,
+    candidate_family,
+    compute_capability,
+    resolve_device,
+)
 from rl_engine.kernels.gtest.forward_invariance import (
     TensorComparisonDetail,
     _compare_logical_tensors,
@@ -302,10 +308,10 @@ def assert_decode_prefill_consistent(
         operator = attn_op if attn_op is not None else NativeAttentionOp()
         family = "pytorch" if cand_id == "pytorch" else _candidate_family(cand_id)
 
-    if require_declared_candidate and device is None:
-        if not torch.cuda.is_available():
-            raise RuntimeError("C6 declared-candidate gate requires CUDA; CPU-only is not a pass")
-        run_device = torch.device("cuda")
+    if require_declared_candidate:
+        # The declared-candidate gate runs on the profile's own accelerator and
+        # never degrades to CPU: a CPU pass would not be evidence at all.
+        run_device = resolve_device(device, profile=backend_profile)
     else:
         run_device = torch.device(device or "cpu")
 
@@ -392,10 +398,7 @@ def assert_decode_prefill_consistent(
             )
         )
 
-    cc = None
-    if run_device.type == "cuda" and torch.cuda.is_available():
-        major, minor = torch.cuda.get_device_capability(run_device)
-        cc = f"{major}.{minor}"
+    cc = compute_capability(run_device) if run_device.type in ACCELERATOR_TYPES else None
 
     if require_declared_candidate:
         provenance = make_profile_provenance(
@@ -456,12 +459,7 @@ def assert_stateful_kv_consistent(
         cand_id = resolved["candidate"]
         operator = attn_op if attn_op is not None else load_attention_operator(cand_id)
         family = str(m.backend_profiles[backend_profile]["backend_family"])
-        if device is None:
-            if not torch.cuda.is_available():
-                raise RuntimeError("C7 declared-candidate gate requires CUDA")
-            run_device = torch.device("cuda")
-        else:
-            run_device = torch.device(device)
+        run_device = resolve_device(device, profile=backend_profile)
     else:
         cand_id = candidate or "pytorch"
         operator = attn_op if attn_op is not None else NativeAttentionOp()
@@ -582,11 +580,7 @@ def assert_stateful_kv_consistent(
 
 
 def _candidate_family(candidate: str) -> str:
-    if candidate.startswith("cuda"):
-        return "cuda"
-    if candidate == "triton":
-        return "triton"
-    return candidate
+    return candidate_family(candidate)
 
 
 def _torch_dtype(name: str) -> torch.dtype:

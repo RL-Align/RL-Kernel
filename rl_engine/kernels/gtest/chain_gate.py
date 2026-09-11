@@ -29,6 +29,15 @@ from rl_engine.alignment.qwen3_dense import (
     Qwen3DenseWeights,
     load_profile_ops,
 )
+from rl_engine.kernels.gtest.accelerator import (
+    ACCELERATOR_TYPES,
+    compute_capability,
+    device_name,
+    device_type_for_profile,
+    empty_cache,
+    is_available,
+    manual_seed_all,
+)
 from rl_engine.kernels.gtest.chain_gradients import GRADIENT_SCOPE, REQUIRED_GRAD_NAMES
 from rl_engine.kernels.gtest.forward_invariance import (
     TensorComparisonDetail,
@@ -255,8 +264,7 @@ def run_fp32_reference_cell(
     )
     _configure_required_gradients(reference, enabled=False)
     del reference
-    if device.type == "cuda" and torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    empty_cache(device.type)
     return cell
 
 
@@ -278,9 +286,7 @@ def run_chain_gate(
     batch = build_logical_batch(m)
     cells: dict[str, CellOutput] = {}
     resolved_seed = m.seed if execution_seed is None else int(execution_seed)
-    torch.manual_seed(resolved_seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(resolved_seed)
+    manual_seed_all(device_type_for_profile(backend_profile), resolved_seed)
 
     reset_backward_runtime()
     _configure_required_gradients(model, enabled=run_backward)
@@ -624,10 +630,7 @@ def run_chain_gate(
         output_dtype=policy.output_dtype_default,
     )
     device = next(iter(model.weights.tensors.values())).device
-    cc = None
-    if device.type == "cuda" and torch.cuda.is_available():
-        major, minor = torch.cuda.get_device_capability(device)
-        cc = f"{major}.{minor}"
+    cc = compute_capability(device) if device.type in ACCELERATOR_TYPES else None
 
     # Cross-cell logprob aggregates (BN vs B1) as the named chain metrics.
     lhs, rhs, mask = _aligned_logp_vectors(
@@ -1583,9 +1586,11 @@ def _logp_aggregate_verdict(
 
 
 def _gpu_name(device: torch.device) -> str | None:
-    if device.type != "cuda" or not torch.cuda.is_available():
+    """Accelerator name for evidence: the GPU on CUDA, the NPU on Ascend."""
+
+    if device.type not in ACCELERATOR_TYPES or not is_available(device.type):
         return None
-    return torch.cuda.get_device_name(device)
+    return device_name(device)
 
 
 def _workflow_url() -> str | None:

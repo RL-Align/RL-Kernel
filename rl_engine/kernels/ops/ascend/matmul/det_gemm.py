@@ -62,9 +62,7 @@ class _DetGemmAscendFn(Function):
         db = _C_npu.det_gemm_ascend_db(a, grad_out) if ctx.needs_input_grad[1] else None
         record_backward(
             "det_gemm",
-            kernel_id=(
-                "rl_engine._C_npu.det_gemm_ascend_da+rl_engine._C_npu.det_gemm_ascend_db"
-            ),
+            kernel_id=("rl_engine._C_npu.det_gemm_ascend_da+rl_engine._C_npu.det_gemm_ascend_db"),
             impl="ascend_det_gemm",
             family="ascend",
         )
@@ -86,15 +84,9 @@ class _DetLinearAscendFn(Function):
             grad_out = grad_out.to(torch.bfloat16)
         # weight is physical [N,K]: reading it as logical [K'=N, N'=K] yields
         # dA = dC @ weight, the same trick the CUDA linear backward uses.
-        da = (
-            _C_npu.det_gemm_ascend_fwd(grad_out, weight)
-            if ctx.needs_input_grad[0]
-            else None
-        )
+        da = _C_npu.det_gemm_ascend_fwd(grad_out, weight) if ctx.needs_input_grad[0] else None
         dweight = (
-            _C_npu.det_gemm_ascend_db_transposed(a, grad_out)
-            if ctx.needs_input_grad[1]
-            else None
+            _C_npu.det_gemm_ascend_db_transposed(a, grad_out) if ctx.needs_input_grad[1] else None
         )
         record_backward(
             "det_gemm",
@@ -106,6 +98,45 @@ class _DetLinearAscendFn(Function):
             family="ascend",
         )
         return da, dweight
+
+
+def _rowwise_fp32(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    if not hasattr(_C_npu, "det_gemm_rowwise_ascend_fwd_fp32"):
+        raise RuntimeError(
+            "FP32 rowwise deterministic GEMM requires a rebuilt Ascend extension; "
+            "rebuild with KERNEL_ALIGN_FORCE_ASCEND=1 on an Ascend NPU host"
+        )
+    return _C_npu.det_gemm_rowwise_ascend_fwd_fp32(a.float().contiguous(), b.float().contiguous())
+
+
+class _DetGemmAscendAccumFn(Function):
+    @staticmethod
+    def forward(ctx, a, b):
+        ctx.save_for_backward(a, b)
+        return _rowwise_fp32(a, b)
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, grad_out):
+        a, b = ctx.saved_tensors
+        grad_fp32 = grad_out.contiguous().float()
+        da = (
+            _rowwise_fp32(grad_fp32, b.float().t().contiguous()).to(a.dtype)
+            if ctx.needs_input_grad[0]
+            else None
+        )
+        db = (
+            _rowwise_fp32(a.float().t().contiguous(), grad_fp32).to(b.dtype)
+            if ctx.needs_input_grad[1]
+            else None
+        )
+        record_backward(
+            "det_gemm",
+            kernel_id="rl_engine._C_npu.det_gemm_rowwise_ascend_fwd_fp32",
+            impl="ascend_rowwise_fp32_accum_det_gemm",
+            family="ascend",
+        )
+        return da, db
 
 
 class DetGemmAscendOp:
@@ -125,9 +156,7 @@ class DetGemmAscendOp:
             )
         missing = [name for name in _REQUIRED if not hasattr(_C_npu, name)]
         if missing:
-            raise RuntimeError(
-                f"missing {', '.join(missing)} in _C_npu; rebuild the extension"
-            )
+            raise RuntimeError(f"missing {', '.join(missing)} in _C_npu; rebuild the extension")
         self.has_hardware_op = True
         logger.info("Successfully linked to precompiled _C_npu.det_gemm_ascend kernels.")
 
@@ -140,6 +169,23 @@ class DetGemmAscendOp:
         assert a.dtype == torch.bfloat16 and b.dtype == torch.bfloat16, "BF16 only"
         assert a.device.type == "npu" and b.device.type == "npu", "Inputs must be on NPU"
         return _DetGemmAscendFn.apply(a.contiguous(), b.contiguous(), True)
+
+    def forward_accum_fp32(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        """FP32-accumulation rowwise GEMM, the twin of the CUDA op's entry.
+
+        The canonical row-fold VJP drives its matmuls through this path. It
+        does not round intermediate nodes to BF16, so gradients keep the FP32
+        accumulation the contract requires; determinism comes from the fixed
+        per-row reduction order of the underlying kernel rather than from the
+        BF16 mid-split tree used by the BF16 forward.
+        """
+        if a.dtype not in (torch.bfloat16, torch.float32) or b.dtype not in (
+            torch.bfloat16,
+            torch.float32,
+        ):
+            raise TypeError("FP32-accumulation GEMM requires BF16 or FP32 inputs")
+        assert a.device.type == "npu" and b.device.type == "npu", "Inputs must be on NPU"
+        return _DetGemmAscendAccumFn.apply(a.contiguous(), b.contiguous())
 
     def linear(self, a: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
         """Apply a native [N,K] linear weight without materializing weight.T."""

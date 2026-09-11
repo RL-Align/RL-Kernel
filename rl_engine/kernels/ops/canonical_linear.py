@@ -18,6 +18,10 @@ def _gemm_fp32(a: torch.Tensor, b: torch.Tensor, family: str) -> torch.Tensor:
         return _C.det_gemm_rowwise_fwd_fp32(a.contiguous(), b.contiguous())
     if family == "triton":
         return _triton_gemm(a, b, output_dtype=torch.float32)
+    if family == "ascend":
+        from rl_engine.kernels.ops.ascend.matmul.det_gemm import _rowwise_fp32
+
+        return _rowwise_fp32(a, b)
     raise ValueError(f"unsupported canonical linear family {family!r}")
 
 
@@ -57,6 +61,13 @@ class _CanonicalLinearFn(torch.autograd.Function):
                 kernel_id="rl_engine.kernels.ops.triton.matmul.det_gemm._triton_gemm",
                 impl="triton_det_gemm_canonical_rowfold",
                 family="triton",
+            )
+        elif ctx.family == "ascend":
+            record_backward(
+                "det_gemm",
+                kernel_id="rl_engine._C_npu.det_gemm_rowwise_ascend_fwd_fp32",
+                impl="ascend_det_gemm_canonical_rowfold",
+                family="ascend",
             )
         return da, dweight, None, None, None
 

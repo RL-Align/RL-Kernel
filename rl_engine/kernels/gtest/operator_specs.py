@@ -56,6 +56,7 @@ OP_SPECS = {
             "triton": "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp",
             "cuda": "rl_engine.kernels.ops.cuda.norm.rmsnorm.RMSNormCudaOp",
             "cuda-sm90": "rl_engine.kernels.ops.cuda.norm.rmsnorm.RMSNormCudaOp",
+            "ascend": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
         },
         grad_input_names=("x", "weight"),
     ),
@@ -92,8 +93,7 @@ OP_SPECS = {
         candidate_paths={
             "pytorch": "rl_engine.kernels.gtest.operator_specs.GtestPrefixSharedAttentionOp",
             "cuda": (
-                "rl_engine.kernels.ops.cuda.attention.prefix_shared_attn."
-                "PrefixSharedAttentionOp"
+                "rl_engine.kernels.ops.cuda.attention.prefix_shared_attn." "PrefixSharedAttentionOp"
             ),
             "ascend": (
                 "rl_engine.kernels.ops.ascend.attention.prefix_shared_attn."
@@ -206,6 +206,7 @@ OP_SPECS = {
             "pytorch": "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSiLUOp",
             "triton": "rl_engine.kernels.ops.triton.activation.swiglu.TritonSiLUOp",
             "cuda": "rl_engine.kernels.ops.cuda.activation.swiglu.SiLUCudaOp",
+            "ascend": "rl_engine.kernels.ops.ascend.activation.silu.SiLUAscendOp",
         },
         grad_input_names=("x",),
     ),
