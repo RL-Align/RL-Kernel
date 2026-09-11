@@ -20,7 +20,8 @@ std::vector<torch::Tensor> deterministic_attention_ascend_forward(
     torch::Tensor v,
     bool causal,
     double scale,
-    c10::optional<torch::Tensor> key_padding_mask);
+    c10::optional<torch::Tensor> key_padding_mask,
+    bool outFp32 = false);
 
 torch::Tensor prefix_shared_attention_ascend_forward(
     torch::Tensor q, torch::Tensor k, torch::Tensor v);
@@ -79,6 +80,13 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
           "GPT-NeoX/HF rotate-half RoPE apply (Ascend C forward/backward primitive)");
     m.def("deterministic_attention_ascend",
           &deterministic_attention_ascend_forward,
+          py::arg("q"),
+          py::arg("k"),
+          py::arg("v"),
+          py::arg("causal"),
+          py::arg("scale"),
+          py::arg("key_padding_mask") = py::none(),
+          py::arg("outFp32") = false,
           "Deterministic batch-invariant standard-softmax attention (Ascend C forward)");
     m.def("prefix_shared_attention_ascend",
           &prefix_shared_attention_ascend_forward,

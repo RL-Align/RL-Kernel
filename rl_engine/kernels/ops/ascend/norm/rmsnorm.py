@@ -145,6 +145,24 @@ class RMSNormAscendOp:
 
         return _RMSNormAscendFunction.apply(x, weight, eps)
 
+    def parameter_vjp_contributions_fp32(
+        self, *, x: torch.Tensor, weight: torch.Tensor, grad_output: torch.Tensor, eps: float = 1e-6
+    ) -> dict[str, torch.Tensor]:
+        """Canonical row-fold parameter contribution (the CUDA twin).
+
+        dweight = sum_rows grad * x * rstd: each row's FP32 contribution is
+        returned separately, and the C4 harness accumulates the per-row
+        contributions in FP32 across call spans, so chunked / padded /
+        permuted / singleton-aggregated layouts sum the same row
+        contributions in the same order and produce a bitwise-identical
+        weight gradient.
+        """
+        del weight
+        x32 = x.float()
+        rstd = torch.rsqrt(x32.square().mean(dim=-1) + float(eps))
+        rows = grad_output.float() * x32 * rstd.unsqueeze(-1)
+        return {"weight": rows}
+
 
 def rmsnorm_ascend(
     x: torch.Tensor,

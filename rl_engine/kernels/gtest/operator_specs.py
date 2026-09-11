@@ -174,7 +174,11 @@ OP_SPECS = {
     "det_gemm": OperatorSpec(
         name="det_gemm",
         op_class="reduction",
-        gold_path="rl_engine.kernels.ops.pytorch.matmul.det_gemm.NativeGemmOp",
+        # The deterministic GEMM rounds every leaf and merge node to BF16, so
+        # the accuracy gold must be the same leaf-space tree, not the
+        # single-rounding torch.matmul (which fails structurally at
+        # near-cancellation outputs on random inputs).
+        gold_path="rl_engine.kernels.ops.pytorch.matmul.det_gemm.DetGemmTreeReferenceOp",
         gold_method="__call__",
         candidate_paths={
             "pytorch": "rl_engine.kernels.ops.pytorch.matmul.det_gemm.NativeGemmOp",

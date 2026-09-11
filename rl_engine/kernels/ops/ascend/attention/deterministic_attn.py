@@ -49,6 +49,7 @@ class _DeterministicAttentionAscendFn(Function):
         causal: bool,
         scale: float,
         key_padding_mask: Optional[torch.Tensor],
+        output_fp32: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         q_c = q.contiguous()
         k_c = k.contiguous()
@@ -56,7 +57,7 @@ class _DeterministicAttentionAscendFn(Function):
         mask_c = key_padding_mask.contiguous() if key_padding_mask is not None else None
 
         out, lse = _C_npu.deterministic_attention_ascend(
-            q_c, k_c, v_c, causal, float(scale), mask_c
+            q_c, k_c, v_c, causal, float(scale), mask_c, output_fp32
         )
 
         ctx.save_for_backward(q_c, k_c, v_c, mask_c)
@@ -87,7 +88,7 @@ class _DeterministicAttentionAscendFn(Function):
                 key_padding_mask=mask if ctx.has_mask else None,
             )
         dq, dk, dv = torch.autograd.grad(out, (q_ref, k_ref, v_ref), grad_out)
-        return dq, dk, dv, None, None, None
+        return dq, dk, dv, None, None, None, None
 
 
 class DeterministicAttentionAscendOp:
@@ -138,6 +139,25 @@ class DeterministicAttentionAscendOp:
         )
         return out
 
+    def forward_fp32(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        *,
+        causal: bool = True,
+        scale: Optional[float] = None,
+        key_padding_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """FP32-output attention: the kernel emits the exact FP32 accumulator
+        (the twin of the CUDA op's forward_fp32 composite edge)."""
+        self._validate_inputs(q, k, v, key_padding_mask)
+        resolved_scale = scale if scale is not None else (1.0 / math.sqrt(q.shape[-1]))
+        out, _lse = _DeterministicAttentionAscendFn.apply(
+            q, k, v, causal, resolved_scale, key_padding_mask, True
+        )
+        return out
+
     def forward_with_lse(
         self,
         q: torch.Tensor,
@@ -152,7 +172,7 @@ class DeterministicAttentionAscendOp:
         self._validate_inputs(q, k, v, key_padding_mask)
         resolved_scale = scale if scale is not None else (1.0 / math.sqrt(q.shape[-1]))
         out, lse = _DeterministicAttentionAscendFn.apply(
-            q, k, v, causal, resolved_scale, key_padding_mask
+            q, k, v, causal, resolved_scale, key_padding_mask, False
         )
         return out, lse
 

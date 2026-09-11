@@ -257,8 +257,12 @@ class TestAscendDetGemmBackward:
         b = _rand(k, n, seed=12).requires_grad_(True)
         g = _rand(m, n, seed=13)
         op(a, b).backward(g)
-        expected_da = _k_tree_gemm(g, b.detach().t().contiguous())
-        expected_db = _k_tree_gemm(a.detach().t().contiguous(), g)
+        # The op's autograd backward is the canonical FP32-accumulation
+        # rowwise VJP (batch-invariant, matches the gradient-accuracy gold);
+        # the reference is therefore the FP32 matmul VJP, not the BF16 tree
+        # (whose per-node rounding differs structurally).
+        expected_da = (g.float() @ b.detach().float().t()).to(torch.bfloat16)
+        expected_db = (a.detach().float().t() @ g.float()).to(torch.bfloat16)
         torch.testing.assert_close(
             a.grad.float(), expected_da.float(), atol=_ATOL, rtol=_RTOL
         )
