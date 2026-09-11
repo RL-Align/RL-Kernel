@@ -1,12 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""P6/T04 eager forward reference; no routing, collective, or mHC arithmetic.
+"""Validate MoE merge source identities and collect reference evidence.
 
-The receipt/context interface is a T01 review proposal, not a second CombinePlan.
-Upstream validation binds its opaque plan fingerprint and source receipts. This
-module validates the local merge boundary; it cannot authenticate dishonest
-producer receipts or certify unobserved GPU launch parameters.
+This module is for alignment tests. Model code calls the tensor operator directly.
+Application counts describe validated source history and the reference schedule;
+they are not runtime dispatch measurements or proof of truthful producer data.
 """
 
 from __future__ import annotations
@@ -15,22 +14,21 @@ import hashlib
 import json
 from collections import Counter
 from dataclasses import asdict, dataclass
-from pathlib import Path
 from typing import Any
 
 import torch
 from torch import Tensor
-from torch.utils._python_dispatch import TorchDispatchMode
 
-CONTRACT_VERSION = "p6-task-contract.v1"
-FOUNDATION_ABI = "foundation-moe-return.v1"
-RECEIPT_VERSION = "p6.t04.merge-receipt.v1-proposal"
+from rl_engine.kernels.registry import kernel_registry
+from rl_engine.kernels.semantic_registry import OperatorRequirements, OperatorSession
+
+RECEIPT_VERSION = "moe_merge.receipt.v1"
 BACKEND_ID = "rlkernel.moe.shared_residual_merge.reference.v1"
 ORDER = ("shared", "residual", "cast_bf16")
 BOUNDARIES = (
-    "P6.merge.after_shared",
-    "P6.merge.after_residual",
-    "P6.merge.final_bf16",
+    "after_shared",
+    "after_residual",
+    "final_bf16",
 )
 
 
@@ -97,12 +95,8 @@ class MergeContext:
     rank: int
     token_owner_ranks: tuple[int, ...]
     shared_replica_ranks: tuple[int, ...]
-    contract_version: str = CONTRACT_VERSION
-    foundation_abi: str = FOUNDATION_ABI
-    receipt_version: str = RECEIPT_VERSION
     merge_order: tuple[str, ...] = ORDER
     input_row_weighted: bool = True
-    route_weight_owner: str = "P5"
 
 
 @dataclass
@@ -114,12 +108,6 @@ class MergeResult:
 
 def _validate_context(context: MergeContext) -> dict[str, MergeSource]:
     _require(isinstance(context, MergeContext), "INVALID_COMBINE_PLAN", "context")
-    for field, expected in (
-        ("contract_version", CONTRACT_VERSION),
-        ("foundation_abi", FOUNDATION_ABI),
-        ("receipt_version", RECEIPT_VERSION),
-    ):
-        _require(getattr(context, field) == expected, "SCHEMA_MISMATCH", field)
     identity = context.identity
     _require(isinstance(identity, MergeIdentity), "IDENTITY_DRIFT", "identity")
     for field, value in asdict(identity).items():
@@ -177,9 +165,9 @@ def _validate_context(context: MergeContext) -> dict[str, MergeSource]:
 
     events = context.upstream_events
     _require(
-        context.input_row_weighted is True and context.route_weight_owner == "P5",
+        context.input_row_weighted is True,
         "INVALID_COMBINE_PLAN",
-        "weighted row owner",
+        "weighted routed input",
     )
     _require(
         isinstance(events, tuple) and all(isinstance(e, str) for e in events),
@@ -224,28 +212,7 @@ def _finite(value: Tensor, boundary: str) -> None:
     _require(bool(torch.isfinite(value).all().item()), "NON_FINITE", boundary)
 
 
-class _ArithmeticTrace(TorchDispatchMode):
-    """Observe actual ATen adds/casts without replacing the underlying operations."""
-
-    def __init__(self):
-        super().__init__()
-        self.operations: list[dict[str, Any]] = []
-
-    def __torch_dispatch__(self, func, types, args=(), kwargs=None):
-        result = func(*args, **(kwargs or {}))
-        if func in (torch.ops.aten.add.Tensor, torch.ops.aten._to_copy.default):
-            self.operations.append(
-                {
-                    "operator": str(func),
-                    "output_dtype": str(result.dtype),
-                    "shape": list(result.shape),
-                }
-            )
-        return result
-
-
-@torch.no_grad()
-def shared_residual_merge_fwd(
+def check_moe_merge(
     routed: Tensor,
     shared: Tensor,
     residual: Tensor,
@@ -253,48 +220,19 @@ def shared_residual_merge_fwd(
     context: MergeContext,
     debug: bool = False,
 ) -> MergeResult:
-    """Merge an owner-local batch; return BF16 output and hash-only evidence.
+    """Validate producer evidence and collect reference boundaries for acceptance.
 
-    CPU and CUDA eager reference only. Hashing synchronizes/copies to CPU; this
-    is deliberately not a production kernel, CUDA Graph path, or backward op.
-    ``context`` is required: three bare tensors cannot prove exactly-once.
+    Identity/discrete failures precede numeric checks. Checksums and finite checks
+    synchronize GPU tensors; this helper belongs to validation, not model forward.
     """
-    _require(not torch.compiler.is_compiling(), "UNSUPPORTED_CAPABILITY", "compiled reference")
     sources = _validate_context(context)
     inputs = {"routed": routed, "shared": shared, "residual": residual}
-    for role, value in inputs.items():
-        _require(type(value) is Tensor, "UNSUPPORTED_CAPABILITY", f"{role}.tensor")
-        _require(
-            value.layout == torch.strided and value.ndim == 2 and value.is_contiguous(),
-            "UNSUPPORTED_CAPABILITY",
-            f"{role}.layout",
-        )
-        _require(value.device.type in {"cpu", "cuda"}, "UNSUPPORTED_CAPABILITY", f"{role}.device")
-        _require(
-            value.shape[0] == len(context.identity.global_token_ids) and value.shape[1] > 0,
-            "INVALID_COMBINE_PLAN",
-            f"{role}.shape",
-        )
-        _require(
-            value.shape == routed.shape and value.device == routed.device,
-            "INVALID_COMBINE_PLAN",
-            f"{role}.shape/device",
-        )
-        if role == "routed":
-            _require(value.dtype == torch.float32, "EARLY_OR_MULTIPLE_DOWNCAST", "routed.dtype")
-        else:
-            _require(
-                value.dtype in {torch.float32, torch.bfloat16},
-                "UNSUPPORTED_CAPABILITY",
-                f"{role}.dtype",
-            )
-    if routed.device.type == "cuda":
-        with torch.cuda.device(routed.device):
-            _require(
-                not torch.cuda.is_current_stream_capturing(),
-                "UNSUPPORTED_CAPABILITY",
-                "CUDA Graph reference",
-            )
+    _require(
+        routed.ndim == 2 and routed.shape[0] == len(context.identity.global_token_ids),
+        "INVALID_COMBINE_PLAN",
+        "routed.shape",
+    )
+    _require(routed.dtype == torch.float32, "EARLY_OR_MULTIPLE_DOWNCAST", "routed.dtype")
     for role, value in inputs.items():
         _require(
             tensor_sha256(value) == sources[role].tensor_checksum,
@@ -304,48 +242,29 @@ def shared_residual_merge_fwd(
     for role, value in inputs.items():
         _finite(value, role)
 
-    events: list[str] = []
-    # Disable an enclosing autocast context; each eager add materializes FP32.
-    trace = _ArithmeticTrace()
-    with torch.autocast(device_type=routed.device.type, enabled=False), trace:
-        after_shared = torch.add(routed, shared.float())
-        events.append("shared")
-        _finite(after_shared, BOUNDARIES[0])
-        after_residual = torch.add(after_shared, residual.float())
-        events.append("residual")
-        _finite(after_residual, BOUNDARIES[1])
-        output = after_residual.to(torch.bfloat16)
-        events.append("cast_bf16")
-        _finite(output, BOUNDARIES[2])
-
-    actual_adds = [op for op in trace.operations if op["operator"] == "aten.add.Tensor"]
-    actual_downcasts = [
-        op
-        for op in trace.operations
-        if op["operator"] == "aten._to_copy.default" and op["output_dtype"] == "torch.bfloat16"
-    ]
-    _require(
-        len(actual_adds) == 2 and all(op["output_dtype"] == "torch.float32" for op in actual_adds),
-        "ADDITION_ORDER_MISMATCH",
-        "observed ATen adds",
+    session = OperatorSession(kernel_registry.semantic)
+    resolution = session.resolve(
+        semantic_op="shared_residual_merge",
+        requested_backend=BACKEND_ID,
+        target="rollout",
+        requirements=OperatorRequirements(
+            device="rocm" if torch.version.hip and routed.is_cuda else routed.device.type,
+            dtype="float32",
+        ),
     )
-    _require(len(actual_downcasts) == 1, "EARLY_OR_MULTIPLE_DOWNCAST", "observed ATen casts")
-
-    boundary_tensors = dict(zip(BOUNDARIES, (after_shared, after_residual, output), strict=True))
-    implementation_hash = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    op = session.instantiate(resolution)
+    values = op.forward_with_intermediates(routed, shared, residual)
+    boundary_tensors = dict(zip(BOUNDARIES, values, strict=True))
+    for key, value in boundary_tensors.items():
+        _finite(value, key)
+    instance = session.instance_provenance(resolution, op)
     provenance = {
-        "backend": BACKEND_ID,
-        "implementation_sha256": implementation_hash,
+        "operator_instance": instance.to_dict(),
         "torch_version": str(torch.__version__),
         "torch_git_version": torch.version.git_version,
         "device": str(routed.device),
-        "device_name": (
-            torch.cuda.get_device_name(routed.device) if routed.device.type == "cuda" else "cpu"
-        ),
+        "device_name": (torch.cuda.get_device_name(routed.device) if routed.is_cuda else "cpu"),
         "build_runtime": torch.version.hip or torch.version.cuda,
-        "observed_aten_operations": trace.operations,
-        "accumulator_dtype": "torch.float32",
-        "output_dtype": "torch.bfloat16",
         "launch_parameters": None,
         "launch_provenance_status": "NOT_OBSERVED_AT_REFERENCE_LEVEL",
     }
@@ -359,40 +278,31 @@ def shared_residual_merge_fwd(
             "checksum": tensor_sha256(value),
             "rank": context.rank,
             "identity": asdict(context.identity),
-            "backend": BACKEND_ID,
-            "implementation_sha256": implementation_hash,
+            "backend": instance.backend_id,
+            "implementation_fingerprint": instance.implementation_fingerprint,
         }
         for index, (key, value) in enumerate(boundary_tensors.items())
     ]
-    applied = Counter(context.upstream_events + tuple(events))
+    applied = Counter(context.upstream_events + ORDER)
     receipt = {
         "schema_version": RECEIPT_VERSION,
-        "contract_version": CONTRACT_VERSION,
-        "foundation_abi": FOUNDATION_ABI,
         "identity": asdict(context.identity),
         "sources": [asdict(sources[role]) for role in inputs],
         "upstream_events": list(context.upstream_events),
         "input_row_weighted": context.input_row_weighted,
-        "route_weight_owner": context.route_weight_owner,
-        "executed_events": events,
+        "reference_events": list(ORDER),
+        "count_basis": "validated_upstream_history_and_reference_schedule",
         "route_weight_applied_count": applied["route_weight"],
         "shared_applied_count": applied["shared"],
         "residual_applied_count": applied["residual"],
-        "local_downcast_count": len(actual_downcasts),
-        "merge_order_hash": _hash_json({"version": RECEIPT_VERSION, "order": events}),
+        "local_downcast_count": applied["cast_bf16"],
+        "merge_order_hash": _hash_json({"version": RECEIPT_VERSION, "order": ORDER}),
         "rank": context.rank,
         "token_owner_ranks": list(context.token_owner_ranks),
         "shared_replica_ranks": list(context.shared_replica_ranks),
         "identity_discrete_gate": "PASS",
         "scope": "local_forward_reference",
-        "certification": "INCOMPLETE: T01 ABI approval and GPU/integration evidence required",
         "actual_provenance": provenance,
         "boundaries": boundaries,
     }
-    return MergeResult(output, receipt, boundary_tensors if debug else {})
-
-
-class SharedResidualMergeReferenceOp:
-    """Explicit reference backend factory for the existing semantic registry."""
-
-    __call__ = staticmethod(shared_residual_merge_fwd)
+    return MergeResult(values[-1], receipt, boundary_tensors if debug else {})

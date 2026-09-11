@@ -15,7 +15,7 @@ nav:
     - Operators:
       - operators/README.md
       - operators/activation.md
-      - operators/shared-residual-merge.md
+      - operators/moe-merge.md
       - operators/attention.md
       - operators/fused-logp.md
       - operators/linear-logp.md

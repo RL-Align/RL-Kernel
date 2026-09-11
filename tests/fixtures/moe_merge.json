@@ -1,9 +1,8 @@
 {
-  "schema_version": "p6.t04.synthetic-fixtures.v1-proposal",
-  "approval": "T01 case IDs and checksum approval pending",
+  "schema_version": "moe_merge.fixtures.v1",
   "cases": [
     {
-      "id": "T04-LOCAL-MERGE",
+      "id": "simple_merge",
       "routed": [[1.0, 2.0, 3.0]],
       "shared": [[2.0, 3.0, 4.0]],
       "residual": [[3.0, 4.0, 5.0]],
@@ -12,7 +11,7 @@
       "bf16_words": [[16576, 16656, 16704]]
     },
     {
-      "id": "T04-LOCAL-ORDER-CAST-ZERO",
+      "id": "rounding_order_and_signed_zero",
       "routed": [[16777216.0, 256.0, 1.0, -0.0]],
       "shared": [[1.0, 1.0, 0.000000059604644775390625, -0.0]],
       "residual": [[-16777216.0, -256.0, 0.0, -0.0]],
@@ -21,7 +20,7 @@
       "bf16_words": [[0, 16256, 16256, 32768]]
     },
     {
-      "id": "T04-LOCAL-BF16-TIES",
+      "id": "bf16_ties_and_limits",
       "routed": [[1.00390625, 1.01171875, 3.3895313892515355e38, 1.1754943508222875e-38]],
       "shared": [[0.0, 0.0, 0.0, 0.0]],
       "residual": [[0.0, 0.0, 0.0, 0.0]],

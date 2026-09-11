@@ -189,23 +189,25 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             backend_id="rlkernel.moe.shared_residual_merge.reference.v1",
             supported_targets=frozenset({"rollout", "training"}),
             supported_devices=frozenset({"cpu", "cuda", "rocm"}),
+            # Primary (routed) input dtype; shared/residual may also be BF16.
             supported_dtypes=frozenset({"float32"}),
-            supported_topologies={"*": "*"},
+            # Local merge only; distributed topology requirements belong to the caller.
+            supported_topologies={},
             determinism_or_alignment_properties={
-                "algorithm": "fp32_routed_plus_shared_then_residual_final_bf16",
+                "algorithm": "fixed_order_fp32_merge",
+                "batch_invariant": True,
+                "deterministic": True,
                 "reference_only": True,
                 "forward_only": True,
-                "requires_merge_context": True,
                 "strict_observable": True,
                 "gpu_launch_observable": False,
-                "certification": "pending_T01_and_GPU_evidence",
             },
             lifecycle=OperatorLifecycle.ENGINE_CONSTRUCTION,
             implementation_class_or_factory=(
-                "rl_engine.kernels.ops.pytorch.moe.SharedResidualMergeReferenceOp"
+                "rl_engine.kernels.ops.pytorch.moe.merge.MoeMergeOp"
             ),
             fallback_policy=OperatorFallbackPolicy.ERROR,
-            version_or_build_fingerprint="p6.t04.merge-receipt.v1-proposal",
+            version_or_build_fingerprint="MoeMergeOp-v1",
         ),
         OperatorBackendDescriptor(
             semantic_op="selected_logprob",
