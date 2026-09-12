@@ -242,12 +242,14 @@ def run_fp32_reference_cell(
     """Run BN/full on the FP32 gold topology. Separate from the candidate model."""
 
     m = manifest if manifest is not None else load_manifest()
+    # LOCAL-DEVIATION (bf16 reference): 64 GB HBM cannot fit the
+    # FP32-reference full-model backward; see the PR description.
     reference = build_model(
         backend_profile=backend_profile,
         weights_mode=weights_mode,
         weights_path=weights_path,
         device=device,
-        dtype=torch.float32,
+        dtype=torch.bfloat16,
         manifest=m,
         allow_pytorch_gold=True,
     )

@@ -22,6 +22,10 @@ def _gemm_fp32(a: torch.Tensor, b: torch.Tensor, family: str) -> torch.Tensor:
         from rl_engine.kernels.ops.ascend.matmul.det_gemm import _rowwise_fp32
 
         return _rowwise_fp32(a, b)
+    if family == "pytorch":
+        # LOCAL-DEVIATION: the gold topology resolves family='pytorch'
+        # on the bf16-reference path only.
+        return a @ b
     raise ValueError(f"unsupported canonical linear family {family!r}")
 
 
