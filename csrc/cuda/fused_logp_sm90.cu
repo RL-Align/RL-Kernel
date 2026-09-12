@@ -2,17 +2,27 @@
 // Copyright (c) 2026 RL-Kernel Contributors
 
 #include "../utils/tma_utils.cuh"
+#include <cstdint>
 #include <math_constants.h>
 #include <torch/extension.h>
-#include <cub/cub.cuh>
+#include <tuple>
 
-#define TILE_V 4096
+// CUtensorMap box dimensions cannot exceed 256 elements.
+#define TILE_V 256
 
-struct MaxOp {
-    __device__ __forceinline__ float operator()(float a, float b) const {
-        return fmaxf(a, b);
+__device__ __forceinline__ float warp_reduce_max(float value) {
+    for (int offset = 16; offset > 0; offset /= 2) {
+        value = fmaxf(value, __shfl_down_sync(0xffffffff, value, offset));
     }
-};
+    return value;
+}
+
+__device__ __forceinline__ float warp_reduce_sum(float value) {
+    for (int offset = 16; offset > 0; offset /= 2) {
+        value += __shfl_down_sync(0xffffffff, value, offset);
+    }
+    return value;
+}
 
 template<int NUM_WARPS>
 __global__ void fused_logp_online_tma_kernel(
@@ -20,6 +30,8 @@ __global__ void fused_logp_online_tma_kernel(
     const int* __restrict__ labels,
     const nv_bfloat16* __restrict__ logits_gmem,
     float* __restrict__ output_logp,
+    float* __restrict__ max_out,     // Optional [batch_size]
+    float* __restrict__ logsum_out,  // Optional [batch_size]
     int batch_size,
     int vocab_size)
 {
@@ -48,13 +60,13 @@ __global__ void fused_logp_online_tma_kernel(
     if (warp_id == 0) {
         for (int step = 0; step < num_tiles; ++step) {
             int col_offset = step * TILE_V;
-            int current_tile_size = min(TILE_V, vocab_size - col_offset);
 
             if (step > 0) mbarrier_wait(mma_mbar_addr, phase ^ 1);
 
             if (lane_id == 0) {
                 tma_2d_g2s(smem_addr, &logits_tmap, col_offset, row_idx, tma_mbar_addr);
-                mbarrier_arrive_expect_tx(tma_mbar_addr, current_tile_size * sizeof(nv_bfloat16));
+                // The barrier expects a full tile even when the last tile is partial.
+                mbarrier_arrive_expect_tx(tma_mbar_addr, TILE_V * sizeof(nv_bfloat16));
             }
             phase ^= 1;
         }
@@ -62,9 +74,10 @@ __global__ void fused_logp_online_tma_kernel(
     else {
         const int consumer_tid = (warp_id - 1) * 32 + lane_id;
         const int num_consumers = (NUM_WARPS - 1) * 32;
-
-        using BlockReduce = cub::BlockReduce<float, (NUM_WARPS - 1) * 32>;
-        __shared__ typename BlockReduce::TempStorage temp_storage;
+        // The producer warp does not enter this branch; reduce across consumers only.
+        __shared__ float warp_partials[NUM_WARPS - 1];
+        __shared__ float s_tile_max;
+        __shared__ float s_tile_sum;
 
         float row_max = -CUDART_INF_F;
         float row_sum = 0.0f;
@@ -79,9 +92,17 @@ __global__ void fused_logp_online_tma_kernel(
                 float val = __bfloat162float(smem_logits[i]);
                 tile_max = max(tile_max, val);
             }
-            float block_tile_max = BlockReduce(temp_storage).Reduce(tile_max, MaxOp{});
-            __shared__ float s_tile_max;
-            if (consumer_tid == 0) s_tile_max = block_tile_max;
+            tile_max = warp_reduce_max(tile_max);
+            if (lane_id == 0) warp_partials[warp_id - 1] = tile_max;
+            asm volatile("bar.sync 1, %0;" :: "n"(num_consumers));
+            if (consumer_tid == 0) {
+                float block_tile_max = -CUDART_INF_F;
+#pragma unroll
+                for (int i = 0; i < NUM_WARPS - 1; ++i) {
+                    block_tile_max = max(block_tile_max, warp_partials[i]);
+                }
+                s_tile_max = block_tile_max;
+            }
             asm volatile("bar.sync 1, %0;" :: "n"(num_consumers));
 
             float tile_sum = 0.0f;
@@ -89,9 +110,17 @@ __global__ void fused_logp_online_tma_kernel(
                 float val = __bfloat162float(smem_logits[i]);
                 tile_sum += expf(val - s_tile_max);
             }
-            float block_tile_sum = BlockReduce(temp_storage).Sum(tile_sum);
-            __shared__ float s_tile_sum;
-            if (consumer_tid == 0) s_tile_sum = block_tile_sum;
+            tile_sum = warp_reduce_sum(tile_sum);
+            if (lane_id == 0) warp_partials[warp_id - 1] = tile_sum;
+            asm volatile("bar.sync 1, %0;" :: "n"(num_consumers));
+            if (consumer_tid == 0) {
+                float block_tile_sum = 0.0f;
+#pragma unroll
+                for (int i = 0; i < NUM_WARPS - 1; ++i) {
+                    block_tile_sum += warp_partials[i];
+                }
+                s_tile_sum = block_tile_sum;
+            }
             asm volatile("bar.sync 1, %0;" :: "n"(num_consumers));
 
             if (consumer_tid == 0) {
@@ -106,17 +135,33 @@ __global__ void fused_logp_online_tma_kernel(
         }
 
         if (consumer_tid == 0) {
+            float log_sum = logf(row_sum);
+            if (max_out != nullptr) {
+                max_out[row_idx] = row_max;
+                logsum_out[row_idx] = log_sum;
+            }
             int label_idx = labels[row_idx];
-            float label_val = __bfloat162float(logits_gmem[row_idx * vocab_size + label_idx]);
-            output_logp[row_idx] = label_val - row_max - logf(row_sum);
+            if (label_idx >= 0 && label_idx < vocab_size) {
+                int64_t label_offset = static_cast<int64_t>(row_idx) * vocab_size + label_idx;
+                float label_val = __bfloat162float(logits_gmem[label_offset]);
+                output_logp[row_idx] = label_val - row_max - log_sum;
+            } else {
+                output_logp[row_idx] = 0.0f;
+            }
         }
     }
 }
 
-torch::Tensor fused_logp_sm90_forward(torch::Tensor logits, torch::Tensor labels) {
+namespace {
+
+void launch_fused_logp_sm90(
+    const torch::Tensor& logits,
+    const torch::Tensor& labels,
+    const torch::Tensor& output,
+    float* max_ptr,
+    float* logsum_ptr) {
     int B = logits.size(0);
     int V = logits.size(1);
-    auto output = torch::empty({B}, logits.options().dtype(torch::kFloat));
 
     CUtensorMap logits_tmap;
     init_tensor_map(&logits_tmap,
@@ -127,7 +172,25 @@ torch::Tensor fused_logp_sm90_forward(torch::Tensor logits, torch::Tensor labels
     fused_logp_online_tma_kernel<4><<<B, 128, smem_size>>>(
         logits_tmap, labels.data_ptr<int>(),
         reinterpret_cast<const nv_bfloat16*>(logits.data_ptr<at::BFloat16>()),
-        output.data_ptr<float>(), B, V
+        output.data_ptr<float>(), max_ptr, logsum_ptr, B, V
     );
+}
+
+} // namespace
+
+torch::Tensor fused_logp_sm90_forward(torch::Tensor logits, torch::Tensor labels) {
+    auto output = torch::empty({logits.size(0)}, logits.options().dtype(torch::kFloat));
+    launch_fused_logp_sm90(logits, labels, output, nullptr, nullptr);
     return output;
+}
+
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> fused_logp_sm90_forward_with_lse(
+    torch::Tensor logits,
+    torch::Tensor labels) {
+    auto output = torch::empty({logits.size(0)}, logits.options().dtype(torch::kFloat));
+    auto row_max = torch::empty({logits.size(0)}, logits.options().dtype(torch::kFloat));
+    auto log_sum = torch::empty({logits.size(0)}, logits.options().dtype(torch::kFloat));
+    launch_fused_logp_sm90(
+        logits, labels, output, row_max.data_ptr<float>(), log_sum.data_ptr<float>());
+    return {output, row_max, log_sum};
 }

@@ -3,12 +3,16 @@
 
 #include <torch/extension.h>
 #include <cuda_bf16.h>
+#include <tuple>
 
 // Fused LogP Declarations
 torch::Tensor fused_logp_forward(torch::Tensor logits, torch::Tensor token_ids);
 
 #if defined(__CUDACC__) || defined(KERNEL_ALIGN_WITH_SM90)
 torch::Tensor fused_logp_sm90_forward(torch::Tensor logits, torch::Tensor labels);
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> fused_logp_sm90_forward_with_lse(
+    torch::Tensor logits,
+    torch::Tensor labels);
 std::vector<torch::Tensor> fused_linear_logp_sm90_forward(torch::Tensor hidden,
                                                           torch::Tensor weight,
                                                           torch::Tensor target,
@@ -87,6 +91,34 @@ torch::Tensor fused_logp_forward_online_out(torch::Tensor logits, torch::Tensor 
 torch::Tensor fused_logp_forward_online_fp32(torch::Tensor logits, torch::Tensor token_ids);
 torch::Tensor fused_logp_forward_online_indexed_out(torch::Tensor logits, torch::Tensor token_ids, torch::Tensor row_indices, torch::Tensor output);
 torch::Tensor fused_logp_forward_online_indexed_fp32(torch::Tensor logits, torch::Tensor token_ids, torch::Tensor row_indices);
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> fused_logp_forward_with_lse(
+    torch::Tensor logits,
+    torch::Tensor token_ids);
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> fused_logp_forward_indexed_with_lse(
+    torch::Tensor logits,
+    torch::Tensor token_ids,
+    torch::Tensor row_indices);
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> fused_logp_forward_online_with_lse(
+    torch::Tensor logits,
+    torch::Tensor token_ids);
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor>
+fused_logp_forward_online_indexed_with_lse(
+    torch::Tensor logits,
+    torch::Tensor token_ids,
+    torch::Tensor row_indices);
+torch::Tensor fused_logp_backward(
+    torch::Tensor grad_out,
+    torch::Tensor logits,
+    torch::Tensor token_ids,
+    torch::Tensor row_max,
+    torch::Tensor log_sum);
+torch::Tensor fused_logp_backward_indexed(
+    torch::Tensor grad_out,
+    torch::Tensor logits,
+    torch::Tensor token_ids,
+    torch::Tensor row_max,
+    torch::Tensor log_sum,
+    torch::Tensor row_indices);
 torch::Tensor deterministic_logp_forward(torch::Tensor logits, torch::Tensor token_ids);
 torch::Tensor deterministic_logp_forward_out(torch::Tensor logits, torch::Tensor token_ids, torch::Tensor output);
 torch::Tensor deterministic_logp_forward_fp32(torch::Tensor logits, torch::Tensor token_ids);
@@ -480,6 +512,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 
 #if defined(__CUDACC__) || defined(KERNEL_ALIGN_WITH_SM90)
     m.def("fused_logp_sm90", &fused_logp_sm90_forward, "TMA-accelerated Online Softmax Fused LogP");
+    m.def("fused_logp_sm90_with_lse", &fused_logp_sm90_forward_with_lse,
+          "TMA fused logp forward returning (logp, row_max, log_sum)");
     m.def("fused_linear_logp_sm90", &fused_linear_logp_sm90_forward,
           "TMA+WGMMA fused linear log-prob (hidden @ W^T -> selected-token logp), SM90; "
           "frozen reduction contract with optional temperature, logits, and real-vocab mask",
@@ -531,6 +565,12 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("fused_logp_forward_online_fp32", &fused_logp_forward_online_fp32, "Fused logp online fp32");
     m.def("fused_logp_forward_online_indexed_out", &fused_logp_forward_online_indexed_out, "Fused logp online indexed out");
     m.def("fused_logp_forward_online_indexed_fp32", &fused_logp_forward_online_indexed_fp32, "Fused logp online indexed fp32");
+    m.def("fused_logp_forward_with_lse", &fused_logp_forward_with_lse, "Fused logp fp32 forward with softmax statistics");
+    m.def("fused_logp_forward_indexed_with_lse", &fused_logp_forward_indexed_with_lse, "Fused logp indexed fp32 forward with softmax statistics");
+    m.def("fused_logp_forward_online_with_lse", &fused_logp_forward_online_with_lse, "Fused logp online fp32 forward with softmax statistics");
+    m.def("fused_logp_forward_online_indexed_with_lse", &fused_logp_forward_online_indexed_with_lse, "Fused logp online indexed fp32 forward with softmax statistics");
+    m.def("fused_logp_backward", &fused_logp_backward, "Fused logp backward from saved softmax statistics");
+    m.def("fused_logp_backward_indexed", &fused_logp_backward_indexed, "Fused logp backward over indexed rows from saved softmax statistics");
     m.def("deterministic_logp", &deterministic_logp_forward, "Batch-invariant deterministic logp");
     m.def("deterministic_logp_forward_out", &deterministic_logp_forward_out, "Batch-invariant deterministic logp out");
     m.def("deterministic_logp_forward_fp32", &deterministic_logp_forward_fp32, "Batch-invariant deterministic logp fp32");
