@@ -119,10 +119,13 @@ def test_launcher_uses_pr377_torch_dist_actor_load_without_reference_model():
 
     assert '--load "${RLK_ABLATION_REFERENCE_CHECKPOINT}"' in launcher
     assert "--megatron-to-hf-mode" not in launcher
-    assert "--use-kl-loss" not in launcher
-    assert "--kl-loss-coef" not in launcher
+    assert 'RLK_ABLATION_USE_KL_LOSS:-0}" == "1"' in launcher
+    assert "--use-kl-loss" in launcher
+    assert "--kl-loss-coef" in launcher
     assert "--linear-logp-provider" in launcher
     assert "rl_engine.integrations.vime.linear_logp_provider.provider" in launcher
     assert "--linear-logp-provider-mode strict" in launcher
-    assert '"${RL_KERNEL_FFN_CASE:-}" != "R/R"' in launcher
-    assert '"${RL_KERNEL_LOGP_CASE:-}" != "R/R"' in launcher
+    assert (
+        'for module_case in "${RL_KERNEL_FFN_CASE:-}" ' '"${RL_KERNEL_LOGP_CASE:-}"; do'
+    ) in launcher
+    assert "FFN and Logp cases must each be P/P or R/R" in launcher

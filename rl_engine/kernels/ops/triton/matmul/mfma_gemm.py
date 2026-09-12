@@ -59,6 +59,8 @@ class MfmaGemmConfig:
 
 
 _DECODE_CONFIG = MfmaGemmConfig(16, 32, 2, waves_per_eu=0, num_stages=2, group_m=1)
+_QWEN_QKV_GATE_DECODE_CONFIG = MfmaGemmConfig(32, 64, 4, waves_per_eu=0, num_stages=2, group_m=1)
+_QWEN_LM_HEAD_DECODE_CONFIG = MfmaGemmConfig(16, 128, 4, waves_per_eu=2, num_stages=2, group_m=1)
 _SMALL_CONFIG = MfmaGemmConfig(64, 128, 4, waves_per_eu=2, num_stages=2, group_m=8)
 _LARGE_CONFIG = MfmaGemmConfig(128, 128, 4, waves_per_eu=2, num_stages=2, group_m=8)
 
@@ -66,8 +68,14 @@ _LARGE_CONFIG = MfmaGemmConfig(128, 128, 4, waves_per_eu=2, num_stages=2, group_
 def select_config(m_size: int, n_size: int, k_size: int) -> MfmaGemmConfig:
     """Pick a performance configuration.  Never affects the result bits."""
 
-    del n_size, k_size
     if m_size <= SPLIT_SCHEDULE_MAX_ROWS:
+        # Qwen3-8B TP4 decode is bandwidth-bound and benefits from more
+        # N-parallel programs on its widest projections.  Keep the one-row
+        # QKV case on the lower-overhead default.
+        if k_size == 4096 and (n_size == 6144 or (n_size == 1536 and m_size > 1)):
+            return _QWEN_QKV_GATE_DECODE_CONFIG
+        if k_size == 4096 and n_size >= 32768:
+            return _QWEN_LM_HEAD_DECODE_CONFIG
         return _DECODE_CONFIG
     if m_size <= 1024:
         return _SMALL_CONFIG
@@ -423,12 +431,24 @@ def warmup(device: torch.device | None = None) -> None:
     if torch.cuda.is_current_stream_capturing():
         raise RuntimeError("warm the MFMA GEMM before HIP Graph capture")
     with torch.inference_mode():
-        for k_size in (CHUNK_K, 2 * CHUNK_K + BLOCK_K, CHUNK_K + 8):
+        warmup_rows_and_configs = (
+            (1, (_DECODE_CONFIG, _QWEN_LM_HEAD_DECODE_CONFIG)),
+            (4, (_QWEN_QKV_GATE_DECODE_CONFIG,)),
+            (SPLIT_SCHEDULE_MAX_ROWS + 1, (_SMALL_CONFIG,)),
+            (1025, (_LARGE_CONFIG,)),
+        )
+        for k_size in (
+            CHUNK_K,
+            2 * CHUNK_K + BLOCK_K,
+            CHUNK_K + 8,
+            4 * CHUNK_K,
+        ):
             b = torch.zeros((k_size, 64), dtype=torch.bfloat16, device=device)
-            for rows in (1, SPLIT_SCHEDULE_MAX_ROWS + 1, 1025):
+            for rows, configs in warmup_rows_and_configs:
                 a = torch.zeros((rows, k_size), dtype=torch.bfloat16, device=device)
-                mfma_gemm(a, b)
-                mfma_gemm(a, b.t().contiguous().t())
+                for config in configs:
+                    mfma_gemm(a, b, config=config)
+                    mfma_gemm(a, b.t().contiguous().t(), config=config)
     torch.cuda.synchronize(device)
 
 

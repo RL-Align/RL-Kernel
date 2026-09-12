@@ -11,11 +11,16 @@ from examples.vime_qwen3_8b_tp4_cp2_200.run_arm import (
     MEGATRON_ATTENTION_BACKEND,
     RL_KERNEL_LINEAR_LOGP_PROVIDER,
     _linear_logp_provider_args,
+    _max_engine_decode_batch,
+    _mismatch_metrics_args,
+    _rollout_topology,
 )
 from examples.vime_qwen3_8b_tp4_cp2_200.run_supplement_suite import specs
 from examples.vime_qwen3_8b_tp4_cp2_200.validate_run import (
+    RL_KERNEL_MISMATCH_SIDECAR_MARKER,
     VIME_NATIVE_LINEAR_LOGP_MARKER,
     _validate_readbacks,
+    _validate_topology,
 )
 
 
@@ -60,6 +65,41 @@ def _production_readbacks() -> list[dict]:
 
 def test_tp4_formal_matrix_pins_the_vime_qwen3_attention_backend():
     assert MEGATRON_ATTENTION_BACKEND == "fused"
+
+
+def test_rollout_tp_cp_derive_router_engines_and_graph_batch():
+    expected = {
+        (2, 1): (2, 4, 2),
+        (2, 2): (4, 2, 4),
+        (4, 1): (4, 2, 4),
+        (4, 2): (8, 1, 8),
+        (8, 1): (8, 1, 8),
+    }
+    for (rollout_tp, rollout_cp), (
+        gpus_per_engine,
+        engines,
+        graph_batch,
+    ) in expected.items():
+        topology = _rollout_topology(rollout_tp, rollout_cp)
+        assert topology["rollout_tp"] == rollout_tp
+        assert topology["rollout_cp"] == rollout_cp
+        assert topology["rollout_gpus_per_engine"] == gpus_per_engine
+        assert topology["rollout_engines"] == engines
+        assert (
+            _max_engine_decode_batch(
+                1,
+                8,
+                "round_robin",
+                int(topology["rollout_engines"]),
+            )
+            == graph_batch
+        )
+        assert _validate_topology(topology) == []
+
+    legacy_topology = _rollout_topology(4, 1)
+    legacy_topology.pop("rollout_tp")
+    legacy_topology.pop("rollout_cp")
+    assert _validate_topology(legacy_topology) == []
 
 
 def test_launcher_forces_cuda_graph_without_a_logp_provider():
@@ -147,6 +187,14 @@ def test_module_ablation_logp_provider_follows_training_route():
     assert expected_module_groups == {key for key in ARMS if key.startswith("M")}
 
 
+def test_module_ablation_enables_rlkernel_mismatch_sidecars():
+    assert _mismatch_metrics_args() == (
+        "--get-mismatch-metrics",
+        "--custom-tis-function-path",
+        "vime_rocm_attention_ablation.tis_metrics.metrics_only_tis",
+    )
+
+
 def test_supplement_suite_uses_short_module_and_three_seed_precision_designs():
     module = specs("module")
     assert len(module) == 8
@@ -170,6 +218,18 @@ def test_validator_accepts_native_vime_logp_evidence_for_production_arm():
     training_logp = report["frameworks"]["megatron/training"]["modules"]["logp"]
     assert training_logp["native_marker_present"]
     assert training_logp["call_count"] == 0
+
+
+def test_validator_accepts_rlkernel_sidecar_evidence_for_production_logp():
+    report = _validate_readbacks(
+        _production_readbacks(),
+        asdict(ARMS["G10"]),
+        f"{RL_KERNEL_MISMATCH_SIDECAR_MARKER}P/P",
+    )
+
+    assert report["passed"]
+    training_logp = report["frameworks"]["megatron/training"]["modules"]["logp"]
+    assert training_logp["native_marker_present"]
 
 
 def test_validator_rejects_provider_readback_on_production_megatron_logp():

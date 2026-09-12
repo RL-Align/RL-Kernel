@@ -105,6 +105,10 @@ def test_public_exports_use_canonical_collectives_module() -> None:
     )
 
 
+def test_cuda_collective_has_stable_backend_identity() -> None:
+    assert collectives.DeterministicCollective.backend_id == "cuda_ipc_fixed_tree"
+
+
 def _make_collective(
     monkeypatch: pytest.MonkeyPatch,
     peer_inputs: list[torch.Tensor],

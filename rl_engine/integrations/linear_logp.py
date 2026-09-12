@@ -20,7 +20,6 @@ from rl_engine.kernels.logprob_contract import (
 )
 from rl_engine.kernels.ops.pytorch.loss.vocab_parallel_logp import DEFAULT_NUM_VOCAB_TILES
 
-
 _ALIGNMENT_DIAGNOSTIC_LOCK = threading.Lock()
 _ALIGNMENT_DIAGNOSTIC_CALLS = 0
 
@@ -450,8 +449,7 @@ class LinearLogpWrapper:
                 tp_rank=rank,
                 tp_world_size=world,
                 vocab_shard_bounds=tuple(
-                    (index * local_vocab, (index + 1) * local_vocab)
-                    for index in range(world)
+                    (index * local_vocab, (index + 1) * local_vocab) for index in range(world)
                 ),
                 real_vocab_size=real_vocab_size,
                 padded_vocab_size=global_vocab_size,
@@ -509,6 +507,8 @@ class LinearLogpWrapper:
             tp_group=tp_group,
             num_vocab_tiles=DEFAULT_NUM_VOCAB_TILES,
             deterministic=True,
+            targets_validated=True,
+            cache_preflight=target == "rollout",
         )
         _record_alignment_diagnostics(
             target=target,

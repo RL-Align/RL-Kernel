@@ -32,9 +32,7 @@ def _deterministic_all_reduce_(input: torch.Tensor, collective_handle: int) -> N
     from rl_engine import _C
 
     if torch.version.hip is not None:
-        _C.deterministic_collective_rocm_ipc_all_reduce_input(
-            collective_handle, input, input
-        )
+        _C.deterministic_collective_rocm_ipc_all_reduce_input(collective_handle, input, input)
     else:
         _C.deterministic_collective_all_reduce_fused(collective_handle, input, input)
 
@@ -65,9 +63,7 @@ def _deterministic_staging_reserve_(staging: torch.Tensor, collective_handle: in
     from rl_engine import _C
 
     if torch.version.hip is not None:
-        _C.deterministic_collective_rocm_ipc_prepare_staged(
-            collective_handle, staging
-        )
+        _C.deterministic_collective_rocm_ipc_prepare_staged(collective_handle, staging)
     else:
         _C.deterministic_collective_prepare_staged(collective_handle, staging)
 
@@ -91,9 +87,7 @@ def _deterministic_staged_all_reduce(
 
     output = torch.empty_like(staging)
     if torch.version.hip is not None:
-        _C.deterministic_collective_rocm_ipc_all_reduce_staged(
-            collective_handle, staging, output
-        )
+        _C.deterministic_collective_rocm_ipc_all_reduce_staged(collective_handle, staging, output)
     else:
         _C.deterministic_collective_all_reduce_staged(collective_handle, staging, output)
     return output
@@ -139,6 +133,8 @@ class DeterministicCollective:
     IPC sequence fences order staging and payload access without a steady-state
     host barrier and advance correctly during CUDA Graph replay.
     """
+
+    backend_id = "cuda_ipc_fixed_tree"
 
     def __init__(
         self,
@@ -625,7 +621,6 @@ from rl_engine.distributed.rocm_collectives import (  # noqa: E402
     RCCLDeterministicCollective,
     TorchDistributedDeterministicCollective,
 )
-
 
 __all__ = [
     "DETERMINISTIC_ALL_REDUCE_OP",

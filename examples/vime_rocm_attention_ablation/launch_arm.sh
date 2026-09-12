@@ -53,11 +53,15 @@ if [[ "${RL_KERNEL_ATTENTION_CASE:-}" != "${RLK_ABLATION_CASE_ID}" ]]; then
   echo "RL_KERNEL_ATTENTION_CASE disagrees with the arm ID" >&2
   exit 2
 fi
-if [[ "${RL_KERNEL_FFN_CASE:-}" != "${RL_KERNEL_LOGP_CASE:-}" ]] ||
-   [[ "${RL_KERNEL_FFN_CASE:-}" != "R/R" && "${RL_KERNEL_FFN_CASE:-}" != "P/P" ]]; then
-  echo "FFN and Logp must both use P/P or both use R/R" >&2
-  exit 2
-fi
+for module_case in "${RL_KERNEL_FFN_CASE:-}" "${RL_KERNEL_LOGP_CASE:-}"; do
+  case "${module_case}" in
+    P/P|R/R) ;;
+    *)
+      echo "FFN and Logp cases must each be P/P or R/R" >&2
+      exit 2
+      ;;
+  esac
+done
 if [[ "${RL_KERNEL_VLLM_INTEGRATION:-}" != "1" ]]; then
   echo "RL_KERNEL_VLLM_INTEGRATION=1 is required for rollout route readback" >&2
   exit 2
@@ -278,6 +282,14 @@ ROLLOUT_LOGPROBS_ARGS=()
 if [[ "${RLK_ABLATION_USE_ROLLOUT_LOGPROBS:-0}" == "1" ]]; then
   ROLLOUT_LOGPROBS_ARGS+=(--use-rollout-logprobs)
 fi
+REFERENCE_MODEL_ARGS=()
+if [[ "${RLK_ABLATION_USE_KL_LOSS:-0}" == "1" ]]; then
+  : "${RLK_ABLATION_KL_LOSS_COEF:?}"
+  REFERENCE_MODEL_ARGS+=(
+    --use-kl-loss
+    --kl-loss-coef "${RLK_ABLATION_KL_LOSS_COEF}"
+  )
+fi
 ray job submit \
   --address="${ray_job_address}" \
   --runtime-env-json="${RUNTIME_ENV_JSON}" \
@@ -293,6 +305,7 @@ ray job submit \
   "${MODEL_ARGS[@]}" \
   --hf-checkpoint "${RLK_ABLATION_MODEL_ROOT}" \
   --ref-load "${RLK_ABLATION_REFERENCE_CHECKPOINT}" \
+  "${REFERENCE_MODEL_ARGS[@]}" \
   --load "${RLK_ABLATION_REFERENCE_CHECKPOINT}" \
   --start-rollout-id 0 \
   "${SAVE_ARGS[@]}" \

@@ -36,6 +36,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ray-bin", type=Path, required=True)
     parser.add_argument("--extra-pythonpath", action="append", default=[])
     parser.add_argument("--ld-library-path", required=True)
+    parser.add_argument("--rollout-tp-size", type=int, default=4)
+    parser.add_argument("--rollout-cp-size", type=int, default=1)
     parser.add_argument("--idle-memory-mib", type=int, default=1024)
     parser.add_argument("--idle-poll-seconds", type=int, default=60)
     return parser.parse_args()
@@ -152,6 +154,10 @@ def run_one(args: argparse.Namespace, group: str, rounds: int, seed: int) -> Non
         "16",
         "--global-batch-size",
         "128",
+        "--rollout-tp-size",
+        str(args.rollout_tp_size),
+        "--rollout-cp-size",
+        str(args.rollout_cp_size),
         "--max-response-len",
         "7168",
         "--max-tokens-per-gpu",

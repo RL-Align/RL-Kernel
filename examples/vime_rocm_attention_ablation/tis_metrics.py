@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import itertools
+import logging
 import os
 import threading
 from pathlib import Path
@@ -16,9 +17,12 @@ import torch.distributed as dist
 
 SIDECAR_SCHEMA_VERSION = "rlkernel.vime_rocm_attention_mismatch_sidecar.v1"
 SIDECAR_DIRECTORY_ENV = "RL_KERNEL_MISMATCH_SIDECAR_DIR"
+NATIVE_LOGP_SIDECAR_MARKER = "rlkernel mismatch sidecar active: logp_case="
 
 _CALL_COUNTER = itertools.count()
 _CALL_COUNTER_LOCK = threading.Lock()
+_LOGGED_CASES: set[str] = set()
+logger = logging.getLogger(__name__)
 
 
 def _cpu_vector(value: Any, *, label: str) -> torch.Tensor:
@@ -76,8 +80,7 @@ def _write_sidecar(
             _cpu_vector(value, label="train_log_probs") for value in train_log_probs
         ],
         "rollout_log_probs": [
-            _cpu_vector(value, label="rollout_log_probs")
-            for value in rollout_log_probs
+            _cpu_vector(value, label="rollout_log_probs") for value in rollout_log_probs
         ],
         "loss_masks": [_cpu_vector(value, label="loss_masks") for value in loss_masks],
         "total_lengths": [int(value) for value in total_lengths],
@@ -90,6 +93,15 @@ def _write_sidecar(
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     torch.save(payload, temporary)
     os.replace(temporary, path)
+
+
+def _log_route_identity() -> None:
+    case_id = os.environ.get("RL_KERNEL_LOGP_CASE", "").strip() or "unknown"
+    with _CALL_COUNTER_LOCK:
+        if case_id in _LOGGED_CASES:
+            return
+        _LOGGED_CASES.add(case_id)
+    logger.info("%s%s", NATIVE_LOGP_SIDECAR_MARKER, case_id)
 
 
 def metrics_only_tis(
@@ -127,6 +139,7 @@ def metrics_only_tis(
         "tis_clipfrac": (clipped != ratio).to(dtype=ratio.dtype),
         "tis_abs": (ratio - 1).abs(),
     }
+    _log_route_identity()
     _write_sidecar(
         args,
         train_log_probs=train_log_probs,

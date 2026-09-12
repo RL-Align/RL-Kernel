@@ -62,15 +62,42 @@ TOPOLOGY = {
     "colocate": True,
     "offload_train": False,
     "offload_rollout": True,
+    "rollout_tp": 4,
+    "rollout_cp": 1,
     "rollout_gpus_per_engine": 4,
     "rollout_engines": 2,
 }
+
+
+def _rollout_topology(
+    rollout_tp_size: int,
+    rollout_cp_size: int,
+) -> dict[str, int | bool]:
+    if rollout_tp_size <= 0:
+        raise ValueError("--rollout-tp-size must be positive")
+    if rollout_cp_size <= 0:
+        raise ValueError("--rollout-cp-size must be positive")
+    rollout_gpus = int(TOPOLOGY["rollout_gpus"])
+    gpus_per_engine = rollout_tp_size * rollout_cp_size
+    if rollout_gpus % gpus_per_engine:
+        raise ValueError(
+            "--rollout-tp-size * --rollout-cp-size must divide the configured "
+            f"rollout GPU count ({gpus_per_engine} does not divide {rollout_gpus})"
+        )
+    topology = dict(TOPOLOGY)
+    topology["rollout_tp"] = rollout_tp_size
+    topology["rollout_cp"] = rollout_cp_size
+    topology["rollout_gpus_per_engine"] = gpus_per_engine
+    topology["rollout_engines"] = rollout_gpus // gpus_per_engine
+    return topology
+
 
 # CP2/P2P requires Transformer Engine's fused attention on this topology.
 # Pinning the choice keeps the production arms independent of host-specific
 # backend auto-selection.
 MEGATRON_ATTENTION_BACKEND = "fused"
 RL_KERNEL_LINEAR_LOGP_PROVIDER = "rl_engine.integrations.vime.linear_logp_provider.provider"
+RL_KERNEL_MISMATCH_METRICS_HOOK = "vime_rocm_attention_ablation.tis_metrics.metrics_only_tis"
 
 MODEL_ARGS = (
     "--swiglu",
@@ -103,7 +130,10 @@ MODEL_ARGS = (
 
 
 def _max_engine_decode_batch(
-    rollout_batch_size: int, n_samples_per_prompt: int, router_policy: str
+    rollout_batch_size: int,
+    n_samples_per_prompt: int,
+    router_policy: str,
+    rollout_engines: int,
 ) -> int:
     """Largest decode batch one vLLM engine can hold under the active router.
 
@@ -113,9 +143,8 @@ def _max_engine_decode_batch(
     """
 
     concurrency = rollout_batch_size * n_samples_per_prompt
-    engines = TOPOLOGY["rollout_gpus"] // TOPOLOGY["rollout_gpus_per_engine"]
-    if router_policy == "round_robin" and engines > 1:
-        return -(-concurrency // engines)  # ceil
+    if router_policy == "round_robin" and rollout_engines > 1:
+        return -(-concurrency // rollout_engines)  # ceil
     return concurrency
 
 
@@ -133,6 +162,14 @@ def _linear_logp_provider_args(arm: Arm) -> tuple[str, ...]:
             "strict",
         )
     raise ValueError(f"unsupported training logp route: {arm.logp_case!r}")
+
+
+def _mismatch_metrics_args() -> tuple[str, ...]:
+    return (
+        "--get-mismatch-metrics",
+        "--custom-tis-function-path",
+        RL_KERNEL_MISMATCH_METRICS_HOOK,
+    )
 
 
 def _path(value: str | None, label: str) -> Path:
@@ -232,6 +269,26 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--n-samples-per-prompt", type=int, default=8)
     parser.add_argument("--global-batch-size", type=int, default=8)
     parser.add_argument(
+        "--rollout-tp-size",
+        type=int,
+        default=4,
+        help=(
+            "vLLM rollout tensor-parallel size. The runner derives "
+            "--rollout-num-gpus-per-engine, router engine count, and per-engine "
+            "CUDA Graph capture sizes from this value."
+        ),
+    )
+    parser.add_argument(
+        "--rollout-cp-size",
+        type=int,
+        default=1,
+        help=(
+            "vLLM rollout prefill context-parallel size. The runner combines "
+            "this with --rollout-tp-size when deriving GPUs per engine and "
+            "router engine count."
+        ),
+    )
+    parser.add_argument(
         "--use-kl-loss",
         action="store_true",
         help="Load the reference checkpoint and add a KL term to the policy loss.",
@@ -286,6 +343,10 @@ def main(argv: list[str] | None = None) -> int:
             "coefficient requires --use-kl-loss"
         )
     arm = ARMS[args.group]
+    topology = _rollout_topology(
+        args.rollout_tp_size,
+        args.rollout_cp_size,
+    )
 
     script_dir = Path(__file__).resolve().parent
     rl_kernel_root = _path(args.rl_kernel_root, "RL-Kernel root")
@@ -318,13 +379,21 @@ def main(argv: list[str] | None = None) -> int:
     run_dir = args.output_root.expanduser().resolve() / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
 
-    pythonpath = [str(rl_kernel_root), str(vime_root), str(megatron_root)]
+    pythonpath = [
+        str(rl_kernel_root / "examples"),
+        str(rl_kernel_root),
+        str(vime_root),
+        str(megatron_root),
+    ]
     pythonpath.extend(str(Path(item).expanduser().resolve()) for item in args.extra_pythonpath)
     if os.environ.get("PYTHONPATH"):
         pythonpath.extend(item for item in os.environ["PYTHONPATH"].split(os.pathsep) if item)
 
     max_engine_decode_batch = _max_engine_decode_batch(
-        args.rollout_batch_size, args.n_samples_per_prompt, args.router_policy
+        args.rollout_batch_size,
+        args.n_samples_per_prompt,
+        args.router_policy,
+        int(topology["rollout_engines"]),
     )
     env_vars = {
         "RL_KERNEL_ROOT": str(rl_kernel_root),
@@ -346,6 +415,7 @@ def main(argv: list[str] | None = None) -> int:
         "RL_KERNEL_FFN_CASE": arm.ffn_case,
         "RL_KERNEL_LOGP_CASE": arm.logp_case,
         "RL_KERNEL_READBACK_DIR": str(run_dir / "readbacks"),
+        "RL_KERNEL_MISMATCH_SIDECAR_DIR": str(run_dir / "mismatch-sidecars"),
         "RL_KERNEL_VLLM_REAL_VOCAB_SIZE": "151936",
         "RL_KERNEL_VLLM_PADDED_VOCAB_SIZE": "152064",
         "RL_KERNEL_VLLM_TEMPERATURE": "1.0",
@@ -365,9 +435,9 @@ def main(argv: list[str] | None = None) -> int:
         "--actor-num-nodes",
         "1",
         "--actor-num-gpus-per-node",
-        str(TOPOLOGY["actor_gpus"]),
+        str(topology["actor_gpus"]),
         "--rollout-num-gpus",
-        str(TOPOLOGY["rollout_gpus"]),
+        str(topology["rollout_gpus"]),
         "--colocate",
         "--no-offload-train",
         "--offload-rollout",
@@ -406,9 +476,9 @@ def main(argv: list[str] | None = None) -> int:
         str(args.global_batch_size),
         "--balance-data",
         "--tensor-model-parallel-size",
-        str(TOPOLOGY["tp"]),
+        str(topology["tp"]),
         "--context-parallel-size",
-        str(TOPOLOGY["cp"]),
+        str(topology["cp"]),
         "--cp-comm-type",
         "p2p",
         "--pipeline-model-parallel-size",
@@ -453,9 +523,12 @@ def main(argv: list[str] | None = None) -> int:
         "--router-policy",
         args.router_policy,
         "--rollout-num-gpus-per-engine",
-        str(TOPOLOGY["rollout_gpus_per_engine"]),
+        str(topology["rollout_gpus_per_engine"]),
+        "--vllm-prefill-context-parallel-size",
+        str(topology["rollout_cp"]),
         "--vllm-gpu-memory-utilization",
         str(args.vllm_gpu_memory_utilization),
+        *_mismatch_metrics_args(),
     ]
     if arm.framework_use_rollout_logprobs:
         train_command.append("--use-rollout-logprobs")
@@ -501,7 +574,7 @@ def main(argv: list[str] | None = None) -> int:
         "num_rollout": args.num_rollout,
         "seed": args.seed,
         "rollout_seed": args.rollout_seed,
-        "topology": dict(TOPOLOGY),
+        "topology": topology,
         "batching": {
             "rollout_batch_size": args.rollout_batch_size,
             "n_samples_per_prompt": args.n_samples_per_prompt,
@@ -525,6 +598,9 @@ def main(argv: list[str] | None = None) -> int:
         },
         "rollout_routing": {
             "router_policy": args.router_policy,
+            "engine_count": topology["rollout_engines"],
+            "tensor_parallel_size": topology["rollout_tp"],
+            "prefill_context_parallel_size": topology["rollout_cp"],
         },
         "training_memory": {
             "recompute_granularity": "full",

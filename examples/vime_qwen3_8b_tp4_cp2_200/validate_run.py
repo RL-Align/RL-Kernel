@@ -18,11 +18,10 @@ import torch
 
 from rl_engine.integrations.runtime import _contains_triton, _runtime_platform
 
-
 RECORD_RE = re.compile(r"\b(rollout|step|perf)\s+(\d+):\s+(\{.*\})\s*$")
 FRAMEWORKS = (("megatron", "training"), ("vllm", "rollout"))
 MODULES = ("attention", "ffn", "logp")
-EXPECTED_TOPOLOGY = {
+EXPECTED_FIXED_TOPOLOGY = {
     "gpus": 8,
     "actor_gpus": 8,
     "rollout_gpus": 8,
@@ -32,26 +31,57 @@ EXPECTED_TOPOLOGY = {
     "colocate": True,
     "offload_train": False,
     "offload_rollout": True,
-    "rollout_gpus_per_engine": 4,
-    "rollout_engines": 2,
 }
 CASE_FIELDS = {
     "attention": "attention_case",
     "ffn": "ffn_case",
     "logp": "logp_case",
 }
-RL_KERNEL_LINEAR_LOGP_PROVIDER = (
-    "rl_engine.integrations.vime.linear_logp_provider.provider"
-)
+RL_KERNEL_LINEAR_LOGP_PROVIDER = "rl_engine.integrations.vime.linear_logp_provider.provider"
 VIME_NATIVE_LINEAR_LOGP_MARKER = (
     "linear_logp native active: "
     "backend_id=vime.utils.ppo_utils.calculate_log_probs_and_entropy "
     "contract_id=vime.native.linear_logp.v1 route=unconfigured device=cuda"
 )
+RL_KERNEL_MISMATCH_SIDECAR_MARKER = "rlkernel mismatch sidecar active: logp_case="
 CUDA_GRAPH_LAUNCHER_MARKERS = (
     "required vLLM full-decode CUDA Graph capture sizes",
     "strict vLLM full-decode CUDA Graph capture sizes",
 )
+
+
+def _validate_topology(value: Any) -> list[str]:
+    if not isinstance(value, Mapping):
+        return ["manifest does not contain the required TP4/CP2 colocated topology"]
+    errors = [
+        f"manifest topology {key}={value.get(key)!r}, expected {expected!r}"
+        for key, expected in EXPECTED_FIXED_TOPOLOGY.items()
+        if value.get(key) != expected
+    ]
+    rollout_gpus = value.get("rollout_gpus")
+    rollout_gpus_per_engine = value.get("rollout_gpus_per_engine")
+    rollout_cp = value.get("rollout_cp", 1)
+    rollout_tp = value.get("rollout_tp", rollout_gpus_per_engine)
+    rollout_engines = value.get("rollout_engines")
+    if (
+        not isinstance(rollout_gpus, int)
+        or not isinstance(rollout_tp, int)
+        or not isinstance(rollout_cp, int)
+        or not isinstance(rollout_gpus_per_engine, int)
+        or rollout_tp <= 0
+        or rollout_cp <= 0
+        or rollout_gpus_per_engine != rollout_tp * rollout_cp
+        or rollout_gpus % rollout_gpus_per_engine
+    ):
+        errors.append(
+            "manifest rollout_gpus_per_engine must equal rollout_tp * rollout_cp "
+            "and divide rollout_gpus"
+        )
+    elif rollout_engines != rollout_gpus // rollout_gpus_per_engine:
+        errors.append(
+            "manifest rollout_engines does not match " "rollout_gpus // rollout_gpus_per_engine"
+        )
+    return errors
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -59,6 +89,28 @@ def _load_json(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"expected a JSON object: {path}")
     return value
+
+
+def _compare_mismatch_sidecars(
+    directory: Path,
+    *,
+    require_exact: bool,
+    tensor_parallel_size: int,
+    context_parallel_size: int,
+) -> dict[str, Any]:
+    import sys
+
+    examples_root = Path(__file__).resolve().parents[1]
+    if str(examples_root) not in sys.path:
+        sys.path.insert(0, str(examples_root))
+    from vime_rocm_attention_ablation.validate_artifacts import compare_train_rollout_logps
+
+    return compare_train_rollout_logps(
+        directory,
+        require_exact=require_exact,
+        tensor_parallel_size=tensor_parallel_size,
+        context_parallel_size=context_parallel_size,
+    )
 
 
 def _parse_runtime_records(log_text: str) -> dict[str, dict[int, dict[str, Any]]]:
@@ -82,14 +134,11 @@ def _parse_runtime_records(log_text: str) -> dict[str, dict[int, dict[str, Any]]
 
 def _validate_cudagraph(log_text: str, manifest: Mapping[str, Any]) -> dict[str, Any]:
     execution = manifest.get("vllm_execution", {})
-    capture_sizes = (
-        execution.get("capture_sizes", []) if isinstance(execution, Mapping) else []
-    )
+    capture_sizes = execution.get("capture_sizes", []) if isinstance(execution, Mapping) else []
     compact_sizes = "[" + ",".join(str(value) for value in capture_sizes) + "]"
     checks = {
         "launcher_marker": any(
-            f"{marker}: {compact_sizes}" in log_text
-            for marker in CUDA_GRAPH_LAUNCHER_MARKERS
+            f"{marker}: {compact_sizes}" in log_text for marker in CUDA_GRAPH_LAUNCHER_MARKERS
         ),
         "engine_mode": bool(re.search(r"cudagraph_mode.*FULL_DECODE_ONLY", log_text)),
         "not_eager": "enforce_eager=False" in log_text,
@@ -161,19 +210,12 @@ def _validate_readbacks(
             records = [
                 value["operators"][module]
                 for value in matching
-                if isinstance(value.get("operators"), Mapping)
-                and module in value["operators"]
+                if isinstance(value.get("operators"), Mapping) and module in value["operators"]
             ]
-            installed_count = sum(
-                module in value.get("installed_hooks", {}) for value in matching
-            )
+            installed_count = sum(module in value.get("installed_hooks", {}) for value in matching)
             call_count = sum(int(record.get("call_count", 0)) for record in records)
-            implementations = sorted(
-                {str(record.get("implementation", "")) for record in records}
-            )
-            backend_ids = sorted(
-                {str(record.get("backend_id", "")) for record in records}
-            )
+            implementations = sorted({str(record.get("implementation", "")) for record in records})
+            backend_ids = sorted({str(record.get("backend_id", "")) for record in records})
             case_ids = sorted({str(record.get("case_id", "")) for record in records})
             native_megatron_logp = (
                 framework == "megatron"
@@ -182,15 +224,16 @@ def _validate_readbacks(
                 and expected == "production"
             )
             if native_megatron_logp:
-                marker_present = VIME_NATIVE_LINEAR_LOGP_MARKER in log_text
+                marker_present = (
+                    VIME_NATIVE_LINEAR_LOGP_MARKER in log_text
+                    or f"{RL_KERNEL_MISMATCH_SIDECAR_MARKER}{case_id}" in log_text
+                )
                 if installed_count:
                     errors.append(
                         f"{label} production logp unexpectedly installed an RL-Kernel hook"
                     )
                 if records:
-                    errors.append(
-                        f"{label} production logp unexpectedly entered provider readback"
-                    )
+                    errors.append(f"{label} production logp unexpectedly entered provider readback")
                 if not marker_present:
                     errors.append(
                         f"{label} production logp did not report Vime's native backend marker"
@@ -203,9 +246,7 @@ def _validate_readbacks(
                     "implementations": implementations,
                     "backend_ids": backend_ids,
                     "native_marker_present": marker_present,
-                    "native_backend_id": (
-                        "vime.utils.ppo_utils.calculate_log_probs_and_entropy"
-                    ),
+                    "native_backend_id": ("vime.utils.ppo_utils.calculate_log_probs_and_entropy"),
                 }
                 continue
             if installed_count == 0:
@@ -225,20 +266,17 @@ def _validate_readbacks(
                     errors.append(f"{label} {module} did not report CUDA execution")
                 if record.get("provenance", {}).get("fallback") is True:
                     errors.append(f"{label} {module} provenance recorded fallback")
-                if expected == "rl_kernel" and not str(
-                    record.get("backend_id", "")
-                ).startswith("rlkernel."):
+                if expected == "rl_kernel" and not str(record.get("backend_id", "")).startswith(
+                    "rlkernel."
+                ):
                     errors.append(f"{label} {module} did not use an RL-Kernel backend")
                 provenance = record.get("provenance", {})
                 reported_backend_ids = _reported_backend_ids(record)
-                strict_execution = (
-                    isinstance(provenance, Mapping)
-                    and (
-                        provenance.get("deterministic_linear_logp") is True
-                        or (
-                            isinstance(provenance.get("execution"), Mapping)
-                            and provenance["execution"].get("strict_backend") is True
-                        )
+                strict_execution = isinstance(provenance, Mapping) and (
+                    provenance.get("deterministic_linear_logp") is True
+                    or (
+                        isinstance(provenance.get("execution"), Mapping)
+                        and provenance["execution"].get("strict_backend") is True
                     )
                 )
                 if expected == "production" and (
@@ -320,8 +358,7 @@ def _validate_runtime_logprobs(
     if len(rows) != expected_rounds:
         errors.append(f"observed {len(rows)} train steps, expected {expected_rounds}")
     bitwise_zero = bool(rows) and all(
-        row["bitwise_mismatch_count"] == 0.0 and row["max_abs_dlogp"] == 0.0
-        for row in rows
+        row["bitwise_mismatch_count"] == 0.0 and row["max_abs_dlogp"] == 0.0 for row in rows
     )
     if require_zero and not bitwise_zero:
         errors.append("R/R arm did not achieve bitwise-zero runtime metrics")
@@ -334,9 +371,7 @@ def _validate_runtime_logprobs(
         ),
         "bitwise_zero": bitwise_zero,
         "rows": rows,
-        "total_active_token_exposure": sum(
-            row["active_token_count"] or 0.0 for row in rows
-        ),
+        "total_active_token_exposure": sum(row["active_token_count"] or 0.0 for row in rows),
     }
 
 
@@ -345,9 +380,7 @@ def _inspect_offline_dumps(directory: Path) -> dict[str, Any]:
     comparable = 0
     for path in paths:
         payload = torch.load(path, map_location="cpu", weights_only=False)
-        rollout_data = (
-            payload.get("rollout_data", {}) if isinstance(payload, Mapping) else {}
-        )
+        rollout_data = payload.get("rollout_data", {}) if isinstance(payload, Mapping) else {}
         if isinstance(rollout_data, Mapping) and "log_probs" in rollout_data:
             comparable += 1
     return {
@@ -357,7 +390,10 @@ def _inspect_offline_dumps(directory: Path) -> dict[str, Any]:
         "reason": (
             None
             if paths and comparable == len(paths)
-            else "current VIME dump lacks captured training log_probs; runtime exact metrics are used"
+            else (
+                "current VIME dump lacks captured training log_probs; "
+                "runtime exact metrics are used"
+            )
         ),
     }
 
@@ -371,21 +407,22 @@ def validate_run(run_dir: Path) -> dict[str, Any]:
     records = _parse_runtime_records(log_text)
     require_zero = all(str(arm[CASE_FIELDS[module]]) == "R/R" for module in MODULES)
     cudagraph = _validate_cudagraph(log_text, manifest)
-    readbacks = _validate_readbacks(
-        _load_readbacks(run_dir / "readbacks"), arm, log_text
-    )
-    logprobs = _validate_runtime_logprobs(
+    readbacks = _validate_readbacks(_load_readbacks(run_dir / "readbacks"), arm, log_text)
+    runtime_logprobs = _validate_runtime_logprobs(
         records["step"],
         int(manifest["num_rollout"]),
         int(manifest["batching"]["global_batch_size"]),
-        require_zero,
+        False,
+    )
+    logprobs = _compare_mismatch_sidecars(
+        run_dir / "mismatch-sidecars",
+        require_exact=require_zero,
+        tensor_parallel_size=int(manifest["topology"]["tp"]),
+        context_parallel_size=int(manifest["topology"]["cp"]),
     )
     global_errors = []
     algorithm = manifest.get("algorithm", {})
-    if (
-        not isinstance(algorithm, Mapping)
-        or algorithm.get("advantage_estimator") != "grpo"
-    ):
+    if not isinstance(algorithm, Mapping) or algorithm.get("advantage_estimator") != "grpo":
         global_errors.append("manifest does not explicitly select GRPO")
     train_command = manifest.get("train_command", [])
     expected_algorithm_pair = ["--advantage-estimator", "grpo"]
@@ -394,15 +431,26 @@ def validate_run(run_dir: Path) -> dict[str, Any]:
         for index in range(max(0, len(train_command) - 1))
     ):
         global_errors.append("train command does not explicitly select GRPO")
-    if manifest.get("topology") != EXPECTED_TOPOLOGY:
-        global_errors.append("manifest does not contain the required TP4/CP2 colocated topology")
-    required_command_pairs = (
+    topology = manifest.get("topology")
+    global_errors.extend(_validate_topology(topology))
+    topology = topology if isinstance(topology, Mapping) else {}
+    required_command_pairs = [
         ("--actor-num-gpus-per-node", "8"),
         ("--rollout-num-gpus", "8"),
         ("--tensor-model-parallel-size", "4"),
         ("--context-parallel-size", "2"),
-        ("--rollout-num-gpus-per-engine", "4"),
-    )
+        (
+            "--rollout-num-gpus-per-engine",
+            str(topology.get("rollout_gpus_per_engine", "")),
+        ),
+    ]
+    if "rollout_cp" in topology:
+        required_command_pairs.append(
+            (
+                "--vllm-prefill-context-parallel-size",
+                str(topology["rollout_cp"]),
+            )
+        )
     if isinstance(train_command, list):
         for flag, value in required_command_pairs:
             if not any(
@@ -433,9 +481,7 @@ def validate_run(run_dir: Path) -> dict[str, Any]:
                     "production Megatron logp must not configure a linear_logp provider"
                 )
             if "--linear-logp-provider-mode" in train_command:
-                global_errors.append(
-                    "production Megatron logp must not configure provider mode"
-                )
+                global_errors.append("production Megatron logp must not configure provider mode")
         elif not has_provider or not has_strict_mode:
             global_errors.append(
                 "RL-Kernel Megatron logp must configure the strict RL-Kernel provider"
@@ -446,9 +492,7 @@ def validate_run(run_dir: Path) -> dict[str, Any]:
         "recompute_num_layers": 1,
     }
     if manifest.get("training_memory") != expected_recompute:
-        global_errors.append(
-            "manifest does not contain the required recompute configuration"
-        )
+        global_errors.append("manifest does not contain the required recompute configuration")
     if re.search(r"fallback=true", log_text, re.IGNORECASE):
         global_errors.append("run log contains fallback=true")
     if "Traceback (most recent call last)" in log_text:
@@ -458,15 +502,13 @@ def validate_run(run_dir: Path) -> dict[str, Any]:
         "run_id": manifest.get("run_id"),
         "group": arm.get("group"),
         "passed": bool(
-            cudagraph["passed"]
-            and readbacks["passed"]
-            and logprobs["passed"]
-            and not global_errors
+            cudagraph["passed"] and readbacks["passed"] and logprobs["passed"] and not global_errors
         ),
         "errors": global_errors,
         "cudagraph": cudagraph,
         "runtime_readbacks": readbacks,
         "train_rollout_logprob": logprobs,
+        "runtime_scalar_logprob": runtime_logprobs,
         "offline_tensor_comparison": _inspect_offline_dumps(run_dir / "train-data"),
     }
     return report
@@ -488,9 +530,7 @@ def main(argv: list[str] | None = None) -> int:
             "passed": False,
             "errors": [f"{type(exc).__name__}: {exc}"],
         }
-    output.write_text(
-        json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2, sort_keys=True))
     if args.seal and report["passed"]:
         (run_dir / "COMPLETE").touch(exist_ok=False)

@@ -45,6 +45,19 @@ def _configs():
     ]
 
 
+def test_qwen_tp4_decode_config_selection():
+    default = M.MfmaGemmConfig(16, 32, 2, waves_per_eu=0, num_stages=2, group_m=1)
+    wide = M.MfmaGemmConfig(32, 64, 4, waves_per_eu=0, num_stages=2, group_m=1)
+    vocab = M.MfmaGemmConfig(16, 128, 4, waves_per_eu=2, num_stages=2, group_m=1)
+
+    assert M.select_config(1, 1536, 4096) == default
+    assert M.select_config(4, 1536, 4096) == wide
+    assert M.select_config(4, 6144, 4096) == wide
+    assert M.select_config(4, 37984, 4096) == vocab
+    assert M.select_config(4, 4096, 1024) == default
+    assert M.select_config(4, 4096, 3072) == default
+
+
 @pytest.mark.parametrize("k_size,n_size", QWEN_TP4_SHAPES)
 def test_forward_matches_fp32_reference(k_size, n_size):
     a = _rand(300, k_size)
