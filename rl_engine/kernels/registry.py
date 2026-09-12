@@ -109,6 +109,7 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     # Batch-invariant deterministic GEMM (WS1 #146)
     CUDA_DET_GEMM = "rl_engine.kernels.ops.cuda.matmul.det_gemm.DetGemmOp"
     TRITON_DET_GEMM = "rl_engine.kernels.ops.triton.matmul.det_gemm.TritonDetGemmOp"
+    ASCEND_DET_GEMM = "rl_engine.kernels.ops.ascend.matmul.det_gemm.DetGemmAscendOp"
     # NON-deterministic reference (torch.matmul); reference/benchmark ONLY,
     # intentionally excluded from det_gemm dispatch (cuBLAS breaks invariance).
     PYTORCH_GEMM = "rl_engine.kernels.ops.pytorch.matmul.det_gemm.NativeGemmOp"
@@ -748,6 +749,9 @@ class KernelRegistry:
         self._priority_map["npu"]["swiglu"] = [
             OpBackend.ASCEND_SWIGLU,
             OpBackend.PYTORCH_NATIVE_SWIGLU,
+        ]
+        self._priority_map["npu"]["det_gemm"] = [
+            OpBackend.ASCEND_DET_GEMM,
         ]
         logger.info(f"KernelRegistry initialized for {device_ctx.device_type}")
         self._adjust_priority_for_hardware()

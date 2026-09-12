@@ -46,6 +46,13 @@ torch::Tensor swiglu_ascend_forward(torch::Tensor gate, torch::Tensor up);
 std::vector<torch::Tensor> swiglu_ascend_backward(
     torch::Tensor grad, torch::Tensor gate, torch::Tensor up);
 
+torch::Tensor det_gemm_ascend_fwd(torch::Tensor a, torch::Tensor b);
+torch::Tensor det_gemm_ascend_fwd_rhs_transposed(torch::Tensor a, torch::Tensor bt);
+torch::Tensor det_gemm_ascend_fwd_fp32(torch::Tensor a, torch::Tensor b);
+torch::Tensor det_gemm_ascend_da(torch::Tensor dc, torch::Tensor b);
+torch::Tensor det_gemm_ascend_db(torch::Tensor a, torch::Tensor dc);
+torch::Tensor det_gemm_ascend_db_transposed(torch::Tensor a, torch::Tensor dc);
+
 torch::Tensor rmsnorm_ascend_forward(torch::Tensor x,
                                      torch::Tensor weight,
                                      torch::Tensor rstd);
@@ -100,4 +107,22 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
           "Batch-invariant fused linear log-probability (Ascend C forward)");
     m.def("swiglu_forward", &swiglu_ascend_forward, "SwiGLU forward (Ascend C)");
     m.def("swiglu_backward", &swiglu_ascend_backward, "SwiGLU backward (Ascend C)");
+    m.def("det_gemm_ascend_fwd",
+          &det_gemm_ascend_fwd,
+          "Batch-invariant deterministic GEMM (Ascend C forward, bf16)");
+    m.def("det_gemm_ascend_fwd_rhs_transposed",
+          &det_gemm_ascend_fwd_rhs_transposed,
+          "Batch-invariant deterministic GEMM with physical [N,K] rhs (Ascend C)");
+    m.def("det_gemm_ascend_fwd_fp32",
+          &det_gemm_ascend_fwd_fp32,
+          "Batch-invariant deterministic GEMM with FP32 output (Ascend C)");
+    m.def("det_gemm_ascend_da",
+          &det_gemm_ascend_da,
+          "Batch-invariant deterministic GEMM input gradient dA = dC @ B^T (Ascend C)");
+    m.def("det_gemm_ascend_db",
+          &det_gemm_ascend_db,
+          "Batch-invariant deterministic GEMM weight gradient dB = A^T @ dC (Ascend C)");
+    m.def("det_gemm_ascend_db_transposed",
+          &det_gemm_ascend_db_transposed,
+          "Batch-invariant deterministic GEMM weight gradient born [N,K] (Ascend C)");
 }
