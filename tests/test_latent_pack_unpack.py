@@ -222,4 +222,3 @@ def test_native_binding_validation():
     for dims in ((-1, 3, 6, 10), (1, 4, 6, 10), (1, 3, 5, 10), (1, 2**62, 6, 10)):
         with pytest.raises(RuntimeError):
             base._C.latent_pack_unpack(x, *dims, False)
-
