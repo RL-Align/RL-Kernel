@@ -79,8 +79,9 @@ class _CanonicalAscendRMSNorm(torch.autograd.Function):
             raise RuntimeError("canonical RMSNorm requires an active backward session")
         x_c = x.contiguous()
         weight_c = weight.contiguous()
-        var = x_c.float().pow(2).mean(dim=-1)
-        rstd = torch.rsqrt(var + float(eps)).contiguous()
+        from rl_engine.kernels.ops.ascend.norm.rmsnorm import _fixed_rstd
+
+        rstd = _fixed_rstd(x_c.float(), float(eps))
         y = _C_npu.rmsnorm_ascend(x_c, weight_c, rstd)
         ctx.save_for_backward(x_c, weight_c, rstd)
         ctx.session = session

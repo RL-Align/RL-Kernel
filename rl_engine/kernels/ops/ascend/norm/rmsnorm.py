@@ -65,6 +65,22 @@ def _rms_norm_backward(
     return dx.to(x_2d.dtype), dw.to(weight.dtype)
 
 
+
+
+def _fixed_rstd(x32: torch.Tensor, eps: float) -> torch.Tensor:
+    """Shape-invariant per-row rstd.
+
+    torch mean/sum select shape-dependent reduction kernels on NPU and flip
+    single-ULP results between batch layouts (e.g. [1,7,H] vs [1,20,H]),
+    which breaks the chunked-vs-full model invariance. The rowwise FP32
+    GEMM reduces each output row in one fixed per-row order regardless of
+    the batch layout, so the sum of squares -- and hence the rstd -- is
+    bitwise identical for every layout.
+    """
+    from rl_engine.kernels.ops.pytorch.norm.rms_norm import shape_invariant_rstd
+
+    return shape_invariant_rstd(x32, float(eps)).contiguous()
+
 class _RMSNormAscendFunction(torch.autograd.Function):
     # Autograd wrapper: reference-formula rstd + Ascend C fused scale/cast
     # forward, and the PyTorch-formula backward reusing the forward-saved
@@ -85,8 +101,7 @@ class _RMSNormAscendFunction(torch.autograd.Function):
         # bitwise identical to NativeRMSNormOp instead of approximating its
         # sum-of-squares/rsqrt arithmetic in-kernel.
         x_f = x_2d.float()
-        var = x_f.pow(2).mean(dim=-1)
-        rstd = torch.rsqrt(var + eps).contiguous()
+        rstd = _fixed_rstd(x_f, float(eps))
 
         y = _C_npu.rmsnorm_ascend(x_2d, weight, rstd)
 
@@ -159,7 +174,7 @@ class RMSNormAscendOp:
         """
         del weight
         x32 = x.float()
-        rstd = torch.rsqrt(x32.square().mean(dim=-1) + float(eps))
+        rstd = _fixed_rstd(x32, float(eps))
         rows = grad_output.float() * x32 * rstd.unsqueeze(-1)
         return {"weight": rows}
 
