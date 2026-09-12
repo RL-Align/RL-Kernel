@@ -126,6 +126,8 @@ torch::Tensor hip_deterministic_logp_backward(
 #endif
 
 #if !defined(USE_ROCM) && !defined(KERNEL_ALIGN_WITH_ROCM)
+torch::Tensor latent_pack_unpack_cuda(torch::Tensor x, int64_t B, int64_t C,
+                                      int64_t H, int64_t W, bool unpack);
 // Single-node TP=8 deterministic CUDA IPC collectives. ROCm uses the
 // rank-ordered RCCL transport in rl_engine.distributed.collectives.
 std::tuple<std::vector<int64_t>, int64_t> deterministic_collective_ipc_meta(
@@ -474,6 +476,10 @@ at::Tensor prefix_shared_attention(
 
 // PyBind11 Module Registration
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+#if !defined(USE_ROCM) && !defined(KERNEL_ALIGN_WITH_ROCM)
+    m.def("latent_pack_unpack", &latent_pack_unpack_cuda,
+          "Qwen-Image bitwise latent pack/unpack CUDA");
+#endif
     m.doc() = "RL-Kernel High-Performance Operator Extension Library";
 
     m.def("fused_logp", &fused_logp_forward, "Fused logp forward fallback");
