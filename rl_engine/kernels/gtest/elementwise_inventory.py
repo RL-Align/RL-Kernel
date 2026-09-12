@@ -26,6 +26,7 @@ class InventoryItem:
     reduction: str
     cuda_verdict: Verdict
     triton_verdict: Verdict
+    ascend_verdict: Verdict
     evidence: str
     blocker: str | None = None
 
@@ -39,6 +40,7 @@ class InventoryItem:
             "reduction": self.reduction,
             "cuda_verdict": self.cuda_verdict,
             "triton_verdict": self.triton_verdict,
+            "ascend_verdict": self.ascend_verdict,
             "evidence": self.evidence,
             "blocker": self.blocker,
         }
@@ -57,10 +59,13 @@ ELEMENTWISE_INVENTORY: tuple[InventoryItem, ...] = (
         category="rope",
         on_chain=True,
         differentiable=True,
-        entry_point="rl_engine.kernels.ops.{cuda,triton,pytorch}.rotary_embedding.rope",
+        entry_point="rl_engine.kernels.ops.{cuda,triton,ascend,pytorch}.rotary_embedding.rope",
         reduction="none (rotate_half, position-local)",
         cuda_verdict="pass",
         triton_verdict="pass",
+        ascend_verdict="tracked_red",
+        # ascend: Ascend C rope kernel declared in C2 ascend_bf16; C3/C4 evidence pending an NPU
+        # host
         evidence=(
             "C3/C4 adapters registered; Triton green on sm86+; "
             "CUDA cuda-sm90 C3/C4 and C8 four-judgment green on H20"
@@ -71,10 +76,13 @@ ELEMENTWISE_INVENTORY: tuple[InventoryItem, ...] = (
         category="activation",
         on_chain=True,
         differentiable=True,
-        entry_point="rl_engine.kernels.ops.{cuda,triton,pytorch}.activation.swiglu.SiLU*",
+        entry_point="rl_engine.kernels.ops.{cuda,triton,ascend,pytorch}.activation.*.SiLU*",
         reduction="none (pointwise)",
         cuda_verdict="pass",
         triton_verdict="pass",
+        ascend_verdict="tracked_red",
+        # ascend: csrc/ascend/activation.asc silu kernel declared; C3/C4 evidence pending an NPU
+        # host
         evidence="C3 and C4 both green on cuda_bf16 and triton_cuda_bf16 (sm86)",
     ),
     InventoryItem(
@@ -82,10 +90,13 @@ ELEMENTWISE_INVENTORY: tuple[InventoryItem, ...] = (
         category="activation",
         on_chain=True,
         differentiable=True,
-        entry_point="rl_engine.kernels.ops.{cuda,triton,pytorch}.activation.swiglu.SwiGLU*",
+        entry_point="rl_engine.kernels.ops.{cuda,triton,ascend,pytorch}.activation.*.SwiGLU*",
         reduction="none (pointwise gate*silu(up))",
         cuda_verdict="pass",
         triton_verdict="pass",
+        ascend_verdict="tracked_red",
+        # ascend: csrc/ascend/activation.asc swiglu kernel declared; C3/C4 evidence pending an NPU
+        # host
         evidence="C3 and C4 both green on cuda_bf16 and triton_cuda_bf16 (sm86)",
     ),
     InventoryItem(
@@ -97,6 +108,8 @@ ELEMENTWISE_INVENTORY: tuple[InventoryItem, ...] = (
         reduction="none (elementwise add, no cross-batch reduction)",
         cuda_verdict="pass",
         triton_verdict="pass",
+        ascend_verdict="pass",
+        # ascend: Audit is backend-independent: torch.add over matching logical tokens on NPU too
         evidence=(
             "Audit: residual is x + y with matching logical tokens; "
             "no tile/batch-shape reduction. Covered by C3 token restore of surrounding ops"
@@ -111,7 +124,10 @@ ELEMENTWISE_INVENTORY: tuple[InventoryItem, ...] = (
         reduction="none (broadcast scalar)",
         cuda_verdict="pass",
         triton_verdict="pass",
-        evidence="Pinned in Native/CUDA/Triton attention; independent of batch/layout",
+        ascend_verdict="pass",
+        # ascend: Ascend attention pins the same 1/sqrt(head_dim) scalar; independent of
+        # batch/layout
+        evidence="Pinned in Native/CUDA/Triton/Ascend attention; independent of batch/layout",
     ),
     InventoryItem(
         name="bias",
@@ -122,6 +138,8 @@ ELEMENTWISE_INVENTORY: tuple[InventoryItem, ...] = (
         reduction="none (absent on the official fingerprint)",
         cuda_verdict="pass",
         triton_verdict="pass",
+        ascend_verdict="pass",
+        # ascend: Backend-independent: the official fingerprint has no attention or LM-head bias
         evidence="C2 config_fingerprint.attention_bias is false; adapters pass bias=None",
     ),
     InventoryItem(
@@ -133,6 +151,9 @@ ELEMENTWISE_INVENTORY: tuple[InventoryItem, ...] = (
         reduction="none (masked fill to -inf before softmax)",
         cuda_verdict="pass",
         triton_verdict="pass",
+        ascend_verdict="tracked_red",
+        # ascend: Ascend deterministic attention takes the same key_padding_mask; padded_left
+        # evidence pending an NPU host
         evidence=(
             "CUDA and Triton C3 padded_left are bitwise 0; Triton rebases the "
             "contiguous valid KV interval to logical reduction lanes"
@@ -147,6 +168,8 @@ ELEMENTWISE_INVENTORY: tuple[InventoryItem, ...] = (
         reduction="none (policy cast, not a shape-dependent path)",
         cuda_verdict="pass",
         triton_verdict="pass",
+        ascend_verdict="pass",
+        # ascend: Same C1 policy; Ascend has no TF32 mode, so the TF32 clause holds by construction
         evidence="tolerance_contract.json policy; C3/C4 provenance rejects dtype drift",
     ),
 )
@@ -164,7 +187,17 @@ def unresolved_needs_fix() -> tuple[InventoryItem, ...]:
     return tuple(
         item
         for item in ELEMENTWISE_INVENTORY
-        if item.cuda_verdict == "blocker" or item.triton_verdict == "blocker"
+        if "blocker" in (item.cuda_verdict, item.triton_verdict, item.ascend_verdict)
+    )
+
+
+def unexecuted_cells() -> tuple[InventoryItem, ...]:
+    """Items still awaiting on-device C3/C4 evidence on some profile."""
+
+    return tuple(
+        item
+        for item in ELEMENTWISE_INVENTORY
+        if "tracked_red" in (item.cuda_verdict, item.triton_verdict, item.ascend_verdict)
     )
 
 
@@ -177,5 +210,6 @@ __all__ = [
     "InventoryItem",
     "inventory_items",
     "inventory_names",
+    "unexecuted_cells",
     "unresolved_needs_fix",
 ]

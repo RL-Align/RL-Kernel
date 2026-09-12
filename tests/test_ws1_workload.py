@@ -517,7 +517,7 @@ def test_candidate_evidence_cli_help_is_available():
         timeout=60,
     )
     assert proc.returncode == 0, proc.stderr
-    assert "representative candidates on a real GPU" in proc.stdout
+    assert "representative candidates on a real accelerator" in proc.stdout
 
 
 def test_build_chunk_plan_edges():

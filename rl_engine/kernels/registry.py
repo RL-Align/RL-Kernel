@@ -109,6 +109,7 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     # Batch-invariant deterministic GEMM (WS1 #146)
     CUDA_DET_GEMM = "rl_engine.kernels.ops.cuda.matmul.det_gemm.DetGemmOp"
     TRITON_DET_GEMM = "rl_engine.kernels.ops.triton.matmul.det_gemm.TritonDetGemmOp"
+    ASCEND_DET_GEMM = "rl_engine.kernels.ops.ascend.matmul.det_gemm.DetGemmAscendOp"
     # NON-deterministic reference (torch.matmul); reference/benchmark ONLY,
     # intentionally excluded from det_gemm dispatch (cuBLAS breaks invariance).
     PYTORCH_GEMM = "rl_engine.kernels.ops.pytorch.matmul.det_gemm.NativeGemmOp"
@@ -128,6 +129,10 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     ASCEND_RMS_NORM = "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp"
     ASCEND_EMBEDDING = "rl_engine.kernels.ops.ascend.linear.embedding.AscendEmbeddingOp"
     ASCEND_FUSED_LOGP = "rl_engine.kernels.ops.ascend.loss.logp.FusedLogpAscendOp"
+    ASCEND_LM_HEAD = "rl_engine.kernels.ops.ascend.linear.lm_head.AscendLMHeadOp"
+    ASCEND_FUSED_LINEAR_LOGP = (
+        "rl_engine.kernels.ops.ascend.loss.linear_logp.FusedLinearLogpAscendOp"
+    )
     # Deterministic vocab-parallel TP logprob reference (WS2 #241 PR3)
     PYTORCH_VOCAB_PARALLEL_LOGP = (
         "rl_engine.kernels.ops.pytorch.loss.vocab_parallel_logp.VocabParallelLogprobOp"
@@ -164,6 +169,8 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     PYTORCH_NATIVE_SWIGLU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSwiGLUOp"
     CUDA_SILU = "rl_engine.kernels.ops.cuda.activation.swiglu.SiLUCudaOp"
     CUDA_SWIGLU = "rl_engine.kernels.ops.cuda.activation.swiglu.SwiGLUCudaOp"
+    ASCEND_SWIGLU = "rl_engine.kernels.ops.ascend.activation.swiglu.SwiGLUAscendOp"
+    ASCEND_SILU = "rl_engine.kernels.ops.ascend.activation.silu.SiLUAscendOp"
     TRITON_SILU = "rl_engine.kernels.ops.triton.activation.swiglu.TritonSiLUOp"
     TRITON_SWIGLU = "rl_engine.kernels.ops.triton.activation.swiglu.TritonSwiGLUOp"
 
@@ -731,6 +738,25 @@ class KernelRegistry:
         self._priority_map["npu"]["logp"] = [
             OpBackend.ASCEND_FUSED_LOGP,
             OpBackend.PYTORCH_NATIVE,
+        ]
+        self._priority_map["npu"]["lm_head"] = [
+            OpBackend.ASCEND_LM_HEAD,
+            OpBackend.PYTORCH_NATIVE_LM_HEAD,
+        ]
+        self._priority_map["npu"]["linear_logp"] = [
+            OpBackend.ASCEND_FUSED_LINEAR_LOGP,
+            OpBackend.PYTORCH_LINEAR_LOGP,
+        ]
+        self._priority_map["npu"]["swiglu"] = [
+            OpBackend.ASCEND_SWIGLU,
+            OpBackend.PYTORCH_NATIVE_SWIGLU,
+        ]
+        self._priority_map["npu"]["silu"] = [
+            OpBackend.ASCEND_SILU,
+            OpBackend.PYTORCH_NATIVE_SILU,
+        ]
+        self._priority_map["npu"]["det_gemm"] = [
+            OpBackend.ASCEND_DET_GEMM,
         ]
         logger.info(f"KernelRegistry initialized for {device_ctx.device_type}")
         self._adjust_priority_for_hardware()

@@ -56,6 +56,7 @@ OP_SPECS = {
             "triton": "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp",
             "cuda": "rl_engine.kernels.ops.cuda.norm.rmsnorm.RMSNormCudaOp",
             "cuda-sm90": "rl_engine.kernels.ops.cuda.norm.rmsnorm.RMSNormCudaOp",
+            "ascend": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
         },
         grad_input_names=("x", "weight"),
     ),
@@ -92,8 +93,7 @@ OP_SPECS = {
         candidate_paths={
             "pytorch": "rl_engine.kernels.gtest.operator_specs.GtestPrefixSharedAttentionOp",
             "cuda": (
-                "rl_engine.kernels.ops.cuda.attention.prefix_shared_attn."
-                "PrefixSharedAttentionOp"
+                "rl_engine.kernels.ops.cuda.attention.prefix_shared_attn." "PrefixSharedAttentionOp"
             ),
             "ascend": (
                 "rl_engine.kernels.ops.ascend.attention.prefix_shared_attn."
@@ -141,6 +141,7 @@ OP_SPECS = {
             "pytorch": "rl_engine.kernels.ops.pytorch.loss.linear_logp.NativeLinearLogpOp",
             "triton": "rl_engine.kernels.ops.triton.loss.linear_logp.TritonLinearLogpOp",
             "cuda-sm90": "rl_engine.kernels.ops.cuda.loss.linear_logp.FusedLinearLogpSM90Op",
+            "ascend": "rl_engine.kernels.ops.ascend.loss.linear_logp.FusedLinearLogpAscendOp",
         },
         grad_input_names=("hidden", "lm_head_weight"),
     ),
@@ -166,18 +167,24 @@ OP_SPECS = {
             "pytorch": "rl_engine.kernels.ops.pytorch.linear.lm_head.NativeLMHeadOp",
             "triton": "rl_engine.kernels.ops.triton.linear.lm_head.TritonLMHeadOp",
             "cuda-sm90": "rl_engine.kernels.ops.cuda.linear.lm_head.SM90LMHeadOp",
+            "ascend": "rl_engine.kernels.ops.ascend.linear.lm_head.AscendLMHeadOp",
         },
         grad_input_names=("hidden", "weight"),
     ),
     "det_gemm": OperatorSpec(
         name="det_gemm",
         op_class="reduction",
-        gold_path="rl_engine.kernels.ops.pytorch.matmul.det_gemm.NativeGemmOp",
+        # The deterministic GEMM rounds every leaf and merge node to BF16, so
+        # the accuracy gold must be the same leaf-space tree, not the
+        # single-rounding torch.matmul (which fails structurally at
+        # near-cancellation outputs on random inputs).
+        gold_path="rl_engine.kernels.ops.pytorch.matmul.det_gemm.DetGemmTreeReferenceOp",
         gold_method="__call__",
         candidate_paths={
             "pytorch": "rl_engine.kernels.ops.pytorch.matmul.det_gemm.NativeGemmOp",
             "cuda": "rl_engine.kernels.ops.cuda.matmul.det_gemm.DetGemmOp",
             "triton": "rl_engine.kernels.ops.triton.matmul.det_gemm.TritonDetGemmOp",
+            "ascend": "rl_engine.kernels.ops.ascend.matmul.det_gemm.DetGemmAscendOp",
         },
         grad_input_names=("a", "b"),
     ),
@@ -203,6 +210,7 @@ OP_SPECS = {
             "pytorch": "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSiLUOp",
             "triton": "rl_engine.kernels.ops.triton.activation.swiglu.TritonSiLUOp",
             "cuda": "rl_engine.kernels.ops.cuda.activation.swiglu.SiLUCudaOp",
+            "ascend": "rl_engine.kernels.ops.ascend.activation.silu.SiLUAscendOp",
         },
         grad_input_names=("x",),
     ),
@@ -215,6 +223,7 @@ OP_SPECS = {
             "pytorch": "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSwiGLUOp",
             "triton": "rl_engine.kernels.ops.triton.activation.swiglu.TritonSwiGLUOp",
             "cuda": "rl_engine.kernels.ops.cuda.activation.swiglu.SwiGLUCudaOp",
+            "ascend": "rl_engine.kernels.ops.ascend.activation.swiglu.SwiGLUAscendOp",
         },
         grad_input_names=("gate", "up"),
     ),

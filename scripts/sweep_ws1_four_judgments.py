@@ -17,7 +17,7 @@ import pathlib
 import subprocess
 import sys
 from collections import defaultdict
-from typing import Any
+from typing import Any, Sequence
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -134,12 +134,12 @@ def _is_hopper() -> bool:
     return bool(torch.cuda.is_available() and torch.cuda.get_device_capability(0)[0] == 9)
 
 
-def _execute_matrix(base: MatrixReport) -> MatrixReport:
+def _execute_matrix(base: MatrixReport, profiles: Sequence[str] = PROFILES) -> MatrixReport:
     manifest = load_manifest()
     if _is_hopper():
-        base = build_classified_matrix(manifest, allow_sm90=True)
+        base = build_classified_matrix(manifest, allow_sm90=True, profiles=profiles)
     invariance: dict[tuple[str, str], dict[str, tuple[str, str, dict[str, str] | None]]] = {}
-    for profile in PROFILES:
+    for profile in profiles:
         for op_name in C8_REQUIRED_OPS:
             sample = next(
                 cell for cell in base.cells if cell.profile == profile and cell.op_name == op_name
@@ -275,9 +275,26 @@ def _environment() -> dict[str, Any]:
     try:
         import torch
 
+        from rl_engine.kernels.gtest.accelerator import (
+            compute_capability,
+            device_name,
+            is_available,
+            npu_available,
+        )
+
         info["pytorch"] = torch.__version__
         info["cuda_runtime"] = getattr(torch.version, "cuda", None)
-        if torch.cuda.is_available():
+        if npu_available():
+            npu = torch.device("npu", 0)
+            info["npu_name"] = device_name(npu)
+            info["npu_soc"] = compute_capability(npu)
+            try:
+                import torch_npu
+
+                info["torch_npu"] = getattr(torch_npu, "__version__", "unknown")
+            except Exception:
+                info["torch_npu"] = None
+        if is_available("cuda"):
             info["gpu_name"] = torch.cuda.get_device_name(0)
             info["compute_capability"] = ".".join(
                 str(x) for x in torch.cuda.get_device_capability(0)
@@ -369,7 +386,16 @@ def main() -> None:
     parser.add_argument(
         "--execute",
         action="store_true",
-        help="Run C3/C4 on runnable cells (requires CUDA). Default is classify-only.",
+        help="Run C3/C4 on runnable cells (requires the profile's accelerator). "
+        "Default is classify-only.",
+    )
+    parser.add_argument(
+        "--profile",
+        action="append",
+        choices=PROFILES,
+        help="Backend profile to cover; repeatable. Defaults to every required "
+        "profile. One host rarely has both a GPU and an NPU, so each vendor's "
+        "CI job passes its own profiles here and C11 needs all jobs green.",
     )
     parser.add_argument("--json", action="store_true")
     parser.add_argument(
@@ -379,9 +405,10 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    report = build_classified_matrix()
+    profiles = tuple(args.profile) if args.profile else PROFILES
+    report = build_classified_matrix(profiles=profiles)
     if args.execute:
-        report = _execute_matrix(report)
+        report = _execute_matrix(report, profiles)
     if args.json:
         payload = _execute_payload(report) if args.execute else report.to_dict()
         print(json.dumps(payload, indent=2))

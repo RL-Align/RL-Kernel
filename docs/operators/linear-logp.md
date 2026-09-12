@@ -39,6 +39,7 @@ logp.sum().backward()  # gradients flow into hidden, lm_head_weight, bias
 | --- | --- | --- |
 | CUDA SM90 (Hopper) | `FusedLinearLogpSM90Op` | TMA-streamed, Double Buffering, tensor-core forward (`mma.sync.m16n8k16`), online softmax in smem; chunked backward. Compiles for `sm_90a`; validated fp32-accurate on H100. Falls back to Triton/native for fp32/fp16 inputs or hidden dims not divisible by 32. |
 | CUDA / ROCm (Triton) | `TritonLinearLogpOp` | Triton online-softmax forward; Liger-style chunked backward (cuBLAS matmuls, deterministic). Phase 1. |
+| Ascend NPU | `FusedLinearLogpAscendOp` | Batch-invariant Ascend C forward mirroring the SM90 reduction contract: ascending vocab-row scan with the online rescale chain, per-row fp32 dots over a fixed D-tile order, `min(zt - lse, 0)` clamp; the shared chunked backward. Output fp32. |
 | PyTorch native | `NativeLinearLogpOp` | Naive `F.linear` + `log_softmax` + `gather` reference; CPU / Triton-less fallback. |
 
 The SM90 backend (`csrc/cuda/fused_linear_logp_sm90.cu`) streams hidden/weight
@@ -168,10 +169,14 @@ For 4-GPU tensor-parallel validation, use
 ## Implementation Files
 
 - `rl_engine/kernels/ops/triton/loss/linear_logp.py`
-- `rl_engine/kernels/ops/pytorch/loss/linear_logp.py`
-- `rl_engine/kernels/ops/cuda/loss/linear_logp.py` (SM90 wrapper + chunked backward)
-- `csrc/cuda/fused_linear_logp_sm90.cu`, `csrc/ops.cpp`, `setup.py` (SM90 kernel + build)
+- `rl_engine/kernels/ops/pytorch/loss/linear_logp.py` — native reference, chunked backward, TP helpers
+- `rl_engine/kernels/ops/cuda/loss/linear_logp.py` — CUDA fused implementation (SM90 wrapper + chunked backward)
+- `rl_engine/kernels/ops/ascend/loss/linear_logp.py` — Ascend deterministic op
+- `csrc/cuda/fused_linear_logp_sm90.cu`, `csrc/ops.cpp`, `setup.py` — SM90 kernel + build
+- `csrc/ascend/fused_linear_logp_ascend.asc` — Ascend C forward kernel
+- `csrc/ascend/npu_module.cpp` — shared pybind entry for `rl_engine._C_npu`
 - `rl_engine/kernels/registry.py`
 - `tests/test_linear_logp.py`
+- `tests/test_linear_logp_ascend.py` — Ascend correctness + batch-invariance tests
 - `benchmarks/benchmark_linear_logp.py`
 - `docs/design/fused-linear-logp.md`

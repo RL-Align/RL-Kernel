@@ -27,7 +27,17 @@ from rl_engine.alignment.qwen3_dense import (
     Qwen3DenseBIModel,
     Qwen3DenseSpec,
     Qwen3DenseWeights,
+    Qwen3DenseWeightsOffloaded,
     load_profile_ops,
+)
+from rl_engine.kernels.gtest.accelerator import (
+    ACCELERATOR_TYPES,
+    compute_capability,
+    device_name,
+    device_type_for_profile,
+    empty_cache,
+    is_available,
+    manual_seed_all,
 )
 from rl_engine.kernels.gtest.chain_gradients import GRADIENT_SCOPE, REQUIRED_GRAD_NAMES
 from rl_engine.kernels.gtest.forward_invariance import (
@@ -233,14 +243,27 @@ def run_fp32_reference_cell(
     """Run BN/full on the FP32 gold topology. Separate from the candidate model."""
 
     m = manifest if manifest is not None else load_manifest()
-    reference = build_model(
-        backend_profile=backend_profile,
-        weights_mode=weights_mode,
-        weights_path=weights_path,
-        device=device,
-        dtype=torch.float32,
-        manifest=m,
-        allow_pytorch_gold=True,
+    spec = Qwen3DenseSpec.from_manifest(m)
+    # The FP32 reference runs with CPU-resident weights paged onto the NPU
+    # per access: the resident FP32 weights + FP32 gradients OOM the 64 GB
+    # HBM (~4.7 GiB short). The paging copies are exact, so the reference
+    # numerics are bitwise identical to the resident-FP32 model.
+    if weights_mode == "synthetic":
+        cpu_weights = Qwen3DenseWeights.synthetic(
+            spec, device="cpu", dtype=torch.float32, seed=m.seed
+        )
+    else:
+        if not weights_path:
+            raise RuntimeError("C10/C11 require --weights-path to the pinned Qwen3-8B snapshot")
+        cpu_weights = Qwen3DenseWeights.from_hf(
+            spec, weights_path, device="cpu", dtype=torch.float32
+        )
+    ops = load_profile_ops(backend_profile, m, allow_pytorch_gold=True)
+    reference = Qwen3DenseBIModel(
+        spec,
+        Qwen3DenseWeightsOffloaded(cpu_weights, device),
+        ops,
+        execution_dtype=torch.float32,
     )
     batch = build_logical_batch(m)
     _configure_required_gradients(reference, enabled=run_backward)
@@ -255,8 +278,7 @@ def run_fp32_reference_cell(
     )
     _configure_required_gradients(reference, enabled=False)
     del reference
-    if device.type == "cuda" and torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    empty_cache(device.type)
     return cell
 
 
@@ -278,9 +300,7 @@ def run_chain_gate(
     batch = build_logical_batch(m)
     cells: dict[str, CellOutput] = {}
     resolved_seed = m.seed if execution_seed is None else int(execution_seed)
-    torch.manual_seed(resolved_seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(resolved_seed)
+    manual_seed_all(device_type_for_profile(backend_profile), resolved_seed)
 
     reset_backward_runtime()
     _configure_required_gradients(model, enabled=run_backward)
@@ -624,10 +644,7 @@ def run_chain_gate(
         output_dtype=policy.output_dtype_default,
     )
     device = next(iter(model.weights.tensors.values())).device
-    cc = None
-    if device.type == "cuda" and torch.cuda.is_available():
-        major, minor = torch.cuda.get_device_capability(device)
-        cc = f"{major}.{minor}"
+    cc = compute_capability(device) if device.type in ACCELERATOR_TYPES else None
 
     # Cross-cell logprob aggregates (BN vs B1) as the named chain metrics.
     lhs, rhs, mask = _aligned_logp_vectors(
@@ -1583,9 +1600,11 @@ def _logp_aggregate_verdict(
 
 
 def _gpu_name(device: torch.device) -> str | None:
-    if device.type != "cuda" or not torch.cuda.is_available():
+    """Accelerator name for evidence: the GPU on CUDA, the NPU on Ascend."""
+
+    if device.type not in ACCELERATOR_TYPES or not is_available(device.type):
         return None
-    return torch.cuda.get_device_name(device)
+    return device_name(device)
 
 
 def _workflow_url() -> str | None:
@@ -1743,6 +1762,11 @@ def _aligned_logp_vectors(
 
 
 def _device(model: Qwen3DenseBIModel) -> torch.device:
+    # The offloaded FP32 reference keeps its weights CPU-resident; the
+    # execution device is the paging target, not the parameter device.
+    offload_device = getattr(model.weights, "_device", None)
+    if offload_device is not None:
+        return torch.device(offload_device)
     return next(iter(model.weights.tensors.values())).device
 
 

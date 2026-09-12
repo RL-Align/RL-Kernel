@@ -18,10 +18,11 @@
       "candidate_execution": "disabled",
       "policy": "Repo-wide single policy: TF32 is disabled for FP32 reference and for candidate execution under this contract."
     },
-    "backend_profiles": ["cuda_bf16", "triton_cuda_bf16"],
+    "backend_profiles": ["cuda_bf16", "triton_cuda_bf16", "ascend_bf16"],
     "backend_profile_contracts": {
       "cuda_bf16": {"backend_family": "cuda"},
-      "triton_cuda_bf16": {"backend_family": "triton"}
+      "triton_cuda_bf16": {"backend_family": "triton"},
+      "ascend_bf16": {"backend_family": "ascend"}
     },
     "backend_private_tolerance_relaxation": false
   },

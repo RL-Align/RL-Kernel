@@ -1,30 +1,35 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""SiLU / SwiGLU tests: native gold + CUDA / Triton candidates vs ground truth.
+"""SiLU / SwiGLU tests: native gold + CUDA / Triton / Ascend C candidates.
 
 Covers:
 - Native correctness (fp32 formula, dtype path, shape guard)
 - Axis A batch invariance (slice + padding, forward + backward)
 - CUDA / Triton forward+backward vs NativeSiLUOp / NativeSwiGLUOp (issue #108 harness)
+- Ascend C SwiGLU integration, forward/backward accuracy and NPU acceptance
 - Registry dispatch + OP_SPECS candidate paths
 """
 
 from __future__ import annotations
 
 import argparse
+from types import SimpleNamespace
 
 import pytest
 import torch
 
 from rl_engine.kernels.gtest.op_checks import run_operator_suite
 from rl_engine.kernels.gtest.operator_specs import (
+    OP_SPECS,
     make_candidate,
     make_operator_case,
     operator_names,
 )
+from rl_engine.kernels.ops.ascend.activation import swiglu as ascend
 from rl_engine.kernels.ops.pytorch.activation.swiglu import NativeSiLUOp, NativeSwiGLUOp
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.kernels.registry import KernelRegistry, OpBackend, kernel_registry
+from rl_engine.platforms.device import _npu_available, device_ctx
 
 try:
     from rl_engine.kernels.ops.triton.activation.swiglu import TritonSiLUOp, TritonSwiGLUOp
@@ -49,6 +54,7 @@ except ImportError:  # pragma: no cover - extension may be missing in CPU-only b
 
 # Qwen3-8B SwiGLU intermediate dim (gate/up_proj output width).
 _INTERMEDIATE = 12288
+_ASCEND_DTYPES = (torch.float32, torch.float16, torch.bfloat16)
 
 
 # Shared helper
@@ -70,6 +76,7 @@ def _dtype_tolerance(dtype: torch.dtype) -> tuple[float, float]:
 
 
 requires_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
+requires_npu = pytest.mark.skipif(not _npu_available(), reason="Ascend NPU required")
 requires_cuda_activation = pytest.mark.skipif(
     not (torch.cuda.is_available() and _HAS_CUDA_ACTIVATION),
     reason="CUDA SiLU/SwiGLU extension is not available",
@@ -681,3 +688,233 @@ def test_silu_swiglu_cuda_triton_issue_108_harness(candidate, op_name, dtype):
         f"{op_name}/{candidate}/{dtype} failed against gold: "
         f"{report.candidates[0].cases[0].outputs}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Ascend C SwiGLU integration and on-device acceptance
+# ---------------------------------------------------------------------------
+# NPU tests skip only when no NPU is available. On NPU hosts, a missing
+# extension fails these tests instead of silently exercising PyTorch fallback.
+
+
+@pytest.mark.parametrize("symbols", [(), ("swiglu_forward",), ("swiglu_backward",)])
+def test_missing_extension_symbols_raise_actionable_error(monkeypatch, symbols):
+    monkeypatch.setattr(ascend, "_C_npu", SimpleNamespace(**dict.fromkeys(symbols)))
+    with pytest.raises(RuntimeError, match="KERNEL_ALIGN_FORCE_ASCEND=1"):
+        ascend.SwiGLUAscendOp()
+
+
+def test_npu_registry_selects_ascend_and_falls_back_without_extension(monkeypatch):
+    monkeypatch.setattr(device_ctx, "device_type", "npu")
+    symbols = SimpleNamespace(swiglu_forward=object(), swiglu_backward=object())
+    monkeypatch.setattr(ascend, "_C_npu", symbols)
+    assert isinstance(KernelRegistry().get_op("swiglu"), ascend.SwiGLUAscendOp)
+    assert isinstance(KernelRegistry().get_op("swiglu", device="cpu"), NativeSwiGLUOp)
+    monkeypatch.setattr(ascend, "_C_npu", None)
+    assert isinstance(KernelRegistry().get_op("swiglu"), NativeSwiGLUOp)
+
+
+def test_ascend_candidate_is_exposed_to_accuracy_harness():
+    assert OP_SPECS["swiglu"].candidate_paths["ascend"] == OpBackend.ASCEND_SWIGLU.value
+
+
+@pytest.mark.parametrize("method", ["forward", "forward_fp32"])
+def test_ascend_wrapper_rejects_cpu_inputs(monkeypatch, method):
+    monkeypatch.setattr(
+        ascend, "_C_npu", SimpleNamespace(swiglu_forward=object(), swiglu_backward=object())
+    )
+    with pytest.raises(RuntimeError, match="requires NPU tensors"):
+        getattr(ascend.SwiGLUAscendOp(), method)(torch.ones(3), torch.ones(3))
+
+
+@pytest.mark.parametrize("needs_grad", [(True, True), (True, False), (False, True)])
+@pytest.mark.parametrize("fp32_output", [False, True])
+def test_autograd_wrapper_contiguity_and_gradient_routing(monkeypatch, needs_grad, fp32_output):
+    """Exercise the Python autograd boundary; this does not emulate Ascend C."""
+    calls = []
+
+    def forward(gate, up):
+        assert gate.is_contiguous() and up.is_contiguous()
+        calls.append(("forward", gate.dtype))
+        return NativeSwiGLUOp()(gate, up)
+
+    def backward(grad_out, gate, up):
+        assert all(x.is_contiguous() for x in (grad_out, gate, up))
+        calls.append(("backward", grad_out.dtype))
+        g, u, dy = gate.float(), up.float(), grad_out.float()
+        s = torch.sigmoid(g)
+        return ((dy * u) * (s * (1 + g * (1 - s)))).to(gate.dtype), (dy * (g * s)).to(up.dtype)
+
+    monkeypatch.setattr(
+        ascend, "_C_npu", SimpleNamespace(swiglu_forward=forward, swiglu_backward=backward)
+    )
+    # CPU-only test of the wrapper; real device guards are tested separately.
+    monkeypatch.setattr(ascend, "_validate_inputs", lambda gate, up: None)
+    gate = torch.randn(7, 5, dtype=torch.bfloat16).t().requires_grad_(needs_grad[0])
+    up = torch.randn(7, 5, dtype=torch.bfloat16).t().requires_grad_(needs_grad[1])
+    grad_out = torch.randn(7, 5).t()
+    method = "forward_fp32" if fp32_output else "forward"
+    result = getattr(ascend.SwiGLUAscendOp(), method)(gate, up)
+    result.backward(grad_out.to(result.dtype))
+
+    ref_gate = gate.detach().clone().requires_grad_(needs_grad[0])
+    ref_up = up.detach().clone().requires_grad_(needs_grad[1])
+    ref = getattr(NativeSwiGLUOp(), method)(ref_gate, ref_up)
+    ref.backward(grad_out.to(ref.dtype))
+    torch.testing.assert_close(result, ref, rtol=0, atol=0)
+    for actual, expected in ((gate.grad, ref_gate.grad), (up.grad, ref_up.grad)):
+        if expected is None:
+            assert actual is None
+        else:
+            torch.testing.assert_close(actual, expected, rtol=2e-2, atol=2e-2)
+    expected_dtype = torch.float32 if fp32_output else torch.bfloat16
+    assert calls == [("forward", expected_dtype), ("backward", expected_dtype)]
+
+
+@pytest.fixture
+def npu_op():
+    return ascend.SwiGLUAscendOp()
+
+
+def _ascend_dtype_tolerance(dtype):
+    return {
+        torch.float32: (1e-5, 1e-5),
+        torch.float16: (1e-3, 1e-3),
+        torch.bfloat16: (2e-2, 1.6e-2),
+    }[dtype]
+
+
+@requires_npu
+@pytest.mark.parametrize("dtype", _ASCEND_DTYPES)
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (),
+        (0, 17),
+        (1,),
+        (7,),
+        (15,),
+        (31,),
+        (33,),
+        (2047,),
+        (2048,),
+        (2049,),
+        (2, 3, 65),
+        (2, 12288),
+        (65539,),
+    ],
+)
+def test_npu_forward_backward_and_fp32_path(npu_op, dtype, shape):
+    generator = torch.Generator().manual_seed(29)
+    gate_cpu = torch.randn(shape, generator=generator).to(dtype).requires_grad_()
+    up_cpu = torch.randn(shape, generator=generator).to(dtype).requires_grad_()
+    grad_cpu = torch.randn(shape, generator=generator)
+    gate = gate_cpu.detach().to("npu").requires_grad_()
+    up = up_cpu.detach().to("npu").requires_grad_()
+    for method in ("forward", "forward_fp32"):
+        gate.grad = up.grad = gate_cpu.grad = up_cpu.grad = None
+        out = getattr(npu_op, method)(gate, up)
+        ref = getattr(NativeSwiGLUOp(), method)(gate_cpu, up_cpu)
+        assert out.device == gate.device and out.shape == gate.shape
+        assert out.dtype == ref.dtype
+        out.backward(grad_cpu.to(device="npu", dtype=out.dtype))
+        ref.backward(grad_cpu.to(ref.dtype))
+        rtol, atol = _ascend_dtype_tolerance(out.dtype)
+        torch.testing.assert_close(out.cpu(), ref, rtol=rtol, atol=atol)
+        rtol, atol = _ascend_dtype_tolerance(dtype)
+        torch.testing.assert_close(gate.grad.cpu(), gate_cpu.grad, rtol=rtol, atol=atol)
+        torch.testing.assert_close(up.grad.cpu(), up_cpu.grad, rtol=rtol, atol=atol)
+    torch.testing.assert_close(gate.detach().cpu(), gate_cpu.detach(), rtol=0, atol=0)
+    torch.testing.assert_close(up.detach().cpu(), up_cpu.detach(), rtol=0, atol=0)
+
+
+@requires_npu
+@pytest.mark.parametrize("dtype", _ASCEND_DTYPES)
+def test_npu_strided_inputs_and_upstream_gradient(npu_op, dtype):
+    # Chunked gate/up projections and a transposed upstream gradient.
+    packed = torch.randn(5, 66, dtype=dtype, device="npu", requires_grad=True)
+    gate, up = packed.chunk(2, dim=-1)
+    assert not gate.is_contiguous() and not up.is_contiguous()
+    dy = torch.randn(33, 5, dtype=dtype, device="npu").t()
+    result = npu_op(gate, up)
+    result.backward(dy)
+    ref_packed = packed.detach().cpu().requires_grad_()
+    ref = NativeSwiGLUOp()(*ref_packed.chunk(2, dim=-1))
+    ref.backward(dy.cpu())
+    rtol, atol = _ascend_dtype_tolerance(dtype)
+    torch.testing.assert_close(result.cpu(), ref, rtol=rtol, atol=atol)
+    torch.testing.assert_close(packed.grad.cpu(), ref_packed.grad, rtol=rtol, atol=atol)
+
+
+@requires_npu
+@pytest.mark.parametrize("dtype", _ASCEND_DTYPES)
+def test_npu_batch_position_and_repeat_invariance(npu_op, dtype):
+    gate = torch.randn(33, dtype=dtype, device="npu")
+    up = torch.randn_like(gate)
+    dy = torch.randn_like(gate)
+
+    def evaluate(g, u, grad):
+        g = g.detach().requires_grad_()
+        u = u.detach().requires_grad_()
+        out = npu_op(g, u)
+        return (out.detach(), *torch.autograd.grad(out, (g, u), grad))
+
+    expected = evaluate(gate, up, dy)
+    for rows, position in ((1, 0), (7, 3), (65, 64), (65, 64)):
+        g = torch.randn(rows, 33, dtype=dtype, device="npu")
+        u, grad = torch.randn_like(g), torch.randn_like(g)
+        g[position], u[position], grad[position] = gate, up, dy
+        actual = evaluate(g, u, grad)
+        for a, e in zip(actual, expected):
+            assert torch.equal(a[position], e)
+
+
+@requires_npu
+def test_npu_input_validation_and_native_boundary(npu_op):
+    x = torch.ones(7, device="npu")
+    with pytest.raises(ValueError, match="share shape"):
+        npu_op(x, x[:3])
+    with pytest.raises(TypeError, match="share dtype"):
+        npu_op(x, x.half())
+    with pytest.raises(TypeError, match="fp16, bf16, or fp32"):
+        npu_op(x.int(), x.int())
+    with pytest.raises(RuntimeError, match="contiguous"):
+        ascend._C_npu.swiglu_forward(x[::2], x[::2])
+    with pytest.raises(RuntimeError, match="share shape"):
+        ascend._C_npu.swiglu_backward(x[:3], x, x)
+    with pytest.raises(RuntimeError, match="share dtype"):
+        ascend._C_npu.swiglu_backward(x.half(), x, x)
+
+
+@requires_npu
+def test_npu_current_stream_ordering(npu_op):
+    stream = torch.npu.Stream()
+    with torch.npu.stream(stream):
+        gate = torch.randn(4099, device="npu").mul_(2).requires_grad_()
+        up = torch.randn_like(gate).requires_grad_()
+        dy = torch.randn_like(gate)
+        actual = npu_op(gate, up)
+        grads = torch.autograd.grad(actual, (gate, up), dy)
+        expected = NativeSwiGLUOp()(gate, up)
+        ref_grads = torch.autograd.grad(expected, (gate, up), dy)
+    stream.synchronize()
+    for actual_tensor, expected_tensor in zip((actual, *grads), (expected, *ref_grads)):
+        torch.testing.assert_close(actual_tensor, expected_tensor, rtol=1e-5, atol=1e-5)
+
+
+@requires_npu
+def test_npu_device_guard_and_cross_device_rejection(npu_op):
+    if torch.npu.device_count() < 2:
+        pytest.skip("Two NPUs required")
+    with torch.npu.device(0):
+        gate = torch.randn(33, device="npu:1", requires_grad=True)
+        up = torch.randn_like(gate, requires_grad=True)
+        out = npu_op(gate, up)
+        out.sum().backward()
+        assert torch.npu.current_device() == 0
+        assert out.device == gate.device == gate.grad.device == up.grad.device
+        torch.testing.assert_close(out, NativeSwiGLUOp()(gate, up), rtol=1e-5, atol=1e-5)
+        with pytest.raises(RuntimeError, match="same NPU device"):
+            npu_op(gate, up.to("npu:0"))
+        with pytest.raises(RuntimeError, match="same NPU device"):
+            ascend._C_npu.swiglu_forward(gate, up.to("npu:0"))

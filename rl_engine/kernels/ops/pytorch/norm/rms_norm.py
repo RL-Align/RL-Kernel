@@ -76,6 +76,28 @@ def strict_add_rms_norm(
     return _strict_add_rms_norm(x, residual, weight, eps)
 
 
+
+
+def shape_invariant_rstd(x_f: torch.Tensor, eps: float) -> torch.Tensor:
+    """Shape-invariant per-row rstd (the shared RMSNorm statistic).
+
+    torch mean/sum select shape-dependent reduction kernels on NPU and flip
+    single-ULP results between batch layouts (e.g. [1,7,H] vs [1,20,H]),
+    which breaks the chunked-vs-full model invariance. This reduction sums
+    in FIXED 32-wide chunks first, so the intermediate shapes -- and hence
+    the reduction kernels -- never depend on the batch layout, and the
+    result is bitwise identical for every layout on every device.
+    """
+    hidden = x_f.shape[-1]
+    if hidden % 32 != 0:
+        var = x_f.pow(2).mean(dim=-1)
+        return torch.rsqrt(var + float(eps))
+    sq = x_f.pow(2).reshape(*x_f.shape[:-1], -1, 32)
+    partial = sq.sum(dim=-1)      # [*, C] — fixed 32-wide chunks
+    sumsq = partial.sum(dim=-1)   # [*lead]
+    var = sumsq / float(hidden)
+    return torch.rsqrt(var + float(eps))
+
 class NativeRMSNormOp:
     """
     Pure Pytorch native RMSNorm reference
@@ -134,7 +156,7 @@ class NativeRMSNormOp:
                 f"got tuple(weight.shape)={tuple(weight.shape)}"
             )
         x_f = x.float()
-        var = x_f.pow(2).mean(dim=-1, keepdim=True)
-        normed = x_f * torch.rsqrt(var + eps)
+        rstd = shape_invariant_rstd(x_f, float(eps)).unsqueeze(-1)
+        normed = x_f * rstd
         out = normed * weight.float()
         return out.to(output_dtype)

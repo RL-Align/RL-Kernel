@@ -20,6 +20,15 @@ std::vector<torch::Tensor> deterministic_attention_ascend_forward(
     torch::Tensor v,
     bool causal,
     double scale,
+    c10::optional<torch::Tensor> key_padding_mask,
+    bool outFp32 = false);
+std::vector<torch::Tensor> deterministic_attention_backward_ascend(
+    torch::Tensor grad_out,
+    torch::Tensor q,
+    torch::Tensor k,
+    torch::Tensor v,
+    bool causal,
+    double scale,
     c10::optional<torch::Tensor> key_padding_mask);
 
 torch::Tensor prefix_shared_attention_ascend_forward(
@@ -31,6 +40,32 @@ torch::Tensor embedding_ascend_forward(torch::Tensor token_ids,
 
 torch::Tensor fused_logp_ascend_forward(torch::Tensor logits,
                                         torch::Tensor target);
+
+torch::Tensor lm_head_ascend_forward(torch::Tensor hidden,
+                                     torch::Tensor weight,
+                                     torch::optional<torch::Tensor> bias,
+                                     bool output_fp32);
+
+torch::Tensor det_gemm_rowwise_ascend_fwd_fp32(torch::Tensor a, torch::Tensor b);
+
+torch::Tensor fused_linear_logp_ascend_forward(torch::Tensor hidden,
+                                               torch::Tensor weight,
+                                               torch::optional<torch::Tensor> bias,
+                                               torch::Tensor target);
+
+torch::Tensor swiglu_ascend_forward(torch::Tensor gate, torch::Tensor up);
+std::vector<torch::Tensor> swiglu_ascend_backward(
+    torch::Tensor grad, torch::Tensor gate, torch::Tensor up);
+
+torch::Tensor silu_ascend_forward(torch::Tensor x);
+torch::Tensor silu_ascend_backward(torch::Tensor grad, torch::Tensor x);
+
+torch::Tensor det_gemm_ascend_fwd(torch::Tensor a, torch::Tensor b);
+torch::Tensor det_gemm_ascend_fwd_rhs_transposed(torch::Tensor a, torch::Tensor bt);
+torch::Tensor det_gemm_ascend_fwd_fp32(torch::Tensor a, torch::Tensor b);
+torch::Tensor det_gemm_ascend_da(torch::Tensor dc, torch::Tensor b);
+torch::Tensor det_gemm_ascend_db(torch::Tensor a, torch::Tensor dc);
+torch::Tensor det_gemm_ascend_db_transposed(torch::Tensor a, torch::Tensor dc);
 
 torch::Tensor rmsnorm_ascend_forward(torch::Tensor x,
                                      torch::Tensor weight,
@@ -53,7 +88,24 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
           "GPT-NeoX/HF rotate-half RoPE apply (Ascend C forward/backward primitive)");
     m.def("deterministic_attention_ascend",
           &deterministic_attention_ascend_forward,
+          py::arg("q"),
+          py::arg("k"),
+          py::arg("v"),
+          py::arg("causal"),
+          py::arg("scale"),
+          py::arg("key_padding_mask") = py::none(),
+          py::arg("outFp32") = false,
           "Deterministic batch-invariant standard-softmax attention (Ascend C forward)");
+    m.def("deterministic_attention_backward_ascend",
+          &deterministic_attention_backward_ascend,
+          py::arg("grad_out"),
+          py::arg("q"),
+          py::arg("k"),
+          py::arg("v"),
+          py::arg("causal"),
+          py::arg("scale"),
+          py::arg("key_padding_mask") = py::none(),
+          "Deterministic batch-invariant standard-softmax attention backward (Ascend C)");
     m.def("prefix_shared_attention_ascend",
           &prefix_shared_attention_ascend_forward,
           "Prefix-shared fused attention (Ascend C forward)");
@@ -78,4 +130,35 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
     m.def("fused_logp_ascend",
           &fused_logp_ascend_forward,
           "Batch-invariant fused selected-token log-probability (Ascend C forward)");
+    m.def("lm_head_ascend",
+          &lm_head_ascend_forward,
+          "Batch-invariant LM-head projection (Ascend C forward)");
+    m.def("fused_linear_logp_ascend",
+          &fused_linear_logp_ascend_forward,
+          "Batch-invariant fused linear log-probability (Ascend C forward)");
+    m.def("swiglu_forward", &swiglu_ascend_forward, "SwiGLU forward (Ascend C)");
+    m.def("swiglu_backward", &swiglu_ascend_backward, "SwiGLU backward (Ascend C)");
+    m.def("silu_forward", &silu_ascend_forward, "SiLU forward (Ascend C)");
+    m.def("silu_backward", &silu_ascend_backward, "SiLU backward (Ascend C)");
+    m.def("det_gemm_rowwise_ascend_fwd_fp32",
+          &det_gemm_rowwise_ascend_fwd_fp32,
+          "Rowwise FP32-accumulation deterministic GEMM (Ascend C)");
+    m.def("det_gemm_ascend_fwd",
+          &det_gemm_ascend_fwd,
+          "Batch-invariant deterministic GEMM (Ascend C forward, bf16)");
+    m.def("det_gemm_ascend_fwd_rhs_transposed",
+          &det_gemm_ascend_fwd_rhs_transposed,
+          "Batch-invariant deterministic GEMM with physical [N,K] rhs (Ascend C)");
+    m.def("det_gemm_ascend_fwd_fp32",
+          &det_gemm_ascend_fwd_fp32,
+          "Batch-invariant deterministic GEMM with FP32 output (Ascend C)");
+    m.def("det_gemm_ascend_da",
+          &det_gemm_ascend_da,
+          "Batch-invariant deterministic GEMM input gradient dA = dC @ B^T (Ascend C)");
+    m.def("det_gemm_ascend_db",
+          &det_gemm_ascend_db,
+          "Batch-invariant deterministic GEMM weight gradient dB = A^T @ dC (Ascend C)");
+    m.def("det_gemm_ascend_db_transposed",
+          &det_gemm_ascend_db_transposed,
+          "Batch-invariant deterministic GEMM weight gradient born [N,K] (Ascend C)");
 }

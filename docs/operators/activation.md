@@ -2,7 +2,7 @@
 
 The activation operators are the element-wise core of the Qwen3/Llama gated MLP. They
 implement the WS1 dual-path contract (issue #108): pure-PyTorch fp32 ground truth, plus
-CUDA and Triton candidates that validate against it.
+CUDA, Triton and Ascend C candidates that validate against it.
 
 - **SiLU** (`NativeSiLUOp` / `SiLUCudaOp` / `TritonSiLUOp`): `silu(x) = x * sigmoid(x)` —
   the `hidden_act="silu"` gate.
@@ -44,6 +44,7 @@ All backends expose the WS1 dual-path contract:
 | PyTorch fallback | `NativeSiLUOp` / `NativeSwiGLUOp` | None | fp32 ground-truth reference; CPU and any GPU. |
 | CUDA | `SiLUCudaOp` / `SwiGLUCudaOp` | `_C.silu_*` / `_C.swiglu_*` | General CUDA (fp16/bf16/fp32); math in fp32. |
 | Triton | `TritonSiLUOp` / `TritonSwiGLUOp` | Triton JIT | Portable GPU baseline; same fp32 math contract. |
+| Ascend C | `SiLUAscendOp` / `SwiGLUAscendOp` | `_C_npu.silu_*` / `_C_npu.swiglu_*` | NPU forward and backward; fp16/bf16/fp32 inputs, FP32 math. |
 
 ## Tensor Contract
 
@@ -67,9 +68,64 @@ mutation, device/dtype follow the inputs.
 | `cuda` | CUDA → Triton → PyTorch native |
 | `rocm` | Triton → PyTorch native |
 | `cpu` | PyTorch native |
+| `npu` | Ascend C → PyTorch native |
 
 If the CUDA extension is not built (or symbols are missing), the registry falls back to
 Triton, then to the native gold.
+
+On NPU, a missing Ascend extension or missing SiLU/SwiGLU symbols causes the registry
+to select PyTorch native. Construct `SiLUAscendOp` / `SwiGLUAscendOp` directly when the
+Ascend C kernel is required; the constructors raise if a native symbol is missing.
+
+Both NPU kernels share one tile geometry (`TILE_LENGTH = 2048`, `MAX_BLOCKS = 32`) and
+the same FP32 `1 / (1 + exp(-x))` sequence, so `silu(x)` is bitwise equal to
+`swiglu(x, ones)` on this hardware. Each element is evaluated by a fixed expression
+independent of tensor size and of the launched block count, which is what makes the
+op batch-invariant for the WS1 `ascend_bf16` profile (`silu` is a required C2 chain
+node, so the profile needs its own kernel rather than a SwiGLU with a unit operand).
+
+## Ascend C Build and Validation
+
+On a Linux Ascend host with matching PyTorch, `torch_npu` and CANN installed, source
+the CANN environment and build the existing NPU extension:
+
+```bash
+source /usr/local/Ascend/ascend-toolkit/set_env.sh
+KERNEL_ALIGN_FORCE_ASCEND=1 KERNEL_ALIGN_ASCEND_ARCH=dav-2201 \
+  python -m pip install --no-build-isolation -e .
+python -m pytest tests/test_swiglu.py -v
+python scripts/check_operator.py --op swiglu --candidate ascend --dtype bf16 --device npu --check-grad
+```
+
+The kernel uses the A2/A3 vector programming model (`dav-2201`). Other architectures
+require separate build and device validation. `setup.py` automatically includes all
+`csrc/ascend/*.asc` files; `bindings.asc` defines the shared `_C_npu` module entry.
+
+```python
+import torch
+import torch_npu
+from rl_engine.kernels.registry import kernel_registry
+
+swiglu = kernel_registry.get_op("swiglu", device="npu")
+gate = torch.randn(2, 12288, device="npu", dtype=torch.bfloat16, requires_grad=True)
+up = torch.randn_like(gate, requires_grad=True)
+out = swiglu(gate, up)
+out.float().sum().backward()
+```
+
+The wrapper accepts scalars, empty tensors and strided views. It makes inputs and
+upstream gradients contiguous before invoking the kernels. Both kernels use fixed
+2048-element tiles, bounded UB storage, FP32 intermediates and a single output cast.
+FP32-to-FP16/BF16 uses ties-to-even rounding (`CAST_RINT`), as specified by the
+[Ascend C Cast API](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/81RC1alpha002/apiref/ascendcopapi/atlasascendc_api_07_0073.html).
+`forward_fp32` returns FP32 while retaining gradients to the original inputs.
+Only first-order autograd is supported by this backend.
+
+The tests cover dtype accuracy, both input gradients, tails, multiple tiles,
+noncontiguous views, input validation, batch-position invariance, stream ordering
+and multiple devices. CPU runs check Python integration and skip hardware tests;
+on an NPU host a missing extension fails the hardware tests. Hardware compilation,
+numerical acceptance and performance must be validated on the target NPU.
 
 ## Accuracy
 
@@ -125,10 +181,15 @@ native forward+backward, registry dispatch, and the issue-#108 `OP_SPECS` harnes
 - `rl_engine/kernels/ops/pytorch/activation/swiglu.py` — gold
 - `rl_engine/kernels/ops/cuda/activation/swiglu.py` — CUDA wrappers
 - `rl_engine/kernels/ops/triton/activation/swiglu.py` — Triton kernels
+- `rl_engine/kernels/ops/ascend/activation/swiglu.py` — Ascend SwiGLU autograd wrapper
+- `rl_engine/kernels/ops/ascend/activation/silu.py` — Ascend SiLU autograd wrapper
+- `csrc/ascend/activation.asc` — Ascend C SiLU + SwiGLU forward/backward kernels
+- `csrc/ascend/bindings.asc` — shared NPU extension bindings
 - `csrc/cuda/activation.cu` — CUDA kernels
 - `rl_engine/kernels/registry.py`
 - `rl_engine/kernels/gtest/operator_specs.py`
 - `tests/test_swiglu.py`
+- `tests/test_silu_ascend.py`
 
 ## Known Limitations
 
