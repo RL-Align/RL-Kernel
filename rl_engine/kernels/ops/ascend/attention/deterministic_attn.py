@@ -75,6 +75,59 @@ class _DeterministicAttentionAscendFn(Function):
         # VJP of the fp32 reference forward: the Ascend C forward accumulates in
         # fp32 (like the CUDA deterministic op), so the backward must match the
         # fp32 golden path, not the low-precision dtype path.
+        #
+        # The VJP runs on the LOGICALLY COMPACTED tokens: left/right padding
+        # shifts the valid values inside the torch softmax/matmul reduction
+        # trees and flips ULPs in the gradients (verified: dq/dk/dv drift up
+        # to 7.0 between pad sides for identical logical tokens), which the
+        # model-level gradient invariance then amplifies. Compacting the valid
+        # tokens first makes the VJP's reductions padding-invariant; the
+        # padded positions get zero grads on the scatter-back.
+        if ctx.has_mask:
+            valid = mask
+            counts = valid.sum(dim=1)  # [B]
+            # Compact to a FIXED width (the full sequence length) so the VJP
+            # runs on the same shapes for every cell -- the torch reductions
+            # inside the reference VJP are also shape-dependent on NPU, and a
+            # per-cell max count would reintroduce the row-count dependence.
+            B, Hq, S, D = q.shape
+            width = S
+            Hkv = k.shape[1]
+            q_c = torch.zeros(B, Hq, width, D, dtype=q.dtype, device=q.device)
+            k_c = torch.zeros(B, Hkv, width, D, dtype=k.dtype, device=k.device)
+            v_c = torch.zeros(B, Hkv, width, D, dtype=v.dtype, device=v.device)
+            g_c = torch.zeros(B, Hq, width, D, dtype=grad_out.dtype, device=grad_out.device)
+            for b in range(B):
+                idx = valid[b].nonzero().flatten()
+                c = int(counts[b].item())
+                q_c[b, :, :c] = q[b, :, idx]
+                k_c[b, :, :c] = k[b, :, idx]
+                v_c[b, :, :c] = v[b, :, idx]
+                g_c[b, :, :c] = grad_out[b, :, idx]
+            with torch.enable_grad():
+                q_ref = q_c.detach().requires_grad_(True)
+                k_ref = k_c.detach().requires_grad_(True)
+                v_ref = v_c.detach().requires_grad_(True)
+                out = NativeAttentionOp().forward_fp32(
+                    q_ref,
+                    k_ref,
+                    v_ref,
+                    causal=ctx.causal,
+                    scale=ctx.scale,
+                    key_padding_mask=None,
+                )
+            dq_c, dk_c, dv_c = torch.autograd.grad(out, (q_ref, k_ref, v_ref), g_c)
+            dq = torch.zeros_like(q)
+            dk = torch.zeros_like(k)
+            dv = torch.zeros_like(v)
+            for b in range(B):
+                idx = valid[b].nonzero().flatten()
+                c = int(counts[b].item())
+                dq[b, :, idx] = dq_c[b, :, :c]
+                dk[b, :, idx] = dk_c[b, :, :c]
+                dv[b, :, idx] = dv_c[b, :, :c]
+            return dq, dk, dv, None, None, None, None
+
         with torch.enable_grad():
             q_ref = q.detach().requires_grad_(True)
             k_ref = k.detach().requires_grad_(True)
@@ -85,7 +138,7 @@ class _DeterministicAttentionAscendFn(Function):
                 v_ref,
                 causal=ctx.causal,
                 scale=ctx.scale,
-                key_padding_mask=mask if ctx.has_mask else None,
+                key_padding_mask=None,
             )
         dq, dk, dv = torch.autograd.grad(out, (q_ref, k_ref, v_ref), grad_out)
         return dq, dk, dv, None, None, None, None
