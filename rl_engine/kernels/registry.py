@@ -106,6 +106,20 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
 
     # Variable-length packing (pack-and-pad), [B,S,...] -> [Total_Active,...]
     PYTORCH_PACK = "rl_engine.kernels.ops.pytorch.packing.pack.NativePackOp"
+    PYTORCH_LATENT_PACK = (
+        "rl_engine.kernels.ops.pytorch.packing.latent_pack_unpack.NativeLatentPackOp"
+    )
+    PYTORCH_LATENT_UNPACK = (
+        "rl_engine.kernels.ops.pytorch.packing.latent_pack_unpack.NativeLatentUnpackOp"
+    )
+    CUDA_LATENT_PACK = "rl_engine.kernels.ops.cuda.packing.latent_pack_unpack.CudaLatentPackOp"
+    CUDA_LATENT_UNPACK = "rl_engine.kernels.ops.cuda.packing.latent_pack_unpack.CudaLatentUnpackOp"
+    TRITON_LATENT_PACK = (
+        "rl_engine.kernels.ops.triton.packing.latent_pack_unpack.TritonLatentPackOp"
+    )
+    TRITON_LATENT_UNPACK = (
+        "rl_engine.kernels.ops.triton.packing.latent_pack_unpack.TritonLatentUnpackOp"
+    )
     # Batch-invariant deterministic GEMM (WS1 #146)
     CUDA_DET_GEMM = "rl_engine.kernels.ops.cuda.matmul.det_gemm.DetGemmOp"
     TRITON_DET_GEMM = "rl_engine.kernels.ops.triton.matmul.det_gemm.TritonDetGemmOp"
@@ -709,6 +723,14 @@ class KernelRegistry:
                 ],
             },
         }
+        for platform, ops in self._priority_map.items():
+            for direction in ("PACK", "UNPACK"):
+                backends = [OpBackend[f"PYTORCH_LATENT_{direction}"]]
+                if platform in ("cuda", "rocm"):
+                    backends.insert(0, OpBackend[f"TRITON_LATENT_{direction}"])
+                if platform == "cuda":
+                    backends.insert(0, OpBackend[f"CUDA_LATENT_{direction}"])
+                ops[f"latent_{direction.lower()}"] = backends
         # Preserve the former CPU fallback behavior for every operator on NPU,
         # then override only the operators with an Ascend-specific backend.
         self._priority_map["npu"] = {
