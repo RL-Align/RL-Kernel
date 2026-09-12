@@ -405,9 +405,7 @@ def _rocm_paged_kv_max_tokens() -> int | None:
     try:
         limit = int(value)
     except ValueError as exc:
-        raise RuntimeError(
-            "RL_KERNEL_ROCM_PAGED_KV_MAX_TOKENS must be an integer"
-        ) from exc
+        raise RuntimeError("RL_KERNEL_ROCM_PAGED_KV_MAX_TOKENS must be an integer") from exc
     if limit <= 0:
         raise RuntimeError("RL_KERNEL_ROCM_PAGED_KV_MAX_TOKENS must be positive")
     return limit
@@ -1043,9 +1041,7 @@ class VllmAttentionOperator:
                 "context_parallel_size": 1,
             },
         )
-        runtime = bound.bind_accelerator_runtime(
-            torch.empty((1,), device=device, dtype=dtype)
-        )
+        runtime = bound.bind_accelerator_runtime(torch.empty((1,), device=device, dtype=dtype))
         page_size = 16
         core = getattr(runtime, "_core", None)
         if getattr(core, "attention_backend", "ck") == "triton":
@@ -1127,9 +1123,7 @@ class VllmAttentionOperator:
             },
         }
 
-    def _record_phase_provenance(
-        self, phase: str, provenance: dict[str, Any]
-    ) -> None:
+    def _record_phase_provenance(self, phase: str, provenance: dict[str, Any]) -> None:
         self._last_provenance = provenance
         self._phase_provenance[phase] = provenance
 
@@ -1231,9 +1225,10 @@ class VllmAttentionOperator:
         )
         if starts[0] != 0 or starts[-1] != num_actual:
             return None
-        if any(end <= start or end - start != length for start, end, length in zip(
-            starts[:-1], starts[1:], lengths, strict=True
-        )):
+        if any(
+            end <= start or end - start != length
+            for start, end, length in zip(starts[:-1], starts[1:], lengths, strict=True)
+        ):
             return None
 
         output_heads = output.view(output.size(0), impl.num_heads, impl.head_size)
@@ -1281,19 +1276,22 @@ class VllmAttentionOperator:
             output_group.copy_(result_output)
         if num_actual < output.size(0):
             output[num_actual:].zero_()
-        self._record_phase_provenance("prefill", {
-            "framework_layout": "vllm_dense_qkv_prefill",
-            "materialization": "direct_dense_qkv_to_aiter_ck",
-            "tp_world_size": tp_world,
-            "runtime_platform": "rocm",
-            "triton_used": True,
-            "prefill_request_count": num_prefills,
-            "prefill_token_count": num_actual,
-            "core_launch_count": num_prefills,
-            "deterministic_projection": _strict_attention_projection_provenance("rocm"),
-            "deterministic_all_reduce_backend": "unbound" if tp_world > 1 else "none",
-            "direct_output_buffer": True,
-        })
+        self._record_phase_provenance(
+            "prefill",
+            {
+                "framework_layout": "vllm_dense_qkv_prefill",
+                "materialization": "direct_dense_qkv_to_aiter_ck",
+                "tp_world_size": tp_world,
+                "runtime_platform": "rocm",
+                "triton_used": True,
+                "prefill_request_count": num_prefills,
+                "prefill_token_count": num_actual,
+                "core_launch_count": num_prefills,
+                "deterministic_projection": _strict_attention_projection_provenance("rocm"),
+                "deterministic_all_reduce_backend": "unbound" if tp_world > 1 else "none",
+                "direct_output_buffer": True,
+            },
+        )
         return output
 
     def _rocm_direct_paged_metadata(
@@ -1366,14 +1364,10 @@ class VllmAttentionOperator:
             return None
         query_starts_source = query_start_loc
         seq_lens_source = self._metadata_tensor(attn_metadata, "seq_lens")
-        max_seq_len = int(
-            getattr(attn_metadata, "max_seq_len", block_table.size(1) * block_size)
-        )
+        max_seq_len = int(getattr(attn_metadata, "max_seq_len", block_table.size(1) * block_size))
         configured_kv_limit = _rocm_paged_kv_max_tokens()
         kernel_max_seqlen_k = (
-            max_seq_len
-            if configured_kv_limit is None
-            else min(max_seq_len, configured_kv_limit)
+            max_seq_len if configured_kv_limit is None else min(max_seq_len, configured_kv_limit)
         )
         page_count = min(
             block_table.size(1),
@@ -1401,9 +1395,7 @@ class VllmAttentionOperator:
             self._rocm_paged_metadata_owners.add(owner_id)
             return self._rocm_paged_metadata_value, True
 
-        query_start_loc = query_starts_source.to(
-            device=block_table.device, dtype=torch.int32
-        )
+        query_start_loc = query_starts_source.to(device=block_table.device, dtype=torch.int32)
         if not query_start_loc.is_contiguous():
             query_start_loc = query_start_loc.contiguous()
         seq_lens = seq_lens_source.to(device=block_table.device, dtype=torch.int32)
@@ -1424,28 +1416,22 @@ class VllmAttentionOperator:
                 )
             else:
                 tokens = torch.arange(num_actual, dtype=torch.int32, device=block_table.device)
-                seq_of_token = torch.searchsorted(
-                    query_start_loc[1:], tokens, right=True
-                ).to(torch.int32)
+                seq_of_token = torch.searchsorted(query_start_loc[1:], tokens, right=True).to(
+                    torch.int32
+                )
         elif mode == "decode":
             query_starts = query_start_loc[: sequence_count + 1]
             query_ends = query_starts[1:]
-            query_indices = torch.arange(
-                num_actual, dtype=torch.int32, device=block_table.device
+            query_indices = torch.arange(num_actual, dtype=torch.int32, device=block_table.device)
+            request_indices = torch.searchsorted(query_ends, query_indices, right=True).to(
+                dtype=torch.long
             )
-            request_indices = torch.searchsorted(
-                query_ends, query_indices, right=True
-            ).to(dtype=torch.long)
             request_indices = request_indices.clamp_max(sequence_count - 1)
             request_query_ends = query_ends.index_select(0, request_indices)
             request_seq_lens = seq_lens.index_select(0, request_indices)
             active_queries = query_indices < query_starts[-1]
-            seqused_k = request_seq_lens - (
-                request_query_ends - query_indices
-            ) + 1
-            seqused_k = torch.where(
-                active_queries, seqused_k, torch.ones_like(seqused_k)
-            )
+            seqused_k = request_seq_lens - (request_query_ends - query_indices) + 1
+            seqused_k = torch.where(active_queries, seqused_k, torch.ones_like(seqused_k))
             pages = block_table.index_select(0, request_indices)[:, :page_count]
             query_start_loc = torch.arange(
                 num_actual + 1, dtype=torch.int32, device=block_table.device
@@ -1481,9 +1467,7 @@ class VllmAttentionOperator:
         # Reuse the row's first live page so masked loads see initialized KV.
         safe_page = torch.where(active_rows, pages[:, 0], torch.zeros_like(seqused_k))
         columns = torch.arange(page_count, dtype=torch.int32, device=pages.device)
-        live_columns = active_rows[:, None] & (
-            columns[None, :] * block_size < seqused_k[:, None]
-        )
+        live_columns = active_rows[:, None] & (columns[None, :] * block_size < seqused_k[:, None])
         pages = torch.where(live_columns, pages, safe_page[:, None])
         tile_pages = max(1, 128 // block_size)
         guard_columns = (-page_count) % tile_pages
@@ -1499,11 +1483,14 @@ class VllmAttentionOperator:
         )
         kv_indptr = self._rocm_kv_indptr_cache.get(indptr_key)
         if kv_indptr is None:
-            kv_indptr = torch.arange(
-                sequence_count + 1,
-                dtype=torch.int32,
-                device=block_table.device,
-            ) * page_count
+            kv_indptr = (
+                torch.arange(
+                    sequence_count + 1,
+                    dtype=torch.int32,
+                    device=block_table.device,
+                )
+                * page_count
+            )
             self._rocm_kv_indptr_cache[indptr_key] = kv_indptr
         value = {
             "mode": mode,
@@ -1588,29 +1575,30 @@ class VllmAttentionOperator:
         if tp_world > 1:
             projection_collective_backend = "unbound"
             if self._projection_collective_backend is not None:
-                projection_collective_backend = (
-                    self._projection_collective_backend() or "unbound"
-                )
-        self._record_phase_provenance(metadata["mode"], {
-            "framework_layout": "vllm_paged_kv",
-            "materialization": "direct_vllm_paged_kv_to_aiter_batch_prefill_ck",
-            "dense_kv_materialized": False,
-            "tp_world_size": tp_world,
-            "runtime_platform": "rocm",
-            "triton_used": True,
-            "attention_phase": metadata["mode"],
-            "sequence_count": metadata["sequence_count"],
-            "query_token_count": num_actual,
-            "max_seqlen_k": metadata["max_seqlen_k"],
-            "configured_kv_limit": metadata["configured_kv_limit"],
-            "launch_group_count": 1,
-            "metadata_source": "vllm_gpu_sequence_level",
-            "metadata_reused_across_layers": reused,
-            "deterministic_projection": _strict_attention_projection_provenance("rocm"),
-            "deterministic_all_reduce_backend": projection_collective_backend,
-            "direct_output_buffer": True,
-            "operator": operator_provenance,
-        })
+                projection_collective_backend = self._projection_collective_backend() or "unbound"
+        self._record_phase_provenance(
+            metadata["mode"],
+            {
+                "framework_layout": "vllm_paged_kv",
+                "materialization": "direct_vllm_paged_kv_to_aiter_batch_prefill_ck",
+                "dense_kv_materialized": False,
+                "tp_world_size": tp_world,
+                "runtime_platform": "rocm",
+                "triton_used": True,
+                "attention_phase": metadata["mode"],
+                "sequence_count": metadata["sequence_count"],
+                "query_token_count": num_actual,
+                "max_seqlen_k": metadata["max_seqlen_k"],
+                "configured_kv_limit": metadata["configured_kv_limit"],
+                "launch_group_count": 1,
+                "metadata_source": "vllm_gpu_sequence_level",
+                "metadata_reused_across_layers": reused,
+                "deterministic_projection": _strict_attention_projection_provenance("rocm"),
+                "deterministic_all_reduce_backend": projection_collective_backend,
+                "direct_output_buffer": True,
+                "operator": operator_provenance,
+            },
+        )
         return output
 
     def _materialization_groups(
@@ -1697,9 +1685,7 @@ class VllmAttentionOperator:
             .to(dtype=torch.int32)
             .contiguous()
         )
-        cu_seqlens_q = torch.arange(
-            num_actual + 1, dtype=torch.int32, device=query.device
-        )
+        cu_seqlens_q = torch.arange(num_actual + 1, dtype=torch.int32, device=query.device)
         kv_indptr = cu_seqlens_q * page_count
         groups = [
             {
@@ -1800,9 +1786,7 @@ class VllmAttentionOperator:
             candidate_factory = getattr(runtime, "new_page_bounds_epoch", None)
             if callable(candidate_factory):
                 page_bounds_epoch_factory = candidate_factory
-        block_table = self._metadata_tensor(
-            attn_metadata, "block_table", "block_table_tensor"
-        )
+        block_table = self._metadata_tensor(attn_metadata, "block_table", "block_table_tensor")
         key_cache, value_cache = _vllm_kv_cache_views(
             kv_cache,
             head_size=int(impl.head_size),
@@ -1918,32 +1902,31 @@ class VllmAttentionOperator:
         if runtime_platform == "rocm" and tp_world > 1:
             projection_collective_backend = "unbound"
             if self._projection_collective_backend is not None:
-                projection_collective_backend = (
-                    self._projection_collective_backend() or "unbound"
-                )
-        phase = (
-            "decode"
-            if int(getattr(attn_metadata, "num_decodes", 0)) > 0
-            else "prefill"
+                projection_collective_backend = self._projection_collective_backend() or "unbound"
+        phase = "decode" if int(getattr(attn_metadata, "num_decodes", 0)) > 0 else "prefill"
+        self._record_phase_provenance(
+            phase,
+            {
+                "framework_layout": "vllm_paged_kv",
+                "materialization": (
+                    "direct_vllm_paged_kv_to_aiter_batch_prefill_ck"
+                    if runtime_platform == "rocm"
+                    else "direct_paged_fa4"
+                ),
+                "dense_kv_materialized": False,
+                "tp_world_size": tp_world,
+                "tp_group_bound": tp_group is not None,
+                "runtime_platform": runtime_platform,
+                "triton_used": runtime_platform == "rocm",
+                "deterministic_projection": _strict_attention_projection_provenance(
+                    runtime_platform
+                ),
+                "deterministic_all_reduce_backend": projection_collective_backend,
+                "direct_output_buffer": direct_output_buffer,
+                **metadata_summary,
+                "operator": last_operator_provenance,
+            },
         )
-        self._record_phase_provenance(phase, {
-            "framework_layout": "vllm_paged_kv",
-            "materialization": (
-                "direct_vllm_paged_kv_to_aiter_batch_prefill_ck"
-                if runtime_platform == "rocm"
-                else "direct_paged_fa4"
-            ),
-            "dense_kv_materialized": False,
-            "tp_world_size": tp_world,
-            "tp_group_bound": tp_group is not None,
-            "runtime_platform": runtime_platform,
-            "triton_used": runtime_platform == "rocm",
-            "deterministic_projection": _strict_attention_projection_provenance(runtime_platform),
-            "deterministic_all_reduce_backend": projection_collective_backend,
-            "direct_output_buffer": direct_output_buffer,
-            **metadata_summary,
-            "operator": last_operator_provenance,
-        })
         return output
 
 

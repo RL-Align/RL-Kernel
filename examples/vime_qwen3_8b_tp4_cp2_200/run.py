@@ -53,9 +53,7 @@ def validate_config(config: Mapping[str, Any]) -> None:
         or not isinstance(rollout, Mapping)
         or not isinstance(provider, Mapping)
     ):
-        raise ValueError(
-            "training, rollout, and linear_logp_provider sections are required"
-        )
+        raise ValueError("training, rollout, and linear_logp_provider sections are required")
     expected = {
         "tensor_model_parallel_size": 4,
         "context_parallel_size": 2,
@@ -66,15 +64,10 @@ def validate_config(config: Mapping[str, Any]) -> None:
         if training.get(name) != value:
             raise ValueError(f"training.{name} must be {value!r}")
     if rollout.get("top_p") != 1.0:
-        raise ValueError(
-            "rollout.top_p must remain 1.0 for the strict provider contract"
-        )
+        raise ValueError("rollout.top_p must remain 1.0 for the strict provider contract")
     if provider.get("mode") != "strict":
         raise ValueError("linear_logp_provider.mode must be strict")
-    if (
-        provider.get("path")
-        != "rl_engine.integrations.vime.linear_logp_provider.provider"
-    ):
+    if provider.get("path") != "rl_engine.integrations.vime.linear_logp_provider.provider":
         raise ValueError("example must use the RL-Kernel Vime provider")
     if provider.get("backend_id") != "rlkernel.linear_logp.bitwise.v1":
         raise ValueError("example must pin the deterministic vocab-parallel backend")
@@ -87,13 +80,8 @@ def load_runtime_evidence(path: Path | None) -> dict[str, Any] | None:
         return None
     with path.open(encoding="utf-8") as handle:
         value = json.load(handle)
-    if (
-        not isinstance(value, dict)
-        or value.get("schema_version") != RUNTIME_EVIDENCE_SCHEMA
-    ):
-        raise ValueError(
-            f"runtime evidence must use schema {RUNTIME_EVIDENCE_SCHEMA!r}"
-        )
+    if not isinstance(value, dict) or value.get("schema_version") != RUNTIME_EVIDENCE_SCHEMA:
+        raise ValueError(f"runtime evidence must use schema {RUNTIME_EVIDENCE_SCHEMA!r}")
     return value
 
 
@@ -112,19 +100,13 @@ def _operator_evidence_status(evidence: Mapping[str, Any] | None, operator: str)
     if not isinstance(comparison, Mapping) or comparison.get("passed") is not True:
         return "failed"
     required_identity = ("implementation_id", "backend_id", "contract_id")
-    if any(
-        not training.get(name) or not rollout.get(name) for name in required_identity
-    ):
+    if any(not training.get(name) or not rollout.get(name) for name in required_identity):
         return "failed"
     if training["implementation_id"] != rollout["implementation_id"]:
         return "failed"
     for metric in _OPERATOR_METRICS[operator]:
         value = comparison.get(metric)
-        if (
-            not isinstance(value, (int, float))
-            or isinstance(value, bool)
-            or value != 0.0
-        ):
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or value != 0.0:
             return "failed"
     return "passed"
 
@@ -137,9 +119,7 @@ def validate_runtime_evidence(evidence: Mapping[str, Any] | None) -> None:
     for operator in _OPERATOR_METRICS:
         status = _operator_evidence_status(evidence, operator)
         if status == "failed":
-            raise ValueError(
-                f"runtime evidence for {operator} is incomplete or non-zero"
-            )
+            raise ValueError(f"runtime evidence for {operator} is incomplete or non-zero")
 
 
 def _revision(path: Path) -> str | None:
@@ -190,13 +170,9 @@ def build_report(
 ) -> dict[str, Any]:
     provider_active = PROVIDER_MARKER in log_text
     fallback_observed = any(marker in log_text for marker in FALLBACK_MARKERS)
-    strict_provider_passed = (
-        status == "passed" and provider_active and not fallback_observed
-    )
+    strict_provider_passed = status == "passed" and provider_active and not fallback_observed
     effective_status = (
-        "passed"
-        if strict_provider_passed
-        else ("failed" if status == "passed" else status)
+        "passed" if strict_provider_passed else ("failed" if status == "passed" else status)
     )
     attention_status = _operator_evidence_status(runtime_evidence, "attention")
     ffn_status = _operator_evidence_status(runtime_evidence, "ffn")
@@ -230,9 +206,7 @@ def build_report(
                 None if runtime_evidence_path is None else str(runtime_evidence_path)
             ),
         },
-        "runtime_evidence": (
-            None if runtime_evidence is None else dict(runtime_evidence)
-        ),
+        "runtime_evidence": (None if runtime_evidence is None else dict(runtime_evidence)),
         "revisions": {
             "vime": _revision(vime_root),
             "rl_kernel": _revision(rl_kernel_root),
@@ -243,17 +217,13 @@ def build_report(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
-    parser.add_argument(
-        "--vime-root", type=Path, default=Path(os.environ.get("VIME_ROOT", "."))
-    )
+    parser.add_argument("--vime-root", type=Path, default=Path(os.environ.get("VIME_ROOT", ".")))
     parser.add_argument(
         "--rl-kernel-root",
         type=Path,
         default=Path(os.environ.get("RL_KERNEL_ROOT", ".")),
     )
-    parser.add_argument(
-        "--output", type=Path, default=Path("qwen3_8b_tp4_cp2.validation.json")
-    )
+    parser.add_argument("--output", type=Path, default=Path("qwen3_8b_tp4_cp2.validation.json"))
     parser.add_argument(
         "--runtime-evidence",
         type=Path,
@@ -304,9 +274,7 @@ def main(argv: list[str] | None = None) -> int:
         runtime_evidence_path=args.runtime_evidence,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(
-        json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0 if report["status"] in {"passed", "not_run"} else 1
 

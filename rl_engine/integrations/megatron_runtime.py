@@ -93,7 +93,9 @@ def _save_megatron_layer_diagnostic(
         try:
             enabled_layers = {int(value.strip()) for value in requested_layers.split(",")}
         except ValueError as exc:
-            raise RuntimeError("RL_KERNEL_ALIGNMENT_LAYERS must be comma-separated integers") from exc
+            raise RuntimeError(
+                "RL_KERNEL_ALIGNMENT_LAYERS must be comma-separated integers"
+            ) from exc
         if layer not in enabled_layers:
             return
     if input_value.ndim == 3:
@@ -136,8 +138,7 @@ def _save_megatron_layer_diagnostic(
         payload,
         output_dir
         / (
-            f"megatron-pid{os.getpid()}-rank{rank:05d}-layer{layer:02d}-"
-            f"call{call_index:08d}.pt"
+            f"megatron-pid{os.getpid()}-rank{rank:05d}-layer{layer:02d}-" f"call{call_index:08d}.pt"
         ),
     )
 
@@ -252,8 +253,7 @@ def _strict_rocm_rope_positions(
         if cu_seqlens is None:
             raise RuntimeError("strict ROCm THD RoPE requires cu_seqlens")
         values = tuple(
-            int(value)
-            for value in cu_seqlens.detach().to(device="cpu", dtype=torch.int64).tolist()
+            int(value) for value in cu_seqlens.detach().to(device="cpu", dtype=torch.int64).tolist()
         )
         if len(values) < 2 or values[0] != 0:
             raise RuntimeError("strict ROCm THD RoPE received invalid cu_seqlens")
@@ -359,9 +359,7 @@ def _patch_strict_rocm_rope() -> None:
 def _install_torch_dist_object_compatibility() -> None:
     """Normalize the PyTorch DCP object shape expected by this Megatron revision."""
 
-    strategy = importlib.import_module(
-        "megatron.core.dist_checkpointing.strategies.torch"
-    )
+    strategy = importlib.import_module("megatron.core.dist_checkpointing.strategies.torch")
     original = strategy._replace_sharded_keys_with_state_dict_keys
     if getattr(original, "__rl_kernel_dcp_object_compatibility__", False):
         return
@@ -793,6 +791,7 @@ def _patch_strict_attention_projections(
                 callback_backend(reduce_from_tp),
             )
         if hasattr(qkv, "layer_norm_weight"):
+
             def te_qkv_forward(module: Any, input_value: torch.Tensor) -> Any:
                 normalized = _fused_rms_norm_input(module, input_value, "linear_qkv")
                 normalized = strict_tp_copy(module, core_attention, normalized)

@@ -450,8 +450,7 @@ class LinearLogpWrapper:
                 tp_rank=rank,
                 tp_world_size=world,
                 vocab_shard_bounds=tuple(
-                    (index * local_vocab, (index + 1) * local_vocab)
-                    for index in range(world)
+                    (index * local_vocab, (index + 1) * local_vocab) for index in range(world)
                 ),
                 real_vocab_size=real_vocab_size,
                 padded_vocab_size=global_vocab_size,

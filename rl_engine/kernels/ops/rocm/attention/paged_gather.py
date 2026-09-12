@@ -104,9 +104,7 @@ def fused_paged_kv_gather_bhsd(
         raise ValueError("paged gather output buffers have the wrong BHSD shape")
     if not k_out.is_contiguous() or not v_out.is_contiguous():
         raise ValueError("paged gather output buffers must be contiguous")
-    if not (
-        k_cache.device == v_cache.device == page_rows.device == k_out.device == v_out.device
-    ):
+    if not (k_cache.device == v_cache.device == page_rows.device == k_out.device == v_out.device):
         raise ValueError("paged gather tensors must share one device")
     if k_out.dtype != k_cache.dtype or v_out.dtype != v_cache.dtype:
         raise ValueError("paged gather output dtype must match the cache")

@@ -262,9 +262,7 @@ def _det_gemm_linear_all_reduce_inference(
             direct_input,
         )
         det_gemm_linear(a, weight, out=direct_input, inference_schedule=True)
-        _C.deterministic_collective_rocm_ipc_all_reduce_staged(
-            runtime_handle, direct_input, output
-        )
+        _C.deterministic_collective_rocm_ipc_all_reduce_staged(runtime_handle, direct_input, output)
         return output
     else:
         # Profiling and uncaptured prefill can exceed the decode capture bound.

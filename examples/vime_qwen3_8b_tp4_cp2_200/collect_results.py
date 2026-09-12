@@ -59,12 +59,8 @@ def _run_rows(run_dir: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     if not validation.get("passed"):
         raise ValueError(f"sealed run has a failed validation: {run_dir}")
     records = _records(run_dir / "run.log")
-    validation_rows = {
-        int(row["step"]): row for row in validation["train_rollout_logprob"]["rows"]
-    }
-    steps = sorted(
-        set(records["rollout"]) | set(records["step"]) | set(records["perf"])
-    )
+    validation_rows = {int(row["step"]): row for row in validation["train_rollout_logprob"]["rows"]}
+    steps = sorted(set(records["rollout"]) | set(records["step"]) | set(records["perf"]))
     rows = []
     for index in steps:
         rollout = records["rollout"].get(index, {})
@@ -79,9 +75,7 @@ def _run_rows(run_dir: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                 "seed": manifest["seed"],
                 "rollout_seed": manifest["rollout_seed"],
                 "step": index,
-                "framework_consistency": manifest["arm"][
-                    "framework_use_rollout_logprobs"
-                ],
+                "framework_consistency": manifest["arm"]["framework_use_rollout_logprobs"],
                 "operator_case": manifest["arm"]["logp_case"],
                 "reward": _value(rollout, "rollout/rewards"),
                 "raw_reward": _value(rollout, "rollout/raw_reward"),
@@ -95,9 +89,7 @@ def _run_rows(run_dir: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                 "ppo_kl": _value(step, "train/ppo_kl"),
                 "grad_norm": _value(step, "train/grad_norm"),
                 "mean_abs_dlogp": _value(step, "train/train_rollout_logprob_abs_diff"),
-                "max_abs_dlogp": _value(
-                    step, "train/train_current_rollout_logprob_max_abs_diff"
-                ),
+                "max_abs_dlogp": _value(step, "train/train_current_rollout_logprob_max_abs_diff"),
                 "mismatch_count": exact.get("bitwise_mismatch_count"),
                 "active_token_count": exact.get("active_token_count"),
                 "rollout_time": _value(perf, "perf/rollout_time"),
@@ -147,8 +139,7 @@ def _summaries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         weighted_abs_numerator = sum(
             float(item["mean_abs_dlogp"]) * float(item["active_token_count"])
             for item in items
-            if item.get("mean_abs_dlogp") is not None
-            and item.get("active_token_count") is not None
+            if item.get("mean_abs_dlogp") is not None and item.get("active_token_count") is not None
         )
         token_total = sum(tokens)
         summaries.append(
@@ -159,9 +150,7 @@ def _summaries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "round_count": len(items),
                 "active_token_exposure": token_total,
                 "bitwise_mismatch_count": sum(mismatches),
-                "bitwise_mismatch_rate": (
-                    sum(mismatches) / token_total if token_total else None
-                ),
+                "bitwise_mismatch_rate": (sum(mismatches) / token_total if token_total else None),
                 "mean_abs_dlogp_token_weighted": (
                     weighted_abs_numerator / token_total if token_total else None
                 ),
@@ -170,9 +159,7 @@ def _summaries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     mean(_finite(items, "reward")) if _finite(items, "reward") else None
                 ),
                 "raw_reward_mean": (
-                    mean(_finite(items, "raw_reward"))
-                    if _finite(items, "raw_reward")
-                    else None
+                    mean(_finite(items, "raw_reward")) if _finite(items, "raw_reward") else None
                 ),
                 "truncated_ratio_mean": (
                     mean(_finite(items, "truncated_ratio"))
@@ -180,9 +167,7 @@ def _summaries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     else None
                 ),
                 "step_time_mean": (
-                    mean(_finite(items, "step_time"))
-                    if _finite(items, "step_time")
-                    else None
+                    mean(_finite(items, "step_time")) if _finite(items, "step_time") else None
                 ),
                 "actor_tokens_per_second_mean": (
                     mean(_finite(items, "actor_tokens_per_second"))

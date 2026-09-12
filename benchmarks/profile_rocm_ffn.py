@@ -145,9 +145,7 @@ def _build_case(args: argparse.Namespace, direction: str) -> FFNCase:
     device = torch.device("cuda", args.device)
     training = direction == "forward-backward"
     input_seed = (
-        args.input_seed
-        if args.input_seed is not None
-        else _INPUT_SEEDS.get(args.tokens, 3010)
+        args.input_seed if args.input_seed is not None else _INPUT_SEEDS.get(args.tokens, 3010)
     )
     hidden = _randn(
         (args.tokens, args.hidden_size),
@@ -311,8 +309,7 @@ def _run_and_fingerprint(
     output = case.run(use_forward_weights=use_forward_weights)
     torch.cuda.synchronize()
     fingerprints = {
-        name: _tensor_fingerprint(tensor)
-        for name, tensor in case.result_tensors(output).items()
+        name: _tensor_fingerprint(tensor) for name, tensor in case.result_tensors(output).items()
     }
     del output
     case.clear_gradients()
@@ -406,9 +403,7 @@ def _kernel_breakdown(rows: list[dict[str, Any]]) -> dict[str, Any]:
         else:
             category = "other_device_kernels"
         categories[category]["count"] += int(row["count"])
-        categories[category]["self_device_time_us"] += float(
-            row["self_device_time_us"]
-        )
+        categories[category]["self_device_time_us"] += float(row["self_device_time_us"])
 
     total_device_us = sum(
         float(category["self_device_time_us"]) for category in categories.values()
@@ -486,13 +481,9 @@ def _profile_case(
     # passes no forward-weight cache. In packed mode this exercises the original
     # per-call transpose path independently of the profiled candidate.
     standard_reference_fingerprints = (
-        _run_and_fingerprint(case, use_forward_weights=False)
-        if not args.skip_bitwise_hash
-        else {}
+        _run_and_fingerprint(case, use_forward_weights=False) if not args.skip_bitwise_hash else {}
     )
-    before_profile_fingerprints = (
-        _run_and_fingerprint(case) if not args.skip_bitwise_hash else {}
-    )
+    before_profile_fingerprints = _run_and_fingerprint(case) if not args.skip_bitwise_hash else {}
     torch.cuda.synchronize()
 
     device = torch.device("cuda", args.device)
@@ -537,9 +528,7 @@ def _profile_case(
     kernel_breakdown = _kernel_breakdown(rows)
     _write_json(output_dir / f"{case.slug}.kernel_breakdown.json", kernel_breakdown)
 
-    key_averages = profiler.key_averages(
-        group_by_input_shape=effective_record_shapes
-    )
+    key_averages = profiler.key_averages(group_by_input_shape=effective_record_shapes)
     summary = "\n\n".join(
         (
             "Sorted by self device time\n"
@@ -566,9 +555,7 @@ def _profile_case(
         except (AssertionError, RuntimeError, ValueError) as error:
             memory_timeline_error = f"{type(error).__name__}: {error}"
 
-    after_profile_fingerprints = (
-        _run_and_fingerprint(case) if not args.skip_bitwise_hash else {}
-    )
+    after_profile_fingerprints = _run_and_fingerprint(case) if not args.skip_bitwise_hash else {}
     before_matches_reference = {
         name: before_profile_fingerprints.get(name) == fingerprint
         for name, fingerprint in standard_reference_fingerprints.items()
@@ -621,9 +608,7 @@ def _profile_case(
             "kernel_breakdown": f"{case.slug}.kernel_breakdown.json",
             "latency": f"{case.slug}.latency.json",
             "correctness": f"{case.slug}.correctness.json",
-            "memory_timeline": (
-                f"{case.slug}.memory.raw.json.gz" if args.profile_memory else ""
-            ),
+            "memory_timeline": (f"{case.slug}.memory.raw.json.gz" if args.profile_memory else ""),
         },
         "profiler": {
             "active_steps": args.active_steps,
@@ -712,11 +697,7 @@ def main() -> None:
     torch.backends.cuda.matmul.allow_tf32 = False
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    directions = (
-        ("forward", "forward-backward")
-        if args.direction == "both"
-        else (args.direction,)
-    )
+    directions = ("forward", "forward-backward") if args.direction == "both" else (args.direction,)
     manifest: dict[str, Any] = {
         "environment": _environment(args),
         "workload": {
@@ -745,9 +726,7 @@ def main() -> None:
             "profiler_use": "attribution and launch analysis only",
             "latency_use": "uninstrumented GPU events",
             "jit_and_tree_plan": "warmed before profiler starts",
-            "weight_packing": (
-                "performed once during case construction outside all timing"
-            ),
+            "weight_packing": ("performed once during case construction outside all timing"),
             "bitwise_fingerprint": "SHA256 over raw BF16 bytes",
             "packed_bitwise_reference": (
                 "uncached standard qwen3_ffn path using the same canonical tensors"

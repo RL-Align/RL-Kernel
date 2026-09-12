@@ -56,8 +56,7 @@ class LeafConfig:
     @property
     def slug(self) -> str:
         return (
-            f"{self.block_m}x{self.block_n}x{self.num_warps}x"
-            f"{self.order}xw{self.waves_per_eu}"
+            f"{self.block_m}x{self.block_n}x{self.num_warps}x" f"{self.order}xw{self.waves_per_eu}"
         )
 
 
@@ -153,8 +152,7 @@ def _parse_config(value: str) -> LeafConfig:
         waves_per_eu = int(parts[4]) if len(parts) == 5 else 0
     except (TypeError, ValueError) as error:
         raise argparse.ArgumentTypeError(
-            "config must be BLOCK_MxBLOCK_NxNUM_WARPS[xORDER[xWAVES_PER_EU]], "
-            f"got {value!r}"
+            "config must be BLOCK_MxBLOCK_NxNUM_WARPS[xORDER[xWAVES_PER_EU]], " f"got {value!r}"
         ) from error
     if (
         block_m <= 0
@@ -384,17 +382,14 @@ def _run_case(
     samples: int,
 ) -> dict[str, object]:
     print(
-        f"{case.name}: A=({case.m_size}, {case.k_size}), "
-        f"B=({case.k_size}, {case.n_size})",
+        f"{case.name}: A=({case.m_size}, {case.k_size}), " f"B=({case.k_size}, {case.n_size})",
         flush=True,
     )
     a, b = _inputs(case, device)
     plan = _device_tree_plan(case.k_size, device)
     workspace_shape = (plan.host.node_count, case.m_size, case.n_size)
     output_shape = (
-        (case.n_size, case.m_size)
-        if case.transpose_output
-        else (case.m_size, case.n_size)
+        (case.n_size, case.m_size) if case.transpose_output else (case.m_size, case.n_size)
     )
     reference_workspace = torch.empty(workspace_shape, dtype=torch.bfloat16, device=device)
     reference_output = torch.empty(output_shape, dtype=torch.bfloat16, device=device)
@@ -413,8 +408,7 @@ def _run_case(
     reference_fingerprints = {
         "leaf_workspace_sha256_raw_bytes": _tensor_sha256(reference_leaves),
         "root_sha256_raw_bytes": _tensor_sha256(reference_output),
-        "leaf_workspace_nbytes": reference_leaves.numel()
-        * reference_leaves.element_size(),
+        "leaf_workspace_nbytes": reference_leaves.numel() * reference_leaves.element_size(),
         "root_nbytes": reference_output.numel() * reference_output.element_size(),
     }
 

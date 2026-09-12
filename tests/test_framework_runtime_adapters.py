@@ -80,17 +80,12 @@ def test_torch_dist_object_compatibility_deserializes_scalar_bytes_io(monkeypatc
     assert installed({"state": payload}, "flat", "rename") == {
         "state": [{"recipe": "checkpoint object"}]
     }
-    assert calls == [
-        ({"state": [{"recipe": "checkpoint object"}]}, "flat", "rename")
-    ]
+    assert calls == [({"state": [{"recipe": "checkpoint object"}]}, "flat", "rename")]
 
 
 def test_framework_adapters_do_not_construct_registered_kernels_directly():
     source_path = (
-        Path(__file__).parents[1]
-        / "rl_engine"
-        / "integrations"
-        / "framework_operators.py"
+        Path(__file__).parents[1] / "rl_engine" / "integrations" / "framework_operators.py"
     )
     tree = ast.parse(source_path.read_text(encoding="utf-8"))
     forbidden = {

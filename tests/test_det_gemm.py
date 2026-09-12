@@ -44,9 +44,11 @@ IS_ROCM = getattr(torch.version, "hip", None) is not None
 HAS_SUPPORTED_GPU = torch.cuda.is_available() and (
     IS_ROCM or torch.cuda.get_device_capability()[0] >= 8
 )
-IS_GFX942 = IS_ROCM and torch.cuda.is_available() and str(
-    getattr(torch.cuda.get_device_properties(0), "gcnArchName", "")
-).startswith("gfx942")
+IS_GFX942 = (
+    IS_ROCM
+    and torch.cuda.is_available()
+    and str(getattr(torch.cuda.get_device_properties(0), "gcnArchName", "")).startswith("gfx942")
+)
 
 pytestmark = pytest.mark.skipif(
     not HAS_SUPPORTED_GPU,
@@ -483,9 +485,9 @@ def test_target_shapes_invariance(name, gemm, shape):
     row = _rand(1, K)
     big = _rand(64, K)
     big[0] = row[0]
-    assert torch.equal(gemm(row, b)[0], gemm(big, b)[0]), (
-        f"{name}: batch-invariance broken at shape {shape}"
-    )
+    assert torch.equal(
+        gemm(row, b)[0], gemm(big, b)[0]
+    ), f"{name}: batch-invariance broken at shape {shape}"
 
 
 @pytest.mark.skipif(not _HAS_TRITON, reason="Triton is unavailable")
@@ -654,10 +656,14 @@ def test_triton_wgrad_reads_positive_stride_transpose_view_raw_bytes():
     assert not activation_t.is_contiguous()
     assert all(stride > 0 for stride in activation_t.stride())
 
-    legacy = _triton_tree_gemm(
-        activation_t.contiguous(),
-        grad_output,
-    ).t().contiguous()
+    legacy = (
+        _triton_tree_gemm(
+            activation_t.contiguous(),
+            grad_output,
+        )
+        .t()
+        .contiguous()
+    )
     output_buffer = torch.empty(
         (output_size, input_size),
         dtype=torch.bfloat16,

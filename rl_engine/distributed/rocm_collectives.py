@@ -21,6 +21,7 @@ _ROCM_IPC_ALL_GATHER_MAX_BYTES = 256 * 1024
 _ROCM_IPC_CONTROL_BYTES = 256
 _REDUCTION_DTYPES = (torch.float32, torch.float16, torch.bfloat16)
 
+
 class TorchDistributedDeterministicCollective:
     """Correctness-first collectives using AllGather as transport only.
 
@@ -199,8 +200,7 @@ class TorchDistributedDeterministicCollective:
         if not values:
             raise ValueError("all_gather_many requires at least one input")
         return tuple(
-            self.all_gather(value, validate_signature=validate_signature)
-            for value in values
+            self.all_gather(value, validate_signature=validate_signature) for value in values
         )
 
     def reduce_scatter(
@@ -654,9 +654,7 @@ class RCCLDeterministicCollective(TorchDistributedDeterministicCollective):
             )
         self._ipc_handle = 0
         self._ipc_staging: torch.Tensor | None = None
-        self._direct_staging_views: dict[
-            tuple[tuple[int, ...], torch.dtype], torch.Tensor
-        ] = {}
+        self._direct_staging_views: dict[tuple[tuple[int, ...], torch.dtype], torch.Tensor] = {}
         self._initialize_ipc_transport()
 
     @property
@@ -730,9 +728,7 @@ class RCCLDeterministicCollective(TorchDistributedDeterministicCollective):
             numel = 1
             for dim in shape:
                 if dim < 0:
-                    raise ValueError(
-                        f"direct-staging dimensions must be non-negative, got {shape}"
-                    )
+                    raise ValueError(f"direct-staging dimensions must be non-negative, got {shape}")
                 numel *= dim
             size_bytes = numel * element_size
             if size_bytes > min(

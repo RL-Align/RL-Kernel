@@ -137,11 +137,7 @@ def _gfx942_qwen_tree_leaf_config(
             logical_shape,
             _DEFAULT_TREE_LEAF_CONFIG,
         )
-    if (
-        transpose_output
-        and preserve_a_strides
-        and (m_size, n_size) in _QWEN_WGRAD_OUTPUT_SHAPES
-    ):
+    if transpose_output and preserve_a_strides and (m_size, n_size) in _QWEN_WGRAD_OUTPUT_SHAPES:
         return _GFX942_QWEN_WGRAD_LEAF_CONFIGS.get(
             k_size,
             _DEFAULT_TREE_LEAF_CONFIG,
@@ -204,13 +200,16 @@ class _DeviceTreePlan:
     rocm_fused_reduction_pairs: tuple[
         tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], ...
     ]
-    rocm_leaf_reduction: tuple[
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-    ] | None
+    rocm_leaf_reduction: (
+        tuple[
+            torch.Tensor,
+            torch.Tensor,
+            torch.Tensor,
+            torch.Tensor,
+            torch.Tensor,
+        ]
+        | None
+    )
     rocm_fused_reduction_pairs_after_leaf: tuple[
         tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], ...
     ]
@@ -247,8 +246,7 @@ def _build_tree_plan(k_size: int) -> _TreePlan:
 
     root, max_height = visit(0, k_size)
     reduction_levels = tuple(
-        tuple(reductions_by_height.get(height, ()))
-        for height in range(1, max_height + 1)
+        tuple(reductions_by_height.get(height, ())) for height in range(1, max_height + 1)
     )
     return _TreePlan(
         leaf_starts=tuple(leaf_starts),
@@ -281,11 +279,10 @@ def _device_tree_plan(k_size: int, device: torch.device) -> _DeviceTreePlan:
         leaf_reduction = None
         fused_pairs_after_leaf = []
         if _device_arch(device_index) == "gfx942":
+
             def build_fused_pairs(start_level: int):
                 result = []
-                for level_index in range(
-                    start_level, len(host.reduction_levels) - 1, 2
-                ):
+                for level_index in range(start_level, len(host.reduction_levels) - 1, 2):
                     first = {
                         output: (lower, upper)
                         for lower, upper, output in host.reduction_levels[level_index]
@@ -410,9 +407,7 @@ if _TRITON_AVAILABLE:
             ).to(tl.float32)
             acc += a[:, None] * b[None, :]
         output_offsets = (
-            leaf_node * (M * N)
-            + offs_m[:, None].to(tl.int64) * N
-            + offs_n[None, :].to(tl.int64)
+            leaf_node * (M * N) + offs_m[:, None].to(tl.int64) * N + offs_n[None, :].to(tl.int64)
         )
         output_mask = (offs_m[:, None] < M) & (offs_n[None, :] < N)
         tl.store(
@@ -498,14 +493,9 @@ if _TRITON_AVAILABLE:
             upper_acc += a[:, None] * b[None, :]
         # Match both leaf BF16 stores followed by the original first-level FP32
         # add and BF16 store. Only the intermediate global-memory trip is gone.
-        result = lower.to(tl.float32) + upper_acc.to(
-            workspace_ptr.dtype.element_ty
-        ).to(tl.float32)
+        result = lower.to(tl.float32) + upper_acc.to(workspace_ptr.dtype.element_ty).to(tl.float32)
         output_mask = (offs_m[:, None] < M) & (offs_n[None, :] < N)
-        offsets = (
-            offs_m[:, None].to(tl.int64) * N
-            + offs_n[None, :].to(tl.int64)
-        )
+        offsets = offs_m[:, None].to(tl.int64) * N + offs_n[None, :].to(tl.int64)
         if WRITE_OUTPUT:
             tl.store(
                 output_ptr + offsets,
@@ -615,18 +605,18 @@ if _TRITON_AVAILABLE:
         node1 = tl.load(node1_ptr + operation).to(tl.int64)
         node2 = tl.load(node2_ptr + operation).to(tl.int64)
         node3 = tl.load(node3_ptr + operation).to(tl.int64)
-        value0 = tl.load(
-            workspace_ptr + node0 * elements + offsets, mask=mask, other=0.0
-        ).to(tl.float32)
-        value1 = tl.load(
-            workspace_ptr + node1 * elements + offsets, mask=mask, other=0.0
-        ).to(tl.float32)
-        value2 = tl.load(
-            workspace_ptr + node2 * elements + offsets, mask=mask, other=0.0
-        ).to(tl.float32)
-        value3 = tl.load(
-            workspace_ptr + node3 * elements + offsets, mask=mask, other=0.0
-        ).to(tl.float32)
+        value0 = tl.load(workspace_ptr + node0 * elements + offsets, mask=mask, other=0.0).to(
+            tl.float32
+        )
+        value1 = tl.load(workspace_ptr + node1 * elements + offsets, mask=mask, other=0.0).to(
+            tl.float32
+        )
+        value2 = tl.load(workspace_ptr + node2 * elements + offsets, mask=mask, other=0.0).to(
+            tl.float32
+        )
+        value3 = tl.load(workspace_ptr + node3 * elements + offsets, mask=mask, other=0.0).to(
+            tl.float32
+        )
         # Match the two original kernel boundaries exactly: each first-level
         # FP32 add is rounded to BF16 before the second-level FP32 add.
         lower = (value0 + value1).to(workspace_ptr.dtype.element_ty).to(tl.float32)
@@ -674,10 +664,7 @@ if _TRITON_AVAILABLE:
         elements = M * N
         mask = (offsets_m[:, None] < M) & (offsets_n[None, :] < N)
         values = tl.load(
-            workspace_ptr
-            + root * elements
-            + offsets_m[:, None] * N
-            + offsets_n[None, :],
+            workspace_ptr + root * elements + offsets_m[:, None] * N + offsets_n[None, :],
             mask=mask,
         )
         # Store the already-rounded BF16 root directly in [N, M] layout.
@@ -836,9 +823,7 @@ def _triton_tree_gemm(
         if out.dtype != torch.bfloat16:
             raise TypeError(f"Triton tree GEMM output must be BF16, got {out.dtype}")
         if out.device != a.device:
-            raise RuntimeError(
-                f"Triton tree GEMM output must be on {a.device}, got {out.device}"
-            )
+            raise RuntimeError(f"Triton tree GEMM output must be on {a.device}, got {out.device}")
         if not out.is_contiguous():
             raise ValueError("Triton tree GEMM output buffer must be contiguous")
         if out.requires_grad:
@@ -851,9 +836,7 @@ def _triton_tree_gemm(
     )
     device_index = a.device.index if a.device.index is not None else torch.cuda.current_device()
     is_gfx942 = _device_arch(device_index) == "gfx942"
-    use_inference_schedule = (
-        torch.is_inference_mode_enabled() or inference_schedule
-    )
+    use_inference_schedule = torch.is_inference_mode_enabled() or inference_schedule
     leaf_config = _tree_leaf_config(
         a.device,
         m_size,
@@ -869,10 +852,7 @@ def _triton_tree_gemm(
         and not transpose_output
         and not preserve_a_strides
     ):
-        leaf_config = (
-            _gfx942_qwen_tp4_decode_leaf_config(m_size, k_size, n_size)
-            or leaf_config
-        )
+        leaf_config = _gfx942_qwen_tp4_decode_leaf_config(m_size, k_size, n_size) or leaf_config
     tiles_m = triton.cdiv(m_size, leaf_config.block_m)
     tiles_n = triton.cdiv(n_size, leaf_config.block_n)
     leaf_grid = (
@@ -938,9 +918,7 @@ def _triton_tree_gemm(
     reduction_block = 256
     if fuse_leaf_reduction:
         blocks = triton.cdiv(m_size * n_size, reduction_block)
-        for pair_index, nodes in enumerate(
-            plan.rocm_fused_reduction_pairs_after_leaf
-        ):
+        for pair_index, nodes in enumerate(plan.rocm_fused_reduction_pairs_after_leaf):
             second_level = pair_index * 2 + 2
             operations = plan.host.reduction_levels[second_level]
             write_final_output = second_level == len(plan.host.reduction_levels) - 1
@@ -1003,9 +981,7 @@ def _triton_tree_gemm(
                 direct_root_output and level_index == len(plan.host.reduction_levels) - 1
             )
             if write_final_output and len(operations) != 1:
-                raise RuntimeError(
-                    "the final deterministic GEMM tree level must contain one root"
-                )
+                raise RuntimeError("the final deterministic GEMM tree level must contain one root")
             if write_final_output:
                 grid = (triton.cdiv(m_size * n_size, reduction_block),)
                 # direct_root_output is true only for gfx942; CUDA retains its

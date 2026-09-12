@@ -78,15 +78,11 @@ def _cached_active_mask(
     return cached, all_active
 
 
-def _cached_shard_starts(
-    bounds: tuple[tuple[int, int], ...], device: torch.device
-) -> torch.Tensor:
+def _cached_shard_starts(bounds: tuple[tuple[int, int], ...], device: torch.device) -> torch.Tensor:
     key = (_device_key(device), bounds)
     cached = _SHARD_START_CACHE.get(key)
     if cached is None:
-        cached = torch.tensor(
-            [start for start, _ in bounds], dtype=torch.long, device=device
-        )
+        cached = torch.tensor([start for start, _ in bounds], dtype=torch.long, device=device)
         _SHARD_START_CACHE[key] = cached
         if len(_SHARD_START_CACHE) > _METADATA_CACHE_LIMIT:
             _SHARD_START_CACHE.popitem(last=False)
@@ -119,16 +115,11 @@ def _gather_target_logit_cached(
     if sharding.tp_world_size == 1:
         stacked = local_contrib.unsqueeze(0)
     else:
-        if (
-            not torch.distributed.is_available()
-            or not torch.distributed.is_initialized()
-        ):
+        if not torch.distributed.is_available() or not torch.distributed.is_initialized():
             raise LogprobContractError(
                 "vocab-parallel logprob requires initialized torch.distributed"
             )
-        gathered = [
-            torch.empty_like(local_contrib) for _ in range(sharding.tp_world_size)
-        ]
+        gathered = [torch.empty_like(local_contrib) for _ in range(sharding.tp_world_size)]
         torch.distributed.all_gather(gathered, local_contrib, group=tp_group)
         stacked = torch.stack(gathered, dim=0)
 
@@ -176,9 +167,7 @@ class _RocmVocabParallelLogprobFunction(torch.autograd.Function):
     """ROCm tile statistics and backward with the shared WS2 merge contract."""
 
     @staticmethod
-    def forward(
-        ctx, local_logits, target_1d, active_mask, contract, tp_group, tile, all_active
-    ):
+    def forward(ctx, local_logits, target_1d, active_mask, contract, tp_group, tile, all_active):
         sharding = contract.sharding
         shard = local_logits.contiguous()
         local_tiles = sharding.local_vocab_size // tile
@@ -190,9 +179,7 @@ class _RocmVocabParallelLogprobFunction(torch.autograd.Function):
             sharding.real_vocab_size,
             local_tiles,
         )
-        tile_counts = [
-            (end - start) // tile for start, end in sharding.vocab_shard_bounds
-        ]
+        tile_counts = [(end - start) // tile for start, end in sharding.vocab_shard_bounds]
         m_all, s_all = _gather_tile_stats(
             local_m.contiguous(),
             local_s.contiguous(),
@@ -205,9 +192,7 @@ class _RocmVocabParallelLogprobFunction(torch.autograd.Function):
             if all_active
             else torch.where(active_mask, target_1d, torch.zeros_like(target_1d))
         )
-        target_logit = _gather_target_logit_cached(
-            shard, safe_target, contract, tp_group
-        ).float()
+        target_logit = _gather_target_logit_cached(shard, safe_target, contract, tp_group).float()
         lse = _merge_tile_partials(m_all, s_all)
         selected_logp = (
             target_logit - lse
@@ -245,15 +230,9 @@ class _RocmVocabParallelLogprobFunction(torch.autograd.Function):
             ).contiguous()
         else:
             coef_logp = lse.new_zeros((rows,))
-            target_local = torch.full(
-                (rows,), -1, dtype=torch.long, device=shard.device
-            )
+            target_local = torch.full((rows,), -1, dtype=torch.long, device=shard.device)
         has_lse_grad = grad_lse is not None
-        coef_lse = (
-            grad_lse.float().contiguous()
-            if has_lse_grad
-            else lse.new_zeros((rows,))
-        )
+        coef_lse = grad_lse.float().contiguous() if has_lse_grad else lse.new_zeros((rows,))
         grad = _HipKernels.backward(
             shard,
             lse.contiguous(),
@@ -281,18 +260,12 @@ def _apply_with_kernels(
     tile = _tile_size(contract, num_vocab_tiles)
     _validate_invocation(local_logits, target_ids, contract, tp_group)
 
-    target_1d = target_ids.reshape(-1).to(
-        device=local_logits.device, dtype=torch.long
-    )
+    target_1d = target_ids.reshape(-1).to(device=local_logits.device, dtype=torch.long)
     active_mask, all_active = _cached_active_mask(contract, local_logits.device)
     if validate:
-        _validate_active_targets(
-            target_1d, active_mask, contract.sharding.real_vocab_size
-        )
+        _validate_active_targets(target_1d, active_mask, contract.sharding.real_vocab_size)
         if contract.sharding.tp_world_size > 1:
-            _preflight_cross_rank_agreement(
-                contract, tp_group, num_vocab_tiles, True
-            )
+            _preflight_cross_rank_agreement(contract, tp_group, num_vocab_tiles, True)
 
     selected_logp, lse = _RocmVocabParallelLogprobFunction.apply(
         local_logits, target_1d, active_mask, contract, tp_group, tile, all_active

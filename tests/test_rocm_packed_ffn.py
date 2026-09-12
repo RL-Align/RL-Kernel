@@ -101,12 +101,8 @@ def test_rocm_weight_gradient_uses_parameter_layout_and_is_bitwise_stable():
 
 
 def test_rocm_det_linear_preserves_autograd_and_bitwise_gradients():
-    inputs = torch.randn(
-        (16, 8), device="cuda", dtype=torch.bfloat16, requires_grad=True
-    )
-    weight = torch.randn(
-        (12, 8), device="cuda", dtype=torch.bfloat16, requires_grad=True
-    )
+    inputs = torch.randn((16, 8), device="cuda", dtype=torch.bfloat16, requires_grad=True)
+    weight = torch.randn((12, 8), device="cuda", dtype=torch.bfloat16, requires_grad=True)
     grad_output = torch.randn((16, 12), device="cuda", dtype=torch.bfloat16)
     op = DetGemmOp()
 
