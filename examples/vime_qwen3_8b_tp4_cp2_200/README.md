@@ -16,6 +16,10 @@ succeeds, every expected operator route has runtime execution evidence, no
 fallback or Triton route is observed for an R/R arm, the requested number of
 steps is present, and vLLM CUDA Graph evidence matches the manifest.
 
+All launch commands are maintained in [`REPRODUCTION.md`](REPRODUCTION.md).
+This README describes the experiment and its acceptance boundary; it does not
+duplicate host-specific launch commands.
+
 ## Ablation matrix
 
 | Group | VIME `--use-rollout-logprobs` | Attention / FFN / logp | Purpose |
@@ -31,6 +35,16 @@ VIME calls its native `calculate_log_probs_and_entropy` implementation
 directly. `R/R` selects RL-Kernel on both sides and installs the strict
 RL-Kernel linear-logp provider. All four groups use the same prompts, initial
 checkpoint, sampling settings, seeds, TP4/CP2 topology, and batch sizes.
+
+The CUDA module ablation is the `M000`-`M111` matrix defined by the same
+`run_arm.py` and `experiment_matrix.json`; it is intentionally kept under this
+TP4/CP2 example rather than duplicated in a CUDA-only directory. The canonical
+command is in [`REPRODUCTION.md`](REPRODUCTION.md#cuda-module-ablation).
+
+The ROCm P/R and Attention-only runners are separate because they select HIP,
+AITER/CK, and RCCL-specific routes that cannot pass the CUDA validation gates.
+The Attention-only runner is a historical attribution diagnostic, not a second
+definition of the module matrix.
 
 Do not interpret G10/G11 as evidence that train and rollout recomputation is
 bitwise equal: framework reuse changes which stored logp enters the RL loss.
@@ -107,60 +121,12 @@ The converter requires `pyarrow`. The small
 `qwen3_8b_multiround_math.jsonl` file is a developer fixture and must not be
 used for experiment or reward claims.
 
-## Run one arm
+## Reproduction
 
-The complete host setup, data and checkpoint preparation, exact historical
-revision table, formal 200-step launch commands, Ray log capture, validation,
-and performance-analysis commands are recorded in
-[`REPRODUCTION.md`](REPRODUCTION.md). The short example below is schematic;
-every expanded path and command is recorded in `manifest.json`.
-
-```bash
-python examples/vime_qwen3_8b_tp4_cp2_200/run_arm.py \
-  --group G01 \
-  --num-rollout 8 \
-  --seed 1234 \
-  --rollout-seed 1234 \
-  --output-root /data/vime-200/runs/short \
-  --rl-kernel-root /path/to/RL-Kernel \
-  --vime-root /path/to/vime \
-  --megatron-root /path/to/Megatron-LM \
-  --model-root /models/Qwen3-8B \
-  --ref-load /models/Qwen3-8B_torch_dist \
-  --prompt-data /data/dapo-math-17k.vime.jsonl \
-  --python /path/to/python \
-  --ray-bin /path/to/ray \
-  --wait
-```
-
-`run_arm.py` refuses to reuse an existing run ID. It records repository
-revisions, command line, environment, data hash, GPU inventory, topology,
-seeds, batch parameters, and CUDA Graph contract before submission.
-
-After the Ray job finishes, save its combined log as `run.log` in the run
-directory and validate it:
-
-```bash
-python examples/vime_qwen3_8b_tp4_cp2_200/validate_run.py \
-  --run-dir /data/vime-200/runs/short/<run-id> \
-  --seal
-```
-
-## Aggregate and plot
-
-Only sealed runs are collected. `collect_results.py` writes one row per run,
-one row per training step, and group-level summaries.
-
-```bash
-python examples/vime_qwen3_8b_tp4_cp2_200/collect_results.py \
-  --runs-root /data/vime-200/runs \
-  --output-dir /data/vime-200/results
-
-python examples/vime_qwen3_8b_tp4_cp2_200/plot_results.py \
-  --rounds-csv /data/vime-200/results/rounds.csv \
-  --phase convergence \
-  --output-dir /data/vime-200/results/figures
-```
+Use [`REPRODUCTION.md`](REPRODUCTION.md) for the complete host setup, data and
+checkpoint preparation, CUDA 200-step launch, CUDA module matrix, ROCm
+entrypoints, Ray log capture, validation, and performance analysis commands.
+The runbook is the single source of truth for commands and paths.
 
 The plotting step requires Matplotlib. It produces:
 

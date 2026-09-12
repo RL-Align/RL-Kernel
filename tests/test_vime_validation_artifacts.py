@@ -6,7 +6,7 @@ import json
 
 import torch
 
-from examples.vime_qwen3_8b_tp2_cp2.validate_artifacts import validate_artifacts
+from examples.vime_qwen3_8b_tp4_cp2_200.validate_artifacts import validate_artifacts
 
 
 def _write_readback(directory, framework, target, *, triton_used=False):

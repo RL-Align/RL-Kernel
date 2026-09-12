@@ -1,5 +1,10 @@
 # Vime ROCm Attention operator ablation
 
+The canonical command is maintained in
+[`../vime_qwen3_8b_tp4_cp2_200/REPRODUCTION.md`](../vime_qwen3_8b_tp4_cp2_200/REPRODUCTION.md#rocm-entry-points).
+This file records the historical Attention-only route-attribution contract;
+it is not the primary CUDA/ROCm `M000`-`M111` module matrix.
+
 This example runs one real Vime rollout/training step for each Attention
 implementation pairing:
 
@@ -46,7 +51,7 @@ Use a ROCm environment with Vime, Megatron-LM, vLLM, AITER, and this RL-Kernel
 checkout installed (normally `pip install -e /work/RL-Kernel`). A source-only
 `PYTHONPATH` entry is insufficient because vLLM discovers RL-Kernel through the
 installed `vllm.general_plugins` entry point. The launcher is based on Vime's
-Qwen3-8B AMD launcher and the existing `vime_qwen3_8b_tp2_cp2` example, but is
+Qwen3-8B AMD launcher and the TP4/CP2 experiment, but is
 parameterized and avoids their CUDA-only flags.
 
 The default formal topology reuses PR #377's colocated eight-GPU schedule:
@@ -75,57 +80,20 @@ run directory, it also requires the reference checkpoint's
 `latest_checkpointed_iteration.txt` marker and verifies that the installed
 RL-Kernel distribution exposes the expected vLLM plugin entry point.
 
-## Inspect the plan
+## Inspect and execute the plan
 
-No configuration JSON is checked into the repository. Supply paths on the CLI
-or through the matching environment variables:
-
-```bash
-python examples/vime_rocm_attention_ablation/run.py \
-  --vime-root /work/vime \
-  --rl-kernel-root /work/RL-Kernel \
-  --megatron-root /work/Megatron-LM-vime \
-  --model-root /app/model/Qwen3-8B \
-  --reference-checkpoint /app/model/Qwen3-8B_torch_dist \
-  --prompt-data /app/model/dapo-math-17k/dapo-math-17k.jsonl
-```
-
-Without `--run`, this prints the exact four-arm plan and does not start Ray or
-write results.
+Use the shared runbook for the canonical command and current host paths. The
+runner still supports a dry-run (omit `--run`) and a full four-arm execution.
 
 ## Execute all four arms
 
-```bash
-python examples/vime_rocm_attention_ablation/run.py \
-  --vime-root /work/vime \
-  --rl-kernel-root /work/RL-Kernel \
-  --megatron-root /work/Megatron-LM-vime \
-  --model-root /app/model/Qwen3-8B \
-  --reference-checkpoint /app/model/Qwen3-8B_torch_dist \
-  --prompt-data /app/model/dapo-math-17k/dapo-math-17k.jsonl \
-  --run-dir /work/RL-Kernel/runs/vime-rocm-attention-$(date -u +%Y%m%dT%H%M%SZ) \
-  --run
-```
-
-The runner content-hashes the prompt dataset, launcher, and small checkpoint
+Use the shared runbook for the canonical command and current host paths. The
+runner content-hashes the prompt dataset, launcher, and small checkpoint
 index/config manifests. For the large model/checkpoint trees it seals every
 relative file name, size, nanosecond mtime, and symlink target without rereading
 all 8B weight shards. It also records each source revision, tracked dirty state,
 and tracked-diff digest. Dirty checkouts are allowed, but the complete seal must
 remain identical before and after the four arms.
-
-The default resource arguments are equivalent to:
-
-```bash
-python examples/vime_rocm_attention_ablation/run.py \
-  ... \
-  --visible-gpus 0,1,2,3,4,5,6,7 \
-  --num-gpus 8 \
-  --tp-size 4 \
-  --cp-size 2 \
-  --rollout-tp-size 4 \
-  --run
-```
 
 CP remains an Attention matrix dimension here; sequence parallelism remains
 off even when CP is greater than one.
@@ -188,15 +156,3 @@ python examples/vime_rocm_attention_ablation/validate_artifacts.py \
 Do not add `matrix-plan.json`, validation JSON, rollout dumps, mismatch
 sidecars, checkpoints, or MI300X result files to the PR. Publish them as CI/job
 artifacts when needed.
-
-## Full-native PR377 workload
-
-The standalone P/P runner selects production attention, FFN, and logp on both
-the Megatron and vLLM sides. It uses actor TP4/CP2, two TP4 rollout engines,
-round-robin routing, eight samples, a 7168-token response limit, and Vime's
-rollout-logprob framework consistency mode. Three rounds are the default:
-
-```bash
-python -m examples.vime_rocm_attention_ablation.run_full_pp_pr377_workload \
-  --run-dir /app/model/vime-runs/pr394-full-native-pp-vime-tis
-```

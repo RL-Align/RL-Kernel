@@ -40,7 +40,7 @@ when using another machine.
 ```bash
 set -euo pipefail
 
-export EXPERIMENT_ROOT=/home/ellm/ljj/vime_qwen3_8b_tp2_cp2_200_experiment
+export EXPERIMENT_ROOT=/home/ellm/ljj/vime_qwen3_8b_tp4_cp2_200_experiment
 export DATA_ROOT=/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment
 export RLK_ROOT=$EXPERIMENT_ROOT/RL-Kernel
 export VIME_ROOT=$EXPERIMENT_ROOT/vime
@@ -258,6 +258,76 @@ test -f "$RUN_DIR/COMPLETE"
   --phase convergence \
   --output-dir "$DATA_ROOT/results/figures"
 ```
+
+## CUDA module ablation
+
+The CUDA module matrix is part of this TP4/CP2 example. It is not a separate
+CUDA directory: `run_supplement_suite.py` drives the eight `M000`-`M111` arms
+through the same validated `run_arm.py` and `validate_run.py` path.
+
+Run it only with a fresh suite ID and an empty output directory:
+
+```bash
+export MODULE_SUITE_ID=cuda-module-$(date -u +%Y%m%dT%H%M%SZ)
+export MODULE_ROOT="$DATA_ROOT/runs/module/$MODULE_SUITE_ID"
+mkdir -p "$MODULE_ROOT"
+
+env -u PYTHONPATH \
+  CUDNN_FRONTEND_CUDART_LIB_NAME="$CUDA_RUNTIME_ROOT/lib/libcudart.so.12" \
+  "$PYTHON" "$EXAMPLE_ROOT/run_supplement_suite.py" \
+    --phase module \
+    --suite-id "$MODULE_SUITE_ID" \
+    --output-root "$MODULE_ROOT" \
+    --rl-kernel-root "$RLK_ROOT" \
+    --vime-root "$VIME_ROOT" \
+    --megatron-root "$MEGATRON_ROOT" \
+    --model-root "$HF_MODEL_ROOT" \
+    --ref-load "$TORCH_DIST_ROOT" \
+    --prompt-data "$PROMPT_DATA" \
+    --python "$PYTHON" \
+    --ray-bin "$RAY" \
+    --extra-pythonpath "$RUNTIME_SITE" \
+    --extra-pythonpath "$CUDA_PYTHON_SITE" \
+    --extra-pythonpath "$TE218_ROOT" \
+    --ld-library-path "$CUDA_RUNTIME_ROOT/lib:$TE218_ROOT/transformer_engine/wheel_lib"
+```
+
+The resulting summary is `$MODULE_ROOT/$MODULE_SUITE_ID.summary.json`. The
+matrix uses eight rollouts, one prompt with eight samples, seed 1234, and the
+same TP4/CP2 validation gates as the long run. Do not copy the old TP2/CP2
+commands; that example has been retired.
+
+## ROCm entry points
+
+ROCm is a separate backend and must not use the CUDA `run_arm.py` command: the
+CUDA runbook requires `nvidia-smi`, CUDA Graph evidence, and Transformer Engine
+libraries. The maintained ROCm launchers remain available, but their commands
+are documented here so the repository has one command index:
+
+```bash
+# Full ROCm VIME operator matrix (P/P, P/R, R/P, R/R)
+python examples/vime_qwen3_8b_rocm_ablation/run.py \
+  --run \
+  --output-dir /tmp/rocm-vime-ablation \
+  -- bash /path/to/vime/scripts/run-qwen3-8B-rocm.sh
+
+# Historical Attention-only cross-configuration diagnostic
+python examples/vime_rocm_attention_ablation/run.py \
+  --vime-root /work/vime \
+  --rl-kernel-root /work/RL-Kernel \
+  --megatron-root /work/Megatron-LM-vime \
+  --model-root /app/model/Qwen3-8B \
+  --reference-checkpoint /app/model/Qwen3-8B_torch_dist \
+  --prompt-data /app/model/dapo-math-17k/dapo-math-17k.jsonl \
+  --run-dir /work/RL-Kernel/runs/vime-rocm-attention-$(date -u +%Y%m%dT%H%M%SZ) \
+  --run
+```
+
+The Attention-only runner was introduced earlier for ROCm route attribution
+(PR #385) and fixes FFN/Logp while varying only the Attention P/R pairing. It
+is not the CUDA/ROCm `M000`-`M111` module matrix and its results must not be
+presented as the primary TP4/CP2 ablation. Keep it only when reproducing that
+historical diagnostic; use the full-path matrix for current evidence.
 
 ## Performance analysis commands
 
