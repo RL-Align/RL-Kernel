@@ -24,6 +24,7 @@ class _FusedLogpAutograd(torch.autograd.Function):
         labels = token_ids.reshape(-1).to(device=logits.device, dtype=torch.long).contiguous()
         output = backend.fused_logp(logits_2d, labels)
         ctx.save_for_backward(logits_2d, labels)
+        ctx.backend = backend
         ctx.input_shape = tuple(logits.shape)
         ctx.input_dtype = logits.dtype
         return output.reshape(logits.shape[:-1])
@@ -31,6 +32,17 @@ class _FusedLogpAutograd(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor):
         logits, labels = ctx.saved_tensors
+        if (
+            logits.device.type == "musa"
+            and hasattr(ctx.backend, "fused_logp_backward")
+        ):
+            grad = ctx.backend.fused_logp_backward(
+                logits,
+                labels,
+                grad_output.reshape(-1).contiguous(),
+            )
+            return grad.reshape(ctx.input_shape), None, None
+
         probs = torch.softmax(logits.float(), dim=-1)
         rows = torch.arange(logits.size(0), device=logits.device)
         probs[rows, labels] -= 1.0

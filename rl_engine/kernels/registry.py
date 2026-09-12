@@ -73,6 +73,7 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     # TMA-accelerated LogP for SM90+ (Warp Specialization)
     CUDA_FUSED_LOGP_SM90 = "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpSM90Op"
     CUDA_FUSED_LOGP_GENERIC = "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpGenericOp"
+    MUSA_FUSED_LOGP_GENERIC = "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpGenericOp"
     CUDA_DETERMINISTIC_LOGP = "rl_engine.kernels.ops.cuda.loss.logp.DeterministicLogpCUDAOp"
     # Deterministic standard-softmax attention (issue #147); not FlashAttention.
     CUDA_DETERMINISTIC_ATTENTION = (
@@ -632,7 +633,7 @@ class KernelRegistry:
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
             },
             "musa": {
-                "logp": [OpBackend.PYTORCH_NATIVE],
+                "logp": [OpBackend.MUSA_FUSED_LOGP_GENERIC, OpBackend.PYTORCH_NATIVE],
                 "logp_indexed": [OpBackend.PYTORCH_NATIVE],
                 "logp_online": [OpBackend.PYTORCH_NATIVE],
                 "logp_online_indexed": [OpBackend.PYTORCH_NATIVE],
