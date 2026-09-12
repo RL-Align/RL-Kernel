@@ -1,5 +1,10 @@
 # Vime Qwen3-8B ROCm Attention ablation
 
+The canonical launch command is maintained in
+[`../vime_qwen3_8b_tp4_cp2_200/REPRODUCTION.md`](../vime_qwen3_8b_tp4_cp2_200/REPRODUCTION.md#rocm-entry-points).
+This file documents the ROCm-specific acceptance contract; keep host paths and
+commands in the shared runbook.
+
 This is the ROCm end-to-end counterpart of PR230's production/RL-Kernel
 operator matrix. It launches the real Vime orchestration once per Attention
 cell and requires runtime evidence from both sides:
@@ -50,28 +55,11 @@ workers. `rocm_python_entrypoint.sh` is provided for launchers that replace
 their Python executable. Point `RL_KERNEL_REAL_PYTHON` at the real interpreter
 and configure Vime to invoke this wrapper.
 
-## Review the launch contract
+## Run contract
 
-Without `--run`, the runner writes only a review summary and does not require a
-ROCm host:
-
-```bash
-python examples/vime_qwen3_8b_rocm_ablation/run.py \
-  --output-dir /tmp/rocm-attention-ablation \
-  -- bash /path/to/vime/scripts/run-qwen3-8B-rocm.sh
-```
-
-## Execute the full matrix
-
-```bash
-python examples/vime_qwen3_8b_rocm_ablation/run.py \
-  --run \
-  --output-dir /tmp/rocm-attention-ablation \
-  -- bash /path/to/vime/scripts/run-qwen3-8B-rocm.sh
-```
-
-Use `--case R/R` (repeatable) to run a subset while debugging. The final
-acceptance run should execute all four cells.
+Use the shared runbook for the dry-run and full-matrix commands. `--case R/R`
+is repeatable for debugging a subset; the final acceptance run should execute
+all four cells.
 
 ## Evidence and pass boundary
 
