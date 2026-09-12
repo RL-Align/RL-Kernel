@@ -157,8 +157,6 @@ def test_accuracy():
     with torch.no_grad():
         ref_logp = torch.log_softmax(logits.float(), dim=-1)
         ref_logp = torch.gather(ref_logp, dim=-1, index=token_ids.unsqueeze(-1).long()).squeeze(-1)
-        ref_logp = ref_logp.to(dtype)
-
     if device.type == "cuda":
         torch.cuda.synchronize()
 
@@ -169,6 +167,7 @@ def test_accuracy():
         logger.error(f"Failed to execute FusedLogp: {e}")
         raise
 
+    ref_logp = ref_logp.to(custom_logp.dtype)
     diff = torch.abs(ref_logp.float() - custom_logp.float()).max().item()
     threshold = 1e-2 if dtype in (torch.bfloat16, torch.float16) else 1e-5
 

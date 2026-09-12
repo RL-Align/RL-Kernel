@@ -238,8 +238,14 @@ class TritonEmbeddingOp:
         return self.forward(token_ids, weight)
 
     def forward(self, token_ids: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
-        if not token_ids.is_cuda or not weight.is_cuda:
-            raise RuntimeError("TritonEmbeddingOp requires CUDA tensors")
+        supported_devices = ("cuda", "hip", "xpu", "musa")
+        if (
+            token_ids.device.type not in supported_devices
+            or weight.device.type not in supported_devices
+        ):
+            raise RuntimeError(
+                "TritonEmbeddingOp requires accelerator tensors " "(CUDA / ROCm / XPU / MUSA)"
+            )
         return _TritonEmbeddingFunction.apply(token_ids, weight)
 
     @staticmethod

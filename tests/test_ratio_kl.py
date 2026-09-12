@@ -11,6 +11,7 @@ from rl_engine.kernels.ops.triton.loss.ratio_kl import (
     _ratio_kl_bwd_kernel,
     _ratio_kl_fwd_kernel,
 )
+from rl_engine.platforms.device import device_ctx
 from rl_engine.testing import make_synthetic_rl_kernel_batch, selected_logprobs_reference
 
 try:
@@ -515,7 +516,7 @@ def test_registry_dispatches_ratio_kl():
     from rl_engine.kernels.registry import kernel_registry
 
     op = kernel_registry.get_op("ratio_kl")
-    if _HAS_TRITON and torch.cuda.is_available():
+    if _HAS_TRITON and (torch.cuda.is_available() or device_ctx.is_musa):
         assert isinstance(op, TritonRatioKLOp)
     else:
         assert isinstance(op, NativeRatioKLOp)
