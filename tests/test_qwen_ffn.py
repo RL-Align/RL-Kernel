@@ -178,9 +178,7 @@ def test_qwen3_ffn_forward_backward_matches_fp32_reference():
 
     assert actual.shape == hidden.shape
     assert actual.dtype is torch.bfloat16
-    torch.testing.assert_close(
-        actual.cpu().float(), expected.detach(), atol=5e-2, rtol=2e-2
-    )
+    torch.testing.assert_close(actual.cpu().float(), expected.detach(), atol=5e-2, rtol=2e-2)
     for actual_input, reference_input in zip(actual_inputs, reference_inputs, strict=True):
         assert actual_input.grad.dtype is torch.bfloat16
         torch.testing.assert_close(

@@ -38,8 +38,7 @@ def _parse(value: str) -> Any:
 def _load(path: Path, phase: str | None) -> list[dict[str, Any]]:
     with path.open(encoding="utf-8", newline="") as handle:
         rows = [
-            {key: _parse(value) for key, value in row.items()}
-            for row in csv.DictReader(handle)
+            {key: _parse(value) for key, value in row.items()} for row in csv.DictReader(handle)
         ]
     if phase is not None:
         rows = [row for row in rows if row["phase"] == phase]
@@ -66,10 +65,7 @@ def _series(
 
 
 def _moving_average(values: list[float], window: int) -> list[float]:
-    return [
-        mean(values[max(0, index - window + 1) : index + 1])
-        for index in range(len(values))
-    ]
+    return [mean(values[max(0, index - window + 1) : index + 1]) for index in range(len(values))]
 
 
 def _plot_series(axis, rows, metric, title, *, moving_average=1, symlog=False):
@@ -86,12 +82,8 @@ def _plot_series(axis, rows, metric, title, *, moving_average=1, symlog=False):
             markersize=5,
         )
         if any(spreads):
-            lower = [
-                center - spread for center, spread in zip(centers, spreads, strict=True)
-            ]
-            upper = [
-                center + spread for center, spread in zip(centers, spreads, strict=True)
-            ]
+            lower = [center - spread for center, spread in zip(centers, spreads, strict=True)]
+            upper = [center + spread for center, spread in zip(centers, spreads, strict=True)]
             axis.fill_between(steps, lower, upper, color=color, alpha=0.15)
     if symlog:
         axis.set_yscale("symlog", linthresh=1e-9)
@@ -108,9 +100,7 @@ def _mismatch_rate_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         tokens = row.get("active_token_count")
         updated["mismatch_rate"] = (
             float(mismatch) / float(tokens)
-            if isinstance(mismatch, (int, float))
-            and isinstance(tokens, (int, float))
-            and tokens
+            if isinstance(mismatch, (int, float)) and isinstance(tokens, (int, float)) and tokens
             else None
         )
         result.append(updated)
@@ -168,9 +158,7 @@ def _save_optimization(rows, output, dpi):
     import matplotlib.pyplot as plt
 
     figure, axes = plt.subplots(2, 2, figsize=(13, 8), constrained_layout=True)
-    _plot_series(
-        axes[0, 0], rows, "pg_loss", "GRPO policy-gradient loss", symlog=True
-    )
+    _plot_series(axes[0, 0], rows, "pg_loss", "GRPO policy-gradient loss", symlog=True)
     _plot_series(axes[0, 1], rows, "pg_clipfrac", "Policy ratio clipped fraction")
     _plot_series(axes[1, 0], rows, "ppo_kl", "Training PPO KL", symlog=True)
     _plot_series(axes[1, 1], rows, "grad_norm", "Gradient norm", symlog=True)

@@ -179,11 +179,7 @@ class StrictRocmAttentionRuntime:
 
         key = (id(query_position_ids), id(key_position_ids), cp_world_size, causal)
         cached = self._position_plan_cache.get(key)
-        if (
-            cached is not None
-            and cached[0] is query_position_ids
-            and cached[1] is key_position_ids
-        ):
+        if cached is not None and cached[0] is query_position_ids and cached[1] is key_position_ids:
             return cached[2:]
 
         if cp_world_size == 1:
@@ -204,9 +200,7 @@ class StrictRocmAttentionRuntime:
             key_sort = query_sort
         else:
             key_sort = torch.argsort(global_key_positions, dim=1)
-        query_positions_sorted = torch.gather(
-            global_query_positions, 1, query_sort
-        )
+        query_positions_sorted = torch.gather(global_query_positions, 1, query_sort)
         key_positions_sorted = torch.gather(global_key_positions, 1, key_sort)
         _validate_global_positions(
             query_positions_sorted,
@@ -399,9 +393,7 @@ class StrictRocmAttentionRuntime:
 
         self._require_rocm(q)
         direct = getattr(self._core, "forward_paged_varlen_with_lse", None)
-        if not callable(direct) or not bool(
-            getattr(self._core, "supports_paged_schedule", False)
-        ):
+        if not callable(direct) or not bool(getattr(self._core, "supports_paged_schedule", False)):
             raise RuntimeError("strict ROCm direct paged-varlen CK is unavailable")
         if q.ndim != 3:
             raise ValueError("packed paged Q must use [tokens, heads, head_dim]")
@@ -549,9 +541,7 @@ class StrictRocmAttentionRuntime:
                 bounds_ok = torch.all((page_table >= 0) & (page_table < k_cache.size(0)))
                 torch._assert_async(bounds_ok, "page_table entries are outside the KV cache")
             if cu_seqlens_q is None:
-                cu_seqlens_q = torch.arange(
-                    q.size(0) + 1, dtype=torch.int32, device=q.device
-                )
+                cu_seqlens_q = torch.arange(q.size(0) + 1, dtype=torch.int32, device=q.device)
             if kv_indptr is None:
                 kv_indptr = torch.arange(
                     q.size(0) + 1, dtype=torch.int32, device=q.device
@@ -796,9 +786,7 @@ class StrictRocmAttentionRuntime:
                     if use_fused_gather
                     else "logical_kv_gather_then_dense_core"
                 ),
-                "paged_kernel": (
-                    "triton_fused_kv_gather_bhsd" if use_fused_gather else "none"
-                ),
+                "paged_kernel": ("triton_fused_kv_gather_bhsd" if use_fused_gather else "none"),
                 "lse_returned": bool(return_lse),
                 "launch_granularity": "one_batch_row_one_kv_group",
                 "tp_degree_invariant": True,
@@ -960,6 +948,7 @@ class StrictRocmAttentionRuntime:
 
         rows = pages.size(0)
         page_size = k_cache.size(1)
+
         def _gather(cache: torch.Tensor) -> torch.Tensor:
             selected = cache.index_select(0, flat_pages)
             flat = selected.reshape(

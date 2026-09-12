@@ -102,9 +102,7 @@ def _contains_string(value: Any, needle: str) -> bool:
 def _runtime_platform(provenance: Any) -> str | None:
     values = _values_for_keys(provenance, {"runtime_platform", "platform"})
     normalized = {
-        str(value).strip().lower()
-        for value in values
-        if isinstance(value, str) and value.strip()
+        str(value).strip().lower() for value in values if isinstance(value, str) and value.strip()
     }
     if normalized & {"rocm", "hip"}:
         return "rocm"
@@ -233,9 +231,7 @@ def _validate_rlkernel_record(
         errors.append(f"{label} selected RL-Kernel but reported backend {backend_id!r}")
     if _runtime_platform(provenance) != "rocm":
         errors.append(f"{label} RL-Kernel route did not prove ROCm execution")
-    if _truthy_flag(provenance, _FALLBACK_KEYS) or _truthy_flag(
-        provenance, _REFERENCE_KEYS
-    ):
+    if _truthy_flag(provenance, _FALLBACK_KEYS) or _truthy_flag(provenance, _REFERENCE_KEYS):
         errors.append(f"{label} RL-Kernel route reported a fallback/reference path")
     fallback_values = _values_for_keys(provenance, {"fallback"})
     reference_values = _values_for_keys(provenance, _REFERENCE_KEYS)
@@ -248,9 +244,7 @@ def _validate_rlkernel_record(
         {"actual_backend", "backend_id"},
         STRICT_ROCM_BACKEND_ID,
     ):
-        errors.append(
-            f"{label} did not prove strict ROCm backend {STRICT_ROCM_BACKEND_ID!r}"
-        )
+        errors.append(f"{label} did not prove strict ROCm backend {STRICT_ROCM_BACKEND_ID!r}")
     if not _has_exact_value(
         provenance,
         {"strict_core_id", "core_id"},
@@ -262,9 +256,7 @@ def _validate_rlkernel_record(
         {"strict_schedule", "schedule_id"},
         STRICT_ROCM_SCHEDULE_ID,
     ):
-        errors.append(
-            f"{label} did not prove strict ROCm schedule {STRICT_ROCM_SCHEDULE_ID!r}"
-        )
+        errors.append(f"{label} did not prove strict ROCm schedule {STRICT_ROCM_SCHEDULE_ID!r}")
     production_ready = _values_for_keys(provenance, {"production_ready"})
     if not production_ready or not any(value is True for value in production_ready):
         errors.append(f"{label} strict ROCm provenance is not production-ready")
@@ -336,16 +328,12 @@ def _validate_rlkernel_record(
             tp_world_size = max(int(value) for value in tp_values)
         except (TypeError, ValueError):
             tp_world_size = 0
-        collective_values = _values_for_keys(
-            provenance, {"deterministic_all_reduce_backend"}
-        )
+        collective_values = _values_for_keys(provenance, {"deterministic_all_reduce_backend"})
         expected_collective = (
             "none" if tp_world_size == 1 else ROCM_DETERMINISTIC_COLLECTIVE_BACKEND_ID
         )
         if tp_world_size <= 0 or expected_collective not in collective_values:
-            errors.append(
-                f"{label} did not prove the deterministic ROCm O-projection collective"
-            )
+            errors.append(f"{label} did not prove the deterministic ROCm O-projection collective")
     elif framework == "megatron":
         cp_values = _values_for_keys(provenance, {"cp_world_size"})
         try:
@@ -364,20 +352,14 @@ def _validate_rlkernel_record(
         expected_tp_collective = (
             "none" if tp_world_size == 1 else ROCM_DETERMINISTIC_COLLECTIVE_BACKEND_ID
         )
-        qkv_collectives = _values_for_keys(
-            provenance, {"tp_qkv_dgrad_collective"}
-        )
-        output_collectives = _values_for_keys(
-            provenance, {"tp_output_projection_collective"}
-        )
+        qkv_collectives = _values_for_keys(provenance, {"tp_qkv_dgrad_collective"})
+        output_collectives = _values_for_keys(provenance, {"tp_output_projection_collective"})
         if (
             tp_world_size <= 0
             or expected_tp_collective not in qkv_collectives
             or expected_tp_collective not in output_collectives
         ):
-            errors.append(
-                f"{label} did not prove deterministic ROCm TP projection collectives"
-            )
+            errors.append(f"{label} did not prove deterministic ROCm TP projection collectives")
 
 
 def _validate_production_record(
@@ -403,16 +385,12 @@ def _validate_strict_dense_record(
     errors: list[str],
 ) -> None:
     provenance = record.get("provenance")
-    expected_backend = (
-        STRICT_FFN_BACKEND_ID if module == "ffn" else STRICT_LINEAR_LOGP_BACKEND_ID
-    )
+    expected_backend = STRICT_FFN_BACKEND_ID if module == "ffn" else STRICT_LINEAR_LOGP_BACKEND_ID
     if record.get("case_id") != "R/R" or record.get("implementation") != "rl_kernel":
         errors.append(f"{label} did not execute the fixed R/R route")
     if record.get("backend_id") != expected_backend:
         errors.append(f"{label} reported backend {record.get('backend_id')!r}")
-    expected_mode = (
-        "compiled_hip_graph" if framework == "vllm" and module == "ffn" else "eager"
-    )
+    expected_mode = "compiled_hip_graph" if framework == "vllm" and module == "ffn" else "eager"
     if record.get("execution_mode", "eager") != expected_mode:
         errors.append(f"{label} did not execute in {expected_mode} mode")
     if int(record.get("call_count", 0)) <= 0:
@@ -438,9 +416,7 @@ def _validate_strict_dense_record(
         if framework == "megatron"
         else "rocm_vocab_parallel_logp_from_local_logits_tp"
     )
-    if not _has_exact_value(
-        provenance, {"logprob_kernel_backend"}, ROCM_LOGP_KERNEL_BACKEND_ID
-    ):
+    if not _has_exact_value(provenance, {"logprob_kernel_backend"}, ROCM_LOGP_KERNEL_BACKEND_ID):
         errors.append(f"{label} did not prove the ROCm WS2 logp kernel")
     if not _has_exact_value(provenance, {"strict_entrypoint"}, expected_entrypoint):
         errors.append(f"{label} did not prove strict entrypoint {expected_entrypoint!r}")
@@ -613,9 +589,7 @@ def slice_response_mask_for_cp(
 
     mask = _tensor(loss_mask, label="loss_masks")
     if response_length < 0 or total_length < response_length:
-        raise ValueError(
-            f"invalid total/response lengths: {total_length}/{response_length}"
-        )
+        raise ValueError(f"invalid total/response lengths: {total_length}/{response_length}")
     if mask.numel() != response_length:
         raise ValueError(
             "full loss mask length does not match response_length: "
@@ -629,9 +603,7 @@ def slice_response_mask_for_cp(
         return mask
 
     prompt_length = total_length - response_length
-    chunk_size = (total_length + 2 * context_parallel_size - 1) // (
-        2 * context_parallel_size
-    )
+    chunk_size = (total_length + 2 * context_parallel_size - 1) // (2 * context_parallel_size)
     chunks = (
         (
             context_parallel_rank * chunk_size,
@@ -789,9 +761,7 @@ def _sidecar_samples(
     }
     if any(not isinstance(value, (list, tuple)) for value in required_lists.values()):
         missing = [
-            name
-            for name, value in required_lists.items()
-            if not isinstance(value, (list, tuple))
+            name for name, value in required_lists.items() if not isinstance(value, (list, tuple))
         ]
         raise ValueError(f"mismatch sidecar lacks list fields: {', '.join(missing)}")
     assert isinstance(training_values, (list, tuple))
@@ -829,9 +799,7 @@ def _sidecar_samples(
         training = _tensor(training_values[index], label="train_log_probs")
         rollout = _tensor(rollout_values[index], label="rollout_log_probs")
         mask = _tensor(loss_masks[index], label="loss_masks").to(torch.bool)
-        total_length = _positive_int(
-            total_lengths[index], label="mismatch sidecar total_lengths"
-        )
+        total_length = _positive_int(total_lengths[index], label="mismatch sidecar total_lengths")
         response_length = _positive_int(
             response_lengths[index], label="mismatch sidecar response_lengths"
         )
@@ -987,9 +955,7 @@ def compare_train_rollout_logps(
         "train_rollout_logprob_abs_diff": mean_abs_diff,
         "mismatch_kl": mismatch_kl,
         "mismatch_k3_kl": mismatch_k3_kl,
-        "sample_count": len(
-            {sample["logical_key"] for sample in unique.values()}
-        ),
+        "sample_count": len({sample["logical_key"] for sample in unique.values()}),
         "element_count": element_count,
         "artifacts": [str(path) for path in paths],
     }

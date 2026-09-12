@@ -290,7 +290,8 @@ def _provider_impl(request: Any, *, linear_logp: Any = None) -> LinearLogpResult
             and isinstance(request_logits, torch.Tensor)
             and request_logits.ndim == 2
             and request_logits.dtype in (torch.bfloat16, torch.float16, torch.float32)
-            and request_logits.shape == (
+            and request_logits.shape
+            == (
                 hidden.size(0),
                 projection.weight.size(0),
             )

@@ -160,9 +160,7 @@ class MatrixConfig:
             raise ValueError("Ray ports must be between 1024 and 65535")
         if abs(self.ray_port - self.ray_dashboard_port) < len(CASE_ORDER):
             raise ValueError("Ray GCS and dashboard port ranges overlap")
-        dashboard_ports = range(
-            self.ray_dashboard_port, self.ray_dashboard_port + len(CASE_ORDER)
-        )
+        dashboard_ports = range(self.ray_dashboard_port, self.ray_dashboard_port + len(CASE_ORDER))
         if any(10001 <= port <= 19999 for port in dashboard_ports):
             raise ValueError("Ray dashboard ports overlap the default client/worker range")
         if not require_paths:
@@ -186,10 +184,7 @@ class MatrixConfig:
         if not (self.rl_kernel_root / "rl_engine").is_dir():
             raise FileNotFoundError("rl_kernel_root does not contain rl_engine")
         metrics_hook = (
-            self.rl_kernel_root
-            / "examples"
-            / "vime_rocm_attention_ablation"
-            / "tis_metrics.py"
+            self.rl_kernel_root / "examples" / "vime_rocm_attention_ablation" / "tis_metrics.py"
         )
         if not metrics_hook.is_file():
             raise FileNotFoundError(f"Attention mismatch metrics hook is missing: {metrics_hook}")
@@ -253,9 +248,7 @@ class MatrixConfig:
             },
             "seed": self.seed,
             "rollout_seed": self.rollout_seed,
-            "mismatch_metrics_hook": (
-                "vime_rocm_attention_ablation.tis_metrics.metrics_only_tis"
-            ),
+            "mismatch_metrics_hook": ("vime_rocm_attention_ablation.tis_metrics.metrics_only_tis"),
             "ffn_case": "R/R",
             "logp_case": "R/R",
             "real_vocab_size": self.real_vocab_size,
@@ -280,8 +273,7 @@ def _validate_checkpoint_marker(checkpoint: Path) -> None:
     marker = checkpoint / "latest_checkpointed_iteration.txt"
     if not marker.is_file():
         raise FileNotFoundError(
-            "reference_checkpoint is not a Megatron checkpoint: missing "
-            f"{marker}"
+            "reference_checkpoint is not a Megatron checkpoint: missing " f"{marker}"
         )
     value = marker.read_text(encoding="utf-8").strip()
     if value == "release":
@@ -327,8 +319,7 @@ def _validate_rl_kernel_plugin_installation() -> None:
     if not matching:
         values = sorted({entry_point.value for entry_point in candidates})
         raise RuntimeError(
-            "the visible rl_kernel vLLM plugin entry point has an unexpected target: "
-            f"{values!r}"
+            "the visible rl_kernel vLLM plugin entry point has an unexpected target: " f"{values!r}"
         )
 
     installed_name = distribution.metadata.get("Name", "RL-Kernel")
@@ -525,18 +516,14 @@ def build_arm_environment(
             "RL_KERNEL_VLLM_PADDED_VOCAB_SIZE": str(config.padded_vocab_size),
             "RL_KERNEL_VLLM_INTEGRATION": "1",
             "RL_KERNEL_READBACK_DIR": str((arm_dir / "readbacks").resolve()),
-            "RL_KERNEL_MISMATCH_SIDECAR_DIR": str(
-                (arm_dir / "mismatch_sidecars").resolve()
-            ),
+            "RL_KERNEL_MISMATCH_SIDECAR_DIR": str((arm_dir / "mismatch_sidecars").resolve()),
             "RLK_ABLATION_CASE_ID": case_id,
             "RLK_ABLATION_ARM_DIR": str(arm_dir.resolve()),
             "RLK_ABLATION_VIME_ROOT": str(config.vime_root.resolve()),
             "RLK_ABLATION_RL_KERNEL_ROOT": str(config.rl_kernel_root.resolve()),
             "RLK_ABLATION_MEGATRON_ROOT": str(config.megatron_root.resolve()),
             "RLK_ABLATION_MODEL_ROOT": str(config.model_root.resolve()),
-            "RLK_ABLATION_REFERENCE_CHECKPOINT": str(
-                config.reference_checkpoint.resolve()
-            ),
+            "RLK_ABLATION_REFERENCE_CHECKPOINT": str(config.reference_checkpoint.resolve()),
             "RLK_ABLATION_PROMPT_DATA": str(config.prompt_data.resolve()),
             "RLK_ABLATION_NUM_GPUS": str(config.num_gpus),
             "RLK_ABLATION_TP_SIZE": str(config.tensor_parallel_size),
@@ -555,9 +542,7 @@ def build_arm_environment(
             "RLK_ABLATION_SEED": str(config.seed),
             "RLK_ABLATION_ROLLOUT_SEED": str(config.rollout_seed),
             "RLK_ABLATION_RAY_PORT": str(config.ray_port + arm_index),
-            "RLK_ABLATION_RAY_DASHBOARD_PORT": str(
-                config.ray_dashboard_port + arm_index
-            ),
+            "RLK_ABLATION_RAY_DASHBOARD_PORT": str(config.ray_dashboard_port + arm_index),
             "RLK_ABLATION_RAY_DASHBOARD_AGENT_PORT": str(
                 config.ray_dashboard_port + arm_index + 10_000
             ),
@@ -763,9 +748,7 @@ def config_from_args(args: argparse.Namespace) -> MatrixConfig:
         "rl_kernel_root": _path_argument(args.rl_kernel_root, "RL_KERNEL_ROOT"),
         "megatron_root": _path_argument(args.megatron_root, "MEGATRON_ROOT"),
         "model_root": _path_argument(args.model_root, "MODEL_ROOT"),
-        "reference_checkpoint": _path_argument(
-            args.reference_checkpoint, "TORCH_DIST_ROOT"
-        ),
+        "reference_checkpoint": _path_argument(args.reference_checkpoint, "TORCH_DIST_ROOT"),
         "prompt_data": _path_argument(args.prompt_data, "PROMPT_DATA"),
     }
     missing = [name for name, value in values.items() if value is None]

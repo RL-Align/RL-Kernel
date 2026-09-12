@@ -172,9 +172,7 @@ def _qwen3_ffn_packed_tp_inference_rocm(
             down_weight,
             direct_input,
         )
-        _C.deterministic_collective_rocm_ipc_all_reduce_staged(
-            runtime_handle, direct_input, output
-        )
+        _C.deterministic_collective_rocm_ipc_all_reduce_staged(runtime_handle, direct_input, output)
         return output.reshape(*input_shape[:-1], down_weight.shape[0])
     else:
         # Profiling and uncaptured prefill can exceed the decode capture bound.
@@ -199,9 +197,7 @@ def _qwen3_ffn_packed_tp_inference_rocm_fake(
     collective_handle: int,
 ) -> Tensor:
     del fused_gate_up_weight, collective_handle
-    return rmsnorm_output.new_empty(
-        (*rmsnorm_output.shape[:-1], down_weight.shape[0])
-    )
+    return rmsnorm_output.new_empty((*rmsnorm_output.shape[:-1], down_weight.shape[0]))
 
 
 def qwen3_ffn_packed_inference(
@@ -249,8 +245,8 @@ def qwen3_ffn_packed_inference(
         rmsnorm_output.numel() // input_shape[-1],
         down_weight.shape[0],
     )
-    direct_staging = None if collective is None else getattr(
-        collective, "direct_staging_view", None
+    direct_staging = (
+        None if collective is None else getattr(collective, "direct_staging_view", None)
     )
     direct_output = (
         None
@@ -835,20 +831,14 @@ class Qwen3FFNOp:
             )
             if staging is None:
                 raise RuntimeError("packed ROCm rollout FFN staging allocation failed")
-            collective_handle = _PACKED_INFERENCE_SLOT_BY_RUNTIME_HANDLE.get(
-                runtime_handle, 0
-            )
+            collective_handle = _PACKED_INFERENCE_SLOT_BY_RUNTIME_HANDLE.get(runtime_handle, 0)
             if collective_handle == 0:
                 # Keep the AOT graph identity stable across worker processes;
                 # resolve its process-local C++ handle inside the custom op.
                 collective_handle = len(_PACKED_INFERENCE_SLOT_BY_RUNTIME_HANDLE) + 1
-                _PACKED_INFERENCE_SLOT_BY_RUNTIME_HANDLE[runtime_handle] = (
-                    collective_handle
-                )
+                _PACKED_INFERENCE_SLOT_BY_RUNTIME_HANDLE[runtime_handle] = collective_handle
             binding = _PACKED_INFERENCE_STAGING_BY_HANDLE.get(collective_handle)
-            stable_output = (
-                torch.empty_like(staging) if binding is None else binding[2]
-            )
+            stable_output = torch.empty_like(staging) if binding is None else binding[2]
             _PACKED_INFERENCE_STAGING_BY_HANDLE[collective_handle] = (
                 runtime_handle,
                 staging,

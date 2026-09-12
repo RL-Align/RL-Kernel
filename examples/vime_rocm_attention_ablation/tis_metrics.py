@@ -76,8 +76,7 @@ def _write_sidecar(
             _cpu_vector(value, label="train_log_probs") for value in train_log_probs
         ],
         "rollout_log_probs": [
-            _cpu_vector(value, label="rollout_log_probs")
-            for value in rollout_log_probs
+            _cpu_vector(value, label="rollout_log_probs") for value in rollout_log_probs
         ],
         "loss_masks": [_cpu_vector(value, label="loss_masks") for value in loss_masks],
         "total_lengths": [int(value) for value in total_lengths],

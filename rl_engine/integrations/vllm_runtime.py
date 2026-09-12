@@ -834,6 +834,7 @@ def _patch_strict_rocm_rotary_embedding(rotary_cls: type[Any]) -> None:
             device=device,
             theta=theta,
         )
+
         def register_table(name: str, table: torch.Tensor) -> None:
             if isinstance(instance, torch.nn.Module):
                 buffers = instance._buffers
@@ -915,9 +916,7 @@ def _configure_strict_ffn_compilation(vllm_config: Any | None = None) -> None:
         raise RuntimeError("vLLM splitting operators were not finalized before model init")
     if torch.version.hip is None:
         # Preserve the CUDA full-graph path introduced by PR 377.
-        splitting_ops[:] = [
-            op for op in splitting_ops if op != DETERMINISTIC_ALL_REDUCE_OP
-        ]
+        splitting_ops[:] = [op for op in splitting_ops if op != DETERMINISTIC_ALL_REDUCE_OP]
         return
 
     from vllm import envs as vllm_envs
@@ -933,16 +932,12 @@ def _configure_strict_ffn_compilation(vllm_config: Any | None = None) -> None:
         # vLLM's AOT key cannot see implementations behind torch custom ops.
         # Keep its normal config/code/compiler hashing under an RL-Kernel ABI
         # namespace so an older custom-op artifact cannot be replayed silently.
-        os.environ["VLLM_CACHE_ROOT"] = os.path.join(
-            cache_root, cache_namespace
-        )
+        os.environ["VLLM_CACHE_ROOT"] = os.path.join(cache_root, cache_namespace)
     compilation.cudagraph_mode = CUDAGraphMode.FULL_AND_PIECEWISE
     # ROCm IPC generations are allocated and consumed on device. Replayed
     # reductions therefore advance their generation instead of reusing the
     # capture-time payload, so these ops can remain in the full HIP graph.
-    splitting_ops[:] = [
-        op for op in splitting_ops if op not in _ROCM_STATEFUL_GRAPH_SPLITTING_OPS
-    ]
+    splitting_ops[:] = [op for op in splitting_ops if op not in _ROCM_STATEFUL_GRAPH_SPLITTING_OPS]
 
 
 def _patch_rocm_weight_cache_refresh() -> None:
@@ -991,7 +986,8 @@ def _patch_qwen_ffn(integration: VllmIntegration) -> None:
             _handle, tp_world_size = operator.bind_packed_inference(instance)
             if not compiled_evidence_armed:
                 execution_mode = (
-                    "compiled_hip_graph" if getattr(torch.version, "hip", None) is not None
+                    "compiled_hip_graph"
+                    if getattr(torch.version, "hip", None) is not None
                     else "compiled_cuda_graph"
                 )
                 register_packed_inference_observer(
@@ -1097,9 +1093,7 @@ def _patch_qwen3_strict_model(
             output_2d = rocm_linear_all_reduce(
                 x_2d,
                 layer.weight,
-                collective_handle=int(
-                    getattr(layer, _STRICT_O_PROJ_COMPILED_COLLECTIVE_SLOT)
-                ),
+                collective_handle=int(getattr(layer, _STRICT_O_PROJ_COMPILED_COLLECTIVE_SLOT)),
             )
             return output_2d.reshape(*x.shape[:-1], layer.weight.shape[0])
         direct_output = None
@@ -1223,9 +1217,7 @@ def _patch_qwen3_strict_model(
                 raise RuntimeError("strict ROCm o_proj staging allocation failed")
             if register_rocm_linear_staging is None:
                 raise RuntimeError("strict ROCm o_proj staging registry is unavailable")
-            compiled_slot = register_rocm_linear_staging(
-                int(collective._handle), staging
-            )
+            compiled_slot = register_rocm_linear_staging(int(collective._handle), staging)
             setattr(module, _STRICT_O_PROJ_COMPILED_COLLECTIVE_SLOT, compiled_slot)
             setattr(module, _STRICT_O_PROJ_FUSED_ALL_REDUCE_MARKER, True)
 
@@ -1253,9 +1245,7 @@ def _patch_qwen3_strict_model(
             output_parallel = instance.quant_method.apply(instance, input_parallel, bias_)
 
             if instance.reduce_results and instance.tp_size > 1:
-                if bool(
-                    getattr(instance, _STRICT_O_PROJ_FUSED_ALL_REDUCE_MARKER, False)
-                ):
+                if bool(getattr(instance, _STRICT_O_PROJ_FUSED_ALL_REDUCE_MARKER, False)):
                     output = output_parallel
                 elif bool(getattr(instance, _STRICT_DIRECT_STAGING_MARKER, False)):
                     output = deterministic_all_reduce_staged(
@@ -1298,11 +1288,7 @@ def _patch_qwen3_strict_model(
             instance._forward_method = instance.forward_cuda
             cache = getattr(instance, "cos_sin_cache", None)
             prepare = getattr(instance, "_rl_kernel_prepare_strict_rocm_tables", None)
-            if (
-                isinstance(cache, torch.Tensor)
-                and cache.is_cuda
-                and callable(prepare)
-            ):
+            if isinstance(cache, torch.Tensor) and cache.is_cuda and callable(prepare):
                 prepare(cache.device)
 
         setattr(rotary_cls, _STRICT_ROTARY_INIT_MARKER, rotary_init)
@@ -1444,9 +1430,7 @@ def _register_attention_backend(integration: VllmIntegration) -> None:
                 if dtype in (torch.float16, torch.bfloat16):
                     operator.warmup_rocm_decode(self, dtype=dtype)
 
-        def _split_kv_cache(
-            self, kv_cache: torch.Tensor
-        ) -> tuple[torch.Tensor, torch.Tensor]:
+        def _split_kv_cache(self, kv_cache: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
             if torch.version.hip is not None and operator is not None:
                 if (
                     kv_cache.ndim != 4
@@ -1454,8 +1438,7 @@ def _register_attention_backend(integration: VllmIntegration) -> None:
                     or kv_cache.size(-1) != 2 * int(self.head_size)
                 ):
                     raise RuntimeError(
-                        "RL-Kernel ROCm KV cache must use "
-                        "[blocks, block, heads, 2 * head_size]"
+                        "RL-Kernel ROCm KV cache must use " "[blocks, block, heads, 2 * head_size]"
                     )
                 return kv_cache.split(int(self.head_size), dim=-1)
             return super()._split_kv_cache(kv_cache)

@@ -27,6 +27,7 @@ from rl_engine.kernels.ops.triton.ffn import (
     pack_qwen3_ffn_forward_weights,
     qwen3_ffn,
 )
+
 _IS_ROCM = getattr(torch.version, "hip", None) is not None
 _EXTERNAL_WORLD_SIZE = int(os.environ.get("WORLD_SIZE", "1"))
 
@@ -251,12 +252,12 @@ def _run_topology(
     expected_output = inference_reference[token_start:token_end]
     assert torch.equal(inference, training.detach()), f"{name}: train/infer mismatch"
     assert torch.equal(inference, expected_output), f"{name}: inference mismatch vs TP=1"
-    assert torch.equal(training.detach(), training_reference.detach()[token_start:token_end]), (
-        f"{name}: training forward mismatch vs TP=1"
-    )
-    assert torch.equal(inputs[0].grad, reference_inputs[0].grad[token_start:token_end]), (
-        f"{name}: hidden grad mismatch vs TP=1"
-    )
+    assert torch.equal(
+        training.detach(), training_reference.detach()[token_start:token_end]
+    ), f"{name}: training forward mismatch vs TP=1"
+    assert torch.equal(
+        inputs[0].grad, reference_inputs[0].grad[token_start:token_end]
+    ), f"{name}: hidden grad mismatch vs TP=1"
 
     expected_weight_grads = (
         (inputs[1].grad, reference_inputs[1].grad[feature_start:feature_end], "gate"),

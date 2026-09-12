@@ -131,9 +131,7 @@ def _launch(state: CaseState, *, direct_root_output: bool) -> None:
             )
 
     if not direct_root_output:
-        det_gemm._copy_tree_root_kernel[
-            (triton.cdiv(state.output.numel(), reduction_block),)
-        ](
+        det_gemm._copy_tree_root_kernel[(triton.cdiv(state.output.numel(), reduction_block),)](
             state.workspace,
             state.output,
             plan.host.root,

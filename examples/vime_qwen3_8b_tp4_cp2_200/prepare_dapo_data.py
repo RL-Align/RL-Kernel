@@ -70,11 +70,7 @@ def convert(source: Path, output: Path) -> dict[str, Any]:
                 reward_model = row.get("reward_model") or {}
                 label = reward_model.get("ground_truth")
                 prompt = row.get("prompt")
-                if (
-                    not isinstance(prompt, list)
-                    or not isinstance(label, str)
-                    or not label
-                ):
+                if not isinstance(prompt, list) or not isinstance(label, str) or not label:
                     raise ValueError(f"invalid prompt or ground truth for row {row_id}")
                 record = {
                     "prompt": prompt,
@@ -84,9 +80,7 @@ def convert(source: Path, output: Path) -> dict[str, Any]:
                     "source_index": row_id,
                     "reward_style": reward_model.get("style"),
                 }
-                destination.write(
-                    json.dumps(record, ensure_ascii=False, separators=(",", ":"))
-                )
+                destination.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")))
                 destination.write("\n")
                 rows_written += 1
     partial.replace(output)

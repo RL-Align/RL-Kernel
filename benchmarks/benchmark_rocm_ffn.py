@@ -117,9 +117,7 @@ def _accuracy(actual: torch.Tensor, expected: torch.Tensor) -> dict[str, float]:
         "max_abs": float(difference.abs().max().item()),
         "mean_abs": float(difference.abs().mean().item()),
         "relative_l2": _relative_l2(actual, expected),
-        "exact_fraction": float(
-            (actual.detach() == expected.detach()).float().mean().item()
-        ),
+        "exact_fraction": float((actual.detach() == expected.detach()).float().mean().item()),
     }
 
 
@@ -317,9 +315,7 @@ def _official_distributed_ffn(
         if sequence_parallel
         else _NativeCopyToTensorParallel.apply(hidden, tp_group)
     )
-    activated = F.silu(F.linear(full_hidden, gate_weight)) * F.linear(
-        full_hidden, up_weight
-    )
+    activated = F.silu(F.linear(full_hidden, gate_weight)) * F.linear(full_hidden, up_weight)
     partial_output = F.linear(activated, down_weight)
     if sequence_parallel:
         return _NativeReduceScatter.apply(partial_output, tp_group)
@@ -369,9 +365,7 @@ def _single_gpu_benchmarks(
     official = _official_qwen3_mlp(gate_weight, up_weight, down_weight)
     for index, tokens in enumerate((1, 8, 32)):
         hidden = _randn((tokens, 4096), seed=3010 + index * 2, device=device)
-        grad_output = _randn(
-            (tokens, 4096), seed=3011 + index * 2, device=device
-        )
+        grad_output = _randn((tokens, 4096), seed=3011 + index * 2, device=device)
         weights = (gate_weight, up_weight, down_weight)
         official_timing = _summary_ms(
             _gpu_event_samples(
@@ -410,12 +404,9 @@ def _single_gpu_benchmarks(
 
         official_hidden = hidden.detach().clone().requires_grad_(True)
         triton_inputs = [
-            value.detach().clone().requires_grad_(True)
-            for value in (hidden, *weights)
+            value.detach().clone().requires_grad_(True) for value in (hidden, *weights)
         ]
-        triton_forward_weights = pack_qwen3_ffn_forward_weights(
-            *triton_inputs[1:]
-        )
+        triton_forward_weights = pack_qwen3_ffn_forward_weights(*triton_inputs[1:])
 
         def triton_training_step() -> torch.Tensor:
             return _training_step(
@@ -460,8 +451,7 @@ def _single_gpu_benchmarks(
                 "official_tp1": official_train_timing,
                 "triton": triton_train_timing,
                 "latency_ratio_vs_official_tp1": (
-                    triton_train_timing["median_ms"]
-                    / official_train_timing["median_ms"]
+                    triton_train_timing["median_ms"] / official_train_timing["median_ms"]
                 ),
             }
         )
@@ -478,26 +468,16 @@ def _single_gpu_benchmarks(
     del official, forward_weights, gate_weight, up_weight, down_weight
     torch.cuda.empty_cache()
     tokens = 8
-    fp32_hidden = _randn(
-        (tokens, 4096), seed=3100, device=device, dtype=torch.float32
-    )
-    fp32_gate = _randn(
-        (12288, 4096), seed=3101, device=device, dtype=torch.float32
-    )
-    fp32_up = _randn(
-        (12288, 4096), seed=3102, device=device, dtype=torch.float32
-    )
-    fp32_down = _randn(
-        (4096, 12288), seed=3103, device=device, dtype=torch.float32
-    )
+    fp32_hidden = _randn((tokens, 4096), seed=3100, device=device, dtype=torch.float32)
+    fp32_gate = _randn((12288, 4096), seed=3101, device=device, dtype=torch.float32)
+    fp32_up = _randn((12288, 4096), seed=3102, device=device, dtype=torch.float32)
+    fp32_down = _randn((4096, 12288), seed=3103, device=device, dtype=torch.float32)
     official_fp32 = _official_qwen3_mlp(fp32_gate, fp32_up, fp32_down)
     with torch.no_grad():
         fp32_output = official_fp32(fp32_hidden)
     del official_fp32
     torch.cuda.empty_cache()
-    official_fp16 = _official_qwen3_mlp(
-        fp32_gate.half(), fp32_up.half(), fp32_down.half()
-    )
+    official_fp16 = _official_qwen3_mlp(fp32_gate.half(), fp32_up.half(), fp32_down.half())
     with torch.no_grad():
         fp16_output = official_fp16(fp32_hidden.half())
     results["dtype_accuracy"].append(
@@ -512,8 +492,6 @@ def _single_gpu_benchmarks(
         }
     )
     return results
-
-
 
 
 def _mesh_groups(
@@ -583,9 +561,7 @@ def _distributed_wall_samples(
     return timings
 
 
-def _slowest_rank_summary(
-    local_timings: list[float], group: Any
-) -> dict[str, float]:
+def _slowest_rank_summary(local_timings: list[float], group: Any) -> dict[str, float]:
     world_size = dist.get_world_size(group=group)
     gathered: list[list[float] | None] = [None] * world_size
     dist.all_gather_object(gathered, local_timings, group=group)
@@ -594,8 +570,6 @@ def _slowest_rank_summary(
         for index in range(len(local_timings))
     ]
     return _summary_ms(slowest)
-
-
 
 
 def _distributed_ffn_benchmark(
@@ -612,37 +586,37 @@ def _distributed_ffn_benchmark(
     hidden_size = 4096
     intermediate_size = 12288
     hidden_full = _randn((token_count, hidden_size), seed=5000, device=device)
-    gate_full = _randn(
-        (intermediate_size, hidden_size), seed=5001, device=device
-    )
+    gate_full = _randn((intermediate_size, hidden_size), seed=5001, device=device)
     up_full = _randn((intermediate_size, hidden_size), seed=5002, device=device)
-    down_full = _randn(
-        (hidden_size, intermediate_size), seed=5003, device=device
-    )
-    grad_output_full = _randn(
-        (token_count, hidden_size), seed=5004, device=device
-    )
+    down_full = _randn((hidden_size, intermediate_size), seed=5003, device=device)
+    grad_output_full = _randn((token_count, hidden_size), seed=5004, device=device)
 
     # Exactness reference: the same deterministic Triton implementation at TP=1.
     full_values = (hidden_full, gate_full, up_full, down_full)
     tp1_forward_weights = pack_qwen3_ffn_forward_weights(*full_values[1:])
     with torch.no_grad():
-        tp1_forward = qwen3_ffn(
-            *full_values,
-            forward_weights=tp1_forward_weights,
-        ).detach().clone()
-    tp1_inputs = [
-        value.detach().clone().requires_grad_(True) for value in full_values
-    ]
+        tp1_forward = (
+            qwen3_ffn(
+                *full_values,
+                forward_weights=tp1_forward_weights,
+            )
+            .detach()
+            .clone()
+        )
+    tp1_inputs = [value.detach().clone().requires_grad_(True) for value in full_values]
     tp1_training_weights = pack_qwen3_ffn_forward_weights(*tp1_inputs[1:])
-    tp1_train = _training_step(
-        lambda *values: qwen3_ffn(
-            *values,
-            forward_weights=tp1_training_weights,
-        ),
-        tp1_inputs,
-        grad_output_full,
-    ).detach().clone()
+    tp1_train = (
+        _training_step(
+            lambda *values: qwen3_ffn(
+                *values,
+                forward_weights=tp1_training_weights,
+            ),
+            tp1_inputs,
+            grad_output_full,
+        )
+        .detach()
+        .clone()
+    )
     tp1_grads = [value.grad.detach().clone() for value in tp1_inputs]
     del tp1_inputs, tp1_forward_weights, tp1_training_weights
     torch.cuda.empty_cache()
@@ -693,9 +667,7 @@ def _distributed_ffn_benchmark(
             ),
             dist.group.WORLD,
         )
-        official_inputs = [
-            value.detach().clone().requires_grad_(True) for value in shard
-        ]
+        official_inputs = [value.detach().clone().requires_grad_(True) for value in shard]
         official_train_summary = _slowest_rank_summary(
             _distributed_wall_samples(
                 lambda: _official_distributed_training_step(
@@ -734,12 +706,8 @@ def _distributed_ffn_benchmark(
             dist.group.WORLD,
         )
 
-        triton_inputs = [
-            value.detach().clone().requires_grad_(True) for value in shard
-        ]
-        repeat_inputs = [
-            value.detach().clone().requires_grad_(True) for value in shard
-        ]
+        triton_inputs = [value.detach().clone().requires_grad_(True) for value in shard]
+        repeat_inputs = [value.detach().clone().requires_grad_(True) for value in shard]
         triton_forward_weights = pack_qwen3_ffn_forward_weights(*triton_inputs[1:])
         repeat_forward_weights = pack_qwen3_ffn_forward_weights(*repeat_inputs[1:])
 
@@ -756,15 +724,23 @@ def _distributed_ffn_benchmark(
             output.backward(local_grad_output)
             return output
 
-        triton_train = triton_training_step(
-            triton_inputs,
-            triton_forward_weights,
-        ).detach().clone()
+        triton_train = (
+            triton_training_step(
+                triton_inputs,
+                triton_forward_weights,
+            )
+            .detach()
+            .clone()
+        )
         triton_grads = [value.grad.detach().clone() for value in triton_inputs]
-        repeat_train = triton_training_step(
-            repeat_inputs,
-            repeat_forward_weights,
-        ).detach().clone()
+        repeat_train = (
+            triton_training_step(
+                repeat_inputs,
+                repeat_forward_weights,
+            )
+            .detach()
+            .clone()
+        )
         repeat_grads = [value.grad.detach().clone() for value in repeat_inputs]
         triton_train_summary = _slowest_rank_summary(
             _distributed_wall_samples(
@@ -790,14 +766,10 @@ def _distributed_ffn_benchmark(
         local_exactness = {
             "tp1_forward_output": _mismatches(triton_output, expected_forward),
             "tp1_training_output": _mismatches(triton_train, expected_train),
-            "tp1_hidden_gradient": _mismatches(
-                triton_grads[0], expected_grads[0]
-            ),
+            "tp1_hidden_gradient": _mismatches(triton_grads[0], expected_grads[0]),
             "tp1_weight_gradient": sum(
                 _mismatches(actual, expected)
-                for actual, expected in zip(
-                    triton_grads[1:], expected_grads[1:], strict=True
-                )
+                for actual, expected in zip(triton_grads[1:], expected_grads[1:], strict=True)
             ),
             "repeat_forward": _mismatches(triton_output, triton_repeat),
             "train_infer_mismatch_count": _mismatches(triton_output, triton_train),
@@ -834,13 +806,9 @@ def _distributed_ffn_benchmark(
                             / official_forward_summary["median_ms"]
                         ),
                         "tp1_mismatch": {
-                            "forward_output": sum(
-                                value["tp1_forward_output"] for value in valid
-                            ),
+                            "forward_output": sum(value["tp1_forward_output"] for value in valid),
                         },
-                        "repeat_mismatch_count": sum(
-                            value["repeat_forward"] for value in valid
-                        ),
+                        "repeat_mismatch_count": sum(value["repeat_forward"] for value in valid),
                         "train_infer_mismatch_count": sum(
                             value["train_infer_mismatch_count"] for value in valid
                         ),
@@ -851,23 +819,14 @@ def _distributed_ffn_benchmark(
                         "official_distributed": official_train_summary,
                         "triton": triton_train_summary,
                         "latency_ratio_triton_vs_official_distributed": (
-                            triton_train_summary["median_ms"]
-                            / official_train_summary["median_ms"]
+                            triton_train_summary["median_ms"] / official_train_summary["median_ms"]
                         ),
                         "tp1_mismatch": {
-                            "training_output": sum(
-                                value["tp1_training_output"] for value in valid
-                            ),
-                            "hidden_gradient": sum(
-                                value["tp1_hidden_gradient"] for value in valid
-                            ),
-                            "weight_gradient": sum(
-                                value["tp1_weight_gradient"] for value in valid
-                            ),
+                            "training_output": sum(value["tp1_training_output"] for value in valid),
+                            "hidden_gradient": sum(value["tp1_hidden_gradient"] for value in valid),
+                            "weight_gradient": sum(value["tp1_weight_gradient"] for value in valid),
                         },
-                        "repeat_mismatch_count": sum(
-                            value["repeat_training"] for value in valid
-                        ),
+                        "repeat_mismatch_count": sum(value["repeat_training"] for value in valid),
                         "train_infer_mismatch_count": sum(
                             value["train_infer_mismatch_count"] for value in valid
                         ),
@@ -997,9 +956,7 @@ def _run_distributed_world(
             for process in processes:
                 if process.is_alive():
                     process.terminate()
-            raise RuntimeError(
-                f"timed out waiting for world_size={world_size} benchmark"
-            ) from exc
+            raise RuntimeError(f"timed out waiting for world_size={world_size} benchmark") from exc
         finally:
             for process in processes:
                 process.join(timeout=60)
@@ -1014,12 +971,8 @@ def _run_distributed_world(
         raise RuntimeError(result.get("traceback", str(result)))
     for process in processes:
         if process.exitcode != 0:
-            raise RuntimeError(
-                f"world_size={world_size} worker exited with {process.exitcode}"
-            )
+            raise RuntimeError(f"world_size={world_size} worker exited with {process.exitcode}")
     return result
-
-
 
 
 def _topology_exactness_rows(
@@ -1067,8 +1020,7 @@ def _distributed_platform_comparison_rows(
     if comparison_payload is None:
         return []
     h100_lookup = {
-        (row["name"], row["direction"]): row
-        for row in comparison_payload["distributed"]
+        (row["name"], row["direction"]): row for row in comparison_payload["distributed"]
     }
     rows: list[dict[str, Any]] = []
     for current in current_rows:
@@ -1078,9 +1030,7 @@ def _distributed_platform_comparison_rows(
             continue
         h100_official_ms = float(h100["official_h100_ms"])
         h100_deterministic_ms = float(h100["cuda_h100_ms"])
-        mi300x_official_ms = float(
-            current["official_distributed"]["median_ms"]
-        )
+        mi300x_official_ms = float(current["official_distributed"]["median_ms"])
         mi300x_deterministic_ms = float(current["triton"]["median_ms"])
         rows.append(
             {
@@ -1143,20 +1093,11 @@ def _write_report(
     platform_comparison = _distributed_platform_comparison_rows(
         distributed_speed, comparison_payload
     )
-    previous_comparison = _previous_deterministic_comparison_rows(
-        distributed_speed
-    )
-    previous_reductions = [
-        row["latency_reduction_ratio"] for row in previous_comparison
-    ]
+    previous_comparison = _previous_deterministic_comparison_rows(distributed_speed)
+    previous_reductions = [row["latency_reduction_ratio"] for row in previous_comparison]
     exactness_rows = _topology_exactness_rows(distributed_speed)
-    single_ratios = [
-        row["latency_ratio_vs_official_tp1"] for row in single_speed
-    ]
-    platform_ratios = [
-        row["deterministic_mi300x_over_h100_ratio"]
-        for row in platform_comparison
-    ]
+    single_ratios = [row["latency_ratio_vs_official_tp1"] for row in single_speed]
+    platform_ratios = [row["deterministic_mi300x_over_h100_ratio"] for row in platform_comparison]
     total_tp1_mismatch = sum(
         row[key]
         for row in exactness_rows
@@ -1281,8 +1222,7 @@ def _write_report(
             "",
             "## Single-GPU FFN speed",
             "",
-            "Performance only; no official-versus-Triton accuracy metric is "
-            "reported here.",
+            "Performance only; no official-versus-Triton accuracy metric is " "reported here.",
             "",
             "| Shape / direction | Official Qwen3MLP TP=1 (ms) | Deterministic "
             "Triton, packed (ms) | Triton / official TP=1 |",
@@ -1364,9 +1304,7 @@ def _write_report(
     if comparison_payload is not None:
         comparison_environment = comparison_payload["environment"]
         comparison_source = comparison_payload["source"]
-        local_single = {
-            (row["tokens"], row["direction"]): row for row in single_speed
-        }
+        local_single = {(row["tokens"], row["direction"]): row for row in single_speed}
         lines.extend(
             (
                 "",
@@ -1402,11 +1340,7 @@ def _write_report(
         )
         for row in comparison_payload["single_gpu"]:
             local = local_single[(row["tokens"], row["direction"])]
-            direction = (
-                "forward"
-                if row["direction"] == "forward"
-                else "forward+backward"
-            )
+            direction = "forward" if row["direction"] == "forward" else "forward+backward"
             lines.append(
                 f"| M={row['tokens']}, {direction} | "
                 f"{row['official_cpu_ms']:.4f} | "
@@ -1480,8 +1414,7 @@ def _write_report(
             "",
             "## Figures",
             "",
-            "![Single-GPU CUDA, packed Triton, and CPU latency]"
-            "(single_gpu_overhead.png)",
+            "![Single-GPU CUDA, packed Triton, and CPU latency]" "(single_gpu_overhead.png)",
             "",
             "![Topology mismatch versus Triton TP=1](collective_overhead.png)",
             "",
@@ -1490,9 +1423,7 @@ def _write_report(
             "",
         )
     )
-    (output_directory / "report.md").write_text(
-        "\n".join(lines), encoding="utf-8"
-    )
+    (output_directory / "report.md").write_text("\n".join(lines), encoding="utf-8")
 
 
 def _write_figures(
@@ -1521,16 +1452,13 @@ def _write_figures(
     single_rows = payload["single_gpu"]["speed"]
     if comparison_payload is None:
         single_labels = [
-            f"M={row['tokens']}\n"
-            f"{'FWD' if row['direction'] == 'forward' else 'FWD+BWD'}"
+            f"M={row['tokens']}\n" f"{'FWD' if row['direction'] == 'forward' else 'FWD+BWD'}"
             for row in single_rows
         ]
         positions = np.arange(len(single_rows))
         width = 0.37
         figure, axis = plt.subplots(figsize=(17, 10))
-        official_values = [
-            row["official_tp1"]["median_ms"] for row in single_rows
-        ]
+        official_values = [row["official_tp1"]["median_ms"] for row in single_rows]
         triton_values = [row["triton"]["median_ms"] for row in single_rows]
         official_bars = axis.bar(
             positions - width / 2,
@@ -1558,21 +1486,16 @@ def _write_figures(
                 rotation=90,
             )
         axis.set_yscale("log")
-        axis.set_xlabel(
-            "Token count M and measured direction\nH=4096, I=12288, BF16"
-        )
+        axis.set_xlabel("Token count M and measured direction\nH=4096, I=12288, BF16")
         axis.set_ylabel("Median latency (ms, log scale)")
         axis.set_title("MI300X single-GPU FFN speed: official TP=1 vs Triton")
         axis.set_xticks(positions, single_labels)
         axis.legend(loc="upper left")
         figure.tight_layout()
     else:
-        local_lookup = {
-            (row["tokens"], row["direction"]): row for row in single_rows
-        }
+        local_lookup = {(row["tokens"], row["direction"]): row for row in single_rows}
         comparison_lookup = {
-            (row["tokens"], row["direction"]): row
-            for row in comparison_payload["single_gpu"]
+            (row["tokens"], row["direction"]): row for row in comparison_payload["single_gpu"]
         }
         figure, axes = plt.subplots(1, 2, figsize=(24, 10), sharey=True)
         series = (
@@ -1707,15 +1630,10 @@ def _write_figures(
     plt.close(figure)
 
     rows = payload["distributed_ffn"]
-    platform_comparison = _distributed_platform_comparison_rows(
-        rows, comparison_payload
-    )
+    platform_comparison = _distributed_platform_comparison_rows(rows, comparison_payload)
     figure, axes = plt.subplots(1, 2, figsize=(26, 10), sharey=True)
     if platform_comparison:
-        comparison_lookup = {
-            (row["name"], row["direction"]): row
-            for row in platform_comparison
-        }
+        comparison_lookup = {(row["name"], row["direction"]): row for row in platform_comparison}
         distributed_series = (
             ("H100 official distributed", "h100_official_distributed_ms", "#60a5fa"),
             ("H100 deterministic CUDA", "h100_deterministic_cuda_ms", "#dc2626"),
@@ -1755,9 +1673,7 @@ def _write_figures(
             combined_rows.append(combined)
         for series_index, (label, key, color) in enumerate(distributed_series):
             values = [row[key] for row in combined_rows]
-            offset = (
-                series_index - (len(distributed_series) - 1) / 2
-            ) * width
+            offset = (series_index - (len(distributed_series) - 1) / 2) * width
             bars = axis.bar(
                 positions + offset,
                 values,
@@ -1905,9 +1821,7 @@ def main() -> None:
             "contract": "same M=32 workload, direction, and TP/CP/SP topology",
             "rows": platform_comparison,
         }
-    previous_comparison = _previous_deterministic_comparison_rows(
-        payload["distributed_ffn"]
-    )
+    previous_comparison = _previous_deterministic_comparison_rows(payload["distributed_ffn"])
     if previous_comparison:
         payload["previous_deterministic_comparison"] = {
             "source": "previous checked MI300X benchmark before PR #357",

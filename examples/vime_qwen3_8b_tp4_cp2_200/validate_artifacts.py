@@ -52,14 +52,11 @@ def validate_readbacks(readbacks: list[dict[str, Any]]) -> dict[str, Any]:
             if value.get("fallbacks"):
                 errors.append(f"{label} recorded fallback: {value['fallbacks']}")
         for module in _MODULES:
-            hook_count = sum(
-                module in value.get("installed_hooks", {}) for value in matching
-            )
+            hook_count = sum(module in value.get("installed_hooks", {}) for value in matching)
             records = [
                 value["operators"][module]
                 for value in matching
-                if isinstance(value.get("operators"), Mapping)
-                and module in value["operators"]
+                if isinstance(value.get("operators"), Mapping) and module in value["operators"]
             ]
             call_count = sum(int(record.get("call_count", 0)) for record in records)
             if hook_count == 0:
@@ -74,9 +71,7 @@ def validate_readbacks(readbacks: list[dict[str, Any]]) -> dict[str, Any]:
                         f"{label} logp used {backend!r}, expected {_STRICT_LOGP_BACKEND!r}"
                     )
                 elif not backend.startswith(_BACKEND_PREFIXES):
-                    errors.append(
-                        f"{label} {module} used unexpected backend {backend!r}"
-                    )
+                    errors.append(f"{label} {module} used unexpected backend {backend!r}")
                 if _contains_triton(record):
                     errors.append(f"{label} {module} used Triton")
                 if _runtime_platform(record.get("provenance")) != "cuda":
@@ -119,9 +114,7 @@ def compare_train_rollout_logps(paths: list[Path]) -> dict[str, Any]:
             if not isinstance(training_values, (list, tuple)) or not isinstance(
                 rollout_values, (list, tuple)
             ):
-                errors.append(
-                    f"{path} rollout_data lacks list log_probs/rollout_log_probs"
-                )
+                errors.append(f"{path} rollout_data lacks list log_probs/rollout_log_probs")
                 continue
             if len(training_values) != len(rollout_values):
                 errors.append(
@@ -130,9 +123,7 @@ def compare_train_rollout_logps(paths: list[Path]) -> dict[str, Any]:
                 )
             samples = [
                 {"log_probs": training, "rollout_log_probs": rollout}
-                for training, rollout in zip(
-                    training_values, rollout_values, strict=False
-                )
+                for training, rollout in zip(training_values, rollout_values, strict=False)
             ]
         for sample_index, sample in enumerate(samples):
             if not isinstance(sample, Mapping):
@@ -140,9 +131,7 @@ def compare_train_rollout_logps(paths: list[Path]) -> dict[str, Any]:
                 continue
             training = sample.get("log_probs")
             rollout = sample.get("rollout_log_probs")
-            if not isinstance(training, torch.Tensor) or not isinstance(
-                rollout, torch.Tensor
-            ):
+            if not isinstance(training, torch.Tensor) or not isinstance(rollout, torch.Tensor):
                 errors.append(
                     f"{path} sample {sample_index} lacks tensor log_probs/rollout_log_probs"
                 )
@@ -214,9 +203,7 @@ def main(argv: list[str] | None = None) -> int:
             "error": str(exc),
         }
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(
-        json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0 if report["passed"] else 1
 
