@@ -22,6 +22,14 @@ std::vector<torch::Tensor> deterministic_attention_ascend_forward(
     double scale,
     c10::optional<torch::Tensor> key_padding_mask,
     bool outFp32 = false);
+std::vector<torch::Tensor> deterministic_attention_backward_ascend(
+    torch::Tensor grad_out,
+    torch::Tensor q,
+    torch::Tensor k,
+    torch::Tensor v,
+    bool causal,
+    double scale,
+    c10::optional<torch::Tensor> key_padding_mask);
 
 torch::Tensor prefix_shared_attention_ascend_forward(
     torch::Tensor q, torch::Tensor k, torch::Tensor v);
@@ -88,6 +96,16 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
           py::arg("key_padding_mask") = py::none(),
           py::arg("outFp32") = false,
           "Deterministic batch-invariant standard-softmax attention (Ascend C forward)");
+    m.def("deterministic_attention_backward_ascend",
+          &deterministic_attention_backward_ascend,
+          py::arg("grad_out"),
+          py::arg("q"),
+          py::arg("k"),
+          py::arg("v"),
+          py::arg("causal"),
+          py::arg("scale"),
+          py::arg("key_padding_mask") = py::none(),
+          "Deterministic batch-invariant standard-softmax attention backward (Ascend C)");
     m.def("prefix_shared_attention_ascend",
           &prefix_shared_attention_ascend_forward,
           "Prefix-shared fused attention (Ascend C forward)");
