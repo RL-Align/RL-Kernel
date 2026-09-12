@@ -515,6 +515,28 @@ class Qwen3DenseWeights:
         return cls(tensors, source=f"hf:{path}", content_hash=spec.weight_content_hash)
 
 
+class Qwen3DenseWeightsOffloaded(Qwen3DenseWeights):
+    """CPU-resident weights paged onto the accelerator per access.
+
+    The C10 FP32 reference on 64 GB HBM hosts uses this: the FP32 weights
+    (~32 GB) plus their FP32 gradients (~32 GB) plus activations cannot all
+    be resident, but the reference forward touches one weight at a time.
+    Each ``__getitem__`` issues an exact device copy; the autograd graph
+    keeps each copy alive until its VJP consumes it, so the peak HBM is the
+    sum of one copy per use (~36 GB) and the FP32 gradients accumulate on
+    the CPU-resident leaves instead of on the accelerator. Copies are
+    exact, so the forward and backward numerics are bitwise identical to
+    the resident-FP32 model.
+    """
+
+    def __init__(self, weights: Qwen3DenseWeights, device: torch.device | str):
+        super().__init__(weights.tensors, weights.source, weights.content_hash)
+        self._device = torch.device(device)
+
+    def __getitem__(self, key: str) -> torch.Tensor:
+        return self.tensors[key].to(self._device)
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
