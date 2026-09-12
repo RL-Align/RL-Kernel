@@ -91,23 +91,16 @@ class _CanonicalAscendRMSNorm(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_out):
+        from rl_engine.kernels.ops.ascend.norm.rmsnorm import _rms_norm_backward_rows
+
         x, weight, rstd = ctx.saved_tensors
         dy = grad_out.contiguous()
-        # Same FP32 VJP the Ascend op uses, kept row-wise so the weight
-        # gradient can be folded in canonical logical-row order.
-        dy_f = dy.float()
-        x_f = x.float()
-        rstd_f = rstd.float()
-        dyw = dy_f * weight.float()
-        hidden = x.size(-1)
-        s = (dyw * x_f).sum(dim=-1)
-        dx = (
-            rstd_f.unsqueeze(-1) * dyw
-            - x_f * (rstd_f.pow(3) / hidden).unsqueeze(-1) * s.unsqueeze(-1)
-        ).to(x.dtype)
+        # Forward rstd alone is not sufficient: the dx dot product must also
+        # have a row-count-independent reduction before gradients reach
+        # earlier layers' canonical parameter contributions.
+        dx, rows = _rms_norm_backward_rows(x, weight, rstd, dy)
         dw = None
         if ctx.needs_input_grad[1]:
-            rows = dy_f * x_f * rstd_f.unsqueeze(-1)
             dw = ctx.session.submit_rows(
                 ctx.parameter_id,
                 ctx.slot,
