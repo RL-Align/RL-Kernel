@@ -11,12 +11,14 @@ import json
 import pathlib
 import sys
 
-import torch
-
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from rl_engine.kernels.gtest.accelerator import (  # noqa: E402
+    disable_tf32,
+    resolve_device,
+)
 from rl_engine.kernels.gtest.kv_consistency import (  # noqa: E402
     assert_decode_prefill_consistent,
     build_decode_prefill_cases,
@@ -29,20 +31,27 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="WS1 C6 direct decode-prefill gate")
     parser.add_argument(
         "--backend-profile",
-        choices=("cuda_bf16", "triton_cuda_bf16"),
+        choices=("cuda_bf16", "triton_cuda_bf16", "ascend_bf16"),
         required=True,
     )
     parser.add_argument("--candidate", default=None)
+    parser.add_argument(
+        "--device",
+        default=None,
+        help="Defaults to the backend profile's own accelerator (cuda or npu).",
+    )
     parser.add_argument("--json", action="store_true")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    if not torch.cuda.is_available():
-        print("ERROR: C6 declared-candidate gate requires CUDA", file=sys.stderr)
+    try:
+        device = resolve_device(args.device, profile=args.backend_profile)
+    except RuntimeError as exc:
+        print(f"ERROR: C6 declared-candidate gate needs a real device: {exc}", file=sys.stderr)
         return 2
-    torch.backends.cuda.matmul.allow_tf32 = False
+    disable_tf32(device.type)
     contract = load_contract()
     manifest = load_manifest()
     report = assert_decode_prefill_consistent(
@@ -50,6 +59,7 @@ def main() -> int:
         candidate=args.candidate,
         contract=contract,
         manifest=manifest,
+        device=device,
         require_declared_candidate=True,
     )
     if args.json:

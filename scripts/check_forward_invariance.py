@@ -23,6 +23,13 @@ from rl_engine.kernels.gtest import (  # noqa: E402
     assert_forward_batch_invariant,
     load_contract,
 )
+from rl_engine.kernels.gtest.accelerator import (  # noqa: E402
+    arch_key,
+    candidate_family,
+    device_name,
+    disable_tf32,
+    resolve_device,
+)
 from rl_engine.kernels.gtest.forward_invariance import build_config_matrix  # noqa: E402
 from rl_engine.kernels.gtest.gradient_adapters import (  # noqa: E402
     GRADIENT_ADAPTERS,
@@ -42,11 +49,7 @@ def _object_path(value: Any) -> str:
 
 
 def _candidate_family(candidate: str) -> str:
-    if candidate.startswith("cuda"):
-        return "cuda"
-    if candidate == "triton":
-        return "triton"
-    return candidate
+    return candidate_family(candidate)
 
 
 def _validate_candidate_selection(
@@ -111,14 +114,18 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="WS1 C3 forward invariance GPU gate")
     parser.add_argument("--op", choices=sorted(runnable), default="rms_norm")
     parser.add_argument(
-        "--candidate", required=True, help="Manifest-declared CUDA/Triton candidate"
+        "--candidate", required=True, help="Manifest-declared CUDA/Triton/Ascend candidate"
     )
     parser.add_argument(
         "--backend-profile",
-        choices=("cuda_bf16", "triton_cuda_bf16"),
+        choices=("cuda_bf16", "triton_cuda_bf16", "ascend_bf16"),
         required=True,
     )
-    parser.add_argument("--device", default="cuda")
+    parser.add_argument(
+        "--device",
+        default=None,
+        help="Defaults to the backend profile's own accelerator (cuda or npu).",
+    )
     parser.add_argument("--hidden", type=int, default=64)
     parser.add_argument("--vocab", type=int, default=256)
     parser.add_argument("--n-heads", type=int, default=4)
@@ -130,9 +137,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    device = torch.device(args.device)
-    if device.type != "cuda" or not torch.cuda.is_available():
-        raise SystemExit("ERROR: C3 required-profile evidence requires an available CUDA device")
+    try:
+        device = resolve_device(args.device, profile=args.backend_profile)
+    except RuntimeError as exc:
+        raise SystemExit(f"ERROR: C3 required-profile evidence needs a real device: {exc}") from exc
     if args.vocab <= 240:
         raise SystemExit("ERROR: --vocab must cover every fixed C2 workload token id")
 
@@ -151,9 +159,8 @@ def main() -> None:
         op_name=args.op,
         candidate=args.candidate,
     )
-    cc_tuple = torch.cuda.get_device_capability(device)
-    cc = f"sm{cc_tuple[0]}{cc_tuple[1]}"
-    if args.candidate == "cuda-sm90" and cc_tuple[0] != 9:
+    cc = arch_key(device)
+    if args.candidate == "cuda-sm90" and cc != "sm90":
         raise SystemExit(
             "ERROR: cuda-sm90 candidate requested on non-SM90 hardware; fallback forbidden"
         )
@@ -162,8 +169,7 @@ def main() -> None:
     gold_fn = load_adapter_gold(args.op)
     policy = resolve_dtype_policy(contract)
     family = _candidate_family(args.candidate)
-    torch.backends.cuda.matmul.allow_tf32 = False
-    torch.backends.cudnn.allow_tf32 = False
+    tf32_enabled = disable_tf32(device.type)
 
     provenance = BackendProvenance(
         backend_profile=args.backend_profile,
@@ -173,8 +179,8 @@ def main() -> None:
         accumulation_dtype=policy.accumulation_dtype,
         output_dtype=policy.output_dtype_default,
         reference_dtype=policy.reference_dtype,
-        candidate_tf32_enabled=torch.backends.cuda.matmul.allow_tf32,
-        reference_tf32_enabled=torch.backends.cuda.matmul.allow_tf32,
+        candidate_tf32_enabled=tf32_enabled,
+        reference_tf32_enabled=tf32_enabled,
     )
     kernel_id = _object_path(candidate_op)
     shape_kwargs = {
@@ -217,7 +223,7 @@ def main() -> None:
         op_name=args.op,
         include_logprob_smoke=adapter.op_class == "logprob",
         candidate_id=f"{kernel_id}::{resolved.get('expected_backend_id')}",
-        device=f"{device}:{torch.cuda.get_device_name(device)}",
+        device=f"{device}:{device_name(device)}",
         compute_capability=cc,
         observed_actual_backend=family,
         observed_kernel_id=kernel_id,

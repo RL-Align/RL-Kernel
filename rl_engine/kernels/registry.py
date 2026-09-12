@@ -170,6 +170,7 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     CUDA_SILU = "rl_engine.kernels.ops.cuda.activation.swiglu.SiLUCudaOp"
     CUDA_SWIGLU = "rl_engine.kernels.ops.cuda.activation.swiglu.SwiGLUCudaOp"
     ASCEND_SWIGLU = "rl_engine.kernels.ops.ascend.activation.swiglu.SwiGLUAscendOp"
+    ASCEND_SILU = "rl_engine.kernels.ops.ascend.activation.silu.SiLUAscendOp"
     TRITON_SILU = "rl_engine.kernels.ops.triton.activation.swiglu.TritonSiLUOp"
     TRITON_SWIGLU = "rl_engine.kernels.ops.triton.activation.swiglu.TritonSwiGLUOp"
 
@@ -749,6 +750,10 @@ class KernelRegistry:
         self._priority_map["npu"]["swiglu"] = [
             OpBackend.ASCEND_SWIGLU,
             OpBackend.PYTORCH_NATIVE_SWIGLU,
+        ]
+        self._priority_map["npu"]["silu"] = [
+            OpBackend.ASCEND_SILU,
+            OpBackend.PYTORCH_NATIVE_SILU,
         ]
         self._priority_map["npu"]["det_gemm"] = [
             OpBackend.ASCEND_DET_GEMM,

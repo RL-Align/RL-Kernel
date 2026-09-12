@@ -16,6 +16,11 @@ from rl_engine.kernels.ops.canonical_backward import active_session
 def _canonical_embedding_family(family: str) -> str:
     requested = str(family)
     normalized = "cuda" if requested.startswith("cuda") else requested
+    if normalized == "ascend":
+        # The Ascend embedding's deterministic grad-weight reuses the CUDA
+        # construction bit-for-bit (see ascend/linear/embedding.py), so the
+        # canonical family normalizes to the same implementation.
+        return "cuda"
     if normalized not in {"cuda", "pytorch", "triton"}:
         raise RuntimeError(f"unsupported canonical embedding backend family: {requested!r}")
     return normalized

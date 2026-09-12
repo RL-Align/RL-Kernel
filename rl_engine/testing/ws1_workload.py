@@ -41,7 +41,7 @@ _REQUIRED_MATRIX_CELLS = (
     "BN/chunked",
 )
 
-_REQUIRED_PROFILES = ("cuda_bf16", "triton_cuda_bf16")
+_REQUIRED_PROFILES = ("cuda_bf16", "triton_cuda_bf16", "ascend_bf16")
 
 _REQUIRED_CHAIN_NODES = (
     "embedding",

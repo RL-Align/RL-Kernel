@@ -708,6 +708,7 @@ def _validate_policy(policy: Mapping[str, Any]) -> None:
     required_profile_families = {
         "cuda_bf16": "cuda",
         "triton_cuda_bf16": "triton",
+        "ascend_bf16": "ascend",
     }
     for required_profile, expected_family in required_profile_families.items():
         if required_profile not in profiles:

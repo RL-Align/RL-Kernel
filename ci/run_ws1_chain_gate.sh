@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
-# WS1 C10/C11 full Qwen3-8B Dense model-level gate (CUDA BF16 and Triton-on-CUDA BF16).
-# Intended for H20 / H100. Fails closed on skip, xfail, synthetic weights, or silent fallback.
+# WS1 C10/C11 full Qwen3-8B Dense model-level gate.
+# Profiles come from WS1_PROFILES (default: the two CUDA-host profiles). One host
+# has either a GPU or an NPU, so each vendor's job runs its own profiles here:
+#   CUDA host    : WS1_PROFILES="cuda_bf16 triton_cuda_bf16"   (H20 / H100)
+#   Ascend host  : WS1_PROFILES="ascend_bf16"                  (Atlas A2 / 910B)
+# C11 closes only when every required profile has passed on its own hardware.
+# Fails closed on skip, xfail, synthetic weights, or silent fallback.
 
 set -euo pipefail
 
@@ -11,13 +16,14 @@ cd "$ROOT"
 PY="${PY:-python3}"
 export RL_KERNEL_REQUIRE_EXT="${RL_KERNEL_REQUIRE_EXT:-1}"
 WEIGHTS_PATH="${WS1_WEIGHTS_PATH:-${QWEN3_8B:-}}"
+WS1_PROFILES="${WS1_PROFILES:-cuda_bf16 triton_cuda_bf16}"
 
 if [ -z "$WEIGHTS_PATH" ]; then
   echo "[ws1-chain] FATAL: set WS1_WEIGHTS_PATH or QWEN3_8B to the pinned Qwen3-8B snapshot"
   exit 2
 fi
 
-echo "[ws1-chain] interpreter=$PY weights=$WEIGHTS_PATH"
+echo "[ws1-chain] interpreter=$PY weights=$WEIGHTS_PATH profiles=$WS1_PROFILES"
 
 "$PY" -m pytest -q \
   tests/test_kv_consistency.py \
@@ -27,7 +33,11 @@ echo "[ws1-chain] interpreter=$PY weights=$WEIGHTS_PATH"
 C8_OUT="${WS1_C8_JSON:-${TMPDIR:-/tmp}/ws1-c8-ci.json}"
 export WS1_C8_EVIDENCE_PATH="$C8_OUT"
 echo "[ws1-chain] C8 runtime evidence $C8_OUT"
-"$PY" scripts/sweep_ws1_four_judgments.py --execute --json > "$C8_OUT"
+C8_PROFILE_ARGS=()
+for PROFILE in $WS1_PROFILES; do
+  C8_PROFILE_ARGS+=(--profile "$PROFILE")
+done
+"$PY" scripts/sweep_ws1_four_judgments.py --execute "${C8_PROFILE_ARGS[@]}" --json > "$C8_OUT"
 "$PY" - "$C8_OUT" <<'PY'
 import json
 import subprocess
@@ -44,7 +54,7 @@ if int((payload.get("counts") or {}).get("red", 0)):
 print(f"[ws1-chain] C8 passed source={git_meta}")
 PY
 
-for PROFILE in cuda_bf16 triton_cuda_bf16; do
+for PROFILE in $WS1_PROFILES; do
   OUT="/tmp/ws1-c10-${PROFILE}.json"
   echo "[ws1-chain] C10/C11 $PROFILE"
   "$PY" scripts/ws1_chain_gate.py \
@@ -166,7 +176,11 @@ for kind in ("lm_head", "rms_norm", "det_gemm", "embedding"):
         raise SystemExit(f"{profile} missing runtime backward record for {kind}")
     if not event.get("kernel_id"):
         raise SystemExit(f"{profile} backward {kind} missing kernel_id")
-    family = "triton" if profile.startswith("triton") else "cuda"
+    family = {
+        "cuda_bf16": "cuda",
+        "triton_cuda_bf16": "triton",
+        "ascend_bf16": "ascend",
+    }[profile]
     if not event.get("kernel_ids"):
         raise SystemExit(f"{profile} backward {kind} missing kernel_ids")
     if not event.get("implementation_ids"):
@@ -197,4 +211,4 @@ print(f"[ws1-chain] {profile} passed first_drift={payload.get('first_drift')}")
 PY
 done
 
-echo "[ws1-chain] both required profiles passed"
+echo "[ws1-chain] profiles passed: $WS1_PROFILES"
