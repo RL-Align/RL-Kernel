@@ -546,6 +546,26 @@ torch::Tensor det_gemm_fwd_fp32(torch::Tensor a, torch::Tensor b) {
   return gemm_dispatch(a, b);
 }
 
+// FP32-output variants: same kernels and reduction order, but the FP32
+// accumulator is stored without the final BF16 round. Used by operators whose
+// contract keeps an intermediate in FP32 (e.g. P5-5 fc1 output, dX).
+torch::Tensor det_gemm_fwd_out_fp32(torch::Tensor a, torch::Tensor b) {
+  check_in(a, "A"); check_in(b, "B");
+  a = a.contiguous(); b = b.contiguous();
+  TORCH_CHECK(a.dim() == 2 && b.dim() == 2, "det_gemm_fwd_out_fp32: expect 2D [M,K]@[K,N]");
+  TORCH_CHECK(b.size(0) == a.size(1), "det_gemm_fwd_out_fp32: K mismatch");
+  return gemm_dispatch(a, b, RhsLayout::kKN, OutputLayout::kMN, /*output_fp32=*/true);
+}
+
+torch::Tensor det_gemm_fwd_rhs_transposed_out_fp32(torch::Tensor a, torch::Tensor bt) {
+  check_in(a, "A"); check_in(bt, "Bt");
+  a = a.contiguous(); bt = bt.contiguous();
+  TORCH_CHECK(a.dim() == 2 && bt.dim() == 2,
+              "det_gemm_fwd_rhs_transposed_out_fp32: expect A[M,K] and Bt[N,K]");
+  TORCH_CHECK(bt.size(1) == a.size(1), "det_gemm_fwd_rhs_transposed_out_fp32: K mismatch");
+  return gemm_dispatch(a, bt, RhsLayout::kNK, OutputLayout::kMN, /*output_fp32=*/true);
+}
+
 torch::Tensor det_gemm_da(torch::Tensor dc, torch::Tensor b) {
   check_in(dc, "dC"); check_in(b, "B");
   dc = dc.contiguous(); b = b.contiguous();

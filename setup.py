@@ -138,6 +138,7 @@ def get_extensions():
             "csrc/cuda/gemm/det_gemm_kernel.cu",
             "csrc/cuda/rmsnorm.cu",
             "csrc/cuda/activation.cu",
+            "csrc/cuda/moe/shared_expert_mlp.cu",
             "csrc/cuda/attention/deterministic_attention.cu",
             "csrc/cuda/distributed/deterministic_collective.cu",
         ]

@@ -115,6 +115,8 @@ void deterministic_collective_all_gather_fused(
 bool det_gemm_sm90_compiled();
 torch::Tensor det_gemm_fwd(torch::Tensor a, torch::Tensor b);
 torch::Tensor det_gemm_fwd_rhs_transposed(torch::Tensor a, torch::Tensor bt);
+torch::Tensor det_gemm_fwd_out_fp32(torch::Tensor a, torch::Tensor b);
+torch::Tensor det_gemm_fwd_rhs_transposed_out_fp32(torch::Tensor a, torch::Tensor bt);
 torch::Tensor det_gemm_da(torch::Tensor dc, torch::Tensor b);
 torch::Tensor det_gemm_db(torch::Tensor a, torch::Tensor dc);
 torch::Tensor det_gemm_db_transposed(torch::Tensor a, torch::Tensor dc);
@@ -135,6 +137,11 @@ std::vector<torch::Tensor> clamp_swiglu_weighted_forward_cuda(
     torch::Tensor gate,
     torch::Tensor up,
     torch::optional<torch::Tensor> p_s);
+
+// P5-5 (#64) Shared Expert MLP strict kernels (oracle-fp32-serial-v1)
+torch::Tensor p5_strict_gemm(torch::Tensor a, torch::Tensor b, bool trans_b);
+torch::Tensor p5_swiglu_shared_forward(torch::Tensor z);
+torch::Tensor p5_swiglu_shared_backward(torch::Tensor dh, torch::Tensor z);
 
 std::vector<torch::Tensor> clamp_swiglu_weighted_backward_cuda(
     torch::Tensor dh,
@@ -532,6 +539,14 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "det_gemm_fwd_rhs_transposed",
         &det_gemm_fwd_rhs_transposed,
         "Batch-invariant deterministic GEMM with physical Bt[N,K] (C=A@Bt^T)");
+    m.def(
+        "det_gemm_fwd_out_fp32",
+        &det_gemm_fwd_out_fp32,
+        "det_gemm_fwd storing the FP32 accumulator (no final BF16 round)");
+    m.def(
+        "det_gemm_fwd_rhs_transposed_out_fp32",
+        &det_gemm_fwd_rhs_transposed_out_fp32,
+        "det_gemm_fwd_rhs_transposed storing the FP32 accumulator");
     m.def("det_gemm_da", &det_gemm_da, "Batch-invariant deterministic GEMM backward dA (dC@B^T)");
     m.def("det_gemm_db", &det_gemm_db, "Batch-invariant deterministic GEMM backward dB (A^T@dC)");
     m.def(
@@ -565,6 +580,14 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         py::arg("up"),
         py::arg("p_s") = py::none(),
         "P5 clamp_swiglu_weighted forward CUDA");
+
+    // P5-5 (#64) Shared Expert MLP strict kernels (oracle-fp32-serial-v1)
+    m.def("p5_strict_gemm", &p5_strict_gemm,
+          "Strict BF16-in/FP32-out GEMM, serial ascending-k, mul-then-add");
+    m.def("p5_swiglu_shared_forward", &p5_swiglu_shared_forward,
+          "One-round SwiGLU forward, shared-expert mode (p_s = None)");
+    m.def("p5_swiglu_shared_backward", &p5_swiglu_shared_backward,
+          "One-round SwiGLU backward, shared-expert mode (p_s = None)");
 
     m.def(
       "clamp_swiglu_weighted_backward",
