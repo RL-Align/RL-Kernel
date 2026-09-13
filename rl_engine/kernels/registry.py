@@ -127,6 +127,8 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
         "rl_engine.kernels.ops.ascend.loss.batch_invariant_logp.BatchInvariantLogpAscendOp"
     )
     ASCEND_RMS_NORM = "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp"
+    # Qwen-Image per-head QK RMSNorm (issue #386): parameter-free, head_dim=128
+    ASCEND_QK_RMS_NORM = "rl_engine.kernels.ops.ascend.norm.qk_rmsnorm.QkRmsNormAscendOp"
     ASCEND_EMBEDDING = "rl_engine.kernels.ops.ascend.linear.embedding.AscendEmbeddingOp"
     ASCEND_FUSED_LOGP = "rl_engine.kernels.ops.ascend.loss.logp.FusedLogpAscendOp"
     ASCEND_LM_HEAD = "rl_engine.kernels.ops.ascend.linear.lm_head.AscendLMHeadOp"
@@ -155,6 +157,10 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
 
     # RMSNorm(pre-norm / QK-Norm) - pure Pytorch reference(ws1 ground-truth)
     PYTORCH_NATIVE_RMS_NORM = "rl_engine.kernels.ops.pytorch.norm.rms_norm.NativeRMSNormOp"
+    # Qwen-Image per-head QK RMSNorm - pure Pytorch reference (issue #386)
+    PYTORCH_NATIVE_QK_RMS_NORM = (
+        "rl_engine.kernels.ops.pytorch.norm.qk_rmsnorm.NativeQkRmsNormOp"
+    )
 
     # Generic fallback
     TRITON_GENERIC = "rl_engine.kernels.ops.triton.generic.TritonOp"
@@ -165,6 +171,14 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     TRITON_ROPE = "rl_engine.kernels.ops.triton.rotary_embedding.rope.TritonRoPEOp"
     CUDA_ROPE_SM90 = "rl_engine.kernels.ops.cuda.rotary_embedding.rope.RoPESM90Op"
     ASCEND_ROPE = "rl_engine.kernels.ops.ascend.rotary_embedding.rope.RoPEAscendOp"
+    # Qwen-Image multi-axis RoPE (issue #386): axes (16, 56, 56), text on the
+    # grid diagonal
+    ASCEND_MULTI_AXIS_ROPE = (
+        "rl_engine.kernels.ops.ascend.rotary_embedding.multi_axis_rope.MultiAxisRopeAscendOp"
+    )
+    PYTORCH_NATIVE_MULTI_AXIS_ROPE = (
+        "rl_engine.kernels.ops.pytorch.rotary_embedding.multi_axis_rope.NativeMultiAxisRopeOp"
+    )
     PYTORCH_NATIVE_SILU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSiLUOp"
     PYTORCH_NATIVE_SWIGLU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSwiGLUOp"
     CUDA_SILU = "rl_engine.kernels.ops.cuda.activation.swiglu.SiLUCudaOp"
@@ -587,6 +601,10 @@ class KernelRegistry:
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
                 ],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
+                # Qwen-Image WS1 kernels (issue #386); native reference only on
+                # non-NPU platforms, the NPU map overrides with Ascend first.
+                "qk_rmsnorm": [OpBackend.PYTORCH_NATIVE_QK_RMS_NORM],
+                "multi_axis_rope": [OpBackend.PYTORCH_NATIVE_MULTI_AXIS_ROPE],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [
@@ -642,6 +660,10 @@ class KernelRegistry:
                 ],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
+                # Qwen-Image WS1 kernels (issue #386); native reference only on
+                # non-NPU platforms, the NPU map overrides with Ascend first.
+                "qk_rmsnorm": [OpBackend.PYTORCH_NATIVE_QK_RMS_NORM],
+                "multi_axis_rope": [OpBackend.PYTORCH_NATIVE_MULTI_AXIS_ROPE],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
@@ -666,6 +688,10 @@ class KernelRegistry:
                 "batch_invariant_logp": [OpBackend.PYTORCH_BATCH_INVARIANT_LOGP],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
+                # Qwen-Image WS1 kernels (issue #386); native reference only on
+                # non-NPU platforms, the NPU map overrides with Ascend first.
+                "qk_rmsnorm": [OpBackend.PYTORCH_NATIVE_QK_RMS_NORM],
+                "multi_axis_rope": [OpBackend.PYTORCH_NATIVE_MULTI_AXIS_ROPE],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
@@ -691,6 +717,10 @@ class KernelRegistry:
                 "batch_invariant_logp": [OpBackend.PYTORCH_BATCH_INVARIANT_LOGP],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
+                # Qwen-Image WS1 kernels (issue #386); native reference only on
+                # non-NPU platforms, the NPU map overrides with Ascend first.
+                "qk_rmsnorm": [OpBackend.PYTORCH_NATIVE_QK_RMS_NORM],
+                "multi_axis_rope": [OpBackend.PYTORCH_NATIVE_MULTI_AXIS_ROPE],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
@@ -757,6 +787,18 @@ class KernelRegistry:
         ]
         self._priority_map["npu"]["det_gemm"] = [
             OpBackend.ASCEND_DET_GEMM,
+        ]
+        # Qwen-Image WS1 kernels (issue #386). The Ascend C backends run the
+        # fused batch-invariant primitives; the PyTorch references are the
+        # clean fallback when the NPU extension is not built or an input is
+        # not supported.
+        self._priority_map["npu"]["qk_rmsnorm"] = [
+            OpBackend.ASCEND_QK_RMS_NORM,
+            OpBackend.PYTORCH_NATIVE_QK_RMS_NORM,
+        ]
+        self._priority_map["npu"]["multi_axis_rope"] = [
+            OpBackend.ASCEND_MULTI_AXIS_ROPE,
+            OpBackend.PYTORCH_NATIVE_MULTI_AXIS_ROPE,
         ]
         logger.info(f"KernelRegistry initialized for {device_ctx.device_type}")
         self._adjust_priority_for_hardware()

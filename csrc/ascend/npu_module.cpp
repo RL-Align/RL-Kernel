@@ -71,6 +71,15 @@ torch::Tensor rmsnorm_ascend_forward(torch::Tensor x,
                                      torch::Tensor weight,
                                      torch::Tensor rstd);
 
+torch::Tensor qk_rmsnorm_ascend_forward(torch::Tensor x, torch::Tensor rstd);
+
+torch::Tensor multi_axis_rope_ascend_forward(torch::Tensor x,
+                                             torch::Tensor cos,
+                                             torch::Tensor sin);
+torch::Tensor multi_axis_rope_ascend_backward(torch::Tensor grad,
+                                              torch::Tensor cos,
+                                              torch::Tensor sin);
+
 int64_t deterministic_collective_create(
     torch::Tensor staging, int64_t world_size, int64_t rank);
 void deterministic_collective_destroy(int64_t handle);
@@ -124,6 +133,15 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
     m.def("rmsnorm_ascend",
           &rmsnorm_ascend_forward,
           "Batch-invariant RMSNorm (Ascend C forward, rstd precomputed)");
+    m.def("qk_rmsnorm_ascend",
+          &qk_rmsnorm_ascend_forward,
+          "Qwen-Image per-head QK RMSNorm (Ascend C forward, rstd precomputed)");
+    m.def("multi_axis_rope_ascend_forward",
+          &multi_axis_rope_ascend_forward,
+          "Qwen-Image multi-axis RoPE rotate-half apply (Ascend C forward)");
+    m.def("multi_axis_rope_ascend_backward",
+          &multi_axis_rope_ascend_backward,
+          "Qwen-Image multi-axis RoPE gradient (transpose rotation, Ascend C)");
     m.def("embedding_ascend",
           &embedding_ascend_forward,
           "Batch-invariant token embedding (Ascend C forward)");
