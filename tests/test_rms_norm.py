@@ -32,10 +32,18 @@ def _rand(shape, *, seed, dtype=torch.float32):
 
 
 def _manual_rms_norm(x, weight, *, eps=_EPS):
-    """Independent hand-written fp32 reference (NOT the op under test)."""
+    """Independent hand-written fp32 reference (NOT the op under test).
+
+    Uses the shared shape-invariant rstd: torch's mean/sum reductions pick
+    shape-dependent kernels on NPU, so the reference formula must use the
+    same fixed-order reduction as the implementation (see
+    rl_engine.kernels.ops.pytorch.norm.rms_norm.shape_invariant_rstd).
+    """
+    from rl_engine.kernels.ops.pytorch.norm.rms_norm import shape_invariant_rstd
+
     x_f = x.float()
-    var = x_f.pow(2).mean(dim=-1, keepdim=True)
-    return x_f * torch.rsqrt(var + eps) * weight.float()
+    rstd = shape_invariant_rstd(x_f, float(eps)).unsqueeze(-1)
+    return x_f * rstd * weight.float()
 
 
 def _dtype_tolerance(dtype):

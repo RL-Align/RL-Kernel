@@ -16,6 +16,7 @@ import math
 import pytest
 import torch
 
+from rl_engine.kernels.gtest.tolerance import load_contract, resolve_tolerance
 from rl_engine.kernels.ops.pytorch.attention.standard_attn import NativeAttentionOp
 
 _D = 128
@@ -23,6 +24,16 @@ _D = 128
 # Accuracy tolerance from the gtest contract, "attention" op class.
 _ATOL = {torch.bfloat16: 5.0e-2, torch.float16: 1.0e-3}
 _RTOL = {torch.bfloat16: 2.0e-2, torch.float16: 1.0e-3}
+
+_CONTRACT = load_contract()
+
+
+def _grad_tol(dtype: torch.dtype) -> tuple[float, float]:
+    """C1 attention gradient_accuracy row -- no private per-kernel thresholds."""
+    spec = resolve_tolerance(
+        _CONTRACT, judgment="gradient_accuracy", op_class="attention", dtype=dtype
+    )
+    return spec.atol, spec.rtol
 
 
 def _npu_available() -> bool:
@@ -173,18 +184,24 @@ class TestAscendAttentionCorrectness:
         assert all(g is not None for g in (q.grad, k.grad, v.grad))
         assert all(torch.isfinite(g).all() for g in (q.grad, k.grad, v.grad))
 
-        # The backward is the VJP of the fp32 reference forward; compare.
+        # Gradient accuracy vs the FP32 reference VJP at the contract row:
+        # the reference consumes the same (already-quantized) inputs upcast
+        # to FP32 and keeps its gradients in FP32, while the backward kernel
+        # accumulates in FP32 and rounds the grads back to the execution
+        # dtype -- so the comparison is candidate-grad-in-fp32 vs
+        # reference-grad-in-fp32, never reference grads rounded down first.
+        atol, rtol = _grad_tol(dtype)
         with torch.enable_grad():
-            q_ref = q.detach().requires_grad_(True)
-            k_ref = k.detach().requires_grad_(True)
-            v_ref = v.detach().requires_grad_(True)
+            q_ref = q.detach().float().requires_grad_(True)
+            k_ref = k.detach().float().requires_grad_(True)
+            v_ref = v.detach().float().requires_grad_(True)
             ref_out = NativeAttentionOp().forward_fp32(q_ref, k_ref, v_ref, causal=True)
-        dq_ref, dk_ref, dv_ref = torch.autograd.grad(ref_out, (q_ref, k_ref, v_ref), grad_out)
-        # The backward recomputes the same reference forward, so the VJPs
-        # match to numerical noise.
-        assert torch.allclose(q.grad.float(), dq_ref.float(), atol=1e-6, rtol=1e-5)
-        assert torch.allclose(k.grad.float(), dk_ref.float(), atol=1e-6, rtol=1e-5)
-        assert torch.allclose(v.grad.float(), dv_ref.float(), atol=1e-6, rtol=1e-5)
+        dq_ref, dk_ref, dv_ref = torch.autograd.grad(
+            ref_out, (q_ref, k_ref, v_ref), grad_out.float()
+        )
+        assert torch.allclose(q.grad.float(), dq_ref, atol=atol, rtol=rtol)
+        assert torch.allclose(k.grad.float(), dk_ref, atol=atol, rtol=rtol)
+        assert torch.allclose(v.grad.float(), dv_ref, atol=atol, rtol=rtol)
 
 
 @requires_ascend

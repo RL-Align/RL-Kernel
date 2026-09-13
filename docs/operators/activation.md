@@ -44,7 +44,7 @@ All backends expose the WS1 dual-path contract:
 | PyTorch fallback | `NativeSiLUOp` / `NativeSwiGLUOp` | None | fp32 ground-truth reference; CPU and any GPU. |
 | CUDA | `SiLUCudaOp` / `SwiGLUCudaOp` | `_C.silu_*` / `_C.swiglu_*` | General CUDA (fp16/bf16/fp32); math in fp32. |
 | Triton | `TritonSiLUOp` / `TritonSwiGLUOp` | Triton JIT | Portable GPU baseline; same fp32 math contract. |
-| Ascend C | `SwiGLUAscendOp` | `_C_npu.swiglu_forward` / `swiglu_backward` | NPU SwiGLU forward and backward; fp16/bf16/fp32 inputs, FP32 math. |
+| Ascend C | `SiLUAscendOp` / `SwiGLUAscendOp` | `_C_npu.silu_*` / `_C_npu.swiglu_*` | NPU forward and backward; fp16/bf16/fp32 inputs, FP32 math. |
 
 ## Tensor Contract
 
@@ -68,14 +68,21 @@ mutation, device/dtype follow the inputs.
 | `cuda` | CUDA → Triton → PyTorch native |
 | `rocm` | Triton → PyTorch native |
 | `cpu` | PyTorch native |
-| `npu` | SwiGLU: Ascend C → PyTorch native; SiLU: PyTorch native |
+| `npu` | Ascend C → PyTorch native |
 
 If the CUDA extension is not built (or symbols are missing), the registry falls back to
 Triton, then to the native gold.
 
-On NPU, a missing Ascend extension or missing SwiGLU symbols causes the registry to
-select PyTorch native. Construct `SwiGLUAscendOp` directly when the Ascend C kernel
-is required; its constructor raises an error if either native symbol is missing.
+On NPU, a missing Ascend extension or missing SiLU/SwiGLU symbols causes the registry
+to select PyTorch native. Construct `SiLUAscendOp` / `SwiGLUAscendOp` directly when the
+Ascend C kernel is required; the constructors raise if a native symbol is missing.
+
+Both NPU kernels share one tile geometry (`TILE_LENGTH = 2048`, `MAX_BLOCKS = 32`) and
+the same FP32 `1 / (1 + exp(-x))` sequence, so `silu(x)` is bitwise equal to
+`swiglu(x, ones)` on this hardware. Each element is evaluated by a fixed expression
+independent of tensor size and of the launched block count, which is what makes the
+op batch-invariant for the WS1 `ascend_bf16` profile (`silu` is a required C2 chain
+node, so the profile needs its own kernel rather than a SwiGLU with a unit operand).
 
 ## Ascend C Build and Validation
 
@@ -174,13 +181,15 @@ native forward+backward, registry dispatch, and the issue-#108 `OP_SPECS` harnes
 - `rl_engine/kernels/ops/pytorch/activation/swiglu.py` — gold
 - `rl_engine/kernels/ops/cuda/activation/swiglu.py` — CUDA wrappers
 - `rl_engine/kernels/ops/triton/activation/swiglu.py` — Triton kernels
-- `rl_engine/kernels/ops/ascend/activation/swiglu.py` — Ascend autograd wrapper
-- `csrc/ascend/activation.asc` — Ascend C forward/backward kernels
+- `rl_engine/kernels/ops/ascend/activation/swiglu.py` — Ascend SwiGLU autograd wrapper
+- `rl_engine/kernels/ops/ascend/activation/silu.py` — Ascend SiLU autograd wrapper
+- `csrc/ascend/activation.asc` — Ascend C SiLU + SwiGLU forward/backward kernels
 - `csrc/ascend/bindings.asc` — shared NPU extension bindings
 - `csrc/cuda/activation.cu` — CUDA kernels
 - `rl_engine/kernels/registry.py`
 - `rl_engine/kernels/gtest/operator_specs.py`
 - `tests/test_swiglu.py`
+- `tests/test_silu_ascend.py`
 
 ## Known Limitations
 

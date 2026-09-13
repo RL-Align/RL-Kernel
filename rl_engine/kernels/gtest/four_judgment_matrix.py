@@ -11,7 +11,7 @@ and classifies the matrix. GPU execution lives in
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Sequence
 
 from rl_engine.kernels.gtest.gradient_adapters import GRADIENT_ADAPTERS, resolve_profile_candidate
 from rl_engine.testing.ws1_workload import WS1Manifest, load_manifest
@@ -22,7 +22,7 @@ JUDGMENTS = (
     "gradient_accuracy",
     "gradient_invariance",
 )
-PROFILES = ("cuda_bf16", "triton_cuda_bf16")
+PROFILES = ("cuda_bf16", "triton_cuda_bf16", "ascend_bf16")
 TIERS = ("short", "primary")
 CELL_STATUSES = (
     "green",
@@ -156,13 +156,24 @@ def classify_adapter_cell(
 
 
 def build_classified_matrix(
-    manifest: WS1Manifest | None = None, *, allow_sm90: bool = False
+    manifest: WS1Manifest | None = None,
+    *,
+    allow_sm90: bool = False,
+    profiles: Sequence[str] = PROFILES,
 ) -> MatrixReport:
-    """Build the full C8 grid and classify every cell (no GPU)."""
+    """Build the C8 grid and classify every cell (no GPU).
+
+    ``profiles`` narrows the grid to the backend profiles a given host can
+    actually execute. Each required profile still has to go green somewhere:
+    C11 only closes when every profile's own job passes.
+    """
 
     m = manifest if manifest is not None else load_manifest()
+    unknown = [p for p in profiles if p not in PROFILES]
+    if unknown:
+        raise ValueError(f"unknown backend profiles {unknown}")
     cells: list[MatrixCell] = []
-    for profile in PROFILES:
+    for profile in profiles:
         for op_name in C8_REQUIRED_OPS:
             status, detail, candidate = classify_adapter_cell(
                 op_name, profile, m, allow_sm90=allow_sm90

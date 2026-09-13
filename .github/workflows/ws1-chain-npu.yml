@@ -1,0 +1,95 @@
+# SPDX-License-Identifier: Apache-2.0
+# WS1 C10/C11 full Qwen3-8B Dense model-level gate on Ascend NPU (ascend_bf16).
+# Required check: no skip / xfail / synthetic weights / silent fallback.
+#
+# Unlike the CUDA job there is no cloud NPU provider wired up here, so this runs
+# on a self-hosted Ascend runner (Atlas A2 / 910B with CANN + torch_npu) that a
+# maintainer registers with the labels below. Without such a runner the job
+# queues rather than reporting a false pass - a required profile that did not
+# execute is red, never N/A.
+#
+# Security: do not use pull_request_target. Fork PRs never reach the self-hosted
+# runner; a maintainer dispatches the reviewed SHA from a trusted branch.
+
+name: WS1-chain-NPU
+
+on:
+  pull_request:
+    branches: [ main, test ]
+  push:
+    branches: [ main, test ]
+  workflow_dispatch:
+    inputs:
+      source_repository:
+        description: "Public repository containing the reviewed commit (owner/name)"
+        required: true
+        default: "RL-Align/RL-Kernel"
+        type: string
+      source_sha:
+        description: "Exact reviewed 40-character commit SHA to execute on the NPU host"
+        required: true
+        type: string
+
+concurrency:
+  group: ws1-chain-npu-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  fork-pr-notice:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report required trusted execution
+        run: |
+          echo "Fork code does not run on the self-hosted Ascend runner."
+          echo "A maintainer must dispatch this workflow from a trusted upstream branch."
+          echo "source_repository=${{ github.event.pull_request.head.repo.full_name }}"
+          echo "source_sha=${{ github.event.pull_request.head.sha }}"
+
+  ws1-chain-npu:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [ self-hosted, linux, ascend-npu ]
+    timeout-minutes: 240
+    env:
+      # Set on the runner: the pinned Qwen3-8B Dense snapshot directory.
+      WS1_WEIGHTS_PATH: ${{ vars.WS1_WEIGHTS_PATH }}
+      RL_KERNEL_REQUIRE_EXT: "1"
+      WS1_WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Validate trusted dispatch target
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          [[ "$SOURCE_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-fA-F]{40}$ ]]
+
+      - name: Checkout reviewed commit
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event_name == 'workflow_dispatch' && inputs.source_repository || github.repository }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_sha || github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Report Ascend environment
+        run: |
+          python3 -c "import torch, torch_npu; print('torch', torch.__version__, 'torch_npu', torch_npu.__version__)"
+          npu-smi info || true
+
+      - name: Run WS1 Ascend C3-C11 gates
+        run: bash ci/run_ws1_ascend_ci.sh
+
+      - name: Upload C2/C8/C10 JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ws1-closeout-ascend
+          path: |
+            /tmp/ws1-c2-ascend.json
+            /tmp/ws1-c8-ascend.json
+            /tmp/ws1-c10-ascend_bf16.json
+          if-no-files-found: error

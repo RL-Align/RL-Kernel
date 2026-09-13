@@ -23,6 +23,12 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from rl_engine.alignment.qwen3_dense import Qwen3DenseSpec  # noqa: E402
+from rl_engine.kernels.gtest.accelerator import (  # noqa: E402
+    compute_capability,
+    disable_tf32,
+    manual_seed_all,
+    resolve_device,
+)
 from rl_engine.kernels.gtest.chain_gate import build_model  # noqa: E402
 from rl_engine.testing.ws1_workload import (  # noqa: E402
     apply_padding,
@@ -35,8 +41,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="WS1 C9 full Qwen3-8B Dense fwd+bwd")
     parser.add_argument(
         "--backend-profile",
-        choices=("cuda_bf16", "triton_cuda_bf16"),
+        choices=("cuda_bf16", "triton_cuda_bf16", "ascend_bf16"),
         required=True,
+    )
+    parser.add_argument(
+        "--device",
+        default=None,
+        help="Defaults to the backend profile's own accelerator (cuda or npu).",
     )
     parser.add_argument("--dtype", default="bfloat16", choices=("bfloat16",))
     parser.add_argument("--seed", type=int, default=None)
@@ -53,16 +64,16 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    if not torch.cuda.is_available():
-        print("ERROR: C9 fwd+bwd requires CUDA", file=sys.stderr)
+    try:
+        device = resolve_device(args.device, profile=args.backend_profile)
+    except RuntimeError as exc:
+        print(f"ERROR: C9 fwd+bwd needs a real device: {exc}", file=sys.stderr)
         return 2
-    torch.backends.cuda.matmul.allow_tf32 = False
+    disable_tf32(device.type)
     manifest = load_manifest()
     execution_seed = manifest.seed if args.seed is None else int(args.seed)
-    torch.manual_seed(execution_seed)
-    torch.cuda.manual_seed_all(execution_seed)
+    manual_seed_all(device.type, execution_seed)
     spec = Qwen3DenseSpec.from_manifest(manifest)
-    device = torch.device("cuda")
     log_stream = sys.stderr if args.json else sys.stdout
     with contextlib.redirect_stdout(log_stream):
         model = build_model(
@@ -107,7 +118,7 @@ def main() -> int:
         "provenance": model.profile_ops.provenance,
         "runtime_backend_observations": (model.profile_ops.validated_runtime_observations()),
         "device": str(device),
-        "cc": ".".join(str(x) for x in torch.cuda.get_device_capability(0)),
+        "cc": compute_capability(device),
         "seed": execution_seed,
         "workload_seed": manifest.seed,
         "git_sha": subprocess.check_output(

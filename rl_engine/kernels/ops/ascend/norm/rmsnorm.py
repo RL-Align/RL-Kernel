@@ -40,17 +40,41 @@ def _fallback_op():
     return NativeRMSNormOp()
 
 
-def _rms_norm_backward(
+def _fixed_row_sum(values: torch.Tensor) -> torch.Tensor:
+    """Sum the last dimension with an explicit adjacent-pair FP32 tree.
+
+    A fixed reduction width passed to torch.sum is insufficient on NPU:
+    dispatch can also depend on the number of rows. Each step here is an
+    elementwise add; the pairs depend only on the hidden dimension. Carry
+    an odd final element unchanged rather than dropping or duplicating it.
+    """
+    if values.ndim == 0 or values.shape[-1] == 0:
+        raise ValueError("row reduction requires a non-empty last dimension")
+    partial = values.float()
+    while partial.shape[-1] > 1:
+        paired = (partial.shape[-1] // 2) * 2
+        reduced = partial[..., :paired:2] + partial[..., 1:paired:2]
+        if paired != partial.shape[-1]:
+            reduced = torch.cat((reduced, partial[..., -1:]), dim=-1)
+        partial = reduced
+    return partial[..., 0]
+
+
+def _rms_norm_backward_rows(
     x_2d: torch.Tensor,
     weight: torch.Tensor,
     rstd: torch.Tensor,
     grad_out_2d: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """RMSNorm VJP in fp32, reusing the forward-saved rstd.
+    """RMSNorm dx and unreduced FP32 dweight rows using forward-saved rstd.
 
     With y = x * rstd * w and s = sum(dy * w * x, dim=-1):
         dx = rstd * (dy * w) - x * rstd^3 * s / H
-        dw = sum_rows(dy * x * rstd)
+        dweight_rows = dy * x * rstd
+
+    Both ordinary and canonical backward use this row-local computation.
+    Parameter gradients are reduced by the caller, after all logical rows
+    are available in the canonical case.
     """
     dy_f = grad_out_2d.float()
     x_f = x_2d.float()
@@ -58,12 +82,38 @@ def _rms_norm_backward(
     rstd_f = rstd.float()
 
     dyw = dy_f * w_f
-    s = (dyw * x_f).sum(dim=-1)
+    s = _fixed_row_sum(dyw * x_f)
     hidden = x_2d.size(-1)
     dx = rstd_f.unsqueeze(-1) * dyw - x_f * (rstd_f.pow(3) / hidden).unsqueeze(-1) * s.unsqueeze(-1)
-    dw = (dy_f * x_f * rstd_f.unsqueeze(-1)).sum(dim=0)
-    return dx.to(x_2d.dtype), dw.to(weight.dtype)
+    rows = dy_f * x_f * rstd_f.unsqueeze(-1)
+    return dx.to(x_2d.dtype), rows
 
+
+def _rms_norm_backward(
+    x_2d: torch.Tensor,
+    weight: torch.Tensor,
+    rstd: torch.Tensor,
+    grad_out_2d: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    from rl_engine.kernels.ops.vjp_fp32 import reduce_rows_fp32
+
+    dx, rows = _rms_norm_backward_rows(x_2d, weight, rstd, grad_out_2d)
+    return dx, reduce_rows_fp32(rows).to(weight.dtype)
+
+
+def _fixed_rstd(x32: torch.Tensor, eps: float) -> torch.Tensor:
+    """Shape-invariant per-row rstd.
+
+    torch mean/sum select shape-dependent reduction kernels on NPU and flip
+    single-ULP results between batch layouts (e.g. [1,7,H] vs [1,20,H]),
+    which breaks the chunked-vs-full model invariance. The rowwise FP32
+    GEMM reduces each output row in one fixed per-row order regardless of
+    the batch layout, so the sum of squares -- and hence the rstd -- is
+    bitwise identical for every layout.
+    """
+    from rl_engine.kernels.ops.pytorch.norm.rms_norm import shape_invariant_rstd
+
+    return shape_invariant_rstd(x32, float(eps)).contiguous()
 
 class _RMSNormAscendFunction(torch.autograd.Function):
     # Autograd wrapper: reference-formula rstd + Ascend C fused scale/cast
@@ -85,8 +135,7 @@ class _RMSNormAscendFunction(torch.autograd.Function):
         # bitwise identical to NativeRMSNormOp instead of approximating its
         # sum-of-squares/rsqrt arithmetic in-kernel.
         x_f = x_2d.float()
-        var = x_f.pow(2).mean(dim=-1)
-        rstd = torch.rsqrt(var + eps).contiguous()
+        rstd = _fixed_rstd(x_f, float(eps))
 
         y = _C_npu.rmsnorm_ascend(x_2d, weight, rstd)
 
@@ -144,6 +193,24 @@ class RMSNormAscendOp:
             return _fallback_op()(x, weight, eps=eps)
 
         return _RMSNormAscendFunction.apply(x, weight, eps)
+
+    def parameter_vjp_contributions_fp32(
+        self, *, x: torch.Tensor, weight: torch.Tensor, grad_output: torch.Tensor, eps: float = 1e-6
+    ) -> dict[str, torch.Tensor]:
+        """Canonical row-fold parameter contribution (the CUDA twin).
+
+        dweight = sum_rows grad * x * rstd: each row's FP32 contribution is
+        returned separately, and the C4 harness accumulates the per-row
+        contributions in FP32 across call spans, so chunked / padded /
+        permuted / singleton-aggregated layouts sum the same row
+        contributions in the same order and produce a bitwise-identical
+        weight gradient.
+        """
+        del weight
+        x32 = x.float()
+        rstd = _fixed_rstd(x32, float(eps))
+        rows = grad_output.float() * x32 * rstd.unsqueeze(-1)
+        return {"weight": rows}
 
 
 def rmsnorm_ascend(

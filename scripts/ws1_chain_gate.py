@@ -24,6 +24,10 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from rl_engine.kernels.gtest.accelerator import (  # noqa: E402
+    disable_tf32,
+    resolve_device,
+)
 from rl_engine.kernels.gtest.chain_gate import (  # noqa: E402
     build_model,
     run_chain_gate,
@@ -37,8 +41,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="WS1 C10/C11 full-model chain gate")
     parser.add_argument(
         "--backend-profile",
-        choices=("cuda_bf16", "triton_cuda_bf16"),
+        choices=("cuda_bf16", "triton_cuda_bf16", "ascend_bf16"),
         required=True,
+    )
+    parser.add_argument(
+        "--device",
+        default=None,
+        help="Defaults to the backend profile's own accelerator (cuda or npu).",
     )
     parser.add_argument("--model", default="qwen3-8b-dense", choices=("qwen3-8b-dense",))
     parser.add_argument("--dtype", default="bfloat16", choices=("bfloat16",))
@@ -83,9 +92,12 @@ def _file_sha(path: pathlib.Path) -> str:
 
 def main() -> int:
     args = parse_args()
-    if not torch.cuda.is_available():
+    try:
+        device = resolve_device(args.device, profile=args.backend_profile)
+    except RuntimeError as exc:
         print(
-            "ERROR: C10/C11 full-model gate requires CUDA; CPU-only is not a pass",
+            f"ERROR: C10/C11 full-model gate needs a real device; "
+            f"CPU-only is not a pass: {exc}",
             file=sys.stderr,
         )
         return 2
@@ -95,12 +107,11 @@ def main() -> int:
             file=sys.stderr,
         )
         return 2
-    torch.backends.cuda.matmul.allow_tf32 = False
+    disable_tf32(device.type)
     manifest = load_manifest()
     contract = load_contract()
     execution_seed = manifest.seed if args.seed is None else int(args.seed)
     log_stream = sys.stderr if args.json else sys.stdout
-    device = torch.device("cuda")
     with contextlib.redirect_stdout(log_stream):
         reference_cell = run_fp32_reference_cell(
             backend_profile=args.backend_profile,

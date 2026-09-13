@@ -79,6 +79,12 @@ class FusedLogpAscendOp:
         )
 
     def apply(self, logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
+        # The model feeds non-contiguous slices (e.g. score_logits[:, :-1]);
+        # materialize them so the batch-invariant Ascend kernel runs instead
+        # of the native fallback, whose per-row numerics can depend on the
+        # batch layout (the B1-vs-BN singleton invariance requires the
+        # kernel path everywhere).
+        logits = logits.contiguous()
         if not self._ascend_supported(logits):
             from rl_engine.kernels.ops.pytorch.loss.logp import NativeLogpOp
 
@@ -86,6 +92,7 @@ class FusedLogpAscendOp:
         return _FusedLogpAscendAutograd.apply(logits, token_ids)
 
     def apply_fp32(self, logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
+        logits = logits.contiguous()
         if not self._ascend_supported(logits):
             from rl_engine.kernels.ops.pytorch.loss.logp import NativeLogpOp
 

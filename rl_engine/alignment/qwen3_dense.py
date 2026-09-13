@@ -18,6 +18,11 @@ from typing import Any
 
 import torch
 
+from rl_engine.kernels.gtest.accelerator import (
+    candidate_family,
+    device_type_for_profile,
+    disable_tf32,
+)
 from rl_engine.kernels.gtest.gradient_adapters import resolve_profile_candidate
 from rl_engine.kernels.gtest.operator_specs import OP_SPECS, _load_object
 from rl_engine.kernels.ops.canonical_backward import active_session
@@ -27,7 +32,11 @@ from rl_engine.kernels.ops.canonical_lm_head import (
     canonical_cuda_lm_head_fp32,
     canonical_row_lm_head,
 )
-from rl_engine.kernels.ops.canonical_rmsnorm import canonical_cuda_rmsnorm, canonical_row_rmsnorm
+from rl_engine.kernels.ops.canonical_rmsnorm import (
+    canonical_ascend_rmsnorm,
+    canonical_cuda_rmsnorm,
+    canonical_row_rmsnorm,
+)
 from rl_engine.kernels.ops.pytorch.attention.stateful_kv import StatefulKVCache
 from rl_engine.testing.ws1_workload import WS1Manifest, load_manifest, weight_snapshot_hash
 
@@ -285,11 +294,15 @@ class ProfileOps:
             )
         if not isinstance(output, torch.Tensor):
             raise TypeError(f"profile node {kind!r} did not return a Tensor")
-        if declared["status"] != "gold_reference" and output.device.type != "cuda":
-            raise RuntimeError(
-                f"profile {self.backend_profile!r} node {kind!r} returned "
-                f"non-CUDA output on {output.device}"
-            )
+        if declared["status"] != "gold_reference":
+            # A gold_reference node is the PyTorch harness path and may run on
+            # CPU; a real candidate must land on its profile's accelerator.
+            expected_device = device_type_for_profile(self.backend_profile)
+            if output.device.type != expected_device:
+                raise RuntimeError(
+                    f"profile {self.backend_profile!r} node {kind!r} returned "
+                    f"non-{expected_device} output on {output.device}"
+                )
         previous = self.observations.get(kind)
         count = 1 if previous is None else int(previous["execution_count"]) + 1
         self.observations[kind] = {
@@ -367,7 +380,7 @@ def load_profile_ops(
         if status == "missing_required":
             raise RuntimeError(
                 f"profile {backend_profile!r} node {kind!r} is missing_required; "
-                "C9 treats a missing Triton/CUDA node as red"
+                "C9 treats a missing required node as red on every profile"
             )
         expected = resolved.get("expected_backend_id")
         path = resolved.get("candidate_path")
@@ -401,11 +414,7 @@ def _adapter_stub(op_name: str, chain_node: str) -> Any:
 
 
 def _family(candidate: str) -> str:
-    if candidate.startswith("cuda"):
-        return "cuda"
-    if candidate == "triton":
-        return "triton"
-    return candidate
+    return candidate_family(candidate)
 
 
 def _object_path(value: Any) -> str:
@@ -504,6 +513,28 @@ class Qwen3DenseWeights:
         dev = torch.device(device)
         tensors = {key: mapped[key].to(device=dev, dtype=dtype) for key in required}
         return cls(tensors, source=f"hf:{path}", content_hash=spec.weight_content_hash)
+
+
+class Qwen3DenseWeightsOffloaded(Qwen3DenseWeights):
+    """CPU-resident weights paged onto the accelerator per access.
+
+    The C10 FP32 reference on 64 GB HBM hosts uses this: the FP32 weights
+    (~32 GB) plus their FP32 gradients (~32 GB) plus activations cannot all
+    be resident, but the reference forward touches one weight at a time.
+    Each ``__getitem__`` issues an exact device copy; the autograd graph
+    keeps each copy alive until its VJP consumes it, so the peak HBM is the
+    sum of one copy per use (~36 GB) and the FP32 gradients accumulate on
+    the CPU-resident leaves instead of on the accelerator. Copies are
+    exact, so the forward and backward numerics are bitwise identical to
+    the resident-FP32 model.
+    """
+
+    def __init__(self, weights: Qwen3DenseWeights, device: torch.device | str):
+        super().__init__(weights.tensors, weights.source, weights.content_hash)
+        self._device = torch.device(device)
+
+    def __getitem__(self, key: str) -> torch.Tensor:
+        return self.tensors[key].to(self._device)
 
 
 def _sha256_file(path: Path) -> str:
@@ -617,9 +648,7 @@ class Qwen3DenseBIModel:
         self._vjp_inputs: dict[str, list[dict[str, Any]]] = {}
         self._vjp_grads: dict[str, dict[int, torch.Tensor]] = {}
         self._vjp_hooks: list[Any] = []
-        torch.backends.cuda.matmul.allow_tf32 = False
-        if hasattr(torch.backends, "cudnn"):
-            torch.backends.cudnn.allow_tf32 = False
+        disable_tf32(device_type_for_profile(self.profile_ops.backend_profile))
 
     @property
     def backend_profile(self) -> str:
@@ -713,7 +742,7 @@ class Qwen3DenseBIModel:
             torch.is_grad_enabled()
             and active_session() is not None
             and keys is not None
-            and lm_family == "triton"
+            and lm_family in ("triton", "ascend")
         ):
             score_logits = canonical_row_lm_head(
                 hidden,
@@ -721,6 +750,7 @@ class Qwen3DenseBIModel:
                 keys.reshape(-1, 2),
                 forward_op=lm_head_op.forward_fp32,
                 matmul_op=self.profile_ops.get("det_gemm").forward_accum_fp32,
+                family=lm_family,
             )
         else:
             score_logits = lm_head_op.forward_fp32(
@@ -920,13 +950,14 @@ class Qwen3DenseBIModel:
                     self.weights["lm_head.weight"],
                     keys.reshape(-1, 2),
                 )
-            elif active_session() is not None and lm_family == "triton":
+            elif active_session() is not None and lm_family in ("triton", "ascend"):
                 score_logits = canonical_row_lm_head(
                     final_hidden,
                     self.weights["lm_head.weight"],
                     keys.reshape(-1, 2),
                     forward_op=lm_head_op.forward_fp32,
                     matmul_op=self.profile_ops.get("det_gemm").forward_accum_fp32,
+                    family=lm_family,
                 )
             else:
                 score_logits = lm_head_op.forward_fp32(
@@ -1188,6 +1219,14 @@ class Qwen3DenseBIModel:
                     parameter_id=node,
                     forward_op=op.forward,
                 ).view_as(x)
+            elif family == "ascend":
+                out = canonical_ascend_rmsnorm(
+                    x_rows,
+                    weight.contiguous(),
+                    eps=self.spec.rms_norm_eps,
+                    logical_keys=row_keys,
+                    parameter_id=node,
+                ).view_as(x)
             else:
                 out = op.forward(x, weight, eps=self.spec.rms_norm_eps)
         else:
@@ -1230,6 +1269,14 @@ class Qwen3DenseBIModel:
                     logical_keys=head_keys,
                     parameter_id=node,
                     forward_op=op.forward,
+                ).view_as(flat)
+            elif family == "ascend":
+                out = canonical_ascend_rmsnorm(
+                    flat_rows,
+                    weight.contiguous(),
+                    eps=self.spec.rms_norm_eps,
+                    logical_keys=head_keys,
+                    parameter_id=node,
                 ).view_as(flat)
             else:
                 out = op.forward(flat, weight, eps=self.spec.rms_norm_eps)

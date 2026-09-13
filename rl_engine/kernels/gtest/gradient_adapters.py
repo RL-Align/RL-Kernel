@@ -16,6 +16,7 @@ from typing import Any, Literal
 
 import torch
 
+from rl_engine.kernels.gtest.accelerator import candidate_family
 from rl_engine.kernels.gtest.forward_invariance import ConfigSpec, RuntimeObservation
 from rl_engine.kernels.gtest.gradient_invariance import (
     GradientObservation,
@@ -1218,11 +1219,7 @@ def _run_adapter(
 
 
 def _candidate_family(candidate: str) -> str:
-    if candidate.startswith("cuda"):
-        return "cuda"
-    if candidate == "triton":
-        return "triton"
-    return candidate
+    return candidate_family(candidate)
 
 
 def resolve_profile_candidate(
@@ -1272,7 +1269,7 @@ def resolve_profile_candidate(
 
 def gradient_adapter_status_matrix(
     manifest: WS1Manifest | None = None,
-    profiles: Sequence[str] = ("cuda_bf16", "triton_cuda_bf16"),
+    profiles: Sequence[str] = ("cuda_bf16", "triton_cuda_bf16", "ascend_bf16"),
 ) -> tuple[AdapterStatusRow, ...]:
     m = manifest if manifest is not None else load_manifest()
     rows: list[AdapterStatusRow] = []

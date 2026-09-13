@@ -124,7 +124,7 @@ def run_case(
         grad_mode="random",
         grad_seed=seed + 1000,
     )
-    torch.cuda.synchronize(device)
+    synchronize(device)
     candidate_report = report.candidates[0]
     output_checks = [
         {
@@ -158,16 +158,34 @@ def run_case(
     }
 
 
+from rl_engine.kernels.gtest.accelerator import (  # noqa: E402
+    arch_key,
+    device_name,
+    device_type_for_profile,
+    empty_cache,
+    is_available,
+    resolve_device,
+    runtime_version,
+    synchronize,
+)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run manifest-pinned WS1 representative candidates on a real GPU."
+        description="Run manifest-pinned WS1 representative candidates on a real accelerator."
     )
     parser.add_argument("--manifest", type=Path, default=None)
     parser.add_argument(
         "--profile",
         action="append",
-        choices=("cuda_bf16", "triton_cuda_bf16"),
-        help="Profile to run; repeatable. Defaults to both required profiles.",
+        choices=("cuda_bf16", "triton_cuda_bf16", "ascend_bf16"),
+        help="Profile to run; repeatable. Defaults to the profiles this host can run.",
+    )
+    parser.add_argument(
+        "--device",
+        default=None,
+        help="Device to run on (e.g. cuda:0 or npu:0). Defaults to the selected "
+        "profiles' accelerator.",
     )
     parser.add_argument("--case-id", action="append", help="Optional case_id filter.")
     parser.add_argument(
@@ -189,13 +207,34 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if not torch.cuda.is_available():
-        print("error: CUDA is required for runtime candidate evidence", file=sys.stderr)
-        return 2
 
     try:
         manifest = load_manifest(args.manifest)
-        profiles = set(args.profile or ("cuda_bf16", "triton_cuda_bf16"))
+        if args.profile:
+            profiles = set(args.profile)
+        else:
+            # One host has either a GPU or an NPU, never both; default to the
+            # profiles its accelerator can actually execute rather than
+            # reporting a fabricated pass for the other vendor.
+            profiles = {
+                name
+                for name in ("cuda_bf16", "triton_cuda_bf16", "ascend_bf16")
+                if is_available(device_type_for_profile(name))
+            }
+        if not profiles:
+            print(
+                "error: no accelerator available for runtime candidate evidence",
+                file=sys.stderr,
+            )
+            return 2
+        device_types = {device_type_for_profile(name) for name in profiles}
+        if len(device_types) > 1:
+            print(
+                f"error: profiles {sorted(profiles)} span device types "
+                f"{sorted(device_types)}; run one device type per invocation",
+                file=sys.stderr,
+            )
+            return 2
         selected_ids = set(args.case_id or ())
         default_families = {"gemm", "attention", "logprob"}
         cases = [
@@ -209,7 +248,7 @@ def main(argv: list[str] | None = None) -> int:
         if selected_ids - resolved_ids:
             unknown = sorted(selected_ids - resolved_ids)
             raise WorkloadError(f"unknown or profile-filtered case IDs: {unknown}")
-        device = torch.device("cuda:0")
+        device = resolve_device(args.device, profile=sorted(profiles)[0])
         log_stream = sys.stderr if args.emit_json == "-" else sys.stdout
         with contextlib.redirect_stdout(log_stream):
             results = []
@@ -223,7 +262,7 @@ def main(argv: list[str] | None = None) -> int:
                             check_grad=args.check_grad,
                         )
                     )
-                    torch.cuda.empty_cache()
+                    empty_cache(device.type)
                 except RuntimeError as exc:
                     message = str(exc)
                     if "out of memory" not in message.lower():
@@ -232,8 +271,7 @@ def main(argv: list[str] | None = None) -> int:
                     # candidate/reference pair. Preserve the case-level
                     # evidence and continue; this is a resource blocker, never
                     # a pass or a silent fallback.
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
+                    empty_cache(device.type)
                     results.append(
                         {
                             "case_id": case["case_id"],
@@ -252,7 +290,6 @@ def main(argv: list[str] | None = None) -> int:
                         }
                     )
         fixture_identity_sha256 = manifest.raw["fixture_identity_sha256"]
-        props = torch.cuda.get_device_properties(device)
         payload = {
             "schema_version": "ws1-c2-runtime-provenance-v1",
             "workload_id": manifest.workload_id,
@@ -260,14 +297,16 @@ def main(argv: list[str] | None = None) -> int:
             "execution_dtype": "bfloat16",
             "device": {
                 "index": device.index,
-                "name": props.name,
-                "compute_capability": f"sm{props.major}{props.minor}",
+                "type": device.type,
+                "name": device_name(device),
+                "compute_capability": arch_key(device),
                 "execution_world_size": 1,
             },
             "software": {
                 "python": platform.python_version(),
                 "torch": torch.__version__,
                 "cuda_runtime": torch.version.cuda,
+                "accelerator_runtime": runtime_version(device.type),
             },
             "profiles": sorted(profiles),
             "passed": bool(results)

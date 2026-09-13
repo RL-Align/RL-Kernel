@@ -39,7 +39,7 @@ from rl_engine.kernels.gtest.gradient_adapters import (  # noqa: E402
 from rl_engine.testing.ws1_workload import load_manifest  # noqa: E402
 
 GATE = REPO_ROOT / "scripts" / "check_gradient_invariance.py"
-PROFILES = ("cuda_bf16", "triton_cuda_bf16")
+PROFILES = ("cuda_bf16", "triton_cuda_bf16", "ascend_bf16")
 
 
 @dataclass

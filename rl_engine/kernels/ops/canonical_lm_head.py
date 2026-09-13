@@ -61,7 +61,7 @@ __all__ = ["canonical_cuda_lm_head_fp32"]
 
 class _CanonicalRowLMHead(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, hidden, weight, logical_keys, parameter_id, forward_op, matmul_op):
+    def forward(ctx, hidden, weight, logical_keys, parameter_id, forward_op, matmul_op, provenance):
         session = active_session()
         if session is None:
             raise RuntimeError("canonical LM-head requires an active backward session")
@@ -72,6 +72,7 @@ class _CanonicalRowLMHead(torch.autograd.Function):
         ctx.parameter_id = str(parameter_id)
         ctx.slot = session.register(ctx.parameter_id, logical_keys)
         ctx.matmul_op = matmul_op
+        ctx.provenance = provenance
         return output
 
     @staticmethod
@@ -92,13 +93,24 @@ class _CanonicalRowLMHead(torch.autograd.Function):
         grad_weight = ctx.session.submit_linear(
             ctx.parameter_id, ctx.slot, hidden_rows, grad_rows, reducer
         )
-        record_backward(
-            "lm_head",
-            kernel_id="rl_engine.kernels.ops.triton.matmul.det_gemm._triton_gemm",
-            impl="triton_lm_head_canonical_rowfold",
-            family="triton",
-        )
-        return grad_hidden, grad_weight, None, None, None, None
+        record_backward("lm_head", **ctx.provenance)
+        return grad_hidden, grad_weight, None, None, None, None, None
+
+
+# Row-fold backward provenance per backend family. The fold itself is
+# backend-agnostic; only the kernels it drives differ.
+_ROW_LM_HEAD_PROVENANCE = {
+    "triton": {
+        "kernel_id": "rl_engine.kernels.ops.triton.matmul.det_gemm._triton_gemm",
+        "impl": "triton_lm_head_canonical_rowfold",
+        "family": "triton",
+    },
+    "ascend": {
+        "kernel_id": "csrc/ascend/gemm/det_gemm_ascend.asc:det_gemm_ascend_fwd_fp32",
+        "impl": "ascend_lm_head_canonical_rowfold",
+        "family": "ascend",
+    },
+}
 
 
 def canonical_row_lm_head(
@@ -109,7 +121,12 @@ def canonical_row_lm_head(
     forward_op,
     matmul_op,
     parameter_id: str = "lm_head",
+    family: str = "triton",
 ) -> torch.Tensor:
+    try:
+        provenance = _ROW_LM_HEAD_PROVENANCE[family]
+    except KeyError:
+        raise ValueError(f"no row-fold LM-head provenance for family {family!r}") from None
     return _CanonicalRowLMHead.apply(
-        hidden, weight, logical_keys, parameter_id, forward_op, matmul_op
+        hidden, weight, logical_keys, parameter_id, forward_op, matmul_op, provenance
     )
