@@ -53,7 +53,7 @@ def main() -> int:
         torch.cuda.synchronize()
     # Broad on purpose: an arch mismatch raises a CUDA RuntimeError (not ImportError),
     # and any launch failure whatsoever must fail the smoke check loudly.
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         print(
             "[smoke] FATAL: rl_engine._C built but fused_logp failed to launch on "
             f"sm_{cc[0]}{cc[1]}.\n"

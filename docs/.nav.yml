@@ -18,6 +18,7 @@ nav:
       - operators/attention.md
       - operators/fused-logp.md
       - operators/linear-logp.md
+      - operators/gumbel-softmax.md
       - operators/batch-invariant-logp.md
       - operators/linear-logp-tp-test.md
       - operators/grpo-loss.md
