@@ -28,7 +28,9 @@ def test_reference_provider_matches_oracle_bytes() -> None:
     _, saved_c = oracle.mhc_block_forward(batch, cand, ops=ReferenceProvider())
     assert first_divergence(gold, cand) is None
     out_g = oracle.mhc_block_backward(batch, saved_g, grads, gold)
-    out_c = oracle.mhc_block_backward(batch, saved_c, grads, cand, ops=ReferenceProvider())
+    out_c = oracle.mhc_block_backward(
+        batch, saved_c, grads, cand, ops=ReferenceProvider()
+    )
     assert first_divergence(gold, cand) is None
     for key, grad in out_g.items():
         other = out_c[key]
@@ -104,3 +106,17 @@ def test_golden_manifest_anchor() -> None:
     ``python -m rl_engine.mhc.fixtures --write-manifest`` and review the diff.
     """
     assert fixtures.load_manifest() == fixtures.golden_manifest()
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        "rl_engine.mhc.cuda_provider:CudaMHCProvider",
+        "rl_engine.mhc.triton_provider:TritonMHCProvider",
+    ],
+)
+def test_rmsnorm_residual_provider_registration(spec):
+    provider = resolve_provider(spec)
+    assert provider.capabilities()["implemented_operators"] == ["rmsnorm_residual"]
+    assert provider.rmsnorm_residual_fwd.__module__.startswith("rl_engine.kernels.ops.")
+    assert provider.provenance()["actual_backend"] == f"{provider.name}+oracle-rest"

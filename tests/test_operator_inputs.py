@@ -8,7 +8,10 @@ import argparse
 import pytest
 import torch
 
-from rl_engine.kernels.gtest.operator_inputs import make_operator_inputs, operator_shape_name
+from rl_engine.kernels.gtest.operator_inputs import (
+    make_operator_inputs,
+    operator_shape_name,
+)
 from rl_engine.kernels.gtest.operator_specs import (
     make_candidate,
     make_operator_case,
@@ -42,6 +45,7 @@ def _args(**overrides):
     "op_name",
     [
         "rms_norm",
+        "rmsnorm_residual",
         "qk_norm",
         "pack",
         "matmul",
@@ -76,7 +80,9 @@ def test_constant_logp_inputs_are_deterministic():
 
 def test_constant_batch_invariant_logp_inputs_match_operator_contract():
     args = _args(input_mode="constant", constant_value=0.5, token_value=3)
-    inputs = make_operator_inputs("batch_invariant_logp", args, torch.float32, torch.device("cpu"))
+    inputs = make_operator_inputs(
+        "batch_invariant_logp", args, torch.float32, torch.device("cpu")
+    )
 
     assert torch.equal(inputs["logits"], torch.full((1, 2, 17), 0.5))
     assert torch.equal(inputs["target_ids"], torch.full((1, 2), 3, dtype=torch.long))
@@ -96,7 +102,9 @@ def test_cp_attention_operator_spec_registers_backward_grad_inputs():
 
     assert "cp_attention" in operator_names()
     case = make_operator_case(args, torch.float32, torch.device("cpu"))
-    candidate = make_candidate(argparse.Namespace(**{**vars(args), "candidate": "pytorch"}))
+    candidate = make_candidate(
+        argparse.Namespace(**{**vars(args), "candidate": "pytorch"})
+    )
 
     assert case.op_class == "attention"
     assert case.grad_input_names == ("q", "k", "v")
@@ -105,7 +113,9 @@ def test_cp_attention_operator_spec_registers_backward_grad_inputs():
 
 def test_constant_linear_logp_inputs_match_operator_contract():
     args = _args(input_mode="constant", constant_value=0.5, token_value=3)
-    inputs = make_operator_inputs("linear_logp", args, torch.float32, torch.device("cpu"))
+    inputs = make_operator_inputs(
+        "linear_logp", args, torch.float32, torch.device("cpu")
+    )
 
     assert torch.equal(inputs["hidden"], torch.full((1, 2, 128), 0.5))
     assert torch.equal(inputs["lm_head_weight"], torch.full((17, 128), 0.51))
