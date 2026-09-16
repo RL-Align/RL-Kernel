@@ -53,7 +53,7 @@ def _check_forward(x, gamma, eps) -> tuple[int, int]:
         raise ValueError(f"T must be in [1, {_MAX_T}]")
     if d not in _VALID_D:
         raise ValueError(f"D must be one of {_VALID_D}")
-    _check_tensor(gamma, "gamma", dtype=torch.bfloat16, shape=(d,), device=x.device)
+    _check_tensor(gamma, "gamma", dtype=torch.float32, shape=(d,), device=x.device)
     if float(eps) != _EPS:
         raise ValueError(f"eps must be exactly {_EPS}")
     return t, d

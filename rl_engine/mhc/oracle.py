@@ -111,12 +111,16 @@ def _col_normalize(m: torch.Tensor, eps: float) -> tuple[torch.Tensor, torch.Ten
     return m / cs.unsqueeze(1), cs
 
 
-def _row_normalize_bwd(dn: torch.Tensor, m: torch.Tensor, rs_e: torch.Tensor) -> torch.Tensor:
+def _row_normalize_bwd(
+    dn: torch.Tensor, m: torch.Tensor, rs_e: torch.Tensor
+) -> torch.Tensor:
     g = stream4_sum_dim(dn * m, dim=2)  # [T, 4]
     return dn / rs_e.unsqueeze(2) - (g / (rs_e * rs_e)).unsqueeze(2)
 
 
-def _col_normalize_bwd(dn: torch.Tensor, m: torch.Tensor, cs_e: torch.Tensor) -> torch.Tensor:
+def _col_normalize_bwd(
+    dn: torch.Tensor, m: torch.Tensor, cs_e: torch.Tensor
+) -> torch.Tensor:
     g = stream4_sum_dim(dn * m, dim=1)  # [T, 4]
     return dn / cs_e.unsqueeze(1) - (g / (cs_e * cs_e)).unsqueeze(1)
 
@@ -142,7 +146,9 @@ def hc_split_sinkhorn_fwd(
     eps = contract.mhc_eps
     h32 = _f32(h)
     if h32.shape[1] != contract.controller_n:
-        raise ValueError(f"h has {h32.shape[1]} controller values, want {contract.controller_n}")
+        raise ValueError(
+            f"h has {h32.shape[1]} controller values, want {contract.controller_n}"
+        )
 
     sig_pre = torch.sigmoid(h32[:, PRE_SLICE])
     pre = sig_pre + eps
@@ -165,7 +171,13 @@ def hc_split_sinkhorn_fwd(
         steps.append(("col", m, cs))
         m = m_next
 
-    saved = {"sig_pre": sig_pre, "sig_post": sig_post, "softmax": s, "steps": steps, "eps": eps}
+    saved = {
+        "sig_pre": sig_pre,
+        "sig_post": sig_post,
+        "softmax": s,
+        "steps": steps,
+        "eps": eps,
+    }
     return pre, post, m, saved
 
 
@@ -197,7 +209,9 @@ def hc_split_sinkhorn_bwd(
     sig_pre, sig_post = saved["sig_pre"], saved["sig_post"]
     dh_pre = _f32(dpre) * (sig_pre * (1.0 - sig_pre))
     dh_post = _f32(dpost) * (2.0 * (sig_post * (1.0 - sig_post)))
-    return torch.cat([dh_pre, dh_post, dlogits.reshape(dlogits.shape[0], HC_MULT * HC_MULT)], dim=1)
+    return torch.cat(
+        [dh_pre, dh_post, dlogits.reshape(dlogits.shape[0], HC_MULT * HC_MULT)], dim=1
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -279,7 +293,9 @@ def h_aggregate_bwd(
     dh32 = _f32(dh)
     r32 = _f32(r_old)
     dr = torch.stack([pre[:, i].unsqueeze(1) * dh32 for i in range(HC_MULT)], dim=1)
-    dpre = torch.stack([fixed_sum(dh32 * r32[:, i, :], dim=1) for i in range(HC_MULT)], dim=1)
+    dpre = torch.stack(
+        [fixed_sum(dh32 * r32[:, i, :], dim=1) for i in range(HC_MULT)], dim=1
+    )
     return dr, dpre
 
 
@@ -314,7 +330,9 @@ def mhc_pre_fwd(
     ops = ops if ops is not None else sys.modules[__name__]
     contract = batch.contract
     x_flat = _f32(batch.r_old).reshape(batch.tokens, contract.flat_k)
-    p, r, gemm_saved = ops.fp32_gemm_rms_fwd(x_flat, batch.controller.weight, contract.mhc_eps)
+    p, r, gemm_saved = ops.fp32_gemm_rms_fwd(
+        x_flat, batch.controller.weight, contract.mhc_eps
+    )
     alpha = batch.controller.expanded_alpha(contract)
     h, m = _controller_affine(p, r, alpha, batch.controller.bias)
     pre, post, c, sink_saved = ops.hc_split_sinkhorn_fwd(h, contract)
@@ -438,13 +456,16 @@ def mhc_post_bwd(
     dc = torch.stack(
         [
             torch.stack(
-                [fixed_sum(r32[:, i, :] * g[:, j, :], dim=1) for j in range(HC_MULT)], dim=1
+                [fixed_sum(r32[:, i, :] * g[:, j, :], dim=1) for j in range(HC_MULT)],
+                dim=1,
             )
             for i in range(HC_MULT)
         ],
         dim=1,
     )
-    dpost = torch.stack([fixed_sum(y32 * g[:, j, :], dim=1) for j in range(HC_MULT)], dim=1)
+    dpost = torch.stack(
+        [fixed_sum(y32 * g[:, j, :], dim=1) for j in range(HC_MULT)], dim=1
+    )
     return dr_old, dy, dc, dpost
 
 
@@ -459,7 +480,7 @@ def rmsnorm_residual_fwd(
     """RMSNorm with a fork of the *unnormalized* input as the residual branch.
 
     This is **not** ``x += residual`` followed by a norm. ``x``: BF16 [T, D],
-    ``gamma``: BF16 [D]. Returns ``(y BF16, residual BF16, saved)``:
+    ``gamma``: FP32 [D]. Returns ``(y BF16, residual BF16, saved)``:
 
     ``s = sum_d FP32(x[d])^2``; ``m = s / D``; ``r = rsqrt(m + eps)``;
     ``y[d] = (FP32(x[d]) * r) * FP32(gamma[d])``.
@@ -489,11 +510,12 @@ def rmsnorm_residual_fwd(
 def rmsnorm_residual_bwd(
     dy: torch.Tensor,
     d_residual: torch.Tensor,
-    x: torch.Tensor,
     gamma: torch.Tensor,
     saved: dict[str, Any],
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Returns ``(dX, dGamma)`` FP32.
+    """
+    dy: BF16[T, D], d_residual: BF16[T, D]
+    Returns ``(dX, dGamma)`` FP32.
 
     ``u[d] = dy[d]*gamma[d]``; ``q = sum_j u[j]*x[j]``;
     ``dx_norm[d] = (r*u[d]) - (((x[d]*r^3)*q)/D)``;
@@ -505,7 +527,9 @@ def rmsnorm_residual_bwd(
     u = dy32 * _f32(gamma).unsqueeze(0)
     q = fixed_sum(u * x32, dim=1)  # [T]
     r3 = (r * r) * r
-    dx_norm = (r.unsqueeze(1) * u) - (((x32 * r3.unsqueeze(1)) * q.unsqueeze(1)) / float(d))
+    dx_norm = (r.unsqueeze(1) * u) - (
+        ((x32 * r3.unsqueeze(1)) * q.unsqueeze(1)) / float(d)
+    )
     dgamma = fixed_sum((dy32 * x32) * r.unsqueeze(1), dim=0)
     return dx_norm + _f32(d_residual), dgamma
 
@@ -517,7 +541,9 @@ def rmsnorm_residual_bwd(
 
 def mhc_pre_rmsnorm_fused_fwd(
     batch: ResidualBatch, ops: Any = None
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, dict[str, Any]]:
+) -> tuple[
+    torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, dict[str, Any]
+]:
     """The Miles/XoRL fused boundary: one call for pre-mix + normalize.
 
     Miles fuses the four-stream merge and the normalization into a single
@@ -572,7 +598,9 @@ def mhc_block_forward(
     _check_modes(batch.contract)
 
     if batch.contract.fusion_mode == "fused-pre-norm":
-        hidden, normalized, residual, post, c, saved = ops.mhc_pre_rmsnorm_fused_fwd(batch, ops=ops)
+        hidden, normalized, residual, post, c, saved = ops.mhc_pre_rmsnorm_fused_fwd(
+            batch, ops=ops
+        )
         pre = saved["pre"]
         norm_saved = saved["norm"]
     else:
@@ -584,10 +612,14 @@ def mhc_block_forward(
     r_new = ops.mhc_post_fwd(batch.r_old, batch.y_sublayer, c, post)
 
     if trace is not None:
-        trace.note("reduction_tree", "long=serial-ascending-left-fold; stream4=(a0+a1)+(a2+a3)")
+        trace.note(
+            "reduction_tree", "long=serial-ascending-left-fold; stream4=(a0+a1)+(a2+a3)"
+        )
         trace.note("fma", "mul-then-add, no fusion")
         trace.note("rsqrt", "rmsnorm=rsqrt(mean+eps); controller=1/(sqrt(mean)+eps)")
-        trace.note("downcast_points", "mhc_pre.hidden, rmsnorm.normalized, mhc_post.r_new")
+        trace.note(
+            "downcast_points", "mhc_pre.hidden, rmsnorm.normalized, mhc_post.r_new"
+        )
         trace.note("fusion_mode", batch.contract.fusion_mode)
         trace.note("trainability", batch.contract.trainability)
         trace.note("weight_fingerprint", batch.compute_weight_fingerprint())
@@ -637,9 +669,18 @@ def mhc_block_backward(
     dr_old_post, dy, dc, dpost = ops.mhc_post_bwd(
         grads.d_r_new, batch.r_old, batch.y_sublayer, saved["c"], saved["post"]
     )
-    dhidden, dgamma = ops.rmsnorm_residual_bwd(
-        grads.d_normalized, grads.d_residual, saved["hidden"], batch.norm.gamma, saved["norm"]
-    )
+    if ops is sys.modules[__name__]:
+        dhidden, dgamma = rmsnorm_residual_bwd(
+            grads.d_normalized, grads.d_residual, batch.norm.gamma, saved["norm"]
+        )
+    else:
+        dhidden, dgamma = ops.rmsnorm_residual_bwd(
+            grads.d_normalized,
+            grads.d_residual,
+            saved["hidden"],
+            batch.norm.gamma,
+            saved["norm"],
+        )
     pre_grads = ops.mhc_pre_bwd(dhidden, dpost, dc, batch, saved, ops=ops)
     d_r_old = pre_grads["d_r_old"] + dr_old_post
 

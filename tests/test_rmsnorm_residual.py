@@ -21,10 +21,10 @@ def assert_bytes(got, want, name):
 def inputs(t, d):
     gen = torch.Generator().manual_seed(42)
 
-    def rand(*shape):
-        return torch.randn(*shape, generator=gen).to("cuda", torch.bfloat16)
+    def rand(*shape, dtype=torch.bfloat16):
+        return torch.randn(*shape, generator=gen).to("cuda", dtype)
 
-    return rand(t, d), rand(d), rand(t, d), rand(t, d)
+    return rand(t, d), rand(d, dtype=torch.float32), rand(t, d), rand(t, d)
 
 
 def compare(x, gamma, dy, dr):
@@ -35,7 +35,7 @@ def compare(x, gamma, dy, dr):
     assert_bytes(gr, wr, "residual")
     assert gr.data_ptr() != x.data_ptr(), "residual must not alias x"
 
-    wdx, wdg = oracle.rmsnorm_residual_bwd(dy, dr, x, gamma, ws)
+    wdx, wdg = oracle.rmsnorm_residual_bwd(dy, dr, gamma, ws)
     gdx, gdg = api.cuda_rmsnorm_residual_bwd(dy, dr, x, gamma, gs)
     assert_bytes(gdx, wdx, "dx")
     assert_bytes(gdg, wdg, "dgamma")
@@ -111,7 +111,7 @@ def test_autograd(branch):
 
     x0, gamma0 = x.detach(), gamma.detach()
     _, _, saved = oracle.rmsnorm_residual_fwd(x0, gamma0, 1e-6)
-    dx, dg = oracle.rmsnorm_residual_bwd(dy, dr, x0, gamma0, saved)
+    dx, dg = oracle.rmsnorm_residual_bwd(dy, dr, gamma0, saved)
     assert_bytes(x.grad, dx.to(x.dtype), "autograd.dx")
     assert_bytes(gamma.grad, dg.to(gamma.dtype), "autograd.dgamma")
 
@@ -122,7 +122,7 @@ def test_invalid_inputs():
     for bad in (x.float(), x.cpu(), x[:, :64], x[:0], x.flatten()):
         with pytest.raises(errors):
             api.cuda_rmsnorm_residual_fwd(bad, gamma)
-    for bad_gamma in (gamma.float(), gamma.cpu(), gamma[:-1]):
+    for bad_gamma in (gamma.bfloat16(), gamma.half(), gamma.double(), gamma.cpu(), gamma[:-1]):
         with pytest.raises(errors):
             api.cuda_rmsnorm_residual_fwd(x, bad_gamma)
     with pytest.raises(errors):

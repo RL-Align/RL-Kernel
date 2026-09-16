@@ -13,7 +13,7 @@ using BF = __nv_bfloat16;
 
 __device__ float load(const BF* p, int64_t i) { return __bfloat162float(p[i]); }
 
-__global__ void forward_kernel(const BF* x, const BF* gamma, BF* y,
+__global__ void forward_kernel(const BF* x, const float* gamma, BF* y,
                                BF* residual, float* saved_r, int d, float eps) {
   int64_t row = blockIdx.x;
   int64_t base = row * d;
@@ -33,14 +33,14 @@ __global__ void forward_kernel(const BF* x, const BF* gamma, BF* y,
   __syncthreads();
 
   for (int k = threadIdx.x; k < d; k += blockDim.x) {
-    float v = __fmul_rn(__fmul_rn(load(x, base + k), r), load(gamma, k));
+    float v = __fmul_rn(__fmul_rn(load(x, base + k), r), gamma[k]);
     y[base + k] = __float2bfloat16_rn(v);
     residual[base + k] = x[base + k];
   }
 }
 
 __global__ void dx_kernel(const BF* dy, const BF* dr, const BF* x,
-                          const BF* gamma, const float* saved_r, float* dx,
+                          const float* gamma, const float* saved_r, float* dx,
                           int d) {
   int64_t base = static_cast<int64_t>(blockIdx.x) * d;
   float r = saved_r[blockIdx.x];
@@ -49,7 +49,7 @@ __global__ void dx_kernel(const BF* dy, const BF* dr, const BF* x,
   if (threadIdx.x == 0) {
     float acc = 0.0f;
     for (int k = 0; k < d; ++k) {
-      float u = __fmul_rn(load(dy, base + k), load(gamma, k));
+      float u = __fmul_rn(load(dy, base + k), gamma[k]);
       acc = __fadd_rn(acc, __fmul_rn(u, load(x, base + k)));
     }
     q = acc;
@@ -59,7 +59,7 @@ __global__ void dx_kernel(const BF* dy, const BF* dr, const BF* x,
 
   float r3 = __fmul_rn(__fmul_rn(r, r), r);
   for (int k = threadIdx.x; k < d; k += blockDim.x) {
-    float u = __fmul_rn(load(dy, base + k), load(gamma, k));
+    float u = __fmul_rn(load(dy, base + k), gamma[k]);
     float rhs = __fdiv_rn(__fmul_rn(__fmul_rn(load(x, base + k), r3), q),
                           static_cast<float>(d));
     float norm = __fsub_rn(__fmul_rn(r, u), rhs);
@@ -99,7 +99,10 @@ void check_bf16(const torch::Tensor& v, const torch::Tensor& x,
 void check_inputs(const torch::Tensor& x, const torch::Tensor& gamma) {
   TORCH_CHECK(x.is_cuda(), "x: expected CUDA");
   check_bf16(x, x, "x");
-  check_bf16(gamma, x, "gamma");
+  TORCH_CHECK(gamma.is_cuda() && gamma.device() == x.device(),
+              "gamma: expected same CUDA device as x");
+  TORCH_CHECK(gamma.scalar_type() == torch::kFloat32, "gamma: expected FP32");
+  TORCH_CHECK(gamma.is_contiguous(), "gamma: expected contiguous");
   TORCH_CHECK(x.dim() == 2 && x.size(0) > 0 && x.size(0) <= INT_MAX,
               "x: expected nonempty [T, D], T <= INT_MAX");
   TORCH_CHECK(x.size(1) == 128 || x.size(1) == 4096,
@@ -122,7 +125,7 @@ std::vector<torch::Tensor> mhc_rmsnorm_residual_forward(torch::Tensor x,
   auto stream = at::cuda::getCurrentCUDAStream();
 
   forward_kernel<<<static_cast<int>(x.size(0)), 128, 0, stream>>>(
-      input_ptr(x), input_ptr(gamma), output_ptr(y), output_ptr(residual),
+      input_ptr(x), gamma.data_ptr<float>(), output_ptr(y), output_ptr(residual),
       r.data_ptr<float>(), static_cast<int>(x.size(1)),
       static_cast<float>(eps));
   C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -151,7 +154,7 @@ std::vector<torch::Tensor> mhc_rmsnorm_residual_backward(torch::Tensor dy,
   auto stream = at::cuda::getCurrentCUDAStream();
 
   dx_kernel<<<t, 128, 0, stream>>>(input_ptr(dy), input_ptr(dr), input_ptr(x),
-                                   input_ptr(gamma), r.data_ptr<float>(),
+                                   gamma.data_ptr<float>(), r.data_ptr<float>(),
                                    dx.data_ptr<float>(), d);
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   dgamma_kernel<<<(d + 127) / 128, 128, 0, stream>>>(

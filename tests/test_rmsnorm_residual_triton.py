@@ -22,10 +22,10 @@ def assert_bytes(got, want, name):
 def inputs(t, d):
     generator = torch.Generator().manual_seed(42)
 
-    def rand(*shape):
-        return torch.randn(*shape, generator=generator).to("cuda", torch.bfloat16)
+    def rand(*shape, dtype=torch.bfloat16):
+        return torch.randn(*shape, generator=generator).to("cuda", dtype)
 
-    return rand(t, d), rand(d), rand(t, d), rand(t, d)
+    return rand(t, d), rand(d, dtype=torch.float32), rand(t, d), rand(t, d)
 
 
 def compare(x, gamma, dy, d_residual):
@@ -37,7 +37,7 @@ def compare(x, gamma, dy, d_residual):
     assert got_residual.data_ptr() != x.data_ptr(), "residual must not alias x"
 
     want_dx, want_dgamma = oracle.rmsnorm_residual_bwd(
-        dy, d_residual, x, gamma, want_saved
+        dy, d_residual, gamma, want_saved
     )
     got_dx, got_dgamma = api.triton_rmsnorm_residual_bwd(
         dy, d_residual, x, gamma, got_saved
@@ -124,7 +124,7 @@ def test_autograd(branch):
     x_ref = x.detach()
     gamma_ref = gamma.detach()
     _, _, saved = oracle.rmsnorm_residual_fwd(x_ref, gamma_ref, 1.0e-6)
-    dx, dgamma = oracle.rmsnorm_residual_bwd(dy, d_residual, x_ref, gamma_ref, saved)
+    dx, dgamma = oracle.rmsnorm_residual_bwd(dy, d_residual, gamma_ref, saved)
     assert_bytes(x.grad, dx.to(x.dtype), "autograd.dx")
     assert_bytes(gamma.grad, dgamma.to(gamma.dtype), "autograd.dgamma")
 
@@ -135,7 +135,7 @@ def test_invalid_inputs():
     for bad_x in (x.float(), x.cpu(), x[:, :64], x[:0], x.flatten()):
         with pytest.raises(errors):
             api.triton_rmsnorm_residual_fwd(bad_x, gamma)
-    for bad_gamma in (gamma.float(), gamma.cpu(), gamma[:-1]):
+    for bad_gamma in (gamma.bfloat16(), gamma.half(), gamma.double(), gamma.cpu(), gamma[:-1]):
         with pytest.raises(errors):
             api.triton_rmsnorm_residual_fwd(x, bad_gamma)
     with pytest.raises(errors):

@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from rl_engine.mhc import oracle
+from rl_engine.mhc.provider import ReferenceProvider
 
 EPS = 1.0e-6
 D = 4096
@@ -58,10 +59,10 @@ def load_backends():
 def make_inputs(t, seed):
     generator = torch.Generator(device="cpu").manual_seed(seed + t)
 
-    def rand(*shape):
-        return torch.randn(*shape, generator=generator).to("cuda", torch.bfloat16)
+    def rand(*shape, dtype=torch.bfloat16):
+        return torch.randn(*shape, generator=generator).to("cuda", dtype)
 
-    return rand(t, D), rand(D), rand(t, D), rand(t, D)
+    return rand(t, D), rand(D, dtype=torch.float32), rand(t, D), rand(t, D)
 
 
 def collect_outputs(fwd, bwd, inputs):
@@ -83,7 +84,7 @@ def bit_equal(a, b):
 
 def validate(backends, inputs):
     gold = collect_outputs(
-        oracle.rmsnorm_residual_fwd, oracle.rmsnorm_residual_bwd, inputs
+        oracle.rmsnorm_residual_fwd, ReferenceProvider.rmsnorm_residual_bwd, inputs
     )
     checks = {}
     for (
@@ -237,6 +238,7 @@ def main():
         "environment": environment(),
         "config": {
             "dtype": "bfloat16",
+            "gamma_dtype": "float32",
             "gradient_dtype": "float32",
             "D": D,
             "eps": EPS,

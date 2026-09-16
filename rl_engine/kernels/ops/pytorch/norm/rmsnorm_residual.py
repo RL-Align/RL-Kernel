@@ -22,7 +22,7 @@ class _NativeRMSNormResidual(torch.autograd.Function):
         dy = torch.zeros_like(x) if dy is None else dy
         d_residual = torch.zeros_like(x) if d_residual is None else d_residual
         saved = {"x32": x.to(torch.float32), "r": r, "d": x.shape[1]}
-        dx, dgamma = oracle.rmsnorm_residual_bwd(dy, d_residual, x, gamma, saved)
+        dx, dgamma = oracle.rmsnorm_residual_bwd(dy, d_residual, gamma, saved)
         return dx.to(x.dtype), dgamma.to(gamma.dtype), None
 
 

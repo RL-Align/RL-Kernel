@@ -91,7 +91,7 @@ def make_batch(name: str) -> ResidualBatch:
             alpha_res=_randn(g, 1, scale=0.5),
             bias=_randn(g, n, scale=0.1),
         ),
-        norm=NormParams(gamma=(1.0 + _randn(g, d, scale=0.05)).to(torch.bfloat16)),
+        norm=NormParams(gamma=(1.0 + _randn(g, d, scale=0.05)).to(torch.float32)),
         token_id=torch.arange(t, dtype=torch.int64) + 1000,
         contract=contract,
         row_geometry=spec.get("geometry", "packed"),
@@ -170,7 +170,9 @@ def golden_manifest() -> dict[str, Any]:
     h = make_sinkhorn_edge_inputs()
     pre, post, c, saved = oracle.hc_split_sinkhorn_fwd(h, contract)
     g = _gen("sinkhorn_edges.grad")
-    dh = oracle.hc_split_sinkhorn_bwd(_randn(g, 4, 4), _randn(g, 4, 4), _randn(g, 4, 4, 4), saved)
+    dh = oracle.hc_split_sinkhorn_bwd(
+        _randn(g, 4, 4), _randn(g, 4, 4), _randn(g, 4, 4, 4), saved
+    )
     cases["sinkhorn_edges"] = {
         "pre": tensor_sha256(pre),
         "post": tensor_sha256(post),
@@ -179,13 +181,14 @@ def golden_manifest() -> dict[str, Any]:
     }
 
     x = make_rms_edge_inputs()
-    gamma = (1.0 + _randn(_gen("rms_edges.gamma"), FIXTURE_HIDDEN, scale=0.05)).to(torch.bfloat16)
+    gamma = (1.0 + _randn(_gen("rms_edges.gamma"), FIXTURE_HIDDEN, scale=0.05)).to(
+        torch.float32
+    )
     y, residual, rsaved = oracle.rmsnorm_residual_fwd(x, gamma, contract.rmsnorm_eps)
     ge = _gen("rms_edges.grad")
     dx, dgamma = oracle.rmsnorm_residual_bwd(
         _randn(ge, *x.shape).to(torch.bfloat16),
         _randn(ge, *x.shape, scale=0.25).to(torch.bfloat16),
-        x,
         gamma,
         rsaved,
     )
