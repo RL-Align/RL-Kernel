@@ -107,7 +107,9 @@ class LayerContract:
         if self.placement not in PLACEMENTS:
             raise ValueError(f"unknown placement {self.placement!r}")
         if self.fusion_mode not in FUSION_MODES:
-            raise ValueError(f"unknown fusion_mode {self.fusion_mode!r}; want {FUSION_MODES}")
+            raise ValueError(
+                f"unknown fusion_mode {self.fusion_mode!r}; want {FUSION_MODES}"
+            )
         if self.trainability not in TRAINABILITY_MODES:
             raise ValueError(
                 f"unknown trainability {self.trainability!r}; want {TRAINABILITY_MODES}"
@@ -195,16 +197,26 @@ class ControllerParams:
                 raise TypeError(f"controller {name} must be FP32, got {t.dtype}")
         n, k = contract.controller_n, contract.flat_k
         if tuple(self.weight.shape) != (n, k):
-            raise ValueError(f"controller weight {tuple(self.weight.shape)} != {(n, k)}")
+            raise ValueError(
+                f"controller weight {tuple(self.weight.shape)} != {(n, k)}"
+            )
         if tuple(self.bias.shape) != (n,):
             raise ValueError(f"controller bias {tuple(self.bias.shape)} != {(n,)}")
         for name, t in named[1:4]:
             if tuple(t.shape) != (1,):
-                raise ValueError(f"controller {name} must be a scalar [1], got {tuple(t.shape)}")
+                raise ValueError(
+                    f"controller {name} must be a scalar [1], got {tuple(t.shape)}"
+                )
 
     def fingerprint(self) -> str:
         h = hashlib.sha256()
-        for t in (self.weight, self.alpha_pre, self.alpha_post, self.alpha_res, self.bias):
+        for t in (
+            self.weight,
+            self.alpha_pre,
+            self.alpha_post,
+            self.alpha_res,
+            self.bias,
+        ):
             h.update(tensor_bytes(t))
         return h.hexdigest()
 
@@ -220,15 +232,17 @@ class ControllerParams:
 
 @dataclass(frozen=True)
 class NormParams:
-    """RMSNorm gain. BF16 storage, promoted to FP32 inside the operator."""
+    """RMSNorm gain stored and computed in FP32."""
 
-    gamma: torch.Tensor  # BF16 [hidden]
+    gamma: torch.Tensor  # FP32 [hidden]
 
     def validate(self, contract: LayerContract) -> None:
-        if self.gamma.dtype != torch.bfloat16:
-            raise TypeError(f"gamma must be BF16, got {self.gamma.dtype}")
+        if self.gamma.dtype != torch.float32:
+            raise TypeError(f"gamma must be FP32, got {self.gamma.dtype}")
         if tuple(self.gamma.shape) != (contract.hidden,):
-            raise ValueError(f"gamma shape {tuple(self.gamma.shape)} != {(contract.hidden,)}")
+            raise ValueError(
+                f"gamma shape {tuple(self.gamma.shape)} != {(contract.hidden,)}"
+            )
 
     def fingerprint(self) -> str:
         return hashlib.sha256(tensor_bytes(self.gamma)).hexdigest()
@@ -274,7 +288,9 @@ class ResidualBatch:
     def validate(self) -> None:
         self.contract.validate()
         if self.row_geometry not in ROW_GEOMETRIES:
-            raise ValueError(f"row_geometry {self.row_geometry!r} not in {ROW_GEOMETRIES}")
+            raise ValueError(
+                f"row_geometry {self.row_geometry!r} not in {ROW_GEOMETRIES}"
+            )
         if self.r_old.dtype != torch.bfloat16:
             raise TypeError(f"r_old must be BF16, got {self.r_old.dtype}")
         if self.y_sublayer.dtype != torch.bfloat16:
@@ -283,11 +299,17 @@ class ResidualBatch:
             raise TypeError(f"token_id must be int64, got {self.token_id.dtype}")
         t, streams, hidden = self.r_old.shape
         if streams != self.contract.hc_mult:
-            raise ValueError(f"r_old has {streams} streams, contract says {self.contract.hc_mult}")
+            raise ValueError(
+                f"r_old has {streams} streams, contract says {self.contract.hc_mult}"
+            )
         if hidden != self.contract.hidden:
-            raise ValueError(f"r_old hidden {hidden} != contract {self.contract.hidden}")
+            raise ValueError(
+                f"r_old hidden {hidden} != contract {self.contract.hidden}"
+            )
         if tuple(self.y_sublayer.shape) != (t, hidden):
-            raise ValueError(f"y_sublayer shape {tuple(self.y_sublayer.shape)} != {(t, hidden)}")
+            raise ValueError(
+                f"y_sublayer shape {tuple(self.y_sublayer.shape)} != {(t, hidden)}"
+            )
         if tuple(self.token_id.shape) != (t,):
             raise ValueError(f"token_id shape {tuple(self.token_id.shape)} != {(t,)}")
         if self.row_geometry == "one-row" and t != 1:
@@ -296,7 +318,9 @@ class ResidualBatch:
         self.norm.validate(self.contract)
         expected = self.compute_weight_fingerprint()
         if self.weight_fingerprint and self.weight_fingerprint != expected:
-            raise ValueError("weight_fingerprint mismatch: checkpoint bytes were modified")
+            raise ValueError(
+                "weight_fingerprint mismatch: checkpoint bytes were modified"
+            )
 
     def compute_weight_fingerprint(self) -> str:
         h = hashlib.sha256()

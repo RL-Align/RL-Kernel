@@ -73,16 +73,18 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     # TMA-accelerated LogP for SM90+ (Warp Specialization)
     CUDA_FUSED_LOGP_SM90 = "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpSM90Op"
     CUDA_FUSED_LOGP_GENERIC = "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpGenericOp"
-    CUDA_DETERMINISTIC_LOGP = "rl_engine.kernels.ops.cuda.loss.logp.DeterministicLogpCUDAOp"
-    # Deterministic standard-softmax attention (issue #147); not FlashAttention.
-    CUDA_DETERMINISTIC_ATTENTION = (
-        "rl_engine.kernels.ops.cuda.attention.deterministic_attn.DeterministicAttentionOp"
+    CUDA_DETERMINISTIC_LOGP = (
+        "rl_engine.kernels.ops.cuda.loss.logp.DeterministicLogpCUDAOp"
     )
+    # Deterministic standard-softmax attention (issue #147); not FlashAttention.
+    CUDA_DETERMINISTIC_ATTENTION = "rl_engine.kernels.ops.cuda.attention.deterministic_attn.DeterministicAttentionOp"
 
     # AMD ROCm optimized stack
     ROCM_AITER = "rl_engine.kernels.ops.rocm.aiter.AiterOp"
     ROCM_CK = "rl_engine.kernels.ops.rocm.composable_kernel.CKOp"
-    ROCM_FLASH_ATTN = "rl_engine.kernels.ops.rocm.attention.flash_attn.RocmFlashAttentionOp"
+    ROCM_FLASH_ATTN = (
+        "rl_engine.kernels.ops.rocm.attention.flash_attn.RocmFlashAttentionOp"
+    )
     # WS2 strict ROCm attention core (AITER/CK dense MHA, Split-KV disabled).
     # Reachable only through ``get_attention_op``: it is not a drop-in for the
     # SDPA-shaped ``attn`` wrappers and must never be a silent fallback.
@@ -98,8 +100,12 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     CUDA_FUSED_LINEAR_LOGP_SM90 = (
         "rl_engine.kernels.ops.cuda.loss.linear_logp.FusedLinearLogpSM90Op"
     )
-    TRITON_LINEAR_LOGP = "rl_engine.kernels.ops.triton.loss.linear_logp.TritonLinearLogpOp"
-    PYTORCH_LINEAR_LOGP = "rl_engine.kernels.ops.pytorch.loss.linear_logp.NativeLinearLogpOp"
+    TRITON_LINEAR_LOGP = (
+        "rl_engine.kernels.ops.triton.loss.linear_logp.TritonLinearLogpOp"
+    )
+    PYTORCH_LINEAR_LOGP = (
+        "rl_engine.kernels.ops.pytorch.loss.linear_logp.NativeLinearLogpOp"
+    )
     # Fused policy-ratio + KL-penalty front-end (PPO/GRPO), logits -> (ratio, kl)
     TRITON_RATIO_KL = "rl_engine.kernels.ops.triton.loss.ratio_kl.TritonRatioKLOp"
     PYTORCH_RATIO_KL = "rl_engine.kernels.ops.pytorch.loss.ratio_kl.NativeRatioKLOp"
@@ -113,18 +119,12 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     # intentionally excluded from det_gemm dispatch (cuBLAS breaks invariance).
     PYTORCH_GEMM = "rl_engine.kernels.ops.pytorch.matmul.det_gemm.NativeGemmOp"
     # Batch-invariant selected-logprob (WS1 #148: locked reduction order)
-    TRITON_BATCH_INVARIANT_LOGP = (
-        "rl_engine.kernels.ops.triton.loss.batch_invariant_logp.TritonBatchInvariantLogpOp"
-    )
-    PYTORCH_BATCH_INVARIANT_LOGP = (
-        "rl_engine.kernels.ops.pytorch.loss.batch_invariant_logp.NativeBatchInvariantLogpOp"
-    )
+    TRITON_BATCH_INVARIANT_LOGP = "rl_engine.kernels.ops.triton.loss.batch_invariant_logp.TritonBatchInvariantLogpOp"
+    PYTORCH_BATCH_INVARIANT_LOGP = "rl_engine.kernels.ops.pytorch.loss.batch_invariant_logp.NativeBatchInvariantLogpOp"
     CUDA_BATCH_INVARIANT_LOGP_SM90 = (
         "rl_engine.kernels.ops.cuda.loss.batch_invariant_logp.BatchInvariantLogpSM90Op"
     )
-    ASCEND_BATCH_INVARIANT_LOGP = (
-        "rl_engine.kernels.ops.ascend.loss.batch_invariant_logp.BatchInvariantLogpAscendOp"
-    )
+    ASCEND_BATCH_INVARIANT_LOGP = "rl_engine.kernels.ops.ascend.loss.batch_invariant_logp.BatchInvariantLogpAscendOp"
     # Deterministic vocab-parallel TP logprob reference (WS2 #241 PR3)
     PYTORCH_VOCAB_PARALLEL_LOGP = (
         "rl_engine.kernels.ops.pytorch.loss.vocab_parallel_logp.VocabParallelLogprobOp"
@@ -132,27 +132,41 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     ROCM_VOCAB_PARALLEL_LOGP = (
         "rl_engine.kernels.ops.rocm.loss.vocab_parallel_logp.RocmVocabParallelLogprobOp"
     )
-    TRITON_VOCAB_PARALLEL_LOGP = (
-        "rl_engine.kernels.ops.triton.loss.vocab_parallel_logp.TritonVocabParallelLogprobOp"
-    )
+    TRITON_VOCAB_PARALLEL_LOGP = "rl_engine.kernels.ops.triton.loss.vocab_parallel_logp.TritonVocabParallelLogprobOp"
     # Deterministic GRPO loss on the TP-aware logprob path (WS2 #241 PR5)
     PYTORCH_DISTRIBUTED_GRPO_LOSS = (
         "rl_engine.kernels.ops.pytorch.loss.distributed_grpo_loss.DistributedGRPOLossOp"
     )
 
     # RMSNorm(pre-norm / QK-Norm) - pure Pytorch reference(ws1 ground-truth)
-    PYTORCH_NATIVE_RMS_NORM = "rl_engine.kernels.ops.pytorch.norm.rms_norm.NativeRMSNormOp"
+    PYTORCH_NATIVE_RMS_NORM = (
+        "rl_engine.kernels.ops.pytorch.norm.rms_norm.NativeRMSNormOp"
+    )
+
+    CUDA_RMSNORM_RESIDUAL = (
+        "rl_engine.kernels.ops.cuda.norm.rmsnorm_residual.RMSNormResidualCudaOp"
+    )
+    TRITON_RMSNORM_RESIDUAL = (
+        "rl_engine.kernels.ops.triton.rmsnorm_residual_triton.RMSNormResidualTritonOp"
+    )
+    PYTORCH_RMSNORM_RESIDUAL = (
+        "rl_engine.kernels.ops.pytorch.norm.rmsnorm_residual.NativeRMSNormResidualOp"
+    )
 
     # Generic fallback
     TRITON_GENERIC = "rl_engine.kernels.ops.triton.generic.TritonOp"
     PYTORCH_ATTN = "rl_engine.kernels.ops.pytorch.attention.NativeAttentionOp"
     PYTORCH_NATIVE = "rl_engine.kernels.ops.pytorch.loss.logp.NativeLogpOp"
     PYTORCH_NATIVE_MATMUL = "rl_engine.kernels.ops.pytorch.linear.matmul.NativeMatmulOp"
-    PYTORCH_NATIVE_ROPE = "rl_engine.kernels.ops.pytorch.rotary_embedding.rope.NativeRoPEOp"
+    PYTORCH_NATIVE_ROPE = (
+        "rl_engine.kernels.ops.pytorch.rotary_embedding.rope.NativeRoPEOp"
+    )
     TRITON_ROPE = "rl_engine.kernels.ops.triton.rotary_embedding.rope.TritonRoPEOp"
     CUDA_ROPE_SM90 = "rl_engine.kernels.ops.cuda.rotary_embedding.rope.RoPESM90Op"
     PYTORCH_NATIVE_SILU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSiLUOp"
-    PYTORCH_NATIVE_SWIGLU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSwiGLUOp"
+    PYTORCH_NATIVE_SWIGLU = (
+        "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSwiGLUOp"
+    )
     CUDA_SILU = "rl_engine.kernels.ops.cuda.activation.swiglu.SiLUCudaOp"
     CUDA_SWIGLU = "rl_engine.kernels.ops.cuda.activation.swiglu.SwiGLUCudaOp"
     TRITON_SILU = "rl_engine.kernels.ops.triton.activation.swiglu.TritonSiLUOp"
@@ -175,9 +189,13 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
         "DeterministicCPAttentionReferenceOp"
     )
     # WS1 pure-PyTorch ground-truth linear ops
-    PYTORCH_NATIVE_LM_HEAD = "rl_engine.kernels.ops.pytorch.linear.lm_head.NativeLMHeadOp"
+    PYTORCH_NATIVE_LM_HEAD = (
+        "rl_engine.kernels.ops.pytorch.linear.lm_head.NativeLMHeadOp"
+    )
     # WS1 pure-PyTorch ground-truth embedding ops
-    PYTORCH_NATIVE_EMBEDDING = "rl_engine.kernels.ops.pytorch.linear.embedding.NativeEmbeddingOp"
+    PYTORCH_NATIVE_EMBEDDING = (
+        "rl_engine.kernels.ops.pytorch.linear.embedding.NativeEmbeddingOp"
+    )
     CUDA_SM90_LM_HEAD = "rl_engine.kernels.ops.cuda.linear.lm_head.SM90LMHeadOp"
     CUDA_SM90_EMBEDDING = "rl_engine.kernels.ops.cuda.linear.embedding.SM90EmbeddingOp"
 
@@ -246,7 +264,8 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             },
             lifecycle=OperatorLifecycle.DISTRIBUTED_CONTEXT,
             implementation_class_or_factory=(
-                "rl_engine.kernels.ops.pytorch.loss.vocab_parallel_logp." "VocabParallelLogprobOp"
+                "rl_engine.kernels.ops.pytorch.loss.vocab_parallel_logp."
+                "VocabParallelLogprobOp"
             ),
             fallback_policy=OperatorFallbackPolicy.ERROR,
             version_or_build_fingerprint="VocabParallelLogprobOp-fixed-tiles-v1",
@@ -304,7 +323,9 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
                 "strict_observable": True,
             },
             lifecycle=OperatorLifecycle.DISTRIBUTED_CONTEXT,
-            implementation_class_or_factory=("rl_engine.kernels.ops.pytorch.ffn.ffn.Qwen3FFNOp"),
+            implementation_class_or_factory=(
+                "rl_engine.kernels.ops.pytorch.ffn.ffn.Qwen3FFNOp"
+            ),
             fallback_policy=OperatorFallbackPolicy.ERROR,
             version_or_build_fingerprint="Qwen3FFNOp-fixed-reduction-v1",
         ),
@@ -372,7 +393,9 @@ def resolve_logp_op_type(
     }
     if normalized not in aliases:
         valid = ", ".join(sorted(aliases))
-        raise ValueError(f"unsupported logp backend {logp_backend!r}; valid values: {valid}")
+        raise ValueError(
+            f"unsupported logp backend {logp_backend!r}; valid values: {valid}"
+        )
 
     op_type = aliases[normalized]
     if require_batch_invariant:
@@ -419,7 +442,9 @@ class KernelRegistry:
         self.semantic = SemanticOperatorCatalog(_default_semantic_descriptors())
 
         common_roles = frozenset({AttentionRole.TRAIN, AttentionRole.INFER})
-        common_dtypes = frozenset({AttentionDType.BF16, AttentionDType.FP16, AttentionDType.FP32})
+        common_dtypes = frozenset(
+            {AttentionDType.BF16, AttentionDType.FP16, AttentionDType.FP32}
+        )
         self._attention_capabilities = {
             OpBackend.PYTORCH_NATIVE_ATTENTION: AttentionBackendCapability(
                 backend_id="pytorch-native-attention-ws1",
@@ -470,7 +495,9 @@ class KernelRegistry:
         # implementations: single-shard (TP=1), ignore-index masking only, no
         # vocab-shard metadata, no vocab-domain LSE export.
         common_logprob_roles = frozenset({LogprobRole.TRAIN, LogprobRole.INFER})
-        common_logprob_dtypes = frozenset({LogprobDType.BF16, LogprobDType.FP16, LogprobDType.FP32})
+        common_logprob_dtypes = frozenset(
+            {LogprobDType.BF16, LogprobDType.FP16, LogprobDType.FP32}
+        )
         base_logprob_capabilities = {
             OpBackend.PYTORCH_BATCH_INVARIANT_LOGP: LogprobBackendCapability(
                 backend_id="pytorch-batch-invariant-logp-ws1",
@@ -564,6 +591,11 @@ class KernelRegistry:
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
                 ],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
+                "rmsnorm_residual": [
+                    OpBackend.CUDA_RMSNORM_RESIDUAL,
+                    OpBackend.TRITON_RMSNORM_RESIDUAL,
+                    OpBackend.PYTORCH_RMSNORM_RESIDUAL,
+                ],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [
@@ -619,6 +651,7 @@ class KernelRegistry:
                 ],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
+                "rmsnorm_residual": [OpBackend.PYTORCH_RMSNORM_RESIDUAL],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
@@ -643,6 +676,7 @@ class KernelRegistry:
                 "batch_invariant_logp": [OpBackend.PYTORCH_BATCH_INVARIANT_LOGP],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
+                "rmsnorm_residual": [OpBackend.PYTORCH_RMSNORM_RESIDUAL],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
@@ -668,6 +702,7 @@ class KernelRegistry:
                 "batch_invariant_logp": [OpBackend.PYTORCH_BATCH_INVARIANT_LOGP],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
+                "rmsnorm_residual": [OpBackend.PYTORCH_RMSNORM_RESIDUAL],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
@@ -677,7 +712,8 @@ class KernelRegistry:
         # Preserve the former CPU fallback behavior for every operator on NPU,
         # then override only the operator with an Ascend-specific backend.
         self._priority_map["npu"] = {
-            op_type: candidates.copy() for op_type, candidates in self._priority_map["cpu"].items()
+            op_type: candidates.copy()
+            for op_type, candidates in self._priority_map["cpu"].items()
         }
         self._priority_map["npu"]["batch_invariant_logp"] = [
             OpBackend.ASCEND_BATCH_INVARIANT_LOGP,
@@ -696,7 +732,9 @@ class KernelRegistry:
         }
         # Capabilities are scoped per platform: the same backend enum may
         # truthfully declare different support on cuda vs rocm vs cpu.
-        self._logprob_capabilities: Dict[str, Dict[OpBackend, LogprobBackendCapability]] = {
+        self._logprob_capabilities: Dict[
+            str, Dict[OpBackend, LogprobBackendCapability]
+        ] = {
             platform: {
                 backend: base_logprob_capabilities[backend]
                 for backend in candidates
@@ -713,7 +751,9 @@ class KernelRegistry:
             tp_world_sizes=None,
             cp_world_sizes=None,
             supports_vocab_padding=True,
-            mask_modes=frozenset({MaskMode.EXPLICIT_ACTIVE_MASK, MaskMode.IGNORE_INDEX}),
+            mask_modes=frozenset(
+                {MaskMode.EXPLICIT_ACTIVE_MASK, MaskMode.IGNORE_INDEX}
+            ),
             exports_vocab_lse=True,
             determinism_scopes=frozenset(
                 {DeterminismScope.CROSS_TP_BITWISE, DeterminismScope.FIXED_TOPOLOGY}
@@ -737,7 +777,9 @@ class KernelRegistry:
             tp_world_sizes=None,
             cp_world_sizes=None,
             supports_vocab_padding=True,
-            mask_modes=frozenset({MaskMode.EXPLICIT_ACTIVE_MASK, MaskMode.IGNORE_INDEX}),
+            mask_modes=frozenset(
+                {MaskMode.EXPLICIT_ACTIVE_MASK, MaskMode.IGNORE_INDEX}
+            ),
             exports_vocab_lse=True,
             determinism_scopes=frozenset(
                 {DeterminismScope.CROSS_TP_BITWISE, DeterminismScope.FIXED_TOPOLOGY}
@@ -761,7 +803,9 @@ class KernelRegistry:
             tp_world_sizes=None,
             cp_world_sizes=None,
             supports_vocab_padding=True,
-            mask_modes=frozenset({MaskMode.EXPLICIT_ACTIVE_MASK, MaskMode.IGNORE_INDEX}),
+            mask_modes=frozenset(
+                {MaskMode.EXPLICIT_ACTIVE_MASK, MaskMode.IGNORE_INDEX}
+            ),
             exports_vocab_lse=True,
             determinism_scopes=frozenset(
                 {DeterminismScope.CROSS_TP_BITWISE, DeterminismScope.FIXED_TOPOLOGY}
@@ -792,7 +836,9 @@ class KernelRegistry:
                     # with kv_cache=None. Declaring the mode before a dispatch
                     # path reaches it would let the binding layer pass on a
                     # decode path nothing executes.
-                    modes=frozenset({AttentionMode.PREFILL, AttentionMode.CHUNKED_PREFILL}),
+                    modes=frozenset(
+                        {AttentionMode.PREFILL, AttentionMode.CHUNKED_PREFILL}
+                    ),
                     dtypes=frozenset({AttentionDType.BF16, AttentionDType.FP16}),
                     # The core itself is single-rank arithmetic. CP is supplied
                     # by StrictRocmAttentionRuntime, which wraps this core in
@@ -838,7 +884,9 @@ class KernelRegistry:
         if not isinstance(backend, OpBackend):
             raise AttentionContractError("backend must be an OpBackend")
         if not isinstance(capability, AttentionBackendCapability):
-            raise AttentionContractError("capability must be an AttentionBackendCapability")
+            raise AttentionContractError(
+                "capability must be an AttentionBackendCapability"
+            )
         resolved_platform = platform if platform is not None else self._platform()
         if resolved_platform not in self._priority_map:
             raise AttentionContractError(
@@ -846,7 +894,9 @@ class KernelRegistry:
                 f"{sorted(self._priority_map)}"
             )
         self._attention_capabilities[backend] = capability
-        candidates = self._priority_map[resolved_platform].setdefault("ws2_attention", [])
+        candidates = self._priority_map[resolved_platform].setdefault(
+            "ws2_attention", []
+        )
         if backend not in candidates:
             if prepend:
                 candidates.insert(0, backend)
@@ -880,18 +930,18 @@ class KernelRegistry:
     def _adjust_priority_for_hardware(self):
         """Adjust CUDA priorities for hardware-gated kernels."""
 
-        if device_ctx.device_type != "cuda":
+        if device_ctx.device_type != "cuda" or not torch.cuda.is_available():
             return
         try:
-            import torch
-
             from rl_engine.kernels.ops.base import _C, _EXT_AVAILABLE
 
             cc_major, cc_minor = torch.cuda.get_device_capability()
             cc = cc_major * 10 + cc_minor
             tma_compiled = _EXT_AVAILABLE and hasattr(_C, "fused_logp_sm90")
 
-            sm90_logp_enabled = os.getenv("RL_KERNEL_ENABLE_EXPERIMENTAL_SM90_LOGP") == "1"
+            sm90_logp_enabled = (
+                os.getenv("RL_KERNEL_ENABLE_EXPERIMENTAL_SM90_LOGP") == "1"
+            )
             if sm90_logp_enabled and tma_compiled and cc_major in (9, 10, 12):
                 logger.info(
                     f"Detected TMA-capable architecture (SM{cc}); "
@@ -901,14 +951,18 @@ class KernelRegistry:
                 if OpBackend.CUDA_FUSED_LOGP_SM90 not in logp_list:
                     logp_list.insert(0, OpBackend.CUDA_FUSED_LOGP_SM90)
 
-            linear_logp_compiled = _EXT_AVAILABLE and hasattr(_C, "fused_linear_logp_sm90")
+            linear_logp_compiled = _EXT_AVAILABLE and hasattr(
+                _C, "fused_linear_logp_sm90"
+            )
             if linear_logp_compiled and cc_major == 9:
                 ll_list = self._priority_map["cuda"]["linear_logp"]
                 if OpBackend.CUDA_FUSED_LINEAR_LOGP_SM90 not in ll_list:
                     ll_list.insert(0, OpBackend.CUDA_FUSED_LINEAR_LOGP_SM90)
 
             # Batch-invariant logp SM90 kernel: same sm_90a TMA gating (Hopper only).
-            batch_inv_compiled = _EXT_AVAILABLE and hasattr(_C, "batch_invariant_logp_sm90")
+            batch_inv_compiled = _EXT_AVAILABLE and hasattr(
+                _C, "batch_invariant_logp_sm90"
+            )
             if batch_inv_compiled and cc_major == 9:
                 bi_list = self._priority_map["cuda"]["batch_invariant_logp"]
                 if OpBackend.CUDA_BATCH_INVARIANT_LOGP_SM90 not in bi_list:
@@ -918,13 +972,17 @@ class KernelRegistry:
                     f"SM{cc}: fused linear-logp SM90 kernel not compiled into _C; "
                     "using generic linear-logp backend."
                 )
-            sm90_embedding_compiled = _EXT_AVAILABLE and hasattr(_C, "embedding_sm90_forward")
+            sm90_embedding_compiled = _EXT_AVAILABLE and hasattr(
+                _C, "embedding_sm90_forward"
+            )
             if sm90_embedding_compiled and cc_major == 9:
                 embedding_list = self._priority_map["cuda"]["embedding"]
                 if OpBackend.CUDA_SM90_EMBEDDING not in embedding_list:
                     embedding_list.insert(0, OpBackend.CUDA_SM90_EMBEDDING)
 
-            sm90_lm_head_compiled = _EXT_AVAILABLE and hasattr(_C, "lm_head_sm90_forward")
+            sm90_lm_head_compiled = _EXT_AVAILABLE and hasattr(
+                _C, "lm_head_sm90_forward"
+            )
             if sm90_lm_head_compiled and cc_major == 9:
                 lm_head_list = self._priority_map["cuda"]["lm_head"]
                 if OpBackend.CUDA_SM90_LM_HEAD not in lm_head_list:
@@ -936,7 +994,9 @@ class KernelRegistry:
         """Select the best legacy operator for the requested device."""
 
         platform = self._platform_for_device(device)
-        candidates = self._priority_map.get(platform, {}).get(op_type, [OpBackend.PYTORCH_NATIVE])
+        candidates = self._priority_map.get(platform, {}).get(
+            op_type, [OpBackend.PYTORCH_NATIVE]
+        )
 
         for backend in candidates:
             op_instance = self._get_or_create_backend(backend)
@@ -985,7 +1045,9 @@ class KernelRegistry:
                 f"{sorted(self._priority_map)}"
             )
         candidates = self._logprob_candidates.setdefault(resolved_platform, [])
-        self._logprob_capabilities.setdefault(resolved_platform, {})[backend] = capability
+        self._logprob_capabilities.setdefault(resolved_platform, {})[
+            backend
+        ] = capability
         if backend not in candidates:
             if prepend:
                 candidates.insert(0, backend)
@@ -1038,7 +1100,9 @@ class KernelRegistry:
                 rejected.append(f"{backend.name}: no LogprobBackendCapability declared")
                 capability_rejections += 1
                 continue
-            policy_mismatch = self._logprob_policy_mismatch(requested_backend, capability)
+            policy_mismatch = self._logprob_policy_mismatch(
+                requested_backend, capability
+            )
             if policy_mismatch is not None:
                 # Excluded by the caller's own policy: never a fallback, even
                 # if the candidate would also have failed capability checks.
@@ -1052,7 +1116,9 @@ class KernelRegistry:
 
             op = self._get_or_create_backend(backend)
             if op is None:
-                rejected.append(f"{backend.name}: backend could not be loaded or instantiated")
+                rejected.append(
+                    f"{backend.name}: backend could not be loaded or instantiated"
+                )
                 capability_rejections += 1
                 continue
 
@@ -1136,10 +1202,14 @@ class KernelRegistry:
         for backend in candidates:
             capability = self._attention_capabilities.get(backend)
             if capability is None:
-                rejected.append(f"{backend.name}: no AttentionBackendCapability declared")
+                rejected.append(
+                    f"{backend.name}: no AttentionBackendCapability declared"
+                )
                 capability_rejections += 1
                 continue
-            policy_mismatch = self._attention_policy_mismatch(requested_backend, capability)
+            policy_mismatch = self._attention_policy_mismatch(
+                requested_backend, capability
+            )
             incompatibilities = list(capability.incompatibilities(contract))
             if policy_mismatch is not None:
                 # Still report capability details for diagnostics, but this
@@ -1155,7 +1225,9 @@ class KernelRegistry:
 
             op = self._get_or_create_backend(backend)
             if op is None:
-                rejected.append(f"{backend.name}: backend could not be loaded or instantiated")
+                rejected.append(
+                    f"{backend.name}: backend could not be loaded or instantiated"
+                )
                 capability_rejections += 1
                 continue
 
@@ -1247,10 +1319,18 @@ class KernelRegistry:
             is_missing_backend = missing_module and (
                 missing_module == module_path or module_path.startswith(missing_module)
             )
-            if missing_module and "rl_engine" in missing_module and not is_missing_backend:
-                logger.critical(f"Internal wrapper implementation bug in '{module_path}': {exc}")
+            if (
+                missing_module
+                and "rl_engine" in missing_module
+                and not is_missing_backend
+            ):
+                logger.critical(
+                    f"Internal wrapper implementation bug in '{module_path}': {exc}"
+                )
                 raise
-            logger.warning(f"Backend {backend.name} unavailable: {exc}. Falling back...")
+            logger.warning(
+                f"Backend {backend.name} unavailable: {exc}. Falling back..."
+            )
             return None
 
 

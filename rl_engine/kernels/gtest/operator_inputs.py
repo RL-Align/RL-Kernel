@@ -26,6 +26,7 @@ def make_operator_inputs(
 ) -> dict[str, Any]:
     builders = {
         "rms_norm": _make_rms_norm_inputs,
+        "rmsnorm_residual": _make_rmsnorm_residual_inputs,
         "qk_norm": _make_qk_norm_inputs,
         "pack": _make_pack_inputs,
         "matmul": _make_matmul_inputs,
@@ -53,6 +54,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
     vocab = _arg_int(args, "vocab", DEFAULT_VOCAB)
     names = {
         "rms_norm": f"{batch}x{seq}x{_normalized_dim(args)}",
+        "rmsnorm_residual": f"{batch}x{seq}x{_normalized_dim(args)}",
         "qk_norm": f"{batch}x{seq}x{_arg_int(args, 'n_heads', DEFAULT_N_HEADS)}x"
         f"{_arg_int(args, 'head_dim', DEFAULT_HEAD_DIM)}",
         "pack": f"{batch}x{seq}x{_normalized_dim(args)}",
@@ -82,8 +84,24 @@ def _make_rms_norm_inputs(
     batch, seq = _batch_seq(args)
     normalized_dim = _normalized_dim(args)
     return {
-        "x": _floating_tensor((batch, seq, normalized_dim), args, dtype, device, offset=0),
+        "x": _floating_tensor(
+            (batch, seq, normalized_dim), args, dtype, device, offset=0
+        ),
         "weight": _floating_tensor((normalized_dim,), args, dtype, device, offset=1),
+        "eps": _arg_float(args, "eps", DEFAULT_RMS_EPS),
+    }
+
+
+def _make_rmsnorm_residual_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    batch, seq = _batch_seq(args)
+    normalized_dim = _normalized_dim(args)
+    return {
+        "x": _floating_tensor(
+            (batch * seq, normalized_dim), args, dtype, device, offset=0
+        ),
+        "gamma": _floating_tensor((normalized_dim,), args, torch.float32, device, offset=1),
         "eps": _arg_float(args, "eps", DEFAULT_RMS_EPS),
     }
 
@@ -96,7 +114,9 @@ def _make_qk_norm_inputs(
     n_heads = _arg_int(args, "n_heads", DEFAULT_N_HEADS)
     head_dim = _arg_int(args, "head_dim", DEFAULT_HEAD_DIM)
     return {
-        "x": _floating_tensor((batch, seq * n_heads, head_dim), args, dtype, device, offset=0),
+        "x": _floating_tensor(
+            (batch, seq * n_heads, head_dim), args, dtype, device, offset=0
+        ),
         "weight": _floating_tensor((head_dim,), args, dtype, device, offset=1),
         "eps": _arg_float(args, "eps", DEFAULT_RMS_EPS),
     }
@@ -156,9 +176,15 @@ def _make_attention_inputs(
     scale_mode = _arg_str(args, "scale_mode", "default")
 
     inputs: dict[str, Any] = {
-        "q": _floating_tensor((batch, n_heads, seq, DEFAULT_HEAD_DIM), args, dtype, device, 0),
-        "k": _floating_tensor((batch, n_kv_heads, skv, DEFAULT_HEAD_DIM), args, dtype, device, 1),
-        "v": _floating_tensor((batch, n_kv_heads, skv, DEFAULT_HEAD_DIM), args, dtype, device, 2),
+        "q": _floating_tensor(
+            (batch, n_heads, seq, DEFAULT_HEAD_DIM), args, dtype, device, 0
+        ),
+        "k": _floating_tensor(
+            (batch, n_kv_heads, skv, DEFAULT_HEAD_DIM), args, dtype, device, 1
+        ),
+        "v": _floating_tensor(
+            (batch, n_kv_heads, skv, DEFAULT_HEAD_DIM), args, dtype, device, 2
+        ),
         "causal": causal,
     }
 
@@ -170,7 +196,9 @@ def _make_attention_inputs(
 
     if use_padding:
         generator = _generator(args, device, offset=42)
-        key_padding_mask = torch.rand((batch, skv), generator=generator, device=device) > 0.3
+        key_padding_mask = (
+            torch.rand((batch, skv), generator=generator, device=device) > 0.3
+        )
         key_padding_mask[:, 0] = True
         inputs["key_padding_mask"] = key_padding_mask
 
@@ -215,8 +243,12 @@ def _make_linear_logp_inputs(
     hidden_dim = _normalized_dim(args)
     vocab = _arg_int(args, "vocab", DEFAULT_VOCAB)
     return {
-        "hidden": _floating_tensor((batch, seq, hidden_dim), args, dtype, device, offset=0),
-        "lm_head_weight": _floating_tensor((vocab, hidden_dim), args, dtype, device, offset=1),
+        "hidden": _floating_tensor(
+            (batch, seq, hidden_dim), args, dtype, device, offset=0
+        ),
+        "lm_head_weight": _floating_tensor(
+            (vocab, hidden_dim), args, dtype, device, offset=1
+        ),
         "target_ids": _token_ids((batch, seq), vocab, args, device),
         "bias": None,
     }
@@ -251,7 +283,9 @@ def _make_silu_inputs(
 ) -> dict[str, Any]:
     batch, seq = _batch_seq(args)
     return {
-        "x": _floating_tensor((batch, seq, DEFAULT_INTERMEDIATE), args, dtype, device, 0),
+        "x": _floating_tensor(
+            (batch, seq, DEFAULT_INTERMEDIATE), args, dtype, device, 0
+        ),
     }
 
 
@@ -260,8 +294,12 @@ def _make_swiglu_inputs(
 ) -> dict[str, Any]:
     batch, seq = _batch_seq(args)
     return {
-        "gate": _floating_tensor((batch, seq, DEFAULT_INTERMEDIATE), args, dtype, device, 0),
-        "up": _floating_tensor((batch, seq, DEFAULT_INTERMEDIATE), args, dtype, device, 1),
+        "gate": _floating_tensor(
+            (batch, seq, DEFAULT_INTERMEDIATE), args, dtype, device, 0
+        ),
+        "up": _floating_tensor(
+            (batch, seq, DEFAULT_INTERMEDIATE), args, dtype, device, 1
+        ),
     }
 
 
@@ -343,10 +381,14 @@ def _token_ids(
         value = _arg_int(args, "token_value", 0) % vocab
         return torch.full(shape, value, device=device, dtype=torch.long)
     generator = _generator(args, device, offset=13)
-    return torch.randint(0, vocab, shape, generator=generator, device=device, dtype=torch.long)
+    return torch.randint(
+        0, vocab, shape, generator=generator, device=device, dtype=torch.long
+    )
 
 
-def _generator(args: argparse.Namespace, device: torch.device, offset: int) -> torch.Generator:
+def _generator(
+    args: argparse.Namespace, device: torch.device, offset: int
+) -> torch.Generator:
     generator = torch.Generator(device=device)
     generator.manual_seed(_arg_int(args, "seed", 123) + offset)
     return generator

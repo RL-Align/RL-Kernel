@@ -29,6 +29,16 @@ def test_fixture_batches_validate() -> None:
         fixtures.make_grads(name, batch).validate(batch)
 
 
+def test_norm_gamma_requires_fp32() -> None:
+    batch = fixtures.make_batch(next(iter(fixtures.BLOCK_CASES)))
+    assert batch.norm.gamma.dtype == torch.float32
+    assert not torch.equal(batch.norm.gamma, batch.norm.gamma.bfloat16().float())
+    for dtype in (torch.bfloat16, torch.float16, torch.float64):
+        norm = dataclasses.replace(batch.norm, gamma=batch.norm.gamma.to(dtype))
+        with pytest.raises(TypeError, match="gamma must be FP32"):
+            norm.validate(batch.contract)
+
+
 def test_production_contract_constants_are_frozen() -> None:
     prod = LayerContract()
     prod.validate()

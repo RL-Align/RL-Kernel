@@ -156,6 +156,7 @@ def get_extensions():
             # CUDA IPC and the fixed-tree collective implementation are not
             # part of the ROCm extension.
             cuda_sources.append("csrc/cuda/distributed/deterministic_collective.cu")
+            cuda_sources.append("csrc/cuda/mhc/rmsnorm_residual.cu")
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
             cuda_sources.append("csrc/cuda/attention/prefix_shared_attention.cu")
@@ -242,7 +243,9 @@ def get_extensions():
             nvcc_flags.append("-allow-unsupported-compiler")
             nvcc_flags.append("-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH")
 
-        platform_define = "-DKERNEL_ALIGN_WITH_ROCM" if is_rocm else "-DKERNEL_ALIGN_WITH_CUDA"
+        platform_define = (
+            "-DKERNEL_ALIGN_WITH_ROCM" if is_rocm else "-DKERNEL_ALIGN_WITH_CUDA"
+        )
         cxx_flags = ["-O3", "-std=c++17", platform_define]
         extra_link_args = list(torch_rpath)
         if os.name != "nt" and not is_rocm:
@@ -263,7 +266,9 @@ def get_extensions():
             if enable_sm90 and present_sm90:
                 tma_arch = f"{cc_major}{cc_minor}a"  # WGMMA/TMA require the arch-native 'a' variant
                 cuda_sources.extend(present_sm90)
-                nvcc_flags.append(f"-gencode=arch=compute_{tma_arch},code=sm_{tma_arch}")
+                nvcc_flags.append(
+                    f"-gencode=arch=compute_{tma_arch},code=sm_{tma_arch}"
+                )
                 cxx_flags.append("-DKERNEL_ALIGN_WITH_SM90")
                 if "-lcuda" not in extra_link_args:
                     extra_link_args.append("-lcuda")
@@ -330,7 +335,9 @@ def _ascend_extensions():
 
     asc_srcs = sorted(str(p) for p in Path("csrc/ascend").glob("*.asc"))
     if not asc_srcs:
-        raise RuntimeError("KERNEL_ALIGN_FORCE_ASCEND=1 but no .asc sources under csrc/ascend/")
+        raise RuntimeError(
+            "KERNEL_ALIGN_FORCE_ASCEND=1 but no .asc sources under csrc/ascend/"
+        )
     return [Extension(name="rl_engine._C_npu", sources=asc_srcs, language="asc")]
 
 
@@ -345,12 +352,16 @@ def _bisheng_compile_cmd(ext, ext_fullpath):
             "bisheng compiler not found on PATH; source the CANN toolkit environment first"
         )
 
-    soc = os.environ.get(envs.KERNEL_ALIGN_ASCEND_ARCH, "dav-2201")  # A2/A3; A5: dav-3510
+    soc = os.environ.get(
+        envs.KERNEL_ALIGN_ASCEND_ARCH, "dav-2201"
+    )  # A2/A3; A5: dav-3510
     abi_value = "1" if torch._C._GLIBCXX_USE_CXX11_ABI else "0"
     module_name = ext.name.rsplit(".", 1)[-1]
 
     torch_npu_dir = os.path.dirname(os.path.realpath(torch_npu.__file__))
-    ascend_home = os.environ.get("ASCEND_HOME_PATH", "/usr/local/Ascend/ascend-toolkit/latest")
+    ascend_home = os.environ.get(
+        "ASCEND_HOME_PATH", "/usr/local/Ascend/ascend-toolkit/latest"
+    )
 
     include_dirs = [
         *cpp_extension.include_paths(),
