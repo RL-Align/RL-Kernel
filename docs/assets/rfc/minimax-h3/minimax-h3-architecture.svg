@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1180" viewBox="0 0 1600 1180">
+  <defs>
+    <style>
+      .title { font-family: Arial, Helvetica, sans-serif; font-size: 27px; font-weight: 700; fill: #173c34; }
+      .subtitle { font-family: Arial, Helvetica, sans-serif; font-size: 15px; fill: #51675f; }
+      .box { fill: #ffffff; stroke: #6c8f84; stroke-width: 1.4; }
+      .phase { fill: #ffffff; stroke: #85a49a; stroke-width: 1.2; stroke-dasharray: 7 5; }
+      .core { fill: #126f59; stroke: #126f59; stroke-width: 1.4; }
+      .scheduler { fill: #f4f8f6; stroke: #54796d; stroke-width: 1.4; }
+      .label { font-family: Arial, Helvetica, sans-serif; font-size: 17px; font-weight: 700; fill: #173c34; }
+      .body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; fill: #465e56; }
+      .small { font-family: Arial, Helvetica, sans-serif; font-size: 12px; fill: #526b62; }
+      .core1 { font-family: Arial, Helvetica, sans-serif; font-size: 19px; font-weight: 700; fill: #ffffff; }
+      .core2 { font-family: Arial, Helvetica, sans-serif; font-size: 13px; fill: #eef8f4; }
+      .green { font-family: Arial, Helvetica, sans-serif; font-size: 14px; font-weight: 700; fill: #126f59; }
+      .phaseText { font-family: Arial, Helvetica, sans-serif; font-size: 13px; font-weight: 700; fill: #126f59; }
+      .line { stroke: #58766b; stroke-width: 1.3; fill: none; }
+      .dash { stroke: #738f86; stroke-width: 1.1; stroke-dasharray: 6 5; fill: none; }
+    </style>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6.6" refY="4" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,8 L7,4 z" fill="#58766b" />
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1600" height="1180" fill="#ffffff" />
+  <text class="title" x="72" y="55">MiniMax-H3 — RL-Kernel WS1 / WS2 consistency map</text>
+  <text class="subtitle" x="72" y="84">Phase A closes the packed Omni-Transformer and deterministic ODE trajectory; Phase B adds the released encoders, VAEs and task pipelines.</text>
+
+  <rect class="phase" x="55" y="115" width="1490" height="775" rx="12" ry="12" />
+  <text class="phaseText" x="78" y="142">PHASE A - PRE-ENCODED TEXT / VIDEO / AUDIO LATENTS</text>
+
+  <rect class="box" x="80" y="180" width="285" height="112" rx="9" ry="9" />
+  <text class="label" x="222" y="214" text-anchor="middle">Text condition</text>
+  <text class="body" x="222" y="240" text-anchor="middle">Qwen3-VL layer-50 hidden state</text>
+  <text class="body" x="222" y="263" text-anchor="middle">5120 → 5376 · 2-layer refiner</text>
+
+  <rect class="box" x="657" y="180" width="285" height="112" rx="9" ry="9" />
+  <text class="label" x="800" y="214" text-anchor="middle">Video latent rows</text>
+  <text class="body" x="800" y="240" text-anchor="middle">24 channels · patch 1 × 2 × 2</text>
+  <text class="body" x="800" y="263" text-anchor="middle">FP32 projection 96 → 5376</text>
+
+  <rect class="box" x="1235" y="180" width="285" height="112" rx="9" ry="9" />
+  <text class="label" x="1377" y="214" text-anchor="middle">Audio latent rows</text>
+  <text class="body" x="1377" y="240" text-anchor="middle">32 channels · 40 Hz latent rate</text>
+  <text class="body" x="1377" y="263" text-anchor="middle">FP32 projection 32 → 5376</text>
+
+  <rect class="box" x="465" y="342" width="670" height="104" rx="9" ry="9" />
+  <text class="label" x="800" y="376" text-anchor="middle">Deterministic packed-sequence construction</text>
+  <text class="body" x="800" y="402" text-anchor="middle">index_copy(text, video, audio) + token_tags + timestep_indices + video/audio/text_indices</text>
+  <text class="body" x="800" y="425" text-anchor="middle">one full-attention document per batch row; no cross-attention and no padding mask</text>
+
+  <rect class="box" x="90" y="342" width="285" height="104" rx="9" ry="9" />
+  <text class="label" x="232" y="376" text-anchor="middle">3-axis MM-RoPE</text>
+  <text class="body" x="232" y="402" text-anchor="middle">position_ids = (t, h, w)</text>
+  <text class="body" x="232" y="425" text-anchor="middle">96 of 128 head channels rotated</text>
+
+  <rect class="box" x="1225" y="342" width="285" height="104" rx="9" ry="9" />
+  <text class="label" x="1367" y="376" text-anchor="middle">Time / modality table</text>
+  <text class="body" x="1367" y="402" text-anchor="middle">FP32 timestep MLP 256 → 5376 → 2688</text>
+  <text class="body" x="1367" y="425" text-anchor="middle">row = timestep_index * 3 + modality</text>
+
+  <rect class="core" x="245" y="510" width="1110" height="190" rx="13" ry="13" />
+  <text class="core1" x="800" y="548" text-anchor="middle">H3 Omni-Transformer x 50</text>
+  <text class="core2" x="800" y="579" text-anchor="middle">RMSNorm · modality AdaLN · Q/K/V 5376 → 7168 · Q/K RMSNorm · partial 3D RoPE</text>
+  <text class="core2" x="800" y="606" text-anchor="middle">full bidirectional self-attention · 56 heads × 128 · output projection 7168 → 5376</text>
+  <text class="core2" x="800" y="633" text-anchor="middle">gated residual · RMSNorm + AdaLN · SwiGLU 5376 → 2 × 14336 → 5376 · gated residual</text>
+  <text class="core2" x="800" y="668" text-anchor="middle">WS1 fixes arithmetic and cast points; WS2 fixes TP / CP / SP ownership and collective order</text>
+
+  <rect class="box" x="245" y="752" width="490" height="94" rx="9" ry="9" />
+  <text class="label" x="490" y="786" text-anchor="middle">Video velocity head</text>
+  <text class="body" x="490" y="812" text-anchor="middle">final AdaLN + FP32 projection 5376 → 96</text>
+  <text class="body" x="490" y="833" text-anchor="middle">select video_indices</text>
+
+  <rect class="box" x="865" y="752" width="490" height="94" rx="9" ry="9" />
+  <text class="label" x="1110" y="786" text-anchor="middle">Audio velocity head</text>
+  <text class="body" x="1110" y="812" text-anchor="middle">final AdaLN + FP32 projection 5376 → 32</text>
+  <text class="body" x="1110" y="833" text-anchor="middle">select audio_indices</text>
+
+  <rect class="scheduler" x="225" y="930" width="1150" height="112" rx="10" ry="10" />
+  <text class="label" x="800" y="964" text-anchor="middle">Dual deterministic rectified-flow scheduler</text>
+  <text class="body" x="800" y="991" text-anchor="middle">video shift 12 · audio shift 3 · t = 1 − σ · x0 = xt + σv · η = 0</text>
+  <text class="body" x="800" y="1017" text-anchor="middle">fixed FP32 sigma construction, deduplication, model-call order and Euler update define trajectory equality</text>
+
+  <rect class="phase" x="55" y="1080" width="1490" height="65" rx="10" ry="10" />
+  <text class="phaseText" x="78" y="1106">PHASE B - RELEASED END-TO-END PATHS</text>
+  <text class="body" x="800" y="1128" text-anchor="middle">Qwen3-VL encoder + VisualVAE + AudioVAE + FL2VA / Ref2VA adapters + decode and media-level validation</text>
+
+  <path class="line" d="M222 292 L222 320 L570 320 L570 342" marker-end="url(#arrow)" />
+  <path class="line" d="M800 292 L800 342" marker-end="url(#arrow)" />
+  <path class="line" d="M1377 292 L1377 320 L1030 320 L1030 342" marker-end="url(#arrow)" />
+  <path class="line" d="M375 394 L465 394" marker-end="url(#arrow)" />
+  <path class="line" d="M1225 394 L1135 394" marker-end="url(#arrow)" />
+  <path class="line" d="M800 446 L800 510" marker-end="url(#arrow)" />
+  <path class="dash" d="M232 446 L350 480 L480 510" marker-end="url(#arrow)" />
+  <path class="dash" d="M1367 446 L1250 480 L1120 510" marker-end="url(#arrow)" />
+  <path class="line" d="M650 700 L490 752" marker-end="url(#arrow)" />
+  <path class="line" d="M950 700 L1110 752" marker-end="url(#arrow)" />
+  <path class="line" d="M490 846 L620 930" marker-end="url(#arrow)" />
+  <path class="line" d="M1110 846 L980 930" marker-end="url(#arrow)" />
+</svg>
