@@ -25,8 +25,6 @@ EXPECTED_FIXED_TOPOLOGY = {
     "gpus": 8,
     "actor_gpus": 8,
     "rollout_gpus": 8,
-    "tp": 4,
-    "cp": 2,
     "pp": 1,
     "colocate": True,
     "offload_train": False,
@@ -52,13 +50,27 @@ CUDA_GRAPH_LAUNCHER_MARKERS = (
 
 def _validate_topology(value: Any) -> list[str]:
     if not isinstance(value, Mapping):
-        return ["manifest does not contain the required TP4/CP2 colocated topology"]
+        return ["manifest does not contain the required colocated topology"]
     errors = [
         f"manifest topology {key}={value.get(key)!r}, expected {expected!r}"
         for key, expected in EXPECTED_FIXED_TOPOLOGY.items()
         if value.get(key) != expected
     ]
     rollout_gpus = value.get("rollout_gpus")
+    actor_gpus = value.get("actor_gpus")
+    tensor_parallel = value.get("tp")
+    context_parallel = value.get("cp")
+    if (
+        not isinstance(actor_gpus, int)
+        or not isinstance(tensor_parallel, int)
+        or not isinstance(context_parallel, int)
+        or tensor_parallel <= 0
+        or context_parallel <= 0
+        or tensor_parallel * context_parallel != actor_gpus
+    ):
+        errors.append("manifest training tp * cp must equal actor_gpus")
+    elif any(size % tensor_parallel for size in (32, 8, 152064)):
+        errors.append("manifest training tp does not divide Qwen3-8B heads/groups/vocabulary")
     rollout_gpus_per_engine = value.get("rollout_gpus_per_engine")
     rollout_cp = value.get("rollout_cp", 1)
     rollout_tp = value.get("rollout_tp", rollout_gpus_per_engine)
@@ -437,8 +449,8 @@ def validate_run(run_dir: Path) -> dict[str, Any]:
     required_command_pairs = [
         ("--actor-num-gpus-per-node", "8"),
         ("--rollout-num-gpus", "8"),
-        ("--tensor-model-parallel-size", "4"),
-        ("--context-parallel-size", "2"),
+        ("--tensor-model-parallel-size", str(topology.get("tp", ""))),
+        ("--context-parallel-size", str(topology.get("cp", ""))),
         (
             "--rollout-num-gpus-per-engine",
             str(topology.get("rollout_gpus_per_engine", "")),
@@ -461,7 +473,7 @@ def validate_run(run_dir: Path) -> dict[str, Any]:
         if "--colocate" not in train_command:
             global_errors.append("train command does not enable colocated execution")
         if "--no-offload-train" not in train_command:
-            global_errors.append("train command does not keep the TP4 actor resident")
+            global_errors.append("train command does not keep the actor resident")
         if "--offload-rollout" not in train_command:
             global_errors.append("train command does not offload rollout during training")
         training_logp_implementation = _side(str(arm["logp_case"]), "training")

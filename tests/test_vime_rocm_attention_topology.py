@@ -8,6 +8,10 @@ import pytest
 import torch
 
 from examples.vime_rocm_attention_ablation.run import MatrixConfig, build_plan
+from examples.vime_rocm_attention_ablation.run_pr377_workload import (
+    WorkloadConfig,
+    parse_args as parse_workload_args,
+)
 from rl_engine.kernels.ops.cuda.attention.cp_comm import (
     AttentionCPCommunicationPlan,
     AttentionParallelSpec,
@@ -70,6 +74,47 @@ def test_default_topology_matches_pr377_colocated_tp4_cp2(tmp_path):
     assert environment["RL_KERNEL_VLLM_PADDED_VOCAB_SIZE"] == "152064"
 
 
+def test_rocm_user_modes_do_not_enable_rollout_logprob_reuse(tmp_path):
+    native = parse_workload_args(
+        ["--mode", "native", "--run-dir", str(tmp_path / "native")]
+    )
+    consistency = parse_workload_args(
+        ["--mode", "consistency", "--run-dir", str(tmp_path / "consistency")]
+    )
+    assert native.case == "P/P"
+    assert consistency.case == "R/R"
+
+    config = WorkloadConfig(
+        vime_root=tmp_path / "vime",
+        rl_kernel_root=tmp_path / "rl-kernel",
+        megatron_root=tmp_path / "megatron",
+        model_root=tmp_path / "model",
+        reference_checkpoint=tmp_path / "checkpoint",
+        prompt_data=tmp_path / "prompts.jsonl",
+        run_dir=tmp_path / "run",
+        launcher=tmp_path / "launch.sh",
+    )
+    config.case_id = native.case
+    assert config.frozen_parameters()["framework_consistency"]["use_rollout_logprobs"] is False
+
+
+def test_rocm_non_reference_topology_needs_no_opt_in_flag(tmp_path):
+    base = [
+        "--mode",
+        "consistency",
+        "--run-dir",
+        str(tmp_path / "run"),
+        "--tp-size",
+        "8",
+        "--cp-size",
+        "1",
+        "--rollout-tp-size",
+        "8",
+    ]
+    args = parse_workload_args(base)
+    assert (args.tp_size, args.cp_size, args.rollout_tp_size) == (8, 1, 8)
+
+
 def test_colocated_topology_requires_training_to_cover_all_gpus(tmp_path):
     config = _config(tmp_path, tensor_parallel_size=2)
     with pytest.raises(ValueError, match="must use all visible GPUs"):
@@ -80,7 +125,8 @@ def test_router_requires_at_least_one_request_per_engine(tmp_path):
     config = _config(
         tmp_path,
         rollout_batch_size=1,
-        samples_per_prompt=2,
+        samples_per_prompt=1,
+        global_batch_size=1,
     )
     with pytest.raises(ValueError, match="one request per rollout engine"):
         config.validate(require_paths=False)

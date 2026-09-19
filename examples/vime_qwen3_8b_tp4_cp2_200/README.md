@@ -23,24 +23,27 @@ duplicate host-specific launch commands.
 ## User-facing launcher
 
 For a new reproduction, use the profile-driven launcher instead of assembling
-the host-specific shell commands by hand. Install RL-Kernel in editable mode,
-then point the launcher at a workspace containing the runtime, model, data, and
-the sibling VIME/Megatron checkouts:
+the host-specific shell commands by hand. Install RL-Kernel into the active
+VIME-compatible environment and point the launcher at a local Qwen3-8B model.
+The launcher prepares the data and sibling VIME/Megatron checkouts; users do
+not edit `run_arm.py` or VIME's model scripts:
 
 ```bash
-pip install -e .
-rlk-repro prepare --workspace /data/rlk-repro --mode native
+python3 -m pip install -e .
+export RLK_REPRO_MODEL_ROOT=/models/Qwen3-8B
+rlk-repro prepare --workspace /data/rlk-repro --download-data --convert-checkpoint
 rlk-repro doctor --workspace /data/rlk-repro --mode native
-rlk-repro run --workspace /data/rlk-repro --mode native --rollouts 200
+rlk-repro run --workspace /data/rlk-repro --mode native --rollouts 8 --wait
 ```
 
-Add `--download-data --convert-checkpoint` to `prepare` when the prompt data
-and Megatron torch-dist checkpoint are not present yet.
+See the [Qwen3-8B train–rollout consistency guide](../../docs/usage/qwen3-vime-consistency.md)
+for the runtime contract, Ray setup, a paired run, validation, and profile
+customization.
 
 The two user-facing modes are intentionally short and semantic:
 
 | Mode | Meaning |
-|---|---|---|
+|---|---|
 | `native` | Native VIME Attention, FFN, and logp operators |
 | `consistency` | RL-Kernel Attention, FFN, and logp operators |
 

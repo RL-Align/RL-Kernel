@@ -309,8 +309,19 @@ CUDA runbook requires `nvidia-smi`, CUDA Graph evidence, and Transformer Engine
 libraries. The maintained ROCm launchers remain available, but their commands
 are documented here so the repository has one command index:
 
+The current user-facing full-path pair is documented in the
+[Qwen3-8B consistency guide](../../docs/usage/qwen3-vime-consistency.md#rocm-mi300x-and-gfx942)
+and runs with:
+
 ```bash
-# Full ROCm VIME operator matrix (P/P, P/R, R/P, R/R)
+python -m examples.vime_rocm_attention_ablation.run_qwen3_8b --help
+```
+
+The following commands are operator-attribution matrices, not replacements for
+that full `native` / `consistency` pair:
+
+```bash
+# Attention P/R matrix with FFN and logp fixed to production
 python examples/vime_qwen3_8b_rocm_ablation/run.py \
   --run \
   --output-dir /tmp/rocm-vime-ablation \
