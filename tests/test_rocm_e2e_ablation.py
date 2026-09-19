@@ -142,7 +142,7 @@ def test_case_environment_propagates_plan_to_megatron_vllm_and_ray(tmp_path):
     assert environment["RL_KERNEL_VLLM_INTEGRATION"] == "1"
     assert environment["RL_KERNEL_PLATFORM"] == "rocm"
     assert environment["VLLM_ATTENTION_BACKEND"] == "ROCM_AITER_FA"
-    assert environment["RL_KERNEL_READBACK_DIR"].endswith("p-r/readbacks")
+    assert Path(environment["RL_KERNEL_READBACK_DIR"]).parts[-2:] == ("p-r", "readbacks")
     assert environment["NUM_ROLLOUT"] == "1"
 
 

@@ -289,6 +289,41 @@ def test_provider_replays_top_p_mask_on_reused_local_logits(monkeypatch):
     torch.testing.assert_close(result.logp.squeeze(-1), expected)
 
 
+def test_provider_reuses_cuda_request_logits_for_top_p_mask(monkeypatch):
+    monkeypatch.setenv("VIME_RL_KERNEL_STRICT", "1")
+
+    class FakeLinearLogp:
+        backend_id = "fake-linear-logp"
+        provenance = {"actual_backend": "fake-linear-logp"}
+
+        def from_local_logits(self, local_logits, target_ids, **_kwargs):
+            return torch.log_softmax(local_logits[:, :7], dim=-1)[
+                torch.arange(target_ids.size(0)), target_ids
+            ]
+
+    import rl_engine.integrations.vime.linear_logp_provider as provider_module
+
+    monkeypatch.setattr(provider_module, "_default_strict_linear_logp", lambda: FakeLinearLogp())
+    request = _structural_request()
+    request.context.reuse_local_logits = False
+    request.log_prob_keep_mask = torch.tensor(
+        [
+            [True, False, True, False, False, False, False, False],
+            [False, True, False, False, False, True, False, False],
+            [True, True, False, False, False, False, False, False],
+        ]
+    )
+
+    result = provider(request)
+    masked = request.logits.masked_fill(~request.log_prob_keep_mask, float("-inf"))
+    expected = torch.log_softmax(masked[:, :7], dim=-1)[
+        torch.arange(request.target_ids.size(0)), request.target_ids
+    ]
+
+    torch.testing.assert_close(result.logp.squeeze(-1), expected)
+    assert result.provenance["execution"]["top_p_replay"] is True
+
+
 def test_provider_rejects_local_vocab_metadata_that_cannot_describe_tp_ownership():
     request = _request()
     request.metadata["padded_vocab_size"] = 16

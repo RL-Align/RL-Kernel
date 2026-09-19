@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import subprocess
 from dataclasses import dataclass
@@ -41,6 +42,7 @@ PLAN_SCHEMA_VERSION = "rlkernel.vime_rocm_attention_operator_plan.v1"
 FROZEN_SCHEMA_VERSION = "rlkernel.vime_rocm_attention_frozen_inputs.v1"
 CASE_ORDER = ("P/P", "P/R", "R/P", "R/R")
 RL_KERNEL_PLUGIN_ENTRY_POINT = "rl_engine.integrations.vllm_runtime:register_vllm_plugin"
+REFERENCE_GLOBAL_VOCAB_DIVISIBILITY = 512
 
 # Proxy settings inherited from an operator shell break long rollout requests
 # (httpx and the router honor them; a proxy's upstream timeout yields 502s).
@@ -80,6 +82,7 @@ class MatrixConfig:
     tensor_parallel_size: int = 4
     context_parallel_size: int = 2
     rollout_tensor_parallel_size: int = 4
+    rollout_context_parallel_size: int = 1
     colocate: bool = True
     offload_train: bool = False
     offload_rollout: bool = True
@@ -94,6 +97,12 @@ class MatrixConfig:
     max_tokens_per_gpu: int = 256
     seed: int = 1234
     rollout_seed: int = 42
+    rollout_temperature: float = 1.0
+    rollout_top_p: float = 1.0
+    rollout_top_k: int = -1
+    learning_rate: float = 1e-6
+    weight_decay: float = 0.1
+    kl_coef: float = 0.0
     ray_port: int = 6385
     ray_dashboard_port: int = 28265
 
@@ -107,9 +116,38 @@ class MatrixConfig:
 
     @property
     def rollout_engines(self) -> int:
-        return self.rollout_gpus // self.rollout_tensor_parallel_size
+        return self.rollout_gpus // self.rollout_gpus_per_engine
+
+    @property
+    def rollout_gpus_per_engine(self) -> int:
+        return self.rollout_tensor_parallel_size * self.rollout_context_parallel_size
+
+    @property
+    def canonical_tensor_parallel_size(self) -> int:
+        return max(
+            self.tensor_parallel_size,
+            self.rollout_tensor_parallel_size,
+        )
+
+    @property
+    def make_vocab_size_divisible_by(self) -> int:
+        """Preserve the reference TP4 padded vocabulary at every training TP."""
+
+        return REFERENCE_GLOBAL_VOCAB_DIVISIBILITY // self.tensor_parallel_size
 
     def validate(self, *, require_paths: bool) -> None:
+        for name in ("learning_rate", "weight_decay", "kl_coef"):
+            value = getattr(self, name)
+            if not math.isfinite(value) or value < 0:
+                raise ValueError(f"{name} must be finite and nonnegative")
+        if not math.isfinite(self.rollout_temperature) or self.rollout_temperature <= 0:
+            raise ValueError("rollout_temperature must be finite and positive")
+        if not 0 < self.rollout_top_p <= 1:
+            raise ValueError("rollout_top_p must be in (0, 1]")
+        if self.rollout_top_k != -1:
+            raise ValueError("strict ROCm top-k replay is not supported; use -1")
+        # VIME forwards PCP to vLLM's prefill context-parallel setting.
+        # Decode remains TP-only.
         visible = [item.strip() for item in self.visible_gpus.split(",") if item.strip()]
         if len(visible) != self.num_gpus or len(set(visible)) != len(visible):
             raise ValueError("visible_gpus must contain exactly num_gpus unique device IDs")
@@ -118,6 +156,7 @@ class MatrixConfig:
             "tensor_parallel_size",
             "context_parallel_size",
             "rollout_tensor_parallel_size",
+            "rollout_context_parallel_size",
             "num_rollout",
             "rollout_batch_size",
             "samples_per_prompt",
@@ -131,12 +170,37 @@ class MatrixConfig:
                 raise ValueError(f"{name} must be positive")
         if self.training_gpus > self.num_gpus:
             raise ValueError("training TP*CP cannot exceed num_gpus")
+        if REFERENCE_GLOBAL_VOCAB_DIVISIBILITY % self.tensor_parallel_size:
+            raise ValueError(
+                "--tp-size must divide the reference global vocabulary "
+                f"alignment ({REFERENCE_GLOBAL_VOCAB_DIVISIBILITY})"
+            )
         if self.colocate and self.training_gpus != self.num_gpus:
             raise ValueError("colocated training TP*CP must use all visible GPUs")
         if self.rollout_gpus <= 0:
             raise ValueError("non-colocated training TP*CP must leave GPUs for rollout")
-        if self.rollout_gpus % self.rollout_tensor_parallel_size:
-            raise ValueError("rollout GPU count must be divisible by rollout TP")
+        qwen3_shards = (
+            (32, "attention heads"),
+            (8, "query groups"),
+            (self.padded_vocab_size, "padded vocabulary"),
+        )
+        for parallel_size, flag in (
+            (self.tensor_parallel_size, "--tp-size"),
+            (self.rollout_tensor_parallel_size, "--rollout-tp-size"),
+        ):
+            for size, label in qwen3_shards:
+                if size % parallel_size:
+                    raise ValueError(f"{flag} must divide Qwen3-8B {label} ({size})")
+        canonical_tp = self.canonical_tensor_parallel_size
+        if (
+            canonical_tp % self.tensor_parallel_size
+            or canonical_tp % self.rollout_tensor_parallel_size
+        ):
+            raise ValueError(
+                "the finer canonical TP must be divisible by both training and rollout TP"
+            )
+        if self.rollout_gpus % self.rollout_gpus_per_engine:
+            raise ValueError("rollout GPU count must be divisible by rollout TP*rollout CP")
         if self.router_policy != "round_robin":
             raise ValueError("the two-engine strict matrix requires round_robin routing")
         generated = self.rollout_batch_size * self.samples_per_prompt
@@ -211,14 +275,18 @@ class MatrixConfig:
                 "attention_backend": "flash",
                 "attention_dropout": 0.0,
                 "hidden_dropout": 0.0,
+                "make_vocab_size_divisible_by": self.make_vocab_size_divisible_by,
             },
             "rollout": {
                 "num_gpus": self.rollout_gpus,
                 "engine_count": self.rollout_engines,
                 "tensor_parallel_size": self.rollout_tensor_parallel_size,
+                "context_parallel_size": self.rollout_context_parallel_size,
+                "gpus_per_engine": self.rollout_gpus_per_engine,
                 "router_policy": self.router_policy,
-                "temperature": 1.0,
-                "top_p": 1.0,
+                "temperature": self.rollout_temperature,
+                "top_p": self.rollout_top_p,
+                "top_k": self.rollout_top_k,
                 # Vime's deterministic-inference flag exports
                 # VLLM_BATCH_INVARIANT=1, which native ROCM_AITER_FA correctly
                 # declares unsupported.  The R route owns its deterministic
@@ -246,11 +314,12 @@ class MatrixConfig:
             },
             "optimizer": {
                 "name": "adam",
-                "lr": 1e-6,
-                "weight_decay": 0.1,
+                "lr": self.learning_rate,
+                "weight_decay": self.weight_decay,
                 "beta1": 0.9,
                 "beta2": 0.98,
             },
+            "reference_kl": {"enabled": self.kl_coef > 0, "coefficient": self.kl_coef},
             "seed": self.seed,
             "rollout_seed": self.rollout_seed,
             "mismatch_metrics_hook": (
@@ -523,6 +592,17 @@ def build_arm_environment(
             "RL_KERNEL_LOGP_CASE": "R/R",
             "RL_KERNEL_VLLM_REAL_VOCAB_SIZE": str(config.real_vocab_size),
             "RL_KERNEL_VLLM_PADDED_VOCAB_SIZE": str(config.padded_vocab_size),
+            "RL_KERNEL_STRICT_CANONICAL_TP": str(config.canonical_tensor_parallel_size),
+            "RL_KERNEL_STRICT_CANONICAL_VOCAB_SIZE": str(config.padded_vocab_size),
+            "RL_KERNEL_VLLM_TEMPERATURE": str(config.rollout_temperature),
+            "RL_KERNEL_VLLM_TOP_P": str(config.rollout_top_p),
+            "RLK_ABLATION_ROLLOUT_TEMPERATURE": str(config.rollout_temperature),
+            "RLK_ABLATION_ROLLOUT_TOP_P": str(config.rollout_top_p),
+            "RLK_ABLATION_ROLLOUT_TOP_K": str(config.rollout_top_k),
+            "RLK_ABLATION_LR": str(config.learning_rate),
+            "RLK_ABLATION_WEIGHT_DECAY": str(config.weight_decay),
+            "RLK_ABLATION_USE_KL_LOSS": "1" if config.kl_coef > 0 else "0",
+            "RLK_ABLATION_KL_LOSS_COEF": str(config.kl_coef),
             "RL_KERNEL_VLLM_INTEGRATION": "1",
             "RL_KERNEL_READBACK_DIR": str((arm_dir / "readbacks").resolve()),
             "RL_KERNEL_MISMATCH_SIDECAR_DIR": str(
@@ -541,7 +621,9 @@ def build_arm_environment(
             "RLK_ABLATION_NUM_GPUS": str(config.num_gpus),
             "RLK_ABLATION_TP_SIZE": str(config.tensor_parallel_size),
             "RLK_ABLATION_CP_SIZE": str(config.context_parallel_size),
+            "RLK_ABLATION_MAKE_VOCAB_SIZE_DIVISIBLE_BY": str(config.make_vocab_size_divisible_by),
             "RLK_ABLATION_ROLLOUT_TP_SIZE": str(config.rollout_tensor_parallel_size),
+            "RLK_ABLATION_ROLLOUT_CP_SIZE": str(config.rollout_context_parallel_size),
             "RLK_ABLATION_COLOCATE": "1" if config.colocate else "0",
             "RLK_ABLATION_OFFLOAD_TRAIN": "1" if config.offload_train else "0",
             "RLK_ABLATION_OFFLOAD_ROLLOUT": "1" if config.offload_rollout else "0",
@@ -581,6 +663,10 @@ def public_arm_environment(environment: Mapping[str, str]) -> dict[str, str]:
         "RL_KERNEL_LOGP_CASE",
         "RL_KERNEL_VLLM_REAL_VOCAB_SIZE",
         "RL_KERNEL_VLLM_PADDED_VOCAB_SIZE",
+        "RL_KERNEL_STRICT_CANONICAL_TP",
+        "RL_KERNEL_STRICT_CANONICAL_VOCAB_SIZE",
+        "RL_KERNEL_VLLM_TEMPERATURE",
+        "RL_KERNEL_VLLM_TOP_P",
         "RL_KERNEL_MISMATCH_SIDECAR_DIR",
         "RL_KERNEL_READBACK_DIR",
         "RL_KERNEL_VLLM_INTEGRATION",
@@ -742,7 +828,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tp-size", type=int, default=4)
     parser.add_argument("--cp-size", type=int, default=2)
     parser.add_argument("--rollout-tp-size", type=int, default=4)
-    parser.add_argument("--num-rollout", type=int, default=1)
+    parser.add_argument("--rollout-cp-size", type=int, default=1)
+    parser.add_argument(
+        "--rollouts",
+        "--num-rollout",
+        dest="num_rollout",
+        type=int,
+        default=1,
+        help="training/rollout steps; --num-rollout remains a compatibility alias",
+    )
     parser.add_argument("--rollout-batch-size", type=int, default=1)
     parser.add_argument("--samples-per-prompt", type=int, default=2)
     parser.add_argument("--global-batch-size", type=int, default=2)
@@ -781,6 +875,7 @@ def config_from_args(args: argparse.Namespace) -> MatrixConfig:
         tensor_parallel_size=args.tp_size,
         context_parallel_size=args.cp_size,
         rollout_tensor_parallel_size=args.rollout_tp_size,
+        rollout_context_parallel_size=args.rollout_cp_size,
         num_rollout=args.num_rollout,
         rollout_batch_size=args.rollout_batch_size,
         samples_per_prompt=args.samples_per_prompt,

@@ -490,7 +490,15 @@ class LinearLogpWrapper:
                 device=local_logits.device,
             )
             assert temperature_tensor is not None
-            effective_logits = local_logits.float() / temperature_tensor.unsqueeze(1)
+            # VIME scales a global temperature with PyTorch scalar division.
+            # Tensor division has different FP32 rounding on ROCm; preserve
+            # the same arithmetic when the request carries a scalar value.
+            divisor = (
+                temperature_tensor.unsqueeze(1)
+                if isinstance(temperature, torch.Tensor)
+                else float(temperature)
+            )
+            effective_logits = local_logits.float() / divisor
         contract = self._rocm_contract(
             effective_logits,
             rank=rank,
@@ -648,8 +656,37 @@ class LinearLogpWrapper:
 
         if local_logits.ndim != 2 or local_logits.dtype != torch.bfloat16:
             raise TypeError("strict reused LM-head logits must be 2-D bfloat16")
-        if not local_logits.is_cuda or torch.version.hip is not None:
-            raise RuntimeError("strict reused LM-head logits require NVIDIA CUDA")
+        if not local_logits.is_cuda:
+            raise RuntimeError("strict reused LM-head logits require CUDA/ROCm")
+        if torch.version.hip is not None:
+            if replay_ids.shape != replay_logprobs.shape or replay_ids.size(0) != local_logits.size(
+                0
+            ):
+                raise ValueError("top-p support must match the local-logit rows")
+            # The sampler transports every retained ID. Integer accumulation
+            # preserves membership when the sampled token also appears in topk.
+            ids = replay_ids.to(device=local_logits.device, dtype=torch.long)
+            retained = torch.isfinite(replay_logprobs)
+            local_ids = ids - int(vocab_start_index)
+            owned = retained & (local_ids >= 0) & (local_ids < local_logits.size(1))
+            counts = torch.zeros_like(local_logits, dtype=torch.int32)
+            counts.scatter_add_(
+                1, local_ids.clamp(0, local_logits.size(1) - 1), owned.to(torch.int32)
+            )
+            masked = local_logits.masked_fill(counts == 0, float("-inf"))
+            result = self.from_local_logits(
+                masked,
+                target_ids,
+                tp_group=tp_group,
+                vocab_start_index=vocab_start_index,
+                global_vocab_size=global_vocab_size,
+                real_vocab_size=real_vocab_size,
+                target=target,
+                temperature=temperature,
+            )
+            self._last_provenance["top_p_replay"] = True
+            self._last_provenance["top_p_support"] = "complete_sampler_retained_ids"
+            return result
         rank, world = self._tp_coordinates(tp_group)
         if tp_group is None or world <= 1:
             raise ValueError("reused rollout LM-head logits require a multi-rank TP group")

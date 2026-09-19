@@ -314,14 +314,40 @@ def _merge_tp_local_logp(
     *,
     tp_group: Any,
 ) -> tuple[torch.Tensor, torch.Tensor]:
+    """Merge one or more contiguous vocab summaries in global vocab order.
+
+    The leading optional summary dimension lets a coarser physical TP rank
+    expose the same virtual vocab shards as a finer TP layout.  Flattening
+    physical rank then local summary preserves ascending global-vocab order.
+    The historical one-summary-per-rank path keeps its original tensor layout.
+    """
     dist = _require_distributed_initialized()
     world_size = dist.get_world_size(group=tp_group)
-    if world_size <= 1:
+    if local_lse.shape != local_target_logit.shape:
+        raise ValueError("local LSE and selected-logit summaries must have matching shapes")
+    if local_lse.ndim == 1:
+        summaries_per_rank = 1
+        local_lse_summaries = local_lse.unsqueeze(0)
+        local_target_summaries = local_target_logit.unsqueeze(0)
+    elif local_lse.ndim == 2:
+        summaries_per_rank = local_lse.size(0)
+        if summaries_per_rank <= 0:
+            raise ValueError("linear_logp requires at least one local vocab summary")
+        local_lse_summaries = local_lse
+        local_target_summaries = local_target_logit
+    else:
+        raise ValueError("linear_logp summaries must be [tokens] or [summaries, tokens]")
+
+    if world_size <= 1 and summaries_per_rank == 1:
         global_lse = local_lse
         return local_target_logit - global_lse, global_lse
 
-    local_stats = torch.stack((local_lse, local_target_logit), dim=0).contiguous()
-    if local_stats.is_cuda:
+    local_stats = torch.stack(
+        (local_lse_summaries, local_target_summaries), dim=0
+    ).contiguous()
+    if world_size <= 1:
+        gathered = local_stats.unsqueeze(0)
+    elif local_stats.is_cuda:
         collective = collective_for_group(
             tp_group,
             min_size_bytes=local_stats.numel() * local_stats.element_size(),
@@ -353,18 +379,23 @@ def _merge_tp_local_logp(
     #   * rescaled sumexp: ascending-rank sequential chain,
     #   * target logit: ascending-rank sequential chain (exactly one rank
     #     owns a nonzero owner value, so the chain is exact).
-    local_lse = gathered[:, 0, :]
-    local_zt = gathered[:, 1, :]
+    local_lse = gathered[:, 0, :, :].reshape(
+        world_size * summaries_per_rank, local_lse_summaries.size(-1)
+    )
+    local_zt = gathered[:, 1, :, :].reshape(
+        world_size * summaries_per_rank, local_target_summaries.size(-1)
+    )
+    summary_count = local_lse.size(0)
     global_max = local_lse[0].clone()
-    for rank in range(1, world_size):
-        global_max = torch.maximum(global_max, local_lse[rank])
+    for summary in range(1, summary_count):
+        global_max = torch.maximum(global_max, local_lse[summary])
     sumexp = torch.exp(local_lse[0] - global_max)
-    for rank in range(1, world_size):
-        sumexp = sumexp + torch.exp(local_lse[rank] - global_max)
+    for summary in range(1, summary_count):
+        sumexp = sumexp + torch.exp(local_lse[summary] - global_max)
     global_lse = global_max + torch.log(sumexp)
     target_logit = local_zt[0].clone()
-    for rank in range(1, world_size):
-        target_logit = target_logit + local_zt[rank]
+    for summary in range(1, summary_count):
+        target_logit = target_logit + local_zt[summary]
     return target_logit - global_lse, global_lse
 
 

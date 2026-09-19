@@ -20,7 +20,9 @@ set -euo pipefail
 : "${RLK_ABLATION_NUM_GPUS:?}"
 : "${RLK_ABLATION_TP_SIZE:?}"
 : "${RLK_ABLATION_CP_SIZE:?}"
+: "${RLK_ABLATION_MAKE_VOCAB_SIZE_DIVISIBLE_BY:?}"
 : "${RLK_ABLATION_ROLLOUT_TP_SIZE:?}"
+: "${RLK_ABLATION_ROLLOUT_CP_SIZE:?}"
 : "${RLK_ABLATION_COLOCATE:?}"
 : "${RLK_ABLATION_OFFLOAD_TRAIN:?}"
 : "${RLK_ABLATION_OFFLOAD_ROLLOUT:?}"
@@ -81,8 +83,11 @@ if (( TRAIN_GPUS <= 0 || ROLLOUT_GPUS <= 0 )); then
   echo "the requested TP/CP topology does not leave a valid rollout allocation" >&2
   exit 2
 fi
-if (( ROLLOUT_GPUS % RLK_ABLATION_ROLLOUT_TP_SIZE != 0 )); then
-  echo "rollout GPU count must be divisible by rollout TP size" >&2
+ROLLOUT_GPUS_PER_ENGINE=$((
+  RLK_ABLATION_ROLLOUT_TP_SIZE * RLK_ABLATION_ROLLOUT_CP_SIZE
+))
+if (( ROLLOUT_GPUS % ROLLOUT_GPUS_PER_ENGINE != 0 )); then
+  echo "rollout GPU count must be divisible by rollout TP*rollout CP" >&2
   exit 2
 fi
 if [[ "${RLK_ABLATION_ROUTER_POLICY}" != "round_robin" ]]; then
@@ -211,6 +216,10 @@ names = [
     "RL_KERNEL_LOGP_CASE",
     "RL_KERNEL_VLLM_REAL_VOCAB_SIZE",
     "RL_KERNEL_VLLM_PADDED_VOCAB_SIZE",
+    "RL_KERNEL_STRICT_CANONICAL_TP",
+    "RL_KERNEL_STRICT_CANONICAL_VOCAB_SIZE",
+    "RL_KERNEL_VLLM_TEMPERATURE",
+    "RL_KERNEL_VLLM_TOP_P",
     "RL_KERNEL_VLLM_INTEGRATION",
     "RL_KERNEL_READBACK_DIR",
     "RL_KERNEL_MISMATCH_SIDECAR_DIR",
@@ -303,6 +312,7 @@ ray job submit \
   --seed "${RLK_ABLATION_SEED}" \
   --rollout-seed "${RLK_ABLATION_ROLLOUT_SEED}" \
   "${MODEL_ARGS[@]}" \
+  --make-vocab-size-divisible-by "${RLK_ABLATION_MAKE_VOCAB_SIZE_DIVISIBLE_BY}" \
   --hf-checkpoint "${RLK_ABLATION_MODEL_ROOT}" \
   --ref-load "${RLK_ABLATION_REFERENCE_CHECKPOINT}" \
   "${REFERENCE_MODEL_ARGS[@]}" \
@@ -319,14 +329,15 @@ ray job submit \
   --rollout-batch-size "${RLK_ABLATION_ROLLOUT_BATCH_SIZE}" \
   --n-samples-per-prompt "${RLK_ABLATION_SAMPLES_PER_PROMPT}" \
   --rollout-max-response-len "${RLK_ABLATION_MAX_RESPONSE_LENGTH}" \
-  --rollout-temperature 1.0 \
-  --rollout-top-p 1.0 \
+  --rollout-temperature "${RLK_ABLATION_ROLLOUT_TEMPERATURE:-1.0}" \
+  --rollout-top-p "${RLK_ABLATION_ROLLOUT_TOP_P:-1.0}" \
+  --rollout-top-k "${RLK_ABLATION_ROLLOUT_TOP_K:--1}" \
   --global-batch-size "${RLK_ABLATION_GLOBAL_BATCH_SIZE}" \
   --balance-data \
   --optimizer adam \
-  --lr 1e-6 \
+  --lr "${RLK_ABLATION_LR:-1e-6}" \
   --lr-decay-style constant \
-  --weight-decay 0.1 \
+  --weight-decay "${RLK_ABLATION_WEIGHT_DECAY:-0.1}" \
   --adam-beta1 0.9 \
   --adam-beta2 0.98 \
   --advantage-estimator grpo \
@@ -344,7 +355,8 @@ ray job submit \
   --use-dynamic-batch-size \
   --max-tokens-per-gpu "${RLK_ABLATION_MAX_TOKENS_PER_GPU}" \
   --router-policy "${RLK_ABLATION_ROUTER_POLICY}" \
-  --rollout-num-gpus-per-engine "${RLK_ABLATION_ROLLOUT_TP_SIZE}" \
+  --rollout-num-gpus-per-engine "${ROLLOUT_GPUS_PER_ENGINE}" \
+  --vllm-prefill-context-parallel-size "${RLK_ABLATION_ROLLOUT_CP_SIZE}" \
   --vllm-gpu-memory-utilization "${VLLM_GPU_MEMORY_UTILIZATION:-0.4}" \
   --vllm-max-cudagraph-capture-size \
   "${RL_KERNEL_VLLM_CUDAGRAPH_MAX_CAPTURE_SIZE}" \

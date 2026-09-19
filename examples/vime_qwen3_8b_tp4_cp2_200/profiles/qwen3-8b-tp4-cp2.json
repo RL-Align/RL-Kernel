@@ -11,7 +11,8 @@
     "python": "3.11.15",
     "torch": "2.9.1",
     "vllm": "0.16.0",
-    "ray": "2.57.0"
+    "ray": "2.57.0",
+    "transformer_engine": "2.18.0"
   },
   "modes": {
     "native": {
@@ -34,10 +35,7 @@
   "repositories": {
     "rl_kernel": {
       "url": "https://github.com/RL-Align/RL-Kernel.git",
-      "revisions": {
-        "native": "d2173e8d948e8cf062ac36be32bdf53bac75daa0",
-        "consistency": "d2173e8d948e8cf062ac36be32bdf53bac75daa0"
-      }
+      "revisions": {}
     },
     "vime": {
       "url": "https://github.com/RL-Align/vime.git",
@@ -52,14 +50,6 @@
         "native": "1dcf0dafa884ad52ffb243625717a3471643e087",
         "consistency": "1dcf0dafa884ad52ffb243625717a3471643e087"
       }
-    }
-  },
-  "arms": {
-    "native": {
-      "te_root_env": "TE218_ROOT"
-    },
-    "consistency": {
-      "te_root_env": "TE218_ROOT"
     }
   },
   "runner_args": [

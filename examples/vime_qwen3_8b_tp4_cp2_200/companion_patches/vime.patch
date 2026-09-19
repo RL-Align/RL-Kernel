@@ -1,0 +1,726 @@
+diff --git a/scripts/run-qwen3-8B-rlkernel-tp2-cp2.sh b/scripts/run-qwen3-8B-rlkernel-tp2-cp2.sh
+index d84dbdf2..bb272d79 100755
+--- a/scripts/run-qwen3-8B-rlkernel-tp2-cp2.sh
++++ b/scripts/run-qwen3-8B-rlkernel-tp2-cp2.sh
+@@ -86,8 +86,8 @@ ROLLOUT_GPUS_PER_ENGINE="${ROLLOUT_GPUS_PER_ENGINE:-2}"
+ ROLLOUT_TOP_P="${ROLLOUT_TOP_P:-1.0}"
+ COLOCATE="${COLOCATE:-0}"
+ 
+-if [[ "${NUM_GPUS}" != "8" || "${ACTOR_GPUS}" != "4" || "${ROLLOUT_GPUS}" != "4" ]]; then
+-  echo "This validation entry point requires an 8-GPU node with 4 actor GPUs and 4 rollout GPUs" >&2
++if [[ "${NUM_GPUS}" != "8" ]]; then
++  echo "This validation entry point requires an 8-GPU node" >&2
+   exit 2
+ fi
+ if [[ "${COLOCATE}" != "0" && "${COLOCATE}" != "1" ]]; then
+@@ -95,8 +95,25 @@ if [[ "${COLOCATE}" != "0" && "${COLOCATE}" != "1" ]]; then
+   exit 2
+ fi
+ 
+-if [[ "${TP_SIZE}" != "2" || "${CP_SIZE}" != "2" ]]; then
+-  echo "This validation entry point is intentionally fixed to TP=2, CP=2" >&2
++if [[ "$((TP_SIZE * CP_SIZE))" != "${ACTOR_GPUS}" ]]; then
++  echo "TP_SIZE * CP_SIZE must equal ACTOR_GPUS" >&2
++  exit 2
++fi
++if [[ "${COLOCATE}" == "1" ]]; then
++  if [[ "${ACTOR_GPUS}" != "8" || "${ROLLOUT_GPUS}" != "8" ]]; then
++    echo "Colocated execution requires 8 actor GPUs and 8 logical rollout GPUs" >&2
++    exit 2
++  fi
++elif [[ "${ACTOR_GPUS}" != "4" || "${ROLLOUT_GPUS}" != "4" ]]; then
++  echo "Disjoint execution requires 4 actor GPUs and 4 rollout GPUs" >&2
++  exit 2
++fi
++if [[ "${ROLLOUT_GPUS_PER_ENGINE}" != "${TP_SIZE}" ]]; then
++  echo "ROLLOUT_GPUS_PER_ENGINE must equal TP_SIZE for aligned logp validation" >&2
++  exit 2
++fi
++if (( ROLLOUT_GPUS % ROLLOUT_GPUS_PER_ENGINE != 0 )); then
++  echo "ROLLOUT_GPUS must be divisible by ROLLOUT_GPUS_PER_ENGINE" >&2
+   exit 2
+ fi
+ if [[ "${RL_KERNEL_MODE}" != off \
+@@ -110,7 +127,7 @@ source "${VIME_ROOT}/scripts/models/qwen3-8B.sh"
+ 
+ MODEL_ROOT="${MODEL_ROOT:-/root/Qwen3-8B}"
+ TORCH_DIST_ROOT="${TORCH_DIST_ROOT:-/root/Qwen3-8B_torch_dist}"
+-VIME_CKPT="${VIME_CKPT:-/root/Qwen3-8B_vime_rlkernel_tp2_cp2}"
++VIME_CKPT="${VIME_CKPT:-/root/Qwen3-8B_vime_rlkernel_tp${TP_SIZE}_cp${CP_SIZE}}"
+ PROMPT_DATA="${PROMPT_DATA:-/root/dapo-math-17k/dapo-math-17k.jsonl}"
+ 
+ if ! command -v nvidia-smi >/dev/null 2>&1; then
+diff --git a/scripts/run-qwen3-8B-rlkernel-tp4-cp2.sh b/scripts/run-qwen3-8B-rlkernel-tp4-cp2.sh
+new file mode 100755
+index 00000000..55ab3f35
+--- /dev/null
++++ b/scripts/run-qwen3-8B-rlkernel-tp4-cp2.sh
+@@ -0,0 +1,15 @@
++#!/usr/bin/env bash
++# Qwen3-8B TP4/CP2 GRPO consistency run on one colocated 8-GPU node.
++
++set -euo pipefail
++
++export TP_SIZE=4
++export CP_SIZE=2
++export ACTOR_GPUS=8
++export ROLLOUT_GPUS=8
++export NUM_GPUS=8
++export ROLLOUT_GPUS_PER_ENGINE=4
++export COLOCATE=1
++
++SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
++exec "${SCRIPT_DIR}/run-qwen3-8B-rlkernel-tp2-cp2.sh" "$@"
+diff --git a/tests/test_linear_logp_provider.py b/tests/test_linear_logp_provider.py
+index eef9c411..63603eeb 100644
+--- a/tests/test_linear_logp_provider.py
++++ b/tests/test_linear_logp_provider.py
+@@ -1,5 +1,6 @@
+ from __future__ import annotations
+ 
++import logging
+ import sys
+ import types
+ from types import SimpleNamespace
+@@ -7,6 +8,7 @@ from types import SimpleNamespace
+ import pytest
+ import torch
+ 
++import vime.backends.megatron_utils.linear_logp_provider as provider_module
+ from vime.backends.megatron_utils.linear_logp_provider import (
+     LinearLogpContext,
+     LinearLogpProviderUnavailable,
+@@ -74,12 +76,19 @@ def _args(path=None, mode="auto"):
+     return SimpleNamespace(linear_logp_provider=path, linear_logp_provider_mode=mode)
+ 
+ 
+-def test_unconfigured_provider_uses_native_path():
++def test_unconfigured_provider_uses_native_path_and_reports_actual_backend(caplog):
+     request = _request()
+-    actual, entropy = compute_linear_logp(args=_args(), request=request, native=_native)
++    provider_module._LOGGED_NATIVE_IDENTITIES.clear()
++    with caplog.at_level(logging.INFO, logger=provider_module.__name__):
++        actual, entropy = compute_linear_logp(args=_args(), request=request, native=_native)
+ 
+     assert entropy is None
+     torch.testing.assert_close(actual, request.logits[:, :1])
++    assert "linear_logp native active:" in caplog.text
++    assert f"backend_id={__name__}._native" in caplog.text
++    assert "contract_id=vime.native.linear_logp.v1" in caplog.text
++    assert "route=unconfigured" in caplog.text
++    assert "device=cpu" in caplog.text
+ 
+ 
+ def test_provider_receives_structured_request_and_returns_result(monkeypatch):
+@@ -154,9 +163,10 @@ def test_provider_may_return_a_structural_result_from_an_external_package(monkey
+     torch.testing.assert_close(actual, request.logits[:, :1])
+ 
+ 
+-def test_auto_mode_only_falls_back_for_explicit_unavailability(monkeypatch):
++def test_auto_mode_only_falls_back_for_explicit_unavailability(monkeypatch, caplog):
+     request = _request()
+     calls = {"native": 0}
++    provider_module._LOGGED_NATIVE_IDENTITIES.clear()
+ 
+     def provider(_request):
+         raise LinearLogpProviderUnavailable("unsupported topology")
+@@ -166,11 +176,13 @@ def test_auto_mode_only_falls_back_for_explicit_unavailability(monkeypatch):
+         return _native(*args, **kwargs)
+ 
+     path = _install_provider(monkeypatch, provider)
+-    actual, entropy = compute_linear_logp(args=_args(path), request=request, native=native)
++    with caplog.at_level(logging.INFO, logger=provider_module.__name__):
++        actual, entropy = compute_linear_logp(args=_args(path), request=request, native=native)
+ 
+     assert calls["native"] == 1
+     assert entropy is None
+     torch.testing.assert_close(actual, request.logits[:, :1])
++    assert "route=provider_unavailable_fallback" in caplog.text
+ 
+ 
+ def test_strict_mode_rejects_unavailable_provider(monkeypatch):
+diff --git a/tests/test_vllm_rollout.py b/tests/test_vllm_rollout.py
+index 9e4b7db2..097c970a 100644
+--- a/tests/test_vllm_rollout.py
++++ b/tests/test_vllm_rollout.py
+@@ -3,6 +3,7 @@
+ from __future__ import annotations
+ 
+ import asyncio
++import math
+ import base64
+ import io
+ import sys
+@@ -224,9 +225,65 @@ def test_build_inference_sampling_params_maps_rollout_fields():
+     assert sp["stop_token_ids"] == [2]
+     assert sp["seed"] == 42
+     assert sp["skip_special_tokens"] is False
++    assert sp["logprobs"] == 64
++
++
++@pytest.mark.unit
++def test_build_inference_sampling_params_keeps_one_logprob_without_top_p():
++    sp = mod._build_inference_sampling_params(
++        {
++            "max_new_tokens": 16,
++            "temperature": 0.7,
++            "top_p": 1.0,
++        }
++    )
+     assert sp["logprobs"] == 1
+ 
+ 
++@pytest.mark.unit
++def test_top_p_replay_extracts_complete_retained_support():
++    ids, offsets = mod._top_p_replay_from_logprobs(
++        [
++            {
++                "token": "token_id:7",
++                "logprob": math.log(0.6),
++                "top_logprobs": [
++                    {"token": "token_id:7", "logprob": math.log(0.6)},
++                    {"token": "token_id:9", "logprob": math.log(0.4)},
++                    {"token": "token_id:3", "logprob": -9999.0},
++                ],
++            },
++            {
++                "token": "token_id:4",
++                "logprob": 0.0,
++                "top_logprobs": [
++                    {"token": "token_id:4", "logprob": 0.0},
++                ],
++            },
++        ],
++        expected_tokens=2,
++    )
++    assert ids == [7, 9, 4]
++    assert offsets == [0, 2, 3]
++
++
++@pytest.mark.unit
++def test_top_p_replay_rejects_incomplete_nucleus():
++    with pytest.raises(RuntimeError, match="incomplete"):
++        mod._top_p_replay_from_logprobs(
++            [
++                {
++                    "token": "token_id:7",
++                    "logprob": math.log(0.6),
++                    "top_logprobs": [
++                        {"token": "token_id:7", "logprob": math.log(0.6)},
++                    ],
++                }
++            ],
++            expected_tokens=1,
++        )
++
++
+ @pytest.mark.unit
+ def test_build_inference_sampling_params_forwards_disabled_top_k():
+     sp = mod._build_inference_sampling_params({"max_new_tokens": 8, "temperature": 0.0, "top_p": 1.0, "top_k": -1})
+diff --git a/tests/utils/test_vllm_engine.py b/tests/utils/test_vllm_engine.py
+index 8e919320..34dd8dda 100644
+--- a/tests/utils/test_vllm_engine.py
++++ b/tests/utils/test_vllm_engine.py
+@@ -247,6 +247,26 @@ def test_compute_server_args_external_check_fields_skip_orchestration_fields(vll
+     assert sa["weight_transfer_config"] == {"backend": "nccl"}
+ 
+ 
++@pytest.mark.unit
++def test_compute_server_args_colocate_tensor_uses_ipc_weight_backend(vllm_args):
++    vllm_args.colocate = True
++    vllm_args.update_weight_transport = "tensor"
++    sa, _ = mod._compute_server_args(
++        vllm_args, rank=0, dist_init_addr=None, host="127.0.0.1", port=8000
++    )
++    assert sa["weight_transfer_config"] == {"backend": "ipc"}
++
++
++@pytest.mark.unit
++def test_compute_server_args_colocate_disk_uses_nccl_weight_backend(vllm_args):
++    vllm_args.colocate = True
++    vllm_args.update_weight_transport = "disk"
++    sa, _ = mod._compute_server_args(
++        vllm_args, rank=0, dist_init_addr=None, host="127.0.0.1", port=8000
++    )
++    assert sa["weight_transfer_config"] == {"backend": "nccl"}
++
++
+ @pytest.mark.unit
+ def test_build_vllm_subprocess_env_colocate(vllm_args, monkeypatch):
+     vllm_args.colocate = True
+diff --git a/vime/backends/megatron_utils/actor.py b/vime/backends/megatron_utils/actor.py
+index d752c065..419cacd4 100644
+--- a/vime/backends/megatron_utils/actor.py
++++ b/vime/backends/megatron_utils/actor.py
+@@ -3,6 +3,7 @@ import os
+ from argparse import Namespace
+ from contextlib import nullcontext
+ from datetime import timedelta
++from functools import partial
+ from pathlib import Path
+ 
+ import ray
+@@ -54,6 +55,20 @@ logging.getLogger("megatron").setLevel(logging.WARNING)
+ logger = logging.getLogger(__name__)
+ 
+ 
++def _configure_train_offload():
++    """Use the allocator hook installed by this worker's LD_PRELOAD.
++
++    Importing Megatron's inference context changes the shared saver to torch
++    mode. Training offload must restore preload mode before initialization;
++    otherwise pause/disable controls a different library than cudaMalloc.
++    """
++    impl = getattr(torch_memory_saver, "_impl", None)
++    if impl is None:
++        torch_memory_saver.hook_mode = "preload"
++    elif getattr(impl, "_hook_mode", None) != "preload":
++        raise RuntimeError("Training offload was initialized with a non-preload allocator")
++
++
+ class MegatronTrainRayActor(TrainRayActor):
+     @with_defer(lambda: Timer().start("train_wait"))
+     def init(
+@@ -67,6 +82,8 @@ class MegatronTrainRayActor(TrainRayActor):
+             self.args = args
+             return 0
+ 
++        if args.offload_train:
++            _configure_train_offload()
+         monkey_patch_torch_dist()
+         super().init(args, role, with_ref, with_opd_teacher)
+         # Disable this when external code keeps raw dist.group.WORLD references
+@@ -356,9 +373,14 @@ class MegatronTrainRayActor(TrainRayActor):
+         store_prefix: str = "",
+     ) -> dict[str, list[torch.Tensor]]:
+ 
++        scorer = get_log_probs_and_entropy
++        if os.getenv("RL_KERNEL_COMPLETE_SAMPLING_SUPPORT") == "1" and store_prefix in {"ref_", "teacher_"}:
++            # KL targets need full support: independent reference top-p masks
++            # can assign zero probability to tokens sampled by the policy.
++            scorer = partial(scorer, apply_sampling_filters=False)
+         with timer(f"{store_prefix}log_probs"):
+             return forward_only(
+-                get_log_probs_and_entropy,
++                scorer,
+                 self.args,
+                 self.model,
+                 data_iterator,
+@@ -605,13 +627,17 @@ class MegatronTrainRayActor(TrainRayActor):
+         ) = ray.get(self.rollout_manager.get_updatable_engines_and_lock.remote())
+ 
+         reconnect_rollout_engines = self.args.offload_train and self.args.use_critic and not self.args.colocate
++        # Disk export reads self.model directly rather than the CPU backup
++        # used by tensor transports. Paused allocations must be restored.
++        wake_for_disk_export = self.args.offload_train and self.args.update_weight_transport == "disk"
++        restore_training_state = reconnect_rollout_engines or wake_for_disk_export
+ 
+         if not rollout_engines and not reconnect_rollout_engines:
+             if dist.get_rank() == 0:
+                 logger.info("No updatable vLLM engines are running; skip weight update.")
+             return
+ 
+-        if reconnect_rollout_engines:
++        if restore_training_state:
+             self.wake_up()
+         elif self.args.offload_train:
+             reload_process_groups()
+@@ -643,7 +669,7 @@ class MegatronTrainRayActor(TrainRayActor):
+                 else:
+                     self.weights_backuper.backup("old_actor")
+ 
+-        if reconnect_rollout_engines:
++        if restore_training_state:
+             self.sleep()
+         elif self.args.offload_train:
+             destroy_process_groups()
+diff --git a/vime/backends/megatron_utils/linear_logp_provider.py b/vime/backends/megatron_utils/linear_logp_provider.py
+index 47a95786..fa91cd73 100644
+--- a/vime/backends/megatron_utils/linear_logp_provider.py
++++ b/vime/backends/megatron_utils/linear_logp_provider.py
+@@ -17,6 +17,8 @@ import torch
+ 
+ logger = logging.getLogger(__name__)
+ _LOGGED_PROVIDER_IDENTITIES: set[tuple[str, str]] = set()
++_LOGGED_NATIVE_IDENTITIES: set[tuple[str, str, str]] = set()
++_NATIVE_CONTRACT_ID = "vime.native.linear_logp.v1"
+ 
+ ProviderMode = Literal["auto", "strict"]
+ TokenLayoutKind = Literal["single", "zigzag", "allgather"]
+@@ -202,7 +204,7 @@ def compute_linear_logp(
+ 
+     path = linear_logp_provider_path(args)
+     if path is None:
+-        return _native(request, native)
++        return _native(request, native, route="unconfigured")
+ 
+     mode = linear_logp_provider_mode(args)
+     try:
+@@ -211,7 +213,7 @@ def compute_linear_logp(
+         if mode == "strict":
+             raise RuntimeError(f"linear_logp provider {path!r} is unavailable: {exc}") from exc
+         logger.warning("linear_logp provider %s is unavailable; using native path: %s", path, exc)
+-        return _native(request, native)
++        return _native(request, native, route="provider_unavailable_fallback")
+     try:
+         result = provider(request)
+     except Exception as exc:
+@@ -220,7 +222,7 @@ def compute_linear_logp(
+         if mode == "strict":
+             raise RuntimeError(f"linear_logp provider {path!r} is unavailable: {exc}") from exc
+         logger.warning("linear_logp provider %s is unavailable; using native path: %s", path, exc)
+-        return _native(request, native)
++        return _native(request, native, route="provider_unavailable_fallback")
+ 
+     normalized = _normalize_result(result)
+     _validate_result(normalized, request, strict=mode == "strict")
+@@ -241,8 +243,10 @@ def _load_provider(path: str) -> LinearLogpProvider:
+ def _native(
+     request: LinearLogpRequest,
+     native: Callable[..., tuple[torch.Tensor, torch.Tensor | None]],
++    *,
++    route: str,
+ ) -> tuple[torch.Tensor, torch.Tensor | None]:
+-    return native(
++    result = native(
+         request.logits,
+         request.target_ids,
+         request.tensor_parallel_group,
+@@ -251,6 +255,27 @@ def _native(
+         chunk_size=request.chunk_size,
+         log_prob_keep_mask=request.log_prob_keep_mask,
+     )
++    _log_native_identity(native, route=route, device_type=request.logits.device.type)
++    return result
++
++
++def _log_native_identity(
++    native: Callable[..., Any], *, route: str, device_type: str
++) -> None:
++    module = getattr(native, "__module__", type(native).__module__)
++    qualname = getattr(native, "__qualname__", type(native).__qualname__)
++    backend_id = f"{module}.{qualname}"
++    identity = (backend_id, route, device_type)
++    if identity in _LOGGED_NATIVE_IDENTITIES:
++        return
++    _LOGGED_NATIVE_IDENTITIES.add(identity)
++    logger.info(
++        "linear_logp native active: backend_id=%s contract_id=%s route=%s device=%s",
++        backend_id,
++        _NATIVE_CONTRACT_ID,
++        route,
++        device_type,
++    )
+ 
+ 
+ def _is_provider_unavailable(exc: Exception) -> bool:
+diff --git a/vime/backends/megatron_utils/loss.py b/vime/backends/megatron_utils/loss.py
+index a33f1243..190a5c6c 100644
+--- a/vime/backends/megatron_utils/loss.py
++++ b/vime/backends/megatron_utils/loss.py
+@@ -1,3 +1,4 @@
++import os
+ import warnings
+ from argparse import Namespace
+ from collections.abc import Callable, Iterator, Mapping
+@@ -65,7 +66,7 @@ def _maybe_capture_log_probs(batch: RolloutBatch, log_probs: list[torch.Tensor])
+ 
+ 
+ def get_rollout_top_p_logprob_kwargs(args: Namespace, batch: dict[str, Any]) -> dict[str, Any]:
+-    if args.rollout_top_p == 1.0:
++    if args.rollout_top_p == 1.0 or os.getenv("RL_KERNEL_COMPLETE_SAMPLING_SUPPORT") == "1":
+         return {}
+ 
+     top_p_token_ids = batch.get("rollout_top_p_token_ids")
+@@ -313,6 +314,29 @@ def _build_shifted_tokens(
+     return full_tokens
+ 
+ 
++def _response_logit_rows(T, device, total_lengths, response_lengths, allgather_cp):
++    """Mark only response logits, including both halves of zigzag CP."""
++    active = torch.zeros(T, dtype=torch.bool, device=device)
++    cp = mpu.get_context_parallel_world_size()
++    offset = 0
++    if cp > 1 and not allgather_cp:
++        for total, response in zip(total_lengths, response_lengths, strict=True):
++            size, chunks, logits, _ = get_logits_and_tokens_offset_with_cp(total, response)
++            for half in (0, 1):
++                start = offset + half * size + logits[half][0] - chunks[half][0]
++                active[start:start + logits[half][1] - logits[half][0]] = True
++            offset += 2 * size
++    else:
++        local_start = mpu.get_context_parallel_rank() * T if allgather_cp else 0
++        for total, response in zip(total_lengths, response_lengths, strict=True):
++            start = max(0, offset + total - response - 1 - local_start)
++            end = min(T, offset + total - 1 - local_start)
++            if end > start:
++                active[start:end] = True
++            offset += total
++    return active
++
++
+ def _fill_topp_mask_rows(
+     keep: torch.Tensor,
+     ids: list[int],
+@@ -512,6 +536,7 @@ def get_log_probs_and_entropy(
+     top_p_token_ids: list[list[int]] | None = None,
+     top_p_token_offsets: list[list[int]] | None = None,
+     linear_logp_context: LinearLogpContext | None = None,
++    apply_sampling_filters: bool = True,
+ ) -> dict[str, list[torch.Tensor]]:
+     """Compute per-token log-probabilities (and optionally entropy) on responses.
+ 
+@@ -531,7 +556,16 @@ def get_log_probs_and_entropy(
+ 
+     # Apply rollout temperature scaling to logits to match rollout-time log-probs.
+     rollout_temperature = getattr(args, "rollout_temperature", 1.0)
+-    if rollout_temperature != 1.0:
++    greedy_sampling = rollout_temperature < 1e-5
++    if greedy_sampling:
++        rollout_temperature = 1.0
++    complete_sampling = os.getenv("RL_KERNEL_COMPLETE_SAMPLING_SUPPORT") == "1"
++    strict_logits = complete_sampling and getattr(args, "linear_logp_provider_mode", None) == "strict"
++    if strict_logits:
++        # Float16Module may promote BF16 output to FP32; undo this lossless
++        # promotion before the shared temperature/logp kernel.
++        logits = logits.to(torch.bfloat16)
++    if rollout_temperature != 1.0 and not strict_logits:
+         logits = logits / rollout_temperature
+     logits = logits.contiguous()
+     T = logits.size(0)
+@@ -547,7 +581,7 @@ def get_log_probs_and_entropy(
+ 
+     # --- build top-p nucleus keep-mask (logprob only; entropy stays unmasked) ---
+     top_p_keep_mask = None
+-    if top_p_token_ids is not None and top_p_token_offsets is not None:
++    if apply_sampling_filters and top_p_token_ids is not None and top_p_token_offsets is not None:
+         top_p_keep_mask = _build_topp_keep_mask(
+             T,
+             logits.size(-1),
+@@ -559,6 +593,18 @@ def get_log_probs_and_entropy(
+             args.allgather_cp,
+         )
+ 
++    if complete_sampling and apply_sampling_filters and not greedy_sampling and (args.rollout_top_p < 1.0 or args.rollout_top_k > 0):
++        from rl_engine.integrations.sampling import vocab_parallel_sampling_keep_mask
++
++        response_rows = _response_logit_rows(T, device, total_lengths, response_lengths, args.allgather_cp)
++        top_p_keep_mask = vocab_parallel_sampling_keep_mask(
++            logits, real_vocab_size=args.vocab_size, tp_group=tp_group,
++            temperature=rollout_temperature if strict_logits else 1.0,
++            top_p=args.rollout_top_p if args.rollout_top_p < 1.0 else None,
++            top_k=args.rollout_top_k if args.rollout_top_k > 0 else None,
++            active_rows=response_rows,
++        )
++
+     cp_world_size = mpu.get_context_parallel_world_size()
+     cp_layout = "single" if cp_world_size == 1 else "allgather" if args.allgather_cp else "zigzag"
+     request = LinearLogpRequest(
+@@ -577,7 +623,8 @@ def get_log_probs_and_entropy(
+         context=linear_logp_context,
+         temperature=rollout_temperature,
+         metadata={
+-            "logits_are_temperature_scaled": True,
++            "logits_are_temperature_scaled": not strict_logits,
++            "complete_sampling_support": complete_sampling,
+             "real_vocab_size": getattr(args, "vocab_size", None),
+             "padded_vocab_size": getattr(args, "padded_vocab_size", None),
+             "tp_rank": mpu.get_tensor_model_parallel_rank(),
+diff --git a/vime/backends/megatron_utils/model.py b/vime/backends/megatron_utils/model.py
+index bf9b9911..a9af7ef2 100644
+--- a/vime/backends/megatron_utils/model.py
++++ b/vime/backends/megatron_utils/model.py
+@@ -757,6 +757,17 @@ def train_one_step(
+         forward_only=False,
+     )
+ 
++    if args.offload_train:
++        # TMS's allocation hook cannot perform PyTorch's normal OOM retry.
++        # Release dead activation blocks before FP32 gradient preparation and
++        # the first Adam-state allocation compete for the remaining memory.
++        torch.cuda.empty_cache()
++        logger.info(
++            "Offloaded optimizer memory: allocated=%d reserved=%d free=%d",
++            torch.cuda.memory_allocated(), torch.cuda.memory_reserved(),
++            torch.cuda.mem_get_info()[0],
++        )
++
+     valid_step = True
+     grad_norm = float("nan")
+     if not getattr(args, "check_for_nan_in_loss_and_grad", True):
+diff --git a/vime/backends/vllm_utils/arguments.py b/vime/backends/vllm_utils/arguments.py
+index d970d658..13af54dc 100644
+--- a/vime/backends/vllm_utils/arguments.py
++++ b/vime/backends/vllm_utils/arguments.py
+@@ -172,10 +172,13 @@ def vllm_parse_args():
+     temp_parser.add_argument("--rollout-num-gpus-per-engine", type=int, default=1)
+     temp_parser.add_argument("--vllm-pipeline-parallel-size", type=int, default=1)
+     temp_parser.add_argument("--vllm-data-parallel-size", type=int, default=1)
++    temp_parser.add_argument("--vllm-prefill-context-parallel-size", type=int, default=1)
+     temp_args, _ = temp_parser.parse_known_args()
+     pp_size = temp_args.vllm_pipeline_parallel_size
+     dp_size = temp_args.vllm_data_parallel_size
+-    vllm_tp_size = temp_args.rollout_num_gpus_per_engine // (pp_size * dp_size)
++    vllm_tp_size = temp_args.rollout_num_gpus_per_engine // (
++        pp_size * dp_size * temp_args.vllm_prefill_context_parallel_size
++    )
+     parser.set_defaults(vllm_tensor_parallel_size=vllm_tp_size)
+ 
+     args, _ = parser.parse_known_args()
+diff --git a/vime/backends/vllm_utils/vllm_engine.py b/vime/backends/vllm_utils/vllm_engine.py
+index 7d239457..7efacecc 100644
+--- a/vime/backends/vllm_utils/vllm_engine.py
++++ b/vime/backends/vllm_utils/vllm_engine.py
+@@ -530,12 +530,15 @@ def _normalize_vllm_wake_tags(tags: list[str] | None) -> list[str] | None:
+ def _resolve_parallel_sizes(args, *, gpus_per_engine: int) -> tuple[int, int, int]:
+     pp = int(getattr(args, "vllm_pipeline_parallel_size", 1) or 1)
+     dp = int(getattr(args, "vllm_dp_size", None) or getattr(args, "vllm_data_parallel_size", 1) or 1)
+-    if gpus_per_engine % (pp * dp) != 0:
++    pcp = int(getattr(args, "vllm_prefill_context_parallel_size", 1) or 1)
++    if min(pp, dp, pcp) <= 0:
++        raise ValueError("vLLM parallel sizes must be positive")
++    if gpus_per_engine % (pp * dp * pcp) != 0:
+         raise ValueError(
+             f"num_gpus_per_engine ({gpus_per_engine}) must be divisible by "
+-            f"vllm_pipeline_parallel_size * vllm_data_parallel_size ({pp} * {dp} = {pp * dp})"
++            f"pipeline * data * prefill-context parallel ({pp} * {dp} * {pcp})"
+         )
+-    tp = gpus_per_engine // (pp * dp)
++    tp = gpus_per_engine // (pp * dp * pcp)
+     return tp, pp, dp
+ 
+ 
+@@ -630,7 +633,7 @@ def _compute_server_args(
+     ):
+         kwargs["max_model_len"] = args.rollout_max_context_len
+ 
+-    if args.colocate:
++    if args.colocate and getattr(args, "update_weight_transport", None) != "disk":
+         kwargs["weight_transfer_config"] = {"backend": "ipc"}
+     else:
+         kwargs["weight_transfer_config"] = {"backend": "nccl"}
+diff --git a/vime/ray/actor_group.py b/vime/ray/actor_group.py
+index ce091bd6..33c68bdb 100644
+--- a/vime/ray/actor_group.py
++++ b/vime/ray/actor_group.py
+@@ -71,11 +71,12 @@ class RayTrainGroup:
+         }
+ 
+         if self.args.offload_train and self.args.train_backend == "megatron":
++            import torch
+             import torch_memory_saver
+ 
++            cuda_major = (torch.version.cuda or "").split(".")[0]
+             for path in [
+-                "torch_memory_saver_hook_mode_preload_cu13.abi3.so",
+-                "torch_memory_saver_hook_mode_preload_cu12.abi3.so",
++                f"torch_memory_saver_hook_mode_preload_cu{cuda_major}.abi3.so",
+                 "torch_memory_saver_hook_mode_preload.abi3.so",
+             ]:
+                 dynlib_path = os.path.join(
+diff --git a/vime/rollout/vllm_rollout.py b/vime/rollout/vllm_rollout.py
+index 7e657e71..c8ac09e5 100644
+--- a/vime/rollout/vllm_rollout.py
++++ b/vime/rollout/vllm_rollout.py
+@@ -5,6 +5,8 @@ import inspect
+ import io
+ import json
+ import logging
++import math
++import os
+ import uuid
+ from argparse import Namespace
+ from collections.abc import Callable
+@@ -42,6 +44,7 @@ _PROCESSOR_PROMPT_KEYS = {"input_ids", "attention_mask"}
+ 
+ # Re-sweep interval while draining; bounds how long a late straggler can run.
+ _ABORT_RESWEEP_INTERVAL_S = 3.0
++_TOP_P_REPLAY_LOGPROBS = 64
+ 
+ 
+ def _coerce_flat_int_token_ids(ids: Any) -> list[int]:
+@@ -177,7 +180,12 @@ def _build_inference_sampling_params(sampling_params: dict[str, Any]) -> dict[st
+         "max_tokens": sampling_params["max_new_tokens"],
+         "temperature": sampling_params["temperature"],
+         "top_p": sampling_params["top_p"],
+-        "logprobs": 1,
++        "logprobs": (
++            _TOP_P_REPLAY_LOGPROBS
++            if float(sampling_params["top_p"]) < 1.0
++            and os.getenv("RL_KERNEL_COMPLETE_SAMPLING_SUPPORT") != "1"
++            else 1
++        ),
+     }
+     tk = sampling_params.get("top_k")
+     if tk is not None and (tk > 0 or tk == -1):
+@@ -195,6 +203,47 @@ def _build_inference_sampling_params(sampling_params: dict[str, Any]) -> dict[st
+     return sp
+ 
+ 
++def _token_id_from_logprob_entry(entry: dict[str, Any]) -> int:
++    token = entry.get("token")
++    if not isinstance(token, str) or not token.startswith("token_id:"):
++        raise RuntimeError(f"unexpected tokens API logprob token {token!r}")
++    return int(token.removeprefix("token_id:"))
++
++
++def _top_p_replay_from_logprobs(
++    content_items: list[Any],
++    *,
++    expected_tokens: int,
++) -> tuple[list[int], list[int]]:
++    if len(content_items) != expected_tokens:
++        raise RuntimeError(
++            "top-p replay logprob rows do not match generated tokens: "
++            f"{len(content_items)} != {expected_tokens}"
++        )
++    token_ids: list[int] = []
++    offsets = [0]
++    for item in content_items:
++        if not isinstance(item, dict):
++            raise RuntimeError("top-p replay logprob row must be an object")
++        retained: dict[int, float] = {}
++        for entry in [item, *(item.get("top_logprobs") or [])]:
++            if not isinstance(entry, dict):
++                continue
++            logprob = float(entry.get("logprob", float("-inf")))
++            if not math.isfinite(logprob) or logprob <= -9990.0:
++                continue
++            retained[_token_id_from_logprob_entry(entry)] = logprob
++        probability_mass = math.fsum(math.exp(value) for value in retained.values())
++        if not math.isclose(probability_mass, 1.0, rel_tol=0.0, abs_tol=2e-4):
++            raise RuntimeError(
++                "top-p nucleus exceeds the compact replay capacity or is incomplete: "
++                f"retained={len(retained)}, probability_mass={probability_mass:.8f}"
++            )
++        token_ids.extend(sorted(retained))
++        offsets.append(len(token_ids))
++    return token_ids, offsets
++
++
+ def _mm_render_response_to_generate_body(render_data: Any, model: str) -> dict[str, Any]:
+     """Turn ``/v1/chat/completions/render`` JSON into a ``/inference/v1/generate`` request body."""
+     if isinstance(render_data, dict) and isinstance(render_data.get("token_ids"), list):
+@@ -359,6 +408,7 @@ async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, A
+     # Parse token_ids and logprobs from vLLM response
+     new_response_tokens = choice.get("token_ids") or []
+     new_response_log_probs: list[float] = []
++    content_items: list[Any] = []
+     lp = choice.get("logprobs")
+     if isinstance(lp, dict):
+         content_items = lp.get("content") or []
+@@ -389,6 +439,14 @@ async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, A
+         meta["prompt_tokens"] = usage.get("prompt_tokens", 0)
+         meta["completion_tokens"] = usage.get("completion_tokens", 0)
+         meta["cached_tokens"] = (usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
++    if (float(sampling_params.get("top_p", 1.0)) < 1.0
++            and os.getenv("RL_KERNEL_COMPLETE_SAMPLING_SUPPORT") != "1"):
++        top_p_token_ids, top_p_token_offsets = _top_p_replay_from_logprobs(
++            content_items,
++            expected_tokens=len(new_response_tokens),
++        )
++        meta["top_p_token_ids"] = top_p_token_ids
++        meta["top_p_token_offsets"] = top_p_token_offsets
+ 
+     # MoE routing replay: vLLM ships routed_experts as a base64 .npy blob on the choice;
+     # decode here and route through meta_info. #183: guard on value (null when replay off).

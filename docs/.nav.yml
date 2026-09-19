@@ -8,6 +8,7 @@ nav:
     - usage/README.md
     - usage/weight-sync-bridge.md
     - usage/grpo-single-gpu-example.md
+    - Qwen3-8B VIME Consistency: usage/qwen3-vime-consistency.md
     - Getting Started:
       - getting_started/quickstart.md
       - getting_started/installation.md

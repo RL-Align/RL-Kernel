@@ -11,6 +11,7 @@ import torch
 import torch.multiprocessing as mp
 
 from rl_engine.executors.deepspeed_trainer import _EmbeddingLMHeadModel, _safe_token_ids
+from rl_engine.kernels.ops.cuda.loss import linear_logp as cuda_linear_logp
 from rl_engine.kernels.ops.pytorch.loss.linear_logp import (
     NativeLinearLogpOp,
     chunked_linear_logp_backward,
@@ -64,6 +65,115 @@ requires_gloo = pytest.mark.skipif(
     not _gloo_available(),
     reason="tensor-parallel linear_logp CPU test requires torch.distributed Gloo.",
 )
+
+
+def test_strict_logp_uses_canonical_virtual_vocab_shards(monkeypatch):
+    class FakeDist:
+        @staticmethod
+        def get_world_size(group=None):
+            return 2
+
+        @staticmethod
+        def get_rank(group=None):
+            return 1
+
+    calls = []
+
+    class FakeExtension:
+        @staticmethod
+        def linear_logp_local_bf16_forward(logits, target, vocab_start):
+            calls.append((logits.clone(), vocab_start))
+            return (
+                torch.full((logits.size(0),), float(vocab_start)),
+                torch.logsumexp(logits.float(), dim=-1),
+            )
+
+    monkeypatch.setenv("RL_KERNEL_STRICT_CANONICAL_TP", "4")
+    monkeypatch.setattr(cuda_linear_logp, "_require_distributed_initialized", lambda: FakeDist())
+    monkeypatch.setattr(cuda_linear_logp, "_C", FakeExtension())
+
+    logits = torch.arange(24, dtype=torch.float32).reshape(3, 8).to(torch.bfloat16)
+    target = torch.tensor([0, 1, 2])
+    local_target, local_lse = cuda_linear_logp._strict_logp_vocab_summaries(
+        logits,
+        target,
+        vocab_start=8,
+        global_vocab=16,
+        tp_group=object(),
+    )
+
+    assert [start for _, start in calls] == [8, 12]
+    assert torch.equal(calls[0][0], logits[:, :4])
+    assert torch.equal(calls[1][0], logits[:, 4:])
+    assert local_target.shape == (2, 3)
+    assert local_lse.shape == (2, 3)
+
+
+def test_strict_logp_canonical_tp_rejects_coarser_partition(monkeypatch):
+    class FakeDist:
+        @staticmethod
+        def get_world_size(group=None):
+            return 4
+
+        @staticmethod
+        def get_rank(group=None):
+            return 0
+
+    monkeypatch.setenv("RL_KERNEL_STRICT_CANONICAL_TP", "2")
+    monkeypatch.setattr(cuda_linear_logp, "_require_distributed_initialized", lambda: FakeDist())
+
+    with pytest.raises(ValueError, match="multiple of physical TP=4"):
+        cuda_linear_logp._strict_logp_vocab_summaries(
+            torch.empty((1, 4), dtype=torch.bfloat16),
+            torch.zeros(1, dtype=torch.long),
+            vocab_start=0,
+            global_vocab=16,
+            tp_group=object(),
+        )
+
+
+def test_strict_logp_pads_to_canonical_vocab_boundaries(monkeypatch):
+    class FakeDist:
+        @staticmethod
+        def get_world_size(group=None):
+            return 1
+
+        @staticmethod
+        def get_rank(group=None):
+            return 0
+
+    calls = []
+
+    class FakeExtension:
+        @staticmethod
+        def linear_logp_local_bf16_forward(logits, target, vocab_start):
+            calls.append((logits.clone(), vocab_start))
+            return (
+                torch.full((logits.size(0),), float(vocab_start)),
+                torch.logsumexp(logits.float(), dim=-1),
+            )
+
+    monkeypatch.setenv("RL_KERNEL_STRICT_CANONICAL_TP", "4")
+    monkeypatch.setenv("RL_KERNEL_STRICT_CANONICAL_VOCAB_SIZE", "20")
+    monkeypatch.setattr(cuda_linear_logp, "_require_distributed_initialized", lambda: FakeDist())
+    monkeypatch.setattr(cuda_linear_logp, "_C", FakeExtension())
+
+    logits = torch.arange(32, dtype=torch.float32).reshape(2, 16).to(torch.bfloat16)
+    target = torch.tensor([0, 1])
+    local_target, local_lse = cuda_linear_logp._strict_logp_vocab_summaries(
+        logits,
+        target,
+        vocab_start=0,
+        global_vocab=16,
+        tp_group=object(),
+    )
+
+    assert [start for _, start in calls] == [0, 5, 10, 15]
+    assert calls[-1][0].shape == (2, 5)
+    assert torch.equal(calls[-1][0][:, :1], logits[:, 15:16])
+    assert torch.isneginf(calls[-1][0][:, 1:]).all()
+    assert local_target.shape == (4, 2)
+    assert local_lse.shape == (4, 2)
 
 
 def _tp_linear_logp_gloo_worker(rank, world_size, init_method, result_queue):

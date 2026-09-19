@@ -65,10 +65,12 @@ def validate_config(config: Mapping[str, Any]) -> None:
     for name, value in expected.items():
         if training.get(name) != value:
             raise ValueError(f"training.{name} must be {value!r}")
-    if rollout.get("top_p") != 1.0:
-        raise ValueError(
-            "rollout.top_p must remain 1.0 for the strict provider contract"
-        )
+    top_p = float(rollout.get("top_p", 1.0))
+    temperature = float(rollout.get("temperature", 1.0))
+    if not 0.0 < top_p <= 1.0:
+        raise ValueError("rollout.top_p must be in (0, 1]")
+    if temperature <= 0.0:
+        raise ValueError("rollout.temperature must be positive")
     if provider.get("mode") != "strict":
         raise ValueError("linear_logp_provider.mode must be strict")
     if (

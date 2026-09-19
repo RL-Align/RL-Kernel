@@ -5,6 +5,118 @@
 > historical audit instructions; they are not the default comparison and the
 > new profile does not enable `--use-rollout-logprobs`.
 
+## CUDA user commands
+
+For a new CUDA user, use the profile-driven CLI instead of copying the
+host-specific historical commands later in this file. Set the model path and
+workspace once; do not edit `run_arm.py`, VIME scripts, or shell launchers:
+
+```bash
+python3 -m pip install -e .
+
+export RLK_REPRO_WORKSPACE=/data/rlk-repro
+export RLK_REPRO_MODEL_ROOT=/models/Qwen3-8B
+
+rlk-repro prepare \
+  --workspace "$RLK_REPRO_WORKSPACE" \
+  --download-data \
+  --convert-checkpoint
+
+ray start --head \
+  --include-dashboard=true \
+  --dashboard-host=127.0.0.1 \
+  --num-gpus=8 \
+  --object-store-memory=200000000000
+
+rlk-repro doctor --workspace "$RLK_REPRO_WORKSPACE"
+rlk-repro plan \
+  --workspace "$RLK_REPRO_WORKSPACE" \
+  --mode consistency
+
+rlk-repro run \
+  --workspace "$RLK_REPRO_WORKSPACE" \
+  --mode native \
+  --rollouts 8 \
+  --wait
+rlk-repro run \
+  --workspace "$RLK_REPRO_WORKSPACE" \
+  --mode consistency \
+  --rollouts 8 \
+  --wait
+```
+
+The default is training TP4/CP2 with two TP4/CP1 rollout engines. A validated
+short CUDA probe for training TP2/CP4 reuses the same rollout layout:
+
+```bash
+rlk-repro plan \
+  --workspace "$RLK_REPRO_WORKSPACE" \
+  --mode consistency \
+  --tp-size 2 \
+  --cp-size 4 \
+  --rollout-tp-size 4 \
+  --rollout-cp-size 1
+
+rlk-repro run \
+  --workspace "$RLK_REPRO_WORKSPACE" \
+  --mode consistency \
+  --tp-size 2 \
+  --cp-size 4 \
+  --rollout-tp-size 4 \
+  --rollout-cp-size 1 \
+  --rollouts 8 \
+  --wait
+```
+
+On September 19, 2026, one-round strict smokes completed with zero mean/max
+train–rollout LogP difference and zero mismatches for all four eight-GPU
+training factorizations: TP1/CP8, TP2/CP4, TP4/CP2, and TP8/CP1, each with a
+TP4/CP1 rollout. TP4/CP2 training also passed with TP2/CP1 and TP8/CP1
+rollouts. These are correctness smokes, not yet long-run convergence or
+statistically controlled performance results. Rollout TP1 and rollout CP
+greater than 1 remain pending.
+
+TP1/CP8 needs less rollout KV capacity because every GPU holds a full actor
+shard. The user-facing launcher automatically selects vLLM memory utilization
+`0.2` for training TP1 and `0.4` for the other CUDA training topologies.
+
+### How non-default CUDA topology reuses TP4/CP2
+
+The implementation keeps a canonical virtual TP partition instead of adding a
+separate operator implementation for each physical topology. For TP2/CP4
+training against TP4 rollout, every TP2 rank owns two TP4 virtual shards:
+
+- Attention output projection evaluates the TP4-width partials separately;
+- FFN gate, up, and down projections use the TP4 shard widths and reduction
+  tree;
+- logp emits TP4 vocabulary summaries and merges them in fixed global-vocab
+  order;
+- CP changes token placement, while strict Attention reconstructs global
+  positions before computation.
+
+The reference TP4/CP2 path still has one virtual shard per physical rank, so
+the default command keeps its original kernels and launch structure.
+Coarser-TP layouts introduce additional launches and therefore require a
+separate performance measurement. TP8 canonical execution is also implemented
+in the vLLM QKV projection, output projection, packed FFN, and logp padding
+contract. Rollout CP greater than 1 still needs vLLM PCP integration; passing
+CLI validation alone is not evidence of bitwise support.
+
+The one-round 256-token smoke rates were:
+
+| Training | Rollout | Train tokens/s | Rollout tokens/GPU/s |
+|---|---|---:|---:|
+| TP4/CP2 | TP4/CP1 | 1292 | 71.7 |
+| TP2/CP4 | TP4/CP1 | 1195 | 71.6 |
+| TP1/CP8 | TP4/CP1 | 882 | 71.9 |
+| TP8/CP1 | TP4/CP1 | 1328 | 52.7 |
+| TP4/CP2 | TP2/CP1 | 1292 | 45.1 |
+| TP4/CP2 | TP8/CP1 | not recorded | 51.8 |
+
+Treat these as smoke diagnostics only. The TP4/CP2 hot path has no additional
+canonical launches; other topologies trade additional launches and different
+communication/concurrency for their requested parallel layout.
+
 This runbook records the commands used for the 200-step G10/G11 experiment and
 the commands used to analyse its performance. Run every training replica under
 a **new** run ID. The published G11 run
@@ -309,8 +421,19 @@ CUDA runbook requires `nvidia-smi`, CUDA Graph evidence, and Transformer Engine
 libraries. The maintained ROCm launchers remain available, but their commands
 are documented here so the repository has one command index:
 
+The current user-facing full-path pair is documented in the
+[Qwen3-8B consistency guide](../../docs/usage/qwen3-vime-consistency.md#rocm-mi300x-and-gfx942)
+and runs with:
+
 ```bash
-# Full ROCm VIME operator matrix (P/P, P/R, R/P, R/R)
+python -m examples.vime_rocm_attention_ablation.run_qwen3_8b --help
+```
+
+The following commands are operator-attribution matrices, not replacements for
+that full `native` / `consistency` pair:
+
+```bash
+# Attention P/R matrix with FFN and logp fixed to production
 python examples/vime_qwen3_8b_rocm_ablation/run.py \
   --run \
   --output-dir /tmp/rocm-vime-ablation \

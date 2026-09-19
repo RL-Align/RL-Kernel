@@ -1,0 +1,21 @@
+#!/usr/bin/env python3
+"""Use the locally configured runtime, then delegate to the normal CLI."""
+import json
+import os
+import sys
+from pathlib import Path
+
+root = Path(__file__).resolve().parent
+profile = Path(os.environ.get("RLK_REPRO_PROFILE", root / ".rlk-profile.json"))
+python = sys.executable
+if profile.is_file():
+    config = json.loads(profile.read_text(encoding="utf-8"))
+    python = config.get("paths", {}).get("python") or python
+    os.environ["RLK_REPRO_PROFILE"] = str(profile)
+    if config.get("ray_address"):
+        os.environ.setdefault("RAY_API_SERVER_ADDRESS", config["ray_address"])
+    extras = [str(root)] + [str(config.get("paths", {}).get(k) or "")
+                            for k in ("runtime_site", "cuda_python_site", "te_root")]
+    extras.append(os.environ.get("PYTHONPATH", ""))
+    os.environ["PYTHONPATH"] = os.pathsep.join(p for p in extras if p)
+os.execv(python, [python, str(root / "rl_engine/repro.py"), *sys.argv[1:]])

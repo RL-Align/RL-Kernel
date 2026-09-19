@@ -58,6 +58,21 @@ from rl_engine.kernels.ops.cuda.attention.strict_runtime import (
 )
 
 
+def test_vllm_tp1_ffn_reports_no_physical_collective(monkeypatch):
+    monkeypatch.setattr(framework_operators, "_vllm_tp_coordinates", lambda: (1, 0, None))
+    backend = SimpleNamespace(prepare_packed_inference=lambda *args, **kwargs: (0, 1))
+    handle = SimpleNamespace(get=lambda *args, **kwargs: backend, provenance={})
+    operator = framework_operators.VllmFFNOperator(handle)
+    module = SimpleNamespace(
+        gate_up_proj=SimpleNamespace(weight=torch.zeros(8, 4)),
+        down_proj=SimpleNamespace(weight=torch.zeros(4, 4)),
+    )
+    assert operator.bind_packed_inference(module) == (0, 1)
+    execution = operator.provenance["execution"]
+    assert execution["tp_world_size"] == 1
+    assert execution["deterministic_all_reduce_backend"] == "none"
+
+
 def test_torch_dist_object_compatibility_deserializes_scalar_bytes_io(monkeypatch):
     strategy_name = "megatron.core.dist_checkpointing.strategies.torch"
     strategy = ModuleType(strategy_name)
@@ -705,6 +720,63 @@ def test_megatron_te_attention_projection_uses_injected_strict_tp_reduce():
     assert torch.equal(output, value * 4)
 
 
+def test_megatron_attention_tp2_projection_reuses_canonical_tp4_subtrees(monkeypatch):
+    calls = []
+
+    class ColumnLinear:
+        def __init__(self):
+            self.layer_norm_weight = torch.ones(4)
+            self.weight = torch.eye(4)
+
+        def _forward_impl(self, input, weight, *args, **kwargs):
+            del args, kwargs
+            return input @ weight.t()
+
+    class RowLinear:
+        def __init__(self):
+            self.weight = torch.arange(8, dtype=torch.float32).reshape(2, 4)
+
+        def _forward_impl(self, input, weight, *args, **kwargs):
+            del args, kwargs
+            return input @ weight.t()
+
+    class SelfAttention:
+        def __init__(self):
+            self.linear_qkv = ColumnLinear()
+            self.linear_proj = RowLinear()
+
+    def det_gemm(lhs, rhs):
+        calls.append((lhs.clone(), rhs.clone()))
+        return lhs @ rhs
+
+    monkeypatch.setenv("RL_KERNEL_STRICT_CANONICAL_TP", "4")
+    monkeypatch.setattr(
+        "rl_engine.integrations.megatron_runtime._module_tp_group",
+        lambda module: object(),
+    )
+    monkeypatch.setattr(
+        "rl_engine.integrations.megatron_runtime._tp_world_size",
+        lambda group: 2,
+    )
+    _patch_strict_attention_projections(
+        self_attention_cls=SelfAttention,
+        column_linear_cls=ColumnLinear,
+        row_linear_cls=RowLinear,
+        det_gemm=det_gemm,
+        copy_to_tp=lambda value: value,
+        reduce_from_tp=lambda value: value,
+    )
+    attention = SelfAttention()
+    value = torch.arange(4, dtype=torch.float32).reshape(1, 4)
+
+    output, bias = attention.linear_proj.forward(value)
+
+    assert bias is None
+    assert torch.equal(output, value @ attention.linear_proj.weight.t())
+    assert len(calls) == 2
+    assert all(lhs.size(1) == 2 and rhs.size(0) == 2 for lhs, rhs in calls)
+
+
 def test_megatron_deterministic_tp_reduce_keeps_identity_backward(monkeypatch):
     class Collective:
         def all_reduce(self, value):
@@ -781,21 +853,127 @@ def test_vllm_qwen3_strict_model_installs_without_debug_environment(monkeypatch)
     )
 
 
+def test_vllm_tp4_attention_projections_reuse_tp8_shards(monkeypatch):
+    calls = []
+
+    class RMSNorm:
+        def __init__(self):
+            self.variance_size_override = None
+            self.has_weight = True
+            self.weight = torch.ones(4)
+            self.variance_epsilon = 1e-6
+
+        def forward_cuda(self, x, residual=None):
+            del residual
+            return x
+
+        def forward_native(self, x, residual=None):
+            del residual
+            return x
+
+    class QKVLayer:
+        tp_size = 4
+        output_partition_sizes = [8, 2, 2]
+
+        def __init__(self):
+            self.weight = torch.arange(48, dtype=torch.float32).reshape(12, 4)
+
+    class OutputLayer:
+        tp_size = 4
+
+        def __init__(self):
+            self.weight = torch.arange(32, dtype=torch.float32).reshape(4, 8)
+
+    class LinearMethod:
+        def apply(self, layer, x, bias=None):
+            del bias
+            return x.new_full((*x.shape[:-1], layer.weight.shape[0]), -1)
+
+    class Attention:
+        def __init__(self):
+            self.qkv_proj = QKVLayer()
+            self.o_proj = OutputLayer()
+
+    class DeterministicGemm:
+        @staticmethod
+        def linear(lhs, weight, out=None):
+            calls.append(tuple(weight.shape))
+            result = lhs @ weight.t()
+            if out is not None:
+                out.copy_(result)
+                return out
+            return result
+
+    class Collective:
+        backend_id = "test.fixed_tree"
+        _handle = 1
+
+        @staticmethod
+        def prepare_direct_staging_views(shapes, dtype):
+            list(shapes)
+            del dtype
+
+        @staticmethod
+        def direct_staging_view(shape, dtype):
+            del shape, dtype
+            return None
+
+    coordinator = SimpleNamespace(device_group=object())
+    vllm_module = ModuleType("vllm")
+    distributed_module = ModuleType("vllm.distributed")
+    parallel_state_module = ModuleType("vllm.distributed.parallel_state")
+    parallel_state_module.get_tp_group = lambda: coordinator
+    distributed_module.parallel_state = parallel_state_module
+    vllm_module.distributed = distributed_module
+    monkeypatch.setitem(sys.modules, "vllm", vllm_module)
+    monkeypatch.setitem(sys.modules, "vllm.distributed", distributed_module)
+    monkeypatch.setitem(
+        sys.modules,
+        "vllm.distributed.parallel_state",
+        parallel_state_module,
+    )
+    monkeypatch.setenv("RL_KERNEL_STRICT_CANONICAL_TP", "8")
+    monkeypatch.setenv("RL_KERNEL_VLLM_CUDAGRAPH_MAX_CAPTURE_SIZE", "4")
+    monkeypatch.setattr(
+        "rl_engine.integrations.vllm_runtime.collective_for_group",
+        lambda group: Collective(),
+    )
+
+    _patch_qwen3_strict_model(
+        rms_norm_cls=RMSNorm,
+        linear_method_cls=LinearMethod,
+        attention_cls=Attention,
+        det_gemm=DeterministicGemm(),
+    )
+    attention = Attention()
+    method = LinearMethod()
+    hidden = torch.arange(4, dtype=torch.float32).reshape(1, 4)
+    attention_core = torch.arange(8, dtype=torch.float32).reshape(1, 8)
+
+    qkv = method.apply(attention.qkv_proj, hidden)
+    output = method.apply(attention.o_proj, attention_core)
+
+    assert torch.equal(qkv, hidden @ attention.qkv_proj.weight.t())
+    assert torch.equal(output, attention_core @ attention.o_proj.weight.t())
+    assert calls == [(6, 4), (6, 4), (4, 4), (4, 4)]
+
+
 def test_vllm_rocm_rotary_reuses_one_table_for_query_and_key(monkeypatch):
     calls = []
 
     class FakeOperator:
-        def __call__(self, value, positions):
-            calls.append(("single", tuple(value.shape), positions.clone()))
-            return value + 1
+        def build_position_table(self, max_positions, head_size, *, device, theta):
+            calls.append(("table", max_positions, head_size))
+            return torch.ones(8, 2), torch.zeros(8, 2)
 
-        def forward_pair(self, query, key, positions):
-            calls.append(("pair", tuple(query.shape), tuple(key.shape), positions.clone()))
-            return query + 2, key + 3
+        def forward_token_major(self, value, positions, cos, sin, *, head_dim):
+            calls.append(("apply", tuple(value.shape), cos, sin))
+            return value + 1
 
     class Rotary:
         head_size = 4
         rotary_dim = 4
+        max_position_embeddings = 8
 
         def forward_cuda(self, positions, query, key=None):
             return query, key
@@ -812,15 +990,17 @@ def test_vllm_rocm_rotary_reuses_one_table_for_query_and_key(monkeypatch):
     key = torch.arange(8, dtype=torch.float32).reshape(2, 4)
 
     query_out, key_out = rotary.forward_cuda(positions, query, key)
-    assert torch.equal(query_out, query + 2)
-    assert torch.equal(key_out, key + 3)
-    assert calls[0][0] == "pair"
-    assert calls[0][1:3] == ((3, 2, 4), (1, 2, 4))
+    assert torch.equal(query_out, query + 1)
+    assert torch.equal(key_out, key + 1)
+    assert calls[0] == ("table", 8, 4)
+    assert calls[1][2] is calls[2][2]
+    assert calls[1][3] is calls[2][3]
 
     query_only, absent_key = rotary.forward_cuda(positions, query)
     assert torch.equal(query_only, query + 1)
     assert absent_key is None
-    assert calls[1][0] == "single"
+    assert [call[0] for call in calls] == ["table", "apply", "apply", "apply"]
+    assert calls[3][2] is calls[1][2]
 
 
 def test_vllm_logp_replaces_every_duplicate_sampled_token_column():

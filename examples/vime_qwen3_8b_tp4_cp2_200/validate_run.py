@@ -25,11 +25,8 @@ EXPECTED_FIXED_TOPOLOGY = {
     "gpus": 8,
     "actor_gpus": 8,
     "rollout_gpus": 8,
-    "tp": 4,
-    "cp": 2,
     "pp": 1,
     "colocate": True,
-    "offload_train": False,
     "offload_rollout": True,
 }
 CASE_FIELDS = {
@@ -52,16 +49,36 @@ CUDA_GRAPH_LAUNCHER_MARKERS = (
 
 def _validate_topology(value: Any) -> list[str]:
     if not isinstance(value, Mapping):
-        return ["manifest does not contain the required TP4/CP2 colocated topology"]
+        return ["manifest does not contain the required colocated topology"]
     errors = [
         f"manifest topology {key}={value.get(key)!r}, expected {expected!r}"
         for key, expected in EXPECTED_FIXED_TOPOLOGY.items()
         if value.get(key) != expected
     ]
     rollout_gpus = value.get("rollout_gpus")
+    actor_gpus = value.get("actor_gpus")
+    tensor_parallel = value.get("tp")
+    context_parallel = value.get("cp")
+    if (
+        not isinstance(actor_gpus, int)
+        or not isinstance(tensor_parallel, int)
+        or not isinstance(context_parallel, int)
+        or tensor_parallel <= 0
+        or context_parallel <= 0
+        or tensor_parallel * context_parallel != actor_gpus
+    ):
+        errors.append("manifest training tp * cp must equal actor_gpus")
+    elif any(size % tensor_parallel for size in (32, 8, 152064)):
+        errors.append("manifest training tp does not divide Qwen3-8B heads/groups/vocabulary")
     rollout_gpus_per_engine = value.get("rollout_gpus_per_engine")
     rollout_cp = value.get("rollout_cp", 1)
     rollout_tp = value.get("rollout_tp", rollout_gpus_per_engine)
+    expected_offload = tensor_parallel == 1 and rollout_tp == 1 and rollout_cp == 1
+    if not isinstance(value.get("offload_train"), bool) or value["offload_train"] != expected_offload:
+        errors.append(
+            f"manifest topology offload_train={value.get('offload_train')!r}, "
+            f"expected {expected_offload!r} for training TP{tensor_parallel}/rollout TP{rollout_tp}"
+        )
     rollout_engines = value.get("rollout_engines")
     if (
         not isinstance(rollout_gpus, int)
@@ -79,7 +96,7 @@ def _validate_topology(value: Any) -> list[str]:
         )
     elif rollout_engines != rollout_gpus // rollout_gpus_per_engine:
         errors.append(
-            "manifest rollout_engines does not match " "rollout_gpus // rollout_gpus_per_engine"
+            "manifest rollout_engines does not match rollout_gpus // rollout_gpus_per_engine"
         )
     return errors
 
@@ -124,7 +141,17 @@ def _parse_runtime_records(log_text: str) -> dict[str, dict[int, dict[str, Any]]
         if not match:
             continue
         try:
-            value = ast.literal_eval(match.group(3))
+            # Keep nonfinite records so the acceptance gate can explain the
+            # failure instead of silently dropping an entire training step.
+            tree = ast.parse(match.group(3), mode="eval")
+
+            class NonfiniteConstants(ast.NodeTransformer):
+                def visit_Name(self, node):
+                    if node.id in {"inf", "nan"}:
+                        return ast.copy_location(ast.Constant(float(node.id)), node)
+                    return node
+
+            value = ast.literal_eval(NonfiniteConstants().visit(tree))
         except (SyntaxError, ValueError):
             continue
         if isinstance(value, dict):
@@ -320,6 +347,9 @@ def _validate_runtime_logprobs(
     rows: list[dict[str, Any]] = []
     for step in sorted(records):
         record = records[step]
+        for key, value in record.items():
+            if isinstance(value, (int, float)) and not math.isfinite(value):
+                errors.append(f"step {step} {key} is nonfinite: {value}")
         mismatch = _numeric(
             record.get("train/train_current_rollout_logprob_mismatch_count"),
             f"step {step} mismatch_count",
@@ -355,8 +385,8 @@ def _validate_runtime_logprobs(
                 "vime_mean_active_tokens_per_sample": numel,
             }
         )
-    if len(rows) != expected_rounds:
-        errors.append(f"observed {len(rows)} train steps, expected {expected_rounds}")
+    if sorted(records) != list(range(expected_rounds)):
+        errors.append(f"observed steps {sorted(records)}, expected 0..{expected_rounds - 1}")
     bitwise_zero = bool(rows) and all(
         row["bitwise_mismatch_count"] == 0.0 and row["max_abs_dlogp"] == 0.0 for row in rows
     )
@@ -412,7 +442,7 @@ def validate_run(run_dir: Path) -> dict[str, Any]:
         records["step"],
         int(manifest["num_rollout"]),
         int(manifest["batching"]["global_batch_size"]),
-        False,
+        require_zero,
     )
     logprobs = _compare_mismatch_sidecars(
         run_dir / "mismatch-sidecars",
@@ -420,10 +450,36 @@ def validate_run(run_dir: Path) -> dict[str, Any]:
         tensor_parallel_size=int(manifest["topology"]["tp"]),
         context_parallel_size=int(manifest["topology"]["cp"]),
     )
-    global_errors = []
+    global_errors = list(runtime_logprobs["errors"])
+    status_path = run_dir / "ray-status.txt"
+    status_text = status_path.read_text(errors="replace") if status_path.is_file() else ""
+    status_text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", status_text)
+    if not re.search(r"\bSUCCEEDED\b", status_text, re.IGNORECASE):
+        global_errors.append("final Ray job status is missing or is not SUCCEEDED")
+    expected_samples = int(manifest["num_rollout"]) * int(manifest["batching"]["global_batch_size"])
+    if logprobs.get("sample_count") != expected_samples:
+        global_errors.append(
+            f"sidecar samples {logprobs.get('sample_count')} != expected {expected_samples}"
+        )
+    expected_tokens = runtime_logprobs["total_active_token_exposure"]
+    if logprobs.get("element_count") != expected_tokens:
+        global_errors.append(
+            f"sidecar tokens {logprobs.get('element_count')} != runtime exposure {expected_tokens}"
+        )
     algorithm = manifest.get("algorithm", {})
     if not isinstance(algorithm, Mapping) or algorithm.get("advantage_estimator") != "grpo":
         global_errors.append("manifest does not explicitly select GRPO")
+    if isinstance(algorithm, Mapping) and algorithm.get("require_updates"):
+        weight_records = [_load_json(p) for p in sorted((run_dir / "weight-audit").glob("*.json"))]
+        if len(weight_records) < 2 or len({r.get("sha256") for r in weight_records}) < 2:
+            global_errors.append("exported weight tensor did not demonstrate a real update")
+        update_rows = list(records["step"].values())
+        if len(update_rows) < 2:
+            global_errors.append("weight-update verification requires at least two steps")
+        if not update_rows or any(float(r.get("train/lr-pg_0", 0)) <= 0 for r in update_rows):
+            global_errors.append("weight-update verification requires positive learning rates")
+        if not any(float(r.get("train/grad_norm", 0)) > 0 for r in update_rows):
+            global_errors.append("weight-update verification observed no nonzero gradient")
     train_command = manifest.get("train_command", [])
     expected_algorithm_pair = ["--advantage-estimator", "grpo"]
     if not isinstance(train_command, list) or not any(
@@ -437,8 +493,8 @@ def validate_run(run_dir: Path) -> dict[str, Any]:
     required_command_pairs = [
         ("--actor-num-gpus-per-node", "8"),
         ("--rollout-num-gpus", "8"),
-        ("--tensor-model-parallel-size", "4"),
-        ("--context-parallel-size", "2"),
+        ("--tensor-model-parallel-size", str(topology.get("tp", ""))),
+        ("--context-parallel-size", str(topology.get("cp", ""))),
         (
             "--rollout-num-gpus-per-engine",
             str(topology.get("rollout_gpus_per_engine", "")),
@@ -460,8 +516,14 @@ def validate_run(run_dir: Path) -> dict[str, Any]:
                 global_errors.append(f"train command does not contain {flag} {value}")
         if "--colocate" not in train_command:
             global_errors.append("train command does not enable colocated execution")
-        if "--no-offload-train" not in train_command:
-            global_errors.append("train command does not keep the TP4 actor resident")
+        offload_flag = "--offload-train" if topology.get("offload_train") else "--no-offload-train"
+        if offload_flag not in train_command:
+            global_errors.append(f"train command does not contain {offload_flag}")
+        if (
+            not arm.get("framework_use_rollout_logprobs")
+            and "--use-rollout-logprobs" in train_command
+        ):
+            global_errors.append("no-reuse arm unexpectedly enables rollout-logprob reuse")
         if "--offload-rollout" not in train_command:
             global_errors.append("train command does not offload rollout during training")
         training_logp_implementation = _side(str(arm["logp_case"]), "training")
@@ -502,7 +564,11 @@ def validate_run(run_dir: Path) -> dict[str, Any]:
         "run_id": manifest.get("run_id"),
         "group": arm.get("group"),
         "passed": bool(
-            cudagraph["passed"] and readbacks["passed"] and logprobs["passed"] and not global_errors
+            cudagraph["passed"]
+            and readbacks["passed"]
+            and logprobs["passed"]
+            and runtime_logprobs["passed"]
+            and not global_errors
         ),
         "errors": global_errors,
         "cudagraph": cudagraph,

@@ -16,6 +16,7 @@ from typing import Any
 import torch
 
 from rl_engine.integrations.ablation import Implementation, IntegrationPlan
+from rl_engine.integrations import canonical_cp
 from rl_engine.integrations.framework_operators import (
     _MEGATRON_TP_OUTPUT_PROJECTION_COLLECTIVE_ATTR,
     _MEGATRON_TP_QKV_DGRAD_COLLECTIVE_ATTR,
@@ -259,15 +260,18 @@ def _strict_rocm_rope_positions(
             raise RuntimeError("strict ROCm THD RoPE received invalid cu_seqlens")
         exact_global_freqs = int(freqs.size(0)) == values[-1]
         positions: list[int] = []
-        for index, (start, end) in enumerate(zip(values[:-1], values[1:], strict=True)):
+        for start, end in zip(values[:-1], values[1:], strict=True):
             length = end - start
             if length <= 0 or length % cp_size:
                 raise RuntimeError("strict ROCm THD RoPE sequence length is not CP divisible")
+            base = start if exact_global_freqs else 0
+            if cp_size == 1:
+                positions.extend(range(base, base + length))
+                continue
             local = length // cp_size
             if local % 2:
                 raise RuntimeError("strict ROCm THD RoPE local length must be even")
             half = local // 2
-            base = start if exact_global_freqs else 0
             positions.extend(range(base + cp_rank * half, base + (cp_rank + 1) * half))
             second = 2 * cp_size - cp_rank - 1
             positions.extend(range(base + second * half, base + (second + 1) * half))
@@ -484,6 +488,69 @@ def _collective_backend_id(collective: Any | None) -> str:
     return backend_id.strip()
 
 
+def _canonical_column_input_gradient(
+    grad_output: torch.Tensor, weight: torch.Tensor, tp_world: int,
+) -> torch.Tensor:
+    """Produce a canonical TP subtree before the physical BF16 reduction.
+
+    A GEMM over an entire physical shard rounds once, whereas the same
+    shard split across two ranks rounds each leaf before summing. Preserve
+    the latter schedule at every physical TP size, including padded rows.
+    """
+    from rl_engine.kernels.ops.matmul.det_gemm import det_gemm_linear_input_gradient
+
+    canonical = int(os.getenv("RL_KERNEL_STRICT_CANONICAL_TP", str(tp_world)))
+    if tp_world < 1 or canonical < tp_world or canonical % tp_world:
+        raise ValueError("canonical TP must be a positive multiple of physical TP")
+    chunks = canonical // tp_world
+    if chunks & (chunks - 1):
+        raise ValueError("canonical TP chunks must form a balanced binary tree")
+    if weight.size(0) != grad_output.size(-1) or weight.size(0) % chunks:
+        raise ValueError("column gradient shard does not divide canonical TP")
+    if chunks == 1:
+        return det_gemm_linear_input_gradient(grad_output, weight)
+    width = weight.size(0) // chunks
+    partials = [
+        det_gemm_linear_input_gradient(
+            grad_output.narrow(-1, i * width, width).contiguous(),
+            weight.narrow(0, i * width, width).contiguous(),
+        )
+        for i in range(chunks)
+    ]
+    while len(partials) > 1:
+        partials = [partials[i] + partials[i + 1] for i in range(0, len(partials), 2)]
+    return partials[0]
+
+
+class _CanonicalColumnProjection(torch.autograd.Function):
+    """Keep column dgrad leaves fixed for both TE and ordinary QKV modules."""
+
+    @staticmethod
+    def forward(ctx, input_2d, weight, linear, tp_world):
+        ctx.save_for_backward(input_2d, weight)
+        ctx.tp_world = tp_world
+        ctx.cp_layout = canonical_cp.current_layout()
+        return linear(input_2d, weight)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        from rl_engine.kernels.ops.matmul.det_gemm import det_gemm_linear_weight_gradient
+
+        input_2d, weight = ctx.saved_tensors
+        grad_output = grad_output.contiguous()
+        grad_input = (
+            _canonical_column_input_gradient(grad_output, weight, ctx.tp_world)
+            if ctx.needs_input_grad[0] else None
+        )
+        grad_weight = (
+            canonical_cp.weight_gradient(
+                input_2d, grad_output, ctx.cp_layout,
+                chunks=int(os.getenv("RL_KERNEL_STRICT_CANONICAL_TP", str(ctx.tp_world))) // ctx.tp_world,
+            ) if ctx.needs_input_grad[1] else None
+        )
+        return grad_input, grad_weight, None, None
+
+
 class _DeterministicTPOutputProjection(torch.autograd.Function):
     """Materialize the strict TP LM head once and preserve its dgrad contract."""
 
@@ -514,6 +581,7 @@ class _DeterministicTPOutputProjection(torch.autograd.Function):
         ctx.bias_dtype = None if bias is None else bias.dtype
         ctx.has_bias = bias is not None
         ctx.tp_group = tp_group
+        ctx.cp_layout = canonical_cp.current_layout()
         if ctx.batch_major:
             return (
                 output_2d.reshape(input_value.shape[1], input_value.shape[0], weight.size(0))
@@ -526,7 +594,6 @@ class _DeterministicTPOutputProjection(torch.autograd.Function):
     def backward(ctx: Any, grad_output: torch.Tensor):
         from rl_engine.kernels.ops.cuda.loss.linear_logp import _deterministic_tp_all_reduce_
         from rl_engine.kernels.ops.matmul.det_gemm import (
-            det_gemm_linear_input_gradient,
             det_gemm_linear_weight_gradient,
         )
 
@@ -539,7 +606,9 @@ class _DeterministicTPOutputProjection(torch.autograd.Function):
             raise TypeError("strict TP LM-head backward requires BF16 dlogits")
         grad_input = grad_weight = grad_bias = None
         if ctx.needs_input_grad[0]:
-            grad_input = det_gemm_linear_input_gradient(dlogits, weight)
+            grad_input = _canonical_column_input_gradient(
+                dlogits, weight, _tp_world_size(ctx.tp_group)
+            )
             _deterministic_tp_all_reduce_(grad_input, ctx.tp_group)
             if ctx.batch_major:
                 grad_input = (
@@ -551,7 +620,11 @@ class _DeterministicTPOutputProjection(torch.autograd.Function):
                 grad_input = grad_input.reshape(ctx.input_shape)
             grad_input = grad_input.to(ctx.input_dtype)
         if ctx.needs_input_grad[1]:
-            grad_weight = det_gemm_linear_weight_gradient(input_2d, dlogits).to(ctx.weight_dtype)
+            tp_world = _tp_world_size(ctx.tp_group)
+            grad_weight = canonical_cp.weight_gradient(
+                input_2d, dlogits, ctx.cp_layout,
+                chunks=int(os.getenv("RL_KERNEL_STRICT_CANONICAL_TP", str(tp_world))) // tp_world,
+            ).to(ctx.weight_dtype)
         if ctx.has_bias and ctx.needs_input_grad[2]:
             grad_bias = dlogits.float().sum(dim=0).to(ctx.bias_dtype)
         return grad_input, grad_weight, grad_bias, None
@@ -637,15 +710,60 @@ def _patch_strict_attention_projections(
         input_value: torch.Tensor,
         weight: torch.Tensor,
         bias: torch.Tensor | None,
+        *,
+        column_tp_world: int | None = None,
     ) -> torch.Tensor:
-        input_2d = input_value.reshape(-1, input_value.shape[-1])
+        input_2d = input_value.reshape(-1, input_value.shape[-1]).contiguous()
         linear = getattr(det_gemm, "linear", None)
+        if linear is None:
+            linear = lambda x, w: det_gemm(x, w.t().contiguous())
         output_2d = (
-            linear(input_2d, weight)
-            if linear is not None
-            else det_gemm(input_2d, weight.t().contiguous())
+            _CanonicalColumnProjection.apply(input_2d, weight, linear, column_tp_world)
+            if column_tp_world is not None
+            else canonical_cp.CPRowLinear.apply(input_2d, weight, linear, canonical_cp.current_layout())
+            if canonical_cp.current_layout() is not None
+            else linear(input_2d, weight)
         )
         output = output_2d.reshape(*input_value.shape[:-1], weight.shape[0])
+        return output if bias is None else output + bias
+
+    def deterministic_output_projection(
+        module: Any,
+        input_value: torch.Tensor,
+        weight: torch.Tensor,
+        bias: torch.Tensor | None,
+    ) -> torch.Tensor:
+        """Use the configured canonical TP tree for row-parallel projection."""
+
+        tp_world = _tp_world_size(_module_tp_group(module))
+        canonical_tp = int(os.getenv("RL_KERNEL_STRICT_CANONICAL_TP", str(tp_world)))
+        if canonical_tp < tp_world or canonical_tp % tp_world:
+            raise RuntimeError(
+                "RL_KERNEL_STRICT_CANONICAL_TP must be a positive multiple of "
+                f"Attention TP={tp_world}, got {canonical_tp}"
+            )
+        chunks = canonical_tp // tp_world
+        if chunks == 1:
+            return deterministic_projection(input_value, weight, bias)
+        if input_value.size(-1) % chunks or weight.size(1) != input_value.size(-1):
+            raise RuntimeError(
+                "strict Attention output projection cannot form canonical TP chunks"
+            )
+        chunk_width = input_value.size(-1) // chunks
+        partials = [
+            deterministic_projection(
+                input_value.narrow(-1, chunk * chunk_width, chunk_width).contiguous(),
+                weight.narrow(1, chunk * chunk_width, chunk_width).contiguous(),
+                None,
+            )
+            for chunk in range(chunks)
+        ]
+        while len(partials) > 1:
+            partials = [
+                partials[index] + partials[index + 1]
+                for index in range(0, len(partials), 2)
+            ]
+        output = partials[0]
         return output if bias is None else output + bias
 
     def record_collective_backend(core_attention: Any, attribute: str, backend: str) -> None:
@@ -732,7 +850,10 @@ def _patch_strict_attention_projections(
         copied = strict_tp_copy(module, core_attention, input_value)
         skip_bias_add = bool(getattr(module, "skip_bias_add", False))
         bias = None if skip_bias_add else getattr(module, "bias", None)
-        output = deterministic_projection(copied, selected_weight, bias)
+        output = deterministic_projection(
+            copied, selected_weight, bias,
+            column_tp_world=_tp_world_size(_module_tp_group(module)),
+        )
         return output, getattr(module, "bias", None) if skip_bias_add else None
 
     def local_projection_forward(
@@ -745,7 +866,7 @@ def _patch_strict_attention_projections(
         if not isinstance(weight, torch.Tensor):
             raise RuntimeError("strict Attention output projection requires an allocated weight")
         core_attention = getattr(module, _STRICT_ATTENTION_CORE_MARKER, None)
-        output = deterministic_projection(input_value, weight, None)
+        output = deterministic_output_projection(module, input_value, weight, None)
         output = strict_tp_reduce(module, core_attention, output)
         skip_bias_add = bool(getattr(module, "skip_bias_add", False))
         bias = getattr(module, "bias", None)
@@ -755,6 +876,10 @@ def _patch_strict_attention_projections(
 
     def attention_init_wrapped(instance: Any, *args: Any, **kwargs: Any) -> None:
         attention_init(instance, *args, **kwargs)
+        for norm_name in ("q_layernorm", "k_layernorm"):
+            norm = getattr(instance, norm_name, None)
+            if norm is not None:
+                norm._rlk_sharded_heads = True
         qkv = instance.linear_qkv
         projection = instance.linear_proj
         core_attention = getattr(instance, "core_attention", None)
@@ -795,10 +920,15 @@ def _patch_strict_attention_projections(
             def te_qkv_forward(module: Any, input_value: torch.Tensor) -> Any:
                 normalized = _fused_rms_norm_input(module, input_value, "linear_qkv")
                 normalized = strict_tp_copy(module, core_attention, normalized)
-                return deterministic_projection(normalized, module.weight, None), None
+                return deterministic_projection(
+                    normalized, module.weight, None,
+                    column_tp_world=_tp_world_size(_module_tp_group(module)),
+                ), None
 
             def te_projection_forward(module: Any, input_value: torch.Tensor) -> Any:
-                output = deterministic_projection(input_value, module.weight, None)
+                output = deterministic_output_projection(
+                    module, input_value, module.weight, None
+                )
                 return strict_tp_reduce(module, core_attention, output), None
 
             qkv.forward = MethodType(te_qkv_forward, qkv)
@@ -821,7 +951,10 @@ def _patch_strict_attention_projections(
         if getattr(instance, _STRICT_ATTENTION_PROJECTION_MARKER, None) == "qkv":
             core_attention = getattr(instance, _STRICT_ATTENTION_CORE_MARKER, None)
             input = strict_tp_copy(instance, core_attention, input)
-            return deterministic_projection(input, weight, kwargs.get("bias"))
+            return deterministic_projection(
+                input, weight, kwargs.get("bias"),
+                column_tp_world=_tp_world_size(_module_tp_group(instance)),
+            )
         return column_forward_impl(instance, input, weight, *args, **kwargs)
 
     def row_forward_impl_wrapped(
@@ -832,7 +965,9 @@ def _patch_strict_attention_projections(
         **kwargs: Any,
     ) -> torch.Tensor:
         if hasattr(instance, _STRICT_ATTENTION_PROJECTION_MARKER):
-            return deterministic_projection(input, weight, kwargs.get("bias"))
+            return deterministic_output_projection(
+                instance, input, weight, kwargs.get("bias")
+            )
         return row_forward_impl(instance, input, weight, *args, **kwargs)
 
     setattr(self_attention_cls, _STRICT_ATTENTION_PATCH_MARKER, attention_init)
@@ -860,11 +995,9 @@ def _patch_strict_te_rms_norm(rms_norm_cls: type[Any] | None = None) -> None:
             raise RuntimeError("strict TE RMSNorm does not accept extra forward arguments")
         if bool(getattr(instance, "zero_centered_gamma", False)):
             raise RuntimeError("strict TE RMSNorm does not support zero-centered gamma")
-        return torch.nn.functional.rms_norm(
-            input_value,
-            (input_value.shape[-1],),
-            instance.weight,
-            float(instance.eps),
+        return canonical_cp.rms_norm(
+            input_value, instance.weight, float(instance.eps),
+            sharded_heads=bool(getattr(instance, "_rlk_sharded_heads", False)),
         )
 
     setattr(rms_norm_cls, _STRICT_TE_RMS_NORM_PATCH_MARKER, original)
@@ -1015,6 +1148,8 @@ def initialize_from_environment(_args: Any = None) -> MegatronIntegration:
     integration = install_megatron_integration(plan)
     if plan.implementation_for("attention", "training") is Implementation.RL_KERNEL:
         _precompile_strict_attention_training(_args)
+    if os.getenv("RL_KERNEL_CANONICAL_CP_GRAD", "0") == "1":
+        canonical_cp.install()
     return integration
 
 

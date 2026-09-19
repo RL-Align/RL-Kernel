@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -403,16 +402,12 @@ def _validate_strict_dense_record(
     errors: list[str],
 ) -> None:
     provenance = record.get("provenance")
-    expected_backend = (
-        STRICT_FFN_BACKEND_ID if module == "ffn" else STRICT_LINEAR_LOGP_BACKEND_ID
-    )
+    expected_backend = STRICT_FFN_BACKEND_ID if module == "ffn" else STRICT_LINEAR_LOGP_BACKEND_ID
     if record.get("case_id") != "R/R" or record.get("implementation") != "rl_kernel":
         errors.append(f"{label} did not execute the fixed R/R route")
     if record.get("backend_id") != expected_backend:
         errors.append(f"{label} reported backend {record.get('backend_id')!r}")
-    expected_mode = (
-        "compiled_hip_graph" if framework == "vllm" and module == "ffn" else "eager"
-    )
+    expected_mode = "compiled_hip_graph" if framework == "vllm" and module == "ffn" else "eager"
     if record.get("execution_mode", "eager") != expected_mode:
         errors.append(f"{label} did not execute in {expected_mode} mode")
     if int(record.get("call_count", 0)) <= 0:
@@ -425,7 +420,12 @@ def _validate_strict_dense_record(
     if module == "ffn":
         if not _has_exact_value(provenance, {"actual_backend"}, ROCM_FFN_BACKEND_ID):
             errors.append(f"{label} did not prove the strict ROCm FFN backend")
-        if not _has_exact_value(
+        execution = provenance.get("execution", {}) if isinstance(provenance, Mapping) else {}
+        local_tp = (
+            execution.get("tp_world_size") == 1
+            and execution.get("deterministic_all_reduce_backend") == "none"
+        )
+        if not local_tp and not _has_exact_value(
             provenance,
             {"deterministic_all_reduce_backend"},
             ROCM_DETERMINISTIC_COLLECTIVE_BACKEND_ID,
@@ -918,6 +918,7 @@ def compare_train_rollout_logps(
                 )
 
     mismatch_count = 0
+    bitwise_mismatch_count = 0
     element_count = 0
     sum_abs_diff = 0.0
     sum_mismatch_kl = 0.0
@@ -935,14 +936,12 @@ def compare_train_rollout_logps(
             continue
         if training.dtype != rollout.dtype:
             errors.append(
-                f"sample {key!r} train/rollout dtype mismatch: "
-                f"{training.dtype} != {rollout.dtype}"
+                f"sample {key!r} train/rollout dtype mismatch: {training.dtype} != {rollout.dtype}"
             )
             continue
         if mask.numel() != training.numel():
             errors.append(
-                f"sample {key!r} mask/logprob length mismatch: "
-                f"{mask.numel()} != {training.numel()}"
+                f"sample {key!r} mask/logprob length mismatch: {mask.numel()} != {training.numel()}"
             )
             continue
         active_training = training[mask]
@@ -955,6 +954,11 @@ def compare_train_rollout_logps(
             errors.append(f"sample {key!r} contains non-finite log probabilities")
             continue
         mismatch_count += int(torch.ne(active_training, active_rollout).sum().item())
+        training_bytes = active_training.contiguous().view(torch.uint8).reshape(
+            active_training.numel(), active_training.element_size()
+        )
+        rollout_bytes = active_rollout.contiguous().view(torch.uint8).reshape_as(training_bytes)
+        bitwise_mismatch_count += int((training_bytes != rollout_bytes).any(dim=1).sum().item())
         delta = active_training.to(torch.float64) - active_rollout.to(torch.float64)
         absolute = delta.abs()
         k3 = torch.exp(delta) - delta - 1.0
@@ -975,13 +979,16 @@ def compare_train_rollout_logps(
     mismatch_kl = sum_mismatch_kl / element_count if element_count else None
     mismatch_k3_kl = sum_mismatch_k3_kl / element_count if element_count else None
     exact = element_count > 0 and mismatch_count == 0 and max_abs_diff == 0.0
-    if require_exact and not exact:
+    bitwise_equal = exact and bitwise_mismatch_count == 0
+    if require_exact and not bitwise_equal:
         errors.append("R/R requires bitwise-equal training and rollout log probabilities")
     return {
         "passed": not errors,
         "errors": errors,
         "require_exact": require_exact,
         "torch_equal": exact,
+        "bitwise_equal": bitwise_equal,
+        "bitwise_mismatch_count": bitwise_mismatch_count,
         "mismatch_count": mismatch_count,
         "max_abs_diff": max_abs_diff if element_count else None,
         "train_rollout_logprob_abs_diff": mean_abs_diff,

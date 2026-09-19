@@ -1,0 +1,168 @@
+diff --git a/vime/backends/megatron_utils/update_weight/update_weight_from_distributed.py b/vime/backends/megatron_utils/update_weight/update_weight_from_distributed.py
+index edf4c157..279e4357 100644
+--- a/vime/backends/megatron_utils/update_weight/update_weight_from_distributed.py
++++ b/vime/backends/megatron_utils/update_weight/update_weight_from_distributed.py
+@@ -24,6 +24,13 @@ except ImportError:  # Colocated IPC runs do not need the distributed transfer b
+     NCCLTrainerSendWeightsArgs = None
+     NCCLWeightTransferEngine = None
+ 
++try:
++    from vllm.distributed.weight_transfer.nccl_common import (
++        trainer_init as _trainer_init_endpoint,
++    )
++except ImportError:
++    _trainer_init_endpoint = None
++
+ from vime.utils.distributed_utils import get_gloo_group
+ 
+ from ..megatron_to_hf import convert_to_hf
+@@ -456,13 +463,20 @@ def connect_rollout_engines_from_distributed(
+         device,
+         os.environ.get("CUDA_VISIBLE_DEVICES", ""),
+     )
+-    model_update_groups = NCCLWeightTransferEngine.trainer_init(
+-        {
+-            "master_address": master_address,
+-            "master_port": master_port,
+-            "world_size": world_size,
+-        }
+-    )
++    init_info = {
++        "master_address": master_address,
++        "master_port": master_port,
++        "world_size": world_size,
++    }
++    # vLLM kept the original low-overhead PR377 transfer protocol but moved
++    # the trainer endpoint from the worker class into nccl_common.  Support
++    # both layouts without switching this hot path to the newer stateful API.
++    trainer_init = getattr(NCCLWeightTransferEngine, "trainer_init", None)
++    if trainer_init is None:
++        if _trainer_init_endpoint is None:
++            raise RuntimeError("vLLM does not expose a trainer NCCL endpoint")
++        trainer_init = _trainer_init_endpoint
++    model_update_groups = trainer_init(init_info)
+ 
+     ray.get(refs)
+     return model_update_groups
+@@ -527,7 +541,20 @@ def update_weights_from_distributed(
+         for name, param in converted_named_tensors
+     )
+     if NCCLTrainerSendWeightsArgs is None:
+-        NCCLWeightTransferEngine.trainer_send_weights(named_gpu_iter, group, packed=True)
++        trainer_send_weights = getattr(NCCLWeightTransferEngine, "trainer_send_weights", None)
++        if trainer_send_weights is None or "Removed" in str(getattr(trainer_send_weights, "__doc__", "")):
++            from vllm.distributed.weight_transfer.packed_tensor import (
++                packed_nccl_broadcast_producer,
++            )
++
++            packed_nccl_broadcast_producer(
++                iterator=named_gpu_iter,
++                group=group,
++                src=0,
++                post_iter_func=lambda item: item[1],
++            )
++        else:
++            trainer_send_weights(named_gpu_iter, group, packed=True)
+     else:
+         NCCLWeightTransferEngine.trainer_send_weights(
+             named_gpu_iter,
+diff --git a/vime/backends/vllm_utils/vllm_engine.py b/vime/backends/vllm_utils/vllm_engine.py
+index 7d239457..ee21981d 100644
+--- a/vime/backends/vllm_utils/vllm_engine.py
++++ b/vime/backends/vllm_utils/vllm_engine.py
+@@ -257,6 +257,12 @@ class VLLMEngine(RayActor):
+             return {"ok": True}
+         return response.json()
+ 
++    def start_profile(self):
++        return self._make_request("start_profile")
++
++    def stop_profile(self):
++        return self._make_request("stop_profile")
++
+     def health_generate(self, timeout: float = 5.0) -> bool:
+         if self.node_rank != 0:
+             return True
+@@ -426,6 +432,9 @@ class VLLMEngine(RayActor):
+                     "master_port": master_port,
+                     "rank_offset": rank_offset,
+                     "world_size": world_size,
++                    # Newer vLLM freezes the wire format at initialization;
++                    # PR377's trainer path always uses packed buckets.
++                    "packed": True,
+                 }
+             },
+         )
+@@ -450,7 +459,6 @@ class VLLMEngine(RayActor):
+             "names": names,
+             "dtype_names": dtype_names,
+             "shapes": [list(s) for s in shapes],
+-            "packed": True,
+         }
+         result = self._make_request("update_weights", {"update_info": update_info})
+         self._weight_version = str(weight_version)
+@@ -590,6 +598,20 @@ def _compute_server_args(
+         "enable_server_load_tracking": True,
+     }
+ 
++    profiler_root = os.environ.get("RL_KERNEL_TORCH_PROFILE_DIR")
++    if profiler_root:
++        profiler_dir = os.path.join(profiler_root, f"engine-{rank}")
++        os.makedirs(profiler_dir, exist_ok=True)
++        from vllm.config import ProfilerConfig
++
++        kwargs["profiler_config"] = ProfilerConfig(
++            profiler="torch",
++            torch_profiler_dir=profiler_dir,
++            torch_profiler_with_stack=False,
++            torch_profiler_with_flops=False,
++            torch_profiler_use_gzip=True,
++        )
++
+     if pp > 1:
+         kwargs["pipeline_parallel_size"] = pp
+ 
+diff --git a/vime/ray/rollout.py b/vime/ray/rollout.py
+index ec88fbfd..486b2abe 100644
+--- a/vime/ray/rollout.py
++++ b/vime/ray/rollout.py
+@@ -558,7 +558,14 @@ class RolloutManager:
+         self.health_monitoring_resume()
+         if self.args.ci_test and self.args.use_fault_tolerance and rollout_id >= 2:
+             self._try_ci_fault_injection()
+-        data, metrics = self._get_rollout_data(rollout_id=rollout_id)
++        profile_rollout = os.environ.get("RL_KERNEL_PROFILE_ROLLOUT") == "1"
++        if profile_rollout:
++            ray.get([engine.start_profile.remote() for engine in self.rollout_engines])
++        try:
++            data, metrics = self._get_rollout_data(rollout_id=rollout_id)
++        finally:
++            if profile_rollout:
++                ray.get([engine.stop_profile.remote() for engine in self.rollout_engines])
+         self._save_debug_rollout_data(data, rollout_id=rollout_id, evaluation=False)
+         _log_rollout_data(rollout_id, self.args, data, metrics, time.time() - start_time)
+         if self.args.debug_rollout_only:
+diff --git a/vime/rollout/vllm_rollout.py b/vime/rollout/vllm_rollout.py
+index 7e657e71..8ceae419 100644
+--- a/vime/rollout/vllm_rollout.py
++++ b/vime/rollout/vllm_rollout.py
+@@ -390,6 +390,19 @@ async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, A
+         meta["completion_tokens"] = usage.get("completion_tokens", 0)
+         meta["cached_tokens"] = (usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
+ 
++    for key in ("top_p_token_ids", "top_p_token_offsets"):
++        encoded = choice.get(key)
++        if encoded is not None:
++            raw = base64.b64decode(encoded.encode("ascii"), validate=True)
++            meta[key] = np.load(io.BytesIO(raw), allow_pickle=False)
++    if float(sampling_params.get("top_p", 1.0)) < 1.0:
++        ids = meta.get("top_p_token_ids")
++        offsets = meta.get("top_p_token_offsets")
++        if ids is None or offsets is None or len(offsets) != len(new_response_tokens) + 1:
++            raise RuntimeError("top-p requires complete sampler support for every generated token")
++        if int(offsets[0]) != 0 or int(offsets[-1]) != len(ids) or np.any(np.diff(offsets) <= 0):
++            raise RuntimeError("invalid top-p retained-token spans")
++
+     # MoE routing replay: vLLM ships routed_experts as a base64 .npy blob on the choice;
+     # decode here and route through meta_info. #183: guard on value (null when replay off).
+     routed_experts = choice.get("routed_experts")

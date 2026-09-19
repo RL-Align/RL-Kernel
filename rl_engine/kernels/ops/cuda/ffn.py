@@ -280,7 +280,7 @@ def _require_parallel_group(group: Any, name: str):
     if not dist.is_initialized():
         raise RuntimeError(f"{name}-parallel FFN requires an initialized process group.")
     if dist.get_world_size(group=group) <= 1:
-        raise ValueError(f"{name}_group must contain at least two ranks.")
+        return None
     return dist
 
 

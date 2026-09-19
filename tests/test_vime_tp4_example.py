@@ -3,6 +3,7 @@
 
 import os
 import subprocess
+import sys
 from dataclasses import asdict
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from examples.vime_qwen3_8b_tp4_cp2_200.run_arm import (
     _max_engine_decode_batch,
     _mismatch_metrics_args,
     _rollout_topology,
+    _submit_ray_job,
 )
 from examples.vime_qwen3_8b_tp4_cp2_200.run_supplement_suite import specs
 from examples.vime_qwen3_8b_tp4_cp2_200.validate_run import (
@@ -22,6 +24,18 @@ from examples.vime_qwen3_8b_tp4_cp2_200.validate_run import (
     _validate_readbacks,
     _validate_topology,
 )
+
+
+def test_waiting_ray_submission_streams_and_saves_log(tmp_path: Path, capsys):
+    result = _submit_ray_job(
+        [sys.executable, "-c", "print('ray job output')"],
+        wait=True,
+        run_dir=tmp_path,
+    )
+
+    assert result.returncode == 0
+    assert "ray job output" in capsys.readouterr().out
+    assert (tmp_path / "run.log").read_text(encoding="utf-8") == "ray job output\n"
 
 
 def _production_operator(framework: str, target: str, module: str) -> dict:
@@ -85,6 +99,9 @@ def test_rollout_tp_cp_derive_router_engines_and_graph_batch():
         assert topology["rollout_cp"] == rollout_cp
         assert topology["rollout_gpus_per_engine"] == gpus_per_engine
         assert topology["rollout_engines"] == engines
+        assert topology["evidence_level"] == (
+            "reference" if (rollout_tp, rollout_cp) == (4, 1) else "experimental"
+        )
         assert (
             _max_engine_decode_batch(
                 1,
@@ -100,6 +117,20 @@ def test_rollout_tp_cp_derive_router_engines_and_graph_batch():
     legacy_topology.pop("rollout_tp")
     legacy_topology.pop("rollout_cp")
     assert _validate_topology(legacy_topology) == []
+
+
+def test_experimental_actor_topologies_are_self_consistent():
+    topology = _rollout_topology(
+        8,
+        1,
+        tensor_parallel_size=8,
+        context_parallel_size=1,
+    )
+    assert topology["tp"] == 8
+    assert topology["cp"] == 1
+    assert topology["rollout_engines"] == 1
+    assert topology["evidence_level"] == "experimental"
+    assert _validate_topology(topology) == []
 
 
 def test_launcher_forces_cuda_graph_without_a_logp_provider():

@@ -63,6 +63,7 @@ _STRICT_O_PROJ_COLLECTIVE_MARKER = "__rl_kernel_o_proj_collective__"
 _STRICT_O_PROJ_FUSED_ALL_REDUCE_MARKER = "__rl_kernel_o_proj_fused_all_reduce__"
 _STRICT_O_PROJ_COMPILED_COLLECTIVE_SLOT = "__rl_kernel_o_proj_compiled_collective_slot__"
 _STRICT_ROW_PARALLEL_PATCH_MARKER = "__rl_kernel_original_row_parallel_forward__"
+_STRICT_TOKENS_LOGPROBS_PATCH_MARKER = "__rl_kernel_original_tokens_logprobs__"
 _STRICT_DIRECT_STAGING_MARKER = "__rl_kernel_direct_staging_active__"
 _STRICT_LAYER_DIAGNOSTIC_PATCH_MARKER = "__rl_kernel_original_layer_diagnostic_forward__"
 _STRICT_WEIGHT_CACHE_REFRESH_MARKER = "__rl_kernel_original_finish_weight_update__"
@@ -77,14 +78,17 @@ _ROCM_STATEFUL_GRAPH_SPLITTING_OPS = (
     DETERMINISTIC_ALL_REDUCE_OP,
     "rl_kernel::rocm_det_gemm_linear_all_reduce_inference",
     "rl_kernel::qwen3_ffn_packed_tp_inference_rocm",
+    "rl_kernel::rocm_row_parallel_reduce_from_slot",
 )
-_ROCM_FULL_GRAPH_CACHE_NAMESPACE = "rl_kernel_rocm_full_graph_v4"
+_ROCM_FULL_GRAPH_CACHE_NAMESPACE = "rl_kernel_rocm_full_graph_v8"
 _ROCM_GRAPH_ROUTE_ENVIRONMENT = (
     "RL_KERNEL_ATTENTION_CASE",
     "RL_KERNEL_FFN_CASE",
     "RL_KERNEL_LOGP_CASE",
     "RL_KERNEL_ROCM_PAGED_KV_MAX_TOKENS",
     "RL_KERNEL_ROCM_FIXED_PAGED_TILE",
+    "RL_KERNEL_STRICT_CANONICAL_TP",
+    "RL_KERNEL_STRICT_CANONICAL_VOCAB_SIZE",
 )
 
 
@@ -923,6 +927,9 @@ def _configure_strict_ffn_compilation(vllm_config: Any | None = None) -> None:
     from vllm import envs as vllm_envs
     from vllm.config import CUDAGraphMode
 
+    # Canonical BF16 parent sums must round at every tree level even when
+    # Inductor fuses multiple local additions into one pointwise kernel.
+    compilation.inductor_compile_config["emulate_precision_casts"] = True
     route_key = "_".join(
         re.sub(r"[^a-z0-9]+", "-", os.getenv(name, "unset").lower()).strip("-")
         for name in _ROCM_GRAPH_ROUTE_ENVIRONMENT
@@ -931,8 +938,9 @@ def _configure_strict_ffn_compilation(vllm_config: Any | None = None) -> None:
     cache_root = os.path.normpath(os.fspath(vllm_envs.VLLM_CACHE_ROOT))
     if os.path.basename(cache_root) != cache_namespace:
         # vLLM's AOT key cannot see implementations behind torch custom ops.
-        # Keep its normal config/code/compiler hashing under an RL-Kernel ABI
-        # namespace so an older custom-op artifact cannot be replayed silently.
+        # AOT loading also bypasses Dynamo's environment guards. Canonical TP
+        # and vocabulary change projection/reduction graphs at the same physical
+        # rollout TP, so they must participate in the cache namespace.
         os.environ["VLLM_CACHE_ROOT"] = os.path.join(
             cache_root, cache_namespace
         )
@@ -1000,7 +1008,7 @@ def _patch_qwen_ffn(integration: VllmIntegration) -> None:
                     )
                 )
                 compiled_evidence_armed = True
-            if tp_world_size > 1:
+            if tp_world_size > 1 or torch.version.hip is not None:
                 _configure_strict_ffn_compilation()
 
         setattr(Qwen2MLP, _STRICT_FFN_INIT_MARKER, original_init)
@@ -1066,14 +1074,17 @@ def _patch_qwen3_strict_model(
     if det_gemm is None:
         det_gemm = _strict_attention_projection_op()
     rocm_linear_all_reduce = None
+    rocm_reduce_from_slot = None
     register_rocm_linear_staging = None
     if torch.version.hip is not None:
         from rl_engine.kernels.ops.rocm.matmul.det_gemm import (
             det_gemm_linear_all_reduce_inference,
             register_det_gemm_all_reduce_staging,
+            row_parallel_reduce_from_slot,
         )
 
         rocm_linear_all_reduce = det_gemm_linear_all_reduce_inference
+        rocm_reduce_from_slot = row_parallel_reduce_from_slot
         register_rocm_linear_staging = register_det_gemm_all_reduce_staging
 
     attention_init = attention_cls.__init__
@@ -1090,8 +1101,81 @@ def _patch_qwen3_strict_model(
             return unquantized_apply(method, layer, x, bias)
         x_2d = x.reshape(-1, x.shape[-1])
         linear = getattr(det_gemm, "linear", None)
+        marker = getattr(layer, _STRICT_PROJECTION_MARKER)
+        tp_world = int(getattr(layer, "tp_size", 1))
+        canonical_tp = int(os.getenv("RL_KERNEL_STRICT_CANONICAL_TP", str(tp_world)))
+        if canonical_tp < tp_world or canonical_tp % tp_world:
+            raise RuntimeError(
+                "RL_KERNEL_STRICT_CANONICAL_TP must be a positive multiple of "
+                f"rollout TP={tp_world}, got {canonical_tp}"
+            )
+        canonical_chunks = canonical_tp // tp_world
+
+        def project(
+            input_2d: torch.Tensor,
+            weight: torch.Tensor,
+            projection_bias: torch.Tensor | None = None,
+            *,
+            out: torch.Tensor | None = None,
+        ) -> torch.Tensor:
+            result = (
+                linear(input_2d, weight, out=out)
+                if linear is not None
+                else det_gemm(input_2d, weight.t().contiguous())
+            )
+            if projection_bias is not None:
+                result = result + projection_bias
+            return result
+
+        if marker == "qkv" and canonical_chunks > 1:
+            partition_sizes = tuple(int(size) for size in layer.output_partition_sizes)
+            if len(partition_sizes) != 3 or sum(partition_sizes) != layer.weight.size(0):
+                raise RuntimeError("strict QKV projection has an invalid fused weight layout")
+            # Functional split avoids binding Tensor.split through vLLM's
+            # Parameter.__torch_function__ override during AOT tracing.
+            weight_parts = torch.split(layer.weight, partition_sizes, dim=0)
+            bias_parts = (
+                (None, None, None)
+                if bias is None
+                else torch.split(bias, partition_sizes, dim=0)
+            )
+            component_outputs: list[list[torch.Tensor]] = [[], [], []]
+            for chunk in range(canonical_chunks):
+                chunk_weights = []
+                chunk_biases = []
+                chunk_sizes = []
+                for weight_part, bias_part in zip(weight_parts, bias_parts, strict=True):
+                    if weight_part.size(0) % canonical_chunks:
+                        raise RuntimeError(
+                            "strict QKV projection cannot form canonical TP shards"
+                        )
+                    rows = weight_part.size(0) // canonical_chunks
+                    start = chunk * rows
+                    chunk_weights.append(weight_part.narrow(0, start, rows))
+                    chunk_sizes.append(rows)
+                    if bias_part is not None:
+                        chunk_biases.append(bias_part.narrow(0, start, rows))
+                chunk_output = project(
+                    x_2d,
+                    torch.cat(chunk_weights, dim=0).contiguous(),
+                    None
+                    if bias is None
+                    else torch.cat(chunk_biases, dim=0).contiguous(),
+                )
+                for component, value in enumerate(chunk_output.split(chunk_sizes, dim=1)):
+                    component_outputs[component].append(value)
+            output_2d = torch.cat(
+                [torch.cat(values, dim=1) for values in component_outputs],
+                dim=1,
+            )
+            return output_2d.reshape(*x.shape[:-1], layer.weight.shape[0])
+
         collective = getattr(layer, _STRICT_O_PROJ_COLLECTIVE_MARKER, None)
-        if collective is not None and torch.version.hip is not None:
+        if (
+            collective is not None
+            and torch.version.hip is not None
+            and canonical_chunks == 1
+        ):
             if bias is not None or rocm_linear_all_reduce is None:
                 raise RuntimeError("strict ROCm o_proj fusion requires a bias-free linear")
             output_2d = rocm_linear_all_reduce(
@@ -1103,7 +1187,12 @@ def _patch_qwen3_strict_model(
             )
             return output_2d.reshape(*x.shape[:-1], layer.weight.shape[0])
         direct_output = None
-        if collective is not None and bias is None and linear is not None:
+        if (
+            collective is not None
+            and bias is None
+            and linear is not None
+            and canonical_chunks == 1
+        ):
             direct_output = collective.direct_staging_view(
                 (x_2d.size(0), layer.weight.shape[0]),
                 dtype=x.dtype,
@@ -1113,14 +1202,37 @@ def _patch_qwen3_strict_model(
                     direct_output,
                     collective_handle=int(collective._handle),
                 )
-        output_2d = (
-            linear(x_2d, layer.weight, out=direct_output)
-            if linear is not None
-            else det_gemm(x_2d, layer.weight.t().contiguous())
-        )
+        if marker == "o_proj" and canonical_chunks > 1:
+            if x_2d.size(1) % canonical_chunks or layer.weight.size(1) != x_2d.size(1):
+                raise RuntimeError(
+                    "strict Attention output projection cannot form canonical TP shards"
+                )
+            width = x_2d.size(1) // canonical_chunks
+            partials = [
+                project(
+                    x_2d.narrow(1, chunk * width, width).contiguous(),
+                    layer.weight.narrow(1, chunk * width, width).contiguous(),
+                )
+                for chunk in range(canonical_chunks)
+            ]
+            while len(partials) > 1:
+                partials = [
+                    partials[index] + partials[index + 1]
+                    for index in range(0, len(partials), 2)
+                ]
+            output_2d = partials[0]
+            if bias is not None:
+                output_2d = output_2d + bias
+        else:
+            output_2d = project(
+                x_2d,
+                layer.weight,
+                bias,
+                out=direct_output,
+            )
         setattr(layer, _STRICT_DIRECT_STAGING_MARKER, direct_output is not None)
         output = output_2d.reshape(*x.shape[:-1], layer.weight.shape[0])
-        return output if bias is None else output + bias
+        return output
 
     def strict_attention_rms_norm_forward(
         instance: Any,
@@ -1223,11 +1335,14 @@ def _patch_qwen3_strict_model(
                 raise RuntimeError("strict ROCm o_proj staging allocation failed")
             if register_rocm_linear_staging is None:
                 raise RuntimeError("strict ROCm o_proj staging registry is unavailable")
-            compiled_slot = register_rocm_linear_staging(
-                int(collective._handle), staging
-            )
+            compiled_slot = register_rocm_linear_staging(int(collective._handle), staging)
             setattr(module, _STRICT_O_PROJ_COMPILED_COLLECTIVE_SLOT, compiled_slot)
-            setattr(module, _STRICT_O_PROJ_FUSED_ALL_REDUCE_MARKER, True)
+            canonical_tp = int(os.getenv("RL_KERNEL_STRICT_CANONICAL_TP", str(module.tp_size)))
+            setattr(
+                module,
+                _STRICT_O_PROJ_FUSED_ALL_REDUCE_MARKER,
+                canonical_tp == int(module.tp_size),
+            )
 
     if row_parallel_cls is not None and not hasattr(
         row_parallel_cls, _STRICT_ROW_PARALLEL_PATCH_MARKER
@@ -1257,6 +1372,11 @@ def _patch_qwen3_strict_model(
                     getattr(instance, _STRICT_O_PROJ_FUSED_ALL_REDUCE_MARKER, False)
                 ):
                     output = output_parallel
+                elif rocm_reduce_from_slot is not None:
+                    output = rocm_reduce_from_slot(
+                        output_parallel,
+                        int(getattr(instance, _STRICT_O_PROJ_COMPILED_COLLECTIVE_SLOT)),
+                    )
                 elif bool(getattr(instance, _STRICT_DIRECT_STAGING_MARKER, False)):
                     output = deterministic_all_reduce_staged(
                         output_parallel,
@@ -1393,6 +1513,48 @@ def _patch_worker_sampler(integration: VllmIntegration, *, strict_linear_logp: b
     setattr(Sampler, _PATCH_MARKER, original)
     setattr(Sampler, "__call__", wrapped)
     integration.record_installed_hook("logp", "vllm.v1.worker.gpu.sample.sampler.Sampler.__call__")
+
+
+def _patch_tokens_api_top_logprobs() -> None:
+    """Preserve token IDs on tokens-only API top-logprob entries."""
+
+    from vllm.entrypoints.openai.chat_completion.protocol import ChatCompletionLogProb
+    from vllm.entrypoints.serve.disagg.serving import ServingTokens
+
+    if hasattr(ServingTokens, _STRICT_TOKENS_LOGPROBS_PATCH_MARKER):
+        return
+    original = ServingTokens._create_tokens_logprobs
+
+    def wrapped(
+        instance: Any,
+        token_ids: Any,
+        top_logprobs: Any,
+        num_output_top_logprobs: int | None = None,
+    ) -> Any:
+        result = original(
+            instance,
+            token_ids,
+            top_logprobs,
+            num_output_top_logprobs,
+        )
+        if num_output_top_logprobs is None:
+            return result
+        limit = max(int(num_output_top_logprobs), 1)
+        for content, step in zip(result.content, top_logprobs, strict=True):
+            if step is None:
+                continue
+            content.top_logprobs = [
+                ChatCompletionLogProb(
+                    token=f"token_id:{int(token_id)}",
+                    logprob=max(float(logprob.logprob), -9999.0),
+                )
+                for index, (token_id, logprob) in enumerate(step.items())
+                if index < limit
+            ]
+        return result
+
+    setattr(ServingTokens, _STRICT_TOKENS_LOGPROBS_PATCH_MARKER, original)
+    ServingTokens._create_tokens_logprobs = wrapped
 
 
 def _register_attention_backend(integration: VllmIntegration) -> None:
@@ -1575,6 +1737,7 @@ def install_vllm_integration(plan: IntegrationPlan) -> VllmIntegration:
         _patch_rocm_weight_cache_refresh()
     _patch_qwen3_layer_alignment_diagnostics()
     if strict_linear_logp:
+        _patch_tokens_api_top_logprobs()
         _patch_qwen_lm_head_padding()
         _patch_strict_lm_head_linear()
         _patch_qwen_compute_logits(integration)

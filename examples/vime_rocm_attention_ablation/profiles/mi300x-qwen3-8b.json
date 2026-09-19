@@ -1,0 +1,38 @@
+{
+  "schema_version": "rlkernel.repro.profile.v1",
+  "name": "mi300x-qwen3-8b",
+  "description": "Eight MI300X GPUs, strict train/rollout logprob comparison without rollout-logprob reuse. Edit paths once for another machine.",
+  "requirements": {
+    "backend": "rocm",
+    "python": "3.12"
+  },
+  "paths": {
+    "workspace": "/workspace/rocm-unified-20260919",
+    "rl_kernel_root": "/workspace/rocm-unified-20260919/rl-kernel",
+    "vime_root": "/workspace/rocm-unified-20260919/vime",
+    "megatron_root": "/workspace/rocm-unified-20260919/megatron",
+    "vllm_root": "/workspace/rocm-unified-20260919/vllm",
+    "python": "/opt/venv/bin/python",
+    "model_root": "/app/model/Qwen3-8B",
+    "ref_load": "/app/model/Qwen3-8B_torch_dist",
+    "prompt_data": "/app/model/dapo-math-17k/dapo-math-17k.jsonl",
+    "output_root": "/app/model/vime-runs/rocm-unified-20260919"
+  },
+  "defaults": {
+    "backend": "rocm",
+    "mode": "consistency",
+    "rollouts": 200,
+    "tp": 4,
+    "rollout-tp": 4,
+    "temperature": 1.0,
+    "top-p": 1.0,
+    "samples-per-prompt": 8,
+    "global-batch-size": 8,
+    "rollout-batch-size": 1,
+    "max-response-length": 7168,
+    "max-tokens-per-gpu": 4096,
+    "ray-port": 8090,
+    "ray-dashboard-port": 48025,
+    "vllm-gpu-memory-utilization": 0.38
+  }
+}

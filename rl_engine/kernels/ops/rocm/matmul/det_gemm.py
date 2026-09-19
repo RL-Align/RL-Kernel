@@ -306,6 +306,28 @@ def register_det_gemm_all_reduce_staging(
     return slot
 
 
+@torch.library.custom_op("rl_kernel::rocm_row_parallel_reduce_from_slot", mutates_args=())
+def row_parallel_reduce_from_slot(local_output: torch.Tensor, slot: int) -> torch.Tensor:
+    """Resolve process-local IPC resources when an AOT-loaded graph executes."""
+    from rl_engine import _C
+
+    binding = _DIRECT_STAGING_BY_SLOT.get(slot)
+    if binding is None:
+        raise RuntimeError("strict ROCm row-parallel staging slot is not registered")
+    runtime_handle, staging, stable_output = binding
+    rows = local_output.size(0)
+    output = (stable_output.narrow(0, 0, rows) if rows <= staging.size(0)
+              else torch.empty_like(local_output))
+    _C.deterministic_collective_rocm_ipc_all_reduce_input(runtime_handle, local_output, output)
+    return output
+
+
+@row_parallel_reduce_from_slot.register_fake
+def _row_parallel_reduce_from_slot_fake(local_output: torch.Tensor, slot: int) -> torch.Tensor:
+    del slot
+    return torch.empty_like(local_output)
+
+
 def det_gemm_linear_all_reduce_inference(
     a: torch.Tensor,
     weight: torch.Tensor,
@@ -565,5 +587,6 @@ __all__ = [
     "prepare_det_gemm_linear_weight",
     "det_gemm_linear_all_reduce_inference",
     "register_det_gemm_all_reduce_staging",
+    "row_parallel_reduce_from_slot",
     "refresh_cached_weight_transposes",
 ]

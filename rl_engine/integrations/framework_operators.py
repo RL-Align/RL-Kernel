@@ -290,12 +290,8 @@ def _fused_rms_norm_input(
     if bool(getattr(projection, "zero_centered_gamma", False)):
         raise RuntimeError(f"strict {name} does not support zero-centered gamma")
     eps = float(getattr(projection, "eps"))
-    return torch.nn.functional.rms_norm(
-        hidden_states,
-        (hidden_states.shape[-1],),
-        weight,
-        eps,
-    )
+    from rl_engine.integrations.canonical_cp import rms_norm
+    return rms_norm(hidden_states, weight, eps)
 
 
 def _split_gate_up(weight: torch.Tensor, name: str) -> tuple[torch.Tensor, torch.Tensor]:
@@ -777,6 +773,24 @@ class MegatronAttentionOperator:
         return output
 
 
+class _MegatronCPWeightGradient(torch.autograd.Function):
+    """Cancel the extra CP replica count before Megatron reduces parameter grads.
+
+    The strict FFN gathers all CP tokens for its weight-gradient GEMMs, so
+    each CP rank already has the complete gradient. Megatron still performs
+    its normal DP/CP reduction; its loss scaling assumes rank-local grads.
+    """
+
+    @staticmethod
+    def forward(ctx, weight, cp_world):
+        ctx.cp_world = cp_world
+        return weight
+
+    @staticmethod
+    def backward(ctx, grad):
+        return grad / ctx.cp_world, None
+
+
 class MegatronFFNOperator:
     backend_id = FFN_BACKEND_ID
 
@@ -828,10 +842,13 @@ class MegatronFFNOperator:
             "linear_fc1",
         )
         fused_gate_up = _weight(module.linear_fc1, "linear_fc1").contiguous()
-        gate, up = _split_gate_up(fused_gate_up, "linear_fc1")
         down = _weight(module.linear_fc2, "linear_fc2").contiguous()
         parallel_state = _megatron_parallel_state()
         cp_world = int(parallel_state.get_context_parallel_world_size())
+        if cp_world > 1 and torch.is_grad_enabled():
+            fused_gate_up = _MegatronCPWeightGradient.apply(fused_gate_up, cp_world)
+            down = _MegatronCPWeightGradient.apply(down, cp_world)
+        gate, up = _split_gate_up(fused_gate_up, "linear_fc1")
         tp_world = int(parallel_state.get_tensor_model_parallel_world_size())
         cp_group = parallel_state.get_context_parallel_group() if cp_world > 1 else None
         operator = self._handle.get(
@@ -1991,7 +2008,11 @@ class VllmFFNOperator:
             down,
             tp_group=tp_group,
         )
-        backend_id = "deterministic_all_reduce.ipc_localized_fixed_tree.v1"
+        backend_id = (
+            "none"
+            if bound_tp_world == 1
+            else "deterministic_all_reduce.ipc_localized_fixed_tree.v1"
+        )
         resolve_backend = getattr(operator, "packed_inference_backend_id", None)
         if callable(resolve_backend) and collective_handle:
             backend_id = str(resolve_backend(collective_handle))
@@ -2287,6 +2308,17 @@ class VllmLogpOperator:
         _require_nvidia_cuda(source_logits, "Logp")
         context = None
         local_logits = None
+        sampling_mask = None
+        sampling_temperature = getattr(sampling_metadata, "temperature", None)
+        if sampling_temperature is None:
+            sampling_temperature = 1.0
+        support_temperature = sampling_temperature
+        if isinstance(sampling_temperature, torch.Tensor):
+            sampling_temperature = torch.where(
+                sampling_temperature < 1e-5, 1.0, sampling_temperature
+            )
+        elif sampling_temperature < 1e-5:
+            sampling_temperature = 1.0
         if self._strict_linear_logp:
             context = take_rollout_linear_logp_context()
             if source_logits.ndim != 2:
@@ -2318,7 +2350,7 @@ class VllmLogpOperator:
                     1,
                     context.vocab_start_index,
                     local_vocab,
-                ).contiguous()
+                ).clone(memory_format=torch.contiguous_format)
             else:
                 # The final TP shard may include padded rows absent from the
                 # serving logits; retain the exact -inf padding contract.
@@ -2334,6 +2366,21 @@ class VllmLogpOperator:
                             available,
                         )
                     )
+            if (getattr(torch.version, "hip", None) is None
+                    and (getattr(sampling_metadata, "top_p", None) is not None
+                         or getattr(sampling_metadata, "top_k", None) is not None)):
+                from rl_engine.integrations.sampling import sampling_keep_mask
+
+                complete_mask = sampling_keep_mask(
+                    source_logits[:, :context.real_vocab_size],
+                    temperature=support_temperature,
+                    top_p=getattr(sampling_metadata, "top_p", None),
+                    top_k=getattr(sampling_metadata, "top_k", None),
+                )
+                sampling_mask = torch.zeros_like(local_logits, dtype=torch.bool)
+                sampling_mask[:, :available] = complete_mask[
+                    :, context.vocab_start_index:context.vocab_start_index + available
+                ]
         if self._worker_sampler:
             result = self._native_forward(sampler, logits, sampling_metadata)
         else:
@@ -2360,38 +2407,66 @@ class VllmLogpOperator:
                     f"{context.hidden.size(0)} != {token_ids.numel()}"
                 )
             assert self._linear_logp is not None
-            top_p_replay = False
-            if getattr(sampling_metadata, "top_p", None) is not None:
-                # Native vLLM has already applied temperature/top-p before it
-                # builds LogprobsTensors.  Reconstruct the exact finite nucleus
-                # on each TP shard so the strict replacement keeps processed
-                # logprob semantics instead of accidentally substituting a
-                # full-vocabulary selected logprob.
-                replay_ids = logprobs_tensors.logprob_token_ids
-                replay_values = logprobs_tensors.logprobs
-                if replay_ids.shape != replay_values.shape:
-                    raise RuntimeError(
-                        "vLLM top-p replay ids and logprobs must have matching shapes"
+            if getattr(torch.version, "hip", None) is not None:
+                top_p_replay = False
+                if self._worker_sampler:
+                    # The GPU worker passes InputBatch, with sampling parameters
+                    # stored separately and indexed by the active request mapping.
+                    top_p_values = sampler.sampling_states.top_p.np[
+                        sampling_metadata.idx_mapping_np
+                    ]
+                    has_top_p = bool((top_p_values != 1.0).any())
+                else:
+                    top_p_values = getattr(sampling_metadata, "top_p", None)
+                    has_top_p = top_p_values is not None and bool((top_p_values != 1.0).any())
+                if has_top_p:
+                    # Native vLLM has already applied temperature/top-p before it
+                    # builds LogprobsTensors.  Reconstruct the exact finite nucleus
+                    # on each TP shard so the strict replacement keeps processed
+                    # logprob semantics instead of accidentally substituting a
+                    # full-vocabulary selected logprob.
+                    replay_ids = logprobs_tensors.logprob_token_ids
+                    replay_values = logprobs_tensors.logprobs
+                    if replay_ids.shape != replay_values.shape:
+                        raise RuntimeError(
+                            "vLLM top-p replay ids and logprobs must have matching shapes"
+                        )
+                    if replay_ids.size(0) != local_logits.size(0):
+                        raise RuntimeError(
+                            "vLLM top-p replay rows are not aligned with strict local logits"
+                        )
+                    top_p_replay = True
+                if top_p_replay:
+                    selected = self._linear_logp.from_local_logits_top_p(
+                        local_logits,
+                        token_ids,
+                        replay_ids,
+                        replay_values,
+                        tp_group=context.tp_group,
+                        vocab_start_index=context.vocab_start_index,
+                        global_vocab_size=context.global_vocab_size,
+                        real_vocab_size=context.real_vocab_size,
+                        temperature=float(os.getenv("RL_KERNEL_VLLM_TEMPERATURE", "1.0")),
+                        target="rollout",
                     )
-                if replay_ids.size(0) != local_logits.size(0):
-                    raise RuntimeError(
-                        "vLLM top-p replay rows are not aligned with strict local logits"
+                else:
+                    selected = self._linear_logp.from_local_logits(
+                        local_logits,
+                        token_ids,
+                        tp_group=context.tp_group,
+                        vocab_start_index=context.vocab_start_index,
+                        global_vocab_size=context.global_vocab_size,
+                        real_vocab_size=context.real_vocab_size,
+                        temperature=float(os.getenv("RL_KERNEL_VLLM_TEMPERATURE", "1.0")),
+                        target="rollout",
+                        diagnostics_hidden=context.hidden,
+                        diagnostics_lm_head_weight=context.lm_head_weight,
                     )
-                top_p_replay = True
-            if top_p_replay:
-                selected = self._linear_logp.from_local_logits_top_p(
-                    local_logits,
-                    token_ids,
-                    replay_ids,
-                    replay_values,
-                    tp_group=context.tp_group,
-                    vocab_start_index=context.vocab_start_index,
-                    global_vocab_size=context.global_vocab_size,
-                    real_vocab_size=context.real_vocab_size,
-                    temperature=float(os.getenv("RL_KERNEL_VLLM_TEMPERATURE", "1.0")),
-                    target="rollout",
-                )
             else:
+                # Score the complete support; API top-logprob truncation is irrelevant.
+                top_p_replay = sampling_mask is not None
+                if sampling_mask is not None:
+                    local_logits = local_logits.masked_fill(~sampling_mask, float("-inf"))
                 selected = self._linear_logp.from_local_logits(
                     local_logits,
                     token_ids,
@@ -2399,7 +2474,7 @@ class VllmLogpOperator:
                     vocab_start_index=context.vocab_start_index,
                     global_vocab_size=context.global_vocab_size,
                     real_vocab_size=context.real_vocab_size,
-                    temperature=float(os.getenv("RL_KERNEL_VLLM_TEMPERATURE", "1.0")),
+                    temperature=sampling_temperature,
                     target="rollout",
                     diagnostics_hidden=context.hidden,
                     diagnostics_lm_head_weight=context.lm_head_weight,

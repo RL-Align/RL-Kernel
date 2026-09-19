@@ -121,14 +121,26 @@ cd RL-Kernel
 For the Qwen3-8B train–rollout commands and setup for vime with RL-Kernel on CUDA and
 ROCm, see the [reproduction scripts](https://github.com/RL-Align/RL-Kernel/blob/main/examples/vime_qwen3_8b_tp4_cp2_200/REPRODUCTION.md).
 
-Run the user-facing CUDA comparison with the profile-driven launcher:
+Run the user-facing CUDA comparison from a compatible VIME environment. Set
+the local Hugging Face checkpoint once; no example script edits are required:
 
 ```bash
 python3 -m pip install -e .
-rlk-repro prepare --workspace /data/rlk-repro --mode native
-rlk-repro run --workspace /data/rlk-repro --mode native --rollouts 200
-rlk-repro run --workspace /data/rlk-repro --mode consistency --rollouts 200
+export RLK_REPRO_MODEL_ROOT=/models/Qwen3-8B
+rlk-repro prepare --workspace /data/rlk-repro --download-data --convert-checkpoint
+ray start --head --include-dashboard=true --dashboard-host=127.0.0.1 \
+  --num-gpus=8 --object-store-memory=200000000000
+rlk-repro doctor --workspace /data/rlk-repro
+rlk-repro run --workspace /data/rlk-repro --mode native --rollouts 8 --wait
+rlk-repro run --workspace /data/rlk-repro --mode consistency --rollouts 8 --wait
 ```
+
+Read the [Qwen3-8B train–rollout consistency guide](./docs/usage/qwen3-vime-consistency.md)
+before a 200-step evidence run; it lists the exact hardware/runtime contract,
+Ray sizing, ROCm commands, topology evidence levels, validation commands, and
+supported customization points. The guide also documents the CUDA TP2/CP4
+command and the canonical-TP strategy used to reuse the TP4/CP2 kernels without
+changing the default TP4/CP2 hot path.
 
 ### NVIDIA CUDA
 

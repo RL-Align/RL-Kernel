@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 import torch
 
+from rl_engine.distributed.collectives import collective_for_group
 from rl_engine.kernels.ops.base import _C, _EXT_AVAILABLE
 from rl_engine.kernels.ops.cuda.matmul.det_gemm import (
     det_gemm_linear,
@@ -1070,6 +1071,126 @@ class _StrictLinearLogpAutograd(torch.autograd.Function):
 
 
 STRICT_LINEAR_LOGP_CONTRACT_VERSION = "cuda-det-gemm-linear-logp-sm90-contract-v2"
+_STRICT_LOGP_CANONICAL_TP_ENV = "RL_KERNEL_STRICT_CANONICAL_TP"
+_STRICT_LOGP_CANONICAL_VOCAB_ENV = "RL_KERNEL_STRICT_CANONICAL_VOCAB_SIZE"
+
+
+def _strict_logp_vocab_summaries(
+    logits: torch.Tensor,
+    target: torch.Tensor,
+    *,
+    vocab_start: int,
+    global_vocab: int,
+    tp_group: Any,
+    top_p_args: tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Compute summaries in canonical virtual-TP shards.
+
+    A TP2 training rank, for example, emits two summaries when paired with a
+    TP4 rollout.  Both sides then merge the same four contiguous vocab shards
+    in the same order, while the TP4/CP2 reference path remains one summary per
+    rank with no extra launches.
+    """
+
+    dist = _require_distributed_initialized()
+    physical_tp = dist.get_world_size(group=tp_group)
+    physical_rank = dist.get_rank(group=tp_group)
+    raw_canonical_tp = os.getenv(_STRICT_LOGP_CANONICAL_TP_ENV, "").strip()
+    canonical_tp = physical_tp if not raw_canonical_tp else int(raw_canonical_tp)
+    if canonical_tp < physical_tp or canonical_tp % physical_tp:
+        raise ValueError(
+            f"{_STRICT_LOGP_CANONICAL_TP_ENV}={canonical_tp} must be a positive "
+            f"multiple of physical TP={physical_tp}"
+        )
+    raw_canonical_vocab = os.getenv(_STRICT_LOGP_CANONICAL_VOCAB_ENV, "").strip()
+    canonical_global_vocab = (
+        global_vocab if not raw_canonical_vocab else int(raw_canonical_vocab)
+    )
+    if canonical_global_vocab < global_vocab:
+        raise ValueError(
+            f"{_STRICT_LOGP_CANONICAL_VOCAB_ENV}={canonical_global_vocab} must be "
+            f"at least the physical padded vocab {global_vocab}"
+        )
+    if canonical_global_vocab % canonical_tp:
+        raise ValueError(
+            f"canonical vocab {canonical_global_vocab} must divide evenly across "
+            f"canonical TP {canonical_tp}"
+        )
+    summaries_per_rank = canonical_tp // physical_tp
+    canonical_vocab = canonical_global_vocab // canonical_tp
+    canonical_local_vocab = summaries_per_rank * canonical_vocab
+    layout_matches = (
+        global_vocab == canonical_global_vocab
+        and logits.size(1) == canonical_local_vocab
+        and int(vocab_start) == physical_rank * canonical_local_vocab
+    )
+    summary_source = logits
+    summary_source_start = int(vocab_start)
+    if not layout_matches:
+        if physical_tp == 1:
+            global_logits = logits
+        else:
+            collective = collective_for_group(
+                tp_group,
+                min_size_bytes=logits.numel() * logits.element_size(),
+                device=logits.device,
+            )
+            if collective is None:
+                raise RuntimeError(
+                    "canonical TP logp redistribution requires an RL-Kernel collective"
+                )
+            gathered = collective.all_gather(
+                logits,
+                validate_signature=False,
+            ).reshape(physical_tp, logits.size(0), logits.size(1))
+            global_logits = gathered.permute(1, 0, 2).reshape(logits.size(0), -1)
+        if global_logits.size(1) != global_vocab:
+            raise RuntimeError(
+                "physical TP logits do not reconstruct the declared padded vocab: "
+                f"{global_logits.size(1)} != {global_vocab}"
+            )
+        if canonical_global_vocab > global_vocab:
+            global_logits = torch.nn.functional.pad(
+                global_logits,
+                (0, canonical_global_vocab - global_vocab),
+                value=float("-inf"),
+            )
+        summary_source_start = physical_rank * canonical_local_vocab
+        summary_source = global_logits.narrow(
+            1,
+            summary_source_start,
+            canonical_local_vocab,
+        ).contiguous()
+
+    local_targets = []
+    local_lses = []
+    for summary in range(summaries_per_rank):
+        begin = summary * canonical_vocab
+        end = begin + canonical_vocab
+        summary_logits = summary_source[:, begin:end].contiguous()
+        summary_vocab_start = summary_source_start + begin
+        if top_p_args is None:
+            local_target, local_lse = _C.linear_logp_local_bf16_forward(
+                summary_logits,
+                target,
+                summary_vocab_start,
+            )
+        else:
+            replay_ids, replay_logprobs, temperature = top_p_args
+            local_target, local_lse = _C.linear_logp_top_p_local_bf16_forward(
+                summary_logits,
+                target,
+                replay_ids,
+                replay_logprobs,
+                temperature,
+                summary_vocab_start,
+            )
+        local_targets.append(local_target)
+        local_lses.append(local_lse)
+
+    if summaries_per_rank == 1:
+        return local_targets[0], local_lses[0]
+    return torch.stack(local_targets, dim=0), torch.stack(local_lses, dim=0)
 
 
 def _strict_tp_run(
@@ -1138,7 +1259,13 @@ def _strict_tp_run(
         logits = logits.clone()
         logits[:, local_real:] = float("-inf")
     logits = logits.contiguous()
-    local_target, local_lse = _C.linear_logp_local_bf16_forward(logits, target, int(vocab_start))
+    local_target, local_lse = _strict_logp_vocab_summaries(
+        logits,
+        target,
+        vocab_start=int(vocab_start),
+        global_vocab=global_vocab,
+        tp_group=tp_group,
+    )
     logp, lse = _merge_tp_local_logp(local_lse, local_target, tp_group=tp_group)
     return logp, lse, hidden_2d, weight, target, logits, temp
 
@@ -1196,10 +1323,12 @@ def _strict_logp_from_local_logits_tp_run(
         logits = logits.clone()
         logits[:, local_real:] = float("-inf")
     logits = logits.contiguous()
-    local_target, local_lse = _C.linear_logp_local_bf16_forward(
+    local_target, local_lse = _strict_logp_vocab_summaries(
         logits,
         target,
-        vocab_start,
+        vocab_start=vocab_start,
+        global_vocab=global_vocab,
+        tp_group=tp_group,
     )
     logp, lse = _merge_tp_local_logp(local_lse, local_target, tp_group=tp_group)
     lead_shape = target_ids.shape
@@ -1350,13 +1479,13 @@ def sm90_deterministic_top_p_logp_from_local_logits_tp(
 
     ids = replay_ids.to(device=local_logits.device, dtype=torch.int32).contiguous()
     values = replay_logprobs.to(device=local_logits.device, dtype=torch.float32).contiguous()
-    local_target, local_lse = _C.linear_logp_top_p_local_bf16_forward(
+    local_target, local_lse = _strict_logp_vocab_summaries(
         local_logits,
         target,
-        ids,
-        values,
-        temp,
-        vocab_start,
+        vocab_start=vocab_start,
+        global_vocab=global_vocab,
+        tp_group=tp_group,
+        top_p_args=(ids, values, temp),
     )
     logp, lse = _merge_tp_local_logp(local_lse, local_target, tp_group=tp_group)
     return logp.reshape(target_ids.shape), lse.reshape(target_ids.shape)

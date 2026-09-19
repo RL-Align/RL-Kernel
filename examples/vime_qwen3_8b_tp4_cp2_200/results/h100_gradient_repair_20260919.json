@@ -1,0 +1,225 @@
+{
+  "scope": "H100 first-update cross-configuration diagnostic; not an all-topology bitwise certificate",
+  "training_topologies": [
+    "TP2/CP4",
+    "TP4/CP2"
+  ],
+  "rollout_topology": "TP4/CP1",
+  "temperature": 0.7,
+  "top_p": 0.95,
+  "top_k": -1,
+  "steps": 1,
+  "global_batch_size": 8,
+  "max_response_len": 512,
+  "kl_coef": 0.01,
+  "same_first_step_data_all_runs": {
+    "tokens": true,
+    "response_lengths": true,
+    "rewards": true,
+    "loss_masks": true,
+    "sample_indices": true,
+    "total_lengths": true
+  },
+  "runs": [
+    {
+      "run_id": "graddiag-tp2cp4-r1",
+      "grad_norm": 0.02259021205946512,
+      "train_rollout_mismatch_count": 0.0,
+      "run_validation_passed": true,
+      "validation_logprobs": {
+        "artifacts": [
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/graddiag-tp2cp4-r1/mismatch-sidecars/rank00000.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/graddiag-tp2cp4-r1/mismatch-sidecars/rank00001.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/graddiag-tp2cp4-r1/mismatch-sidecars/rank00002.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/graddiag-tp2cp4-r1/mismatch-sidecars/rank00003.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/graddiag-tp2cp4-r1/mismatch-sidecars/rank00004.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/graddiag-tp2cp4-r1/mismatch-sidecars/rank00005.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/graddiag-tp2cp4-r1/mismatch-sidecars/rank00006.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/graddiag-tp2cp4-r1/mismatch-sidecars/rank00007.call00000000.pt"
+        ],
+        "bitwise_equal": true,
+        "bitwise_mismatch_count": 0,
+        "element_count": 4096,
+        "errors": [],
+        "max_abs_diff": 0.0,
+        "mismatch_count": 0,
+        "mismatch_k3_kl": 0.0,
+        "mismatch_kl": 0.0,
+        "passed": true,
+        "require_exact": true,
+        "sample_count": 8,
+        "torch_equal": true,
+        "train_rollout_logprob_abs_diff": 0.0
+      },
+      "actor_train_seconds_including_diagnostics": 3.844578742980957
+    },
+    {
+      "run_id": "graddiag-tp4cp2-r1",
+      "grad_norm": 0.022595004168846734,
+      "train_rollout_mismatch_count": 0.0,
+      "run_validation_passed": true,
+      "validation_logprobs": {
+        "artifacts": [
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/graddiag-tp4cp2-r1/mismatch-sidecars/rank00000.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/graddiag-tp4cp2-r1/mismatch-sidecars/rank00001.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/graddiag-tp4cp2-r1/mismatch-sidecars/rank00002.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/graddiag-tp4cp2-r1/mismatch-sidecars/rank00003.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/graddiag-tp4cp2-r1/mismatch-sidecars/rank00004.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/graddiag-tp4cp2-r1/mismatch-sidecars/rank00005.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/graddiag-tp4cp2-r1/mismatch-sidecars/rank00006.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/graddiag-tp4cp2-r1/mismatch-sidecars/rank00007.call00000000.pt"
+        ],
+        "bitwise_equal": true,
+        "bitwise_mismatch_count": 0,
+        "element_count": 4096,
+        "errors": [],
+        "max_abs_diff": 0.0,
+        "mismatch_count": 0,
+        "mismatch_k3_kl": 0.0,
+        "mismatch_kl": 0.0,
+        "passed": true,
+        "require_exact": true,
+        "sample_count": 8,
+        "torch_equal": true,
+        "train_rollout_logprob_abs_diff": 0.0
+      },
+      "actor_train_seconds_including_diagnostics": 3.184708833694458
+    },
+    {
+      "run_id": "gradfix-lm-tp2cp4-r1",
+      "grad_norm": 0.02258917105830989,
+      "train_rollout_mismatch_count": 0.0,
+      "run_validation_passed": true,
+      "validation_logprobs": {
+        "artifacts": [
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/gradfix-lm-tp2cp4-r1/mismatch-sidecars/rank00000.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/gradfix-lm-tp2cp4-r1/mismatch-sidecars/rank00001.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/gradfix-lm-tp2cp4-r1/mismatch-sidecars/rank00002.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/gradfix-lm-tp2cp4-r1/mismatch-sidecars/rank00003.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/gradfix-lm-tp2cp4-r1/mismatch-sidecars/rank00004.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/gradfix-lm-tp2cp4-r1/mismatch-sidecars/rank00005.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/gradfix-lm-tp2cp4-r1/mismatch-sidecars/rank00006.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/gradfix-lm-tp2cp4-r1/mismatch-sidecars/rank00007.call00000000.pt"
+        ],
+        "bitwise_equal": true,
+        "bitwise_mismatch_count": 0,
+        "element_count": 4096,
+        "errors": [],
+        "max_abs_diff": 0.0,
+        "mismatch_count": 0,
+        "mismatch_k3_kl": 0.0,
+        "mismatch_kl": 0.0,
+        "passed": true,
+        "require_exact": true,
+        "sample_count": 8,
+        "torch_equal": true,
+        "train_rollout_logprob_abs_diff": 0.0
+      },
+      "actor_train_seconds_including_diagnostics": 3.6469497680664062
+    },
+    {
+      "run_id": "gradfix-lmqkv-tp2cp4-r1",
+      "grad_norm": 0.022594830279424053,
+      "train_rollout_mismatch_count": 0.0,
+      "run_validation_passed": true,
+      "validation_logprobs": {
+        "artifacts": [
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/gradfix-lmqkv-tp2cp4-r1/mismatch-sidecars/rank00000.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/gradfix-lmqkv-tp2cp4-r1/mismatch-sidecars/rank00001.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/gradfix-lmqkv-tp2cp4-r1/mismatch-sidecars/rank00002.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/gradfix-lmqkv-tp2cp4-r1/mismatch-sidecars/rank00003.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/gradfix-lmqkv-tp2cp4-r1/mismatch-sidecars/rank00004.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/gradfix-lmqkv-tp2cp4-r1/mismatch-sidecars/rank00005.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/gradfix-lmqkv-tp2cp4-r1/mismatch-sidecars/rank00006.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/gradfix-lmqkv-tp2cp4-r1/mismatch-sidecars/rank00007.call00000000.pt"
+        ],
+        "bitwise_equal": true,
+        "bitwise_mismatch_count": 0,
+        "element_count": 4096,
+        "errors": [],
+        "max_abs_diff": 0.0,
+        "mismatch_count": 0,
+        "mismatch_k3_kl": 0.0,
+        "mismatch_kl": 0.0,
+        "passed": true,
+        "require_exact": true,
+        "sample_count": 8,
+        "torch_equal": true,
+        "train_rollout_logprob_abs_diff": 0.0
+      },
+      "actor_train_seconds_including_diagnostics": 3.723407030105591
+    },
+    {
+      "run_id": "gradfix-lmqkv-tp4cp2-r1",
+      "grad_norm": 0.022595004168846734,
+      "train_rollout_mismatch_count": 0.0,
+      "run_validation_passed": true,
+      "validation_logprobs": {
+        "artifacts": [
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/gradfix-lmqkv-tp4cp2-r1/mismatch-sidecars/rank00000.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/gradfix-lmqkv-tp4cp2-r1/mismatch-sidecars/rank00001.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/gradfix-lmqkv-tp4cp2-r1/mismatch-sidecars/rank00002.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/gradfix-lmqkv-tp4cp2-r1/mismatch-sidecars/rank00003.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/gradfix-lmqkv-tp4cp2-r1/mismatch-sidecars/rank00004.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/gradfix-lmqkv-tp4cp2-r1/mismatch-sidecars/rank00005.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/gradfix-lmqkv-tp4cp2-r1/mismatch-sidecars/rank00006.call00000000.pt",
+          "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/gradfix-lmqkv-tp4cp2-r1/mismatch-sidecars/rank00007.call00000000.pt"
+        ],
+        "bitwise_equal": true,
+        "bitwise_mismatch_count": 0,
+        "element_count": 4096,
+        "errors": [],
+        "max_abs_diff": 0.0,
+        "mismatch_count": 0,
+        "mismatch_k3_kl": 0.0,
+        "mismatch_kl": 0.0,
+        "passed": true,
+        "require_exact": true,
+        "sample_count": 8,
+        "torch_equal": true,
+        "train_rollout_logprob_abs_diff": 0.0
+      },
+      "actor_train_seconds_including_diagnostics": 3.151338815689087
+    }
+  ],
+  "relative_grad_norm_difference_percent_before": 0.021213211142057098,
+  "relative_grad_norm_difference_percent_after": 0.000769598268846039,
+  "relative_gap_reduction_percent": 96.37208028670284,
+  "remaining_parameter_gradient_differences": {
+    "module.module.decoder.final_layernorm.weight": {
+      "numel": 4096,
+      "unequal_elements": 3717,
+      "max_abs_diff": 1.862645149230957e-08
+    },
+    "module.module.output_layer.weight": {
+      "numel": 1048576,
+      "unequal_elements": 47824,
+      "max_abs_diff": 1.1920928955078125e-06
+    }
+  },
+  "cross_configuration_bitwise": false,
+  "limitations": [
+    "Only two H100 training topologies and one sampling setting tested in this repair.",
+    "Diagnostics add CPU copies and disk IO; timings are not performance acceptance evidence.",
+    "No end-to-end ROCm repair validation or rollout CP>1 validation.",
+    "Full post-update weight equality is not certified by these one-step runs."
+  ],
+  "cp_weight_gradient_operand_diagnostic": {
+    "active_rows_per_cp": [
+      [
+        40,
+        58,
+        56,
+        54
+      ],
+      [
+        99,
+        109
+      ]
+    ],
+    "same_nonzero_operand_multiset": true,
+    "cpu_partitioned_bf16_wgrad_mismatch": 44138,
+    "cpu_partitioned_bf16_wgrad_numel": 524288,
+    "cpu_partitioned_bf16_wgrad_max_abs_diff": 1.1920928955078125e-06
+  }
+}

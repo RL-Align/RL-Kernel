@@ -223,3 +223,6 @@ csrc/*_hip.cpp
 csrc/hip/**
 !csrc/hip/hip_*.hip
 csrc/hip/*_hip.hip
+
+# Per-machine launcher paths
+.rlk-profile.json

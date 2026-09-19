@@ -1,0 +1,23 @@
+{
+  "vime": {
+    "base": "c80200e7aef08edc918e50a3998ea981bd689934",
+    "commit": "a9afb98bf4843742ba833ff58673143c1e376a5f",
+    "tree": "383b5a77ad16eea14db94d0bed6dfdf5482f21da",
+    "patch_sha256": "d1e9b36eee33802c7fe433ac5403af8e30c017038d0e2a74afe946784a0ee4e0",
+    "patch_applies_and_recreates_tree": true
+  },
+  "megatron": {
+    "base": "1dcf0dafa884ad52ffb243625717a3471643e087",
+    "commit": "def191e8bada7e61f82b086bd74f1aeb7ec8f7d6",
+    "tree": "8b5d9446925cb3f33a46f0bbe4108747286f938e",
+    "patch_sha256": "6a9cf5de9697c92da1f7a1de9bbd0364a5074cf59102360304a88381ef837d27",
+    "patch_applies_and_recreates_tree": true
+  },
+  "vllm": {
+    "base": "11d76fc7259b3c1d70e2043b7513226aec9a665a",
+    "commit": "1d813359776761b7631e192e2240e4012879a559",
+    "tree": "c0bd64859e1ee1e1268732fef0f0541da5c80f13",
+    "patch_sha256": "c6a0948dc2796e13757dd338b471695ca31150112b6b8545cc0e0e16dbeef076",
+    "patch_applies_and_recreates_tree": true
+  }
+}

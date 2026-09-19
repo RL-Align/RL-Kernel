@@ -1,5 +1,12 @@
 # Vime ROCm Attention operator ablation
 
+For the user-facing full Qwen3-8B `native` / `consistency` pair, use
+`python -m examples.vime_rocm_attention_ablation.run_qwen3_8b` and follow the
+[Qwen3-8B consistency guide](../../docs/usage/qwen3-vime-consistency.md#rocm-mi300x-and-gfx942).
+That path changes Attention, FFN, and logp together and does not reuse rollout
+log-probabilities. The matrix documented below remains an Attention attribution
+tool.
+
 The canonical command is maintained in
 [`../vime_qwen3_8b_tp4_cp2_200/REPRODUCTION.md`](../vime_qwen3_8b_tp4_cp2_200/REPRODUCTION.md#rocm-entry-points).
 This file records the historical Attention-only route-attribution contract;

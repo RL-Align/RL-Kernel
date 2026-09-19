@@ -298,9 +298,9 @@ def _provider_impl(request: Any, *, linear_logp: Any = None) -> LinearLogpResult
         # avoids a second GEMM and keeps the backward graph attached to the
         # output projection.
         request_logits = getattr(request, "logits", None)
+        keep_mask = getattr(request, "log_prob_keep_mask", None)
         materialized_local_logits = (
-            torch.version.hip is not None
-            and isinstance(request_logits, torch.Tensor)
+            isinstance(request_logits, torch.Tensor)
             and request_logits.ndim == 2
             and request_logits.dtype in (torch.bfloat16, torch.float16, torch.float32)
             and request_logits.shape
@@ -308,10 +308,11 @@ def _provider_impl(request: Any, *, linear_logp: Any = None) -> LinearLogpResult
                 hidden.size(0),
                 projection.weight.size(0),
             )
+            and (torch.version.hip is not None or keep_mask is not None
+                 or _metadata(request).get("complete_sampling_support") is True)
         )
         if materialized_local_logits:
             reuse_local_logits = True
-        keep_mask = getattr(request, "log_prob_keep_mask", None)
         if keep_mask is not None and not reuse_local_logits:
             raise RuntimeError(
                 "strict top-p replay requires reusable materialized local logits"
@@ -390,7 +391,14 @@ def _provider_impl(request: Any, *, linear_logp: Any = None) -> LinearLogpResult
                 "with_entropy_grad": False,
             }
         elif with_entropy:
-            entropy_contract, entropy_tiles = _contract_for_request(request)
+            from dataclasses import replace
+
+            entropy_request = request
+            if not _is_identity_temperature(local_logits_temperature):
+                entropy_request = replace(
+                    request, logits=request.logits.float() / local_logits_temperature
+                )
+            entropy_contract, entropy_tiles = _contract_for_request(entropy_request)
             entropy_dispatch = kernel_registry.get_logprob_op(
                 entropy_contract, requested_backend=BACKEND_ID
             )
@@ -402,7 +410,7 @@ def _provider_impl(request: Any, *, linear_logp: Any = None) -> LinearLogpResult
                     "explicit WS2 entropy dispatch changed during strict linear_logp execution"
                 )
             _, _, entropy = entropy_dispatch.op.apply_with_entropy(
-                request.logits,
+                entropy_request.logits,
                 request.target_ids,
                 contract=entropy_contract,
                 tp_group=getattr(request, "tensor_parallel_group", None),
@@ -419,7 +427,7 @@ def _provider_impl(request: Any, *, linear_logp: Any = None) -> LinearLogpResult
         provenance["execution"] = {
             "role": "vime_training_linear_logp",
             "strict_backend": True,
-            "top_p_replay": False,
+            "top_p_replay": keep_mask is not None,
             "cp_is_merge_axis": False,
             "logits_materialized": bool(
                 reuse_local_logits or getattr(request, "with_entropy", False)
