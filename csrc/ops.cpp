@@ -156,6 +156,13 @@ std::vector<torch::Tensor> clamp_swiglu_weighted_packed_backward_cuda(
     torch::Tensor dh,
     torch::Tensor gate_up,
     torch::optional<torch::Tensor> p_s);
+
+// MXFP8 activation quantization Declarations (P5-1)
+#if !defined(USE_ROCM)
+std::vector<torch::Tensor> mxfp8_act_quant_forward_cuda(torch::Tensor x, bool check_finite);
+torch::Tensor mxfp8_act_quant_ste_backward_cuda(torch::Tensor dy);
+#endif
+
 // RMSNorm Declarations & Wrappers
 
 void rmsnorm_forward_cuda(
@@ -356,6 +363,7 @@ std::vector<torch::Tensor> clamp_swiglu_weighted_packed_backward(
       gate_up,
       p_s);
 }
+
 // Deterministic standard-softmax attention (issue #147)
 std::vector<torch::Tensor> deterministic_attention_forward(
     torch::Tensor q,
@@ -611,6 +619,17 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         py::arg("gate_up"),
         py::arg("p_s") = py::none(),
         "P5 packed clamp_swiglu_weighted backward CUDA");
+
+    // MXFP8 activation quantization (P5-1)
+#if !defined(USE_ROCM)
+    m.def("mxfp8_act_quant_forward", &mxfp8_act_quant_forward_cuda,
+          "MXFP8 (E4M3 + block-32 E8M0) activation quantization; "
+          "returns {codes, scales, nonfinite_flag}",
+          py::arg("x"), py::arg("check_finite") = true);
+    m.def("mxfp8_act_quant_ste_backward", &mxfp8_act_quant_ste_backward_cuda,
+          "Straight-through estimator backward for mxfp8_act_quant (dX = dY)");
+#endif
+
     // Deterministic standard-softmax attention (issue #147)
     m.def(
         "deterministic_attention_forward",

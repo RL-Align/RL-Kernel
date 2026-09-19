@@ -27,6 +27,7 @@ nav:
       - operators/sampling.md
       - operators/det-gemm.md
       - operators/embedding.md
+      - operators/mxfp8-act-quant.md
   - Developer Guide:
     - contributing/README.md
     - General:

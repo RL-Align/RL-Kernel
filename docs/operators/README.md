@@ -32,4 +32,5 @@ Every operator page should include:
 - [Matmul](matmul.md)
 - [Sampling](sampling.md)
 - [Token Embedding](embedding.md)
+- [MXFP8 Activation Quantization](mxfp8-act-quant.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)

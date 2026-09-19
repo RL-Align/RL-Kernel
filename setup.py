@@ -146,6 +146,9 @@ def get_extensions():
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
             cuda_sources.append("csrc/cuda/attention/prefix_shared_attention.cu")
+            # MXFP8 activation quantization (P5-1) needs cuda_fp8.h and the
+            # SATFINITE E4M3 conversion; ROCm registers its own profile instead.
+            cuda_sources.append("csrc/cuda/moe/mxfp8_act_quant.cu")
 
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
         if envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH):
