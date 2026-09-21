@@ -22,6 +22,7 @@ Every operator page should include:
 - [Standard Attention](attention.md)
 - [Fused LogP](fused-logp.md)
 - [Fused Linear LogP](linear-logp.md)
+- [Gumbel-Softmax](gumbel-softmax.md)
 - [Batch-Invariant LogP](batch-invariant-logp.md)
 - [Fused Linear LogP TP Test Runbook](linear-logp-tp-test.md)
 - [GRPO Loss](grpo-loss.md)
