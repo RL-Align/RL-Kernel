@@ -450,6 +450,15 @@ torch::Tensor deterministic_rope_apply_token_major_rocm(
 #endif
 
 #if !defined(USE_ROCM)
+// SM80 (Ampere) native fused linear_logp -- stage-1 PoC, forward only.
+// Implemented in csrc/cuda/fused_linear_logp_sm80.cu, which is part of the
+// baseline (non-FORCE_SM90) CUDA build. Explicit-call only; it is intentionally
+// not wired into the Python kernel registry yet.
+torch::Tensor fused_linear_logp_sm80_forward(
+    torch::Tensor hidden, torch::Tensor weight, torch::Tensor target);
+#endif
+
+#if !defined(USE_ROCM)
 // Prefix-Shared Attention Declarations & Wrappers (NVIDIA PTX only).
 
 void prefix_shared_attention_forward(
@@ -695,6 +704,13 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     // same guard, so the registration must repeat it or a ROCm build fails on an
     // undeclared identifier.
     m.def("prefix_shared_attention", &prefix_shared_attention, "Prefix-Shared Fused Attention for GRPO");
+#endif
+
+#if !defined(USE_ROCM)
+    // SM80 native fused linear_logp stage-1 PoC (forward only, explicit call).
+    m.def("fused_linear_logp_sm80", &fused_linear_logp_sm80_forward,
+          "SM80 WMMA fused linear log-prob PoC (hidden @ W^T -> selected logp), "
+          "BF16, no [N,V] logits materialization");
 #endif
 
     // registry Batch-Invariant Deterministic GEMM
