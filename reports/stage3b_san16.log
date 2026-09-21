@@ -1,0 +1,16 @@
+nohup: ignoring input
+========= COMPUTE-SANITIZER
+WARNING 09-21 23:13:35 [RL-Kernel]: MUSA availability check failed: No module named 'torch_musa'
+INFO 09-21 23:13:36 [RL-Kernel]: RL-Engine initialized with NVIDIA CUDA backend (Version: 13.0)
+INFO 09-21 23:13:36 [RL-Kernel]: KernelRegistry initialized for cuda
+device=NVIDIA A100 80GB PCIe cc=(8, 0)
+registry dispatch=rl_engine.kernels.ops.triton.loss.linear_logp.TritonLinearLogpOp
+sm80_poc available=True
+
+=== N=16  free=78.79 GiB ===
+  native_pytorch lat=  38.188ms  tok/s=       419.0  peak=   19.70MB  maxerr=3.889e-03  meanerr=9.796e-04  nan=False  inf=False  materialize=True
+  triton_sm80    lat=3637.883ms  tok/s=         4.4  peak=    0.00MB  maxerr=1.049e-05  meanerr=4.351e-06  nan=False  inf=False  materialize=False
+  sm80_poc       lat= 444.063ms  tok/s=        36.0  peak=    0.00MB  maxerr=1.144e-05  meanerr=4.292e-06  nan=False  inf=False  materialize=False
+
+SAVED /home/linzhb/stage3b_san16.csv stopped= None
+========= ERROR SUMMARY: 0 errors
