@@ -38,8 +38,6 @@
 namespace kernel_align {
 namespace sm80_poc {
 
-namespace wmma = nvcuda::wmma;
-
 // Stage-2 tuning point. Keep these compile-time constants so nvcc can fully
 // unroll the fragment grid; benchmarked variants change only these three.
 constexpr int BM = 32;
@@ -49,7 +47,7 @@ constexpr int WARPS = 8;
 constexpr int THREADS = WARPS * 32;
 constexpr int STAGES = 2;
 constexpr int WM = BM / 16;
-constexpr int WN = BN / 16;
+constexpr int WN = BN / 8;
 constexpr int FRAGMENTS = WM * WN;
 constexpr int FRAGS_PER_WARP = (FRAGMENTS + WARPS - 1) / WARPS;
 static_assert(BM % 16 == 0 && BN % 16 == 0 && BK % 16 == 0);
@@ -71,6 +69,43 @@ __device__ __forceinline__ void cp_async_wait_all() {
   asm volatile("cp.async.wait_group 0;\n" ::);
 }
 
+__device__ __forceinline__ void ldmatrix_x4(
+    unsigned (&dst)[4], const __nv_bfloat16* ptr) {
+  const unsigned addr = static_cast<unsigned>(__cvta_generic_to_shared(ptr));
+  asm volatile(
+      "ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0, %1, %2, %3}, [%4];\n"
+      : "=r"(dst[0]), "=r"(dst[1]), "=r"(dst[2]), "=r"(dst[3])
+      : "r"(addr));
+}
+
+__device__ __forceinline__ void ldmatrix_x2_trans(
+    unsigned (&dst)[2], const __nv_bfloat16* ptr) {
+  const unsigned addr = static_cast<unsigned>(__cvta_generic_to_shared(ptr));
+  asm volatile(
+      "ldmatrix.sync.aligned.m8n8.x2.trans.shared.b16 {%0, %1}, [%2];\n"
+      : "=r"(dst[0]), "=r"(dst[1]) : "r"(addr));
+}
+
+__device__ __forceinline__ void ldmatrix_x2(
+    unsigned (&dst)[2], const __nv_bfloat16* ptr) {
+  const unsigned addr = static_cast<unsigned>(__cvta_generic_to_shared(ptr));
+  asm volatile(
+      "ldmatrix.sync.aligned.m8n8.x2.shared.b16 {%0, %1}, [%2];\n"
+      : "=r"(dst[0]), "=r"(dst[1]) : "r"(addr));
+}
+
+__device__ __forceinline__ void mma_m16n8k16(float (&d)[4],
+                                              const unsigned (&a)[4],
+                                              const unsigned (&b)[2]) {
+  asm volatile(
+      "mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 "
+      "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, "
+      "{%0, %1, %2, %3};\n"
+      : "+f"(d[0]), "+f"(d[1]), "+f"(d[2]), "+f"(d[3])
+      : "r"(a[0]), "r"(a[1]), "r"(a[2]), "r"(a[3]),
+        "r"(b[0]), "r"(b[1]));
+}
+
 // Per-warp, per-row state, held in shared memory:
 //   state 0: running max (m)
 //   state 1: sum exp(x - m)
@@ -88,8 +123,8 @@ __global__ void fused_linear_logp_sm80_kernel(
 
   __shared__ __nv_bfloat16 sH[STAGES][BM * BK];
   __shared__ __nv_bfloat16 sW[STAGES][BN * BK];
-  __shared__ float sC[WARPS][16 * 16];
-  // One online-softmax partial per 16-column vocab fragment and token row.
+  __shared__ float sC[WARPS][16 * 8];
+  // One online-softmax partial per 8-column vocab fragment and token row.
   __shared__ float sPart[WN][BM * 3];
 
   // m = -inf, sumexp = 0, target_logit = -inf for every (warp, row) triple.
@@ -101,9 +136,7 @@ __global__ void fused_linear_logp_sm80_kernel(
   }
   __syncthreads();
 
-  wmma::fragment<wmma::matrix_a, 16, 16, 16, __nv_bfloat16, wmma::row_major> a_frag;
-  wmma::fragment<wmma::matrix_b, 16, 16, 16, __nv_bfloat16, wmma::col_major> b_frag;
-  wmma::fragment<wmma::accumulator, 16, 16, 16, float> c_frag[FRAGS_PER_WARP];
+  float acc[FRAGS_PER_WARP][4];
 
   auto prefetch_k = [&](int stage, int v0, int k0) {
     // Every transfer is 16 aligned bytes (8 bf16 values).  cp.async's
@@ -132,7 +165,8 @@ __global__ void fused_linear_logp_sm80_kernel(
   for (int v0 = 0; v0 < V; v0 += BN) {
     #pragma unroll
     for (int q = 0; q < FRAGS_PER_WARP; ++q)
-      wmma::fill_fragment(c_frag[q], 0.0f);
+      #pragma unroll
+      for (int i = 0; i < 4; ++i) acc[q][i] = 0.0f;
 
     prefetch_k(0, v0, 0);
     for (int k0 = 0, step = 0; k0 < D; k0 += BK, ++step) {
@@ -148,13 +182,23 @@ __global__ void fused_linear_logp_sm80_kernel(
         for (int q = 0; q < FRAGS_PER_WARP; ++q) {
           const int frag = warp + q * WARPS;
           if (frag < FRAGMENTS) {
-            const int mfrag = frag / WN;
-            const int nfrag = frag % WN;
-            wmma::load_matrix_sync(a_frag, sH[stage] + mfrag * 16 * BK + kk, BK);
-            // Physical W is [BN,BK] row-major; col-major B view gives W^T.
-            wmma::load_matrix_sync(b_frag,
-                                   sW[stage] + nfrag * 16 * BK + kk, BK);
-            wmma::mma_sync(c_frag[q], a_frag, b_frag, c_frag[q]);
+          const int mfrag = frag / WN;
+          const int nfrag = frag % WN;
+          const int group = lane >> 2;
+          const int tid = lane & 3;
+          unsigned a[4], b[2];
+          const int a_row = (lane & 7) + ((lane >> 3) & 1) * 8;
+          const int a_col = (lane >> 4) * 8;
+          ldmatrix_x4(a, sH[stage] + mfrag * 16 * BK +
+                         a_row * BK + kk + a_col);
+          // sW is physically [N,K] row-major, i.e. the logical [K,N]
+          // operand is already column-major. Therefore B uses non-transposed
+          // ldmatrix; .trans is for a logical row-major [K,N] shared tile.
+          const int b_row = lane & 7;
+          const int b_col = ((lane >> 3) & 1) * 8;
+          ldmatrix_x2(b, sW[stage] + nfrag * 8 * BK +
+                         b_row * BK + kk + b_col);
+          mma_m16n8k16(acc[q], a, b);
           }
         }
       }
@@ -166,7 +210,14 @@ __global__ void fused_linear_logp_sm80_kernel(
       if (frag >= FRAGMENTS) continue;
       const int mfrag = frag / WN;
       const int nfrag = frag % WN;
-      wmma::store_matrix_sync(sC[warp], c_frag[q], 16, wmma::mem_row_major);
+      // mma.m16n8 accumulator ownership: d0/d1 are row lane/4, d2/d3
+      // are row lane/4+8; adjacent register pairs own adjacent columns.
+      #pragma unroll
+      for (int i = 0; i < 4; ++i) {
+        const int rr = (lane >> 2) + (i >> 1) * 8;
+        const int cc = (lane & 3) * 2 + (i & 1);
+        sC[warp][rr * 8 + cc] = acc[q][i];
+      }
       __syncwarp();
 
       // Fold this fragment into its vocab-partition online state.
@@ -175,20 +226,20 @@ __global__ void fused_linear_logp_sm80_kernel(
         if (r >= num_rows) continue;
         const int global_row = row_base + r;
         const int target_v = target[global_row];
-        const int vocab = v0 + nfrag * 16 + lane;
+        const int vocab = v0 + nfrag * 8 + lane;
 
         float x = -CUDART_INF_F;
-        if (lane < 16 && vocab < V) x = sC[warp][lr * 16 + lane];
+        if (lane < 8 && vocab < V) x = sC[warp][lr * 8 + lane];
 
         float tile_max = x;
         for (int off = 16; off >= 1; off >>= 1)
           tile_max = fmaxf(tile_max, __shfl_xor_sync(0xffffffffu, tile_max, off));
 
-        float tile_sum = (lane < 16) ? expf(x - tile_max) : 0.0f;
+        float tile_sum = (lane < 8) ? expf(x - tile_max) : 0.0f;
         for (int off = 16; off >= 1; off >>= 1)
           tile_sum += __shfl_xor_sync(0xffffffffu, tile_sum, off);
 
-        float tile_tgt = (lane < 16 && vocab == target_v) ? x : -CUDART_INF_F;
+        float tile_tgt = (lane < 8 && vocab == target_v) ? x : -CUDART_INF_F;
         for (int off = 16; off >= 1; off >>= 1)
           tile_tgt = fmaxf(tile_tgt, __shfl_xor_sync(0xffffffffu, tile_tgt, off));
 
