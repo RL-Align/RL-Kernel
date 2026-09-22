@@ -76,4 +76,3 @@ online max/sumexp、target-logit 记录和末尾 merge 的数学逻辑未改变�
 4. **剩余差距？** 对 Triton 83.62 ms 仍慢 2.94x；对 cuBLAS 25.51 ms 仍慢 9.65x。
 5. **瓶颈转移了吗？** 尚未转成纯 bandwidth/compute wall。按权重重读模型，N=4096 等效带宽约 547 GB/s，远低于 A100 峰值和 Triton 的约 1.6 TB/s；有效 BF16 算力约 17.5 TFLOP/s，也远未触及计算峰值。当前主要是 WMMA/load_matrix 指令开销、72-reg register pressure、低实际 occupancy、有限 grid 并行度，以及仍然存在的 K-chain/同步延迟。
 6. **是否值得进入手写 mma.sync + swizzle？** 值得。前两阶段已拿到 5.77x，但距离 Triton 仍有接近 3x，且计数模型显示既未到带宽墙也未到计算墙。下一阶段应以 `mma.sync m16n8k16`、`ldmatrix`、shared swizzle/bank-conflict 控制和更紧凑的 accumulator layout 为主；目标是降低 WMMA API 生成的 load/寄存器开销并提高可驻留 warp 数。
-
