@@ -256,6 +256,12 @@ def swiglu_backward(
     gate: torch.Tensor,
     up: torch.Tensor,
 ) -> list[torch.Tensor]: ...
+def adaln_modulation_forward(
+    x: torch.Tensor, modulation: torch.Tensor, eps: float
+) -> list[torch.Tensor]: ...
+def adaln_modulation_backward(
+    dy: torch.Tensor, dg: torch.Tensor, x: torch.Tensor, modulation: torch.Tensor, eps: float
+) -> list[torch.Tensor]: ...
 def rmsnorm_forward(
     x: torch.Tensor,
     weight: torch.Tensor,
