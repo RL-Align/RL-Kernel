@@ -52,7 +52,6 @@ constexpr int WM = BM / 16;
 constexpr int WN = BN / 16;
 constexpr int FRAGMENTS = WM * WN;
 constexpr int FRAGS_PER_WARP = (FRAGMENTS + WARPS - 1) / WARPS;
-constexpr int SPLIT_V = 16;  // Stage-3B sweep: 2, 4, 8, 16.
 static_assert(BM % 16 == 0 && BN % 16 == 0 && BK % 16 == 0);
 
 __device__ __forceinline__ void cp_async_16(void* smem_ptr,
@@ -76,16 +75,16 @@ __device__ __forceinline__ void cp_async_wait_all() {
 //   state 0: running max (m)
 //   state 1: sum exp(x - m)
 //   state 2: raw target logit seen in this warp's tiles (-inf if none yet)
-__global__ void fused_linear_logp_sm80_kernel(
+__global__ __launch_bounds__(THREADS, 4) void fused_linear_logp_sm80_kernel(
     const __nv_bfloat16* __restrict__ hidden,  // [N, D], row major, BF16
     const __nv_bfloat16* __restrict__ weight,  // [V, D], row major, BF16
     const int* __restrict__ target,            // [N]
     float* __restrict__ part_max,              // [SPLIT_V, N]
     float* __restrict__ part_sum,
     float* __restrict__ part_tgt,
-    int N, int D, int V) {
-  const int token_block = blockIdx.x / SPLIT_V;
-  const int split = blockIdx.x % SPLIT_V;
+    int N, int D, int V, int split_v) {
+  const int token_block = blockIdx.x / split_v;
+  const int split = blockIdx.x % split_v;
   const int row_base = token_block * BM;
   const int warp = threadIdx.x / 32;
   const int lane = threadIdx.x % 32;
@@ -135,8 +134,8 @@ __global__ void fused_linear_logp_sm80_kernel(
   };
 
   const int vocab_tiles = V / BN;
-  const int tile_begin = split * vocab_tiles / SPLIT_V;
-  const int tile_end = (split + 1) * vocab_tiles / SPLIT_V;
+  const int tile_begin = split * vocab_tiles / split_v;
+  const int tile_end = (split + 1) * vocab_tiles / split_v;
   for (int v0 = tile_begin * BN; v0 < tile_end * BN; v0 += BN) {
     #pragma unroll
     for (int q = 0; q < FRAGS_PER_WARP; ++q)
@@ -244,25 +243,23 @@ __global__ void combine_split_v_kernel(const float* __restrict__ part_max,
                                        const float* __restrict__ part_sum,
                                        const float* __restrict__ part_tgt,
                                        float* __restrict__ out_logp,
-                                       int N) {
+                                       int N, int split_v) {
   const int r = blockIdx.x * blockDim.x + threadIdx.x;
   if (r >= N) return;
   float m = -CUDART_INF_F;
-  #pragma unroll
-  for (int s = 0; s < SPLIT_V; ++s) m = fmaxf(m, part_max[s * N + r]);
+  for (int s = 0; s < split_v; ++s) m = fmaxf(m, part_max[s * N + r]);
   float sum = 0.0f;
   float tgt = -CUDART_INF_F;
-  #pragma unroll
-  for (int s = 0; s < SPLIT_V; ++s) {
+  for (int s = 0; s < split_v; ++s) {
     sum += part_sum[s * N + r] * expf(part_max[s * N + r] - m);
     tgt = fmaxf(tgt, part_tgt[s * N + r]);
   }
   out_logp[r] = tgt - (m + logf(sum));
 }
 
-torch::Tensor fused_linear_logp_sm80_forward(torch::Tensor hidden,
-                                             torch::Tensor weight,
-                                             torch::Tensor target) {
+std::vector<torch::Tensor> fused_linear_logp_sm80_primary_forward(
+    torch::Tensor hidden, torch::Tensor weight, torch::Tensor target,
+    int64_t split_v) {
   TORCH_CHECK(hidden.is_cuda() && weight.is_cuda(),
               "fused_linear_logp_sm80: hidden and weight must be CUDA tensors");
   TORCH_CHECK(weight.device() == hidden.device(),
@@ -286,28 +283,68 @@ torch::Tensor fused_linear_logp_sm80_forward(torch::Tensor hidden,
   TORCH_CHECK(D % BK == 0, "fused_linear_logp_sm80: D must be a multiple of ", BK);
   TORCH_CHECK(V % BN == 0, "fused_linear_logp_sm80: V must be a multiple of ", BN);
   TORCH_CHECK(N > 0, "fused_linear_logp_sm80: N must be positive");
+  TORCH_CHECK(split_v == 1 || split_v == 2 || split_v == 4 ||
+                  split_v == 8 || split_v == 16 || split_v == 32,
+              "fused_linear_logp_sm80: split_v must be 1,2,4,8,16,32");
 
   c10::cuda::CUDAGuard device_guard(hidden.device());
   auto target_i = target.to(at::kInt).contiguous();
-  auto out_logp = torch::empty({N}, hidden.options().dtype(at::kFloat));
-  auto partials = torch::empty({3, SPLIT_V, N},
+  auto partials = torch::empty({3, split_v, N},
                                hidden.options().dtype(at::kFloat));
   float* part = partials.data_ptr<float>();
   float* part_max = part;
-  float* part_sum = part + SPLIT_V * N;
-  float* part_tgt = part + 2 * SPLIT_V * N;
+  float* part_sum = part + split_v * N;
+  float* part_tgt = part + 2 * split_v * N;
 
-  const int blocks = ((N + BM - 1) / BM) * SPLIT_V;
+  const int blocks = ((N + BM - 1) / BM) * split_v;
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
   fused_linear_logp_sm80_kernel<<<blocks, THREADS, 0, stream>>>(
       reinterpret_cast<const __nv_bfloat16*>(hidden.data_ptr<at::BFloat16>()),
       reinterpret_cast<const __nv_bfloat16*>(weight.data_ptr<at::BFloat16>()),
-      target_i.data_ptr<int>(), part_max, part_sum, part_tgt, N, D, V);
+      target_i.data_ptr<int>(), part_max, part_sum, part_tgt, N, D, V,
+      static_cast<int>(split_v));
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+  return {partials};
+}
+
+torch::Tensor fused_linear_logp_sm80_combine_forward(torch::Tensor partials) {
+  TORCH_CHECK(partials.is_cuda() && partials.scalar_type() == at::kFloat &&
+                  partials.is_contiguous() && partials.dim() == 3 &&
+                  partials.size(0) == 3,
+              "fused_linear_logp_sm80: partials must be contiguous CUDA FP32 [3,S,N]");
+  const int split_v = static_cast<int>(partials.size(1));
+  const int N = static_cast<int>(partials.size(2));
+  auto out_logp = torch::empty({N}, partials.options());
+  const float* part = partials.data_ptr<float>();
+  const float* part_max = part;
+  const float* part_sum = part + split_v * N;
+  const float* part_tgt = part + 2 * split_v * N;
+  const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
   combine_split_v_kernel<<<(N + 255) / 256, 256, 0, stream>>>(
-      part_max, part_sum, part_tgt, out_logp.data_ptr<float>(), N);
+      part_max, part_sum, part_tgt, out_logp.data_ptr<float>(), N, split_v);
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   return out_logp;
+}
+
+torch::Tensor fused_linear_logp_sm80_split_forward(
+    torch::Tensor hidden, torch::Tensor weight, torch::Tensor target,
+    int64_t split_v) {
+  auto parts = fused_linear_logp_sm80_primary_forward(
+      hidden, weight, target, split_v);
+  return fused_linear_logp_sm80_combine_forward(parts[0]);
+}
+
+torch::Tensor fused_linear_logp_sm80_forward(torch::Tensor hidden,
+                                             torch::Tensor weight,
+                                             torch::Tensor target) {
+  // Stage-4 benchmark-backed production policy. Small batches need more
+  // vocabulary-level CTA parallelism; from N=1024 onward split=16 avoids
+  // extra workspace/CTA pressure while matching the measured optimum.
+  const int64_t split_v = hidden.size(0) <= 512 ? 32 : 16;
+  return fused_linear_logp_sm80_split_forward(
+      std::move(hidden), std::move(weight), std::move(target), split_v);
 }
 
 }  // namespace sm80_poc
@@ -319,4 +356,23 @@ torch::Tensor fused_linear_logp_sm80_forward(torch::Tensor hidden,
                                              torch::Tensor target) {
   return kernel_align::sm80_poc::fused_linear_logp_sm80_forward(
       std::move(hidden), std::move(weight), std::move(target));
+}
+
+torch::Tensor fused_linear_logp_sm80_split_forward(
+    torch::Tensor hidden, torch::Tensor weight, torch::Tensor target,
+    int64_t split_v) {
+  return kernel_align::sm80_poc::fused_linear_logp_sm80_split_forward(
+      std::move(hidden), std::move(weight), std::move(target), split_v);
+}
+
+std::vector<torch::Tensor> fused_linear_logp_sm80_primary_forward(
+    torch::Tensor hidden, torch::Tensor weight, torch::Tensor target,
+    int64_t split_v) {
+  return kernel_align::sm80_poc::fused_linear_logp_sm80_primary_forward(
+      std::move(hidden), std::move(weight), std::move(target), split_v);
+}
+
+torch::Tensor fused_linear_logp_sm80_combine_forward(torch::Tensor partials) {
+  return kernel_align::sm80_poc::fused_linear_logp_sm80_combine_forward(
+      std::move(partials));
 }

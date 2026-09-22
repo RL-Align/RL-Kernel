@@ -456,6 +456,13 @@ torch::Tensor deterministic_rope_apply_token_major_rocm(
 // not wired into the Python kernel registry yet.
 torch::Tensor fused_linear_logp_sm80_forward(
     torch::Tensor hidden, torch::Tensor weight, torch::Tensor target);
+torch::Tensor fused_linear_logp_sm80_split_forward(
+    torch::Tensor hidden, torch::Tensor weight, torch::Tensor target,
+    int64_t split_v);
+std::vector<torch::Tensor> fused_linear_logp_sm80_primary_forward(
+    torch::Tensor hidden, torch::Tensor weight, torch::Tensor target,
+    int64_t split_v);
+torch::Tensor fused_linear_logp_sm80_combine_forward(torch::Tensor partials);
 #endif
 
 #if !defined(USE_ROCM)
@@ -711,6 +718,12 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("fused_linear_logp_sm80", &fused_linear_logp_sm80_forward,
           "SM80 WMMA fused linear log-prob PoC (hidden @ W^T -> selected logp), "
           "BF16, no [N,V] logits materialization");
+    m.def("fused_linear_logp_sm80_split", &fused_linear_logp_sm80_split_forward,
+          "SM80 split-V linear log-prob PoC with explicit split count");
+    m.def("fused_linear_logp_sm80_primary", &fused_linear_logp_sm80_primary_forward,
+          "SM80 split-V primary kernel, returns [partials]");
+    m.def("fused_linear_logp_sm80_combine", &fused_linear_logp_sm80_combine_forward,
+          "SM80 split-V combine kernel");
 #endif
 
     // registry Batch-Invariant Deterministic GEMM
