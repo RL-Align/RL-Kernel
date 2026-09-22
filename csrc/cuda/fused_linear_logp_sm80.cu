@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 RL-Kernel Contributors
 //
-// SM80 (Ampere, e.g. A100) native fused linear_logp -- STAGE-2 PoC.
+// SM80 (A100) native fused linear_logp, forward only.
 //
 // Forward-only, BF16, single GPU. Computes, for each token row n:
 //
@@ -16,16 +16,14 @@
 // The four warps of a CTA split the BN vocab columns; their partial states are
 // merged once at the end: logp = target_logit - (max + log sumexp).
 //
-// Stage-2 design choices:
+// Production design:
 //   * nvcuda::wmma API, no hand-written mma.sync PTX;
 //   * cp.async global-to-shared copies with a two-stage K pipeline;
 //   * BM=16 rows per CTA, one accumulator fragment per K step;
-//   * no bias / temperature / TP / padding-vocab masking (V must be a
-//     multiple of BN);
+//   * no bias / temperature / TP / padding-vocab masking;
 //   * forward only; no backward kernel.
 //
-// Validated shape: D=4096, V=128256, BF16, N in [128, 4096]. The kernel itself
-// only requires D % 16 == 0 and V % 64 == 0.
+// Validated production domain: D=4096, V=128256, BF16, 0 < N <= 1024.
 
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
@@ -36,12 +34,12 @@
 #include <mma.h>
 
 namespace kernel_align {
-namespace sm80_poc {
+namespace sm80 {
 
 namespace wmma = nvcuda::wmma;
 
-// Stage-2 tuning point. Keep these compile-time constants so nvcc can fully
-// unroll the fragment grid; benchmarked variants change only these three.
+// Stage-4 benchmark-selected tile. Compile-time constants let nvcc fully
+// unroll the fragment grid.
 constexpr int BM = 32;
 constexpr int BN = 128;
 constexpr int BK = 32;
@@ -257,7 +255,7 @@ __global__ void combine_split_v_kernel(const float* __restrict__ part_max,
   out_logp[r] = tgt - (m + logf(sum));
 }
 
-std::vector<torch::Tensor> fused_linear_logp_sm80_primary_forward(
+static std::vector<torch::Tensor> launch_primary(
     torch::Tensor hidden, torch::Tensor weight, torch::Tensor target,
     int64_t split_v) {
   TORCH_CHECK(hidden.is_cuda() && weight.is_cuda(),
@@ -278,6 +276,10 @@ std::vector<torch::Tensor> fused_linear_logp_sm80_primary_forward(
   const int V = static_cast<int>(weight.size(0));
   TORCH_CHECK(weight.size(1) == D,
               "fused_linear_logp_sm80: hidden/weight hidden-dim mismatch");
+  TORCH_CHECK(N <= 1024,
+              "fused_linear_logp_sm80: native path supports N <= 1024");
+  TORCH_CHECK(D == 4096 && V == 128256,
+              "fused_linear_logp_sm80: native path requires D=4096, V=128256");
   TORCH_CHECK(target.numel() == N,
               "fused_linear_logp_sm80: target must have one id per token");
   TORCH_CHECK(D % BK == 0, "fused_linear_logp_sm80: D must be a multiple of ", BK);
@@ -288,6 +290,10 @@ std::vector<torch::Tensor> fused_linear_logp_sm80_primary_forward(
               "fused_linear_logp_sm80: split_v must be 1,2,4,8,16,32");
 
   c10::cuda::CUDAGuard device_guard(hidden.device());
+  cudaDeviceProp properties{};
+  C10_CUDA_CHECK(cudaGetDeviceProperties(&properties, hidden.get_device()));
+  TORCH_CHECK(properties.major == 8 && properties.minor == 0,
+              "fused_linear_logp_sm80: requires an SM80 CUDA device");
   auto target_i = target.to(at::kInt).contiguous();
   auto partials = torch::empty({3, split_v, N},
                                hidden.options().dtype(at::kFloat));
@@ -308,7 +314,7 @@ std::vector<torch::Tensor> fused_linear_logp_sm80_primary_forward(
   return {partials};
 }
 
-torch::Tensor fused_linear_logp_sm80_combine_forward(torch::Tensor partials) {
+static torch::Tensor launch_combine(torch::Tensor partials) {
   TORCH_CHECK(partials.is_cuda() && partials.scalar_type() == at::kFloat &&
                   partials.is_contiguous() && partials.dim() == 3 &&
                   partials.size(0) == 3,
@@ -328,51 +334,32 @@ torch::Tensor fused_linear_logp_sm80_combine_forward(torch::Tensor partials) {
   return out_logp;
 }
 
-torch::Tensor fused_linear_logp_sm80_split_forward(
+static torch::Tensor launch_split(
     torch::Tensor hidden, torch::Tensor weight, torch::Tensor target,
     int64_t split_v) {
-  auto parts = fused_linear_logp_sm80_primary_forward(
+  auto parts = launch_primary(
       hidden, weight, target, split_v);
-  return fused_linear_logp_sm80_combine_forward(parts[0]);
+  return launch_combine(parts[0]);
 }
 
 torch::Tensor fused_linear_logp_sm80_forward(torch::Tensor hidden,
                                              torch::Tensor weight,
                                              torch::Tensor target) {
-  // Stage-4 benchmark-backed production policy. Small batches need more
+  // Stage-4 benchmark-backed split policy. Small batches need more
   // vocabulary-level CTA parallelism; from N=1024 onward split=16 avoids
   // extra workspace/CTA pressure while matching the measured optimum.
   const int64_t split_v = hidden.size(0) <= 512 ? 32 : 16;
-  return fused_linear_logp_sm80_split_forward(
+  return launch_split(
       std::move(hidden), std::move(weight), std::move(target), split_v);
 }
 
-}  // namespace sm80_poc
+}  // namespace sm80
 }  // namespace kernel_align
 
 // Global-scope entry point referenced by the pybind declarations in csrc/ops.cpp.
 torch::Tensor fused_linear_logp_sm80_forward(torch::Tensor hidden,
                                              torch::Tensor weight,
                                              torch::Tensor target) {
-  return kernel_align::sm80_poc::fused_linear_logp_sm80_forward(
+  return kernel_align::sm80::fused_linear_logp_sm80_forward(
       std::move(hidden), std::move(weight), std::move(target));
-}
-
-torch::Tensor fused_linear_logp_sm80_split_forward(
-    torch::Tensor hidden, torch::Tensor weight, torch::Tensor target,
-    int64_t split_v) {
-  return kernel_align::sm80_poc::fused_linear_logp_sm80_split_forward(
-      std::move(hidden), std::move(weight), std::move(target), split_v);
-}
-
-std::vector<torch::Tensor> fused_linear_logp_sm80_primary_forward(
-    torch::Tensor hidden, torch::Tensor weight, torch::Tensor target,
-    int64_t split_v) {
-  return kernel_align::sm80_poc::fused_linear_logp_sm80_primary_forward(
-      std::move(hidden), std::move(weight), std::move(target), split_v);
-}
-
-torch::Tensor fused_linear_logp_sm80_combine_forward(torch::Tensor partials) {
-  return kernel_align::sm80_poc::fused_linear_logp_sm80_combine_forward(
-      std::move(partials));
 }

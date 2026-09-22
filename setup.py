@@ -159,8 +159,8 @@ def get_extensions():
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
             cuda_sources.append("csrc/cuda/attention/prefix_shared_attention.cu")
-            # SM80 (Ampere) native fused linear_logp stage-1 PoC: WMMA + online
-            # softmax, forward only, BF16. Uses only baseline sm_80 capabilities.
+            # SM80 (A100) native fused linear_logp: WMMA + split-V online
+            # softmax, forward only, BF16. Excluded from ROCm builds.
             cuda_sources.append("csrc/cuda/fused_linear_logp_sm80.cu")
 
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
