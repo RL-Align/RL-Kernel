@@ -187,7 +187,8 @@ def test_triton_irregular_hidden_and_bf16_tie_rounding():
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-def test_triton_adaln_padding_and_batch_size_do_not_change_valid_bytes(dtype):
+def test_adaln_gpu_padding_and_batch_size_do_not_change_valid_bytes(dtype):
+    from rl_engine.kernels.ops.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
     from rl_engine.kernels.ops.triton.norm.adaln_modulation import TritonAdaLNModulationOp
 
     try:
@@ -199,30 +200,35 @@ def test_triton_adaln_padding_and_batch_size_do_not_change_valid_bytes(dtype):
     modulation = torch.randn(1, 96, device="cuda", dtype=dtype)
     dy = torch.randn_like(x)
     dgate = torch.randn(1, 1, 32, device="cuda", dtype=dtype)
-    op = TritonAdaLNModulationOp()
+    ops = [TritonAdaLNModulationOp()]
+    try:
+        ops.append(CudaAdaLNModulationOp())
+    except RuntimeError:
+        pass
 
-    baseline_x = x.detach().requires_grad_()
-    baseline_modulation = modulation.detach().requires_grad_()
-    baseline_y, baseline_gate = op(baseline_x, baseline_modulation)
-    torch.autograd.backward((baseline_y, baseline_gate), (dy, dgate))
+    for op in ops:
+        baseline_x = x.detach().requires_grad_()
+        baseline_modulation = modulation.detach().requires_grad_()
+        baseline_y, baseline_gate = op(baseline_x, baseline_modulation)
+        torch.autograd.backward((baseline_y, baseline_gate), (dy, dgate))
 
-    for batch, seq in ((1, 5), (3, 3), (3, 5)):
-        padded_x = torch.randn(batch, seq, 32, device="cuda", dtype=dtype)
-        padded_modulation = torch.randn(batch, 96, device="cuda", dtype=dtype)
-        padded_dy = torch.zeros_like(padded_x)
-        padded_dgate = torch.zeros(batch, 1, 32, device="cuda", dtype=dtype)
-        padded_x[-1, :3] = x[0]
-        padded_modulation[-1] = modulation[0]
-        padded_dy[-1, :3] = dy[0]
-        padded_dgate[-1] = dgate[0]
-        padded_x.requires_grad_()
-        padded_modulation.requires_grad_()
-        y, gate = op(padded_x, padded_modulation)
-        torch.autograd.backward((y, gate), (padded_dy, padded_dgate))
-        assert torch.equal(y[-1, :3], baseline_y[0])
-        assert torch.equal(gate[-1], baseline_gate[0])
-        assert torch.equal(padded_x.grad[-1, :3], baseline_x.grad[0])
-        assert torch.equal(padded_modulation.grad[-1], baseline_modulation.grad[0])
+        for batch, seq in ((1, 5), (3, 3), (3, 5)):
+            padded_x = torch.randn(batch, seq, 32, device="cuda", dtype=dtype)
+            padded_modulation = torch.randn(batch, 96, device="cuda", dtype=dtype)
+            padded_dy = torch.zeros_like(padded_x)
+            padded_dgate = torch.zeros(batch, 1, 32, device="cuda", dtype=dtype)
+            padded_x[-1, :3] = x[0]
+            padded_modulation[-1] = modulation[0]
+            padded_dy[-1, :3] = dy[0]
+            padded_dgate[-1] = dgate[0]
+            padded_x.requires_grad_()
+            padded_modulation.requires_grad_()
+            y, gate = op(padded_x, padded_modulation)
+            torch.autograd.backward((y, gate), (padded_dy, padded_dgate))
+            assert torch.equal(y[-1, :3], baseline_y[0])
+            assert torch.equal(gate[-1], baseline_gate[0])
+            assert torch.equal(padded_x.grad[-1, :3], baseline_x.grad[0])
+            assert torch.equal(padded_modulation.grad[-1], baseline_modulation.grad[0])
 
 
 def test_cuda_adaln_bit_equality_harness():
@@ -262,6 +268,8 @@ def test_adaln_real_image_shapes_forward_backward(seq):
     except RuntimeError:
         pytest.skip("CUDA required")
     op, trace = kernel_registry.get_adaln_modulation_op(device="cuda", hidden=3072)
+    if os.environ.get("RL_KERNEL_REQUIRE_EXT") == "1":
+        assert trace["selected_backend"] == OpBackend.CUDA_ADALN_MODULATION.name
     assert trace["selected_backend"] in {
         OpBackend.CUDA_ADALN_MODULATION.name,
         OpBackend.TRITON_ADALN_MODULATION.name,
@@ -281,3 +289,14 @@ def test_adaln_real_image_shapes_forward_backward(seq):
     assert torch.equal(gate.cpu(), cpu_gate)
     assert torch.equal(x.grad.cpu(), cpu_x.grad)
     assert torch.equal(modulation.grad.cpu(), cpu_modulation.grad)
+
+    from rl_engine.kernels.ops.triton.norm.adaln_modulation import TritonAdaLNModulationOp
+
+    triton_x = x.detach().clone().requires_grad_()
+    triton_modulation = modulation.detach().clone().requires_grad_()
+    triton_y, triton_gate = TritonAdaLNModulationOp()(triton_x, triton_modulation)
+    (triton_y.float().sum() + triton_gate.float().sum()).backward()
+    assert torch.equal(triton_y, y)
+    assert torch.equal(triton_gate, gate)
+    assert torch.equal(triton_x.grad, x.grad)
+    assert torch.equal(triton_modulation.grad, modulation.grad)
