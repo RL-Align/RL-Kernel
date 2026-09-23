@@ -1058,12 +1058,33 @@ class KernelRegistry:
         raise RuntimeError(f"No functional backend found for {op_type} on {platform}")
 
     def get_adaln_modulation_op(
-        self, device: torch.device | str | None = None, *, hidden: int
+        self,
+        device: torch.device | str | None = None,
+        *,
+        hidden: int,
+        modulate_index: torch.Tensor | None = None,
     ) -> tuple[Any, dict[str, Any]]:
         """Resolve AdaLN with a trace that makes backend fallback visible."""
         if hidden <= 0:
             raise ValueError("hidden must be positive")
         platform = self._platform_for_device(device)
+        if modulate_index is not None:
+            backend = OpBackend.PYTORCH_ADALN_MODULATION
+            op = self._get_or_create_backend(backend)
+            if op is None:
+                raise RuntimeError("PyTorch select01 AdaLN fallback is unavailable")
+            return op, {
+                "selected_backend": backend.name,
+                "fallback": True,
+                "fallback_reason": "modulate_index_requires_select01",
+                "rejected_backends": [],
+                "reduction_order": "pairwise_lower_upper_H; framework_select01_backward",
+                "accumulator_dtype": "fp32",
+                "split_k": False,
+                "stream_k": False,
+                "tf32": False,
+                "kernel_fingerprint": "adaln_modulation_select01_native_v1",
+            }
         candidates = self._priority_map[platform]["adaln_modulation"]
         rejected: list[str] = []
         for backend in candidates:
