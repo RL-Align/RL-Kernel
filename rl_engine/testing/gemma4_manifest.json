@@ -114,7 +114,18 @@
         "use_double_wide_mlp": false,
         "vocab_size": 262144
       },
-      "tie_word_embeddings": true
+      "tie_word_embeddings": true,
+      "norm_residual_order": [
+        "input_layernorm",
+        "self_attn",
+        "post_attention_layernorm",
+        "residual_add",
+        "pre_feedforward_layernorm",
+        "mlp",
+        "post_feedforward_layernorm",
+        "residual_add"
+      ],
+      "norm_residual_order_note": "Gemma4TextDecoderLayer applies RMSNorm before and after both attention and MLP and adds the residual after each post-norm; not an HF config flag."
     },
     "weight_snapshot": {
       "pin_method": "hf_revision_plus_index_sha256_plus_all_lfs_shard_sha256",
@@ -140,5 +151,5 @@
       "source": "HF LFS x-linked-etag at the pinned revision; each value is the shard content SHA-256"
     }
   },
-  "fixture_identity_sha256": "0ab9599c4b8d2fba499904e43d208abb5e79b116e1d11c7118d90e8d2c64353a"
+  "fixture_identity_sha256": "750c3b897e0d11b98b171866afba05c7202879deb1fb471abefd9f83a40c21ab"
 }

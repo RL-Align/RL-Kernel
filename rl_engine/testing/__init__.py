@@ -31,6 +31,9 @@ from .attention_comparison import (
     run_unfused_rope_attention,
     transformer_engine_context_parallel_available,
 )
+from .gemma4_workload import Gemma4Manifest, Gemma4WorkloadError
+from .gemma4_workload import load_manifest as load_gemma4_manifest
+from .gemma4_workload import reference_payload as gemma4_reference_payload
 from .reference_ops import (
     active_token_count,
     compute_policy_ratio,
@@ -65,6 +68,8 @@ __all__ = [
     "DecodeAttentionInputs",
     "DecodeKVCacheMetadata",
     "DriftStats",
+    "Gemma4Manifest",
+    "Gemma4WorkloadError",
     "SyntheticRLKernelBatch",
     "TransformerEngineUnavailable",
     "active_token_count",
@@ -87,6 +92,8 @@ __all__ = [
     "compute_policy_ratio",
     "compute_reference_kl",
     "fixture_hash",
+    "gemma4_reference_payload",
+    "load_gemma4_manifest",
     "load_manifest",
     "make_synthetic_rl_kernel_batch",
     "masked_mean",
