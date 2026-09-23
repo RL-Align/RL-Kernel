@@ -41,22 +41,35 @@ backend, fallback, reduction order, accumulator dtype, disabled algorithm
 flags, and a semantic kernel version. The semantic version is not a hash of the
 compiled binary.
 
-Local smoke environment (2026-09-22): RTX 3050 Ti (SM86, 4 GiB), driver
-610.60, PyTorch 2.12.1+cu126, Triton 3.7.1, Python 3.12.12. The focused suite
-passed 12 tests with 4 skips (three opt-in real-shape cases and the unavailable
-CUDA extension). The three real-shape Triton BF16 forward/backward tests passed
-with byte equality against the CPU reference when enabled. A smoke benchmark
-at B=1, S=64, H=3072, BF16, 2 warmups and 3
-repeats measured medians (ms): PyTorch 6.723 forward / 26.161 forward+backward;
-Triton 0.364 / 2.631. The CUDA extension was explicitly skipped because no
-matching `nvcc` is installed. These numbers are a script smoke check, not the
-required full resolution benchmark.
+Local CUDA validation environment (2026-09-23): RTX 3050 Ti (SM86, 4 GiB),
+driver 610.60, CUDA toolkit/runtime 12.6, PyTorch 2.12.1+cu126, Triton 3.7.1,
+Python 3.12.12. The extension was built with fast math disabled for SM86.
+The focused suite plus all three real shapes passed 18 tests with no skips.
+FP32 small-shape and BF16 real-shape CUDA forward/backward outputs were byte
+equal to the CPU reference. CUDA and Triton were also byte equal directly at
+all three real shapes, and both passed FP32/BF16 batch-size and token-padding
+byte-invariance checks.
 
-**Unconfirmed acceptance:** #386 requires CPU-to-CUDA byte equality and CUDA
-as the bit-level comparison backend. Existing repository tests for other ops
-use a tolerance for CPU-to-GPU accuracy, but no such exception has been granted
-for this operator. The test file checks FP32 accuracy against the independent
-PyTorch LayerNorm expression, CPU-to-Triton byte equality for FP32/BF16 and the
-three real image shapes, and exact batch-position invariance.
-Do not claim cross-backend byte equality or full #386 acceptance until the CUDA
-extension is built and compared on the required shapes and dtypes.
+Real-shape medians below use one warmup and three samples, so they are smoke
+measurements rather than stable performance claims:
+
+| dtype | S | Triton fwd / fwd+bwd (ms) | CUDA fwd / fwd+bwd (ms) |
+| --- | ---: | ---: | ---: |
+| BF16 | 4096 | 3.069 / 20.709 | 2.998 / 23.262 |
+| BF16 | 6889 | 5.125 / 34.551 | 5.150 / 39.963 |
+| BF16 | 6032 | 4.689 / 30.302 | 4.357 / 34.718 |
+| FP32 | 4096 | 5.944 / 29.269 | 7.229 / 38.693 |
+| FP32 | 6889 | 9.840 / 48.579 | 11.948 / 65.271 |
+| FP32 | 6032 | 8.685 / 81.903 | 10.639 / 57.270 |
+
+Forward and forward+backward peak allocation matched between CUDA and Triton
+at each shape. The CUDA backward path was generally slower in this short SM86
+run; rerun with the default warmup/repeat counts on target hardware before
+making a performance claim.
+
+**Remaining acceptance boundaries:** the maintainer has not answered whether
+the indexed modulate_index path may stay on fallback. The trace fingerprint
+is a semantic kernel version rather than a compiled-binary hash. The exactness
+evidence above covers FP32 at the focused shape and BF16 at the three real image
+shapes; a broader CUDA shape matrix remains optional evidence, not a result
+claimed here.
