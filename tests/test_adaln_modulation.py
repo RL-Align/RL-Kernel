@@ -40,6 +40,39 @@ def test_adaln_registry_trace_reports_selected_backend():
     assert trace["split_k"] is False and trace["stream_k"] is False
 
 
+def test_adaln_modulate_index_uses_explicit_native_fallback():
+    x = torch.tensor([[[1.0, 3.0], [2.0, 4.0]]], requires_grad=True)
+    # First batch row is choice 0, second batch row is choice 1.
+    modulation = torch.tensor(
+        [
+            [0.5, -0.5, 1.0, 0.0, 2.0, 3.0],
+            [-1.0, 1.0, 0.0, 1.0, 4.0, 5.0],
+        ],
+        requires_grad=True,
+    )
+    modulate_index = torch.tensor([[0, 1]])
+
+    op, trace = kernel_registry.get_adaln_modulation_op(
+        device=x.device,
+        hidden=x.shape[-1],
+        modulate_index=modulate_index,
+    )
+    y, gate = op(x, modulation, modulate_index=modulate_index, eps=0.0)
+
+    torch.testing.assert_close(y, torch.tensor([[[-1.5, 0.5], [-2.0, 3.0]]]))
+    torch.testing.assert_close(gate, torch.tensor([[[2.0, 3.0], [4.0, 5.0]]]))
+    (y.sum() + gate.sum()).backward()
+    torch.testing.assert_close(x.grad, torch.zeros_like(x))
+    torch.testing.assert_close(
+        modulation.grad,
+        torch.tensor([[1.0, 1.0, -1.0, 1.0, 1.0, 1.0]]).repeat(2, 1),
+    )
+    assert isinstance(op, NativeAdaLNModulationOp)
+    assert trace["selected_backend"] == OpBackend.PYTORCH_ADALN_MODULATION.name
+    assert trace["fallback"] is True
+    assert trace["fallback_reason"] == "modulate_index_requires_select01"
+
+
 def test_adaln_cuda_registry_reports_real_fallback():
     try:
         torch.cuda.init()

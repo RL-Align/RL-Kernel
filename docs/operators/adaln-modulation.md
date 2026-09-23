@@ -20,9 +20,22 @@ Inputs with S=0 or H=0 and mixed dtype/device are rejected.
 Strided model chunks are copied to contiguous storage inside
 GPU wrappers. The CUDA kernel supports H<=4096; shape-aware dispatch selects
 Triton for larger H. CUDA symbols are omitted from builds with
-`KERNEL_ALIGN_USE_FAST_MATH=1`, making fallback explicit. Indexed
-`modulate_index` is outside this shared-parameter
-API pending the maintainer's answer on #386.
+`KERNEL_ALIGN_USE_FAST_MATH=1`, making fallback explicit.
+
+For Qwen-Image editing, pass `modulate_index` to both resolution and execution:
+
+```python
+op, trace = kernel_registry.get_adaln_modulation_op(
+    x.device, hidden=x.shape[-1], modulate_index=modulate_index
+)
+modulated, gate = op(x, modulation, modulate_index=modulate_index)
+```
+
+This path accepts modulation `[2B,3H]` and an index `[B,S]` or `[1,S]` whose
+values are 0 or 1. It uses the explicit PyTorch select01 reference and returns
+gate `[B,S,H]`. The trace sets `fallback=true` and
+`fallback_reason=modulate_index_requires_select01`; the indexed path does not
+claim the fixed-order CUDA/Triton backward contract.
 
 The resolution matrix `{1024², 1328², 1664×928}` implies image sequence
 lengths `{4096, 6889, 6032}` for VAE scale 8 and 2x2 latent packing. H=3072.
@@ -68,8 +81,9 @@ run; rerun with the default warmup/repeat counts on target hardware before
 making a performance claim.
 
 **Remaining acceptance boundaries:** the maintainer has not answered whether
-the indexed modulate_index path may stay on fallback. The trace fingerprint
-is a semantic kernel version rather than a compiled-binary hash. The exactness
+the indexed `modulate_index` path must be optimized beyond its explicit
+PyTorch fallback. The trace fingerprint is a semantic kernel version rather
+than a compiled-binary hash. The exactness
 evidence above covers FP32 at the focused shape and BF16 at the three real image
 shapes; a broader CUDA shape matrix remains optional evidence, not a result
 claimed here.
