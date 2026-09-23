@@ -116,6 +116,8 @@ def test_rope_parameters_pinned_per_layer_type(manifest):
 
 def test_norm_residual_order_pinned(manifest):
     fp = manifest.model_identity["config_fingerprint"]
+    assert fp["qkv_norm"] is True
+    assert fp["qkv_norm_note"]
     assert fp["norm_residual_order"] == [
         "input_layernorm",
         "self_attn",

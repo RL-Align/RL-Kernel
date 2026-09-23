@@ -115,6 +115,8 @@
         "vocab_size": 262144
       },
       "tie_word_embeddings": true,
+      "qkv_norm": true,
+      "qkv_norm_note": "Per-head RMSNorm on Q, K and V; Q and K then go through RoPE, V does not. The V norm has no learnable scale. On full_attention layers k and v use the same projection. Not a separate HF config flag.",
       "norm_residual_order": [
         "input_layernorm",
         "self_attn",
@@ -151,5 +153,5 @@
       "source": "HF LFS x-linked-etag at the pinned revision; each value is the shard content SHA-256"
     }
   },
-  "fixture_identity_sha256": "750c3b897e0d11b98b171866afba05c7202879deb1fb471abefd9f83a40c21ab"
+  "fixture_identity_sha256": "9345eb6b16bb6d1b01e5b1524fd9baa41f363c3ac8ee2cc50c1475c60943c90e"
 }
