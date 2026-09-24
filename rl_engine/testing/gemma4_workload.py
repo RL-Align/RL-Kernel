@@ -39,6 +39,23 @@ _OFFICIAL_FINGERPRINT = {
     "vocab_size": 262144,
 }
 
+_OFFICIAL_QKV_NORM = {
+    "q": {"norm": "rmsnorm", "with_scale": True, "rope": True},
+    "k": {"norm": "rmsnorm", "with_scale": True, "rope": True},
+    "v": {"norm": "rmsnorm", "with_scale": False, "rope": False},
+}
+
+_OFFICIAL_NORM_RESIDUAL_ORDER = [
+    "input_layernorm",
+    "self_attn",
+    "post_attention_layernorm",
+    "residual_add",
+    "pre_feedforward_layernorm",
+    "mlp",
+    "post_feedforward_layernorm",
+    "residual_add",
+]
+
 _SLIDING_ATTENTION = "sliding_attention"
 _FULL_ATTENTION = "full_attention"
 _LAYER_PERIOD = 6
@@ -98,9 +115,22 @@ def validate_manifest(raw: Mapping[str, Any]) -> None:
 
 
 def _validate_model_identity(identity: Mapping[str, Any]) -> None:
-    for key in ("model_id", "revision", "config_fingerprint", "weight_snapshot"):
+    for key in (
+        "model_id",
+        "revision",
+        "semantics_source",
+        "config_fingerprint",
+        "weight_snapshot",
+    ):
         if key not in identity:
             raise Gemma4WorkloadError(f"model_identity missing {key!r}")
+    source = identity["semantics_source"]
+    for key in ("package", "version", "git_commit", "modeling_file"):
+        if not isinstance(source, Mapping) or not source.get(key):
+            raise Gemma4WorkloadError(f"semantics_source missing {key!r}")
+    commit = str(source["git_commit"])
+    if len(commit) != 40 or any(c not in "0123456789abcdef" for c in commit):
+        raise Gemma4WorkloadError("semantics_source.git_commit must be a lowercase 40-hex git SHA")
     fp = identity["config_fingerprint"]
     if not isinstance(fp, Mapping) or not isinstance(fp.get("text_config"), Mapping):
         raise Gemma4WorkloadError("config_fingerprint.text_config must be an object")
@@ -128,6 +158,16 @@ def _validate_model_identity(identity: Mapping[str, Any]) -> None:
         bad = [i for i, (a, e) in enumerate(zip(layer_types, expected_types)) if a != e]
         raise Gemma4WorkloadError(
             f"layer_types deviates from the 5x sliding + 1x full schedule at layers {bad[:8]}"
+        )
+    if fp.get("attention_qkv_norm") != _OFFICIAL_QKV_NORM:
+        raise Gemma4WorkloadError(
+            f"config_fingerprint attention_qkv_norm={fp.get('attention_qkv_norm')!r} does not "
+            f"match official Gemma-4-31B-it pin {_OFFICIAL_QKV_NORM!r}"
+        )
+    if fp.get("norm_residual_order") != _OFFICIAL_NORM_RESIDUAL_ORDER:
+        raise Gemma4WorkloadError(
+            f"config_fingerprint norm_residual_order={fp.get('norm_residual_order')!r} does not "
+            f"match official Gemma-4-31B-it pin {_OFFICIAL_NORM_RESIDUAL_ORDER!r}"
         )
     if not identity.get("exit_forbids_architecture_shrink", False):
         raise Gemma4WorkloadError("exit_forbids_architecture_shrink must be true")
@@ -195,6 +235,7 @@ def reference_payload(manifest: Gemma4Manifest | None = None) -> dict[str, Any]:
         "fixture_identity_sha256": str(m.raw["fixture_identity_sha256"]),
         "model_id": identity["model_id"],
         "revision": identity["revision"],
+        "semantics_source": identity["semantics_source"],
         "config_fingerprint": identity["config_fingerprint"],
         "weight_snapshot": identity["weight_snapshot"],
     }

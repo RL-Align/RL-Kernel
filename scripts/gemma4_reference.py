@@ -86,6 +86,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"fixture_identity_sha256: {payload['fixture_identity_sha256']}")
     print(f"model_id: {payload['model_id']}")
     print(f"revision: {payload['revision']}")
+    source = payload["semantics_source"]
+    print(f"semantics_source: {source['package']}=={source['version']} @ {source['git_commit']}")
     print(f"num_hidden_layers: {text['num_hidden_layers']}")
     print(f"layer_types: {text['layer_types'].count('sliding_attention')} sliding_attention")
     print(f"             {text['layer_types'].count('full_attention')} full_attention")
