@@ -36,7 +36,13 @@ from rl_engine.kernels.gtest.tolerance import (
 def test_load_contract_contains_expected_operator_classes():
     contract = load_contract()
     accuracy = contract["accuracy"]["default"]
-    assert set(accuracy) == {"elementwise", "reduction", "logprob", "attention"}
+    assert set(accuracy) == {
+        "elementwise",
+        "reduction",
+        "logprob",
+        "attention",
+        "mhc_controller",
+    }
 
 
 def test_load_contract_contains_expected_dtypes():

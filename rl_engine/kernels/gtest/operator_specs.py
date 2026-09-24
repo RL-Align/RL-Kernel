@@ -154,6 +154,18 @@ OP_SPECS = {
         },
         grad_input_names=("a", "b"),
     ),
+    "fp32_gemm_rms": OperatorSpec(
+        name="fp32_gemm_rms",
+        op_class="mhc_controller",
+        gold_path="rl_engine.mhc.fp32_gemm_rms_gtest.NativeGemmRMSOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.mhc.fp32_gemm_rms_gtest.NativeGemmRMSOp",
+            "cuda": "rl_engine.mhc.fp32_gemm_rms_gtest.CudaGemmRMSOp",
+            "triton": "rl_engine.mhc.fp32_gemm_rms_gtest.TritonGemmRMSOp",
+        },
+        grad_input_names=("x_flat", "weight"),
+    ),
     "rope": OperatorSpec(
         name="rope",
         op_class="elementwise",

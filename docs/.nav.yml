@@ -26,6 +26,7 @@ nav:
       - operators/pack-and-pad.md
       - operators/sampling.md
       - operators/det-gemm.md
+      - operators/fp32-gemm-rms.md
       - operators/embedding.md
   - Developer Guide:
     - contributing/README.md
