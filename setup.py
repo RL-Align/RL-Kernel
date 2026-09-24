@@ -138,6 +138,7 @@ def get_extensions():
             "csrc/cuda/gemm/det_gemm_kernel.cu",
             "csrc/cuda/rmsnorm.cu",
             "csrc/cuda/activation.cu",
+            "csrc/cuda/moe/sm90_fused_moe_mlp.cu",
             "csrc/cuda/attention/deterministic_attention.cu",
             "csrc/cuda/distributed/deterministic_collective.cu",
         ]
@@ -249,6 +250,20 @@ def get_extensions():
                     extra_link_args.append("-lcuda")
                 nvcc_flags.append("-DRL_KERNEL_ENABLE_SM90")
                 cxx_flags.append("-DRL_KERNEL_ENABLE_SM90")
+            # SM90 fused MoE MLP (MXFP8 x MXFP4 grouped GEMM, FP8 WGMMA + TMA):
+            # csrc/cuda/moe/sm90_fused_moe_mlp.cu. Same gate style as det_gemm.
+            enable_moe_sm90 = os.environ.get("KERNEL_ALIGN_MOE_SM90") == "1"
+            if enable_moe_sm90:
+                tma_arch = f"{cc_major}{cc_minor}a"
+                arch_flag = f"-gencode=arch=compute_{tma_arch},code=sm_{tma_arch}"
+                if arch_flag not in nvcc_flags:
+                    nvcc_flags.append(arch_flag)
+                if "-lcuda" not in extra_link_args:
+                    extra_link_args.append("-lcuda")
+                if "-DRL_KERNEL_ENABLE_SM90" not in nvcc_flags:
+                    nvcc_flags.append("-DRL_KERNEL_ENABLE_SM90")
+                if "-DRL_KERNEL_ENABLE_SM90" not in cxx_flags:
+                    cxx_flags.append("-DRL_KERNEL_ENABLE_SM90")
 
         if is_rocm:
             nvcc_flags = _filter_rocm_incompatible_nvcc_flags(nvcc_flags)

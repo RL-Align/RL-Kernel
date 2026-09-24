@@ -131,6 +131,22 @@ std::vector<torch::Tensor> swiglu_packed_backward_cuda(
     torch::Tensor dy,
     torch::Tensor gate_up);
 
+// SM90 fused routed-expert MLP (MXFP8 x MXFP4, FP8 WGMMA): csrc/cuda/moe/sm90_fused_moe_mlp.cu
+std::vector<torch::Tensor> sm90_moe_prepare_weight_ref(torch::Tensor w_scales);
+torch::Tensor sm90_moe_fc1_forward(torch::Tensor a_codes, torch::Tensor a_scales,
+                                   torch::Tensor w1_codes, torch::Tensor w1_scales,
+                                   torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets);
+std::vector<torch::Tensor> sm90_moe_fc1_swiglu_quant_forward(
+    torch::Tensor a_codes, torch::Tensor a_scales, torch::Tensor w1_codes,
+    torch::Tensor w1_scales, torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets, torch::Tensor p_s);
+torch::Tensor sm90_moe_fc3_forward(torch::Tensor h_codes, torch::Tensor h_scales,
+                                   torch::Tensor w2_codes, torch::Tensor w2_scales,
+                                   torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets);
+torch::Tensor sm90_moe_fused_mlp_forward(
+    torch::Tensor a_codes, torch::Tensor a_scales, torch::Tensor w1_codes, torch::Tensor w1_scales,
+    torch::Tensor w1_ref, torch::Tensor w1_res, torch::Tensor w2_codes, torch::Tensor w2_scales,
+    torch::Tensor w2_ref, torch::Tensor w2_res, torch::Tensor expert_offsets, torch::Tensor p_s);
+
 // RMSNorm Declarations & Wrappers
 
 void rmsnorm_forward_cuda(
@@ -502,6 +518,18 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Batch-invariant SwiGLU forward for [rows, 2 * intermediate]");
     m.def("swiglu_packed_backward", &swiglu_packed_backward,
           "Batch-invariant SwiGLU backward for [rows, 2 * intermediate]");
+
+    // SM90 fused routed-expert MLP (profile p5-sm90-fused-mlp-v1)
+    m.def("sm90_moe_prepare_weight_ref", &sm90_moe_prepare_weight_ref,
+          "Per-column reference exponents + residuals for folded MXFP4 scales (fail-closed)");
+    m.def("sm90_moe_fc1_forward", &sm90_moe_fc1_forward,
+          "Grouped MXFP8 x MXFP4 fc1 -> FP32 z [M, 2F] (SM90 FP8 WGMMA)");
+    m.def("sm90_moe_fc1_swiglu_quant_forward", &sm90_moe_fc1_swiglu_quant_forward,
+          "fc1 + clamp-SwiGLU * p_s + MX re-quant fused epilogue -> (h codes, h scales)");
+    m.def("sm90_moe_fc3_forward", &sm90_moe_fc3_forward,
+          "Grouped MXFP8 x MXFP4 fc3 -> BF16 y [M, H]");
+    m.def("sm90_moe_fused_mlp_forward", &sm90_moe_fused_mlp_forward,
+          "Single-launch fc1 -> SwiGLU -> quant -> fc3 with h_q resident in shared memory");
 
     // Deterministic standard-softmax attention (issue #147)
     m.def(
