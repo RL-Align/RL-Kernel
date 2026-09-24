@@ -15,8 +15,6 @@
 
 namespace {
 
-constexpr int THREADS = 256;
-
 __device__ float fixed_sum(float* shared, int width) {
   __syncthreads();
   for (int stride = width / 2; stride > 0; stride /= 2) {
@@ -25,7 +23,10 @@ __device__ float fixed_sum(float* shared, int width) {
     }
     __syncthreads();
   }
-  return shared[0];
+  const float result = shared[0];
+  // Every warp must read the result before callers reuse the shared buffer.
+  __syncthreads();
+  return result;
 }
 
 template <typename scalar_t>
@@ -127,7 +128,9 @@ __global__ void backward_reduce_kernel(
   dm[batch * 3 * hidden + 2 * hidden + col] = dg[batch * hidden + col];
 }
 
-void check(const torch::Tensor& x, const torch::Tensor& modulation, double eps) {
+void check(const torch::Tensor& x, const torch::Tensor& modulation, double eps, int threads) {
+  TORCH_CHECK(threads == 128 || threads == 256 || threads == 512,
+              "AdaLN threads must be 128, 256, or 512");
   TORCH_CHECK(x.is_cuda() && modulation.is_cuda(), "AdaLN inputs must be CUDA tensors");
   TORCH_CHECK(x.is_contiguous() && modulation.is_contiguous(), "AdaLN inputs must be contiguous");
   TORCH_CHECK(x.dim() == 3 && x.size(0) > 0 && x.size(1) > 0 && x.size(2) > 0,
@@ -145,8 +148,8 @@ void check(const torch::Tensor& x, const torch::Tensor& modulation, double eps) 
 }  // namespace
 
 std::vector<torch::Tensor> adaln_modulation_forward_cuda(
-    torch::Tensor x, torch::Tensor modulation, double eps) {
-  check(x, modulation, eps);
+    torch::Tensor x, torch::Tensor modulation, double eps, int threads) {
+  check(x, modulation, eps, threads);
   c10::cuda::CUDAGuard guard(x.device());
   const int batch = x.size(0), seq = x.size(1), hidden = x.size(2);
   int width = 1;
@@ -155,7 +158,7 @@ std::vector<torch::Tensor> adaln_modulation_forward_cuda(
   auto gate = torch::empty({batch, 1, hidden}, x.options());
   auto stream = at::cuda::getCurrentCUDAStream();
   AT_DISPATCH_FLOATING_TYPES_AND(at::kBFloat16, x.scalar_type(), "adaln_forward", [&] {
-    forward_kernel<scalar_t><<<batch * seq, THREADS, width * sizeof(float), stream>>>(
+    forward_kernel<scalar_t><<<batch * seq, threads, width * sizeof(float), stream>>>(
         x.data_ptr<scalar_t>(), modulation.data_ptr<scalar_t>(), y.data_ptr<scalar_t>(),
         gate.data_ptr<scalar_t>(), seq, hidden, width, static_cast<float>(eps));
   });
@@ -165,8 +168,8 @@ std::vector<torch::Tensor> adaln_modulation_forward_cuda(
 
 std::vector<torch::Tensor> adaln_modulation_backward_cuda(
     torch::Tensor dy, torch::Tensor dg, torch::Tensor x,
-    torch::Tensor modulation, double eps) {
-  check(x, modulation, eps);
+    torch::Tensor modulation, double eps, int threads) {
+  check(x, modulation, eps, threads);
   TORCH_CHECK(dy.is_cuda() && dy.is_contiguous() && dy.sizes() == x.sizes() &&
               dy.scalar_type() == x.scalar_type() && dy.device() == x.device(),
               "dy must match x");
@@ -184,12 +187,12 @@ std::vector<torch::Tensor> adaln_modulation_backward_cuda(
   auto partial_scale = torch::empty_like(partial_shift);
   auto stream = at::cuda::getCurrentCUDAStream();
   AT_DISPATCH_FLOATING_TYPES_AND(at::kBFloat16, x.scalar_type(), "adaln_backward", [&] {
-    backward_rows_kernel<scalar_t><<<batch * seq, THREADS, width * sizeof(float), stream>>>(
+    backward_rows_kernel<scalar_t><<<batch * seq, threads, width * sizeof(float), stream>>>(
         x.data_ptr<scalar_t>(), modulation.data_ptr<scalar_t>(), dy.data_ptr<scalar_t>(),
         dx.data_ptr<scalar_t>(), partial_shift.data_ptr<float>(), partial_scale.data_ptr<float>(),
         seq, hidden, width, static_cast<float>(eps));
-    backward_reduce_kernel<scalar_t><<<dim3((hidden + THREADS - 1) / THREADS, batch),
-                                        THREADS, 0, stream>>>(
+    backward_reduce_kernel<scalar_t><<<dim3((hidden + threads - 1) / threads, batch),
+                                        threads, 0, stream>>>(
         partial_shift.data_ptr<float>(), partial_scale.data_ptr<float>(),
         dg.data_ptr<scalar_t>(), dm.data_ptr<scalar_t>(), seq, hidden);
   });

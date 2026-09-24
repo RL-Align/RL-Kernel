@@ -12,23 +12,27 @@ from rl_engine.kernels.ops.pytorch.norm.adaln_modulation import _validate
 
 class _AdaLNCuda(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, x, modulation, eps):
-        y, gate = _C.adaln_modulation_forward(x, modulation, eps)
+    def forward(ctx, x, modulation, eps, threads):
+        y, gate = _C.adaln_modulation_forward(x, modulation, eps, threads)
         ctx.save_for_backward(x, modulation)
         ctx.eps = eps
+        ctx.threads = threads
         return y, gate
 
     @staticmethod
     def backward(ctx, grad_y, grad_gate):
         x, modulation = ctx.saved_tensors
         dx, dm = _C.adaln_modulation_backward(
-            grad_y.contiguous(), grad_gate.contiguous(), x, modulation, ctx.eps
+            grad_y.contiguous(), grad_gate.contiguous(), x, modulation, ctx.eps, ctx.threads
         )
-        return dx, dm, None
+        return dx, dm, None, None
 
 
 class CudaAdaLNModulationOp:
-    def __init__(self):
+    def __init__(self, *, threads=256):
+        if threads not in (128, 256, 512):
+            raise ValueError("AdaLN threads must be 128, 256, or 512")
+        self.threads = threads
         if not _EXT_AVAILABLE or not all(
             hasattr(_C, name)
             for name in ("adaln_modulation_forward", "adaln_modulation_backward")
@@ -42,4 +46,6 @@ class CudaAdaLNModulationOp:
         _validate(x, modulation, eps)
         if not x.is_cuda or torch.version.hip is not None or x.shape[-1] > 4096:
             raise RuntimeError("CUDA AdaLN requires NVIDIA CUDA tensors with H <= 4096")
-        return _AdaLNCuda.apply(x.contiguous(), modulation.contiguous(), float(eps))
+        return _AdaLNCuda.apply(
+            x.contiguous(), modulation.contiguous(), float(eps), self.threads
+        )

@@ -258,10 +258,10 @@ std::vector<torch::Tensor> swiglu_packed_backward_cuda(
 
 #if defined(RLK_ADALN_CUDA_ENABLED)
 std::vector<torch::Tensor> adaln_modulation_forward_cuda(
-    torch::Tensor x, torch::Tensor modulation, double eps);
+    torch::Tensor x, torch::Tensor modulation, double eps, int threads);
 std::vector<torch::Tensor> adaln_modulation_backward_cuda(
     torch::Tensor dy, torch::Tensor dg, torch::Tensor x,
-    torch::Tensor modulation, double eps);
+    torch::Tensor modulation, double eps, int threads);
 #endif
 
 // RMSNorm Declarations & Wrappers
@@ -747,9 +747,12 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Batch-invariant SwiGLU backward for [rows, 2 * intermediate]");
 #if defined(RLK_ADALN_CUDA_ENABLED)
     m.def("adaln_modulation_forward", &adaln_modulation_forward_cuda,
-          "AdaLN modulation forward CUDA");
+          "AdaLN modulation forward CUDA",
+          py::arg("x"), py::arg("modulation"), py::arg("eps"), py::arg("threads") = 256);
     m.def("adaln_modulation_backward", &adaln_modulation_backward_cuda,
-          "AdaLN modulation backward CUDA");
+          "AdaLN modulation backward CUDA",
+          py::arg("dy"), py::arg("dg"), py::arg("x"), py::arg("modulation"),
+          py::arg("eps"), py::arg("threads") = 256);
 #endif
 
     // Deterministic standard-softmax attention (issue #147)
