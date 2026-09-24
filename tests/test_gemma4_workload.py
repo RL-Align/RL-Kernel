@@ -60,6 +60,12 @@ def test_model_identity_is_full_gemma4_31b(manifest):
     identity = manifest.model_identity
     assert identity["model_id"] == "google/gemma-4-31B-it"
     assert identity["revision"] == "842da3794eaa0b77d5f08bae87a17459d91ff475"
+    assert identity["semantics_source"] == {
+        "package": "transformers",
+        "version": "5.13.1",
+        "git_commit": "4626421dc6b741a329300682a6408246ee465490",
+        "modeling_file": "src/transformers/models/gemma4/modeling_gemma4.py",
+    }
     assert identity["architecture"] == "Gemma4ForConditionalGeneration"
     assert identity["exit_forbids_architecture_shrink"] is True
     fp = identity["config_fingerprint"]
@@ -114,10 +120,18 @@ def test_rope_parameters_pinned_per_layer_type(manifest):
     }
 
 
+def test_attention_qkv_norm_pinned(manifest):
+    fp = manifest.model_identity["config_fingerprint"]
+    assert fp["attention_qkv_norm"] == {
+        "q": {"norm": "rmsnorm", "with_scale": True, "rope": True},
+        "k": {"norm": "rmsnorm", "with_scale": True, "rope": True},
+        "v": {"norm": "rmsnorm", "with_scale": False, "rope": False},
+    }
+    assert fp["attention_qkv_norm_note"]
+
+
 def test_norm_residual_order_pinned(manifest):
     fp = manifest.model_identity["config_fingerprint"]
-    assert fp["qkv_norm"] is True
-    assert fp["qkv_norm_note"]
     assert fp["norm_residual_order"] == [
         "input_layernorm",
         "self_attn",
@@ -131,10 +145,31 @@ def test_norm_residual_order_pinned(manifest):
     assert fp["norm_residual_order_note"]
 
 
-def test_same_workload_id_rejects_unversioned_manifest_change():
+def test_manifest_edit_without_identity_regen_rejected():
     raw = _raw_manifest()
     raw["model_identity"]["config_fingerprint"]["text_config"]["rms_norm_eps"] = 1e-5
     with pytest.raises(Gemma4WorkloadError, match="fixture_identity_sha256"):
+        validate_manifest(raw)
+
+
+def test_missing_semantics_source_rejected():
+    raw = _raw_manifest()
+    del raw["model_identity"]["semantics_source"]["git_commit"]
+    with pytest.raises(Gemma4WorkloadError, match="semantics_source missing 'git_commit'"):
+        validate_manifest(raw)
+
+
+def test_v_norm_scale_cannot_be_enabled():
+    raw = _raw_manifest()
+    raw["model_identity"]["config_fingerprint"]["attention_qkv_norm"]["v"]["with_scale"] = True
+    with pytest.raises(Gemma4WorkloadError, match="attention_qkv_norm"):
+        validate_manifest(raw)
+
+
+def test_norm_residual_order_deviation_rejected():
+    raw = _raw_manifest()
+    del raw["model_identity"]["config_fingerprint"]["norm_residual_order"][2]
+    with pytest.raises(Gemma4WorkloadError, match="norm_residual_order"):
         validate_manifest(raw)
 
 
@@ -182,6 +217,7 @@ def test_reference_payload_contains_required_fields(manifest):
     assert payload["fixture_identity_sha256"] == manifest.raw["fixture_identity_sha256"]
     assert payload["model_id"] == "google/gemma-4-31B-it"
     assert payload["revision"] == manifest.model_identity["revision"]
+    assert payload["semantics_source"] == manifest.model_identity["semantics_source"]
     assert payload["config_fingerprint"] == manifest.model_identity["config_fingerprint"]
     assert payload["weight_snapshot"] == manifest.model_identity["weight_snapshot"]
 

@@ -5,6 +5,12 @@
     "model_id": "google/gemma-4-31B-it",
     "hf_repo": "google/gemma-4-31B-it",
     "revision": "842da3794eaa0b77d5f08bae87a17459d91ff475",
+    "semantics_source": {
+      "package": "transformers",
+      "version": "5.13.1",
+      "git_commit": "4626421dc6b741a329300682a6408246ee465490",
+      "modeling_file": "src/transformers/models/gemma4/modeling_gemma4.py"
+    },
     "architecture": "Gemma4ForConditionalGeneration",
     "model_type": "gemma4",
     "density": "dense",
@@ -115,8 +121,24 @@
         "vocab_size": 262144
       },
       "tie_word_embeddings": true,
-      "qkv_norm": true,
-      "qkv_norm_note": "Per-head RMSNorm on Q, K and V; Q and K then go through RoPE, V does not. The V norm has no learnable scale. On full_attention layers k and v use the same projection. Not a separate HF config flag.",
+      "attention_qkv_norm": {
+        "q": {
+          "norm": "rmsnorm",
+          "with_scale": true,
+          "rope": true
+        },
+        "k": {
+          "norm": "rmsnorm",
+          "with_scale": true,
+          "rope": true
+        },
+        "v": {
+          "norm": "rmsnorm",
+          "with_scale": false,
+          "rope": false
+        }
+      },
+      "attention_qkv_norm_note": "Per-head RMSNorm over head_dim with rms_norm_eps, applied before RoPE; read from Gemma4TextAttention at semantics_source. Not an HF config flag.",
       "norm_residual_order": [
         "input_layernorm",
         "self_attn",
@@ -153,5 +175,5 @@
       "source": "HF LFS x-linked-etag at the pinned revision; each value is the shard content SHA-256"
     }
   },
-  "fixture_identity_sha256": "9345eb6b16bb6d1b01e5b1524fd9baa41f363c3ac8ee2cc50c1475c60943c90e"
+  "fixture_identity_sha256": "8a36f177e78082f4f7d8e0e7b5c383ff32a7a4ec016b8dc00c40e2e49c8258bd"
 }
