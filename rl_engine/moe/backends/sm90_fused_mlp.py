@@ -4,7 +4,7 @@
 
 Numeric profile ``p5-sm90-fused-mlp-v1``: deterministic and batch-invariant,
 NOT byte-aligned to ``oracle-fp32-serial-v1`` (tensor-core accumulation order
-inside each 32-wide MX block). See ``docs/operators/sm90-fused-moe-mlp.md``.
+inside each 32-wide MX block). See ``docs/operators/dsv4-moe.md``.
 
 Two execution paths share one GEMM core (``csrc/cuda/moe/sm90_fused_moe_mlp.cu``):
 
