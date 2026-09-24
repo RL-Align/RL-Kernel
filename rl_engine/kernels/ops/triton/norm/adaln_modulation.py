@@ -90,17 +90,19 @@ def _bwd_reduce(PART_SHIFT, PART_SCALE, DG, DM, S: tl.constexpr, H: tl.constexpr
 
 class _AdaLNTriton(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, x, modulation, eps):
+    def forward(ctx, x, modulation, eps, num_warps, reduction_tile):
         batch, seq, hidden = x.shape
         y = torch.empty_like(x)
         gate = torch.empty((batch, 1, hidden), device=x.device, dtype=x.dtype)
         _fwd[(batch * seq,)](
             x, modulation, y, gate, seq, hidden, eps,
             triton.next_power_of_2(hidden), triton.next_power_of_2(hidden).bit_length() - 1,
-            enable_fp_fusion=False,
+            enable_fp_fusion=False, num_warps=num_warps,
         )
         ctx.save_for_backward(x, modulation)
         ctx.eps = eps
+        ctx.num_warps = num_warps
+        ctx.reduction_tile = reduction_tile
         return y, gate
 
     @staticmethod
@@ -115,15 +117,25 @@ class _AdaLNTriton(torch.autograd.Function):
             x, modulation, grad_y.contiguous(), dx, partial_shift, partial_scale,
             seq, hidden, ctx.eps, triton.next_power_of_2(hidden),
             triton.next_power_of_2(hidden).bit_length() - 1, enable_fp_fusion=False,
+            num_warps=ctx.num_warps,
         )
-        _bwd_reduce[(batch, triton.cdiv(hidden, 128))](
-            partial_shift, partial_scale, grad_gate.contiguous(), dm, seq, hidden, 128,
-            enable_fp_fusion=False,
+        _bwd_reduce[(batch, triton.cdiv(hidden, ctx.reduction_tile))](
+            partial_shift, partial_scale, grad_gate.contiguous(), dm, seq, hidden,
+            ctx.reduction_tile,
+            enable_fp_fusion=False, num_warps=ctx.num_warps,
         )
-        return dx, dm, None
+        return dx, dm, None, None, None
 
 
 class TritonAdaLNModulationOp:
+    def __init__(self, *, num_warps=4, reduction_tile=128):
+        if num_warps not in (4, 8) or reduction_tile not in (64, 128, 256):
+            raise ValueError(
+                "AdaLN requires num_warps in {4, 8} and reduction_tile in {64, 128, 256}"
+            )
+        self.num_warps = num_warps
+        self.reduction_tile = reduction_tile
+
     def __call__(self, x, modulation, *, eps=1e-6):
         return self.forward(x, modulation, eps=eps)
 
@@ -131,4 +143,7 @@ class TritonAdaLNModulationOp:
         _validate(x, modulation, eps)
         if not x.is_cuda:
             raise RuntimeError("Triton AdaLN requires CUDA tensors")
-        return _AdaLNTriton.apply(x.contiguous(), modulation.contiguous(), float(eps))
+        return _AdaLNTriton.apply(
+            x.contiguous(), modulation.contiguous(), float(eps),
+            self.num_warps, self.reduction_tile,
+        )

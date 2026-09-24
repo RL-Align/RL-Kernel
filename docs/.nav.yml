@@ -17,6 +17,7 @@ nav:
     - Operators:
       - operators/README.md
       - operators/activation.md
+      - operators/adaln-modulation.md
       - operators/attention.md
       - operators/fused-logp.md
       - operators/linear-logp.md
