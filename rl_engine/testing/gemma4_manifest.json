@@ -1,0 +1,179 @@
+{
+  "version": "gemma4-arch-fingerprint-v1",
+  "workload_id": "gemma4-31b-it-dense-primary-v1",
+  "model_identity": {
+    "model_id": "google/gemma-4-31B-it",
+    "hf_repo": "google/gemma-4-31B-it",
+    "revision": "842da3794eaa0b77d5f08bae87a17459d91ff475",
+    "semantics_source": {
+      "package": "transformers",
+      "version": "5.13.1",
+      "git_commit": "4626421dc6b741a329300682a6408246ee465490",
+      "modeling_file": "src/transformers/models/gemma4/modeling_gemma4.py"
+    },
+    "architecture": "Gemma4ForConditionalGeneration",
+    "model_type": "gemma4",
+    "density": "dense",
+    "exit_forbids_architecture_shrink": true,
+    "config_fingerprint": {
+      "audio_config": null,
+      "dtype": "bfloat16",
+      "text_config": {
+        "attention_bias": false,
+        "attention_dropout": 0.0,
+        "attention_k_eq_v": true,
+        "enable_moe_block": false,
+        "expert_intermediate_size": null,
+        "final_logit_softcapping": 30.0,
+        "global_head_dim": 512,
+        "head_dim": 256,
+        "hidden_activation": "gelu_pytorch_tanh",
+        "hidden_size": 5376,
+        "hidden_size_per_layer_input": 0,
+        "intermediate_size": 21504,
+        "layer_types": [
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "full_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "full_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "full_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "full_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "full_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "full_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "full_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "full_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "full_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "full_attention"
+        ],
+        "max_position_embeddings": 262144,
+        "model_type": "gemma4_text",
+        "num_attention_heads": 32,
+        "num_experts": null,
+        "num_global_key_value_heads": 4,
+        "num_hidden_layers": 60,
+        "num_key_value_heads": 16,
+        "num_kv_shared_layers": 0,
+        "rms_norm_eps": 1e-06,
+        "rope_parameters": {
+          "full_attention": {
+            "partial_rotary_factor": 0.25,
+            "rope_theta": 1000000.0,
+            "rope_type": "proportional"
+          },
+          "sliding_attention": {
+            "rope_theta": 10000.0,
+            "rope_type": "default"
+          }
+        },
+        "sliding_window": 1024,
+        "tie_word_embeddings": true,
+        "top_k_experts": null,
+        "use_bidirectional_attention": "vision",
+        "use_double_wide_mlp": false,
+        "vocab_size": 262144
+      },
+      "tie_word_embeddings": true,
+      "attention_qkv_norm": {
+        "q": {
+          "norm": "rmsnorm",
+          "with_scale": true,
+          "rope": true
+        },
+        "k": {
+          "norm": "rmsnorm",
+          "with_scale": true,
+          "rope": true
+        },
+        "v": {
+          "norm": "rmsnorm",
+          "with_scale": false,
+          "rope": false
+        }
+      },
+      "attention_qkv_norm_note": "Per-head RMSNorm over head_dim with rms_norm_eps, applied before RoPE; read from Gemma4TextAttention at semantics_source. Not an HF config flag.",
+      "norm_residual_order": [
+        "input_layernorm",
+        "self_attn",
+        "post_attention_layernorm",
+        "residual_add",
+        "pre_feedforward_layernorm",
+        "mlp",
+        "post_feedforward_layernorm",
+        "residual_add"
+      ],
+      "norm_residual_order_note": "Gemma4TextDecoderLayer applies RMSNorm before and after both attention and MLP and adds the residual after each post-norm; not an HF config flag."
+    },
+    "weight_snapshot": {
+      "pin_method": "hf_revision_plus_index_sha256_plus_all_lfs_shard_sha256",
+      "index_file": "model.safetensors.index.json",
+      "index_sha256": "d4aff3b976d69c123a29d1c085d7ba4de1ac3f4ca1726a7f81e1b11462a64ea2",
+      "tensor_total_size_bytes": 62546177752,
+      "weight_files_total_size_bytes": 62546338248,
+      "total_size_bytes": 62546177752,
+      "content_hash_algorithm": "sha256-of-sorted-shard-records-v1",
+      "content_hash": "e02b23eea7a4b409b4e4034304aa6a0a1ce1528df80ba12ba7664ccc88d6f302",
+      "shards": [
+        {
+          "filename": "model-00001-of-00002.safetensors",
+          "sha256": "eeef8791537bc04f110967c513149e037d2a9ae97d49add7291ebfa62806bbfa",
+          "size_bytes": 49784788364
+        },
+        {
+          "filename": "model-00002-of-00002.safetensors",
+          "sha256": "018912220f559f7025d60333e0996183cd538aa77ad6f4988a89ce47be681f10",
+          "size_bytes": 12761549884
+        }
+      ],
+      "source": "HF LFS x-linked-etag at the pinned revision; each value is the shard content SHA-256"
+    }
+  },
+  "fixture_identity_sha256": "8a36f177e78082f4f7d8e0e7b5c383ff32a7a4ec016b8dc00c40e2e49c8258bd"
+}
