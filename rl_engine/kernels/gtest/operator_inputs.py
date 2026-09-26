@@ -39,6 +39,7 @@ def make_operator_inputs(
         "rope": _make_rope_inputs,
         "silu": _make_silu_inputs,
         "swiglu": _make_swiglu_inputs,
+        "final_logit_softcap": _make_final_logit_softcap_inputs,
         "embedding": _make_embedding_inputs,
         "lm_head": _make_lm_head_inputs,
         "kv_cache_attention": _make_kv_cache_attention_inputs,
@@ -69,6 +70,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "rope": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}",
         "silu": f"{batch}x{seq}x{DEFAULT_INTERMEDIATE}",
         "swiglu": f"{batch}x{seq}x{DEFAULT_INTERMEDIATE}",
+        "final_logit_softcap": f"{batch}x{seq}x{vocab}",
         "embedding": f"{batch}x{seq}x{vocab}x{_normalized_dim(args)}",
         "lm_head": f"{batch}x{seq}x{_normalized_dim(args)}x{vocab}",
         "kv_cache_attention": f"{batch}x{DEFAULT_N_HEADS}x1x{seq + 1}x{DEFAULT_HEAD_DIM}",
@@ -280,6 +282,14 @@ def _make_swiglu_inputs(
         "gate": _floating_tensor((batch, seq, DEFAULT_INTERMEDIATE), args, dtype, device, 0),
         "up": _floating_tensor((batch, seq, DEFAULT_INTERMEDIATE), args, dtype, device, 1),
     }
+
+
+def _make_final_logit_softcap_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    batch, seq = _batch_seq(args)
+    vocab = _arg_int(args, "vocab", DEFAULT_VOCAB)
+    return {"x": _floating_tensor((batch, seq, vocab), args, dtype, device, 0)}
 
 
 def _make_embedding_inputs(
