@@ -98,6 +98,9 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     CUDA_FUSED_LINEAR_LOGP_SM90 = (
         "rl_engine.kernels.ops.cuda.loss.linear_logp.FusedLinearLogpSM90Op"
     )
+    CUDA_FUSED_LINEAR_LOGP_SM80 = (
+        "rl_engine.kernels.ops.cuda.loss.linear_logp_sm80.FusedLinearLogpSM80Op"
+    )
     TRITON_LINEAR_LOGP = "rl_engine.kernels.ops.triton.loss.linear_logp.TritonLinearLogpOp"
     PYTORCH_LINEAR_LOGP = "rl_engine.kernels.ops.pytorch.loss.linear_logp.NativeLinearLogpOp"
     # Fused policy-ratio + KL-penalty front-end (PPO/GRPO), logits -> (ratio, kl)
@@ -1004,6 +1007,14 @@ class KernelRegistry:
                 ll_list = self._priority_map["cuda"]["linear_logp"]
                 if OpBackend.CUDA_FUSED_LINEAR_LOGP_SM90 not in ll_list:
                     ll_list.insert(0, OpBackend.CUDA_FUSED_LINEAR_LOGP_SM90)
+
+            sm80_linear_logp_compiled = _EXT_AVAILABLE and hasattr(
+                _C, "fused_linear_logp_sm80"
+            )
+            if sm80_linear_logp_compiled and cc == 80:
+                ll_list = self._priority_map["cuda"]["linear_logp"]
+                if OpBackend.CUDA_FUSED_LINEAR_LOGP_SM80 not in ll_list:
+                    ll_list.insert(0, OpBackend.CUDA_FUSED_LINEAR_LOGP_SM80)
 
             # Batch-invariant logp SM90 kernel: same sm_90a TMA gating (Hopper only).
             batch_inv_compiled = _EXT_AVAILABLE and hasattr(_C, "batch_invariant_logp_sm90")
