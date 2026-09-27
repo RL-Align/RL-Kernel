@@ -1,0 +1,660 @@
+[
+  {
+    "case_id": "P2-F-LAYER-c0.v1",
+    "fixture_checksum": "19b1517a72099d7e22d92a4fbfe63af70140ca774f0ff0c9a2c150a871890da8",
+    "group": "P2-F-LAYER",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "c0"
+  },
+  {
+    "case_id": "P2-F-LAYER-c4.v1",
+    "fixture_checksum": "fb898703d44117906f9ea786399704940a0868d78cef943c0af894dd438d3542",
+    "group": "P2-F-LAYER",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "c4"
+  },
+  {
+    "case_id": "P2-F-LAYER-c128.v1",
+    "fixture_checksum": "6535575566127c89316e9bf4fc2d592e1f550f23b51843f92a209561d4946f10",
+    "group": "P2-F-LAYER",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "c128"
+  },
+  {
+    "case_id": "P2-F-LAYER-interleaved.v1",
+    "fixture_checksum": "b801d7bfad3fbd85ac91f51dbd90fea132b0eff8fe70c3396fce9786af5353fa",
+    "group": "P2-F-LAYER",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "interleaved"
+  },
+  {
+    "case_id": "P2-F-LAYER-invalid_layer.v1",
+    "fixture_checksum": "a01b62ccd18c30e6bed428c42fcbd4872d547e06a50925ee4814d397ce294750",
+    "group": "P2-F-LAYER",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "invalid_layer"
+  },
+  {
+    "case_id": "P2-F-ROPE-position0.v1",
+    "fixture_checksum": "c937b05cb970936b73dfed945a30080503f20d87584a84892bd43c819bb993b2",
+    "group": "P2-F-ROPE",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "position0"
+  },
+  {
+    "case_id": "P2-F-ROPE-position1.v1",
+    "fixture_checksum": "467e132a63ec755fdfc503af28ede944b782756bc137ea53241984d2f32f2903",
+    "group": "P2-F-ROPE",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "position1"
+  },
+  {
+    "case_id": "P2-F-ROPE-c4_completed.v1",
+    "fixture_checksum": "c457fed27cbd0e813e328cd25e5dd6bef53ebfbf687ae427c8f65d21d1c7ee2a",
+    "group": "P2-F-ROPE",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "c4_completed"
+  },
+  {
+    "case_id": "P2-F-ROPE-c128_completed.v1",
+    "fixture_checksum": "94f947d3a09a095e286ba0a5e18ebf0fc6986975f05a74b0e37c15f88538e8dc",
+    "group": "P2-F-ROPE",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "c128_completed"
+  },
+  {
+    "case_id": "P2-F-ROPE-main_range.v1",
+    "fixture_checksum": "90fb70a7d47db551af6bd40015aa26ae8659b322aa6f6ad34ad64f47ceac62a9",
+    "group": "P2-F-ROPE",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "main_range"
+  },
+  {
+    "case_id": "P2-F-ROPE-index_range.v1",
+    "fixture_checksum": "e95f79e986a511fca26b4614047b48f2ccb2d3e71c001677cff8fe65515a85d5",
+    "group": "P2-F-ROPE",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "index_range"
+  },
+  {
+    "case_id": "P2-F-ROPE-inverse.v1",
+    "fixture_checksum": "c616b60c72d26501d65dbf0f93727e6db89a55dd6c1a29ed6330a632feaf8be0",
+    "group": "P2-F-ROPE",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "inverse"
+  },
+  {
+    "case_id": "P2-F-ROPE-neox.v1",
+    "fixture_checksum": "ea2125194171e001b987b9abda6907233917230464d4c1a15f2025b78b326c15",
+    "group": "P2-F-ROPE",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "neox"
+  },
+  {
+    "case_id": "P2-F-C4-first.v1",
+    "fixture_checksum": "217edff747335c145cbf35c03fb8af99d7c9c625dcf9b3fd58f2d4a9e24834cf",
+    "group": "P2-F-C4",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "first"
+  },
+  {
+    "case_id": "P2-F-C4-second.v1",
+    "fixture_checksum": "723df0fcb54d33376d132fa97620cc6143c3dc0a094155360b18857cad8bee8f",
+    "group": "P2-F-C4",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "second"
+  },
+  {
+    "case_id": "P2-F-C4-cross_page.v1",
+    "fixture_checksum": "224c9cca69be1eb09dc311d8ce5f60c0cf493c9670b3c3cea063aea873716573",
+    "group": "P2-F-C4",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "cross_page"
+  },
+  {
+    "case_id": "P2-F-C4-cross_chunk.v1",
+    "fixture_checksum": "81d800896577c4a4ffeb452294f6dc13c010cf9515ed48ef225c93bb656f3440",
+    "group": "P2-F-C4",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "cross_chunk"
+  },
+  {
+    "case_id": "P2-F-C4-cross_rank.v1",
+    "fixture_checksum": "12979f1164b049ba24ca2b53ac7f2d4dacce1a700d61d0d819395a5516534fbf",
+    "group": "P2-F-C4",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "cross_rank"
+  },
+  {
+    "case_id": "P2-F-C4-ape_order.v1",
+    "fixture_checksum": "1aa940066dafeb596401a17bd5b087ec0fbacf59df2f64739eb5f4a612e1a76c",
+    "group": "P2-F-C4",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "ape_order"
+  },
+  {
+    "case_id": "P2-F-C128-incomplete127.v1",
+    "fixture_checksum": "3b0324b7d81dc36432b3995f513ecdc5dc0c28204964b6262ec9a4462218bc55",
+    "group": "P2-F-C128",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "incomplete127"
+  },
+  {
+    "case_id": "P2-F-C128-complete128.v1",
+    "fixture_checksum": "a6b9d7565d5765259ee6fae5bb4c9f2c39ca3d279e3fcffff9750a098ecd1232",
+    "group": "P2-F-C128",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "complete128"
+  },
+  {
+    "case_id": "P2-F-C128-multiple_groups.v1",
+    "fixture_checksum": "37ce4d7ec7e9acb14f9221d5091c3f799264f4180c14231e8957131bdb08e1a8",
+    "group": "P2-F-C128",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "multiple_groups"
+  },
+  {
+    "case_id": "P2-F-C128-cp_boundary.v1",
+    "fixture_checksum": "2a4c7290fd11d04658686e4c30ddfd90254f08396935dc83e06acc477452ae2f",
+    "group": "P2-F-C128",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "cp_boundary"
+  },
+  {
+    "case_id": "P2-F-RECENT-length1.v1",
+    "fixture_checksum": "b19fe770754e6388f6d4de1b12b4be90b131f87f6b2511bcf57ecc24d4ef8d87",
+    "group": "P2-F-RECENT",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "length1"
+  },
+  {
+    "case_id": "P2-F-RECENT-length127.v1",
+    "fixture_checksum": "994cf8341b4fe791c86e85b2c255651e0d2543cb38bcdd014a510383784842d2",
+    "group": "P2-F-RECENT",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "length127"
+  },
+  {
+    "case_id": "P2-F-RECENT-length128.v1",
+    "fixture_checksum": "50c49df092c40d211af680d99944fa29ece4f94ddbaddbad68c52ca75a67960d",
+    "group": "P2-F-RECENT",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "length128"
+  },
+  {
+    "case_id": "P2-F-RECENT-length129.v1",
+    "fixture_checksum": "f2fa31d0776e8478d24aedfd9522bc9e1311a0186a46862e31b75456d532fe2b",
+    "group": "P2-F-RECENT",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "length129"
+  },
+  {
+    "case_id": "P2-F-RECENT-page_wrap.v1",
+    "fixture_checksum": "91d7919a282e18d9c5413a568469067d8c526e7d829e8f08976dc19fa3d87516",
+    "group": "P2-F-RECENT",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "page_wrap"
+  },
+  {
+    "case_id": "P2-F-RECENT-chunked.v1",
+    "fixture_checksum": "07fefedb2a25b44bce0e262f097f91fe4b30202d0a72325a1edd268ff86586e0",
+    "group": "P2-F-RECENT",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "chunked"
+  },
+  {
+    "case_id": "P2-F-RECENT-c0_only.v1",
+    "fixture_checksum": "d4308e10f967b7d849cbc42dfb52b38153cbc45b6bff697fb7b35214d2f96aba",
+    "group": "P2-F-RECENT",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "c0_only"
+  },
+  {
+    "case_id": "P2-F-STATE4-training.v1",
+    "fixture_checksum": "a9ad444f0d595414b22b115c2de725f297bf95b191dcfae9260d28b3d482dfe1",
+    "group": "P2-F-STATE4",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "training"
+  },
+  {
+    "case_id": "P2-F-STATE4-prefill.v1",
+    "fixture_checksum": "66f923ba4349c7cc3603bd6a3131766dfc122e3fdebe21c43c0cc52514d3141a",
+    "group": "P2-F-STATE4",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "prefill"
+  },
+  {
+    "case_id": "P2-F-STATE4-eager_decode.v1",
+    "fixture_checksum": "6b8f10b8d7a728482298b31650187e71ea9c2e93f56a94fd4f331ecc50e76f7c",
+    "group": "P2-F-STATE4",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "eager_decode"
+  },
+  {
+    "case_id": "P2-F-STATE4-graph_decode.v1",
+    "fixture_checksum": "eafc22a69539af4ea031012e0dbb4b1686d53303211a05eeb3adbc7ed62d4940",
+    "group": "P2-F-STATE4",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "graph_decode"
+  },
+  {
+    "case_id": "P2-F-STATE4-eager_to_graph.v1",
+    "fixture_checksum": "c3dd20165d7d8e3671ee0efe2eac472c19390b8951ee741d7574adc558e3709b",
+    "group": "P2-F-STATE4",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "eager_to_graph"
+  },
+  {
+    "case_id": "P2-F-STATE4-strict_replay.v1",
+    "fixture_checksum": "94ad76c5405c0405aa967fa6ee94a0c93cdffdc81a25bcd87a59fc8397d9778b",
+    "group": "P2-F-STATE4",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "strict_replay"
+  },
+  {
+    "case_id": "P2-F-INDEX-ID-weight.v1",
+    "fixture_checksum": "8c64db3c77b889425afe91f4a2b5e52c9f4e0a10ee6e7be1a2a5afe97bba2400",
+    "group": "P2-F-INDEX-ID",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "weight"
+  },
+  {
+    "case_id": "P2-F-INDEX-ID-ape.v1",
+    "fixture_checksum": "4127ee609904f1606a59ea9be8a2cde133176aecd57cb834c1f196ce8bdfbaf3",
+    "group": "P2-F-INDEX-ID",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "ape"
+  },
+  {
+    "case_id": "P2-F-INDEX-ID-norm.v1",
+    "fixture_checksum": "1f614446b610e8860f97d55158827c9d8bf005852f0711043f68e7823b9b9716",
+    "group": "P2-F-INDEX-ID",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "norm"
+  },
+  {
+    "case_id": "P2-F-INDEX-ID-state.v1",
+    "fixture_checksum": "d7112262a53d8b7db241ca61cc4377d1972ed4c118697d10df3ed61d8f14901e",
+    "group": "P2-F-INDEX-ID",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "state"
+  },
+  {
+    "case_id": "P2-F-INDEX-ID-page.v1",
+    "fixture_checksum": "124435163f312c207d4597edd19cd0b94784c9006bfb9e2accfef153aafae9fe",
+    "group": "P2-F-INDEX-ID",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "page"
+  },
+  {
+    "case_id": "P2-F-FP4-zero.v1",
+    "fixture_checksum": "92876ed4e5be4990699a8af8fac7f5b91131f75d78d0ca125a629ec3d2d4c077",
+    "group": "P2-F-FP4",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "zero"
+  },
+  {
+    "case_id": "P2-F-FP4-subnormal.v1",
+    "fixture_checksum": "497e1ccda9d515f384810e3237f353446c44dc0f54ee03d966e1f999c3bd4338",
+    "group": "P2-F-FP4",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "subnormal"
+  },
+  {
+    "case_id": "P2-F-FP4-max_e2m1.v1",
+    "fixture_checksum": "7e936440fad7c6835ef501c8b81b2120da1c450a94ac28a7542537ba3cbabdf4",
+    "group": "P2-F-FP4",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "max_e2m1"
+  },
+  {
+    "case_id": "P2-F-FP4-scale_clip.v1",
+    "fixture_checksum": "66db874e2e52434c00022f62ea1d0e2f1578c31e8e68cd10944e3afecbcf88ac",
+    "group": "P2-F-FP4",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "scale_clip"
+  },
+  {
+    "case_id": "P2-F-FP4-nibbles.v1",
+    "fixture_checksum": "4e018ae6d6b6b5a80e65d9e7e4d22a247284c0174614679cfb271c2ab55210e9",
+    "group": "P2-F-FP4",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "nibbles"
+  },
+  {
+    "case_id": "P2-F-FP4-block_boundary.v1",
+    "fixture_checksum": "51f68c64bf4b8d5fdd49a964532efad35ccbafb0299b13acff6850bee31c69c0",
+    "group": "P2-F-FP4",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "block_boundary"
+  },
+  {
+    "case_id": "P2-F-ICV-n0.v1",
+    "fixture_checksum": "e3012d23a6a7cf9361139120d155ddadc868e62a273242133261b9b5fafa1df5",
+    "group": "P2-F-ICV",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "n0"
+  },
+  {
+    "case_id": "P2-F-ICV-n1.v1",
+    "fixture_checksum": "cead7336af71dcb38559bee99b9a18405ff59da81c7e3454f182d75c7001c701",
+    "group": "P2-F-ICV",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "n1"
+  },
+  {
+    "case_id": "P2-F-ICV-n511.v1",
+    "fixture_checksum": "7bce12cb8e2f560ae56d9d53988ae4cc0cfd69f76e5296dff2e875e523461202",
+    "group": "P2-F-ICV",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "n511"
+  },
+  {
+    "case_id": "P2-F-ICV-n512.v1",
+    "fixture_checksum": "6cf919f28876f62235c9fdcfd0152a52c464f213f0d7f7764593aba22c29e673",
+    "group": "P2-F-ICV",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "n512"
+  },
+  {
+    "case_id": "P2-F-ICV-n513.v1",
+    "fixture_checksum": "26d505bd721045e735b95c6126af1142ee619ccec6d587dc830cd781b6940724",
+    "group": "P2-F-ICV",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "n513"
+  },
+  {
+    "case_id": "P2-F-ICV-tile.v1",
+    "fixture_checksum": "d3823fc268a49b41ca305b7a9e55063350eef65c70a4d2036d7c44bd384bd574",
+    "group": "P2-F-ICV",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "tile"
+  },
+  {
+    "case_id": "P2-F-ICV-fp4_expand.v1",
+    "fixture_checksum": "4b86f80f8cd52ee7624fcd2e6c4825ce95650985b049910c4d04ff72142b74b5",
+    "group": "P2-F-ICV",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "fp4_expand"
+  },
+  {
+    "case_id": "P2-F-ICV-one_ulp.v1",
+    "fixture_checksum": "8f787d50848cddead786b3c7ccb3e4f68ba80c04302a5926a4b3e63e0b7eea91",
+    "group": "P2-F-ICV",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "one_ulp"
+  },
+  {
+    "case_id": "P2-F-TOPK-tie513.v1",
+    "fixture_checksum": "e6e0185f83209226f34544c67fd70a96dfe74003b550c6117b5e524dff198d86",
+    "group": "P2-F-TOPK",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "tie513"
+  },
+  {
+    "case_id": "P2-F-TOPK-near_tie.v1",
+    "fixture_checksum": "807b547a3cf4114fd9322b14270810abe436130065f1a22b9e4978a63e0b2af3",
+    "group": "P2-F-TOPK",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "near_tie"
+  },
+  {
+    "case_id": "P2-F-TOPK-future_invalid.v1",
+    "fixture_checksum": "5506b02a7f71222ee5939c7b8dfbcc93025653c3133923836f3ac86c99367bfb",
+    "group": "P2-F-TOPK",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "future_invalid"
+  },
+  {
+    "case_id": "P2-F-TOPK-fewer512.v1",
+    "fixture_checksum": "7dae1cd7401c8a8af11a6176dd37ac00c0ffeee0192668a4e3380d25bef1815c",
+    "group": "P2-F-TOPK",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "fewer512"
+  },
+  {
+    "case_id": "P2-F-TOPK-all_invalid.v1",
+    "fixture_checksum": "0b754a63b480847ae73ca3bee399ab1785bd8e55da75d5670b0478c28fca2df6",
+    "group": "P2-F-TOPK",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "all_invalid"
+  },
+  {
+    "case_id": "P2-F-ATTN-c0.v1",
+    "fixture_checksum": "bef4c0d874eecff810adb5f4aa22034b595cc840c2b3aeacbaabe6b9d8a2a2be",
+    "group": "P2-F-ATTN",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "c0"
+  },
+  {
+    "case_id": "P2-F-ATTN-c4.v1",
+    "fixture_checksum": "2620c09cd1a71a35c06dce91a501bf0ae7974336d304a66dee4ce4aa85bf720f",
+    "group": "P2-F-ATTN",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "c4"
+  },
+  {
+    "case_id": "P2-F-ATTN-c128.v1",
+    "fixture_checksum": "4c0ca3616a69041d82cc47842c15537ef6184b50aaf3a483d904c0dbcf53118e",
+    "group": "P2-F-ATTN",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "c128"
+  },
+  {
+    "case_id": "P2-F-ATTN-sink_dominates.v1",
+    "fixture_checksum": "8b2c72fc118bad38e286448dd59d8becd894e888ec16267f91bab7a4887b5c5b",
+    "group": "P2-F-ATTN",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "sink_dominates"
+  },
+  {
+    "case_id": "P2-F-ATTN-empty.v1",
+    "fixture_checksum": "32b3936fde5a71733b64071b9f0eb4b20d9a4dc03cfd91e4e534ea30bd891f28",
+    "group": "P2-F-ATTN",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "empty"
+  },
+  {
+    "case_id": "P2-F-ATTN-partial.v1",
+    "fixture_checksum": "70fee53bca7b7c346342dddb541e45e7aa49235b4ee87a28bf3dec81081e3c65",
+    "group": "P2-F-ATTN",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "partial"
+  },
+  {
+    "case_id": "P2-F-ATTN-two_softmax.v1",
+    "fixture_checksum": "e7b6006960d6c2cf4473489be4b2f3e3abf8d280c7858d3a1b15744059c0b70a",
+    "group": "P2-F-ATTN",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "two_softmax"
+  },
+  {
+    "case_id": "P2-F-OPROJ-group8.v1",
+    "fixture_checksum": "fde306411802ee062f4d8828ea40381b78614fbc80858a4b07d7e82ab80aef3a",
+    "group": "P2-F-OPROJ",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "group8"
+  },
+  {
+    "case_id": "P2-F-OPROJ-concat_order.v1",
+    "fixture_checksum": "d07012e02a731f90ec5050c139ce80775724295ec455ae9b2ba672f6692c74bd",
+    "group": "P2-F-OPROJ",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "concat_order"
+  },
+  {
+    "case_id": "P2-F-OPROJ-inplace.v1",
+    "fixture_checksum": "3d895235b7a1ba5fda96b55557171fb60f7eb95cbd580af09ae21031a2678383",
+    "group": "P2-F-OPROJ",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "inplace"
+  },
+  {
+    "case_id": "P2-F-OPROJ-backward.v1",
+    "fixture_checksum": "561b7ba8caa858bed8d6f0fbd5ea2d69d9209bc658fb8008bc7bd3526660c0d8",
+    "group": "P2-F-OPROJ",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "backward"
+  },
+  {
+    "case_id": "P2-F-LONG-c4_c128_pages_chunks.v1",
+    "fixture_checksum": "36dac1bbb954b043971c4cb828f173cd4ad3bed2f6ebed58f111c7a09850a06f",
+    "group": "P2-F-LONG",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "c4_c128_pages_chunks"
+  },
+  {
+    "case_id": "P2-F-LONG-batch_padding.v1",
+    "fixture_checksum": "172f453112bc8e0133eb9388e08cd5925ffb4aba55dacbc4b1d8c722468b3cac",
+    "group": "P2-F-LONG",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "batch_padding"
+  },
+  {
+    "case_id": "P2-F-CP-c4_left.v1",
+    "fixture_checksum": "4dfe098ab81344b83cb157ec8a35904715770527b111310ff6e5d1c37521e02d",
+    "group": "P2-F-CP",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "c4_left"
+  },
+  {
+    "case_id": "P2-F-CP-c128_owner.v1",
+    "fixture_checksum": "f43c70d7500495b0ec9cf7ac7843d62f70a1770899dea07c3edb68521586c591",
+    "group": "P2-F-CP",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "c128_owner"
+  },
+  {
+    "case_id": "P2-F-CP-recent_cross_rank.v1",
+    "fixture_checksum": "9d1f46688a42a31eee85847c1c52b8903e657e632ac255e711de48ac077d8ca6",
+    "group": "P2-F-CP",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "recent_cross_rank"
+  },
+  {
+    "case_id": "P2-F-CP-global_index.v1",
+    "fixture_checksum": "856e2ca32c97d5fea4018f5be1f5c0f717fc899034b48c6e333611aa628be633",
+    "group": "P2-F-CP",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "global_index"
+  },
+  {
+    "case_id": "P2-F-CP-duplicate_owner.v1",
+    "fixture_checksum": "7f07863084ad08874496d221bce29bda5cbdf7d0f698d29f437c2b4a9eca3895",
+    "group": "P2-F-CP",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "duplicate_owner"
+  },
+  {
+    "case_id": "P2-F-TP-head_shard.v1",
+    "fixture_checksum": "32cec8c2eb6e585c695534da0b4393a745372c7456e035b95864a03f32e2991e",
+    "group": "P2-F-TP",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "head_shard"
+  },
+  {
+    "case_id": "P2-F-TP-global_scale.v1",
+    "fixture_checksum": "12793d092c17b8a1fffd251894cac66564f57d1e5396446fbd68baa35190c992",
+    "group": "P2-F-TP",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "global_scale"
+  },
+  {
+    "case_id": "P2-F-TP-ordered_score.v1",
+    "fixture_checksum": "e01b9542050f0f24ca5278f26757489d0a3ab89c9ae6a2e88827f98f31d17b25",
+    "group": "P2-F-TP",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "ordered_score"
+  },
+  {
+    "case_id": "P2-F-TP-ordered_dkv.v1",
+    "fixture_checksum": "13d16163376869fccfc9f9f94f4c7d9d79a68e70956362e1e3d90fb6b933af9c",
+    "group": "P2-F-TP",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "ordered_dkv"
+  },
+  {
+    "case_id": "P2-F-TP-global_topk.v1",
+    "fixture_checksum": "02a9d29beffdde25dfc7cc6133b648092854b6c562e20ddce904aef90b004e0d",
+    "group": "P2-F-TP",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "global_topk"
+  },
+  {
+    "case_id": "P2-F-TP-oproj_shard.v1",
+    "fixture_checksum": "d5b4206a0ddb6ca4f18bfaa254fe773966dcfd382de9e9c9dc05ccccc1106acf",
+    "group": "P2-F-TP",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "oproj_shard"
+  },
+  {
+    "case_id": "P2-F-BACKEND-cuda.v1",
+    "fixture_checksum": "fb25af142af2c1db7d25a8bea8ce1ff86e4bfe9969751c57879ee33c6df016dc",
+    "group": "P2-F-BACKEND",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "cuda"
+  },
+  {
+    "case_id": "P2-F-BACKEND-ascend.v1",
+    "fixture_checksum": "641d64c67a860654b335f2f92833f9d55bed64ba2c6f91bd32d4b8a2e9f87133",
+    "group": "P2-F-BACKEND",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "ascend"
+  },
+  {
+    "case_id": "P2-F-BACKEND-rocm.v1",
+    "fixture_checksum": "c3811c6ec6c0ea170c21a1236d55a49fb8842659806dccaf6315c4730defefde",
+    "group": "P2-F-BACKEND",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "rocm"
+  },
+  {
+    "case_id": "P2-F-BACKEND-unsupported_dtype.v1",
+    "fixture_checksum": "6c2853100b06ef8fdba5dcc008d51fc38dca12c5f4dfd498e1d0a719b754d379",
+    "group": "P2-F-BACKEND",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "unsupported_dtype"
+  },
+  {
+    "case_id": "P2-F-BACKEND-unsupported_format.v1",
+    "fixture_checksum": "abb5c75daaa0de3700b3fa38b33ad91bc0d5e508432326e9800455bf9797bb2f",
+    "group": "P2-F-BACKEND",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "unsupported_format"
+  },
+  {
+    "case_id": "P2-F-PERF-reference_fused.v1",
+    "fixture_checksum": "c3402c77312d355f78ed705af38d4d5740494e48c408eecea15e3d0682fb5da2",
+    "group": "P2-F-PERF",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "reference_fused"
+  },
+  {
+    "case_id": "P2-F-PERF-debug.v1",
+    "fixture_checksum": "eb70871c5a958eada61b70a8f244f528d16473f03e8e829de2f1feaef68e7733",
+    "group": "P2-F-PERF",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "debug"
+  },
+  {
+    "case_id": "P2-F-PERF-short.v1",
+    "fixture_checksum": "85e813b342e1657d20c1df260ba1698fc4f45c4085e5064a795794b4c3531191",
+    "group": "P2-F-PERF",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "short"
+  },
+  {
+    "case_id": "P2-F-PERF-long.v1",
+    "fixture_checksum": "35eb3a64b727c36c1d68039af14bd34133d45fbc76bc6d39b8583d5c10c79afe",
+    "group": "P2-F-PERF",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "long"
+  },
+  {
+    "case_id": "P2-F-PERF-tile_warp_stage.v1",
+    "fixture_checksum": "265dca66b3c53e1a98c68e690e0f145842d396aac6d795a273105ce133348f51",
+    "group": "P2-F-PERF",
+    "recipe_version": "p2-counter-fixture.v1",
+    "scenario": "tile_warp_stage"
+  }
+]

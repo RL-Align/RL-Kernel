@@ -1,0 +1,208 @@
+{
+  "base_branch": "dsv4-p6-dev",
+  "base_commit": "55fce213c28115e8eaf045179df99f1b6c6d9f45",
+  "cpu_only": {
+    "errors": 0,
+    "failed": 0,
+    "gpu_cases": 5,
+    "passed": 311,
+    "seconds": 24.607,
+    "skip_reasons": [
+      "set P2_RUN_GPU=1 for CUDA hardware gates"
+    ],
+    "skipped": 5,
+    "total": 316,
+    "xml_sha256": "8a8bfc4fb879235b59b92081e70635e0b697ded4c37889a15c34ab55b7192251"
+  },
+  "date": "2026-09-27",
+  "existing_contract_regression": {
+    "errors": 0,
+    "failed": 0,
+    "gpu_cases": 0,
+    "passed": 103,
+    "seconds": 0.077,
+    "skip_reasons": [
+      "Hopper with compiled RMSNorm and RoPE CUDA kernels is required"
+    ],
+    "skipped": 2,
+    "total": 105,
+    "xml_sha256": "43b0d23e1ed9836ecd547fb15ce978e69e534512a875416ba1e9a94edae39e4a"
+  },
+  "implementation_source_fingerprint": "28da9cf3351b3e199b61360eda84918b2ba46ee6c76022769b98dd09b2411c04",
+  "lint": {
+    "ruff_check": "PASS",
+    "ruff_format_check": "PASS"
+  },
+  "minimal_refactor": {
+    "current_source_fingerprint": "28da9cf3351b3e199b61360eda84918b2ba46ee6c76022769b98dd09b2411c04",
+    "payload_equal_except_implementation_provenance": true,
+    "prior_sealed_artifact_reverified": "PASS",
+    "prior_source_fingerprint": "032051ddd2aa2dc72b048ee325059ab88ac3b9472ef583e023c39ba84347d1e6",
+    "production_kernel_or_core_changes": 0,
+    "recordings": 15,
+    "scope": "shared state-sequence validation only",
+    "snapshot_count": 3075,
+    "status": "PASS"
+  },
+  "nccl_default_path": {
+    "failure": "NVLS multicast memory binding failed with CUDA 401",
+    "ranks": 2,
+    "status": "FAIL",
+    "system_configuration_changed": false
+  },
+  "nccl_explicit_no_nvls_transport": [
+    {
+      "actual_nccl_algorithm": null,
+      "backend": "nccl",
+      "configured_nccl_nvls_enable": "0",
+      "cuda": "13.0",
+      "device": "NVIDIA H100 80GB HBM3",
+      "live_ws2": "UNSUPPORTED_CAPABILITY",
+      "nccl": [
+        2,
+        29,
+        7
+      ],
+      "ranks": 1,
+      "scope": "nccl_transport_and_global_tree_mock",
+      "status": "PASS",
+      "torch": "2.13.0+cu130"
+    },
+    {
+      "actual_nccl_algorithm": null,
+      "backend": "nccl",
+      "configured_nccl_nvls_enable": "0",
+      "cuda": "13.0",
+      "device": "NVIDIA H100 80GB HBM3",
+      "live_ws2": "UNSUPPORTED_CAPABILITY",
+      "nccl": [
+        2,
+        29,
+        7
+      ],
+      "ranks": 2,
+      "scope": "nccl_transport_and_global_tree_mock",
+      "status": "PASS",
+      "torch": "2.13.0+cu130"
+    },
+    {
+      "actual_nccl_algorithm": null,
+      "backend": "nccl",
+      "configured_nccl_nvls_enable": "0",
+      "cuda": "13.0",
+      "device": "NVIDIA H100 80GB HBM3",
+      "live_ws2": "UNSUPPORTED_CAPABILITY",
+      "nccl": [
+        2,
+        29,
+        7
+      ],
+      "ranks": 4,
+      "scope": "nccl_transport_and_global_tree_mock",
+      "status": "PASS",
+      "torch": "2.13.0+cu130"
+    },
+    {
+      "actual_nccl_algorithm": null,
+      "backend": "nccl",
+      "configured_nccl_nvls_enable": "0",
+      "cuda": "13.0",
+      "device": "NVIDIA H100 80GB HBM3",
+      "live_ws2": "UNSUPPORTED_CAPABILITY",
+      "nccl": [
+        2,
+        29,
+        7
+      ],
+      "ranks": 8,
+      "scope": "nccl_transport_and_global_tree_mock",
+      "status": "PASS",
+      "torch": "2.13.0+cu130"
+    }
+  ],
+  "runtime": {
+    "cuda": "13.0",
+    "device_count": 8,
+    "devices": [
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3",
+      "NVIDIA H100 80GB HBM3"
+    ],
+    "driver": "595.71.05",
+    "nccl": [
+      2,
+      29,
+      7
+    ],
+    "python": "3.11.15",
+    "torch": "2.13.0+cu130"
+  },
+  "schema": "p2-start-kit-test-report.v1",
+  "scope": {
+    "complete": "T01 synthetic/reference start kit and hardware transport infrastructure",
+    "not_certified": [
+      "T02-T07 production kernels",
+      "live WS1",
+      "live WS2",
+      "P1/Miles integration",
+      "Ascend/ROCm",
+      "performance"
+    ]
+  },
+  "sealed_artifact": {
+    "bytes": 110802056,
+    "catalog_cases": 94,
+    "completion": true,
+    "derived_report": {
+      "integration": "UNSUPPORTED_CAPABILITY",
+      "live_ws1": "UNSUPPORTED_CAPABILITY",
+      "live_ws2": "UNSUPPORTED_CAPABILITY",
+      "negative_cases": 21,
+      "operator_recordings": 15,
+      "performance": "NOT_CERTIFIED",
+      "scope": "synthetic_reference_only",
+      "state_modes": {
+        "C0/eager_decode": "PASS",
+        "C0/graph_decode": "PASS",
+        "C0/prefill": "PASS",
+        "C0/training": "PASS",
+        "C128/eager_decode": "PASS",
+        "C128/graph_decode": "PASS",
+        "C128/prefill": "PASS",
+        "C128/training": "PASS",
+        "C4/eager_decode": "PASS",
+        "C4/graph_decode": "PASS",
+        "C4/prefill": "PASS",
+        "C4/training": "PASS"
+      },
+      "status": "PASS"
+    },
+    "named_layers": [
+      "C0",
+      "C4",
+      "C128"
+    ],
+    "payload_file": "payload.json",
+    "resume_identity": "2ba911c7d35407bb9cd554bb8aabea413ef93d55fc04df9e0bd2f3c79792927a",
+    "schema": "p2-sealed-artifact.v1",
+    "seal_sha256": "86a6dc69a0aea0917eb69d14f7d9a623e03ff413dbfa128f0c51a8f33452eae4",
+    "sha256": "df0a5248aa99eef721c19f958b7299377067f926ae9fd96e53ae06768b47fed2",
+    "tokens_per_layer": 1025
+  },
+  "start_kit_with_all_visible_gpus": {
+    "errors": 0,
+    "failed": 0,
+    "gpu_cases": 40,
+    "passed": 351,
+    "seconds": 27.483,
+    "skip_reasons": [],
+    "skipped": 0,
+    "total": 351,
+    "xml_sha256": "0f1b18f5018902e5b081a779e7081dad9e2b6248f12565b052b762d10a601026"
+  }
+}
