@@ -531,29 +531,30 @@ if _TRITON_AVAILABLE:
         BLOCK: tl.constexpr,
     ):
         operation = tl.program_id(0)
-        block = tl.program_id(1)
-        offsets = (block * BLOCK + tl.arange(0, BLOCK)).to(tl.int64)
         elements = M * N
-        mask = offsets < elements
-        lower_node = tl.load(lower_nodes_ptr + operation).to(tl.int64)
-        upper_node = tl.load(upper_nodes_ptr + operation).to(tl.int64)
-        output_node = tl.load(output_nodes_ptr + operation).to(tl.int64)
-        lower = tl.load(
-            workspace_ptr + lower_node * elements + offsets,
-            mask=mask,
-            other=0.0,
-        ).to(tl.float32)
-        upper = tl.load(
-            workspace_ptr + upper_node * elements + offsets,
-            mask=mask,
-            other=0.0,
-        ).to(tl.float32)
-        result = lower + upper
-        tl.store(
-            workspace_ptr + output_node * elements + offsets,
-            result.to(workspace_ptr.dtype.element_ty),
-            mask=mask,
-        )
+        # CUDA grid.y is limited to 65535; cover remaining blocks in order.
+        for block in range(tl.program_id(1), tl.cdiv(elements, BLOCK), tl.num_programs(1)):
+            offsets = (block * BLOCK + tl.arange(0, BLOCK)).to(tl.int64)
+            mask = offsets < elements
+            lower_node = tl.load(lower_nodes_ptr + operation).to(tl.int64)
+            upper_node = tl.load(upper_nodes_ptr + operation).to(tl.int64)
+            output_node = tl.load(output_nodes_ptr + operation).to(tl.int64)
+            lower = tl.load(
+                workspace_ptr + lower_node * elements + offsets,
+                mask=mask,
+                other=0.0,
+            ).to(tl.float32)
+            upper = tl.load(
+                workspace_ptr + upper_node * elements + offsets,
+                mask=mask,
+                other=0.0,
+            ).to(tl.float32)
+            result = lower + upper
+            tl.store(
+                workspace_ptr + output_node * elements + offsets,
+                result.to(workspace_ptr.dtype.element_ty),
+                mask=mask,
+            )
 
     @triton.jit
     def _det_gemm_tree_reduce_to_output_rocm_kernel(
@@ -1020,7 +1021,7 @@ def _triton_tree_gemm(
                     BLOCK=reduction_block,
                 )
             else:
-                grid = (len(operations), triton.cdiv(m_size * n_size, reduction_block))
+                grid = (len(operations), min(65535, triton.cdiv(m_size * n_size, reduction_block)))
                 _det_gemm_tree_reduce_kernel[grid](
                     workspace,
                     lower,
