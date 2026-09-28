@@ -530,6 +530,7 @@ if _TRITON_AVAILABLE:
         N: tl.constexpr,
         BLOCK: tl.constexpr,
     ):
+        """Reduce node pairs in FP32, using grid strides to cover all output blocks."""
         operation = tl.program_id(0)
         elements = M * N
         # CUDA grid.y is limited to 65535; cover remaining blocks in order.
@@ -787,6 +788,7 @@ def _triton_tree_gemm(
     preserve_a_strides: bool = False,
     inference_schedule: bool = False,
 ) -> torch.Tensor:
+    """Multiply BF16 matrices with FP32 leaves and a fixed BF16-node reduction tree."""
     if not _TRITON_AVAILABLE:
         raise RuntimeError("Triton is unavailable")
     if a.dim() != 2 or b.dim() != 2:

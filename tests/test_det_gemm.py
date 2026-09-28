@@ -120,6 +120,7 @@ def _leaf_workspace(
 
 
 def _special_bf16(shape: tuple[int, ...], *, offset: int = 0) -> torch.Tensor:
+    """Build a device tensor from repeated BF16 bit patterns, including NaNs and infinities."""
     bits = torch.tensor(
         (
             0x0000,
@@ -712,7 +713,7 @@ def test_triton_reduction_grid_stride_covers_tail(elements):
 def test_triton_weight_gradient_crosses_cuda_grid_y_limit(output_rows):
     """Nemotron dB crosses grid.y=65535, including workspace-driven row chunking.
 
-    1628*10304/256 needs 65527 blocks; 1629 rows need 65567.
+    1628*10304/256 needs 65527 blocks; 1629 rows need 65568.
     2688 rows reproduces the full M=128 Mamba input-projection gradient.
     Safe row partitions preserve each output element's K-reduction tree.
     """
