@@ -14,6 +14,7 @@ python benchmarks/profiler.py --format json --output reports/profile.json
 python benchmarks/benchmark_sampling.py
 python benchmarks/benchmark_grpo_op.py
 python benchmarks/benchmark_pack.py --smoke
+python benchmarks/benchmark_final_logit_softcap.py --output-dir reports/final-logit-softcap
 python benchmarks/benchmark_rocm_ffn.py --help
 python scripts/run_perf.py
 ```

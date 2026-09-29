@@ -227,6 +227,25 @@ OP_SPECS = {
         },
         grad_input_names=("gate", "up"),
     ),
+    "final_logit_softcap": OperatorSpec(
+        name="final_logit_softcap",
+        op_class="elementwise",
+        gold_path=(
+            "rl_engine.kernels.ops.pytorch.activation.final_logit_softcap.NativeFinalLogitSoftcapOp"
+        ),
+        gold_method="forward",
+        candidate_paths={
+            "pytorch": (
+                "rl_engine.kernels.ops.pytorch.activation.final_logit_softcap."
+                "NativeFinalLogitSoftcapOp"
+            ),
+            "triton": (
+                "rl_engine.kernels.ops.triton.activation.final_logit_softcap."
+                "TritonFinalLogitSoftcapOp"
+            ),
+        },
+        grad_input_names=("x",),
+    ),
     "batch_invariant_logp": OperatorSpec(
         name="batch_invariant_logp",
         op_class="logprob",
