@@ -66,6 +66,8 @@ is bit-identical to quantizing `h` with the standalone operator.
 | `oracle-fp32-serial-v1` | Byte-equal with the FP32 oracle: serial ascending-k, mul-then-add, no FMA contraction. The MX quantizer and the strict shared-expert kernels hold this. |
 | `p5-sm90-fused-mlp-v1` | The fused routed kernel. Deterministic and batch-invariant, **not** byte-equal: the 32 products inside one MX block are summed by the tensor core. Everything else follows the recipe above. |
 | `p5-det-gemm-v1` | The det_gemm-backed shared expert. Batch-invariant and TP-equivalent, ~5e-3 from the oracle (its K-tree rounds every 32-wide leaf to BF16). |
+| `p5-triton-dot-v1` | The Triton `tl.dot` shared expert, unfused. Batch-invariant; tile reduction order differs from every CUDA backend. |
+| `p5-triton-fused-v1` | The portable Triton lane (routed and shared, activation fused into fc1). Batch-invariant, byte-equal to nothing else: no Triton exponential reproduces nvcc's `expf`, and the accumulator is flat FP32 rather than a K-tree. |
 
 A backend that cannot hold a profile declares its own rather than relaxing the
 tolerance of an existing one.
@@ -219,6 +221,74 @@ A second backend composes the shared expert from `det_gemm` (profile
 mid-split K-tree makes a contiguous half-K shard one child of the tree, at the
 cost of byte-equality.
 
+## The portable Triton lane
+
+Everything above is Hopper-specific: TMA, `wgmma`, warp specialization, an
+explicit shared-memory pipeline. `rl_engine/kernels/ops/triton/moe/fused_mlp.py`
+is the same two operators written to run on CDNA, and it is the lane that gets
+tuned on a ROCm host. Maintainability comes first there, performance second, so
+it is not an attempt to reproduce the CUDA kernels.
+
+| Item | Location |
+|---|---|
+| Kernels | `rl_engine/kernels/ops/triton/moe/fused_mlp.py` |
+| Providers | `backends.triton_fused_mlp:TritonFusedMoeMlp`, `backends.shared_expert:TritonFusedSharedExpertProvider` |
+| Tests | `tests/test_triton_fused_moe_mlp.py` |
+| Benchmark | `benchmarks/benchmark_triton_fused_moe_mlp.py` |
+
+Three decisions carry the portability.
+
+**No FP8 `tl.dot`.** `tl.float8e4nv` is NVIDIA's e4m3**fn**; CDNA's native FP8
+is e4m3**fnuz** (`tl.float8e4b8`), a different bias with no infinities. Rather
+than branch on the target, both MX operands are decoded to BF16 with integer
+arithmetic and fed to a plain BF16 `tl.dot`. The decode is exact — E4M3 keeps 4
+significand bits, E2M1 keeps 2, BF16 has 8 — so nothing is lost, and folding the
+E8M0 scale out of the inner sum means no dequantized tensor is materialized and
+no fresh accumulator is needed per 32-wide block. This is the same trick the
+CUDA kernel uses; only the operand type differs.
+
+**No single-launch variant.** Triton has no user-managed shared memory, so `h_q`
+cannot be kept resident across the two GEMMs. The Triton lane is two launches
+only — which is the faster CUDA path anyway.
+
+**No K-tree, and no attempt at byte-equality with CUDA.** Two independent
+reasons. First, sigmoid: measured over 262144 elements, `tl.sigmoid` differs
+from nvcc's `expf` in 6 elements and libdevice `exp` in 2, so the strict Triton
+shared expert has to import `torch.sigmoid` as a tensor to stay byte-equal, and
+a *fused* kernel cannot — the activation is inside the epilogue. Second, the
+K-tree could not survive the fusion regardless, since
+`SiLU(g1+g2)*(u1+u2) != SiLU(g1)*u1 + SiLU(g2)*u2`; fc1 is column-parallel, so
+its K is never the split axis and nothing is lost. A flat FP32 accumulator is
+therefore both simpler and, against an FP32 reference, closer than det_gemm's
+BF16 tree.
+
+Batch invariance is unaffected and is what the tests assert: BLOCK sizes are
+compile-time constants never chosen from M, there is no split-K and no atomic,
+and each output tile reduces the full K inside one program. Byte-equality holds
+across sub-batch slicing, single-row launches on both sides of every expert
+boundary, and run to run.
+
+### Results (H100 SXM, H=4096, F=2048, E=8)
+
+| rows | Triton fc1 | Triton fc3 | Triton total | CUDA two-launch | ratio |
+|---|---|---|---|---|---|
+| 512 | 0.52 ms | 0.23 ms | 0.74 ms | 0.12 ms | 6.2x |
+| 2048 | 1.91 ms | 0.85 ms | 2.76 ms | 0.45 ms | 6.1x |
+| 8192 | 7.41 ms | 3.31 ms | 10.72 ms | 1.71 ms | 6.3x |
+
+The gap is the three things given up: FP8 tensor cores (BF16 `tl.dot` is half
+the throughput before the decode is counted), the pre-folded weight scale, and
+warp specialization. Accuracy is not part of the trade — against an FP64
+reference both lanes land on the MX quantization floor and agree to four
+digits (3.4e-2 at M=512, 3.7e-2 at M=2048 on a common fixture). At fixture
+width (T=64, H=128, F=64, E=2) the whole Triton chain is byte-equal to the FP32
+oracle, `h_q` codes and scales included, which is what pins the recipe.
+
+The shared-expert half fuses fc1 with the SwiGLU the same way and leaves fc2 on
+the Triton tile GEMM, so no CUDA symbol is reachable from the lane. Forward
+only: `z` is not written, so there is no backward — use
+`TritonDetSharedExpertProvider` for training.
+
 ## Reference backends
 
 Per-operator P5 artifacts. Each overrides only the operators its kernel
@@ -232,6 +302,10 @@ end to end against any one of them.
 | `backends.lora_delta` | P5-3 LoRA delta | torch-native, CUDA, Triton |
 | `backends.clamp_swiglu` | P5-2 clamp-SwiGLU with route weight | CUDA |
 | `backends.shared_expert` | P5-5 shared expert MLP | CUDA, Triton |
+
+`backends.routed_checks` is not a backend: it holds the per-launch batch
+check the two fused routed providers share, so the contract is read once
+rather than once per backend.
 
 Only `csrc/cuda/moe/sm90_fused_moe_mlp.cu` is compiled into `rl_engine._C` by
 default; the other MoE sources are present but not wired, so their providers

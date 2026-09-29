@@ -139,6 +139,7 @@ def get_extensions():
             "csrc/cuda/rmsnorm.cu",
             "csrc/cuda/activation.cu",
             "csrc/cuda/moe/sm90_fused_moe_mlp.cu",
+            "csrc/cuda/moe/fused_shared_expert_mlp.cu",
             "csrc/cuda/attention/deterministic_attention.cu",
             "csrc/cuda/distributed/deterministic_collective.cu",
         ]

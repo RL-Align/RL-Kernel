@@ -131,6 +131,9 @@ std::vector<torch::Tensor> swiglu_packed_backward_cuda(
     torch::Tensor dy,
     torch::Tensor gate_up);
 
+// Fused shared-expert fc1 + SwiGLU (csrc/cuda/moe/fused_shared_expert_mlp.cu)
+torch::Tensor fused_shared_expert_fc1_swiglu(torch::Tensor x, torch::Tensor w_fc1);
+
 // SM90 fused routed-expert MLP (MXFP8 x MXFP4, FP8 WGMMA): csrc/cuda/moe/sm90_fused_moe_mlp.cu
 std::vector<torch::Tensor> sm90_moe_prepare_weight_ref(torch::Tensor w_scales);
 torch::Tensor sm90_moe_fc1_forward(torch::Tensor a_codes, torch::Tensor a_scales,
@@ -520,6 +523,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Batch-invariant SwiGLU backward for [rows, 2 * intermediate]");
 
     // SM90 fused routed-expert MLP (profile p5-sm90-fused-mlp-v1)
+    m.def("fused_shared_expert_fc1_swiglu", &fused_shared_expert_fc1_swiglu,
+          "Fused shared-expert fc1 + SwiGLU (det_gemm K-tree, BF16 h out)");
     m.def("sm90_moe_prepare_weight_ref", &sm90_moe_prepare_weight_ref,
           "Per-column reference exponents + residuals for folded MXFP4 scales (fail-closed)");
     m.def("sm90_moe_fc1_forward", &sm90_moe_fc1_forward,

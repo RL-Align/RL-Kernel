@@ -25,6 +25,7 @@ from typing import Any
 
 import torch
 
+from rl_engine.moe.backends.routed_checks import check_routed_batch
 from rl_engine.moe.contract import ExpertBatch
 from rl_engine.moe.mx_format import MXTensor
 
@@ -114,42 +115,7 @@ class Sm90FusedMoeMlp:
 
     # ------------------------------------------------------------ checks
     def _check_batch(self, batch: ExpertBatch, x_q: MXTensor) -> None:
-        """Cheap per-launch checks: host-side only, no device sync, no hashing.
-
-        Full contract validation (``ExpertBatch.validate``) belongs where the
-        batch is built: it walks the offsets on device and SHA-256s every
-        weight byte, which costs far more than the kernels it guards.
-        """
-        m, hidden = batch.x.shape
-        if batch.p_s.dtype != torch.float32 or batch.p_s.shape != (m,):
-            raise TypeError(f"p_s must be FP32 [{m}], got {batch.p_s.dtype} {tuple(batch.p_s.shape)}")
-        if batch.expert_offsets.dtype != torch.int32 or batch.expert_offsets.dim() != 1:
-            raise TypeError("expert_offsets must be a 1-D int32 tensor")
-        n_experts = batch.expert_offsets.numel() - 1
-        if tuple(batch.w1.shape) != (n_experts, 2 * batch.ffn, hidden):
-            raise ValueError(f"w1 shape {batch.w1.shape} != {(n_experts, 2 * batch.ffn, hidden)}")
-        if tuple(batch.w2.shape) != (n_experts, hidden, batch.ffn):
-            raise ValueError(f"w2 shape {batch.w2.shape} != {(n_experts, hidden, batch.ffn)}")
-        if batch.w1.elem_format != "e2m1" or batch.w2.elem_format != "e2m1":
-            raise TypeError("base weights must be MXFP4 (e2m1)")
-        if batch.numeric_profile != PROFILE:
-            raise NotImplementedError(
-                f"{self.name} implements {PROFILE!r}; batch declares "
-                f"{batch.numeric_profile!r} (fail-closed, no fallback)"
-            )
-        if batch.lora is not None:
-            raise NotImplementedError(f"{self.name}: LoRA is not supported in v1 (base weights only)")
-        if not batch.x.is_cuda:
-            raise NotImplementedError(f"{self.name} requires CUDA tensors, got {batch.x.device}")
-        if x_q.elem_format != "e4m3":
-            raise TypeError("x_q must be an e4m3 (MXFP8) activation")
-        if tuple(x_q.shape) != tuple(batch.x.shape):
-            raise ValueError(f"x_q shape {x_q.shape} != x shape {tuple(batch.x.shape)}")
-        if batch.hidden % 128 != 0 or batch.ffn % 128 != 0:
-            raise NotImplementedError(
-                f"{self.name}: hidden and ffn must be multiples of 128, got "
-                f"{batch.hidden} / {batch.ffn}"
-            )
+        check_routed_batch(batch, x_q, name=self.name, profile=PROFILE, align=128)
 
     # ------------------------------------------------------------ forward
     def fc1_z(self, batch: ExpertBatch, x_q: MXTensor) -> torch.Tensor:

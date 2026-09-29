@@ -16,6 +16,13 @@ single call instead of implementing the nine per-operator hooks, so it is not
 an ``ExpertProvider`` and ``scripts/check_p5.py`` cannot drive it; it is
 validated by ``tests/test_sm90_fused_moe_mlp.py`` instead.
 
+``triton_fused_mlp.TritonFusedMoeMlp`` is the same path in Triton, for CDNA.
+It shares the call surface and the per-launch checks (``routed_checks``) but
+declares its own profile ``p5-triton-fused-v1``: it gives up FP8 tensor cores
+and scale folding for portability, which costs ~6x on an H100 and nothing in
+accuracy. Its shared-expert half is ``shared_expert.TritonFusedSharedExpert\
+Provider``; both are validated by ``tests/test_triton_fused_moe_mlp.py``.
+
 Reference backends
 ------------------
 The remaining modules are the per-operator P5 artifacts. Each overrides only
@@ -45,25 +52,31 @@ from rl_engine.moe.backends.mxfp8_act_quant import (
 )
 from rl_engine.moe.backends.shared_expert import (
     CudaDetSharedExpertProvider,
+    CudaFusedSharedExpertProvider,
     CudaSharedExpertProvider,
     TritonDetSharedExpertProvider,
+    TritonFusedSharedExpertProvider,
     TritonSharedExpertProvider,
 )
 from rl_engine.moe.backends.sm90_fused_mlp import Sm90FusedMoeMlp
+from rl_engine.moe.backends.triton_fused_mlp import TritonFusedMoeMlp
 
 __all__ = [
     # Production path.
     "Sm90FusedMoeMlp",
+    "TritonFusedMoeMlp",
     # Per-operator reference backends.
     "ClampSwiGLUWeightedCudaProvider",
     "CudaMXFP8ActQuantProvider",
     "CudaDetSharedExpertProvider",
+    "CudaFusedSharedExpertProvider",
     "CudaP5GemmProvider",
     "CudaSharedExpertProvider",
     "LoRADeltaCudaProvider",
     "LoRADeltaProvider",
     "LoRADeltaTritonProvider",
     "TritonDetSharedExpertProvider",
+    "TritonFusedSharedExpertProvider",
     "TritonMXFP8ActQuantProvider",
     "TritonSharedExpertProvider",
 ]
