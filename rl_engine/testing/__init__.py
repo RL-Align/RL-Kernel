@@ -31,6 +31,9 @@ from .attention_comparison import (
     run_unfused_rope_attention,
     transformer_engine_context_parallel_available,
 )
+from .gemma4_operator_trace import NO_BACKEND_KINDS as GEMMA4_NO_BACKEND_KINDS
+from .gemma4_operator_trace import NODE_KINDS as GEMMA4_NODE_KINDS
+from .gemma4_operator_trace import Gemma4Spec
 from .gemma4_workload import Gemma4Manifest, Gemma4WorkloadError
 from .gemma4_workload import load_manifest as load_gemma4_manifest
 from .gemma4_workload import reference_payload as gemma4_reference_payload
@@ -68,7 +71,10 @@ __all__ = [
     "DecodeAttentionInputs",
     "DecodeKVCacheMetadata",
     "DriftStats",
+    "GEMMA4_NODE_KINDS",
+    "GEMMA4_NO_BACKEND_KINDS",
     "Gemma4Manifest",
+    "Gemma4Spec",
     "Gemma4WorkloadError",
     "SyntheticRLKernelBatch",
     "TransformerEngineUnavailable",
