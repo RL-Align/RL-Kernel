@@ -28,14 +28,16 @@ try:
         _copy_tree_root_kernel,
         _det_gemm_tree_leaf_kernel,
         _det_gemm_tree_reduce_kernel,
-        _det_gemm_tree_reduce_to_output_kernel,
+        _det_gemm_tree_reduce_to_output_rocm_kernel,
         _device_tree_plan,
         _gfx942_qwen_tree_leaf_config,
         _triton_tree_gemm,
     )
 
     _HAS_TRITON = True
-except ImportError:
+except ImportError as exc:
+    if exc.name != "triton":
+        raise
     _HAS_TRITON = False
 
 torch.backends.cuda.matmul.allow_tf32 = False
@@ -44,9 +46,11 @@ IS_ROCM = getattr(torch.version, "hip", None) is not None
 HAS_SUPPORTED_GPU = torch.cuda.is_available() and (
     IS_ROCM or torch.cuda.get_device_capability()[0] >= 8
 )
-IS_GFX942 = IS_ROCM and torch.cuda.is_available() and str(
-    getattr(torch.cuda.get_device_properties(0), "gcnArchName", "")
-).startswith("gfx942")
+IS_GFX942 = (
+    IS_ROCM
+    and torch.cuda.is_available()
+    and str(getattr(torch.cuda.get_device_properties(0), "gcnArchName", "")).startswith("gfx942")
+)
 
 pytestmark = pytest.mark.skipif(
     not HAS_SUPPORTED_GPU,
@@ -118,6 +122,7 @@ def _leaf_workspace(
 
 
 def _special_bf16(shape: tuple[int, ...], *, offset: int = 0) -> torch.Tensor:
+    """Build a device tensor from repeated BF16 bit patterns, including NaNs and infinities."""
     bits = torch.tensor(
         (
             0x0000,
@@ -145,7 +150,8 @@ def _special_bf16(shape: tuple[int, ...], *, offset: int = 0) -> torch.Tensor:
     for size in shape:
         elements *= size
     indices = (torch.arange(elements, dtype=torch.int64) + offset) % bits.numel()
-    return bits[indices].view(torch.bfloat16).reshape(shape).to(DEV)
+    # Index signed storage: PyTorch 2.8 CPU does not implement uint16 indexing.
+    return bits.view(torch.int16)[indices].view(torch.bfloat16).reshape(shape).to(DEV)
 
 
 _K_TREE_LEAF = 32
@@ -483,9 +489,9 @@ def test_target_shapes_invariance(name, gemm, shape):
     row = _rand(1, K)
     big = _rand(64, K)
     big[0] = row[0]
-    assert torch.equal(gemm(row, b)[0], gemm(big, b)[0]), (
-        f"{name}: batch-invariance broken at shape {shape}"
-    )
+    assert torch.equal(
+        gemm(row, b)[0], gemm(big, b)[0]
+    ), f"{name}: batch-invariance broken at shape {shape}"
 
 
 @pytest.mark.skipif(not _HAS_TRITON, reason="Triton is unavailable")
@@ -572,7 +578,7 @@ def test_triton_final_tree_level_direct_output_matches_legacy_copy_raw_bytes():
     )
 
     actual = torch.empty_like(expected)
-    _det_gemm_tree_reduce_to_output_kernel[(triton.cdiv(actual.numel(), block),)](
+    _det_gemm_tree_reduce_to_output_rocm_kernel[(triton.cdiv(actual.numel(), block),)](
         workspace,
         actual,
         lower,
@@ -654,10 +660,14 @@ def test_triton_wgrad_reads_positive_stride_transpose_view_raw_bytes():
     assert not activation_t.is_contiguous()
     assert all(stride > 0 for stride in activation_t.stride())
 
-    legacy = _triton_tree_gemm(
-        activation_t.contiguous(),
-        grad_output,
-    ).t().contiguous()
+    legacy = (
+        _triton_tree_gemm(
+            activation_t.contiguous(),
+            grad_output,
+        )
+        .t()
+        .contiguous()
+    )
     output_buffer = torch.empty(
         (output_size, input_size),
         dtype=torch.bfloat16,
@@ -673,3 +683,55 @@ def test_triton_wgrad_reads_positive_stride_transpose_view_raw_bytes():
 
     assert direct is output_buffer
     _assert_same_raw_bytes(direct, legacy)
+
+
+@pytest.mark.skipif(not _HAS_TRITON, reason="Triton is unavailable")
+@pytest.mark.parametrize("elements", (255, 256, 257, 1793))
+def test_triton_reduction_grid_stride_covers_tail(elements):
+    """A deliberately short grid must cover every element and every tree operation."""
+    torch.manual_seed(434)
+    workspace = torch.randn(6, elements, device=DEV, dtype=torch.bfloat16)
+    expected = torch.stack(
+        [
+            (workspace[0].float() + workspace[1].float()).bfloat16(),
+            (workspace[2].float() + workspace[3].float()).bfloat16(),
+        ]
+    )
+    workspace[4:].fill_(float("nan"))
+    lower = torch.tensor([0, 2], device=DEV, dtype=torch.int64)
+    upper = torch.tensor([1, 3], device=DEV, dtype=torch.int64)
+    output = torch.tensor([4, 5], device=DEV, dtype=torch.int64)
+    _det_gemm_tree_reduce_kernel[(2, 1)](
+        workspace,
+        lower,
+        upper,
+        output,
+        M=1,
+        N=elements,
+        BLOCK=256,
+    )
+    _assert_same_raw_bytes(workspace[4:], expected)
+
+
+@pytest.mark.cuda_only
+@pytest.mark.skipif(not _HAS_TRITON, reason="Triton is unavailable")
+@pytest.mark.parametrize("output_rows", (1628, 1629, 2688))
+def test_triton_weight_gradient_crosses_cuda_grid_y_limit(output_rows):
+    """Nemotron dB crosses grid.y=65535, including workspace-driven row chunking.
+
+    1628*10304/256 needs 65527 blocks; 1629 rows need 65568.
+    2688 rows reproduces the full M=128 Mamba input-projection gradient.
+    Safe row partitions preserve each output element's K-reduction tree.
+    """
+    torch.manual_seed(434)
+    a = _rand(128, output_rows).requires_grad_(True)
+    b = _rand(output_rows, 10304).requires_grad_(True)
+    grad_output = _rand(128, 10304)
+    grad_a, grad_b = torch.autograd.grad(deterministic_gemm_triton(a, b), (a, b), grad_output)
+    with torch.no_grad():
+        expected_b = torch.cat(
+            [_triton_tree_gemm(part.contiguous(), grad_output) for part in a.t().split(512)]
+        )
+        expected_a = _triton_tree_gemm(grad_output, b.t().contiguous())
+    _assert_same_raw_bytes(grad_b, expected_b)
+    _assert_same_raw_bytes(grad_a, expected_a)
