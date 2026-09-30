@@ -142,7 +142,8 @@ __global__ void rmsnorm_fwd_kernel(
     // round the offset and break the bitwise contract.
     for (int col = tid; col < H; col += blockDim.x) {
         float xv = load_as_float<scalar_t>(x_row + col);
-        float wv = load_as_float<weight_t>(weight + col) + weight_offset;
+        float wv = load_as_float<weight_t>(weight + col);
+        if (weight_offset != 0.0f) wv += weight_offset;
         float out = xv * row_rstd * wv;
         store_from_float<scalar_t>(y_row + col, out);
     }
@@ -172,7 +173,8 @@ __global__ void rmsnorm_bwd_dx_kernel(
     for (int col = tid; col < H; col += blockDim.x) {
         float dyv = load_as_float<scalar_t>(dy_row + col);
         float xv = load_as_float<scalar_t>(x_row + col);
-        float wv = load_as_float<weight_t>(weight + col) + weight_offset;
+        float wv = load_as_float<weight_t>(weight + col);
+        if (weight_offset != 0.0f) wv += weight_offset;
         local_dot += dyv * wv * xv;
     }
 
@@ -184,7 +186,8 @@ __global__ void rmsnorm_bwd_dx_kernel(
     for (int col = tid; col < H; col += blockDim.x) {
         float dyv = load_as_float<scalar_t>(dy_row + col);
         float xv = load_as_float<scalar_t>(x_row + col);
-        float wv = load_as_float<weight_t>(weight + col) + weight_offset;
+        float wv = load_as_float<weight_t>(weight + col);
+        if (weight_offset != 0.0f) wv += weight_offset;
 
         float out = r * dyv * wv - xv * coeff;
         store_from_float<scalar_t>(dx_row + col, out);

@@ -129,6 +129,7 @@ class RMSNormCudaOp:
             "rmsnorm_forward",
             "rmsnorm_backward_dx",
         )
+
     #: Added to the weight in fp32 inside the kernel. Subclasses override it;
     #: 0.0 is the plain convention.
     weight_offset = 0.0
@@ -139,16 +140,18 @@ class RMSNormCudaOp:
     def forward(self, x, weight, *, eps=1e-6):
         hidden = x.shape[-1]
         x_2d = x.contiguous().view(-1, hidden)
-        y_2d = rmsnorm_cuda(
-            x_2d, weight.contiguous(), eps=eps, weight_offset=self.weight_offset
-        )
+        y_2d = rmsnorm_cuda(x_2d, weight.contiguous(), eps=eps, weight_offset=self.weight_offset)
         return y_2d.view_as(x)
 
     def parameter_vjp_contributions_fp32(self, *, x, weight, grad_output, eps=1e-6):
-        del weight
-        x32 = x.float()
-        rstd = torch.rsqrt(x32.square().mean(dim=-1) + float(eps))
-        rows = grad_output.float() * x32 * rstd.unsqueeze(-1)
+        hidden = x.shape[-1]
+        _, rstd = _C.rmsnorm_forward(
+            x.contiguous().reshape(-1, hidden),
+            weight.contiguous(),
+            float(eps),
+            float(self.weight_offset),
+        )
+        rows = rmsnorm_dweight_rows_fp32(x, grad_output, rstd=rstd.reshape(x.shape[:-1]))
         return {"weight": rows}
 
 

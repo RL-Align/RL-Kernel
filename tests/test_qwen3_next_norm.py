@@ -79,10 +79,7 @@ def test_zero_weight_is_identity_scaling():
     plain RMSNorm returns all zeros for a zero weight, this one returns the
     bare normalized value.
     """
-    from rl_engine.kernels.ops.pytorch.norm.rms_norm import (
-        NativeRMSNormOp,
-        shape_invariant_rstd,
-    )
+    from rl_engine.kernels.ops.pytorch.norm.rms_norm import NativeRMSNormOp, shape_invariant_rstd
 
     x = _rand((4, _HIDDEN), seed=0)
     zeros = torch.zeros(_HIDDEN)
@@ -92,9 +89,7 @@ def test_zero_weight_is_identity_scaling():
     assert torch.equal(Qwen3NextRMSNormOp().forward_fp32(x, zeros, eps=_EPS), bare)
 
     # ... and the plain convention really does differ here.
-    assert torch.equal(
-        NativeRMSNormOp().forward_fp32(x, zeros, eps=_EPS), torch.zeros_like(bare)
-    )
+    assert torch.equal(NativeRMSNormOp().forward_fp32(x, zeros, eps=_EPS), torch.zeros_like(bare))
 
 
 def test_weight_offset_is_one():
@@ -500,3 +495,45 @@ def test_plain_reference_is_unchanged_by_the_offset_plumbing():
 
     expected = (x_f * shape_invariant_rstd(x_f, _EPS).unsqueeze(-1)) * w.float()
     assert torch.equal(got.view(torch.int32), expected.view(torch.int32))
+
+
+@requires_cuda_rmsnorm
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+def test_cuda_plain_signed_zero_is_preserved(dtype):
+    from rl_engine.kernels.ops.cuda.norm.rmsnorm import rmsnorm_cuda
+
+    x = torch.ones(2, 128, device="cuda", dtype=dtype)
+    x[1].neg_()
+    weight = torch.full((128,), -0.0, device="cuda", dtype=dtype)
+    actual = rmsnorm_cuda(x, weight)
+    expected = x * weight
+    bits = torch.int32 if dtype == torch.float32 else torch.int16
+    assert torch.equal(actual.view(bits), expected.view(bits))
+
+
+@requires_cuda_rmsnorm
+@pytest.mark.parametrize("offset", [0.0, 1.0])
+@pytest.mark.parametrize("shape", [(512, 128), (2, 3, 2048)])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_cuda_parameter_contributions_reproduce_backward(offset, shape, dtype):
+    from rl_engine.kernels.ops.cuda.norm.rmsnorm import Qwen3NextRMSNormCudaOp, RMSNormCudaOp
+    from rl_engine.kernels.ops.vjp_fp32 import reduce_rows_fp32
+
+    torch.manual_seed(128)
+    x = torch.randn(shape, device="cuda", dtype=dtype)
+    weight = torch.randn(shape[-1], device="cuda", dtype=dtype, requires_grad=True)
+    upstream = torch.randn_like(x)
+    op = RMSNormCudaOp() if offset == 0.0 else Qwen3NextRMSNormCudaOp()
+    op(x, weight).backward(upstream)
+    rows = op.parameter_vjp_contributions_fp32(x=x, weight=weight, grad_output=upstream)["weight"]
+    folded = reduce_rows_fp32(rows.reshape(-1, shape[-1])).to(dtype)
+    assert torch.equal(weight.grad, folded)
+
+
+def test_zero_centred_cuda_constructor_rejects_missing_extension(monkeypatch):
+    from rl_engine.kernels.ops.cuda.norm import rmsnorm
+
+    monkeypatch.setattr(rmsnorm, "_EXT_AVAILABLE", False)
+    monkeypatch.setattr(rmsnorm, "_C", None)
+    with pytest.raises(RuntimeError, match="requires the compiled"):
+        rmsnorm.Qwen3NextRMSNormCudaOp()
