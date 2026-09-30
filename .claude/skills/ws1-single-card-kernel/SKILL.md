@@ -41,10 +41,7 @@ fixed, as are the registration and PR deliverable requirements.
 
 ## Ascend (battle-tested workflow)
 
-### Ascend C sub-skills (curated from cannbot-skills)
-
-Deep-dive companions to this section (English, under `ascendc_skills/`), adapted to
-this repo — operator development and optimization only. Load on demand:
+Deep-dive companions to this section, adapted to this repo — operator development and optimization only. Load on demand:
 
 | When                                                                         | Sub-skill                                                                                                                   |
 | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
