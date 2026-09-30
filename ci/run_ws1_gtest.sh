@@ -85,7 +85,3 @@ for op in qwen3_next_rms_norm rms_norm_gated; do
       --hidden 2048 --head-dim 128
   done
 done
-# Provider imports run in a separate process from framework-isolation tests.
-echo "[ws1-gtest] Qwen3-Next provider comparisons (required)"
-"$PY" -c 'import torch, vllm; assert torch.cuda.is_available(), "CUDA is required"'
-"$PY" -m pytest -q tests/check_qwen3_next_norm_providers.py tests/check_gdn_recurrent_golden.py

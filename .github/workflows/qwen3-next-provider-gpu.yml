@@ -1,0 +1,42 @@
+name: Qwen3-Next-provider-GPU
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "rl_engine/kernels/ops/**"
+      - "rl_engine/integrations/qwen3_next_gdn.py"
+      - "rl_engine/testing/qwen3_next*"
+      - "tests/check_*qwen3_next*.py"
+      - "tests/check_gdn_recurrent_golden.py"
+      - "ci/run_qwen3_next_operator_gates.sh"
+      - ".github/workflows/qwen3-next-provider-gpu.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provider:
+    # This label must identify a maintained CUDA 13 / vLLM 0.30.0 environment.
+    # Never run untrusted fork PR code on the self-hosted runner.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, linux, x64, rl-kernel-qwen3-next]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require the audited runtime
+        run: |
+          python3 - <<'PY'
+          import torch, vllm
+          assert torch.__version__ == "2.13.0+cu130"
+          assert vllm.__version__ == "0.30.0"
+          assert torch.cuda.is_available()
+          PY
+      - name: Build the extension against that runtime
+        run: python3 setup.py build_ext --inplace
+      - name: Check pinned providers in their own process
+        run: |
+          python3 -m pytest -q tests/check_qwen3_next_norm_providers.py tests/check_gdn_recurrent_golden.py
