@@ -75,3 +75,13 @@ for cell in required:
         )
 print("[ws1-gtest] C8 gate passed")
 PY
+
+echo "[ws1-gtest] Qwen3-Next C3/C4 norms (operator scope)"
+for op in qwen3_next_rms_norm rms_norm_gated; do
+  for gate in forward gradient; do
+    "$PY" "scripts/check_${gate}_invariance.py" \
+      --manifest rl_engine/testing/qwen3_next_norm_manifest.json \
+      --op "$op" --candidate cuda --backend-profile cuda_bf16 \
+      --hidden 2048 --head-dim 128
+  done
+done

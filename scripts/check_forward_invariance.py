@@ -112,6 +112,7 @@ def parse_args() -> argparse.Namespace:
         if adapter.requirement != "absent_not_required"
     ]
     parser = argparse.ArgumentParser(description="WS1 C3 forward invariance GPU gate")
+    parser.add_argument("--manifest", type=pathlib.Path, default=None)
     parser.add_argument("--op", choices=sorted(runnable), default="rms_norm")
     parser.add_argument(
         "--candidate", required=True, help="Manifest-declared CUDA/Triton/Ascend candidate"
@@ -145,7 +146,10 @@ def main() -> None:
         raise SystemExit("ERROR: --vocab must cover every fixed C2 workload token id")
 
     contract = load_contract()
-    manifest = load_manifest()
+    manifest = load_manifest(args.manifest)
+    from rl_engine.testing.qwen3_next_workload import validate_norm_dimensions
+
+    validate_norm_dimensions(manifest.raw, args.op, args.hidden, args.head_dim)
     adapter = get_adapter(args.op)
     if adapter.requirement == "layout_supported":
         raise SystemExit(
@@ -231,7 +235,15 @@ def main() -> None:
     )
 
     if args.json:
-        print(json.dumps(report.to_dict(), indent=2, default=str))
+        payload = report.to_dict()
+        payload["workload"] = {
+            "workload_id": manifest.workload_id,
+            "scope": manifest.raw.get("scope", "qwen3_8b_dense"),
+            "fixture_identity_sha256": manifest.raw["fixture_identity_sha256"],
+            "model_id": manifest.model_identity["model_id"],
+            "full_model_evidence": False,
+        }
+        print(json.dumps(payload, indent=2, default=str))
     else:
         _summarize(report)
     if not report.passed:
