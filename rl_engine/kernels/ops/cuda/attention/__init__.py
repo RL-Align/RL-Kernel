@@ -6,6 +6,7 @@ from .deterministic_attn import (
     RLKernelDeterministicAttentionCore,
 )
 from .flash_attn import FlashAttentionOp, StrictFlashAttention4Core, StrictFlashAttentionUnavailable
+from .joint_attn_softmax import JointAttnSoftmaxCudaOp
 from .prefix_shared_attn import PrefixSharedAttentionOp
 
 __all__ = [
@@ -13,6 +14,7 @@ __all__ = [
     "DeterministicAttentionOp",
     "RLKernelDeterministicAttentionCore",
     "FlashAttentionOp",
+    "JointAttnSoftmaxCudaOp",
     "PrefixSharedAttentionOp",
     "StrictFlashAttention4Core",
     "StrictFlashAttentionUnavailable",
