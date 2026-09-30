@@ -123,7 +123,6 @@ class RMSNormCudaOp:
             "CUDA RMSNorm",
             "rmsnorm_forward",
             "rmsnorm_backward_dx",
-            "rmsnorm_backward_dw",
         )
 
     def __call__(self, x, weight, *, eps=1e-6):

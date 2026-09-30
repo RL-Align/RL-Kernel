@@ -270,7 +270,6 @@ def test_cuda_op_construction_fails_when_symbols_missing(monkeypatch):
         cuda_rmsnorm.RMSNormCudaOp()
 
 
-@requires_cuda
 def test_registry_falls_back_to_native_without_extension(monkeypatch):
     """A CUDA-first priority list must still resolve on a build without _C."""
     from rl_engine.kernels.ops.cuda.norm import rmsnorm as cuda_rmsnorm
@@ -279,7 +278,38 @@ def test_registry_falls_back_to_native_without_extension(monkeypatch):
     monkeypatch.setattr(cuda_rmsnorm, "_EXT_AVAILABLE", False)
     monkeypatch.setattr(cuda_rmsnorm, "_C", None)
     # A fresh registry, so the cached instance from other tests is not reused.
-    assert isinstance(KernelRegistry().get_op("rms_norm"), NativeRMSNormOp)
+    assert isinstance(KernelRegistry().get_op("rms_norm", device="cuda"), NativeRMSNormOp)
+
+
+@pytest.mark.parametrize("missing", ["rmsnorm_forward", "rmsnorm_backward_dx"])
+def test_registry_falls_back_when_required_symbol_is_missing(monkeypatch, missing):
+    from types import SimpleNamespace
+
+    from rl_engine.kernels.ops.cuda.norm import rmsnorm as cuda_rmsnorm
+    from rl_engine.kernels.registry import KernelRegistry
+
+    symbols = {name: object() for name in ("rmsnorm_forward", "rmsnorm_backward_dx")}
+    del symbols[missing]
+    monkeypatch.setattr(cuda_rmsnorm, "_EXT_AVAILABLE", True)
+    monkeypatch.setattr(cuda_rmsnorm, "_C", SimpleNamespace(**symbols))
+    assert isinstance(KernelRegistry().get_op("rms_norm", device="cuda"), NativeRMSNormOp)
+
+
+def test_registry_cuda_requires_only_used_symbols_and_cpu_stays_native(monkeypatch):
+    from types import SimpleNamespace
+
+    from rl_engine.kernels.ops.cuda.norm import rmsnorm as cuda_rmsnorm
+    from rl_engine.kernels.registry import KernelRegistry
+
+    monkeypatch.setattr(cuda_rmsnorm, "_EXT_AVAILABLE", True)
+    monkeypatch.setattr(
+        cuda_rmsnorm,
+        "_C",
+        SimpleNamespace(rmsnorm_forward=object(), rmsnorm_backward_dx=object()),
+    )
+    registry = KernelRegistry()
+    assert isinstance(registry.get_op("rms_norm", device="cuda"), RMSNormCudaOp)
+    assert isinstance(registry.get_op("rms_norm", device="cpu"), NativeRMSNormOp)
 
 
 # 10. Registry dispatch resolves to the hardware op when available
