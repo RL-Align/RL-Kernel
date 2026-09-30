@@ -86,6 +86,15 @@ def strict_add_rms_norm(
     return _strict_add_rms_norm(x, residual, weight, eps)
 
 
+def check_norm_weight(x: torch.Tensor, weight: torch.Tensor) -> None:
+    """Shared shape guard for the RMSNorm family (plain, zero-centred, gated)."""
+    if weight.dim() != 1 or weight.shape[0] != x.shape[-1]:
+        raise ValueError(
+            f"weight must be 1-D of size x.shape[-1]={x.shape[-1]}, "
+            f"got tuple(weight.shape)={tuple(weight.shape)}"
+        )
+
+
 def shape_invariant_rstd(x_f: torch.Tensor, eps: float) -> torch.Tensor:
     """Shape-invariant per-row rstd (the shared RMSNorm statistic).
 
@@ -112,6 +121,10 @@ class NativeRMSNormOp:
     Pure Pytorch native RMSNorm reference
     out = x * rsqrt(mean(x^2, dim=-1) + eps) * weight
     """
+
+    #: Added to the weight in fp32 before it scales the normalized value.
+    #: Subclasses set 1.0 for the zero-centred ``(1 + w)`` convention.
+    weight_offset = 0.0
 
     def __init__(self) -> None:
         pass
@@ -151,21 +164,24 @@ class NativeRMSNormOp:
     # ------------------------------------------------------------------ #
     # Helpers
     # ------------------------------------------------------------------ #
-    @staticmethod
+    @classmethod
     def _rms_norm(
+        cls,
         x: torch.Tensor,
         weight: torch.Tensor,
         *,
         eps: float,
         output_dtype: torch.dtype,
     ) -> torch.Tensor:
-        if weight.dim() != 1 or weight.shape[0] != x.shape[-1]:
-            raise ValueError(
-                f"weight must be 1-D of size x.shape[-1]={x.shape[-1]}, "
-                f"got tuple(weight.shape)={tuple(weight.shape)}"
-            )
+        check_norm_weight(x, weight)
         x_f = x.float()
         rstd = shape_invariant_rstd(x_f, float(eps)).unsqueeze(-1)
         normed = x_f * rstd
-        out = normed * weight.float()
+        scale = weight.float()
+        # Guarded rather than unconditional: `0.0 + w` rewrites -0.0 to +0.0,
+        # which torch.equal does not notice but a bitwise comparison does. The
+        # plain path must stay bit-for-bit what it was.
+        if cls.weight_offset:
+            scale = cls.weight_offset + scale
+        out = normed * scale
         return out.to(output_dtype)

@@ -30,16 +30,18 @@ class RMSNormCuda(torch.autograd.Function):
     """
 
     @staticmethod
-    def forward(ctx, x, weight, mask=None, eps=1e-6):
+    def forward(ctx, x, weight, mask=None, eps=1e-6, weight_offset=0.0):
         """
         Forward:
-          y = x * rsqrt(mean(x^2) + eps) * weight
+          y = x * rsqrt(mean(x^2) + eps) * (weight_offset + weight)
 
         Input:
           x:      [T, H], fp16/bf16/fp32 CUDA tensor
           weight: [H],    fp16/bf16/fp32 CUDA tensor
           mask:   [T],    bool CUDA tensor
           eps:    float
+          weight_offset: float, added to weight in fp32 inside the kernel.
+                  1.0 selects the zero-centred (1 + w) convention.
 
         Output:
           y: [T, H]
@@ -64,10 +66,11 @@ class RMSNormCuda(torch.autograd.Function):
             assert mask.dim() == 1, "mask must be [T]"
             assert mask.shape[0] == x.shape[0], "mask length mismatch"
 
-        y, rstd = _C.rmsnorm_forward(x, weight, float(eps))
+        y, rstd = _C.rmsnorm_forward(x, weight, float(eps), float(weight_offset))
 
         ctx.save_for_backward(x, weight, rstd, mask)
         ctx.eps = eps
+        ctx.weight_offset = float(weight_offset)
 
         return y
 
@@ -81,7 +84,7 @@ class RMSNormCuda(torch.autograd.Function):
         x, weight, rstd, mask = ctx.saved_tensors
         dy = grad_out.contiguous()
 
-        dx = _C.rmsnorm_backward_dx(dy, x, weight, rstd)
+        dx = _C.rmsnorm_backward_dx(dy, x, weight, rstd, ctx.weight_offset)
 
         # The shape-independent FP32 left fold preserves the C2 Batch/Chunk
         # reduction order while the CUDA reducer executes it in one launch.
@@ -101,16 +104,18 @@ class RMSNormCuda(torch.autograd.Function):
             family="cuda",
         )
 
-        return dx, dw, None, None
+        # dw is unchanged by the offset: d/dw (offset + w) == d/dw w.
+        return dx, dw, None, None, None
 
 
-def rmsnorm_cuda(x, weight, eps=1e-6, mask=None):
+def rmsnorm_cuda(x, weight, eps=1e-6, mask=None, weight_offset=0.0):
     """
     use:
         y = rmsnorm_cuda(x, weight)
         y = rmsnorm_cuda(x, weight, mask=mask)
+        y = rmsnorm_cuda(x, weight, weight_offset=1.0)   # zero-centred weight
     """
-    return RMSNormCuda.apply(x, weight, mask, eps)
+    return RMSNormCuda.apply(x, weight, mask, eps, weight_offset)
 
 
 class RMSNormCudaOp:
@@ -124,6 +129,9 @@ class RMSNormCudaOp:
             "rmsnorm_forward",
             "rmsnorm_backward_dx",
         )
+    #: Added to the weight in fp32 inside the kernel. Subclasses override it;
+    #: 0.0 is the plain convention.
+    weight_offset = 0.0
 
     def __call__(self, x, weight, *, eps=1e-6):
         return self.forward(x, weight, eps=eps)
@@ -131,7 +139,9 @@ class RMSNormCudaOp:
     def forward(self, x, weight, *, eps=1e-6):
         hidden = x.shape[-1]
         x_2d = x.contiguous().view(-1, hidden)
-        y_2d = rmsnorm_cuda(x_2d, weight.contiguous(), eps=eps)
+        y_2d = rmsnorm_cuda(
+            x_2d, weight.contiguous(), eps=eps, weight_offset=self.weight_offset
+        )
         return y_2d.view_as(x)
 
     def parameter_vjp_contributions_fp32(self, *, x, weight, grad_output, eps=1e-6):
@@ -140,3 +150,14 @@ class RMSNormCudaOp:
         rstd = torch.rsqrt(x32.square().mean(dim=-1) + float(eps))
         rows = grad_output.float() * x32 * rstd.unsqueeze(-1)
         return {"weight": rows}
+
+
+class Qwen3NextRMSNormCudaOp(RMSNormCudaOp):
+    """Zero-centred CUDA RMSNorm: ``y = x * rstd * (1 + weight)``.
+
+    The decoder and final norms of Qwen3-Next (and Gemma) store a zero-centred
+    weight. The ``+1`` is applied inside the kernel after the fp32 upcast, so it
+    is never rounded through the low-precision weight dtype.
+    """
+
+    weight_offset = 1.0
