@@ -9,8 +9,8 @@ offset away and silently breaks any bitwise claim.
 
 This operator exists for RFC #428 C1 (Embedding / RMSNorm / residual / final norm
 exactness) on the Qwen3-Next rollout-vs-replay path. The Gated DeltaNet block uses
-a *different* weight convention and a different cast order; it is a separate
-operator.
+a *different* weight convention and a different cast order; see
+[Gated RMSNorm](qwen3-next-rms-norm-gated.md).
 
 Upstream references: `transformers` `Qwen3NextRMSNorm`, and vLLM's `GemmaRMSNorm`,
 which `vllm/model_executor/models/qwen3_next.py` aliases as `Qwen3NextRMSNorm`.

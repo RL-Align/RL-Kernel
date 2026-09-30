@@ -459,6 +459,221 @@ def test_cuda_zero_centred_backward_is_offset_aware():
 
 
 # --------------------------------------------------------------------------- #
+# 7. Gated RMSNorm CUDA kernel (the GDN block's norm)
+# --------------------------------------------------------------------------- #
+_HAS_CUDA_GATED = False
+if torch.cuda.is_available():  # pragma: no branch - probe only
+    try:
+        from rl_engine.kernels.ops.base import _C as _C_probe
+        from rl_engine.kernels.ops.base import _EXT_AVAILABLE as _EXT_probe
+
+        _HAS_CUDA_GATED = _EXT_probe and hasattr(_C_probe, "rmsnorm_gated_forward")
+    except ImportError:  # pragma: no cover
+        _HAS_CUDA_GATED = False
+
+requires_cuda_gated = pytest.mark.skipif(
+    not _HAS_CUDA_GATED, reason="gated RMSNorm CUDA extension is not available"
+)
+
+# tolerance_contract.json, judgments/forward_accuracy/by_op_class/reduction/bfloat16
+_BF16_ATOL, _BF16_RTOL = 2e-2, 1.6e-2
+
+
+def _gated_cuda_inputs(seed=0, rows=512, hidden=_HEAD_V_DIM, dtype=torch.bfloat16):
+    g = torch.Generator(device="cuda").manual_seed(seed)
+    x = torch.randn(rows, hidden, device="cuda", dtype=dtype, generator=g)
+    gate = torch.randn(rows, hidden, device="cuda", dtype=dtype, generator=g)
+    weight = torch.randn(hidden, device="cuda", dtype=dtype, generator=g)
+    return x, weight, gate
+
+
+@requires_cuda_gated
+def test_cuda_gated_matches_golden_within_contract():
+    from rl_engine.kernels.ops.cuda.norm.rmsnorm import Qwen3NextRMSNormGatedCudaOp
+
+    x, w, gate = _gated_cuda_inputs()
+    got = Qwen3NextRMSNormGatedCudaOp().forward(x, w, gate, eps=_EPS)
+    ref = Qwen3NextRMSNormGatedOp().forward_fp32(x, w, gate, eps=_EPS)
+    torch.testing.assert_close(got.float(), ref, atol=_BF16_ATOL, rtol=_BF16_RTOL)
+
+
+@requires_cuda_gated
+def test_cuda_gated_rstd_is_bitwise_identical_to_plain_kernel():
+    """The gate must not perturb the normalization statistic.
+
+    Same x, same rstd, bitwise -- otherwise the gate has leaked into the
+    reduction and the two kernels no longer share a contract.
+    """
+    from rl_engine.kernels.ops.base import _C
+
+    x, w, gate = _gated_cuda_inputs()
+    _, rstd_gated = _C.rmsnorm_gated_forward(x, w, gate, _EPS, 0.0, 0)
+    _, rstd_plain = _C.rmsnorm_forward(x, w, _EPS, 0.0)
+    assert torch.equal(rstd_gated, rstd_plain)
+
+
+@requires_cuda_gated
+@pytest.mark.parametrize("batch", [1, 2, 8, 16, 32, 48, 64, 512])
+def test_cuda_gated_batch_invariance(batch):
+    """L1 across the RFC #428 concurrency axis, bitwise."""
+    from rl_engine.kernels.ops.cuda.norm.rmsnorm import Qwen3NextRMSNormGatedCudaOp
+
+    op = Qwen3NextRMSNormGatedCudaOp()
+    x, w, gate = _gated_cuda_inputs()
+    full = op.forward(x, w, gate, eps=_EPS)
+    assert torch.equal(op.forward(x[:batch], w, gate[:batch], eps=_EPS), full[:batch])
+
+
+@requires_cuda_gated
+def test_cuda_gated_zero_gate_zeroes_output():
+    from rl_engine.kernels.ops.cuda.norm.rmsnorm import Qwen3NextRMSNormGatedCudaOp
+
+    x, w, _ = _gated_cuda_inputs()
+    out = Qwen3NextRMSNormGatedCudaOp().forward(x, w, torch.zeros_like(x), eps=_EPS)
+    assert torch.equal(out, torch.zeros_like(out))
+
+
+@requires_cuda_gated
+def test_cuda_gated_unit_weight_is_plain_norm_times_silu():
+    from rl_engine.kernels.ops.cuda.norm.rmsnorm import (
+        Qwen3NextRMSNormGatedCudaOp,
+        rmsnorm_cuda,
+    )
+
+    x, _, gate = _gated_cuda_inputs()
+    ones = torch.ones(_HEAD_V_DIM, device="cuda", dtype=x.dtype)
+    got = Qwen3NextRMSNormGatedCudaOp().forward(x, ones, gate, eps=_EPS).float()
+    ref = rmsnorm_cuda(x, ones, eps=_EPS).float() * F.silu(gate.float())
+    torch.testing.assert_close(got, ref, atol=_BF16_ATOL, rtol=_BF16_RTOL)
+
+
+@requires_cuda_gated
+def test_cuda_gated_sigmoid_activation():
+    from rl_engine.kernels.ops.cuda.norm.rmsnorm import rmsnorm_gated_cuda, rmsnorm_cuda
+
+    x, w, gate = _gated_cuda_inputs()
+    got = rmsnorm_gated_cuda(x, w, gate, eps=_EPS, activation="sigmoid").float()
+    ref = rmsnorm_cuda(x, w, eps=_EPS).float() * torch.sigmoid(gate.float())
+    torch.testing.assert_close(got, ref, atol=_BF16_ATOL, rtol=_BF16_RTOL)
+
+
+@requires_cuda_gated
+def test_cuda_gated_backward_matches_autograd_golden():
+    """dx, dweight and dgate against the fp32 reference's autograd."""
+    from rl_engine.kernels.ops.cuda.norm.rmsnorm import rmsnorm_gated_cuda
+
+    x, w, gate = _gated_cuda_inputs()
+    x, w, gate = x.float(), w.float(), gate.float()
+    dy = torch.randn_like(x)
+
+    got = [t.clone().requires_grad_(True) for t in (x, w, gate)]
+    rmsnorm_gated_cuda(*got, eps=_EPS).backward(dy)
+    ref = [t.clone().requires_grad_(True) for t in (x, w, gate)]
+    Qwen3NextRMSNormGatedOp().forward_fp32(*ref, eps=_EPS).backward(dy)
+
+    for name, a, b in zip(("dx", "dweight", "dgate"), got, ref):
+        torch.testing.assert_close(a.grad, b.grad, atol=1e-4, rtol=1e-4, msg=name)
+
+
+@requires_cuda_gated
+@pytest.mark.parametrize("batch", [1, 8, 64, 512])
+def test_cuda_gated_dweight_is_batch_invariant(batch):
+    """A row's contribution to dweight must not depend on the batch it sits in.
+
+    The ascending-row fp32 left fold makes dweight over the first n rows exactly
+    the fold of those n row-contributions -- so the n-row run must reproduce the
+    512-row run's prefix, bitwise.
+    """
+    from rl_engine.kernels.ops.base import _C
+    from rl_engine.kernels.ops.cuda.norm.rmsnorm import rmsnorm_gated_cuda
+    from rl_engine.kernels.ops.vjp_fp32 import reduce_rows_fp32
+
+    x, w, gate = _gated_cuda_inputs()
+    x, w, gate = x.float(), w.float(), gate.float()
+    dy = torch.randn_like(x)
+
+    wg = w.clone().requires_grad_(True)
+    rmsnorm_gated_cuda(x[:batch], wg, gate[:batch], eps=_EPS).backward(dy[:batch])
+
+    # rstd from the full-batch forward: the row statistic is batch-invariant, so
+    # its prefix is what the n-row run must have seen. Recomputing it with
+    # mean(-1) instead would compare against a different reduction.
+    _, rstd_full = _C.rmsnorm_gated_forward(x, w, gate, _EPS, 0.0, 0)
+    rows = dy * F.silu(gate) * x * rstd_full.unsqueeze(-1)
+    assert torch.equal(wg.grad, reduce_rows_fp32(rows[:batch]))
+
+
+@requires_cuda_gated
+def test_cuda_gated_weight_offset_is_applied_in_fp32():
+    """The gated kernel carries the same offset contract as the plain one."""
+    from rl_engine.kernels.ops.cuda.norm.rmsnorm import rmsnorm_gated_cuda
+
+    x, w, gate = _gated_cuda_inputs()
+    offset = rmsnorm_gated_cuda(x, w, gate, eps=_EPS, weight_offset=1.0)
+    explicit = rmsnorm_gated_cuda(x, (1.0 + w.float()), gate, eps=_EPS)
+    assert torch.equal(offset, explicit)
+    folded = rmsnorm_gated_cuda(x, (1.0 + w.float()).bfloat16(), gate, eps=_EPS)
+    assert not torch.equal(offset, folded)
+
+
+@requires_cuda_gated
+def test_cuda_gated_parameter_vjp_contributions_match_the_fold():
+    """The harness hook must return the same rows the backward folds."""
+    from rl_engine.kernels.ops.cuda.norm.rmsnorm import Qwen3NextRMSNormGatedCudaOp
+
+    x, w, gate = _gated_cuda_inputs(rows=64)
+    x, w, gate = x.float(), w.float(), gate.float()
+    dy = torch.randn_like(x)
+
+    rows = Qwen3NextRMSNormGatedCudaOp().parameter_vjp_contributions_fp32(
+        x=x, weight=w, gate=gate, grad_output=dy, eps=_EPS
+    )["weight"]
+    rstd = torch.rsqrt(x.square().mean(dim=-1) + _EPS)
+    expected = dy * F.silu(gate) * x * rstd.unsqueeze(-1)
+    torch.testing.assert_close(rows, expected, atol=1e-6, rtol=1e-6)
+
+
+@requires_cuda_gated
+def test_cuda_gated_sigmoid_backward_uses_the_sigmoid_derivative():
+    """The activation gradient has two branches; only silu was covered."""
+    from rl_engine.kernels.ops.cuda.norm.rmsnorm import rmsnorm_gated_cuda
+
+    x, w, gate = _gated_cuda_inputs(rows=64)
+    x, w, gate = x.float(), w.float(), gate.float()
+    dy = torch.randn_like(x)
+
+    got = [t.clone().requires_grad_(True) for t in (x, w, gate)]
+    rmsnorm_gated_cuda(*got, eps=_EPS, activation="sigmoid").backward(dy)
+
+    ref = [t.clone().requires_grad_(True) for t in (x, w, gate)]
+    rstd = torch.rsqrt(ref[0].square().mean(dim=-1) + _EPS)
+    out = (ref[0] * rstd.unsqueeze(-1) * ref[1]) * torch.sigmoid(ref[2])
+    out.backward(dy)
+    for name, a, b in zip(("dx", "dweight", "dgate"), got, ref):
+        torch.testing.assert_close(a.grad, b.grad, atol=1e-4, rtol=1e-4, msg=name)
+
+
+@requires_cuda_gated
+def test_cuda_gated_rejects_bad_activation():
+    from rl_engine.kernels.ops.cuda.norm.rmsnorm import rmsnorm_gated_cuda
+
+    x, w, gate = _gated_cuda_inputs(rows=8)
+    with pytest.raises(ValueError, match="activation must be one of"):
+        rmsnorm_gated_cuda(x, w, gate, eps=_EPS, activation="gelu")
+
+
+@requires_cuda_gated
+def test_cuda_gated_rejects_mismatched_gate():
+    from rl_engine.kernels.ops.cuda.norm.rmsnorm import rmsnorm_gated_cuda
+
+    x, w, gate = _gated_cuda_inputs(rows=8)
+    with pytest.raises((AssertionError, RuntimeError)):
+        rmsnorm_gated_cuda(x, w, gate[:4], eps=_EPS)
+    with pytest.raises((AssertionError, RuntimeError)):
+        rmsnorm_gated_cuda(x, w, gate.float(), eps=_EPS)
+
+
+# --------------------------------------------------------------------------- #
 # 8. `__call__` is the documented entry point and must agree with `forward`
 # --------------------------------------------------------------------------- #
 def test_call_matches_forward():

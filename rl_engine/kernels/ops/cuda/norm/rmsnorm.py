@@ -5,23 +5,14 @@ from rl_engine.kernels.ops.base import _C, _EXT_AVAILABLE
 from rl_engine.kernels.ops.vjp_fp32 import reduce_rows_fp32, rmsnorm_dweight_rows_fp32
 
 
-def _require_cuda_symbols(what: str, *names: str) -> None:
-    """Raise when the compiled kernels backing ``what`` are missing.
+def _fold_dweight_rows(rows: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
+    """The single left-fold entrypoint for this backend's dweight reductions.
 
-    The registry treats a backend whose construction raises as unavailable and
-    falls through to the next candidate, so calling this from ``__init__`` is
-    what lets a CUDA-first priority list degrade to the PyTorch reference on a
-    build without the extension. Mirrors ``_require_cuda_activation`` in the
-    activation ops.
+    Both the plain and the gated backward route through here so the file keeps
+    one auditable reduction path; the ascending-row fp32 fold is what makes
+    dweight independent of the batch layout.
     """
-    if not _EXT_AVAILABLE or _C is None:
-        raise RuntimeError(f"{what} requires the compiled rl_engine._C extension.")
-    missing = [name for name in names if not hasattr(_C, name)]
-    if missing:
-        raise RuntimeError(
-            f"{what} symbols ({', '.join(missing)}) are not compiled into _C. "
-            "Rebuild the extension with csrc/cuda/rmsnorm.cu."
-        )
+    return reduce_rows_fp32(rows).to(dtype)
 
 
 class RMSNormCuda(torch.autograd.Function):
@@ -92,7 +83,7 @@ class RMSNormCuda(torch.autograd.Function):
         # Multiplication is part of the pre-existing mask contract, including
         # IEEE propagation for non-finite inactive contributions.
         rows = rows * mask.to(dtype=rows.dtype).unsqueeze(-1)
-        dw = reduce_rows_fp32(rows).to(weight.dtype)
+        dw = _fold_dweight_rows(rows, weight.dtype)
         record_backward(
             "rms_norm",
             kernel_id=(
@@ -166,3 +157,187 @@ class Qwen3NextRMSNormCudaOp(RMSNormCudaOp):
     """
 
     weight_offset = 1.0
+
+
+# --------------------------------------------------------------------------- #
+# Gated RMSNorm (Qwen3-Next GDN block)
+# --------------------------------------------------------------------------- #
+
+def _require_cuda_symbols(what: str, *names: str) -> None:
+    """Raise when the compiled kernels backing ``what`` are missing.
+
+    The registry treats a backend whose construction raises as unavailable and
+    falls through, so calling this from ``__init__`` is what lets a CUDA-first
+    priority list degrade to the PyTorch reference on a build without the
+    extension. Mirrors ``_require_cuda_activation`` in the activation ops.
+    """
+    if not _EXT_AVAILABLE or _C is None:
+        raise RuntimeError(f"{what} requires the compiled rl_engine._C extension.")
+    missing = [name for name in names if not hasattr(_C, name)]
+    if missing:
+        raise RuntimeError(
+            f"{what} symbols ({', '.join(missing)}) are not compiled into _C. "
+            "Rebuild the extension with csrc/cuda/rmsnorm.cu."
+        )
+
+
+#: Gate activations understood by the CUDA kernel, in binding order.
+_GATE_ACTIVATIONS = {"silu": 0, "swish": 0, "sigmoid": 1}
+
+
+def _gate_activation_fp32(gate: torch.Tensor, activation: int) -> torch.Tensor:
+    """act(gate) in fp32, matching the kernel's ``gate_activation``."""
+    gate32 = gate.float()
+    return torch.nn.functional.silu(gate32) if activation == 0 else torch.sigmoid(gate32)
+
+
+def _gate_activation_grad_fp32(gate: torch.Tensor, activation: int) -> torch.Tensor:
+    """d act(gate) / d gate in fp32, matching ``gate_activation_grad``."""
+    gate32 = gate.float()
+    sigma = torch.sigmoid(gate32)
+    if activation == 0:
+        return sigma * (1.0 + gate32 * (1.0 - sigma))
+    return sigma * (1.0 - sigma)
+
+
+class RMSNormGatedCuda(torch.autograd.Function):
+    """Autograd wrapper for the gated CUDA RMSNorm.
+
+    Forward is the fused kernel. Backward is assembled from deterministic
+    pieces: ``dx`` from a row-local CUDA kernel, ``dweight`` from fp32 row
+    contributions reduced by the ascending-row left fold, and ``dgate`` purely
+    elementwise in fp32 (no reduction, so batch invariance is trivial).
+    """
+
+    @staticmethod
+    def forward(ctx, x, weight, gate, eps=1e-6, weight_offset=0.0, activation=0):
+        """
+        Forward:
+          y = x * rsqrt(mean(x^2) + eps) * (weight_offset + weight) * act(gate)
+
+        Input:
+          x, gate: [T, H], fp16/bf16/fp32 CUDA tensors of matching dtype
+          weight:  [H]
+          activation: 0 = silu/swish, 1 = sigmoid
+        """
+        assert x.is_cuda and weight.is_cuda and gate.is_cuda, "inputs must be CUDA tensors"
+        assert x.is_contiguous() and weight.is_contiguous() and gate.is_contiguous()
+        assert x.dim() == 2, "x must be [T, H]"
+        assert weight.dim() == 1, "weight must be [H]"
+        assert gate.shape == x.shape, "gate must match x"
+        assert _EXT_AVAILABLE and hasattr(_C, "rmsnorm_gated_forward"), (
+            "Gated RMSNorm CUDA extension is unavailable. Rebuild with csrc/cuda/rmsnorm.cu."
+        )
+
+        y, rstd = _C.rmsnorm_gated_forward(
+            x, weight, gate, float(eps), float(weight_offset), int(activation)
+        )
+
+        ctx.save_for_backward(x, weight, gate, rstd)
+        ctx.eps = eps
+        ctx.weight_offset = float(weight_offset)
+        ctx.activation = int(activation)
+
+        return y
+
+    @staticmethod
+    def backward(ctx, grad_out):
+        x, weight, gate, rstd = ctx.saved_tensors
+        dy = grad_out.contiguous()
+        act = ctx.activation
+
+        dx = _C.rmsnorm_gated_backward_dx(
+            dy, x, weight, gate, rstd, ctx.weight_offset, act
+        )
+
+        # dweight: the gate is a per-element constant here, so the ungated row
+        # contributions apply once dy carries act(gate).
+        gate_act = _gate_activation_fp32(gate, act)
+        rows = rmsnorm_dweight_rows_fp32(x, dy.float() * gate_act, rstd=rstd)
+        dw = _fold_dweight_rows(rows, weight.dtype)
+
+        # dgate: row-local and reduction-free.
+        normed = x.float() * rstd.unsqueeze(-1)
+        scale = weight.float() + ctx.weight_offset
+        dgate = (dy.float() * normed * scale * _gate_activation_grad_fp32(gate, act)).to(
+            gate.dtype
+        )
+
+        record_backward(
+            "rms_norm_gated",
+            kernel_id=(
+                "rl_engine._C.rmsnorm_gated_backward_dx"
+                "+rl_engine.kernels.ops.vjp_fp32.rmsnorm_dweight_rows_fp32"
+                "+rl_engine.kernels.ops.vjp_fp32.reduce_rows_fp32"
+            ),
+            impl="cuda_rmsnorm_gated_dx_declared_fp32_rowfold_dw",
+            family="cuda",
+        )
+
+        return dx, dw, dgate, None, None, None
+
+
+def rmsnorm_gated_cuda(x, weight, gate, eps=1e-6, weight_offset=0.0, activation="silu"):
+    """
+    use:
+        y = rmsnorm_gated_cuda(x, weight, gate)
+        y = rmsnorm_gated_cuda(x, weight, gate, activation="sigmoid")
+    """
+    if activation not in _GATE_ACTIVATIONS:
+        raise ValueError(
+            f"activation must be one of {sorted(_GATE_ACTIVATIONS)}, got {activation!r}"
+        )
+    return RMSNormGatedCuda.apply(
+        x, weight, gate, eps, weight_offset, _GATE_ACTIVATIONS[activation]
+    )
+
+
+class Qwen3NextRMSNormGatedCudaOp:
+    """CUDA gated RMSNorm for the Qwen3-Next GDN block.
+
+    Deliberately not a subclass of :class:`RMSNormCudaOp`: it takes an extra
+    required tensor, so it cannot stand in for one.
+
+    ``out = x * rstd * weight * silu(gate)``, every multiply in fp32 with a
+    single cast at the store. The weight is plain, not zero-centred, matching
+    vLLM's ``RMSNormGated`` with ``norm_before_gate=True`` and ``group_size=None``
+    -- which is exactly how the GDN block constructs it. Other configurations
+    are rejected rather than approximated.
+    """
+
+    backward_impl = "cuda_rmsnorm_gated_dx_declared_fp32_rowfold_dw"
+
+    #: The gated weight is plain; kept as an attribute so the surface matches
+    #: the ungated op and a zero-centred variant stays one subclass away.
+    weight_offset = 0.0
+    activation = "silu"
+
+    def __init__(self) -> None:
+        _require_cuda_symbols(
+            "Gated CUDA RMSNorm", "rmsnorm_gated_forward", "rmsnorm_gated_backward_dx"
+        )
+
+    def __call__(self, x, weight, gate, *, eps=1e-6):
+        return self.forward(x, weight, gate, eps=eps)
+
+    def forward(self, x, weight, gate, *, eps=1e-6):
+        hidden = x.shape[-1]
+        x_2d = x.contiguous().view(-1, hidden)
+        gate_2d = gate.contiguous().view(-1, hidden)
+        y_2d = rmsnorm_gated_cuda(
+            x_2d,
+            weight.contiguous(),
+            gate_2d,
+            eps=eps,
+            weight_offset=self.weight_offset,
+            activation=self.activation,
+        )
+        return y_2d.view_as(x)
+
+    def parameter_vjp_contributions_fp32(self, *, x, weight, gate, grad_output, eps=1e-6):
+        del weight
+        x32 = x.float()
+        rstd = torch.rsqrt(x32.square().mean(dim=-1) + float(eps))
+        act = _GATE_ACTIVATIONS[self.activation]
+        rows = grad_output.float() * _gate_activation_fp32(gate, act) * x32 * rstd.unsqueeze(-1)
+        return {"weight": rows}

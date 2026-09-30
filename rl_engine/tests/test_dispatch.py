@@ -4,6 +4,7 @@
 import sys
 from types import ModuleType
 
+import pytest
 import torch
 
 import rl_engine.platforms.device as device_module
@@ -256,3 +257,38 @@ if __name__ == "__main__":
         print("\n All infrastructure tests passed!")
     except Exception as e:
         print(f"\n Test failed with error: {e}")
+
+
+def test_gated_rms_norm_priority_is_cuda_first_with_pytorch_fallback():
+    """The gated norm has a CUDA kernel; every other platform falls back.
+
+    No Triton, ROCm or Ascend gated kernel exists yet, so those platforms must
+    resolve to the PyTorch reference rather than to nothing -- an operator
+    missing from a priority map falls through to ``OpBackend.PYTORCH_NATIVE``,
+    which is the logprob op, not a norm.
+    """
+    registry = KernelRegistry()
+
+    assert registry._priority_map["cuda"]["rms_norm_gated"] == [
+        OpBackend.CUDA_RMS_NORM_GATED,
+        OpBackend.PYTORCH_NATIVE_RMS_NORM_GATED,
+    ]
+    for platform in ("rocm", "musa", "cpu", "npu"):
+        assert registry._priority_map[platform]["rms_norm_gated"] == [
+            OpBackend.PYTORCH_NATIVE_RMS_NORM_GATED
+        ], platform
+
+
+def test_gated_rms_norm_cuda_backend_reports_absence_by_failing_construction(monkeypatch):
+    """Without the compiled symbols the CUDA backend must be skipped, not returned."""
+    from rl_engine.kernels.ops.cuda.norm import rmsnorm as cuda_rmsnorm
+    from rl_engine.kernels.ops.pytorch.norm.qwen3_next_rms_norm import Qwen3NextRMSNormGatedOp
+
+    monkeypatch.setattr(cuda_rmsnorm, "_EXT_AVAILABLE", False)
+    monkeypatch.setattr(cuda_rmsnorm, "_C", None)
+    with pytest.raises(RuntimeError, match="requires the compiled rl_engine._C extension"):
+        cuda_rmsnorm.Qwen3NextRMSNormGatedCudaOp()
+
+    # ... and the registry must therefore hand out the reference, not raise.
+    resolved = KernelRegistry().get_op("rms_norm_gated")
+    assert isinstance(resolved, Qwen3NextRMSNormGatedOp)
