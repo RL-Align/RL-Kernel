@@ -10,6 +10,7 @@ from rl_engine.kernels.ops.triton.attention.deterministic_attn import (
     triton_deterministic_attention_fp32,
     triton_deterministic_attention_with_lse,
 )
+from rl_engine.kernels.ops.triton.attention.joint_attn_softmax import TritonJointAttnSoftmaxOp
 from rl_engine.kernels.ops.triton.attention.standard_attn import (
     TritonBatchInvariantAttentionOp,
     triton_batch_invariant_attention,
@@ -20,6 +21,7 @@ __all__ = [
     "BITWISE_LIBM_PARITY",
     "TritonBatchInvariantAttentionOp",
     "TritonDeterministicAttentionOp",
+    "TritonJointAttnSoftmaxOp",
     "triton_batch_invariant_attention",
     "triton_batch_invariant_attention_with_lse",
     "triton_deterministic_attention",
