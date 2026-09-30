@@ -247,6 +247,41 @@ def test_backward_batch_invariance_slice():
     assert torch.equal(x_slice.grad, grad_x_full_sliced)
 
 
+# 9b. The CUDA backend must report itself unavailable by failing construction,
+# which is the seam the registry uses to fall back (see _get_or_create_backend).
+def test_cuda_op_construction_fails_without_extension(monkeypatch):
+    from rl_engine.kernels.ops.cuda.norm import rmsnorm as cuda_rmsnorm
+
+    monkeypatch.setattr(cuda_rmsnorm, "_EXT_AVAILABLE", False)
+    monkeypatch.setattr(cuda_rmsnorm, "_C", None)
+    with pytest.raises(RuntimeError, match="requires the compiled rl_engine._C extension"):
+        cuda_rmsnorm.RMSNormCudaOp()
+
+
+def test_cuda_op_construction_fails_when_symbols_missing(monkeypatch):
+    from rl_engine.kernels.ops.cuda.norm import rmsnorm as cuda_rmsnorm
+
+    class _WithoutRMSNorm:  # a built extension that lacks the rmsnorm symbols
+        pass
+
+    monkeypatch.setattr(cuda_rmsnorm, "_EXT_AVAILABLE", True)
+    monkeypatch.setattr(cuda_rmsnorm, "_C", _WithoutRMSNorm())
+    with pytest.raises(RuntimeError, match="are not compiled into _C"):
+        cuda_rmsnorm.RMSNormCudaOp()
+
+
+@requires_cuda
+def test_registry_falls_back_to_native_without_extension(monkeypatch):
+    """A CUDA-first priority list must still resolve on a build without _C."""
+    from rl_engine.kernels.ops.cuda.norm import rmsnorm as cuda_rmsnorm
+    from rl_engine.kernels.registry import KernelRegistry
+
+    monkeypatch.setattr(cuda_rmsnorm, "_EXT_AVAILABLE", False)
+    monkeypatch.setattr(cuda_rmsnorm, "_C", None)
+    # A fresh registry, so the cached instance from other tests is not reused.
+    assert isinstance(KernelRegistry().get_op("rms_norm"), NativeRMSNormOp)
+
+
 # 10. Registry dispatch resolves to the hardware op when available
 def test_registry_dispatches_rms_norm():
     from rl_engine.kernels.registry import kernel_registry
