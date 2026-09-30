@@ -820,3 +820,17 @@ def test_gated_extension_handles_empty_batch_and_nondefault_stream():
     assert torch.equal(dx, expected_dx)
     assert empty.shape == empty_dx.shape == (0, x.shape[-1])
     assert empty_rstd.numel() == 0
+
+
+@requires_cuda_gated
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+def test_cuda_gated_signed_zero_weight_is_preserved(dtype):
+    from rl_engine.kernels.ops.cuda.norm.rmsnorm import rmsnorm_gated_cuda
+
+    x = torch.ones(2, 128, device="cuda", dtype=dtype)
+    x[1].neg_()
+    weight = torch.full((128,), -0.0, device="cuda", dtype=dtype)
+    actual = rmsnorm_gated_cuda(x, weight, torch.ones_like(x))
+    expected = x * weight
+    bits = torch.int32 if dtype == torch.float32 else torch.int16
+    assert torch.equal(actual.view(bits), expected.view(bits))

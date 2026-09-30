@@ -266,7 +266,8 @@ __global__ void rmsnorm_gated_fwd_kernel(
 
     for (int col = tid; col < H; col += blockDim.x) {
         float xv = load_as_float<scalar_t>(x_row + col);
-        float wv = load_as_float<weight_t>(weight + col) + weight_offset;
+        float wv = load_as_float<weight_t>(weight + col);
+        if (weight_offset != 0.0f) wv += weight_offset;
         float zv = load_as_float<scalar_t>(gate_row + col);
         float out = xv * row_rstd * wv * gate_activation<ACT>(zv);
         store_from_float<scalar_t>(y_row + col, out);
@@ -301,7 +302,8 @@ __global__ void rmsnorm_gated_bwd_dx_kernel(
     for (int col = tid; col < H; col += blockDim.x) {
         float dyv = load_as_float<scalar_t>(dy_row + col);
         float xv = load_as_float<scalar_t>(x_row + col);
-        float wv = load_as_float<weight_t>(weight + col) + weight_offset;
+        float wv = load_as_float<weight_t>(weight + col);
+        if (weight_offset != 0.0f) wv += weight_offset;
         float zv = load_as_float<scalar_t>(gate_row + col);
         local_dot += dyv * (wv * gate_activation<ACT>(zv)) * xv;
     }
@@ -314,7 +316,8 @@ __global__ void rmsnorm_gated_bwd_dx_kernel(
     for (int col = tid; col < H; col += blockDim.x) {
         float dyv = load_as_float<scalar_t>(dy_row + col);
         float xv = load_as_float<scalar_t>(x_row + col);
-        float wv = load_as_float<weight_t>(weight + col) + weight_offset;
+        float wv = load_as_float<weight_t>(weight + col);
+        if (weight_offset != 0.0f) wv += weight_offset;
         float zv = load_as_float<scalar_t>(gate_row + col);
 
         float out = r * dyv * (wv * gate_activation<ACT>(zv)) - xv * coeff;
