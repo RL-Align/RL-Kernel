@@ -22,49 +22,11 @@ the golden agrees with the provider at fp32-ULP scale but not bitwise, because
 its contractions run in a fixed 32-wide chunk order rather than the kernel's
 tree.
 
-Recurrent-state dtype, and how far a decode run actually drifts
-----------------------------------------------------------------
-``FUSED_GDN_STATE_DTYPES`` allows the recurrent state to be fp32 or bf16, and a
-bf16 store rounds the ``[HV, V, K]`` state once per token. The drift that causes
-does **not** compound without bound, because the recurrence is contracting: the
-per-step decay ``exp(g)`` averages ~0.47 here (max 0.996), so old error is
-forgotten at roughly the rate old signal is.
+The fixed-seed 128-step rounding test below is a bounded synthetic regression,
+not evidence of a universal drift plateau or model-logit agreement. Earlier
+1024-step and prefill tables had no reproducible runner and are withdrawn until
+those experiments are checked in. Operator outputs are not model logits.
 
-fp32 state vs bf16 state, identical inputs, B=8, B200:
-
-======  =================  ===============
-step    relative |d| state  relative |d| out
-======  =================  ===============
-1       2.67e-03           3.47e-03
-64      1.52e-02           1.07e-02
-256     2.02e-02           1.09e-02
-1024    2.47e-02           1.57e-02
-======  =================  ===============
-
-The curve saturates: a 16x longer run past step 64 grows the state drift only
-1.6x. The plateau is ~2% relative on the state and ~1-1.8% on the output.
-
-Chunked prefill vs step-by-step decode replay, single sequence, from a zero
-state -- this is the quantity RFC #428 section 4.2 is about:
-
-======  ==================  ==================
-T       max|diff|, fp32      max|diff|, bf16
-======  ==================  ==================
-8       3.66e-04 (7.0e-03)  5.49e-04 (1.0e-02)
-64      4.88e-04 (6.6e-03)  5.49e-04 (7.5e-03)
-256     3.66e-04 (5.0e-03)  3.66e-04 (5.0e-03)
-======  ==================  ==================
-
-(relative in parentheses). The gap is ~0.5-1% relative and **flat in T** -- at
-T=256 it is smaller than at T=8 -- and the state dtype barely moves it.
-
-So the two paths are not bitwise, and ~1% relative on logits is still material
-for RL importance ratios, but this is a bounded, characterizable error rather
-than a divergence. An fp32 recurrent state is still the right choice for
-exactness work; the reason is the 2% state plateau, not a blow-up.
-
-Note the chunked prefill kernel refuses fp32 q/k/v outright
-(``chunk.py:213``), so the prefill side is bf16-only regardless.
 """
 
 from __future__ import annotations
@@ -74,9 +36,7 @@ import torch
 
 pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
 
-from rl_engine.kernels.ops.pytorch.linear_attn import (  # noqa: E402
-    GatedDeltaRuleRecurrentStepOp,
-)
+from rl_engine.kernels.ops.pytorch.linear_attn import GatedDeltaRuleRecurrentStepOp  # noqa: E402
 
 # Qwen3-Next-80B-A3B-Instruct: linear_num_key_heads / linear_num_value_heads /
 # linear_key_head_dim / linear_value_head_dim.
@@ -116,9 +76,7 @@ def _run_provider(inp, io_dtype=torch.bfloat16):
     """Returns (out, mutated_state). The kernel updates the state in place."""
     step = _vllm_step()
     state = inp["state"].clone()
-    out = torch.empty(
-        inp["mixed_qkv"].shape[0], 1, _HV, _V, device="cuda", dtype=io_dtype
-    )
+    out = torch.empty(inp["mixed_qkv"].shape[0], 1, _HV, _V, device="cuda", dtype=io_dtype)
     step(
         inp["mixed_qkv"],
         inp["a"],
@@ -220,16 +178,8 @@ def test_golden_is_batch_invariant(state_dtype):
 # --------------------------------------------------------------------------- #
 # 3. The state-dtype rounding is modelled, not skipped
 # --------------------------------------------------------------------------- #
-def test_bf16_state_rounding_is_visible_but_saturates():
-    """A bf16 state rounds from the first store, and the drift then flattens.
-
-    The recurrence is contracting -- ``exp(g)`` is well below 1 for most heads --
-    so old rounding error is forgotten at roughly the rate old signal is. The
-    drift therefore grows quickly at first and then plateaus, rather than
-    compounding without bound. Asserting a bound is the honest form: asserting
-    monotone growth would have been true over a truncated run and false over a
-    long one.
-    """
+def test_bf16_state_rounding_stays_within_fixed_fixture_bound():
+    """Bound this fixed 128-step fixture; no general contraction claim."""
     batch, steps = 8, 128
     inp = _inputs(batch, batch + 2, torch.float32, torch.bfloat16, seed=11)
     op = GatedDeltaRuleRecurrentStepOp()
@@ -243,9 +193,7 @@ def test_bf16_state_rounding_is_visible_but_saturates():
     drift = []
     for step in range(steps):
         g = torch.Generator(device="cuda").manual_seed(100 + step)
-        token = torch.randn(
-            batch, _PACKED_DIM, device="cuda", dtype=torch.bfloat16, generator=g
-        )
+        token = torch.randn(batch, _PACKED_DIM, device="cuda", dtype=torch.bfloat16, generator=g)
         common = (inp["a"], inp["b"], inp["A_log"], inp["dt_bias"])
         _, state_fp32 = op.forward(
             token, *common, state_fp32, inp["indices"], scale=_SCALE, num_k_heads=_H
@@ -257,8 +205,7 @@ def test_bf16_state_rounding_is_visible_but_saturates():
         drift.append((state_fp32.float() - state_bf16.float()).abs().max().item() / scale)
 
     assert drift[0] > 0.0, "a bf16 state must round on the very first store"
-    # Measured plateau is ~2% relative; the bound leaves room without hiding a
-    # genuine divergence.
+    # Preserve the original regression bound for this fixed fixture.
     assert max(drift) < 0.05, f"relative state drift reached {max(drift):.3e}"
     # The back half must not be materially worse than the front half.
     assert max(drift[steps // 2 :]) < 2.0 * max(drift[: steps // 2]) + 1e-3
@@ -343,23 +290,18 @@ def test_conv_output_matches_provider_with_fp32_cache(batch):
     """
     inp = _conv_inputs(batch, torch.float32, seed=batch)
     (out_ref, _), (out_got, _) = _run_conv_pair(inp)
-    mismatch = int(
-        (out_got.float().view(torch.int32) != out_ref.float().view(torch.int32)).sum()
-    )
+    mismatch = int((out_got.float().view(torch.int32) != out_ref.float().view(torch.int32)).sum())
     assert mismatch <= 32, f"{mismatch} of {out_got.numel()} elements differ"
     assert (out_got.float() - out_ref.float()).abs().max().item() <= 1e-2
 
 
 @pytest.mark.parametrize("batch", [1, 17])
-def test_conv_output_bf16_cache_differs_only_by_one_ulp(batch):
-    """A bf16 cache disagrees often but never by more than a bf16 ULP.
-
-    Bounded rather than asserted equal: where the provider rounds in this
-    configuration is not reproduced, and pretending otherwise would hide it.
-    """
+def test_conv_output_bf16_cache_matches_rounded_product_path(batch):
+    """Product rounding is reproduced; activation ULP residuals remain allowed."""
     inp = _conv_inputs(batch, torch.bfloat16, seed=batch)
     (out_ref, _), (out_got, _) = _run_conv_pair(inp)
     assert (out_got.float() - out_ref.float()).abs().max().item() <= 7e-2
+    assert int((out_got != out_ref).sum()) <= 32
 
 
 def test_conv_null_block_id_is_skipped():
@@ -499,3 +441,16 @@ def test_conv_forward_fp32_and_call_entry_points():
     assert torch.equal(out, called)
     assert fp32.dtype is torch.float32
     torch.testing.assert_close(fp32, out.float(), atol=1e-2, rtol=1e-2)
+
+
+def test_conv_provider_preserves_bf16_product_cancellation():
+    inp = _conv_inputs(1, torch.bfloat16, seed=1, with_bias=False)
+    inp["state"].zero_()
+    inp["state"][1, :, -1] = 1.0078125
+    inp["weight"].zero_()
+    inp["weight"][:, -2] = 1.0078125
+    inp["weight"][:, -1] = 1.0
+    inp["x"].fill_(-1.015625)
+    (provider, _), (golden, _) = _run_conv_pair(inp, activation=None)
+    assert torch.count_nonzero(provider) == 0
+    assert torch.equal(provider, golden)

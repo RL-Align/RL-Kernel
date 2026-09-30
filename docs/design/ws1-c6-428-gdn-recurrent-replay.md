@@ -69,53 +69,28 @@ Qwen3-Next dims (H=16, HV=32, K=V=128), `use_qk_l2norm_in_kernel=True`:
 | fp32 state, B=1..64 | 1.5e-08 .. 6.1e-05 | ≤ 3.0e-07 |
 | bf16 state, B=1..64 | 3.7e-09 .. 3.1e-05 | ≤ 2.0e-03 |
 
-Causal conv (`conv_dim=8192`, `W=4`, B ≤ 64): the **rolled state is bitwise exact in
-every configuration**. With an fp32 cache the output is bitwise but for a handful of
-elements (15 of 524288 at B=64); with a bf16 cache it agrees on ~63%, each
-disagreement exactly one bf16 ULP. The conv taps accumulate **sequentially**,
-`acc = acc + win[t] * w[t]` from zero — a tree sum over the same four terms does not
-reproduce the provider, an FMA does not either.
-
-Open: where the provider rounds in the bf16-conv-cache case is not reproduced.
-Recorded rather than guessed at.
+Causal conv uses sequential FP32 accumulation **starting from bias**, with
+products first rounded to the operand dtype. The previous BF16 path incorrectly
+promoted both operands to FP32; its disagreements were not limited to one BF16
+ULP. Cancellation and bias-order CPU tests now cover these errors. Provider
+comparisons preserve the existing absolute bounds and additionally limit BF16
+mismatches to 32 elements on the checked fixtures. This is not a bitwise claim.
 
 ## 5. Decode versus chunked prefill
 
-The quantity RFC #428 §4.2 is about. Single sequence, zero initial state:
+The earlier 1024-step drift and prefill tables did not have a checked-in runner;
+they are withdrawn as acceptance evidence. The existing 128-step synthetic test
+only bounds its fixed seed and gate inputs. It does not establish a universal
+plateau, prefill/decode equality, or any bound on model logits.
 
-| T | max\|diff\|, fp32 state | max\|diff\|, bf16 state |
-|---|---|---|
-| 8 | 3.66e-04 (7.0e-03 rel) | 5.49e-04 (1.0e-02 rel) |
-| 64 | 4.88e-04 (6.6e-03 rel) | 5.49e-04 (7.5e-03 rel) |
-| 256 | 3.66e-04 (5.0e-03 rel) | 3.66e-04 (5.0e-03 rel) |
+The strict profile uses FP32 recurrent state. BF16 state remains a differential
+experiment. Full checkpoint prefill, response replay, optimizer updates and
+reload all remain required before L2 can pass.
 
-**The gap is ~0.5–1% relative and flat in T** — smaller at T=256 than at T=8 — and the
-state dtype barely moves it.
-
-The reason is that the recurrence is **contracting**: per-step decay `exp(g)` averages
-~0.47 (max 0.996), so old rounding error is forgotten at roughly the rate old signal
-is. Comparing an fp32 state against a bf16 one over 1024 steps shows the same shape:
-
-| step | relative \|d\| state | relative \|d\| out |
-|---|---|---|
-| 1 | 2.67e-03 | 3.47e-03 |
-| 64 | 1.52e-02 | 1.07e-02 |
-| 256 | 2.02e-02 | 1.09e-02 |
-| 1024 | 2.47e-02 | 1.57e-02 |
-
-A 16× longer run past step 64 grows the drift only 1.6×; it saturates at ~2% relative
-on the state and ~1–1.8% on the output.
-
-So the two paths are not bitwise, and ~1% relative on logits is still material for RL
-importance ratios, but this is a bounded, characterizable error rather than a
-divergence. An fp32 recurrent state remains the right choice for exactness work — the
-reason is the 2% plateau, not a blow-up.
-
-Two related constraints: the chunked prefill kernel refuses fp32 q/k/v outright
-(`chunk.py:213`), so the prefill side is bf16-only regardless; and
-`causal_conv1d_update` does not bounds-check `conv_state_indices` under its default
-`validate_data=False` — an index past the cache is an out-of-bounds write, not an
-error.
+Cache indices must be int32/int64, on the input device, and positive active
+indices must be unique and in range. Nonpositive sentinels may repeat. The golden
+validates before any cache update; raw provider calls remain the caller's
+responsibility (the provider's default does not bounds-check).
 
 ## 6. Current boundary
 
@@ -133,13 +108,14 @@ Not covered, with reasons:
 `runtime_verified=false` (no checkpoint), `supports_backward=false`,
 `checkpoint=absent`. Op-level agreement says nothing about 48 composed layers.
 
-## 7. Questions for the maintainers
+## 7. Accepted execution boundaries
 
-1. Is a **bf16 recurrent state** a supported configuration? The answer decides whether
-   the 2% plateau is a finding or a non-issue.
-2. Is MTP / speculative decode in scope for WS1? If so,
-   `fused_gdn_decode_post_conv_mtp` becomes the primary provider for both the norm and
-   the recurrence, and the largest deferral above reopens.
-3. For the CUDA strict profile, is the single source of truth **vLLM's** arithmetic or
-   **PyTorch eager**? §1 item 1 asks for one provider on both sides but §2.1 does not
-   say which, and the two differ by ~6e-2 in bf16.
+Use a shared, explicitly pinned vLLM-compatible forward provider on both sides,
+with independent VIME recomputation. Disable MTP and prefix reuse. Keep FP32
+recurrent state for strict acceptance; BF16 is experimental. Require bitwise
+logits/logprobs at a common topology, at least two real optimizer updates, weight
+synchronization and checkpoint reload. No operator-level test closes these gates.
+
+The 2026-09-30 real-checkpoint startup attempt with vLLM 0.30.0 failed before
+inference: `VLLM batch_invariant mode is not supported for GDN_ATTN`. A shared
+provider integration must resolve this; disabling the check is not L2 evidence.

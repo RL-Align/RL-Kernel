@@ -55,6 +55,21 @@ SOFTPLUS_THRESHOLD = 20.0
 _REDUCTION_CHUNK = 32
 
 
+def _validate_state_indices(indices, batch, blocks, device):
+    """Each active row owns one cache block; inactive sentinels may repeat."""
+    if indices.ndim != 1 or indices.shape[0] != batch:
+        raise ValueError("state indices must be 1-D with one entry per sequence")
+    if indices.dtype not in (torch.int32, torch.int64):
+        raise ValueError("state indices must have int32 or int64 dtype")
+    if indices.device != device:
+        raise ValueError("state indices must be on the input device")
+    active = indices[indices > NULL_BLOCK_ID]
+    if bool((active >= blocks).any()):
+        raise ValueError("active state index is out of range")
+    if active.unique().numel() != active.numel():
+        raise ValueError("active state indices must be unique")
+
+
 def _chunked_sum(x: torch.Tensor) -> torch.Tensor:
     """Sum the last dim in a fixed 32-wide chunk order.
 
@@ -67,7 +82,9 @@ def _chunked_sum(x: torch.Tensor) -> torch.Tensor:
     tail = x.shape[-1]
     if tail % _REDUCTION_CHUNK != 0:
         return x.sum(dim=-1)
-    return x.reshape(*x.shape[:-1], -1, _REDUCTION_CHUNK).sum(dim=-1).sum(dim=-1)
+    return (
+        x.reshape(*x.shape[:-1], tail // _REDUCTION_CHUNK, _REDUCTION_CHUNK).sum(dim=-1).sum(dim=-1)
+    )
 
 
 def _fixed_order_contract(mat: torch.Tensor, vec: torch.Tensor) -> torch.Tensor:
@@ -220,15 +237,33 @@ class GatedDeltaRuleRecurrentStepOp:
         if mixed_qkv.dim() != 2:
             raise ValueError(f"mixed_qkv must be 2-D [B, D], got {tuple(mixed_qkv.shape)}")
         if state.dim() != 4:
-            raise ValueError(
-                f"state must be 4-D [num_blocks, HV, V, K], got {tuple(state.shape)}"
-            )
+            raise ValueError(f"state must be 4-D [num_blocks, HV, V, K], got {tuple(state.shape)}")
         if ssm_state_indices.dim() != 1:
             raise ValueError("ssm_state_indices must be 1-D [B] for packed decode")
 
         batch = mixed_qkv.shape[0]
         hv, v_dim, k_dim = state.shape[-3:]
-        heads = int(num_k_heads)
+        if isinstance(num_k_heads, bool) or not isinstance(num_k_heads, int) or num_k_heads <= 0:
+            raise ValueError("num_k_heads must be a positive integer")
+        if min(hv, v_dim, k_dim) <= 0:
+            raise ValueError("state head dimensions must be positive")
+        heads = num_k_heads
+        _validate_state_indices(ssm_state_indices, batch, state.shape[0], mixed_qkv.device)
+        for name, tensor in (
+            ("a", a),
+            ("b", b),
+            ("A_log", A_log),
+            ("dt_bias", dt_bias),
+            ("state", state),
+        ):
+            if tensor.device != mixed_qkv.device:
+                raise ValueError(f"{name} must be on the input device")
+            if not tensor.is_floating_point():
+                raise ValueError(f"{name} must be floating point")
+        if not mixed_qkv.is_floating_point():
+            raise ValueError("mixed_qkv must be floating point")
+        if A_log.shape != (hv,) or dt_bias.shape != (hv,):
+            raise ValueError("A_log and dt_bias must have shape [HV]")
         if hv % heads != 0:
             raise ValueError(f"HV={hv} must be a multiple of num_k_heads={heads}")
         if a.shape != (batch, hv) or b.shape != (batch, hv):

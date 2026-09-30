@@ -77,12 +77,15 @@ print("[ws1-gtest] C8 gate passed")
 PY
 
 echo "[ws1-gtest] Qwen3-Next C3/C4 norms (operator scope)"
-QWEN3_NEXT_NORM_MANIFEST=rl_engine/testing/qwen3_next_norm_manifest.json
-"$PY" scripts/check_forward_invariance.py --manifest "$QWEN3_NEXT_NORM_MANIFEST" \
-  --op qwen3_next_rms_norm --candidate cuda --backend-profile cuda_bf16 --hidden 2048 --head-dim 128
-"$PY" scripts/check_gradient_invariance.py --manifest "$QWEN3_NEXT_NORM_MANIFEST" \
-  --op qwen3_next_rms_norm --candidate cuda --backend-profile cuda_bf16 --hidden 2048 --head-dim 128
-"$PY" scripts/check_forward_invariance.py --manifest "$QWEN3_NEXT_NORM_MANIFEST" \
-  --op rms_norm_gated --candidate cuda --backend-profile cuda_bf16 --hidden 2048 --head-dim 128
-"$PY" scripts/check_gradient_invariance.py --manifest "$QWEN3_NEXT_NORM_MANIFEST" \
-  --op rms_norm_gated --candidate cuda --backend-profile cuda_bf16 --hidden 2048 --head-dim 128
+for op in qwen3_next_rms_norm rms_norm_gated; do
+  for gate in forward gradient; do
+    "$PY" "scripts/check_${gate}_invariance.py" \
+      --manifest rl_engine/testing/qwen3_next_norm_manifest.json \
+      --op "$op" --candidate cuda --backend-profile cuda_bf16 \
+      --hidden 2048 --head-dim 128
+  done
+done
+# Provider imports run in a separate process from framework-isolation tests.
+echo "[ws1-gtest] Qwen3-Next provider comparisons (required)"
+"$PY" -c 'import torch, vllm; assert torch.cuda.is_available(), "CUDA is required"'
+"$PY" -m pytest -q tests/check_qwen3_next_norm_providers.py tests/check_gdn_recurrent_golden.py

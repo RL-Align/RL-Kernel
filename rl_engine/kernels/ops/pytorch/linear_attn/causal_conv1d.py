@@ -6,42 +6,22 @@
 The trainer-side reference for ``causal_conv1d_update``, which vLLM calls once
 per decode token before the Gated DeltaNet recurrence.
 
-Semantics were established by differential testing against the provider rather
-than transcribed, and the accumulation order matters:
+The incoming token is rounded to the cache dtype. Products are rounded in
+operand dtype before sequential FP32 accumulation, starting from bias (or zero).
+This matters for BF16 caches: promoting operands before multiplication loses the
+provider's product rounding. Activation may still differ at transcendental ULP
+scale; this reference does not establish model-level bitwise equality.
 
-* ``x`` is cast to ``conv_state.dtype`` **before** anything else, so a bf16
-  conv cache rounds the incoming token (``causal_conv1d.py:1160``).
-* The window is ``[state[..., -(width-1):], x]``; the taps are accumulated
-  **sequentially in tap order**, ``acc = acc + win[t] * w[t]`` starting from
-  zero -- not a tree reduction and not an FMA. With an fp32 conv state this
-  reproduces the provider bitwise; a tree sum does not.
-* Bias and the activation are applied in fp32, with one cast on the way out to
-  the input's original dtype.
-* The new state is the window minus its oldest column.
-
-Measured against the provider on B200 (``conv_dim=8192``, ``W=4``, B up to 64):
-
-* **The rolled state is bitwise exact in every configuration**, fp32 and bf16
-  cache alike -- ``max|diff| = 0``. That is the part the next token consumes,
-  so the recurrence carries no error from here.
-* With an **fp32** conv state the output is bitwise on all but a handful of
-  elements (15 of 524288 at B=64), the residual being fp32 ULP.
-* With a **bf16** conv state the output agrees on ~63% of elements, every
-  disagreement exactly one bf16 ULP.
-
-The bf16 output gap is a rounding-path difference, not a semantic one: none of
-accumulate-in-bf16, bias-in-bf16 or activation-in-bf16 reproduces the provider,
-so where it rounds is left unresolved rather than guessed at. An fp32 conv state
-is what an exactness claim should use anyway -- the same conclusion the
-recurrent state reaches in :mod:`.gated_delta_rule`.
 """
 
 from __future__ import annotations
 
 import torch
-import torch.nn.functional as F
 
-from rl_engine.kernels.ops.pytorch.linear_attn.gated_delta_rule import NULL_BLOCK_ID
+from rl_engine.kernels.ops.pytorch.linear_attn.gated_delta_rule import (
+    NULL_BLOCK_ID,
+    _validate_state_indices,
+)
 
 __all__ = ["CausalConv1dUpdateOp"]
 
@@ -154,6 +134,21 @@ class CausalConv1dUpdateOp:
         # The "SD" layout stores (state_len, dim); the kernels want (dim, state_len).
         state = conv_state if dim_first else conv_state.transpose(-1, -2)
         dim, tail = state.shape[-2], state.shape[-1]
+        if weight.ndim != 2 or dim <= 0 or weight.shape[-1] <= 0:
+            raise ValueError("weight must be 2-D [dim, W] with positive dimensions")
+        if x.shape[1] != dim:
+            raise ValueError("x and conv_state must have the same dim")
+        _validate_state_indices(conv_state_indices, x.shape[0], state.shape[0], x.device)
+        for name, tensor in (
+            ("x", x),
+            ("conv_state", conv_state),
+            ("weight", weight),
+            ("bias", bias),
+        ):
+            if tensor is not None and (tensor.device != x.device or not tensor.is_floating_point()):
+                raise ValueError(f"{name} must be floating point on the input device")
+        if bias is not None and bias.shape != (dim,):
+            raise ValueError("bias must have shape [dim]")
         width = weight.shape[-1]
         if weight.shape[0] != dim:
             raise ValueError(f"weight must be [dim, W] with dim={dim}, got {tuple(weight.shape)}")
@@ -173,16 +168,15 @@ class CausalConv1dUpdateOp:
         token = x[rows].to(conv_state.dtype)
         window = torch.cat([state[blocks], token.unsqueeze(-1)], dim=-1)  # [R, dim, W]
 
-        # Sequential tap accumulation from zero, in fp32. A tree sum over the
-        # same four terms gives a different last bit and does NOT match.
+        # Match the provider's product rounding and bias-before-taps order.
         acc = torch.zeros(len(rows), dim, dtype=torch.float32, device=x.device)
-        w32 = weight.float()
-        for tap in range(width):
-            acc = acc + window[..., tap].float() * w32[:, tap].unsqueeze(0)
         if bias is not None:
             acc = acc + bias.float()
+        for tap in range(width):
+            product = window[..., tap] * weight[:, tap].unsqueeze(0)
+            acc = acc + product.float()
         if activation in ("silu", "swish"):
-            acc = F.silu(acc)
+            acc = acc / (1.0 + torch.exp(-acc))
 
         out[rows] = acc
         rolled = window[..., 1:]

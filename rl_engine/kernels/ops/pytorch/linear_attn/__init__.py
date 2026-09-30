@@ -3,13 +3,11 @@
 
 """Linear-attention operators (Gated DeltaNet and friends)."""
 
-from rl_engine.kernels.ops.pytorch.linear_attn.causal_conv1d import (
-    CausalConv1dUpdateOp,
-)
+from rl_engine.kernels.ops.pytorch.linear_attn.causal_conv1d import CausalConv1dUpdateOp
 from rl_engine.kernels.ops.pytorch.linear_attn.gated_delta_rule import (
-    GatedDeltaRuleRecurrentStepOp,
     NULL_BLOCK_ID,
     SOFTPLUS_THRESHOLD,
+    GatedDeltaRuleRecurrentStepOp,
 )
 
 __all__ = [
