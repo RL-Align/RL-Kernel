@@ -47,7 +47,10 @@ SLIDING_LAYER_SUFFIXES = (
     "residual_mlp",
     "layer_scalar",
 )
-FULL_LAYER_SUFFIXES = tuple(s for s in SLIDING_LAYER_SUFFIXES if s != "v_proj")
+# Full-attention layers project K and V once: kv_proj replaces the k_proj/v_proj pair.
+FULL_LAYER_SUFFIXES = tuple(
+    "kv_proj" if s == "k_proj" else s for s in SLIDING_LAYER_SUFFIXES if s != "v_proj"
+)
 FULL_LAYERS = tuple(range(5, 60, 6))
 
 # Projection of per-layer node suffixes onto the manifest's coarse norm_residual_order.
@@ -65,6 +68,7 @@ _COARSE_BLOCK = {
             "rope_q",
             "k_proj",
             "v_proj",
+            "kv_proj",
             "k_norm",
             "rope_k",
             "v_norm",
@@ -117,19 +121,43 @@ def test_layer_types_follow_period_six_schedule(spec):
     assert spec.layer_type(5) == FULL_ATTENTION
 
 
-def test_sliding_and_full_layers_differ_only_in_v_proj(spec):
+def test_sliding_and_full_layers_differ_only_in_kv_projection(spec):
     names = spec.node_names()
     assert _layer_suffixes(names, 0) == SLIDING_LAYER_SUFFIXES
     assert _layer_suffixes(names, 5) == FULL_LAYER_SUFFIXES
     for layer in range(60):
         expected = FULL_LAYER_SUFFIXES if layer in FULL_LAYERS else SLIDING_LAYER_SUFFIXES
         assert _layer_suffixes(names, layer) == expected, layer
-    with pytest.raises(KeyError, match="no v_proj"):
-        spec.node_kind("layers.5.v_proj")
     with pytest.raises(KeyError, match="unknown node"):
         spec.node_kind("layers.0.nonexistent")
     with pytest.raises(KeyError, match="unknown node"):
         spec.node_kind("layers.0.attn.extra")
+
+
+def test_full_attention_layers_project_k_and_v_once(spec):
+    """K=V: one projection node feeds k_norm (then RoPE) and v_norm; there is no v_proj."""
+    names = spec.node_names()
+    for layer in range(60):
+        prefix = f"layers.{layer}."
+        suffixes = _layer_suffixes(names, layer)
+        if layer in FULL_LAYERS:
+            assert spec.node_kind(prefix + "kv_proj") == "det_gemm", layer
+            assert prefix + "k_proj" not in names and prefix + "v_proj" not in names, layer
+            source = "kv_proj"
+        else:
+            assert spec.node_kind(prefix + "k_proj") == "det_gemm", layer
+            assert spec.node_kind(prefix + "v_proj") == "det_gemm", layer
+            assert prefix + "kv_proj" not in names, layer
+            source = "v_proj"
+        # The V branch reads the raw projection; k_norm and rope_k act on the K branch only.
+        order = [suffixes.index(s) for s in (source, "k_norm", "rope_k", "v_norm", "attn")]
+        assert order == sorted(order), layer
+    with pytest.raises(KeyError, match="as kv_proj"):
+        spec.node_kind("layers.5.k_proj")
+    with pytest.raises(KeyError, match="as kv_proj"):
+        spec.node_kind("layers.5.v_proj")
+    with pytest.raises(KeyError, match="separate k_proj and v_proj"):
+        spec.node_kind("layers.0.kv_proj")
 
 
 def test_every_node_has_a_kind_and_every_kind_is_used(spec):

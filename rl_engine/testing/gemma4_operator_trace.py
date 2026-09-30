@@ -1,8 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""Gemma 4 per-layer operator trace.
-"""
+"""Gemma 4 per-layer operator trace."""
 
 from __future__ import annotations
 
@@ -209,13 +208,18 @@ class Gemma4Spec:
                 "q_proj",
                 "k_proj",
                 "v_proj",
+                "kv_proj",
                 "o_proj",
                 "gate_proj",
                 "up_proj",
                 "down_proj",
             ):
-                if suffix == "v_proj" and not self.has_v_proj(layer_type):
-                    raise KeyError(f"{node_name!r}: full-attention layers have no v_proj")
+                if suffix in ("k_proj", "v_proj") and not self.has_v_proj(layer_type):
+                    raise KeyError(
+                        f"{node_name!r}: full-attention layers project K and V once, as kv_proj"
+                    )
+                if suffix == "kv_proj" and self.has_v_proj(layer_type):
+                    raise KeyError(f"{node_name!r}: sliding layers have separate k_proj and v_proj")
                 return "det_gemm"
             if suffix == "gelu_tanh_mul":
                 return "gelu_tanh_mul"
@@ -234,9 +238,12 @@ class Gemma4Spec:
 
 
 def _layer_node_suffixes(spec: Gemma4Spec, layer_type: str) -> tuple[str, ...]:
-    attention = ["q_proj", "q_norm", "rope_q", "k_proj"]
+    attention = ["q_proj", "q_norm", "rope_q"]
     if spec.has_v_proj(layer_type):
-        attention.append("v_proj")
+        attention.extend(["k_proj", "v_proj"])
+    else:
+        # One projection (k_proj.weight) feeds both K, via k_norm and RoPE, and V, via v_norm.
+        attention.append("kv_proj")
     attention.extend(["k_norm", "rope_k", "v_norm", "attn", "o_proj"])
     return (
         "input_layernorm",
