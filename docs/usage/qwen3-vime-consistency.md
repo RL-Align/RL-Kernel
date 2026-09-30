@@ -242,7 +242,7 @@ Activate the existing ROCm environment and select the machine profile once.
 The supplied profile describes the isolated MI300X experiment checkouts; copy
 it and edit `paths` for another installation. All four companion checkouts
 (RL-Kernel, VIME, Megatron and vLLM) must include the ROCm integration patches.
-The [companion patch bundle](https://github.com/RL-Align/RL-Kernel/blob/main/examples/vime_rocm_attention_ablation/companion_patches/README.md)
+The [companion patch bundle](../../examples/vime_rocm_attention_ablation/companion_patches/README.md)
 records exact bases, patch hashes and validation scope.
 
 ```bash
@@ -343,5 +343,5 @@ Ray API addresses are not reasons to edit a script.
 - **A run directory already exists:** choose a new `--run-id`. Run directories
   are append-only and are never overwritten.
 
-The long-form [reproduction runbook](https://github.com/RL-Align/RL-Kernel/blob/main/examples/vime_qwen3_8b_tp4_cp2_200/REPRODUCTION.md)
+The long-form [reproduction runbook](../../examples/vime_qwen3_8b_tp4_cp2_200/REPRODUCTION.md)
 remains the audit reference for historical experiments and manual recovery.
