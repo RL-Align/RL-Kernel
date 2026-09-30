@@ -2,7 +2,6 @@
 name: ws1-single-card-kernel
 description: Use when writing a new WS1 single-card kernel operator in this repo (rl-kernel) - PyTorch golden first, then CUDA, then ROCm, then Ascend; gtest registration; PR with exact pytest/gtest commands and results; deterministic backward when the op needs one. The Ascend section is battle-tested; CUDA/ROCm sections are placeholders.
 ---
-
 # WS1 Single-Card Kernel Workflow
 
 Follow this workflow when adding a new operator (rmsnorm / embedding / lm_head / logp /
@@ -41,6 +40,25 @@ fixed, as are the registration and PR deliverable requirements.
 (Placeholder — to be filled in.)
 
 ## Ascend (battle-tested workflow)
+
+### Ascend C sub-skills (curated from cannbot-skills)
+
+Deep-dive companions to this section (English, under `ascendc_skills/`), adapted to
+this repo — operator development and optimization only. Load on demand:
+
+| When                                                                         | Sub-skill                                                                                                                   |
+| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Before writing a new `.asc` kernel / designing tiling                       | [ascendc-kernel-dev](ascendc_skills/ascendc-kernel-dev/SKILL.md) — programming model, kernel skeleton, tiling four-elements |
+| Using a specific API (DataCopy/Cast/flags/repeat limits, API blacklist)      | [ascendc-api-best-practices](ascendc_skills/ascendc-api-best-practices/SKILL.md)                                             |
+| Performance tuning (must preserve determinism)                               | [ascendc-perf-optimize](ascendc_skills/ascendc-perf-optimize/SKILL.md)                                                       |
+
+Source: cannbot-skills (https://gitcode.com/cann/cannbot-skills). Debugging topics
+(sync audits, precision/crash/runtime debugging) are intentionally not duplicated
+here — contributors can obtain them from the cannbot-skills repo (the `ascendc-*`
+skills under `ops/`): clone it and copy/symlink those skill directories into the
+agent's skill search path (e.g. `~/.agents/skills/`), then invoke
+`ascendc-sync-audit` / `ascendc-precision-debug` / `ascendc-crash-debug` /
+`ascendc-runtime-debug` directly when the deep references/scripts are needed.
 
 ### Branch and PR conventions
 
@@ -113,6 +131,7 @@ Classify the op BEFORE writing the PR:
   read-only; look up rows by op_class x dtype.
 
 Known NPU-side golden gotchas (check before writing tests):
+
 - NPU `torch.mv` **rejects bf16** → golden references must go through the
   `forward_fp32` paths.
 - The gtest `linear_logp` forward comparison is unwinnable even for the CUDA
@@ -145,8 +164,7 @@ Known NPU-side golden gotchas (check before writing tests):
   so the instruction sequence depends only on the shape, never on batch layout or
   block assignment (the foundation of batch invariance).
 - **Scalar math in the kernel**: the scalar unit has no exp/log → use a padded
-  8-element vector `Exp`/`Log` (`SetValue → S_V flag → vector op → V_S wait →
-  GetValue`).
+  8-element vector `Exp`/`Log` (`SetValue → S_V flag → vector op → V_S wait → GetValue`).
 - **Output staging**: `SetValue` into a UB scalar buffer, `S_MTE3` flag, then
   `DataCopyPad` out to GM; drain with `MTE3_S` after each row so the next row does
   not overwrite the staging area.
@@ -199,6 +217,7 @@ cuBLAS/torch.matmul**. Priority order:
   `type(op).__name__` assertion.
 
 Test bugs already hit (check before writing new tests):
+
 - Under class-level `parametrize`, every method must take the `dtype` argument —
   move tests that don't into their own class.
 - Batch-comparison tests must **reuse the same weight** (regenerating with the same
