@@ -163,6 +163,7 @@ class Qwen3NextRMSNormCudaOp(RMSNormCudaOp):
 # Gated RMSNorm (Qwen3-Next GDN block)
 # --------------------------------------------------------------------------- #
 
+
 def _require_cuda_symbols(what: str, *names: str) -> None:
     """Raise when the compiled kernels backing ``what`` are missing.
 
@@ -225,9 +226,9 @@ class RMSNormGatedCuda(torch.autograd.Function):
         assert x.dim() == 2, "x must be [T, H]"
         assert weight.dim() == 1, "weight must be [H]"
         assert gate.shape == x.shape, "gate must match x"
-        assert _EXT_AVAILABLE and hasattr(_C, "rmsnorm_gated_forward"), (
-            "Gated RMSNorm CUDA extension is unavailable. Rebuild with csrc/cuda/rmsnorm.cu."
-        )
+        assert _EXT_AVAILABLE and hasattr(
+            _C, "rmsnorm_gated_forward"
+        ), "Gated RMSNorm CUDA extension is unavailable. Rebuild with csrc/cuda/rmsnorm.cu."
 
         y, rstd = _C.rmsnorm_gated_forward(
             x, weight, gate, float(eps), float(weight_offset), int(activation)
@@ -246,9 +247,7 @@ class RMSNormGatedCuda(torch.autograd.Function):
         dy = grad_out.contiguous()
         act = ctx.activation
 
-        dx = _C.rmsnorm_gated_backward_dx(
-            dy, x, weight, gate, rstd, ctx.weight_offset, act
-        )
+        dx = _C.rmsnorm_gated_backward_dx(dy, x, weight, gate, rstd, ctx.weight_offset, act)
 
         # dweight: the gate is a per-element constant here, so the ungated row
         # contributions apply once dy carries act(gate).
@@ -259,9 +258,7 @@ class RMSNormGatedCuda(torch.autograd.Function):
         # dgate: row-local and reduction-free.
         normed = x.float() * rstd.unsqueeze(-1)
         scale = weight.float() + ctx.weight_offset
-        dgate = (dy.float() * normed * scale * _gate_activation_grad_fp32(gate, act)).to(
-            gate.dtype
-        )
+        dgate = (dy.float() * normed * scale * _gate_activation_grad_fp32(gate, act)).to(gate.dtype)
 
         record_backward(
             "rms_norm_gated",
@@ -321,6 +318,8 @@ class Qwen3NextRMSNormGatedCudaOp:
         return self.forward(x, weight, gate, eps=eps)
 
     def forward(self, x, weight, gate, *, eps=1e-6):
+        if gate.shape != x.shape:
+            raise ValueError(f"gate must match x, got {tuple(gate.shape)} vs {tuple(x.shape)}")
         hidden = x.shape[-1]
         x_2d = x.contiguous().view(-1, hidden)
         gate_2d = gate.contiguous().view(-1, hidden)
@@ -335,9 +334,21 @@ class Qwen3NextRMSNormGatedCudaOp:
         return y_2d.view_as(x)
 
     def parameter_vjp_contributions_fp32(self, *, x, weight, gate, grad_output, eps=1e-6):
-        del weight
-        x32 = x.float()
-        rstd = torch.rsqrt(x32.square().mean(dim=-1) + float(eps))
+        if gate.shape != x.shape:
+            raise ValueError(f"gate must match x, got {tuple(gate.shape)} vs {tuple(x.shape)}")
+        hidden = x.shape[-1]
         act = _GATE_ACTIVATIONS[self.activation]
-        rows = grad_output.float() * _gate_activation_fp32(gate, act) * x32 * rstd.unsqueeze(-1)
+        _, rstd = _C.rmsnorm_gated_forward(
+            x.contiguous().reshape(-1, hidden),
+            weight.contiguous(),
+            gate.contiguous().reshape(-1, hidden),
+            float(eps),
+            float(self.weight_offset),
+            act,
+        )
+        rows = rmsnorm_dweight_rows_fp32(
+            x,
+            grad_output.float() * _gate_activation_fp32(gate, act),
+            rstd=rstd.reshape(x.shape[:-1]),
+        )
         return {"weight": rows}

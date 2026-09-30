@@ -47,11 +47,15 @@ required tensor, so it cannot stand in for one.
 
 | Argument | Shape | Dtype | Requirements |
 | --- | --- | --- | --- |
-| `x` | `[..., H]` | fp32 / bf16 / fp16 | contiguous on the CUDA path |
-| `weight` | `[H]` | matches `x` | plain, NOT zero-centred |
-| `gate` | same as `x` | same as `x` | shape and dtype are enforced |
+| `x` | `[..., H]` | fp32 / bf16 / fp16 | H > 0; wrapper makes contiguous copies |
+| `weight` | `[H]` | matches `x` or fp32 | plain, NOT zero-centred |
+| `gate` | same as `x` | same as `x` | shape, dtype and device must match before flattening |
 | `eps` | scalar | float | `1e-6` for Qwen3-Next |
 | `activation` | — | `"silu"`/`"swish"`/`"sigmoid"` | anything else is rejected |
+
+All tensors must share a device. Low-level CUDA bindings require contiguous
+2-D inputs, and validate backward gradient dtype and FP32 statistics. Empty
+batches are supported by the bindings.
 
 Only `norm_before_gate=True` and `group_size=None` are implemented — the single
 configuration vLLM's GDN block constructs. Other configurations fail closed rather

@@ -389,6 +389,7 @@ void rmsnorm_forward_cuda(
     // device, which need not be x's.
     const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
     int T = x.size(0);
+    if (T == 0) return;
     int H = x.size(1);
     int threads = choose_threads(H);
     size_t smem = threads * sizeof(float);
@@ -411,6 +412,7 @@ void rmsnorm_forward_cuda(
             );
         });
     });
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 
@@ -424,6 +426,7 @@ void rmsnorm_backward_dx_cuda(
 ) {
     const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
     int T = x.size(0);
+    if (T == 0) return;
     int H = x.size(1);
     int threads = choose_threads(H);
     size_t smem = threads * sizeof(float);
@@ -446,6 +449,7 @@ void rmsnorm_backward_dx_cuda(
             );
         });
     });
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 
@@ -459,7 +463,9 @@ void rmsnorm_gated_forward_cuda(
     double weight_offset,
     int64_t activation
 ) {
+    const c10::cuda::CUDAGuard device_guard(x.device());
     int T = x.size(0);
+    if (T == 0) return;
     int H = x.size(1);
     int threads = choose_threads(H);
     size_t smem = threads * sizeof(float);
@@ -483,6 +489,7 @@ void rmsnorm_gated_forward_cuda(
             }
         });
     });
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 
@@ -496,7 +503,9 @@ void rmsnorm_gated_backward_dx_cuda(
     double weight_offset,
     int64_t activation
 ) {
+    const c10::cuda::CUDAGuard device_guard(x.device());
     int T = x.size(0);
+    if (T == 0) return;
     int H = x.size(1);
     int threads = choose_threads(H);
     size_t smem = threads * sizeof(float);
@@ -520,6 +529,7 @@ void rmsnorm_gated_backward_dx_cuda(
             }
         });
     });
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void rmsnorm_backward_partial_dw_cuda(
@@ -531,6 +541,7 @@ void rmsnorm_backward_partial_dw_cuda(
 ) {
     const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
     int T = x.size(0);
+    if (T == 0) return;
     int H = x.size(1);
 
     int chunks = (T + RMSNORM_DW_ROWS_PER_CHUNK - 1) / RMSNORM_DW_ROWS_PER_CHUNK;
@@ -550,6 +561,7 @@ void rmsnorm_backward_partial_dw_cuda(
             H
         );
     });
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 
@@ -572,6 +584,7 @@ void rmsnorm_backward_reduce_dw_cuda(
         chunks,
         H
     );
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 #if !defined(USE_ROCM)

@@ -315,6 +315,24 @@ static void rmsnorm_check_input(const torch::Tensor& x, const char* name) {
   TORCH_CHECK(x.is_contiguous(), name, " must be contiguous");
 }
 
+static void rmsnorm_check_weight(const torch::Tensor& x, const torch::Tensor& weight) {
+  TORCH_CHECK(x.dim() == 2 && x.size(1) > 0, "x must be 2D with positive hidden size");
+  TORCH_CHECK(x.scalar_type() == torch::kFloat32 || x.scalar_type() == torch::kFloat16 ||
+              x.scalar_type() == torch::kBFloat16, "x must be float32, float16 or bfloat16");
+  TORCH_CHECK(weight.dim() == 1 && weight.size(0) == x.size(1), "weight must be [H]");
+  TORCH_CHECK(weight.device() == x.device(), "weight must be on the same device as x");
+  TORCH_CHECK(weight.scalar_type() == x.scalar_type() || weight.scalar_type() == torch::kFloat32,
+              "weight must have x dtype or float32");
+}
+
+static void rmsnorm_check_backward(const torch::Tensor& dy, const torch::Tensor& x,
+                                   const torch::Tensor& rstd) {
+  TORCH_CHECK(dy.device() == x.device() && rstd.device() == x.device(),
+              "dy and rstd must be on the same device as x");
+  TORCH_CHECK(dy.scalar_type() == x.scalar_type(), "dy must have the same dtype as x");
+  TORCH_CHECK(rstd.scalar_type() == torch::kFloat32, "rstd must be float32");
+}
+
 std::vector<torch::Tensor> rmsnorm_forward(
   torch::Tensor x,
   torch::Tensor weight,
@@ -323,6 +341,7 @@ std::vector<torch::Tensor> rmsnorm_forward(
 {
   rmsnorm_check_input(x, "x");
   rmsnorm_check_input(weight, "weight");
+  rmsnorm_check_weight(x, weight);
 
   TORCH_CHECK(x.dim() == 2, "x must be 2D [T, H]");
   TORCH_CHECK(weight.dim() == 1, "weight must be 1D [H]");
@@ -347,7 +366,9 @@ torch::Tensor rmsnorm_backward_dx(
   rmsnorm_check_input(dy, "dy");
   rmsnorm_check_input(x, "x");
   rmsnorm_check_input(weight, "weight");
+  rmsnorm_check_weight(x, weight);
   rmsnorm_check_input(rstd, "rstd");
+  rmsnorm_check_backward(dy, x, rstd);
 
   TORCH_CHECK(dy.sizes() == x.sizes(), "dy and x must have same shape");
   TORCH_CHECK(x.dim() == 2, "x must be 2D [T, H]");
@@ -370,7 +391,9 @@ static void rmsnorm_gated_check(
 {
   rmsnorm_check_input(x, "x");
   rmsnorm_check_input(weight, "weight");
+  rmsnorm_check_weight(x, weight);
   rmsnorm_check_input(gate, "gate");
+  TORCH_CHECK(gate.device() == x.device(), "gate must be on the same device as x");
 
   TORCH_CHECK(x.dim() == 2, "x must be 2D [T, H]");
   TORCH_CHECK(weight.dim() == 1, "weight must be 1D [H]");
@@ -417,6 +440,7 @@ torch::Tensor rmsnorm_gated_backward_dx(
   rmsnorm_gated_check(x, weight, gate, activation);
   rmsnorm_check_input(dy, "dy");
   rmsnorm_check_input(rstd, "rstd");
+  rmsnorm_check_backward(dy, x, rstd);
 
   TORCH_CHECK(dy.sizes() == x.sizes(), "dy must have the same shape as x");
   TORCH_CHECK(rstd.dim() == 1 && rstd.size(0) == x.size(0), "rstd must be [T]");
@@ -438,6 +462,7 @@ torch::Tensor rmsnorm_backward_dw(
   rmsnorm_check_input(dy, "dy");
   rmsnorm_check_input(x, "x");
   rmsnorm_check_input(rstd, "rstd");
+  rmsnorm_check_backward(dy, x, rstd);
   rmsnorm_check_input(mask, "mask");
 
   TORCH_CHECK(dy.sizes() == x.sizes(), "dy and x must have same shape");
@@ -445,6 +470,8 @@ torch::Tensor rmsnorm_backward_dw(
   TORCH_CHECK(rstd.dim() == 1, "rstd must be 1D [T]");
   TORCH_CHECK(mask.dim() == 1, "mask must be 1D [T]");
   TORCH_CHECK(mask.scalar_type() == torch::kBool, "mask must be bool");
+  TORCH_CHECK(mask.device() == x.device(), "mask must be on the same device as x");
+  TORCH_CHECK(x.size(1) > 0, "hidden size must be positive");
   TORCH_CHECK(rstd.size(0) == x.size(0), "rstd.size(0) must equal x.size(0)");
   TORCH_CHECK(mask.size(0) == x.size(0), "mask.size(0) must equal x.size(0)");
 

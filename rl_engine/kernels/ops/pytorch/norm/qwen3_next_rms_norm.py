@@ -113,6 +113,8 @@ class Qwen3NextRMSNormGatedOp:
                 f"gate must match x, got tuple(gate.shape)={tuple(gate.shape)} "
                 f"vs tuple(x.shape)={tuple(x.shape)}"
             )
+        if gate.dtype != x.dtype or gate.device != x.device:
+            raise ValueError("gate must have the same dtype and device as x")
         x_f = x.float()
         rstd = shape_invariant_rstd(x_f, float(eps)).unsqueeze(-1)
         return x_f * rstd

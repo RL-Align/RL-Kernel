@@ -535,10 +535,7 @@ def test_cuda_gated_zero_gate_zeroes_output():
 
 @requires_cuda_gated
 def test_cuda_gated_unit_weight_is_plain_norm_times_silu():
-    from rl_engine.kernels.ops.cuda.norm.rmsnorm import (
-        Qwen3NextRMSNormGatedCudaOp,
-        rmsnorm_cuda,
-    )
+    from rl_engine.kernels.ops.cuda.norm.rmsnorm import Qwen3NextRMSNormGatedCudaOp, rmsnorm_cuda
 
     x, _, gate = _gated_cuda_inputs()
     ones = torch.ones(_HEAD_V_DIM, device="cuda", dtype=x.dtype)
@@ -549,7 +546,7 @@ def test_cuda_gated_unit_weight_is_plain_norm_times_silu():
 
 @requires_cuda_gated
 def test_cuda_gated_sigmoid_activation():
-    from rl_engine.kernels.ops.cuda.norm.rmsnorm import rmsnorm_gated_cuda, rmsnorm_cuda
+    from rl_engine.kernels.ops.cuda.norm.rmsnorm import rmsnorm_cuda, rmsnorm_gated_cuda
 
     x, w, gate = _gated_cuda_inputs()
     got = rmsnorm_gated_cuda(x, w, gate, eps=_EPS, activation="sigmoid").float()
@@ -617,20 +614,35 @@ def test_cuda_gated_weight_offset_is_applied_in_fp32():
 
 
 @requires_cuda_gated
-def test_cuda_gated_parameter_vjp_contributions_match_the_fold():
-    """The harness hook must return the same rows the backward folds."""
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("activation", ["silu", "sigmoid"])
+def test_cuda_gated_parameter_vjp_contributions_match_the_fold(dtype, activation):
+    """Compare the harness hook with actual autograd, including its CUDA rstd."""
+    from rl_engine.kernels.ops.cuda.norm.rmsnorm import (
+        Qwen3NextRMSNormGatedCudaOp,
+        _fold_dweight_rows,
+    )
+
+    x, w, gate = (t.to(dtype) for t in _gated_cuda_inputs(rows=512))
+    w = w.float().requires_grad_()
+    dy = torch.randn_like(x)
+    op = Qwen3NextRMSNormGatedCudaOp()
+    op.activation = activation
+    op.forward(x, w, gate, eps=_EPS).backward(dy)
+    rows = op.parameter_vjp_contributions_fp32(x=x, weight=w, gate=gate, grad_output=dy, eps=_EPS)[
+        "weight"
+    ]
+    assert torch.equal(_fold_dweight_rows(rows, torch.float32), w.grad)
+
+
+@requires_cuda_gated
+def test_cuda_gated_wrapper_rejects_equal_numel_wrong_shape():
     from rl_engine.kernels.ops.cuda.norm.rmsnorm import Qwen3NextRMSNormGatedCudaOp
 
-    x, w, gate = _gated_cuda_inputs(rows=64)
-    x, w, gate = x.float(), w.float(), gate.float()
-    dy = torch.randn_like(x)
-
-    rows = Qwen3NextRMSNormGatedCudaOp().parameter_vjp_contributions_fp32(
-        x=x, weight=w, gate=gate, grad_output=dy, eps=_EPS
-    )["weight"]
-    rstd = torch.rsqrt(x.square().mean(dim=-1) + _EPS)
-    expected = dy * F.silu(gate) * x * rstd.unsqueeze(-1)
-    torch.testing.assert_close(rows, expected, atol=1e-6, rtol=1e-6)
+    x, w, gate = _gated_cuda_inputs(rows=6)
+    x = x.reshape(2, 3, -1)
+    with pytest.raises(ValueError, match="gate must match x"):
+        Qwen3NextRMSNormGatedCudaOp().forward(x, w, gate)
 
 
 @requires_cuda_gated
@@ -764,3 +776,47 @@ def test_zero_centred_cuda_constructor_rejects_missing_extension(monkeypatch):
     monkeypatch.setattr(rmsnorm, "_C", None)
     with pytest.raises(RuntimeError, match="requires the compiled"):
         rmsnorm.Qwen3NextRMSNormCudaOp()
+
+
+@requires_cuda_gated
+@pytest.mark.parametrize(
+    "fault", ["weight_shape", "weight_dtype", "gate_dtype", "dy_dtype", "rstd_dtype"]
+)
+def test_gated_extension_rejects_invalid_tensor_contract(fault):
+    from rl_engine import _C
+
+    x, w, gate = _gated_cuda_inputs(rows=8)
+    dy = torch.ones_like(x)
+    rstd = torch.ones(8, device=x.device, dtype=torch.float32)
+    if fault == "weight_shape":
+        w = w[:-1]
+    elif fault == "weight_dtype":
+        w = w.half()
+    elif fault == "gate_dtype":
+        gate = gate.float()
+    elif fault == "dy_dtype":
+        dy = dy.float()
+    else:
+        rstd = rstd.bfloat16()
+    with pytest.raises(RuntimeError):
+        _C.rmsnorm_gated_backward_dx(dy, x, w, gate, rstd)
+
+
+@requires_cuda_gated
+def test_gated_extension_handles_empty_batch_and_nondefault_stream():
+    from rl_engine import _C
+
+    stream = torch.cuda.Stream()
+    with torch.cuda.stream(stream):
+        x, w, gate = _gated_cuda_inputs(rows=8)
+        actual, rstd = _C.rmsnorm_gated_forward(x, w, gate, _EPS)
+        dx = _C.rmsnorm_gated_backward_dx(torch.ones_like(x), x, w, gate, rstd)
+        empty, empty_rstd = _C.rmsnorm_gated_forward(x[:0], w, gate[:0], _EPS)
+        empty_dx = _C.rmsnorm_gated_backward_dx(x[:0], x[:0], w, gate[:0], empty_rstd)
+    stream.synchronize()
+    expected, expected_rstd = _C.rmsnorm_gated_forward(x, w, gate, _EPS)
+    expected_dx = _C.rmsnorm_gated_backward_dx(torch.ones_like(x), x, w, gate, expected_rstd)
+    assert torch.equal(actual, expected)
+    assert torch.equal(dx, expected_dx)
+    assert empty.shape == empty_dx.shape == (0, x.shape[-1])
+    assert empty_rstd.numel() == 0

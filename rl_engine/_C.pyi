@@ -269,6 +269,23 @@ def rmsnorm_backward_dx(
     rstd: torch.Tensor,
     weight_offset: float = ...,
 ) -> torch.Tensor: ...
+def rmsnorm_gated_forward(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    gate: torch.Tensor,
+    eps: float,
+    weight_offset: float = ...,
+    activation: int = ...,
+) -> list[torch.Tensor]: ...
+def rmsnorm_gated_backward_dx(
+    dy: torch.Tensor,
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    gate: torch.Tensor,
+    rstd: torch.Tensor,
+    weight_offset: float = ...,
+    activation: int = ...,
+) -> torch.Tensor: ...
 def rmsnorm_backward_dw(
     dy: torch.Tensor,
     x: torch.Tensor,
