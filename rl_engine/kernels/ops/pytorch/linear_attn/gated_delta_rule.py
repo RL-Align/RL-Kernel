@@ -104,7 +104,9 @@ def _l2_normalize(x: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
 
 def _softplus(x: torch.Tensor, threshold: float = SOFTPLUS_THRESHOLD) -> torch.Tensor:
     """The kernel's branched softplus; the branch matters for large ``a + dt_bias``."""
-    return torch.where(x <= threshold, torch.log1p(torch.exp(x)), x)
+    small = x <= threshold
+    safe = torch.where(small, x, torch.zeros_like(x))
+    return torch.where(small, torch.log1p(torch.exp(safe)), x)
 
 
 class GatedDeltaRuleRecurrentStepOp:

@@ -96,3 +96,11 @@ def test_conv_bf16_products_round_before_fp32_accumulation():
     )
     # The first exact product is 1.015686..., rounded to 1.015625 in BF16.
     assert out.item() == 0.0
+
+
+def test_softplus_large_branch_has_finite_gradient():
+    from rl_engine.kernels.ops.pytorch.linear_attn.gated_delta_rule import _softplus
+
+    x = torch.tensor([100.0, 21.0, 0.0], requires_grad=True)
+    _softplus(x).sum().backward()
+    assert torch.equal(x.grad, torch.tensor([1.0, 1.0, 0.5]))
