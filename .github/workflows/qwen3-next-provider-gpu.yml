@@ -5,11 +5,9 @@ on:
     branches: [main]
     paths:
       - "rl_engine/kernels/ops/**"
-      - "rl_engine/integrations/qwen3_next_gdn.py"
       - "rl_engine/testing/qwen3_next*"
       - "tests/check_*qwen3_next*.py"
       - "tests/check_gdn_recurrent_golden.py"
-      - "ci/run_qwen3_next_operator_gates.sh"
       - ".github/workflows/qwen3-next-provider-gpu.yml"
   workflow_dispatch:
 
