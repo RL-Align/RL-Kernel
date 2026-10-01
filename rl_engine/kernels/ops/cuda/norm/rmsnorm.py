@@ -182,8 +182,18 @@ def _require_cuda_symbols(what: str, *names: str) -> None:
         )
 
 
-#: Gate activations understood by the CUDA kernel, in binding order.
+#: Gate activations understood by the CUDA kernel, in binding order. ``swish`` is
+#: an alias for ``silu``, as in vLLM's GDN block, which maps ``output_gate_type``
+#: "swish" to "silu" before constructing ``RMSNormGated``.
 _GATE_ACTIVATIONS = {"silu": 0, "swish": 0, "sigmoid": 1}
+
+
+def _check_gate_activation(activation: str) -> int:
+    if activation not in _GATE_ACTIVATIONS:
+        raise ValueError(
+            f"activation must be one of {sorted(_GATE_ACTIVATIONS)}, got {activation!r}"
+        )
+    return _GATE_ACTIVATIONS[activation]
 
 
 def _gate_activation_fp32(gate: torch.Tensor, activation: int) -> torch.Tensor:
@@ -257,7 +267,10 @@ class RMSNormGatedCuda(torch.autograd.Function):
 
         # dgate: row-local and reduction-free.
         normed = x.float() * rstd.unsqueeze(-1)
-        scale = weight.float() + ctx.weight_offset
+        # Same guard as the kernels: an unconditional `+ 0.0` turns -0.0 weights into +0.0.
+        scale = weight.float()
+        if ctx.weight_offset != 0.0:
+            scale = scale + ctx.weight_offset
         dgate = (dy.float() * normed * scale * _gate_activation_grad_fp32(gate, act)).to(gate.dtype)
 
         record_backward(
@@ -280,13 +293,8 @@ def rmsnorm_gated_cuda(x, weight, gate, eps=1e-6, weight_offset=0.0, activation=
         y = rmsnorm_gated_cuda(x, weight, gate)
         y = rmsnorm_gated_cuda(x, weight, gate, activation="sigmoid")
     """
-    if activation not in _GATE_ACTIVATIONS:
-        raise ValueError(
-            f"activation must be one of {sorted(_GATE_ACTIVATIONS)}, got {activation!r}"
-        )
-    return RMSNormGatedCuda.apply(
-        x, weight, gate, eps, weight_offset, _GATE_ACTIVATIONS[activation]
-    )
+    act = _check_gate_activation(activation)
+    return RMSNormGatedCuda.apply(x, weight, gate, eps, weight_offset, act)
 
 
 class Qwen3NextRMSNormGatedCudaOp:
@@ -298,8 +306,11 @@ class Qwen3NextRMSNormGatedCudaOp:
     ``out = x * rstd * weight * silu(gate)``, every multiply in fp32 with a
     single cast at the store. The weight is plain, not zero-centred, matching
     vLLM's ``RMSNormGated`` with ``norm_before_gate=True`` and ``group_size=None``
-    -- which is exactly how the GDN block constructs it. Other configurations
-    are rejected rather than approximated.
+    -- which is how the GDN block constructs it. The op has no ``norm_before_gate``
+    or ``group_size`` parameter, so other configurations are not implemented.
+
+    ``activation`` is fixed at construction; the registry constructs the
+    released config's ``"silu"``.
     """
 
     backward_impl = "cuda_rmsnorm_gated_dx_declared_fp32_rowfold_dw"
@@ -307,9 +318,10 @@ class Qwen3NextRMSNormGatedCudaOp:
     #: The gated weight is plain; kept as an attribute so the surface matches
     #: the ungated op and a zero-centred variant stays one subclass away.
     weight_offset = 0.0
-    activation = "silu"
 
-    def __init__(self) -> None:
+    def __init__(self, activation: str = "silu") -> None:
+        _check_gate_activation(activation)
+        self.activation = activation
         _require_cuda_symbols(
             "Gated CUDA RMSNorm", "rmsnorm_gated_forward", "rmsnorm_gated_backward_dx"
         )

@@ -636,8 +636,7 @@ def test_cuda_gated_parameter_vjp_contributions_match_the_fold(dtype, activation
     x, w, gate = (t.to(dtype) for t in _gated_cuda_inputs(rows=512))
     w = w.float().requires_grad_()
     dy = torch.randn_like(x)
-    op = Qwen3NextRMSNormGatedCudaOp()
-    op.activation = activation
+    op = Qwen3NextRMSNormGatedCudaOp(activation=activation)
     op.forward(x, w, gate, eps=_EPS).backward(dy)
     rows = op.parameter_vjp_contributions_fp32(x=x, weight=w, gate=gate, grad_output=dy, eps=_EPS)[
         "weight"
@@ -682,6 +681,27 @@ def test_cuda_gated_rejects_bad_activation():
     x, w, gate = _gated_cuda_inputs(rows=8)
     with pytest.raises(ValueError, match="activation must be one of"):
         rmsnorm_gated_cuda(x, w, gate, eps=_EPS, activation="gelu")
+
+
+def test_gated_cuda_op_rejects_bad_activation_at_construction():
+    """The activation is validated before the extension check, so this runs on CPU."""
+    from rl_engine.kernels.ops.cuda.norm.rmsnorm import Qwen3NextRMSNormGatedCudaOp
+
+    with pytest.raises(ValueError, match="activation must be one of"):
+        Qwen3NextRMSNormGatedCudaOp(activation="gelu")
+
+
+@requires_cuda_gated
+def test_cuda_gated_swish_is_an_alias_for_silu():
+    """vLLM maps output_gate_type "swish" to "silu"; the alias must not select sigmoid."""
+    from rl_engine.kernels.ops.cuda.norm.rmsnorm import Qwen3NextRMSNormGatedCudaOp
+
+    x, w, gate = _gated_cuda_inputs(rows=64)
+    swish = Qwen3NextRMSNormGatedCudaOp(activation="swish").forward(x, w, gate, eps=_EPS)
+    silu = Qwen3NextRMSNormGatedCudaOp(activation="silu").forward(x, w, gate, eps=_EPS)
+    sigmoid = Qwen3NextRMSNormGatedCudaOp(activation="sigmoid").forward(x, w, gate, eps=_EPS)
+    assert torch.equal(swish, silu)
+    assert not torch.equal(swish, sigmoid)
 
 
 @requires_cuda_gated
@@ -844,3 +864,23 @@ def test_cuda_gated_signed_zero_weight_is_preserved(dtype):
     expected = x * weight
     bits = torch.int32 if dtype == torch.float32 else torch.int16
     assert torch.equal(actual.view(bits), expected.view(bits))
+
+
+@requires_cuda_gated
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+def test_cuda_gated_dgate_keeps_signed_zero_weight(dtype):
+    """dgate scales by the weight too, so it must not turn a -0.0 weight into +0.0.
+
+    dgate = dy * x * rstd * w * act'(gate); with dy, rstd, act'(1) > 0 its sign is
+    the sign of ``x * w``, zeros included.
+    """
+    from rl_engine.kernels.ops.cuda.norm.rmsnorm import rmsnorm_gated_cuda
+
+    x = torch.ones(2, 128, device="cuda", dtype=dtype)
+    x[1].neg_()
+    weight = torch.full((128,), -0.0, device="cuda", dtype=dtype)
+    gate = torch.ones_like(x).requires_grad_()
+    rmsnorm_gated_cuda(x, weight, gate).backward(torch.ones_like(x))
+    expected = x * weight
+    bits = torch.int32 if dtype == torch.float32 else torch.int16
+    assert torch.equal(gate.grad.view(bits), expected.view(bits))

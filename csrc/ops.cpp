@@ -343,10 +343,6 @@ std::vector<torch::Tensor> rmsnorm_forward(
   rmsnorm_check_input(weight, "weight");
   rmsnorm_check_weight(x, weight);
 
-  TORCH_CHECK(x.dim() == 2, "x must be 2D [T, H]");
-  TORCH_CHECK(weight.dim() == 1, "weight must be 1D [H]");
-  TORCH_CHECK(x.size(1) == weight.size(0), "x.size(1) must equal weight.size(0)");
-
   auto T = x.size(0);
   auto y = torch::empty_like(x);
   auto rstd = torch::empty({T}, x.options().dtype(torch::kFloat32));
@@ -371,8 +367,6 @@ torch::Tensor rmsnorm_backward_dx(
   rmsnorm_check_backward(dy, x, rstd);
 
   TORCH_CHECK(dy.sizes() == x.sizes(), "dy and x must have same shape");
-  TORCH_CHECK(x.dim() == 2, "x must be 2D [T, H]");
-  TORCH_CHECK(weight.dim() == 1, "weight must be 1D [H]");
   TORCH_CHECK(rstd.dim() == 1, "rstd must be 1D [T]");
   TORCH_CHECK(rstd.size(0) == x.size(0), "rstd.size(0) must equal x.size(0)");
 
@@ -394,10 +388,6 @@ static void rmsnorm_gated_check(
   rmsnorm_check_weight(x, weight);
   rmsnorm_check_input(gate, "gate");
   TORCH_CHECK(gate.device() == x.device(), "gate must be on the same device as x");
-
-  TORCH_CHECK(x.dim() == 2, "x must be 2D [T, H]");
-  TORCH_CHECK(weight.dim() == 1, "weight must be 1D [H]");
-  TORCH_CHECK(x.size(1) == weight.size(0), "x.size(1) must equal weight.size(0)");
   TORCH_CHECK(gate.sizes() == x.sizes(), "gate must have the same shape as x");
   TORCH_CHECK(
     gate.scalar_type() == x.scalar_type(),

@@ -273,6 +273,21 @@ def load_manifest(path: str | Path | None = None) -> WS1Manifest:
     return WS1Manifest(raw=raw, path=manifest_path)
 
 
+def workload_report(manifest: WS1Manifest) -> dict[str, Any]:
+    """The ``workload`` block the C3/C4 gate scripts attach to their JSON report.
+
+    ``full_model_evidence`` is whatever the manifest declares, and ``None`` when
+    it declares nothing.
+    """
+    return {
+        "workload_id": manifest.workload_id,
+        "scope": manifest.raw.get("scope", "qwen3_8b_dense"),
+        "fixture_identity_sha256": manifest.raw["fixture_identity_sha256"],
+        "model_id": manifest.model_identity["model_id"],
+        "full_model_evidence": manifest.raw.get("full_model_evidence"),
+    }
+
+
 def validate_manifest(raw: Mapping[str, Any]) -> None:
     """Hard-fail if any required C2 pin is missing or inconsistent."""
     missing = [k for k in _REQUIRED_TOP_LEVEL if k not in raw]

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 RL-Kernel Contributors
+
 """The norm workload cannot stand in for Dense or full-checkpoint evidence."""
 
 import copy

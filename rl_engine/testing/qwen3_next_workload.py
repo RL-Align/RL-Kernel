@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 RL-Kernel Contributors
+
 """Qwen3-Next norm-only C3/C4 workload, explicitly separate from the Dense chain."""
 
 from collections.abc import Mapping
