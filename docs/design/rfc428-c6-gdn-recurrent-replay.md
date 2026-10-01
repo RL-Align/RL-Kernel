@@ -48,7 +48,7 @@ explicitly set to `cuda` (`:516-519`). As a consequence the fused
 `_can_use_fused_gdn_mtp_decode` requires `gdn_decode_kernel == "cuda"` (`:1834`).
 This section is read from the source.
 
-`tests/check_qwen3_next_norm_providers.py` asserts both env defaults (`:124-131`). For
+`tests/check_qwen3_next_norm_providers.py` asserts both env defaults (`:129-142`). For
 `VLLM_ENABLE_FLA_PACKED_RECURRENT_DECODE` that is a useful guard: a vLLM bump that
 flips it fails loudly. For `VLLM_GDN_DECODE_KERNEL` it guards nothing for Qwen3-Next,
 because the interleaved layout, not the default, decides the kernel. Neither
@@ -75,7 +75,7 @@ Where the golden is **not** a transcription:
 
 - softplus: the kernel computes `tl.log(1.0 + tl.exp(x))` (`fused_recurrent.py:327`);
   the golden computes `torch.log1p(torch.exp(safe))`, where `safe` is `x` on the taken
-  branch (`gated_delta_rule.py:107-109`). These round differently.
+  branch (`gated_delta_rule.py:110-112`). These round differently.
 - The kernel's `exp`/`log` become `fast_expf`/`fast_logf` when `FLA_USE_FAST_OPS=1`
   (`third_party/flash_linear_attention/ops/op.py:16-25`). The golden models the
   default.
@@ -106,10 +106,10 @@ Mirrored rather than reinvented:
 | state block | not touched | not touched | not touched |
 
 A negative conv index is therefore inactive in the golden
-(`tests/test_gdn_state_contract.py:51-56`) but a real, out-of-range index to the conv
+(`tests/test_gdn_state_contract.py:54-59`) but a real, out-of-range index to the conv
 provider.
 
-Contractions use `_chunked_sum` (`gated_delta_rule.py:73-87`): fixed 32-wide chunks,
+Contractions use `_chunked_sum` (`gated_delta_rule.py:76-90`): fixed 32-wide chunks,
 so the reduction shape per row does not depend on the batch size, rather than
 `torch.matmul`, whose reduction order is unspecified. That is the argument for the
 L1 claim; L1 itself is established empirically by `test_golden_is_batch_invariant`.
