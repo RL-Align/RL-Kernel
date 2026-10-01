@@ -40,14 +40,19 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
 
       - name: Install runpodctl
+        # Pinned with its published checksum: a moving "latest" changes CLI
+        # behavior under CI without a commit here. To upgrade, set both values:
+        # sha256 = the runpodctl-linux-amd64 line of checksums_<ver>_sha256.txt
+        # in the release.
+        env:
+          RUNPODCTL_VERSION: v2.9.0
+          RUNPODCTL_SHA256: 06e6f54957db79d5cd9f1909a7f1d365076826751ba2f5df65d75dde43a64148
         run: |
-          wget -qO runpodctl https://github.com/runpod/runpodctl/releases/latest/download/runpodctl-linux-amd64
+          wget -qO runpodctl "https://github.com/runpod/runpodctl/releases/download/${RUNPODCTL_VERSION}/runpodctl-linux-amd64"
+          echo "${RUNPODCTL_SHA256}  runpodctl" | sha256sum -c -
           chmod +x runpodctl
           sudo mv runpodctl /usr/local/bin/runpodctl
           runpodctl version
-
-      - name: Configure runpodctl
-        run: runpodctl config --apiKey "${{ secrets.RUNPOD_API_KEY }}"
 
       - name: Setup SSH key
         run: |
