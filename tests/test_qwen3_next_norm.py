@@ -498,17 +498,27 @@ def test_cuda_gated_matches_golden_within_contract():
 
 
 @requires_cuda_gated
-def test_cuda_gated_rstd_is_bitwise_identical_to_plain_kernel():
+@pytest.mark.parametrize("offset", [0.0, 1.0])
+@pytest.mark.parametrize("activation", [0, 1], ids=["silu", "sigmoid"])
+@pytest.mark.parametrize("hidden", [_HEAD_V_DIM, 2048, 5120])
+@pytest.mark.parametrize(
+    "dtype", [torch.float32, torch.float16, torch.bfloat16], ids=["fp32", "fp16", "bf16"]
+)
+def test_cuda_gated_rstd_is_bitwise_identical_to_plain_kernel(dtype, hidden, activation, offset):
     """The gate must not perturb the normalization statistic.
 
     Same x, same rstd, bitwise -- otherwise the gate has leaked into the
-    reduction and the two kernels no longer share a contract.
+    reduction and the two kernels no longer share a contract. Both kernels
+    launch with ``choose_threads(H)``: H=128 runs 128 threads with one column
+    each, 2048 and 5120 run 512 threads with 4 and 10 serial columns each.
+    Each activation is its own template instantiation, and the offset is
+    applied only after the statistic, so neither it nor the gate may move it.
     """
     from rl_engine.kernels.ops.base import _C
 
-    x, w, gate = _gated_cuda_inputs()
-    _, rstd_gated = _C.rmsnorm_gated_forward(x, w, gate, _EPS, 0.0, 0)
-    _, rstd_plain = _C.rmsnorm_forward(x, w, _EPS, 0.0)
+    x, w, gate = _gated_cuda_inputs(hidden=hidden, dtype=dtype)
+    _, rstd_gated = _C.rmsnorm_gated_forward(x, w, gate, _EPS, offset, activation)
+    _, rstd_plain = _C.rmsnorm_forward(x, w, _EPS, offset)
     assert torch.equal(rstd_gated, rstd_plain)
 
 
