@@ -68,22 +68,25 @@ def _max_abs_diff(a: torch.Tensor, b: torch.Tensor) -> float:
     return (a.float() - b.float()).abs().max().item()
 
 
-def _git(*args: str) -> str:
+def _git(*args: str) -> str | None:
+    """Stripped stdout, or ``None`` if git is missing or the command fails."""
     try:
         return subprocess.run(
             ["git", *args], cwd=REPO_ROOT, capture_output=True, text=True, check=True
         ).stdout.strip()
-    except (OSError, subprocess.CalledProcessError) as exc:
-        return f"unavailable: {exc}"
+    except (OSError, subprocess.CalledProcessError):
+        return None
 
 
 def _provenance() -> dict[str, Any]:
     import triton
     import vllm
 
+    status = _git("status", "--porcelain")
     return {
+        # None means "unknown" (no git, or not a checkout), never "clean".
         "git_commit": _git("rev-parse", "HEAD"),
-        "git_dirty": bool(_git("status", "--porcelain")),
+        "git_dirty": None if status is None else bool(status),
         "python": platform.python_version(),
         "torch": torch.__version__,
         "triton": triton.__version__,
