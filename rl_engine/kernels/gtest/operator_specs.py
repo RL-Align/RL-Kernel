@@ -171,6 +171,24 @@ OP_SPECS = {
         },
         grad_input_names=("hidden", "weight"),
     ),
+    "attn_out_bias_gemm": OperatorSpec(
+        name="attn_out_bias_gemm",
+        op_class="reduction",
+        # Same-tree gold: the reference evaluates the frozen 32-leaf mid-split
+        # tree with explicit elementwise ops (no matmul), so the byte-for-byte
+        # bar from issue #386 is reached against THIS gold, not torch.matmul.
+        gold_path="rl_engine.kernels.ops.pytorch.linear.attn_out_bias_gemm."
+        "NativeAttnOutBiasGemmOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.kernels.ops.pytorch.linear.attn_out_bias_gemm."
+            "NativeAttnOutBiasGemmOp",
+            "triton": "rl_engine.kernels.ops.triton.linear.attn_out_bias_gemm."
+            "TritonAttnOutBiasGemmOp",
+            "cuda": "rl_engine.kernels.ops.cuda.linear.attn_out_bias_gemm." "CudaAttnOutBiasGemmOp",
+        },
+        grad_input_names=("x", "weight", "bias"),
+    ),
     "det_gemm": OperatorSpec(
         name="det_gemm",
         op_class="reduction",
