@@ -189,22 +189,41 @@ plateau, prefill/decode equality, or any bound on model logits.
 **Mixed decode-and-prefill steps (provider side).** The goldens target the
 decode-only path (§1). In a step that also holds a prefill, vLLM 0.30.0 sends the
 cached decode rows through `causal_conv1d_fn` and
-`fused_sigmoid_gating_delta_rule_update` instead, so in those steps neither golden
-matches what rollout runs. The two recurrent kernels do not agree bitwise. A
-measurement on B200 with Qwen3-Next TP1 shapes, driving the real
-`GDNAttentionMetadataBuilder.build()` and `_forward_core`, found the step's bf16
-output equal but the fp32 state different in 75,146 of 524,288 elements (8.8e-08
-relative). In 4 of 20 seeds the difference reached a bf16 output within the next 16
-decode steps. This was measured outside this change and is not yet published; treat it
-as a reported observation.
+`fused_sigmoid_gating_delta_rule_update` instead, so in those steps the recurrent
+golden does not target what rollout runs.
 
-vllm-project/vllm#49827, open and unmerged, would route mixed-step *recurrent*
-decodes through the packed kernel too, according to its description. It was
-validated on Qwen3.5 (non-interleaved), H100, TP1, and it does not change the conv
-path in mixed steps, which stays `causal_conv1d_fn`. Disabling
-`VLLM_ENABLE_FLA_PACKED_RECURRENT_DECODE` instead sends every decode row through
-`fused_sigmoid_gating_delta_rule_update`, and the recurrent golden's target would
-have to change.
+A measurement on B200 drove the real `GDNAttentionMetadataBuilder.build()` and
+`_forward_core` of **one standalone layer** built from the checkpoint's
+`config.json`. Its limits: parameters and cache were synthetic (no weights loaded); it
+ran in a single process, with no engine, scheduler or CUDA graph; and the test, not the
+scheduler, built the attention metadata (decode rows first). For one target decode
+request with an fp32 recurrent state, three prefill-bearing step compositions gave
+identical numbers:
+
+| head counts | step's bf16 output | fp32 state |
+|---|---|---|
+| TP1 (H=16, HV=32) | matched | 75,146 of 524,288 elements differ (8.8e-08 relative) |
+| TP4 per-rank (H=4, HV=8) | 1 element differs (4.8e-05 relative) | 32,663 of 131,072 differ (1.7e-07) |
+
+The convolution output and conv state matched bitwise in every composition, so the
+difference comes from the recurrent kernels, not from `causal_conv1d_fn`. At TP1 the
+state difference reached a bf16 output within the next 16 plain decode steps in 4 of
+20 seeds; that was measured at TP1 only, and with synthetic parameters the frequency
+does not carry over to real weights. At TP4 per-rank head counts it appears in the
+same step's output. This is a provider-side batch-composition dependence: whether a
+prefill shares the step changes a decode row's state, and at TP4 per-rank head counts
+its output too, which no golden can fix. The measurement was made outside this change
+and is not yet published; treat it as a reported observation.
+
+vllm-project/vllm#49827, open and unmerged, routes mixed-step *recurrent* decodes
+through the packed kernel too. Its two commits, applied to 0.30.0, closed the gap to 0
+at both head counts above; its scheduler part was not tested. It does not change the
+conv path in mixed steps, which stays `causal_conv1d_fn`, and its own validation is on
+Qwen3.5 (non-interleaved), H100, TP1. Disabling
+`VLLM_ENABLE_FLA_PACKED_RECURRENT_DECODE` instead sends every non-speculative decode
+row through `fused_sigmoid_gating_delta_rule_update`; the same measurement found the
+decode row's output and state bitwise equal in every step composition in that
+configuration, and the recurrent golden's target would then have to change.
 
 The strict profile uses FP32 recurrent state. BF16 state remains a differential
 experiment. Full checkpoint prefill, response replay, optimizer updates and
