@@ -48,8 +48,11 @@ window (wait `MTE2_S`) and read the UB tensor — do not call `GlobalTensor`
   poisons to 0), and unconfigured padding is stale garbage that poisons
   every reduction. Either configure explicit zero padding in
   `DataCopyPadExtParams<T>` (sum-type only), or keep the tail out of the
-  math — GatherMask the real count, or reduce per-row real lengths and let
-  only the GM writeback bound sit at the rounded count. The same applies to
+  math — GatherMask the real count, or reduce per-row real lengths. The
+  rounded count exists only on the UB side (buffer sizing, vector-op
+  extents); the UB→GM `DataCopyPad` keeps its store length (`blockLen`) at
+  the real count — a rounded store length on a partial tile overwrites past
+  the output slice. The same applies to
   the 32B GM scalar-read windows (4 int64 / 8 fp32 slots per window): read
   only the slots you staged.
 - `DataCopyPad` handles unaligned GM sides — the default for loads/stores in
