@@ -474,3 +474,30 @@ class TestRealDimShapeSweep:
             assert_bitwise_equal(out_gpu, out_cpu, f"real-dim vs reference S={rows}")
         else:
             assert_fp32_device_vs_reference(out_gpu, out_cpu, f"real-dim fp32 S={rows}")
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available() or _HAS_CUDA_OP is False or _HAS_TRITON_OP is False,
+    reason="stream coverage needs CUDA with both device backends",
+)
+def test_both_stream_weight_sets():
+    """Issue acceptance: both stream weight sets (to_out / to_add_out).
+
+    The MMDiT projects the image stream and the text stream through separate
+    weight sets with the same operator. Exercise both with independently
+    drawn weights and stream-typical row counts (image ~1024^2 tier, text
+    ~padded prompt), byte-for-byte across the two device backends.
+    """
+    from rl_engine.kernels.ops.cuda.linear.attn_out_bias_gemm import CudaAttnOutBiasGemmOp
+
+    cuda_op = CudaAttnOutBiasGemmOp()
+    triton_op = TritonAttnOutBiasGemmOp()
+    gen = torch.Generator().manual_seed(77)
+    stream_specs = {"image(to_out)": 4096, "text(to_add_out)": 300}
+    for stream, rows in stream_specs.items():
+        x = torch.randn(rows, 3072, generator=gen).bfloat16().cuda()
+        w = torch.randn(3072, 3072, generator=gen).bfloat16().cuda()
+        b = torch.randn(3072, generator=gen).bfloat16().cuda()
+        out_cuda = cuda_op(x, w, bias=b).cpu()
+        out_triton = triton_op(x, w, bias=b).cpu()
+        assert_bitwise_equal(out_cuda, out_triton, f"both-streams {stream}")
