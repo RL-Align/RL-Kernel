@@ -292,3 +292,31 @@ def test_gated_rms_norm_cuda_backend_reports_absence_by_failing_construction(mon
     # ... and the registry must therefore hand out the reference, not raise.
     resolved = KernelRegistry().get_op("rms_norm_gated")
     assert isinstance(resolved, Qwen3NextRMSNormGatedOp)
+
+
+def test_qwen3_next_rms_norm_priority_is_cuda_first_with_pytorch_fallback():
+    """The zero-centred norm follows the gated one: CUDA kernel first, reference elsewhere."""
+    registry = KernelRegistry()
+
+    assert registry._priority_map["cuda"]["qwen3_next_rms_norm"] == [
+        OpBackend.CUDA_QWEN3_NEXT_RMS_NORM,
+        OpBackend.PYTORCH_NATIVE_QWEN3_NEXT_RMS_NORM,
+    ]
+    for platform in ("rocm", "musa", "cpu", "npu"):
+        assert registry._priority_map[platform]["qwen3_next_rms_norm"] == [
+            OpBackend.PYTORCH_NATIVE_QWEN3_NEXT_RMS_NORM
+        ], platform
+
+
+def test_qwen3_next_rms_norm_cuda_backend_reports_absence_by_failing_construction(monkeypatch):
+    """The inherited ``RMSNormCudaOp.__init__`` check must reach the subclass."""
+    from rl_engine.kernels.ops.cuda.norm import rmsnorm as cuda_rmsnorm
+    from rl_engine.kernels.ops.pytorch.norm.qwen3_next_rms_norm import Qwen3NextRMSNormOp
+
+    monkeypatch.setattr(cuda_rmsnorm, "_EXT_AVAILABLE", False)
+    monkeypatch.setattr(cuda_rmsnorm, "_C", None)
+    with pytest.raises(RuntimeError, match="requires the compiled rl_engine._C extension"):
+        cuda_rmsnorm.Qwen3NextRMSNormCudaOp()
+
+    resolved = KernelRegistry().get_op("qwen3_next_rms_norm")
+    assert isinstance(resolved, Qwen3NextRMSNormOp)
