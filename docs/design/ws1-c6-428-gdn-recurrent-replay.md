@@ -126,10 +126,24 @@ random inputs, B ∈ {1, 4, 17, 64}, one seed per batch. Bounds asserted by
 | fp32 state | ≤ 1e-3 | ≤ 1e-5 |
 | bf16 state | ≤ 1e-3 | ≤ 5e-3 |
 
-`scripts/ws1_gdn_provider_agreement.py` prints the measured values behind these
-bounds for the same inputs. An earlier table here quoted tighter figures from a
-single run with no committed runner; it is withdrawn in favour of the runner's
-output.
+Measured values for the same inputs, from `scripts/ws1_gdn_provider_agreement.py` on
+B200 at commit `acf38b6` (clean checkout). The last column counts output elements
+whose bits differ:
+
+| state | B | max\|diff\| out | max\|diff\| state | out elements differing |
+|---|---|---|---|---|
+| fp32 | 1 | 1.49e-08 | 1.19e-07 | 1 / 4096 |
+| fp32 | 4 | 9.54e-07 | 1.79e-07 | 2 / 16384 |
+| fp32 | 17 | 3.81e-06 | 2.38e-07 | 10 / 69632 |
+| fp32 | 64 | 6.10e-05 | 2.98e-07 | 40 / 262144 |
+| bf16 | 1 | 3.73e-09 | 9.77e-04 | 2 / 4096 |
+| bf16 | 4 | 1.53e-05 | 9.77e-04 | 2 / 16384 |
+| bf16 | 17 | 3.05e-05 | 1.95e-03 | 14 / 69632 |
+| bf16 | 64 | 3.05e-05 | 1.95e-03 | 36 / 262144 |
+
+This reproduces the figures an earlier version of this note quoted without a runner
+(out 1.5e-08 .. 6.1e-05 and state ≤ 3.0e-07 for fp32; out 3.7e-09 .. 3.1e-05 and
+state ≤ 2.0e-03 for bf16). It is one seed per batch on one device.
 
 Causal conv uses sequential FP32 accumulation **starting from bias**, with
 products first rounded to the operand dtype (golden `causal_conv1d.py:167-177`;
@@ -141,11 +155,21 @@ cover bias order and bf16 product rounding, and
 constructed cancellation input. Provider comparisons limit mismatches to 32 elements
 on the checked fixtures. This is not a bitwise claim.
 
-With an fp32 cache a few output elements still differ. The cause is not pinned. One
-candidate is FP contraction: Triton's default `enable_fp_fusion=True` may contract the
-provider's `acc += matrix_x * matrix_w` (vLLM `causal_conv1d.py:1061`) into an FMA,
-whereas the golden rounds the product first. The runner reruns the comparison with
-fusion off and counts `fma.rn.f32` in the compiled kernel to test this.
+Measured with the same runner and commit: the rolled conv state is bitwise equal in
+all 8 (batch, cache dtype) cases. Output elements differing, with an fp32 cache:
+0 / 8192 (B=1), 0 / 32768 (B=4), 1 / 139264 (B=17, max|diff| 2.44e-04) and
+5 / 524288 (B=64, max|diff| 3.91e-03). With a bf16 cache: 0 at B=1, 4 and 17, and
+3 / 524288 at B=64 (max|diff| 1.56e-02).
+
+Why a few fp32-cache elements differ is **not determined**. One candidate is FP
+contraction: with Triton's default `enable_fp_fusion=True`, ptxas may contract the
+provider's `acc += matrix_x * matrix_w` (vLLM `causal_conv1d.py:1061`) into an `FFMA`,
+whereas the golden rounds the product first. A PTX without `fma.rn.f32` does not rule
+this out, because the contraction can happen in ptxas. The runner tests it by
+rerunning the comparison in a child process compiled with fusion off and by counting
+`FFMA` in each variant's SASS; its `fusion_check` field says whether the fusion-off
+variants were really compiled that way. The run above predates that arm working (its
+fusion-off pass reused the fused kernel), so it is no evidence either way.
 
 ## 5. Decode versus chunked prefill
 

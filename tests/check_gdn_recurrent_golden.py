@@ -282,10 +282,12 @@ def test_conv_state_update_is_bitwise_exact(batch):
 
 @pytest.mark.parametrize("batch", [1, 4, 17, 64])
 def test_conv_output_matches_provider_with_fp32_cache(batch):
-    """An fp32 cache reproduces the provider up to fp32 ULP on a few elements.
+    """An fp32 cache reproduces the provider except on a few output elements.
 
-    Measured: 1 element of 8192 at B=1, 15 of 524288 at B=64. The bound is on
-    the magnitude and on a handful of elements rather than on a tight rate --
+    Measured by scripts/ws1_gdn_provider_agreement.py (B200, acf38b6): 0 of 8192
+    at B=1, 0 at B=4, 1 of 139264 at B=17, 5 of 524288 at B=64; max|diff| 3.9e-3.
+    The bound is on the magnitude and on a handful of elements rather than on a
+    tight rate --
     at small batches a single straddling element is already 1.2e-4 of the
     tensor, which says nothing about accuracy.
     """
