@@ -153,6 +153,7 @@ def get_extensions():
                 ]
             )
         else:
+            cuda_sources.append("csrc/cuda/latent_pack_unpack.cu")
             # CUDA IPC and the fixed-tree collective implementation are not
             # part of the ROCm extension.
             cuda_sources.append("csrc/cuda/distributed/deterministic_collective.cu")
