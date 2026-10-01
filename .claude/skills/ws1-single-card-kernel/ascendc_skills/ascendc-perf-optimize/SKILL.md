@@ -64,8 +64,23 @@ the Step 1 tiling.
 4. **Saturate repeatTimes**: a single repeat is capped at 255 but should be
    as large as possible; set mask/stride so one instruction covers a whole
    tile.
-5. **Fewer Casts**: promote to fp32 once on input, demote once at the end;
-   never Cast back and forth inside the loop.
+5. **Fewer Casts**: remove only **provably redundant** casts — a
+   promote/demote pair with no arithmetic in between (bit-identical under
+   `CAST_RINT`), or promoting an input that is already fp32. Collapsing
+   per-step demotions into one final demotion moves the rounding points and
+   therefore changes bits. Guardrails:
+   - copy/lookup ops (bitwise vs golden) must not have their casts touched
+     at all;
+   - keep the final output quantization point (demote back to the input
+     dtype at the same semantic boundary) and `CAST_RINT` (CUDA
+     `static_cast` alignment);
+   - for reductions, re-validate against the golden at the
+     `tolerance_contract.json` tolerances (op_class × dtype) and disclose
+     the value change in the PR;
+   - **passing batch-invariance does NOT prove before/after bitwise
+     equivalence** — invariance compares one implementation across batch
+     shapes, not the old vs the new kernel; assert against
+     pre-optimization outputs explicitly when claiming value preservation.
 6. **Broadcast instead of copy**: constants/row vectors broadcast via
    `src1RepStride=0` rather than re-loading into UB.
 7. **Remove coarse sync**: consecutive `PipeBarrier<PIPE_ALL>` / redundant
