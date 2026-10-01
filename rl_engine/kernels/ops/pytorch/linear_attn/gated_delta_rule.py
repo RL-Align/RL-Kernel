@@ -42,7 +42,10 @@ import torch
 
 __all__ = ["GatedDeltaRuleRecurrentStepOp", "NULL_BLOCK_ID", "SOFTPLUS_THRESHOLD"]
 
-#: Paged-state sentinel: a sequence pointing here is skipped.
+#: Paged-state sentinel. Both goldens skip a row whose index is ``<= NULL_BLOCK_ID``:
+#: that is the recurrent provider's semantics (``state_idx <= 0``). vLLM's conv
+#: provider skips only ``== null_block_id`` (0), so a negative index is a real index
+#: there; see the design note's NULL_BLOCK_ID table.
 NULL_BLOCK_ID = 0
 
 #: Above this, softplus is the identity (matches the kernel's constexpr).
@@ -240,8 +243,6 @@ class GatedDeltaRuleRecurrentStepOp:
             raise ValueError(f"mixed_qkv must be 2-D [B, D], got {tuple(mixed_qkv.shape)}")
         if state.dim() != 4:
             raise ValueError(f"state must be 4-D [num_blocks, HV, V, K], got {tuple(state.shape)}")
-        if ssm_state_indices.dim() != 1:
-            raise ValueError("ssm_state_indices must be 1-D [B] for packed decode")
 
         batch = mixed_qkv.shape[0]
         hv, v_dim, k_dim = state.shape[-3:]
@@ -278,8 +279,6 @@ class GatedDeltaRuleRecurrentStepOp:
                 f"mixed_qkv last dim must be {expected} (q|k|v packed), "
                 f"got {mixed_qkv.shape[1]}"
             )
-        if ssm_state_indices.shape[0] != batch:
-            raise ValueError("ssm_state_indices must have one entry per sequence")
 
         group = hv // heads
         qkv32 = mixed_qkv.float()

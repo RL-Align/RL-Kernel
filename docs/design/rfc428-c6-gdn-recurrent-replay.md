@@ -1,4 +1,4 @@
-# WS1 C6 — Qwen3-Next Gated DeltaNet recurrent replay
+# RFC #428 C6 — Qwen3-Next Gated DeltaNet recurrent replay
 
 Design notes for RFC #428 work item C6 (GDN recurrent response replay) on the CUDA
 track. Measured on 2× B200 (sm_100), torch 2.13.0+cu130, vllm 0.30.0,
@@ -119,7 +119,12 @@ The same choice is why the golden is not bitwise against the kernel's reduction.
 
 Qwen3-Next dims (H=16, HV=32, K=V=128), bf16 I/O, `use_qk_l2norm_in_kernel=True`,
 random inputs, B ∈ {1, 4, 17, 64}, one seed per batch. Bounds asserted by
-`tests/check_gdn_recurrent_golden.py`:
+`tests/check_gdn_recurrent_golden.py` (`_RECURRENT_BOUNDS`). They, and every other
+bound in that file, are **regression bounds against the provider, not gate evidence**;
+they do not go through `resolve_tolerance`. For scale, the gate contract's
+`forward_accuracy/by_op_class/reduction` row in
+`rl_engine/kernels/gtest/tolerance_contract.json` is atol = rtol = 1e-4 for float32
+and atol = 5e-2, rtol = 2e-2 for bfloat16.
 
 | | max\|diff\| out | max\|diff\| state |
 |---|---|---|
@@ -153,7 +158,7 @@ were not limited to one BF16 ULP. The CPU tests in `tests/test_gdn_state_contrac
 cover bias order and bf16 product rounding, and
 `test_conv_provider_preserves_bf16_product_cancellation` checks the provider on a
 constructed cancellation input. Provider comparisons limit mismatches to 32 elements
-on the checked fixtures. This is not a bitwise claim.
+on the checked fixtures (a regression bound, not gate evidence). This is not a bitwise claim.
 
 Measured with the same runner and commit: the rolled conv state is bitwise equal in
 all 8 (batch, cache dtype) cases. Output elements differing, with an fp32 cache:
@@ -192,6 +197,10 @@ cached decode rows through `causal_conv1d_fn` and
 `fused_sigmoid_gating_delta_rule_update` instead, so in those steps the recurrent
 golden does not target what rollout runs.
 
+*The numbers in the rest of this subsection are a reported observation with no
+checked-in runner in this repository. By the same rule that withdrew the tables above,
+they are not acceptance evidence.*
+
 A measurement on B200 drove the real `GDNAttentionMetadataBuilder.build()` and
 `_forward_core` of **one standalone layer** built from the checkpoint's
 `config.json`. Its limits: parameters and cache were synthetic (no weights loaded); it
@@ -213,7 +222,7 @@ does not carry over to real weights. At TP4 per-rank head counts it appears in t
 same step's output. This is a provider-side batch-composition dependence: whether a
 prefill shares the step changes a decode row's state, and at TP4 per-rank head counts
 its output too, which no golden can fix. The measurement was made outside this change
-and is not yet published; treat it as a reported observation.
+and is not yet published.
 
 vllm-project/vllm#49827, open and unmerged, routes mixed-step *recurrent* decodes
 through the packed kernel too. Its two commits, applied to 0.30.0, closed the gap to 0
@@ -245,7 +254,7 @@ Not covered, with reasons:
 | deferred | why |
 |---|---|
 | Speculative decode / MTP | RFC #428 §2.2 excludes speculative decoding from the first claim. Qwen3-Next's MTP head ships in the checkpoint (`mtp.*`, loaded by `model_executor/models/qwen3_next_mtp.py`) and is full attention (`qwen3_next_mtp.py:90-92`). Enabling it changes the target model's GDN path in steps that carry draft tokens (§1); `fused_gdn_decode_post_conv_mtp` is unreachable for Qwen3-Next |
-| Backward for the recurrent step | RFC #428 §2.2 item 4: backward need not match rollout, only be correct for the replayed forward. RFC §9.1 makes it a separate work item, **C7** (GDN backward/recompute adapter including prompt-state gradient). `supports_backward=false` here; `_softplus`'s NaN-gradient fix (`08969ac`) adds no backward claim |
+| Backward for the recurrent step | RFC #428 §2.2 item 4: backward need not match rollout, only be correct for the replayed forward. RFC §9.1 makes it a separate work item, **RFC #428 C7** (GDN backward/recompute adapter including prompt-state gradient). `supports_backward=false` here; `_softplus`'s NaN-gradient fix (`08969ac`) adds no backward claim |
 | Provider bridge / registry entry | the golden should survive a drift sweep against a real checkpoint first |
 | Paged block allocation policy | the ABI is mirrored; the allocator is not modelled |
 | TP sharding of `A_log` / `dt_bias` | single card only |
@@ -264,4 +273,6 @@ synchronization and checkpoint reload. No operator-level test closes these gates
 
 The 2026-09-30 real-checkpoint startup attempt with vLLM 0.30.0 failed before
 inference: `VLLM batch_invariant mode is not supported for GDN_ATTN`. A shared
-provider integration must resolve this; disabling the check is not L2 evidence.
+provider integration must resolve this; disabling the check is not L2 evidence. *This
+failure is a reported observation: the attempt's log and launcher are not checked into
+this repository, so it is not acceptance evidence either.*

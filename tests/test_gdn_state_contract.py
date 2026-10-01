@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 RL-Kernel Contributors
+
 """Provider-independent cache contracts, collected in the ordinary CPU suite."""
 
 import pytest

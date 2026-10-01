@@ -37,12 +37,32 @@ import torch
 pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
 
 from rl_engine.kernels.ops.pytorch.linear_attn import GatedDeltaRuleRecurrentStepOp  # noqa: E402
+from rl_engine.testing.qwen3_next_workload import FINGERPRINT  # noqa: E402
 
-# Qwen3-Next-80B-A3B-Instruct: linear_num_key_heads / linear_num_value_heads /
-# linear_key_head_dim / linear_value_head_dim.
-_H, _HV, _K, _V = 16, 32, 128, 128
+# Qwen3-Next-80B-A3B-Instruct dims, from the pinned checkpoint fingerprint.
+_H = FINGERPRINT["linear_num_key_heads"]
+_HV = FINGERPRINT["linear_num_value_heads"]
+_K = FINGERPRINT["linear_key_head_dim"]
+_V = FINGERPRINT["linear_value_head_dim"]
 _SCALE = _K**-0.5
 _PACKED_DIM = _H * _K * 2 + _HV * _V
+
+# Every bound in this file is a regression bound against the vLLM provider (or, for
+# the bf16-state drift test, against the golden itself), set from measurements. None
+# is gate evidence, and none goes through rl_engine.kernels.gtest.tolerance's
+# resolve_tolerance. For scale, the gate contract's
+# forward_accuracy/by_op_class/reduction row in
+# rl_engine/kernels/gtest/tolerance_contract.json is atol = rtol = 1e-4 for float32
+# and atol = 5e-2, rtol = 2e-2 for bfloat16.
+#
+# (max|d out|, max|d state|) per recurrent-state dtype. Read by
+# scripts/ws1_gdn_provider_agreement.py, so the runner reports against the same values.
+_RECURRENT_BOUNDS = {
+    # fp32 state: agreement is at fp32-ULP scale.
+    torch.float32: (1e-3, 1e-5),
+    # bf16 state: the store rounds every token, so the state carries a bf16 ULP.
+    torch.bfloat16: (1e-3, 5e-3),
+}
 
 
 def _vllm_step():
@@ -110,17 +130,9 @@ def _run_golden(inp):
 # 1. Against the provider
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("batch", [1, 4, 17, 64])
-@pytest.mark.parametrize(
-    "state_dtype, out_atol, state_atol",
-    [
-        # fp32 state: agreement is at fp32-ULP scale.
-        (torch.float32, 1e-3, 1e-5),
-        # bf16 state: the store rounds every token, so the state carries a
-        # bf16 ULP. This is the configuration knob behind the drift probe.
-        (torch.bfloat16, 1e-3, 5e-3),
-    ],
-)
-def test_golden_matches_packed_decode_provider(batch, state_dtype, out_atol, state_atol):
+@pytest.mark.parametrize("state_dtype", list(_RECURRENT_BOUNDS), ids=["fp32", "bf16"])
+def test_golden_matches_packed_decode_provider(batch, state_dtype):
+    out_atol, state_atol = _RECURRENT_BOUNDS[state_dtype]
     inp = _inputs(batch, batch + 2, state_dtype, torch.bfloat16, seed=batch)
     out_ref, state_ref = _run_provider(inp)
     out_got, state_got = _run_golden(inp)
@@ -207,6 +219,7 @@ def test_bf16_state_rounding_stays_within_fixed_fixture_bound():
 
     assert drift[0] > 0.0, "a bf16 state must round on the very first store"
     # Preserve the original regression bound for this fixed fixture.
+    # Regression bound for this fixture, golden against golden; not gate evidence.
     assert max(drift) < 0.05, f"relative state drift reached {max(drift):.3e}"
     # The back half must not be materially worse than the front half.
     assert max(drift[steps // 2 :]) < 2.0 * max(drift[: steps // 2]) + 1e-3
@@ -215,7 +228,8 @@ def test_bf16_state_rounding_stays_within_fixed_fixture_bound():
 # --------------------------------------------------------------------------- #
 # 4. The causal-conv1d state update, the other half of a decode step
 # --------------------------------------------------------------------------- #
-_CONV_DIM, _CONV_WIDTH = 8192, 4  # Qwen3-Next: key_dim*2 + value_dim, linear_conv_kernel_dim
+# The conv runs over the packed q|k|v channels; Qwen3-Next's linear_conv_kernel_dim is 4.
+_CONV_DIM, _CONV_WIDTH = _PACKED_DIM, 4
 
 
 def _conv_update():
@@ -294,6 +308,7 @@ def test_conv_output_matches_provider_with_fp32_cache(batch):
     inp = _conv_inputs(batch, torch.float32, seed=batch)
     (out_ref, _), (out_got, _) = _run_conv_pair(inp)
     mismatch = int((out_got.float().view(torch.int32) != out_ref.float().view(torch.int32)).sum())
+    # Regression bounds against the provider, not gate evidence (see the module note).
     assert mismatch <= 32, f"{mismatch} of {out_got.numel()} elements differ"
     assert (out_got.float() - out_ref.float()).abs().max().item() <= 1e-2
 
@@ -303,6 +318,7 @@ def test_conv_output_bf16_cache_matches_rounded_product_path(batch):
     """Product rounding is reproduced; activation ULP residuals remain allowed."""
     inp = _conv_inputs(batch, torch.bfloat16, seed=batch)
     (out_ref, _), (out_got, _) = _run_conv_pair(inp)
+    # Regression bounds against the provider, not gate evidence (see the module note).
     assert (out_got.float() - out_ref.float()).abs().max().item() <= 7e-2
     assert int((out_got != out_ref).sum()) <= 32
 

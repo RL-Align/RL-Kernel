@@ -4,9 +4,9 @@
 
 """Measure how closely the GDN decode-step goldens track vLLM's providers (RFC #428 C6).
 
-``tests/check_gdn_recurrent_golden.py`` asserts loose bounds; this runner prints the
-measured values behind them, so the numbers quoted in
-``docs/design/ws1-c6-428-gdn-recurrent-replay.md`` can be reproduced. Inputs and seeds
+``tests/check_gdn_recurrent_golden.py`` asserts loose regression bounds; this runner
+prints the measured values behind them, so the numbers quoted in
+``docs/design/rfc428-c6-gdn-recurrent-replay.md`` can be reproduced. Inputs and seeds
 are the check file's own helpers, imported from it rather than copied.
 
 Three measurements, emitted as one JSON document on stdout:
@@ -29,9 +29,11 @@ Count FMAs in the SASS, not only the PTX. With fusion on, Triton emits plain
 fusion off it passes ``--fmad=false`` to ptxas. A PTX with no ``fma.rn.f32`` can still
 run FMAs. ``fusion_check`` reports whether each arm compiled what it claims to.
 
-Requires CUDA and vLLM 0.30.0. Run it from a clean checkout so ``git_dirty`` is false:
+Requires CUDA and vLLM 0.30.0. Run it from a clean checkout so ``git_dirty`` is false,
+and write the result outside the checkout: an untracked file inside it would itself
+make the next run report ``git_dirty: true``.
 
-    python scripts/ws1_gdn_provider_agreement.py > gdn_provider_agreement.json
+    python scripts/ws1_gdn_provider_agreement.py > "${TMPDIR:-/tmp}/gdn_provider_agreement.json"
 """
 
 from __future__ import annotations
@@ -57,6 +59,9 @@ if str(REPO_ROOT) not in sys.path:
 _CHECK_FILE = REPO_ROOT / "tests" / "check_gdn_recurrent_golden.py"
 _STATE_DTYPES = {"fp32": torch.float32, "bf16": torch.bfloat16}
 _INT_VIEW = {2: torch.int16, 4: torch.int32}
+# FLA_USE_FAST_OPS swaps the kernel's exp/log for fast_expf/fast_logf;
+# TRITON_DEFAULT_FP_FUSION decides whether ptxas may contract mul/add.
+_PROVENANCE_ENV = ("FLA_USE_FAST_OPS", "TRITON_DEFAULT_FP_FUSION")
 # Opcode patterns. PTX: a rounding-qualified op (".rn") may not be contracted by ptxas;
 # the plain form may. SASS: count opcode tokens, including modifiers such as FFMA.FTZ.
 _PTX_OPS = {
@@ -102,11 +107,16 @@ def _provenance() -> dict[str, Any]:
     import triton
     import vllm
 
+    import rl_engine
+
     status = _git("status", "--porcelain")
     return {
         # None means "unknown" (no git, or not a checkout), never "clean".
         "git_commit": _git("rev-parse", "HEAD"),
         "git_dirty": None if status is None else bool(status),
+        # Which tree was imported, and the env knobs that change the provider's code.
+        "rl_engine_file": rl_engine.__file__,
+        "env": {key: os.environ.get(key) for key in _PROVENANCE_ENV},
         "python": platform.python_version(),
         "torch": torch.__version__,
         "triton": triton.__version__,
@@ -118,7 +128,7 @@ def _provenance() -> dict[str, Any]:
 
 
 def _measure_recurrent(check, batches: list[int]) -> list[dict[str, Any]]:
-    bounds = {"fp32": (1e-3, 1e-5), "bf16": (1e-3, 5e-3)}  # check file :117, :120
+    bounds = {name: check._RECURRENT_BOUNDS[dtype] for name, dtype in _STATE_DTYPES.items()}
     rows = []
     for batch in batches:
         for name, state_dtype in _STATE_DTYPES.items():

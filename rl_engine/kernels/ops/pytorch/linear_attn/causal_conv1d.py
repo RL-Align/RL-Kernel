@@ -36,7 +36,7 @@ class CausalConv1dUpdateOp:
     ``conv_state`` ``[num_blocks, dim, W-1]``  paged; ``dim_first`` layout
     ``weight``     ``[dim, W]``
     ``bias``       ``[dim]`` or ``None``
-    ``indices``    ``[B]``                     ``<= 0`` skips
+    ``indices``    ``[B]``                     ``<= 0`` skips (vLLM: ``== 0``)
     ============== ========================== ==========================
 
     Returns ``(out, conv_state)``; the state is updated out of place.
