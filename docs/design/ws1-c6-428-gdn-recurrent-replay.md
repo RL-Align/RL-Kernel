@@ -194,7 +194,7 @@ Not covered, with reasons:
 | deferred | why |
 |---|---|
 | Speculative decode / MTP | RFC #428 §2.2 excludes speculative decoding from the first claim. Qwen3-Next's MTP head ships in the checkpoint (`mtp.*`, loaded by `model_executor/models/qwen3_next_mtp.py`) and is full attention (`qwen3_next_mtp.py:90-92`). Enabling it changes the target model's GDN path in steps that carry draft tokens (§1); `fused_gdn_decode_post_conv_mtp` is unreachable for Qwen3-Next |
-| Backward for the recurrent step | no upstream backward exists, and a naive BPTT through a sequential recurrence is not batch-invariant — it needs its own design |
+| Backward for the recurrent step | RFC #428 §2.2 item 4: backward need not match rollout, only be correct for the replayed forward. RFC §9.1 makes it a separate work item, **C7** (GDN backward/recompute adapter including prompt-state gradient). `supports_backward=false` here; `_softplus`'s NaN-gradient fix (`08969ac`) adds no backward claim |
 | Provider bridge / registry entry | the golden should survive a drift sweep against a real checkpoint first |
 | Paged block allocation policy | the ABI is mirrored; the allocator is not modelled |
 | TP sharding of `A_log` / `dt_bias` | single card only |
