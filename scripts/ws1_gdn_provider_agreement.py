@@ -15,11 +15,19 @@ Three measurements, emitted as one JSON document on stdout:
   (batch, state dtype): max|d out|, max|d state| and bitwise mismatch counts.
 * ``conv``: provider vs golden for ``causal_conv1d_update``, per (batch, cache dtype):
   output mismatch count and max|diff|, and whether the rolled state is bitwise equal.
-* ``conv`` again with Triton FP fusion disabled
-  (``triton.knobs.language.default_fp_fusion = False``), plus ``conv_ptx``: the number
-  of ``fma.rn.f32`` instructions in each compiled variant of the provider's conv
-  kernel. If the fp32-cache mismatches are FMA contraction, they should vanish with
-  fusion off and the fusion-off PTX should contain no ``fma.rn.f32``.
+* ``conv`` again with Triton FP fusion disabled, plus ``conv_kernels``: per compiled
+  variant of the provider's conv-update kernel, its ``enable_fp_fusion`` option and
+  instruction counts from the PTX and from the SASS.
+
+The fusion-off arm runs in a child process with ``TRITON_DEFAULT_FP_FUSION=0`` and a
+private ``TRITON_CACHE_DIR``. Flipping ``triton.knobs.language.default_fp_fusion``
+in-process does not work: Triton's in-memory kernel cache is keyed on the launch
+kwargs, and the knob is read only after a cache miss, so the fused variant is reused.
+
+Count FMAs in the SASS, not only the PTX. With fusion on, Triton emits plain
+``mul.f32``/``add.f32`` and leaves ptxas free to contract them into ``FFMA``; with
+fusion off it passes ``--fmad=false`` to ptxas. A PTX with no ``fma.rn.f32`` can still
+run FMAs. ``fusion_check`` reports whether each arm compiled what it claims to.
 
 Requires CUDA and vLLM 0.30.0. Run it from a clean checkout so ``git_dirty`` is false:
 
@@ -29,12 +37,14 @@ Requires CUDA and vLLM 0.30.0. Run it from a clean checkout so ``git_dirty`` is 
 from __future__ import annotations
 
 import argparse
-import contextlib
 import importlib.util
 import json
+import os
 import platform
+import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +57,16 @@ if str(REPO_ROOT) not in sys.path:
 _CHECK_FILE = REPO_ROOT / "tests" / "check_gdn_recurrent_golden.py"
 _STATE_DTYPES = {"fp32": torch.float32, "bf16": torch.bfloat16}
 _INT_VIEW = {2: torch.int16, 4: torch.int32}
+# Opcode patterns. PTX: a rounding-qualified op (".rn") may not be contracted by ptxas;
+# the plain form may. SASS: count opcode tokens, including modifiers such as FFMA.FTZ.
+_PTX_OPS = {
+    "fma_rn_f32": r"\bfma\.rn\.f32\b",
+    "mul_f32": r"\bmul\.f32\b",
+    "add_f32": r"\badd\.f32\b",
+    "mul_rn_f32": r"\bmul\.rn\.f32\b",
+    "add_rn_f32": r"\badd\.rn\.f32\b",
+}
+_SASS_OPS = {"FFMA": r"\bFFMA[\w.]*", "FMUL": r"\bFMUL[\w.]*", "FADD": r"\bFADD[\w.]*"}
 
 
 def _load_check_module():
@@ -97,24 +117,6 @@ def _provenance() -> dict[str, Any]:
     }
 
 
-@contextlib.contextmanager
-def _fp_fusion(enabled: bool):
-    """Set Triton's default FP fusion for kernels compiled inside the block.
-
-    ``enable_fp_fusion`` is part of the options string in Triton's kernel cache key,
-    so flipping it compiles a fresh variant rather than reusing the fused one.
-    """
-    import triton
-
-    knobs = triton.knobs.language
-    previous = knobs.default_fp_fusion
-    knobs.default_fp_fusion = enabled
-    try:
-        yield
-    finally:
-        knobs.default_fp_fusion = previous
-
-
 def _measure_recurrent(check, batches: list[int]) -> list[dict[str, Any]]:
     bounds = {"fp32": (1e-3, 1e-5), "bf16": (1e-3, 5e-3)}  # check file :117, :120
     rows = []
@@ -141,30 +143,36 @@ def _measure_recurrent(check, batches: list[int]) -> list[dict[str, Any]]:
     return rows
 
 
-def _measure_conv(check, batches: list[int], fp_fusion: bool) -> list[dict[str, Any]]:
+def _measure_conv(check, batches: list[int]) -> list[dict[str, Any]]:
+    import triton
+
+    fp_fusion = bool(triton.knobs.language.default_fp_fusion)  # this process's setting
     rows = []
-    with _fp_fusion(fp_fusion):
-        for batch in batches:
-            for name, cache_dtype in _STATE_DTYPES.items():
-                # Same call as the test_conv_* provider comparisons.
-                inp = check._conv_inputs(batch, cache_dtype, seed=batch)
-                (out_ref, state_ref), (out_got, state_got) = check._run_conv_pair(inp)
-                rows.append(
-                    {
-                        "batch": batch,
-                        "cache_dtype": name,
-                        "fp_fusion": fp_fusion,
-                        "out_mismatch_elements": _bit_mismatches(out_got, out_ref),
-                        "out_elements": out_ref.numel(),
-                        "max_abs_diff_out": _max_abs_diff(out_got, out_ref),
-                        "state_bitwise_equal": torch.equal(state_got, state_ref),
-                    }
-                )
+    for batch in batches:
+        for name, cache_dtype in _STATE_DTYPES.items():
+            # Same call as the test_conv_* provider comparisons.
+            inp = check._conv_inputs(batch, cache_dtype, seed=batch)
+            (out_ref, state_ref), (out_got, state_got) = check._run_conv_pair(inp)
+            rows.append(
+                {
+                    "batch": batch,
+                    "cache_dtype": name,
+                    "fp_fusion": fp_fusion,
+                    "out_mismatch_elements": _bit_mismatches(out_got, out_ref),
+                    "out_elements": out_ref.numel(),
+                    "max_abs_diff_out": _max_abs_diff(out_got, out_ref),
+                    "state_bitwise_equal": torch.equal(state_got, state_ref),
+                }
+            )
     return rows
 
 
-def _conv_ptx_fma_counts() -> list[dict[str, Any]] | dict[str, str]:
-    """``fma.rn.f32`` count per compiled variant of the provider's conv-update kernel."""
+def _count(patterns: dict[str, str], text: str) -> dict[str, int]:
+    return {name: len(re.findall(pattern, text)) for name, pattern in patterns.items()}
+
+
+def _conv_kernel_variants() -> list[dict[str, Any]] | dict[str, str]:
+    """Options and instruction counts per compiled variant of the conv-update kernel."""
     try:
         from vllm.model_executor.layers.mamba.ops import causal_conv1d as conv_module
 
@@ -174,19 +182,53 @@ def _conv_ptx_fma_counts() -> list[dict[str, Any]] | dict[str, str]:
         variants = []
         for device, cache in kernel.device_caches.items():
             for compiled in cache[0].values():
-                ptx = compiled.asm["ptx"]
-                variants.append(
-                    {
-                        "device": str(device),
-                        "enable_fp_fusion": getattr(compiled.metadata, "enable_fp_fusion", None),
-                        "fma_rn_f32": ptx.count("fma.rn.f32"),
-                        "mul_rn_f32": ptx.count("mul.rn.f32"),
-                        "add_rn_f32": ptx.count("add.rn.f32"),
-                    }
-                )
+                row: dict[str, Any] = {
+                    "device": str(device),
+                    "enable_fp_fusion": getattr(compiled.metadata, "enable_fp_fusion", None),
+                    "ptx": _count(_PTX_OPS, compiled.asm["ptx"]),
+                }
+                try:
+                    row["sass"] = _count(_SASS_OPS, compiled.asm["sass"])
+                except Exception as exc:  # needs cuobjdump; report, do not fail
+                    row["sass"] = {"unavailable": f"{type(exc).__name__}: {exc}"}
+                variants.append(row)
         return variants
     except Exception as exc:  # introspection of Triton internals; report, do not fail
         return {"unavailable": f"{type(exc).__name__}: {exc}"}
+
+
+def _conv_report(check, batches: list[int]) -> dict[str, Any]:
+    return {"conv": _measure_conv(check, batches), "conv_kernels": _conv_kernel_variants()}
+
+
+def _conv_report_without_fusion(batches: str) -> dict[str, Any]:
+    """Rerun the conv arm in a child process that compiles with fusion off."""
+    with tempfile.TemporaryDirectory(prefix="triton-nofusion-") as cache_dir:
+        env = dict(os.environ, TRITON_DEFAULT_FP_FUSION="0", TRITON_CACHE_DIR=cache_dir)
+        child = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve()), "--conv-only", "--batches", batches],
+            env=env,
+            stdout=subprocess.PIPE,
+            text=True,
+            check=True,
+        )
+    return json.loads(child.stdout)
+
+
+def _fusion_check(on: Any, off: Any) -> dict[str, Any]:
+    """Whether each arm's compiled variants carry the fusion setting it claims."""
+
+    def flags(variants: Any) -> list[Any] | None:
+        if not isinstance(variants, list):
+            return None
+        return [v["enable_fp_fusion"] for v in variants]
+
+    on_flags, off_flags = flags(on), flags(off)
+    return {
+        "fusion_on_variants": on_flags,
+        "fusion_off_variants": off_flags,
+        "fusion_off_effective": bool(off_flags) and all(f is False for f in off_flags),
+    }
 
 
 def parse_args() -> argparse.Namespace:
@@ -201,6 +243,8 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="do not rerun the conv comparison with Triton FP fusion disabled",
     )
+    # Internal: the fusion-off child process prints only the conv arm.
+    parser.add_argument("--conv-only", action="store_true", help=argparse.SUPPRESS)
     return parser.parse_args()
 
 
@@ -217,6 +261,10 @@ def main() -> int:
 
     batches = [int(b) for b in args.batches.split(",") if b.strip()]
     check = _load_check_module()
+    if args.conv_only:
+        print(json.dumps(_conv_report(check, batches), sort_keys=True))
+        return 0
+
     report: dict[str, Any] = {
         "runner": "scripts/ws1_gdn_provider_agreement.py",
         "provenance": _provenance(),
@@ -228,11 +276,15 @@ def main() -> int:
             "conv": "bias=True, activation=silu, dim_first=True, W=4, dim=8192",
         },
         "recurrent": _measure_recurrent(check, batches),
-        "conv": _measure_conv(check, batches, fp_fusion=True),
     }
+    fused = _conv_report(check, batches)
+    report["conv"] = fused["conv"]
+    report["conv_kernels"] = {"fusion_on": fused["conv_kernels"]}
     if not args.skip_fusion_off:
-        report["conv"] += _measure_conv(check, batches, fp_fusion=False)
-    report["conv_ptx"] = _conv_ptx_fma_counts()
+        unfused = _conv_report_without_fusion(args.batches)
+        report["conv"] += unfused["conv"]
+        report["conv_kernels"]["fusion_off"] = unfused["conv_kernels"]
+        report["fusion_check"] = _fusion_check(fused["conv_kernels"], unfused["conv_kernels"])
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0
 
