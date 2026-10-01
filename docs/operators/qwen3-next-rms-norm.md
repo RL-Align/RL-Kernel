@@ -49,32 +49,47 @@ y = rmsnorm_cuda(x, weight, eps=1e-6, weight_offset=1.0)
 
 ## Dispatch Behavior
 
-Registered as the `qwen3_next_rms_norm` gtest operator. On CUDA the registry
-prefers `Qwen3NextRMSNormCudaOp`; every other platform resolves to the PyTorch
-reference. The CUDA op validates the compiled symbols in `__init__`, so on a build
-without the extension construction raises and the registry falls through to the
-reference rather than handing out an op that fails at call time.
+Not registered on this branch: there is no `qwen3_next_rms_norm` gtest spec and no
+registry entry yet. Both arrive with the gated-norm PR. Until then, construct the
+ops directly as in "Entry Point". The CUDA op validates the compiled symbols in
+`__init__`, so on a build without the extension construction raises instead of
+handing out an op that fails at call time.
 
 ## Accuracy
 
-Claim level: **L0 repeatable, L1 batch-invariant**. L2 is not claimed.
+Claim levels:
 
-The reduction is the repo's fixed 32-wide chunked sum
-(`shape_invariant_rstd`), which is what makes a row's result independent of the
-batch layout. It deliberately differs from upstream's `mean(-1)`: measured on B200,
-over 20 seeds at `H=2048` in bf16, a plain `mean(-1)` broke slice invariance on 1
-of 20 while the chunked reduction broke on 0 of 20.
+- **L1** (prefix-slice and concurrency) for `Qwen3NextRMSNormCudaOp`; padding,
+  packing and order are not tested for the CUDA op.
+- **L1** (slice, concurrency and padding) for `Qwen3NextRMSNormOp`.
+- **L0** for `Qwen3NextRMSNormOp` only (CPU, fp32); no test repeats the CUDA op.
+- L2 is not claimed.
 
-The cost is that the decoder norm is **not** bitwise equal to stock vLLM — 7
-elements of 1048576 differ, `max|diff| = 1.56e-2` in bf16 at `H=2048`. That gap is
-inherent: matching stock vLLM bitwise would mean adopting a reduction that is not
-itself batch-invariant, i.e. trading L1 for L2.
+The PyTorch reference uses the repo's fixed 32-wide chunked sum
+(`shape_invariant_rstd`, introduced in `8ed1693` as a device-agnostic reference).
+On B200, over 20 seeds at `H=2048` in bf16, a plain `mean(-1)` broke slice
+invariance on 1 of 20 seeds (slices `x[3:5]` and `x[:1]` of 64 rows; which one
+failed was not recorded), and the chunked reduction broke on none. That is a recorded
+observation, not an assertion.
+
+The CUDA kernel has its own fixed-order reduction (per-thread strided partial sums,
+then `block_reduce_sum`). It is not bitwise equal to the PyTorch reference.
+
+Neither is bitwise equal to vLLM. In one-off probes (not committed checks), the
+reference differed from every vLLM path tried (eager, inductor-compiled, and eager
+under `VLLM_BATCH_INVARIANT=1`) on 36–39 of 40 seeds, `max|diff| <= 1.56e-2`
+(bf16, `H=2048`, 512 rows). The difference is attributed to reduction order, but that
+has not been isolated. Only the no-residual call was compared; vLLM's
+`fused_add_rms_norm` path (every decoder norm except layer 0's input norm) has no
+reference here.
 
 The in-kernel offset is exact, not an approximation: `weight_offset=1.0` is bitwise
 equal to passing an explicit fp32 `1 + w` weight, and differs from a bf16-folded
 `1 + w`, both asserted.
 
-Tolerances come from `tolerance_contract.json` (`reduction` × dtype); no private
+Accuracy tests resolve their tolerances from `tolerance_contract.json`
+(`forward_accuracy`, `reduction` × dtype). The bounds in
+`tests/check_qwen3_next_norm_providers.py` are provider-gap bounds, not contract
 thresholds.
 
 ## Performance Notes
@@ -82,11 +97,6 @@ thresholds.
 The CUDA path reuses the existing `rmsnorm_fwd_kernel` reduction
 (`block_reduce_sum` over `choose_threads(H)`), so the offset costs one fp32 add per
 element and no extra memory traffic.
-
-```bash
-python scripts/check_operator.py --op qwen3_next_rms_norm --candidate cuda \
-    --device cuda --dtype bf16 --check-grad
-```
 
 ## Tests
 
@@ -97,7 +107,11 @@ python -m pytest tests/test_qwen3_next_norm.py -v
 ## Known Limitations
 
 - CUDA only; no ROCm, Ascend or Triton backend.
-- Not bitwise against stock vLLM (see Accuracy); an L2 claim needs the strict
-  provider on both sides, per RFC #428 §1 item 1.
+- Not registered as a gtest operator or in the registry on this branch (see
+  "Dispatch Behavior").
+- Not bitwise against vLLM (see Accuracy). An L2 claim needs a single source of
+  truth for the forward on both sides, per RFC #428 §0 item 1.
+- The gated pair (`Qwen3NextRMSNormGatedOp`, `Qwen3NextRMSNormGatedHFOp`) is
+  documented with its CUDA kernel in the gated-norm PR, not on this page.
 - Measured on sm_100 (B200). Per RFC #428 §2.2 no claim carries across
   H100/H200/B100/B200.

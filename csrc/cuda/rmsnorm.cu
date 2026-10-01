@@ -143,6 +143,9 @@ __global__ void rmsnorm_fwd_kernel(
     for (int col = tid; col < H; col += blockDim.x) {
         float xv = load_as_float<scalar_t>(x_row + col);
         float wv = load_as_float<weight_t>(weight + col);
+        // Guarded: `-0.0f + 0.0f` is +0.0f, so an unconditional add would flip the
+        // sign bit of -0.0 weights on the plain path. Pinned by
+        // tests/test_qwen3_next_norm.py::test_cuda_plain_signed_zero_is_preserved.
         if (weight_offset != 0.0f) wv += weight_offset;
         float out = xv * row_rstd * wv;
         store_from_float<scalar_t>(y_row + col, out);

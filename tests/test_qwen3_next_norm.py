@@ -5,7 +5,8 @@
 
 Claim levels exercised here (RFC #428 section 2.1):
   * L0 repeatable    -- identical inputs reproduce bitwise identical outputs.
-  * L1 batch-invariant -- a row is unaffected by unrelated rows, padding or order.
+  * L1 batch-invariant -- a row is unaffected by slicing, concurrency and (for the
+    PyTorch reference) padding; packing and order are not exercised.
 
 L2 (train-rollout exact against vLLM) is NOT claimed by this file; it needs the
 rollout engine on the other side.
@@ -22,6 +23,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 
+from rl_engine.kernels.gtest.tolerance import load_contract, resolve_tolerance
 from rl_engine.kernels.ops.pytorch.norm.qwen3_next_rms_norm import (
     Qwen3NextRMSNormGatedHFOp,
     Qwen3NextRMSNormGatedOp,
@@ -32,6 +34,16 @@ from rl_engine.kernels.ops.pytorch.norm.qwen3_next_rms_norm import (
 _HIDDEN = 2048  # hidden_size
 _HEAD_V_DIM = 128  # linear_value_head_dim -- the gated norm width
 _EPS = 1e-6  # rms_norm_eps
+
+_CONTRACT = load_contract()
+
+
+def _forward_tol(dtype: torch.dtype) -> dict[str, float]:
+    """C1 forward_accuracy row for the ``reduction`` op class -- no private thresholds."""
+    spec = resolve_tolerance(
+        _CONTRACT, judgment="forward_accuracy", op_class="reduction", dtype=dtype
+    )
+    return {"atol": spec.atol, "rtol": spec.rtol}
 
 
 def _rand(shape, seed):
@@ -277,7 +289,7 @@ def test_matches_upstream_formula_low_precision(dtype):
     w = _rand((_HIDDEN,), seed=22).to(dtype)
     got, ref = op.forward(x, w), _hf_rms_norm(x, w)
     assert got.dtype == ref.dtype == dtype
-    torch.testing.assert_close(got.float(), ref.float(), atol=2e-2, rtol=1.6e-2)
+    torch.testing.assert_close(got.float(), ref.float(), **_forward_tol(dtype))
 
 
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16])
@@ -289,7 +301,7 @@ def test_gated_hf_witness_low_precision(dtype):
     gate = _rand((4, 16, _HEAD_V_DIM), seed=25).to(dtype)
     got, ref = op.forward(x, w, gate), _hf_rms_norm_gated(x, w, gate)
     assert got.dtype == ref.dtype == dtype
-    torch.testing.assert_close(got.float(), ref.float(), atol=2e-2, rtol=1.6e-2)
+    torch.testing.assert_close(got.float(), ref.float(), **_forward_tol(dtype))
 
 
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16])
@@ -300,7 +312,7 @@ def test_gated_strict_low_precision(dtype):
     gate = _rand((4, 16, _HEAD_V_DIM), seed=25).to(dtype)
     got, ref = op.forward(x, w, gate), _vllm_rms_norm_gated(x, w, gate)
     assert got.dtype == ref.dtype == dtype
-    torch.testing.assert_close(got.float(), ref.float(), atol=2e-2, rtol=1.6e-2)
+    torch.testing.assert_close(got.float(), ref.float(), **_forward_tol(dtype))
 
 
 # --------------------------------------------------------------------------- #
@@ -421,7 +433,7 @@ def test_cuda_zero_centred_within_tolerance_of_golden():
     w = torch.randn(_HIDDEN, device="cuda", dtype=torch.bfloat16)
     got = Qwen3NextRMSNormCudaOp().forward(x, w, eps=_EPS)
     ref = Qwen3NextRMSNormOp().forward_fp32(x, w, eps=_EPS)
-    torch.testing.assert_close(got.float(), ref, atol=2e-2, rtol=1.6e-2)
+    torch.testing.assert_close(got.float(), ref, **_forward_tol(torch.bfloat16))
 
 
 @requires_cuda_rmsnorm

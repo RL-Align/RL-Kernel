@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""Which vLLM gated-RMSNorm path is the strict provider, and how far apart are they.
+"""How far apart vLLM's eager gated-RMSNorm paths are, and ours from each.
 
 Named ``check_`` rather than ``test_`` on purpose, following
 ``tests/distributed/check_*.py``: this module imports real vLLM, and
@@ -16,13 +16,17 @@ Qwen3-Next's GDN gated norm that phrase is not well defined until a single
 provider is named, because vLLM ships several and they do not agree bitwise with
 each other.
 
-This module pins two things so a vLLM upgrade cannot move them silently:
+This module records two things so a vLLM upgrade cannot move them silently:
 
-1. **Dispatch facts** -- which provider actually runs, asserted on the env
-   defaults and the registered ops rather than inferred from reading one branch.
+1. **Provider facts** -- the GDN decode env defaults, and that ``RMSNormGated``
+   has distinct ``forward_native`` and ``forward_cuda`` methods. It does NOT
+   determine which path vLLM dispatches at runtime: the checks below call each
+   method directly (eager), and vLLM's default compiled mode traces
+   ``forward_native`` into an inductor graph instead.
 2. **The size of the gap** -- a seed sweep that asserts an upper bound on the
-   disagreement and on the mismatch rate. It deliberately does NOT assert
-   equality; the point is to keep the number honest, not to pretend it is zero.
+   disagreement and on the mismatch rate between the eager paths. The bounds are
+   provider-gap bounds, not ``tolerance_contract.json`` thresholds, and they
+   deliberately do NOT assert equality.
 
 Measured on 2x B200 (sm_100, torch 2.13.0+cu130, vllm 0.30.0), bf16,
 ``head_v_dim=128``, 512 rows, 40 seeds:
@@ -101,21 +105,24 @@ def _disagreement(a: torch.Tensor, b: torch.Tensor) -> tuple[float, float]:
 
 
 # --------------------------------------------------------------------------- #
-# 1. Dispatch facts -- which provider actually runs
+# 1. Provider facts -- recorded, not a runtime dispatch check
 # --------------------------------------------------------------------------- #
 def test_custom_op_has_distinct_native_and_cuda_paths(vllm_config_ctx):
-    """`forward_native` is a reference; `forward_cuda` is what CustomOp dispatches."""
+    """The two methods are distinct. Which one runs depends on the vLLM mode: eager
+    (``custom_ops="all"``) dispatches ``forward_cuda``; the default compiled mode
+    traces ``forward_native``. This test does not check that choice."""
     norm = _make_norm()
     assert type(norm).forward_cuda is not type(norm).forward_native
 
 
 def test_gdn_decode_provider_env_defaults_are_recorded():
-    """Pin the env defaults that decide which GDN decode kernel runs.
+    """Record the GDN decode env defaults.
 
-    These are what make ``fused_recurrent_gated_delta_rule_packed_decode`` (not
-    ``fused_sigmoid_gating_delta_rule_update``) the rollout decode path. If a
-    vLLM bump flips either default, the provider identity behind any L2 claim
-    changes, so this must fail loudly rather than drift.
+    This records the defaults only; it does not assert which kernel runs. For
+    Qwen3-Next the ``VLLM_GDN_DECODE_KERNEL="cuda"`` default does not take effect:
+    vLLM builds its GDN layers with ``gqa_interleaved_layout=True`` and falls back
+    to the Triton decode kernel. A change of either default still fails here, as a
+    prompt to re-derive the decode path.
     """
     pytest.importorskip("vllm", reason="vLLM is required to identify the provider")
     import vllm.envs as envs
@@ -141,12 +148,11 @@ def test_gdn_decode_provider_env_defaults_are_recorded():
 @pytest.mark.parametrize(
     "dtype, max_abs, max_mismatch_rate",
     [
-        # bf16 rounding absorbs most of the reduction-tree difference, so few
-        # elements move -- but each that does moves by a whole bf16 ULP.
+        # Provider-gap bounds, not contract thresholds. bf16 rounding absorbs most
+        # of the reduction-tree difference, so few elements move.
         (torch.bfloat16, 2e-2, 0.05),
-        # fp32 has nothing to absorb it: ~36% of elements differ, every one of
-        # them by an fp32 ULP. Bounding the rate here would be measuring the
-        # wrong thing; the magnitude is what says the two agree semantically.
+        # In fp32 about 36% of elements differ, so the rate is left unbounded and
+        # only the magnitude is bounded (no per-element ULP bound is asserted).
         (torch.float32, 1e-5, 1.0),
     ],
 )
@@ -196,6 +202,7 @@ def test_ours_tracks_each_vllm_path_within_bounds(vllm_config_ctx, path):
         abs_d, rate = _disagreement(ours.forward(x, weight, gate), reference)
         worst_abs, worst_rate = max(worst_abs, abs_d), max(worst_rate, rate)
 
+    # Provider-gap bounds, not contract thresholds.
     assert worst_abs <= 2e-2, f"worst |diff| vs {path} was {worst_abs:.3e}"
     assert worst_rate <= 0.05, f"mismatch rate vs {path} was {worst_rate:.3%}"
 

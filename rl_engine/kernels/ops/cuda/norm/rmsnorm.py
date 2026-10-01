@@ -145,6 +145,8 @@ class RMSNormCudaOp:
 
     def parameter_vjp_contributions_fp32(self, *, x, weight, grad_output, eps=1e-6):
         hidden = x.shape[-1]
+        # Only `rstd` is used, and it does not depend on the offset; the offset is
+        # passed so this is the same call the forward makes, not because it matters.
         _, rstd = _C.rmsnorm_forward(
             x.contiguous().reshape(-1, hidden),
             weight.contiguous(),

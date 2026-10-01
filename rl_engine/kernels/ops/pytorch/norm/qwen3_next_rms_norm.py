@@ -3,66 +3,26 @@
 
 """Qwen3-Next RMSNorm references (WS1 ground truth for RFC #428 C1).
 
-Qwen3-Next ships two RMSNorm conventions that differ both in how the weight is
-applied and in where the dtype casts sit. They are kept as separate operators
-because the cast order is part of the contract, not a flag:
+Qwen3-Next ships two RMSNorm conventions. They differ in how the weight is applied
+and in where the dtype casts sit, so they are separate operators rather than a flag:
 
 ``Qwen3NextRMSNorm`` (decoder / final norm)
-    normalize in fp32, scale by ``(1 + weight)`` in fp32, cast once at the end.
-    The stored weight is zero-centred, so the ``1 +`` offset MUST be applied
-    after the fp32 upcast -- folding it into a bf16 weight first rounds the
-    offset and silently breaks the bitwise claim.
+    Normalize in fp32, scale by ``(1 + weight)`` in fp32, cast once at the end. The
+    stored weight is zero-centred, so the ``1 +`` must be applied after the fp32
+    upcast; folding it into a bf16 weight first rounds the offset.
 
 ``Qwen3NextRMSNormGated`` (inside the Gated DeltaNet block)
-    normalize in fp32, scale by a plain (non zero-centred) weight, then gate by
-    ``silu(gate)``. Where the weight multiply happens is NOT agreed upstream --
-    see below -- so it is an explicit part of the operator identity here.
+    Normalize in fp32, scale by a plain weight, then gate by ``silu(gate)``.
+    vLLM's ``RMSNormGated`` multiplies the weight in fp32; transformers casts the
+    normalized value back to the input dtype first. ``Qwen3NextRMSNormGatedOp``
+    follows vLLM; ``Qwen3NextRMSNormGatedHFOp`` keeps the transformers convention
+    as a witness, and ``test_gated_conventions_diverge_in_low_precision`` pins that
+    the two differ in bf16 and agree bitwise in fp32.
 
-Divergence at the gated-norm boundary (measured)
--------------------------------------------------
-``transformers`` and vLLM do not agree on the gated variant:
-
-* vLLM (``RMSNormGated``, both ``forward_native`` and the FLA Triton
-  ``forward_cuda``) keeps the normalized value in fp32 for the weight multiply.
-* ``transformers`` (``Qwen3NextRMSNormGated``) casts the normalized value back
-  to the input dtype *before* the weight multiply.
-
-On B200 / bf16 / ``head_v_dim=128`` these differ in 35% of elements with
-``max|diff| = 6.25e-2``; swapping only the cast order reproduces the gap
-(``5.3e-2``), so the cast order -- not the reduction order -- dominates. Because
-RFC #428 claims L2 exactness against **vLLM rollout**, the fp32 multiply is the
-strict default; the transformers convention is kept as a named witness so the
-divergence stays testable instead of being silently picked.
-
-What "agrees with vLLM" means here, precisely
-----------------------------------------------
-Only the *convention* is reproduced, not the bits. vLLM's own two paths are not
-bitwise equal to each other: over 40 seeds (bf16, ``head_v_dim=128``, 512 rows),
-``forward_native`` and ``forward_cuda`` disagreed on 21, worst
-``max|diff| = 1.56e-2``. Against this operator the figures were 6/40 and 18/40.
-So "bitwise equal to vLLM" is undefined until a single provider is named, and
-this operator does not claim it -- see the reduction-order note below.
-
-Both reuse :func:`shape_invariant_rstd` so the reduction order -- and hence the
-result -- never depends on the batch layout (RFC #428 section 6, item 2). The
-reduction order therefore deliberately differs from upstream's ``mean(-1)``;
-what is reproduced exactly is the weight convention and the cast order.
-
-Why the chunked reduction is kept on CUDA too
----------------------------------------------
-:func:`shape_invariant_rstd` was introduced for NPU, where ``mean``/``sum`` pick
-shape-dependent kernels. Measured on B200 (sm_100) it is needed on CUDA as well:
-over 20 seeds at ``H=2048`` in bf16 -- Qwen3-Next's own ``hidden_size`` and dtype
--- a plain ``mean(-1)`` broke slice invariance (``rstd(x[3:5]) != rstd(x)[3:5]``)
-on 1 of 20, while the chunked reduction broke on 0 of 20. Failures were also seen
-at ``H=5120`` in fp32.
-
-The cost is that the decoder norm is NOT bitwise equal to stock vLLM: 7 elements
-of 1048576 differ (``max|diff| = 1.56e-2``, bf16, H=2048). That gap is inherent --
-matching stock vLLM bitwise would mean adopting a reduction that is itself not
-batch-invariant, i.e. trading L1 for L2. These operators therefore claim L0 and L1
-only; an L2 claim needs the strict provider on both sides, per RFC #428 section 1,
-item 1.
+All three reuse :func:`shape_invariant_rstd`, a fixed-order reduction. They
+reproduce the weight convention and cast order, not vLLM's reduction tree, and are
+not bitwise equal to any vLLM path probed so far. Claim levels, measurements and
+limitations are in ``docs/operators/qwen3-next-rms-norm.md``.
 """
 
 from __future__ import annotations
@@ -100,8 +60,8 @@ class Qwen3NextRMSNormGatedOp:
 
     ``out = (x * rstd * weight) * silu(gate)``, with every multiply in fp32 and
     a single cast on the way out. This is the convention vLLM's ``RMSNormGated``
-    uses with ``norm_before_gate=True``, which is what the RFC #428 L2 claim is
-    measured against.
+    uses with ``norm_before_gate=True``. Which gated convention is the strict
+    default is still open; see the operator page.
 
     Not a subclass of the plain op: it takes an extra tensor and its epilogue
     differs, so it is not a drop-in substitute for one.
