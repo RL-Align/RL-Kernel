@@ -141,6 +141,7 @@ def test_null_block_id_is_skipped_by_both():
         assert bool((out_ref[row] == 0).all()), f"provider row {row}"
         assert bool((out_got[row] == 0).all()), f"golden row {row}"
     assert torch.equal(state_got[0], inp["state"][0]), "block 0 must be untouched"
+    assert torch.equal(state_ref[0], inp["state"][0]), "provider must leave block 0 untouched"
 
 
 # --------------------------------------------------------------------------- #
