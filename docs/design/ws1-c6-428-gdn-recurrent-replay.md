@@ -161,15 +161,23 @@ all 8 (batch, cache dtype) cases. Output elements differing, with an fp32 cache:
 5 / 524288 (B=64, max|diff| 3.91e-03). With a bf16 cache: 0 at B=1, 4 and 17, and
 3 / 524288 at B=64 (max|diff| 1.56e-02).
 
-Why a few fp32-cache elements differ is **not determined**. One candidate is FP
-contraction: with Triton's default `enable_fp_fusion=True`, ptxas may contract the
-provider's `acc += matrix_x * matrix_w` (vLLM `causal_conv1d.py:1061`) into an `FFMA`,
-whereas the golden rounds the product first. A PTX without `fma.rn.f32` does not rule
-this out, because the contraction can happen in ptxas. The runner tests it by
-rerunning the comparison in a child process compiled with fusion off and by counting
-`FFMA` in each variant's SASS; its `fusion_check` field says whether the fusion-off
-variants were really compiled that way. The run above predates that arm working (its
-fusion-off pass reused the fused kernel), so it is no evidence either way.
+**FP contraction is ruled out** as the cause of the few differing fp32-cache
+elements; what does cause them is **not determined**. The candidate was that, with
+Triton's default `enable_fp_fusion=True`, ptxas contracts the provider's
+`acc += matrix_x * matrix_w` (vLLM `causal_conv1d.py:1061`) into an `FFMA`, whereas the
+golden rounds the product first. The runner tests this by rerunning the comparison in
+a child process compiled with fusion off. On B200 at commit `cf6be1a`:
+
+- the fusion-off arm took effect: all 6 compiled variants carry
+  `enable_fp_fusion=False`, and their PTX has only `.rn`-qualified f32 `mul`/`add`,
+  which ptxas may not contract;
+- the mismatch counts and max\|diff\| are **identical** with fusion on and off
+  (0, 0, 1, 5 for B = 1, 4, 17, 64);
+- neither arm's SASS contains `FFMA`.
+
+The conclusion rests on the second point. The opcode counts are supporting evidence
+only: each variant's PTX has 2 f32 multiplies, too few to be the four tap products, so
+the counters do not show which instructions compute those products.
 
 ## 5. Decode versus chunked prefill
 
