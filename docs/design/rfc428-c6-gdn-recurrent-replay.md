@@ -166,23 +166,48 @@ all 8 (batch, cache dtype) cases. Output elements differing, with an fp32 cache:
 5 / 524288 (B=64, max|diff| 3.91e-03). With a bf16 cache: 0 at B=1, 4 and 17, and
 3 / 524288 at B=64 (max|diff| 1.56e-02).
 
-**FP contraction is ruled out** as the cause of the few differing fp32-cache
-elements; what does cause them is **not determined**. The candidate was that, with
-Triton's default `enable_fp_fusion=True`, ptxas contracts the provider's
-`acc += matrix_x * matrix_w` (vLLM `causal_conv1d.py:1061`) into an `FFMA`, whereas the
-golden rounds the product first. The runner tests this by rerunning the comparison in
-a child process compiled with fusion off. On B200 at commit `cf6be1a`:
+**Why a few fp32-cache outputs differ.** There are two mechanisms, both on the provider
+side, and which one applies depends on the Triton specialization. Measured by
+`scripts/ws1_gdn_provider_agreement.py` (`conv_silu`, `conv_noact_bf16`) on B200 at commit
+`bb89750`:
 
-- the fusion-off arm took effect: all 6 compiled variants carry
-  `enable_fp_fusion=False`, and their PTX has only `.rn`-qualified f32 `mul`/`add`,
-  which ptxas may not contract;
-- the mismatch counts and max\|diff\| are **identical** with fusion on and off
-  (0, 0, 1, 5 for B = 1, 4, 17, 64);
-- neither arm's SASS contains `FFMA`.
+*With SiLU -- Qwen3-Next's configuration and the check file's -- the activation's
+implementation.*
 
-The conclusion rests on the second point. The opcode counts are supporting evidence
-only: each variant's PTX has 2 f32 multiplies, too few to be the four tap products, so
-the counters do not show which instructions compute those products.
+- With the activation off and the output kept in fp32, provider and golden agree bitwise
+  on every element at B = 1, 4, 17 and 64: the cast to the cache dtype, the bias start,
+  the product rounding and the tap order all match.
+- Both sides compute `acc / (1 + exp(-acc))` (vLLM `causal_conv1d.py:1085`), but Triton
+  lowers the exp and the fp32 division to `ex2.approx` and `div.full.f32`, while the
+  golden's PyTorch result equals the same expression with `libdevice.exp` and IEEE
+  division (`div_rn`). Applying Triton's `x / (1 + tl.exp(-x))` to the golden's
+  pre-activation values reproduces the provider's fp32 output bitwise; replacing only the
+  exp, or only the division, reproduces neither side.
+- In fp32 about 38% of outputs differ: 86% of those by 1 ULP, 12% by 2, 3% by 3 or 4,
+  0.2% by more. Only values on opposite sides of a bf16 rounding midpoint survive the bf16
+  store: 0, 0, 1 and 5 elements, each one bf16 ULP apart.
+- FP contraction plays no part on this path. These specializations compute the tap
+  products as packed `mul.f32x2` with separate adds and contain no `FFMA`; recompiling
+  with `TRITON_DEFAULT_FP_FUSION=0` leaves every count unchanged.
+
+*Without an activation and with a bf16 output -- FP contraction.*
+
+- With fusion at its default, this specialization contracts each tap's multiply-add
+  (`fma.rn.f32x2` in the PTX, `FFMA` in the SASS). Its fp32-output twin computes the same
+  values (the provider casts x to the fp32 cache dtype first) but is not contracted, and
+  matches the golden bitwise.
+- The bf16 outputs differ in 1, 0, 4 and 14 elements (max |diff| 3.9e-3). 18 of the 19
+  have |out| < 0.11, where the taps nearly cancel; there the gap can span several bf16
+  ULPs (up to 96 at |out| ≈ 2.4e-7) while staying at most 2.4e-7 in absolute terms.
+- With `TRITON_DEFAULT_FP_FUSION=0` this specialization compiles to separate multiplies
+  and adds, and the mismatches drop to 0. The golden is self-consistent across output
+  dtypes. Qwen3-Next's conv applies SiLU, so this specialization is not on its decode
+  path.
+
+*Open:* the recurrent provider computes `exp(g)` and `sigmoid(b)` with Triton (`tl.exp`
+via the vendored FLA `op.py`), the golden with PyTorch; the same kind of difference may
+account for part of the recurrent output mismatches in the table above. Not
+investigated.
 
 ## 5. Decode versus chunked prefill
 
