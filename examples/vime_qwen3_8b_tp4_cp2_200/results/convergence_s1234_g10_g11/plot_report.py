@@ -13,7 +13,6 @@ from pathlib import Path
 from statistics import mean
 from typing import Any, Callable
 
-
 BLUE = "#2F67D8"
 LIGHT_BLUE = "#93B4F4"
 RED = "#E53935"

@@ -27,21 +27,15 @@ def _build_cos_sin(
     device: torch.device,
 ) -> tuple[Tensor, Tensor]:
     """Build fp32 [table_rows, half] caches with the reference RoPE formula."""
-    inv_freq = 1.0 / (
-        theta ** (torch.arange(0, half, dtype=torch.float32, device=device) / half)
-    )
+    inv_freq = 1.0 / (theta ** (torch.arange(0, half, dtype=torch.float32, device=device) / half))
     freqs = positions.to(device=device, dtype=torch.float32).reshape(-1, 1) * inv_freq
     return freqs.cos().contiguous(), freqs.sin().contiguous()
 
 
-def _rope_table(
-    x: Tensor, positions: Tensor, theta: float
-) -> tuple[Tensor, Tensor, Tensor]:
+def _rope_table(x: Tensor, positions: Tensor, theta: float) -> tuple[Tensor, Tensor, Tensor]:
     """Flatten x so row modulo table length selects the correct position cache."""
     if x.dim() < 2:
-        raise ValueError(
-            f"x must have at least 2 dimensions, got shape {tuple(x.shape)}"
-        )
+        raise ValueError(f"x must have at least 2 dimensions, got shape {tuple(x.shape)}")
     dim = x.shape[-1]
     if dim <= 0 or dim % 2 != 0:
         raise ValueError(f"RoPE head_dim must be a positive even number, got {dim}")
@@ -61,9 +55,7 @@ def _rope_table(
         return x_2d, cos, sin
 
     if positions.dim() != 2:
-        raise ValueError(
-            f"positions must be [S] or [B, S], got shape {tuple(positions.shape)}"
-        )
+        raise ValueError(f"positions must be [S] or [B, S], got shape {tuple(positions.shape)}")
     batch, seq = positions.shape
     if x.shape[0] != batch or x.shape[-2] != seq:
         raise ValueError(
@@ -112,11 +104,7 @@ class _RoPEAscendFunction(torch.autograd.Function):
         grad_x = None
         if ctx.needs_input_grad[0]:
             if ctx.pos_dim == 2 and len(ctx.x_shape) == 4:
-                grad_2d = (
-                    grad_out.permute(1, 0, 2, 3)
-                    .contiguous()
-                    .reshape(-1, ctx.x_shape[-1])
-                )
+                grad_2d = grad_out.permute(1, 0, 2, 3).contiguous().reshape(-1, ctx.x_shape[-1])
                 out_2d = _C_npu.rope_apply_ascend(grad_2d, cos, sin, -1.0)
                 heads, batch, seq, dim = (
                     ctx.x_shape[1],
@@ -124,16 +112,10 @@ class _RoPEAscendFunction(torch.autograd.Function):
                     ctx.x_shape[2],
                     ctx.x_shape[3],
                 )
-                grad_x = (
-                    out_2d.reshape(heads, batch, seq, dim)
-                    .permute(1, 0, 2, 3)
-                    .contiguous()
-                )
+                grad_x = out_2d.reshape(heads, batch, seq, dim).permute(1, 0, 2, 3).contiguous()
             else:
                 grad_2d = grad_out.contiguous().reshape(-1, grad_out.shape[-1])
-                grad_x = _C_npu.rope_apply_ascend(grad_2d, cos, sin, -1.0).reshape(
-                    grad_out.shape
-                )
+                grad_x = _C_npu.rope_apply_ascend(grad_2d, cos, sin, -1.0).reshape(grad_out.shape)
         return grad_x, None, None
 
 
@@ -148,9 +130,7 @@ class RoPEAscendOp:
                 "rope_apply_ascend is not compiled into _C_npu. Rebuild on an Ascend host with "
                 "'KERNEL_ALIGN_FORCE_ASCEND=1 pip install --no-build-isolation -e .'."
             )
-        logger.info(
-            "Successfully linked to precompiled _C_npu.rope_apply_ascend kernel."
-        )
+        logger.info("Successfully linked to precompiled _C_npu.rope_apply_ascend kernel.")
 
     def __call__(
         self,
@@ -169,11 +149,7 @@ class RoPEAscendOp:
         theta: float = 1_000_000.0,
     ) -> Tensor:
         if x.device.type != "npu":
-            raise RuntimeError(
-                f"RoPEAscendOp requires an NPU tensor, got device '{x.device}'."
-            )
+            raise RuntimeError(f"RoPEAscendOp requires an NPU tensor, got device '{x.device}'.")
         if x.dtype not in (torch.float16, torch.bfloat16, torch.float32):
-            raise TypeError(
-                f"RoPEAscendOp supports fp16, bf16, and fp32, got {x.dtype}."
-            )
+            raise TypeError(f"RoPEAscendOp supports fp16, bf16, and fp32, got {x.dtype}.")
         return _RoPEAscendFunction.apply(x, positions, float(theta))

@@ -75,9 +75,7 @@ class TestNativeRoPEOpCorrectness:
     def test_call_equals_forward(self):
         op = NativeRoPEOp()
         x, pos = _make_inputs(2, 32, 16, QWEN3_HEAD_DIM)
-        assert torch.equal(
-            op(x, pos, theta=QWEN3_THETA), op.forward(x, pos, theta=QWEN3_THETA)
-        )
+        assert torch.equal(op(x, pos, theta=QWEN3_THETA), op.forward(x, pos, theta=QWEN3_THETA))
 
     def test_pure_function_no_inplace(self):
         op = NativeRoPEOp()
@@ -146,9 +144,7 @@ class TestNativeRoPEOpBatchInvariance:
         full_out = op.forward_fp32(x, pos)
         for i in range(x.shape[0]):
             single_out = op.forward_fp32(x[i : i + 1], pos)
-            assert torch.equal(
-                full_out[i], single_out[0]
-            ), f"Batch invariance broken at row {i}"
+            assert torch.equal(full_out[i], single_out[0]), f"Batch invariance broken at row {i}"
 
     def test_batch_invariance_with_padding(self):
         """Padded batch (extra rows) must not affect valid rows."""
@@ -235,8 +231,7 @@ class TestNativeRoPEOpAccuracy:
         out_fp32 = op.forward_fp32(x_typed, pos)
         diff = (out_typed - out_fp32).abs().max().item()
         assert torch.allclose(out_typed, out_fp32, atol=atol, rtol=rtol), (
-            f"dtype={dtype}, max_abs_error={diff:.3e} exceeds "
-            f"atol={atol}, rtol={rtol}"
+            f"dtype={dtype}, max_abs_error={diff:.3e} exceeds " f"atol={atol}, rtol={rtol}"
         )
 
 
@@ -291,9 +286,7 @@ class TestRoPEPackedPositionReset:
         assert not torch.equal(packed_out, naive_out)
 
 
-@pytest.mark.skipif(
-    not torch.cuda.is_available(), reason="candidate RoPE requires CUDA"
-)
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="candidate RoPE requires CUDA")
 class TestCandidateRoPELayouts:
     def _candidates(self):
         from rl_engine.kernels.ops.triton.rotary_embedding.rope import TritonRoPEOp
@@ -347,10 +340,7 @@ def _ascend_rope_available() -> bool:
     if not _npu_available():
         return False
     try:
-        from rl_engine.kernels.ops.ascend.rotary_embedding.rope import (
-            _C_npu,
-            _NPU_EXT_AVAILABLE,
-        )
+        from rl_engine.kernels.ops.ascend.rotary_embedding.rope import _NPU_EXT_AVAILABLE, _C_npu
     except Exception:
         return False
     return _NPU_EXT_AVAILABLE and hasattr(_C_npu, "rope_apply_ascend")
@@ -368,10 +358,7 @@ def _make_ascend_inputs(batch: int, heads: int, seq: int, dim: int, dtype: torch
 
 
 def test_ascend_per_batch_table_layout_round_trips_without_an_npu():
-    from rl_engine.kernels.ops.ascend.rotary_embedding.rope import (
-        _restore_rope,
-        _rope_table,
-    )
+    from rl_engine.kernels.ops.ascend.rotary_embedding.rope import _restore_rope, _rope_table
 
     x = torch.arange(2 * 3 * 4 * 8, dtype=torch.float32).reshape(2, 3, 4, 8)
     positions = torch.stack([torch.arange(4), torch.arange(4) + 17])
@@ -438,9 +425,7 @@ class TestRoPEAscend:
         self._op()(actual_x, positions, theta=QWEN3_THETA).backward(grad_out)
 
         expected_x = x.detach().clone().requires_grad_(True)
-        NativeRoPEOp().forward_fp32(expected_x, positions, theta=QWEN3_THETA).backward(
-            grad_out
-        )
+        NativeRoPEOp().forward_fp32(expected_x, positions, theta=QWEN3_THETA).backward(grad_out)
         assert actual_x.grad is not None
         assert expected_x.grad is not None
         assert torch.allclose(actual_x.grad, expected_x.grad, atol=1e-5, rtol=1e-5)

@@ -2,9 +2,11 @@
 # Copyright (c) 2026 RL-Kernel Contributors
 """Import-time platform binding for strict deterministic GEMM."""
 
+from typing import TYPE_CHECKING
+
 import torch
 
-if torch.version.hip is not None:
+if not TYPE_CHECKING and torch.version.hip is not None:
     from rl_engine.kernels.ops.rocm.matmul.det_gemm import (
         DetGemmOp,
         det_gemm_backend,

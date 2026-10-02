@@ -8,6 +8,7 @@ import time
 from functools import partial
 
 import torch
+
 from examples.vime_rocm_attention_ablation.probe_paged_dispatch import cache_for, packed_forward
 from rl_engine.kernels.ops.rocm.attention.fixed_paged_ck import fixed_paged_prefill
 from rl_engine.kernels.ops.rocm.attention.flash_attn import StrictRocmAiterCKAttentionCore

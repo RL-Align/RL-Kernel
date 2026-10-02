@@ -13,8 +13,8 @@ pytestmark = pytest.mark.skipif(
 @pytest.mark.parametrize("eps", [1e-6, 1e-5, 0.01])
 @pytest.mark.parametrize("add", [False, True])
 def test_bitwise_eager_and_changing_graph_inputs(width, eps, add):
+    from rl_engine.kernels.ops.pytorch.norm.rms_norm import strict_add_rms_norm, strict_rms_norm
     from rl_engine.kernels.ops.rocm import rmsnorm
-    from rl_engine.kernels.ops.pytorch.norm.rms_norm import strict_rms_norm, strict_add_rms_norm
 
     backing = torch.empty((4, 3, 8, width), device="cuda", dtype=torch.bfloat16)
     x = backing[:, 1]  # Q/K heads are strided slices of the QKV projection.
@@ -61,8 +61,8 @@ def test_bitwise_eager_and_changing_graph_inputs(width, eps, add):
 
 @pytest.mark.parametrize("dtype,width", [(torch.float16, 128), (torch.bfloat16, 96)])
 def test_other_contracts_keep_eager_path(dtype, width):
-    from rl_engine.kernels.ops.rocm import rmsnorm
     from rl_engine.kernels.ops.pytorch.norm.rms_norm import strict_rms_norm
+    from rl_engine.kernels.ops.rocm import rmsnorm
 
     x = torch.randn(4, width, device="cuda", dtype=dtype)
     weight = torch.randn(width, device="cuda", dtype=dtype)

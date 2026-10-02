@@ -1,17 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
+from types import SimpleNamespace
+
 import pytest
 import torch
-from types import SimpleNamespace
 
 import examples.vime_qwen3_8b_tp4_cp2_200.validate_run as validator
 import examples.vime_rocm_attention_ablation.validate_artifacts as artifacts
-from examples.vime_qwen3_8b_tp4_cp2_200.run_arm import _rollout_topology
-import rl_engine.repro as repro
-from rl_engine.integrations.framework_operators import _MegatronCPWeightGradient
-from rl_engine.repro import build_parser, _runner_command, _resolved_paths
 import rl_engine.kernels.ops.pytorch.ffn.ffn as ffn
+import rl_engine.repro as repro
+from examples.vime_qwen3_8b_tp4_cp2_200.run_arm import _rollout_topology
+from rl_engine.integrations.framework_operators import _MegatronCPWeightGradient
+from rl_engine.repro import _resolved_paths, _runner_command, build_parser
 
 
 def test_short_command_preserves_sampling_and_derives_cp(tmp_path):

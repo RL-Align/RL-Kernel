@@ -25,9 +25,7 @@ from collections.abc import Callable
 
 import torch
 
-from rl_engine.kernels.ops.rocm.attention.flash_attn import (
-    StrictRocmAiterCKAttentionCore,
-)
+from rl_engine.kernels.ops.rocm.attention.flash_attn import StrictRocmAiterCKAttentionCore
 from rl_engine.kernels.ops.rocm.attention.strict_runtime import StrictRocmAttentionRuntime
 
 

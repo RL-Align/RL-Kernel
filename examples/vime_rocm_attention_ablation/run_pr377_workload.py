@@ -68,9 +68,7 @@ class WorkloadConfig(MatrixConfig):
         value["framework_consistency"] = {
             "use_rollout_logprobs": False,
             "get_mismatch_metrics": True,
-            "custom_tis_function": (
-                "vime_rocm_attention_ablation.tis_metrics.metrics_only_tis"
-            ),
+            "custom_tis_function": ("vime_rocm_attention_ablation.tis_metrics.metrics_only_tis"),
         }
         return value
 
@@ -284,9 +282,7 @@ def main(argv=None) -> int:
             errors.append(f"Vime launcher exited with status {process.returncode}")
         log_text = (arm_dir / "launcher.log").read_text(encoding="utf-8", errors="replace")
         try:
-            readbacks = validate_native_readbacks(
-                arm_dir / "readbacks", log_text=log_text
-            )
+            readbacks = validate_native_readbacks(arm_dir / "readbacks", log_text=log_text)
         except Exception as exc:  # pragma: no cover - runtime evidence failure
             readbacks = {"passed": False, "errors": [str(exc)], "paths": []}
         errors.extend(readbacks["errors"])

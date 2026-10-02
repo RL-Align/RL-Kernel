@@ -78,9 +78,7 @@ class PrefixSharedAttentionAscendOp:
         v: torch.Tensor,
     ) -> torch.Tensor:
         self._validate_inputs(q, k, v)
-        return _C_npu.prefix_shared_attention_ascend(
-            q.contiguous(), k.contiguous(), v.contiguous()
-        )
+        return _C_npu.prefix_shared_attention_ascend(q.contiguous(), k.contiguous(), v.contiguous())
 
     @staticmethod
     def _validate_inputs(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor) -> None:
@@ -95,13 +93,10 @@ class PrefixSharedAttentionAscendOp:
             raise ValueError("batch size mismatch between q/k/v")
         if k.shape[2] != d or v.shape[2] != d:
             raise ValueError(
-                f"k/v head dim mismatch: k={tuple(k.shape)}, v={tuple(v.shape)}, "
-                f"expected D={d}"
+                f"k/v head dim mismatch: k={tuple(k.shape)}, v={tuple(v.shape)}, " f"expected D={d}"
             )
         if v.shape[1] != skv:
-            raise ValueError(
-                f"k/v key length mismatch: k={tuple(k.shape)}, v={tuple(v.shape)}"
-            )
+            raise ValueError(f"k/v key length mismatch: k={tuple(k.shape)}, v={tuple(v.shape)}")
         if d != _HEAD_DIM:
             raise ValueError(f"head dim D must be {_HEAD_DIM}, got {d}")
         if q.dtype != torch.bfloat16 or k.dtype != torch.bfloat16 or v.dtype != torch.bfloat16:
@@ -109,9 +104,7 @@ class PrefixSharedAttentionAscendOp:
                 f"only BF16 is supported (matches the CUDA op), got "
                 f"q={q.dtype}, k={k.dtype}, v={v.dtype}"
             )
-        if not (
-            q.device.type == "npu" and k.device.type == "npu" and v.device.type == "npu"
-        ):
+        if not (q.device.type == "npu" and k.device.type == "npu" and v.device.type == "npu"):
             raise ValueError("q, k, v must be NPU tensors")
         if sq < 1 or skv < 1:
             raise ValueError(f"Sq and Skv must be positive, got Sq={sq}, Skv={skv}")

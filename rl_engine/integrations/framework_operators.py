@@ -291,6 +291,7 @@ def _fused_rms_norm_input(
         raise RuntimeError(f"strict {name} does not support zero-centered gamma")
     eps = float(getattr(projection, "eps"))
     from rl_engine.integrations.canonical_cp import rms_norm
+
     return rms_norm(hidden_states, weight, eps)
 
 
@@ -401,9 +402,7 @@ def _rocm_paged_kv_max_tokens() -> int | None:
     try:
         limit = int(value)
     except ValueError as exc:
-        raise RuntimeError(
-            "RL_KERNEL_ROCM_PAGED_KV_MAX_TOKENS must be an integer"
-        ) from exc
+        raise RuntimeError("RL_KERNEL_ROCM_PAGED_KV_MAX_TOKENS must be an integer") from exc
     if limit <= 0:
         raise RuntimeError("RL_KERNEL_ROCM_PAGED_KV_MAX_TOKENS must be positive")
     return limit
@@ -784,6 +783,7 @@ class _MegatronCPWeightGradient(torch.autograd.Function):
     @staticmethod
     def forward(ctx, weight, cp_world):
         from rl_engine.integrations.canonical_cp import current_layout
+
         ctx.cp_world = cp_world
         ctx.cp_layout = current_layout()
         return weight
@@ -792,6 +792,7 @@ class _MegatronCPWeightGradient(torch.autograd.Function):
     def backward(ctx, grad):
         if ctx.cp_layout is not None:
             from rl_engine.integrations.canonical_cp import replica_parameter_gradient
+
             grad = replica_parameter_gradient(grad, ctx.cp_world, ctx.cp_layout.cp_rank)
         else:
             grad = grad / ctx.cp_world
@@ -1022,7 +1023,7 @@ class VllmAttentionOperator:
         self._rocm_paged_metadata_value: dict[str, Any] | None = None
         self._rocm_kv_indptr_cache: dict[tuple[Any, ...], torch.Tensor] = {}
         self._phase_provenance: dict[str, dict[str, Any]] = {}
-        self._pcp = None
+        self._pcp: Any | None = None
 
     def bind_inference(self) -> None:
         """Resolve the backend after vLLM has selected the worker CUDA device."""
@@ -1068,9 +1069,7 @@ class VllmAttentionOperator:
                 "context_parallel_size": 1,
             },
         )
-        runtime = bound.bind_accelerator_runtime(
-            torch.empty((1,), device=device, dtype=dtype)
-        )
+        runtime = bound.bind_accelerator_runtime(torch.empty((1,), device=device, dtype=dtype))
         page_size = 16
         core = getattr(runtime, "_core", None)
         if getattr(core, "attention_backend", "ck") == "triton":
@@ -1152,9 +1151,7 @@ class VllmAttentionOperator:
             },
         }
 
-    def _record_phase_provenance(
-        self, phase: str, provenance: dict[str, Any]
-    ) -> None:
+    def _record_phase_provenance(self, phase: str, provenance: dict[str, Any]) -> None:
         self._last_provenance = provenance
         self._phase_provenance[phase] = provenance
 
@@ -1256,9 +1253,10 @@ class VllmAttentionOperator:
         )
         if starts[0] != 0 or starts[-1] != num_actual:
             return None
-        if any(end <= start or end - start != length for start, end, length in zip(
-            starts[:-1], starts[1:], lengths, strict=True
-        )):
+        if any(
+            end <= start or end - start != length
+            for start, end, length in zip(starts[:-1], starts[1:], lengths, strict=True)
+        ):
             return None
 
         output_heads = output.view(output.size(0), impl.num_heads, impl.head_size)
@@ -1306,19 +1304,22 @@ class VllmAttentionOperator:
             output_group.copy_(result_output)
         if num_actual < output.size(0):
             output[num_actual:].zero_()
-        self._record_phase_provenance("prefill", {
-            "framework_layout": "vllm_dense_qkv_prefill",
-            "materialization": "direct_dense_qkv_to_aiter_ck",
-            "tp_world_size": tp_world,
-            "runtime_platform": "rocm",
-            "triton_used": True,
-            "prefill_request_count": num_prefills,
-            "prefill_token_count": num_actual,
-            "core_launch_count": num_prefills,
-            "deterministic_projection": _strict_attention_projection_provenance("rocm"),
-            "deterministic_all_reduce_backend": "unbound" if tp_world > 1 else "none",
-            "direct_output_buffer": True,
-        })
+        self._record_phase_provenance(
+            "prefill",
+            {
+                "framework_layout": "vllm_dense_qkv_prefill",
+                "materialization": "direct_dense_qkv_to_aiter_ck",
+                "tp_world_size": tp_world,
+                "runtime_platform": "rocm",
+                "triton_used": True,
+                "prefill_request_count": num_prefills,
+                "prefill_token_count": num_actual,
+                "core_launch_count": num_prefills,
+                "deterministic_projection": _strict_attention_projection_provenance("rocm"),
+                "deterministic_all_reduce_backend": "unbound" if tp_world > 1 else "none",
+                "direct_output_buffer": True,
+            },
+        )
         return output
 
     def _rocm_direct_paged_metadata(
@@ -1391,14 +1392,10 @@ class VllmAttentionOperator:
             return None
         query_starts_source = query_start_loc
         seq_lens_source = self._metadata_tensor(attn_metadata, "seq_lens")
-        max_seq_len = int(
-            getattr(attn_metadata, "max_seq_len", block_table.size(1) * block_size)
-        )
+        max_seq_len = int(getattr(attn_metadata, "max_seq_len", block_table.size(1) * block_size))
         configured_kv_limit = _rocm_paged_kv_max_tokens()
         kernel_max_seqlen_k = (
-            max_seq_len
-            if configured_kv_limit is None
-            else min(max_seq_len, configured_kv_limit)
+            max_seq_len if configured_kv_limit is None else min(max_seq_len, configured_kv_limit)
         )
         page_count = min(
             block_table.size(1),
@@ -1426,9 +1423,7 @@ class VllmAttentionOperator:
             self._rocm_paged_metadata_owners.add(owner_id)
             return self._rocm_paged_metadata_value, True
 
-        query_start_loc = query_starts_source.to(
-            device=block_table.device, dtype=torch.int32
-        )
+        query_start_loc = query_starts_source.to(device=block_table.device, dtype=torch.int32)
         if not query_start_loc.is_contiguous():
             query_start_loc = query_start_loc.contiguous()
         seq_lens = seq_lens_source.to(device=block_table.device, dtype=torch.int32)
@@ -1449,28 +1444,22 @@ class VllmAttentionOperator:
                 )
             else:
                 tokens = torch.arange(num_actual, dtype=torch.int32, device=block_table.device)
-                seq_of_token = torch.searchsorted(
-                    query_start_loc[1:], tokens, right=True
-                ).to(torch.int32)
+                seq_of_token = torch.searchsorted(query_start_loc[1:], tokens, right=True).to(
+                    torch.int32
+                )
         elif mode == "decode":
             query_starts = query_start_loc[: sequence_count + 1]
             query_ends = query_starts[1:]
-            query_indices = torch.arange(
-                num_actual, dtype=torch.int32, device=block_table.device
+            query_indices = torch.arange(num_actual, dtype=torch.int32, device=block_table.device)
+            request_indices = torch.searchsorted(query_ends, query_indices, right=True).to(
+                dtype=torch.long
             )
-            request_indices = torch.searchsorted(
-                query_ends, query_indices, right=True
-            ).to(dtype=torch.long)
             request_indices = request_indices.clamp_max(sequence_count - 1)
             request_query_ends = query_ends.index_select(0, request_indices)
             request_seq_lens = seq_lens.index_select(0, request_indices)
             active_queries = query_indices < query_starts[-1]
-            seqused_k = request_seq_lens - (
-                request_query_ends - query_indices
-            ) + 1
-            seqused_k = torch.where(
-                active_queries, seqused_k, torch.ones_like(seqused_k)
-            )
+            seqused_k = request_seq_lens - (request_query_ends - query_indices) + 1
+            seqused_k = torch.where(active_queries, seqused_k, torch.ones_like(seqused_k))
             pages = block_table.index_select(0, request_indices)[:, :page_count]
             query_start_loc = torch.arange(
                 num_actual + 1, dtype=torch.int32, device=block_table.device
@@ -1506,9 +1495,7 @@ class VllmAttentionOperator:
         # Reuse the row's first live page so masked loads see initialized KV.
         safe_page = torch.where(active_rows, pages[:, 0], torch.zeros_like(seqused_k))
         columns = torch.arange(page_count, dtype=torch.int32, device=pages.device)
-        live_columns = active_rows[:, None] & (
-            columns[None, :] * block_size < seqused_k[:, None]
-        )
+        live_columns = active_rows[:, None] & (columns[None, :] * block_size < seqused_k[:, None])
         pages = torch.where(live_columns, pages, safe_page[:, None])
         tile_pages = max(1, 128 // block_size)
         guard_columns = (-page_count) % tile_pages
@@ -1524,11 +1511,14 @@ class VllmAttentionOperator:
         )
         kv_indptr = self._rocm_kv_indptr_cache.get(indptr_key)
         if kv_indptr is None:
-            kv_indptr = torch.arange(
-                sequence_count + 1,
-                dtype=torch.int32,
-                device=block_table.device,
-            ) * page_count
+            kv_indptr = (
+                torch.arange(
+                    sequence_count + 1,
+                    dtype=torch.int32,
+                    device=block_table.device,
+                )
+                * page_count
+            )
             self._rocm_kv_indptr_cache[indptr_key] = kv_indptr
         value = {
             "mode": mode,
@@ -1613,29 +1603,30 @@ class VllmAttentionOperator:
         if tp_world > 1:
             projection_collective_backend = "unbound"
             if self._projection_collective_backend is not None:
-                projection_collective_backend = (
-                    self._projection_collective_backend() or "unbound"
-                )
-        self._record_phase_provenance(metadata["mode"], {
-            "framework_layout": "vllm_paged_kv",
-            "materialization": "direct_vllm_paged_kv_to_aiter_batch_prefill_ck",
-            "dense_kv_materialized": False,
-            "tp_world_size": tp_world,
-            "runtime_platform": "rocm",
-            "triton_used": True,
-            "attention_phase": metadata["mode"],
-            "sequence_count": metadata["sequence_count"],
-            "query_token_count": num_actual,
-            "max_seqlen_k": metadata["max_seqlen_k"],
-            "configured_kv_limit": metadata["configured_kv_limit"],
-            "launch_group_count": 1,
-            "metadata_source": "vllm_gpu_sequence_level",
-            "metadata_reused_across_layers": reused,
-            "deterministic_projection": _strict_attention_projection_provenance("rocm"),
-            "deterministic_all_reduce_backend": projection_collective_backend,
-            "direct_output_buffer": True,
-            "operator": operator_provenance,
-        })
+                projection_collective_backend = self._projection_collective_backend() or "unbound"
+        self._record_phase_provenance(
+            metadata["mode"],
+            {
+                "framework_layout": "vllm_paged_kv",
+                "materialization": "direct_vllm_paged_kv_to_aiter_batch_prefill_ck",
+                "dense_kv_materialized": False,
+                "tp_world_size": tp_world,
+                "runtime_platform": "rocm",
+                "triton_used": True,
+                "attention_phase": metadata["mode"],
+                "sequence_count": metadata["sequence_count"],
+                "query_token_count": num_actual,
+                "max_seqlen_k": metadata["max_seqlen_k"],
+                "configured_kv_limit": metadata["configured_kv_limit"],
+                "launch_group_count": 1,
+                "metadata_source": "vllm_gpu_sequence_level",
+                "metadata_reused_across_layers": reused,
+                "deterministic_projection": _strict_attention_projection_provenance("rocm"),
+                "deterministic_all_reduce_backend": projection_collective_backend,
+                "direct_output_buffer": True,
+                "operator": operator_provenance,
+            },
+        )
         return output
 
     def _materialization_groups(
@@ -1722,9 +1713,7 @@ class VllmAttentionOperator:
             .to(dtype=torch.int32)
             .contiguous()
         )
-        cu_seqlens_q = torch.arange(
-            num_actual + 1, dtype=torch.int32, device=query.device
-        )
+        cu_seqlens_q = torch.arange(num_actual + 1, dtype=torch.int32, device=query.device)
         kv_indptr = cu_seqlens_q * page_count
         groups = [
             {
@@ -1825,9 +1814,7 @@ class VllmAttentionOperator:
             candidate_factory = getattr(runtime, "new_page_bounds_epoch", None)
             if callable(candidate_factory):
                 page_bounds_epoch_factory = candidate_factory
-        block_table = self._metadata_tensor(
-            attn_metadata, "block_table", "block_table_tensor"
-        )
+        block_table = self._metadata_tensor(attn_metadata, "block_table", "block_table_tensor")
         key_cache, value_cache = _vllm_kv_cache_views(
             kv_cache,
             head_size=int(impl.head_size),
@@ -1837,19 +1824,23 @@ class VllmAttentionOperator:
         if key_cache.dtype != query.dtype or value_cache.dtype != query.dtype:
             raise RuntimeError("strict vLLM Attention requires an unquantized KV cache")
         if self._pcp is not None:
-            result = self._pcp.forward(runtime, impl, query, output, attn_metadata,
-                                       key_cache, value_cache, block_table)
-            self._record_phase_provenance("pcp", {
-                "framework_layout": "vllm_pcp_interleaved_kv",
-                "cp_world_size": self._pcp.world,
-                "cp_rank": self._pcp.rank,
-                "tp_world_size": tp_world,
-                "runtime_platform": runtime_platform,
-                "kv_storage": "token_sharded",
-                "attention_queries": "disjoint_cp_partitions",
-                "attention_merge": "rank_ordered_output_gather_no_reduction",
-                "fallback": False,
-            })
+            result = self._pcp.forward(
+                runtime, impl, query, output, attn_metadata, key_cache, value_cache, block_table
+            )
+            self._record_phase_provenance(
+                "pcp",
+                {
+                    "framework_layout": "vllm_pcp_interleaved_kv",
+                    "cp_world_size": self._pcp.world,
+                    "cp_rank": self._pcp.rank,
+                    "tp_world_size": tp_world,
+                    "runtime_platform": runtime_platform,
+                    "kv_storage": "token_sharded",
+                    "attention_queries": "disjoint_cp_partitions",
+                    "attention_merge": "rank_ordered_output_gather_no_reduction",
+                    "fallback": False,
+                },
+            )
             return result
         if runtime_platform == "rocm":
             direct_output = self._rocm_direct_paged(
@@ -1958,32 +1949,31 @@ class VllmAttentionOperator:
         if runtime_platform == "rocm" and tp_world > 1:
             projection_collective_backend = "unbound"
             if self._projection_collective_backend is not None:
-                projection_collective_backend = (
-                    self._projection_collective_backend() or "unbound"
-                )
-        phase = (
-            "decode"
-            if int(getattr(attn_metadata, "num_decodes", 0)) > 0
-            else "prefill"
+                projection_collective_backend = self._projection_collective_backend() or "unbound"
+        phase = "decode" if int(getattr(attn_metadata, "num_decodes", 0)) > 0 else "prefill"
+        self._record_phase_provenance(
+            phase,
+            {
+                "framework_layout": "vllm_paged_kv",
+                "materialization": (
+                    "direct_vllm_paged_kv_to_aiter_batch_prefill_ck"
+                    if runtime_platform == "rocm"
+                    else "direct_paged_fa4"
+                ),
+                "dense_kv_materialized": False,
+                "tp_world_size": tp_world,
+                "tp_group_bound": tp_group is not None,
+                "runtime_platform": runtime_platform,
+                "triton_used": runtime_platform == "rocm",
+                "deterministic_projection": _strict_attention_projection_provenance(
+                    runtime_platform
+                ),
+                "deterministic_all_reduce_backend": projection_collective_backend,
+                "direct_output_buffer": direct_output_buffer,
+                **metadata_summary,
+                "operator": last_operator_provenance,
+            },
         )
-        self._record_phase_provenance(phase, {
-            "framework_layout": "vllm_paged_kv",
-            "materialization": (
-                "direct_vllm_paged_kv_to_aiter_batch_prefill_ck"
-                if runtime_platform == "rocm"
-                else "direct_paged_fa4"
-            ),
-            "dense_kv_materialized": False,
-            "tp_world_size": tp_world,
-            "tp_group_bound": tp_group is not None,
-            "runtime_platform": runtime_platform,
-            "triton_used": runtime_platform == "rocm",
-            "deterministic_projection": _strict_attention_projection_provenance(runtime_platform),
-            "deterministic_all_reduce_backend": projection_collective_backend,
-            "direct_output_buffer": direct_output_buffer,
-            **metadata_summary,
-            "operator": last_operator_provenance,
-        })
         return output
 
 
@@ -2333,11 +2323,13 @@ class VllmLogpOperator:
         local_logits = None
         sampling_mask = None
         replicated_sparse = (
-            self._strict_linear_logp and self._worker_sampler
-            and torch.version.hip is not None and not torch.is_grad_enabled()
-            and bool((sampler.sampling_states.top_p.np[
-                sampling_metadata.idx_mapping_np
-            ] != 1.0).any())
+            self._strict_linear_logp
+            and self._worker_sampler
+            and torch.version.hip is not None
+            and not torch.is_grad_enabled()
+            and bool(
+                (sampler.sampling_states.top_p.np[sampling_metadata.idx_mapping_np] != 1.0).any()
+            )
         )
         sampling_temperature = getattr(sampling_metadata, "temperature", None)
         if sampling_temperature is None:
@@ -2378,7 +2370,7 @@ class VllmLogpOperator:
             # Preserve raw model logits before vLLM's sampler transforms its
             # input in place (temperature, penalties, and masking).
             if replicated_sparse:
-                local_logits = source_logits[:, :context.real_vocab_size].clone(
+                local_logits = source_logits[:, : context.real_vocab_size].clone(
                     memory_format=torch.contiguous_format
                 )
             elif available == local_vocab:
@@ -2404,20 +2396,21 @@ class VllmLogpOperator:
                             available,
                         )
                     )
-            if (getattr(torch.version, "hip", None) is None
-                    and (getattr(sampling_metadata, "top_p", None) is not None
-                         or getattr(sampling_metadata, "top_k", None) is not None)):
+            if getattr(torch.version, "hip", None) is None and (
+                getattr(sampling_metadata, "top_p", None) is not None
+                or getattr(sampling_metadata, "top_k", None) is not None
+            ):
                 from rl_engine.integrations.sampling import sampling_keep_mask
 
                 complete_mask = sampling_keep_mask(
-                    source_logits[:, :context.real_vocab_size],
+                    source_logits[:, : context.real_vocab_size],
                     temperature=support_temperature,
                     top_p=getattr(sampling_metadata, "top_p", None),
                     top_k=getattr(sampling_metadata, "top_k", None),
                 )
                 sampling_mask = torch.zeros_like(local_logits, dtype=torch.bool)
                 sampling_mask[:, :available] = complete_mask[
-                    :, context.vocab_start_index:context.vocab_start_index + available
+                    :, context.vocab_start_index : context.vocab_start_index + available
                 ]
         if self._worker_sampler:
             result = self._native_forward(sampler, logits, sampling_metadata)
@@ -2476,12 +2469,15 @@ class VllmLogpOperator:
                     top_p_replay = True
                 if top_p_replay:
                     nucleus_ids = torch.where(
-                        torch.isfinite(replay_values), replay_ids,
+                        torch.isfinite(replay_values),
+                        replay_ids,
                         torch.full_like(replay_ids, -1),
                     )
                     if replicated_sparse:
                         selected = self._linear_logp.from_replicated_logits_sparse_nucleus(
-                            local_logits, token_ids, nucleus_ids,
+                            local_logits,
+                            token_ids,
+                            nucleus_ids,
                             real_vocab_size=context.real_vocab_size,
                             tp_group=context.tp_group,
                             temperature=float(os.getenv("RL_KERNEL_VLLM_TEMPERATURE", "1.0")),
@@ -2530,22 +2526,24 @@ class VllmLogpOperator:
                 )
             strict_provenance = self._linear_logp.provenance
             expected_entrypoints = {
-                ("sparse_nucleus_logp_from_local_logits_tp" if top_p_replay
-                 else "rocm_vocab_parallel_logp_from_local_logits_tp")
-                if torch.version.hip is not None
-                else "sm90_deterministic_logp_from_local_logits_tp"
+                (
+                    (
+                        "sparse_nucleus_logp_from_local_logits_tp"
+                        if top_p_replay
+                        else "rocm_vocab_parallel_logp_from_local_logits_tp"
+                    )
+                    if torch.version.hip is not None
+                    else "sm90_deterministic_logp_from_local_logits_tp"
+                )
             }
             if top_p_replay and torch.version.hip is None:
-                expected_entrypoints.add(
-                    "sm90_deterministic_top_p_logp_from_local_logits_tp"
-                )
+                expected_entrypoints.add("sm90_deterministic_top_p_logp_from_local_logits_tp")
             if replicated_sparse:
                 expected_entrypoints.add("sparse_nucleus_logp_from_replicated_logits")
             if (
                 strict_provenance.get("deterministic_linear_logp") is not True
                 or strict_provenance.get("actual_backend") != self._linear_logp.backend_id
-                or strict_provenance.get("strict_entrypoint")
-                not in expected_entrypoints
+                or strict_provenance.get("strict_entrypoint") not in expected_entrypoints
             ):
                 raise RuntimeError(
                     "strict vLLM rollout linear_logp did not execute the deterministic "

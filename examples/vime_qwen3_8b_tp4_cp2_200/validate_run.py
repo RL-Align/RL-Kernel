@@ -74,7 +74,10 @@ def _validate_topology(value: Any) -> list[str]:
     rollout_cp = value.get("rollout_cp", 1)
     rollout_tp = value.get("rollout_tp", rollout_gpus_per_engine)
     expected_offload = tensor_parallel == 1 and rollout_tp == 1
-    if not isinstance(value.get("offload_train"), bool) or value["offload_train"] != expected_offload:
+    if (
+        not isinstance(value.get("offload_train"), bool)
+        or value["offload_train"] != expected_offload
+    ):
         errors.append(
             f"manifest topology offload_train={value.get('offload_train')!r}, "
             f"expected {expected_offload!r} for training TP{tensor_parallel}/rollout TP{rollout_tp}"
@@ -215,7 +218,8 @@ def _validate_pcp_readbacks(readbacks, topology, arm):
         execution = record.get("provenance", {}).get("execution", {})
         rank = execution.get("cp_rank")
         required = {
-            "cp_world_size": cp, "tp_world_size": tp,
+            "cp_world_size": cp,
+            "tp_world_size": tp,
             "kv_storage": "token_sharded",
             "attention_queries": "disjoint_cp_partitions",
             "attention_merge": "rank_ordered_output_gather_no_reduction",
@@ -229,8 +233,13 @@ def _validate_pcp_readbacks(readbacks, topology, arm):
             counts[rank] += 1
     if any(count < expected_per_rank for count in counts):
         errors.append(f"PCP rank coverage {counts}, expected at least {expected_per_rank} each")
-    return {"passed": not errors, "required": True, "errors": errors,
-            "cp_rank_worker_counts": counts, "expected_workers_per_cp_rank": expected_per_rank}
+    return {
+        "passed": not errors,
+        "required": True,
+        "errors": errors,
+        "cp_rank_worker_counts": counts,
+        "expected_workers_per_cp_rank": expected_per_rank,
+    }
 
 
 def _reported_backend_ids(value: Any) -> set[str]:

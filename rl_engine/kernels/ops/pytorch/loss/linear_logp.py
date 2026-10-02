@@ -342,9 +342,7 @@ def _merge_tp_local_logp(
         global_lse = local_lse
         return local_target_logit - global_lse, global_lse
 
-    local_stats = torch.stack(
-        (local_lse_summaries, local_target_summaries), dim=0
-    ).contiguous()
+    local_stats = torch.stack((local_lse_summaries, local_target_summaries), dim=0).contiguous()
     if world_size <= 1:
         gathered = local_stats.unsqueeze(0)
     elif local_stats.is_cuda:

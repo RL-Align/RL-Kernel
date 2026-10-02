@@ -216,9 +216,11 @@ def test_logical_row_reduction_is_independent_of_insertion_order():
 
 
 def test_row_local_linear_vjp_matches_per_row_outer_and_gemv():
-    hidden = torch.randn(4, 3, dtype=torch.float32)
-    weight = torch.randn(5, 3, dtype=torch.float32)
-    grad = torch.randn(4, 5, dtype=torch.float32)
+    # Exact dyadic inputs keep this algebra check independent of BLAS layout
+    # and fused multiply-add choices, without relaxing bitwise assertions.
+    hidden = (torch.arange(12, dtype=torch.float32).reshape(4, 3) - 6) / 8
+    weight = (torch.arange(15, dtype=torch.float32).reshape(5, 3) - 7) / 8
+    grad = (torch.arange(20, dtype=torch.float32).reshape(4, 5) - 10) / 8
     dx = row_local_linear_dx_fp32(grad, weight)
     dw = row_local_linear_dw_fp32(grad, hidden)
     expected_dx = torch.stack([torch.mv(weight.t(), row) for row in grad], dim=0)

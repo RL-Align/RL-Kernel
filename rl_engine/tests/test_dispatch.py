@@ -193,7 +193,11 @@ def test_npu_registry_preserves_per_operator_cpu_fallbacks(monkeypatch):
 
     registry.get_op("rms_norm")
 
-    assert registry._priority_map["npu"].keys() == registry._priority_map["cpu"].keys()
+    # Ascend adds a deterministic GEMM beyond the shared CPU operator set.
+    assert registry._priority_map["npu"].keys() == registry._priority_map["cpu"].keys() | {
+        "det_gemm"
+    }
+    assert registry._priority_map["npu"]["det_gemm"] == [OpBackend.ASCEND_DET_GEMM]
     assert loaded[0] == OpBackend.ASCEND_RMS_NORM
     assert registry._priority_map["npu"]["batch_invariant_logp"] == [
         OpBackend.ASCEND_BATCH_INVARIANT_LOGP,

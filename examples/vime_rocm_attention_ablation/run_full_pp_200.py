@@ -19,7 +19,6 @@ from examples.vime_rocm_attention_ablation.validate_artifacts import (
     write_report,
 )
 
-
 RUN_DIR = Path("/app/model/vime-runs/pr393-200round-p-p")
 
 
@@ -82,8 +81,7 @@ def main() -> int:
         "passed": report["passed"],
         "errors": report["errors"],
         "metrics": report["metrics"],
-        "frozen_sources_match": frozen_before["fingerprint"]
-        == frozen_after["fingerprint"],
+        "frozen_sources_match": frozen_before["fingerprint"] == frozen_after["fingerprint"],
     }
     write_report(RUN_DIR / "single-arm-summary.json", summary)
     print(json.dumps(summary, indent=2, sort_keys=True), flush=True)
