@@ -163,6 +163,15 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     TRITON_LOGP = "rl_engine.kernels.ops.triton.loss.logp.TritonLogpOp"
     PYTORCH_NATIVE = "rl_engine.kernels.ops.pytorch.loss.logp.NativeLogpOp"
     PYTORCH_NATIVE_MATMUL = "rl_engine.kernels.ops.pytorch.linear.matmul.NativeMatmulOp"
+    PYTORCH_ATTN_OUT_BIAS_GEMM = (
+        "rl_engine.kernels.ops.pytorch.linear.attn_out_bias_gemm.NativeAttnOutBiasGemmOp"
+    )
+    TRITON_ATTN_OUT_BIAS_GEMM = (
+        "rl_engine.kernels.ops.triton.linear.attn_out_bias_gemm.TritonAttnOutBiasGemmOp"
+    )
+    CUDA_ATTN_OUT_BIAS_GEMM = (
+        "rl_engine.kernels.ops.cuda.linear.attn_out_bias_gemm.CudaAttnOutBiasGemmOp"
+    )
     PYTORCH_NATIVE_ROPE = "rl_engine.kernels.ops.pytorch.rotary_embedding.rope.NativeRoPEOp"
     TRITON_ROPE = "rl_engine.kernels.ops.triton.rotary_embedding.rope.TritonRoPEOp"
     CUDA_ROPE_SM90 = "rl_engine.kernels.ops.cuda.rotary_embedding.rope.RoPESM90Op"
@@ -609,6 +618,11 @@ class KernelRegistry:
                     OpBackend.TRITON_ROPE,
                     OpBackend.PYTORCH_NATIVE_ROPE,
                 ],
+                "attn_out_bias_gemm": [
+                    OpBackend.TRITON_ATTN_OUT_BIAS_GEMM,
+                    OpBackend.CUDA_ATTN_OUT_BIAS_GEMM,
+                    OpBackend.PYTORCH_ATTN_OUT_BIAS_GEMM,
+                ],
             },
             "rocm": {
                 "logp": [
@@ -649,6 +663,10 @@ class KernelRegistry:
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
+                "attn_out_bias_gemm": [
+                    OpBackend.TRITON_ATTN_OUT_BIAS_GEMM,
+                    OpBackend.PYTORCH_ATTN_OUT_BIAS_GEMM,
+                ],
             },
             "musa": {
                 "logp": [OpBackend.TRITON_LOGP, OpBackend.PYTORCH_NATIVE],
@@ -718,6 +736,7 @@ class KernelRegistry:
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
+                "attn_out_bias_gemm": [OpBackend.PYTORCH_ATTN_OUT_BIAS_GEMM],
             },
             # Ascend NPU: op types without an entry fall back to their CPU
             # candidates (see the runtime override below), so only
