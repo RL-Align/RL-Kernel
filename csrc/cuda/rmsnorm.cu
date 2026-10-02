@@ -466,7 +466,7 @@ void rmsnorm_gated_forward_cuda(
     double weight_offset,
     int64_t activation
 ) {
-    const c10::cuda::CUDAGuard device_guard(x.device());
+    const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
     int T = x.size(0);
     if (T == 0) return;
     int H = x.size(1);
@@ -506,7 +506,7 @@ void rmsnorm_gated_backward_dx_cuda(
     double weight_offset,
     int64_t activation
 ) {
-    const c10::cuda::CUDAGuard device_guard(x.device());
+    const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
     int T = x.size(0);
     if (T == 0) return;
     int H = x.size(1);
