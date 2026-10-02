@@ -501,3 +501,95 @@ def test_both_stream_weight_sets():
         out_cuda = cuda_op(x, w, bias=b).cpu()
         out_triton = triton_op(x, w, bias=b).cpu()
         assert_bitwise_equal(out_cuda, out_triton, f"both-streams {stream}")
+
+
+class TestBiasNoneEdge:
+    """Op-specific edge (the analogue of #204's ignore-index class): bias=None."""
+
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+    def test_reference_bias_none_forward(self, dtype):
+        op = NativeAttnOutBiasGemmOp()
+        x, w, _ = _make_inputs(5, _DIM, dtype)
+        out = op(x, w)  # bias omitted
+        gold = op.forward_fp32(x, w).to(dtype)
+        assert_bitwise_equal(out, gold, "reference bias=None")
+
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+    def test_backends_bias_none_bitwise(self, dtype):
+        from rl_engine.kernels.ops.cuda.linear.attn_out_bias_gemm import CudaAttnOutBiasGemmOp
+
+        reference = NativeAttnOutBiasGemmOp()
+        x, w, _ = _make_inputs(6, _DIM, dtype)
+        out_cpu = reference(x, w)
+        out_tri = TritonAttnOutBiasGemmOp()(x.cuda(), w.cuda()).cpu()
+        out_cuda = CudaAttnOutBiasGemmOp()(x.cuda(), w.cuda()).cpu()
+        if dtype == torch.bfloat16:
+            assert_bitwise_equal(out_tri, out_cpu, "triton bias=None vs reference")
+            assert_bitwise_equal(out_cuda, out_cpu, "cuda bias=None vs reference")
+        else:
+            assert_fp32_device_vs_reference(out_tri, out_cpu, "triton bias=None fp32")
+            assert_fp32_device_vs_reference(out_cuda, out_cpu, "cuda bias=None fp32")
+        # the two device backends share the FMA discipline: bitwise in both dtypes
+        assert_bitwise_equal(out_cuda, out_tri, f"bias=None cross-backend {dtype}")
+
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+    def test_backward_bias_none_grads(self, dtype):
+        from rl_engine.kernels.ops.cuda.linear.attn_out_bias_gemm import CudaAttnOutBiasGemmOp
+
+        g = torch.randn(4, _DIM, generator=torch.Generator().manual_seed(21)).to(dtype)
+        for op, device in ((TritonAttnOutBiasGemmOp(), "cuda"), (CudaAttnOutBiasGemmOp(), "cuda")):
+            x, w, _ = _make_inputs(4, _DIM, dtype)
+            xd = x.to(device).requires_grad_(True)
+            wd = w.to(device).requires_grad_(True)
+            out = op(xd, wd)
+            out.backward(g.to(device))
+            assert xd.grad is not None and wd.grad is not None
+            assert torch.isfinite(xd.grad.float()).all() and torch.isfinite(wd.grad.float()).all()
+            assert wd.grad is not None
+            del xd, wd
+
+
+@requires_triton_cuda
+class TestBackendEdges:
+    """#204-template categories: fail-closed handling + deterministic repeat."""
+
+    @pytest.mark.parametrize("backend", ["triton", "cuda"])
+    def test_rejects_fp16_fail_closed(self, backend):
+        # Unsupported strict configurations fail closed (issue #386); the
+        # analogue of #204's fallback class is a loud, typed rejection.
+        if backend == "triton":
+            op = TritonAttnOutBiasGemmOp()
+        else:
+            from rl_engine.kernels.ops.cuda.linear.attn_out_bias_gemm import CudaAttnOutBiasGemmOp
+
+            op = CudaAttnOutBiasGemmOp()
+        x = torch.randn(2, _DIM, dtype=torch.float16).cuda()
+        w = torch.randn(_DIM, _DIM, dtype=torch.float16).cuda()
+        with pytest.raises((ValueError, TypeError)):
+            op(x, w)
+
+    @pytest.mark.parametrize("backend", ["triton", "cuda"])
+    def test_rejects_cpu_tensors(self, backend):
+        if backend == "triton":
+            op = TritonAttnOutBiasGemmOp()
+        else:
+            from rl_engine.kernels.ops.cuda.linear.attn_out_bias_gemm import CudaAttnOutBiasGemmOp
+
+            op = CudaAttnOutBiasGemmOp()
+        x, w, b = _make_inputs(2, _DIM, torch.bfloat16)
+        with pytest.raises(ValueError):
+            op(x, w, bias=b)
+
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+    @pytest.mark.parametrize("backend", ["triton", "cuda"])
+    def test_deterministic_repeat_gpu(self, dtype, backend):
+        if backend == "triton":
+            op = TritonAttnOutBiasGemmOp()
+        else:
+            from rl_engine.kernels.ops.cuda.linear.attn_out_bias_gemm import CudaAttnOutBiasGemmOp
+
+            op = CudaAttnOutBiasGemmOp()
+        x, w, b = _make_inputs(7, _DIM, dtype)
+        first = op(x.cuda(), w.cuda(), bias=b.cuda()).cpu()
+        second = op(x.cuda(), w.cuda(), bias=b.cuda()).cpu()
+        assert_bitwise_equal(first, second, f"{backend} repeat {dtype}")
