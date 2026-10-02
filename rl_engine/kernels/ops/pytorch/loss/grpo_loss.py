@@ -58,7 +58,13 @@ class NativeGRPOLossOp:
         group_boundaries: Optional[Sequence[int] | torch.Tensor] = None,
         eps: float = 1e-6,
     ) -> torch.Tensor:
-        """Normalize raw per-sequence rewards within each generation group."""
+        """Return a flat FP32 tensor of rewards normalized within each group.
+
+        Specify groups with either ``samples_per_prompt`` or ``group_boundaries``.
+        Compute population variance from centered FP32 rewards to reduce loss
+        of precision for large shared offsets, with ``eps`` as the standard
+        deviation floor.
+        """
         flat_rewards = rewards.reshape(-1).float()
         num_sequences = flat_rewards.numel()
         group_id = self._resolve_group_ids(
@@ -73,15 +79,18 @@ class NativeGRPOLossOp:
             0, group_id, torch.ones_like(flat_rewards)
         )
         sums = flat_rewards.new_zeros(num_groups).index_add_(0, group_id, flat_rewards)
-        sq_sums = flat_rewards.new_zeros(num_groups).index_add_(
-            0, group_id, flat_rewards * flat_rewards
-        )
 
         means = sums / counts
-        variance = (sq_sums / counts) - means * means
+        # Center before squaring so a large shared reward offset cannot erase
+        # the within-group variance through FP32 subtraction.
+        centered = flat_rewards - means[group_id]
+        centered_sq_sums = flat_rewards.new_zeros(num_groups).index_add_(
+            0, group_id, centered * centered
+        )
+        variance = centered_sq_sums / counts
         stds = variance.clamp_min(eps**2).sqrt()
 
-        return (flat_rewards - means[group_id]) / stds[group_id]
+        return centered / stds[group_id]
 
     @staticmethod
     def expand_advantages(
