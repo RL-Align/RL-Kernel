@@ -1,0 +1,272 @@
+{
+  "audit_date": "2026-10-03",
+  "scope": "synthetic local WS1 on shared A100; performance not certified",
+  "correctness_evidence": {
+    "source": "user-provided remote pytest terminal output",
+    "result": "91 passed, 12 skipped in 7.56s",
+    "passed_cpu_cases": 43,
+    "passed_actual_cuda_cases": 48,
+    "skipped_optional_offline_compile_cases": 12,
+    "sealed_attempt_remote_path": "/tmp/p6-t05-a100-attempt-002",
+    "verification_status": "ARTIFACT_INTEGRITY_AND_CPU_REPLAY_PASS",
+    "verification_gpu_reexecuted": false,
+    "cases": 9,
+    "operator_recordings": 45,
+    "raw_junit_and_sealed_directory_copied_into_this_repository": false
+  },
+  "benchmark_evidence": {
+    "source": "Six user-provided JSON files copied byte-for-byte; two nvidia-smi text logs normalize trailing whitespace only.",
+    "environment": {
+      "gpu": "NVIDIA A100-SXM4-40GB",
+      "torch": "2.11.0+cu130",
+      "triton": "3.6.0",
+      "python": "3.12.13",
+      "cuda": "13.0"
+    },
+    "source_commit": "05bc53aa0396ffaf2c9241559b388159563e6b36",
+    "working_tree_dirty": true,
+    "implementation_sha256": "25969fdea99107beea14e88a8c4969137e33e8941f02d396ff2bf2ff7508ef0d",
+    "benchmark_files": [
+      "t32-h4096-run1.json",
+      "t32-h4096-run2.json",
+      "t32-h4096-run3.json",
+      "t256-h4096-run1.json",
+      "t256-h4096-run2.json",
+      "t256-h4096-run3.json"
+    ],
+    "all_six_byte_equal": true,
+    "implementation_matches_local_audited_binding_and_kernel": true,
+    "control_conditions": {
+      "physical_gpu": 2,
+      "ray_present_before_and_after": true,
+      "gpu_util_before_percent": 0,
+      "gpu_util_after_percent": 97,
+      "continuous_gpu_telemetry": false,
+      "exclusive_gpu": false
+    },
+    "measurements": [
+      {
+        "file": "t32-h4096-run1.json",
+        "tokens": 32,
+        "hidden_size": 4096,
+        "eager_reference": {
+          "median_us": 627.2000074386597,
+          "min_us": 620.5440163612366,
+          "max_us": 823.2960104942322,
+          "wall_median_us": 654.6410731971264,
+          "repeats": 100
+        },
+        "prepared_launch": {
+          "median_us": 57.34400078654289,
+          "min_us": 55.296000093221664,
+          "max_us": 81.91999793052673,
+          "wall_median_us": 82.75615982711315,
+          "repeats": 100
+        },
+        "checked_eager": {
+          "median_us": 201.74399763345718,
+          "min_us": 199.13600385189056,
+          "max_us": 219.9999988079071,
+          "wall_median_us": 228.06506603956223,
+          "repeats": 100
+        },
+        "prepared_speedup": 10.93749997969878
+      },
+      {
+        "file": "t32-h4096-run2.json",
+        "tokens": 32,
+        "hidden_size": 4096,
+        "eager_reference": {
+          "median_us": 201.7280012369156,
+          "min_us": 199.68000054359436,
+          "max_us": 2655.2319526672363,
+          "wall_median_us": 2648.866386152804,
+          "repeats": 100
+        },
+        "prepared_launch": {
+          "median_us": 11.264000087976456,
+          "min_us": 9.216000325977802,
+          "max_us": 2456.576108932495,
+          "wall_median_us": 580.5364344269037,
+          "repeats": 100
+        },
+        "checked_eager": {
+          "median_us": 823.2640027999878,
+          "min_us": 198.30399751663208,
+          "max_us": 2489.248037338257,
+          "wall_median_us": 850.9614272043109,
+          "repeats": 100
+        },
+        "prepared_speedup": 17.90909087902497
+      },
+      {
+        "file": "t32-h4096-run3.json",
+        "tokens": 32,
+        "hidden_size": 4096,
+        "eager_reference": {
+          "median_us": 610.3039979934692,
+          "min_us": 594.9440002441406,
+          "max_us": 915.4559969902039,
+          "wall_median_us": 636.8875037878752,
+          "repeats": 100
+        },
+        "prepared_launch": {
+          "median_us": 58.36800113320351,
+          "min_us": 55.296000093221664,
+          "max_us": 69.63200122117996,
+          "wall_median_us": 82.38549344241619,
+          "repeats": 100
+        },
+        "checked_eager": {
+          "median_us": 199.35999810695648,
+          "min_us": 196.70400023460388,
+          "max_us": 219.87199783325195,
+          "wall_median_us": 223.863054998219,
+          "repeats": 100
+        },
+        "prepared_speedup": 10.456140113496001
+      },
+      {
+        "file": "t256-h4096-run1.json",
+        "tokens": 256,
+        "hidden_size": 4096,
+        "eager_reference": {
+          "median_us": 645.6319987773895,
+          "min_us": 618.4960007667542,
+          "max_us": 924.67200756073,
+          "wall_median_us": 674.8939631506801,
+          "repeats": 100
+        },
+        "prepared_launch": {
+          "median_us": 74.75200295448303,
+          "min_us": 71.68000191450119,
+          "max_us": 93.18400174379349,
+          "wall_median_us": 101.55653581023216,
+          "repeats": 100
+        },
+        "checked_eager": {
+          "median_us": 632.3519945144653,
+          "min_us": 597.1199870109558,
+          "max_us": 746.944010257721,
+          "wall_median_us": 659.1744022443891,
+          "repeats": 100
+        },
+        "prepared_speedup": 8.63698594364781
+      },
+      {
+        "file": "t256-h4096-run2.json",
+        "tokens": 256,
+        "hidden_size": 4096,
+        "eager_reference": {
+          "median_us": 333.8240087032318,
+          "min_us": 329.72800731658936,
+          "max_us": 2790.4000282287598,
+          "wall_median_us": 1746.5879209339619,
+          "repeats": 100
+        },
+        "prepared_launch": {
+          "median_us": 65.5359998345375,
+          "min_us": 26.623999699950218,
+          "max_us": 74.75200295448303,
+          "wall_median_us": 89.39392864704132,
+          "repeats": 100
+        },
+        "checked_eager": {
+          "median_us": 2461.135983467102,
+          "min_us": 708.5440158843994,
+          "max_us": 2869.407892227173,
+          "wall_median_us": 2488.0735436454415,
+          "repeats": 100
+        },
+        "prepared_speedup": 5.093750145661261
+      },
+      {
+        "file": "t256-h4096-run3.json",
+        "tokens": 256,
+        "hidden_size": 4096,
+        "eager_reference": {
+          "median_us": 331.7759931087494,
+          "min_us": 328.70399951934814,
+          "max_us": 884.7360014915466,
+          "wall_median_us": 1528.5565750673413,
+          "repeats": 100
+        },
+        "prepared_launch": {
+          "median_us": 29.69600073993206,
+          "min_us": 26.623999699950218,
+          "max_us": 167.93599724769592,
+          "wall_median_us": 1203.4474639222026,
+          "repeats": 100
+        },
+        "checked_eager": {
+          "median_us": 2451.5680074691772,
+          "min_us": 605.5999994277954,
+          "max_us": 2879.4240951538086,
+          "wall_median_us": 2476.731315255165,
+          "repeats": 100
+        },
+        "prepared_speedup": 11.172413282661726
+      }
+    ],
+    "per_shape": [
+      {
+        "tokens": 32,
+        "hidden_size": 4096,
+        "repeated_input_identities": 1,
+        "repeated_output_identities": 1,
+        "run_median_event_us_ranges": {
+          "eager_reference": {
+            "min": 201.7280012369156,
+            "max": 627.2000074386597
+          },
+          "prepared_launch": {
+            "min": 11.264000087976456,
+            "max": 58.36800113320351
+          },
+          "checked_eager": {
+            "min": 199.35999810695648,
+            "max": 823.2640027999878
+          }
+        }
+      },
+      {
+        "tokens": 256,
+        "hidden_size": 4096,
+        "repeated_input_identities": 1,
+        "repeated_output_identities": 1,
+        "run_median_event_us_ranges": {
+          "eager_reference": {
+            "min": 331.7759931087494,
+            "max": 645.6319987773895
+          },
+          "prepared_launch": {
+            "min": 29.69600073993206,
+            "max": 74.75200295448303
+          },
+          "checked_eager": {
+            "min": 632.3519945144653,
+            "max": 2461.135983467102
+          }
+        }
+      }
+    ],
+    "limitations": [
+      "Three repeated timings use identical inputs, not three different workload seeds.",
+      "Separate sequential timing phases on a shared GPU do not establish a stable comparative speedup.",
+      "CUDA Event intervals are not pure kernel time or complete caller-visible wall latency.",
+      "The eager PyTorch baseline is not an optimized native T02-T04 implementation or engine throughput baseline.",
+      "Process peak allocation includes benchmark/debug/reference buffers, not kernel-only VRAM.",
+      "Recorded base commit predates T05; exact tested implementation is identified by its content hash."
+    ]
+  },
+  "pending": [
+    "Owner review of proposed ABI/profile and T02/T03/T04 boundaries",
+    "Exclusive/idle-GPU performance rerun",
+    "Compute Sanitizer result or explicit tooling-unavailable report",
+    "Retain/attach user JUnit and complete sealed attempt for reviewer handoff"
+  ],
+  "production_certified": false,
+  "foundation_compatibility": "UNVERIFIED",
+  "h100_runtime_certified": false,
+  "performance_certified": false
+}

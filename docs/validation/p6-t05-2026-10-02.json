@@ -1,0 +1,129 @@
+{
+  "base_commit": "05bc53aa0396ffaf2c9241559b388159563e6b36",
+  "branch": "codex/p6-t05-fused-moe-combine",
+  "audit_date": "2026-10-03",
+  "scope": "local CPU/offline compile; full A100 GPU suite user-reported pass; shared-A100 benchmarks collected, performance not certified",
+  "python": "3.13.12",
+  "torch": "2.14.1+cpu",
+  "triton_offline_compile_versions": [
+    "3.2.0",
+    "3.8.0"
+  ],
+  "checks": [
+    {
+      "command": "P6_T05_ARTIFACT_DIR=/tmp/p6-t05-a100-attempt-002 P6_RUN_T05_GPU=1 OMP_NUM_THREADS=1 python -m pytest tests/p6/test_fused_combine.py -q -x --junitxml=p6-t05-results/a100-attempt-002.xml",
+      "result": "91 passed, 12 skipped in 7.56s",
+      "evidence_source": "user-provided remote terminal output, final-audit implementation",
+      "environment": {
+        "gpu": "A100",
+        "python": "3.12.13",
+        "torch": "2.11.0+cu130",
+        "triton": "3.6.0"
+      },
+      "notes": "43 CPU + 48 actual CUDA cases; 12 optional offline compile cases skipped"
+    },
+    {
+      "command": "python -m rl_engine.p6 verify /tmp/p6-t05-a100-attempt-002",
+      "result": "ARTIFACT_INTEGRITY_AND_CPU_REPLAY_PASS",
+      "cases": 9,
+      "operator_recordings": 45,
+      "gpu_reexecuted": false,
+      "production_certified": false,
+      "evidence_source": "user-provided remote terminal output",
+      "notes": "Remote JUnit and full sealed directory retained by user, not copied or reconstructed locally"
+    },
+    {
+      "command": "benchmarks/p6_combine.py: T=32/256, H=4096, three runs each, warmup=20, repeats=100",
+      "result": "All six runs BYTE_EQUAL; implementation digest matches local source",
+      "implementation_sha256": "25969fdea99107beea14e88a8c4969137e33e8941f02d396ff2bf2ff7508ef0d",
+      "evidence_directory": "docs/validation/p6-t05-a100-2026-10-03",
+      "performance_certified": false,
+      "notes": "Ray process present; nvidia-smi before 0% and after 97% utilization, no exclusive/continuous idle guarantee. Keep all runs including checked-API overhead; dirty source provenance preserved."
+    },
+    {
+      "command": "P6_COMPILE_T05=1 python -m pytest tests/p6 tests/test_moe_merge.py -q",
+      "result": "257 passed, 109 skipped, 26 subtests passed",
+      "notes": "48 updated T05 GPU cases skipped: no local GPU; sm80/sm90 compilation executed; TRITON_CACHE_DIR points to writable /tmp cache"
+    },
+    {
+      "command": "P6_RUN_T05_GPU=1 OMP_NUM_THREADS=1 python -m pytest tests/p6/test_fused_combine.py -q -x --junitxml=p6-t05-results/a100.xml",
+      "evidence_source": "user-provided terminal output, pre-final-audit patch",
+      "environment": {
+        "gpu": "A100",
+        "python": "3.12.13",
+        "torch": "2.11.0+cu130",
+        "triton": "3.6.0"
+      },
+      "result": "30 passed, 12 skipped in 4.48s",
+      "notes": "11 CPU + 19 GPU; does not cover newly added tests/provider/alias protection"
+    },
+    {
+      "command": "P6_RUN_T05_GPU=1 python -m pytest tests/p6/test_fused_combine.py -k 'overflow_fixture or fp32_accumulator' -vv -x",
+      "evidence_source": "user-provided terminal output",
+      "result": "2 passed, 40 deselected in 2.97s"
+    },
+    {
+      "command": "python -m black --workers 1 --check --line-length=100 <six T05 Python files>; python -m isort --check-only --profile black --line-length=100 <same files>; python -m flake8 --max-line-length=100 --extend-ignore=E203,E704 <same files>",
+      "result": "Passed with official pinned versions Black 24.4.2, isort 5.13.2, flake8 7.0.0"
+    },
+    {
+      "command": "python -m mypy --ignore-missing-imports --cache-dir /tmp/p6-t05-mypy-cache rl_engine/p6/combine.py rl_engine/p6/combine_provider.py rl_engine/kernels/ops/triton/moe/combine.py",
+      "result": "Success: no issues found in 3 source files"
+    },
+    {
+      "command": "P6_COMPILE_T05=1 python -m pytest tests/p6/test_fused_combine.py -q -k offline_cuda_compile",
+      "environment": "Triton 3.2.0",
+      "result": "12 passed; sm80/sm90, debug on/off, blocks 128/256/512, H=4097"
+    },
+    {
+      "command": "python -m ruff check rl_engine/p6 tests/p6 rl_engine/kernels/ops/triton/moe benchmarks/p6_combine.py",
+      "result": "All checks passed"
+    },
+    {
+      "command": "python -m ruff format --check rl_engine/p6 tests/p6 rl_engine/kernels/ops/triton/moe benchmarks/p6_combine.py",
+      "result": "All files formatted"
+    },
+    {
+      "command": "mkdocs build --strict -f mkdocs.yaml",
+      "result": "Passed on disposable Git snapshot with identical committed documentation; no date-plugin/no-history warnings",
+      "notes": "Real development branch left uncommitted as requested; final PR CI must run after user's commit"
+    },
+    {
+      "command": "python -m mypy --ignore-missing-imports --cache-dir /tmp/p6-t05-mypy-full rl_engine/",
+      "result": "49 errors in 15 unchanged files; identical errors on clean base snapshot (224 baseline vs 228 candidate source files)",
+      "notes": "MyPy 2.4.0/Python 3.13.12; new T05 source modules pass focused checks; whole-repo type gate is not green"
+    },
+    {
+      "command": "python -m rl_engine.p6 conformance --device torch-cpu --hidden-size 4096 --output /tmp/p6-t05-base-reference-audit-002",
+      "result": "REFERENCE_ARTIFACT_PUBLISHED: 10 cases, 50 operator recordings"
+    },
+    {
+      "command": "python -m rl_engine.p6 verify /tmp/p6-t05-base-reference-audit-002",
+      "result": "ARTIFACT_INTEGRITY_AND_CPU_REPLAY_PASS"
+    },
+    {
+      "command": "PRE_COMMIT_HOME=/tmp/p6-t05-precommit python -m pre_commit run --files <23 T05 delivery and evidence files>",
+      "result": "All seven official hooks passed: whitespace, EOF, YAML, large files, Black, isort, flake8"
+    },
+    {
+      "command": "python -m pytest -q --maxfail=8",
+      "result": "collection blocked",
+      "pre_existing_error": "tests/test_rocm_aiter_api_contract.py imports absent _AITER_FWD_REQUIRED_KEYWORDS from rl_engine/kernels/ops/rocm/attention/flash_attn.py at base commit"
+    }
+  ],
+  "review_fixes": [
+    "Reject unresolved negative/conjugate tensor flags; three host regressions RED -> GREEN",
+    "Reject CUDA grid.y overflow before allocation; host regression RED -> GREEN",
+    "Fix oversized integer scalar in BF16 overflow fixture; independent CPU RED -> GREEN bit-pattern regression",
+    "Reject inputs overlapping output/debug/status stores; host RED -> GREEN regressions with nonzero offsets"
+  ],
+  "pending": [
+    "Retain/attach remote JUnit and complete immutable GPU readback attempt, with source/environment logs",
+    "Compute Sanitizer if available, or explicitly report tooling unavailable",
+    "Exclusive/idle A100 performance repeat before claiming stable speedup",
+    "T02/T03/T04 and T01 owner review; proposed contract/ABI approval",
+    "H100 execution, live Foundation binding and WS2 certification (not represented by A100/offline passes)"
+  ],
+  "production_certified": false,
+  "performance_certified": false
+}
