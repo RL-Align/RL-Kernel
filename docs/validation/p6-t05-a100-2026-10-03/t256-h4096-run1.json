@@ -1,0 +1,52 @@
+{
+  "scope": "synthetic-local-WS1; not live Foundation/WS2 certification",
+  "torch": "2.11.0+cu130",
+  "triton": "3.6.0",
+  "cuda": "13.0",
+  "python": "3.12.13",
+  "gpu": "NVIDIA A100-SXM4-40GB",
+  "compute_capability": [
+    8,
+    0
+  ],
+  "source_commit": "05bc53aa0396ffaf2c9241559b388159563e6b36",
+  "working_tree_dirty": true,
+  "implementation_sha256": "25969fdea99107beea14e88a8c4969137e33e8941f02d396ff2bf2ff7508ef0d",
+  "contract_version": "p6-task-contract.proposed.v1",
+  "profile": "p6.synthetic-bf16.v1",
+  "tokens": 256,
+  "hidden_size": 4096,
+  "debug": false,
+  "dtype": "bf16",
+  "block_size": 256,
+  "num_warps": 4,
+  "warmup": 20,
+  "plan_fingerprint": "57710ea1470dc6942ce725da44d0497bcd104a639260b47be4a80c599c639491",
+  "order_hash": "11ffb812344cb1a934b171857f9e7c74e8a858d266bd8423a2cdbd52fe9c1759",
+  "input_sha256": "fa3e86d1c0f32b7e7908acfa58746016f29875759a8de38d38334bfa1445752b",
+  "output_hash": "8f65557b6c864353bdbe0e730520290646d3d3d4cfbddaf825d2811f7f26de6c",
+  "correctness": "BYTE_EQUAL",
+  "eager_reference": {
+    "median_us": 645.6319987773895,
+    "min_us": 618.4960007667542,
+    "max_us": 924.67200756073,
+    "wall_median_us": 674.8939631506801,
+    "repeats": 100
+  },
+  "prepared_launch": {
+    "median_us": 74.75200295448303,
+    "min_us": 71.68000191450119,
+    "max_us": 93.18400174379349,
+    "wall_median_us": 101.55653581023216,
+    "repeats": 100
+  },
+  "checked_eager": {
+    "median_us": 632.3519945144653,
+    "min_us": 597.1199870109558,
+    "max_us": 746.944010257721,
+    "wall_median_us": 659.1744022443891,
+    "repeats": 100
+  },
+  "prepared_speedup": 8.63698594364781,
+  "process_peak_allocated_bytes": 109164544
+}

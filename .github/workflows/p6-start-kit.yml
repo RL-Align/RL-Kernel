@@ -5,6 +5,14 @@ on:
     paths:
       - "rl_engine/p6/**"
       - "tests/p6/**"
+      - "rl_engine/kernels/ops/triton/moe/**"
+      - "benchmarks/p6_combine.py"
+      - "docs/operators/p6-fused-combine.md"
+      - "docs/design/p6-t05*.md"
+      - "docs/validation/p6-t05*.json"
+      - "docs/validation/p6-t05*/**"
+      - "docs/operators/README.md"
+      - "docs/.nav.yml"
       - "docs/design/p6-start-kit.md"
       - ".github/workflows/p6-start-kit.yml"
   workflow_dispatch:
@@ -23,14 +31,21 @@ jobs:
       OMP_NUM_THREADS: "1"
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Required by the revision-date plugin in strict docs builds.
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
       - run: python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-      - run: python -m pip install numpy pytest ruff
-      - run: python -m ruff check rl_engine/p6 tests/p6
-      - run: python -m ruff format --check rl_engine/p6 tests/p6
+      - run: python -m pip install numpy pytest ruff 'triton>=3.2,<4' black==24.4.2 isort==5.13.2 flake8==7.0.0 -r requirements-docs.txt
+      - run: python -m ruff check rl_engine/p6 tests/p6 rl_engine/kernels/ops/triton/moe benchmarks/p6_combine.py
+      - run: python -m ruff format --check rl_engine/p6 tests/p6 rl_engine/kernels/ops/triton/moe benchmarks/p6_combine.py
+      - run: python -m black --check --line-length=100 rl_engine/p6/combine.py rl_engine/p6/combine_provider.py rl_engine/kernels/ops/triton/moe tests/p6/test_fused_combine.py benchmarks/p6_combine.py
+      - run: python -m isort --check-only --profile black --line-length=100 rl_engine/p6/combine.py rl_engine/p6/combine_provider.py rl_engine/kernels/ops/triton/moe tests/p6/test_fused_combine.py benchmarks/p6_combine.py
+      - run: python -m flake8 --max-line-length=100 --extend-ignore=E203,E704 rl_engine/p6/combine.py rl_engine/p6/combine_provider.py rl_engine/kernels/ops/triton/moe tests/p6/test_fused_combine.py benchmarks/p6_combine.py
       - run: python -m pytest tests/p6 -q --junitxml=p6-results.xml
+      - run: P6_COMPILE_T05=1 python -m pytest tests/p6/test_fused_combine.py -q -k offline_cuda_compile --junitxml=p6-t05-compile.xml
+      - run: mkdocs build --strict -f mkdocs.yaml
       - run: python -m rl_engine.p6 conformance --device torch-cpu --hidden-size 4096 --output p6-artifact
       - run: python -m rl_engine.p6 verify p6-artifact
       - uses: actions/upload-artifact@v4
@@ -39,5 +54,6 @@ jobs:
           name: p6-start-kit-py${{ matrix.python }}
           path: |
             p6-results.xml
+            p6-t05-compile.xml
             p6-artifact/
           retention-days: 14
