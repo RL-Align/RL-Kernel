@@ -15,6 +15,8 @@ python benchmarks/benchmark_sampling.py
 python benchmarks/benchmark_grpo_op.py
 python benchmarks/benchmark_pack.py --smoke
 python benchmarks/benchmark_final_logit_softcap.py --output-dir reports/final-logit-softcap
+python benchmarks/benchmark_softcapped_selected_logprob.py --output-dir ../softcapped-logprob-results
+python benchmarks/benchmark_softcapped_selected_logprob.py --suite dispatch --output-dir ../softcapped-logprob-results/dispatch
 python benchmarks/benchmark_rocm_ffn.py --help
 python scripts/run_perf.py
 ```

@@ -181,6 +181,14 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP = (
         "rl_engine.kernels.ops.pytorch.activation.final_logit_softcap.NativeFinalLogitSoftcapOp"
     )
+    TRITON_SOFTCAPPED_SELECTED_LOGPROB = (
+        "rl_engine.kernels.ops.triton.loss.softcapped_selected_logprob."
+        "TritonSoftcappedSelectedLogprobOp"
+    )
+    PYTORCH_NATIVE_SOFTCAPPED_SELECTED_LOGPROB = (
+        "rl_engine.kernels.ops.pytorch.loss.softcapped_selected_logprob."
+        "NativeSoftcappedSelectedLogprobOp"
+    )
 
     # WS1 pure-PyTorch ground-truth attention reference (hand-written fp32 softmax).
     # Distinct from PYTORCH_ATTN above, which is the production SDPA fallback.
@@ -612,6 +620,10 @@ class KernelRegistry:
                     OpBackend.TRITON_FINAL_LOGIT_SOFTCAP,
                     OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP,
                 ],
+                "softcapped_selected_logprob": [
+                    OpBackend.TRITON_SOFTCAPPED_SELECTED_LOGPROB,
+                    OpBackend.PYTORCH_NATIVE_SOFTCAPPED_SELECTED_LOGPROB,
+                ],
                 # Default dispatch logic for new operators
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rope": [
@@ -663,6 +675,10 @@ class KernelRegistry:
                     OpBackend.TRITON_FINAL_LOGIT_SOFTCAP,
                     OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP,
                 ],
+                "softcapped_selected_logprob": [
+                    OpBackend.TRITON_SOFTCAPPED_SELECTED_LOGPROB,
+                    OpBackend.PYTORCH_NATIVE_SOFTCAPPED_SELECTED_LOGPROB,
+                ],
             },
             "musa": {
                 "logp": [OpBackend.TRITON_LOGP, OpBackend.PYTORCH_NATIVE],
@@ -708,6 +724,9 @@ class KernelRegistry:
                 "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
                 "final_logit_softcap": [OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP],
+                "softcapped_selected_logprob": [
+                    OpBackend.PYTORCH_NATIVE_SOFTCAPPED_SELECTED_LOGPROB
+                ],
             },
             "cpu": {
                 "logp": [OpBackend.PYTORCH_NATIVE],
@@ -734,6 +753,9 @@ class KernelRegistry:
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
                 "final_logit_softcap": [OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP],
+                "softcapped_selected_logprob": [
+                    OpBackend.PYTORCH_NATIVE_SOFTCAPPED_SELECTED_LOGPROB
+                ],
             },
             # Ascend NPU: op types without an entry fall back to their CPU
             # candidates (see the runtime override below), so only
