@@ -36,7 +36,7 @@ import torch
 
 from rl_engine.moe.backends.routed_checks import check_routed_batch
 from rl_engine.moe.contract import ExpertBatch
-from rl_engine.moe.mx_format import MXTensor
+from rl_engine.moe.mx_format import MX_BLOCK, MXTensor
 
 PROFILE = "p5-triton-fused-v1"
 
@@ -75,7 +75,10 @@ class TritonFusedMoeMlp:
             "numeric_profile": self.numeric_profile,
             "torch_version": torch.__version__,
             "tensor_core": "tl.dot bf16 (MX operands decoded exactly, scale folded)",
-            "tiles": {"BM": 64, "BF": 64, "BK": 64, "BN_fc3": 64},
+            "tiles": {
+                k: self._tf.tiles(k, torch.device("cuda", torch.cuda.current_device()))
+                for k in ("routed_fc1", "routed_fc3")
+            },
             "mx_scaling": "exact per 32-block: both scales folded out of the inner sum",
             "split_k": 1,
             "batch_invariant": True,
@@ -95,7 +98,16 @@ class TritonFusedMoeMlp:
 
     # ------------------------------------------------------------ checks
     def _check_batch(self, batch: ExpertBatch, x_q: MXTensor) -> None:
-        check_routed_batch(batch, x_q, name=self.name, profile=PROFILE, align=64)
+        check_routed_batch(batch, x_q, name=self.name, profile=PROFILE, align=MX_BLOCK)
+        # The pinned K tiles are per architecture, so the alignment is too.
+        dev = batch.x.device
+        bk1 = self._tf.tiles("routed_fc1", dev)["BK"]
+        bk3 = self._tf.tiles("routed_fc3", dev)["BK"]
+        if batch.hidden % bk1 or batch.ffn % bk3:
+            raise NotImplementedError(
+                f"{self.name}: hidden must be a multiple of {bk1} and ffn of {bk3} on this "
+                f"device, got {batch.hidden} / {batch.ffn}"
+            )
 
     # ------------------------------------------------------------ forward
     def fc1_swiglu_quant(self, batch: ExpertBatch, x_q: MXTensor) -> MXTensor:

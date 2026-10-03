@@ -293,23 +293,23 @@ class CudaFusedSharedExpertProvider(_StrictSharedExpertProvider):
 
 
 class TritonFusedSharedExpertProvider(_StrictSharedExpertProvider):
-    """Forward-only Triton backend with fc1 and the SwiGLU fused into one kernel.
+    """Forward-only Triton backend: fused fc1+SwiGLU, then a TP-invariant fc2.
 
-    The portable counterpart of :class:`CudaFusedSharedExpertProvider`:
-    ``rl_engine/kernels/ops/triton/moe/fused_mlp.py`` computes ``h`` straight
-    from ``x`` and ``w_fc1`` with a ``tl.dot`` main loop and the SwiGLU in the
-    epilogue, so the FP32 ``z`` [T, 2F] never reaches global memory. fc2 stays
-    on the Triton tile GEMM, which keeps the whole path portable -- the target
-    is ROCm, and nothing here is Hopper-specific.
+    The portable counterpart of :class:`CudaFusedSharedExpertProvider`, built
+    from two kernels in ``rl_engine/kernels/ops/triton/moe/fused_mlp.py``:
 
-    Not byte-equal to the CUDA fused kernel, by design. Two reasons, neither
-    fixable: no Triton exponential reproduces nvcc's ``expf`` (measured at
-    T*F = 262144: ``tl.sigmoid`` differs in 6 elements, libdevice ``exp`` in
-    2), and the accumulator is flat FP32 rather than det_gemm's BF16 K-tree.
-    Dropping the tree costs the K-tree's TP-equivalence but buys accuracy --
-    against an FP32 reference this backend lands closer than the CUDA one --
-    and the tree could not survive the fusion anyway, since
-    ``SiLU(g1+g2)*(u1+u2) != SiLU(g1)*u1 + SiLU(g2)*u2``. Hence its own
+    * ``fused_shared_fc1_swiglu`` computes ``h`` straight from ``x`` and
+      ``w_fc1`` with a ``tl.dot`` main loop and the SwiGLU in the epilogue, so
+      the FP32 ``z`` [T, 2F] never reaches global memory. fc1 is
+      column-parallel under TP, so it is TP-invariant with no extra work.
+    * ``shared_fc3`` reduces fc2's K over a fixed 8-leaf BF16 tree, the same
+      tree the deterministic all-reduce uses across ranks, so TP=1, 2, 4 and 8
+      produce identical bytes.
+
+    Not byte-equal to the CUDA fused kernel, by design: no Triton exponential
+    reproduces nvcc's ``expf`` (measured at T*F = 262144: ``tl.sigmoid``
+    differs in 6 elements, libdevice ``exp`` in 2), and the fc2 tree has 8
+    F/8-wide FP32 leaves rather than det_gemm's 32-wide ones. Hence its own
     profile: no other backend is allowed to claim byte-equality with it.
 
     Forward only, for the same reason as the CUDA fused provider: the backward
@@ -317,27 +317,27 @@ class TritonFusedSharedExpertProvider(_StrictSharedExpertProvider):
     """
 
     name = "shared-expert-triton-fused"
-    numeric_profile = "p5-triton-fused-v1"
+    numeric_profile = "p5-triton-fused-tp8-v1"
     oracle_tolerance = {"rtol": 1e-1, "atol": 6e-2}
 
-    def __init__(self) -> None:
+    def __init__(self, tp_size: int = 1) -> None:
         from rl_engine.kernels.ops.triton.moe import fused_mlp as tf
         from rl_engine.kernels.ops.triton.moe import shared_expert as tk
 
         if not tk.TRITON_AVAILABLE:
             raise NotImplementedError("triton is not installed (fail-closed, no fallback)")
         self._tf = tf
-        self._tk = tk
-
-    def _gemm(self, a: torch.Tensor, b: torch.Tensor, trans_b: bool) -> torch.Tensor:
-        return self._tk.det_dot_gemm(a, b, trans_b)  # fc2 only
+        # With tp_size > 1 the batch holds this rank's weight shards and the
+        # returned y is the rank's BF16 partial, to be summed by the
+        # deterministic all-reduce.
+        self._tp_size = tp_size
 
     def shared_expert_mlp_fwd(self, batch: SharedBatch) -> tuple[torch.Tensor, dict[str, Any]]:
         self._check_batch(batch)
         h_bf16 = self._tf.fused_shared_fc1_swiglu(
             batch.x.contiguous(), batch.w_fc1.contiguous()
         )
-        y = self._gemm(h_bf16, batch.w_fc2.contiguous(), False).to(torch.bfloat16)
+        y = self._tf.shared_fc3(h_bf16, batch.w_fc2.contiguous(), self._tp_size)
         # No "z32": not materializing it is the point of the fusion.
         return y, {"h_bf16": h_bf16}
 
@@ -351,13 +351,17 @@ class TritonFusedSharedExpertProvider(_StrictSharedExpertProvider):
 
     def provenance(self) -> dict[str, Any]:
         info = super().provenance()
+        dev = torch.device("cuda", torch.cuda.current_device())
         info.update(
             {
                 "split_k": 1,
-                "reduction": "tl.dot tiles, ascending-k, flat FP32 accumulator",
-                "rounding": "FP32 accumulate, one BF16 round on h",
+                "reduction": "fc1: tl.dot ascending-k, flat FP32; "
+                "fc2: 8-leaf BF16 tree over F/8-wide FP32 leaves",
+                "rounding": "FP32 accumulate; BF16 round on h, on each fc2 leaf and tree node",
                 "fused_operators": ["fc1", "swiglu"],
-                "tp_equivalent": False,
+                "tiles": {k: self._tf.tiles(k, dev) for k in ("shared_fc1", "shared_fc3")},
+                "tp_equivalent": True,
+                "tp_size": self._tp_size,
                 "backward": False,
             }
         )

@@ -13,6 +13,10 @@ Two things are measured, because only one of them is allowed to regress:
 * time per launch, split fc1 / fc3, where the Triton lane is expected to lose;
 * max relative error against an FP64 reference, where it must not.
 
+The shared expert (BF16, fc1+SwiGLU and the TP-invariant fc3) is timed after
+the routed half, next to an unfused ``torch`` BF16 chain (rocBLAS/hipBLASLt or
+cuBLAS) for scale. ``--shared-tokens ''`` skips it.
+
 The CUDA columns are printed only when ``rl_engine._C`` carries the SM90
 symbols; otherwise the Triton lane is timed on its own.
 
@@ -81,6 +85,7 @@ def main() -> int:
     p.add_argument("--ffn", type=int, default=2048)
     p.add_argument("--tokens", default="512,2048,8192")
     p.add_argument("--accuracy-tokens", default="512,2048", help="subset scored against FP64")
+    p.add_argument("--shared-tokens", default="512,2048,8192", help="shared-expert rows; '' skips")
     args = p.parse_args()
     if not torch.cuda.is_available():
         print("GPU required")
@@ -169,7 +174,33 @@ def main() -> int:
             print(f"{M:>7} {t:15.2e} {cols}")
         print("\nBoth lanes sit on the MX quantization floor; the middle two columns")
         print("agreeing is the result that matters -- portability costs time, not accuracy.")
+    shared_tokens = [int(v) for v in args.shared_tokens.split(",") if v]
+    if shared_tokens:
+        bench_shared(tf, H, F, shared_tokens)
     return 0
+
+
+def bench_shared(tf, hidden: int, ffn: int, tokens: list[int]) -> None:
+    """Shared expert: fused fc1+SwiGLU, TP-invariant fc3, vs an unfused torch chain."""
+    gen = torch.Generator().manual_seed(2)
+    w1 = (torch.randn(2 * ffn, hidden, generator=gen) / hidden**0.5).to(torch.bfloat16).cuda()
+    w2 = (torch.randn(hidden, ffn, generator=gen) / ffn**0.5).to(torch.bfloat16).cuda()
+
+    def torch_chain(x):
+        z = x @ w1.t()
+        g, u = z[:, :ffn].float(), z[:, ffn:].float()
+        return ((g * torch.sigmoid(g)) * u).to(torch.bfloat16) @ w2.t()
+
+    print(f"\nshared expert H={hidden} F={ffn}")
+    print(f"{'T':>7} {'fc1+swiglu':>11} {'fc3 (tp1)':>10} {'total':>9} {'torch':>9} {'TFLOPS':>7}")
+    for t in tokens:
+        x = (torch.randn(t, hidden, generator=gen) * 0.7).to(torch.bfloat16).cuda()
+        h = tf.fused_shared_fc1_swiglu(x, w1)
+        a = time_ms(lambda: tf.fused_shared_fc1_swiglu(x, w1))
+        b = time_ms(lambda: tf.shared_fc3(h, w2))
+        ref = time_ms(lambda: torch_chain(x))
+        tflops = 6 * t * hidden * ffn / ((a + b) * 1e-3) / 1e12
+        print(f"{t:>7} {a:9.3f}ms {b:8.3f}ms {a + b:7.3f}ms {ref:7.3f}ms {tflops:7.0f}")
 
 
 if __name__ == "__main__":

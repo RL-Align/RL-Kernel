@@ -21,7 +21,9 @@ It shares the call surface and the per-launch checks (``routed_checks``) but
 declares its own profile ``p5-triton-fused-v1``: it gives up FP8 tensor cores
 and scale folding for portability, which costs ~6x on an H100 and nothing in
 accuracy. Its shared-expert half is ``shared_expert.TritonFusedSharedExpert\
-Provider``; both are validated by ``tests/test_triton_fused_moe_mlp.py``.
+Provider`` (profile ``p5-triton-fused-tp8-v1``: fc2 reduces over the
+deterministic all-reduce's 8-leaf tree, so TP 1/2/4/8 are byte-equal); both
+are validated by ``tests/test_triton_fused_moe_mlp.py``.
 
 Reference backends
 ------------------
