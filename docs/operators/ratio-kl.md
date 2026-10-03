@@ -64,12 +64,21 @@ On NVIDIA CUDA, FP16/BF16 backward writes directly in the policy dtype, with exp
 
 ## Accuracy
 
+Inactive tokens return `policy_ratio = 1` and `kl_penalty = 0`, with zero
+`policy_logits` gradients, including when their logits contain NaN or are all
+`-inf`. Their action IDs may be out of range. Active logits are not sanitized;
+invalid active distributions remain visible as non-finite results. The native
+operator rejects out-of-range action IDs at active positions.
+
 Reference semantics (`NativeRatioKLOp`, mask-before-exp matching `grpo_loss`):
 
 ```python
-logp_policy = log_softmax(policy_logits, -1).gather(-1, action_ids)   # selected token logp
+safe_ids = action_ids.masked_fill(~mask, 0).unsqueeze(-1)
+policy = policy_logits.masked_fill(~mask.unsqueeze(-1), 0.0)
+logp_policy = log_softmax(policy.float(), -1).gather(-1, safe_ids).squeeze(-1)
 with torch.no_grad():
-    logp_ref = log_softmax(ref_logits, -1).gather(-1, action_ids)
+    reference = ref_logits.masked_fill(~mask.unsqueeze(-1), 0.0)
+    logp_ref = log_softmax(reference.float(), -1).gather(-1, safe_ids).squeeze(-1)
 
 delta = (logp_policy - old_logps).masked_fill(~mask, 0.0)
 diff  = (logp_ref - logp_policy).masked_fill(~mask, 0.0)
@@ -82,6 +91,11 @@ The Triton op matches the native reference on `ratio` and `kl` (forward) and on 
 ~`1e-4` from rounding; the ratio difference is ~`1e-9`.
 
 ## Performance Notes
+
+The native reference masks logits before normalization using full-size temporary
+copies in each input's dtype. This preserves fixed shapes and autograd for empty
+or all-inactive inputs without adding the device synchronization needed to compact
+active rows. It still normalizes every row; the Triton backend skips inactive rows.
 
 ```bash
 python benchmarks/benchmark_ratio_kl.py
