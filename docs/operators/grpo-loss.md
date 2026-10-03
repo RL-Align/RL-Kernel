@@ -208,6 +208,13 @@ loss = masked_mean(policy, completion_mask) + beta * masked_mean(kl, completion_
 
 The Triton op matches the native reference (forward and backward) to `atol=1e-4`.
 
+The per-group variance is computed two-pass, `E[(x - mean)^2]`, in every backend
+(native, Triton, distributed). The one-pass form `E[x^2] - E[x]^2` cancels
+catastrophically in fp32 when the rewards share a large offset: rewards
+`1e4 + [0, 1, 2, 3]` used to yield advantages around `±5e5` instead of `±1.34`.
+Advantages are therefore shift-invariant, `adv(r + c) == adv(r)` up to fp32
+rounding of `r + c`.
+
 For `DistributedGRPOLossOp`, the reference-equals-policy identity is exact rather
 than approximate: with `ref_logits is policy_logits` and `old_logps == logp_policy`
 the ratio is `exp(0) = 1` bitwise, so the result is invariant to the clip epsilon,
