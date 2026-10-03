@@ -46,12 +46,14 @@ def _group_norm_kernel(
 
     count = (end - start).to(tl.float32)
     mean = tl.sum(rewards, axis=0) / count
-    # Population variance (unbiased=False): E[x^2] - E[x]^2. Masked lanes are 0.
-    sq_mean = tl.sum(rewards * rewards, axis=0) / count
-    std = tl.sqrt(tl.maximum(sq_mean - mean * mean, 0.0))
-    std = tl.maximum(std, eps)
+    # Two-pass population variance (unbiased=False): E[(x - mean)^2]. Centring
+    # before squaring avoids the cancellation E[x^2] - E[x]^2 suffers when the
+    # rewards share a large offset. Masked lanes must stay 0 after centring.
+    centered = tl.where(keep, rewards - mean, 0.0)
+    var = tl.sum(centered * centered, axis=0) / count
+    std = tl.maximum(tl.sqrt(var), eps)
 
-    adv = (rewards - mean) / std
+    adv = centered / std
     tl.store(adv_ptr + start + offs, adv, mask=keep)
 
 
