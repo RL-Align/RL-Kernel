@@ -61,6 +61,7 @@ Before commit, new Markdown files have no Git revision history and the docs date
 plugin warns in strict mode. Validation uses a disposable Git snapshot with the
 same document content; the real PR CI sees the contributor's committed history.
 Do not disable strict checking or commit fake history in the development branch.
+P6 CI uses `fetch-depth: 0` so the revision-date plugin has complete history.
 
 ## Evidence and remaining gates
 
@@ -72,14 +73,13 @@ Do not disable strict checking or commit fake history in the development branch.
   45 operator recordings and `ARTIFACT_INTEGRITY_AND_CPU_REPLAY_PASS`;
   `gpu_reexecuted=false`, `production_certified=false`. Remote JUnit and the
   complete immutable seal directory have not been copied into this repository.
-- Six shared-A100 benchmark runs completed with BYTE_EQUAL and a source digest
-  matching the local implementation. Ray was present, with GPU utilization 0%
-  before and 97% after; these observations do not prove stable speedup.
+- Six idle-A100 GPU-6 benchmark runs completed with BYTE_EQUAL and a source digest
+  matching the local implementation. Both supplied logs show no running processes.
 - Run Compute Sanitizer if available, or explicitly report tooling unavailable.
   It is a recommended safety check, not an observed pass or an invented official gate.
-- Measure H=4096 at T=32 and T=256 on an idle/allocated A100. Keep correctness
-  checks before timing, both GPU-event/wall latency, source/input hashes and JSON.
-  No numerical speedup floor was specified; do not hide checked-API overhead.
+- H=4096 measurements at T=32 and T=256 on idle GPU-6 are complete. GPU-event
+  and wall latency, source/input/output hashes and all six JSON files are retained.
+  No numerical speedup floor was specified; checked-API overhead is also reported.
 - H100 execution is still pending; offline sm90 compile is not equivalent.
   ROCm/Ascend, real EP and production Foundation remain out of this T05 backend.
 - Request review by T02/T03/T04 owners as required by the handoff. T01 owner must
@@ -94,33 +94,44 @@ Do not disable strict checking or commit fake history in the development branch.
   identical 49 errors; the three added T05 implementation modules pass focused
   MyPy. Report the inherited gate issue to the base owner, not as a green full CI.
 
-## Shared-A100 observations
+## Idle-A100 GPU-6 observations
 
 Raw results and environment logs are in
-`docs/validation/p6-t05-a100-2026-10-03`; the six JSON files are byte-for-byte
-copies. The two nvidia-smi text logs normalize trailing whitespace only.
-Three repetitions per shape use the same inputs, not three independent seeds.
-All timing values below are per-run medians in microseconds.
+`docs/validation/p6-t05-a100-idle-gpu6-2026-10-03`; the six JSON files are
+byte-for-byte copies. The two nvidia-smi text logs normalize trailing whitespace
+only. The author confirms GPU-6 was idle during execution; both logs show
+4 MiB allocated and no running processes. Three repetitions per shape use the
+same inputs. All timing values below are per-run medians in microseconds.
 
 | T / run | Eager reference Event | Prepared launch Event | Checked eager Event | Prepared wall |
 | --- | ---: | ---: | ---: | ---: |
-| 32 / 1 | 627.200 | 57.344 | 201.744 | 82.756 |
-| 32 / 2 | 201.728 | 11.264 | 823.264 | 580.536 |
-| 32 / 3 | 610.304 | 58.368 | 199.360 | 82.385 |
-| 256 / 1 | 645.632 | 74.752 | 632.352 | 101.557 |
-| 256 / 2 | 333.824 | 65.536 | 2461.136 | 89.394 |
-| 256 / 3 | 331.776 | 29.696 | 2451.568 | 1203.447 |
+| 32 / 1 | 676.864 | 64.512 | 201.712 | 91.817 |
+| 32 / 2 | 683.520 | 65.536 | 234.224 | 92.825 |
+| 32 / 3 | 670.720 | 65.536 | 235.440 | 92.754 |
+| 256 / 1 | 690.176 | 78.848 | 607.552 | 106.210 |
+| 256 / 2 | 684.032 | 72.704 | 783.424 | 99.081 |
+| 256 / 3 | 696.320 | 78.848 | 775.056 | 106.786 |
 
-The reference is eager fixed-order PyTorch arithmetic, not an optimized native
-T02-T04 baseline. Timing phases run sequentially on a shared card with no
-continuous telemetry or exclusive allocation. Event intervals are not pure
-kernel timing; prepared launch excludes allocation/status readback, whereas
-checked eager includes them. Process peak includes reference/debug buffers,
-not kernel-only memory. Do not turn these ratios into a 5-18x production claim
-or discard the slower checked results. Repeat performance on an idle/allocated
-card before claiming stable acceleration.
+Prepared-launch Event median ratios against the measured eager reference are
+10.23-10.49x at T=32 and 8.75-9.41x at T=256. Checked eager median ratios are
+2.85-3.36x and 0.87-1.14x respectively, so checked eager is not consistently
+faster at T=256. The reference is eager fixed-order PyTorch arithmetic, not an
+optimized native T02-T04 baseline. Event intervals are API measurements, not
+pure kernel or complete engine throughput. Prepared launch excludes allocation
+and status readback; checked eager includes them. Process peak includes
+reference/debug/fixture buffers and is not kernel-only memory.
+
+## CI checkout regression
+
+PR #462 run `37046643867` passed 173 CPU tests (62 skips, 26 subtests) and
+12 offline compiler tests before failing strict docs. The revision-date plugin
+requires full history under GitHub Actions; the default depth-1 checkout raised
+a warning and strict mode exited 1. This was reproduced locally with a shallow
+clone and `GITHUB_ACTIONS=true`. Fetching complete history made the same strict
+build exit 0. P6 CI now sets `fetch-depth: 0`; strict mode and the date plugin
+remain enabled. The updated GitHub result is pending the author's push.
 
 Local observed results are recorded in `docs/validation/p6-t05-2026-10-02.json`.
-Correctness evidence and a scoped performance experiment are available for draft
-review; owner approval and controlled performance remain open. This is not an
-unconditional production-complete/merge claim.
+Correctness evidence and the idle-A100 performance experiment are available for
+draft review; owner approval remains open. This is not an unconditional
+production-complete/merge claim.

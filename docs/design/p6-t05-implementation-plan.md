@@ -10,8 +10,10 @@ Status: the final-audit A100 suite passed 91 tests (43 CPU + 48 actual CUDA),
 with 12 optional offline compile tests skipped, as reported by the user.
 The immutable attempt-002 readback also passed artifact integrity/CPU replay
 verification (9 cases, 45 operator recordings; no GPU reexecution).
-Six shared-A100 benchmark runs were BYTE_EQUAL, but are not stable performance
-certification. Local host checks/offline compilation and independent review passed. See
+Six idle-A100 GPU-6 benchmark runs were BYTE_EQUAL, with prepared-launch Event
+median ratios of 10.23-10.49x (T=32) and 8.75-9.41x (T=256) against the measured
+eager reference. Checked eager is not consistently faster at T=256.
+Local host checks/offline compilation and independent review passed. See
 `docs/validation/p6-t05-2026-10-02.json` for executed checks. Review fixed lazy
 negative storage flags and grid.y bounds with host RED -> GREEN regressions.
 Triton 3.2's offline compiler uses `constants`; 3.8 uses `constexprs`; only the
@@ -70,10 +72,11 @@ optional compile test adapts that tooling API. Production kernel math is unchang
   output and debug stores, including nonzero storage offsets.
 - [x] Execute the updated 48 CUDA + 43 CPU cases on A100; user-reported pass.
 - [x] Persist attempt-002 and verify its seal; retain remote JUnit/readback files.
-- [x] Collect six shared-A100 benchmark runs, including checked-API costs;
-  keep raw evidence in `docs/validation/p6-t05-a100-2026-10-03`.
-- [ ] Compute Sanitizer if available (otherwise report unavailable) and exclusive/idle
-  A100 performance repeat before making a stable speedup claim.
+- [x] Collect six idle-A100 GPU-6 benchmark runs, including checked-API costs;
+  keep raw evidence in `docs/validation/p6-t05-a100-idle-gpu6-2026-10-03`.
+- [x] Reproduce strict docs failure with shallow Git history under GitHub Actions;
+  fetch complete history in P6 CI, retaining the revision-date plugin and strict mode.
+- [ ] Compute Sanitizer if available (otherwise report unavailable).
 - [ ] T02/T03/T04 and T01 owner approval of provisional interface/profile.
 
 Review focus: strict signed-zero initialization; inactive NaN padding;

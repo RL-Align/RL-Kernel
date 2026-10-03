@@ -2,7 +2,7 @@
   "base_commit": "05bc53aa0396ffaf2c9241559b388159563e6b36",
   "branch": "codex/p6-t05-fused-moe-combine",
   "audit_date": "2026-10-03",
-  "scope": "local CPU/offline compile; full A100 GPU suite user-reported pass; shared-A100 benchmarks collected, performance not certified",
+  "scope": "local CPU/offline compile; full A100 GPU suite user-reported pass; idle GPU-6 A100 benchmark experiment complete; not production certified",
   "python": "3.13.12",
   "torch": "2.14.1+cpu",
   "triton_offline_compile_versions": [
@@ -36,9 +36,17 @@
       "command": "benchmarks/p6_combine.py: T=32/256, H=4096, three runs each, warmup=20, repeats=100",
       "result": "All six runs BYTE_EQUAL; implementation digest matches local source",
       "implementation_sha256": "25969fdea99107beea14e88a8c4969137e33e8941f02d396ff2bf2ff7508ef0d",
-      "evidence_directory": "docs/validation/p6-t05-a100-2026-10-03",
-      "performance_certified": false,
-      "notes": "Ray process present; nvidia-smi before 0% and after 97% utilization, no exclusive/continuous idle guarantee. Keep all runs including checked-API overhead; dirty source provenance preserved."
+      "evidence_directory": "docs/validation/p6-t05-a100-idle-gpu6-2026-10-03",
+      "local_performance_experiment_complete": true,
+      "notes": "Idle A100 GPU-6 confirmed by author; both supplied logs show 4 MiB allocated and no running processes. Prepared-launch Event median ratios are 10.23-10.49x at T=32 and 8.75-9.41x at T=256 against measured eager arithmetic. Checked eager is not consistently faster at T=256; original dirty source provenance preserved."
+    },
+    {
+      "command": "GITHUB_ACTIONS=true python -m mkdocs build --strict -f mkdocs.yaml (depth-1 checkout, then full history)",
+      "result": "RED: shallow checkout exited 1 with revision-date warning; GREEN: full-history checkout exited 0 with the same strict build",
+      "environment": "Python 3.12.12; mkdocs 1.6.1; mkdocs-git-revision-date-localized-plugin 1.6.0",
+      "ci_run": "https://github.com/RL-Align/RL-Kernel/actions/runs/37046643867",
+      "fix": "actions/checkout fetch-depth: 0 in P6 workflow; strict mode and revision-date plugin retained",
+      "github_ci_after_fix": "pending author's push"
     },
     {
       "command": "P6_COMPILE_T05=1 python -m pytest tests/p6 tests/test_moe_merge.py -q",
@@ -120,10 +128,10 @@
   "pending": [
     "Retain/attach remote JUnit and complete immutable GPU readback attempt, with source/environment logs",
     "Compute Sanitizer if available, or explicitly report tooling unavailable",
-    "Exclusive/idle A100 performance repeat before claiming stable speedup",
     "T02/T03/T04 and T01 owner review; proposed contract/ABI approval",
     "H100 execution, live Foundation binding and WS2 certification (not represented by A100/offline passes)"
   ],
   "production_certified": false,
+  "local_performance_experiment_complete": true,
   "performance_certified": false
 }

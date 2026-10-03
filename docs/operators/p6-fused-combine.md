@@ -242,8 +242,9 @@ prepared launch excludes those costs and needs the explicit post-execution
 check. Process peak allocation includes fixtures/debug/reference buffers;
 it is not per-kernel VRAM. These local measurements do not certify EP/NCCL,
 live Foundation, backward or H100 behavior. There is no approved minimum speedup
-in this proposed contract; report measurements without inventing one. Timing on
-a GPU running Ray/another workload is not valid performance evidence. Return XML,
-the sealed directory, environment/git logs, two JSON files from an idle allocated
-GPU and any sanitizer output. See the [merge checklist](../design/p6-t05-merge-checklist.md)
+in this proposed contract; report measurements without inventing one. The
+2026-10-03 GPU-6 idle-A100 measurements are retained in
+`docs/validation/p6-t05-a100-idle-gpu6-2026-10-03` (three runs for each shape,
+all BYTE_EQUAL). Return XML, the sealed directory, environment/git logs,
+all benchmark JSON files and any sanitizer output. See the [merge checklist](../design/p6-t05-merge-checklist.md)
 for local CI commands and remaining owner/hardware gates.

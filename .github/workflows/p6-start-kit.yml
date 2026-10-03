@@ -10,6 +10,7 @@ on:
       - "docs/operators/p6-fused-combine.md"
       - "docs/design/p6-t05*.md"
       - "docs/validation/p6-t05*.json"
+      - "docs/validation/p6-t05*/**"
       - "docs/operators/README.md"
       - "docs/.nav.yml"
       - "docs/design/p6-start-kit.md"
@@ -30,6 +31,8 @@ jobs:
       OMP_NUM_THREADS: "1"
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Required by the revision-date plugin in strict docs builds.
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}

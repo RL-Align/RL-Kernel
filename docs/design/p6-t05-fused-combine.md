@@ -53,9 +53,11 @@ passing (91 passed, 12 optional compile tests skipped), and attempt-002 passed
 artifact integrity/CPU replay verification (not GPU reexecution).
 Benchmark reports checked eager and allocation-free prepared-launch timings;
 CUDA Event intervals are not a pure-kernel or end-to-end latency certificate.
-All six shared-A100 runs were BYTE_EQUAL, but Ray activity and large timing
-variation prevent a stable speedup claim. Raw results are retained in
-`docs/validation/p6-t05-a100-2026-10-03`.
+All six idle-A100 GPU-6 runs were BYTE_EQUAL, with a code digest matching this
+binding/kernel. Prepared-launch Event median ratios against the measured eager
+reference are 10.23-10.49x at T=32 and 8.75-9.41x at T=256; checked eager includes
+allocation/status costs and is not consistently faster at T=256.
+Raw results are retained in `docs/validation/p6-t05-a100-idle-gpu6-2026-10-03`.
 
 Provisional integration points: public binding/return shape, P1 residual
 identity, Foundation ABI and invalid/first-valid/signed-zero policy remain
