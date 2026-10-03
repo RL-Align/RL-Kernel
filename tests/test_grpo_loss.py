@@ -80,6 +80,27 @@ def _reference_loss(batch, policy_logits, ref_logits, advantages, clip_eps, beta
     return policy_loss + beta * kl, policy_loss, kl
 
 
+def _float64_group_advantages(rewards, group_boundaries, eps=1e-6):
+    """Two-pass float64 reference, immune to E[x^2] - E[x]^2 cancellation."""
+    r = rewards.reshape(-1).double().cpu()
+    parts = []
+    for start, end in zip(group_boundaries[:-1], group_boundaries[1:]):
+        centered = r[start:end] - r[start:end].mean()
+        std = centered.pow(2).mean().sqrt().clamp_min(eps)
+        parts.append(centered / std)
+    return torch.cat(parts).float()
+
+
+def _offset_rewards(offset, *, device="cpu"):
+    """Groups with a large shared offset and unit-scale spread."""
+    spread = torch.tensor([0.0, 1.0, 2.0, 3.0])
+    groups = [offset + spread * scale for scale in (1.0, 0.5, 2.0)]
+    return torch.cat(groups).to(device)
+
+
+_OFFSET_BOUNDS = [0, 4, 8, 12]
+
+
 def _adv_tokens(batch):
     sample_adv = _reference_group_advantages(batch.rewards, _SPP)
     return (
@@ -125,6 +146,25 @@ def test_requires_exactly_one_group_spec():
         op.group_advantages(rewards)
     with pytest.raises(ValueError):
         op.group_advantages(rewards, samples_per_prompt=_SPP, group_boundaries=[0, 4, 8, 12])
+
+
+@pytest.mark.parametrize("offset", [1e4, 1e5, 1e6])
+def test_group_advantages_stable_under_large_reward_offset(offset):
+    op = NativeGRPOLossOp()
+    rewards = _offset_rewards(offset)
+    expected = _float64_group_advantages(rewards, _OFFSET_BOUNDS)
+    by_spp = op.group_advantages(rewards, samples_per_prompt=_SPP)
+    by_bounds = op.group_advantages(rewards, group_boundaries=_OFFSET_BOUNDS)
+    assert torch.allclose(by_spp, expected, atol=1e-3)
+    assert torch.allclose(by_bounds, expected, atol=1e-3)
+
+
+def test_group_advantages_shift_invariant():
+    op = NativeGRPOLossOp()
+    rewards = _batch(seed=7).rewards
+    base = op.group_advantages(rewards, samples_per_prompt=_SPP)
+    shifted = op.group_advantages(rewards + 1e4, samples_per_prompt=_SPP)
+    assert torch.allclose(shifted, base, atol=1e-2)
 
 
 # pure-PyTorch reference op (loss from logits)
@@ -256,6 +296,16 @@ def test_triton_group_advantages_matches_native():
     got_b = fused.group_advantages(rewards, group_boundaries=[0, 5, 12])
     exp_b = native.group_advantages(rewards, group_boundaries=[0, 5, 12])
     assert torch.allclose(got_b, exp_b, atol=1e-5)
+
+
+@requires_triton_cuda
+@pytest.mark.parametrize("offset", [1e4, 1e5, 1e6])
+def test_triton_group_advantages_stable_under_large_reward_offset(offset):
+    fused = TritonGRPOLossOp()
+    rewards = _offset_rewards(offset, device="cuda")
+    expected = _float64_group_advantages(rewards, _OFFSET_BOUNDS)
+    got = fused.group_advantages(rewards, group_boundaries=_OFFSET_BOUNDS).cpu()
+    assert torch.allclose(got, expected, atol=1e-3)
 
 
 @requires_triton_cuda
