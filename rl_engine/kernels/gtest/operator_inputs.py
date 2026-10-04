@@ -42,6 +42,7 @@ def make_operator_inputs(
         "embedding": _make_embedding_inputs,
         "lm_head": _make_lm_head_inputs,
         "kv_cache_attention": _make_kv_cache_attention_inputs,
+        "h3_ode_step": _make_h3_ode_step_inputs,
     }
     try:
         return builders[op_name](args, dtype, device)
@@ -72,6 +73,9 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "embedding": f"{batch}x{seq}x{vocab}x{_normalized_dim(args)}",
         "lm_head": f"{batch}x{seq}x{_normalized_dim(args)}x{vocab}",
         "kv_cache_attention": f"{batch}x{DEFAULT_N_HEADS}x1x{seq + 1}x{DEFAULT_HEAD_DIM}",
+        # `batch` is the packed-row count, `seq` the latent channel width
+        # (24 for video, 32 for audio).
+        "h3_ode_step": f"{batch}x{seq}",
     }
     try:
         return names[op_name]
@@ -120,6 +124,50 @@ def _make_pack_inputs(
         mask = torch.randint(0, 2, (batch, seq), generator=generator, device=device) > 0
         mask[:, 0] = True
     return {"x": x, "mask": mask}
+
+
+def _h3_sigma_pair(
+    rows: int, args: argparse.Namespace, device: torch.device
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Per-row ``(sigma, sigma_next)`` drawn from the H3 shifted sigma grid.
+
+    The pinned grid is a shifted ``linspace(1, 0, steps)`` with consecutive FP32
+    duplicates removed, so every real step satisfies ``1 >= sigma > sigma_next
+    >= 0``.  Building the pair from such a grid (rather than from arbitrary
+    positive numbers) keeps the operator's fail-closed validation from firing on
+    legal input.
+    """
+    steps = 8
+    grid = torch.linspace(1.0, 0.0, steps + 1, dtype=torch.float32, device=device)
+    mode = _arg_str(args, "input_mode", "random")
+    if mode == "constant":
+        index = torch.zeros(rows, dtype=torch.long, device=device)
+    else:
+        generator = _generator(args, device, offset=23)
+        index = torch.randint(0, steps, (rows,), generator=generator, device=device)
+    return (
+        grid[index].unsqueeze(-1).contiguous(),
+        grid[index + 1].unsqueeze(-1).contiguous(),
+    )
+
+
+def _make_h3_ode_step_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    """H3 Euler step over packed latent rows.
+
+    ``sigma`` / ``sigma_next`` are per-row so a packed batch may carry several
+    timestep-table rows and both modality grids without implicitly sharing a
+    step index.
+    """
+    rows, channels = _batch_seq(args)
+    sigma, sigma_next = _h3_sigma_pair(rows, args, device)
+    return {
+        "xt": _floating_tensor((rows, channels), args, dtype, device, offset=0),
+        "v": _floating_tensor((rows, channels), args, dtype, device, offset=1),
+        "sigma": sigma,
+        "sigma_next": sigma_next,
+    }
 
 
 def _make_matmul_inputs(

@@ -255,6 +255,21 @@ OP_SPECS = {
         },
         grad_input_names=("x",),
     ),
+    # MiniMax-H3 deterministic rectified-flow Euler step (RFC #420, WS1).
+    # Element-wise, no reduction: Axis-A batch invariance is expected bitwise.
+    "h3_ode_step": OperatorSpec(
+        name="h3_ode_step",
+        op_class="elementwise",
+        gold_path="rl_engine.kernels.ops.pytorch.flow.ode_step.NativeH3OdeStepOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.kernels.ops.pytorch.flow.ode_step.NativeH3OdeStepOp",
+            "triton": "rl_engine.kernels.ops.triton.flow.ode_step.TritonH3OdeStepOp",
+            "cuda": "rl_engine.kernels.ops.cuda.flow.ode_step.CudaH3OdeStepOp",
+            "cuda-sm90": "rl_engine.kernels.ops.cuda.flow.ode_step.CudaH3OdeStepOp",
+        },
+        grad_input_names=("xt", "v"),
+    ),
 }
 
 

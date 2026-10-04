@@ -142,6 +142,7 @@ def get_extensions():
             "csrc/cuda/rmsnorm.cu",
             "csrc/cuda/activation.cu",
             "csrc/cuda/attention/deterministic_attention.cu",
+            "csrc/cuda/flow/ode_step.cu",
         ]
         if is_rocm:
             # ROCm-tuned WS2 vocab-parallel logprob kernels; the shared

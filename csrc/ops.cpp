@@ -252,6 +252,18 @@ torch::Tensor swiglu_packed_forward_cuda(torch::Tensor gate_up);
 std::vector<torch::Tensor> swiglu_packed_backward_cuda(
     torch::Tensor dy,
     torch::Tensor gate_up);
+// MiniMax-H3 Euler step declarations (RFC #420, WS1 scheduler)
+std::vector<torch::Tensor> ode_step_forward_cuda(
+    torch::Tensor xt,
+    torch::Tensor v,
+    torch::Tensor sigma,
+    torch::Tensor sigma_next);
+std::vector<torch::Tensor> ode_step_backward_cuda(
+    torch::Tensor grad_next,
+    torch::Tensor grad_x0,
+    torch::Tensor xt,
+    torch::Tensor sigma,
+    torch::Tensor sigma_next);
 
 // RMSNorm Declarations & Wrappers
 
@@ -413,6 +425,24 @@ std::vector<torch::Tensor> swiglu_packed_backward(
     torch::Tensor dy,
     torch::Tensor gate_up) {
   return swiglu_packed_backward_cuda(dy, gate_up);
+}
+
+// MiniMax-H3 Euler step wrappers (WS1 scheduler, RFC #420)
+std::vector<torch::Tensor> ode_step_forward(
+    torch::Tensor xt,
+    torch::Tensor v,
+    torch::Tensor sigma,
+    torch::Tensor sigma_next) {
+  return ode_step_forward_cuda(xt, v, sigma, sigma_next);
+}
+
+std::vector<torch::Tensor> ode_step_backward(
+    torch::Tensor grad_next,
+    torch::Tensor grad_x0,
+    torch::Tensor xt,
+    torch::Tensor sigma,
+    torch::Tensor sigma_next) {
+  return ode_step_backward_cuda(grad_next, grad_x0, xt, sigma, sigma_next);
 }
 
 // Deterministic standard-softmax attention (issue #147)
@@ -731,6 +761,16 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Batch-invariant SwiGLU forward for [rows, 2 * intermediate]");
     m.def("swiglu_packed_backward", &swiglu_packed_backward,
           "Batch-invariant SwiGLU backward for [rows, 2 * intermediate]");
+
+    // MiniMax-H3 deterministic rectified-flow Euler step (RFC #420, WS1 scheduler)
+    m.def("ode_step_forward", &ode_step_forward,
+          "MiniMax-H3 Euler step forward: data-ward x0 plus the fp32 Euler blend "
+          "(x_next, x0); per-row or scalar sigma",
+          py::arg("xt"), py::arg("v"), py::arg("sigma"), py::arg("sigma_next"));
+    m.def("ode_step_backward", &ode_step_backward,
+          "MiniMax-H3 Euler step backward (grad_xt, grad_v)",
+          py::arg("grad_next"), py::arg("grad_x0"), py::arg("xt"),
+          py::arg("sigma"), py::arg("sigma_next"));
 
     // Deterministic standard-softmax attention (issue #147)
     m.def(
