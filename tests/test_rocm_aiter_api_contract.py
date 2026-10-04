@@ -16,10 +16,10 @@ from __future__ import annotations
 import pytest
 
 from rl_engine.kernels.ops.rocm.attention.flash_attn import (
-    _AITER_BWD_POSITIONAL_CONTRACT,
-    _AITER_BWD_REQUIRED_KEYWORDS,
     _AITER_BATCH_PREFILL_POSITIONAL_CONTRACT,
     _AITER_BATCH_PREFILL_REQUIRED_KEYWORDS,
+    _AITER_BWD_POSITIONAL_CONTRACT,
+    _AITER_BWD_REQUIRED_KEYWORDS,
     _AITER_FWD_POSITIONAL_CONTRACT,
     _AITER_FWD_REQUIRED_KEYWORDS,
     StrictRocmAttentionUnavailable,

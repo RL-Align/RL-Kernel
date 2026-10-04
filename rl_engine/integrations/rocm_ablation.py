@@ -356,20 +356,12 @@ def _validate_route(
     backend_ids = tuple(sorted({str(record.get("backend_id", "")) for record in records}))
     provenance = [record.get("provenance", {}) for record in records]
     runtime_platforms = tuple(
-        sorted(
-            set().union(
-                *(_nested_strings(item, "runtime_platform") for item in provenance)
-            )
-        )
+        sorted(set().union(*(_nested_strings(item, "runtime_platform") for item in provenance)))
     )
     actual_backends = tuple(
-        sorted(
-            set().union(*(_nested_strings(item, "actual_backend") for item in provenance))
-        )
+        sorted(set().union(*(_nested_strings(item, "actual_backend") for item in provenance)))
     )
-    strict_core_ids = set().union(
-        *(_nested_strings(item, "strict_core_id") for item in provenance)
-    )
+    strict_core_ids = set().union(*(_nested_strings(item, "strict_core_id") for item in provenance))
     strict_schedules = set().union(
         *(_nested_strings(item, "strict_schedule") for item in provenance)
     )
@@ -379,9 +371,7 @@ def _validate_route(
     if expected is Implementation.PRODUCTION:
         native_backend = f"{framework}.production.attention"
         if any(backend != native_backend for backend in backend_ids):
-            errors.append(
-                f"{label} did not execute framework-native Attention: {backend_ids}"
-            )
+            errors.append(f"{label} did not execute framework-native Attention: {backend_ids}")
     else:
         if any(not backend.startswith("rlkernel.attention.") for backend in backend_ids):
             errors.append(f"{label} did not execute the RL-Kernel Attention wrapper")
@@ -394,8 +384,7 @@ def _validate_route(
             )
         if STRICT_ROCM_ATTENTION_CORE not in strict_core_ids:
             errors.append(
-                f"{label} did not prove strict AITER/CK core "
-                f"{STRICT_ROCM_ATTENTION_CORE!r}"
+                f"{label} did not prove strict AITER/CK core " f"{STRICT_ROCM_ATTENTION_CORE!r}"
             )
         if STRICT_ROCM_ATTENTION_SCHEDULE not in strict_schedules:
             errors.append(
@@ -453,8 +442,7 @@ def run_rocm_attention_ablation(
         if occupied:
             joined = ", ".join(str(path) for path in occupied)
             raise FileExistsError(
-                "refusing to mix ROCm ablation evidence with existing case directories: "
-                + joined
+                "refusing to mix ROCm ablation evidence with existing case directories: " + joined
             )
         validate_rocm_host()
     output_dir.mkdir(parents=True, exist_ok=True)

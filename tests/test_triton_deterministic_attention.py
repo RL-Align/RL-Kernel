@@ -24,9 +24,7 @@ pytestmark = pytest.mark.skipif(not IS_GPU, reason="CUDA/ROCm GPU not available"
 
 try:
     from rl_engine.kernels.ops.base import _C, _EXT_AVAILABLE
-    from rl_engine.kernels.ops.cuda.attention.deterministic_attn import (
-        DeterministicAttentionOp,
-    )
+    from rl_engine.kernels.ops.cuda.attention.deterministic_attn import DeterministicAttentionOp
     from rl_engine.kernels.ops.triton.attention.deterministic_attn import (
         BITWISE_LIBM_PARITY,
         TritonDeterministicAttentionOp,
@@ -215,8 +213,9 @@ def test_expf_and_logf_match_the_vendor_libm_bitwise():
     """The softmax parity rests on these two helpers; pin them independently."""
     import triton
 
-    import triton.language as tl  # isort: skip
     from rl_engine.kernels.ops.triton.attention import deterministic_attn as mod
+
+    import triton.language as tl  # isort: skip
 
     @triton.jit
     def _exp_probe(x_ptr, out_ptr, n_elem, EXPF: tl.constexpr):

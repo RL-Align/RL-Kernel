@@ -214,8 +214,17 @@ if _TRITON_AVAILABLE:
         a_ptrs = a_ptr + offs_am[:, None].to(tl.int64) * stride_am + offs_k[None, :] * stride_ak
         b_ptrs = b_ptr + offs_k[:, None] * stride_bk + offs_bn[None, :].to(tl.int64) * stride_bn
         acc = _chunk_dot(
-            a_ptrs, b_ptrs, offs_k, K, chunk, stride_ak, stride_bk,
-            BLOCK_K, CHUNK_K, EVEN_K, CHUNK_UNROLL,
+            a_ptrs,
+            b_ptrs,
+            offs_k,
+            K,
+            chunk,
+            stride_ak,
+            stride_bk,
+            BLOCK_K,
+            CHUNK_K,
+            EVEN_K,
+            CHUNK_UNROLL,
         )
         offs_cm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
         offs_cn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
@@ -332,6 +341,7 @@ def mfma_gemm(
         matrix_instr_nonkdim=MATRIX_INSTR_NONKDIM,
         kpack=KPACK,
     )
+    grid: tuple[int, ...]
     if not use_split:
         grid = (triton.cdiv(m_size, config.block_m) * triton.cdiv(n_size, config.block_n),)
         _mfma_gemm_kernel[grid](

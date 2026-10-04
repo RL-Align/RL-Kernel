@@ -183,10 +183,7 @@ def _canonical_packed_ffn_local_output(
             )
         )
     while len(partials) > 1:
-        partials = [
-            partials[index] + partials[index + 1]
-            for index in range(0, len(partials), 2)
-        ]
+        partials = [partials[index] + partials[index + 1] for index in range(0, len(partials), 2)]
     return partials[0]
 
 
@@ -213,8 +210,11 @@ def _qwen3_ffn_packed_tp_inference_rocm(
         partial = _canonical_packed_ffn_local_output(
             rmsnorm_output, fused_gate_up_weight, down_weight, canonical_chunks
         ).reshape(rows, down_weight.shape[0])
-        output = (stable_output.narrow(0, 0, rows) if rows <= staging.size(0)
-                  else torch.empty_like(partial).reshape(rows, down_weight.shape[0]))
+        output = (
+            stable_output.narrow(0, 0, rows)
+            if rows <= staging.size(0)
+            else torch.empty_like(partial).reshape(rows, down_weight.shape[0])
+        )
         # collective_handle is an AOT-stable slot, not a C++ IPC pointer.
         # Resolve it inside this opaque operation before the physical reduction.
         _C.deterministic_collective_rocm_ipc_all_reduce_input(runtime_handle, partial, output)
@@ -234,9 +234,7 @@ def _qwen3_ffn_packed_tp_inference_rocm(
             down_weight,
             direct_input,
         )
-        _C.deterministic_collective_rocm_ipc_all_reduce_staged(
-            runtime_handle, direct_input, output
-        )
+        _C.deterministic_collective_rocm_ipc_all_reduce_staged(runtime_handle, direct_input, output)
         return output.reshape(*input_shape[:-1], down_weight.shape[0])
     else:
         # Profiling and uncaptured prefill can exceed the decode capture bound.
@@ -262,9 +260,7 @@ def _qwen3_ffn_packed_tp_inference_rocm_fake(
     canonical_chunks: int = 1,
 ) -> Tensor:
     del fused_gate_up_weight, collective_handle, canonical_chunks
-    return rmsnorm_output.new_empty(
-        (*rmsnorm_output.shape[:-1], down_weight.shape[0])
-    )
+    return rmsnorm_output.new_empty((*rmsnorm_output.shape[:-1], down_weight.shape[0]))
 
 
 def qwen3_ffn_packed_inference(
@@ -318,8 +314,8 @@ def qwen3_ffn_packed_inference(
         rmsnorm_output.numel() // input_shape[-1],
         down_weight.shape[0],
     )
-    direct_staging = None if collective is None else getattr(
-        collective, "direct_staging_view", None
+    direct_staging = (
+        None if collective is None else getattr(collective, "direct_staging_view", None)
     )
     direct_output = (
         None
@@ -440,10 +436,7 @@ def _canonical_tp_down_projection(
         for chunk in range(chunks)
     ]
     while len(partials) > 1:
-        partials = [
-            partials[index] + partials[index + 1]
-            for index in range(0, len(partials), 2)
-        ]
+        partials = [partials[index] + partials[index + 1] for index in range(0, len(partials), 2)]
     return partials[0]
 
 
@@ -469,7 +462,6 @@ def _linear_dw(a: Tensor, grad_output: Tensor, *, disable_split_k: bool) -> Tens
         return torch.matmul(grad_output.t().contiguous(), a)
 
 
-
 def _canonical_tp_chunks(tp_world):
     canonical = int(os.getenv("RL_KERNEL_STRICT_CANONICAL_TP", str(tp_world)))
     if canonical < tp_world or canonical % tp_world:
@@ -493,7 +485,8 @@ def _canonical_tp_input_gradient(grad, weight, *, tp_world, column, disable_spli
             grad.narrow(1, i * width, width).contiguous() if column else grad,
             weight.narrow(axis, i * width, width).contiguous(),
             disable_split_k=True,
-        ) for i in range(chunks)
+        )
+        for i in range(chunks)
     ]
     if not column:
         return torch.cat(parts, dim=1)
@@ -515,7 +508,8 @@ def _canonical_tp_weight_gradient(a, grad, *, tp_world, column, disable_split_k)
             a if column else a.narrow(1, i * width, width).contiguous(),
             grad.narrow(1, i * width, width).contiguous() if column else grad,
             disable_split_k=True,
-        ) for i in range(chunks)
+        )
+        for i in range(chunks)
     ]
     return torch.cat(parts, dim=0 if column else 1)
 
@@ -675,8 +669,11 @@ class _DeterministicFFNFunction(torch.autograd.Function):
         if sequence_parallel:
             rmsnorm_output_2d = _all_gather_tokens(rmsnorm_output_2d, tp_collective)
 
-        packed_gate_up = (fused_gate_up_weight is not None and disable_split_k
-                          and _canonical_tp_chunks(tp_world) == 1)
+        packed_gate_up = (
+            fused_gate_up_weight is not None
+            and disable_split_k
+            and _canonical_tp_chunks(tp_world) == 1
+        )
         if packed_gate_up:
             assert fused_gate_up_weight is not None
             canonical_tp = int(os.getenv("RL_KERNEL_STRICT_CANONICAL_TP", str(tp_world)))
@@ -743,6 +740,7 @@ class _DeterministicFFNFunction(torch.autograd.Function):
         ctx.tp_world = tp_world
         ctx.tp_collective = tp_collective
         from rl_engine.integrations.canonical_cp import current_layout
+
         ctx.cp_layout = current_layout()
         ctx.cp_collective = cp_collective
         ctx.sequence_parallel = sequence_parallel
@@ -782,7 +780,8 @@ class _DeterministicFFNFunction(torch.autograd.Function):
         grad_activated = _canonical_tp_input_gradient(
             grad_output,
             down_weight,
-            tp_world=ctx.tp_world, column=False,
+            tp_world=ctx.tp_world,
+            column=False,
             disable_split_k=disable_split_k,
         )
         if ctx.packed_gate_up:
@@ -795,7 +794,11 @@ class _DeterministicFFNFunction(torch.autograd.Function):
         # so one rank-ordered gather preserves the arithmetic contract while
         # avoiding four redundant collective handshakes per layer.
         if cp_collective is not None or ctx.cp_layout is not None:
-            gather = (lambda *values, **kw: values) if cp_collective is None else _all_gather_packed_tokens
+            gather = (
+                (lambda *values, **kw: values)
+                if cp_collective is None
+                else _all_gather_packed_tokens
+            )
             (
                 activated_full,
                 grad_output_full,
@@ -812,44 +815,56 @@ class _DeterministicFFNFunction(torch.autograd.Function):
             )
             if ctx.cp_layout is not None:
                 activated_full, grad_output_full, rmsnorm_full, grad_gate_full, grad_up_full = (
-                    ctx.cp_layout.ordered(value) for value in
-                    (activated_full, grad_output_full, rmsnorm_full, grad_gate_full, grad_up_full)
+                    ctx.cp_layout.ordered(value)
+                    for value in (
+                        activated_full,
+                        grad_output_full,
+                        rmsnorm_full,
+                        grad_gate_full,
+                        grad_up_full,
+                    )
                 )
             grad_down_weight = _canonical_tp_weight_gradient(
                 activated_full,
                 grad_output_full,
-                tp_world=ctx.tp_world, column=False,
+                tp_world=ctx.tp_world,
+                column=False,
                 disable_split_k=disable_split_k,
             )
             grad_gate_weight = _canonical_tp_weight_gradient(
                 rmsnorm_full,
                 grad_gate_full,
-                tp_world=ctx.tp_world, column=True,
+                tp_world=ctx.tp_world,
+                column=True,
                 disable_split_k=disable_split_k,
             )
             grad_up_weight = _canonical_tp_weight_gradient(
                 rmsnorm_full,
                 grad_up_full,
-                tp_world=ctx.tp_world, column=True,
+                tp_world=ctx.tp_world,
+                column=True,
                 disable_split_k=disable_split_k,
             )
         else:
             grad_down_weight = _canonical_tp_weight_gradient(
                 activated,
                 grad_output,
-                tp_world=ctx.tp_world, column=False,
+                tp_world=ctx.tp_world,
+                column=False,
                 disable_split_k=disable_split_k,
             )
             grad_gate_weight = _canonical_tp_weight_gradient(
                 rmsnorm_output,
                 grad_gate,
-                tp_world=ctx.tp_world, column=True,
+                tp_world=ctx.tp_world,
+                column=True,
                 disable_split_k=disable_split_k,
             )
             grad_up_weight = _canonical_tp_weight_gradient(
                 rmsnorm_output,
                 grad_up,
-                tp_world=ctx.tp_world, column=True,
+                tp_world=ctx.tp_world,
+                column=True,
                 disable_split_k=disable_split_k,
             )
 
@@ -857,13 +872,15 @@ class _DeterministicFFNFunction(torch.autograd.Function):
         grad_rmsnorm_from_gate = _canonical_tp_input_gradient(
             grad_gate,
             gate_weight,
-            tp_world=ctx.tp_world, column=True,
+            tp_world=ctx.tp_world,
+            column=True,
             disable_split_k=disable_split_k,
         )
         grad_rmsnorm_from_up = _canonical_tp_input_gradient(
             grad_up,
             up_weight,
-            tp_world=ctx.tp_world, column=True,
+            tp_world=ctx.tp_world,
+            column=True,
             disable_split_k=disable_split_k,
         )
         if ctx.sequence_parallel:
@@ -1057,20 +1074,14 @@ class Qwen3FFNOp:
             )
             if staging is None:
                 raise RuntimeError("packed ROCm rollout FFN staging allocation failed")
-            collective_handle = _PACKED_INFERENCE_SLOT_BY_RUNTIME_HANDLE.get(
-                runtime_handle, 0
-            )
+            collective_handle = _PACKED_INFERENCE_SLOT_BY_RUNTIME_HANDLE.get(runtime_handle, 0)
             if collective_handle == 0:
                 # Keep the AOT graph identity stable across worker processes;
                 # resolve its process-local C++ handle inside the custom op.
                 collective_handle = len(_PACKED_INFERENCE_SLOT_BY_RUNTIME_HANDLE) + 1
-                _PACKED_INFERENCE_SLOT_BY_RUNTIME_HANDLE[runtime_handle] = (
-                    collective_handle
-                )
+                _PACKED_INFERENCE_SLOT_BY_RUNTIME_HANDLE[runtime_handle] = collective_handle
             binding = _PACKED_INFERENCE_STAGING_BY_HANDLE.get(collective_handle)
-            stable_output = (
-                torch.empty_like(staging) if binding is None else binding[2]
-            )
+            stable_output = torch.empty_like(staging) if binding is None else binding[2]
             _PACKED_INFERENCE_STAGING_BY_HANDLE[collective_handle] = (
                 runtime_handle,
                 staging,

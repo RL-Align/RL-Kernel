@@ -26,18 +26,33 @@ def test_replicated_sparse_matches_training_bits(width, temperature, dtype):
     eager = LinearLogpWrapper()
     with torch.no_grad():
         expected = eager.from_local_logits_sparse_nucleus(
-            logits, targets, ids, tp_group=None, vocab_start_index=0,
-            global_vocab_size=1024, real_vocab_size=1024,
-            temperature=temperature, target="training", return_entropy=True,
+            logits,
+            targets,
+            ids,
+            tp_group=None,
+            vocab_start_index=0,
+            global_vocab_size=1024,
+            real_vocab_size=1024,
+            temperature=temperature,
+            target="training",
+            return_entropy=True,
         )
         fused = LinearLogpWrapper()
         actual = fused.from_replicated_logits_sparse_nucleus(
-            logits, targets, ids, real_vocab_size=1024,
-            temperature=temperature, return_entropy=True,
+            logits,
+            targets,
+            ids,
+            real_vocab_size=1024,
+            temperature=temperature,
+            return_entropy=True,
         )
         single = fused.from_replicated_logits_sparse_nucleus(
-            logits[:1], targets[:1], ids[:1], real_vocab_size=1024,
-            temperature=temperature, return_entropy=True,
+            logits[:1],
+            targets[:1],
+            ids[:1],
+            real_vocab_size=1024,
+            temperature=temperature,
+            return_entropy=True,
         )
     for a, b, one in zip(actual, expected, single):
         assert torch.equal(a.view(torch.int32), b.view(torch.int32))
@@ -52,12 +67,23 @@ def test_replicated_sparse_signed_zero(ids_list):
     wrapper = LinearLogpWrapper()
     with torch.no_grad():
         expected = wrapper.from_local_logits_sparse_nucleus(
-            logits, targets, ids, tp_group=None, vocab_start_index=0,
-            global_vocab_size=3, real_vocab_size=3, temperature=0.7,
-            target="training", return_entropy=True,
+            logits,
+            targets,
+            ids,
+            tp_group=None,
+            vocab_start_index=0,
+            global_vocab_size=3,
+            real_vocab_size=3,
+            temperature=0.7,
+            target="training",
+            return_entropy=True,
         )
         actual = wrapper.from_replicated_logits_sparse_nucleus(
-            logits, targets, ids, real_vocab_size=3, temperature=0.7,
+            logits,
+            targets,
+            ids,
+            real_vocab_size=3,
+            temperature=0.7,
             return_entropy=True,
         )
     for a, b in zip(actual, expected):

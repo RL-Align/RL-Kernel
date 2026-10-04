@@ -38,9 +38,7 @@ def _deterministic_rope_apply_rocm_fake(
     return torch.empty_like(x)
 
 
-@torch.library.custom_op(
-    "rl_kernel::deterministic_rope_apply_token_major_rocm", mutates_args=()
-)
+@torch.library.custom_op("rl_kernel::deterministic_rope_apply_token_major_rocm", mutates_args=())
 def _deterministic_rope_apply_token_major_rocm(
     x: Tensor,
     positions: Tensor,

@@ -2,6 +2,7 @@
 """Numerical and geometry regressions for the compiled sparse ROCm scorer."""
 import pytest
 import torch
+
 from rl_engine.integrations.linear_logp import LinearLogpWrapper
 
 pytestmark = pytest.mark.skipif(
@@ -43,8 +44,10 @@ def test_complete_support_forward_backward_and_row_batching(width, temperature, 
     expected_grad[torch.arange(3), targets] += 1
     expected_grad /= temperature
     torch.testing.assert_close(
-        logits.grad[:, :width], expected_grad.to(dtype),
-        atol=3e-6, rtol=max(3e-6, torch.finfo(dtype).eps)
+        logits.grad[:, :width],
+        expected_grad.to(dtype),
+        atol=3e-6,
+        rtol=max(3e-6, torch.finfo(dtype).eps),
     )
     assert torch.count_nonzero(logits.grad[:, width:]) == 0
     # Arbitrary support width and batching must not change a row's bit pattern.

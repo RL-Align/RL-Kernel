@@ -78,9 +78,9 @@ temperature/top-p `0.7/0.95`, `1/1`, `1.3/0.8`. Top-k was disabled, response cap
 evidence JSON. Runs used evolving development revisions with frozen before/after
 fingerprints, so passes do not all refer to one identical final source tree.
 
-See [CUDA records](evidence/pr432-20260919/cuda-existing.json),
-[ROCm records](evidence/pr432-20260919/rocm-existing.json), and the
-[cross-configuration comparison](evidence/pr432-20260919/cross-configuration.json).
+See the CUDA records (`evidence/pr432-20260919/cuda-existing.json`),
+ROCm records (`evidence/pr432-20260919/rocm-existing.json`), and the
+cross-configuration comparison (`evidence/pr432-20260919/cross-configuration.json`).
 The selected logprobs are compared as uint8 bytes, including the distinction
 between positive and negative zero. Neither route copies rollout logprob values
 into the training score; ROCm replays support membership, then recomputes scores.
@@ -108,8 +108,8 @@ into the training score; ROCm replays support membership, then recomputes scores
 
 ## Companion source setup
 
-CUDA requires the [CUDA VIME patch](../../examples/vime_qwen3_8b_tp4_cp2_200/companion_patches/README.md);
-ROCm requires its own [VIME, Megatron and vLLM patches](../../examples/vime_rocm_attention_ablation/companion_patches/README.md).
+CUDA requires the [CUDA VIME patch](https://github.com/RL-Align/RL-Kernel/blob/main/examples/vime_qwen3_8b_tp4_cp2_200/companion_patches/README.md);
+ROCm requires its own [VIME, Megatron and vLLM patches](https://github.com/RL-Align/RL-Kernel/blob/main/examples/vime_rocm_attention_ablation/companion_patches/README.md).
 They use different framework revisions. The CUDA patch is based on publicly
 available VIME commit `c80200e7aef08edc918e50a3998ea981bd689934`, includes inherited
 H100 integration changes, and was checked in an isolated Git index to reproduce

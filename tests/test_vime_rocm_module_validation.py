@@ -5,9 +5,7 @@ from __future__ import annotations
 
 import json
 
-from examples.vime_rocm_attention_ablation.run_pr377_workload import (
-    validate_native_readbacks,
-)
+from examples.vime_rocm_attention_ablation.run_pr377_workload import validate_native_readbacks
 from examples.vime_rocm_attention_ablation.validate_module_artifacts import (
     RL_KERNEL_MISMATCH_SIDECAR_MARKER,
     validate_module_readbacks,
@@ -85,9 +83,7 @@ def test_rocm_module_validator_accepts_native_production_routes():
 
 def test_rocm_user_native_validator_accepts_native_megatron_logp_marker(tmp_path):
     for index, record in enumerate(_production_readbacks()):
-        (tmp_path / f"readback-{index}.json").write_text(
-            json.dumps(record), encoding="utf-8"
-        )
+        (tmp_path / f"readback-{index}.json").write_text(json.dumps(record), encoding="utf-8")
 
     report = validate_native_readbacks(
         tmp_path,

@@ -131,6 +131,7 @@ class TestAscendFusedLogpCorrectness:
         for row in range(2, 4):
             assert not torch.equal(grad[0], grad[row])
 
+
 # ---------------------------------------------------------------------------
 # Fallback
 # ---------------------------------------------------------------------------

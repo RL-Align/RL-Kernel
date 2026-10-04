@@ -8,8 +8,8 @@ import pytest
 import torch
 
 from examples.vime_rocm_attention_ablation.run import MatrixConfig, build_plan
+from examples.vime_rocm_attention_ablation.run_pr377_workload import WorkloadConfig
 from examples.vime_rocm_attention_ablation.run_pr377_workload import (
-    WorkloadConfig,
     parse_args as parse_workload_args,
 )
 from rl_engine.kernels.ops.cuda.attention.cp_comm import (
@@ -76,9 +76,7 @@ def test_default_topology_matches_pr377_colocated_tp4_cp2(tmp_path):
 
 
 def test_rocm_user_modes_do_not_enable_rollout_logprob_reuse(tmp_path):
-    native = parse_workload_args(
-        ["--mode", "native", "--run-dir", str(tmp_path / "native")]
-    )
+    native = parse_workload_args(["--mode", "native", "--run-dir", str(tmp_path / "native")])
     consistency = parse_workload_args(
         ["--mode", "consistency", "--run-dir", str(tmp_path / "consistency")]
     )

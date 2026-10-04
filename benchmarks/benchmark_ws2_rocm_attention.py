@@ -361,9 +361,7 @@ class _Paths:
 
     @staticmethod
     def _make_reference():
-        from rl_engine.kernels.ops.cuda.attention.deterministic_attn import (
-            DeterministicAttentionOp,
-        )
+        from rl_engine.kernels.ops.cuda.attention.deterministic_attn import DeterministicAttentionOp
 
         return DeterministicAttentionOp()
 

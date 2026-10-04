@@ -576,7 +576,7 @@ def test_strict_rocm_aiter_ck_direct_decode_uses_callers_output(monkeypatch):
         _mha_fwd=fake_fwd,
         _mha_bwd=lambda *_args, **_kwargs: None,
     )
-    monkeypatch.setattr(core, "_validate_inputs", lambda *_args: None)
+    monkeypatch.setattr(core, "_validate_bshd_inputs", lambda *_args: None)
     monkeypatch.setattr(
         torch.cuda,
         "get_device_properties",
@@ -588,12 +588,20 @@ def test_strict_rocm_aiter_ck_direct_decode_uses_callers_output(monkeypatch):
     out = torch.empty_like(q)
 
     with torch.no_grad():
-        result = core.forward_decode_with_lse_into(q, k, v, out=out, scale=0.125)
+        result = core.forward_bshd_with_lse(
+            q.transpose(1, 2),
+            k.transpose(1, 2),
+            v.transpose(1, 2),
+            out=out,
+            causal=False,
+            scale=0.125,
+        )
 
     assert seen_out is not None and seen_out.data_ptr() == out.data_ptr()
     assert result.out is out
     assert torch.equal(out, q)
-    assert result.provenance["core_output_staging"] == "aiter_direct_caller_group"
+    assert result.provenance["input_layout"] == "bshd_direct"
+    assert result.provenance["direct_output"] is True
 
 
 def test_strict_rocm_aiter_ck_reuses_immutable_provenance_inputs(monkeypatch):
@@ -610,7 +618,7 @@ def test_strict_rocm_aiter_ck_reuses_immutable_provenance_inputs(monkeypatch):
         _mha_fwd=fake_fwd,
         _mha_bwd=lambda *_args, **_kwargs: None,
     )
-    monkeypatch.setattr(core, "_validate_inputs", lambda *_args: None)
+    monkeypatch.setattr(core, "_validate_bshd_inputs", lambda *_args: None)
     device_lookups = 0
 
     def fake_device_properties(_device):
@@ -634,7 +642,14 @@ def test_strict_rocm_aiter_ck_reuses_immutable_provenance_inputs(monkeypatch):
     def run(kv_tokens):
         k = torch.randn(1, 1, kv_tokens, 8, dtype=torch.bfloat16)
         with torch.no_grad():
-            return core.forward_decode_with_lse_into(q, k, k.clone(), out=torch.empty_like(q))
+            return core.forward_bshd_with_lse(
+                q.transpose(1, 2),
+                k.transpose(1, 2),
+                k.clone().transpose(1, 2),
+                out=torch.empty_like(q),
+                causal=False,
+                scale=None,
+            )
 
     first = run(7)
     repeated = run(7)
@@ -676,7 +691,7 @@ def test_strict_rocm_aiter_ck_direct_decode_rejects_ignored_output(monkeypatch):
         _mha_fwd=fake_fwd,
         _mha_bwd=lambda *_args, **_kwargs: None,
     )
-    monkeypatch.setattr(core, "_validate_inputs", lambda *_args: None)
+    monkeypatch.setattr(core, "_validate_bshd_inputs", lambda *_args: None)
     q = torch.randn(1, 4, 1, 8, dtype=torch.bfloat16)
     k = torch.randn(1, 1, 7, 8, dtype=torch.bfloat16)
     out = torch.empty_like(q)
@@ -685,10 +700,17 @@ def test_strict_rocm_aiter_ck_direct_decode_rejects_ignored_output(monkeypatch):
         torch.no_grad(),
         pytest.raises(
             StrictRocmAttentionUnavailable,
-            match="requested output buffer",
+            match="strict decode output buffer",
         ),
     ):
-        core.forward_decode_with_lse_into(q, k, k, out=out)
+        core.forward_bshd_with_lse(
+            q.transpose(1, 2),
+            k.transpose(1, 2),
+            k.transpose(1, 2),
+            out=out,
+            causal=False,
+            scale=None,
+        )
 
 
 def test_strict_rocm_aiter_ck_core_rejects_non_fp32_lse(monkeypatch):

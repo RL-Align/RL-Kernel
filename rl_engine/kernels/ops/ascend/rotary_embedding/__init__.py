@@ -2,3 +2,5 @@
 # Copyright (c) 2026 RL-Kernel Contributors
 
 from .rope import RoPEAscendOp
+
+__all__ = ["RoPEAscendOp"]
