@@ -22,7 +22,8 @@ and in where the dtype casts sit, so they are separate operators rather than a f
 All three reuse :func:`shape_invariant_rstd`, a fixed-order reduction. They
 reproduce the weight convention and cast order, not vLLM's reduction tree, and are
 not bitwise equal to any vLLM path probed so far. Claim levels, measurements and
-limitations are in ``docs/operators/qwen3-next-rms-norm.md``.
+limitations are in ``docs/operators/qwen3-next-rms-norm.md`` and, for the gated
+pair, ``docs/operators/qwen3-next-rms-norm-gated.md``.
 """
 
 from __future__ import annotations
@@ -61,7 +62,7 @@ class Qwen3NextRMSNormGatedOp:
     ``out = (x * rstd * weight) * silu(gate)``, with every multiply in fp32 and
     a single cast on the way out. This is the convention vLLM's ``RMSNormGated``
     uses with ``norm_before_gate=True``. Which gated convention is the strict
-    default is still open; see the operator page.
+    default is still open; see ``docs/operators/qwen3-next-rms-norm-gated.md``.
 
     Not a subclass of the plain op: it takes an extra tensor and its epilogue
     differs, so it is not a drop-in substitute for one.

@@ -475,9 +475,6 @@ requires_cuda_gated = pytest.mark.skipif(
     not _HAS_CUDA_GATED, reason="gated RMSNorm CUDA extension is not available"
 )
 
-# tolerance_contract.json, judgments/forward_accuracy/by_op_class/reduction/bfloat16
-_BF16_ATOL, _BF16_RTOL = 2e-2, 1.6e-2
-
 
 def _gated_cuda_inputs(seed=0, rows=512, hidden=_HEAD_V_DIM, dtype=torch.bfloat16):
     g = torch.Generator(device="cuda").manual_seed(seed)
@@ -494,7 +491,7 @@ def test_cuda_gated_matches_golden_within_contract():
     x, w, gate = _gated_cuda_inputs()
     got = Qwen3NextRMSNormGatedCudaOp().forward(x, w, gate, eps=_EPS)
     ref = Qwen3NextRMSNormGatedOp().forward_fp32(x, w, gate, eps=_EPS)
-    torch.testing.assert_close(got.float(), ref, atol=_BF16_ATOL, rtol=_BF16_RTOL)
+    torch.testing.assert_close(got.float(), ref, **_forward_tol(torch.bfloat16))
 
 
 @requires_cuda_gated
@@ -551,7 +548,7 @@ def test_cuda_gated_unit_weight_is_plain_norm_times_silu():
     ones = torch.ones(_HEAD_V_DIM, device="cuda", dtype=x.dtype)
     got = Qwen3NextRMSNormGatedCudaOp().forward(x, ones, gate, eps=_EPS).float()
     ref = rmsnorm_cuda(x, ones, eps=_EPS).float() * F.silu(gate.float())
-    torch.testing.assert_close(got, ref, atol=_BF16_ATOL, rtol=_BF16_RTOL)
+    torch.testing.assert_close(got, ref, **_forward_tol(torch.bfloat16))
 
 
 @requires_cuda_gated
@@ -561,7 +558,7 @@ def test_cuda_gated_sigmoid_activation():
     x, w, gate = _gated_cuda_inputs()
     got = rmsnorm_gated_cuda(x, w, gate, eps=_EPS, activation="sigmoid").float()
     ref = rmsnorm_cuda(x, w, eps=_EPS).float() * torch.sigmoid(gate.float())
-    torch.testing.assert_close(got, ref, atol=_BF16_ATOL, rtol=_BF16_RTOL)
+    torch.testing.assert_close(got, ref, **_forward_tol(torch.bfloat16))
 
 
 @requires_cuda_gated

@@ -49,11 +49,11 @@ y = rmsnorm_cuda(x, weight, eps=1e-6, weight_offset=1.0)
 
 ## Dispatch Behavior
 
-Not registered on this branch: there is no `qwen3_next_rms_norm` gtest spec and no
-registry entry yet. Both arrive with the gated-norm PR. Until then, construct the
-ops directly as in "Entry Point". The CUDA op validates the compiled symbols in
-`__init__`, so on a build without the extension construction raises instead of
-handing out an op that fails at call time.
+Registered as the `qwen3_next_rms_norm` gtest operator. On CUDA the registry
+prefers `Qwen3NextRMSNormCudaOp`; every other platform resolves to the PyTorch
+reference. The CUDA op validates the compiled symbols in `__init__`, so on a build
+without the extension construction raises and the registry falls through to the
+reference rather than handing out an op that fails at call time.
 
 ## Accuracy
 
@@ -102,16 +102,16 @@ element and no extra memory traffic.
 
 ```bash
 python -m pytest tests/test_qwen3_next_norm.py -v
+python scripts/check_operator.py --op qwen3_next_rms_norm --candidate cuda \
+    --device cuda --dtype bf16 --check-grad
 ```
 
 ## Known Limitations
 
 - CUDA only; no ROCm, Ascend or Triton backend.
-- Not registered as a gtest operator or in the registry on this branch (see
-  "Dispatch Behavior").
 - Not bitwise against vLLM (see Accuracy). An L2 claim needs a single source of
   truth for the forward on both sides, per RFC #428 §0 item 1.
 - The gated pair (`Qwen3NextRMSNormGatedOp`, `Qwen3NextRMSNormGatedHFOp`) is
-  documented with its CUDA kernel in the gated-norm PR, not on this page.
+  documented with its CUDA kernel on [Gated RMSNorm](qwen3-next-rms-norm-gated.md).
 - Measured on sm_100 (B200). Per RFC #428 §2.2 no claim carries across
   H100/H200/B100/B200.
