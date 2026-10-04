@@ -379,6 +379,33 @@ def test_cuda_triton_rms_norm_matches_native_forward_and_backward(impl, dtype, r
     )
 
 
+@requires_cuda_rmsnorm
+@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires at least two CUDA devices")
+def test_cuda_rms_norm_runs_on_the_input_device_not_the_current_one():
+    # The launchers take the current CUDA stream, which belongs to the current
+    # device; they must switch to x's device first or a cuda:1 input while
+    # cuda:0 is current launches on the wrong GPU.
+    torch.manual_seed(0)
+    x_cpu = torch.randn(8, 768, dtype=torch.float32)
+    w_cpu = torch.randn(768, dtype=torch.float32)
+    dy_cpu = torch.randn(8, 768, dtype=torch.float32)
+
+    def run(device):
+        x = x_cpu.to(device=device, dtype=torch.bfloat16).requires_grad_(True)
+        w = w_cpu.to(device=device, dtype=torch.bfloat16).requires_grad_(True)
+        y = rmsnorm_cuda(x, w, eps=_EPS)
+        y.backward(dy_cpu.to(device=device, dtype=torch.bfloat16))
+        torch.cuda.synchronize(device)
+        return y.detach(), x.grad.detach(), w.grad.detach()
+
+    with torch.cuda.device(0):
+        expected = run("cuda:0")
+        actual = run("cuda:1")
+    for got, want in zip(actual, expected, strict=True):
+        assert got.device == torch.device("cuda:1")
+        assert torch.equal(got.cpu(), want.cpu())
+
+
 @requires_cuda
 @pytest.mark.parametrize("impl", ["triton", "cuda"])
 def test_cuda_triton_rms_norm_deterministic_repeat(impl):
