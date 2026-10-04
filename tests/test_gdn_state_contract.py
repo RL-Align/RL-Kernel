@@ -107,3 +107,18 @@ def test_softplus_large_branch_has_finite_gradient():
     x = torch.tensor([100.0, 21.0, 0.0], requires_grad=True)
     _softplus(x).sum().backward()
     assert torch.equal(x.grad, torch.tensor([1.0, 1.0, 0.5]))
+
+
+def test_chunked_sum_keeps_fixed_order_for_non_multiple_of_32_width():
+    from rl_engine.kernels.ops.pytorch.linear_attn.gated_delta_rule import (
+        _REDUCTION_CHUNK,
+        _chunked_sum,
+    )
+
+    torch.manual_seed(0)
+    x = torch.randn(3, 5, 2 * _REDUCTION_CHUNK + 7)
+    padded = torch.nn.functional.pad(x, (0, _REDUCTION_CHUNK - 7))
+    chunked = padded.reshape(3, 5, 3, _REDUCTION_CHUNK).sum(dim=-1).sum(dim=-1)
+    assert torch.equal(_chunked_sum(x), chunked)
+    # The reduction must not depend on the leading shape either.
+    assert torch.equal(_chunked_sum(x[:1]), _chunked_sum(x)[:1])

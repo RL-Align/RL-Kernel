@@ -84,7 +84,11 @@ def _chunked_sum(x: torch.Tensor) -> torch.Tensor:
     """
     tail = x.shape[-1]
     if tail % _REDUCTION_CHUNK != 0:
-        return x.sum(dim=-1)
+        # Zero-pad to the next chunk boundary instead of falling back to an
+        # unpinned ``sum``: exact zeros add nothing, so the result is the same
+        # fixed chunk order for every width.
+        x = torch.nn.functional.pad(x, (0, _REDUCTION_CHUNK - tail % _REDUCTION_CHUNK))
+        tail = x.shape[-1]
     return (
         x.reshape(*x.shape[:-1], tail // _REDUCTION_CHUNK, _REDUCTION_CHUNK).sum(dim=-1).sum(dim=-1)
     )
