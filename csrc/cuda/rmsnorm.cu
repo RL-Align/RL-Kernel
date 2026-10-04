@@ -1,9 +1,7 @@
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
-#if !defined(USE_ROCM)
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/cuda/CUDAException.h>
-#endif
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
@@ -251,6 +249,9 @@ void rmsnorm_forward_cuda(
     torch::Tensor rstd,
     double eps
 ) {
+    // Launch on x's device: the current CUDA stream belongs to the current
+    // device, which need not be x's.
+    const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
     int T = x.size(0);
     int H = x.size(1);
     int threads = choose_threads(H);
@@ -283,6 +284,7 @@ void rmsnorm_backward_dx_cuda(
     torch::Tensor rstd,
     torch::Tensor dx
 ) {
+    const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
     int T = x.size(0);
     int H = x.size(1);
     int threads = choose_threads(H);
@@ -315,6 +317,7 @@ void rmsnorm_backward_partial_dw_cuda(
     torch::Tensor mask,
     torch::Tensor partial_dw
 ) {
+    const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
     int T = x.size(0);
     int H = x.size(1);
 
@@ -342,6 +345,7 @@ void rmsnorm_backward_reduce_dw_cuda(
     torch::Tensor partial_dw,
     torch::Tensor dw
 ) {
+    const at::cuda::OptionalCUDAGuard device_guard(device_of(partial_dw));
     int chunks = partial_dw.size(0);
     int H = partial_dw.size(1);
 
