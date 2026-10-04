@@ -17,9 +17,10 @@ from rl_engine.platforms.device import device_ctx
 try:
     from rl_engine.kernels.ops.base import _C, _EXT_AVAILABLE
 
+    # The same two symbols RMSNormCudaOp.__init__ requires; a build that has them
+    # dispatches to the CUDA op, so the dispatch test must agree with that guard.
     _HAS_CUDA_RMSNORM = _EXT_AVAILABLE and all(
-        hasattr(_C, name)
-        for name in ("rmsnorm_forward", "rmsnorm_backward_dx", "rmsnorm_backward_dw")
+        hasattr(_C, name) for name in ("rmsnorm_forward", "rmsnorm_backward_dx")
     )
 except ImportError:  # pragma: no cover - import can fail when the extension is not built.
     _HAS_CUDA_RMSNORM = False
