@@ -15,6 +15,7 @@ from torch.autograd.function import once_differentiable
 
 from rl_engine.kernels.ops.base import _C, _EXT_AVAILABLE
 from rl_engine.kernels.p2.attention.oracle import (
+    AttentionBackwardState,
     AttentionForwardTensors,
     mqa_joint_attention_sink_bwd,
     mqa_joint_attention_sink_fwd,
@@ -351,21 +352,12 @@ class _MqaJointAttentionSinkFn(Function):
         ctx.use_cuda = use_cuda
         # Autograd workers do not inherit Python context variables.
         ctx.finite_checks = capture_finite_checks()
-        ctx.saved_fwd = result.saved
         return result.o
 
     @staticmethod
     @once_differentiable
     def backward(ctx, grad_out: Tensor):
         q, k, v, sink, p, p_sink, valid = ctx.saved_tensors
-        saved = ctx.saved_fwd
-        saved.p = p
-        saved.p_sink = p_sink
-        saved.valid = valid
-        saved.q = q
-        saved.k = k
-        saved.v = v
-        saved.sink = sink
         if ctx.use_cuda:
             if not cuda_kernel_available():
                 raise P2FailClosedError(
@@ -373,7 +365,8 @@ class _MqaJointAttentionSinkFn(Function):
                     "CUDA forward cannot fall back to oracle backward",
                 )
             require_finite(
-                (grad_out,), "CUDA backward received a non-finite gradient",
+                (grad_out,),
+                "CUDA backward received a non-finite gradient",
                 capture_checks=ctx.finite_checks,
             )
             grads = _C.mqa_joint_attention_sink_backward(
@@ -390,13 +383,13 @@ class _MqaJointAttentionSinkFn(Function):
             )
             dq, dk, dv, dsink = grads[0], grads[1], grads[2], grads[3]
             require_finite(
-                (dq, dk, dv, dsink), "CUDA backward produced non-finite gradients",
+                (dq, dk, dv, dsink),
+                "CUDA backward produced non-finite gradients",
                 capture_checks=ctx.finite_checks,
             )
         else:
-            bwd = mqa_joint_attention_sink_bwd(
-                grad_out, saved, sink_was_shared=ctx.sink_was_shared
-            )
+            saved = AttentionBackwardState(q=q, k=k, v=v, p=p, p_sink=p_sink, valid=valid)
+            bwd = mqa_joint_attention_sink_bwd(grad_out, saved, sink_was_shared=ctx.sink_was_shared)
             dq, dk, dv, dsink = bwd.dq, bwd.dk, bwd.dv, bwd.dsink
             if q.dtype != torch.float32:
                 dq = dq.to(q.dtype)
@@ -531,11 +524,7 @@ class MqaJointAttentionSinkOp:
             require_state_gate(state_gate)
         plan.validate_for_kv(k, v)
         resolved = self._resolve_backend(q)
-        kind = (
-            plan.kind
-            if plan.kind is not None
-            else plan.valid.new_empty(0, dtype=torch.int64)
-        )
+        kind = plan.kind if plan.kind is not None else plan.valid.new_empty(0, dtype=torch.int64)
         return _MqaJointAttentionSinkFn.apply(
             q,
             k,

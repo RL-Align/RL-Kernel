@@ -98,6 +98,7 @@ template <typename in_t, typename out_t>
 __global__ void pv_kernel(
     const float* __restrict__ P,
     const in_t* __restrict__ V,
+    const bool* __restrict__ valid,
     out_t* __restrict__ O,
     int64_t T,
     int64_t N) {
@@ -109,7 +110,9 @@ __global__ void pv_kernel(
   }
   float acc = 0.0f;
   for (int j = 0; j < N; ++j) {
-    acc += P[((int64_t)t * kHq + h) * N + j] * (float)V[(int64_t)j * kD + d];
+    if (valid[j]) {
+      acc += P[((int64_t)t * kHq + h) * N + j] * (float)V[(int64_t)j * kD + d];
+    }
   }
   O[((int64_t)t * kHq + h) * kD + d] = (out_t)acc;
 }
@@ -331,6 +334,7 @@ void launch_fwd_into(
             pv_kernel<scalar_t, float><<<pv_grid, kD, 0, stream>>>(
                 scores_ptr,
                 v_c.data_ptr<scalar_t>(),
+                valid_c.data_ptr<bool>(),
                 out.data_ptr<float>(),
                 T,
                 N);
@@ -338,6 +342,7 @@ void launch_fwd_into(
             pv_kernel<scalar_t, scalar_t><<<pv_grid, kD, 0, stream>>>(
                 scores_ptr,
                 v_c.data_ptr<scalar_t>(),
+                valid_c.data_ptr<bool>(),
                 out.data_ptr<scalar_t>(),
                 T,
                 N);
@@ -469,6 +474,28 @@ std::vector<torch::Tensor> mqa_joint_attention_sink_backward(
               "mqa_joint_attention_sink: scale must be 512^-0.5");
   TORCH_CHECK(dO.is_cuda() && dO.device() == q.device(),
               "mqa_joint_attention_sink: dO must be on Q's CUDA device");
+  const int64_t T = q.size(0);
+  const int64_t N = k.size(0);
+  TORCH_CHECK(dO.sizes() == at::IntArrayRef({T, kHq, kD}),
+              "mqa_joint_attention_sink_backward: dO shape mismatch");
+  TORCH_CHECK(valid.is_cuda() && valid.device() == q.device(),
+              "mqa_joint_attention_sink_backward: valid device mismatch");
+  TORCH_CHECK(valid.scalar_type() == at::kBool,
+              "mqa_joint_attention_sink_backward: valid dtype mismatch");
+  TORCH_CHECK(valid.sizes() == at::IntArrayRef({N}),
+              "mqa_joint_attention_sink_backward: valid shape mismatch");
+  TORCH_CHECK(P.is_cuda() && P.device() == q.device(),
+              "mqa_joint_attention_sink_backward: P device mismatch");
+  TORCH_CHECK(P.scalar_type() == at::kFloat,
+              "mqa_joint_attention_sink_backward: P dtype mismatch");
+  TORCH_CHECK(P.sizes() == at::IntArrayRef({T, kHq, N}),
+              "mqa_joint_attention_sink_backward: P shape mismatch");
+  TORCH_CHECK(p_sink.is_cuda() && p_sink.device() == q.device(),
+              "mqa_joint_attention_sink_backward: p_sink device mismatch");
+  TORCH_CHECK(p_sink.scalar_type() == at::kFloat,
+              "mqa_joint_attention_sink_backward: p_sink dtype mismatch");
+  TORCH_CHECK(p_sink.sizes() == at::IntArrayRef({T, kHq}),
+              "mqa_joint_attention_sink_backward: p_sink shape mismatch");
   const at::cuda::OptionalCUDAGuard device_guard(at::device_of(q));
   auto dO_c = dO.contiguous().to(at::kFloat);
   auto q_c = q.contiguous();
@@ -477,8 +504,6 @@ std::vector<torch::Tensor> mqa_joint_attention_sink_backward(
   auto valid_c = valid.contiguous();
   auto P_c = P.contiguous();
   auto p_sink_c = p_sink.contiguous();
-  const int64_t T = q_c.size(0);
-  const int64_t N = k_c.size(0);
   auto stream = at::cuda::getCurrentCUDAStream();
 
   auto dQ = torch::empty_like(q_c);

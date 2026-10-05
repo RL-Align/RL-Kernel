@@ -43,5 +43,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("mqa_joint_attention_sink_forward", &mqa_joint_attention_sink_forward);
   m.def("mqa_joint_attention_sink_forward_into", &mqa_joint_attention_sink_forward_into);
   m.def("mqa_joint_attention_sink_backward", &mqa_joint_attention_sink_backward);
-  m.attr("mqa_joint_attention_sink_workspace_validation_version") = 1;
+  m.attr("mqa_joint_attention_sink_workspace_validation_version") = 2;
 }

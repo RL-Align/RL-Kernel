@@ -51,6 +51,16 @@ class AttentionForwardTensors:
 
 
 @dataclass
+class AttentionBackwardState:
+    q: Tensor
+    k: Tensor
+    v: Tensor
+    p: Tensor
+    p_sink: Tensor
+    valid: Tensor
+
+
+@dataclass
 class AttentionBackwardTensors:
     dq: Tensor
     dkv: Tensor
@@ -171,7 +181,8 @@ def mqa_joint_attention_sink_fwd(
             vf = v.float()
             o = torch.zeros(tokens, heads, dim, dtype=torch.float32, device=q.device)
             for j in range(n_cand):
-                o.add_(p[:, :, j, None] * vf[j][None, None, :])
+                if bool(valid[j]):
+                    o.add_(p[:, :, j, None] * vf[j][None, None, :])
         if not torch.isfinite(o).all() or not torch.isfinite(z).all():
             raise P2FailClosedError(P2Status.NON_FINITE, "forward produced non-finite O or Z")
 
@@ -194,13 +205,13 @@ def mqa_joint_attention_sink_fwd(
 
 def mqa_joint_attention_sink_bwd(
     d_o: Tensor,
-    saved: AttentionForwardTensors,
+    saved: AttentionForwardTensors | AttentionBackwardState,
     *,
     scale: float = ATTENTION_SCALE,
     sink_was_shared: bool = False,
 ) -> AttentionBackwardTensors:
     _validate_scale(scale)
-    tokens, heads, dim = saved.o.shape
+    tokens, heads, dim = saved.q.shape
     n_cand = int(saved.p.shape[2])
     d_o_f = d_o.float()
     qf = saved.q.float()

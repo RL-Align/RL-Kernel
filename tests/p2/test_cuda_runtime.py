@@ -3,6 +3,7 @@
 
 """CPU checks for native-version selection and attention-only JIT refresh."""
 
+from pathlib import Path
 from types import ModuleType
 
 import pytest
@@ -44,7 +45,7 @@ def isolated_runtime(monkeypatch):
 
 @pytest.mark.parametrize(
     "version, missing",
-    [(None, None), (0, None), (1, _ATTENTION[1]), (1, _ATTENTION[2])],
+    [(None, None), (0, None), (1, None), (2, _ATTENTION[1]), (2, _ATTENTION[2])],
 )
 def test_stale_native_refreshes_only_attention_preserving_module_and_exports(
     isolated_runtime, monkeypatch, version, missing
@@ -56,7 +57,7 @@ def test_stale_native_refreshes_only_attention_preserving_module_and_exports(
     monkeypatch.setattr(rl_engine, "_C", native, raising=False)
     monkeypatch.setattr(base, "_C", native)
     monkeypatch.setattr(base, "_EXT_AVAILABLE", True)
-    attention = _module("attention_jit", _ATTENTION, 1)
+    attention = _module("attention_jit", _ATTENTION, 2)
     calls = []
 
     def load(name, sources, extra_include_paths=None):
@@ -82,7 +83,7 @@ def test_stale_native_refreshes_only_attention_preserving_module_and_exports(
 
 
 def test_validated_native_is_reused_without_cuda_or_jit(isolated_runtime, monkeypatch):
-    native = _module("_C", (*_ATTENTION, *_GEMM), 1)
+    native = _module("_C", (*_ATTENTION, *_GEMM), 2)
     monkeypatch.setattr(base, "_C", native)
     monkeypatch.setattr(base, "_EXT_AVAILABLE", True)
     monkeypatch.setattr(torch.cuda, "is_available", lambda: pytest.fail("CUDA queried"))
@@ -93,7 +94,7 @@ def test_validated_native_is_reused_without_cuda_or_jit(isolated_runtime, monkey
 
 
 def test_missing_native_jits_attention_and_gemm_once(isolated_runtime, monkeypatch):
-    attention = _module("attention_jit", _ATTENTION, 1)
+    attention = _module("attention_jit", _ATTENTION, 2)
     gemm = _module("gemm_jit", _GEMM)
     modules = {"mqa_t06_verify": attention, "det_gemm_t06_verify": gemm}
     calls = []
@@ -112,13 +113,67 @@ def test_missing_native_jits_attention_and_gemm_once(isolated_runtime, monkeypat
             assert getattr(base._C, symbol) is getattr(module, symbol)
 
 
-def test_prepare_env_refreshes_cpp_extension_cuda_home(monkeypatch):
+@pytest.mark.parametrize("explicit", [False, True])
+def test_prepare_env_preserves_build_choices_and_refreshes_cuda_home(monkeypatch, explicit):
     from torch.utils import cpp_extension
 
     monkeypatch.setattr(cpp_extension, "CUDA_HOME", "/missing/cuda")
     monkeypatch.setattr(cuda_runtime, "resolve_cuda_home", lambda: "/resolved/cuda")
-    for name in ("CUDA_HOME", "CC", "CXX", "TORCH_CUDA_ARCH_LIST", "PATH", "LD_LIBRARY_PATH"):
+    for name in ("CUDA_HOME", "PATH", "LD_LIBRARY_PATH"):
         monkeypatch.setenv(name, "initial")
+    choices = {"CC": "clang", "CXX": "clang++", "TORCH_CUDA_ARCH_LIST": "9.0+PTX"}
+    for name, value in choices.items():
+        if explicit:
+            monkeypatch.setenv(name, value)
+        else:
+            monkeypatch.delenv(name, raising=False)
     cuda_runtime._prepare_env()
     assert cpp_extension.CUDA_HOME == "/resolved/cuda"
     assert cuda_runtime.os.environ["CUDA_HOME"] == "/resolved/cuda"
+    for name, value in choices.items():
+        assert cuda_runtime.os.environ.get(name) == (value if explicit else None)
+
+
+@pytest.mark.parametrize("cxx, cc", [(None, None), ("/toolchain/clang++", None), ("g++", "gcc")])
+def test_load_uses_only_explicit_host_compiler(monkeypatch, cxx, cc):
+    from torch.utils import cpp_extension
+
+    for name, value in (("CXX", cxx), ("CC", cc)):
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+    recorded = {}
+    result = object()
+
+    def load(**kwargs):
+        recorded.update(kwargs)
+        return result
+
+    monkeypatch.setattr(cpp_extension, "load", load)
+    assert cuda_runtime._load("fixture", ["kernel.cu"]) is result
+    compiler_flags = [flag for flag in recorded["extra_cuda_cflags"] if flag.startswith("-ccbin")]
+    assert compiler_flags == ([f"-ccbin={cxx}"] if cxx and not cc else [])
+    assert recorded["name"] == "fixture"
+    assert recorded["sources"] == ["kernel.cu"]
+
+
+@pytest.mark.parametrize("source", ["caller", "env", "cache", "path", "system", None])
+def test_resolve_cuda_home_prioritizes_available_toolkits(monkeypatch, source):
+    from torch.utils import cpp_extension
+
+    order = ("caller", "env", "cache", "path", "system")
+    homes = {name: f"/toolkits/{name}" for name in order}
+    available = order[order.index(source):] if source is not None else ()
+    files = {f"{homes[name]}/bin/nvcc" for name in available}
+    monkeypatch.setenv("T06_CUDA_HOME", homes["caller"])
+    monkeypatch.setenv("CUDA_HOME", homes["env"])
+    monkeypatch.setattr(cpp_extension, "CUDA_HOME", homes["cache"])
+    monkeypatch.setattr(cuda_runtime.shutil, "which", lambda _name: f"{homes['path']}/bin/nvcc")
+    monkeypatch.setattr(Path, "is_file", lambda path: str(path) in files)
+    monkeypatch.setattr(Path, "glob", lambda _path, _pattern: [Path(homes["system"])])
+    if source is None:
+        with pytest.raises(RuntimeError, match="no CUDA toolkit"):
+            cuda_runtime.resolve_cuda_home()
+    else:
+        assert cuda_runtime.resolve_cuda_home() == homes[source]

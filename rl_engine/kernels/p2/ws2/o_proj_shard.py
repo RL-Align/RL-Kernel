@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""TP sharding contract for grouped wo_a / wo_b. Collectives are T07/P4."""
+"""Whole-group wo_a / row-parallel wo_b ownership; execution is T07/P4."""
 
 from __future__ import annotations
 
@@ -14,6 +14,8 @@ from rl_engine.kernels.p2.errors import P2FailClosedError, P2Status
 
 @dataclass(frozen=True)
 class OProjShardPlan:
+    """Validate local ownership; cross-rank coverage is checked by T07/P4."""
+
     tp_rank: int
     tp_world_size: int
     group_ids: tuple[int, ...]
@@ -23,15 +25,41 @@ class OProjShardPlan:
     mqa_kv_placement: str = "replicated"
 
     def __post_init__(self) -> None:
-        if self.tp_world_size not in {1, 2, 4, 8}:
+        if type(self.tp_world_size) is not int or self.tp_world_size not in {1, 2, 4, 8}:
             raise P2FailClosedError(
                 P2Status.UNSUPPORTED_CAPABILITY,
                 f"o-proj TP world size must be 1/2/4/8, got {self.tp_world_size}",
             )
-        if not (0 <= self.tp_rank < self.tp_world_size):
+        if type(self.tp_rank) is not int or not (0 <= self.tp_rank < self.tp_world_size):
             raise P2FailClosedError(P2Status.MISSING_RANK, f"tp_rank={self.tp_rank}")
-        if any(g < 0 or g >= N_O_PROJ_GROUPS for g in self.group_ids):
+        if not isinstance(self.group_ids, tuple) or any(
+            type(g) is not int or g < 0 or g >= N_O_PROJ_GROUPS for g in self.group_ids
+        ):
             raise P2FailClosedError(P2Status.SCHEMA_MISMATCH, f"group_ids={self.group_ids}")
+        if len(set(self.group_ids)) != len(self.group_ids):
+            raise P2FailClosedError(
+                P2Status.DUPLICATE_LOGICAL_OWNER, f"duplicate group_ids={self.group_ids}"
+            )
+        if self.group_ids != tuple(sorted(self.group_ids)):
+            raise P2FailClosedError(P2Status.INVALID_CANDIDATE_ORDER, "group_ids must be ascending")
+        if not self.group_ids:
+            raise P2FailClosedError(
+                P2Status.MISSING_GLOBAL_VISIBILITY, "o-proj shard must own at least one group"
+            )
+        if self.tp_world_size == 1 and self.group_ids != tuple(range(N_O_PROJ_GROUPS)):
+            raise P2FailClosedError(
+                P2Status.MISSING_GLOBAL_VISIBILITY, "TP=1 must own all eight o-proj groups"
+            )
+        if self.wo_b_split not in {"none", "row"}:
+            raise P2FailClosedError(
+                P2Status.UNSUPPORTED_CAPABILITY, f"unsupported wo_b_split={self.wo_b_split!r}"
+            )
+        expected_split = "none" if self.tp_world_size == 1 else "row"
+        if self.wo_b_split != expected_split:
+            raise P2FailClosedError(
+                P2Status.SCHEMA_MISMATCH,
+                f"TP={self.tp_world_size} requires wo_b_split={expected_split!r}",
+            )
         if self.merge_order != "group_index_ascending":
             raise P2FailClosedError(
                 P2Status.INVALID_CANDIDATE_ORDER,

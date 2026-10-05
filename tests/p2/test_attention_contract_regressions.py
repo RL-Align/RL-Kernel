@@ -11,6 +11,7 @@ from rl_engine.kernels.p2.attention.oracle import (
     mqa_joint_attention_sink_bwd,
     mqa_joint_attention_sink_fwd,
 )
+from rl_engine.kernels.p2.candidate_plan import CandidatePlan
 from rl_engine.kernels.p2.contract import ATTENTION_SCALE
 from rl_engine.kernels.p2.errors import P2FailClosedError, P2Status
 from rl_engine.kernels.p2.fixtures.catalog import make_attn_case
@@ -30,9 +31,7 @@ def _case():
 
 
 def _forward(case, **kwargs):
-    return mqa_joint_attention_sink_fwd(
-        case.q, case.k, case.v, case.sink, case.plan, **kwargs
-    )
+    return mqa_joint_attention_sink_fwd(case.q, case.k, case.v, case.sink, case.plan, **kwargs)
 
 
 def test_oracle_forward_and_backward_do_not_use_matmul_or_softmax(monkeypatch):
@@ -50,9 +49,7 @@ def test_oracle_forward_and_backward_do_not_use_matmul_or_softmax(monkeypatch):
             monkeypatch.setattr(owner, name, forbidden)
 
     saved = _forward(case)
-    grads = mqa_joint_attention_sink_bwd(
-        torch.ones_like(saved.o), saved, sink_was_shared=True
-    )
+    grads = mqa_joint_attention_sink_bwd(torch.ones_like(saved.o), saved, sink_was_shared=True)
     for tensor in (saved.o, saved.z, grads.dq, grads.dk, grads.dv, grads.dsink):
         assert torch.isfinite(tensor).all()
     assert grads.dsink.shape == case.sink.shape
@@ -100,3 +97,33 @@ def test_oracle_backward_rejects_nonfinite_gradient(nonfinite):
     with pytest.raises(P2FailClosedError) as exc:
         mqa_joint_attention_sink_bwd(grad_out, saved, sink_was_shared=True)
     assert exc.value.status is P2Status.NON_FINITE
+
+
+@pytest.mark.parametrize("field", ["k", "v"])
+@pytest.mark.parametrize("nonfinite", [float("nan"), float("inf"), -float("inf")])
+def test_masked_nonfinite_rows_match_removed_candidates(field, nonfinite):
+    case = _case()
+    valid = case.plan.valid
+    getattr(case, field)[~valid] = nonfinite
+    compact_plan = CandidatePlan(
+        layer_type="C4", n_compressed=1, n_recent=1, valid=torch.ones(2, dtype=torch.bool)
+    )
+    expected = mqa_joint_attention_sink_fwd(
+        case.q, case.k[valid], case.v[valid], case.sink, compact_plan
+    )
+    actual = _forward(case)
+    assert torch.equal(actual.o, expected.o)
+    assert torch.equal(actual.p[:, :, valid], expected.p)
+    assert torch.equal(actual.p_sink, expected.p_sink)
+    grad_out = torch.ones_like(actual.o)
+    grads = mqa_joint_attention_sink_bwd(grad_out, actual, sink_was_shared=True)
+    reference = mqa_joint_attention_sink_bwd(grad_out, expected, sink_was_shared=True)
+    for result, target in (
+        (grads.dq, reference.dq),
+        (grads.dsink, reference.dsink),
+        (grads.dk[valid], reference.dk),
+        (grads.dv[valid], reference.dv),
+    ):
+        assert torch.equal(result, target)
+    assert torch.count_nonzero(grads.dk[~valid]) == 0
+    assert torch.count_nonzero(grads.dv[~valid]) == 0

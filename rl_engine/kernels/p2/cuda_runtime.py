@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,12 +22,19 @@ _ATTENTION_EXPORTS = (
 
 
 def resolve_cuda_home() -> str:
-    for home in (
+    from torch.utils import cpp_extension
+
+    candidates = [
         os.environ.get("T06_CUDA_HOME"),
         os.environ.get("CUDA_HOME"),
-        "/usr/local/cuda-11.8",
-        "/usr/local/cuda",
-    ):
+        cpp_extension.CUDA_HOME,
+    ]
+    nvcc = shutil.which("nvcc")
+    if nvcc:
+        candidates.append(str(Path(nvcc).resolve().parent.parent))
+    candidates.append("/usr/local/cuda")
+    candidates.extend(str(home) for home in sorted(Path("/usr/local").glob("cuda-*"), reverse=True))
+    for home in candidates:
         if home and (Path(home) / "bin" / "nvcc").is_file():
             return home
     raise RuntimeError("no CUDA toolkit with nvcc found")
@@ -40,9 +48,6 @@ def _prepare_env() -> None:
     from torch.utils import cpp_extension
 
     cpp_extension.CUDA_HOME = cuda_home
-    os.environ["CC"] = os.environ.get("CC", "gcc-11")
-    os.environ["CXX"] = os.environ.get("CXX", "g++-11")
-    os.environ.setdefault("TORCH_CUDA_ARCH_LIST", "8.6")
     os.environ["PATH"] = str(Path(cuda_home) / "bin") + os.pathsep + os.environ.get("PATH", "")
     os.environ["LD_LIBRARY_PATH"] = (
         str(Path(torch.__file__).parent / "lib")
@@ -58,16 +63,16 @@ def _prepare_env() -> None:
 def _load(name: str, sources: list[str], extra_include_paths: list[str] | None = None):
     from torch.utils.cpp_extension import load
 
+    cuda_flags = ["-O3", "--expt-relaxed-constexpr", "--expt-extended-lambda"]
+    cxx = os.environ.get("CXX")
+    # cpp_extension already adds -ccbin for an explicit CC.
+    if cxx and not os.environ.get("CC"):
+        cuda_flags.append(f"-ccbin={cxx}")
     return load(
         name=name,
         sources=sources,
         extra_include_paths=extra_include_paths or [],
-        extra_cuda_cflags=[
-            "-O3",
-            "--expt-relaxed-constexpr",
-            "--expt-extended-lambda",
-            "-ccbin=g++-11",
-        ],
+        extra_cuda_cflags=cuda_flags,
         extra_cflags=["-std=c++17"],
         verbose=False,
     )
@@ -101,7 +106,7 @@ def ensure_native_kernels() -> str:
     native_ok = (
         native_has_gemm
         and all(hasattr(base._C, name) for name in _ATTENTION_EXPORTS)
-        and base._C.mqa_joint_attention_sink_workspace_validation_version == 1
+        and base._C.mqa_joint_attention_sink_workspace_validation_version == 2
     )
     if native_ok:
         mqa._C = base._C

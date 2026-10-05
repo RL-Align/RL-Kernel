@@ -559,6 +559,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "mqa_joint_attention_sink_backward",
         &mqa_joint_attention_sink_backward,
         "P2 T06 MQA joint attention sink backward (dQ, dK, dV, dsink)");
-    m.attr("mqa_joint_attention_sink_workspace_validation_version") = 1;
+    m.attr("mqa_joint_attention_sink_workspace_validation_version") = 2;
 #endif
 }
