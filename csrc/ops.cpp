@@ -312,6 +312,41 @@ std::vector<torch::Tensor> deterministic_attention_backward(
     double scale,
     torch::optional<torch::Tensor> key_padding_mask);
 
+std::vector<torch::Tensor> mqa_joint_attention_sink_forward(
+    torch::Tensor q,
+    torch::Tensor k,
+    torch::Tensor v,
+    torch::Tensor sink,
+    torch::Tensor valid,
+    double scale,
+    bool output_fp32);
+
+void mqa_joint_attention_sink_forward_into(
+    torch::Tensor q,
+    torch::Tensor k,
+    torch::Tensor v,
+    torch::Tensor sink,
+    torch::Tensor valid,
+    double scale,
+    bool output_fp32,
+    torch::Tensor out,
+    torch::Tensor scores,
+    torch::Tensor p_sink,
+    torch::Tensor m,
+    torch::Tensor z);
+
+std::vector<torch::Tensor> mqa_joint_attention_sink_backward(
+    torch::Tensor dO,
+    torch::Tensor q,
+    torch::Tensor k,
+    torch::Tensor v,
+    torch::Tensor sink,
+    torch::Tensor valid,
+    torch::Tensor P,
+    torch::Tensor p_sink,
+    double scale,
+    bool sink_was_shared);
+
 // Prefix-Shared Attention Declarations & Wrappers
 
 #if !defined(USE_ROCM)
@@ -512,5 +547,18 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "deterministic_attention_backward",
         &deterministic_attention_backward,
         "Deterministic standard softmax attention backward (dQ, dK, dV)");
+    m.def(
+        "mqa_joint_attention_sink_forward",
+        &mqa_joint_attention_sink_forward,
+        "P2 T06 MQA joint attention sink forward (out, P, p_sink, m, Z)");
+    m.def(
+        "mqa_joint_attention_sink_forward_into",
+        &mqa_joint_attention_sink_forward_into,
+        "P2 T06 MQA joint attention sink forward into static workspace");
+    m.def(
+        "mqa_joint_attention_sink_backward",
+        &mqa_joint_attention_sink_backward,
+        "P2 T06 MQA joint attention sink backward (dQ, dK, dV, dsink)");
+    m.attr("mqa_joint_attention_sink_workspace_validation_version") = 1;
 #endif
 }

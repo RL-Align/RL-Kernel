@@ -188,6 +188,47 @@ def deterministic_attention_backward(
     scale: float,
     key_padding_mask: torch.Tensor | None,
 ) -> list[torch.Tensor]: ...
+def mqa_joint_attention_sink_forward(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    sink: torch.Tensor,
+    valid: torch.Tensor,
+    scale: float,
+    output_fp32: bool,
+) -> list[torch.Tensor]:
+    """Returns [out, P, p_sink, m, Z]."""
+    ...
+
+def mqa_joint_attention_sink_forward_into(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    sink: torch.Tensor,
+    valid: torch.Tensor,
+    scale: float,
+    output_fp32: bool,
+    out: torch.Tensor,
+    scores: torch.Tensor,
+    p_sink: torch.Tensor,
+    m: torch.Tensor,
+    z: torch.Tensor,
+) -> None: ...
+
+def mqa_joint_attention_sink_backward(
+    dO: torch.Tensor,
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    sink: torch.Tensor,
+    valid: torch.Tensor,
+    P: torch.Tensor,
+    p_sink: torch.Tensor,
+    scale: float,
+    sink_was_shared: bool,
+) -> list[torch.Tensor]:
+    """Returns [dQ, dK, dV, dsink]."""
+    ...
 def det_gemm_sm90_compiled() -> bool: ...
 def det_gemm_fwd(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor: ...
 def det_gemm_fwd_rhs_transposed(
