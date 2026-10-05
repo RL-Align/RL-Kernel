@@ -24,10 +24,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from rl_engine.kernels.gtest.accelerator import (  # noqa: E402
-    disable_tf32,
-    resolve_device,
-)
+from rl_engine.kernels.gtest.accelerator import disable_tf32, resolve_device  # noqa: E402
 from rl_engine.kernels.gtest.chain_gate import (  # noqa: E402
     build_model,
     run_chain_gate,

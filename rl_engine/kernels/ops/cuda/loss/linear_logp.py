@@ -1103,9 +1103,7 @@ def _strict_logp_vocab_summaries(
             f"multiple of physical TP={physical_tp}"
         )
     raw_canonical_vocab = os.getenv(_STRICT_LOGP_CANONICAL_VOCAB_ENV, "").strip()
-    canonical_global_vocab = (
-        global_vocab if not raw_canonical_vocab else int(raw_canonical_vocab)
-    )
+    canonical_global_vocab = global_vocab if not raw_canonical_vocab else int(raw_canonical_vocab)
     if canonical_global_vocab < global_vocab:
         raise ValueError(
             f"{_STRICT_LOGP_CANONICAL_VOCAB_ENV}={canonical_global_vocab} must be "
@@ -1466,9 +1464,7 @@ def sm90_deterministic_top_p_logp_from_local_logits_tp(
     _assert_global_targets_async(target, real_vocab)
 
     if temperature is None:
-        temp = torch.ones(
-            local_logits.size(0), device=local_logits.device, dtype=torch.float32
-        )
+        temp = torch.ones(local_logits.size(0), device=local_logits.device, dtype=torch.float32)
     else:
         temp = temperature.to(device=local_logits.device, dtype=torch.float32).reshape(-1)
         if temp.numel() == 1:

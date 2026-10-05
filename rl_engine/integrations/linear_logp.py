@@ -572,9 +572,15 @@ class LinearLogpWrapper:
         return result
 
     def from_replicated_logits_sparse_nucleus(
-        self, logits: torch.Tensor, target_ids: torch.Tensor,
-        nucleus_ids: torch.Tensor, *, real_vocab_size: int,
-        temperature: float, return_entropy: bool = False, tp_group: Any = None,
+        self,
+        logits: torch.Tensor,
+        target_ids: torch.Tensor,
+        nucleus_ids: torch.Tensor,
+        *,
+        real_vocab_size: int,
+        temperature: float,
+        return_entropy: bool = False,
+        tp_group: Any = None,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         """Inference-only reuse of the vocabulary already gathered by vLLM."""
         if torch.is_grad_enabled() or torch.version.hip is None:
@@ -588,32 +594,46 @@ class LinearLogpWrapper:
         if not 0 < nucleus_ids.size(1) <= 128:
             # Wider support remains exact and unrestricted; no truncation.
             return self.from_local_logits_sparse_nucleus(
-                logits + 0.0 if transport_sum else logits, target_ids, nucleus_ids, tp_group=None,
-                vocab_start_index=0, global_vocab_size=real_vocab_size,
-                real_vocab_size=real_vocab_size, temperature=temperature,
-                target="rollout", return_entropy=return_entropy,
+                logits + 0.0 if transport_sum else logits,
+                target_ids,
+                nucleus_ids,
+                tp_group=None,
+                vocab_start_index=0,
+                global_vocab_size=real_vocab_size,
+                real_vocab_size=real_vocab_size,
+                temperature=temperature,
+                target="rollout",
+                return_entropy=return_entropy,
             )
         from rl_engine.kernels.ops.base import _C
 
         if temperature <= 0:
             raise ValueError("temperature must be positive")
         result, _lse, entropy, present = _C.hip_replicated_sparse_nucleus_logp(
-            logits, nucleus_ids.to(torch.long).contiguous(),
-            target_ids.to(torch.long).contiguous(), 1.0 / float(temperature), transport_sum,
+            logits,
+            nucleus_ids.to(torch.long).contiguous(),
+            target_ids.to(torch.long).contiguous(),
+            1.0 / float(temperature),
+            transport_sum,
         )
         torch._assert_async(present.all(), "strict sparse nucleus is missing a target token")
         self._last_provenance = {
             **self._mismatch_provenance(),
-            "target": "rollout", "runtime_platform": "rocm",
-            "actual_backend": self.backend_id, "deterministic_linear_logp": True,
+            "target": "rollout",
+            "runtime_platform": "rocm",
+            "actual_backend": self.backend_id,
+            "deterministic_linear_logp": True,
             "strict_entrypoint": "sparse_nucleus_logp_from_replicated_logits",
             "logprob_kernel_backend": "rlkernel.sparse_nucleus.hip_serial_deterministic.v12",
             "contract_version": "sparse-nucleus-hip-serial-deterministic-v12",
             "preparation_backend": "rlkernel.sparse_nucleus.hip_replicated.v1",
-            "logits_materialized": True, "lm_head_result_reused": True,
-            "replicated_logits_reused": True, "additional_tp_collective": False,
+            "logits_materialized": True,
+            "lm_head_result_reused": True,
+            "replicated_logits_reused": True,
+            "additional_tp_collective": False,
             "nucleus_shape": list(nucleus_ids.shape),
-            "real_vocab_size": real_vocab_size, "temperature": "provided",
+            "real_vocab_size": real_vocab_size,
+            "temperature": "provided",
         }
         return (result, entropy) if return_entropy else result
 

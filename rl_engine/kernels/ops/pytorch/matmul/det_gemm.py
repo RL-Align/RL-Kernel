@@ -53,9 +53,7 @@ class DetGemmTreeReferenceOp:
             if hi - lo == 1:
                 start = lo * _K_TREE_LEAF
                 end = min(start + _K_TREE_LEAF, k)
-                return (a[:, start:end].float() @ b[start:end, :].float()).to(
-                    torch.bfloat16
-                )
+                return (a[:, start:end].float() @ b[start:end, :].float()).to(torch.bfloat16)
             midpoint = lo + (hi - lo) // 2
             return reduce_range(lo, midpoint) + reduce_range(midpoint, hi)
 

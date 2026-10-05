@@ -8,10 +8,10 @@ import os
 
 import torch
 import torch.distributed as dist
+from vllm.v1.sample.ops.topk_topp_sampler import apply_top_k_top_p
 
 from rl_engine.integrations.linear_logp import LinearLogpWrapper
 from rl_engine.integrations.sampling import sampling_keep_mask, vocab_parallel_sampling_keep_mask
-from vllm.v1.sample.ops.topk_topp_sampler import apply_top_k_top_p
 
 
 def main():
@@ -36,9 +36,11 @@ def main():
         )
         native = apply_top_k_top_p(
             raw[:, :real].float() / effective_temperature,
-            torch.full((3,), k, device="cuda", dtype=torch.int32)
-            if k > 0 and temperature
-            else None,
+            (
+                torch.full((3,), k, device="cuda", dtype=torch.int32)
+                if k > 0 and temperature
+                else None
+            ),
             torch.full((3,), p, device="cuda") if p < 1 and temperature else None,
         )
         assert torch.equal(expected, torch.isfinite(native)), "support differs from vLLM"

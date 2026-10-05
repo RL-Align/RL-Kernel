@@ -310,15 +310,16 @@ def _provider_impl(request: Any, *, linear_logp: Any = None) -> LinearLogpResult
                 hidden.size(0),
                 projection.weight.size(0),
             )
-            and (torch.version.hip is not None or keep_mask is not None
-                 or _metadata(request).get("complete_sampling_support") is True)
+            and (
+                torch.version.hip is not None
+                or keep_mask is not None
+                or _metadata(request).get("complete_sampling_support") is True
+            )
         )
         if materialized_local_logits:
             reuse_local_logits = True
         if keep_mask is not None and not reuse_local_logits:
-            raise RuntimeError(
-                "strict top-p replay requires reusable materialized local logits"
-            )
+            raise RuntimeError("strict top-p replay requires reusable materialized local logits")
         with_entropy = bool(getattr(request, "with_entropy", False))
         with_entropy_grad = bool(getattr(request, "with_entropy_grad", False))
         local_logits_temperature = _local_logits_temperature(request)

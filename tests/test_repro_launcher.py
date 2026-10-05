@@ -6,12 +6,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import rl_engine.repro as repro
-
 from rl_engine.repro import (
+    Paths,
     _arm_config,
     _resolved_paths,
     _runner_command,
-    Paths,
     build_parser,
     canonical_arm,
     doctor,
@@ -103,9 +102,7 @@ def test_launcher_defaults_to_active_checkout_and_runtime(tmp_path: Path):
     assert Path(command[1]) == repo_root / "examples/vime_qwen3_8b_tp4_cp2_200/run_arm.py"
     assert command[command.index("--ray-address") + 1] == "http://127.0.0.1:8265"
     extra_paths = [
-        command[index + 1]
-        for index, value in enumerate(command)
-        if value == "--extra-pythonpath"
+        command[index + 1] for index, value in enumerate(command) if value == "--extra-pythonpath"
     ]
     assert len(extra_paths) == len(set(extra_paths))
 

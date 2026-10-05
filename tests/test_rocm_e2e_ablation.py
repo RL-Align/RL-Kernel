@@ -44,9 +44,7 @@ def _readback(case, *, side: str, calls: int = 1, strict: bool | None = None):
     implementation = case.implementation_for(target)
     is_strict = implementation is Implementation.RL_KERNEL if strict is None else strict
     backend = (
-        "rlkernel.attention.deterministic.v1"
-        if is_strict
-        else f"{framework}.production.attention"
+        "rlkernel.attention.deterministic.v1" if is_strict else f"{framework}.production.attention"
     )
     provenance = (
         {
@@ -198,9 +196,7 @@ def test_strict_side_rejects_triton_and_missing_fixed_schedule():
 def test_production_side_requires_framework_native_backend_identity():
     case = rocm_attention_ablation_matrix(["P/P"])[0]
     bad = _readback(case, side="training")
-    bad["operators"]["attention"]["backend_id"] = (
-        "rlkernel.attention.deterministic.v1"
-    )
+    bad["operators"]["attention"]["backend_id"] = "rlkernel.attention.deterministic.v1"
 
     _routes, errors = validate_case_readbacks(
         case,

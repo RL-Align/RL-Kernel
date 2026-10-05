@@ -11,15 +11,11 @@ weight-gradient GEMMs so their K tree is identical to CP=1.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 import torch
 from torch import Tensor
 
-from rl_engine.kernels.ops.triton.activation.swiglu import (
-    _launch_swiglu_bwd,
-    _launch_swiglu_fwd,
-)
 from rl_engine.kernels.ops.triton.matmul.det_gemm import _triton_tree_gemm
 
 QWEN3_8B_HIDDEN_SIZE = 4096
@@ -41,12 +37,8 @@ class Qwen3FFNForwardWeights:
     _source_versions: tuple[int | None, int | None, int | None] = field(repr=False)
     _packed_data_ptrs: tuple[int, int, int] = field(repr=False)
     _packed_versions: tuple[int, int, int] = field(repr=False)
-    _source_shapes: tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]] = field(
-        repr=False
-    )
-    _source_strides: tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]] = field(
-        repr=False
-    )
+    _source_shapes: tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]] = field(repr=False)
+    _source_strides: tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]] = field(repr=False)
 
     def refresh_(
         self,
@@ -125,9 +117,7 @@ def _validate_ffn_inputs(
         if tensor.dtype != torch.bfloat16:
             raise TypeError(f"{name} must have dtype bfloat16, got {tensor.dtype}.")
         if not tensor.is_cuda:
-            raise RuntimeError(
-                f"{name} must be on a CUDA/ROCm GPU device, got '{tensor.device}'."
-            )
+            raise RuntimeError(f"{name} must be on a CUDA/ROCm GPU device, got '{tensor.device}'.")
         if tensor.device != rmsnorm_output.device:
             raise RuntimeError(
                 f"all FFN inputs must be on {rmsnorm_output.device}, "
@@ -160,9 +150,7 @@ def _validate_forward_weight_sources(
         if weight.dtype != torch.bfloat16:
             raise TypeError(f"{name} must have dtype bfloat16, got {weight.dtype}.")
         if not weight.is_cuda:
-            raise RuntimeError(
-                f"{name} must be on a CUDA/ROCm GPU device, got '{weight.device}'."
-            )
+            raise RuntimeError(f"{name} must be on a CUDA/ROCm GPU device, got '{weight.device}'.")
 
     if tuple(up_weight.shape) != tuple(gate_weight.shape):
         raise ValueError(
@@ -218,11 +206,22 @@ def pack_qwen3_ffn_forward_weights(
         down_weight_t=packed[2],
         _sources=sources,
         _source_data_ptrs=tuple(weight.data_ptr() for weight in sources),
-        _source_versions=tuple(_tracked_tensor_version(weight) for weight in sources),
+        _source_versions=cast(
+            tuple[int | None, int | None, int | None],
+            tuple(_tracked_tensor_version(weight) for weight in sources),
+        ),
         _packed_data_ptrs=tuple(weight.data_ptr() for weight in packed),
-        _packed_versions=tuple(int(weight._version) for weight in packed),
-        _source_shapes=tuple(tuple(weight.shape) for weight in sources),
-        _source_strides=tuple(tuple(weight.stride()) for weight in sources),
+        _packed_versions=cast(
+            tuple[int, int, int], tuple(int(weight._version) for weight in packed)
+        ),
+        _source_shapes=cast(
+            tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]],
+            tuple(tuple(weight.shape) for weight in sources),
+        ),
+        _source_strides=cast(
+            tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]],
+            tuple(tuple(weight.stride()) for weight in sources),
+        ),
     )
 
 
@@ -242,10 +241,7 @@ def refresh_qwen3_ffn_forward_weights(
     """
 
     if not isinstance(forward_weights, Qwen3FFNForwardWeights):
-        raise TypeError(
-            "forward_weights must be created by "
-            "pack_qwen3_ffn_forward_weights."
-        )
+        raise TypeError("forward_weights must be created by " "pack_qwen3_ffn_forward_weights.")
     sources = _validate_forward_weight_sources(gate_weight, up_weight, down_weight)
     if any(
         source is not original
@@ -279,18 +275,19 @@ def refresh_qwen3_ffn_forward_weights(
                 "repack and recapture CUDA Graphs."
             )
         if not target.is_contiguous() or target.data_ptr() != expected_ptr:
-            raise RuntimeError(
-                f"packed {name} storage changed; repack and recapture CUDA Graphs."
-            )
+            raise RuntimeError(f"packed {name} storage changed; repack and recapture CUDA Graphs.")
 
     with torch.inference_mode(False), torch.no_grad():
         for target, source in zip(packed, sources, strict=True):
             target.copy_(source.t())
 
-    forward_weights._source_versions = tuple(
-        _tracked_tensor_version(weight) for weight in sources
+    forward_weights._source_versions = cast(
+        tuple[int | None, int | None, int | None],
+        tuple(_tracked_tensor_version(weight) for weight in sources),
     )
-    forward_weights._packed_versions = tuple(int(weight._version) for weight in packed)
+    forward_weights._packed_versions = cast(
+        tuple[int, int, int], tuple(int(weight._version) for weight in packed)
+    )
     return forward_weights
 
 
@@ -301,10 +298,7 @@ def _validate_forward_weights(
     down_weight: Tensor,
 ) -> None:
     if not isinstance(forward_weights, Qwen3FFNForwardWeights):
-        raise TypeError(
-            "forward_weights must be created by "
-            "pack_qwen3_ffn_forward_weights."
-        )
+        raise TypeError("forward_weights must be created by " "pack_qwen3_ffn_forward_weights.")
 
     sources = (gate_weight, up_weight, down_weight)
     names = ("gate_weight", "up_weight", "down_weight")
@@ -336,9 +330,7 @@ def _validate_forward_weights(
         if not isinstance(weight, Tensor):
             raise TypeError(f"packed {name} must be a torch.Tensor.")
         if tuple(weight.shape) != shape:
-            raise ValueError(
-                f"packed {name} must have shape {shape}, got {tuple(weight.shape)}."
-            )
+            raise ValueError(f"packed {name} must have shape {shape}, got {tuple(weight.shape)}.")
         if weight.dtype != torch.bfloat16:
             raise TypeError(f"packed {name} must have dtype bfloat16, got {weight.dtype}.")
         if weight.device != gate_weight.device:
@@ -490,6 +482,9 @@ class _TritonDeterministicFFNFunction(torch.autograd.Function):
             rmsnorm_output_2d,
             up_weight.t().contiguous() if up_weight_t is None else up_weight_t,
         )
+        # Keep CPU-side validation importable without the optional Triton runtime.
+        from rl_engine.kernels.ops.triton.activation.swiglu import _launch_swiglu_fwd
+
         activated = _launch_swiglu_fwd(gate, up)
         output = _gemm(
             activated,
@@ -541,6 +536,8 @@ class _TritonDeterministicFFNFunction(torch.autograd.Function):
             grad_down_weight = _gemm_db(activated, grad_output)
 
         grad_activated = _gemm(grad_output, down_weight)
+        from rl_engine.kernels.ops.triton.activation.swiglu import _launch_swiglu_bwd
+
         grad_gate, grad_up = _launch_swiglu_bwd(grad_activated, gate, up)
 
         if cp_collective is not None:
@@ -556,10 +553,8 @@ class _TritonDeterministicFFNFunction(torch.autograd.Function):
         grad_rmsnorm_from_gate = _gemm(grad_gate, gate_weight)
         grad_rmsnorm_from_up = _gemm(grad_up, up_weight)
         if ctx.sequence_parallel:
-            grad_rmsnorm_from_gate, grad_rmsnorm_from_up = (
-                tp_collective.reduce_scatter_many(
-                    (grad_rmsnorm_from_gate, grad_rmsnorm_from_up)
-                )
+            grad_rmsnorm_from_gate, grad_rmsnorm_from_up = tp_collective.reduce_scatter_many(
+                (grad_rmsnorm_from_gate, grad_rmsnorm_from_up)
             )
         elif tp_collective is not None:
             grad_rmsnorm_from_gate = _all_reduce_inplace(
@@ -615,9 +610,7 @@ def qwen3_ffn(
             down_weight,
         )
     if not isinstance(sequence_parallel, bool):
-        raise TypeError(
-            f"sequence_parallel must be a bool, got {type(sequence_parallel)!r}."
-        )
+        raise TypeError(f"sequence_parallel must be a bool, got {type(sequence_parallel)!r}.")
     return _TritonDeterministicFFNFunction.apply(
         rmsnorm_output,
         gate_weight,

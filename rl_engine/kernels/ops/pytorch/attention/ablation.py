@@ -203,6 +203,7 @@ class AttentionAblationOp:
                 )
             return self.core
 
+        runtime: Any
         if normalized == "rocm":
             from rl_engine.kernels.ops.rocm.attention.strict_runtime import (
                 StrictRocmAttentionRuntime,

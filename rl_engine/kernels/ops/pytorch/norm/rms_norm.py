@@ -86,8 +86,6 @@ def strict_add_rms_norm(
     return _strict_add_rms_norm(x, residual, weight, eps)
 
 
-
-
 def shape_invariant_rstd(x_f: torch.Tensor, eps: float) -> torch.Tensor:
     """Shape-invariant per-row rstd (the shared RMSNorm statistic).
 
@@ -103,10 +101,11 @@ def shape_invariant_rstd(x_f: torch.Tensor, eps: float) -> torch.Tensor:
         var = x_f.pow(2).mean(dim=-1)
         return torch.rsqrt(var + float(eps))
     sq = x_f.pow(2).reshape(*x_f.shape[:-1], -1, 32)
-    partial = sq.sum(dim=-1)      # [*, C] — fixed 32-wide chunks
-    sumsq = partial.sum(dim=-1)   # [*lead]
+    partial = sq.sum(dim=-1)  # [*, C] — fixed 32-wide chunks
+    sumsq = partial.sum(dim=-1)  # [*lead]
     var = sumsq / float(hidden)
     return torch.rsqrt(var + float(eps))
+
 
 class NativeRMSNormOp:
     """

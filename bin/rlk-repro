@@ -6,6 +6,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from rl_engine.repro import main
+from rl_engine.repro import main  # noqa: E402 -- checkout path must precede import
 
 raise SystemExit(main())

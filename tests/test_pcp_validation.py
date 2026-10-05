@@ -1,8 +1,10 @@
 from copy import deepcopy
 
-from examples.vime_qwen3_8b_tp4_cp2_200.validate_run import _validate_pcp_readbacks
-from examples.vime_qwen3_8b_tp4_cp2_200.validate_run import _validate_topology
 from examples.vime_qwen3_8b_tp4_cp2_200.run_arm import _rollout_topology
+from examples.vime_qwen3_8b_tp4_cp2_200.validate_run import (
+    _validate_pcp_readbacks,
+    _validate_topology,
+)
 
 
 def _case():
@@ -11,14 +13,28 @@ def _case():
     readbacks = []
     for cp_rank in range(4):
         for _ in range(2):
-            readbacks.append({
-                "framework": "vllm", "target": "rollout",
-                "operators": {"attention": {"call_count": 12, "provenance": {"execution": {
-                    "cp_world_size": 4, "cp_rank": cp_rank, "tp_world_size": 2,
-                    "kv_storage": "token_sharded", "attention_queries": "disjoint_cp_partitions",
-                    "attention_merge": "rank_ordered_output_gather_no_reduction", "fallback": False,
-                }}}},
-            })
+            readbacks.append(
+                {
+                    "framework": "vllm",
+                    "target": "rollout",
+                    "operators": {
+                        "attention": {
+                            "call_count": 12,
+                            "provenance": {
+                                "execution": {
+                                    "cp_world_size": 4,
+                                    "cp_rank": cp_rank,
+                                    "tp_world_size": 2,
+                                    "kv_storage": "token_sharded",
+                                    "attention_queries": "disjoint_cp_partitions",
+                                    "attention_merge": "rank_ordered_output_gather_no_reduction",
+                                    "fallback": False,
+                                }
+                            },
+                        }
+                    },
+                }
+            )
     return readbacks, topology, arm
 
 

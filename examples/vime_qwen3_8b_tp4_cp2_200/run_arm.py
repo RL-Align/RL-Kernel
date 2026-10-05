@@ -32,9 +32,7 @@ class Arm:
 ARMS = {
     "native": Arm("native", False, "P/P", "P/P", "P/P", "native VIME baseline"),
     "G10": Arm("G10", True, "P/P", "P/P", "P/P", "VIME framework-level consistency only"),
-    "consistency": Arm(
-        "consistency", False, "R/R", "R/R", "R/R", "RL-Kernel operator consistency"
-    ),
+    "consistency": Arm("consistency", False, "R/R", "R/R", "R/R", "RL-Kernel operator consistency"),
     "G11": Arm(
         "G11",
         True,
@@ -306,9 +304,7 @@ def _submit_ray_job(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--group", choices=tuple(ARMS) + tuple(LEGACY_GROUP_ALIASES), required=True
-    )
+    parser.add_argument("--group", choices=tuple(ARMS) + tuple(LEGACY_GROUP_ALIASES), required=True)
     parser.add_argument("--num-rollout", type=int, required=True)
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--rollout-seed", type=int, default=42)
@@ -526,9 +522,11 @@ def main(argv: list[str] | None = None) -> int:
         "RL_KERNEL_VLLM_CUDAGRAPH_MAX_CAPTURE_SIZE": str(max_engine_decode_batch),
         "RL_KERNEL_SEED": str(args.seed),
         "RL_KERNEL_ROLLOUT_SEED": str(args.rollout_seed),
-        "RL_KERNEL_CANONICAL_CP_GRAD": "1" if all(
-            case == "R/R" for case in (arm.attention_case, arm.ffn_case, arm.logp_case)
-        ) else "0",
+        "RL_KERNEL_CANONICAL_CP_GRAD": (
+            "1"
+            if all(case == "R/R" for case in (arm.attention_case, arm.ffn_case, arm.logp_case))
+            else "0"
+        ),
         "RL_KERNEL_RUN_ID": run_id,
     }
     if os.environ.get("CUDNN_FRONTEND_CUDART_LIB_NAME"):
@@ -579,14 +577,22 @@ def main(argv: list[str] | None = None) -> int:
         str(args.rollout_temperature),
         "--rollout-top-p",
         str(args.rollout_top_p),
-        "--rollout-top-k", str(args.rollout_top_k),
-        "--optimizer", "adam",
-        "--lr", str(args.lr),
-        "--lr-decay-style", "constant",
-        "--weight-decay", str(args.weight_decay),
-        "--adam-beta1", "0.9",
-        "--adam-beta2", "0.98",
-        "--entropy-coef", "0",
+        "--rollout-top-k",
+        str(args.rollout_top_k),
+        "--optimizer",
+        "adam",
+        "--lr",
+        str(args.lr),
+        "--lr-decay-style",
+        "constant",
+        "--weight-decay",
+        str(args.weight_decay),
+        "--adam-beta1",
+        "0.9",
+        "--adam-beta2",
+        "0.98",
+        "--entropy-coef",
+        "0",
         "--global-batch-size",
         str(args.global_batch_size),
         "--balance-data",
@@ -652,8 +658,12 @@ def main(argv: list[str] | None = None) -> int:
     if arm.framework_use_rollout_logprobs:
         train_command.append("--use-rollout-logprobs")
     if args.require_updates:
-        train_command.extend(["--custom-update-weight-post-write-path",
-                              "vime_qwen3_8b_tp4_cp2_200.weight_audit.record_weight_update"])
+        train_command.extend(
+            [
+                "--custom-update-weight-post-write-path",
+                "vime_qwen3_8b_tp4_cp2_200.weight_audit.record_weight_update",
+            ]
+        )
     if args.use_kl_loss:
         train_command.extend(["--use-kl-loss", "--kl-loss-coef", str(args.kl_loss_coef)])
     if {arm.attention_case, arm.ffn_case, arm.logp_case} == {"R/R"}:
@@ -791,7 +801,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         status_text = status_result.stdout
         if status_result.stderr:
-            status_text += ("\n" if status_text and not status_text.endswith("\n") else "")
+            status_text += "\n" if status_text and not status_text.endswith("\n") else ""
             status_text += status_result.stderr
         (run_dir / "ray-status.txt").write_text(status_text, encoding="utf-8")
     manifest["submission"] = {
