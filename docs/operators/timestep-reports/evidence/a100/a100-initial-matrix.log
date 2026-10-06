@@ -1,0 +1,73 @@
+WARNING 10-01 23:42:32 [RL-Kernel]: Core binary extension (_C) unavailable: cannot import name '_C' from 'rl_engine' (/home/linux/timestep-official-astra-01a0f7ef/src/rl_engine/__init__.py). Falling back to native code.
+{"backend": "cuda", "dtype": "fp32", "batch": 1, "seed": 386, "passed": false, "elapsed_seconds": 3.7155500129883876}
+{"backend": "cuda", "dtype": "fp32", "batch": 1, "seed": 9386, "passed": false, "elapsed_seconds": 0.15880829600791913}
+{"backend": "cuda", "dtype": "fp32", "batch": 3, "seed": 386, "passed": false, "elapsed_seconds": 0.1415794260101393}
+{"backend": "cuda", "dtype": "fp32", "batch": 3, "seed": 9386, "passed": false, "elapsed_seconds": 0.18091995899158064}
+{"backend": "cuda", "dtype": "fp32", "batch": 16, "seed": 386, "passed": false, "elapsed_seconds": 0.175373205987853}
+{"backend": "cuda", "dtype": "fp32", "batch": 16, "seed": 9386, "passed": false, "elapsed_seconds": 0.16986567799176555}
+{"backend": "cuda", "dtype": "bf16", "batch": 1, "seed": 386, "passed": false, "elapsed_seconds": 0.10236677000648342}
+{"backend": "cuda", "dtype": "bf16", "batch": 1, "seed": 9386, "passed": false, "elapsed_seconds": 0.09665819800284225}
+{"backend": "cuda", "dtype": "bf16", "batch": 3, "seed": 386, "passed": false, "elapsed_seconds": 0.0943207899981644}
+{"backend": "cuda", "dtype": "bf16", "batch": 3, "seed": 9386, "passed": false, "elapsed_seconds": 0.09257137699751183}
+{"backend": "cuda", "dtype": "bf16", "batch": 16, "seed": 386, "passed": false, "elapsed_seconds": 0.09388033700815868}
+{"backend": "cuda", "dtype": "bf16", "batch": 16, "seed": 9386, "passed": false, "elapsed_seconds": 0.09613280701159965}
+/tmp/tmp9ujny8_5/main.c:5:10: fatal error: Python.h: No such file or directory
+    5 | #include <Python.h>
+      |          ^~~~~~~~~~
+compilation terminated.
+{"backend": "triton", "dtype": "fp32", "batch": 1, "seed": 386, "passed": false, "elapsed_seconds": 0.2086678199993912}
+/tmp/tmpba78gkv4/main.c:5:10: fatal error: Python.h: No such file or directory
+    5 | #include <Python.h>
+      |          ^~~~~~~~~~
+compilation terminated.
+{"backend": "triton", "dtype": "fp32", "batch": 1, "seed": 9386, "passed": false, "elapsed_seconds": 0.1386887640110217}
+/tmp/tmpuo96koap/main.c:5:10: fatal error: Python.h: No such file or directory
+    5 | #include <Python.h>
+      |          ^~~~~~~~~~
+compilation terminated.
+{"backend": "triton", "dtype": "fp32", "batch": 3, "seed": 386, "passed": false, "elapsed_seconds": 0.13660295300360303}
+/tmp/tmp0udg690e/main.c:5:10: fatal error: Python.h: No such file or directory
+    5 | #include <Python.h>
+      |          ^~~~~~~~~~
+compilation terminated.
+{"backend": "triton", "dtype": "fp32", "batch": 3, "seed": 9386, "passed": false, "elapsed_seconds": 0.13569145000656135}
+/tmp/tmpvskrzv13/main.c:5:10: fatal error: Python.h: No such file or directory
+    5 | #include <Python.h>
+      |          ^~~~~~~~~~
+compilation terminated.
+{"backend": "triton", "dtype": "fp32", "batch": 16, "seed": 386, "passed": false, "elapsed_seconds": 0.1841256740008248}
+/tmp/tmp0baz4zf2/main.c:5:10: fatal error: Python.h: No such file or directory
+    5 | #include <Python.h>
+      |          ^~~~~~~~~~
+compilation terminated.
+{"backend": "triton", "dtype": "fp32", "batch": 16, "seed": 9386, "passed": false, "elapsed_seconds": 0.16163108599721454}
+/tmp/tmphz4e4nzf/main.c:5:10: fatal error: Python.h: No such file or directory
+    5 | #include <Python.h>
+      |          ^~~~~~~~~~
+compilation terminated.
+{"backend": "triton", "dtype": "bf16", "batch": 1, "seed": 386, "passed": false, "elapsed_seconds": 0.1453817150031682}
+/tmp/tmpo7iqazq3/main.c:5:10: fatal error: Python.h: No such file or directory
+    5 | #include <Python.h>
+      |          ^~~~~~~~~~
+compilation terminated.
+{"backend": "triton", "dtype": "bf16", "batch": 1, "seed": 9386, "passed": false, "elapsed_seconds": 0.13560447399504483}
+/tmp/tmphq66oyin/main.c:5:10: fatal error: Python.h: No such file or directory
+    5 | #include <Python.h>
+      |          ^~~~~~~~~~
+compilation terminated.
+{"backend": "triton", "dtype": "bf16", "batch": 3, "seed": 386, "passed": false, "elapsed_seconds": 0.13108459700015374}
+/tmp/tmp91e7zab0/main.c:5:10: fatal error: Python.h: No such file or directory
+    5 | #include <Python.h>
+      |          ^~~~~~~~~~
+compilation terminated.
+{"backend": "triton", "dtype": "bf16", "batch": 3, "seed": 9386, "passed": false, "elapsed_seconds": 0.1409816349914763}
+/tmp/tmpw48514hf/main.c:5:10: fatal error: Python.h: No such file or directory
+    5 | #include <Python.h>
+      |          ^~~~~~~~~~
+compilation terminated.
+{"backend": "triton", "dtype": "bf16", "batch": 16, "seed": 386, "passed": false, "elapsed_seconds": 0.13606759400863666}
+/tmp/tmptfvqdyrw/main.c:5:10: fatal error: Python.h: No such file or directory
+    5 | #include <Python.h>
+      |          ^~~~~~~~~~
+compilation terminated.
+{"backend": "triton", "dtype": "bf16", "batch": 16, "seed": 9386, "passed": false, "elapsed_seconds": 0.13329501100815833}

@@ -298,6 +298,18 @@ def get_extensions():
             )
         )
 
+    # Independent binding keeps timestep's strict FP32 flags separate from
+    # optional fast-math settings used by other operators.
+    if not is_rocm and torch.cuda.is_available():
+        extensions.append(
+            CUDAExtension(
+                name="rl_engine._timestep_cuda",
+                sources=["csrc/cuda/timestep_embed_mlp.cu"],
+                extra_compile_args={"cxx": ["-O3"], "nvcc": ["-O3", "--fmad=false"]},
+                extra_link_args=torch_rpath,
+            )
+        )
+
     extensions.extend(_ascend_extensions())
 
     if _native_extension_required() and not extensions:

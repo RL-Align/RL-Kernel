@@ -1,0 +1,383 @@
+{
+  "args": {
+    "device": "cuda",
+    "backends": [
+      "triton"
+    ],
+    "dtypes": [
+      "fp32"
+    ],
+    "batches": [
+      16
+    ],
+    "hidden": 3072,
+    "seeds": [
+      9386
+    ],
+    "output": "docs/operators/timestep-reports/evidence/local-stable-gold-targeted.json",
+    "benchmark": false,
+    "iterations": 20,
+    "trace": false
+  },
+  "environment": {
+    "python": "3.10.12",
+    "torch": "2.6.0+cu124",
+    "cuda": "12.4",
+    "gpu": "NVIDIA GeForce GTX 1650 Ti",
+    "contract_sha256": "044167ec21e372017a2758dc09f805b368283c06b83f64061877628cbd101532",
+    "base_sha": "32b765ec992cd1206517104ec66506881203c91c",
+    "tf32": false
+  },
+  "source_sha256": {
+    "rl_engine/kernels/ops/timestep_embed_mlp.py": "d39a606b44836535429230c626f3b6e1d6fc820c781e94b304ba95760659e5cb",
+    "rl_engine/kernels/ops/triton/timestep_embed_mlp.py": "771896f1255c44359f560e0e0660001f478875c2137629e263637c0888891a96",
+    "rl_engine/kernels/ops/cuda/timestep_embed_mlp.py": "5ee18d99cfd4d001856403a6911d91e29dd72b7834acc411c2ec80708fc1ea25",
+    "rl_engine/kernels/ops/pytorch/timestep_embed_mlp.py": "dbef4fffb7e3c97c469c820d8c31ce50e70e21c40e3a8e16abcc0f49e30758fb",
+    "csrc/cuda/timestep_embed_mlp.cu": "e644f80eff9cb9c28d7d00067f4b7424703b63a5d6a665648df75b7b630eee41",
+    "scripts/validate_timestep_official.py": "b1f16c1257f48e8c40ac8ed55601d54c4b8fda4504a6f4156226b53b280330a1",
+    "rl_engine/kernels/gtest/operator_specs.py": "7148850282c9c01429832729b277862228bb40d173a0fa1fef2eb6c3cca4a1db",
+    "rl_engine/kernels/gtest/operator_inputs.py": "c5a115a140b0affaa09824bd69cf754095a3ef4ed86e1e12b72ecb7a13f3e73d"
+  },
+  "cases": [
+    {
+      "backend": "triton",
+      "dtype": "fp32",
+      "batch": 16,
+      "hidden": 3072,
+      "seed": 9386,
+      "passed": true,
+      "accuracy": {
+        "suite_name": "timestep_embed_mlp",
+        "total_candidates": 1,
+        "passed_candidates": 1,
+        "pass_rate": 1.0,
+        "passed": true,
+        "candidates": [
+          {
+            "candidate_name": "triton",
+            "backend": "triton",
+            "total_outputs": 6,
+            "passed_outputs": 6,
+            "pass_rate": 1.0,
+            "passed": true,
+            "cases": [
+              {
+                "case_name": "timestep-cpu-gold",
+                "dtype": "torch.float32",
+                "op_class": "reduction",
+                "passed": true,
+                "outputs": [
+                  {
+                    "output_index": 0,
+                    "shape": [
+                      16,
+                      3072
+                    ],
+                    "candidate_dtype": "torch.float32",
+                    "gold_dtype": "torch.float32",
+                    "atol": 0.0001,
+                    "rtol": 0.0001,
+                    "max_abs_error": 1.4901161193847656e-07,
+                    "mean_abs_error": 2.3320119169056852e-08,
+                    "max_rel_error": 0.004801985342055559,
+                    "passed": true,
+                    "judgment": "forward_accuracy",
+                    "comparison_lhs_role": "bf16_candidate",
+                    "comparison_rhs_role": "fp32_reference",
+                    "message": ""
+                  },
+                  {
+                    "output_index": 1,
+                    "shape": [
+                      16
+                    ],
+                    "candidate_dtype": "torch.float32",
+                    "gold_dtype": "torch.float32",
+                    "atol": 0.0001,
+                    "rtol": 0.0001,
+                    "max_abs_error": 0.00146484375,
+                    "mean_abs_error": 0.0004144906997680664,
+                    "max_rel_error": 1.4018186448083725e-05,
+                    "passed": true,
+                    "judgment": "gradient_accuracy",
+                    "comparison_lhs_role": "bf16_candidate",
+                    "comparison_rhs_role": "fp32_reference",
+                    "message": "gradient:timestep"
+                  },
+                  {
+                    "output_index": 2,
+                    "shape": [
+                      3072,
+                      256
+                    ],
+                    "candidate_dtype": "torch.float32",
+                    "gold_dtype": "torch.float32",
+                    "atol": 0.0001,
+                    "rtol": 0.0001,
+                    "max_abs_error": 1.9073486328125e-06,
+                    "mean_abs_error": 1.2964100903900544e-07,
+                    "max_rel_error": 0.04363975673913956,
+                    "passed": true,
+                    "judgment": "gradient_accuracy",
+                    "comparison_lhs_role": "bf16_candidate",
+                    "comparison_rhs_role": "fp32_reference",
+                    "message": "gradient:weight1"
+                  },
+                  {
+                    "output_index": 3,
+                    "shape": [
+                      3072
+                    ],
+                    "candidate_dtype": "torch.float32",
+                    "gold_dtype": "torch.float32",
+                    "atol": 0.0001,
+                    "rtol": 0.0001,
+                    "max_abs_error": 1.430511474609375e-06,
+                    "mean_abs_error": 1.739878570106157e-07,
+                    "max_rel_error": 0.0003401025023777038,
+                    "passed": true,
+                    "judgment": "gradient_accuracy",
+                    "comparison_lhs_role": "bf16_candidate",
+                    "comparison_rhs_role": "fp32_reference",
+                    "message": "gradient:bias1"
+                  },
+                  {
+                    "output_index": 4,
+                    "shape": [
+                      3072,
+                      3072
+                    ],
+                    "candidate_dtype": "torch.float32",
+                    "gold_dtype": "torch.float32",
+                    "atol": 0.0001,
+                    "rtol": 0.0001,
+                    "max_abs_error": 2.86102294921875e-06,
+                    "mean_abs_error": 1.0941432293520847e-07,
+                    "max_rel_error": 0.08205427974462509,
+                    "passed": true,
+                    "judgment": "gradient_accuracy",
+                    "comparison_lhs_role": "bf16_candidate",
+                    "comparison_rhs_role": "fp32_reference",
+                    "message": "gradient:weight2"
+                  },
+                  {
+                    "output_index": 5,
+                    "shape": [
+                      3072
+                    ],
+                    "candidate_dtype": "torch.float32",
+                    "gold_dtype": "torch.float32",
+                    "atol": 0.0001,
+                    "rtol": 0.0001,
+                    "max_abs_error": 0.0,
+                    "mean_abs_error": 0.0,
+                    "max_rel_error": 0.0,
+                    "passed": true,
+                    "judgment": "gradient_accuracy",
+                    "comparison_lhs_role": "bf16_candidate",
+                    "comparison_rhs_role": "fp32_reference",
+                    "message": "gradient:bias2"
+                  }
+                ]
+              }
+            ],
+            "backend_provenance": null
+          }
+        ]
+      },
+      "launch_record": {
+        "requested_backend": "triton",
+        "actual_backend": "triton",
+        "fallback_reason": null,
+        "accumulation_dtype": "float32",
+        "kernels": [
+          "triton._timestep_embedding",
+          "triton._timestep_mm",
+          "triton._timestep_silu",
+          "triton._timestep_mm",
+          "triton._timestep_mm",
+          "triton._timestep_mm",
+          "triton._timestep_mm",
+          "triton._timestep_silu_grad",
+          "triton._timestep_mm",
+          "triton._timestep_mm",
+          "triton._timestep_mm",
+          "triton._timestep_dt"
+        ]
+      },
+      "invariance": {
+        "passed": true,
+        "padding_zero": true,
+        "comparisons": {
+          "repeat": {
+            "output": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "timestep": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "weight1": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "bias1": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "weight2": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "bias2": {
+              "bitwise": true,
+              "max_abs": 0.0
+            }
+          },
+          "chunk_1": {
+            "output": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "timestep": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "weight1": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "bias1": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "weight2": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "bias2": {
+              "bitwise": true,
+              "max_abs": 0.0
+            }
+          },
+          "chunk_2": {
+            "output": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "timestep": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "weight1": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "bias1": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "weight2": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "bias2": {
+              "bitwise": true,
+              "max_abs": 0.0
+            }
+          },
+          "permuted_canonical_ids": {
+            "output": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "timestep": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "weight1": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "bias1": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "weight2": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "bias2": {
+              "bitwise": true,
+              "max_abs": 0.0
+            }
+          },
+          "padding": {
+            "output": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "timestep": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "weight1": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "bias1": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "weight2": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "bias2": {
+              "bitwise": true,
+              "max_abs": 0.0
+            }
+          },
+          "strided": {
+            "output": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "timestep": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "weight1": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "bias1": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "weight2": {
+              "bitwise": true,
+              "max_abs": 0.0
+            },
+            "bias2": {
+              "bitwise": true,
+              "max_abs": 0.0
+            }
+          },
+          "singleton_rows": {
+            "output": {
+              "bitwise": true
+            },
+            "timestep": {
+              "bitwise": true
+            }
+          }
+        },
+        "parameter_scope": "same complete active sample set in canonical ID order; no external microbatch .grad sum"
+      },
+      "elapsed_seconds": 11.647397747998184
+    }
+  ],
+  "passed": true
+}
