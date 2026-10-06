@@ -295,3 +295,13 @@ def deterministic_collective_rocm_ipc_all_gather_input(
     input: torch.Tensor,
     output: torch.Tensor,
 ) -> None: ...
+def mhc_rmsnorm_residual_forward(
+    x: torch.Tensor, gamma: torch.Tensor, eps: float
+) -> list[torch.Tensor]: ...
+def mhc_rmsnorm_residual_backward(
+    dy: torch.Tensor,
+    dr: torch.Tensor,
+    x: torch.Tensor,
+    gamma: torch.Tensor,
+    r: torch.Tensor,
+) -> list[torch.Tensor]: ...

@@ -209,7 +209,7 @@ def test_rmsnorm_residual_forward_and_backward_match_autograd() -> None:
     g = torch.Generator().manual_seed(51)
     t, d = 6, 64
     x = torch.randn(t, d, generator=g).to(torch.bfloat16)
-    gamma = (1.0 + torch.randn(d, generator=g) * 0.1).to(torch.bfloat16)
+    gamma = (1.0 + torch.randn(d, generator=g) * 0.1).to(torch.float32)
     dy = torch.randn(t, d, generator=g).to(torch.bfloat16)
     d_res = torch.randn(t, d, generator=g).to(torch.bfloat16)
 
@@ -222,7 +222,7 @@ def test_rmsnorm_residual_forward_and_backward_match_autograd() -> None:
     y, residual, saved = oracle.rmsnorm_residual_fwd(x, gamma, EPS)
     assert _close(y, y_ref, rel=BF16_ULP)
     assert torch.equal(residual, x), "the residual fork keeps the original BF16 bytes"
-    dx, dgamma = oracle.rmsnorm_residual_bwd(dy, d_res, x, gamma, saved)
+    dx, dgamma = oracle.rmsnorm_residual_bwd(dy, d_res, gamma, saved)
     assert _close(dx, x_a.grad)
     assert _close(dgamma, gamma_a.grad)
 
@@ -230,14 +230,14 @@ def test_rmsnorm_residual_forward_and_backward_match_autograd() -> None:
 def test_rmsnorm_is_not_an_add_then_norm() -> None:
     """The fork is of the *unnormalized* input; it is not ``x += residual``."""
     x = torch.full((1, 32), 2.0, dtype=torch.bfloat16)
-    gamma = torch.ones(32, dtype=torch.bfloat16)
+    gamma = torch.ones(32, dtype=torch.float32)
     _, residual, _ = oracle.rmsnorm_residual_fwd(x, gamma, EPS)
     assert torch.equal(residual, x)
 
 
 def test_rmsnorm_zero_row_is_finite_via_eps() -> None:
     x = torch.zeros(1, 32, dtype=torch.bfloat16)
-    gamma = torch.ones(32, dtype=torch.bfloat16)
+    gamma = torch.ones(32, dtype=torch.float32)
     y, _, saved = oracle.rmsnorm_residual_fwd(x, gamma, EPS)
     assert torch.isfinite(y).all() and torch.isfinite(saved["r"]).all()
 
@@ -252,7 +252,7 @@ def test_rmsnorm_uses_rsqrt_not_one_over_sqrt() -> None:
 
     g = torch.Generator().manual_seed(52)
     x = (torch.randn(256, 128, generator=g) * 3.0).to(torch.bfloat16)
-    _, _, saved = oracle.rmsnorm_residual_fwd(x, torch.ones(128, dtype=torch.bfloat16), EPS)
+    _, _, saved = oracle.rmsnorm_residual_fwd(x, torch.ones(128, dtype=torch.float32), EPS)
     m = fixed_sumsq(x.float(), dim=1) / 128.0
     assert torch.equal(saved["r"], torch.rsqrt(m + EPS))
     assert not torch.equal(

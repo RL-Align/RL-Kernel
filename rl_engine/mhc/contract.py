@@ -220,13 +220,13 @@ class ControllerParams:
 
 @dataclass(frozen=True)
 class NormParams:
-    """RMSNorm gain. BF16 storage, promoted to FP32 inside the operator."""
+    """RMSNorm gain stored and computed in FP32."""
 
-    gamma: torch.Tensor  # BF16 [hidden]
+    gamma: torch.Tensor  # FP32 [hidden]
 
     def validate(self, contract: LayerContract) -> None:
-        if self.gamma.dtype != torch.bfloat16:
-            raise TypeError(f"gamma must be BF16, got {self.gamma.dtype}")
+        if self.gamma.dtype != torch.float32:
+            raise TypeError(f"gamma must be FP32, got {self.gamma.dtype}")
         if tuple(self.gamma.shape) != (contract.hidden,):
             raise ValueError(f"gamma shape {tuple(self.gamma.shape)} != {(contract.hidden,)}")
 

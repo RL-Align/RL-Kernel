@@ -451,11 +451,25 @@ at::Tensor prefix_shared_attention(
 #endif
 #endif
 
+#if defined(KERNEL_ALIGN_WITH_CUDA)
+std::vector<torch::Tensor> mhc_rmsnorm_residual_forward(torch::Tensor x, torch::Tensor gamma, double eps);
+std::vector<torch::Tensor> mhc_rmsnorm_residual_backward(torch::Tensor dy,
+                                                         torch::Tensor dr,
+                                                         torch::Tensor x,
+                                                         torch::Tensor gamma,
+                                                         torch::Tensor r);
+#endif
+
 // PyBind11 Module Registration
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.doc() = "RL-Kernel High-Performance Operator Extension Library";
 
     m.def("fused_logp", &fused_logp_forward, "Fused logp forward fallback");
+
+#if defined(KERNEL_ALIGN_WITH_CUDA)
+    m.def("mhc_rmsnorm_residual_forward", &mhc_rmsnorm_residual_forward);
+    m.def("mhc_rmsnorm_residual_backward", &mhc_rmsnorm_residual_backward);
+#endif
 
 #if defined(__CUDACC__) || defined(KERNEL_ALIGN_WITH_SM90)
     m.def("fused_logp_sm90", &fused_logp_sm90_forward, "TMA-accelerated Online Softmax Fused LogP");

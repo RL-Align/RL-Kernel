@@ -42,6 +42,7 @@ def _args(**overrides):
     "op_name",
     [
         "rms_norm",
+        "rmsnorm_residual",
         "qk_norm",
         "pack",
         "matmul",
@@ -72,6 +73,15 @@ def test_constant_logp_inputs_are_deterministic():
 
     assert torch.equal(inputs["logits"], torch.full((1, 2, 17), 0.5))
     assert torch.equal(inputs["token_ids"], torch.full((1, 2), 3, dtype=torch.long))
+
+
+def test_rmsnorm_residual_gamma_is_fp32():
+    inputs = make_operator_inputs(
+        "rmsnorm_residual", _args(input_mode="random"), torch.bfloat16, torch.device("cpu")
+    )
+    assert inputs["x"].dtype == torch.bfloat16
+    assert inputs["gamma"].dtype == torch.float32
+    assert not torch.equal(inputs["gamma"], inputs["gamma"].bfloat16().float())
 
 
 def test_constant_batch_invariant_logp_inputs_match_operator_contract():
