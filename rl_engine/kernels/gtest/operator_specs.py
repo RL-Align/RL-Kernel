@@ -245,6 +245,22 @@ OP_SPECS = {
         },
         grad_input_names=("logits",),
     ),
+    # MiniMax-H3 (RFC #420) conditioning path. The op is FP32 end to end, so
+    # its FP32 rows are the declared contract; other dtypes only change the
+    # timestep input's storage dtype.
+    "timestep_sinusoid_h3": OperatorSpec(
+        name="timestep_sinusoid_h3",
+        op_class="elementwise",
+        gold_path="rl_engine.kernels.ops.pytorch.h3.timestep_sinusoid.NativeH3TimestepSinusoidOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": (
+                "rl_engine.kernels.ops.pytorch.h3.timestep_sinusoid.NativeH3TimestepSinusoidOp"
+            ),
+            "cuda": "rl_engine.kernels.ops.cuda.h3.timestep_sinusoid.H3TimestepSinusoidCudaOp",
+        },
+        grad_input_names=("timestep",),
+    ),
     "pack": OperatorSpec(
         name="pack",
         op_class="elementwise",

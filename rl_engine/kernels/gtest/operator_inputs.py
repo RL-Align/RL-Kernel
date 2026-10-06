@@ -16,6 +16,7 @@ DEFAULT_INTERMEDIATE = 12288
 DEFAULT_VOCAB = 151936
 DEFAULT_ROPE_THETA = 1.0e6
 DEFAULT_RMS_EPS = 1.0e-6
+H3_FREQ_DIM = 256
 
 
 def make_operator_inputs(
@@ -42,6 +43,7 @@ def make_operator_inputs(
         "embedding": _make_embedding_inputs,
         "lm_head": _make_lm_head_inputs,
         "kv_cache_attention": _make_kv_cache_attention_inputs,
+        "timestep_sinusoid_h3": _make_timestep_sinusoid_h3_inputs,
     }
     try:
         return builders[op_name](args, dtype, device)
@@ -72,6 +74,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "embedding": f"{batch}x{seq}x{vocab}x{_normalized_dim(args)}",
         "lm_head": f"{batch}x{seq}x{_normalized_dim(args)}x{vocab}",
         "kv_cache_attention": f"{batch}x{DEFAULT_N_HEADS}x1x{seq + 1}x{DEFAULT_HEAD_DIM}",
+        "timestep_sinusoid_h3": f"{_h3_num_timesteps(args)}x{H3_FREQ_DIM}",
     }
     try:
         return names[op_name]
@@ -329,6 +332,32 @@ def _make_kv_cache_attention_inputs(
         ),
         "causal": True,
     }
+
+
+def _h3_num_timesteps(args: argparse.Namespace) -> int:
+    # H3 packs a handful of distinct timesteps; reuse --batch as their count.
+    return _arg_int(args, "num_timesteps", _arg_int(args, "batch", 2))
+
+
+def _h3_timesteps(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> torch.Tensor:
+    num = _h3_num_timesteps(args)
+    mode = _arg_str(args, "input_mode", "random")
+    if mode == "constant":
+        t = torch.full((num,), 0.5, device=device)
+    else:
+        t = torch.rand((num,), generator=_generator(args, device, offset=7), device=device)
+    t[0] = 0.0
+    if num > 1:
+        t[-1] = 1.0
+    return t.to(dtype)
+
+
+def _make_timestep_sinusoid_h3_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    return {"timestep": _h3_timesteps(args, dtype, device)}
 
 
 def _floating_tensor(

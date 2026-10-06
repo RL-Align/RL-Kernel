@@ -32,4 +32,5 @@ Every operator page should include:
 - [Matmul](matmul.md)
 - [Sampling](sampling.md)
 - [Token Embedding](embedding.md)
+- [MiniMax-H3 Timestep Sinusoid](h3-timestep-sinusoid.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)

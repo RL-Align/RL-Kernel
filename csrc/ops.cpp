@@ -497,6 +497,13 @@ at::Tensor prefix_shared_attention(
 #endif
 #endif
 
+// MiniMax-H3 (RFC #420) conditioning-path declarations. CUDA only.
+#if !defined(USE_ROCM) && !defined(KERNEL_ALIGN_WITH_ROCM) && \
+    (defined(__CUDACC__) || defined(KERNEL_ALIGN_WITH_CUDA))
+torch::Tensor h3_timestep_sinusoid_forward(torch::Tensor timestep, int64_t num_channels,
+                                           double max_period);
+#endif
+
 // PyBind11 Module Registration
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.doc() = "RL-Kernel High-Performance Operator Extension Library";
@@ -751,5 +758,12 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         &deterministic_rope_apply_token_major_rocm,
         "Deterministic GPT-NeoX token-major RoPE apply for ROCm");
 #endif
+#endif
+
+#if !defined(USE_ROCM) && !defined(KERNEL_ALIGN_WITH_ROCM) && \
+    (defined(__CUDACC__) || defined(KERNEL_ALIGN_WITH_CUDA))
+    m.def("h3_timestep_sinusoid_forward", &h3_timestep_sinusoid_forward,
+          "MiniMax-H3 FP32 [cos | sin] timestep features, bitwise to the diffusers CUDA path",
+          py::arg("timestep"), py::arg("num_channels") = 256, py::arg("max_period") = 10000.0);
 #endif
 }
