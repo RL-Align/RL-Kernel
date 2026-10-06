@@ -1,0 +1,25 @@
+WARNING 10-01 23:58:47 [RL-Kernel]: Core binary extension (_C) unavailable: cannot import name '_C' from 'rl_engine' (/home/linux/timestep-official-astra-01a0f7ef/src/rl_engine/__init__.py). Falling back to native code.
+{"backend": "cuda", "dtype": "fp32", "batch": 1, "seed": 386, "passed": true, "elapsed_seconds": 96.81855776699376}
+{"backend": "cuda", "dtype": "fp32", "batch": 1, "seed": 9386, "passed": true, "elapsed_seconds": 0.32190425900625996}
+{"backend": "cuda", "dtype": "fp32", "batch": 3, "seed": 386, "passed": true, "elapsed_seconds": 0.5856054850009969}
+{"backend": "cuda", "dtype": "fp32", "batch": 3, "seed": 9386, "passed": true, "elapsed_seconds": 0.44118668499868363}
+{"backend": "cuda", "dtype": "fp32", "batch": 16, "seed": 386, "passed": true, "elapsed_seconds": 1.4377528819895815}
+{"backend": "cuda", "dtype": "fp32", "batch": 16, "seed": 9386, "passed": true, "elapsed_seconds": 1.173636434992659}
+{"backend": "cuda", "dtype": "bf16", "batch": 1, "seed": 386, "passed": true, "elapsed_seconds": 0.4127205330005381}
+{"backend": "cuda", "dtype": "bf16", "batch": 1, "seed": 9386, "passed": true, "elapsed_seconds": 0.36055420100456104}
+{"backend": "cuda", "dtype": "bf16", "batch": 3, "seed": 386, "passed": true, "elapsed_seconds": 0.568116459005978}
+{"backend": "cuda", "dtype": "bf16", "batch": 3, "seed": 9386, "passed": true, "elapsed_seconds": 0.43385503499303013}
+{"backend": "cuda", "dtype": "bf16", "batch": 16, "seed": 386, "passed": true, "elapsed_seconds": 1.4777734789968235}
+{"backend": "cuda", "dtype": "bf16", "batch": 16, "seed": 9386, "passed": true, "elapsed_seconds": 1.091130726999836}
+{"backend": "triton", "dtype": "fp32", "batch": 1, "seed": 386, "passed": true, "elapsed_seconds": 3.8381989049958065}
+{"backend": "triton", "dtype": "fp32", "batch": 1, "seed": 9386, "passed": true, "elapsed_seconds": 0.3502970620029373}
+{"backend": "triton", "dtype": "fp32", "batch": 3, "seed": 386, "passed": true, "elapsed_seconds": 1.772470155992778}
+{"backend": "triton", "dtype": "fp32", "batch": 3, "seed": 9386, "passed": true, "elapsed_seconds": 0.4621811980032362}
+{"backend": "triton", "dtype": "fp32", "batch": 16, "seed": 386, "passed": true, "elapsed_seconds": 2.5308105169970077}
+{"backend": "triton", "dtype": "fp32", "batch": 16, "seed": 9386, "passed": true, "elapsed_seconds": 1.2766257140028756}
+{"backend": "triton", "dtype": "bf16", "batch": 1, "seed": 386, "passed": true, "elapsed_seconds": 0.5516153299977304}
+{"backend": "triton", "dtype": "bf16", "batch": 1, "seed": 9386, "passed": true, "elapsed_seconds": 0.33303047000663355}
+{"backend": "triton", "dtype": "bf16", "batch": 3, "seed": 386, "passed": true, "elapsed_seconds": 0.6209473839990096}
+{"backend": "triton", "dtype": "bf16", "batch": 3, "seed": 9386, "passed": true, "elapsed_seconds": 0.47931417600193527}
+{"backend": "triton", "dtype": "bf16", "batch": 16, "seed": 386, "passed": true, "elapsed_seconds": 1.578232215004391}
+{"backend": "triton", "dtype": "bf16", "batch": 16, "seed": 9386, "passed": true, "elapsed_seconds": 1.2600093729997752}

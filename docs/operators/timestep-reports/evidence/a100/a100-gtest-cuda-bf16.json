@@ -1,0 +1,140 @@
+WARNING 10-02 00:08:53 [RL-Kernel]: Core binary extension (_C) unavailable: cannot import name '_C' from 'rl_engine' (/home/linux/timestep-official-astra-01a0f7ef/src/rl_engine/__init__.py). Falling back to native code.
+{
+  "suite_name": "timestep_embed_mlp",
+  "total_candidates": 1,
+  "passed_candidates": 1,
+  "pass_rate": 1.0,
+  "passed": true,
+  "candidates": [
+    {
+      "candidate_name": "cuda-timestep_embed_mlp",
+      "backend": "cuda",
+      "total_outputs": 6,
+      "passed_outputs": 6,
+      "pass_rate": 1.0,
+      "passed": true,
+      "cases": [
+        {
+          "case_name": "timestep_embed_mlp-torch.bfloat16-3x256x3072",
+          "dtype": "torch.bfloat16",
+          "op_class": "reduction",
+          "passed": true,
+          "outputs": [
+            {
+              "output_index": 0,
+              "shape": [
+                3,
+                3072
+              ],
+              "candidate_dtype": "torch.bfloat16",
+              "gold_dtype": "torch.float32",
+              "atol": 0.05,
+              "rtol": 0.02,
+              "max_abs_error": 0.0038809776306152344,
+              "mean_abs_error": 0.0004411028348840773,
+              "max_rel_error": 0.0038848998956382275,
+              "passed": true,
+              "judgment": "forward_accuracy",
+              "comparison_lhs_role": "bf16_candidate",
+              "comparison_rhs_role": "fp32_reference",
+              "message": ""
+            },
+            {
+              "output_index": 1,
+              "shape": [
+                3
+              ],
+              "candidate_dtype": "torch.float32",
+              "gold_dtype": "torch.float32",
+              "atol": 0.1,
+              "rtol": 0.02,
+              "max_abs_error": 0.00048828125,
+              "mean_abs_error": 0.0004069010610692203,
+              "max_rel_error": 1.387672483588176e-07,
+              "passed": true,
+              "judgment": "gradient_accuracy",
+              "comparison_lhs_role": "bf16_candidate",
+              "comparison_rhs_role": "fp32_reference",
+              "message": "gradient:timestep"
+            },
+            {
+              "output_index": 2,
+              "shape": [
+                3072,
+                256
+              ],
+              "candidate_dtype": "torch.bfloat16",
+              "gold_dtype": "torch.bfloat16",
+              "atol": 0.1,
+              "rtol": 0.02,
+              "max_abs_error": 0.00390625,
+              "mean_abs_error": 3.172731055656186e-08,
+              "max_rel_error": 0.019607843831181526,
+              "passed": true,
+              "judgment": "gradient_accuracy",
+              "comparison_lhs_role": "bf16_candidate",
+              "comparison_rhs_role": "fp32_reference",
+              "message": "gradient:weight1"
+            },
+            {
+              "output_index": 3,
+              "shape": [
+                3072
+              ],
+              "candidate_dtype": "torch.bfloat16",
+              "gold_dtype": "torch.bfloat16",
+              "atol": 0.1,
+              "rtol": 0.02,
+              "max_abs_error": 0.0,
+              "mean_abs_error": 0.0,
+              "max_rel_error": 0.0,
+              "passed": true,
+              "judgment": "gradient_accuracy",
+              "comparison_lhs_role": "bf16_candidate",
+              "comparison_rhs_role": "fp32_reference",
+              "message": "gradient:bias1"
+            },
+            {
+              "output_index": 4,
+              "shape": [
+                3072,
+                3072
+              ],
+              "candidate_dtype": "torch.bfloat16",
+              "gold_dtype": "torch.bfloat16",
+              "atol": 0.1,
+              "rtol": 0.02,
+              "max_abs_error": 0.015625,
+              "mean_abs_error": 1.6425289572907786e-08,
+              "max_rel_error": 0.1428571492433548,
+              "passed": true,
+              "judgment": "gradient_accuracy",
+              "comparison_lhs_role": "bf16_candidate",
+              "comparison_rhs_role": "fp32_reference",
+              "message": "gradient:weight2"
+            },
+            {
+              "output_index": 5,
+              "shape": [
+                3072
+              ],
+              "candidate_dtype": "torch.bfloat16",
+              "gold_dtype": "torch.bfloat16",
+              "atol": 0.1,
+              "rtol": 0.02,
+              "max_abs_error": 0.0,
+              "mean_abs_error": 0.0,
+              "max_rel_error": 0.0,
+              "passed": true,
+              "judgment": "gradient_accuracy",
+              "comparison_lhs_role": "bf16_candidate",
+              "comparison_rhs_role": "fp32_reference",
+              "message": "gradient:bias2"
+            }
+          ]
+        }
+      ],
+      "backend_provenance": null
+    }
+  ]
+}
