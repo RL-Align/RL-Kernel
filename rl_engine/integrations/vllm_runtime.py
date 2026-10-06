@@ -950,6 +950,11 @@ def _configure_strict_ffn_compilation(vllm_config: Any | None = None) -> None:
         for name in _ROCM_GRAPH_ROUTE_ENVIRONMENT
     )
     cache_namespace = f"{_ROCM_FULL_GRAPH_CACHE_NAMESPACE}_{route_key}"
+    from rl_engine.bi.runtime import active_plan_readback
+
+    bi_plan = active_plan_readback()
+    if bi_plan is not None:
+        cache_namespace += f"_bi_{bi_plan['plan_digest'][:16]}_{bi_plan['context_digest'][:16]}"
     cache_root = os.path.normpath(os.fspath(vllm_envs.VLLM_CACHE_ROOT))
     if os.path.basename(cache_root) != cache_namespace:
         # vLLM's AOT key cannot see implementations behind torch custom ops.
@@ -1452,6 +1457,9 @@ def _patch_qwen3_strict_model(
         return output
 
     def attention_init_wrapped(instance: Any, *args: Any, **kwargs: Any) -> None:
+        from rl_engine.bi.runtime import verify_worker_plan
+
+        verify_worker_plan(check_hardware=True)
         require_rocm_graph_runtime()
         attention_init(instance, *args, **kwargs)
         setattr(instance.qkv_proj, _STRICT_PROJECTION_MARKER, "qkv")
@@ -1885,6 +1893,13 @@ def install_vllm_integration(plan: IntegrationPlan) -> VllmIntegration:
 def register_vllm_plugin() -> None:
     """vLLM general-plugin entry point; inactive unless Vime exported a plan."""
 
+    from rl_engine.bi.adapters import get_adapter
+    from rl_engine.bi.runtime import verify_worker_plan
+
+    record = verify_worker_plan()
+    if record is not None:
+        get_adapter(record["adapter"]).initialize_rollout()
+        return
     if os.getenv("RL_KERNEL_VLLM_INTEGRATION", "").strip() not in {"1", "true", "True"}:
         return
     install_vllm_integration(plan_from_environment())

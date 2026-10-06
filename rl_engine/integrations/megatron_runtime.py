@@ -1157,6 +1157,16 @@ def install_megatron_integration(
 def initialize_from_environment(_args: Any = None) -> MegatronIntegration:
     """Vime-compatible custom-init entry point backed by the shared plan env."""
 
+    from rl_engine.bi.adapters import get_adapter
+    from rl_engine.bi.runtime import verify_worker_plan
+
+    record = verify_worker_plan(check_hardware=True)
+    if record is not None:
+        return get_adapter(record["adapter"]).initialize_training(_args)
+    return _initialize_qwen3_from_environment(_args)
+
+
+def _initialize_qwen3_from_environment(_args: Any = None) -> MegatronIntegration:
     from rl_engine.integrations.ablation import integration_plan_from_environment
 
     _install_torch_dist_object_compatibility()

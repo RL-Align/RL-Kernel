@@ -256,9 +256,15 @@ def _reported_backend_ids(value: Any) -> set[str]:
 
 
 def _validate_readbacks(
-    readbacks: list[dict[str, Any]], arm: Mapping[str, Any], log_text: str
+    readbacks: list[dict[str, Any]],
+    arm: Mapping[str, Any],
+    log_text: str,
+    *,
+    expected_bi_plan: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    errors: list[str] = []
+    from rl_engine.bi.readback import validate_plan_readbacks
+
+    errors = validate_plan_readbacks(readbacks, expected_bi_plan)
     frameworks: dict[str, Any] = {}
     for framework, target in FRAMEWORKS:
         matching = [
@@ -482,7 +488,9 @@ def validate_run(run_dir: Path) -> dict[str, Any]:
     require_zero = all(str(arm[CASE_FIELDS[module]]) == "R/R" for module in MODULES)
     cudagraph = _validate_cudagraph(log_text, manifest)
     raw_readbacks = _load_readbacks(run_dir / "readbacks")
-    readbacks = _validate_readbacks(raw_readbacks, arm, log_text)
+    readbacks = _validate_readbacks(
+        raw_readbacks, arm, log_text, expected_bi_plan=manifest.get("bi_plan")
+    )
     pcp = _validate_pcp_readbacks(raw_readbacks, manifest["topology"], arm)
     runtime_logprobs = _validate_runtime_logprobs(
         records["step"],

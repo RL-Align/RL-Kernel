@@ -676,6 +676,30 @@ def main(argv: list[str] | None = None) -> int:
             ]
         )
     submission_id = f"vime200-{run_id}"
+    from rl_engine.bi.runtime import prepare_vime_environment
+
+    bi_plan = prepare_vime_environment(
+        env_vars,
+        model_root=model_root,
+        platform="cuda",
+        topology=(
+            8,
+            int(topology["tp"]),
+            int(topology["cp"]),
+            int(topology["rollout_tp"]),
+            int(topology["rollout_cp"]),
+        ),
+        workload={
+            "dtype": "bf16",
+            "parameters": {
+                key: value
+                for key, value in vars(args).items()
+                if isinstance(value, (int, float, bool)) or key in {"group", "router_policy"}
+            },
+            "prompt_data_sha256": _sha256(prompt_data),
+        },
+        repositories={"vime": str(vime_root), "megatron": str(megatron_root)},
+    )
     runtime_env = {"env_vars": env_vars}
     ray_command = [
         str(ray_bin),
@@ -768,6 +792,7 @@ def main(argv: list[str] | None = None) -> int:
         "prompt_data_sha256": _sha256(prompt_data),
         "gpu_inventory": _gpu_inventory(),
         "runtime_env": runtime_env,
+        "bi_plan": bi_plan,
         "train_command": train_command,
         "ray_command": ray_command,
     }
