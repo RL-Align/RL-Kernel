@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Standalone pybind for local DetGemm when rl_engine._C cannot be pip-built.
+// JIT bindings for DetGemm.
 
 #include <torch/extension.h>
 

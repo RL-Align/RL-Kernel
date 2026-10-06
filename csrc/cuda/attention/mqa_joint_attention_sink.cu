@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 RL-Kernel Contributors
-//
-// P2 T06 WS1 reference: ONE-softmax MQA attention with sink-in-denominator.
-// Hq=64, Hkv=1, D=512. Sequential d / j / h trees. No Split-KV, no atomics.
+// MQA attention with sequential reductions and a sink-only denominator term.
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
@@ -268,6 +266,8 @@ void check_inputs(const torch::Tensor& q, const torch::Tensor& k, const torch::T
               "mqa_joint_attention_sink: Q/K/V device mismatch");
   TORCH_CHECK(q.dim() == 3 && q.size(1) == kHq && q.size(2) == kD,
               "mqa_joint_attention_sink: Q must be [T, 64, 512]");
+  TORCH_CHECK(q.size(0) > 0,
+              "mqa_joint_attention_sink: non-empty query batch required (T > 0)");
   TORCH_CHECK(k.dim() == 2 && v.dim() == 2 && k.size(1) == kD && v.size(1) == kD && k.size(0) == v.size(0),
               "mqa_joint_attention_sink: K/V must be [N, 512]");
   TORCH_CHECK(q.scalar_type() == k.scalar_type() && q.scalar_type() == v.scalar_type(),
@@ -443,7 +443,7 @@ std::vector<torch::Tensor> mqa_joint_attention_sink_forward(
   const int64_t N = k_c.size(0);
   TORCH_CHECK(valid_c.numel() == N, "valid length must equal N");
   if (sink_c.dim() == 1) {
-    sink_c = sink_c.unsqueeze(0).expand(T, kHq).contiguous();
+    sink_c = sink_c.unsqueeze(0).expand({T, kHq}).contiguous();
   }
   TORCH_CHECK(sink_c.sizes() == at::IntArrayRef({T, kHq}), "sink must be [T,64] or [64]");
 

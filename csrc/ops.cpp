@@ -550,15 +550,15 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def(
         "mqa_joint_attention_sink_forward",
         &mqa_joint_attention_sink_forward,
-        "P2 T06 MQA joint attention sink forward (out, P, p_sink, m, Z)");
+        "DSv4 T06 MQA joint attention sink forward (out, P, p_sink, m, Z)");
     m.def(
         "mqa_joint_attention_sink_forward_into",
         &mqa_joint_attention_sink_forward_into,
-        "P2 T06 MQA joint attention sink forward into static workspace");
+        "DSv4 T06 MQA joint attention sink forward into static workspace");
     m.def(
         "mqa_joint_attention_sink_backward",
         &mqa_joint_attention_sink_backward,
-        "P2 T06 MQA joint attention sink backward (dQ, dK, dV, dsink)");
-    m.attr("mqa_joint_attention_sink_workspace_validation_version") = 2;
+        "DSv4 T06 MQA joint attention sink backward (dQ, dK, dV, dsink)");
+    m.attr("mqa_joint_attention_sink_workspace_validation_version") = 3;
 #endif
 }
