@@ -28,9 +28,7 @@ def test_reference_provider_matches_oracle_bytes() -> None:
     _, saved_c = oracle.mhc_block_forward(batch, cand, ops=ReferenceProvider())
     assert first_divergence(gold, cand) is None
     out_g = oracle.mhc_block_backward(batch, saved_g, grads, gold)
-    out_c = oracle.mhc_block_backward(
-        batch, saved_c, grads, cand, ops=ReferenceProvider()
-    )
+    out_c = oracle.mhc_block_backward(batch, saved_c, grads, cand, ops=ReferenceProvider())
     assert first_divergence(gold, cand) is None
     for key, grad in out_g.items():
         other = out_c[key]

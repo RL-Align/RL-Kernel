@@ -11,10 +11,7 @@ from typing import Any
 import torch
 
 from rl_engine.kernels.gtest.op_checks import CandidateSpec, OperatorCase
-from rl_engine.kernels.gtest.operator_inputs import (
-    make_operator_inputs,
-    operator_shape_name,
-)
+from rl_engine.kernels.gtest.operator_inputs import make_operator_inputs, operator_shape_name
 
 
 @dataclass(frozen=True)

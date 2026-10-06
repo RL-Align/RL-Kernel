@@ -170,9 +170,7 @@ def golden_manifest() -> dict[str, Any]:
     h = make_sinkhorn_edge_inputs()
     pre, post, c, saved = oracle.hc_split_sinkhorn_fwd(h, contract)
     g = _gen("sinkhorn_edges.grad")
-    dh = oracle.hc_split_sinkhorn_bwd(
-        _randn(g, 4, 4), _randn(g, 4, 4), _randn(g, 4, 4, 4), saved
-    )
+    dh = oracle.hc_split_sinkhorn_bwd(_randn(g, 4, 4), _randn(g, 4, 4), _randn(g, 4, 4, 4), saved)
     cases["sinkhorn_edges"] = {
         "pre": tensor_sha256(pre),
         "post": tensor_sha256(post),
@@ -181,9 +179,7 @@ def golden_manifest() -> dict[str, Any]:
     }
 
     x = make_rms_edge_inputs()
-    gamma = (1.0 + _randn(_gen("rms_edges.gamma"), FIXTURE_HIDDEN, scale=0.05)).to(
-        torch.float32
-    )
+    gamma = (1.0 + _randn(_gen("rms_edges.gamma"), FIXTURE_HIDDEN, scale=0.05)).to(torch.float32)
     y, residual, rsaved = oracle.rmsnorm_residual_fwd(x, gamma, contract.rmsnorm_eps)
     ge = _gen("rms_edges.grad")
     dx, dgamma = oracle.rmsnorm_residual_bwd(
