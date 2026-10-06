@@ -100,8 +100,8 @@ The envelope is a reproducibility record, not a cryptographic trust boundary.
 
 ## Adding a reviewed upstream implementation
 
-A future agent can prepare an ordinary PR using these interfaces. No monitoring,
-email delivery, remote code loading, or live upstream update is included here.
+Contributors can add reviewed implementations through these interfaces. Plans
+and comparisons ship with the installed RL-Kernel version.
 
 1. Add the upstream implementation behind an exact backend route, preserving the
    numerical and backward contracts. Reuse the existing semantic registry where
