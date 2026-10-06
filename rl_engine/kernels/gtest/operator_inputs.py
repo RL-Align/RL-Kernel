@@ -17,6 +17,8 @@ DEFAULT_VOCAB = 151936
 DEFAULT_ROPE_THETA = 1.0e6
 DEFAULT_RMS_EPS = 1.0e-6
 DEFAULT_ATTN_OUT_DIM = 3072  # Qwen-Image MMDiT inner dim (24 heads x 128)
+DEFAULT_TXT_IN_HIDDEN = 3584  # Qwen-Image text-patch hidden (contract-frozen)
+DEFAULT_TXT_IN_OUT = 3072  # Qwen-Image text-patch out (contract-frozen)
 
 
 def make_operator_inputs(
@@ -43,6 +45,7 @@ def make_operator_inputs(
         "embedding": _make_embedding_inputs,
         "lm_head": _make_lm_head_inputs,
         "attn_out_bias_gemm": _make_attn_out_bias_gemm_inputs,
+        "txt_in_rmsnorm_linear": _make_txt_in_rmsnorm_linear_inputs,
         "kv_cache_attention": _make_kv_cache_attention_inputs,
     }
     try:
@@ -74,6 +77,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "embedding": f"{batch}x{seq}x{vocab}x{_normalized_dim(args)}",
         "lm_head": f"{batch}x{seq}x{_normalized_dim(args)}x{vocab}",
         "attn_out_bias_gemm": f"{batch}x{seq}x{_attn_out_dim(args)}",
+        "txt_in_rmsnorm_linear": f"{batch}x{seq}x{DEFAULT_TXT_IN_HIDDEN}x{DEFAULT_TXT_IN_OUT}",
         "kv_cache_attention": f"{batch}x{DEFAULT_N_HEADS}x1x{seq + 1}x{DEFAULT_HEAD_DIM}",
     }
     try:
@@ -325,6 +329,25 @@ def _make_attn_out_bias_gemm_inputs(
 
 def _attn_out_dim(args: argparse.Namespace) -> int:
     return _arg_int(args, "normalized_dim", DEFAULT_ATTN_OUT_DIM)
+
+
+def _make_txt_in_rmsnorm_linear_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    """Qwen-Image text-patch RMSNorm(3584)->Linear(3584->3072)+bias.
+
+    Hidden/out dims are contract-frozen; only the leading batch/seq shape
+    varies. Keys match the op signature (x, norm_weight, weight, bias).
+    """
+    batch, seq = _batch_seq(args)
+    return {
+        "x": _floating_tensor((batch, seq, DEFAULT_TXT_IN_HIDDEN), args, dtype, device, offset=0),
+        "norm_weight": _floating_tensor((DEFAULT_TXT_IN_HIDDEN,), args, dtype, device, offset=1),
+        "weight": _floating_tensor(
+            (DEFAULT_TXT_IN_OUT, DEFAULT_TXT_IN_HIDDEN), args, dtype, device, offset=2
+        ),
+        "bias": _floating_tensor((DEFAULT_TXT_IN_OUT,), args, dtype, device, offset=3),
+    }
 
 
 def _make_kv_cache_attention_inputs(

@@ -195,6 +195,27 @@ OP_SPECS = {
         grad_input_names=("x", "weight", "bias"),
         bitwise_strict=True,
     ),
+    "txt_in_rmsnorm_linear": OperatorSpec(
+        name="txt_in_rmsnorm_linear",
+        op_class="reduction",
+        # Same-discipline gold: the reference evaluates the frozen norm
+        # statistics (sumsq tree + three-step rstd) and the frozen 112-leaf
+        # tree GEMM with explicit elementwise ops (no matmul, no fused
+        # rsqrt), so the bitwise bar from issue #386 is reached against THIS
+        # gold.
+        gold_path="rl_engine.kernels.ops.pytorch.norm.txt_in_rmsnorm_linear."
+        "NativeTxtInRMSNormLinearOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.kernels.ops.pytorch.norm.txt_in_rmsnorm_linear."
+            "NativeTxtInRMSNormLinearOp",
+            "triton": "rl_engine.kernels.ops.triton.norm.txt_in_rmsnorm_linear."
+            "TritonTxtInRMSNormLinearOp",
+            "cuda": "rl_engine.kernels.ops.cuda.norm.txt_in_rmsnorm_linear."
+            "CudaTxtInRMSNormLinearOp",
+        },
+        grad_input_names=("x", "norm_weight", "weight", "bias"),
+    ),
     "det_gemm": OperatorSpec(
         name="det_gemm",
         op_class="reduction",

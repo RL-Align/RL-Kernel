@@ -172,6 +172,16 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     CUDA_ATTN_OUT_BIAS_GEMM = (
         "rl_engine.kernels.ops.cuda.linear.attn_out_bias_gemm.CudaAttnOutBiasGemmOp"
     )
+    # Qwen-Image txt_in RMSNorm->Linear (frozen contract txt-in-rmsnorm-linear-v1)
+    PYTORCH_TXT_IN_RMSNORM_LINEAR = (
+        "rl_engine.kernels.ops.pytorch.norm.txt_in_rmsnorm_linear.NativeTxtInRMSNormLinearOp"
+    )
+    TRITON_TXT_IN_RMSNORM_LINEAR = (
+        "rl_engine.kernels.ops.triton.norm.txt_in_rmsnorm_linear.TritonTxtInRMSNormLinearOp"
+    )
+    CUDA_TXT_IN_RMSNORM_LINEAR = (
+        "rl_engine.kernels.ops.cuda.norm.txt_in_rmsnorm_linear.CudaTxtInRMSNormLinearOp"
+    )
     PYTORCH_NATIVE_ROPE = "rl_engine.kernels.ops.pytorch.rotary_embedding.rope.NativeRoPEOp"
     TRITON_ROPE = "rl_engine.kernels.ops.triton.rotary_embedding.rope.TritonRoPEOp"
     CUDA_ROPE_SM90 = "rl_engine.kernels.ops.cuda.rotary_embedding.rope.RoPESM90Op"
@@ -623,6 +633,11 @@ class KernelRegistry:
                     OpBackend.CUDA_ATTN_OUT_BIAS_GEMM,
                     OpBackend.PYTORCH_ATTN_OUT_BIAS_GEMM,
                 ],
+                "txt_in_rmsnorm_linear": [
+                    OpBackend.TRITON_TXT_IN_RMSNORM_LINEAR,
+                    OpBackend.CUDA_TXT_IN_RMSNORM_LINEAR,
+                    OpBackend.PYTORCH_TXT_IN_RMSNORM_LINEAR,
+                ],
             },
             "rocm": {
                 "logp": [
@@ -666,6 +681,10 @@ class KernelRegistry:
                 "attn_out_bias_gemm": [
                     OpBackend.TRITON_ATTN_OUT_BIAS_GEMM,
                     OpBackend.PYTORCH_ATTN_OUT_BIAS_GEMM,
+                ],
+                "txt_in_rmsnorm_linear": [
+                    OpBackend.TRITON_TXT_IN_RMSNORM_LINEAR,
+                    OpBackend.PYTORCH_TXT_IN_RMSNORM_LINEAR,
                 ],
             },
             "musa": {
@@ -737,6 +756,7 @@ class KernelRegistry:
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
                 "attn_out_bias_gemm": [OpBackend.PYTORCH_ATTN_OUT_BIAS_GEMM],
+                "txt_in_rmsnorm_linear": [OpBackend.PYTORCH_TXT_IN_RMSNORM_LINEAR],
             },
             # Ascend NPU: op types without an entry fall back to their CPU
             # candidates (see the runtime override below), so only
