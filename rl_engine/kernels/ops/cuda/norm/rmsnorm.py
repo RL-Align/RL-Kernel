@@ -15,6 +15,25 @@ def _fold_dweight_rows(rows: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
     return reduce_rows_fp32(rows).to(dtype)
 
 
+def _require_cuda_symbols(what: str, *names: str) -> None:
+    """Raise when the compiled kernels backing ``what`` are missing.
+
+    The registry treats a backend whose construction raises as unavailable and
+    falls through to the next candidate, so calling this from ``__init__`` is
+    what lets a CUDA-first priority list degrade to the PyTorch reference on a
+    build without the extension. Mirrors ``_require_cuda_activation`` in the
+    activation ops.
+    """
+    if not _EXT_AVAILABLE or _C is None:
+        raise RuntimeError(f"{what} requires the compiled rl_engine._C extension.")
+    missing = [name for name in names if not hasattr(_C, name)]
+    if missing:
+        raise RuntimeError(
+            f"{what} symbols ({', '.join(missing)}) are not compiled into _C. "
+            "Rebuild the extension with csrc/cuda/rmsnorm.cu."
+        )
+
+
 class RMSNormCuda(torch.autograd.Function):
     """
     PyTorch autograd wrapper for CUDA RMSNorm.
@@ -162,24 +181,6 @@ class Qwen3NextRMSNormCudaOp(RMSNormCudaOp):
 # --------------------------------------------------------------------------- #
 # Gated RMSNorm (Qwen3-Next GDN block)
 # --------------------------------------------------------------------------- #
-
-
-def _require_cuda_symbols(what: str, *names: str) -> None:
-    """Raise when the compiled kernels backing ``what`` are missing.
-
-    The registry treats a backend whose construction raises as unavailable and
-    falls through, so calling this from ``__init__`` is what lets a CUDA-first
-    priority list degrade to the PyTorch reference on a build without the
-    extension. Mirrors ``_require_cuda_activation`` in the activation ops.
-    """
-    if not _EXT_AVAILABLE or _C is None:
-        raise RuntimeError(f"{what} requires the compiled rl_engine._C extension.")
-    missing = [name for name in names if not hasattr(_C, name)]
-    if missing:
-        raise RuntimeError(
-            f"{what} symbols ({', '.join(missing)}) are not compiled into _C. "
-            "Rebuild the extension with csrc/cuda/rmsnorm.cu."
-        )
 
 
 #: Gate activations understood by the CUDA kernel, in binding order. ``swish`` is
