@@ -15,17 +15,15 @@ Design (see docs/operators/attn-out-bias-gemm.md):
   partial planes at once (~2 GB at the largest acceptance tier instead of
   8.1 GB, and bitwise-identical by construction: the tree is the same).
 - ``dW`` reduces over the row dim S with the ascending-row LEFT FOLD
-  (contract c-prime): a dedicated kernel accumulates one separate
-  multiply-add per row into a single [N, K] fp32 accumulator -- no partials,
-  memory independent of S.
-- The multiply-add discipline is FMA (fused, one rounding per multiply-add)
-  on every device backend, via explicit ``libdevice.fma_rn``. On bf16 inputs
-  FMA and separate mul-add are provably bit-identical (products are exact in
-  fp32), so the byte-for-byte bar against the torch reference holds on the
-  working dtype; on fp32 inputs the backends are bit-identical to each other
-  and compared to the torch reference (which cannot express elementwise FMA)
-  with a tight declared tolerance. ``tl.sum`` (unspecified tree order) and
-  ``tl.dot``/mma (unspecified internal accumulation tree) remain forbidden.
+  (contract c-prime): a dedicated kernel accumulates one correctly-rounded
+  FMA per row into a single [N, K] fp32 accumulator -- no partials, memory
+  independent of S.
+- One correctly-rounded FP32 FMA discipline on BOTH sides: these kernels use
+  explicit ``libdevice.fma_rn`` and the torch reference uses
+  ``torch.addcmul`` (an oracle-verified correctly-rounded FP32 FMA), so every
+  backend matches the reference byte for byte in BOTH dtypes -- no tolerance
+  path. ``tl.sum`` (unspecified tree order) and ``tl.dot``/mma (unspecified
+  internal accumulation tree) remain forbidden.
 - Bias is added once in fp32 after the complete tree and the output is cast
   once (RNE) -- via the shared ``finalize_tree_output`` host helper.
 """
@@ -92,9 +90,9 @@ if _TRITON_AVAILABLE:
                 a_vec = tl.load(a_ptr + m_offs * R + k, mask=m_mask, other=0.0)
                 b_vec = tl.load(b_ptr + n_offs * R + k, mask=n_mask, other=0.0)
                 # fma_rn is fma.rn.f32: exact product, one rounding per
-                # multiply-add (contract v3.4: FMA is the uniform device
-                # discipline; on bf16 inputs FMA and separate mul-add are
-                # provably bit-identical, which is what the harness checks).
+                # multiply-add. One FMA discipline on both sides (the torch
+                # reference uses addcmul, an oracle-verified FMA), which is
+                # what the bit-equality harness checks in both dtypes.
                 acc = libdevice.fma_rn(a_vec[:, None], b_vec[None, :], acc)
             plane = (leaf - leaf_lo) * (P * Q)
             dst = partials_ptr + plane + m_offs[:, None] * Q + n_offs[None, :]
@@ -114,7 +112,7 @@ if _TRITON_AVAILABLE:
         """dW[n, k] = sum over rows s (ascending) of dY[s, n] * x[s, k].
 
         One program owns a [BLOCK_N, BLOCK_K] tile of dW and walks the rows
-        in ascending order, one separate multiply-add per row (left fold).
+        in ascending order, one correctly-rounded FMA per row (left fold).
         """
         pid_n = tl.program_id(0)
         pid_k = tl.program_id(1)
@@ -297,6 +295,8 @@ class TritonAttnOutBiasGemmOp:
     ) -> torch.Tensor:
         if not x.is_cuda or x.device != weight.device:
             raise ValueError("TritonAttnOutBiasGemmOp requires CUDA tensors on one device")
+        if bias is not None and bias.device != x.device:
+            raise ValueError("bias must live on the same device as x")
         if x.dtype not in (torch.bfloat16, torch.float32):
             raise ValueError(f"supported dtypes are bf16/fp32 (contract scope), got {x.dtype}")
         return _AttnOutBiasGemmTritonFunction.apply(x, weight, bias)

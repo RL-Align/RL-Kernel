@@ -12,10 +12,10 @@ Wraps the correctness-anchor kernels in ``csrc/cuda/gemm/attn_out_bias_gemm.cu``
 - ``dx`` reuses the same tree kernel on ``(dY, W.T)``; ``dW`` runs the
   ascending-row left-fold kernel (contract c-prime); ``db`` uses the shared
   ``row_local_bias_fp32`` left fold.
-- On bf16 inputs FMA and separate mul-add are bit-identical (exact products),
-  so this backend matches the FP32 CPU reference byte for byte; on fp32 inputs
-  the CUDA and Triton backends match each other byte for byte (same FMA
-  discipline) and the torch reference within a declared tolerance.
+- One correctly-rounded FP32 FMA discipline on both sides (kernels use
+  ``__fmaf_rn``; the reference uses ``torch.addcmul``, an oracle-verified
+  correctly-rounded FMA), so this backend matches the reference byte for
+  byte in BOTH dtypes -- no tolerance path.
 """
 
 from __future__ import annotations
@@ -46,9 +46,12 @@ class _AttnOutBiasGemmCudaFunction(torch.autograd.Function):
         ctx, x: torch.Tensor, weight: torch.Tensor, bias: Optional[torch.Tensor]
     ) -> torch.Tensor:
         x2d = x.reshape(-1, x.size(-1))
-        bias_f = None if bias is None else bias.float()
+        bias_f = None if bias is None else bias.float().contiguous()
         out = _C.attn_out_bias_gemm_cuda_forward(
-            x2d.float(), weight.float(), bias_f, x.dtype == torch.bfloat16
+            x2d.float().contiguous(),
+            weight.float().contiguous(),
+            bias_f,
+            x.dtype == torch.bfloat16,
         )
         ctx.save_for_backward(x2d, weight, bias)
         ctx.lead_shape = x.shape[:-1]
@@ -62,9 +65,11 @@ class _AttnOutBiasGemmCudaFunction(torch.autograd.Function):
         from rl_engine.kernels.ops.vjp_fp32 import row_local_bias_fp32
 
         x2d, weight, bias = ctx.saved_tensors
-        g_f = grad_output.reshape(-1, grad_output.size(-1)).float()
+        # autograd may hand us an expanded (non-contiguous) upstream gradient,
+        # e.g. from out.sum().backward(); materialise it before the C++ checks
+        g_f = grad_output.reshape(-1, grad_output.size(-1)).float().contiguous()
         grad_x = _C.attn_out_tree_gemm_cuda(g_f, weight.t().contiguous().float())
-        grad_w = _C.attn_out_dw_left_fold_cuda(g_f, x2d.float())
+        grad_w = _C.attn_out_dw_left_fold_cuda(g_f, x2d.float().contiguous())
         grad_x = grad_x.reshape(*ctx.lead_shape, x2d.size(-1)).to(x2d.dtype)
         grad_w = grad_w.to(weight.dtype)
         grad_b: Optional[torch.Tensor] = None
@@ -114,6 +119,8 @@ class CudaAttnOutBiasGemmOp:
     ) -> torch.Tensor:
         if not x.is_cuda or x.device != weight.device:
             raise ValueError("CudaAttnOutBiasGemmOp requires CUDA tensors on one device")
+        if bias is not None and bias.device != x.device:
+            raise ValueError("bias must live on the same device as x")
         if x.dtype not in (torch.bfloat16, torch.float32):
             raise ValueError(f"supported dtypes are bf16/fp32 (contract scope), got {x.dtype}")
         return _AttnOutBiasGemmCudaFunction.apply(x, weight, bias)

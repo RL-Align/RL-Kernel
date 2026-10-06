@@ -15,10 +15,10 @@
 //     each leaf is an ascending-k fp32 chain starting from +0.0; leaves merge
 //     through a mid-split tree T(l,r) = T(l,m) + T(m,r). The tree depends
 //     only on R, so row outputs are batch-invariant by construction.
-//   * Multiply-add discipline: FMA everywhere on device (__fmaf_rn / explicit
-//     intrinsics). On bf16 inputs FMA and separate mul-add are provably
-//     bit-identical (products are exact in fp32), which is how the kernel
-//     matches the FP32 CPU reference byte for byte on the working dtype.
+//   * Multiply-add discipline: one correctly-rounded FP32 FMA on BOTH sides
+//     (__fmaf_rn here; the FP32 reference uses torch.addcmul, an
+//     oracle-verified correctly-rounded FMA), so the kernel matches the
+//     reference byte for byte in BOTH dtypes -- no tolerance path.
 //   * RNE everywhere; bias added once in fp32 after the complete tree; the
 //     single fp32 -> output-dtype cast happens at the final store.
 //   * No split-K, no atomics, no tensor-core mma (its internal accumulation
@@ -26,6 +26,8 @@
 
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAGuard.h>
+#include <c10/cuda/CUDAException.h>
 #include <cuda_bf16.h>
 #include <cstdint>
 #include <type_traits>
@@ -132,14 +134,17 @@ int leaves_of(int64_t reduction) {
 
 torch::Tensor attn_out_bias_gemm_cuda_forward(
     torch::Tensor x, torch::Tensor weight, c10::optional<torch::Tensor> bias, bool bf16_out) {
+    const c10::cuda::CUDAGuard device_guard(x.device());
     check_common(x, "x");
     check_common(weight, "weight");
+    TORCH_CHECK(weight.device() == x.device(), "weight must live on x's device");
     TORCH_CHECK(x.dim() == 2, "x must be 2-D [S, K]");
     TORCH_CHECK(weight.dim() == 2, "weight must be 2-D [N, K]");
     TORCH_CHECK(x.size(1) == weight.size(1), "x K must match weight K");
     if (bias.has_value()) {
         check_common(*bias, "bias");
         TORCH_CHECK((*bias).numel() == weight.size(0), "bias must have N elements");
+        TORCH_CHECK((*bias).device() == x.device(), "bias must live on x's device");
     }
     const int rows = static_cast<int>(x.size(0));
     const int out_dim = static_cast<int>(weight.size(0));
@@ -156,6 +161,9 @@ torch::Tensor attn_out_bias_gemm_cuda_forward(
     // happens in-kernel at the store; fp32 => no cast).
     auto out = torch::empty(
         {x.size(0), weight.size(0)}, x.options().dtype(bf16_out ? at::kBFloat16 : at::kFloat));
+    if (total == 0) {
+        return out;  // zero-row/grid-0 launches are invalid; skip synchronously
+    }
     if (bf16_out) {
         attn_out_bias_gemm_fwd_kernel<nv_bf16><<<blocks, threads, 0, stream>>>(
             x.data_ptr<float>(), weight.data_ptr<float>(), bias_ptr,
@@ -165,12 +173,15 @@ torch::Tensor attn_out_bias_gemm_cuda_forward(
             x.data_ptr<float>(), weight.data_ptr<float>(), bias_ptr, out.data_ptr<float>(), rows,
             out_dim, in_dim, leaves);
     }
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
     return out;
 }
 
 torch::Tensor attn_out_tree_gemm_cuda(torch::Tensor a, torch::Tensor b) {
+    const c10::cuda::CUDAGuard device_guard(a.device());
     check_common(a, "a");
     check_common(b, "b");
+    TORCH_CHECK(b.device() == a.device(), "b must live on a's device");
     TORCH_CHECK(a.dim() == 2 && b.dim() == 2, "a and b must be 2-D");
     TORCH_CHECK(a.size(1) == b.size(1), "reduction dims must match");
     const int rows = static_cast<int>(a.size(0));
@@ -180,18 +191,24 @@ torch::Tensor attn_out_tree_gemm_cuda(torch::Tensor a, torch::Tensor b) {
 
     auto out = torch::empty({a.size(0), b.size(0)}, a.options());
     const long total = static_cast<long>(rows) * cols;
+    if (total == 0) {
+        return out;
+    }
     const int threads = 256;
     const int blocks = static_cast<int>((total + threads - 1) / threads);
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
     attn_out_bias_gemm_fwd_kernel<float><<<blocks, threads, 0, stream>>>(
         a.data_ptr<float>(), b.data_ptr<float>(), nullptr, out.data_ptr<float>(), rows, cols,
         reduction, leaves);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
     return out;
 }
 
 torch::Tensor attn_out_dw_left_fold_cuda(torch::Tensor grad, torch::Tensor x) {
+    const c10::cuda::CUDAGuard device_guard(grad.device());
     check_common(grad, "grad");
     check_common(x, "x");
+    TORCH_CHECK(x.device() == grad.device(), "x must live on grad's device");
     TORCH_CHECK(grad.dim() == 2 && x.dim() == 2, "grad and x must be 2-D");
     TORCH_CHECK(grad.size(0) == x.size(0), "row counts must match");
     const int rows = static_cast<int>(grad.size(0));
@@ -200,10 +217,14 @@ torch::Tensor attn_out_dw_left_fold_cuda(torch::Tensor grad, torch::Tensor x) {
 
     auto dw = torch::empty({grad.size(1), x.size(1)}, grad.options());
     const long total = static_cast<long>(out_dim) * in_dim;
+    if (total == 0) {
+        return dw;
+    }
     const int threads = 256;
     const int blocks = static_cast<int>((total + threads - 1) / threads);
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
     attn_out_dw_left_fold_kernel<<<blocks, threads, 0, stream>>>(
         grad.data_ptr<float>(), x.data_ptr<float>(), dw.data_ptr<float>(), rows, out_dim, in_dim);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
     return dw;
 }

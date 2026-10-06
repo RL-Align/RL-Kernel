@@ -19,10 +19,13 @@ Frozen numeric contract (issue #386, contract version
    ``R`` -- never on batch size, token count, or tiling -- so row outputs are
    batch-invariant by construction, and a contiguous half-R split composes
    (left subtree + right subtree == whole tree) for the WS2 TP-row shard path.
-2. **Multiply-add discipline.** SEPARATE fp32 multiply then add: the product
-   rounds to fp32, then the add rounds. No implicit FMA contraction anywhere,
-   any dtype, any backend. RNE rounding everywhere, including the single
-   fp32 -> input-dtype output cast.
+2. **Multiply-add discipline.** Correctly-rounded FP32 FMA at every
+   multiply-into-add site, on BOTH sides: device backends use explicit
+   ``fma_rn`` intrinsics and this reference uses ``torch.addcmul`` (a
+   correctly-rounded single-rounding FP32 FMA on the pinned toolchains,
+   oracle-verified against ``libm fmaf``). One discipline, one set of bits --
+   no intermediate double rounding, no tolerance path. RNE rounding
+   everywhere, including the single fp32 -> input-dtype output cast.
 3. **bias.** Added once per output element, in fp32, after the complete K
    tree; then the single output cast. Never inside a leaf chain or tree node.
 4. **S-dim reductions** (parameter gradients only) use an ascending-row fp32
@@ -102,18 +105,22 @@ def finalize_tree_output(
 
 
 def _leaf_sum_fp32(a_f: torch.Tensor, b_f: torch.Tensor, leaf_index: int) -> torch.Tensor:
-    """One leaf of ``a_f @ b_f.T`` (both fp32): ascending-k separate mul/add chain.
+    """One leaf of ``a_f @ b_f.T`` (both fp32): ascending-k correctly-rounded FMA chain.
 
-    ``acc`` starts from +0.0 and every step is two statements -- the product
-    rounds, then the add rounds. Writing ``acc += a * b`` in one expression is
-    forbidden: fused evaluation would contract the roundings.
+    Every step is ONE fused multiply-add with a single rounding:
+    ``acc = torch.addcmul(acc, a_col, b_col)`` (broadcast outer product).
+    ``torch.addcmul`` is a true correctly-rounded FP32 FMA on the pinned
+    toolchains -- verified against the ``libm fmaf`` oracle (IEEE 754
+    correctly-rounded by specification) on the double-rounding counterexample
+    and on random samples, CPU and CUDA (see tests). This matches the device
+    backends' explicit ``fma_rn`` chains bit for bit with no intermediate
+    double rounding anywhere.
     """
     k0 = leaf_index * LEAF_WIDTH
     k1 = min(k0 + LEAF_WIDTH, a_f.size(1))
     acc = torch.zeros(a_f.size(0), b_f.size(0), device=a_f.device, dtype=torch.float32)
     for k in range(k0, k1):
-        product = a_f[:, k].unsqueeze(1) * b_f[:, k].unsqueeze(0)
-        acc = acc + product
+        acc = torch.addcmul(acc, a_f[:, k].unsqueeze(1), b_f[:, k].unsqueeze(0))
     return acc
 
 
@@ -139,17 +146,15 @@ def tree_gemm_fp32(a_f: torch.Tensor, b_f: torch.Tensor) -> torch.Tensor:
 
 
 def _dw_left_fold_reference(g_f: torch.Tensor, x_f: torch.Tensor) -> torch.Tensor:
-    """dW by the ascending-row left fold with SEPARATE multiply and add.
+    """dW by the ascending-row left fold, one correctly-rounded FMA per row.
 
-    ``vjp_fp32.row_local_linear_dw_fp32`` delegates the per-row outer product
-    to ``addmm_`` (a BLAS path that may fuse the multiply into an FMA on fp32
-    values), so the reference implements the fold with explicit elementwise
-    ops: the product rounds, then the add rounds -- on every device.
+    Same single-rounding primitive as ``_leaf_sum_fp32``: the fold accumulates
+    ``dw = torch.addcmul(dw, g_row, x_row)`` per row in ascending order,
+    matching the device backends' ``__fmaf_rn`` fold bit for bit.
     """
     dw = torch.zeros(g_f.size(1), x_f.size(1), device=g_f.device, dtype=torch.float32)
     for row in range(g_f.size(0)):
-        product = g_f[row].unsqueeze(1) * x_f[row].unsqueeze(0)
-        dw = dw + product
+        dw = torch.addcmul(dw, g_f[row].unsqueeze(1), x_f[row].unsqueeze(0))
     return dw
 
 
@@ -162,8 +167,8 @@ def attn_out_bias_gemm_reference_backward(
 
     ``dx = dY @ W`` reduces over ``R = N`` under the mid-split tree (same
     K-dim rule as the forward). ``dW = dY.T @ x`` reduces over the row dim S
-    with the **ascending-row left fold** (contract c-prime), one separate
-    multiply-add per row.
+    with the **ascending-row left fold** (contract c-prime), one correctly-
+    rounded FMA per row (torch.addcmul, same primitive as the leaf chains).
     """
     w_f = weight.float()
     g_f = grad_output.reshape(-1, grad_output.size(-1)).float()

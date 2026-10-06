@@ -18,10 +18,13 @@ variant). The numeric contract version is
   tree depends only on the reduction length, so row outputs are
   batch-invariant by construction, and a contiguous half-K split composes
   (WS2 TP-row friendly).
-- **Multiply-add discipline**: FMA (fused, one rounding per multiply-add) on
-  every device backend, via explicit intrinsics (`libdevice.fma_rn` /
-  `__fmaf_rn`). On bf16 inputs FMA and separate mul-add are provably and
-  measurably bit-identical (products are exact in fp32).
+- **Multiply-add discipline**: one correctly-rounded FP32 FMA on BOTH sides
+  of every multiply-into-add site -- device backends use explicit intrinsics
+  (`libdevice.fma_rn` / `__fmaf_rn`) and the FP32 reference uses
+  `torch.addcmul` (a correctly-rounded single-rounding FP32 FMA, verified
+  against the `libm fmaf` oracle). One discipline, one set of bits: every
+  backend matches the reference byte for byte in BOTH dtypes, with no
+  tolerance path.
 - **RNE everywhere**; bias is added once in fp32 after the complete tree;
   the single fp32-to-output-dtype cast happens at the final store. No
   split-K, no atomics, no tensor-core mma, no fast-math, no TF32.
@@ -69,11 +72,9 @@ The acceptance structure is star-shaped with a single gold: the FP32 CPU
 same-tree reference (explicit elementwise ops, no matmul, no implicit
 reductions, bit-identical on every device).
 
-- **bf16 inputs (working dtype)**: every backend matches the reference byte
-  for byte (products exact in fp32; FMA and separate mul-add coincide).
-- **fp32 inputs**: device backends match each other byte for byte (same FMA
-  discipline); against the torch reference (which cannot express elementwise
-  FMA on Python 3.12) a tight declared tolerance of a few ulps applies.
+- **bf16 and fp32 inputs**: every backend matches the reference byte for
+  byte (single FMA discipline on both sides; verified across all acceptance
+  tiers).
 - **batch invariance**: bitwise (`torch.equal` plus a dtype-bitcast
   assertion on the logical elements) across batch composition, leading
   shapes, padding, and repeat runs, for outputs and `dx` alike.
