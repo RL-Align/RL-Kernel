@@ -24,6 +24,7 @@ from rl_engine.kernels.gtest.gradient_invariance import (
 )
 from rl_engine.kernels.gtest.operator_specs import OP_SPECS, _load_object
 from rl_engine.kernels.gtest.tolerance import normalize_dtype_name
+from rl_engine.kernels.ops.pytorch.mhc import MHC_PRE_HIDDEN_SIZE
 from rl_engine.testing.ws1_workload import (
     PaddedBatch,
     PhysicalLayout,
@@ -98,9 +99,25 @@ _DLOGITS = GradientTensorSpec("dlogits", "token", "logits")
 _DGATE = GradientTensorSpec("dgate", "token", "gate")
 _DUP = GradientTensorSpec("dup", "token", "up")
 _DW_LINEAR = GradientTensorSpec("dW", "parameter", "lm_head_weight")
+_DRESIDUAL = GradientTensorSpec("dresidual", "token", "residual")
+_DPRE = GradientTensorSpec("dpre", "token", "pre")
 
 
 GRADIENT_ADAPTERS: dict[str, GradientAdapterSpec] = {
+    "mhc_pre_h_aggregate": GradientAdapterSpec(
+        op_name="mhc_pre_h_aggregate",
+        chain_node="mhc_pre_h_aggregate",
+        op_class="reduction",
+        spec_name="mhc_pre_h_aggregate",
+        tensors=(_DRESIDUAL, _DPRE),
+        requirement="optional_fused",
+        source_files=(
+            "rl_engine/kernels/ops/cuda/mhc.py",
+            "rl_engine/kernels/ops/pytorch/mhc.py",
+            "csrc/cuda/mhc/mhc_pre_h_aggregate.cu",
+            "csrc/cuda/mhc/mhc_pre_h_aggregate_kernel.cuh",
+        ),
+    ),
     "rms_norm": GradientAdapterSpec(
         op_name="rms_norm",
         chain_node="rms_norm",
@@ -519,7 +536,11 @@ def make_gradient_runner(
 
     def run(config: ConfigSpec, **kwargs: Any) -> dict[str, torch.Tensor] | GradientObservation:
         denom = int(kwargs["active_token_denominator"])
-        exec_dtype = torch.float32 if reference else dtype
+        exec_dtype = (
+            torch.bfloat16
+            if op_name == "mhc_pre_h_aggregate"
+            else torch.float32 if reference else dtype
+        )
         grads = _run_adapter(
             adapter,
             operator,
@@ -580,7 +601,11 @@ def make_forward_runner(
         config: ConfigSpec, **kwargs: Any
     ) -> dict[tuple[str, int], torch.Tensor] | RuntimeObservation:
         del kwargs
-        exec_dtype = torch.float32 if reference else dtype
+        exec_dtype = (
+            torch.bfloat16
+            if op_name == "mhc_pre_h_aggregate"
+            else torch.float32 if reference else dtype
+        )
         outputs = _run_forward(
             adapter,
             operator,
@@ -680,6 +705,20 @@ def _row_inputs(
         return {
             "gate": _stack_rows(keys, leading, (hidden,), device=device, dtype=dtype, offset=0),
             "up": _stack_rows(keys, leading, (hidden,), device=device, dtype=dtype, offset=1),
+        }
+    if op_name == "mhc_pre_h_aggregate":
+        return {
+            "residual": _stack_rows(
+                keys, leading, (4, MHC_PRE_HIDDEN_SIZE), device=device, dtype=dtype
+            ),
+            "pre": _stack_rows(
+                keys,
+                leading,
+                (4,),
+                device=device,
+                dtype=torch.float32,
+                offset=1,
+            ),
         }
     if op_name == "det_gemm":
         return {
@@ -797,25 +836,48 @@ def _run_row_stream(
             n_heads=n_heads,
             head_dim=head_dim,
         )
-        prepared = _requires_grad_inputs(inputs, [spec.source_input for spec in specs])
-        raw = _require_differentiable(
-            adapter.op_name, _first_output(_call_operator(operator, prepared))
-        )
-        out_rows = _to_rows(adapter.op_name, raw, length)
-        upstream = _scaled_upstream(
-            keys,
-            tokens,
-            tuple(out_rows.shape[1:]),
-            active_token_denominator=active_token_denominator,
-            device=device,
-            dtype=out_rows.dtype,
-        )
-        grads = torch.autograd.grad(
-            out_rows,
-            [prepared[spec.source_input] for spec in specs],
-            grad_outputs=upstream,
-            allow_unused=True,
-        )
+        if adapter.op_name == "mhc_pre_h_aggregate":
+            prepared = inputs
+            raw = _first_output(_call_operator(operator, prepared))
+            out_rows = _to_rows(adapter.op_name, raw, length)
+            upstream = _scaled_upstream(
+                keys,
+                tokens,
+                tuple(out_rows.shape[1:]),
+                active_token_denominator=active_token_denominator,
+                device=device,
+                dtype=out_rows.dtype,
+            )
+            backward_fp32 = getattr(operator, "backward_fp32", None)
+            if not callable(backward_fp32):
+                raise MissingBackwardError(
+                    adapter.op_name, "candidate has no explicit FP32 backward"
+                )
+            grads = backward_fp32(
+                upstream,
+                prepared["residual"],
+                prepared["pre"],
+            )
+        else:
+            prepared = _requires_grad_inputs(inputs, [spec.source_input for spec in specs])
+            raw = _require_differentiable(
+                adapter.op_name, _first_output(_call_operator(operator, prepared))
+            )
+            out_rows = _to_rows(adapter.op_name, raw, length)
+            upstream = _scaled_upstream(
+                keys,
+                tokens,
+                tuple(out_rows.shape[1:]),
+                active_token_denominator=active_token_denominator,
+                device=device,
+                dtype=out_rows.dtype,
+            )
+            grads = torch.autograd.grad(
+                out_rows,
+                [prepared[spec.source_input] for spec in specs],
+                grad_outputs=upstream,
+                allow_unused=True,
+            )
         contribution_fn = getattr(operator, "parameter_vjp_contributions_fp32", None)
         contributions = (
             contribution_fn(**prepared, grad_output=upstream) if callable(contribution_fn) else None
