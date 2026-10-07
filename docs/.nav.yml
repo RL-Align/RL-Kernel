@@ -20,6 +20,7 @@ nav:
       - operators/final-logit-softcap.md
       - operators/attention.md
       - operators/fused-logp.md
+      - operators/softcapped-selected-logprob.md
       - operators/linear-logp.md
       - operators/batch-invariant-logp.md
       - operators/linear-logp-tp-test.md

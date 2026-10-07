@@ -40,6 +40,7 @@ def make_operator_inputs(
         "silu": _make_silu_inputs,
         "swiglu": _make_swiglu_inputs,
         "final_logit_softcap": _make_final_logit_softcap_inputs,
+        "softcapped_selected_logprob": _make_softcapped_selected_logprob_inputs,
         "embedding": _make_embedding_inputs,
         "lm_head": _make_lm_head_inputs,
         "kv_cache_attention": _make_kv_cache_attention_inputs,
@@ -71,6 +72,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "silu": f"{batch}x{seq}x{DEFAULT_INTERMEDIATE}",
         "swiglu": f"{batch}x{seq}x{DEFAULT_INTERMEDIATE}",
         "final_logit_softcap": f"{batch}x{seq}x{vocab}",
+        "softcapped_selected_logprob": f"{batch * seq}x{vocab}",
         "embedding": f"{batch}x{seq}x{vocab}x{_normalized_dim(args)}",
         "lm_head": f"{batch}x{seq}x{_normalized_dim(args)}x{vocab}",
         "kv_cache_attention": f"{batch}x{DEFAULT_N_HEADS}x1x{seq + 1}x{DEFAULT_HEAD_DIM}",
@@ -290,6 +292,18 @@ def _make_final_logit_softcap_inputs(
     batch, seq = _batch_seq(args)
     vocab = _arg_int(args, "vocab", DEFAULT_VOCAB)
     return {"x": _floating_tensor((batch, seq, vocab), args, dtype, device, 0)}
+
+
+def _make_softcapped_selected_logprob_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    batch, seq = _batch_seq(args)
+    vocab = _arg_int(args, "vocab", DEFAULT_VOCAB)
+    n_rows = batch * seq
+    return {
+        "logits": _floating_tensor((n_rows, vocab), args, dtype, device, 0),
+        "token_ids": _token_ids((n_rows,), vocab, args, device),
+    }
 
 
 def _make_embedding_inputs(

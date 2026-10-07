@@ -246,6 +246,26 @@ OP_SPECS = {
         },
         grad_input_names=("x",),
     ),
+    "softcapped_selected_logprob": OperatorSpec(
+        name="softcapped_selected_logprob",
+        op_class="logprob",
+        gold_path=(
+            "rl_engine.kernels.ops.pytorch.loss.softcapped_selected_logprob."
+            "NativeSoftcappedSelectedLogprobOp"
+        ),
+        gold_method="forward",
+        candidate_paths={
+            "pytorch": (
+                "rl_engine.kernels.ops.pytorch.loss.softcapped_selected_logprob."
+                "NativeSoftcappedSelectedLogprobOp"
+            ),
+            "triton": (
+                "rl_engine.kernels.ops.triton.loss.softcapped_selected_logprob."
+                "TritonSoftcappedSelectedLogprobOp"
+            ),
+        },
+        grad_input_names=("logits",),
+    ),
     "batch_invariant_logp": OperatorSpec(
         name="batch_invariant_logp",
         op_class="logprob",
