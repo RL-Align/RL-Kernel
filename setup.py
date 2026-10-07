@@ -158,6 +158,7 @@ def get_extensions():
             cuda_sources.append("csrc/cuda/distributed/deterministic_collective.cu")
             # MiniMax-H3 (RFC #420) conditioning path; plain-arch, runs on SM90 and SM100.
             cuda_sources.append("csrc/cuda/h3/timestep_sinusoid.cu")
+            cuda_sources.append("csrc/cuda/h3/det_linear.cu")
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
             cuda_sources.append("csrc/cuda/attention/prefix_shared_attention.cu")

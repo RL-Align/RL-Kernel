@@ -17,7 +17,8 @@ import torch
 
 from rl_engine.kernels.registry import KernelRegistry
 from rl_engine.testing.h3_cases import h3_timesteps
-from rl_engine.testing.h3_provider import provider_time_proj
+from rl_engine.testing.h3_provider import provider_time_embedder, provider_time_proj
+from rl_engine.testing.h3_weights import h3_weights_dir, load_h3_conditioning_weights
 
 # Keys of a perf case that hold a timed callable, in display order.
 TIMED_KEYS = (
@@ -111,9 +112,77 @@ def _sinusoid_accuracy(registry: KernelRegistry) -> dict[str, Any]:
     return {"contract_atol": 1e-5, "cases": rows}
 
 
+def h3_params(names: list[str], shapes: list[tuple[int, ...]]) -> list[torch.Tensor]:
+    """Pinned checkpoint tensors when available, otherwise same-shape random ones."""
+
+    if h3_weights_dir() is not None:
+        weights = load_h3_conditioning_weights("cuda", names)
+        return [weights[name] for name in names]
+    generator = torch.Generator(device="cuda").manual_seed(0)
+    return [
+        torch.randn(shape, device="cuda", generator=generator) * shape[-1] ** -0.5
+        for shape in shapes
+    ]
+
+
+# --------------------------------------------------------------------------- #
+# timestep_mlp_fp32
+# --------------------------------------------------------------------------- #
+
+MLP_NAMES = [f"time_embedder.linear_{i}.{p}" for i in (1, 2) for p in ("weight", "bias")]
+MLP_SHAPES = [(5376, 256), (5376,), (2688, 5376), (2688,)]
+
+
+def _mlp_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
+    op = registry.get_op("timestep_mlp_fp32", device="cuda")
+    params = h3_params(MLP_NAMES, MLP_SHAPES)
+    weight_bytes = sum(p.numel() * p.element_size() for p in params)
+    cases = []
+    for num in (1, 2, 3, 4):
+        x = torch.rand(num, 256, device="cuda") * 2 - 1
+        cases.append(
+            {
+                "op": "timestep_mlp_fp32",
+                "case": f"T={num}",
+                "backend": type(op).__name__,
+                "bytes": weight_bytes,
+                "candidate": lambda x=x: op(x, *params),
+                "provider": lambda x=x: provider_time_embedder(x, *params),
+            }
+        )
+    return cases
+
+
+def _mlp_accuracy(registry: KernelRegistry, draws: int = 200) -> dict[str, Any]:
+    op = registry.get_op("timestep_mlp_fp32", device="cuda")
+    golden = registry._get_or_create_backend(registry._priority_map["cpu"]["timestep_mlp_fp32"][-1])
+    sinusoid = registry.get_op("timestep_sinusoid_h3", device="cuda")
+    params = h3_params(MLP_NAMES, MLP_SHAPES)
+    cuda_err, provider_err = [], []
+    for seed in range(draws):
+        x = sinusoid(h3_timesteps(4, seed=seed))
+        gold = golden.forward_fp32(x, *params)
+        cuda_err.append(float((op(x, *params) - gold).abs().max()))
+        provider_err.append(float((provider_time_embedder(x, *params) - gold).abs().max()))
+    # Row invariance: each timestep alone equals its row in the batch of 9.
+    x = sinusoid(h3_timesteps(9, seed=1))
+    full = op(x, *params)
+    invariant = all(torch.equal(op(x[i : i + 1], *params)[0], full[i]) for i in range(9))
+    return {
+        "contract_atol": 1e-4,
+        "draws": draws,
+        "num_timesteps": 4,
+        "cuda_max_abs_vs_fp64": cuda_err,
+        "provider_max_abs_vs_fp64": provider_err,
+        "rows_batch_invariant": invariant,
+    }
+
+
 PERF_CASES: dict[str, Callable[[KernelRegistry], list[dict[str, Any]]]] = {
     "timestep_sinusoid_h3": _sinusoid_perf,
+    "timestep_mlp_fp32": _mlp_perf,
 }
 ACCURACY: dict[str, Callable[[KernelRegistry], dict[str, Any]]] = {
     "timestep_sinusoid_h3": _sinusoid_accuracy,
+    "timestep_mlp_fp32": _mlp_accuracy,
 }

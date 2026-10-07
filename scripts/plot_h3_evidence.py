@@ -154,8 +154,79 @@ def plot_sinusoid(report: dict[str, Any]):
     return fig
 
 
+def _latency_panel(ax, perf: list[dict[str, Any]], provider_name: str) -> None:
+    _style(ax, "Latency per call (lower is better)", "µs")
+    _bars(
+        ax,
+        [row["case"] for row in perf],
+        [
+            ("RL-Kernel CUDA", RL_KERNEL, [row["candidate_us"] for row in perf]),
+            (provider_name, PROVIDER, [row["provider_us"] for row in perf]),
+        ],
+        "{:.0f}",
+    )
+
+
+def _error_boxes(ax, title: str, series: list[tuple[str, str, list[float]]], contract: float):
+    """Per-draw max |error| as boxes with every draw overlaid, log scale."""
+
+    _style(ax, title, "max abs error per draw")
+    for i, (name, color, values) in enumerate(series):
+        ax.boxplot(
+            [values],
+            positions=[i],
+            widths=0.45,
+            showfliers=False,
+            patch_artist=True,
+            boxprops={"facecolor": color, "alpha": 0.25, "edgecolor": color},
+            medianprops={"color": color, "linewidth": 2},
+            whiskerprops={"color": color},
+            capprops={"color": color},
+        )
+        jitter = [i + ((k * 0.6180339) % 1 - 0.5) * 0.3 for k in range(len(values))]
+        ax.scatter(jitter, values, s=8, color=color, alpha=0.6, linewidths=0, zorder=3)
+        median = sorted(values)[len(values) // 2]
+        ax.annotate(
+            f"median {median:.1e}",
+            (i + 0.28, median),
+            fontsize=8,
+            color=INK,
+            va="center",
+        )
+    ax.axhline(contract, color=MUTED, lw=1, ls=":")
+    ax.annotate(
+        f"contract atol {contract:g}",
+        (len(series) - 0.5, contract),
+        xytext=(0, 3),
+        textcoords="offset points",
+        fontsize=7,
+        color=MUTED,
+        ha="right",
+    )
+    ax.set_yscale("log")
+    ax.set_xticks(range(len(series)), [name for name, _, _ in series])
+    ax.set_xlim(-0.6, len(series) - 0.1)
+
+
+def plot_mlp(report: dict[str, Any]):
+    fig, (left, right) = _figure(report, "timestep_mlp_fp32  (pinned time_embedder weights)")
+    _latency_panel(left, report["perf"], "diffusers (cuBLAS)")
+    acc = report["accuracy"]
+    _error_boxes(
+        right,
+        f"Error vs FP64 golden, {acc['draws']} draws of T={acc['num_timesteps']}",
+        [
+            ("RL-Kernel CUDA", RL_KERNEL, acc["cuda_max_abs_vs_fp64"]),
+            ("diffusers (cuBLAS)", PROVIDER, acc["provider_max_abs_vs_fp64"]),
+        ],
+        acc["contract_atol"],
+    )
+    return fig
+
+
 PLOTS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "timestep_sinusoid_h3": plot_sinusoid,
+    "timestep_mlp_fp32": plot_mlp,
 }
 
 

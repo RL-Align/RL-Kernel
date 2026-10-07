@@ -33,4 +33,5 @@ Every operator page should include:
 - [Sampling](sampling.md)
 - [Token Embedding](embedding.md)
 - [MiniMax-H3 Timestep Sinusoid](h3-timestep-sinusoid.md)
+- [MiniMax-H3 FP32 Timestep MLP](h3-timestep-mlp.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)

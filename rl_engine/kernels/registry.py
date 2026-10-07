@@ -207,6 +207,8 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     CUDA_H3_TIMESTEP_SINUSOID = (
         "rl_engine.kernels.ops.cuda.h3.timestep_sinusoid.H3TimestepSinusoidCudaOp"
     )
+    PYTORCH_H3_TIMESTEP_MLP = "rl_engine.kernels.ops.pytorch.h3.timestep_mlp.NativeH3TimestepMLPOp"
+    CUDA_H3_TIMESTEP_MLP = "rl_engine.kernels.ops.cuda.h3.timestep_mlp.H3TimestepMLPCudaOp"
 
 
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
@@ -621,6 +623,10 @@ class KernelRegistry:
                     OpBackend.CUDA_H3_TIMESTEP_SINUSOID,
                     OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID,
                 ],
+                "timestep_mlp_fp32": [
+                    OpBackend.CUDA_H3_TIMESTEP_MLP,
+                    OpBackend.PYTORCH_H3_TIMESTEP_MLP,
+                ],
             },
             "rocm": {
                 "logp": [
@@ -662,6 +668,7 @@ class KernelRegistry:
                 "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
                 "timestep_sinusoid_h3": [OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID],
+                "timestep_mlp_fp32": [OpBackend.PYTORCH_H3_TIMESTEP_MLP],
             },
             "musa": {
                 "logp": [OpBackend.TRITON_LOGP, OpBackend.PYTORCH_NATIVE],
@@ -707,6 +714,7 @@ class KernelRegistry:
                 "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
                 "timestep_sinusoid_h3": [OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID],
+                "timestep_mlp_fp32": [OpBackend.PYTORCH_H3_TIMESTEP_MLP],
             },
             "cpu": {
                 "logp": [OpBackend.PYTORCH_NATIVE],
@@ -733,6 +741,7 @@ class KernelRegistry:
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
                 "timestep_sinusoid_h3": [OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID],
+                "timestep_mlp_fp32": [OpBackend.PYTORCH_H3_TIMESTEP_MLP],
             },
             # Ascend NPU: op types without an entry fall back to their CPU
             # candidates (see the runtime override below), so only
