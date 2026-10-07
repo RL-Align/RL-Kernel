@@ -2,3 +2,7 @@
 *.sh text eol=lf
 # Unified patches contain whitespace-only context lines by design.
 *.patch text eol=lf -whitespace
+# Captured H100 logs/XML retain exact bytes for SHA256 verification, including
+# whitespace emitted by pytest and nvidia-smi (not hand-written source).
+docs/operators/timestep-reports/evidence/h100/*.log -text -whitespace
+docs/operators/timestep-reports/evidence/h100/*.xml -text -whitespace
