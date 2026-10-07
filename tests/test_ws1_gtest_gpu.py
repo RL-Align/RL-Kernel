@@ -50,6 +50,7 @@ def test_all_ws1_single_ops_are_registered():
         "linear_logp",
         "prefix_shared_attention",
         "timestep_sinusoid_h3",
+        "timestep_mlp_fp32",
     } <= names
 
 

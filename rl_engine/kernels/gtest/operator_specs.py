@@ -261,6 +261,17 @@ OP_SPECS = {
         },
         grad_input_names=("timestep",),
     ),
+    "timestep_mlp_fp32": OperatorSpec(
+        name="timestep_mlp_fp32",
+        op_class="reduction",
+        gold_path="rl_engine.kernels.ops.pytorch.h3.timestep_mlp.NativeH3TimestepMLPOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.kernels.ops.pytorch.h3.timestep_mlp.NativeH3TimestepMLPOp",
+            "cuda": "rl_engine.kernels.ops.cuda.h3.timestep_mlp.H3TimestepMLPCudaOp",
+        },
+        grad_input_names=("x", "w1", "b1", "w2", "b2"),
+    ),
     "pack": OperatorSpec(
         name="pack",
         op_class="elementwise",

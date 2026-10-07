@@ -31,6 +31,7 @@ nav:
       - operators/embedding.md
       - MiniMax-H3:
         - operators/h3-timestep-sinusoid.md
+        - operators/h3-timestep-mlp.md
   - Developer Guide:
     - contributing/README.md
     - General:

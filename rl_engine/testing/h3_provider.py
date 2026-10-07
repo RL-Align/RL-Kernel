@@ -15,6 +15,7 @@ from __future__ import annotations
 import math
 
 import torch
+import torch.nn.functional as F
 
 
 def provider_time_proj(timestep: torch.Tensor, num_channels: int = 256) -> torch.Tensor:
@@ -31,3 +32,17 @@ def provider_time_proj(timestep: torch.Tensor, num_channels: int = 256) -> torch
     emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=-1)
     emb = torch.cat([emb[:, half_dim:], emb[:, :half_dim]], dim=-1)
     return emb
+
+
+def provider_time_embedder(
+    features: torch.Tensor,
+    w1: torch.Tensor,
+    b1: torch.Tensor,
+    w2: torch.Tensor,
+    b2: torch.Tensor,
+) -> torch.Tensor:
+    """``TimestepEmbedding(256, 5376, out_dim=2688)``: linear_1 -> SiLU -> linear_2, FP32."""
+
+    sample = F.linear(features.to(w1.dtype), w1, b1)
+    sample = F.silu(sample)
+    return F.linear(sample, w2, b2)
