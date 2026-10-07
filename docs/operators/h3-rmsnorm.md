@@ -67,7 +67,7 @@ closed.
     same scheme as [`adaln_row_gather`](h3-adaln-row-gather.md).
 
   Diffusers' `index_select` backward accumulates `dshift`/`dscale` with BF16 atomics, so it is
-  non-deterministic and about 15× less accurate.
+  non-deterministic and about 15–20× less accurate (its error varies from run to run).
 
 ## Performance Notes
 
@@ -79,12 +79,23 @@ B200, block `norm1` + MSA modulation, B = 1, H = 5376, BF16:
 
 | S | CUDA fwd | diffusers fwd | CUDA bwd | diffusers bwd |
 | --- | --- | --- | --- | --- |
-| 4097 | 0.06 ms | 0.11 ms | 1.00 ms | 0.95 ms |
+| 4097 | 0.06 ms | 0.11 ms | 1.08 ms | 0.95 ms |
 | 32768 | 0.31 ms | 0.75 ms | 2.50 ms | 5.20 ms |
-| 131072 | 1.16 ms | 2.90 ms | 7.48 ms | 20.6 ms |
+| 131072 | 1.17 ms | 2.90 ms | 7.40 ms | 20.6 ms |
 
 The forward is a single pass that never materialises the gathered rows. At small S the backward
 is dominated by the fixed cost of the stable sort and tile setup.
+
+## Evidence
+
+![h3_rmsnorm on B200: latency and backward accuracy](../usage/evidence/h3-rmsnorm-b200/figure.png)
+
+The data is in [`report.json`](../usage/evidence/h3-rmsnorm-b200/report.json), written by
+`scripts/h3_evidence.py` from a clean tree at commit `f36aa60`. It also records:
+
+- bitwise equality with `nn.RMSNorm` for all four pinned norm weights;
+- bitwise equality with diffusers for the modulation;
+- row invariance.
 
 ## Tests
 
