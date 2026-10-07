@@ -300,6 +300,17 @@ OP_SPECS = {
         },
         grad_input_names=("rows",),
     ),
+    "h3_rmsnorm": OperatorSpec(
+        name="h3_rmsnorm",
+        op_class="reduction",
+        gold_path="rl_engine.kernels.ops.pytorch.h3.rmsnorm.NativeH3RMSNormOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.kernels.ops.pytorch.h3.rmsnorm.NativeH3RMSNormOp",
+            "cuda": "rl_engine.kernels.ops.cuda.h3.rmsnorm.H3RMSNormCudaOp",
+        },
+        grad_input_names=("x", "weight"),
+    ),
     "pack": OperatorSpec(
         name="pack",
         op_class="elementwise",

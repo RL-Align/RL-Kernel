@@ -356,3 +356,24 @@ def h3_adaln_row_gather_backward(
     seg_first_tile: torch.Tensor,
     out_dtype: torch.dtype,
 ) -> torch.Tensor: ...
+def h3_rmsnorm_forward(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    eps: float,
+    shift: torch.Tensor | None = None,
+    scale: torch.Tensor | None = None,
+    index: torch.Tensor | None = None,
+) -> list[torch.Tensor]: ...
+def h3_rmsnorm_backward(
+    grad: torch.Tensor,
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    rstd: torch.Tensor,
+    shift: torch.Tensor | None = None,
+    scale: torch.Tensor | None = None,
+    index: torch.Tensor | None = None,
+    sorted_pos: torch.Tensor | None = None,
+    tile_begin: torch.Tensor | None = None,
+    tile_end: torch.Tensor | None = None,
+    seg_first_tile: torch.Tensor | None = None,
+) -> list[torch.Tensor]: ...

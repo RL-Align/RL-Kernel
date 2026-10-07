@@ -345,11 +345,76 @@ def plot_gather(report: dict[str, Any]):
     return fig
 
 
+def plot_rmsnorm(report: dict[str, Any]):
+    fig, (left, right) = _figure(
+        report, "h3_rmsnorm  (block norm1 + MSA modulation, H = 5376, BF16)"
+    )
+    perf = report["perf"]
+    _style(left, "Forward and backward time (log, lower is better)", "ms")
+    _bars(
+        left,
+        [row["case"] for row in perf],
+        [
+            ("CUDA fwd", RL_KERNEL, [row["candidate_us"] / 1e3 for row in perf]),
+            ("diffusers fwd", PROVIDER, [row["provider_us"] / 1e3 for row in perf]),
+            ("CUDA bwd", RL_KERNEL, [row["candidate_backward_us"] / 1e3 for row in perf], "////"),
+            (
+                "diffusers bwd",
+                PROVIDER,
+                [row["provider_backward_us"] / 1e3 for row in perf],
+                "////",
+            ),
+        ],
+        "{:.2f}",
+        log=True,
+    )
+    acc = report["accuracy"]
+    bwd = acc["backward"]
+    keys = ["dx", "dweight", "dshift", "dscale"]
+    fwd_ok = acc["modulated_bitwise_vs_diffusers"] and all(
+        acc["plain_bitwise_vs_nn_rmsnorm"].values()
+    )
+    _style(right, "Backward vs FP64 golden (log, lower is better)", "max abs error / golden max")
+
+    def repeat(mode: str) -> str:
+        return "yes" if bwd[mode]["repeat_bitwise_equal"] else "no"
+
+    _bars(
+        right,
+        keys,
+        [
+            (
+                f"RL-Kernel CUDA (repeat-bitwise: {repeat('cuda')})",
+                RL_KERNEL,
+                [bwd["cuda"]["rel_error"][k] for k in keys],
+            ),
+            (
+                f"diffusers (repeat-bitwise: {repeat('provider')})",
+                PROVIDER,
+                [bwd["provider"]["rel_error"][k] for k in keys],
+            ),
+        ],
+        "{:.1e}",
+        log=True,
+    )
+    right.text(
+        0.98,
+        0.80,
+        f"forward bitwise equal to diffusers: {'yes' if fwd_ok else 'NO'}",
+        transform=right.transAxes,
+        ha="right",
+        fontsize=8,
+        color=INK,
+    )
+    return fig
+
+
 PLOTS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "timestep_sinusoid_h3": plot_sinusoid,
     "timestep_mlp_fp32": plot_mlp,
     "adaln_projection_3mod": plot_projection,
     "adaln_row_gather": plot_gather,
+    "h3_rmsnorm": plot_rmsnorm,
 }
 
 

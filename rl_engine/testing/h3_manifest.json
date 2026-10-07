@@ -35,7 +35,13 @@
     "time_embedder.linear_2.weight": {"dtype": "float32", "shape": [2688, 5376]},
     "time_embedder.linear_2.bias": {"dtype": "float32", "shape": [2688]},
     "transformer_blocks.0.adaln_proj.linear.weight": {"dtype": "bfloat16", "shape": [96768, 2688]},
-    "transformer_blocks.0.adaln_proj.linear.bias": {"dtype": "bfloat16", "shape": [96768]}
+    "transformer_blocks.0.adaln_proj.linear.bias": {"dtype": "bfloat16", "shape": [96768]},
+    "transformer_blocks.0.norm1.weight": {"dtype": "bfloat16", "shape": [5376]},
+    "transformer_blocks.0.norm2.weight": {"dtype": "bfloat16", "shape": [5376]},
+    "token_refiner.final_norm.weight": {"dtype": "bfloat16", "shape": [5376]},
+    "norm_out.norm.weight": {"dtype": "bfloat16", "shape": [5376]},
+    "norm_out.linear.weight": {"dtype": "bfloat16", "shape": [10752, 2688]},
+    "norm_out.linear.bias": {"dtype": "bfloat16", "shape": [10752]}
   },
   "reference_implementation": {
     "repo": "huggingface/diffusers",
@@ -53,7 +59,9 @@
     "precision": {
       "timestep_sinusoid": "float32",
       "timestep_mlp": "float32 weights, float32 activations",
-      "adaln_projection": "SiLU in float32, cast to bfloat16, bfloat16 weight/bias/output"
+      "adaln_projection": "SiLU in float32, cast to bfloat16, bfloat16 weight/bias/output",
+      "rmsnorm": "nn.RMSNorm(5376, eps=1e-5), bfloat16 affine weight, statistics in float32",
+      "final_modulation": "norm_out.linear(silu(temb).bfloat16) -> (shift, scale), indexed by timestep_indices"
     }
   }
 }

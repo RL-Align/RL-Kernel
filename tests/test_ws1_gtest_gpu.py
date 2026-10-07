@@ -53,6 +53,7 @@ def test_all_ws1_single_ops_are_registered():
         "timestep_mlp_fp32",
         "adaln_projection_3mod",
         "adaln_row_gather",
+        "h3_rmsnorm",
     } <= names
 
 

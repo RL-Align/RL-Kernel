@@ -50,6 +50,7 @@ def make_operator_inputs(
         "timestep_mlp_fp32": _make_timestep_mlp_fp32_inputs,
         "adaln_projection_3mod": _make_adaln_projection_3mod_inputs,
         "adaln_row_gather": _make_adaln_row_gather_inputs,
+        "h3_rmsnorm": _make_h3_rmsnorm_inputs,
     }
     try:
         return builders[op_name](args, dtype, device)
@@ -87,6 +88,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         f"x{6 * 3 * _h3_hidden(args)}",
         "adaln_row_gather": f"{3 * _h3_num_timesteps(args)}x{6 * _h3_hidden(args)}"
         f"->{batch * seq}",
+        "h3_rmsnorm": f"{batch}x{seq}x{_h3_hidden(args)}",
     }
     try:
         return names[op_name]
@@ -429,6 +431,19 @@ def _make_adaln_row_gather_inputs(
     )
     rows = _floating_tensor((3 * num_timesteps, 6 * _h3_hidden(args)), args, dtype, device, 0)
     return {"rows": rows, "timestep_indices": timestep_indices, "token_tags": token_tags}
+
+
+def _make_h3_rmsnorm_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    batch, seq = _batch_seq(args)
+    hidden = _h3_hidden(args)
+    weight = _floating_tensor((hidden,), args, torch.float32, device, 1).abs() + 0.5
+    return {
+        "x": _floating_tensor((batch, seq, hidden), args, dtype, device, 0),
+        "weight": weight.to(dtype),
+        "eps": 1e-5,
+    }
 
 
 def _floating_tensor(
