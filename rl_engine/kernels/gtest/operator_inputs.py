@@ -51,6 +51,7 @@ def make_operator_inputs(
         "adaln_projection_3mod": _make_adaln_projection_3mod_inputs,
         "adaln_row_gather": _make_adaln_row_gather_inputs,
         "h3_rmsnorm": _make_h3_rmsnorm_inputs,
+        "adaln_gate_residual": _make_adaln_gate_residual_inputs,
     }
     try:
         return builders[op_name](args, dtype, device)
@@ -89,6 +90,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "adaln_row_gather": f"{3 * _h3_num_timesteps(args)}x{6 * _h3_hidden(args)}"
         f"->{batch * seq}",
         "h3_rmsnorm": f"{batch}x{seq}x{_h3_hidden(args)}",
+        "adaln_gate_residual": f"{batch}x{seq}x{_h3_hidden(args)}",
     }
     try:
         return names[op_name]
@@ -443,6 +445,22 @@ def _make_h3_rmsnorm_inputs(
         "x": _floating_tensor((batch, seq, hidden), args, dtype, device, 0),
         "weight": weight.to(dtype),
         "eps": 1e-5,
+    }
+
+
+def _make_adaln_gate_residual_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    # gate rows: 3 modality rows for each of --num-timesteps (default --batch) timesteps.
+    batch, seq = _batch_seq(args)
+    hidden = _h3_hidden(args)
+    rows = 3 * _h3_num_timesteps(args)
+    generator = _generator(args, device, offset=31)
+    return {
+        "residual": _floating_tensor((batch, seq, hidden), args, dtype, device, 0),
+        "y": _floating_tensor((batch, seq, hidden), args, dtype, device, 1),
+        "gate": (_floating_tensor((rows, hidden), args, torch.float32, device, 2) * 0.5).to(dtype),
+        "index": torch.randint(0, rows, (seq,), generator=generator, device=device),
     }
 
 

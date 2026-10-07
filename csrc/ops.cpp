@@ -527,6 +527,14 @@ std::vector<torch::Tensor> h3_rmsnorm_backward(
     c10::optional<torch::Tensor> index, c10::optional<torch::Tensor> sorted_pos,
     c10::optional<torch::Tensor> tile_begin, c10::optional<torch::Tensor> tile_end,
     c10::optional<torch::Tensor> seg_first_tile);
+torch::Tensor h3_gate_residual_forward(torch::Tensor residual, torch::Tensor y, torch::Tensor gate,
+                                       torch::Tensor index);
+std::vector<torch::Tensor> h3_gate_residual_backward(torch::Tensor grad, torch::Tensor y,
+                                                     torch::Tensor gate, torch::Tensor index,
+                                                     torch::Tensor sorted_pos,
+                                                     torch::Tensor tile_begin,
+                                                     torch::Tensor tile_end,
+                                                     torch::Tensor seg_first_tile);
 #endif
 
 // PyBind11 Module Registration
@@ -819,5 +827,12 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           py::arg("index") = py::none(), py::arg("sorted_pos") = py::none(),
           py::arg("tile_begin") = py::none(), py::arg("tile_end") = py::none(),
           py::arg("seg_first_tile") = py::none());
+    m.def("h3_gate_residual_forward", &h3_gate_residual_forward,
+          "residual + gate[index] * y with the gate row gathered in-kernel (eager rounding order)",
+          py::arg("residual"), py::arg("y"), py::arg("gate"), py::arg("index"));
+    m.def("h3_gate_residual_backward", &h3_gate_residual_backward,
+          "Gated-residual backward: exact dy, deterministic sorted segment sum for dgate",
+          py::arg("grad"), py::arg("y"), py::arg("gate"), py::arg("index"), py::arg("sorted_pos"),
+          py::arg("tile_begin"), py::arg("tile_end"), py::arg("seg_first_tile"));
 #endif
 }

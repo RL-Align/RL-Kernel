@@ -377,3 +377,16 @@ def h3_rmsnorm_backward(
     tile_end: torch.Tensor | None = None,
     seg_first_tile: torch.Tensor | None = None,
 ) -> list[torch.Tensor]: ...
+def h3_gate_residual_forward(
+    residual: torch.Tensor, y: torch.Tensor, gate: torch.Tensor, index: torch.Tensor
+) -> torch.Tensor: ...
+def h3_gate_residual_backward(
+    grad: torch.Tensor,
+    y: torch.Tensor,
+    gate: torch.Tensor,
+    index: torch.Tensor,
+    sorted_pos: torch.Tensor,
+    tile_begin: torch.Tensor,
+    tile_end: torch.Tensor,
+    seg_first_tile: torch.Tensor,
+) -> list[torch.Tensor]: ...

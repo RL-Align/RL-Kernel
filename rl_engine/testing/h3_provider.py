@@ -81,3 +81,11 @@ def provider_norm_modulate(
     return norm_hidden_states * (1.0 + scale.index_select(0, indices)) + shift.index_select(
         0, indices
     )
+
+
+def provider_gate_residual(
+    residual: torch.Tensor, gate: torch.Tensor, indices: torch.Tensor, sublayer_output: torch.Tensor
+) -> torch.Tensor:
+    """``residual + gate.index_select(0, adaln_indices) * sublayer_output`` (block)."""
+
+    return residual + gate.index_select(0, indices) * sublayer_output

@@ -33,6 +33,7 @@ from rl_engine.testing.h3_cases import h3_packed_layout, h3_timesteps
 from rl_engine.testing.h3_provider import (
     provider_adaln_modulation,
     provider_adaln_row_gather,
+    provider_gate_residual,
     provider_norm_modulate,
     provider_time_embedder,
     provider_time_proj,
@@ -146,6 +147,35 @@ STAGES.append(
     )
 )
 
+STAGES.append(
+    Stage(
+        name="adaln_gate_residual",
+        op_type="adaln_gate_residual",
+        # residual + gate_msa[row] * attention_output (the stand-in sublayer output).
+        candidate=lambda op, ctx, _up: op(
+            ctx["hidden"],
+            ctx["sublayer"],
+            ctx["history"]["adaln_projection_3mod"][2],
+            adaln_indices(ctx),
+        ),
+        provider=lambda ctx, _up: provider_gate_residual(
+            ctx["hidden"],
+            ctx["history"]["adaln_projection_3mod"][2],
+            adaln_indices(ctx),
+            ctx["sublayer"],
+        ),
+        golden=lambda op, ctx, _up: op.forward_fp32(
+            ctx["hidden"],
+            ctx["sublayer"],
+            ctx["history"]["adaln_projection_3mod"][2],
+            adaln_indices(ctx),
+        ),
+        provider_bitwise_isolated=True,  # eager rounding order, elementwise
+        golden_atol=5e-2,  # carries the gate's BF16 rounding (reduction / bfloat16)
+        golden_rtol=2e-2,
+    )
+)
+
 # The backward replay covers the conditioning chain up to the row gather.
 CONDITIONING_STAGES = (
     "timestep_sinusoid_h3",
@@ -196,6 +226,14 @@ def make_context(weights, *, num_timesteps: int, seq_len: int, seed: int) -> dic
         # other RFC rows): BF16 (1, S, H), seeded.
         "hidden": torch.randn(
             (1, seq_len, HIDDEN), generator=torch.Generator().manual_seed(seed + 2)
+        )
+        .to(torch.bfloat16)
+        .cuda(),
+        # Stand-in for the attention output the gate multiplies (the attention
+        # rows belong to other contributors): BF16 (1, S, H), seeded.
+        "sublayer": (
+            torch.randn((1, seq_len, HIDDEN), generator=torch.Generator().manual_seed(seed + 3))
+            * 3.0
         )
         .to(torch.bfloat16)
         .cuda(),
