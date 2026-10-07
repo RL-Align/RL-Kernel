@@ -9,290 +9,290 @@
     {
       "operation": "all_gather",
       "input_bytes_per_rank": 1024,
-      "deterministic_us": 22.304000854492188,
-      "nccl_us": 21.392000198364258
+      "deterministic_us": 22.560001373291016,
+      "nccl_us": 22.064001083374023
     },
     {
       "operation": "all_gather_many",
       "input_bytes_per_rank": 1024,
-      "deterministic_us": 44.03200149536133,
-      "nccl_us": 21.920000076293945
+      "deterministic_us": 43.98400115966797,
+      "nccl_us": 22.128000259399414
     },
     {
       "operation": "reduce_scatter",
       "input_bytes_per_rank": 1024,
-      "deterministic_us": 113.05599975585938,
-      "nccl_us": 28.511999130249023
+      "deterministic_us": 113.1199951171875,
+      "nccl_us": 29.408000946044922
     },
     {
       "operation": "all_reduce",
       "input_bytes_per_rank": 1024,
-      "deterministic_us": 34.01599884033203,
-      "nccl_us": 29.935998916625977
+      "deterministic_us": 22.447999954223633,
+      "nccl_us": 28.447999954223633
     },
     {
       "operation": "all_gather",
       "input_bytes_per_rank": 8192,
-      "deterministic_us": 24.736000061035156,
-      "nccl_us": 23.040000915527344
+      "deterministic_us": 24.496000289916992,
+      "nccl_us": 21.84000015258789
     },
     {
       "operation": "all_gather_many",
       "input_bytes_per_rank": 8192,
-      "deterministic_us": 44.06399917602539,
-      "nccl_us": 22.463998794555664
+      "deterministic_us": 44.20800018310547,
+      "nccl_us": 21.61600112915039
     },
     {
       "operation": "reduce_scatter",
       "input_bytes_per_rank": 8192,
-      "deterministic_us": 137.82400512695312,
-      "nccl_us": 29.152000427246094
+      "deterministic_us": 137.21600341796875,
+      "nccl_us": 29.408000946044922
     },
     {
       "operation": "all_reduce",
       "input_bytes_per_rank": 8192,
-      "deterministic_us": 35.93600082397461,
-      "nccl_us": 29.29599952697754
+      "deterministic_us": 35.69599914550781,
+      "nccl_us": 30.079999923706055
     },
     {
       "operation": "all_gather",
       "input_bytes_per_rank": 16384,
-      "deterministic_us": 28.607999801635742,
-      "nccl_us": 22.624000549316406
+      "deterministic_us": 29.360000610351562,
+      "nccl_us": 22.75200080871582
     },
     {
       "operation": "all_gather_many",
       "input_bytes_per_rank": 16384,
-      "deterministic_us": 44.36800003051758,
+      "deterministic_us": 44.87999725341797,
+      "nccl_us": 21.856000900268555
+    },
+    {
+      "operation": "reduce_scatter",
+      "input_bytes_per_rank": 16384,
+      "deterministic_us": 165.45599365234375,
+      "nccl_us": 29.375999450683594
+    },
+    {
+      "operation": "all_reduce",
+      "input_bytes_per_rank": 16384,
+      "deterministic_us": 50.12800216674805,
+      "nccl_us": 29.007999420166016
+    },
+    {
+      "operation": "all_gather",
+      "input_bytes_per_rank": 32768,
+      "deterministic_us": 38.97599792480469,
+      "nccl_us": 22.527999877929688
+    },
+    {
+      "operation": "all_gather_many",
+      "input_bytes_per_rank": 32768,
+      "deterministic_us": 44.959999084472656,
       "nccl_us": 22.43199920654297
     },
     {
       "operation": "reduce_scatter",
-      "input_bytes_per_rank": 16384,
-      "deterministic_us": 167.74400329589844,
-      "nccl_us": 31.13599967956543
+      "input_bytes_per_rank": 32768,
+      "deterministic_us": 222.4320068359375,
+      "nccl_us": 29.823999404907227
     },
     {
       "operation": "all_reduce",
-      "input_bytes_per_rank": 16384,
-      "deterministic_us": 50.28799819946289,
-      "nccl_us": 29.51999855041504
+      "input_bytes_per_rank": 32768,
+      "deterministic_us": 78.81599426269531,
+      "nccl_us": 29.327999114990234
     },
     {
       "operation": "all_gather",
-      "input_bytes_per_rank": 32768,
-      "deterministic_us": 37.3120002746582,
-      "nccl_us": 23.3439998626709
+      "input_bytes_per_rank": 65536,
+      "deterministic_us": 33.104000091552734,
+      "nccl_us": 22.992000579833984
     },
     {
       "operation": "all_gather_many",
-      "input_bytes_per_rank": 32768,
-      "deterministic_us": 44.83199691772461,
-      "nccl_us": 23.18400001525879
+      "input_bytes_per_rank": 65536,
+      "deterministic_us": 44.92799758911133,
+      "nccl_us": 22.92799949645996
     },
     {
       "operation": "reduce_scatter",
-      "input_bytes_per_rank": 32768,
-      "deterministic_us": 224.1439971923828,
-      "nccl_us": 30.880001068115234
+      "input_bytes_per_rank": 65536,
+      "deterministic_us": 335.6319885253906,
+      "nccl_us": 30.11199951171875
     },
     {
       "operation": "all_reduce",
-      "input_bytes_per_rank": 32768,
-      "deterministic_us": 87.88800048828125,
-      "nccl_us": 30.944000244140625
+      "input_bytes_per_rank": 65536,
+      "deterministic_us": 136.27200317382812,
+      "nccl_us": 30.255998611450195
     },
     {
       "operation": "all_gather",
-      "input_bytes_per_rank": 65536,
-      "deterministic_us": 35.1359977722168,
-      "nccl_us": 23.7760009765625
+      "input_bytes_per_rank": 98304,
+      "deterministic_us": 34.57600021362305,
+      "nccl_us": 23.055999755859375
     },
     {
       "operation": "all_gather_many",
-      "input_bytes_per_rank": 65536,
-      "deterministic_us": 44.560001373291016,
+      "input_bytes_per_rank": 98304,
+      "deterministic_us": 45.12000274658203,
+      "nccl_us": 23.29599952697754
+    },
+    {
+      "operation": "reduce_scatter",
+      "input_bytes_per_rank": 98304,
+      "deterministic_us": 449.10400390625,
+      "nccl_us": 31.1200008392334
+    },
+    {
+      "operation": "all_reduce",
+      "input_bytes_per_rank": 98304,
+      "deterministic_us": 193.7760009765625,
+      "nccl_us": 30.288000106811523
+    },
+    {
+      "operation": "all_gather",
+      "input_bytes_per_rank": 131072,
+      "deterministic_us": 36.09600067138672,
+      "nccl_us": 23.552000045776367
+    },
+    {
+      "operation": "all_gather_many",
+      "input_bytes_per_rank": 131072,
+      "deterministic_us": 45.16800308227539,
       "nccl_us": 23.360000610351562
     },
     {
       "operation": "reduce_scatter",
-      "input_bytes_per_rank": 65536,
-      "deterministic_us": 339.42401123046875,
-      "nccl_us": 31.823999404907227
-    },
-    {
-      "operation": "all_reduce",
-      "input_bytes_per_rank": 65536,
-      "deterministic_us": 140.68800354003906,
-      "nccl_us": 38.672000885009766
-    },
-    {
-      "operation": "all_gather",
-      "input_bytes_per_rank": 98304,
-      "deterministic_us": 37.28000259399414,
-      "nccl_us": 29.3439998626709
-    },
-    {
-      "operation": "all_gather_many",
-      "input_bytes_per_rank": 98304,
-      "deterministic_us": 47.487998962402344,
-      "nccl_us": 31.79199981689453
-    },
-    {
-      "operation": "reduce_scatter",
-      "input_bytes_per_rank": 98304,
-      "deterministic_us": 458.0799865722656,
+      "input_bytes_per_rank": 131072,
+      "deterministic_us": 563.407958984375,
       "nccl_us": 31.695999145507812
     },
     {
       "operation": "all_reduce",
-      "input_bytes_per_rank": 98304,
-      "deterministic_us": 194.5919952392578,
-      "nccl_us": 30.576000213623047
-    },
-    {
-      "operation": "all_gather",
       "input_bytes_per_rank": 131072,
-      "deterministic_us": 38.0,
-      "nccl_us": 31.392000198364258
-    },
-    {
-      "operation": "all_gather_many",
-      "input_bytes_per_rank": 131072,
-      "deterministic_us": 53.279998779296875,
-      "nccl_us": 30.255998611450195
-    },
-    {
-      "operation": "reduce_scatter",
-      "input_bytes_per_rank": 131072,
-      "deterministic_us": 569.2479858398438,
-      "nccl_us": 40.12799835205078
-    },
-    {
-      "operation": "all_reduce",
-      "input_bytes_per_rank": 131072,
-      "deterministic_us": 256.54400634765625,
-      "nccl_us": 37.91999816894531
+      "deterministic_us": 251.32798767089844,
+      "nccl_us": 30.928001403808594
     },
     {
       "operation": "all_gather",
       "input_bytes_per_rank": 196608,
-      "deterministic_us": 43.64800262451172,
-      "nccl_us": 30.672000885009766
+      "deterministic_us": 41.055999755859375,
+      "nccl_us": 24.128000259399414
     },
     {
       "operation": "all_gather_many",
       "input_bytes_per_rank": 196608,
-      "deterministic_us": 47.279998779296875,
-      "nccl_us": 29.392000198364258
+      "deterministic_us": 44.81599807739258,
+      "nccl_us": 24.064001083374023
     },
     {
       "operation": "reduce_scatter",
       "input_bytes_per_rank": 196608,
-      "deterministic_us": 139.56800842285156,
-      "nccl_us": 39.66400146484375
+      "deterministic_us": 122.8479995727539,
+      "nccl_us": 30.784000396728516
     },
     {
       "operation": "all_reduce",
       "input_bytes_per_rank": 196608,
-      "deterministic_us": 371.7760009765625,
-      "nccl_us": 42.4640007019043
+      "deterministic_us": 365.9360046386719,
+      "nccl_us": 31.18400001525879
     },
     {
       "operation": "all_gather",
       "input_bytes_per_rank": 262144,
-      "deterministic_us": 45.80799865722656,
-      "nccl_us": 34.55999755859375
+      "deterministic_us": 45.295997619628906,
+      "nccl_us": 24.560001373291016
     },
     {
       "operation": "all_gather_many",
       "input_bytes_per_rank": 262144,
-      "deterministic_us": 47.91999816894531,
-      "nccl_us": 32.720001220703125
+      "deterministic_us": 44.92799758911133,
+      "nccl_us": 24.43199920654297
     },
     {
       "operation": "reduce_scatter",
       "input_bytes_per_rank": 262144,
-      "deterministic_us": 138.239990234375,
-      "nccl_us": 41.56800079345703
+      "deterministic_us": 124.57600402832031,
+      "nccl_us": 31.376001358032227
     },
     {
       "operation": "all_reduce",
       "input_bytes_per_rank": 262144,
-      "deterministic_us": 486.75201416015625,
-      "nccl_us": 37.503997802734375
+      "deterministic_us": 480.8639831542969,
+      "nccl_us": 31.871999740600586
     },
     {
       "operation": "all_gather",
       "input_bytes_per_rank": 524288,
-      "deterministic_us": 40.895999908447266,
-      "nccl_us": 27.152000427246094
+      "deterministic_us": 39.5359992980957,
+      "nccl_us": 26.15999984741211
     },
     {
       "operation": "all_gather_many",
       "input_bytes_per_rank": 524288,
-      "deterministic_us": 44.79999923706055,
-      "nccl_us": 26.06399917602539
+      "deterministic_us": 44.54399871826172,
+      "nccl_us": 26.33599853515625
     },
     {
       "operation": "reduce_scatter",
       "input_bytes_per_rank": 524288,
-      "deterministic_us": 128.38400268554688,
+      "deterministic_us": 128.2239990234375,
       "nccl_us": 32.2239990234375
     },
     {
       "operation": "all_reduce",
       "input_bytes_per_rank": 524288,
-      "deterministic_us": 40.41600036621094,
-      "nccl_us": 31.871999740600586
+      "deterministic_us": 40.35200119018555,
+      "nccl_us": 32.20800018310547
     },
     {
       "operation": "all_gather",
       "input_bytes_per_rank": 1048576,
-      "deterministic_us": 48.17599868774414,
-      "nccl_us": 33.24800109863281
+      "deterministic_us": 43.0880012512207,
+      "nccl_us": 30.176000595092773
     },
     {
       "operation": "all_gather_many",
       "input_bytes_per_rank": 1048576,
-      "deterministic_us": 56.784000396728516,
-      "nccl_us": 35.007999420166016
+      "deterministic_us": 48.15999984741211,
+      "nccl_us": 29.871999740600586
     },
     {
       "operation": "reduce_scatter",
       "input_bytes_per_rank": 1048576,
-      "deterministic_us": 142.3040008544922,
-      "nccl_us": 35.02399826049805
+      "deterministic_us": 131.0399932861328,
+      "nccl_us": 35.36000061035156
     },
     {
       "operation": "all_reduce",
       "input_bytes_per_rank": 1048576,
-      "deterministic_us": 46.04800033569336,
-      "nccl_us": 33.82400131225586
+      "deterministic_us": 46.560001373291016,
+      "nccl_us": 34.880001068115234
     },
     {
       "operation": "all_gather",
       "input_bytes_per_rank": 4194304,
-      "deterministic_us": 49.13600158691406,
-      "nccl_us": 43.90399932861328
+      "deterministic_us": 49.66400146484375,
+      "nccl_us": 44.608001708984375
     },
     {
       "operation": "all_gather_many",
       "input_bytes_per_rank": 4194304,
-      "deterministic_us": 57.215999603271484,
-      "nccl_us": 46.9119987487793
+      "deterministic_us": 58.832000732421875,
+      "nccl_us": 44.512001037597656
     },
     {
       "operation": "reduce_scatter",
       "input_bytes_per_rank": 4194304,
-      "deterministic_us": 155.31199645996094,
-      "nccl_us": 48.52799987792969
+      "deterministic_us": 142.4320068359375,
+      "nccl_us": 48.75199890136719
     },
     {
       "operation": "all_reduce",
       "input_bytes_per_rank": 4194304,
-      "deterministic_us": 56.4640007019043,
-      "nccl_us": 57.152000427246094
+      "deterministic_us": 56.14399719238281,
+      "nccl_us": 57.68000030517578
     }
   ]
 }
