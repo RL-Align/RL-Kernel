@@ -233,6 +233,7 @@ H3_OPS = (
     "adaln_row_gather",
     "h3_rmsnorm",
     "adaln_gate_residual",
+    "final_adaln_out",
 )
 
 

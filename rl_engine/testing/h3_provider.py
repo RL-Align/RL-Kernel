@@ -89,3 +89,21 @@ def provider_gate_residual(
     """``residual + gate.index_select(0, adaln_indices) * sublayer_output`` (block)."""
 
     return residual + gate.index_select(0, indices) * sublayer_output
+
+
+def provider_final_adaln_out(
+    hidden_states: torch.Tensor,
+    norm_weight: torch.Tensor,
+    temb: torch.Tensor,
+    weight: torch.Tensor,
+    bias: torch.Tensor,
+    timestep_indices: torch.Tensor,
+    eps: float = 1e-5,
+) -> torch.Tensor:
+    """``MiniMaxH3AdaLayerNormOut.forward``: shift first, indexed by timestep."""
+
+    shift, scale = F.linear(F.silu(temb).to(weight.dtype), weight, bias).chunk(2, dim=-1)
+    hidden_states = F.rms_norm(hidden_states, (hidden_states.shape[-1],), norm_weight, eps)
+    return hidden_states * (1.0 + scale.index_select(0, timestep_indices)) + shift.index_select(
+        0, timestep_indices
+    )

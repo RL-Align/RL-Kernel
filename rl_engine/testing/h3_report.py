@@ -20,6 +20,7 @@ from rl_engine.testing.h3_cases import h3_packed_layout, h3_timesteps
 from rl_engine.testing.h3_provider import (
     provider_adaln_modulation,
     provider_adaln_row_gather,
+    provider_final_adaln_out,
     provider_gate_residual,
     provider_norm_modulate,
     provider_time_embedder,
@@ -572,6 +573,95 @@ def _gate_accuracy(registry: KernelRegistry) -> dict[str, Any]:
     }
 
 
+# --------------------------------------------------------------------------- #
+# final_adaln_out (norm_out)
+# --------------------------------------------------------------------------- #
+
+FINAL_NAMES = ["norm_out.norm.weight", "norm_out.linear.weight", "norm_out.linear.bias"]
+
+
+def _final_inputs(seq: int, seed: int = 0):
+    norm_weight, weight, bias = h3_params(FINAL_NAMES, [(5376,), (10752, 2688), (10752,)])
+    g = torch.Generator(device="cuda").manual_seed(seed)
+    x = (torch.randn(1, seq, 5376, device="cuda", generator=g) * 2).bfloat16()
+    temb = torch.randn(3, 2688, device="cuda", generator=g) * 2
+    ti, _ = h3_packed_layout(seq, 3, seed=seed)
+    return x, norm_weight.bfloat16(), temb, weight.bfloat16(), bias.bfloat16(), ti
+
+
+def _final_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
+    op = registry.get_op("final_adaln_out", device="cuda")
+    cases = []
+    for seq in NORM_SEQ_LENS:
+        x, nw, temb, w, b, ti = _final_inputs(seq)
+        grad = torch.randn_like(x)
+
+        def backward(fn, tensors=(x, nw, temb, w, b), grad=grad):
+            leaves = [t.detach().requires_grad_(True) for t in tensors]
+            fn(*leaves).backward(grad)
+
+        cases.append(
+            {
+                "op": "final_adaln_out",
+                "case": f"S={seq}",
+                "backend": type(op).__name__,
+                # read x + norm_out.linear, write out
+                "bytes": 2 * seq * 5376 * 2 + w.numel() * 2,
+                "candidate": lambda t=(x, nw, temb, w, b), i=ti: op(*t, i),
+                "provider": lambda t=(x, nw, temb, w, b), i=ti: provider_final_adaln_out(*t, i),
+                "candidate_backward": lambda bw=backward, i=ti: bw(lambda *t: op(*t, i)),
+                "provider_backward": lambda bw=backward, i=ti: bw(
+                    lambda *t: provider_final_adaln_out(*t, i)
+                ),
+            }
+        )
+    return cases
+
+
+def _final_accuracy(registry: KernelRegistry) -> dict[str, Any]:
+    op = registry.get_op("final_adaln_out", device="cuda")
+    golden_op = registry._get_or_create_backend(
+        registry._priority_map["cpu"]["final_adaln_out"][-1]
+    )
+    x, nw, temb, w, b, ti = _final_inputs(4097, seed=1)
+    ours = op(x, nw, temb, w, b, ti)
+    theirs = provider_final_adaln_out(x, nw, temb, w, b, ti)
+    golden = golden_op.forward_fp32(x, nw, temb, w, b, ti)
+    invariant = bool(
+        torch.equal(op(x[:, 100:160], nw, temb, w, b, ti[100:160])[0], ours[0, 100:160])
+    )
+    grad = torch.randn(
+        x.shape, device="cuda", generator=torch.Generator(device="cuda").manual_seed(7)
+    ).to(x.dtype)
+
+    def grads(fn):
+        leaves = [t.detach().clone().requires_grad_(True) for t in (x, nw, temb, w, b)]
+        fn(*leaves).backward(grad)
+        return [leaf.grad for leaf in leaves]
+
+    ref = grads(lambda *t: golden_op.forward_fp32(*t, ti))
+    backward = {}
+    for name, fn in (
+        ("cuda", lambda *t: op(*t, ti)),
+        ("provider", lambda *t: provider_final_adaln_out(*t, ti)),
+    ):
+        first, second = grads(fn), grads(fn)
+        backward[name] = {
+            "repeat_bitwise_equal": all(torch.equal(a, c) for a, c in zip(first, second)),
+            "rel_error": {
+                key: float((g.double() - r.double()).abs().max() / r.double().abs().max())
+                for key, g, r in zip(("dx", "d_norm_w", "d_temb", "dW", "db"), first, ref)
+            },
+        }
+    return {
+        "equal_to_diffusers_fraction": float((ours == theirs).float().mean()),
+        "max_abs_vs_golden": float((ours.float() - golden).abs().max()),
+        "provider_max_abs_vs_golden": float((theirs.float() - golden).abs().max()),
+        "rows_batch_invariant": invariant,
+        "backward": backward,
+    }
+
+
 PERF_CASES: dict[str, Callable[[KernelRegistry], list[dict[str, Any]]]] = {
     "timestep_sinusoid_h3": _sinusoid_perf,
     "timestep_mlp_fp32": _mlp_perf,
@@ -579,6 +669,7 @@ PERF_CASES: dict[str, Callable[[KernelRegistry], list[dict[str, Any]]]] = {
     "adaln_row_gather": _gather_perf,
     "h3_rmsnorm": _norm_perf,
     "adaln_gate_residual": _gate_perf,
+    "final_adaln_out": _final_perf,
 }
 ACCURACY: dict[str, Callable[[KernelRegistry], dict[str, Any]]] = {
     "timestep_sinusoid_h3": _sinusoid_accuracy,
@@ -587,4 +678,5 @@ ACCURACY: dict[str, Callable[[KernelRegistry], dict[str, Any]]] = {
     "adaln_row_gather": _gather_accuracy,
     "h3_rmsnorm": _norm_accuracy,
     "adaln_gate_residual": _gate_accuracy,
+    "final_adaln_out": _final_accuracy,
 }
