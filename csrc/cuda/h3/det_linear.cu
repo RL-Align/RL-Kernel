@@ -358,6 +358,8 @@ std::vector<torch::Tensor> h3_det_linear_forward(torch::Tensor x, torch::Tensor 
     TORCH_CHECK(bias->is_cuda() && bias->dim() == 1 && bias->size(0) == n_out &&
                     bias->is_contiguous() && bias->scalar_type() == weight.scalar_type(),
                 "bias must be a contiguous [N] CUDA tensor with the weight dtype");
+    TORCH_CHECK(bias->device() == weight.device(),
+                "bias and weight must be on the same device");
   }
 
   const c10::cuda::CUDAGuard device_guard(x.device());
@@ -390,6 +392,7 @@ torch::Tensor h3_det_linear_backward_input(torch::Tensor grad, torch::Tensor wei
                   grad.scalar_type() == at::kFloat,
               "grad must be a contiguous 2-D float32 CUDA tensor");
   check_matrix(weight, "weight");
+  TORCH_CHECK(grad.device() == weight.device(), "grad and weight must be on the same device");
   TORCH_CHECK(grad.size(1) == weight.size(0), "grad N != weight N");
   TORCH_CHECK(out_dtype == at::kFloat || out_dtype == at::kBFloat16,
               "out_dtype must be float32 or bfloat16");
@@ -434,6 +437,7 @@ std::vector<torch::Tensor> h3_det_linear_backward_weight(torch::Tensor grad, tor
                   grad.scalar_type() == at::kFloat,
               "grad must be a contiguous 2-D float32 CUDA tensor");
   check_matrix(x, "x");
+  TORCH_CHECK(grad.device() == x.device(), "grad and x must be on the same device");
   TORCH_CHECK(grad.size(0) == x.size(0), "grad rows != x rows");
   TORCH_CHECK(w_dtype == at::kFloat || w_dtype == at::kBFloat16,
               "w_dtype must be float32 or bfloat16");
