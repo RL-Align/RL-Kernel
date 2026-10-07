@@ -504,9 +504,11 @@ torch::Tensor h3_det_linear_backward_input(torch::Tensor grad, torch::Tensor wei
   const int64_t n_out = weight.size(0);
   const int64_t k_in = weight.size(1);
   const c10::cuda::CUDAGuard device_guard(grad.device());
+  auto out = torch::empty({rows, k_in}, grad.options().dtype(out_dtype));
+  if (k_in == 0) return out;
+  if (n_out == 0) return out.zero_();
   const int64_t chunks = (n_out + kDInputChunk - 1) / kDInputChunk;
   auto partial = torch::empty({chunks, rows, k_in}, grad.options());
-  auto out = torch::empty({rows, k_in}, grad.options().dtype(out_dtype));
   auto stream = at::cuda::getCurrentCUDAStream();
   const int threads = 256;
   dim3 grid(static_cast<unsigned>((k_in + threads - 1) / threads), static_cast<unsigned>(chunks));
@@ -551,6 +553,10 @@ std::vector<torch::Tensor> h3_det_linear_backward_weight(torch::Tensor grad, tor
   const int64_t k_in = x.size(1);
   const c10::cuda::CUDAGuard device_guard(grad.device());
   auto dw = torch::empty({n_out, k_in}, grad.options().dtype(w_dtype));
+  if (n_out == 0) {
+    if (!with_bias) return {dw};
+    return {dw, torch::empty({n_out}, grad.options().dtype(w_dtype))};
+  }
   auto stream = at::cuda::getCurrentCUDAStream();
   const int threads = 256;
   const int64_t total = n_out * k_in;

@@ -167,6 +167,30 @@ class TestCudaSynthetic:
             rtol=1e-4,
         )
 
+    def test_zero_hidden_size_matches_cpu_forward_backward(self):
+        """Match CPU forward values and all input gradients with a zero-width hidden layer."""
+
+        generator = torch.Generator(device="cpu").manual_seed(0)
+        cpu_inputs = [
+            torch.randn(3, 8, generator=generator),
+            torch.empty(0, 8),
+            torch.empty(0),
+            torch.empty(16, 0),
+            torch.linspace(-1.0, 1.0, 16),
+        ]
+        cpu_inputs = [tensor.requires_grad_(True) for tensor in cpu_inputs]
+        cuda_inputs = [tensor.detach().cuda().requires_grad_(True) for tensor in cpu_inputs]
+        cpu_out = NativeH3TimestepMLPOp()(*cpu_inputs)
+        cuda_out = _cuda_op()(*cuda_inputs)
+        torch.testing.assert_close(cuda_out.cpu(), cpu_out, atol=0, rtol=0)
+        grad = torch.randn(3, 16, generator=generator)
+        cpu_out.backward(grad)
+        cuda_out.backward(grad.cuda())
+        for name, cpu_input, cuda_input in zip(NAMES, cpu_inputs, cuda_inputs, strict=True):
+            torch.testing.assert_close(
+                cuda_input.grad.cpu(), cpu_input.grad, atol=0, rtol=0, msg=name
+            )
+
     def test_rejects_unaligned_k(self):
         """Reject inner dimensions that violate the native FP32 four-element alignment."""
 
