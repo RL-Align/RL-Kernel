@@ -144,6 +144,49 @@ class TestCudaForward:
 
 
 @requires_cuda
+@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="needs two CUDA devices")
+class TestCudaNativeDeviceValidation:
+    @pytest.mark.parametrize("argument", ["weight", "index"])
+    def test_forward_rejects_different_device(self, argument):
+        from rl_engine.kernels.ops.base import _C
+
+        _cuda_op()
+        x = torch.ones(2, 8, device="cuda:0", dtype=torch.bfloat16)
+        weight = torch.ones(8, device="cuda:0", dtype=x.dtype)
+        shift, scale = torch.zeros(2, 16, device="cuda:0", dtype=x.dtype).chunk(2, dim=-1)
+        index = torch.tensor([0, 1], device="cuda:0")
+        if argument == "weight":
+            weight = weight.to("cuda:1")
+        else:
+            index = index.to("cuda:1")
+        with pytest.raises(RuntimeError, match="on x's device"):
+            _C.h3_rmsnorm_forward(x, weight, 1e-5, shift, scale, index)
+        torch.cuda.synchronize(0)
+        torch.cuda.synchronize(1)
+
+    @pytest.mark.parametrize("argument", ["weight", "index", "rstd"])
+    def test_backward_rejects_different_device(self, argument):
+        from rl_engine.kernels.ops.base import _C
+
+        _cuda_op()
+        x = torch.ones(2, 8, device="cuda:0", dtype=torch.bfloat16)
+        weight = torch.ones(8, device="cuda:0", dtype=x.dtype)
+        shift, scale = torch.zeros(2, 16, device="cuda:0", dtype=x.dtype).chunk(2, dim=-1)
+        index = torch.tensor([0, 1], device="cuda:0")
+        _, rstd = _C.h3_rmsnorm_forward(x, weight, 1e-5, shift, scale, index)
+        if argument == "weight":
+            weight = weight.to("cuda:1")
+        elif argument == "index":
+            index = index.to("cuda:1")
+        else:
+            rstd = rstd.to("cuda:1")
+        with pytest.raises(RuntimeError, match="on x's device"):
+            _C.h3_rmsnorm_backward(torch.ones_like(x), x, weight, rstd, shift, scale, index)
+        torch.cuda.synchronize(0)
+        torch.cuda.synchronize(1)
+
+
+@requires_cuda
 class TestCudaBackward:
     def _grads(self, fn, tensors, grad):
         leaves = [t.detach().clone().requires_grad_(True) for t in tensors]
