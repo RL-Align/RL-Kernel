@@ -103,7 +103,7 @@ class NativeH3AdaLNProjectionOp:
         return split_adaln_table(table, hidden)
 
     def forward_fp32(self, temb, weight, bias) -> tuple[torch.Tensor, ...]:
-        """Return six FP32 golden views from FP64 SiLU and projection arithmetic.
+        """Return six FP32 golden outputs from FP64 SiLU and projection arithmetic.
 
         Preserve the declared activation rounding to the weight dtype while
         using an identity VJP at that cast boundary for the FP64 golden graph.
