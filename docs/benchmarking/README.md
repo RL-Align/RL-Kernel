@@ -15,6 +15,7 @@ python benchmarks/benchmark_sampling.py
 python benchmarks/benchmark_grpo_op.py
 python benchmarks/benchmark_pack.py --smoke
 python benchmarks/benchmark_rocm_ffn.py --help
+python benchmarks/benchmark_mlp_down_gemm.py --help
 python scripts/run_perf.py
 ```
 

@@ -25,6 +25,7 @@ Every operator page should include:
 - [Batch-Invariant LogP](batch-invariant-logp.md)
 - [Fused Linear LogP TP Test Runbook](linear-logp-tp-test.md)
 - [GRPO Loss](grpo-loss.md)
+- [MLP Down Bias GEMM](mlp-down-gemm.md)
 - [RoPE](rope.md)
 - [LM Head](lm_head.md)
 - [Policy Ratio + KL Penalty](ratio-kl.md)
