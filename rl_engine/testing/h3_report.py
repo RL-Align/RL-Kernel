@@ -634,12 +634,23 @@ def _final_accuracy(registry: KernelRegistry) -> dict[str, Any]:
         x.shape, device="cuda", generator=torch.Generator(device="cuda").manual_seed(7)
     ).to(x.dtype)
 
-    def grads(fn):
-        leaves = [t.detach().clone().requires_grad_(True) for t in (x, nw, temb, w, b)]
-        fn(*leaves).backward(grad)
+    def grads(fn, dtype=None):
+        tensors = [t if dtype is None else t.to(dtype) for t in (x, nw, temb, w, b)]
+        leaves = [t.detach().clone().requires_grad_(True) for t in tensors]
+        fn(*leaves).backward(grad if dtype is None else grad.to(dtype))
         return [leaf.grad for leaf in leaves]
 
-    ref = grads(lambda *t: golden_op.forward_fp32(*t, ti))
+    def golden_backward(x_, nw_, t_, w_, b_):
+        # Keep the declared BF16 boundaries with FP64 leaves and identity VJPs.
+        act = t_ * torch.sigmoid(t_)
+        act = act + (act.to(torch.bfloat16).double() - act).detach()
+        table = torch.nn.functional.linear(act, w_, b_)
+        table = table + (table.to(torch.bfloat16).double() - table).detach()
+        shift, scale = table.chunk(2, dim=-1)
+        n = x_ * torch.rsqrt(x_.square().mean(-1, keepdim=True) + 1e-5) * nw_
+        return n * (1.0 + scale.index_select(0, ti)) + shift.index_select(0, ti)
+
+    ref = grads(golden_backward, torch.float64)
     backward = {}
     for name, fn in (
         ("cuda", lambda *t: op(*t, ti)),
@@ -649,7 +660,7 @@ def _final_accuracy(registry: KernelRegistry) -> dict[str, Any]:
         backward[name] = {
             "repeat_bitwise_equal": all(torch.equal(a, c) for a, c in zip(first, second)),
             "rel_error": {
-                key: float((g.double() - r.double()).abs().max() / r.double().abs().max())
+                key: float((g.double() - r).abs().max() / r.abs().max())
                 for key, g, r in zip(("dx", "d_norm_w", "d_temb", "dW", "db"), first, ref)
             },
         }
