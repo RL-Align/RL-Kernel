@@ -517,6 +517,16 @@ torch::Tensor h3_adaln_row_gather_backward(torch::Tensor grad, torch::Tensor sor
                                            torch::Tensor tile_begin, torch::Tensor tile_end,
                                            torch::Tensor seg_first_tile,
                                            c10::ScalarType out_dtype);
+std::vector<torch::Tensor> h3_rmsnorm_forward(torch::Tensor x, torch::Tensor weight, double eps,
+                                              c10::optional<torch::Tensor> shift,
+                                              c10::optional<torch::Tensor> scale,
+                                              c10::optional<torch::Tensor> index);
+std::vector<torch::Tensor> h3_rmsnorm_backward(
+    torch::Tensor grad, torch::Tensor x, torch::Tensor weight, torch::Tensor rstd,
+    c10::optional<torch::Tensor> shift, c10::optional<torch::Tensor> scale,
+    c10::optional<torch::Tensor> index, c10::optional<torch::Tensor> sorted_pos,
+    c10::optional<torch::Tensor> tile_begin, c10::optional<torch::Tensor> tile_end,
+    c10::optional<torch::Tensor> seg_first_tile);
 #endif
 
 // PyBind11 Module Registration
@@ -798,5 +808,16 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Deterministic segmented sum (sorted tiles folded in order) for the row gather",
           py::arg("grad"), py::arg("sorted_pos"), py::arg("tile_begin"), py::arg("tile_end"),
           py::arg("seg_first_tile"), py::arg("out_dtype"));
+    m.def("h3_rmsnorm_forward", &h3_rmsnorm_forward,
+          "RMSNorm replaying PyTorch's reduction order, with optional fused AdaLN modulation",
+          py::arg("x"), py::arg("weight"), py::arg("eps"), py::arg("shift") = py::none(),
+          py::arg("scale") = py::none(), py::arg("index") = py::none());
+    m.def("h3_rmsnorm_backward", &h3_rmsnorm_backward,
+          "Deterministic RMSNorm(+modulation) backward: row-local dx, tiled dweight, sorted table grads",
+          py::arg("grad"), py::arg("x"), py::arg("weight"), py::arg("rstd"),
+          py::arg("shift") = py::none(), py::arg("scale") = py::none(),
+          py::arg("index") = py::none(), py::arg("sorted_pos") = py::none(),
+          py::arg("tile_begin") = py::none(), py::arg("tile_end") = py::none(),
+          py::arg("seg_first_tile") = py::none());
 #endif
 }

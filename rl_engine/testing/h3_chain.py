@@ -33,11 +33,13 @@ from rl_engine.testing.h3_cases import h3_packed_layout, h3_timesteps
 from rl_engine.testing.h3_provider import (
     provider_adaln_modulation,
     provider_adaln_row_gather,
+    provider_norm_modulate,
     provider_time_embedder,
     provider_time_proj,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+HIDDEN = 5376
 
 
 @dataclass(frozen=True)
@@ -113,6 +115,45 @@ STAGES: list[Stage] = [
     ),
 ]
 
+
+def adaln_indices(ctx: dict[str, Any]) -> torch.Tensor:
+    return ctx["timestep_indices"] * 3 + ctx["token_tags"]
+
+
+def _norm1_modulated(ctx: dict[str, Any], modulation, call):
+    shift_msa, scale_msa = modulation[0], modulation[1]
+    weight = ctx["weights"]["transformer_blocks.0.norm1.weight"]
+    return call(ctx["hidden"], weight, shift_msa, scale_msa, adaln_indices(ctx))
+
+
+STAGES.append(
+    Stage(
+        name="h3_rmsnorm",
+        op_type="h3_rmsnorm",
+        # Block norm1 followed by the MSA shift/scale of the projection stage.
+        candidate=lambda op, ctx, _up: _norm1_modulated(
+            ctx, ctx["history"]["adaln_projection_3mod"], op.forward_modulated
+        ),
+        provider=lambda ctx, _up: _norm1_modulated(
+            ctx, ctx["history"]["adaln_projection_3mod"], provider_norm_modulate
+        ),
+        golden=lambda op, ctx, _up: _norm1_modulated(
+            ctx, ctx["history"]["adaln_projection_3mod"], op.forward_modulated_fp32
+        ),
+        provider_bitwise_isolated=True,  # replays nn.RMSNorm's reduction order
+        golden_atol=5e-2,  # reduction / bfloat16
+        golden_rtol=2e-2,
+    )
+)
+
+# The backward replay covers the conditioning chain up to the row gather.
+CONDITIONING_STAGES = (
+    "timestep_sinusoid_h3",
+    "timestep_mlp_fp32",
+    "adaln_projection_3mod",
+    "adaln_row_gather",
+)
+
 # Parameters whose gradients the backward replay reports, in chain order.
 GRAD_LEAVES = (
     "time_embedder.linear_1.weight",
@@ -151,6 +192,13 @@ def make_context(weights, *, num_timesteps: int, seq_len: int, seed: int) -> dic
         "timestep_indices": timestep_indices,
         "token_tags": token_tags,
         "weights": weights,
+        # Stand-in for the packed hidden states (the patch/text projections are
+        # other RFC rows): BF16 (1, S, H), seeded.
+        "hidden": torch.randn(
+            (1, seq_len, HIDDEN), generator=torch.Generator().manual_seed(seed + 2)
+        )
+        .to(torch.bfloat16)
+        .cuda(),
     }
 
 
@@ -179,16 +227,24 @@ def run_case(
     }
     chained = provider = golden = None
     first_drift = first_isolated = None
+    # Each mode sees its own earlier outputs (a stage may read any earlier stage).
+    history = {"candidate": {}, "provider": {}, "golden": {}}
+    ctx_c = {**ctx, "history": history["candidate"]}
+    ctx_p = {**ctx, "history": history["provider"]}
+    ctx_g = {**ctx, "history": history["golden"]}
     for stage in stages:
         op = registry.get_op(stage.op_type, device="cuda")
         gold = golden_op(registry, stage.op_type)
         with torch.no_grad():
-            isolated = stage.candidate(op, ctx, provider)
+            isolated = stage.candidate(op, ctx_p, provider)
             chained_input = chained
-            chained = stage.candidate(op, ctx, chained_input)
-            repeat = stage.candidate(op, ctx, chained_input)
-            golden = stage.golden(gold, ctx, golden)
-            provider = stage.provider(ctx, provider)
+            chained = stage.candidate(op, ctx_c, chained_input)
+            repeat = stage.candidate(op, ctx_c, chained_input)
+            golden = stage.golden(gold, ctx_g, golden)
+            provider = stage.provider(ctx_p, provider)
+        history["candidate"][stage.name] = chained
+        history["provider"][stage.name] = provider
+        history["golden"][stage.name] = golden
         entry = {
             "stage": stage.name,
             "backend": type(op).__name__,
@@ -220,7 +276,7 @@ def chain_grads(mode: str, registry: KernelRegistry, ctx, upstream) -> list[torc
     leaves = {
         name: ctx["weights"][name].detach().clone().requires_grad_(True) for name in GRAD_LEAVES
     }
-    run_ctx = {**ctx, "weights": {**ctx["weights"], **leaves}}
+    run_ctx = {**ctx, "weights": {**ctx["weights"], **leaves}, "history": {}}
     value = None
     if mode == "candidate_fused":
         from rl_engine.kernels.ops.cuda.h3.adaln_modulation import H3AdaLNModulationCudaOp
@@ -231,7 +287,7 @@ def chain_grads(mode: str, registry: KernelRegistry, ctx, upstream) -> list[torc
             value, *adaln_params(run_ctx), ctx["timestep_indices"], ctx["token_tags"]
         )
     else:
-        for stage in STAGES:
+        for stage in (s for s in STAGES if s.name in CONDITIONING_STAGES):
             if mode == "provider":
                 value = stage.provider(run_ctx, value)
             elif mode == "candidate":

@@ -221,6 +221,8 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     CUDA_H3_ADALN_ROW_GATHER = (
         "rl_engine.kernels.ops.cuda.h3.adaln_row_gather.H3AdaLNRowGatherCudaOp"
     )
+    PYTORCH_H3_RMSNORM = "rl_engine.kernels.ops.pytorch.h3.rmsnorm.NativeH3RMSNormOp"
+    CUDA_H3_RMSNORM = "rl_engine.kernels.ops.cuda.h3.rmsnorm.H3RMSNormCudaOp"
 
 
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
@@ -647,6 +649,7 @@ class KernelRegistry:
                     OpBackend.CUDA_H3_ADALN_ROW_GATHER,
                     OpBackend.PYTORCH_H3_ADALN_ROW_GATHER,
                 ],
+                "h3_rmsnorm": [OpBackend.CUDA_H3_RMSNORM, OpBackend.PYTORCH_H3_RMSNORM],
             },
             "rocm": {
                 "logp": [
@@ -691,6 +694,7 @@ class KernelRegistry:
                 "timestep_mlp_fp32": [OpBackend.PYTORCH_H3_TIMESTEP_MLP],
                 "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
                 "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
+                "h3_rmsnorm": [OpBackend.PYTORCH_H3_RMSNORM],
             },
             "musa": {
                 "logp": [OpBackend.TRITON_LOGP, OpBackend.PYTORCH_NATIVE],
@@ -739,6 +743,7 @@ class KernelRegistry:
                 "timestep_mlp_fp32": [OpBackend.PYTORCH_H3_TIMESTEP_MLP],
                 "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
                 "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
+                "h3_rmsnorm": [OpBackend.PYTORCH_H3_RMSNORM],
             },
             "cpu": {
                 "logp": [OpBackend.PYTORCH_NATIVE],
@@ -768,6 +773,7 @@ class KernelRegistry:
                 "timestep_mlp_fp32": [OpBackend.PYTORCH_H3_TIMESTEP_MLP],
                 "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
                 "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
+                "h3_rmsnorm": [OpBackend.PYTORCH_H3_RMSNORM],
             },
             # Ascend NPU: op types without an entry fall back to their CPU
             # candidates (see the runtime override below), so only

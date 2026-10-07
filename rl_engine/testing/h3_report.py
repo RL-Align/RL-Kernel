@@ -20,6 +20,7 @@ from rl_engine.testing.h3_cases import h3_packed_layout, h3_timesteps
 from rl_engine.testing.h3_provider import (
     provider_adaln_modulation,
     provider_adaln_row_gather,
+    provider_norm_modulate,
     provider_time_embedder,
     provider_time_proj,
 )
@@ -349,15 +350,134 @@ def _gather_accuracy(registry: KernelRegistry) -> dict[str, Any]:
     }
 
 
+# --------------------------------------------------------------------------- #
+# h3_rmsnorm (block norm1 + MSA modulation)
+# --------------------------------------------------------------------------- #
+
+NORM_SEQ_LENS = (4097, 32768, 131072)
+
+
+def _norm_inputs(seq: int, seed: int = 0):
+    weight = h3_params(["transformer_blocks.0.norm1.weight"], [(5376,)])[0].bfloat16()
+    g = torch.Generator(device="cuda").manual_seed(seed)
+    table = (torch.randn(9, 6 * 5376, device="cuda", generator=g) * 0.5).bfloat16()
+    shift, scale = table.view(9, 6, 5376)[:, 0], table.view(9, 6, 5376)[:, 1]
+    ti, tags = h3_packed_layout(seq, 3, seed=seed)
+    x = (torch.randn(1, seq, 5376, device="cuda", generator=g) * 2).bfloat16()
+    return x, weight, shift, scale, ti * 3 + tags
+
+
+def _norm_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
+    op = registry.get_op("h3_rmsnorm", device="cuda")
+    cases = []
+    for seq in NORM_SEQ_LENS:
+        x, weight, shift, scale, index = _norm_inputs(seq)
+        grad = torch.randn_like(x)
+
+        def backward(fn, x=x, weight=weight, shift=shift, scale=scale, grad=grad):
+            leaves = [t.detach().requires_grad_(True) for t in (x, weight, shift, scale)]
+            fn(*leaves).backward(grad)
+
+        cases.append(
+            {
+                "op": "h3_rmsnorm",
+                "case": f"S={seq}",
+                "backend": type(op).__name__,
+                "bytes": 2 * seq * 5376 * 2,  # read x, write y
+                "candidate": lambda x=x, w=weight, sh=shift, sc=scale, i=index: (
+                    op.forward_modulated(x, w, sh, sc, i, check_range=False)
+                ),
+                "provider": lambda x=x, w=weight, sh=shift, sc=scale, i=index: (
+                    provider_norm_modulate(x, w, sh, sc, i)
+                ),
+                "candidate_backward": lambda b=backward, i=index: b(
+                    lambda x_, w_, sh_, sc_: op.forward_modulated(
+                        x_, w_, sh_, sc_, i, check_range=False
+                    )
+                ),
+                "provider_backward": lambda b=backward, i=index: b(
+                    lambda x_, w_, sh_, sc_: provider_norm_modulate(x_, w_, sh_, sc_, i)
+                ),
+            }
+        )
+    return cases
+
+
+def _norm_accuracy(registry: KernelRegistry) -> dict[str, Any]:
+    op = registry.get_op("h3_rmsnorm", device="cuda")
+    weights = load_h3_conditioning_weights("cuda")
+    plain = {}
+    for name in (
+        "transformer_blocks.0.norm1.weight",
+        "transformer_blocks.0.norm2.weight",
+        "token_refiner.final_norm.weight",
+        "norm_out.norm.weight",
+    ):
+        x = torch.randn(2, 777, 5376, device="cuda").bfloat16()
+        ref = torch.nn.functional.rms_norm(x, (5376,), weights[name], 1e-5)
+        plain[name] = bool(torch.equal(op(x, weights[name]), ref))
+    x, weight, shift, scale, index = _norm_inputs(4097, seed=1)
+    modulated = bool(
+        torch.equal(
+            op.forward_modulated(x, weight, shift, scale, index),
+            provider_norm_modulate(x, weight, shift, scale, index),
+        )
+    )
+    invariant = bool(
+        torch.equal(
+            op.forward_modulated(x[:, 100:140], weight, shift, scale, index[100:140])[0],
+            op.forward_modulated(x, weight, shift, scale, index)[0, 100:140],
+        )
+    )
+
+    # Backward against FP64, for the CUDA op and the diffusers expression.
+    grad = torch.randn(
+        x.shape, device="cuda", generator=torch.Generator(device="cuda").manual_seed(7)
+    ).to(x.dtype)
+
+    def grads(fn, dtype=None):
+        tensors = [t if dtype is None else t.to(dtype) for t in (x, weight, shift, scale)]
+        leaves = [t.detach().clone().requires_grad_(True) for t in tensors]
+        fn(*leaves).backward(grad if dtype is None else grad.to(dtype))
+        return [leaf.grad for leaf in leaves]
+
+    def golden(x_, w_, sh_, sc_):
+        n = x_ * torch.rsqrt(x_.square().mean(-1, keepdim=True) + 1e-5) * w_
+        return n * (1 + sc_.index_select(0, index)) + sh_.index_select(0, index)
+
+    ref = grads(golden, torch.float64)
+    backward = {}
+    for name, fn in (
+        ("cuda", lambda *t: op.forward_modulated(*t, index)),
+        ("provider", lambda *t: provider_norm_modulate(*t, index)),
+    ):
+        first, second = grads(fn), grads(fn)
+        backward[name] = {
+            "repeat_bitwise_equal": all(torch.equal(a, b) for a, b in zip(first, second)),
+            "rel_error": {
+                key: float((g.double() - r).abs().max() / r.abs().max())
+                for key, g, r in zip(("dx", "dweight", "dshift", "dscale"), first, ref)
+            },
+        }
+    return {
+        "plain_bitwise_vs_nn_rmsnorm": plain,
+        "modulated_bitwise_vs_diffusers": modulated,
+        "rows_batch_invariant": invariant,
+        "backward": backward,
+    }
+
+
 PERF_CASES: dict[str, Callable[[KernelRegistry], list[dict[str, Any]]]] = {
     "timestep_sinusoid_h3": _sinusoid_perf,
     "timestep_mlp_fp32": _mlp_perf,
     "adaln_projection_3mod": _projection_perf,
     "adaln_row_gather": _gather_perf,
+    "h3_rmsnorm": _norm_perf,
 }
 ACCURACY: dict[str, Callable[[KernelRegistry], dict[str, Any]]] = {
     "timestep_sinusoid_h3": _sinusoid_accuracy,
     "timestep_mlp_fp32": _mlp_accuracy,
     "adaln_projection_3mod": _projection_accuracy,
     "adaln_row_gather": _gather_accuracy,
+    "h3_rmsnorm": _norm_accuracy,
 }
