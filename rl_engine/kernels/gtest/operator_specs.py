@@ -32,6 +32,17 @@ def _load_object(path: str) -> Any:
 
 
 OP_SPECS = {
+    "mhc_pre_h_aggregate": OperatorSpec(
+        name="mhc_pre_h_aggregate",
+        op_class="reduction",
+        gold_path=("rl_engine.kernels.ops.pytorch.mhc.NativeMHCPreHAggregateOp"),
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": ("rl_engine.kernels.ops.pytorch.mhc.NativeMHCPreHAggregateOp"),
+            "cuda": "rl_engine.kernels.ops.cuda.mhc.MHCPreHAggregateCudaOp",
+        },
+        grad_input_names=("residual", "pre"),
+    ),
     "rms_norm": OperatorSpec(
         name="rms_norm",
         op_class="reduction",
@@ -70,8 +81,7 @@ OP_SPECS = {
                 "TritonBatchInvariantAttentionOp"
             ),
             "cuda": (
-                "rl_engine.kernels.ops.cuda.attention.deterministic_attn."
-                "DeterministicAttentionOp"
+                "rl_engine.kernels.ops.cuda.attention.deterministic_attn.DeterministicAttentionOp"
             ),
         },
         grad_input_names=("q", "k", "v"),
