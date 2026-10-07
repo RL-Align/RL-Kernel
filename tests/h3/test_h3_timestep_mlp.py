@@ -191,3 +191,36 @@ class TestCudaSynthetic:
         _cuda_op()
         op = KernelRegistry().get_op("timestep_mlp_fp32", device="cuda")
         assert type(op).__name__ == "H3TimestepMLPCudaOp"
+
+
+@requires_cuda
+@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="needs two CUDA devices")
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+class TestCudaDetLinearDeviceContract:
+    def test_forward_rejects_bias_on_another_device(self, dtype):
+        from rl_engine.kernels.ops.cuda.h3.det_linear import det_linear_forward
+
+        _cuda_op()
+        x = torch.randn(2, 8, device="cuda:0", dtype=dtype)
+        weight = torch.randn(16, 8, device="cuda:0", dtype=dtype)
+        bias = torch.randn(16, device="cuda:1", dtype=dtype)
+        with pytest.raises(RuntimeError, match="bias and weight must be on the same device"):
+            det_linear_forward(x, weight, bias)
+
+    def test_backward_input_rejects_weight_on_another_device(self, dtype):
+        from rl_engine.kernels.ops.cuda.h3.det_linear import det_linear_backward_input
+
+        _cuda_op()
+        grad = torch.randn(2, 16, device="cuda:0")
+        weight = torch.randn(16, 8, device="cuda:1", dtype=dtype)
+        with pytest.raises(RuntimeError, match="grad and weight must be on the same device"):
+            det_linear_backward_input(grad, weight, dtype)
+
+    def test_backward_weight_rejects_input_on_another_device(self, dtype):
+        from rl_engine.kernels.ops.cuda.h3.det_linear import det_linear_backward_weight
+
+        _cuda_op()
+        grad = torch.randn(2, 16, device="cuda:0")
+        x = torch.randn(2, 8, device="cuda:1", dtype=dtype)
+        with pytest.raises(RuntimeError, match="grad and x must be on the same device"):
+            det_linear_backward_weight(grad, x, dtype)
