@@ -126,8 +126,10 @@ class NativeH3RMSNormOp:
         rstd = torch.rsqrt(x64.square().mean(dim=-1, keepdim=True) + eps)
         return (x64 * rstd * weight.double()).float()
 
-    def forward_modulated(self, x, weight, shift, scale, index, eps: float = H3_NORM_EPS):
-        validate_h3_modulation(x, shift, scale, index)
+    def forward_modulated(
+        self, x, weight, shift, scale, index, eps: float = H3_NORM_EPS, *, check_range=True
+    ):
+        validate_h3_modulation(x, shift, scale, index, check_range=check_range)
         n = self.forward(x, weight, eps)
         return _DeterministicModulation.apply(n, shift, scale, index)
 

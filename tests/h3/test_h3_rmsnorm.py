@@ -37,9 +37,9 @@ def _cuda_op():
     return H3RMSNormCudaOp()
 
 
-def _x(shape, dtype=torch.bfloat16, seed=0, scale=2.0):
+def _x(shape, dtype=torch.bfloat16, seed=0, scale=2.0, device="cuda"):
     g = torch.Generator(device="cpu").manual_seed(seed)
-    return (torch.randn(shape, generator=g) * scale).to(dtype).cuda()
+    return (torch.randn(shape, generator=g) * scale).to(device=device, dtype=dtype)
 
 
 def _table(rows, hidden, chunks, dtype=torch.bfloat16, seed=0):
@@ -56,9 +56,20 @@ def _fp64_modulated(x, weight, shift, scale, index, eps=1e-5):
 
 class TestReference:
     def test_golden_close_to_provider(self):
-        x, w = _x((3, 64), torch.float32).cpu(), torch.rand(64) + 0.5
+        x, w = _x((3, 64), torch.float32, device="cpu"), torch.rand(64) + 0.5
         op = NativeH3RMSNormOp()
         torch.testing.assert_close(op.forward(x, w), op.forward_fp32(x, w), atol=1e-6, rtol=1e-6)
+
+    def test_modulated_with_prevalidated_indices(self):
+        x, w = _x((2, 8), torch.float32, device="cpu"), torch.ones(8)
+        shift, scale = torch.randn(3, 8), torch.randn(3, 8)
+        index = torch.tensor([2, 0])
+        op = NativeH3RMSNormOp()
+        expected = op.forward(x, w) * (1 + scale[index]) + shift[index]
+        torch.testing.assert_close(
+            op.forward_modulated(x, w, shift, scale, index, check_range=False),
+            expected,
+        )
 
     def test_rejects_bad_inputs(self):
         op = NativeH3RMSNormOp()

@@ -4,7 +4,8 @@
 """Benchmark the MiniMax-H3 conditioning ops (RFC #420) against the provider path.
 
 CUDA-event medians, bandwidth and peak memory per case, plus the backend
-the registry dispatched. Cases live in ``rl_engine/testing/h3_report.py``.
+the registry dispatched. Timings alternate candidate/provider execution order;
+backward timings exclude forward setup. Cases live in ``rl_engine/testing/h3_report.py``.
 
     python benchmarks/benchmark_h3_conditioning.py --op timestep_sinusoid_h3
     python benchmarks/benchmark_h3_conditioning.py --op all --json out.json
@@ -40,6 +41,7 @@ def main() -> None:
     registry = KernelRegistry()
     env = environment()
     print(f"device={env['gpu']} torch={env['torch']} cuda={env['cuda']}")
+    print("timing order alternates each iteration; backward timings exclude forward setup")
     results = []
     for name in list(PERF_CASES) if args.op == "all" else [args.op]:
         for case in PERF_CASES[name](registry):
@@ -51,7 +53,14 @@ def main() -> None:
                 for key in TIMED_KEYS
                 if f"{key}_us" in row
             ]
-            print(f"{name} {row['case']} [{row['backend']}]: " + "; ".join(parts))
+            order = row["execution_order"]
+            phases = [" -> ".join(order[f"iteration_{i}"]) for i in (0, 1)]
+            print(
+                f"{name} {row['case']} [{row['backend']}]: "
+                + "; ".join(parts)
+                + "; alternating order: "
+                + " / ".join(phases)
+            )
     if args.json is not None:
         args.json.write_text(json.dumps({"environment": env, "results": results}, indent=2) + "\n")
 
