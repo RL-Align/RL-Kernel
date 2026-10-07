@@ -35,6 +35,10 @@ constexpr int64_t kSequenceHeaderBytes = 4 * sizeof(uint64_t);
 // larger transfers, where replacing cudaMemcpyAsync with a one-block copy
 // would reduce bandwidth and hurt overlap.
 constexpr int64_t kSingleBlockFastPathMaxBytes = 256 * 1024;
+// A one-block all-gather copies the whole gathered output from peer memory, so
+// its cost grows with the output while the multi-block path stays near its
+// launch floor. On B200 (2 and 8 ranks) the two cross at about a 64 KiB output.
+constexpr int64_t kAllGatherSingleBlockMaxBytes = 64 * 1024;
 // The trace's hot grid=64 collectives are dominated by asymmetric remote
 // reads. Reduce medium payloads once on logical rank 0 and distribute the
 // canonical result, while leaving true large transfers on the established
@@ -547,6 +551,54 @@ __global__ void deterministic_reduce_scatter_fast_kernel(
   }
 }
 
+// The all-gather payload copy: output[peer * input_bytes + i] = peer's byte i,
+// in rank order. When the output, the size and every peer payload are 16-byte
+// aligned, one flat index over all peers' 16-byte vectors keeps every thread
+// busy across peers; otherwise each peer is copied in turn, with aligned spans
+// as vectors and a byte-wise tail. Pure data movement, so the result is
+// byte-identical to a byte-by-byte copy.
+__device__ __forceinline__ void copy_rank_ordered(
+    const PeerPointers& peers,
+    int world_size,
+    uint8_t* output,
+    int64_t input_bytes,
+    int64_t thread_index,
+    int64_t stride) {
+  uintptr_t alignment =
+      reinterpret_cast<uintptr_t>(output) | static_cast<uintptr_t>(input_bytes);
+  for (int peer = 0; peer < world_size; ++peer) {
+    alignment |= reinterpret_cast<uintptr_t>(peers.values[peer]);
+  }
+  if ((alignment & 15u) == 0u) {
+    const int64_t peer_vectors = input_bytes / static_cast<int64_t>(sizeof(uint4));
+    auto* destination = reinterpret_cast<uint4*>(output);
+    for (int64_t index = thread_index; index < peer_vectors * world_size; index += stride) {
+      const int64_t peer = index / peer_vectors;
+      const auto* source = static_cast<const uint4*>(peers.values[peer]);
+      destination[index] = source[index - peer * peer_vectors];
+    }
+    return;
+  }
+  for (int peer = 0; peer < world_size; ++peer) {
+    const auto* source = static_cast<const uint8_t*>(peers.values[peer]);
+    uint8_t* destination = output + static_cast<int64_t>(peer) * input_bytes;
+    int64_t vector_bytes = 0;
+    if (((reinterpret_cast<uintptr_t>(source) |
+          reinterpret_cast<uintptr_t>(destination)) & 15u) == 0u) {
+      const int64_t vector_count = input_bytes / static_cast<int64_t>(sizeof(uint4));
+      const auto* source_vectors = reinterpret_cast<const uint4*>(source);
+      auto* destination_vectors = reinterpret_cast<uint4*>(destination);
+      for (int64_t index = thread_index; index < vector_count; index += stride) {
+        destination_vectors[index] = source_vectors[index];
+      }
+      vector_bytes = vector_count * static_cast<int64_t>(sizeof(uint4));
+    }
+    for (int64_t index = vector_bytes + thread_index; index < input_bytes; index += stride) {
+      destination[index] = source[index];
+    }
+  }
+}
+
 __global__ void deterministic_all_gather_fast_kernel(
     PeerPointers peers,
     int world_size,
@@ -559,12 +611,7 @@ __global__ void deterministic_all_gather_fast_kernel(
   }
   __syncthreads();
 
-  const int64_t output_bytes = input_bytes * world_size;
-  for (int64_t index = threadIdx.x; index < output_bytes; index += blockDim.x) {
-    const int peer = static_cast<int>(index / input_bytes);
-    const int64_t peer_offset = index - static_cast<int64_t>(peer) * input_bytes;
-    output[index] = static_cast<const uint8_t*>(peers.values[peer])[peer_offset];
-  }
+  copy_rank_ordered(peers, world_size, output, input_bytes, threadIdx.x, blockDim.x);
   __syncthreads();
 
   if (threadIdx.x == 0) {
@@ -899,12 +946,7 @@ __global__ void deterministic_all_gather_fused_fast_kernel(
   }
   __syncthreads();
 
-  const int64_t output_bytes = input_bytes * world_size;
-  for (int64_t index = threadIdx.x; index < output_bytes; index += blockDim.x) {
-    const int peer = static_cast<int>(index / input_bytes);
-    const int64_t peer_offset = index - static_cast<int64_t>(peer) * input_bytes;
-    output[index] = static_cast<const uint8_t*>(peers.values[peer])[peer_offset];
-  }
+  copy_rank_ordered(peers, world_size, output, input_bytes, threadIdx.x, blockDim.x);
   __syncthreads();
 
   if (threadIdx.x == 0) {
@@ -1041,15 +1083,13 @@ __global__ void deterministic_all_gather_kernel(
     uint8_t* output,
     int64_t input_bytes,
     int64_t world_size) {
-  const int64_t output_bytes = input_bytes * world_size;
-  const int64_t thread_index =
-      static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
-  const int64_t stride = static_cast<int64_t>(gridDim.x) * blockDim.x;
-  for (int64_t index = thread_index; index < output_bytes; index += stride) {
-    const int peer = static_cast<int>(index / input_bytes);
-    const int64_t peer_offset = index - static_cast<int64_t>(peer) * input_bytes;
-    output[index] = static_cast<const uint8_t*>(peers.values[peer])[peer_offset];
-  }
+  copy_rank_ordered(
+      peers,
+      static_cast<int>(world_size),
+      output,
+      input_bytes,
+      static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x,
+      static_cast<int64_t>(gridDim.x) * blockDim.x);
 }
 
 class DeterministicCollectiveState {
@@ -1549,7 +1589,7 @@ class DeterministicCollectiveState {
         output_bytes == input_bytes * world_size_,
         "all-gather output size must contain one input per rank");
 
-    if (output_bytes > kSingleBlockFastPathMaxBytes) {
+    if (output_bytes > kAllGatherSingleBlockMaxBytes) {
       stage(input, stream);
       all_gather(output, stream);
       return;
@@ -1764,7 +1804,7 @@ class DeterministicCollectiveState {
         "all-gather output must contain one staged input per rank");
 
     const int64_t output_bytes = output.numel() * output.element_size();
-    if (staged_fast_path_ && output_bytes <= kSingleBlockFastPathMaxBytes) {
+    if (staged_fast_path_ && output_bytes <= kAllGatherSingleBlockMaxBytes) {
       deterministic_all_gather_fast_kernel<<<1, kThreads, 0, stream>>>(
           peers_,
           world_size_,

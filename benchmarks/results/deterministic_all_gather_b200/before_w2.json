@@ -1,0 +1,298 @@
+{
+  "kind": "deterministic_collectives_benchmark",
+  "world_size": 2,
+  "dtype": "bf16",
+  "gpu": "NVIDIA B200",
+  "torch": "2.13.0+cu130",
+  "cuda": "13.0",
+  "rows": [
+    {
+      "operation": "all_gather",
+      "input_bytes_per_rank": 1024,
+      "deterministic_us": 28.70400047302246,
+      "nccl_us": 22.256000518798828
+    },
+    {
+      "operation": "all_gather_many",
+      "input_bytes_per_rank": 1024,
+      "deterministic_us": 44.19200134277344,
+      "nccl_us": 22.15999984741211
+    },
+    {
+      "operation": "reduce_scatter",
+      "input_bytes_per_rank": 1024,
+      "deterministic_us": 114.6240005493164,
+      "nccl_us": 29.152000427246094
+    },
+    {
+      "operation": "all_reduce",
+      "input_bytes_per_rank": 1024,
+      "deterministic_us": 22.736000061035156,
+      "nccl_us": 28.399999618530273
+    },
+    {
+      "operation": "all_gather",
+      "input_bytes_per_rank": 8192,
+      "deterministic_us": 86.1760025024414,
+      "nccl_us": 22.959999084472656
+    },
+    {
+      "operation": "all_gather_many",
+      "input_bytes_per_rank": 8192,
+      "deterministic_us": 44.06399917602539,
+      "nccl_us": 22.911998748779297
+    },
+    {
+      "operation": "reduce_scatter",
+      "input_bytes_per_rank": 8192,
+      "deterministic_us": 136.7519989013672,
+      "nccl_us": 30.06399917602539
+    },
+    {
+      "operation": "all_reduce",
+      "input_bytes_per_rank": 8192,
+      "deterministic_us": 35.93600082397461,
+      "nccl_us": 29.263999938964844
+    },
+    {
+      "operation": "all_gather",
+      "input_bytes_per_rank": 16384,
+      "deterministic_us": 152.38400268554688,
+      "nccl_us": 22.0
+    },
+    {
+      "operation": "all_gather_many",
+      "input_bytes_per_rank": 16384,
+      "deterministic_us": 44.49599838256836,
+      "nccl_us": 22.064001083374023
+    },
+    {
+      "operation": "reduce_scatter",
+      "input_bytes_per_rank": 16384,
+      "deterministic_us": 166.27200317382812,
+      "nccl_us": 30.11199951171875
+    },
+    {
+      "operation": "all_reduce",
+      "input_bytes_per_rank": 16384,
+      "deterministic_us": 50.112003326416016,
+      "nccl_us": 29.51999855041504
+    },
+    {
+      "operation": "all_gather",
+      "input_bytes_per_rank": 32768,
+      "deterministic_us": 285.24798583984375,
+      "nccl_us": 22.511999130249023
+    },
+    {
+      "operation": "all_gather_many",
+      "input_bytes_per_rank": 32768,
+      "deterministic_us": 44.895999908447266,
+      "nccl_us": 22.191999435424805
+    },
+    {
+      "operation": "reduce_scatter",
+      "input_bytes_per_rank": 32768,
+      "deterministic_us": 222.8800048828125,
+      "nccl_us": 30.31999969482422
+    },
+    {
+      "operation": "all_reduce",
+      "input_bytes_per_rank": 32768,
+      "deterministic_us": 79.0719985961914,
+      "nccl_us": 29.423999786376953
+    },
+    {
+      "operation": "all_gather",
+      "input_bytes_per_rank": 65536,
+      "deterministic_us": 549.7760009765625,
+      "nccl_us": 23.040000915527344
+    },
+    {
+      "operation": "all_gather_many",
+      "input_bytes_per_rank": 65536,
+      "deterministic_us": 44.959999084472656,
+      "nccl_us": 22.86400032043457
+    },
+    {
+      "operation": "reduce_scatter",
+      "input_bytes_per_rank": 65536,
+      "deterministic_us": 336.35198974609375,
+      "nccl_us": 30.576000213623047
+    },
+    {
+      "operation": "all_reduce",
+      "input_bytes_per_rank": 65536,
+      "deterministic_us": 136.12799072265625,
+      "nccl_us": 30.239999771118164
+    },
+    {
+      "operation": "all_gather",
+      "input_bytes_per_rank": 98304,
+      "deterministic_us": 815.3280029296875,
+      "nccl_us": 23.29599952697754
+    },
+    {
+      "operation": "all_gather_many",
+      "input_bytes_per_rank": 98304,
+      "deterministic_us": 45.007999420166016,
+      "nccl_us": 23.536001205444336
+    },
+    {
+      "operation": "reduce_scatter",
+      "input_bytes_per_rank": 98304,
+      "deterministic_us": 450.55999755859375,
+      "nccl_us": 30.847999572753906
+    },
+    {
+      "operation": "all_reduce",
+      "input_bytes_per_rank": 98304,
+      "deterministic_us": 193.72799682617188,
+      "nccl_us": 30.384000778198242
+    },
+    {
+      "operation": "all_gather",
+      "input_bytes_per_rank": 131072,
+      "deterministic_us": 1079.52001953125,
+      "nccl_us": 23.520000457763672
+    },
+    {
+      "operation": "all_gather_many",
+      "input_bytes_per_rank": 131072,
+      "deterministic_us": 44.97599792480469,
+      "nccl_us": 23.600000381469727
+    },
+    {
+      "operation": "reduce_scatter",
+      "input_bytes_per_rank": 131072,
+      "deterministic_us": 564.3359985351562,
+      "nccl_us": 31.45600128173828
+    },
+    {
+      "operation": "all_reduce",
+      "input_bytes_per_rank": 131072,
+      "deterministic_us": 251.13600158691406,
+      "nccl_us": 30.880001068115234
+    },
+    {
+      "operation": "all_gather",
+      "input_bytes_per_rank": 196608,
+      "deterministic_us": 43.263999938964844,
+      "nccl_us": 24.351999282836914
+    },
+    {
+      "operation": "all_gather_many",
+      "input_bytes_per_rank": 196608,
+      "deterministic_us": 44.847999572753906,
+      "nccl_us": 24.239999771118164
+    },
+    {
+      "operation": "reduce_scatter",
+      "input_bytes_per_rank": 196608,
+      "deterministic_us": 122.8479995727539,
+      "nccl_us": 31.215999603271484
+    },
+    {
+      "operation": "all_reduce",
+      "input_bytes_per_rank": 196608,
+      "deterministic_us": 365.8559875488281,
+      "nccl_us": 31.263999938964844
+    },
+    {
+      "operation": "all_gather",
+      "input_bytes_per_rank": 262144,
+      "deterministic_us": 49.07200241088867,
+      "nccl_us": 24.576000213623047
+    },
+    {
+      "operation": "all_gather_many",
+      "input_bytes_per_rank": 262144,
+      "deterministic_us": 45.24800109863281,
+      "nccl_us": 24.496000289916992
+    },
+    {
+      "operation": "reduce_scatter",
+      "input_bytes_per_rank": 262144,
+      "deterministic_us": 124.19200134277344,
+      "nccl_us": 31.79199981689453
+    },
+    {
+      "operation": "all_reduce",
+      "input_bytes_per_rank": 262144,
+      "deterministic_us": 480.76800537109375,
+      "nccl_us": 31.952001571655273
+    },
+    {
+      "operation": "all_gather",
+      "input_bytes_per_rank": 524288,
+      "deterministic_us": 45.80799865722656,
+      "nccl_us": 26.303998947143555
+    },
+    {
+      "operation": "all_gather_many",
+      "input_bytes_per_rank": 524288,
+      "deterministic_us": 44.736000061035156,
+      "nccl_us": 26.128000259399414
+    },
+    {
+      "operation": "reduce_scatter",
+      "input_bytes_per_rank": 524288,
+      "deterministic_us": 127.74400329589844,
+      "nccl_us": 32.400001525878906
+    },
+    {
+      "operation": "all_reduce",
+      "input_bytes_per_rank": 524288,
+      "deterministic_us": 40.59199905395508,
+      "nccl_us": 32.38399887084961
+    },
+    {
+      "operation": "all_gather",
+      "input_bytes_per_rank": 1048576,
+      "deterministic_us": 52.880001068115234,
+      "nccl_us": 30.06399917602539
+    },
+    {
+      "operation": "all_gather_many",
+      "input_bytes_per_rank": 1048576,
+      "deterministic_us": 48.15999984741211,
+      "nccl_us": 29.856000900268555
+    },
+    {
+      "operation": "reduce_scatter",
+      "input_bytes_per_rank": 1048576,
+      "deterministic_us": 132.27200317382812,
+      "nccl_us": 34.736000061035156
+    },
+    {
+      "operation": "all_reduce",
+      "input_bytes_per_rank": 1048576,
+      "deterministic_us": 46.01599884033203,
+      "nccl_us": 34.17599868774414
+    },
+    {
+      "operation": "all_gather",
+      "input_bytes_per_rank": 4194304,
+      "deterministic_us": 86.06400299072266,
+      "nccl_us": 44.49599838256836
+    },
+    {
+      "operation": "all_gather_many",
+      "input_bytes_per_rank": 4194304,
+      "deterministic_us": 57.071998596191406,
+      "nccl_us": 44.224002838134766
+    },
+    {
+      "operation": "reduce_scatter",
+      "input_bytes_per_rank": 4194304,
+      "deterministic_us": 143.39199829101562,
+      "nccl_us": 49.055999755859375
+    },
+    {
+      "operation": "all_reduce",
+      "input_bytes_per_rank": 4194304,
+      "deterministic_us": 56.4640007019043,
+      "nccl_us": 58.288002014160156
+    }
+  ]
+}
