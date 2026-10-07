@@ -7,12 +7,8 @@ import torch
 
 import rl_engine.kernels.ops.pytorch.ffn.ffn as ffn_module
 from rl_engine.integrations.framework_operators import VllmFFNOperator
-from rl_engine.kernels.ops.matmul.det_gemm import (
-    DetGemmOp,
-    det_gemm_linear_weight_gradient,
-)
+from rl_engine.kernels.ops.matmul.det_gemm import DetGemmOp, det_gemm_linear_weight_gradient
 from rl_engine.kernels.registry import _default_semantic_descriptors
-
 
 pytestmark = pytest.mark.skipif(
     getattr(torch.version, "hip", None) is None,
@@ -101,12 +97,8 @@ def test_rocm_weight_gradient_uses_parameter_layout_and_is_bitwise_stable():
 
 
 def test_rocm_det_linear_preserves_autograd_and_bitwise_gradients():
-    inputs = torch.randn(
-        (16, 8), device="cuda", dtype=torch.bfloat16, requires_grad=True
-    )
-    weight = torch.randn(
-        (12, 8), device="cuda", dtype=torch.bfloat16, requires_grad=True
-    )
+    inputs = torch.randn((16, 8), device="cuda", dtype=torch.bfloat16, requires_grad=True)
+    weight = torch.randn((12, 8), device="cuda", dtype=torch.bfloat16, requires_grad=True)
     grad_output = torch.randn((16, 12), device="cuda", dtype=torch.bfloat16)
     op = DetGemmOp()
 

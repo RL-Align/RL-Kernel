@@ -162,8 +162,7 @@ def resolve_device(
             else "run on a CUDA host"
         )
         raise AcceleratorUnavailable(
-            f"{device_type} is not available; {hint}. Required profiles never "
-            "fall back to CPU."
+            f"{device_type} is not available; {hint}. Required profiles never " "fall back to CPU."
         )
     resolved = torch.device(device_type) if device is None else torch.device(device)
     if resolved.index is None:

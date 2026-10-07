@@ -9,7 +9,7 @@ import sys
 import threading
 from collections.abc import Iterable
 from contextlib import nullcontext
-from types import TracebackType
+from types import ModuleType, TracebackType
 from typing import Any
 
 import torch
@@ -274,7 +274,7 @@ class DeterministicCollective:
                 "the RL-Kernel CUDA extension lacks deterministic collectives: "
                 + ", ".join(missing)
             )
-        self._extension = _C
+        self._extension: ModuleType = _C
 
     def _load_npu_extension(self) -> None:
         try:
@@ -321,12 +321,14 @@ class DeterministicCollective:
             impl = getattr(saver, "_impl", None)
             binary = getattr(impl, "_binary_wrapper", None)
             active = getattr(getattr(binary, "cdll", None), "tms_get_interesting_region", None)
-            exc.add_note(
-                f"IPC allocation: rank={self.rank}, capacity={self.max_size_bytes}, "
-                f"saver={getattr(module, '__file__', None)}, "
-                f"active={active() if callable(active) else None}, "
-                f"LD_PRELOAD={os.environ.get('LD_PRELOAD', '')}"
-            )
+            add_note = getattr(exc, "add_note", None)
+            if callable(add_note):
+                add_note(
+                    f"IPC allocation: rank={self.rank}, capacity={self.max_size_bytes}, "
+                    f"saver={getattr(module, '__file__', None)}, "
+                    f"active={active() if callable(active) else None}, "
+                    f"LD_PRELOAD={os.environ.get('LD_PRELOAD', '')}"
+                )
             raise
         local_meta = {
             "handle": handle,

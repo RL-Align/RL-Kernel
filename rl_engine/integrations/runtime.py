@@ -178,9 +178,7 @@ class FrameworkOperatorIntegration:
             )
         if execution_provenance is None:
             raw_provenance = getattr(selected, "provenance", {})
-            provenance = (
-                dict(raw_provenance) if isinstance(raw_provenance, Mapping) else {}
-            )
+            provenance = dict(raw_provenance) if isinstance(raw_provenance, Mapping) else {}
         else:
             provenance = dict(execution_provenance)
         actual_backend = _actual_backend(provenance) or backend_id
@@ -225,9 +223,7 @@ class FrameworkOperatorIntegration:
                 flush=True,
             )
         if implementation is Implementation.RL_KERNEL and fallback:
-            self.record_fallback(
-                normalized, f"operator provenance selected {actual_backend}"
-            )
+            self.record_fallback(normalized, f"operator provenance selected {actual_backend}")
             raise RuntimeError(
                 f"{self.framework} {normalized} strict RL-Kernel route reported fallback"
             )
@@ -242,8 +238,7 @@ class FrameworkOperatorIntegration:
                 "fallbacks": list(self._fallbacks),
                 "profile_calls": dict(self._profile_counts),
                 "operators": {
-                    module: readback.to_dict()
-                    for module, readback in self._readbacks.items()
+                    module: readback.to_dict() for module, readback in self._readbacks.items()
                 },
             }
 

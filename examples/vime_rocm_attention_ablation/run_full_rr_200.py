@@ -4,8 +4,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, "/workspace/RL-Kernel-pr390")
-from examples.vime_rocm_attention_ablation import run_full_rr_single_arm_v90 as base
-
+from examples.vime_rocm_attention_ablation import (  # noqa: E402 -- checkout path above
+    run_full_rr_single_arm_v90 as base,
+)
 
 if __name__ == "__main__":
     matrix_config = base.MatrixConfig

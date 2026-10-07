@@ -87,6 +87,7 @@ def test_sampler_replays_active_request_support_and_preserves_raw_logits(
         if worker
         else SimpleNamespace(top_p=torch.tensor([top_p]))
     )
+
     class RocmTemperature:
         def __lt__(self, other):
             raise AssertionError("ROCm must not execute unused CUDA greedy preprocessing")
@@ -95,8 +96,10 @@ def test_sampler_replays_active_request_support_and_preserves_raw_logits(
     op = operators.VllmLogpOperator(native, worker_sampler=worker, strict_linear_logp=True)
     with torch.no_grad() if inference else torch.enable_grad():
         actual = op(sampler, torch.arange(8).reshape(1, 8).float(), metadata)
-    expected = ["replicated"] if inference and worker and top_p < 1 else (
-        ["dense", "top_p"] if top_p < 1 else ["dense"]
+    expected = (
+        ["replicated"]
+        if inference and worker and top_p < 1
+        else (["dense", "top_p"] if top_p < 1 else ["dense"])
     )
     assert calls == expected
     assert torch.equal(actual.logprobs_tensors.logprobs, torch.tensor([[-2.5, -2.5, 0.0]]))

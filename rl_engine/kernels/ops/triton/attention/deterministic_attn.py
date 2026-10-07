@@ -304,7 +304,9 @@ def _pv_kernel(
     acc = tl.zeros((BLOCK_D,), dtype=tl.float32)
     for col in range(0, Skv):
         p = tl.load(p_base + col)
-        vv = tl.load(v_base + col.to(tl.int64) * D + offs_d, mask=d_in, other=0.0).to(tl.float32)
+        vv = tl.load(v_base + tl.cast(col, tl.int64) * D + offs_d, mask=d_in, other=0.0).to(
+            tl.float32
+        )
         acc = tl.fma(p, vv, acc)
 
     tl.store(out_ptr + row.to(tl.int64) * D + offs_d, acc, mask=d_in)
@@ -417,7 +419,9 @@ def _dq_kernel(
     acc = tl.zeros((BLOCK_D,), dtype=tl.float32)
     for col in range(0, Skv):
         ds = tl.load(ds_base + col)
-        kv = tl.load(k_base + col.to(tl.int64) * D + offs_d, mask=d_in, other=0.0).to(tl.float32)
+        kv = tl.load(k_base + tl.cast(col, tl.int64) * D + offs_d, mask=d_in, other=0.0).to(
+            tl.float32
+        )
         acc = tl.fma(ds, kv, acc)
 
     tl.store(dq_ptr + row.to(tl.int64) * D + offs_d, scale * acc, mask=d_in)
@@ -452,8 +456,10 @@ def _dk_kernel(
         ds_head = ds_ptr + (b * Hq + hq).to(tl.int64) * Sq * Skv + k_idx
         q_head = q_ptr + (b * Hq + hq).to(tl.int64) * Sq * D
         for qi in range(0, Sq):
-            ds = tl.load(ds_head + qi.to(tl.int64) * Skv)
-            qv = tl.load(q_head + qi.to(tl.int64) * D + offs_d, mask=d_in, other=0.0).to(tl.float32)
+            ds = tl.load(ds_head + tl.cast(qi, tl.int64) * Skv)
+            qv = tl.load(q_head + tl.cast(qi, tl.int64) * D + offs_d, mask=d_in, other=0.0).to(
+                tl.float32
+            )
             acc = tl.fma(ds, qv, acc)
 
     dst = dk_ptr + (b * Hkv + hkv).to(tl.int64) * Skv * D + k_idx.to(tl.int64) * D + offs_d
@@ -488,8 +494,8 @@ def _dv_kernel(
         p_head = p_ptr + (b * Hq + hq).to(tl.int64) * Sq * Skv + k_idx
         do_head = do_ptr + (b * Hq + hq).to(tl.int64) * Sq * D
         for qi in range(0, Sq):
-            p = tl.load(p_head + qi.to(tl.int64) * Skv)
-            dov = tl.load(do_head + qi.to(tl.int64) * D + offs_d, mask=d_in, other=0.0).to(
+            p = tl.load(p_head + tl.cast(qi, tl.int64) * Skv)
+            dov = tl.load(do_head + tl.cast(qi, tl.int64) * D + offs_d, mask=d_in, other=0.0).to(
                 tl.float32
             )
             acc = tl.fma(p, dov, acc)

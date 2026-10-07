@@ -39,8 +39,8 @@ def _ascend_kernel_available() -> bool:
         return False
     try:
         from rl_engine.kernels.ops.ascend.attention.prefix_shared_attn import (
-            _C_npu,
             _NPU_EXT_AVAILABLE,
+            _C_npu,
         )
     except Exception:
         return False

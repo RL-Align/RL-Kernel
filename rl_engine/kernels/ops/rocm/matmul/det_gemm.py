@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from threading import Lock
 
 import torch
@@ -141,7 +141,7 @@ def _cached_weight_transpose(weight: torch.Tensor) -> torch.Tensor:
 
 
 @torch.inference_mode()
-def refresh_cached_weight_transposes(weights: object) -> int:
+def refresh_cached_weight_transposes(weights: Iterable[object]) -> int:
     """Refresh graph-captured transpose buffers after an IPC weight update."""
 
     refreshed = 0
@@ -262,9 +262,7 @@ def _det_gemm_linear_all_reduce_inference(
             direct_input,
         )
         det_gemm_linear(a, weight, out=direct_input, inference_schedule=True)
-        _C.deterministic_collective_rocm_ipc_all_reduce_staged(
-            runtime_handle, direct_input, output
-        )
+        _C.deterministic_collective_rocm_ipc_all_reduce_staged(runtime_handle, direct_input, output)
         return output
     else:
         # Profiling and uncaptured prefill can exceed the decode capture bound.
@@ -316,8 +314,11 @@ def row_parallel_reduce_from_slot(local_output: torch.Tensor, slot: int) -> torc
         raise RuntimeError("strict ROCm row-parallel staging slot is not registered")
     runtime_handle, staging, stable_output = binding
     rows = local_output.size(0)
-    output = (stable_output.narrow(0, 0, rows) if rows <= staging.size(0)
-              else torch.empty_like(local_output))
+    output = (
+        stable_output.narrow(0, 0, rows)
+        if rows <= staging.size(0)
+        else torch.empty_like(local_output)
+    )
     _C.deterministic_collective_rocm_ipc_all_reduce_input(runtime_handle, local_output, output)
     return output
 

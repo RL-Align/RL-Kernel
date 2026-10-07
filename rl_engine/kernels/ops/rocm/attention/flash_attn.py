@@ -13,6 +13,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 import torch
+from torch.autograd import Function
+from torch.autograd.function import once_differentiable
+
 from rl_engine.kernels.attention_contract import (
     STRICT_ATTENTION_ROCM_PRODUCTION_CORE_ID,
     STRICT_ATTENTION_ROCM_SCHEDULE_ID,
@@ -25,8 +28,6 @@ from rl_engine.kernels.ops.cuda.attention.deterministic_attn import (
     RLKernelDeterministicAttentionCore,
 )
 from rl_engine.utils.logger import logger
-from torch.autograd import Function
-from torch.autograd.function import once_differentiable
 
 _MAX_TESTED_ROCM_TRITON_HEAD_DIM = 512
 _AITER_API_SOURCE = "aiter.ops.mha"
@@ -435,6 +436,7 @@ class StrictRocmAiterCKAttentionCore:
             raise ValueError("strict AITER CK Attention requires Split-KV to be disabled")
         if (_mha_fwd is None) != (_mha_bwd is None):
             raise ValueError("test injection requires both AITER forward and backward callables")
+        mha_batch_prefill: Callable[..., Any] | None
         if _mha_fwd is None:
             mha_fwd, mha_bwd, mha_batch_prefill, source_sha256 = _load_aiter_ck_ops()
         else:
@@ -453,7 +455,10 @@ class StrictRocmAiterCKAttentionCore:
             self._attention_backend = "triton"
             mha_batch_prefill = chunked_flash_attn.triton_paged_prefill
             source_digest = hashlib.sha256(source_sha256.encode())
-            source_digest.update(Path(inspect.getsourcefile(chunked_flash_attn)).read_bytes())
+            source_path = inspect.getsourcefile(chunked_flash_attn)
+            if source_path is None:
+                raise StrictRocmAttentionUnavailable("Triton attention source file is unavailable")
+            source_digest.update(Path(source_path).read_bytes())
             source_digest.update(chunked_flash_attn.CHUNKED_FLASH_ATTENTION_CONTRACT_ID.encode())
             source_sha256 = source_digest.hexdigest()
         elif _mha_fwd is None and fixed_tile != "0":
@@ -464,7 +469,12 @@ class StrictRocmAiterCKAttentionCore:
             self._fixed_paged_tile = int(fixed_tile)
             mha_batch_prefill = partial(fixed_paged_prefill, tile_m=self._fixed_paged_tile)
             source_digest = hashlib.sha256(source_sha256.encode())
-            source_digest.update(Path(inspect.getsourcefile(fixed_paged_prefill)).read_bytes())
+            source_path = inspect.getsourcefile(fixed_paged_prefill)
+            if source_path is None:
+                raise StrictRocmAttentionUnavailable(
+                    "fixed paged attention source file is unavailable"
+                )
+            source_digest.update(Path(source_path).read_bytes())
             source_digest.update(
                 (
                     Path(__file__).resolve().parents[5] / "csrc/rocm/attention/fixed_paged_ck.hip"

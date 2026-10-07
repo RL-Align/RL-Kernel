@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import pytest
 import torch
+
 from examples.vime_rocm_attention_ablation.validate_artifacts import (
     SIDECAR_SCHEMA_VERSION,
     compare_train_rollout_logps,
@@ -53,7 +54,8 @@ def test_sparse_backend_requires_explicit_contract_evidence(missing, replicated)
     if replicated:
         provenance.update(
             strict_entrypoint="sparse_nucleus_logp_from_replicated_logits",
-            replicated_logits_reused=True, additional_tp_collective=False,
+            replicated_logits_reused=True,
+            additional_tp_collective=False,
             preparation_backend="rlkernel.sparse_nucleus.hip_replicated.v1",
         )
     if missing:
@@ -68,6 +70,10 @@ def test_sparse_backend_requires_explicit_contract_evidence(missing, replicated)
     }
     errors = []
     _validate_strict_dense_record(
-        record, module="logp", framework="vllm" if replicated else "megatron", label="test", errors=errors
+        record,
+        module="logp",
+        framework="vllm" if replicated else "megatron",
+        label="test",
+        errors=errors,
     )
     assert bool(errors) is (missing is not None)

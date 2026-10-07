@@ -66,9 +66,7 @@ def parse_log(path: Path) -> tuple[dict[str, dict[int, dict[str, Any]]], np.ndar
     expected = list(range(200))
     for kind, values in records.items():
         if sorted(values) != expected:
-            raise RuntimeError(
-                f"{path}: {kind} has {len(values)} records; expected steps 0..199"
-            )
+            raise RuntimeError(f"{path}: {kind} has {len(values)} records; expected steps 0..199")
     if len(progress_seconds) != 400:
         raise RuntimeError(
             f"{path}: expected 400 duplicated rollout progress events, got "
@@ -102,9 +100,7 @@ def describe(values: np.ndarray) -> dict[str, float]:
 
 
 def moving_average(values: np.ndarray, window: int = 10) -> np.ndarray:
-    totals = np.convolve(values, np.ones(window, dtype=float), mode="full")[
-        : len(values)
-    ]
+    totals = np.convolve(values, np.ones(window, dtype=float), mode="full")[: len(values)]
     counts = np.minimum(np.arange(1, len(values) + 1), window)
     return totals / counts
 
@@ -164,15 +160,9 @@ def build_rows(
                 "response_tokens_total": 8 * response_length[step],
                 "rollout_time_s": rollout_time[step],
                 "rollout_progress_time_s_rounded": progress_seconds[step],
-                "rollout_tok_per_gpu_s": float(
-                    rollout_perf[step]["perf/tokens_per_gpu_per_sec"]
-                ),
-                "rollout_aggregate_tok_s": 8
-                * response_length[step]
-                / rollout_time[step],
-                "rollout_truncated_ratio": float(
-                    rollout_perf[step]["rollout/truncated_ratio"]
-                ),
+                "rollout_tok_per_gpu_s": float(rollout_perf[step]["perf/tokens_per_gpu_per_sec"]),
+                "rollout_aggregate_tok_s": 8 * response_length[step] / rollout_time[step],
+                "rollout_truncated_ratio": float(rollout_perf[step]["rollout/truncated_ratio"]),
                 "update_weights_time_s": update_weights[step],
                 "wait_residual_time_s": (
                     train_wait[step] - rollout_time[step] - update_weights[step]
@@ -181,16 +171,10 @@ def build_rows(
                 "actor_train_time_s": actor_train[step],
                 "train_residual_time_s": train_time[step] - actor_train[step],
                 "train_time_s": train_time[step],
-                "data_preprocess_time_s": float(
-                    train_perf[step]["perf/data_preprocess_time"]
-                ),
+                "data_preprocess_time_s": float(train_perf[step]["perf/data_preprocess_time"]),
                 "step_time_s": float(train_perf[step]["perf/step_time"]),
-                "actor_train_tok_s": float(
-                    train_perf[step]["perf/actor_train_tok_per_s"]
-                ),
-                "actor_train_tflops": float(
-                    train_perf[step]["perf/actor_train_tflops"]
-                ),
+                "actor_train_tok_s": float(train_perf[step]["perf/actor_train_tok_per_s"]),
+                "actor_train_tflops": float(train_perf[step]["perf/actor_train_tflops"]),
             }
         )
     return rows
@@ -214,15 +198,11 @@ def style_axis(axis: plt.Axes) -> None:
 
 
 def save_figure(fig: plt.Figure, output_dir: Path, stem: str) -> None:
-    fig.savefig(
-        output_dir / f"{stem}.png", dpi=220, bbox_inches="tight", facecolor="white"
-    )
+    fig.savefig(output_dir / f"{stem}.png", dpi=220, bbox_inches="tight", facecolor="white")
     fig.savefig(output_dir / f"{stem}.pdf", bbox_inches="tight", facecolor="white")
 
 
-def plot_decomposition(
-    group_rows: dict[str, list[dict[str, Any]]], output_dir: Path
-) -> None:
+def plot_decomposition(group_rows: dict[str, list[dict[str, Any]]], output_dir: Path) -> None:
     stages = [
         ("rollout_time_s", "Rollout generation", "#E15759"),
         ("update_weights_time_s", "Weight update", "#F2B134"),
@@ -236,10 +216,7 @@ def plot_decomposition(
     bottoms = np.zeros(2)
     for key, label, color in stages:
         values = np.asarray(
-            [
-                statistics.fmean(float(row[key]) for row in group_rows[group])
-                for group in groups
-            ]
+            [statistics.fmean(float(row[key]) for row in group_rows[group]) for group in groups]
         )
         axis.bar(groups, values, bottom=bottoms, label=label, color=color, width=0.58)
         for index, value in enumerate(values):
@@ -255,9 +232,7 @@ def plot_decomposition(
                 )
         bottoms += values
     for index, total in enumerate(bottoms):
-        axis.text(
-            index, total + 2, f"{total:.1f}s / step", ha="center", fontweight="bold"
-        )
+        axis.text(index, total + 2, f"{total:.1f}s / step", ha="center", fontweight="bold")
     axis.set_title(
         "G11 vs G10 · Mean Step-Time Decomposition",
         fontsize=16,
@@ -329,18 +304,14 @@ def plot_scaling(group_rows: dict[str, list[dict[str, Any]]], output_dir: Path) 
     plt.close(fig)
 
 
-def plot_time_series(
-    group_rows: dict[str, list[dict[str, Any]]], output_dir: Path
-) -> None:
+def plot_time_series(group_rows: dict[str, list[dict[str, Any]]], output_dir: Path) -> None:
     steps = np.arange(200)
     fig, axes = plt.subplots(2, 1, figsize=(13.5, 7.8), sharex=True)
     for group, raw_color, ma_color in (
         ("G11", LIGHT_BLUE, BLUE),
         ("G10", LIGHT_RED, RED),
     ):
-        for axis, key in zip(
-            axes, ("rollout_time_s", "actor_train_time_s"), strict=True
-        ):
+        for axis, key in zip(axes, ("rollout_time_s", "actor_train_time_s"), strict=True):
             values = rows_array(group_rows[group], key)
             axis.plot(steps, values, color=raw_color, alpha=0.7, linewidth=0.9)
             axis.plot(
@@ -369,9 +340,7 @@ def plot_time_series(
     plt.close(fig)
 
 
-def plot_throughput(
-    group_rows: dict[str, list[dict[str, Any]]], output_dir: Path
-) -> None:
+def plot_throughput(group_rows: dict[str, list[dict[str, Any]]], output_dir: Path) -> None:
     fig, axes = plt.subplots(1, 2, figsize=(12.2, 5.3))
     panels = [
         ("rollout_tok_per_gpu_s", "Rollout throughput", "Tokens / GPU / s"),
@@ -443,14 +412,10 @@ def summarize(group_rows: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     common_response_length = statistics.fmean(
         float(row["response_length_mean"]) for row in all_rows
     )
-    common_total_length = statistics.fmean(
-        float(row["total_length_mean"]) for row in all_rows
-    )
+    common_total_length = statistics.fmean(float(row["total_length_mean"]) for row in all_rows)
     summary: dict[str, Any] = {"groups": {}}
     for group, rows in group_rows.items():
-        summary["groups"][group] = {
-            key: describe(rows_array(rows, key)) for key in keys
-        }
+        summary["groups"][group] = {key: describe(rows_array(rows, key)) for key in keys}
         summary["groups"][group]["rollout_length_regression"] = regression(
             rows_array(rows, "response_length_mean"),
             rows_array(rows, "rollout_time_s"),
@@ -491,25 +456,17 @@ def summarize(group_rows: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     ]
     summary["gap"] = {
         "g11_minus_g10_step_time_s": step_gap,
-        "g11_minus_g10_total_hours": (
-            g11["step_time_s"]["sum"] - g10["step_time_s"]["sum"]
-        )
-        / 3600,
+        "g11_minus_g10_total_hours": (g11["step_time_s"]["sum"] - g10["step_time_s"]["sum"]) / 3600,
         "g10_step_time_reduction_fraction": 1
         - g10["step_time_s"]["mean"] / g11["step_time_s"]["mean"],
-        "g10_end_to_end_speedup": g11["step_time_s"]["mean"]
-        / g10["step_time_s"]["mean"],
+        "g10_end_to_end_speedup": g11["step_time_s"]["mean"] / g10["step_time_s"]["mean"],
         "g10_rollout_throughput_speedup": g10["rollout_tok_per_gpu_s"]["mean"]
         / g11["rollout_tok_per_gpu_s"]["mean"],
         "g10_actor_throughput_speedup": g10["actor_train_tok_s"]["mean"]
         / g11["actor_train_tok_s"]["mean"],
-        "rollout_common_length_gap_s": g11["rollout_length_regression"][
-            "prediction_at_common_x"
-        ]
+        "rollout_common_length_gap_s": g11["rollout_length_regression"]["prediction_at_common_x"]
         - g10["rollout_length_regression"]["prediction_at_common_x"],
-        "actor_common_length_gap_s": g11["actor_length_regression"][
-            "prediction_at_common_x"
-        ]
+        "actor_common_length_gap_s": g11["actor_length_regression"]["prediction_at_common_x"]
         - g10["actor_length_regression"]["prediction_at_common_x"],
         "stage_contributions": {},
         "bootstrap_mean_gap_ci95": {},
@@ -525,11 +482,27 @@ def summarize(group_rows: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
             rows_array(group_rows["G11"], key), rows_array(group_rows["G10"], key)
         )
     summary["method_notes"] = {
-        "rollout_time": "Exact perf/rollout_time emitted by RolloutManager; tqdm integer seconds are retained only as an audit cross-check.",
-        "wait_residual": "train_wait - exact rollout_time - update_weights_time; captures wake/offload/orchestration outside the two named timers.",
-        "throughput": "Uses emitted perf/tokens_per_gpu_per_sec and perf/actor_train_tok_per_s, avoiding response-length confounding.",
-        "common_length": "Separate OLS fits for each arm evaluated at the pooled mean length; descriptive rather than causal because the two runs use different operator stacks, TE versions, revisions and generated sequences.",
-        "bootstrap": "Independent non-parametric bootstrap of per-step mean gaps with fixed seed 1234 and 20,000 draws.",
+        "rollout_time": (
+            "Exact perf/rollout_time emitted by RolloutManager; "
+            "tqdm integer seconds are retained only as an audit cross-check."
+        ),
+        "wait_residual": (
+            "train_wait - exact rollout_time - update_weights_time; "
+            "captures wake/offload/orchestration outside the two named timers."
+        ),
+        "throughput": (
+            "Uses emitted perf/tokens_per_gpu_per_sec and perf/actor_train_tok_per_s, "
+            "avoiding response-length confounding."
+        ),
+        "common_length": (
+            "Separate OLS fits for each arm evaluated at the pooled mean length; "
+            "descriptive rather than causal because the two runs use different operator stacks, "
+            "TE versions, revisions and generated sequences."
+        ),
+        "bootstrap": (
+            "Independent non-parametric bootstrap of per-step mean gaps "
+            "with fixed seed 1234 and 20,000 draws."
+        ),
     }
     return summary
 
@@ -545,9 +518,7 @@ def main() -> None:
     parser.add_argument("--g11-log", type=Path, help="sealed G11 run.log")
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
-    if args.data_dir is not None and (
-        args.g10_log is not None or args.g11_log is not None
-    ):
+    if args.data_dir is not None and (args.g10_log is not None or args.g11_log is not None):
         parser.error("use either --data-dir or both --g10-log/--g11-log")
     if args.data_dir is not None:
         g10_log = args.data_dir / "g10.run.log"
@@ -564,8 +535,7 @@ def main() -> None:
         "G10": parse_log(g10_log),
     }
     group_rows = {
-        group: build_rows(group, records, progress)
-        for group, (records, progress) in parsed.items()
+        group: build_rows(group, records, progress) for group, (records, progress) in parsed.items()
     }
     all_rows = group_rows["G11"] + group_rows["G10"]
     write_csv(args.output_dir / "step-metrics.csv", all_rows)

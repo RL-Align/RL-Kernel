@@ -63,9 +63,7 @@ def _swiglu_fwd_kernel(gate_ptr, up_ptr, y_ptr, n_elements, BLOCK: tl.constexpr)
 
 
 @triton.jit
-def _swiglu_bwd_kernel(
-    dy_ptr, gate_ptr, silu_grad_ptr, d_up_ptr, n_elements, BLOCK: tl.constexpr
-):
+def _swiglu_bwd_kernel(dy_ptr, gate_ptr, silu_grad_ptr, d_up_ptr, n_elements, BLOCK: tl.constexpr):
     pid = tl.program_id(0)
     offs = pid * BLOCK + tl.arange(0, BLOCK)
     mask = offs < n_elements

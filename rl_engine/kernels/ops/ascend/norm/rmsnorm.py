@@ -115,6 +115,7 @@ def _fixed_rstd(x32: torch.Tensor, eps: float) -> torch.Tensor:
 
     return shape_invariant_rstd(x32, float(eps)).contiguous()
 
+
 class _RMSNormAscendFunction(torch.autograd.Function):
     # Autograd wrapper: reference-formula rstd + Ascend C fused scale/cast
     # forward, and the PyTorch-formula backward reusing the forward-saved

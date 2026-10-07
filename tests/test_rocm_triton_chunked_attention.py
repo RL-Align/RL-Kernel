@@ -296,8 +296,14 @@ def test_decode_sequence_metadata_graph_replay():
 
     def run(seq_of_token):
         return A.paged_attention_forward(
-            q, k_cache, v_cache, cu_seqlens_q=cu, block_table=table,
-            seqlen_k=lengths, max_seqlen_q=1, scale=SCALE,
+            q,
+            k_cache,
+            v_cache,
+            cu_seqlens_q=cu,
+            block_table=table,
+            seqlen_k=lengths,
+            max_seqlen_q=1,
+            scale=SCALE,
             seq_of_token=seq_of_token,
         )
 

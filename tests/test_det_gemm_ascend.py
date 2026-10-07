@@ -38,10 +38,7 @@ def _ascend_kernel_available() -> bool:
     if not _npu_available():
         return False
     try:
-        from rl_engine.kernels.ops.ascend.matmul.det_gemm import (
-            _NPU_EXT_AVAILABLE,
-            _C_npu,
-        )
+        from rl_engine.kernels.ops.ascend.matmul.det_gemm import _NPU_EXT_AVAILABLE, _C_npu
     except Exception:
         return False
     return _NPU_EXT_AVAILABLE and hasattr(_C_npu, "det_gemm_ascend_fwd")
@@ -86,9 +83,7 @@ def _k_tree_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
         if hi - lo == 1:
             start = lo * _K_TREE_LEAF
             end = min(start + _K_TREE_LEAF, k)
-            return (a[:, start:end].float() @ b[start:end, :].float()).to(
-                torch.bfloat16
-            )
+            return (a[:, start:end].float() @ b[start:end, :].float()).to(torch.bfloat16)
         midpoint = lo + (hi - lo) // 2
         return reduce_range(lo, midpoint) + reduce_range(midpoint, hi)
 
@@ -130,9 +125,7 @@ class TestAscendDetGemmCorrectness:
         ref = _k_tree_gemm(a, b)
         assert out.dtype == torch.bfloat16
         assert tuple(out.shape) == (m, n)
-        torch.testing.assert_close(
-            out.float(), ref.float(), atol=_ATOL, rtol=_RTOL
-        )
+        torch.testing.assert_close(out.float(), ref.float(), atol=_ATOL, rtol=_RTOL)
 
     @pytest.mark.parametrize(
         "shape",
@@ -152,9 +145,7 @@ class TestAscendDetGemmCorrectness:
         # tolerance suffices against the reference.
         torch.testing.assert_close(out, ref.float(), atol=_ATOL, rtol=_RTOL)
 
-    @pytest.mark.parametrize(
-        "shape", [(128, 128, 128), (31, 70, 65), (2, 17, 32), (2, 32, 129)]
-    )
+    @pytest.mark.parametrize("shape", [(128, 128, 128), (31, 70, 65), (2, 17, 32), (2, 32, 129)])
     def test_rhs_transposed_layout_matches_forward_bitwise(self, shape):
         m, k, n = shape
         op = _get_op()
@@ -263,12 +254,8 @@ class TestAscendDetGemmBackward:
         # (whose per-node rounding differs structurally).
         expected_da = (g.float() @ b.detach().float().t()).to(torch.bfloat16)
         expected_db = (a.detach().float().t() @ g.float()).to(torch.bfloat16)
-        torch.testing.assert_close(
-            a.grad.float(), expected_da.float(), atol=_ATOL, rtol=_RTOL
-        )
-        torch.testing.assert_close(
-            b.grad.float(), expected_db.float(), atol=_ATOL, rtol=_RTOL
-        )
+        torch.testing.assert_close(a.grad.float(), expected_da.float(), atol=_ATOL, rtol=_RTOL)
+        torch.testing.assert_close(b.grad.float(), expected_db.float(), atol=_ATOL, rtol=_RTOL)
 
     @pytest.mark.parametrize(
         "shape",

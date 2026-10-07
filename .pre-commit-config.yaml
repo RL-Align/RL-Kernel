@@ -3,6 +3,8 @@ repos:
     rev: v4.6.0
     hooks:
       - id: trailing-whitespace
+        # Unified diffs include significant context markers and pinned hashes.
+        exclude: '\.patch$'
       - id: end-of-file-fixer
       - id: check-yaml
         exclude: 'mkdocs\.yaml$'

@@ -115,7 +115,11 @@ jobs:
         run: |
           python -m pytest -q \
             tests/test_alignment_wrapper_interfaces.py \
-            tests/test_qwen_ffn.py
+            tests/test_qwen_ffn.py \
+            tests/test_rocm_benchmark_cleanup.py \
+            tests/test_rocm_collective_benchmark.py \
+            tests/test_rocm_paged_workspace.py \
+            tests/test_collective_ipc_errors.py
 
   docs:
     runs-on: ubuntu-latest

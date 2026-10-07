@@ -3,8 +3,8 @@ import os
 import sys
 from types import ModuleType, SimpleNamespace
 
-import torch
 import pytest
+import torch
 
 from rl_engine.integrations.vllm_runtime import _configure_strict_ffn_compilation
 
