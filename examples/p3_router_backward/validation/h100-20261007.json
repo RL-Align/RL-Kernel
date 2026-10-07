@@ -1,0 +1,53 @@
+{
+  "validation_date": "2026-10-07",
+  "date_timezone": "America/Los_Angeles",
+  "recorded_at_utc": "2026-10-07T07:42:28.148847+00:00",
+  "scope": "Single-H100 T06 arithmetic and synthetic Torch-forward/direct-CUDA-backward handoff",
+  "limitations": [
+    "Synthetic forward producers, not T03/T04 providers or a shared P3 ABI",
+    "No sealed identity/checksum/weight fingerprint validation",
+    "No production autograd, T02/model integration, multi-GPU, or multi-node validation",
+    "Selection-gradient checks validate the synthetic Torch forward only",
+    "No benchmark or Compute Sanitizer rerun in this validation"
+  ],
+  "base_commit": "e419cad6e6ac7b4a6ac379b9a6fdb4d8ea7e24ac",
+  "candidate_identity": "source_sha256 identifies the tested uncommitted candidate",
+  "source_sha256": {
+    "csrc/cuda/moe/router_backward_core.cu": "e6e07cbb9434601e6b4f91cac4cd29176f68a36e302b6fbb1a2429855e6051bf",
+    "examples/p3_router_backward/bindings.cpp": "70a5c09338266f4b8363a869ce488e4ca80c00b2a8532e2c2999b704af12a70e",
+    "examples/p3_router_backward/prototype.py": "cd8a95e18fd3360c633258b5c933e612698f8566c09ed4db7691c044f8c7a55c",
+    "examples/p3_router_backward/forward_reference.py": "f080fd562259208000dae2221ed1199665315fd2b206f404c697b064579d2657",
+    "tests/test_p3_router_backward_core.py": "972097b5f7191bbb109b4cba018cc8573195f13d61a447f12f1cc38d1b2259bf",
+    "tests/test_p3_router_backward_handoff.py": "61fb0a24b9f93870b76e7ba9dcca1163cd04da2b87f299f4f0c9c1b0e31b8074"
+  },
+  "environment": {
+    "python": "3.11.16",
+    "torch": "2.9.1+cu128",
+    "cuda": "12.8",
+    "device": "NVIDIA H100 80GB HBM3",
+    "compute_capability": [
+      9,
+      0
+    ],
+    "physical_gpu_index": 0,
+    "gpu": "GPU-11d6f9a4-a504-5b12-a22d-7e237d279a21, NVIDIA H100 80GB HBM3, 595.71.05",
+    "nvcc": "nvcc: NVIDIA (R) Cuda compiler driver\nCopyright (c) 2005-2025 NVIDIA Corporation\nBuilt on Fri_Feb_21_20:23:50_PST_2025\nCuda compilation tools, release 12.8, V12.8.93\nBuild cuda_12.8.r12.8/compiler.35583870_0",
+    "compile_environment": {
+      "TORCH_CUDA_ARCH_LIST": "9.0",
+      "MAX_JOBS": "2",
+      "OMP_NUM_THREADS": "1"
+    }
+  },
+  "gpu_before": "0, NVIDIA H100 80GB HBM3, 0 MiB, 0 %\n",
+  "compute_processes_before": "",
+  "tests": {
+    "command": "python -m unittest discover -s tests -p 'test_p3_router_backward_*.py' -v",
+    "count": 28,
+    "skipped": 0,
+    "failures": 0,
+    "errors": 0,
+    "duration_seconds": 39.069696308113635,
+    "success": true,
+    "output": "test_arithmetic_overflow_fails (test_p3_router_backward_core.CudaCoreTests.test_arithmetic_overflow_fails) ... ok\ntest_batch_and_row_permutation_invariance (test_p3_router_backward_core.CudaCoreTests.test_batch_and_row_permutation_invariance) ... ok\ntest_cuda_against_forward_finite_differences (test_p3_router_backward_core.CudaCoreTests.test_cuda_against_forward_finite_differences) ... ok\ntest_fixed_tree_and_duplicate_order_are_observable (test_p3_router_backward_core.CudaCoreTests.test_fixed_tree_and_duplicate_order_are_observable) ... ok\ntest_fp32_reference_multiple_sizes (test_p3_router_backward_core.CudaCoreTests.test_fp32_reference_multiple_sizes) ... ok\ntest_internal_binding_rejects_output_alias (test_p3_router_backward_core.CudaCoreTests.test_internal_binding_rejects_output_alias) ... ok\ntest_kernel_overwrites_dirty_output (test_p3_router_backward_core.CudaCoreTests.test_kernel_overwrites_dirty_output) ... ok\ntest_nondefault_stream (test_p3_router_backward_core.CudaCoreTests.test_nondefault_stream) ... ok\ntest_padding_is_never_used_in_arithmetic (test_p3_router_backward_core.CudaCoreTests.test_padding_is_never_used_in_arithmetic) ... ok\ntest_reject_bad_shapes_dtypes_layout_and_device (test_p3_router_backward_core.CudaCoreTests.test_reject_bad_shapes_dtypes_layout_and_device) ... ok\ntest_reject_nonfinite_and_invalid_active_values (test_p3_router_backward_core.CudaCoreTests.test_reject_nonfinite_and_invalid_active_values) ... ok\ntest_repeated_runs_and_launch_shape (test_p3_router_backward_core.CudaCoreTests.test_repeated_runs_and_launch_shape) ... ok\ntest_zero_active_and_empty_do_not_load_or_launch_extension (test_p3_router_backward_core.CudaCoreTests.test_zero_active_and_empty_do_not_load_or_launch_extension) ... ok\ntest_epsilon_at_observable_scale (test_p3_router_backward_core.ReferenceTests.test_epsilon_at_observable_scale) ... ok\ntest_formula_against_finite_differences (test_p3_router_backward_core.ReferenceTests.test_formula_against_finite_differences) ... ok\ntest_formula_against_independent_autograd (test_p3_router_backward_core.ReferenceTests.test_formula_against_independent_autograd) ... ok\ntest_backward_uses_saved_forward_after_live_inputs_change (test_p3_router_backward_handoff.CudaHandoffTests.test_backward_uses_saved_forward_after_live_inputs_change) ... ok\ntest_empty_and_all_padding_forward_handoff (test_p3_router_backward_handoff.CudaHandoffTests.test_empty_and_all_padding_forward_handoff) ... ok\ntest_forward_and_backward_padding_batch_and_launch_invariance (test_p3_router_backward_handoff.CudaHandoffTests.test_forward_and_backward_padding_batch_and_launch_invariance) ... ok\ntest_forward_based_fixture_detects_wrong_backward_reduction_orders (test_p3_router_backward_handoff.CudaHandoffTests.test_forward_based_fixture_detects_wrong_backward_reduction_orders) ... ok\ntest_hash_forward_to_cuda_backward (test_p3_router_backward_handoff.CudaHandoffTests.test_hash_forward_to_cuda_backward) ... ok\ntest_learned_forward_to_cuda_backward (test_p3_router_backward_handoff.CudaHandoffTests.test_learned_forward_to_cuda_backward) ... ok\ntest_learned_tie_and_near_tie_forward_to_backward (test_p3_router_backward_handoff.CudaHandoffTests.test_learned_tie_and_near_tie_forward_to_backward) ... ok\ntest_missing_cuda_backend_never_falls_back_to_reference (test_p3_router_backward_handoff.CudaHandoffTests.test_missing_cuda_backend_never_falls_back_to_reference) ... ok\ntest_hash_preserves_table_slots_and_duplicate_score_gradients (test_p3_router_backward_handoff.ForwardSemanticsTests.test_hash_preserves_table_slots_and_duplicate_score_gradients) ... ok\ntest_learned_bias_changes_selection_but_not_weights_or_gradient_path (test_p3_router_backward_handoff.ForwardSemanticsTests.test_learned_bias_changes_selection_but_not_weights_or_gradient_path) ... ok\ntest_learned_ties_and_one_ulp_crossing_keep_logical_expert_order (test_p3_router_backward_handoff.ForwardSemanticsTests.test_learned_ties_and_one_ulp_crossing_keep_logical_expert_order) ... ok\ntest_saved_snapshots_have_no_graph_or_input_alias (test_p3_router_backward_handoff.ForwardSemanticsTests.test_saved_snapshots_have_no_graph_or_input_alias) ... ok\n\n----------------------------------------------------------------------\nRan 28 tests in 38.934s\n\nOK\n"
+  }
+}

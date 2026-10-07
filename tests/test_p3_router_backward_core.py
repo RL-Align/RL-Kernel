@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""Local arithmetic tests, independent of the pending official P3 acceptance kit.
+"""Standalone arithmetic tests, independent of the shared P3 validation entry.
 
 Run without installing the repository or pytest:
 python -m unittest discover -s tests -p test_p3_router_backward_core.py -v

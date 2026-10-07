@@ -1,9 +1,9 @@
 # P3 / T06 Router Backward：第一版 CUDA 核心
 
 本实验实现合同 `p3-router-task-contract.v22` 的 `dweights → ds` 数学主体，供
-Hash / Learned 两条反向路径共用。它消费人工构造的原始张量，尚未接入正式
-`SavedRouteSealedV1`、provider 或算子注册表。这里的测试结果只代表局部核心验证，
-不能代替 T01 oracle、P3 WS1 Gate 或训练框架验收。
+Hash / Learned 两条反向路径共用。原始张量测试之外，另有测试用的 PyTorch 前向
+生成保存数据，再直接调用 CUDA 反向。尚未接入团队共享的 `SavedRouteSealedV1`、
+provider 或算子注册表；这里的结果不代表 P3 WS1 或训练框架集成已经完成。
 
 ## 从哪里读
 
@@ -11,6 +11,7 @@ Hash / Learned 两条反向路径共用。它消费人工构造的原始张量�
 2. `examples/p3_router_backward/prototype.py`：构建扩展、检查实验输入，以及 CPU 诊断参考。
 3. `tests/test_p3_router_backward_core.py`：对照、重复 expert、padding、线程配置与异常输入测试。
 4. `examples/p3_router_backward/bindings.cpp`：把 CUDA 启动函数暴露给独立 Python 扩展。
+5. `forward_reference.py` 与 `tests/test_p3_router_backward_handoff.py`：测试前向、保存数据及直接反向的交接。
 
 扩展按需编译；本实验不改动主库的 `setup.py` 和运行时分发。
 
@@ -46,7 +47,7 @@ Python 实验参数 `z` 表示这个 **Z**，不是前面 gate GEMM 的 logits�
 `warp_reduce_sum`。`__fmul_rn` / `__fadd_rn` / `__fsub_rn` / `__fdiv_rn`
 分别指定一次 FP32 舍入；乘法和加法分开，不让编译器合成 FMA。
 独立扩展也显式关闭 FMA contraction 和 flush-to-zero。
-这些构成当前实验的算术选择，仍需与 T01 正式 oracle 对接确认。
+这些构成当前实验的算术选择，仍需与团队共享的 P3 参考实现和验证入口对接。
 
 ### 重复 expert：让输出线程按顺序收集
 
@@ -93,6 +94,8 @@ export MAX_JOBS=2
 export OMP_NUM_THREADS=1
 python -c 'import torch; assert torch.version.cuda and torch.cuda.is_available()'
 python -m unittest discover -s tests -p test_p3_router_backward_core.py -v
+# 同时运行算术核心和前后向交接测试：
+python -m unittest discover -s tests -p 'test_p3_router_backward_*.py' -v
 ```
 
 必要时设置 `CUDA_HOME` 指向自己的 toolkit，并把 `TORCH_EXTENSIONS_DIR`、`TMPDIR`
@@ -109,6 +112,38 @@ CPU FP32 参考逐步执行运算，用于诊断；FP64 autograd 从原始分数
 `1e-20 / 1e-3 / 1 / 1e3` 四种分数尺度；`1e-20` 能观察 epsilon 的影响。
 CPU 数学检查使用两个相对步长；CUDA 输出也直接对照 FP64 前向有限差分。
 这类近似导数检查使用容差，不代替 FP32 逐位检查，也不跨 Top-K 选择边界求导。
+
+### 前向保存数据到反向的直接交接
+
+测试入口采用与独立前后向 provider 类似的调用方式，不新增生产 autograd 封装：
+
+```python
+from examples.p3_router_backward.forward_reference import learned_forward_reference
+from examples.p3_router_backward.prototype import route_backward_core
+
+weights, saved = learned_forward_reference(scores, bias, row_active)
+ds = route_backward_core(dweights, *saved)
+```
+
+`hash_forward_reference` 根据 token ID 查表，保持六个 slot 的原序及重复 expert；
+`learned_forward_reference` 按 `scores + bias` 选择，分数相同时按 expert ID 升序，
+归一化只读取原始 `scores`。两者按固定六项树计算 `Z`、`p`、`weights`。
+测试前向可在 CPU/CUDA 上运行，保存的 `ids/p/Z/row_active` 都是 detached clone，
+直接传给现有反向入口，不在反向重选专家或重新计算归一化分母。
+
+| 检查 | 证据 |
+| --- | --- |
+| 前后向交接 | Hash/Learned 测试前向实际生成 saved，再执行 CUDA backward；与 FP32 参考逐位比较，并与独立 FP64 求导作容差比较 |
+| 选择语义 | bias 能改变入选专家，但不进入权重公式；用测试前向的 Torch 图检查 bias 没有梯度，并用故意错误的 post-bias 权重公式验证样例能检出差异 |
+| tie / near-tie | 同分按 ID 排序；第六名附近相差一个 FP32 ULP 时，入选专家和对应梯度位置正确变化；不跨不连续选择边界做有限差分 |
+| 保存数据 | 修改前向源分数、bias、Hash 表、token ID 和 mask 后，saved 与反向结果不变 |
+| 不变性与空输入 | 单行/批量、padding 的 NaN/非法 token ID、128/256 线程、空 batch/全 padding |
+| 故障注入 | 从实际测试前向生成可观察的消去样例，检出错误的六项求和树和重复 expert 累加顺序；CUDA 扩展不可用时必须报错 |
+
+这些 producer 仅用于 T06 测试，不代替 T03/T04 实现。`SyntheticSavedRoute` 只是
+四个张量的测试容器，没有 sealed identity、checksum、weight fingerprint 或运行时
+错误协议；其张量仍可被调用者修改。源数据快照测试不等于身份错配拒绝测试。
+选择无梯度检查验证的是测试前向语义，生产前向与自动求导连接仍需独立验证。
 
 ### 已执行的验证：2026-10-02
 
@@ -132,6 +167,17 @@ CPU 数学检查使用两个相对步长；CUDA 输出也直接对照 FP64 前�
 CUDA 源码、binding 和 Python 算术入口均未修改，仍与 10 月 2 日 Sanitizer 验证的
 SHA-256 相同；本次未重新运行 Sanitizer。选择路径无梯度的集成负向测试、正式 saved
 identity、T01 oracle 和训练框架验收仍待对接。
+
+### 已执行的验证：2026-10-07
+
+在单张 H100 GPU 0、PyTorch 2.9.1+cu128、nvcc 12.8.93 上，28 项测试全部通过，
+无跳过：21 项 CUDA 测试、7 项 CPU 数学/语义检查。新增 12 项覆盖上面的直接交接、
+选择语义、tie/near-tie、快照、不变性和故障注入。运行前 GPU 空闲；完整日志、环境、
+源文件 SHA-256 和验证范围见 [`validation/h100-20261007.json`](validation/h100-20261007.json)。
+
+CUDA 核心和 binding 未修改，未重新跑性能测试或 Sanitizer。当前验证覆盖测试前向
+到 CUDA 反向的连接；共享 saved identity/checksum、生产 autograd、T02/模型连接、
+多 GPU 和多机验证仍未完成。
 
 ## 独立性能基线
 
@@ -191,15 +237,15 @@ python -m benchmarks.benchmark_p3_router_backward_core \
 [第一轮](validation/benchmark-h100-20261003-run1.json)、
 [反转顺序复测](validation/benchmark-h100-20261003-run2.json)、
 [padding smoke](validation/benchmark-h100-20261003-padding.json)。
-这些是合成数据的局部基线，不是模型级收益或官方验收结论。
+这些是合成数据的局部基线，不是模型级收益或 P3 集成验收结论。
 
 ## 下一步接入边界
 
-T01 起步套件发布后，再把核心接到正式 `hash_route_bwd` / `learned_route_bwd`：
+按团队共享接口继续对接 `hash_route_bwd` / `learned_route_bwd`：
 
 - 消费正式 sealed saved，验证身份、checksum、版本和权重来源。
 - 接入指定的 device status、invocation echo、provider readback 协议。
-- 使用官方 oracle、recorded fixtures 和 `check_p3` 做验收。
+- 使用团队共享参考实现、recorded fixtures 和 `check_p3` 做验证。
 
 当前 raw-tensor 入口不承担这些职责，也没有伪造对应 schema 或 PASS 状态。
 T02 的 `ds → dz`、gate GEMM 反向、专家计算及多卡通信不在这个核心内。

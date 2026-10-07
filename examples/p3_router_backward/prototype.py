@@ -43,7 +43,7 @@ def fixed_tree6(x: torch.Tensor) -> torch.Tensor:
 
 @torch.no_grad()
 def diagnostic_reference(dweights, ids, p, z, row_active):
-    """CPU eager reference for local tests; this is NOT the official T01 oracle.
+    """PR-owned CPU reference; not yet integrated with the shared P3 validator.
 
     Use FP32 for operation-order checks and FP64 for mathematical comparisons.
     Only active rows participate, and duplicate slots accumulate sequentially.
@@ -77,7 +77,7 @@ def route_backward_core(dweights, ids, p, z, row_active, *, threads=256):
     the normalization denominator (not the upstream gate logits).
 
     Validation uses synchronous checks. Do not interpret end-to-end harness
-    latency as kernel latency. Official identity/status handling is pending T01.
+    latency as kernel latency. Shared P3 identity/status handling is not wired up.
     """
     if torch.version.cuda is None or not dweights.is_cuda:
         raise ValueError("dweights must be on NVIDIA CUDA")
