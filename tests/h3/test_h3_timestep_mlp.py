@@ -26,6 +26,8 @@ NAMES = ("x", "w1", "b1", "w2", "b2")
 
 
 def _cuda_op():
+    """Construct the CUDA MLP operator, skipping missing native linear kernels."""
+
     from rl_engine.kernels.ops.cuda.h3.det_linear import det_linear_available
     from rl_engine.kernels.ops.cuda.h3.timestep_mlp import H3TimestepMLPCudaOp
 
@@ -35,10 +37,14 @@ def _cuda_op():
 
 
 def _features(num, device="cuda", seed=0):
+    """Generate seeded H3 sinusoidal features on the requested test device."""
+
     return NativeH3TimestepSinusoidOp().forward(h3_timesteps(num, seed=seed, device=device))
 
 
 def _synthetic_params(k_in, hidden, out, device="cuda", seed=0):
+    """Create seeded FP32 parameters for a two-layer SiLU MLP of the requested sizes."""
+
     g = torch.Generator(device="cpu").manual_seed(seed)
     w1 = torch.randn(hidden, k_in, generator=g) / k_in**0.5
     b1 = torch.randn(hidden, generator=g) * 0.1
@@ -48,12 +54,16 @@ def _synthetic_params(k_in, hidden, out, device="cuda", seed=0):
 
 
 def _real_params(weights):
+    """Return pinned timestep MLP weights and biases on CUDA in layer order."""
+
     return [
         weights[f"time_embedder.linear_{i}.{p}"].cuda() for i in (1, 2) for p in ("weight", "bias")
     ]
 
 
 def _fp64_grads(x, params, grad_out):
+    """Compute gradients of both linear layers and SiLU using FP64 autograd."""
+
     leaves = [t.detach().double().requires_grad_(True) for t in (x, *params)]
     z = F.linear(leaves[0], leaves[1], leaves[2])
     F.linear(z * torch.sigmoid(z), leaves[3], leaves[4]).backward(grad_out.double())
@@ -62,6 +72,8 @@ def _fp64_grads(x, params, grad_out):
 
 class TestReference:
     def test_provider_and_golden_agree(self):
+        """Keep the FP32 provider close to the high-precision MLP replay on CPU."""
+
         x = _features(5, device="cpu")
         params = _synthetic_params(256, 64, 32, device="cpu")
         op = NativeH3TimestepMLPOp()
@@ -72,12 +84,16 @@ class TestReference:
     @pytest.mark.parametrize("which", range(5))
     def test_rejects_bf16_anywhere(self, which):
         # RFC probe H7: casting a declared FP32 path to BF16 early.
+        """Reject BF16 in every argument of the declared FP32 MLP path."""
+
         args = [_features(2, device="cpu"), *_synthetic_params(256, 64, 32, device="cpu")]
         args[which] = args[which].bfloat16()
         with pytest.raises(TypeError, match="float32"):
             NativeH3TimestepMLPOp().forward(*args)
 
     def test_rejects_shape_mismatches(self):
+        """Reject incompatible layer dimensions, malformed biases, and empty feature batches."""
+
         x = _features(2, device="cpu")
         w1, b1, w2, b2 = _synthetic_params(256, 64, 32, device="cpu")
         op = NativeH3TimestepMLPOp()
@@ -95,6 +111,8 @@ class TestReference:
 class TestCudaRealWeights:
     @pytest.mark.parametrize("num", [1, 2, 3, 4, 7])
     def test_forward_against_fp64_golden(self, h3_weights_cpu, num):
+        """Check checkpoint forward accuracy, FP32 dtype, and the timestep output shape."""
+
         params = _real_params(h3_weights_cpu)
         x = _features(num, seed=num)
         out = _cuda_op()(x, *params)
@@ -105,6 +123,8 @@ class TestCudaRealWeights:
         assert (out - gold).abs().max().item() < 1e-5
 
     def test_rows_are_batch_and_position_invariant(self, h3_weights_cpu):
+        """Keep each checkpoint embedding row bitwise unchanged across batch sizes and positions."""
+
         op = _cuda_op()
         params = _real_params(h3_weights_cpu)
         x_all = _features(9, seed=1)
@@ -118,6 +138,8 @@ class TestCudaRealWeights:
                 assert torch.equal(op(x, *params)[pos], full[4]), (num, pos)
 
     def test_backward_against_fp64_golden(self, h3_weights_cpu):
+        """Match all five checkpoint input gradients to the FP64 autograd golden."""
+
         params = _real_params(h3_weights_cpu)
         x = _features(3, seed=2)
         leaves = [t.detach().clone().requires_grad_(True) for t in (x, *params)]
@@ -134,6 +156,8 @@ class TestCudaRealWeights:
 class TestCudaSynthetic:
     @pytest.mark.parametrize("k_in, hidden, out", [(8, 24, 16), (12, 40, 20), (256, 5376, 2688)])
     def test_other_sizes(self, k_in, hidden, out):
+        """Match the high-precision forward golden for small and checkpoint-sized MLPs."""
+
         params = _synthetic_params(k_in, hidden, out, seed=k_in)
         x = torch.randn(5, k_in, device="cuda")
         torch.testing.assert_close(
@@ -144,11 +168,15 @@ class TestCudaSynthetic:
         )
 
     def test_rejects_unaligned_k(self):
+        """Reject inner dimensions that violate the native FP32 four-element alignment."""
+
         params = _synthetic_params(6, 8, 8)
         with pytest.raises(RuntimeError, match="multiple of 4"):
             _cuda_op()(torch.randn(2, 6, device="cuda"), *params)
 
     def test_rejects_cpu_and_mixed_devices(self):
+        """Reject CPU-only and mixed-device inputs at the CUDA MLP boundary."""
+
         params = _synthetic_params(8, 24, 16)
         with pytest.raises(ValueError):
             _cuda_op()(torch.randn(2, 8), *[p.cpu() for p in params])
@@ -156,6 +184,8 @@ class TestCudaSynthetic:
             _cuda_op()(torch.randn(2, 8), *params)
 
     def test_repeat_and_backward_are_deterministic(self):
+        """Require repeated MLP outputs and all input gradients to be bitwise equal."""
+
         op = _cuda_op()
         params = _synthetic_params(256, 5376, 2688, seed=3)
         x = _features(4, seed=3)
@@ -171,12 +201,16 @@ class TestCudaSynthetic:
                 assert torch.equal(a, b)
 
     def test_dx_rows_are_batch_invariant(self):
+        """Keep feature gradients bitwise unchanged when rows are evaluated independently."""
+
         op = _cuda_op()
         params = _synthetic_params(256, 5376, 2688, seed=4)
         x = _features(6, seed=4)
         grad_out = torch.randn(6, 2688, device="cuda")
 
         def dx(rows):
+            """Compute selected feature-row gradients using matching upstream rows."""
+
             leaf = x[rows].detach().clone().requires_grad_(True)
             op(leaf, *params).backward(grad_out[rows])
             return leaf.grad
@@ -186,6 +220,8 @@ class TestCudaSynthetic:
             assert torch.equal(dx(slice(i, i + 1))[0], full[i])
 
     def test_registry_dispatches_cuda(self):
+        """Resolve the timestep MLP registry entry to its dedicated CUDA implementation."""
+
         from rl_engine.kernels.registry import KernelRegistry
 
         _cuda_op()
@@ -198,6 +234,8 @@ class TestCudaSynthetic:
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 class TestCudaDetLinearDeviceContract:
     def test_forward_rejects_bias_on_another_device(self, dtype):
+        """Reject a projection bias on a different CUDA device from its weight."""
+
         from rl_engine.kernels.ops.cuda.h3.det_linear import det_linear_forward
 
         _cuda_op()
@@ -208,6 +246,8 @@ class TestCudaDetLinearDeviceContract:
             det_linear_forward(x, weight, bias)
 
     def test_backward_input_rejects_weight_on_another_device(self, dtype):
+        """Reject native input-gradient operands on different CUDA devices."""
+
         from rl_engine.kernels.ops.cuda.h3.det_linear import det_linear_backward_input
 
         _cuda_op()
@@ -217,6 +257,8 @@ class TestCudaDetLinearDeviceContract:
             det_linear_backward_input(grad, weight, dtype)
 
     def test_backward_weight_rejects_input_on_another_device(self, dtype):
+        """Reject native parameter-gradient operands on different CUDA devices."""
+
         from rl_engine.kernels.ops.cuda.h3.det_linear import det_linear_backward_weight
 
         _cuda_op()

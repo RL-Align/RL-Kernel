@@ -456,6 +456,7 @@ class KernelRegistry:
     """
 
     def __init__(self):
+        """Initialize backend caches, capability contracts, and device-specific priorities."""
         self._instance_cache: Dict[str, Any] = {}
         self._failed_backends: Set[str] = set()
         self.semantic = SemanticOperatorCatalog(_default_semantic_descriptors())

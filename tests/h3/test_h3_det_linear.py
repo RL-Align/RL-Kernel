@@ -19,6 +19,8 @@ pytestmark = [
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_backward_input_rejects_zero_rows(dtype):
+    """Reject empty gradient batches in native input-gradient kernels for both dtypes."""
+
     grad = torch.empty(0, 16, device="cuda", dtype=torch.float32)
     weight = torch.empty(16, 8, device="cuda", dtype=dtype)
     with pytest.raises(RuntimeError, match="grad must have at least one row"):
@@ -28,6 +30,8 @@ def test_backward_input_rejects_zero_rows(dtype):
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.parametrize("with_bias", [False, True])
 def test_backward_weight_rejects_zero_rows(dtype, with_bias):
+    """Reject empty gradient batches before parameter-gradient or bias-gradient reduction."""
+
     grad = torch.empty(0, 16, device="cuda", dtype=torch.float32)
     x = torch.empty(0, 8, device="cuda", dtype=dtype)
     with pytest.raises(RuntimeError, match="grad must have at least one row"):

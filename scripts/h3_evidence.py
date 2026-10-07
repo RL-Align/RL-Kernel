@@ -34,6 +34,8 @@ from rl_engine.testing.h3_weights import (  # noqa: E402
 
 
 def main() -> None:
+    """Collect CUDA accuracy and performance evidence, requiring weights for weighted ops."""
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--op", required=True, choices=sorted(ACCURACY))
     parser.add_argument("--out", type=Path, required=True)

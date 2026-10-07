@@ -30,10 +30,14 @@ from rl_engine.testing.h3_weights import (  # noqa: E402
 
 
 def _ints(text: str) -> list[int]:
+    """Parse comma-separated integers for the replay CLI's case dimensions."""
+
     return [int(v) for v in text.split(",")]
 
 
 def main() -> None:
+    """Replay requested CUDA stages with prerequisites and optionally save JSON evidence."""
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--stages",

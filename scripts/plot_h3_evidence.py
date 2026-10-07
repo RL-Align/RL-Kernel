@@ -35,6 +35,8 @@ SURFACE = "#fcfcfb"
 
 
 def _style(ax, title: str, ylabel: str) -> None:
+    """Apply the shared report axis styling, title, and vertical-axis label."""
+
     ax.set_facecolor(SURFACE)
     ax.set_title(title, loc="left", fontsize=11, color=INK, pad=10)
     ax.set_ylabel(ylabel, color=MUTED, fontsize=9)
@@ -47,7 +49,7 @@ def _style(ax, title: str, ylabel: str) -> None:
 
 
 def _bars(ax, labels: list[str], series: list[tuple[str, str, list[float]]], fmt: str) -> None:
-    """Grouped bars with a 2px-style gap and value labels on top."""
+    """Draw grouped series on the axis with formatted value labels and a legend."""
 
     n = len(series)
     width = 0.8 / n
@@ -75,10 +77,14 @@ LOG_FLOOR = 1e-9
 
 
 def _log_values(values: list[float]) -> list[float]:
+    """Replace nonpositive values with the plotting floor for logarithmic axes."""
+
     return [v if v > 0 else LOG_FLOOR for v in values]
 
 
 def _figure(report: dict[str, Any], suptitle: str):
+    """Create two report axes with a title and GPU, software, and revision provenance."""
+
     fig, axes = plt.subplots(1, 2, figsize=(11, 3.8), facecolor=SURFACE)
     env = report["environment"]
     fig.suptitle(suptitle, x=0.01, ha="left", fontsize=12, color=INK, fontweight="bold")
@@ -94,6 +100,8 @@ def _figure(report: dict[str, Any], suptitle: str):
 
 
 def plot_sinusoid(report: dict[str, Any]):
+    """Return a sinusoid report figure showing latency and errors against FP64."""
+
     fig, (left, right) = _figure(report, "timestep_sinusoid_h3")
     perf = report["perf"]
     _style(left, "Latency per call (lower is better)", "µs")
@@ -155,6 +163,8 @@ def plot_sinusoid(report: dict[str, Any]):
 
 
 def _latency_panel(ax, perf: list[dict[str, Any]], provider_name: str) -> None:
+    """Plot candidate and provider latency summaries in microseconds for each case."""
+
     _style(ax, "Latency per call (lower is better)", "µs")
     _bars(
         ax,
@@ -209,6 +219,8 @@ def _error_boxes(ax, title: str, series: list[tuple[str, str, list[float]]], con
 
 
 def plot_mlp(report: dict[str, Any]):
+    """Return an MLP report figure showing latency and per-draw FP64 error distributions."""
+
     fig, (left, right) = _figure(report, "timestep_mlp_fp32  (pinned time_embedder weights)")
     _latency_panel(left, report["perf"], "diffusers (cuBLAS)")
     acc = report["accuracy"]
@@ -225,6 +237,8 @@ def plot_mlp(report: dict[str, Any]):
 
 
 def plot_projection(report: dict[str, Any]):
+    """Return an AdaLN figure with latency, BF16 rounding accuracy, and the early-cast probe."""
+
     fig, (left, right) = _figure(report, "adaln_projection_3mod  (pinned block-0 AdaLN weights)")
     _latency_panel(left, report["perf"], "diffusers (cuBLAS)")
     acc = report["accuracy"]
@@ -269,6 +283,8 @@ PLOTS: dict[str, Callable[[dict[str, Any]], Any]] = {
 
 
 def main() -> None:
+    """Read an operator report and save its figure as a PNG beside it or at ``--out``."""
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("report", type=Path)
     parser.add_argument("--out", type=Path, default=None)

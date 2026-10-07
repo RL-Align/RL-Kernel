@@ -27,6 +27,12 @@ def validate_h3_timestep_mlp(
     w2: torch.Tensor,
     b2: torch.Tensor,
 ) -> None:
+    """Check a same-device FP32 ``(T, K) -> (T, H) -> (T, D)`` MLP contract.
+
+    Require ``T > 0``, weights of shapes ``(H, K)``/``(D, H)`` and biases
+    of shapes ``(H,)``/``(D,)``; reject lower-precision parameters or inputs.
+    """
+
     named = {"x": x, "w1": w1, "b1": b1, "w2": w2, "b2": b2}
     for name, tensor in named.items():
         if not isinstance(tensor, torch.Tensor):
@@ -64,13 +70,23 @@ class NativeH3TimestepMLPOp:
     op_class = "reduction"
 
     def __call__(self, x, w1, b1, w2, b2):
+        """Return FP32 ``(T, D)`` embeddings using the PyTorch provider graph."""
+
         return self.forward(x, w1, b1, w2, b2)
 
     def forward(self, x, w1, b1, w2, b2) -> torch.Tensor:
+        """Validate and evaluate linear-SiLU-linear in FP32 on the input device.
+
+        Inputs follow the ``(T, K) -> (T, H) -> (T, D)`` contract and retain
+        PyTorch autograd support; CUDA callers must disable TF32 for this path.
+        """
+
         validate_h3_timestep_mlp(x, w1, b1, w2, b2)
         return F.linear(F.silu(F.linear(x, w1, b1)), w2, b2)
 
     def forward_fp32(self, x, w1, b1, w2, b2) -> torch.Tensor:
+        """Evaluate the validated MLP in FP64 and round its ``(T, D)`` output to FP32."""
+
         validate_h3_timestep_mlp(x, w1, b1, w2, b2)
         z = F.linear(x.double(), w1.double(), b1.double())
         h = z * torch.sigmoid(z)

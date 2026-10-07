@@ -33,16 +33,22 @@ CASES = [(1, 3), (3, 257), (4, 4097)]
 
 @pytest.fixture(scope="module")
 def chain_weights(h3_weights_cpu):
+    """Move all pinned conditioning tensors to CUDA once for the end-to-end module."""
+
     return {name: tensor.cuda() for name, tensor in h3_weights_cpu.items()}
 
 
 @pytest.fixture(scope="module")
 def registry():
+    """Provide the production registry used to dispatch every conditioning stage."""
+
     return KernelRegistry()
 
 
 @pytest.mark.parametrize("num_timesteps, seq_len", CASES)
 def test_chain_forward(registry, chain_weights, num_timesteps, seq_len):
+    """Check CUDA dispatch, golden tolerance, repeatability, and declared provider parity."""
+
     report = h3_chain.run_case(
         registry, chain_weights, num_timesteps=num_timesteps, seq_len=seq_len
     )

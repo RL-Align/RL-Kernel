@@ -11,28 +11,42 @@ from rl_engine.testing import h3_report
 
 
 def test_measure_interleaves_backends_and_records_samples(monkeypatch):
+    """Balance candidate/provider timing order and preserve samples and derived bandwidth."""
+
     elapsed_us = 0.0
     calls = []
 
     class Event:
         def __init__(self, *, enable_timing):
+            """Require timing-enabled events in the deterministic timing stub."""
+
             assert enable_timing
 
         def record(self):
+            """Capture the synthetic elapsed clock at this event."""
+
             self.timestamp = elapsed_us
 
         def synchronize(self):
+            """Leave synchronization inert because the timing stub has no pending GPU work."""
+
             pass
 
         def elapsed_time(self, end):
+            """Return elapsed synthetic event time in CUDA milliseconds."""
+
             return (end.timestamp - self.timestamp) / 1e3
 
     def candidate():
+        """Record a candidate call and advance the synthetic clock by two microseconds."""
+
         nonlocal elapsed_us
         calls.append("candidate")
         elapsed_us += 2.0
 
     def provider():
+        """Record a provider call and advance the synthetic clock by four microseconds."""
+
         nonlocal elapsed_us
         calls.append("provider")
         elapsed_us += 4.0

@@ -20,11 +20,15 @@ from scripts import h3_chain_replay, h3_evidence
 
 @pytest.fixture
 def cpu_chain_cli(monkeypatch):
+    """Replace CUDA chain stages with CPU stubs that track dependencies and provider drift."""
+
     executed = []
     state = {"provider_shift": 0}
 
     class CpuOp:
         def __call__(self, value):
+            """Advance the synthetic chain value by one for candidate and golden replay."""
+
             return value + 1
 
         forward_fp32 = __call__
@@ -33,6 +37,8 @@ def cpu_chain_cli(monkeypatch):
     for index, stage in enumerate(h3_chain.STAGES):
 
         def stage_input(ctx, upstream, index=index):
+            """Use raw timesteps for stage zero and require predecessor outputs thereafter."""
+
             if index == 0:
                 return ctx["timestep"]
             assert isinstance(upstream, torch.Tensor), "a preceding stage must run first"
@@ -50,6 +56,8 @@ def cpu_chain_cli(monkeypatch):
         )
 
     def get_op(op_type, *, device):
+        """Record each dispatched stage and return its deterministic CPU stub."""
+
         executed.append(op_type)
         return CpuOp()
 
@@ -79,6 +87,8 @@ def cpu_chain_cli(monkeypatch):
 def test_chain_selection_runs_dependencies(
     cpu_chain_cli, monkeypatch, tmp_path, capsys, requested, execution_count, provider_shift
 ):
+    """Execute prerequisite stages but report requested stages and preserve first drift."""
+
     executed, state = cpu_chain_cli
     state["provider_shift"] = provider_shift
     out = tmp_path / "chain.json"
@@ -118,6 +128,8 @@ def test_chain_selection_runs_dependencies(
 @pytest.mark.parametrize("op", ["timestep_mlp_fp32", "adaln_projection_3mod"])
 @pytest.mark.parametrize("weights_env", [None, "  "])
 def test_weighted_evidence_requires_pinned_weights(monkeypatch, tmp_path, op, weights_env):
+    """Reject weighted evidence without a configured checkpoint before writing a report."""
+
     if weights_env is None:
         monkeypatch.delenv(WEIGHTS_ENV, raising=False)
     else:
@@ -138,6 +150,8 @@ def test_weighted_evidence_requires_pinned_weights(monkeypatch, tmp_path, op, we
     ],
 )
 def test_evidence_records_weight_source(monkeypatch, tmp_path, op, weight_source):
+    """Label weighted evidence as pinned and sinusoid evidence as weight-independent."""
+
     if weight_source == "not_applicable":
         monkeypatch.delenv(WEIGHTS_ENV, raising=False)
     else:
