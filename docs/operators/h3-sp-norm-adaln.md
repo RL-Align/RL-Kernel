@@ -70,8 +70,29 @@ How many rows move depends on how the table rows interleave along the sequence:
 
 ## Evidence
 
-The report is written by `scripts/h3_ws2_evidence.py` with real NCCL processes on one 8 x B200
-node, one GPU per rank.
+![sp_norm_adaln on 8 x B200: byte equality, time, naive SP](../usage/evidence/h3-sp-norm-adaln-b200/figure.png)
+
+The report is written by `scripts/h3_ws2_evidence.py` from a clean tree at commit `6c0d380`, with
+real NCCL processes on one 8 x B200 node, one GPU per rank. The region is
+`norm2(residual + gate_msa[row] * y)` with `shift_mlp`/`scale_mlp` modulation, H = 5376, BF16. It
+covers six cases: S = 4097 (block, interleaved, B = 2), 32768 (block, interleaved) and 131072
+(block). For SP 1, 2, 4 and 8, every rank's output rows, `d_residual` and `d_sublayer`, and its
+`d_norm_w` and `d_table`, are byte-equal to WS1 computed on the same GPU.
+
+Forward + backward of the region (slowest rank):
+
+| S, packing | WS1 (1 GPU) | SP2 | SP4 | SP8 |
+| --- | --- | --- | --- | --- |
+| 4097, block | 2.04 ms | 1.73 ms | 1.88 ms | 2.43 ms |
+| 32768, block | 3.72 ms | 2.85 ms | 2.40 ms | 2.72 ms |
+| 32768, interleaved | 3.72 ms | 3.45 ms | 3.88 ms | 6.82 ms |
+| 131072, block | 10.73 ms | 7.27 ms | 4.66 ms | 3.92 ms |
+
+At long sequences the rows split and the gain grows: 2.74x at SP8 for S = 131072. At short
+sequences, each backward's handful of host-synchronising all-gathers (about 0.1 ms each)
+dominates. Interleaved packing also moves more rows. A naive SP8 backward (each rank's WS1
+backward, then a rank-order sum) differs from WS1 on 40% of `d_norm_w` elements and on 6% (block)
+or 21% (interleaved) of `d_table` elements.
 
 ## Tests
 

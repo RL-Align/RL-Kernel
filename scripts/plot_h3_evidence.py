@@ -513,10 +513,10 @@ def plot_tp_adaln(report: dict[str, Any]):
     runs = report["runs"]
     _equality_grid(
         left,
-        "Byte-equal to WS1 (every rank, every T)",
+        "Byte-equal to WS1",
         [(f"TP{run['tp']}", [e for r in run["ranks"] for e in r["equality"]]) for run in runs],
         TP_TENSORS,
-        "rank x T",
+        "ranks x T",
     )
     # Right: slowest rank's time at the largest T; WS1 on one GPU as reference lines.
     num_t = max(p["num_timesteps"] for p in runs[0]["ranks"][0]["perf"])
@@ -563,7 +563,7 @@ def _equality_grid(ax, title, rows, tensors, unit) -> None:
     """One cell per (configuration, tensor): how many checks were byte-equal to WS1."""
 
     ax.set_facecolor(SURFACE)
-    ax.set_title(title, loc="left", fontsize=11, color=INK, pad=10)
+    ax.set_title(f"{title}; checks = {unit}", loc="left", fontsize=11, color=INK, pad=10)
     for y, (_, checks) in enumerate(rows):
         for x, (key, _) in enumerate(tensors):
             ok = sum(bool(e[key]) for e in checks)
@@ -579,7 +579,7 @@ def _equality_grid(ax, title, rows, tensors, unit) -> None:
                     linewidth=2,
                 )
             )
-            label = f"{'equal' if good else 'DIFF'}\n{ok}/{len(checks)} {unit}"
+            label = f"{'equal' if good else 'DIFF'}\n{ok}/{len(checks)}"
             ax.text(x + 0.5, y + 0.5, label, ha="center", va="center", fontsize=8, color="white")
     ax.set_xlim(0, len(tensors))
     ax.set_ylim(len(rows), 0)
@@ -624,13 +624,13 @@ def plot_sp_norm(report: dict[str, Any]):
     runs = report["runs"]
     _equality_grid(
         axes[0],
-        "Byte-equal to WS1 (every rank, every case)",
+        "Byte-equal to WS1",
         [
             (f"SP{run['sp']}", [c["equal"] for r in run["ranks"] for c in r["cases"]])
             for run in runs
         ],
         SP_TENSORS,
-        "rank x case",
+        "ranks x cases",
     )
 
     # Middle: the largest block-layout case, slowest rank.
