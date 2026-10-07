@@ -341,3 +341,18 @@ def h3_det_linear_backward_input(
 def h3_det_linear_backward_weight(
     grad: torch.Tensor, x: torch.Tensor, w_dtype: torch.dtype, with_bias: bool = True
 ) -> list[torch.Tensor]: ...
+def h3_adaln_row_gather_forward(
+    rows: torch.Tensor,
+    timestep_indices: torch.Tensor,
+    token_tags: torch.Tensor,
+    chunks: int = 6,
+    modality_num: int = 3,
+) -> torch.Tensor: ...
+def h3_adaln_row_gather_backward(
+    grad: torch.Tensor,
+    sorted_pos: torch.Tensor,
+    tile_begin: torch.Tensor,
+    tile_end: torch.Tensor,
+    seg_first_tile: torch.Tensor,
+    out_dtype: torch.dtype,
+) -> torch.Tensor: ...

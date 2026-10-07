@@ -46,14 +46,24 @@ def _style(ax, title: str, ylabel: str) -> None:
     ax.spines["bottom"].set_color(GRID)
 
 
-def _bars(ax, labels: list[str], series: list[tuple[str, str, list[float]]], fmt: str) -> None:
-    """Grouped bars with a 2px-style gap and value labels on top."""
+def _bars(ax, labels: list[str], series: list[tuple], fmt: str, log: bool = False) -> None:
+    """Grouped bars with a gap and value labels on top; a 4th tuple item is a hatch."""
 
     n = len(series)
     width = 0.8 / n
-    for i, (name, color, values) in enumerate(series):
+    for i, (name, color, values, *hatch) in enumerate(series):
         xs = [x + (i - (n - 1) / 2) * width for x in range(len(labels))]
-        bars = ax.bar(xs, values, width * 0.92, color=color, label=name, zorder=2)
+        bars = ax.bar(
+            xs,
+            values,
+            width * 0.92,
+            color=color if not hatch else SURFACE,
+            edgecolor=color,
+            hatch=hatch[0] if hatch else None,
+            linewidth=1.2,
+            label=name,
+            zorder=2,
+        )
         for bar, value in zip(bars, values):
             ax.annotate(
                 fmt.format(value),
@@ -65,9 +75,13 @@ def _bars(ax, labels: list[str], series: list[tuple[str, str, list[float]]], fmt
                 color=INK,
             )
     ax.set_xticks(range(len(labels)), labels)
-    top = max(v for _, _, values in series for v in values)
-    ax.set_ylim(0, top * 1.35)
-    ax.legend(frameon=False, fontsize=8, labelcolor=INK, loc="upper left", ncol=n)
+    top = max(v for _, _, values, *_ in series for v in values)
+    if log:
+        ax.set_yscale("log")
+        ax.set_ylim(min(v for _, _, values, *_ in series for v in values) / 2, top * 8)
+    else:
+        ax.set_ylim(0, top * 1.35)
+    ax.legend(frameon=False, fontsize=8, labelcolor=INK, loc="upper left", ncol=min(n, 4))
 
 
 # Exact zeros cannot sit on a log axis; draw them on this floor and label them.
@@ -261,10 +275,81 @@ def plot_projection(report: dict[str, Any]):
     return fig
 
 
+def plot_gather(report: dict[str, Any]):
+    fig, (left, right) = _figure(report, "adaln_row_gather  (T = 3, H = 5376, BF16)")
+    perf = report["perf"]
+    _style(left, "Forward and backward time (log, lower is better)", "ms")
+    _bars(
+        left,
+        [row["case"] for row in perf],
+        [
+            ("CUDA fwd", RL_KERNEL, [row["candidate_us"] / 1e3 for row in perf]),
+            ("index_select fwd", PROVIDER, [row["provider_us"] / 1e3 for row in perf]),
+            ("CUDA bwd", RL_KERNEL, [row["candidate_backward_us"] / 1e3 for row in perf], "////"),
+            (
+                "index_select bwd",
+                PROVIDER,
+                [row["provider_backward_us"] / 1e3 for row in perf],
+                "////",
+            ),
+        ],
+        "{:.2f}",
+        log=True,
+    )
+    chain = report["accuracy"]["chain_backward"]
+    _style(
+        right,
+        "Whole-chain grads of the FP32 time embedder vs FP64",
+        "max abs error / golden max",
+    )
+    names = {
+        "candidate": ("RL-Kernel, separate ops", THIRD, "o"),
+        "candidate_fused": ("RL-Kernel, fused modulation", RL_KERNEL, "D"),
+        "provider": ("diffusers", PROVIDER, "s"),
+    }
+    labels = [f"T={c['num_timesteps']}\nS={c['seq_len']}" for c in chain]
+    for j, (mode, (name, color, marker)) in enumerate(names.items()):
+        leaves = [e for c in chain for e in c["leaves"].values()]
+        det = sum(e[mode]["repeat_bitwise_equal"] for e in leaves)
+        adaln = min(
+            e[mode]["correctly_rounded_fraction"]
+            for c in chain
+            for n, e in c["leaves"].items()
+            if n.startswith("transformer_blocks")
+        )
+        label = (
+            f"{name}\n  repeat-bitwise {det}/{len(leaves)} · "
+            f"AdaLN BF16 grads ≥{100 * adaln:.1f}% correctly rounded"
+        )
+        for i, case in enumerate(chain):
+            values = [
+                e[mode]["max_abs_vs_golden_over_absmax"]
+                for n, e in case["leaves"].items()
+                if n.startswith("time_embedder")
+            ]
+            right.scatter(
+                [i + (j - 1) * 0.22] * len(values),
+                values,
+                s=30,
+                color=color,
+                marker=marker,
+                alpha=0.85,
+                linewidths=0,
+                zorder=3,
+                label=label if i == 0 else None,
+            )
+    right.set_yscale("log")
+    right.set_ylim(1e-8, 1e4)
+    right.set_xticks(range(len(labels)), labels, fontsize=7)
+    right.legend(frameon=False, fontsize=7, labelcolor=INK, loc="upper left")
+    return fig
+
+
 PLOTS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "timestep_sinusoid_h3": plot_sinusoid,
     "timestep_mlp_fp32": plot_mlp,
     "adaln_projection_3mod": plot_projection,
+    "adaln_row_gather": plot_gather,
 }
 
 

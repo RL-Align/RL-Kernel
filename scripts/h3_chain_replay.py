@@ -40,6 +40,12 @@ def main() -> None:
     parser.add_argument("--seq-lens", type=_ints, default=[3, 257, 4097], help="comma list of S")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, default=None)
+    parser.add_argument(
+        "--backward",
+        action="store_true",
+        help="also replay the chain backward (needs every stage): parameter-gradient "
+        "determinism and accuracy for the separate-op, fused and diffusers chains",
+    )
     args = parser.parse_args()
 
     if not torch.cuda.is_available():
@@ -76,6 +82,23 @@ def main() -> None:
             )
             print(f"T={num_timesteps} S={seq_len}: {summary}; first_drift={case['first_drift']}")
 
+    backward_cases = []
+    if args.backward:
+        for num_timesteps in args.timesteps:
+            for seq_len in args.seq_lens:
+                case = h3_chain.run_backward_case(
+                    registry, weights, num_timesteps=num_timesteps, seq_len=seq_len, seed=args.seed
+                )
+                backward_cases.append(case)
+                parts = []
+                for mode in h3_chain.BACKWARD_MODES:
+                    entries = case["leaves"].values()
+                    det = all(e[mode]["repeat_bitwise_equal"] for e in entries)
+                    worst = max(e[mode]["max_abs_vs_golden_over_absmax"] for e in entries)
+                    parts.append(f"{mode}: {'det' if det else 'NONDET'} {worst:.1e}")
+                summary = " | ".join(parts)
+                print(f"backward T={num_timesteps} S={seq_len}: {summary}")
+
     evidence = {
         "kind": "h3_conditioning_chain_replay",
         "rfc": manifest["rfc"],
@@ -86,6 +109,7 @@ def main() -> None:
         "environment": h3_chain.environment(),
         "stages": [s.name for s in stages],
         "cases": cases,
+        "backward_cases": backward_cases,
     }
     if args.out is not None:
         args.out.parent.mkdir(parents=True, exist_ok=True)

@@ -49,6 +49,7 @@ def make_operator_inputs(
         "timestep_sinusoid_h3": _make_timestep_sinusoid_h3_inputs,
         "timestep_mlp_fp32": _make_timestep_mlp_fp32_inputs,
         "adaln_projection_3mod": _make_adaln_projection_3mod_inputs,
+        "adaln_row_gather": _make_adaln_row_gather_inputs,
     }
     try:
         return builders[op_name](args, dtype, device)
@@ -84,6 +85,8 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         f"x{H3_TIME_EMBED}",
         "adaln_projection_3mod": f"{_h3_num_timesteps(args)}x{H3_TIME_EMBED}"
         f"x{6 * 3 * _h3_hidden(args)}",
+        "adaln_row_gather": f"{3 * _h3_num_timesteps(args)}x{6 * _h3_hidden(args)}"
+        f"->{batch * seq}",
     }
     try:
         return names[op_name]
@@ -409,6 +412,23 @@ def _make_adaln_projection_3mod_inputs(
         "weight": (weight * H3_TIME_EMBED**-0.5).to(dtype),
         "bias": (bias * 0.1).to(dtype),
     }
+
+
+def _make_adaln_row_gather_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    # T distinct timesteps (--batch) and a packed sequence of batch * seq rows
+    # mixing all three modalities.
+    batch, seq = _batch_seq(args)
+    num_timesteps = _h3_num_timesteps(args)
+    generator = _generator(args, device, offset=29)
+    packed = batch * seq
+    token_tags = torch.randint(0, 3, (packed,), generator=generator, device=device)
+    timestep_indices = torch.randint(
+        0, num_timesteps, (packed,), generator=generator, device=device
+    )
+    rows = _floating_tensor((3 * num_timesteps, 6 * _h3_hidden(args)), args, dtype, device, 0)
+    return {"rows": rows, "timestep_indices": timestep_indices, "token_tags": token_tags}
 
 
 def _floating_tensor(

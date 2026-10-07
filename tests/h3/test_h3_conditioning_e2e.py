@@ -53,3 +53,22 @@ def test_chain_forward(registry, chain_weights, num_timesteps, seq_len):
             assert entry["isolated_vs_provider"]["bitwise_equal"], entry["stage"]
     drift = report["first_isolated_drift"]
     assert drift is None or not stages[drift].provider_bitwise_isolated
+
+
+@pytest.mark.parametrize("num_timesteps, seq_len", [(1, 257), (3, 4097)])
+def test_chain_backward(registry, chain_weights, num_timesteps, seq_len):
+    """Parameter gradients of the whole chain: deterministic, and FP32-accurate when fused."""
+
+    report = h3_chain.run_backward_case(
+        registry, chain_weights, num_timesteps=num_timesteps, seq_len=seq_len
+    )
+    for name, entry in report["leaves"].items():
+        for mode in ("candidate", "candidate_fused"):
+            assert entry[mode]["repeat_bitwise_equal"], (mode, name)
+        fused = entry["candidate_fused"]
+        if name.startswith("time_embedder"):
+            # FP32 parameters: no BF16 rounding anywhere on the fused path.
+            assert fused["max_abs_vs_golden_over_absmax"] < 1e-5, (name, fused)
+        else:
+            # BF16 parameters: only their own final rounding remains.
+            assert fused["correctly_rounded_fraction"] > 0.99, (name, fused)

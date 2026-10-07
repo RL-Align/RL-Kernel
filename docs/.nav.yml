@@ -33,6 +33,7 @@ nav:
         - operators/h3-timestep-sinusoid.md
         - operators/h3-timestep-mlp.md
         - operators/h3-adaln-projection.md
+        - operators/h3-adaln-row-gather.md
   - Developer Guide:
     - contributing/README.md
     - General:
