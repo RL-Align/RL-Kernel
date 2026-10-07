@@ -82,8 +82,10 @@ def main() -> None:
 
     for name, spec in manifest["tensors"].items():
         tensor = tensors[name]
-        assert str(tensor.dtype).removeprefix("torch.") == spec["dtype"], name
-        assert list(tensor.shape) == spec["shape"], name
+        if str(tensor.dtype).removeprefix("torch.") != spec["dtype"]:
+            raise SystemExit(f"{name}: dtype {tensor.dtype} != manifest {spec['dtype']}")
+        if list(tensor.shape) != spec["shape"]:
+            raise SystemExit(f"{name}: shape {list(tensor.shape)} != manifest {spec['shape']}")
 
     target = out_dir / EXTRACTED_FILE
     save_file(tensors, str(target), metadata={"revision": identity["revision"]})
