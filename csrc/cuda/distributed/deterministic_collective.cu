@@ -552,9 +552,11 @@ __global__ void deterministic_reduce_scatter_fast_kernel(
 }
 
 // The all-gather payload copy: output[peer * input_bytes + i] = peer's byte i,
-// in rank order. Each peer's source and destination are resolved once, and
-// aligned spans move as 16-byte vectors with a byte-wise tail. Pure data
-// movement, so the result is byte-identical to a byte-by-byte copy.
+// in rank order. When the output, the size and every peer payload are 16-byte
+// aligned, one flat index over all peers' 16-byte vectors keeps every thread
+// busy across peers; otherwise each peer is copied in turn, with aligned spans
+// as vectors and a byte-wise tail. Pure data movement, so the result is
+// byte-identical to a byte-by-byte copy.
 __device__ __forceinline__ void copy_rank_ordered(
     const PeerPointers& peers,
     int world_size,
@@ -562,6 +564,21 @@ __device__ __forceinline__ void copy_rank_ordered(
     int64_t input_bytes,
     int64_t thread_index,
     int64_t stride) {
+  uintptr_t alignment =
+      reinterpret_cast<uintptr_t>(output) | static_cast<uintptr_t>(input_bytes);
+  for (int peer = 0; peer < world_size; ++peer) {
+    alignment |= reinterpret_cast<uintptr_t>(peers.values[peer]);
+  }
+  if ((alignment & 15u) == 0u) {
+    const int64_t peer_vectors = input_bytes / static_cast<int64_t>(sizeof(uint4));
+    auto* destination = reinterpret_cast<uint4*>(output);
+    for (int64_t index = thread_index; index < peer_vectors * world_size; index += stride) {
+      const int64_t peer = index / peer_vectors;
+      const auto* source = static_cast<const uint4*>(peers.values[peer]);
+      destination[index] = source[index - peer * peer_vectors];
+    }
+    return;
+  }
   for (int peer = 0; peer < world_size; ++peer) {
     const auto* source = static_cast<const uint8_t*>(peers.values[peer]);
     uint8_t* destination = output + static_cast<int64_t>(peer) * input_bytes;
