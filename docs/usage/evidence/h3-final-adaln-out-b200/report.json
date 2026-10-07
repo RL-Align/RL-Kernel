@@ -4,7 +4,7 @@
   "rfc": "RL-Align/RL-Kernel#420",
   "model_revision": "42ed227ee7df40d41602854ae760620d6eb651fe",
   "reference_commit": "f53d552036a0d1bd5570782a39cd40cfabf112bc",
-  "rl_kernel_commit": "38d575f4d509e8869d38df6108ebc7bd41735438",
+  "rl_kernel_commit": "372d6d71fc08f03162f5f8211d4fb36e7a48e6f1",
   "tracked_tree_dirty": false,
   "environment": {
     "gpu": "NVIDIA B200",
@@ -26,21 +26,21 @@
       "cuda": {
         "repeat_bitwise_equal": true,
         "rel_error": {
-          "dx": 0.00211864406779661,
-          "d_norm_w": 0.0024154589371980675,
-          "d_temb": 0.0009756948066236087,
-          "dW": 0.0031645569620253164,
-          "db": 0.004166666666666667
+          "dx": 0.002330429519732287,
+          "d_norm_w": 0.0022793000129727424,
+          "d_temb": 0.0009756835628088057,
+          "dW": 0.00310445472056345,
+          "db": 0.002154037178337913
         }
       },
       "provider": {
         "repeat_bitwise_equal": false,
         "rel_error": {
-          "dx": 0.00423728813559322,
-          "d_norm_w": 0.0024154589371980675,
-          "d_temb": 0.033066777928105924,
-          "dW": 0.06962025316455696,
-          "db": 0.058333333333333334
+          "dx": 0.004053890312809679,
+          "d_norm_w": 0.002528636418480549,
+          "d_temb": 0.042078842210809396,
+          "dW": 0.06990484008603785,
+          "db": 0.0532275685979373
         }
       }
     }
@@ -51,17 +51,17 @@
       "case": "S=4097",
       "backend": "H3FinalAdaLNOutCudaOp",
       "bytes": 145904640,
-      "candidate_us": 132.84800201654434,
-      "candidate_gbps": 1098.2825318052553,
+      "candidate_us": 140.3520032763481,
+      "candidate_gbps": 1039.5622192347262,
       "candidate_peak_mib": 42.103515625,
-      "provider_us": 148.3519971370697,
-      "provider_gbps": 983.5030388245567,
+      "provider_us": 152.12799608707428,
+      "provider_gbps": 959.0913162130121,
       "provider_peak_mib": 168.1025390625,
-      "candidate_backward_us": 1636.9760036468506,
-      "candidate_backward_gbps": 89.13059181988865,
+      "candidate_backward_us": 1667.2160029411316,
+      "candidate_backward_gbps": 87.51393925118882,
       "candidate_backward_peak_mib": 144.779296875,
-      "provider_backward_us": 1103.1839847564697,
-      "provider_backward_gbps": 132.2577575600037,
+      "provider_backward_us": 1124.8160004615784,
+      "provider_backward_gbps": 129.7142287628614,
       "provider_backward_peak_mib": 252.1240234375
     },
     {
@@ -69,17 +69,17 @@
       "case": "S=32768",
       "backend": "H3FinalAdaLNOutCudaOp",
       "bytes": 762445824,
-      "candidate_us": 386.57599687576294,
-      "candidate_gbps": 1972.3051357610116,
+      "candidate_us": 401.19999647140503,
+      "candidate_gbps": 1900.41333675421,
       "candidate_peak_mib": 336.2021484375,
-      "provider_us": 778.7040174007416,
-      "provider_gbps": 979.1214722957122,
+      "provider_us": 783.376008272171,
+      "provider_gbps": 973.2820713793176,
       "provider_peak_mib": 1344.0615234375,
-      "candidate_backward_us": 2878.5279989242554,
-      "candidate_backward_gbps": 264.8735132279194,
-      "candidate_backward_peak_mib": 734.18115234375,
-      "provider_backward_us": 5358.960151672363,
-      "provider_backward_gbps": 142.2749567865446,
+      "candidate_backward_us": 2970.0639247894287,
+      "candidate_backward_gbps": 256.71024035418895,
+      "candidate_backward_peak_mib": 733.30615234375,
+      "provider_backward_us": 5385.215997695923,
+      "provider_backward_gbps": 141.58128927905847,
       "provider_backward_peak_mib": 2016.17138671875
     },
     {
@@ -87,17 +87,17 @@
       "case": "S=131072",
       "backend": "H3FinalAdaLNOutCudaOp",
       "bytes": 2876375040,
-      "candidate_us": 1234.607994556427,
-      "candidate_gbps": 2329.788121154546,
+      "candidate_us": 1245.5360293388367,
+      "candidate_gbps": 2309.3471182257613,
       "candidate_peak_mib": 1344.5771484375,
-      "provider_us": 2920.192003250122,
-      "provider_gbps": 984.9951773029464,
+      "provider_us": 2935.1519346237183,
+      "provider_gbps": 979.9748374418467,
       "provider_peak_mib": 5376.0615234375,
-      "candidate_backward_us": 7796.927928924561,
-      "candidate_backward_gbps": 368.9113284386537,
-      "candidate_backward_peak_mib": 2752.06201171875,
-      "provider_backward_us": 20699.440002441406,
-      "provider_backward_gbps": 138.95907520496905,
+      "candidate_backward_us": 7872.640132904053,
+      "candidate_backward_gbps": 365.36346021686694,
+      "candidate_backward_peak_mib": 2751.18701171875,
+      "provider_backward_us": 22151.82399749756,
+      "provider_backward_gbps": 129.84822560548233,
       "provider_backward_peak_mib": 8064.54638671875
     }
   ]
