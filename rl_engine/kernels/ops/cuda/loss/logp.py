@@ -59,8 +59,10 @@ class _FusedLogpAutograd(torch.autograd.Function):
     The VJP is row-local: ``dlogits = grad * (one_hot(target) - softmax)``.
     It runs in FP32 on CUDA and casts only the final input VJP to the BF16
     execution dtype.  There is no cross-token reduction or borrowed Triton
-    candidate, so Batch/Chunk layout cannot change the result.  The FP32
-    softmax is materialized one bounded row chunk at a time.
+    candidate, so Batch/Chunk layout cannot change the result.  Builds with
+    ``_C.fused_logp_backward`` compute it in one kernel that reuses the
+    forward's max / sum-exp reductions and needs no workspace; older builds
+    fall back to the bounded row-chunked FP32 path.
     """
 
     @staticmethod
@@ -69,6 +71,7 @@ class _FusedLogpAutograd(torch.autograd.Function):
         labels = token_ids.reshape(-1).to(device=logits.device, dtype=torch.long).contiguous()
         output = backend.fused_logp(logits_2d, labels)
         ctx.save_for_backward(logits_2d, labels)
+        ctx.backend = backend
         ctx.input_shape = tuple(logits.shape)
         ctx.input_dtype = logits.dtype
         return output.reshape(logits.shape[:-1])
@@ -76,7 +79,11 @@ class _FusedLogpAutograd(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor):
         logits, labels = ctx.saved_tensors
-        grad = fused_logp_backward_chunked(logits, labels, grad_output, ctx.input_dtype)
+        if hasattr(ctx.backend, "fused_logp_backward"):
+            grad_1d = grad_output.reshape(-1).float().contiguous()
+            grad = ctx.backend.fused_logp_backward(logits, labels, grad_1d)
+        else:
+            grad = fused_logp_backward_chunked(logits, labels, grad_output, ctx.input_dtype)
         return grad.reshape(ctx.input_shape), None, None
 
 

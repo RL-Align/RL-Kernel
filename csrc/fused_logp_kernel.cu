@@ -166,6 +166,95 @@ __global__ void fused_logp_forward_kernel(
     }
 }
 
+// dlogits = grad * (one_hot(target) - softmax(logits)) for one row per block.
+// The max / sum-exp passes visit each thread's elements in the same order as
+// fused_logp_forward_kernel (same block size and reductions), so the softmax is
+// bitwise consistent with the forward logp; loads are only batched kUnroll at a
+// time for memory-level parallelism.  No [N, V] FP32 workspace is materialized.
+// Rows whose target is outside [0, V) have a constant forward output and get a
+// zero gradient.
+template <typename scalar_t, int kUnroll>
+__global__ void fused_logp_backward_kernel(
+    const scalar_t* __restrict__ logits,      // [TotalTokens, VocabSize]
+    const int64_t* __restrict__ token_ids,   // [TotalTokens]
+    const float* __restrict__ grad_output,   // [TotalTokens]
+    scalar_t* __restrict__ grad_logits,      // [TotalTokens, VocabSize]
+    int vocab_size) {
+
+    int64_t row = blockIdx.x;
+    const scalar_t* row_logits = logits + row * vocab_size;
+    scalar_t* row_grad = grad_logits + row * vocab_size;
+    const int stride = blockDim.x;
+    const int tile = stride * kUnroll;
+
+    int64_t target_id = token_ids[row];
+    if (target_id < 0 || target_id >= vocab_size) {
+        for (int i = threadIdx.x; i < vocab_size; i += stride) {
+            row_grad[i] = static_cast<scalar_t>(0.0f);
+        }
+        return;
+    }
+
+    float local_max = -1e20f;
+    for (int base = threadIdx.x; base < vocab_size; base += tile) {
+        float values[kUnroll];
+#pragma unroll
+        for (int u = 0; u < kUnroll; ++u) {
+            int i = base + u * stride;
+            values[u] = i < vocab_size ? static_cast<float>(row_logits[i]) : -1e20f;
+        }
+#pragma unroll
+        for (int u = 0; u < kUnroll; ++u) {
+            local_max = max(local_max, values[u]);
+        }
+    }
+    float max_val = blockReduceMax<float>(local_max);
+
+    __shared__ float res_max;
+    if (threadIdx.x == 0) res_max = max_val;
+    __syncthreads();
+
+    float local_sum = 0.0f;
+    for (int base = threadIdx.x; base < vocab_size; base += tile) {
+        float values[kUnroll];
+#pragma unroll
+        for (int u = 0; u < kUnroll; ++u) {
+            int i = base + u * stride;
+            values[u] = i < vocab_size ? static_cast<float>(row_logits[i]) : 0.0f;
+        }
+#pragma unroll
+        for (int u = 0; u < kUnroll; ++u) {
+            if (base + u * stride < vocab_size) {
+                local_sum += expf(values[u] - res_max);
+            }
+        }
+    }
+    float sum_val = blockReduceSum<float>(local_sum);
+
+    __shared__ float res_sum;
+    if (threadIdx.x == 0) res_sum = sum_val;
+    __syncthreads();
+
+    float g = grad_output[row];
+    for (int base = threadIdx.x; base < vocab_size; base += tile) {
+        float values[kUnroll];
+#pragma unroll
+        for (int u = 0; u < kUnroll; ++u) {
+            int i = base + u * stride;
+            values[u] = i < vocab_size ? static_cast<float>(row_logits[i]) : 0.0f;
+        }
+#pragma unroll
+        for (int u = 0; u < kUnroll; ++u) {
+            int i = base + u * stride;
+            if (i < vocab_size) {
+                float prob = expf(values[u] - res_max) / res_sum;
+                float one_hot = i == target_id ? 1.0f : 0.0f;
+                row_grad[i] = static_cast<scalar_t>(g * (one_hot - prob));
+            }
+        }
+    }
+}
+
 template <typename scalar_t, typename output_t, int BlockSize>
 __global__ void __launch_bounds__(BlockSize) fused_logp_forward_online_kernel(
     const scalar_t* __restrict__ logits,      // [TotalTokens, VocabSize]
@@ -247,6 +336,7 @@ namespace {
 #endif
 
 constexpr int kFusedLogpTwoPassBlockSize = FUSED_LOGP_TWOPASS_BLOCK_SIZE;
+constexpr int kFusedLogpBackwardUnroll = 8;
 constexpr int kFusedLogpOnlineBlockSize = FUSED_LOGP_ONLINE_BLOCK_SIZE;
 constexpr int kFusedLogpOnlineSparseLargeVocabBlockSize =
     FUSED_LOGP_ONLINE_SPARSE_LARGE_VOCAB_BLOCK_SIZE;
@@ -596,4 +686,59 @@ torch::Tensor fused_logp_forward_online_indexed_fp32(
     TORCH_CHECK(logits.dim() == 2, "logits must be a 2D tensor");
     auto output = torch::zeros({logits.size(0)}, logits.options().dtype(at::ScalarType::Float));
     return fused_logp_forward_online_indexed_out(logits, token_ids, row_indices, output);
+}
+
+torch::Tensor fused_logp_backward(
+    torch::Tensor logits,
+    torch::Tensor token_ids,
+    torch::Tensor grad_output) {
+    TORCH_CHECK(logits.is_cuda(), "logits must be a CUDA tensor");
+    TORCH_CHECK(token_ids.is_cuda(), "token_ids must be a CUDA tensor");
+    TORCH_CHECK(grad_output.is_cuda(), "grad_output must be a CUDA tensor");
+    TORCH_CHECK(logits.device() == token_ids.device(), "logits and token_ids must be on the same CUDA device");
+    TORCH_CHECK(logits.device() == grad_output.device(), "logits and grad_output must be on the same CUDA device");
+    TORCH_CHECK(logits.dim() == 2, "logits must be a 2D tensor");
+    TORCH_CHECK(token_ids.dim() == 1, "token_ids must be a 1D tensor");
+    TORCH_CHECK(grad_output.dim() == 1, "grad_output must be a 1D tensor");
+    TORCH_CHECK(token_ids.scalar_type() == at::ScalarType::Long, "token_ids must be int64");
+    TORCH_CHECK(grad_output.scalar_type() == at::ScalarType::Float, "grad_output must be float32");
+    TORCH_CHECK(token_ids.numel() == logits.size(0), "token_ids length must match logits rows");
+    TORCH_CHECK(grad_output.numel() == logits.size(0), "grad_output length must match logits rows");
+    TORCH_CHECK(logits.size(1) > 0, "logits vocab dimension must be non-empty");
+    TORCH_CHECK(
+        logits.size(1) <= std::numeric_limits<int>::max(),
+        "logits vocab dimension exceeds int32 kernel indexing");
+    TORCH_CHECK(
+        logits.size(0) <= std::numeric_limits<int>::max(),
+        "logits rows exceed the CUDA grid limit");
+
+    auto logits_contig = logits.contiguous();
+    auto token_ids_contig = token_ids.contiguous();
+    auto grad_output_contig = grad_output.contiguous();
+    auto grad_logits = torch::empty_like(logits_contig);
+    int64_t total_tokens = logits_contig.size(0);
+    if (total_tokens == 0) {
+        return grad_logits;
+    }
+
+    AT_DISPATCH_FLOATING_TYPES_AND2(
+        at::ScalarType::Half,
+        at::ScalarType::BFloat16,
+        logits_contig.scalar_type(),
+        "fused_logp_backward_kernel",
+        ([&] {
+            fused_logp_backward_kernel<scalar_t, kFusedLogpBackwardUnroll><<<
+                static_cast<int>(total_tokens),
+                kFusedLogpTwoPassBlockSize,
+                0,
+                at::cuda::getCurrentCUDAStream()>>>(
+                logits_contig.data_ptr<scalar_t>(),
+                token_ids_contig.data_ptr<int64_t>(),
+                grad_output_contig.data_ptr<float>(),
+                grad_logits.data_ptr<scalar_t>(),
+                static_cast<int>(logits_contig.size(1)));
+        }));
+
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    return grad_logits;
 }
