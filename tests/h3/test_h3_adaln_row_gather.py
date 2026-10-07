@@ -13,6 +13,12 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
+
 import pytest
 import torch
 
@@ -122,6 +128,55 @@ class TestCudaForward:
         ti, tags = h3_packed_layout(8, 1)
         with pytest.raises(IndexError):
             _cuda_op()(rows, ti, tags + 3)
+
+    @pytest.mark.parametrize("entrypoint", ["native", "unchecked_wrapper"])
+    @pytest.mark.parametrize(
+        "timestep, tag, index_dtype",
+        [
+            pytest.param(-1, 0, "int32", id="negative-timestep"),
+            pytest.param(2, 0, "int64", id="timestep-past-table"),
+            pytest.param(0, 3, "int32", id="tag-past-modality-valid-row"),
+            pytest.param(1, -1, "int64", id="negative-tag-valid-row"),
+            # Multiplication by 3 wraps this value to row 2 in signed int64.
+            pytest.param((2**64 + 2) // 3, 0, "int64", id="timestep-overflow-valid-row"),
+            pytest.param(0, 2**63 - 1, "int64", id="int64-max-tag"),
+        ],
+    )
+    def test_native_bounds_assertions(self, entrypoint, timestep, tag, index_dtype):
+        """Reject semantic index violations without poisoning pytest's CUDA context."""
+
+        _cuda_op()
+        probe = textwrap.dedent(
+            """
+            import sys
+            import torch
+            from rl_engine.kernels.ops.base import _C
+            from rl_engine.kernels.ops.cuda.h3.adaln_row_gather import H3AdaLNRowGatherCudaOp
+
+            entrypoint, timestep, tag, index_dtype = sys.argv[1:]
+            rows = torch.zeros((6, 6), dtype=torch.float32, device="cuda")
+            dtype = getattr(torch, index_dtype)
+            ti = torch.tensor([int(timestep)], dtype=dtype, device="cuda")
+            tags = torch.tensor([int(tag)], dtype=dtype, device="cuda")
+            if entrypoint == "native":
+                _C.h3_adaln_row_gather_forward(rows, ti, tags, 6, 3)
+            else:
+                H3AdaLNRowGatherCudaOp().forward(rows, ti, tags, check_range=False)
+            torch.cuda.synchronize()
+            """
+        )
+        completed = subprocess.run(
+            [sys.executable, "-c", probe, entrypoint, str(timestep), str(tag), index_dtype],
+            cwd=Path(__file__).resolve().parents[2],
+            env={**os.environ, "CUDA_LAUNCH_BLOCKING": "1"},
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert completed.returncode != 0, "native gather accepted invalid semantic indices"
+        assert "device-side assert triggered" in completed.stderr, (
+            f"expected a CUDA bounds assertion, got:\n{completed.stdout}\n{completed.stderr}"
+        )
 
     def test_gather_chunks_drop_in(self):
         rows = _rows(2, hidden=16)
