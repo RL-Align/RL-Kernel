@@ -215,6 +215,12 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     CUDA_H3_ADALN_PROJECTION = (
         "rl_engine.kernels.ops.cuda.h3.adaln_projection.H3AdaLNProjectionCudaOp"
     )
+    PYTORCH_H3_ADALN_ROW_GATHER = (
+        "rl_engine.kernels.ops.pytorch.h3.adaln_row_gather.NativeH3AdaLNRowGatherOp"
+    )
+    CUDA_H3_ADALN_ROW_GATHER = (
+        "rl_engine.kernels.ops.cuda.h3.adaln_row_gather.H3AdaLNRowGatherCudaOp"
+    )
 
 
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
@@ -637,6 +643,10 @@ class KernelRegistry:
                     OpBackend.CUDA_H3_ADALN_PROJECTION,
                     OpBackend.PYTORCH_H3_ADALN_PROJECTION,
                 ],
+                "adaln_row_gather": [
+                    OpBackend.CUDA_H3_ADALN_ROW_GATHER,
+                    OpBackend.PYTORCH_H3_ADALN_ROW_GATHER,
+                ],
             },
             "rocm": {
                 "logp": [
@@ -680,6 +690,7 @@ class KernelRegistry:
                 "timestep_sinusoid_h3": [OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID],
                 "timestep_mlp_fp32": [OpBackend.PYTORCH_H3_TIMESTEP_MLP],
                 "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
+                "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
             },
             "musa": {
                 "logp": [OpBackend.TRITON_LOGP, OpBackend.PYTORCH_NATIVE],
@@ -727,6 +738,7 @@ class KernelRegistry:
                 "timestep_sinusoid_h3": [OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID],
                 "timestep_mlp_fp32": [OpBackend.PYTORCH_H3_TIMESTEP_MLP],
                 "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
+                "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
             },
             "cpu": {
                 "logp": [OpBackend.PYTORCH_NATIVE],
@@ -755,6 +767,7 @@ class KernelRegistry:
                 "timestep_sinusoid_h3": [OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID],
                 "timestep_mlp_fp32": [OpBackend.PYTORCH_H3_TIMESTEP_MLP],
                 "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
+                "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
             },
             # Ascend NPU: op types without an entry fall back to their CPU
             # candidates (see the runtime override below), so only

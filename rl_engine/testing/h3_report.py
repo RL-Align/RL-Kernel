@@ -16,9 +16,10 @@ from typing import Any, Callable
 import torch
 
 from rl_engine.kernels.registry import KernelRegistry
-from rl_engine.testing.h3_cases import h3_timesteps
+from rl_engine.testing.h3_cases import h3_packed_layout, h3_timesteps
 from rl_engine.testing.h3_provider import (
     provider_adaln_modulation,
+    provider_adaln_row_gather,
     provider_time_embedder,
     provider_time_proj,
 )
@@ -258,13 +259,105 @@ def _projection_accuracy(registry: KernelRegistry, draws: int = 20) -> dict[str,
     }
 
 
+# --------------------------------------------------------------------------- #
+# adaln_row_gather
+# --------------------------------------------------------------------------- #
+
+GATHER_SEQ_LENS = (4097, 32768, 131072)
+
+
+def _gather_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
+    op = registry.get_op("adaln_row_gather", device="cuda")
+    num_timesteps, hidden = 3, 5376
+    rows = torch.randn(3 * num_timesteps, 6 * hidden, device="cuda").bfloat16()
+    chunks = rows.chunk(6, dim=-1)
+    cases = []
+    for seq in GATHER_SEQ_LENS:
+        ti, tags = h3_packed_layout(seq, num_timesteps, seed=seq)
+        grads = [torch.randn(seq, hidden, device="cuda").bfloat16() for _ in range(6)]
+
+        def backward(fn, ti=ti, tags=tags, grads=grads):
+            leaf = rows.detach().requires_grad_(True)
+            torch.autograd.backward(list(fn(leaf, ti, tags)), grads)
+
+        cases.append(
+            {
+                "op": "adaln_row_gather",
+                "case": f"S={seq}",
+                "backend": type(op).__name__,
+                # bytes written (six (S, H) BF16 outputs); the 3T-row table stays in L2
+                "bytes": 6 * seq * hidden * 2,
+                "candidate": lambda ti=ti, tags=tags: op.forward(rows, ti, tags, check_range=False),
+                "provider": lambda ti=ti, tags=tags: provider_adaln_row_gather(chunks, ti, tags),
+                "candidate_backward": lambda b=backward: b(
+                    lambda r, ti, tags: op.forward(r, ti, tags, check_range=False)
+                ),
+                "provider_backward": lambda b=backward: b(
+                    lambda r, ti, tags: provider_adaln_row_gather(r.chunk(6, dim=-1), ti, tags)
+                ),
+            }
+        )
+    return cases
+
+
+def _gather_accuracy(registry: KernelRegistry) -> dict[str, Any]:
+    from rl_engine.testing.h3_chain import run_backward_case
+    from rl_engine.testing.h3_weights import load_h3_conditioning_weights
+
+    op = registry.get_op("adaln_row_gather", device="cuda")
+    golden = registry._get_or_create_backend(registry._priority_map["cpu"]["adaln_row_gather"][-1])
+    rows = torch.randn(9, 6 * 5376, device="cuda").bfloat16()
+    forward_bitwise = {}
+    for seq in (1, 257, 4097, 32768):
+        ti, tags = h3_packed_layout(seq, 3, seed=seq)
+        ours = op(rows, ti, tags)
+        theirs = provider_adaln_row_gather(rows.chunk(6, dim=-1), ti, tags)
+        forward_bitwise[str(seq)] = all(torch.equal(a, b) for a, b in zip(ours, theirs))
+
+    # Op-level backward: correctly rounded FP32 segment sums vs the atomic BF16 scatter-add.
+    ti, tags = h3_packed_layout(4097, 3, seed=1)
+    grads = [torch.randn(4097, 5376, device="cuda").bfloat16() for _ in range(6)]
+
+    def grad_of(fn):
+        leaf = rows.detach().clone().requires_grad_(True)
+        torch.autograd.backward(list(fn(leaf)), grads)
+        return leaf.grad
+
+    ref = rows.detach().double().requires_grad_(True)
+    torch.autograd.backward(list(golden.forward_fp32(ref, ti, tags)), [g.float() for g in grads])
+    gold = ref.grad.bfloat16()
+    backward = {}
+    for name, fn in (
+        ("cuda", lambda leaf: op(leaf, ti, tags)),
+        ("provider", lambda leaf: provider_adaln_row_gather(leaf.chunk(6, dim=-1), ti, tags)),
+    ):
+        first, second = grad_of(fn), grad_of(fn)
+        backward[name] = {
+            "repeat_bitwise_equal": bool(torch.equal(first, second)),
+            "correctly_rounded_fraction": float((first == gold).float().mean()),
+        }
+
+    weights = load_h3_conditioning_weights("cuda")
+    chain = [
+        run_backward_case(registry, weights, num_timesteps=t, seq_len=s)
+        for t, s in ((1, 257), (3, 257), (1, 4097), (3, 4097), (4, 32768))
+    ]
+    return {
+        "forward_bitwise_vs_index_select": forward_bitwise,
+        "op_backward": backward,
+        "chain_backward": chain,
+    }
+
+
 PERF_CASES: dict[str, Callable[[KernelRegistry], list[dict[str, Any]]]] = {
     "timestep_sinusoid_h3": _sinusoid_perf,
     "timestep_mlp_fp32": _mlp_perf,
     "adaln_projection_3mod": _projection_perf,
+    "adaln_row_gather": _gather_perf,
 }
 ACCURACY: dict[str, Callable[[KernelRegistry], dict[str, Any]]] = {
     "timestep_sinusoid_h3": _sinusoid_accuracy,
     "timestep_mlp_fp32": _mlp_accuracy,
     "adaln_projection_3mod": _projection_accuracy,
+    "adaln_row_gather": _gather_accuracy,
 }

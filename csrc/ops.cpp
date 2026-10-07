@@ -510,6 +510,13 @@ torch::Tensor h3_det_linear_backward_input(torch::Tensor grad, torch::Tensor wei
 std::vector<torch::Tensor> h3_det_linear_backward_weight(torch::Tensor grad, torch::Tensor x,
                                                          c10::ScalarType w_dtype,
                                                          bool with_bias);
+torch::Tensor h3_adaln_row_gather_forward(torch::Tensor rows, torch::Tensor timestep_indices,
+                                          torch::Tensor token_tags, int64_t chunks,
+                                          int64_t modality_num);
+torch::Tensor h3_adaln_row_gather_backward(torch::Tensor grad, torch::Tensor sorted_pos,
+                                           torch::Tensor tile_begin, torch::Tensor tile_end,
+                                           torch::Tensor seg_first_tile,
+                                           c10::ScalarType out_dtype);
 #endif
 
 // PyBind11 Module Registration
@@ -783,5 +790,13 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("h3_det_linear_backward_weight", &h3_det_linear_backward_weight,
           "Deterministic dW/dbias as ascending-row FP32 folds",
           py::arg("grad"), py::arg("x"), py::arg("w_dtype"), py::arg("with_bias") = true);
+    m.def("h3_adaln_row_gather_forward", &h3_adaln_row_gather_forward,
+          "Fused six-way AdaLN row gather by timestep_index * 3 + token_tag (pure copy)",
+          py::arg("rows"), py::arg("timestep_indices"), py::arg("token_tags"),
+          py::arg("chunks") = 6, py::arg("modality_num") = 3);
+    m.def("h3_adaln_row_gather_backward", &h3_adaln_row_gather_backward,
+          "Deterministic segmented sum (sorted tiles folded in order) for the row gather",
+          py::arg("grad"), py::arg("sorted_pos"), py::arg("tile_begin"), py::arg("tile_end"),
+          py::arg("seg_first_tile"), py::arg("out_dtype"));
 #endif
 }
