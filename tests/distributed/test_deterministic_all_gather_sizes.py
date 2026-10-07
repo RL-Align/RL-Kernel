@@ -36,6 +36,7 @@ pytestmark = [
 
 
 def _byte_sizes(world_size: int) -> list[int]:
+    """Return per-rank byte counts covering copy boundaries and vector tails."""
     per_rank_threshold = _THRESHOLD // world_size
     return sorted(
         {
@@ -56,6 +57,7 @@ def _byte_sizes(world_size: int) -> list[int]:
 
 
 def _worker(rank: int, world_size: int, port: int) -> None:
+    """Compare rank-ordered copies with NCCL in an owned process group."""
     torch.cuda.set_device(rank)
     device = torch.device("cuda", rank)
     dist.init_process_group(
@@ -93,10 +95,12 @@ def _worker(rank: int, world_size: int, port: int) -> None:
 
 
 def _find_free_port() -> int:
+    """Return an available loopback TCP port for the workers' rendezvous."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
 
 
 def test_all_gather_is_exact_across_sizes_and_alignments() -> None:
+    """Verify byte-exact output and prefix guards across sizes and offsets."""
     mp.spawn(_worker, args=(_WORLD_SIZE, _find_free_port()), nprocs=_WORLD_SIZE, join=True)
