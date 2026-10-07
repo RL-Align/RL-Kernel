@@ -64,7 +64,7 @@ def _bars(ax, labels: list[str], series: list[tuple], fmt: str, log: bool = Fals
             label=name,
             zorder=2,
         )
-        for bar, value in zip(bars, values):
+        for bar, value in zip(bars, values, strict=True):
             ax.annotate(
                 fmt.format(value),
                 (bar.get_x() + bar.get_width() / 2, bar.get_height()),
@@ -139,7 +139,7 @@ def plot_sinusoid(report: dict[str, Any]):
         color=MUTED,
         ha="right",
     )
-    for x, value in zip(xs, cuda):
+    for x, value in zip(xs, cuda, strict=True):
         if value == 0:
             right.annotate(
                 "exact",
