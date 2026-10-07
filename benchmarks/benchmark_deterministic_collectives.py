@@ -21,6 +21,7 @@ import argparse
 import json
 import os
 import statistics
+from functools import partial
 from pathlib import Path
 from typing import Callable, Sequence
 
@@ -48,6 +49,7 @@ _DEFAULT_SIZES = [
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """Parse the message-size sweep and distributed benchmark options."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--size-bytes", type=int, nargs="+", default=_DEFAULT_SIZES)
     parser.add_argument("--dtype", choices=tuple(_DTYPES), default="bf16")
@@ -58,14 +60,25 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _median_us(fn: Callable[[], object], warmup: int, iterations: int) -> float:
+def _median_us(
+    fn: Callable[[], object],
+    warmup: int,
+    iterations: int,
+    *,
+    prepare: Callable[[], object] | None = None,
+) -> float:
+    """Return median CUDA-event time, excluding preparation before each call."""
     for _ in range(warmup):
+        if prepare is not None:
+            prepare()
         fn()
     torch.cuda.synchronize()
     samples = []
     for _ in range(iterations):
         start = torch.cuda.Event(enable_timing=True)
         end = torch.cuda.Event(enable_timing=True)
+        if prepare is not None:
+            prepare()
         start.record()
         fn()
         end.record()
@@ -75,12 +88,14 @@ def _median_us(fn: Callable[[], object], warmup: int, iterations: int) -> float:
 
 
 def _slowest(value: float) -> float:
+    """Return the largest per-rank timing across the process group."""
     tensor = torch.tensor([value], device="cuda")
     dist.all_reduce(tensor, op=dist.ReduceOp.MAX)
     return float(tensor.item())
 
 
 def main(argv: Sequence[str] | None = None) -> None:
+    """Measure selected collectives on every rank and save the rank-zero report."""
     args = parse_args(argv)
     rank = int(os.environ["LOCAL_RANK"])
     torch.cuda.set_device(rank)
@@ -97,33 +112,38 @@ def main(argv: Sequence[str] | None = None) -> None:
             x = torch.randn(numel, device="cuda").to(dtype)
             gathered = torch.empty(numel * world, device="cuda", dtype=dtype)
             reduce_in = torch.randn(numel * world, device="cuda").to(dtype)
+            nccl_scattered = torch.empty_like(x)
+            nccl_reduced = torch.empty_like(x)
             cases: dict[str, tuple[Callable[[], object], Callable[[], object]]] = {
                 "all_gather": (
-                    lambda: collective.all_gather(x, out=gathered),
-                    lambda: dist.all_gather_into_tensor(gathered, x),
+                    partial(collective.all_gather, x, out=gathered),
+                    partial(dist.all_gather_into_tensor, gathered, x),
                 ),
                 "all_gather_many": (
-                    lambda: collective.all_gather_many((x,)),
-                    lambda: dist.all_gather_into_tensor(gathered, x),
+                    partial(collective.all_gather_many, (x,)),
+                    partial(dist.all_gather_into_tensor, gathered, x),
                 ),
                 "reduce_scatter": (
-                    lambda: collective.reduce_scatter(reduce_in),
-                    lambda: dist.reduce_scatter_tensor(x.clone(), reduce_in),
+                    partial(collective.reduce_scatter, reduce_in),
+                    partial(dist.reduce_scatter_tensor, nccl_scattered, reduce_in),
                 ),
                 "all_reduce": (
-                    lambda: collective.all_reduce(x),
-                    lambda: dist.all_reduce(x.clone()),
+                    partial(collective.all_reduce, x),
+                    partial(dist.all_reduce, nccl_reduced),
                 ),
             }
             for op in args.operations:
                 deterministic, nccl = cases[op]
+                prepare = partial(nccl_reduced.copy_, x) if op == "all_reduce" else None
                 row = {
                     "operation": op,
                     "input_bytes_per_rank": numel * element,
                     "deterministic_us": _slowest(
                         _median_us(deterministic, args.warmup, args.iterations)
                     ),
-                    "nccl_us": _slowest(_median_us(nccl, args.warmup, args.iterations)),
+                    "nccl_us": _slowest(
+                        _median_us(nccl, args.warmup, args.iterations, prepare=prepare)
+                    ),
                 }
                 rows.append(row)
                 if rank == 0:

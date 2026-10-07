@@ -31,12 +31,14 @@ SURFACE = "#fcfcfb"
 
 
 def _rows(path: Path, operation: str) -> tuple[dict, list[dict]]:
+    """Load a report and sort the selected operation's rows by input bytes per rank."""
     report = json.loads(path.read_text())
     rows = [row for row in report["rows"] if row["operation"] == operation]
     return report, sorted(rows, key=lambda row: row["input_bytes_per_rank"])
 
 
 def main() -> None:
+    """Validate paired benchmark reports and save their latency comparison plot."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--before", type=Path, nargs="+", required=True)
     parser.add_argument("--after", type=Path, nargs="+", required=True)
@@ -46,12 +48,28 @@ def main() -> None:
     if len(args.before) != len(args.after):
         raise SystemExit("--before and --after need one report per world size each")
 
+    reports = []
+    for before_path, after_path in zip(args.before, args.after, strict=True):
+        before_report, before = _rows(before_path, args.operation)
+        after_report, after = _rows(after_path, args.operation)
+        if before_report["world_size"] != after_report["world_size"]:
+            raise SystemExit(
+                f"{before_path} and {after_path} have different world sizes: "
+                f"{before_report['world_size']} != {after_report['world_size']}"
+            )
+        before_sizes = [row["input_bytes_per_rank"] for row in before]
+        after_sizes = [row["input_bytes_per_rank"] for row in after]
+        if before_sizes != after_sizes:
+            raise SystemExit(
+                f"{before_path} and {after_path} have different input sizes for "
+                f"{args.operation}: {before_sizes} != {after_sizes}"
+            )
+        reports.append((before, after_report, after))
+
     fig, axes = plt.subplots(
         1, len(args.before), figsize=(5.5 * len(args.before), 3.8), facecolor=SURFACE, squeeze=False
     )
-    for ax, before_path, after_path in zip(axes[0], args.before, args.after):
-        before_report, before = _rows(before_path, args.operation)
-        after_report, after = _rows(after_path, args.operation)
+    for ax, (before, after_report, after) in zip(axes[0], reports, strict=True):
         sizes = [row["input_bytes_per_rank"] / 1024 for row in after]
         series = (
             ("before", BEFORE, "-", [row["deterministic_us"] for row in before]),
@@ -84,7 +102,7 @@ def main() -> None:
             f"{args.operation}, {world} x {after_report['gpu']}", loc="left", fontsize=11, color=INK
         )
         ax.legend(frameon=False, fontsize=8, labelcolor=INK)
-    first = json.loads(args.after[0].read_text())
+    first = reports[0][1]
     fig.text(
         0.01,
         0.01,

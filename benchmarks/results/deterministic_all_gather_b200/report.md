@@ -7,6 +7,10 @@ size given is the input per rank. "Before" is `main` at `43f150f` and "after" is
 measured with `benchmarks/benchmark_deterministic_collectives.py`. For each world size, both
 builds ran back to back on the same 8 x B200 node. Software: torch 2.13.0, CUDA 13.0.
 
+The recorded NCCL `all_reduce` and `reduce_scatter` rows include per-call tensor cloning
+from the original benchmark. Rerun the corrected benchmark for collective-only NCCL
+timings of those operations. The all-gather measurements below use preallocated tensors.
+
 | per-rank input | 2 GPUs before | 2 GPUs after | 8 GPUs before | 8 GPUs after | NCCL, 8 GPUs |
 | --- | --- | --- | --- | --- | --- |
 | 1 KiB | 28.7 µs | 22.6 µs | 93.4 µs | 46.8 µs | 29.0 µs |
