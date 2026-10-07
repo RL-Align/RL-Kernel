@@ -11,6 +11,8 @@ deterministic CUDA collective. Run it on a clean tree on one 8-GPU node;
     export RL_KERNEL_H3_WEIGHTS=<dir written by scripts/prepare_h3_weights.py>
     python scripts/h3_ws2_evidence.py --op tp_adaln_3mod --worlds 1,2,4,8 \\
         --out docs/usage/evidence/h3-tp-adaln-3mod-b200/report.json
+    python scripts/h3_ws2_evidence.py --op sp_norm_adaln --worlds 1,2,4,8 \\
+        --out docs/usage/evidence/h3-sp-norm-adaln-b200/report.json
 """
 
 from __future__ import annotations
@@ -29,7 +31,13 @@ from rl_engine.testing.h3_weights import (  # noqa: E402
     load_h3_conditioning_weights,
     load_h3_manifest,
 )
-from rl_engine.testing.h3_ws2 import run_world, tp_projection_sweep  # noqa: E402
+from rl_engine.testing.h3_ws2 import (  # noqa: E402
+    naive_sp_mismatch,
+    run_world,
+    sp_case,
+    sp_region_sweep,
+    tp_projection_sweep,
+)
 
 WEIGHT = "transformer_blocks.0.adaln_proj.linear.weight"
 BIAS = "transformer_blocks.0.adaln_proj.linear.bias"
@@ -56,7 +64,37 @@ def _tp_adaln(worlds: list[int], max_t: int) -> dict:
     return {"weights": [WEIGHT, BIAS], "runs": runs}
 
 
-OPS = {"tp_adaln_3mod": _tp_adaln}
+SP_CASES = [
+    {"batch": 1, "seq": 4097, "layout": "block", "seed": 1},
+    {"batch": 1, "seq": 4097, "layout": "interleaved", "seed": 2},
+    {"batch": 2, "seq": 4097, "layout": "block", "seed": 3},
+    {"batch": 1, "seq": 32768, "layout": "block", "seed": 4},
+    {"batch": 1, "seq": 32768, "layout": "interleaved", "seed": 5},
+    {"batch": 1, "seq": 131072, "layout": "block", "seed": 6},
+]
+
+
+def _sp_norm(worlds: list[int], _max_t: int) -> dict:
+    runs = []
+    for world in worlds:
+        ranks = run_world(world, sp_region_sweep, {}, cases=SP_CASES)
+        runs.append({"sp": world, "ranks": ranks})
+        equal = all(all(c["equal"].values()) for r in ranks for c in r["cases"])
+        print(f"sp={world}: byte-equal to WS1 on every rank and case: {equal}")
+    naive = {
+        layout: naive_sp_mismatch(sp_case(1, 32768, layout=layout, seed=4), max(worlds))
+        for layout in ("block", "interleaved")
+    }
+    region = "norm2(residual + gate_msa[row] * y) * (1 + scale_mlp[row]) + shift_mlp[row]"
+    return {
+        "region": region,
+        "hidden": 5376,
+        "runs": runs,
+        "naive_sp": {"sp": max(worlds), **naive},
+    }
+
+
+OPS = {"tp_adaln_3mod": _tp_adaln, "sp_norm_adaln": _sp_norm}
 
 
 def main() -> None:

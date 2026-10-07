@@ -33,3 +33,27 @@ def h3_packed_layout(
     timestep_indices = torch.randint(0, num_timesteps, (seq_len,), generator=generator)
     token_tags[: min(3, seq_len)] = torch.arange(min(3, seq_len))
     return timestep_indices.to(device), token_tags.to(device)
+
+
+def h3_block_layout(
+    seq_len: int, num_timesteps: int, *, seed: int = 0, device: str = "cuda"
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """(timestep_indices, token_tags) for block-structured packing, as H3 packs requests.
+
+    Each timestep owns one contiguous run of text, video and audio blocks (about
+    5% / 80% / 15% of its tokens), so table rows form contiguous position runs.
+    ``h3_packed_layout`` is the interleaved stress case.
+    """
+
+    generator = torch.Generator(device="cpu").manual_seed(seed)
+    cuts = torch.sort(torch.randperm(seq_len - 1, generator=generator)[: num_timesteps - 1] + 1)
+    edges = [0, *cuts.values.tolist(), seq_len]
+    timestep_indices = torch.empty(seq_len, dtype=torch.long)
+    token_tags = torch.empty(seq_len, dtype=torch.long)
+    for t, (lo, hi) in enumerate(zip(edges, edges[1:])):
+        text, audio = (hi - lo) // 20, (hi - lo) * 3 // 20
+        timestep_indices[lo:hi] = t
+        token_tags[lo:hi] = 0  # video
+        token_tags[lo : lo + text] = 1
+        token_tags[hi - audio : hi] = 2
+    return timestep_indices.to(device), token_tags.to(device)

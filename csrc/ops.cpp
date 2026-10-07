@@ -537,6 +537,25 @@ std::vector<torch::Tensor> h3_gate_residual_backward(torch::Tensor grad, torch::
                                                      torch::Tensor tile_begin,
                                                      torch::Tensor tile_end,
                                                      torch::Tensor seg_first_tile);
+std::vector<torch::Tensor> h3_rmsnorm_backward_partials(
+    torch::Tensor grad, torch::Tensor x, torch::Tensor weight, torch::Tensor rstd,
+    c10::optional<torch::Tensor> shift, c10::optional<torch::Tensor> scale,
+    c10::optional<torch::Tensor> index, torch::Tensor dw_rows, torch::Tensor dw_begin,
+    torch::Tensor dw_end, c10::optional<torch::Tensor> seg_rows,
+    c10::optional<torch::Tensor> seg_begin, c10::optional<torch::Tensor> seg_end);
+std::vector<torch::Tensor> h3_rmsnorm_fold_partials(torch::Tensor dw_partial, torch::Tensor weight,
+                                                    c10::optional<torch::Tensor> seg_partial,
+                                                    c10::optional<torch::Tensor> seg_first_tile);
+torch::Tensor h3_gate_grad_partials(torch::Tensor grad, torch::Tensor y, torch::Tensor rows,
+                                    torch::Tensor tile_begin, torch::Tensor tile_end);
+torch::Tensor h3_gate_grad_fold(torch::Tensor partial, torch::Tensor seg_first_tile,
+                                c10::ScalarType dtype);
+torch::Tensor h3_rmsnorm_backward_dx(torch::Tensor grad, torch::Tensor x, torch::Tensor weight,
+                                     torch::Tensor rstd, c10::optional<torch::Tensor> shift,
+                                     c10::optional<torch::Tensor> scale,
+                                     c10::optional<torch::Tensor> index);
+torch::Tensor h3_gate_residual_backward_dy(torch::Tensor grad, torch::Tensor gate,
+                                           torch::Tensor index);
 #endif
 
 // PyBind11 Module Registration
@@ -843,5 +862,28 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Gated-residual backward: exact dy, deterministic sorted segment sum for dgate",
           py::arg("grad"), py::arg("y"), py::arg("gate"), py::arg("index"), py::arg("sorted_pos"),
           py::arg("tile_begin"), py::arg("tile_end"), py::arg("seg_first_tile"));
+    m.def("h3_rmsnorm_backward_partials", &h3_rmsnorm_backward_partials,
+          "WS1 RMSNorm dweight / table-gradient tile partials over explicit row lists (SP)",
+          py::arg("grad"), py::arg("x"), py::arg("weight"), py::arg("rstd"), py::arg("shift"),
+          py::arg("scale"), py::arg("index"), py::arg("dw_rows"), py::arg("dw_begin"),
+          py::arg("dw_end"), py::arg("seg_rows") = py::none(), py::arg("seg_begin") = py::none(),
+          py::arg("seg_end") = py::none());
+    m.def("h3_rmsnorm_fold_partials", &h3_rmsnorm_fold_partials,
+          "WS1 ascending folds of RMSNorm dweight and per-segment table-gradient partials",
+          py::arg("dw_partial"), py::arg("weight"), py::arg("seg_partial") = py::none(),
+          py::arg("seg_first_tile") = py::none());
+    m.def("h3_gate_grad_partials", &h3_gate_grad_partials,
+          "WS1 d_gate tile partials over explicit row lists (SP)", py::arg("grad"), py::arg("y"),
+          py::arg("rows"), py::arg("tile_begin"), py::arg("tile_end"));
+    m.def("h3_gate_grad_fold", &h3_gate_grad_fold,
+          "WS1 per-segment ascending fold of d_gate partials, cast once", py::arg("partial"),
+          py::arg("seg_first_tile"), py::arg("dtype"));
+    m.def("h3_rmsnorm_backward_dx", &h3_rmsnorm_backward_dx,
+          "Row-local dx of the WS1 RMSNorm(+modulation) backward", py::arg("grad"), py::arg("x"),
+          py::arg("weight"), py::arg("rstd"), py::arg("shift") = py::none(),
+          py::arg("scale") = py::none(), py::arg("index") = py::none());
+    m.def("h3_gate_residual_backward_dy", &h3_gate_residual_backward_dy,
+          "Row-local d_y = grad * gate[index] of the WS1 gated-residual backward",
+          py::arg("grad"), py::arg("gate"), py::arg("index"));
 #endif
 }

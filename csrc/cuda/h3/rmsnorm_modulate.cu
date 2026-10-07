@@ -20,6 +20,10 @@
 //   dx       = rstd * w * d_n - x * rstd^3 * sum(w * d_n * x) / N   (row-local)
 //   dweight  = sum_r d_n * x * rstd  over fixed 256-row tiles, tiles folded in order
 //   dshift   = sum_{r -> i} g,   dscale = sum_{r -> i} g * n         (sorted tiles)
+//
+// The tile partials and the folds are also bound separately (`*_partials`,
+// `*_fold_*`) so a sequence-parallel caller can compute each WS1 tile on the
+// rank that holds its rows and fold the gathered partials in WS1 order.
 
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
@@ -180,18 +184,25 @@ __global__ void __launch_bounds__(32 * kWarps)
   }
 }
 
-// partial[tile, j] = sum over rows of the tile (ascending) of d_n * x * rstd
+// partial[tile, j] = sum over rows of the tile (ascending) of d_n * x * rstd.
+// Tiles are the fixed 256-row blocks, or (sequence parallel) explicit row lists
+// rows[tile_begin[tile] .. tile_end[tile]) that hold the same rows in the same order.
 template <typename T>
 __global__ void rmsnorm_dweight_partial_kernel(const T* __restrict__ g, const T* __restrict__ x,
                                                const float* __restrict__ rstd,
                                                float* __restrict__ partial, int64_t rows, int n,
-                                               Modulation mod) {
+                                               Modulation mod,
+                                               const int64_t* __restrict__ row_list = nullptr,
+                                               const int64_t* __restrict__ tile_begin = nullptr,
+                                               const int64_t* __restrict__ tile_end = nullptr) {
   const int j = blockIdx.y * blockDim.x + threadIdx.x;
   if (j >= n) return;
-  const int64_t r0 = static_cast<int64_t>(blockIdx.x) * kRowTile;
-  const int64_t r1 = min(r0 + kRowTile, rows);
+  const int64_t tile = blockIdx.x;
+  const int64_t p0 = row_list != nullptr ? tile_begin[tile] : tile * kRowTile;
+  const int64_t p1 = row_list != nullptr ? tile_end[tile] : min(p0 + kRowTile, rows);
   float acc = 0.0f;
-  for (int64_t r = r0; r < r1; ++r) {
+  for (int64_t p = p0; p < p1; ++p) {
+    const int64_t r = row_list != nullptr ? row_list[p] : p;
     const T* scale = mod.index != nullptr ? static_cast<const T*>(mod.scale) +
                                                 mod.index[r % mod.seq] * mod.row_stride
                                           : nullptr;
@@ -402,4 +413,148 @@ std::vector<torch::Tensor> h3_rmsnorm_backward(
       table_grad.data_ptr<float>(), static_cast<int>(width));
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return {dx, dweight, table_grad.narrow(1, 0, n), table_grad.narrow(1, n, n)};
+}
+
+namespace {
+
+void check_tiles(const torch::Tensor& rows, const torch::Tensor& begin, const torch::Tensor& end,
+                 const torch::Tensor& like) {
+  for (const auto* t : {&rows, &begin, &end}) {
+    TORCH_CHECK(t->is_cuda() && t->device() == like.device() && t->scalar_type() == at::kLong &&
+                    t->dim() == 1 && t->is_contiguous(),
+                "tile metadata must be contiguous int64 CUDA tensors on x's device");
+  }
+  TORCH_CHECK(begin.numel() == end.numel(), "tile_begin and tile_end differ in length");
+}
+
+}  // namespace
+
+// Sequence parallel: the dweight and (with modulation) table-gradient tile
+// partials of the WS1 backward, for explicit tiles over the rows of x. `index`
+// gives each row's table row (one entry per row of x). Returns
+// {dweight_partial (tiles, N)} or {dweight_partial, table_partial (seg_tiles, 2N)}.
+std::vector<torch::Tensor> h3_rmsnorm_backward_partials(
+    torch::Tensor grad, torch::Tensor x, torch::Tensor weight, torch::Tensor rstd,
+    c10::optional<torch::Tensor> shift, c10::optional<torch::Tensor> scale,
+    c10::optional<torch::Tensor> index, torch::Tensor dw_rows, torch::Tensor dw_begin,
+    torch::Tensor dw_end, c10::optional<torch::Tensor> seg_rows,
+    c10::optional<torch::Tensor> seg_begin, c10::optional<torch::Tensor> seg_end) {
+  check_xw(x, weight);
+  check_rows(grad, "grad", x);
+  TORCH_CHECK(grad.sizes() == x.sizes(), "grad must match x");
+  TORCH_CHECK(rstd.is_cuda() && rstd.device() == x.device() && rstd.scalar_type() == at::kFloat &&
+                  rstd.numel() == x.size(0),
+              "rstd must be the forward's float32 (M,) statistics on x's device");
+  check_tiles(dw_rows, dw_begin, dw_end, x);
+  const int64_t rows = x.size(0);
+  const int64_t n = x.size(1);
+  const Modulation mod = make_modulation(shift, scale, index, x, n);
+  TORCH_CHECK(mod.index == nullptr || mod.seq == rows, "index needs one entry per row of x");
+  const c10::cuda::CUDAGuard guard(x.device());
+  auto stream = at::cuda::getCurrentCUDAStream();
+  const int threads = 256;
+  const unsigned col_blocks = static_cast<unsigned>((n + threads - 1) / threads);
+  const int64_t tiles = dw_begin.numel();
+  auto dw_partial = torch::empty({tiles, n}, x.options().dtype(at::kFloat));
+  if (tiles > 0) {
+    H3_DISPATCH(x.scalar_type(), "h3_rmsnorm_backward_partials", [&] {
+      rmsnorm_dweight_partial_kernel<T><<<dim3(static_cast<unsigned>(tiles), col_blocks), threads,
+                                          0, stream>>>(
+          reinterpret_cast<const T*>(grad.data_ptr()), reinterpret_cast<const T*>(x.data_ptr()),
+          rstd.data_ptr<float>(), dw_partial.data_ptr<float>(), rows, static_cast<int>(n), mod,
+          dw_rows.data_ptr<int64_t>(), dw_begin.data_ptr<int64_t>(), dw_end.data_ptr<int64_t>());
+    });
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+  }
+  if (mod.index == nullptr) return {dw_partial};
+
+  TORCH_CHECK(seg_rows.has_value() && seg_begin.has_value() && seg_end.has_value(),
+              "modulated partials need the segment tiles");
+  check_tiles(*seg_rows, *seg_begin, *seg_end, x);
+  const int64_t seg_tiles = seg_begin->numel();
+  const int64_t width = 2 * n;
+  auto seg_partial = torch::empty({seg_tiles, width}, x.options().dtype(at::kFloat));
+  const unsigned wide_blocks = static_cast<unsigned>((width + threads - 1) / threads);
+  if (seg_tiles > 0) {
+    H3_DISPATCH(x.scalar_type(), "h3_rmsnorm_modulation_partials", [&] {
+      modulation_grad_partial_kernel<T>
+          <<<dim3(static_cast<unsigned>(seg_tiles), wide_blocks), threads, 0, stream>>>(
+              reinterpret_cast<const T*>(grad.data_ptr()), reinterpret_cast<const T*>(x.data_ptr()),
+              reinterpret_cast<const T*>(weight.data_ptr()), rstd.data_ptr<float>(),
+              seg_rows->data_ptr<int64_t>(), seg_begin->data_ptr<int64_t>(),
+              seg_end->data_ptr<int64_t>(), seg_partial.data_ptr<float>(), static_cast<int>(n));
+    });
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+  }
+  return {dw_partial, seg_partial};
+}
+
+// The WS1 folds: dweight = ascending fold of all tiles, cast to weight's dtype;
+// table rows = ascending fold of each segment's tiles, FP32 (R, 2N).
+std::vector<torch::Tensor> h3_rmsnorm_fold_partials(torch::Tensor dw_partial, torch::Tensor weight,
+                                                    c10::optional<torch::Tensor> seg_partial,
+                                                    c10::optional<torch::Tensor> seg_first_tile) {
+  TORCH_CHECK(dw_partial.is_cuda() && dw_partial.dim() == 2 && dw_partial.is_contiguous() &&
+                  dw_partial.scalar_type() == at::kFloat,
+              "dw_partial must be a contiguous float32 (tiles, N) CUDA tensor");
+  TORCH_CHECK(weight.is_cuda() && weight.device() == dw_partial.device() && weight.dim() == 1 &&
+                  weight.size(0) == dw_partial.size(1),
+              "weight must be (N,) on dw_partial's device");
+  const int64_t n = dw_partial.size(1);
+  const c10::cuda::CUDAGuard guard(dw_partial.device());
+  auto stream = at::cuda::getCurrentCUDAStream();
+  const int threads = 256;
+  const unsigned col_blocks = static_cast<unsigned>((n + threads - 1) / threads);
+  auto dweight = torch::empty_like(weight);
+  H3_DISPATCH(weight.scalar_type(), "h3_rmsnorm_fold_partials", [&] {
+    fold_tiles_kernel<T><<<col_blocks, threads, 0, stream>>>(
+        dw_partial.data_ptr<float>(), reinterpret_cast<T*>(dweight.data_ptr()),
+        dw_partial.size(0), static_cast<int>(n));
+  });
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  if (!seg_partial.has_value()) return {dweight};
+
+  TORCH_CHECK(seg_first_tile.has_value() && seg_first_tile->is_cuda() &&
+                  seg_first_tile->device() == dw_partial.device() &&
+                  seg_first_tile->scalar_type() == at::kLong && seg_first_tile->is_contiguous(),
+              "segment fold needs seg_first_tile (int64, on dw_partial's device)");
+  TORCH_CHECK(seg_partial->is_cuda() && seg_partial->device() == dw_partial.device() &&
+                  seg_partial->dim() == 2 && seg_partial->is_contiguous() &&
+                  seg_partial->scalar_type() == at::kFloat && seg_partial->size(1) == 2 * n,
+              "seg_partial must be a contiguous float32 (tiles, 2N) CUDA tensor");
+  const int64_t segments = seg_first_tile->numel() - 1;
+  const int64_t width = 2 * n;
+  auto table_grad = torch::empty({segments, width}, dw_partial.options());
+  const unsigned wide_blocks = static_cast<unsigned>((width + threads - 1) / threads);
+  fold_segments_kernel<<<dim3(static_cast<unsigned>(segments), wide_blocks), threads, 0, stream>>>(
+      seg_partial->data_ptr<float>(), seg_first_tile->data_ptr<int64_t>(),
+      table_grad.data_ptr<float>(), static_cast<int>(width));
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  return {dweight, table_grad.narrow(1, 0, n), table_grad.narrow(1, n, n)};
+}
+
+// Row-local part of the WS1 backward only: dx (sequence-parallel callers
+// compute the cross-row reductions with h3_rmsnorm_backward_partials).
+torch::Tensor h3_rmsnorm_backward_dx(torch::Tensor grad, torch::Tensor x, torch::Tensor weight,
+                                     torch::Tensor rstd, c10::optional<torch::Tensor> shift,
+                                     c10::optional<torch::Tensor> scale,
+                                     c10::optional<torch::Tensor> index) {
+  check_xw(x, weight);
+  check_rows(grad, "grad", x);
+  TORCH_CHECK(grad.sizes() == x.sizes(), "grad must match x");
+  TORCH_CHECK(rstd.is_cuda() && rstd.device() == x.device() && rstd.scalar_type() == at::kFloat &&
+                  rstd.numel() == x.size(0),
+              "rstd must be the forward's float32 (M,) statistics on x's device");
+  const Modulation mod = make_modulation(shift, scale, index, x, x.size(1));
+  const c10::cuda::CUDAGuard guard(x.device());
+  auto dx = torch::empty_like(x);
+  H3_DISPATCH(x.scalar_type(), "h3_rmsnorm_backward_dx", [&] {
+    rmsnorm_modulate_dx_kernel<T><<<static_cast<unsigned>(x.size(0)), dim3(32, kWarps), 0,
+                                    at::cuda::getCurrentCUDAStream()>>>(
+        reinterpret_cast<const T*>(grad.data_ptr()), reinterpret_cast<const T*>(x.data_ptr()),
+        reinterpret_cast<const T*>(weight.data_ptr()), rstd.data_ptr<float>(),
+        reinterpret_cast<T*>(dx.data_ptr()), static_cast<int>(x.size(1)), mod);
+  });
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  return dx;
 }
