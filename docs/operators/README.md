@@ -38,4 +38,5 @@ Every operator page should include:
 - [MiniMax-H3 AdaLN Row Gather](h3-adaln-row-gather.md)
 - [MiniMax-H3 RMSNorm and AdaLN Modulation](h3-rmsnorm.md)
 - [MiniMax-H3 AdaLN Gated Residual](h3-adaln-gate-residual.md)
+- [MiniMax-H3 Final AdaLN Output](h3-final-adaln-out.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)

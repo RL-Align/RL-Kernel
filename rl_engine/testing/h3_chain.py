@@ -33,6 +33,7 @@ from rl_engine.testing.h3_cases import h3_packed_layout, h3_timesteps
 from rl_engine.testing.h3_provider import (
     provider_adaln_modulation,
     provider_adaln_row_gather,
+    provider_final_adaln_out,
     provider_gate_residual,
     provider_norm_modulate,
     provider_time_embedder,
@@ -172,6 +173,33 @@ STAGES.append(
         ),
         provider_bitwise_isolated=True,  # eager rounding order, elementwise
         golden_atol=5e-2,  # carries the gate's BF16 rounding (reduction / bfloat16)
+        golden_rtol=2e-2,
+    )
+)
+
+
+def _final(ctx: dict[str, Any], call):
+    weights = ctx["weights"]
+    history = ctx["history"]
+    return call(
+        history["adaln_gate_residual"],  # the residual stream after the gated sublayer
+        weights["norm_out.norm.weight"],
+        history["timestep_mlp_fp32"],  # temb
+        weights["norm_out.linear.weight"],
+        weights["norm_out.linear.bias"],
+        ctx["timestep_indices"],
+    )
+
+
+STAGES.append(
+    Stage(
+        name="final_adaln_out",
+        op_type="final_adaln_out",
+        candidate=lambda op, ctx, _up: _final(ctx, op),
+        provider=lambda ctx, _up: _final(ctx, provider_final_adaln_out),
+        golden=lambda op, ctx, _up: _final(ctx, op.forward_fp32),
+        provider_bitwise_isolated=False,  # shift/scale projection: tensor-core tree vs cuBLAS
+        golden_atol=5e-2,  # reduction / bfloat16
         golden_rtol=2e-2,
     )
 )

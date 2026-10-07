@@ -52,6 +52,7 @@ def make_operator_inputs(
         "adaln_row_gather": _make_adaln_row_gather_inputs,
         "h3_rmsnorm": _make_h3_rmsnorm_inputs,
         "adaln_gate_residual": _make_adaln_gate_residual_inputs,
+        "final_adaln_out": _make_final_adaln_out_inputs,
     }
     try:
         return builders[op_name](args, dtype, device)
@@ -91,6 +92,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         f"->{batch * seq}",
         "h3_rmsnorm": f"{batch}x{seq}x{_h3_hidden(args)}",
         "adaln_gate_residual": f"{batch}x{seq}x{_h3_hidden(args)}",
+        "final_adaln_out": f"{batch}x{seq}x{_h3_hidden(args)}",
     }
     try:
         return names[op_name]
@@ -461,6 +463,31 @@ def _make_adaln_gate_residual_inputs(
         "y": _floating_tensor((batch, seq, hidden), args, dtype, device, 1),
         "gate": (_floating_tensor((rows, hidden), args, torch.float32, device, 2) * 0.5).to(dtype),
         "index": torch.randint(0, rows, (seq,), generator=generator, device=device),
+    }
+
+
+def _make_final_adaln_out_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    # temb is FP32 by contract; norm_out.linear/norm/x use ``dtype`` (BF16 in H3).
+    batch, seq = _batch_seq(args)
+    hidden = _h3_hidden(args)
+    num_timesteps = _h3_num_timesteps(args)
+    # Realistic scales (norm weight in [0.5, 1], unit activations): with unscaled
+    # inputs the parameter gradients sum hundreds of rows into values ~1e3, and
+    # their cancelling elements cannot meet a per-element FP32 atol.
+    linear = _floating_tensor((2 * hidden, H3_TIME_EMBED), args, torch.float32, device, 3)
+    norm = 0.5 + 0.5 * torch.sigmoid(_floating_tensor((hidden,), args, torch.float32, device, 4))
+    generator = _generator(args, device, offset=37)
+    return {
+        "x": _floating_tensor((batch, seq, hidden), args, dtype, device, 0),
+        "norm_weight": norm.to(dtype),
+        "temb": _floating_tensor((num_timesteps, H3_TIME_EMBED), args, torch.float32, device, 1),
+        "weight": (linear * H3_TIME_EMBED**-0.5).to(dtype),
+        "bias": (_floating_tensor((2 * hidden,), args, torch.float32, device, 2) * 0.1).to(dtype),
+        "timestep_indices": torch.randint(
+            0, num_timesteps, (seq,), generator=generator, device=device
+        ),
     }
 
 

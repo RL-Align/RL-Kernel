@@ -322,6 +322,17 @@ OP_SPECS = {
         },
         grad_input_names=("residual", "y", "gate"),
     ),
+    "final_adaln_out": OperatorSpec(
+        name="final_adaln_out",
+        op_class="reduction",
+        gold_path="rl_engine.kernels.ops.pytorch.h3.final_adaln_out.NativeH3FinalAdaLNOutOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": ("rl_engine.kernels.ops.pytorch.h3.final_adaln_out.NativeH3FinalAdaLNOutOp"),
+            "cuda": "rl_engine.kernels.ops.cuda.h3.final_adaln_out.H3FinalAdaLNOutCudaOp",
+        },
+        grad_input_names=("x", "norm_weight", "temb", "weight", "bias"),
+    ),
     "pack": OperatorSpec(
         name="pack",
         op_class="elementwise",

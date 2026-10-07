@@ -480,6 +480,22 @@ def plot_gate_residual(report: dict[str, Any]):
     return fig
 
 
+def plot_final(report: dict[str, Any]):
+    fig, (left, right) = _figure(
+        report, "final_adaln_out  (norm_out: projection + final norm, T = 3)"
+    )
+    _latency_fwd_bwd(left, report["perf"], "diffusers")
+    acc = report["accuracy"]
+    _backward_errors(
+        right,
+        acc["backward"],
+        ["dx", "d_norm_w", "d_temb", "dW", "db"],
+        f"forward equal to diffusers on {100 * acc['equal_to_diffusers_fraction']:.2f}% "
+        "of elements (projection 1-ULP ties)",
+    )
+    return fig
+
+
 PLOTS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "timestep_sinusoid_h3": plot_sinusoid,
     "timestep_mlp_fp32": plot_mlp,
@@ -487,6 +503,7 @@ PLOTS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "adaln_row_gather": plot_gather,
     "h3_rmsnorm": plot_rmsnorm,
     "adaln_gate_residual": plot_gate_residual,
+    "final_adaln_out": plot_final,
 }
 
 
