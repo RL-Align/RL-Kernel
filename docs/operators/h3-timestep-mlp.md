@@ -99,9 +99,9 @@ B200, pinned weights (63.3 MB FP32). End-to-end op times include the Python wrap
 
 | T | CUDA op | provider | kernels only (CUDA) |
 | --- | --- | --- | --- |
-| 1 | 32.8 µs | 36.5 µs | 3.8 + 11.6 µs |
-| 2 | 38.8 µs | 79.9 µs | 3.9 + 13.7 µs |
-| 4 | 42.7 µs | 83.1 µs | 5.0 + 15.8 µs |
+| 1 | 35.5 µs | 40.8 µs | 3.8 + 11.6 µs |
+| 2 | 40.4 µs | 84.9 µs | 3.9 + 13.7 µs |
+| 4 | 44.9 µs | 88.6 µs | 5.0 + 15.8 µs |
 
 The 5376→2688 layer reads its weights at about 5.0 TB/s at T = 1. For T >= 2 the
 provider switches from cuBLAS GEMV to an SGEMM path, which takes about 52 µs of

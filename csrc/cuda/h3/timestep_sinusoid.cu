@@ -50,7 +50,7 @@ __global__ void h3_timestep_sinusoid_kernel(
 }  // namespace
 
 torch::Tensor h3_timestep_sinusoid_forward(torch::Tensor timestep, int64_t num_channels,
-                                           double max_period) {
+                                           double max_period, bool check_range) {
   TORCH_CHECK(timestep.is_cuda(), "timestep must be a CUDA tensor");
   TORCH_CHECK(timestep.scalar_type() == at::kFloat, "timestep must be float32, got ",
               timestep.scalar_type());
@@ -62,6 +62,13 @@ torch::Tensor h3_timestep_sinusoid_forward(torch::Tensor timestep, int64_t num_c
 
   const c10::cuda::CUDAGuard device_guard(timestep.device());
   auto t = timestep.contiguous();
+  // Check at the native boundary, including direct extension calls. The explicit
+  // opt-out is for already-validated inputs and kernel-only profiling.
+  if (check_range) {
+    TORCH_CHECK_VALUE(((t >= 0) & (t <= 1)).all().item<bool>(),
+                      "timestep must be finite and lie in [0, 1]: H3 consumes t = 1 - sigma "
+                      "unscaled");
+  }
   const int64_t num_timesteps = t.size(0);
   const int64_t half = num_channels / 2;
   auto out = torch::empty({num_timesteps, num_channels}, t.options());
