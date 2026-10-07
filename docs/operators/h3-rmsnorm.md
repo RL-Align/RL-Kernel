@@ -21,6 +21,8 @@ gathered inside the kernel, so the `(S, H)` tensors that
 ## Entry Point
 
 ```python
+from rl_engine.kernels.registry import kernel_registry
+
 op = kernel_registry.get_op("h3_rmsnorm", device="cuda")
 n = op(x, weight)                                              # plain RMSNorm
 out = op.forward_modulated(x, weight, shift_msa, scale_msa, adaln_indices)

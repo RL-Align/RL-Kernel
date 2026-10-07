@@ -25,7 +25,11 @@ from rl_engine.testing.h3_provider import (
     provider_time_embedder,
     provider_time_proj,
 )
-from rl_engine.testing.h3_weights import h3_weights_dir, load_h3_conditioning_weights
+from rl_engine.testing.h3_weights import (
+    WEIGHTS_ENV,
+    h3_weights_dir,
+    load_h3_conditioning_weights,
+)
 
 # Keys of a perf case that hold a timed callable, in display order.
 TIMED_KEYS = (
@@ -247,7 +251,7 @@ def _projection_accuracy(registry: KernelRegistry, draws: int = 20) -> dict[str,
     invariant = all(
         all(
             torch.equal(s, f[3 * i : 3 * i + 3])
-            for s, f in zip(op(temb[i : i + 1], weight, bias), full)
+            for s, f in zip(op(temb[i : i + 1], weight, bias), full, strict=True)
         )
         for i in range(9)
     )
@@ -304,7 +308,6 @@ def _gather_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
 
 def _gather_accuracy(registry: KernelRegistry) -> dict[str, Any]:
     from rl_engine.testing.h3_chain import run_backward_case
-    from rl_engine.testing.h3_weights import load_h3_conditioning_weights
 
     op = registry.get_op("adaln_row_gather", device="cuda")
     golden = registry._get_or_create_backend(registry._priority_map["cpu"]["adaln_row_gather"][-1])
@@ -314,7 +317,9 @@ def _gather_accuracy(registry: KernelRegistry) -> dict[str, Any]:
         ti, tags = h3_packed_layout(seq, 3, seed=seq)
         ours = op(rows, ti, tags)
         theirs = provider_adaln_row_gather(rows.chunk(6, dim=-1), ti, tags)
-        forward_bitwise[str(seq)] = all(torch.equal(a, b) for a, b in zip(ours, theirs))
+        forward_bitwise[str(seq)] = all(
+            torch.equal(a, b) for a, b in zip(ours, theirs, strict=True)
+        )
 
     # Op-level backward: correctly rounded FP32 segment sums vs the atomic BF16 scatter-add.
     ti, tags = h3_packed_layout(4097, 3, seed=1)
@@ -339,16 +344,22 @@ def _gather_accuracy(registry: KernelRegistry) -> dict[str, Any]:
             "correctly_rounded_fraction": float((first == gold).float().mean()),
         }
 
-    weights = load_h3_conditioning_weights("cuda")
-    chain = [
-        run_backward_case(registry, weights, num_timesteps=t, seq_len=s)
-        for t, s in ((1, 257), (3, 257), (1, 4097), (3, 4097), (4, 32768))
-    ]
-    return {
+    result: dict[str, Any] = {
         "forward_bitwise_vs_index_select": forward_bitwise,
         "op_backward": backward,
-        "chain_backward": chain,
+        "chain_backward": [],
     }
+    if h3_weights_dir() is None:
+        result["chain_backward_skipped"] = (
+            f"{WEIGHTS_ENV} not set; run scripts/prepare_h3_weights.py for chain measurements"
+        )
+    else:
+        weights = load_h3_conditioning_weights("cuda")
+        result["chain_backward"] = [
+            run_backward_case(registry, weights, num_timesteps=t, seq_len=s)
+            for t, s in ((1, 257), (3, 257), (1, 4097), (3, 4097), (4, 32768))
+        ]
+    return result
 
 
 # --------------------------------------------------------------------------- #
@@ -406,14 +417,19 @@ def _norm_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
 
 def _norm_accuracy(registry: KernelRegistry) -> dict[str, Any]:
     op = registry.get_op("h3_rmsnorm", device="cuda")
-    weights = load_h3_conditioning_weights("cuda")
-    plain = {}
-    for name in (
+    weight_source = "pinned_checkpoint" if h3_weights_dir() is not None else "synthetic"
+    names = [
         "transformer_blocks.0.norm1.weight",
         "transformer_blocks.0.norm2.weight",
         "token_refiner.final_norm.weight",
         "norm_out.norm.weight",
-    ):
+    ]
+    weights = {
+        name: weight.bfloat16()
+        for name, weight in zip(names, h3_params(names, [(5376,)] * len(names)), strict=True)
+    }
+    plain = {}
+    for name in names:
         x = torch.randn(2, 777, 5376, device="cuda").bfloat16()
         ref = torch.nn.functional.rms_norm(x, (5376,), weights[name], 1e-5)
         plain[name] = bool(torch.equal(op(x, weights[name]), ref))
@@ -454,13 +470,16 @@ def _norm_accuracy(registry: KernelRegistry) -> dict[str, Any]:
     ):
         first, second = grads(fn), grads(fn)
         backward[name] = {
-            "repeat_bitwise_equal": all(torch.equal(a, b) for a, b in zip(first, second)),
+            "repeat_bitwise_equal": all(
+                torch.equal(a, b) for a, b in zip(first, second, strict=True)
+            ),
             "rel_error": {
                 key: float((g.double() - r).abs().max() / r.abs().max())
-                for key, g, r in zip(("dx", "dweight", "dshift", "dscale"), first, ref)
+                for key, g, r in zip(("dx", "dweight", "dshift", "dscale"), first, ref, strict=True)
             },
         }
     return {
+        "weight_source": weight_source,
         "plain_bitwise_vs_nn_rmsnorm": plain,
         "modulated_bitwise_vs_diffusers": modulated,
         "rows_batch_invariant": invariant,
@@ -559,10 +578,14 @@ def _gate_accuracy(registry: KernelRegistry) -> dict[str, Any]:
     ):
         first, second = grads(fn), grads(fn)
         backward[name] = {
-            "repeat_bitwise_equal": all(torch.equal(a, b) for a, b in zip(first, second)),
+            "repeat_bitwise_equal": all(
+                torch.equal(a, b) for a, b in zip(first, second, strict=True)
+            ),
             "rel_error": {
                 key: float((g.double() - r).abs().max() / r.abs().max())
-                for key, g, r in zip(("d_residual", "d_sublayer", "d_gate"), first, ref)
+                for key, g, r in zip(
+                    ("d_residual", "d_sublayer", "d_gate"), first, ref, strict=True
+                )
             },
         }
     return {

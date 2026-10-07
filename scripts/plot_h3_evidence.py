@@ -302,6 +302,20 @@ def plot_gather(report: dict[str, Any]):
         "Whole-chain grads of the FP32 time embedder vs FP64",
         "max abs error / golden max",
     )
+    if not chain:
+        right.text(
+            0.5,
+            0.5,
+            report["accuracy"].get("chain_backward_skipped", "No chain measurements available"),
+            transform=right.transAxes,
+            ha="center",
+            va="center",
+            color=INK,
+            fontsize=9,
+            wrap=True,
+        )
+        right.set_axis_off()
+        return fig
     names = {
         "candidate": ("RL-Kernel, separate ops", THIRD, "o"),
         "candidate_fused": ("RL-Kernel, fused modulation", RL_KERNEL, "D"),

@@ -276,8 +276,9 @@ Modulation make_modulation(const c10::optional<torch::Tensor>& shift,
   }
   TORCH_CHECK(sh.size(0) == sc.size(0) && sh.stride(0) == sc.stride(0),
               "shift and scale must be views of the same table layout");
-  TORCH_CHECK(ix.is_cuda() && ix.scalar_type() == at::kLong && ix.dim() == 1 && ix.is_contiguous(),
-              "row index must be a contiguous int64 CUDA tensor");
+  TORCH_CHECK(ix.is_cuda() && ix.device() == x.device() && ix.scalar_type() == at::kLong &&
+                  ix.dim() == 1 && ix.is_contiguous() && ix.numel() > 0,
+              "row index must be a non-empty contiguous int64 tensor on ", x.device());
   TORCH_CHECK(x.size(0) % ix.size(0) == 0, "x rows (", x.size(0), ") must be a multiple of S (",
               ix.size(0), ")");
   mod.shift = sh.data_ptr();
@@ -349,6 +350,16 @@ std::vector<torch::Tensor> h3_rmsnorm_backward(
   const int64_t rows = x.size(0);
   const int64_t n = x.size(1);
   const Modulation mod = make_modulation(shift, scale, index, x, n);
+  if (mod.index != nullptr) {
+    TORCH_CHECK(sorted_pos.has_value() && tile_begin.has_value() && tile_end.has_value() &&
+                    seg_first_tile.has_value(),
+                "modulated backward needs the sorted segment tiles");
+    for (const auto* t : {&*sorted_pos, &*tile_begin, &*tile_end, &*seg_first_tile}) {
+      TORCH_CHECK(t->is_cuda() && t->device() == x.device() && t->scalar_type() == at::kLong &&
+                      t->dim() == 1 && t->is_contiguous(),
+                  "tile metadata must be contiguous int64 tensors on ", x.device());
+    }
+  }
   const c10::cuda::CUDAGuard guard(x.device());
   auto stream = at::cuda::getCurrentCUDAStream();
   auto dx = torch::empty_like(x);
@@ -375,9 +386,6 @@ std::vector<torch::Tensor> h3_rmsnorm_backward(
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   if (mod.index == nullptr) return {dx, dweight};
 
-  TORCH_CHECK(sorted_pos.has_value() && tile_begin.has_value() && tile_end.has_value() &&
-                  seg_first_tile.has_value(),
-              "modulated backward needs the sorted segment tiles");
   const int64_t segments = seg_first_tile->numel() - 1;
   const int64_t seg_tiles = tile_begin->numel();
   const int64_t width = 2 * n;
