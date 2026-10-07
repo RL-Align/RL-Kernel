@@ -107,6 +107,14 @@ The 5376→2688 layer reads its weights at about 5.0 TB/s at T = 1. For T >= 2 t
 provider switches from cuBLAS GEMV to an SGEMM path, which takes about 52 µs of
 kernel time.
 
+## Evidence
+
+![timestep_mlp_fp32 on B200: latency and per-draw error vs FP64](../usage/evidence/h3-timestep-mlp-b200/figure.png)
+
+The data is in [`report.json`](../usage/evidence/h3-timestep-mlp-b200/report.json), written
+by `scripts/h3_evidence.py` from a clean tree at commit `65ef7f6`. It also records that a
+timestep's row is bitwise identical whether it runs alone or in a batch of 9.
+
 ## Tests
 
 ```bash
