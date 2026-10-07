@@ -40,12 +40,15 @@ features = op(timestep)              # timestep: (T,) in [0, 1] -> (T, 256) floa
 | --- | --- | --- | --- |
 | `timestep` | `(T,)`, `T >= 1` | fp32 / bf16 / fp16 | Finite, in `[0, 1]`; any stride; CUDA for the CUDA backend |
 | `num_channels` | scalar | int | Positive and even; H3 uses 256 |
-| output | `(T, num_channels)` | float32 | `[cos | sin]` order |
+| output | `(T, num_channels)` | float32 | `[cos \| sin]` order |
 
 Inputs that break the contract fail closed: non-1-D, empty, integer or out-of-range
 timesteps raise. `t * 1000` callers (RFC probe H10) therefore fail instead of
-silently producing a different embedding. The range check costs one host read-back;
-pass `check_range=False` to `forward` when the caller has already validated `t`.
+silently producing a different embedding. The range check costs one host read-back.
+The native CUDA entrypoint performs the value check, so the wrapper does not repeat
+the host synchronization. Pass `check_range=False` to `forward` or
+`rl_engine._C.h3_timestep_sinusoid_forward` only when the caller has already validated
+`t`; this trusted path skips value validation and is used for kernel-only profiling.
 
 ## Numerics
 
@@ -79,7 +82,7 @@ python benchmarks/benchmark_h3_conditioning.py --op timestep_sinusoid_h3
 ```
 
 On a B200 this is a single launch of about 15 µs, independent of `T` for `T <= 64`. With
-the range check it takes about 51 µs. The provider path takes about 64 µs, because it is
+the range check it takes about 49 µs. The provider path takes about 62–70 µs, because it is
 six eager kernels plus two concatenations. Either way the op is launch-bound: it moves
 about 1 KB per timestep.
 
