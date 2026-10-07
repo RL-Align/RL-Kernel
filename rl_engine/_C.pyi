@@ -326,7 +326,10 @@ def deterministic_collective_rocm_ipc_all_gather_input(
     output: torch.Tensor,
 ) -> None: ...
 def h3_timestep_sinusoid_forward(
-    timestep: torch.Tensor, num_channels: int = 256, max_period: float = 10000.0
+    timestep: torch.Tensor,
+    num_channels: int = 256,
+    max_period: float = 10000.0,
+    check_range: bool = True,
 ) -> torch.Tensor: ...
 def h3_det_linear_forward(
     x: torch.Tensor,

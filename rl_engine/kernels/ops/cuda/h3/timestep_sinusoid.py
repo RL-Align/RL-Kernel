@@ -26,9 +26,11 @@ def h3_sinusoid_cuda_available() -> bool:
 
 class _H3TimestepSinusoidCuda(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, timestep: torch.Tensor, num_channels: int):
+    def forward(ctx, timestep: torch.Tensor, num_channels: int, check_range: bool):
         t32 = timestep.detach().float().contiguous()
-        out = _C.h3_timestep_sinusoid_forward(t32, int(num_channels), float(H3_MAX_PERIOD))
+        out = _C.h3_timestep_sinusoid_forward(
+            t32, int(num_channels), float(H3_MAX_PERIOD), check_range
+        )
         ctx.save_for_backward(out)
         ctx.num_channels = int(num_channels)
         ctx.timestep_dtype = timestep.dtype
@@ -53,7 +55,7 @@ class _H3TimestepSinusoidCuda(torch.autograd.Function):
             impl=BACKWARD_IMPL,
             family="cuda",
         )
-        return grad_t, None
+        return grad_t, None, None
 
 
 class H3TimestepSinusoidCudaOp:
@@ -84,10 +86,11 @@ class H3TimestepSinusoidCudaOp:
         num_channels: int = H3_FREQ_DIM,
         check_range: bool = True,
     ) -> torch.Tensor:
-        validate_h3_timesteps(timestep, num_channels, check_range=check_range)
+        # Native code owns value validation, avoiding a second host sync here.
+        validate_h3_timesteps(timestep, num_channels, check_range=False)
         if not timestep.is_cuda:
             raise ValueError("H3TimestepSinusoidCudaOp needs a CUDA timestep tensor")
-        return _H3TimestepSinusoidCuda.apply(timestep, num_channels)
+        return _H3TimestepSinusoidCuda.apply(timestep, num_channels, check_range)
 
     def forward_fp32(self, timestep: torch.Tensor, *, num_channels: int = H3_FREQ_DIM):
         # The op is FP32 end to end; the FP32 path is the op itself.
