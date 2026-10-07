@@ -181,7 +181,7 @@ def _error_boxes(ax, title: str, series: list[tuple[str, str, list[float]]], con
     """Per-draw max |error| as boxes with every draw overlaid, log scale."""
 
     _style(ax, title, "max abs error per draw")
-    for i, (name, color, values) in enumerate(series):
+    for i, (_name, color, values) in enumerate(series):
         ax.boxplot(
             [values],
             positions=[i],
@@ -251,7 +251,7 @@ def plot_projection(report: dict[str, Any]):
         ("RL-Kernel CUDA", RL_KERNEL, [100 * v for v in acc["cuda_correctly_rounded"]]),
         ("diffusers (cuBLAS)", PROVIDER, [100 * v for v in acc["provider_correctly_rounded"]]),
     ]
-    for i, (name, color, values) in enumerate(series):
+    for i, (_name, color, values) in enumerate(series):
         jitter = [i + ((k * 0.6180339) % 1 - 0.5) * 0.3 for k in range(len(values))]
         ax_vals = sorted(values)
         median = ax_vals[len(ax_vals) // 2]
