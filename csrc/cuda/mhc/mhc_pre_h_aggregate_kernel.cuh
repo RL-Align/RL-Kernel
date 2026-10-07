@@ -9,21 +9,14 @@ namespace rl_kernel::mhc {
 
 constexpr int64_t kMhcPreHcMult = 4;
 constexpr int64_t kMhcPreHiddenSize = 4096;
-constexpr int kMhcWarpSize = 32;
 constexpr int kMhcPreHAggregateDecodeThreads = 1024;
 constexpr int kMhcPreHAggregateBatchThreads = 512;
 constexpr int kMhcPreHAggregateBackwardThreads = 256;
-constexpr int kMhcPreHAggregateBackwardWarps =
-    kMhcPreHAggregateBackwardThreads / kMhcWarpSize;
 
-static_assert(kMhcPreHAggregateBackwardThreads % kMhcWarpSize == 0,
-              "MHC H Aggregate backward requires complete warps");
-static_assert(kMhcPreHiddenSize % kMhcPreHAggregateBackwardThreads == 0,
-              "each backward thread must reduce a fixed number of elements");
+static_assert(kMhcPreHAggregateBackwardThreads >= kMhcPreHcMult,
+              "one backward thread per stream is required for the dPRE fold");
 static_assert(kMhcPreHAggregateBackwardThreads <= 1024,
               "MHC H Aggregate backward exceeds the CUDA block limit");
-static_assert(kMhcPreHAggregateBackwardWarps <= kMhcWarpSize,
-              "warp 0 must be able to reduce all per-warp partial sums");
 
 __global__ void mhc_pre_h_aggregate_kernel(__nv_bfloat16 const* residual,
                                            float const* pre,
@@ -97,14 +90,6 @@ __global__ void mhc_pre_h_aggregate_kernel(__nv_bfloat16 const* residual,
 #endif
 }
 
-__device__ __forceinline__ float mhc_warp_sum(float value) {
-#pragma unroll
-  for (int offset = 16; offset > 0; offset >>= 1) {
-    value = __fadd_rn(value, __shfl_down_sync(0xffffffff, value, offset));
-  }
-  return value;
-}
-
 __global__ void mhc_pre_h_aggregate_backward_kernel(
     __nv_bfloat16 const* grad_output, __nv_bfloat16 const* residual,
     float const* pre, float* grad_residual, float* grad_pre,
@@ -113,9 +98,6 @@ __global__ void mhc_pre_h_aggregate_backward_kernel(
   cudaGridDependencySynchronize();
 #endif
 
-  __shared__ float
-      warp_sums[kMhcPreHcMult][kMhcPreHAggregateBackwardWarps];
-
   int64_t const token = static_cast<int64_t>(blockIdx.x);
   int64_t const output_offset = token * hidden_size;
   int64_t const residual_offset = token * 4 * hidden_size;
@@ -123,28 +105,11 @@ __global__ void mhc_pre_h_aggregate_backward_kernel(
   float const weight_1 = pre[token * 4 + 1];
   float const weight_2 = pre[token * 4 + 2];
   float const weight_3 = pre[token * 4 + 3];
-  float sum_0 = 0.0f;
-  float sum_1 = 0.0f;
-  float sum_2 = 0.0f;
-  float sum_3 = 0.0f;
 
+  // dR[i, d] = dH[d] * PRE[i]: every element has one writer, no reduction.
   for (int64_t hidden = threadIdx.x; hidden < hidden_size;
        hidden += blockDim.x) {
     float const dy = __bfloat162float(grad_output[output_offset + hidden]);
-    float const residual_0 =
-        __bfloat162float(residual[residual_offset + hidden]);
-    float const residual_1 =
-        __bfloat162float(residual[residual_offset + hidden_size + hidden]);
-    float const residual_2 = __bfloat162float(
-        residual[residual_offset + 2 * hidden_size + hidden]);
-    float const residual_3 = __bfloat162float(
-        residual[residual_offset + 3 * hidden_size + hidden]);
-
-    sum_0 = __fadd_rn(sum_0, __fmul_rn(dy, residual_0));
-    sum_1 = __fadd_rn(sum_1, __fmul_rn(dy, residual_1));
-    sum_2 = __fadd_rn(sum_2, __fmul_rn(dy, residual_2));
-    sum_3 = __fadd_rn(sum_3, __fmul_rn(dy, residual_3));
-
     grad_residual[residual_offset + hidden] = __fmul_rn(dy, weight_0);
     grad_residual[residual_offset + hidden_size + hidden] =
         __fmul_rn(dy, weight_1);
@@ -154,39 +119,18 @@ __global__ void mhc_pre_h_aggregate_backward_kernel(
         __fmul_rn(dy, weight_3);
   }
 
-  int const lane = threadIdx.x & (kMhcWarpSize - 1);
-  int const warp = threadIdx.x / kMhcWarpSize;
-  sum_0 = mhc_warp_sum(sum_0);
-  sum_1 = mhc_warp_sum(sum_1);
-  sum_2 = mhc_warp_sum(sum_2);
-  sum_3 = mhc_warp_sum(sum_3);
-  if (lane == 0) {
-    warp_sums[0][warp] = sum_0;
-    warp_sums[1][warp] = sum_1;
-    warp_sums[2][warp] = sum_2;
-    warp_sums[3][warp] = sum_3;
-  }
-  __syncthreads();
-
-  if (warp == 0) {
-    sum_0 = lane < kMhcPreHAggregateBackwardWarps ? warp_sums[0][lane]
-                                                   : 0.0f;
-    sum_1 = lane < kMhcPreHAggregateBackwardWarps ? warp_sums[1][lane]
-                                                   : 0.0f;
-    sum_2 = lane < kMhcPreHAggregateBackwardWarps ? warp_sums[2][lane]
-                                                   : 0.0f;
-    sum_3 = lane < kMhcPreHAggregateBackwardWarps ? warp_sums[3][lane]
-                                                   : 0.0f;
-    sum_0 = mhc_warp_sum(sum_0);
-    sum_1 = mhc_warp_sum(sum_1);
-    sum_2 = mhc_warp_sum(sum_2);
-    sum_3 = mhc_warp_sum(sum_3);
-    if (lane == 0) {
-      grad_pre[token * 4] = sum_0;
-      grad_pre[token * 4 + 1] = sum_1;
-      grad_pre[token * 4 + 2] = sum_2;
-      grad_pre[token * 4 + 3] = sum_3;
+  // dPRE[i] = sum_d dH[d] * R[i, d] with the P1 `fixed_sum` contract: one
+  // FP32 accumulator per stream, ascending d, mul then add, no tree. Thread i
+  // owns stream i so the four folds run in parallel without changing bytes.
+  if (threadIdx.x < kMhcPreHcMult) {
+    int64_t const stream_offset = residual_offset + threadIdx.x * hidden_size;
+    float acc = 0.0f;
+    for (int64_t hidden = 0; hidden < hidden_size; ++hidden) {
+      float const dy = __bfloat162float(grad_output[output_offset + hidden]);
+      float const r = __bfloat162float(residual[stream_offset + hidden]);
+      acc = __fadd_rn(acc, __fmul_rn(dy, r));
     }
+    grad_pre[token * 4 + threadIdx.x] = acc;
   }
 
 #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900)

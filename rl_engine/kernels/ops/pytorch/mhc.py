@@ -7,8 +7,6 @@ import torch
 
 MHC_PRE_HC_MULT = 4
 MHC_PRE_HIDDEN_SIZE = 4096
-MHC_PRE_H_AGGREGATE_BACKWARD_THREADS = 256
-MHC_WARP_SIZE = 32
 
 
 class NativeMHCPreHAggregateOp:
@@ -31,7 +29,11 @@ class NativeMHCPreHAggregateOp:
         residual: torch.Tensor,
         pre: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Explicit FP32 backward oracle matching the CUDA reduction tree."""
+        """Explicit FP32 backward oracle.
+
+        ``dPRE`` follows the P1 ``fixed_sum`` contract: a single FP32
+        accumulator per stream, ascending hidden index, mul then add.
+        """
 
         self._validate_inputs(residual, pre)
         if grad_output.shape != (residual.shape[0], MHC_PRE_HIDDEN_SIZE):
@@ -47,29 +49,9 @@ class NativeMHCPreHAggregateOp:
         grad_residual = grad_output_fp32[:, None, :] * pre[:, :, None]
 
         products = grad_output_fp32[:, None, :] * residual.float()
-        values_per_thread = MHC_PRE_HIDDEN_SIZE // MHC_PRE_H_AGGREGATE_BACKWARD_THREADS
-        thread_products = products.reshape(
-            residual.shape[0],
-            MHC_PRE_HC_MULT,
-            values_per_thread,
-            MHC_PRE_H_AGGREGATE_BACKWARD_THREADS,
-        )
-        thread_sums = torch.zeros_like(thread_products[:, :, 0])
-        for index in range(values_per_thread):
-            thread_sums = thread_sums + thread_products[:, :, index]
-
-        num_warps = MHC_PRE_H_AGGREGATE_BACKWARD_THREADS // MHC_WARP_SIZE
-        warp_lanes = thread_sums.reshape(
-            residual.shape[0], MHC_PRE_HC_MULT, num_warps, MHC_WARP_SIZE
-        )
-        warp_sums = self._warp_lane_zero(warp_lanes)
-        zero_lanes = torch.zeros(
-            (*warp_sums.shape[:-1], MHC_WARP_SIZE - num_warps),
-            dtype=torch.float32,
-            device=residual.device,
-        )
-        block_lanes = torch.cat((warp_sums, zero_lanes), dim=-1)
-        grad_pre = self._warp_lane_zero(block_lanes)
+        grad_pre = torch.zeros_like(products[:, :, 0])
+        for hidden in range(MHC_PRE_HIDDEN_SIZE):
+            grad_pre = grad_pre + products[:, :, hidden]
         return grad_residual, grad_pre
 
     @staticmethod
@@ -102,16 +84,3 @@ class NativeMHCPreHAggregateOp:
             raise RuntimeError("residual and pre must be on the same device")
         if not residual.is_contiguous() or not pre.is_contiguous():
             raise ValueError("residual and pre must be contiguous")
-
-    @staticmethod
-    def _warp_lane_zero(values: torch.Tensor) -> torch.Tensor:
-        """Return lane 0 after the CUDA offset=16,8,4,2,1 shuffle tree."""
-
-        if values.shape[-1] != MHC_WARP_SIZE:
-            raise ValueError("fixed warp reduction requires exactly 32 lanes")
-        reduced = values
-        offset = MHC_WARP_SIZE // 2
-        while offset:
-            reduced = reduced[..., :offset] + reduced[..., offset : 2 * offset]
-            offset //= 2
-        return reduced.squeeze(-1)

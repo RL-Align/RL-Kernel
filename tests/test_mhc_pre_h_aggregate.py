@@ -80,6 +80,21 @@ def test_native_mhc_pre_h_aggregate_backward_is_explicit_fp32():
     torch.testing.assert_close(grad_pre, expected_grad_pre, atol=5e-4, rtol=1e-5)
 
 
+def test_native_mhc_pre_h_aggregate_matches_p1_oracle_bytes():
+    """The operator oracle must be byte-equal to the P1 start-kit oracle."""
+    from rl_engine.mhc import oracle
+
+    residual, pre, grad_output = _make_inputs(5, device="cpu", seed=11)
+    op = NativeMHCPreHAggregateOp()
+
+    assert _same_bytes(op(residual, pre), oracle.h_aggregate_fwd(pre, residual))
+
+    grad_residual, grad_pre = op.backward_fp32(grad_output, residual, pre)
+    want_dr, want_dpre = oracle.h_aggregate_bwd(grad_output, pre, residual)
+    assert _same_bytes(grad_residual, want_dr)
+    assert _same_bytes(grad_pre, want_dpre)
+
+
 @requires_mhc_kernel
 def test_mhc_pre_h_aggregate_forward_matches_fixed_tree_oracle_and_recomputes():
     from rl_engine.kernels.ops.base import _C
