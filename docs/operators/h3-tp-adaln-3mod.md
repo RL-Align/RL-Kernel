@@ -70,8 +70,24 @@ size, where the multi-block path takes about 45 µs. This matters for the forwar
 
 ## Evidence
 
-The report is written by `scripts/h3_ws2_evidence.py` with real NCCL processes on one 8 x B200
-node, one GPU per rank.
+![tp_adaln_3mod on 8 x B200: byte equality and time](../usage/evidence/h3-tp-adaln-3mod-b200/figure.png)
+
+The report is written by `scripts/h3_ws2_evidence.py` from a clean tree at commit `4947996`, with
+real NCCL processes on one 8 x B200 node, one GPU per rank, on the pinned block-0 weights. For
+TP 1, 2, 4 and 8 and T = 1..4, every rank's table and `d_temb`, and its `dW`/`db` shard, are
+byte-equal to WS1 computed on the same GPU.
+
+| T | | WS1 (1 GPU) | TP2 | TP4 | TP8 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | forward | 0.10 ms | 0.12 ms | 0.11 ms | 0.12 ms |
+| 1 | forward + backward | 1.90 ms | 1.49 ms | 1.19 ms | 1.04 ms |
+| 3 | forward | 0.10 ms | 0.11 ms | 0.11 ms | 0.12 ms |
+| 3 | forward + backward | 2.25 ms | 1.77 ms | 1.48 ms | 1.32 ms |
+
+Times are for the slowest rank. The WS1 forward already streams the 520 MB weight at about
+5 TB/s, so the TP forward is bounded by the all-gather. `DeterministicCollective` synchronises the
+host on every call, which costs about 0.1 ms. The backward is dominated by the shard-local `dW`
+and gains 1.7-1.8x at TP8. Each rank also holds only `1 / tp` of the weight and its gradient.
 
 ## Tests
 
