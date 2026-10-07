@@ -49,6 +49,18 @@ def _inputs(seq, num_timesteps=3, seed=0, batch=1):
     return x, temb, ti
 
 
+def _golden(x, norm_weight, temb, weight, bias, timestep_indices):
+    act = temb * torch.sigmoid(temb)
+    act = act + (act.to(torch.bfloat16).double() - act).detach()
+    table = F.linear(act, weight, bias)
+    table = table + (table.to(torch.bfloat16).double() - table).detach()
+    shift, scale = table.chunk(2, dim=-1)
+    n = x * torch.rsqrt(x.square().mean(-1, keepdim=True) + 1e-5) * norm_weight
+    return n * (1 + scale.index_select(0, timestep_indices)) + shift.index_select(
+        0, timestep_indices
+    )
+
+
 class TestReference:
     def test_rejects_bad_inputs(self):
         op = NativeH3FinalAdaLNOutOp()
@@ -106,20 +118,50 @@ class TestCuda:
             fn(*leaves).backward(grad if dtype is None else grad.to(dtype))
             return [leaf.grad for leaf in leaves]
 
-        def golden(x_, nw, t, w, b):
-            act = t * torch.sigmoid(t)
-            act = act + (act.to(torch.bfloat16).double() - act).detach()
-            shift, scale = F.linear(act, w, b).chunk(2, dim=-1)
-            n = x_ * torch.rsqrt(x_.square().mean(-1, keepdim=True) + 1e-5) * nw
-            return n * (1 + scale.index_select(0, ti)) + shift.index_select(0, ti)
-
         ours = grads(lambda *t: _cuda_op()(*t, ti))
         again = grads(lambda *t: _cuda_op()(*t, ti))
-        ref = grads(golden, torch.float64)
+        ref = grads(lambda *t: _golden(*t, ti), torch.float64)
         assert all(torch.equal(a, b) for a, b in zip(ours, again))
         for name, g, r in zip(("dx", "d_norm_weight", "d_temb", "dW", "db"), ours, ref):
             rel = ((g.double() - r).abs().max() / r.abs().max()).item()
             assert rel < 1e-2, (name, rel)  # BF16 output rounding and round(1 + scale) only
+
+    def test_report_backward_uses_fp64_golden(self, monkeypatch):
+        from types import SimpleNamespace
+
+        from rl_engine.testing import h3_report
+
+        rng = torch.Generator(device="cuda").manual_seed(3)
+        x = torch.randn(1, 160, 8, device="cuda", generator=rng).bfloat16()
+        nw = torch.randn(8, device="cuda", generator=rng).bfloat16()
+        temb = torch.randn(3, 4, device="cuda", generator=rng)
+        w = torch.randn(16, 4, device="cuda", generator=rng).bfloat16()
+        b = torch.randn(16, device="cuda", generator=rng).bfloat16()
+        ti = torch.arange(160, device="cuda") % 3
+        inputs = (x, nw, temb, w, b)
+        native = NativeH3FinalAdaLNOutOp()
+        registry = SimpleNamespace(
+            get_op=lambda *args, **kwargs: native,
+            _get_or_create_backend=lambda _: native,
+            _priority_map={"cpu": {"final_adaln_out": [None]}},
+        )
+        monkeypatch.setattr(h3_report, "_final_inputs", lambda *args, **kwargs: (*inputs, ti))
+        monkeypatch.setattr(h3_report, "provider_final_adaln_out", native)
+        report = h3_report._final_accuracy(registry)
+        grad = torch.randn(
+            x.shape, device="cuda", generator=torch.Generator(device="cuda").manual_seed(7)
+        ).to(x.dtype)
+        leaves = [t.detach().clone().requires_grad_(True) for t in inputs]
+        native(*leaves, ti).backward(grad)
+        ref = [t.double().detach().requires_grad_(True) for t in inputs]
+        _golden(*ref, ti).backward(grad.double())
+        for name, leaf, reference in zip(("dx", "d_norm_w", "d_temb", "dW", "db"), leaves, ref):
+            assert reference.grad.dtype == torch.float64
+            expected = float(
+                (leaf.grad.double() - reference.grad).abs().max() / reference.grad.abs().max()
+            )
+            for backend in ("cuda", "provider"):
+                assert report["backward"][backend]["rel_error"][name] == pytest.approx(expected)
 
     def test_registry_dispatches_cuda(self):
         from rl_engine.kernels.registry import KernelRegistry
