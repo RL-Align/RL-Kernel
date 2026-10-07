@@ -139,6 +139,40 @@ class TestCuda:
         with pytest.raises(ValueError):
             _cuda_op()(torch.tensor([0.0, 999.0], device="cuda"))
 
+    @pytest.mark.parametrize("bad", [-0.1, 1.1, float("nan"), float("inf"), -float("inf")])
+    def test_native_entrypoint_rejects_invalid_values(self, bad):
+        from rl_engine.kernels.ops.base import _C
+
+        _cuda_op()
+        # Valid neighbors must not hide an invalid timestep in the native call.
+        t = torch.tensor([0.0, bad, 1.0], device="cuda")
+        with pytest.raises(ValueError, match=r"finite and lie in \[0, 1\]"):
+            _C.h3_timestep_sinusoid_forward(t)
+        with pytest.raises(ValueError, match=r"finite and lie in \[0, 1\]"):
+            _cuda_op()(t)
+
+    def test_native_entrypoint_accepts_boundaries(self):
+        from rl_engine.kernels.ops.base import _C
+
+        _cuda_op()
+        t = torch.tensor([0.0, 0.5, 1.0], device="cuda")
+        assert torch.equal(_C.h3_timestep_sinusoid_forward(t), provider_time_proj(t, 256))
+
+    def test_trusted_path_supports_cuda_graph(self):
+        op = _cuda_op()
+        t = h3_timesteps(7)
+        expected = op(t)
+        warmup = torch.cuda.Stream()
+        warmup.wait_stream(torch.cuda.current_stream())
+        with torch.cuda.stream(warmup):
+            op.forward(t, check_range=False)
+        torch.cuda.current_stream().wait_stream(warmup)
+        graph = torch.cuda.CUDAGraph()
+        with torch.cuda.graph(graph):
+            out = op.forward(t, check_range=False)
+        graph.replay()
+        assert torch.equal(out, expected)
+
     def test_backward_matches_autograd_reference(self):
         t = h3_timesteps(17).requires_grad_(True)
         t_ref = t.detach().clone().requires_grad_(True)
