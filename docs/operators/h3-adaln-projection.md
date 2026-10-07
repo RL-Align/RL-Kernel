@@ -108,18 +108,28 @@ B200, pinned BF16 weights (520 MB per block, streamed once per call):
 
 | T | CUDA op | provider (SiLU + cast + cuBLAS) | CUDA GEMV kernel | cuBLAS kernel |
 | --- | --- | --- | --- | --- |
-| 1 | 102 µs | 112 µs | 78.3 µs (6.6 TB/s) | 93 µs |
-| 2 | 102 µs | 101 µs | 78.4 µs | 79 µs |
-| 4 | 102 µs | 101 µs | 79.0 µs | 79 µs |
+| 1 | 105 µs | 115 µs | 78.3 µs (6.6 TB/s) | 93 µs |
+| 2 | 105 µs | 103 µs | 78.4 µs | 79 µs |
+| 4 | 106 µs | 104 µs | 79.0 µs | 79 µs |
 
 The kernel takes the same time for every T <= 8, because it always computes 8 rows. It
 matches cuBLAS for T >= 2 and is faster at T = 1. The remaining 24 µs of the op time is
-the SiLU and cast kernels plus the Python wrapper.
+the SiLU and cast kernels plus the Python wrapper. With those included, the op is within
+about 2% of the provider for T >= 2.
 
 An earlier FMA-only BF16 kernel ran at 81, 98 and 166 µs for T = 1, 2 and 4. Its time
 grew with T because every extra row adds FMAs per weight element. Packed FP32 FMA
 (`__ffma2_rn`) gave identical bits but no speedup. Moving to tensor cores removed the
 dependence on T.
+
+## Evidence
+
+![adaln_projection_3mod on B200: latency and correctly rounded outputs](../usage/evidence/h3-adaln-projection-b200/figure.png)
+
+The data is in [`report.json`](../usage/evidence/h3-adaln-projection-b200/report.json),
+written by `scripts/h3_evidence.py` from a clean tree at commit `d06e120`. The report also
+records that a timestep's 18 modulation rows are bitwise identical whether it runs alone
+or in a batch of 9.
 
 ## Tests
 
