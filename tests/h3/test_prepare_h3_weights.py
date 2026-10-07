@@ -18,6 +18,8 @@ from rl_engine.testing.h3_weights import EXTRACTED_FILE, sha256_file, sha256_ten
 @pytest.mark.parametrize("optimize", [0, 1])
 @pytest.mark.parametrize("mismatch", [None, "dtype", "shape", "sha256"])
 def test_manifest_validation_before_write(tmp_path, monkeypatch, optimize, mismatch):
+    """Enforce tensor contracts before extraction writes, including under Python optimization."""
+
     import huggingface_hub
     from safetensors.torch import load_file, save_file
 

@@ -21,6 +21,8 @@ from rl_engine.testing import h3_weights
     ],
 )
 def test_tensor_checksum_hashes_raw_bytes(dtype, raw_bytes):
+    """Hash the exact FP32 and BF16 bit patterns without numerical conversion."""
+
     tensor = torch.tensor([0.0, 1.0], dtype=dtype)
     assert h3_weights.sha256_tensor(tensor) == hashlib.sha256(raw_bytes).hexdigest()
 
@@ -29,6 +31,8 @@ def test_tensor_checksum_hashes_raw_bytes(dtype, raw_bytes):
 @pytest.mark.parametrize("mismatch", [None, "dtype", "shape", "sha256"])
 @pytest.mark.parametrize("names", [None, ["bias"]])
 def test_loading_rejects_modified_weight_contents(tmp_path, monkeypatch, dtype, mismatch, names):
+    """Reject altered shape, dtype, or bytes even outside the requested tensor subset."""
+
     from safetensors.torch import save_file
 
     tensors = {

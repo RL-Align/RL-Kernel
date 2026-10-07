@@ -35,6 +35,11 @@ BACKWARD_KERNEL_ID = (
 class _H3AdaLNProjectionCuda(torch.autograd.Function):
     @staticmethod
     def forward(ctx, temb, weight, bias):
+        """Project FP32 ``(T, D)`` embeddings to a weight-dtype ``(T, 18H)`` table.
+
+        Save the embedding, rounded SiLU activation and weight for the VJP.
+        """
+
         temb = temb.contiguous()
         # Declared mixed-precision boundary: SiLU at temb's FP32 precision,
         # then exactly one rounding to the projection dtype. These are the
@@ -46,6 +51,12 @@ class _H3AdaLNProjectionCuda(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_table):
+        """Return requested embedding, weight and bias gradients in their input dtypes.
+
+        Accumulate projection gradients deterministically and evaluate the
+        straight-through cast and SiLU VJP in FP32 for the embedding gradient.
+        """
+
         temb, act, weight = ctx.saved_tensors
         need_temb, need_weight, need_bias = ctx.needs_input_grad
         grad_table = grad_table.float().contiguous()
@@ -81,15 +92,26 @@ class H3AdaLNProjectionCudaOp:
     contract = CONTRACT
 
     def __init__(self) -> None:
+        """Require all deterministic linear symbols in the CUDA extension."""
+
         if not det_linear_available():
             raise RuntimeError(
                 "rl_engine._C lacks h3_det_linear_*; rebuild with csrc/cuda/h3/det_linear.cu"
             )
 
     def __call__(self, temb, weight, bias):
+        """Return six weight-dtype ``(3T, H)`` modulation views for CUDA inputs."""
+
         return self.forward(temb, weight, bias)
 
     def forward(self, temb, weight, bias) -> tuple[torch.Tensor, ...]:
+        """Return six ``(3T, H)`` views after FP32 SiLU and a deterministic projection.
+
+        Require CUDA FP32 ``temb`` of shape ``(T, D)`` with ``T > 0`` and
+        same-device FP32 or BF16 weight/bias of shapes ``(18H, D)``/``(18H,)``.
+        Outputs share one table in the weight dtype; autograd covers all inputs.
+        """
+
         hidden = validate_h3_adaln_projection(temb, weight, bias)
         if not temb.is_cuda:
             raise ValueError("H3AdaLNProjectionCudaOp needs CUDA tensors")
@@ -105,4 +127,6 @@ class H3AdaLNProjectionCudaOp:
         return _H3AdaLNProjectionCuda.apply(temb, weight, bias)
 
     def forward_fp32(self, temb, weight, bias):
+        """Run the CUDA projection with its declared weight-dtype output boundary."""
+
         return self.forward(temb, weight, bias)

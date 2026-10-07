@@ -25,15 +25,21 @@ EXTRACTED_FILE = "h3_conditioning.safetensors"
 
 
 def load_h3_manifest() -> dict[str, Any]:
+    """Read the bundled checkpoint identity and pinned tensor contracts."""
+
     return json.loads(MANIFEST_PATH.read_text())
 
 
 def h3_weights_dir() -> Path | None:
+    """Expand the configured extraction directory, or return None when unset or blank."""
+
     value = os.environ.get(WEIGHTS_ENV, "").strip()
     return Path(value).expanduser() if value else None
 
 
 def sha256_file(path: Path, chunk: int = 1 << 24) -> str:
+    """Return a file SHA256 while reading bounded chunks."""
+
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         while block := handle.read(chunk):

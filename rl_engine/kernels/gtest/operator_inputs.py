@@ -28,6 +28,7 @@ def make_operator_inputs(
     dtype: torch.dtype,
     device: torch.device,
 ) -> dict[str, Any]:
+    """Build operator keyword inputs on the requested device from CLI shape and seed options."""
     builders = {
         "rms_norm": _make_rms_norm_inputs,
         "qk_norm": _make_qk_norm_inputs,
@@ -57,6 +58,7 @@ def make_operator_inputs(
 
 
 def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
+    """Return the operator's dimension label for benchmark and evidence reports."""
     batch, seq = _batch_seq(args)
     vocab = _arg_int(args, "vocab", DEFAULT_VOCAB)
     names = {
@@ -344,6 +346,7 @@ def _make_kv_cache_attention_inputs(
 
 
 def _h3_num_timesteps(args: argparse.Namespace) -> int:
+    """Read the packed H3 timestep count, falling back to the CLI batch size."""
     # H3 packs a handful of distinct timesteps; reuse --batch as their count.
     return _arg_int(args, "num_timesteps", _arg_int(args, "batch", 2))
 
@@ -351,6 +354,7 @@ def _h3_num_timesteps(args: argparse.Namespace) -> int:
 def _h3_timesteps(
     args: argparse.Namespace, dtype: torch.dtype, device: torch.device
 ) -> torch.Tensor:
+    """Build seeded timesteps in [0, 1] with endpoint cases in the requested storage dtype."""
     num = _h3_num_timesteps(args)
     mode = _arg_str(args, "input_mode", "random")
     if mode == "constant":
@@ -366,12 +370,14 @@ def _h3_timesteps(
 def _make_timestep_sinusoid_h3_inputs(
     args: argparse.Namespace, dtype: torch.dtype, device: torch.device
 ) -> dict[str, Any]:
+    """Supply a one-dimensional packed timestep tensor to the H3 sinusoid operator."""
     return {"timestep": _h3_timesteps(args, dtype, device)}
 
 
 def _make_timestep_mlp_fp32_inputs(
     args: argparse.Namespace, dtype: torch.dtype, device: torch.device
 ) -> dict[str, Any]:
+    """Build [T, 256] sinusoid features and seeded FP32 256→5376→2688 MLP parameters."""
     # The H3 time_embedder is declared FP32; ``dtype`` does not apply to it.
     del dtype
     from rl_engine.kernels.ops.pytorch.h3.timestep_sinusoid import NativeH3TimestepSinusoidOp
@@ -390,12 +396,14 @@ def _make_timestep_mlp_fp32_inputs(
 
 
 def _h3_hidden(args: argparse.Namespace) -> int:
+    """Read the AdaLN channel width, defaulting to the checkpoint's 5376 channels."""
     return _arg_int(args, "normalized_dim", H3_HIDDEN)
 
 
 def _make_adaln_projection_3mod_inputs(
     args: argparse.Namespace, dtype: torch.dtype, device: torch.device
 ) -> dict[str, Any]:
+    """Build FP32 [T, 2688] embeddings and 18H projection parameters in the chosen dtype."""
     # temb is FP32 by contract (the SiLU runs before the cast); ``dtype`` is the
     # projection's weight dtype, BF16 in the checkpoint.
     n_out = 6 * 3 * _h3_hidden(args)

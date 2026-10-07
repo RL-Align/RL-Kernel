@@ -32,6 +32,8 @@ from rl_engine.testing.h3_weights import (  # noqa: E402
 
 
 def _check(path: Path, expected: str) -> None:
+    """Verify a downloaded file's SHA-256, exiting on mismatch or printing success."""
+
     actual = sha256_file(path)
     if actual != expected:
         raise SystemExit(f"sha256 mismatch for {path.name}: {actual} != {expected}")
@@ -39,6 +41,8 @@ def _check(path: Path, expected: str) -> None:
 
 
 def main() -> None:
+    """Download pinned model artifacts, verify tensor identities, and write extracted weights."""
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True, help="output directory")
     parser.add_argument(
@@ -60,6 +64,8 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     def fetch(filename: str) -> Path:
+        """Download one file from the manifest's model subfolder and pinned revision."""
+
         return Path(
             hf_hub_download(
                 identity["hf_repo"],
