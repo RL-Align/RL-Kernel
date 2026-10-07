@@ -226,7 +226,7 @@ def test_npu_registry_preserves_per_operator_cpu_fallbacks(monkeypatch):
     ]
 
 
-H3_OPS = ("timestep_sinusoid_h3", "timestep_mlp_fp32")
+H3_OPS = ("timestep_sinusoid_h3", "timestep_mlp_fp32", "adaln_projection_3mod")
 
 
 @pytest.mark.parametrize("op_name", H3_OPS)

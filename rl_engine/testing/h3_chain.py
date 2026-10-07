@@ -30,7 +30,11 @@ import torch
 
 from rl_engine.kernels.registry import KernelRegistry
 from rl_engine.testing.h3_cases import h3_packed_layout, h3_timesteps
-from rl_engine.testing.h3_provider import provider_time_embedder, provider_time_proj
+from rl_engine.testing.h3_provider import (
+    provider_adaln_modulation,
+    provider_time_embedder,
+    provider_time_proj,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -54,6 +58,11 @@ def mlp_params(ctx: dict[str, Any]) -> list[torch.Tensor]:
     return [weights[f"time_embedder.linear_{i}.{p}"] for i in (1, 2) for p in ("weight", "bias")]
 
 
+def adaln_params(ctx: dict[str, Any]) -> tuple[torch.Tensor, torch.Tensor]:
+    prefix = "transformer_blocks.0.adaln_proj.linear"
+    return ctx["weights"][f"{prefix}.weight"], ctx["weights"][f"{prefix}.bias"]
+
+
 STAGES: list[Stage] = [
     Stage(
         name="timestep_sinusoid_h3",
@@ -74,6 +83,16 @@ STAGES: list[Stage] = [
         provider_bitwise_isolated=False,  # reduction: different tree from cuBLAS
         golden_atol=1e-4,  # reduction / float32
         golden_rtol=1e-4,
+    ),
+    Stage(
+        name="adaln_projection_3mod",
+        op_type="adaln_projection_3mod",
+        candidate=lambda op, ctx, up: op(up, *adaln_params(ctx)),
+        provider=lambda ctx, up: provider_adaln_modulation(up, *adaln_params(ctx)),
+        golden=lambda op, ctx, up: op.forward_fp32(up, *adaln_params(ctx)),
+        provider_bitwise_isolated=False,  # reduction: tensor-core tree differs from cuBLAS
+        golden_atol=5e-2,  # reduction / bfloat16
+        golden_rtol=2e-2,
     ),
 ]
 

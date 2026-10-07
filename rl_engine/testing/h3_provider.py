@@ -46,3 +46,13 @@ def provider_time_embedder(
     sample = F.linear(features.to(w1.dtype), w1, b1)
     sample = F.silu(sample)
     return F.linear(sample, w2, b2)
+
+
+def provider_adaln_modulation(
+    temb: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor, hidden_size: int = 5376
+) -> tuple[torch.Tensor, ...]:
+    """``MiniMaxH3AdaLayerNormModulation.forward``: six (3T, H) views."""
+
+    temb = F.linear(F.silu(temb).to(weight.dtype), weight, bias)
+    temb = temb.view(-1, 6 * hidden_size)
+    return temb.chunk(6, dim=-1)

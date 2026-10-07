@@ -19,6 +19,7 @@ DEFAULT_RMS_EPS = 1.0e-6
 H3_FREQ_DIM = 256
 H3_TIME_HIDDEN = 5376
 H3_TIME_EMBED = 2688
+H3_HIDDEN = 5376
 
 
 def make_operator_inputs(
@@ -47,6 +48,7 @@ def make_operator_inputs(
         "kv_cache_attention": _make_kv_cache_attention_inputs,
         "timestep_sinusoid_h3": _make_timestep_sinusoid_h3_inputs,
         "timestep_mlp_fp32": _make_timestep_mlp_fp32_inputs,
+        "adaln_projection_3mod": _make_adaln_projection_3mod_inputs,
     }
     try:
         return builders[op_name](args, dtype, device)
@@ -80,6 +82,8 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "timestep_sinusoid_h3": f"{_h3_num_timesteps(args)}x{H3_FREQ_DIM}",
         "timestep_mlp_fp32": f"{_h3_num_timesteps(args)}x{H3_FREQ_DIM}x{H3_TIME_HIDDEN}"
         f"x{H3_TIME_EMBED}",
+        "adaln_projection_3mod": f"{_h3_num_timesteps(args)}x{H3_TIME_EMBED}"
+        f"x{6 * 3 * _h3_hidden(args)}",
     }
     try:
         return names[op_name]
@@ -382,6 +386,28 @@ def _make_timestep_mlp_fp32_inputs(
         "w2": _floating_tensor((H3_TIME_EMBED, H3_TIME_HIDDEN), args, torch.float32, device, 3)
         * scale2,
         "b2": _floating_tensor((H3_TIME_EMBED,), args, torch.float32, device, 4) * 0.1,
+    }
+
+
+def _h3_hidden(args: argparse.Namespace) -> int:
+    return _arg_int(args, "normalized_dim", H3_HIDDEN)
+
+
+def _make_adaln_projection_3mod_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    # temb is FP32 by contract (the SiLU runs before the cast); ``dtype`` is the
+    # projection's weight dtype, BF16 in the checkpoint.
+    n_out = 6 * 3 * _h3_hidden(args)
+    temb = _floating_tensor(
+        (_h3_num_timesteps(args), H3_TIME_EMBED), args, torch.float32, device, 0
+    )
+    weight = _floating_tensor((n_out, H3_TIME_EMBED), args, torch.float32, device, 1)
+    bias = _floating_tensor((n_out,), args, torch.float32, device, 2)
+    return {
+        "temb": temb * 2.0,
+        "weight": (weight * H3_TIME_EMBED**-0.5).to(dtype),
+        "bias": (bias * 0.1).to(dtype),
     }
 
 

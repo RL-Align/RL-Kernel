@@ -32,6 +32,7 @@ nav:
       - MiniMax-H3:
         - operators/h3-timestep-sinusoid.md
         - operators/h3-timestep-mlp.md
+        - operators/h3-adaln-projection.md
   - Developer Guide:
     - contributing/README.md
     - General:
