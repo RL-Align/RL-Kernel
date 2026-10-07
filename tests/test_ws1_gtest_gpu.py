@@ -51,6 +51,7 @@ def test_all_ws1_single_ops_are_registered():
         "prefix_shared_attention",
         "timestep_sinusoid_h3",
         "timestep_mlp_fp32",
+        "adaln_projection_3mod",
     } <= names
 
 

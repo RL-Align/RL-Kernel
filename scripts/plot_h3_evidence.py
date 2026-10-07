@@ -224,9 +224,47 @@ def plot_mlp(report: dict[str, Any]):
     return fig
 
 
+def plot_projection(report: dict[str, Any]):
+    fig, (left, right) = _figure(report, "adaln_projection_3mod  (pinned block-0 AdaLN weights)")
+    _latency_panel(left, report["perf"], "diffusers (cuBLAS)")
+    acc = report["accuracy"]
+    _style(
+        right,
+        f"Outputs equal to the correctly rounded FP64 golden, {acc['draws']} draws",
+        "% of BF16 outputs",
+    )
+    series = [
+        ("RL-Kernel CUDA", RL_KERNEL, [100 * v for v in acc["cuda_correctly_rounded"]]),
+        ("diffusers (cuBLAS)", PROVIDER, [100 * v for v in acc["provider_correctly_rounded"]]),
+    ]
+    for i, (name, color, values) in enumerate(series):
+        jitter = [i + ((k * 0.6180339) % 1 - 0.5) * 0.3 for k in range(len(values))]
+        ax_vals = sorted(values)
+        median = ax_vals[len(ax_vals) // 2]
+        right.scatter(jitter, values, s=36, color=color, alpha=0.8, linewidths=0, zorder=3)
+        right.hlines(median, i - 0.25, i + 0.25, color=color, lw=2.5, zorder=4)
+        right.annotate(
+            f"median {median:.3f}%", (i + 0.28, median), fontsize=8, color=INK, va="center"
+        )
+    right.set_xticks(range(len(series)), [name for name, _, _ in series])
+    right.set_xlim(-0.6, len(series) - 0.1)
+    early = sorted(acc["early_cast_golden_match"])[len(acc["early_cast_golden_match"]) // 2]
+    right.text(
+        0.98,
+        0.62,
+        f"an early BF16 cast (probe H7)\nwould match only {100 * early:.0f}%",
+        transform=right.transAxes,
+        fontsize=8,
+        color=MUTED,
+        ha="right",
+    )
+    return fig
+
+
 PLOTS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "timestep_sinusoid_h3": plot_sinusoid,
     "timestep_mlp_fp32": plot_mlp,
+    "adaln_projection_3mod": plot_projection,
 }
 
 

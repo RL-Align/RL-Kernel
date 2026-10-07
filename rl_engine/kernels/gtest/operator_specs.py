@@ -272,6 +272,19 @@ OP_SPECS = {
         },
         grad_input_names=("x", "w1", "b1", "w2", "b2"),
     ),
+    "adaln_projection_3mod": OperatorSpec(
+        name="adaln_projection_3mod",
+        op_class="reduction",
+        gold_path=("rl_engine.kernels.ops.pytorch.h3.adaln_projection.NativeH3AdaLNProjectionOp"),
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": (
+                "rl_engine.kernels.ops.pytorch.h3.adaln_projection.NativeH3AdaLNProjectionOp"
+            ),
+            "cuda": "rl_engine.kernels.ops.cuda.h3.adaln_projection.H3AdaLNProjectionCudaOp",
+        },
+        grad_input_names=("temb", "weight", "bias"),
+    ),
     "pack": OperatorSpec(
         name="pack",
         op_class="elementwise",

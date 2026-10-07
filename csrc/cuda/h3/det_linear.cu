@@ -20,6 +20,8 @@
 //     whose result is identical on every lane (FP add is commutative);
 //   * the bias is added once after the butterfly; the activation runs in FP32
 //     (SiLU as v / (1 + expf(-v)), PyTorch's formula); one cast at the store.
+//   * this FP32 forward is used for FP32 weights; BF16 weights take the
+//     tensor-core forward of contract h3-det-linear-bf16-mma-v1 below.
 // d_input  dx[t, k] = sum_n g[t, n] * W[n, k]
 //   * N is split into fixed chunks of 64 rows; each chunk is an ascending
 //     fmaf chain into FP32 from 0; the chunk partials are then left-folded in
@@ -27,6 +29,20 @@
 // d_weight dW[n, k] = sum_t g[t, n] * x[t, k];  d_bias db[n] = sum_t g[t, n]
 //   * an ascending-t fmaf chain into FP32 from 0, cast once. This is the one
 //     cross-row reduction; its order is the logical row order.
+//
+// Reduction contract h3-det-linear-bf16-mma-v1 (BF16 x and W, FP32 accumulate)
+// -----------------------------------------------------------------------------
+// forward  y[t, n] = act(bias[n] + dot(x[t, :], W[n, :]))
+//   * a warp owns 16 output columns (MMA rows) and 8 input rows (MMA columns;
+//     rows past T are zero), so every launch runs the same instruction
+//     sequence for every T <= 8, and an MMA column never sees another's data;
+//   * K is visited in groups of 16 in ascending order. Within a 32-wide step,
+//     quad q supplies k = 32s + 8q + {0..3} to the first mma.sync m16n8k16 and
+//     k = 32s + 8q + {4..7} to the second (the same k map for W and x);
+//   * every mma.sync starts from a zero accumulator, so the tensor core only
+//     sums 16 products; its FP32 result is added to the running FP32 sum with
+//     an IEEE add, group by group in ascending k;
+//   * then bias, FP32 activation and one cast, as above.
 
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
@@ -42,12 +58,9 @@ namespace {
 #ifndef H3_FWD_F32_COLS
 #define H3_FWD_F32_COLS 2
 #define H3_FWD_F32_AHEAD 6
-#define H3_FWD_BF16_COLS 4
-#define H3_FWD_BF16_AHEAD 2
 #endif
 #ifndef H3_FWD_CONFIGS
-#define H3_FWD_CONFIGS H3_FWD_CASE(H3_FWD_F32_COLS, H3_FWD_F32_AHEAD) \
-  H3_FWD_CASE(H3_FWD_BF16_COLS, H3_FWD_BF16_AHEAD)
+#define H3_FWD_CONFIGS H3_FWD_CASE(H3_FWD_F32_COLS, H3_FWD_F32_AHEAD)
 #endif
 
 constexpr int kWarp = 32;
@@ -177,6 +190,93 @@ __global__ void __launch_bounds__(kWarpsPerBlock * kWarp)
   }
 }
 
+__device__ __forceinline__ void mma_m16n8k16_bf16(float (&c)[4], const uint32_t (&a)[4],
+                                                  uint32_t b0, uint32_t b1) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 800
+  // BF16 mma.sync needs SM80+; the host refuses to launch below that.
+  __trap();
+#else
+  asm volatile(
+      "mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 {%0,%1,%2,%3}, {%4,%5,%6,%7}, "
+      "{%8,%9}, {%0,%1,%2,%3};\n"
+      : "+f"(c[0]), "+f"(c[1]), "+f"(c[2]), "+f"(c[3])
+      : "r"(a[0]), "r"(a[1]), "r"(a[2]), "r"(a[3]), "r"(b0), "r"(b1));
+#endif
+}
+
+constexpr int kMmaCols = 16;    // output columns per warp (MMA M)
+constexpr int kMmaRows = 8;     // input rows per pass (MMA N)
+constexpr int kMmaAhead = 4;    // 32-wide K steps loaded before use
+
+__device__ __forceinline__ void mma_group_accumulate(float (&acc)[4], const uint32_t (&a)[4],
+                                                     uint32_t b0, uint32_t b1) {
+  float part[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+  mma_m16n8k16_bf16(part, a, b0, b1);
+#pragma unroll
+  for (int i = 0; i < 4; ++i) acc[i] += part[i];
+}
+
+// Contract h3-det-linear-bf16-mma-v1. Lane = 4 * g + q: g picks the MMA row
+// (output columns n0 + g and n0 + g + 8) and the MMA column (input row t0 + g).
+__global__ void __launch_bounds__(kWarpsPerBlock * kWarp)
+    det_linear_forward_bf16_mma_kernel(const __nv_bfloat16* __restrict__ x,
+                                       const __nv_bfloat16* __restrict__ w,
+                                       const __nv_bfloat16* __restrict__ bias,
+                                       __nv_bfloat16* __restrict__ out, float* __restrict__ pre_act,
+                                       int64_t rows, int64_t n_out, int64_t k_in,
+                                       int64_t activation) {
+  const int lane = threadIdx.x % kWarp;
+  const int g = lane >> 2;
+  const int q = lane & 3;
+  const int64_t warp_global =
+      static_cast<int64_t>(blockIdx.x) * kWarpsPerBlock + threadIdx.x / kWarp;
+  const int64_t warp_stride = static_cast<int64_t>(gridDim.x) * kWarpsPerBlock;
+  const uint4 zero = make_uint4(0u, 0u, 0u, 0u);
+
+  for (int64_t n0 = warp_global * kMmaCols; n0 < n_out; n0 += warp_stride * kMmaCols) {
+    const bool lo_ok = n0 + g < n_out;
+    const bool hi_ok = n0 + g + 8 < n_out;
+    const __nv_bfloat16* w_lo = w + (n0 + g) * k_in;
+    const __nv_bfloat16* w_hi = w + (n0 + g + 8) * k_in;
+    for (int64_t t0 = 0; t0 < rows; t0 += kMmaRows) {
+      const bool x_ok = t0 + g < rows;
+      const __nv_bfloat16* x_row = x + (t0 + g) * k_in;
+      float acc[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+      for (int64_t kb = 0; kb < k_in; kb += 32 * kMmaAhead) {
+        uint4 a_lo[kMmaAhead], a_hi[kMmaAhead], bx[kMmaAhead];
+#pragma unroll
+        for (int u = 0; u < kMmaAhead; ++u) {
+          const int64_t k = kb + 32 * u + 8 * q;
+          const bool k_ok = k < k_in;
+          a_lo[u] = (k_ok && lo_ok) ? __ldcs(reinterpret_cast<const uint4*>(w_lo + k)) : zero;
+          a_hi[u] = (k_ok && hi_ok) ? __ldcs(reinterpret_cast<const uint4*>(w_hi + k)) : zero;
+          bx[u] = (k_ok && x_ok) ? *reinterpret_cast<const uint4*>(x_row + k) : zero;
+        }
+#pragma unroll
+        for (int u = 0; u < kMmaAhead; ++u) {
+          if (kb + 32 * u >= k_in) break;
+          const uint32_t first[4] = {a_lo[u].x, a_hi[u].x, a_lo[u].y, a_hi[u].y};
+          const uint32_t second[4] = {a_lo[u].z, a_hi[u].z, a_lo[u].w, a_hi[u].w};
+          mma_group_accumulate(acc, first, bx[u].x, bx[u].y);
+          mma_group_accumulate(acc, second, bx[u].z, bx[u].w);
+        }
+      }
+      // acc = {(n0+g, t0+2q), (n0+g, t0+2q+1), (n0+g+8, t0+2q), (n0+g+8, t0+2q+1)}
+#pragma unroll
+      for (int i = 0; i < 4; ++i) {
+        const int64_t n = n0 + g + (i >= 2 ? 8 : 0);
+        const int64_t t = t0 + 2 * q + (i & 1);
+        if (n < n_out && t < rows) {
+          float v = acc[i] + (bias != nullptr ? __bfloat162float(bias[n]) : 0.0f);
+          if (pre_act != nullptr) pre_act[t * n_out + n] = v;
+          if (activation == kActSilu) v = v / (1.0f + expf(-v));
+          out[t * n_out + n] = __float2bfloat16(v);
+        }
+      }
+    }
+  }
+}
+
 // partial[c, t, k] = sum_{n in chunk c} g[t, n] * w[n, k]
 template <typename g_t, typename w_t>
 __global__ void det_linear_dinput_partial_kernel(const g_t* __restrict__ grad,
@@ -287,9 +387,8 @@ struct ForwardConfig {
   int ahead;
 };
 
-ForwardConfig pick_forward_config(int64_t rows, int64_t elem_size) {
+ForwardConfig pick_forward_config(int64_t rows) {
   const int row_tile = rows <= 1 ? 1 : (rows <= 2 ? 2 : 4);
-  if (elem_size == 2) return {row_tile, H3_FWD_BF16_COLS, H3_FWD_BF16_AHEAD};
   return {row_tile, H3_FWD_F32_COLS, H3_FWD_F32_AHEAD};
 }
 
@@ -365,18 +464,21 @@ std::vector<torch::Tensor> h3_det_linear_forward(torch::Tensor x, torch::Tensor 
   torch::Tensor pre;
   if (save_pre_activation) pre = torch::empty({rows, n_out}, x.options().dtype(at::kFloat));
   auto stream = at::cuda::getCurrentCUDAStream();
-  const ForwardConfig cfg = pick_forward_config(rows, x.element_size());
   if (x.scalar_type() == at::kFloat) {
+    const ForwardConfig cfg = pick_forward_config(rows);
     launch_forward<float>(cfg, cptr<float>(x), cptr<float>(weight),
                           bias.has_value() ? cptr<float>(*bias) : nullptr, mptr<float>(out),
                           save_pre_activation ? pre.data_ptr<float>() : nullptr, rows, n_out,
                           k_in, activation, stream);
   } else {
-    launch_forward<__nv_bfloat16>(
-        cfg, cptr<at::BFloat16>(x), cptr<at::BFloat16>(weight),
+    TORCH_CHECK(at::cuda::getCurrentDeviceProperties()->major >= 8,
+                "the BF16 h3 det_linear forward uses mma.sync and needs SM80 or newer");
+    const int64_t blocks = grid_for((n_out + kMmaCols - 1) / kMmaCols, kWarpsPerBlock);
+    det_linear_forward_bf16_mma_kernel<<<static_cast<unsigned>(blocks), kWarpsPerBlock * kWarp,
+                                         0, stream>>>(
+        cptr<at::BFloat16>(x), cptr<at::BFloat16>(weight),
         bias.has_value() ? cptr<at::BFloat16>(*bias) : nullptr, mptr<at::BFloat16>(out),
-        save_pre_activation ? pre.data_ptr<float>() : nullptr, rows, n_out, k_in, activation,
-        stream);
+        save_pre_activation ? pre.data_ptr<float>() : nullptr, rows, n_out, k_in, activation);
   }
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   if (save_pre_activation) return {out, pre};

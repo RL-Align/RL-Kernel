@@ -17,7 +17,11 @@ import torch
 
 from rl_engine.kernels.registry import KernelRegistry
 from rl_engine.testing.h3_cases import h3_timesteps
-from rl_engine.testing.h3_provider import provider_time_embedder, provider_time_proj
+from rl_engine.testing.h3_provider import (
+    provider_adaln_modulation,
+    provider_time_embedder,
+    provider_time_proj,
+)
 from rl_engine.testing.h3_weights import h3_weights_dir, load_h3_conditioning_weights
 
 # Keys of a perf case that hold a timed callable, in display order.
@@ -178,11 +182,89 @@ def _mlp_accuracy(registry: KernelRegistry, draws: int = 200) -> dict[str, Any]:
     }
 
 
+# --------------------------------------------------------------------------- #
+# adaln_projection_3mod
+# --------------------------------------------------------------------------- #
+
+ADALN_NAMES = [
+    "transformer_blocks.0.adaln_proj.linear.weight",
+    "transformer_blocks.0.adaln_proj.linear.bias",
+]
+
+
+def _adaln_params() -> tuple[torch.Tensor, torch.Tensor]:
+    weight, bias = h3_params(ADALN_NAMES, [(96768, 2688), (96768,)])
+    return weight.bfloat16(), bias.bfloat16()
+
+
+def _projection_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
+    op = registry.get_op("adaln_projection_3mod", device="cuda")
+    weight, bias = _adaln_params()
+    cases = []
+    for num in (1, 2, 3, 4):
+        temb = torch.randn(num, 2688, device="cuda")
+        cases.append(
+            {
+                "op": "adaln_projection_3mod",
+                "case": f"T={num}",
+                "backend": type(op).__name__,
+                "bytes": weight.numel() * weight.element_size(),
+                "candidate": lambda temb=temb: op(temb, weight, bias),
+                "provider": lambda temb=temb: provider_adaln_modulation(temb, weight, bias),
+            }
+        )
+    return cases
+
+
+def _flat_cat(outputs) -> torch.Tensor:
+    return torch.cat([out.reshape(-1) for out in outputs])
+
+
+def _projection_accuracy(registry: KernelRegistry, draws: int = 20) -> dict[str, Any]:
+    """Fraction of BF16 outputs equal to the correctly rounded FP64 golden, per draw."""
+
+    op = registry.get_op("adaln_projection_3mod", device="cuda")
+    golden = registry._get_or_create_backend(
+        registry._priority_map["cpu"]["adaln_projection_3mod"][-1]
+    )
+    weight, bias = _adaln_params()
+    cuda_frac, provider_frac, early_frac = [], [], []
+    for seed in range(draws):
+        g = torch.Generator(device="cuda").manual_seed(seed)
+        temb = torch.randn(4, 2688, device="cuda", generator=g) * 2
+        gold = _flat_cat(golden.forward_fp32(temb, weight, bias)).bfloat16()
+        early = _flat_cat(golden.forward_fp32(temb.bfloat16().float(), weight, bias)).bfloat16()
+        ours = _flat_cat(op(temb, weight, bias))
+        theirs = _flat_cat(provider_adaln_modulation(temb, weight, bias))
+        cuda_frac.append(float((ours == gold).float().mean()))
+        provider_frac.append(float((theirs == gold).float().mean()))
+        early_frac.append(float((ours == early).float().mean()))
+    temb = torch.randn(9, 2688, device="cuda")
+    full = op(temb, weight, bias)
+    invariant = all(
+        all(
+            torch.equal(s, f[3 * i : 3 * i + 3])
+            for s, f in zip(op(temb[i : i + 1], weight, bias), full)
+        )
+        for i in range(9)
+    )
+    return {
+        "draws": draws,
+        "num_timesteps": 4,
+        "cuda_correctly_rounded": cuda_frac,
+        "provider_correctly_rounded": provider_frac,
+        "early_cast_golden_match": early_frac,
+        "rows_batch_invariant": invariant,
+    }
+
+
 PERF_CASES: dict[str, Callable[[KernelRegistry], list[dict[str, Any]]]] = {
     "timestep_sinusoid_h3": _sinusoid_perf,
     "timestep_mlp_fp32": _mlp_perf,
+    "adaln_projection_3mod": _projection_perf,
 }
 ACCURACY: dict[str, Callable[[KernelRegistry], dict[str, Any]]] = {
     "timestep_sinusoid_h3": _sinusoid_accuracy,
     "timestep_mlp_fp32": _mlp_accuracy,
+    "adaln_projection_3mod": _projection_accuracy,
 }
