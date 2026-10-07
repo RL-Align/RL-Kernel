@@ -1,0 +1,3182 @@
+{
+  "scope": "Independent reference audit at FP32 phase boundary; full FP64 is diagnostic",
+  "gpu": "NVIDIA H100 80GB HBM3",
+  "torch": "2.6.0+cu124",
+  "cases": [
+    {
+      "batch": 16,
+      "seed": 9386,
+      "dtype": "torch.float32",
+      "upstream_rng": "cuda",
+      "input_sha256": {
+        "timestep": "5a7fce3edfc2605e6f5d37ad628ff5d5a0e4d79bde65e9b7b050d51fa1af00ac",
+        "weight1": "2403b5a4c395cb11072e4aa05781c6ad10cfc4e962099653384d3cfca8117cd2",
+        "bias1": "d690f785ceb71ae42bf04043202115ce2f61e25b65452ce0396898e0d52d106f",
+        "weight2": "bcd8c3da180eb4aa14daf2ce02cdede2d8a0f27414628e27560952f60f86f605",
+        "bias2": "f1fca2b3e9077cba97dff104537307c54077ffd0002e6cb50f5216d3b918cc43",
+        "upstream": "149ff4422562d56ab83b60c0541571ac247c257960511d715bb08315ab13eee5"
+      },
+      "old_vs_boundary": {
+        "passed": false,
+        "tensors": {
+          "output": {
+            "max_abs": 6.072561629100193e-07,
+            "rms": 1.16138789513822e-07,
+            "max_error_over_limit": 0.0042996978241188364,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "timestep": {
+            "max_abs": 0.010831370016830988,
+            "rms": 0.004442354141572099,
+            "max_error_over_limit": 5.310624194296782,
+            "violations": 1,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight1": {
+            "max_abs": 1.0306976303553483e-05,
+            "rms": 1.1719185619523071e-06,
+            "max_error_over_limit": 0.08153755821452034,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias1": {
+            "max_abs": 9.937835958151453e-06,
+            "rms": 1.6818450459310001e-06,
+            "max_error_over_limit": 0.06254305062959085,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight2": {
+            "max_abs": 5.101248129690816e-06,
+            "rms": 2.433381718965074e-07,
+            "max_error_over_limit": 0.021061448404037782,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias2": {
+            "max_abs": 2.637505531311035e-06,
+            "rms": 3.172741192401745e-07,
+            "max_error_over_limit": 0.010312000642649342,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          }
+        }
+      },
+      "reference_vs_boundary": {
+        "passed": true,
+        "tensors": {
+          "output": {
+            "max_abs": 1.6592052820563197e-07,
+            "rms": 3.31656865253787e-08,
+            "max_error_over_limit": 0.0012463499533929472,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "timestep": {
+            "max_abs": 0.0013098856418309879,
+            "rms": 0.0007318474144009706,
+            "max_error_over_limit": 0.6422373504422916,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight1": {
+            "max_abs": 2.6954019869407375e-06,
+            "rms": 1.688903279991397e-07,
+            "max_error_over_limit": 0.009111231767744664,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias1": {
+            "max_abs": 1.707776368320424e-06,
+            "rms": 2.2998345492835958e-07,
+            "max_error_over_limit": 0.008180356292980568,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight2": {
+            "max_abs": 3.681641583597184e-06,
+            "rms": 1.6915088883275784e-07,
+            "max_error_over_limit": 0.015657280762750695,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias2": {
+            "max_abs": 1.9371509552001953e-06,
+            "rms": 3.142100283956106e-07,
+            "max_error_over_limit": 0.007015965704414091,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          }
+        }
+      },
+      "boundary_vs_full_fp64": {
+        "passed": false,
+        "tensors": {
+          "output": {
+            "max_abs": 2.9907563715347862e-05,
+            "rms": 3.702971238266885e-06,
+            "max_error_over_limit": 0.24622082991644997,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "timestep": {
+            "max_abs": 0.18308744067417138,
+            "rms": 0.10317283931233903,
+            "max_error_over_limit": 80.89249199096874,
+            "violations": 1,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight1": {
+            "max_abs": 0.0003387503221254917,
+            "rms": 1.6335554380218654e-05,
+            "max_error_over_limit": 2.737115122135667,
+            "violations": 273,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias1": {
+            "max_abs": 5.293254045724005e-05,
+            "rms": 1.0646548324035038e-05,
+            "max_error_over_limit": 0.36090938601900396,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight2": {
+            "max_abs": 0.00018485653456545847,
+            "rms": 1.4738915521542023e-05,
+            "max_error_over_limit": 1.3769363378128436,
+            "violations": 16,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias2": {
+            "max_abs": 0.0,
+            "rms": 0.0,
+            "max_error_over_limit": 0.0,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          }
+        }
+      },
+      "candidates": {
+        "cuda": {
+          "vs_boundary": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 1.5735134928362982e-07,
+                "rms": 3.045566346054963e-08,
+                "max_error_over_limit": 0.0009720662765567796,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "timestep": {
+                "max_abs": 0.000908930373043404,
+                "rms": 0.0003501217561581937,
+                "max_error_over_limit": 0.053077953080847506,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight1": {
+                "max_abs": 2.2952872704706806e-06,
+                "rms": 1.5749768000427747e-07,
+                "max_error_over_limit": 0.007943751128000722,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias1": {
+                "max_abs": 1.3705880705927598e-06,
+                "rms": 2.2978739672696926e-07,
+                "max_error_over_limit": 0.004304738279980796,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight2": {
+                "max_abs": 3.5106896500991525e-06,
+                "rms": 1.5861275528133533e-07,
+                "max_error_over_limit": 0.01724939613316459,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias2": {
+                "max_abs": 1.9371509552001953e-06,
+                "rms": 3.142100283956106e-07,
+                "max_error_over_limit": 0.007015965704414091,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              }
+            }
+          },
+          "vs_reference": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 1.2665987014770508e-07,
+                "rms": 3.2838904685483756e-08,
+                "max_error_over_limit": 0.0011607569039038242,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "timestep": {
+                "max_abs": 0.0013427734375,
+                "rms": 0.000713680439945207,
+                "max_error_over_limit": 0.5891215617743519,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight1": {
+                "max_abs": 1.9073486328125e-06,
+                "rms": 1.9098168730613445e-07,
+                "max_error_over_limit": 0.00880514363124077,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias1": {
+                "max_abs": 1.9073486328125e-06,
+                "rms": 2.6997752539775974e-07,
+                "max_error_over_limit": 0.007106633458256844,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight2": {
+                "max_abs": 2.86102294921875e-06,
+                "rms": 1.6772052805690971e-07,
+                "max_error_over_limit": 0.015145685246212476,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias2": {
+                "max_abs": 0.0,
+                "rms": 0.0,
+                "max_error_over_limit": 0.0,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              }
+            }
+          },
+          "actual_backend": "cuda",
+          "fallback_reason": null
+        },
+        "triton": {
+          "vs_boundary": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 1.5735134928362982e-07,
+                "rms": 3.045566346054963e-08,
+                "max_error_over_limit": 0.0009720662765567796,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "timestep": {
+                "max_abs": 0.000908930373043404,
+                "rms": 0.0003501217561581937,
+                "max_error_over_limit": 0.053077953080847506,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight1": {
+                "max_abs": 2.2952872704706806e-06,
+                "rms": 1.5749768000427747e-07,
+                "max_error_over_limit": 0.007943751128000722,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias1": {
+                "max_abs": 1.3705880705927598e-06,
+                "rms": 2.2978739672696926e-07,
+                "max_error_over_limit": 0.004304738279980796,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight2": {
+                "max_abs": 3.5106896500991525e-06,
+                "rms": 1.5861275528133533e-07,
+                "max_error_over_limit": 0.01724939613316459,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias2": {
+                "max_abs": 1.9371509552001953e-06,
+                "rms": 3.142100283956106e-07,
+                "max_error_over_limit": 0.007015965704414091,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              }
+            }
+          },
+          "vs_reference": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 1.2665987014770508e-07,
+                "rms": 3.2838904685483756e-08,
+                "max_error_over_limit": 0.0011607569039038242,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "timestep": {
+                "max_abs": 0.0013427734375,
+                "rms": 0.000713680439945207,
+                "max_error_over_limit": 0.5891215617743519,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight1": {
+                "max_abs": 1.9073486328125e-06,
+                "rms": 1.9098168730613445e-07,
+                "max_error_over_limit": 0.00880514363124077,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias1": {
+                "max_abs": 1.9073486328125e-06,
+                "rms": 2.6997752539775974e-07,
+                "max_error_over_limit": 0.007106633458256844,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight2": {
+                "max_abs": 2.86102294921875e-06,
+                "rms": 1.6772052805690971e-07,
+                "max_error_over_limit": 0.015145685246212476,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias2": {
+                "max_abs": 0.0,
+                "rms": 0.0,
+                "max_error_over_limit": 0.0,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              }
+            }
+          },
+          "actual_backend": "triton",
+          "fallback_reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "batch": 16,
+      "seed": 9386,
+      "dtype": "torch.float32",
+      "upstream_rng": "cpu",
+      "input_sha256": {
+        "timestep": "5a7fce3edfc2605e6f5d37ad628ff5d5a0e4d79bde65e9b7b050d51fa1af00ac",
+        "weight1": "2403b5a4c395cb11072e4aa05781c6ad10cfc4e962099653384d3cfca8117cd2",
+        "bias1": "d690f785ceb71ae42bf04043202115ce2f61e25b65452ce0396898e0d52d106f",
+        "weight2": "bcd8c3da180eb4aa14daf2ce02cdede2d8a0f27414628e27560952f60f86f605",
+        "bias2": "f1fca2b3e9077cba97dff104537307c54077ffd0002e6cb50f5216d3b918cc43",
+        "upstream": "5b894fbdaf37021d2592ed199ab4a565bb1936ae9506ddd0b3f5323bd10936d5"
+      },
+      "old_vs_boundary": {
+        "passed": true,
+        "tensors": {
+          "output": {
+            "max_abs": 6.072561629100193e-07,
+            "rms": 1.16138789513822e-07,
+            "max_error_over_limit": 0.0042996978241188364,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "timestep": {
+            "max_abs": 0.010427325791624753,
+            "rms": 0.004298175135081011,
+            "max_error_over_limit": 0.04854232650052734,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight1": {
+            "max_abs": 8.629466822895893e-06,
+            "rms": 1.1822411674343585e-06,
+            "max_error_over_limit": 0.06922165595997198,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias1": {
+            "max_abs": 7.919569852798958e-06,
+            "rms": 1.6689629947254687e-06,
+            "max_error_over_limit": 0.051272902952517574,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight2": {
+            "max_abs": 5.7199561922516295e-06,
+            "rms": 2.4430940581627597e-07,
+            "max_error_over_limit": 0.0224245539238424,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias2": {
+            "max_abs": 1.646578311920166e-06,
+            "rms": 2.967250189350568e-07,
+            "max_error_over_limit": 0.006490627469028449,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          }
+        }
+      },
+      "reference_vs_boundary": {
+        "passed": true,
+        "tensors": {
+          "output": {
+            "max_abs": 1.6592052820563197e-07,
+            "rms": 3.31656865253787e-08,
+            "max_error_over_limit": 0.0012463499533929472,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "timestep": {
+            "max_abs": 0.0018971141162182903,
+            "rms": 0.0008435499699209045,
+            "max_error_over_limit": 0.013519613011810618,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight1": {
+            "max_abs": 2.523666244869105e-06,
+            "rms": 1.700534377401069e-07,
+            "max_error_over_limit": 0.007311037655255879,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias1": {
+            "max_abs": 1.6114089635976825e-06,
+            "rms": 2.2662987934493304e-07,
+            "max_error_over_limit": 0.005687789271996232,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight2": {
+            "max_abs": 3.6705556301086517e-06,
+            "rms": 1.6958821731794056e-07,
+            "max_error_over_limit": 0.016805779564391585,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias2": {
+            "max_abs": 1.8030405044555664e-06,
+            "rms": 3.037444851937878e-07,
+            "max_error_over_limit": 0.00418158013870739,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          }
+        }
+      },
+      "boundary_vs_full_fp64": {
+        "passed": false,
+        "tensors": {
+          "output": {
+            "max_abs": 2.9907563715347862e-05,
+            "rms": 3.702971238266885e-06,
+            "max_error_over_limit": 0.24622082991644997,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "timestep": {
+            "max_abs": 0.45478530755508473,
+            "rms": 0.17793038058557478,
+            "max_error_over_limit": 3.35180749948351,
+            "violations": 5,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight1": {
+            "max_abs": 0.00036697558464471314,
+            "rms": 1.6870160403487045e-05,
+            "max_error_over_limit": 3.204723109569378,
+            "violations": 321,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias1": {
+            "max_abs": 4.9873111439335815e-05,
+            "rms": 1.077637695609733e-05,
+            "max_error_over_limit": 0.397480364898629,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight2": {
+            "max_abs": 0.0002106262607828313,
+            "rms": 1.490340553918029e-05,
+            "max_error_over_limit": 1.3167175461442913,
+            "violations": 16,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias2": {
+            "max_abs": 0.0,
+            "rms": 0.0,
+            "max_error_over_limit": 0.0,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          }
+        }
+      },
+      "candidates": {
+        "cuda": {
+          "vs_boundary": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 1.5735134928362982e-07,
+                "rms": 3.045566346054963e-08,
+                "max_error_over_limit": 0.0009720662765567796,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "timestep": {
+                "max_abs": 0.0011182275711689726,
+                "rms": 0.0005019324730209807,
+                "max_error_over_limit": 0.008388570332119689,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight1": {
+                "max_abs": 2.1285698563744404e-06,
+                "rms": 1.5839586150084792e-07,
+                "max_error_over_limit": 0.0075615912638242475,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias1": {
+                "max_abs": 1.6114089635976825e-06,
+                "rms": 2.1667392379257454e-07,
+                "max_error_over_limit": 0.005910296036609557,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight2": {
+                "max_abs": 3.6705556301086517e-06,
+                "rms": 1.5896767233667765e-07,
+                "max_error_over_limit": 0.01629696622770349,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias2": {
+                "max_abs": 1.8030405044555664e-06,
+                "rms": 3.037444851937878e-07,
+                "max_error_over_limit": 0.00418158013870739,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              }
+            }
+          },
+          "vs_reference": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 1.2665987014770508e-07,
+                "rms": 3.2838904685483756e-08,
+                "max_error_over_limit": 0.0011607569039038242,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "timestep": {
+                "max_abs": 0.001220703125,
+                "rms": 0.0006751906399486568,
+                "max_error_over_limit": 0.010451636099114954,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight1": {
+                "max_abs": 1.9073486328125e-06,
+                "rms": 1.9098140393041266e-07,
+                "max_error_over_limit": 0.011307961216808998,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias1": {
+                "max_abs": 1.9073486328125e-06,
+                "rms": 2.575932887401416e-07,
+                "max_error_over_limit": 0.006367343010309532,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight2": {
+                "max_abs": 2.86102294921875e-06,
+                "rms": 1.6804174420841697e-07,
+                "max_error_over_limit": 0.01499663956879136,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias2": {
+                "max_abs": 0.0,
+                "rms": 0.0,
+                "max_error_over_limit": 0.0,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              }
+            }
+          },
+          "actual_backend": "cuda",
+          "fallback_reason": null
+        },
+        "triton": {
+          "vs_boundary": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 1.5735134928362982e-07,
+                "rms": 3.045566346054963e-08,
+                "max_error_over_limit": 0.0009720662765567796,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "timestep": {
+                "max_abs": 0.0011182275711689726,
+                "rms": 0.0005019324730209807,
+                "max_error_over_limit": 0.008388570332119689,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight1": {
+                "max_abs": 2.1285698563744404e-06,
+                "rms": 1.5839586150084792e-07,
+                "max_error_over_limit": 0.0075615912638242475,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias1": {
+                "max_abs": 1.6114089635976825e-06,
+                "rms": 2.1667392379257454e-07,
+                "max_error_over_limit": 0.005910296036609557,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight2": {
+                "max_abs": 3.6705556301086517e-06,
+                "rms": 1.5896767233667765e-07,
+                "max_error_over_limit": 0.01629696622770349,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias2": {
+                "max_abs": 1.8030405044555664e-06,
+                "rms": 3.037444851937878e-07,
+                "max_error_over_limit": 0.00418158013870739,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              }
+            }
+          },
+          "vs_reference": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 1.2665987014770508e-07,
+                "rms": 3.2838904685483756e-08,
+                "max_error_over_limit": 0.0011607569039038242,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "timestep": {
+                "max_abs": 0.001220703125,
+                "rms": 0.0006751906399486568,
+                "max_error_over_limit": 0.010451636099114954,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight1": {
+                "max_abs": 1.9073486328125e-06,
+                "rms": 1.9098140393041266e-07,
+                "max_error_over_limit": 0.011307961216808998,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias1": {
+                "max_abs": 1.9073486328125e-06,
+                "rms": 2.575932887401416e-07,
+                "max_error_over_limit": 0.006367343010309532,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight2": {
+                "max_abs": 2.86102294921875e-06,
+                "rms": 1.6804174420841697e-07,
+                "max_error_over_limit": 0.01499663956879136,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias2": {
+                "max_abs": 0.0,
+                "rms": 0.0,
+                "max_error_over_limit": 0.0,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              }
+            }
+          },
+          "actual_backend": "triton",
+          "fallback_reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "batch": 3,
+      "seed": 1701,
+      "dtype": "torch.float32",
+      "upstream_rng": "cpu",
+      "input_sha256": {
+        "timestep": "51ff7dad549e271d9e784414ba4bacfb9a71e7388c83da90948a84f226013284",
+        "weight1": "5decf86847f32a63971855df6265c70393011ce1de2091f17d5f860b33c0d3ad",
+        "bias1": "27c739194308c0284608d3dc72169bc5efac3e411dbc5e5b387c4abcff7c858b",
+        "weight2": "08114856c4bcce9cb771086f01511b8d933bc93493e99e891d84337a0ef4e38b",
+        "bias2": "1a2e1c3e3fe6689bc18a1bfeebcd250643a48b4c04ebe340814bcfc5537a6d02",
+        "upstream": "25f24d0e75682e334060cac3158fe97905b463802f7d072ae6f5d3f2e80e79dc"
+      },
+      "old_vs_boundary": {
+        "passed": true,
+        "tensors": {
+          "output": {
+            "max_abs": 5.355579237864561e-07,
+            "rms": 1.1638525582648744e-07,
+            "max_error_over_limit": 0.003867238955276354,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "timestep": {
+            "max_abs": 0.004287545481474808,
+            "rms": 0.0037851463408220087,
+            "max_error_over_limit": 0.0258851423151912,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight1": {
+            "max_abs": 4.155013461126789e-06,
+            "rms": 4.835744315683446e-07,
+            "max_error_over_limit": 0.037437651668007145,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias1": {
+            "max_abs": 3.4045432075746618e-06,
+            "rms": 6.874461449190416e-07,
+            "max_error_over_limit": 0.025913938294388095,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight2": {
+            "max_abs": 3.901659015426162e-06,
+            "rms": 9.564241471485721e-08,
+            "max_error_over_limit": 0.012167374109380836,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias2": {
+            "max_abs": 4.172325134277344e-07,
+            "rms": 6.18467408040045e-08,
+            "max_error_over_limit": 0.0011119362913877976,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          }
+        }
+      },
+      "reference_vs_boundary": {
+        "passed": true,
+        "tensors": {
+          "output": {
+            "max_abs": 1.549122679023185e-07,
+            "rms": 3.342634516311473e-08,
+            "max_error_over_limit": 0.0010386451686725693,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "timestep": {
+            "max_abs": 0.0012357876689748082,
+            "rms": 0.0007356864262701358,
+            "max_error_over_limit": 0.007460804747374493,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight1": {
+            "max_abs": 8.044158734676898e-07,
+            "rms": 5.519354144330735e-08,
+            "max_error_over_limit": 0.0050523103914868975,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias1": {
+            "max_abs": 4.007342546685777e-07,
+            "rms": 7.244979756239452e-08,
+            "max_error_over_limit": 0.0030786593519916685,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight2": {
+            "max_abs": 1.6794368669081905e-06,
+            "rms": 5.694360716782848e-08,
+            "max_error_over_limit": 0.006996241570406006,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias2": {
+            "max_abs": 4.76837158203125e-07,
+            "rms": 6.201130823422808e-08,
+            "max_error_over_limit": 0.0009257628887949548,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          }
+        }
+      },
+      "boundary_vs_full_fp64": {
+        "passed": true,
+        "tensors": {
+          "output": {
+            "max_abs": 1.4219315407598687e-05,
+            "rms": 2.79543325525725e-06,
+            "max_error_over_limit": 0.13340633654405865,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "timestep": {
+            "max_abs": 0.06314081173468367,
+            "rms": 0.04081635690189847,
+            "max_error_over_limit": 0.38118466697306547,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight1": {
+            "max_abs": 0.0001286216559850395,
+            "rms": 5.454367007499691e-06,
+            "max_error_over_limit": 0.9923001995607623,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias1": {
+            "max_abs": 2.8943260867442255e-05,
+            "rms": 3.595926963944711e-06,
+            "max_error_over_limit": 0.1562399484873969,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight2": {
+            "max_abs": 8.280689523232354e-05,
+            "rms": 4.819051964365733e-06,
+            "max_error_over_limit": 0.4986890315095929,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias2": {
+            "max_abs": 0.0,
+            "rms": 0.0,
+            "max_error_over_limit": 0.0,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          }
+        }
+      },
+      "candidates": {
+        "cuda": {
+          "vs_boundary": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 1.454123457200751e-07,
+                "rms": 3.059679505408749e-08,
+                "max_error_over_limit": 0.0010554404777238565,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "timestep": {
+                "max_abs": 0.00045731526415693224,
+                "rms": 0.00032284821145033335,
+                "max_error_over_limit": 0.0013828772851775272,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight1": {
+                "max_abs": 6.801487506535864e-07,
+                "rms": 5.1558961378769374e-08,
+                "max_error_over_limit": 0.0035546587310290984,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias1": {
+                "max_abs": 4.007342546685777e-07,
+                "rms": 6.923351973575727e-08,
+                "max_error_over_limit": 0.002158423664712454,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight2": {
+                "max_abs": 1.6159762186163107e-06,
+                "rms": 5.2515816352975126e-08,
+                "max_error_over_limit": 0.007237977711295763,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias2": {
+                "max_abs": 4.76837158203125e-07,
+                "rms": 6.201130823422808e-08,
+                "max_error_over_limit": 0.0009257628887949548,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              }
+            }
+          },
+          "vs_reference": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 1.1920928955078125e-07,
+                "rms": 3.325661719688499e-08,
+                "max_error_over_limit": 0.0010589037444848322,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "timestep": {
+                "max_abs": 0.00146484375,
+                "rms": 0.0008573936973350211,
+                "max_error_over_limit": 0.008843675434458452,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight1": {
+                "max_abs": 9.5367431640625e-07,
+                "rms": 6.63311331674837e-08,
+                "max_error_over_limit": 0.004322344322344323,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias1": {
+                "max_abs": 4.76837158203125e-07,
+                "rms": 8.539504807991169e-08,
+                "max_error_over_limit": 0.003534997893141255,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight2": {
+                "max_abs": 1.9073486328125e-06,
+                "rms": 5.73632498541325e-08,
+                "max_error_over_limit": 0.008171500008118188,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias2": {
+                "max_abs": 0.0,
+                "rms": 0.0,
+                "max_error_over_limit": 0.0,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              }
+            }
+          },
+          "actual_backend": "cuda",
+          "fallback_reason": null
+        },
+        "triton": {
+          "vs_boundary": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 1.454123457200751e-07,
+                "rms": 3.059679505408749e-08,
+                "max_error_over_limit": 0.0010554404777238565,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "timestep": {
+                "max_abs": 0.00045731526415693224,
+                "rms": 0.00032284821145033335,
+                "max_error_over_limit": 0.0013828772851775272,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight1": {
+                "max_abs": 6.801487506535864e-07,
+                "rms": 5.1558961378769374e-08,
+                "max_error_over_limit": 0.0035546587310290984,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias1": {
+                "max_abs": 4.007342546685777e-07,
+                "rms": 6.923351973575727e-08,
+                "max_error_over_limit": 0.002158423664712454,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight2": {
+                "max_abs": 1.6159762186163107e-06,
+                "rms": 5.2515816352975126e-08,
+                "max_error_over_limit": 0.007237977711295763,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias2": {
+                "max_abs": 4.76837158203125e-07,
+                "rms": 6.201130823422808e-08,
+                "max_error_over_limit": 0.0009257628887949548,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              }
+            }
+          },
+          "vs_reference": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 1.1920928955078125e-07,
+                "rms": 3.325661719688499e-08,
+                "max_error_over_limit": 0.0010589037444848322,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "timestep": {
+                "max_abs": 0.00146484375,
+                "rms": 0.0008573936973350211,
+                "max_error_over_limit": 0.008843675434458452,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight1": {
+                "max_abs": 9.5367431640625e-07,
+                "rms": 6.63311331674837e-08,
+                "max_error_over_limit": 0.004322344322344323,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias1": {
+                "max_abs": 4.76837158203125e-07,
+                "rms": 8.539504807991169e-08,
+                "max_error_over_limit": 0.003534997893141255,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight2": {
+                "max_abs": 1.9073486328125e-06,
+                "rms": 5.73632498541325e-08,
+                "max_error_over_limit": 0.008171500008118188,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias2": {
+                "max_abs": 0.0,
+                "rms": 0.0,
+                "max_error_over_limit": 0.0,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              }
+            }
+          },
+          "actual_backend": "triton",
+          "fallback_reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "batch": 16,
+      "seed": 20261007,
+      "dtype": "torch.float32",
+      "upstream_rng": "cpu",
+      "input_sha256": {
+        "timestep": "00515e266665e423c5c83607021127fdce0297d33060ba3c0d9fec1578b7de14",
+        "weight1": "cf7e2ea930bfbd7dd238227de1938838dca8bf733a9a28f8b6ae687a2a669dee",
+        "bias1": "326d6ee98886cdfb730bc72dbbc605487d98c9629eacac640c9d677ef3c4db7e",
+        "weight2": "c410f2d5a9330772303e56d2944e56cfdf82b4edf73b7f2e24d226430b191292",
+        "bias2": "4b417ece03cadab85b7310238924dc7f822066736be5af9cfff0976260f50193",
+        "upstream": "2de741fce6dedf3cfbecd718f6288e84512ce60c22f0ee3421da2fd91c402d0e"
+      },
+      "old_vs_boundary": {
+        "passed": true,
+        "tensors": {
+          "output": {
+            "max_abs": 5.389814828893336e-07,
+            "rms": 1.1825141014713282e-07,
+            "max_error_over_limit": 0.004275495653376353,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "timestep": {
+            "max_abs": 0.00886707414429111,
+            "rms": 0.004611412909929137,
+            "max_error_over_limit": 0.10386257021902481,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight1": {
+            "max_abs": 8.49726230398029e-06,
+            "rms": 1.1736204227251293e-06,
+            "max_error_over_limit": 0.0805780914841947,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias1": {
+            "max_abs": 7.810701772026363e-06,
+            "rms": 1.65064195821504e-06,
+            "max_error_over_limit": 0.05284783506039102,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight2": {
+            "max_abs": 5.81328702509154e-06,
+            "rms": 2.492818236721176e-07,
+            "max_error_over_limit": 0.02187902357243798,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias2": {
+            "max_abs": 2.0563602447509766e-06,
+            "rms": 2.998931247936075e-07,
+            "max_error_over_limit": 0.00480053029497154,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          }
+        }
+      },
+      "reference_vs_boundary": {
+        "passed": true,
+        "tensors": {
+          "output": {
+            "max_abs": 2.1882901479752803e-07,
+            "rms": 3.334567900419657e-08,
+            "max_error_over_limit": 0.0011565354502726943,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "timestep": {
+            "max_abs": 0.0015747719244245673,
+            "rms": 0.000810766557195507,
+            "max_error_over_limit": 0.007062210857073739,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight1": {
+            "max_abs": 2.051871604180633e-06,
+            "rms": 1.715047502360951e-07,
+            "max_error_over_limit": 0.007812220665193203,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias1": {
+            "max_abs": 1.1312022785148201e-06,
+            "rms": 2.3259968326570536e-07,
+            "max_error_over_limit": 0.004079734713049872,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight2": {
+            "max_abs": 3.669988871024543e-06,
+            "rms": 1.7256701094861882e-07,
+            "max_error_over_limit": 0.013076827884252826,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias2": {
+            "max_abs": 2.2277235984802246e-06,
+            "rms": 3.0931540434462464e-07,
+            "max_error_over_limit": 0.005547937593999853,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          }
+        }
+      },
+      "boundary_vs_full_fp64": {
+        "passed": false,
+        "tensors": {
+          "output": {
+            "max_abs": 3.458703791670015e-05,
+            "rms": 5.020631145273013e-06,
+            "max_error_over_limit": 0.34217430785946196,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "timestep": {
+            "max_abs": 0.4077339387004031,
+            "rms": 0.16340005259486554,
+            "max_error_over_limit": 0.7873293453003566,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight1": {
+            "max_abs": 0.00044035073361303745,
+            "rms": 2.26170287435175e-05,
+            "max_error_over_limit": 3.7944290140704897,
+            "violations": 1113,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias1": {
+            "max_abs": 7.453623878017623e-05,
+            "rms": 1.446171542289749e-05,
+            "max_error_over_limit": 0.41154257947572637,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight2": {
+            "max_abs": 0.00023812823357194368,
+            "rms": 2.0025728465718037e-05,
+            "max_error_over_limit": 1.7174166385798115,
+            "violations": 173,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias2": {
+            "max_abs": 0.0,
+            "rms": 0.0,
+            "max_error_over_limit": 0.0,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          }
+        }
+      },
+      "candidates": {
+        "cuda": {
+          "vs_boundary": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 1.8542264790255558e-07,
+                "rms": 3.083065896231245e-08,
+                "max_error_over_limit": 0.001073235540430374,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "timestep": {
+                "max_abs": 0.0010545741442911094,
+                "rms": 0.00045438466889461044,
+                "max_error_over_limit": 0.013128409822172879,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight1": {
+                "max_abs": 2.052537308117053e-06,
+                "rms": 1.611067566161439e-07,
+                "max_error_over_limit": 0.007584192728668896,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias1": {
+                "max_abs": 1.361711429836987e-06,
+                "rms": 2.2834827844843965e-07,
+                "max_error_over_limit": 0.004963999027609932,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight2": {
+                "max_abs": 3.199077324822497e-06,
+                "rms": 1.6213603091107395e-07,
+                "max_error_over_limit": 0.013111290739761819,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias2": {
+                "max_abs": 2.2277235984802246e-06,
+                "rms": 3.0931540434462464e-07,
+                "max_error_over_limit": 0.005547937593999853,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              }
+            }
+          },
+          "vs_reference": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 1.7881393432617188e-07,
+                "rms": 3.324794782537833e-08,
+                "max_error_over_limit": 0.0010747317763358235,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "timestep": {
+                "max_abs": 0.001220703125,
+                "rms": 0.0006547069687782267,
+                "max_error_over_limit": 0.006066203249179784,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight1": {
+                "max_abs": 1.9073486328125e-06,
+                "rms": 1.9254489474653807e-07,
+                "max_error_over_limit": 0.008265703120796115,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias1": {
+                "max_abs": 1.430511474609375e-06,
+                "rms": 2.6176874111738747e-07,
+                "max_error_over_limit": 0.0062863055824301135,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight2": {
+                "max_abs": 3.814697265625e-06,
+                "rms": 1.7042288653211367e-07,
+                "max_error_over_limit": 0.021927711188693324,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias2": {
+                "max_abs": 0.0,
+                "rms": 0.0,
+                "max_error_over_limit": 0.0,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              }
+            }
+          },
+          "actual_backend": "cuda",
+          "fallback_reason": null
+        },
+        "triton": {
+          "vs_boundary": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 1.8542264790255558e-07,
+                "rms": 3.083065896231245e-08,
+                "max_error_over_limit": 0.001073235540430374,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "timestep": {
+                "max_abs": 0.0010545741442911094,
+                "rms": 0.00045438466889461044,
+                "max_error_over_limit": 0.013128409822172879,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight1": {
+                "max_abs": 2.052537308117053e-06,
+                "rms": 1.611067566161439e-07,
+                "max_error_over_limit": 0.007584192728668896,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias1": {
+                "max_abs": 1.361711429836987e-06,
+                "rms": 2.2834827844843965e-07,
+                "max_error_over_limit": 0.004963999027609932,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight2": {
+                "max_abs": 3.199077324822497e-06,
+                "rms": 1.6213603091107395e-07,
+                "max_error_over_limit": 0.013111290739761819,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias2": {
+                "max_abs": 2.2277235984802246e-06,
+                "rms": 3.0931540434462464e-07,
+                "max_error_over_limit": 0.005547937593999853,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              }
+            }
+          },
+          "vs_reference": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 1.7881393432617188e-07,
+                "rms": 3.324794782537833e-08,
+                "max_error_over_limit": 0.0010747317763358235,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "timestep": {
+                "max_abs": 0.001220703125,
+                "rms": 0.0006547069687782267,
+                "max_error_over_limit": 0.006066203249179784,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight1": {
+                "max_abs": 1.9073486328125e-06,
+                "rms": 1.9254489474653807e-07,
+                "max_error_over_limit": 0.008265703120796115,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias1": {
+                "max_abs": 1.430511474609375e-06,
+                "rms": 2.6176874111738747e-07,
+                "max_error_over_limit": 0.0062863055824301135,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "weight2": {
+                "max_abs": 3.814697265625e-06,
+                "rms": 1.7042288653211367e-07,
+                "max_error_over_limit": 0.021927711188693324,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              },
+              "bias2": {
+                "max_abs": 0.0,
+                "rms": 0.0,
+                "max_error_over_limit": 0.0,
+                "violations": 0,
+                "atol": 0.0001,
+                "rtol": 0.0001
+              }
+            }
+          },
+          "actual_backend": "triton",
+          "fallback_reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "batch": 16,
+      "seed": 9386,
+      "dtype": "torch.bfloat16",
+      "upstream_rng": "cuda",
+      "input_sha256": {
+        "timestep": "5a7fce3edfc2605e6f5d37ad628ff5d5a0e4d79bde65e9b7b050d51fa1af00ac",
+        "weight1": "6839f4ac04c179a7e3979fd7b7ca43a1f2c1e47fcfdfdbba23edad7641b5ecf4",
+        "bias1": "aecff26caf1f7e17f002027c7acc4c3c71d6ecacd7fd8594af517bfe2c227aaa",
+        "weight2": "043230cc69e1a82ffef2e3e9b8aa21269e932217be95a01d4d43b0b1751d3e8f",
+        "bias2": "ab54b3ba5d0ee300204c4dc7196dcefac78f7ad725813a1f8742b9de0e7f2cbf",
+        "upstream": "06c9e439651da9f1ef15700a84e5e1ececed4d245f08f4e9118d873e4251865e"
+      },
+      "old_vs_boundary": {
+        "passed": true,
+        "tensors": {
+          "output": {
+            "max_abs": 5.347200527916485e-07,
+            "rms": 1.1447618016774892e-07,
+            "max_error_over_limit": 9.579524876619767e-06,
+            "violations": 0,
+            "atol": 0.05,
+            "rtol": 0.02
+          },
+          "timestep": {
+            "max_abs": 0.004191389958577929,
+            "rms": 0.0026313862837851246,
+            "max_error_over_limit": 0.010478773599915503,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight1": {
+            "max_abs": 6.771539578398489e-06,
+            "rms": 7.527234376282724e-07,
+            "max_error_over_limit": 6.135918362956218e-05,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias1": {
+            "max_abs": 6.512878455766646e-06,
+            "rms": 1.0631217929660632e-06,
+            "max_error_over_limit": 5.969289166005091e-05,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight2": {
+            "max_abs": 4.087010552211723e-06,
+            "rms": 2.395213671365468e-07,
+            "max_error_over_limit": 2.278055956565904e-05,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias2": {
+            "max_abs": 2.8312206268310547e-07,
+            "rms": 5.108143721987907e-09,
+            "max_error_over_limit": 1.492494512957824e-06,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          }
+        }
+      },
+      "reference_vs_boundary": {
+        "passed": true,
+        "tensors": {
+          "output": {
+            "max_abs": 0.0039054114903183113,
+            "rms": 0.0006649245323280654,
+            "max_error_over_limit": 0.05513161736707118,
+            "violations": 0,
+            "atol": 0.05,
+            "rtol": 0.02
+          },
+          "timestep": {
+            "max_abs": 0.001384408164085471,
+            "rms": 0.0006514125500643915,
+            "max_error_over_limit": 0.0025298557851861163,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight1": {
+            "max_abs": 0.03120185054029001,
+            "rms": 0.0027126095382290862,
+            "max_error_over_limit": 0.11881252611969699,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias1": {
+            "max_abs": 0.03065464353069025,
+            "rms": 0.004014643563458328,
+            "max_error_over_limit": 0.11022366194371033,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight2": {
+            "max_abs": 0.06094629979852684,
+            "rms": 0.0026415051548499212,
+            "max_error_over_limit": 0.1438155300865261,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias2": {
+            "max_abs": 0.0309295654296875,
+            "rms": 0.006843903876470598,
+            "max_error_over_limit": 0.11589811029474828,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          }
+        }
+      },
+      "boundary_vs_full_fp64": {
+        "passed": true,
+        "tensors": {
+          "output": {
+            "max_abs": 2.9919041749648656e-05,
+            "rms": 3.7029610963279926e-06,
+            "max_error_over_limit": 0.0005044434419136404,
+            "violations": 0,
+            "atol": 0.05,
+            "rtol": 0.02
+          },
+          "timestep": {
+            "max_abs": 0.18249398014859253,
+            "rms": 0.103135639945635,
+            "max_error_over_limit": 0.4127624916244102,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight1": {
+            "max_abs": 0.0003384702152642305,
+            "rms": 1.6335587017378474e-05,
+            "max_error_over_limit": 0.002844394654373311,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias1": {
+            "max_abs": 5.285104590968537e-05,
+            "rms": 1.0646755875222803e-05,
+            "max_error_over_limit": 0.000432646654360033,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight2": {
+            "max_abs": 0.00018463458042417003,
+            "rms": 1.473923450720671e-05,
+            "max_error_over_limit": 0.0015301013457521637,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias2": {
+            "max_abs": 0.0,
+            "rms": 0.0,
+            "max_error_over_limit": 0.0,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          }
+        }
+      },
+      "candidates": {
+        "cuda": {
+          "vs_boundary": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 0.0039054114903183113,
+                "rms": 0.0006649245323302218,
+                "max_error_over_limit": 0.05513161736707118,
+                "violations": 0,
+                "atol": 0.05,
+                "rtol": 0.02
+              },
+              "timestep": {
+                "max_abs": 0.000746339810120844,
+                "rms": 0.00034051400538114127,
+                "max_error_over_limit": 0.0017965872247528464,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight1": {
+                "max_abs": 0.03120185054029001,
+                "rms": 0.002712609536579397,
+                "max_error_over_limit": 0.11881252611969699,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias1": {
+                "max_abs": 0.03065464353069025,
+                "rms": 0.004014643447702934,
+                "max_error_over_limit": 0.11022366194371033,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight2": {
+                "max_abs": 0.06094629979852684,
+                "rms": 0.0026415051523139836,
+                "max_error_over_limit": 0.1438155300865261,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias2": {
+                "max_abs": 0.0309295654296875,
+                "rms": 0.006843903876470598,
+                "max_error_over_limit": 0.11589811029474828,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              }
+            }
+          },
+          "vs_reference": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 7.62939453125e-06,
+                "rms": 3.441286026388092e-08,
+                "max_error_over_limit": 0.0001524803986447542,
+                "violations": 0,
+                "atol": 0.05,
+                "rtol": 0.02
+              },
+              "timestep": {
+                "max_abs": 0.00152587890625,
+                "rms": 0.000596657678008873,
+                "max_error_over_limit": 0.0007333056635847764,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight1": {
+                "max_abs": 0.03125,
+                "rms": 4.114206480237827e-05,
+                "max_error_over_limit": 0.16556291390728478,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias1": {
+                "max_abs": 0.00390625,
+                "rms": 7.047732778193673e-05,
+                "max_error_over_limit": 0.03429355281207133,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight2": {
+                "max_abs": 0.03125,
+                "rms": 3.32800919716464e-05,
+                "max_error_over_limit": 0.17241379310344826,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias2": {
+                "max_abs": 0.0,
+                "rms": 0.0,
+                "max_error_over_limit": 0.0,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              }
+            }
+          },
+          "actual_backend": "cuda",
+          "fallback_reason": null
+        },
+        "triton": {
+          "vs_boundary": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 0.0039054114903183113,
+                "rms": 0.0006649245323302218,
+                "max_error_over_limit": 0.05513161736707118,
+                "violations": 0,
+                "atol": 0.05,
+                "rtol": 0.02
+              },
+              "timestep": {
+                "max_abs": 0.000746339810120844,
+                "rms": 0.00034051400538114127,
+                "max_error_over_limit": 0.0017965872247528464,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight1": {
+                "max_abs": 0.03120185054029001,
+                "rms": 0.002712609536579397,
+                "max_error_over_limit": 0.11881252611969699,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias1": {
+                "max_abs": 0.03065464353069025,
+                "rms": 0.004014643447702934,
+                "max_error_over_limit": 0.11022366194371033,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight2": {
+                "max_abs": 0.06094629979852684,
+                "rms": 0.0026415051523139836,
+                "max_error_over_limit": 0.1438155300865261,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias2": {
+                "max_abs": 0.0309295654296875,
+                "rms": 0.006843903876470598,
+                "max_error_over_limit": 0.11589811029474828,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              }
+            }
+          },
+          "vs_reference": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 7.62939453125e-06,
+                "rms": 3.441286026388092e-08,
+                "max_error_over_limit": 0.0001524803986447542,
+                "violations": 0,
+                "atol": 0.05,
+                "rtol": 0.02
+              },
+              "timestep": {
+                "max_abs": 0.00152587890625,
+                "rms": 0.000596657678008873,
+                "max_error_over_limit": 0.0007333056635847764,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight1": {
+                "max_abs": 0.03125,
+                "rms": 4.114206480237827e-05,
+                "max_error_over_limit": 0.16556291390728478,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias1": {
+                "max_abs": 0.00390625,
+                "rms": 7.047732778193673e-05,
+                "max_error_over_limit": 0.03429355281207133,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight2": {
+                "max_abs": 0.03125,
+                "rms": 3.32800919716464e-05,
+                "max_error_over_limit": 0.17241379310344826,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias2": {
+                "max_abs": 0.0,
+                "rms": 0.0,
+                "max_error_over_limit": 0.0,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              }
+            }
+          },
+          "actual_backend": "triton",
+          "fallback_reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "batch": 16,
+      "seed": 9386,
+      "dtype": "torch.bfloat16",
+      "upstream_rng": "cpu",
+      "input_sha256": {
+        "timestep": "5a7fce3edfc2605e6f5d37ad628ff5d5a0e4d79bde65e9b7b050d51fa1af00ac",
+        "weight1": "6839f4ac04c179a7e3979fd7b7ca43a1f2c1e47fcfdfdbba23edad7641b5ecf4",
+        "bias1": "aecff26caf1f7e17f002027c7acc4c3c71d6ecacd7fd8594af517bfe2c227aaa",
+        "weight2": "043230cc69e1a82ffef2e3e9b8aa21269e932217be95a01d4d43b0b1751d3e8f",
+        "bias2": "ab54b3ba5d0ee300204c4dc7196dcefac78f7ad725813a1f8742b9de0e7f2cbf",
+        "upstream": "866d3e93303086cb95d37e25edd4cc97811651822d284a8610ee9bb5e5cbf3a0"
+      },
+      "old_vs_boundary": {
+        "passed": true,
+        "tensors": {
+          "output": {
+            "max_abs": 5.347200527916485e-07,
+            "rms": 1.1447618016774892e-07,
+            "max_error_over_limit": 9.579524876619767e-06,
+            "violations": 0,
+            "atol": 0.05,
+            "rtol": 0.02
+          },
+          "timestep": {
+            "max_abs": 0.004284121517230233,
+            "rms": 0.0022778797616473563,
+            "max_error_over_limit": 0.00016164944447053057,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight1": {
+            "max_abs": 6.444384546000492e-06,
+            "rms": 7.720363438172122e-07,
+            "max_error_over_limit": 4.8415963605972857e-05,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias1": {
+            "max_abs": 4.684955649203459e-06,
+            "rms": 1.087438527004798e-06,
+            "max_error_over_limit": 4.3766532171652646e-05,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight2": {
+            "max_abs": 3.6692713454300474e-06,
+            "rms": 2.4075059020032616e-07,
+            "max_error_over_limit": 2.1331984864729964e-05,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias2": {
+            "max_abs": 0.0,
+            "rms": 0.0,
+            "max_error_over_limit": 0.0,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          }
+        }
+      },
+      "reference_vs_boundary": {
+        "passed": true,
+        "tensors": {
+          "output": {
+            "max_abs": 0.0039054114903183113,
+            "rms": 0.0006649245323280654,
+            "max_error_over_limit": 0.05513161736707118,
+            "violations": 0,
+            "atol": 0.05,
+            "rtol": 0.02
+          },
+          "timestep": {
+            "max_abs": 0.0011795754203376418,
+            "rms": 0.0004892821813740642,
+            "max_error_over_limit": 4.880981223113688e-05,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight1": {
+            "max_abs": 0.031053426652807303,
+            "rms": 0.002708784170469645,
+            "max_error_over_limit": 0.11547530877041451,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias1": {
+            "max_abs": 0.029114819628388133,
+            "rms": 0.0038234615557555794,
+            "max_error_over_limit": 0.10016530652373339,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight2": {
+            "max_abs": 0.06198135260756388,
+            "rms": 0.0026330020718093048,
+            "max_error_over_limit": 0.13402820493069434,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias2": {
+            "max_abs": 0.052734375,
+            "rms": 0.006474150041478446,
+            "max_error_over_limit": 0.12233801540552787,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          }
+        }
+      },
+      "boundary_vs_full_fp64": {
+        "passed": true,
+        "tensors": {
+          "output": {
+            "max_abs": 2.9919041749648656e-05,
+            "rms": 3.7029610963279926e-06,
+            "max_error_over_limit": 0.0005044434419136404,
+            "violations": 0,
+            "atol": 0.05,
+            "rtol": 0.02
+          },
+          "timestep": {
+            "max_abs": 0.45463949951817995,
+            "rms": 0.17777764295477091,
+            "max_error_over_limit": 0.017308857325963215,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight1": {
+            "max_abs": 0.00036748087421628606,
+            "rms": 1.686983845893125e-05,
+            "max_error_over_limit": 0.003574123480556501,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias1": {
+            "max_abs": 4.985369898369285e-05,
+            "rms": 1.0775762249518244e-05,
+            "max_error_over_limit": 0.0004189418458597803,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight2": {
+            "max_abs": 0.0002111945577496499,
+            "rms": 1.4903409877957746e-05,
+            "max_error_over_limit": 0.0013593200375703115,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias2": {
+            "max_abs": 0.0,
+            "rms": 0.0,
+            "max_error_over_limit": 0.0,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          }
+        }
+      },
+      "candidates": {
+        "cuda": {
+          "vs_boundary": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 0.0039054114903183113,
+                "rms": 0.0006649245323302218,
+                "max_error_over_limit": 0.05513161736707118,
+                "violations": 0,
+                "atol": 0.05,
+                "rtol": 0.02
+              },
+              "timestep": {
+                "max_abs": 0.0016889415969671973,
+                "rms": 0.0004719579216545004,
+                "max_error_over_limit": 3.692460585925457e-05,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight1": {
+                "max_abs": 0.031053426652807303,
+                "rms": 0.0027087841697381594,
+                "max_error_over_limit": 0.11547530877041451,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias1": {
+                "max_abs": 0.029114819628388133,
+                "rms": 0.0038234615635913405,
+                "max_error_over_limit": 0.10016530652373339,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight2": {
+                "max_abs": 0.06198135260756388,
+                "rms": 0.0026330020709189775,
+                "max_error_over_limit": 0.13402820493069434,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias2": {
+                "max_abs": 0.052734375,
+                "rms": 0.006474150041478446,
+                "max_error_over_limit": 0.12233801540552787,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              }
+            }
+          },
+          "vs_reference": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 7.62939453125e-06,
+                "rms": 3.441286026388092e-08,
+                "max_error_over_limit": 0.0001524803986447542,
+                "violations": 0,
+                "atol": 0.05,
+                "rtol": 0.02
+              },
+              "timestep": {
+                "max_abs": 0.001220703125,
+                "rms": 0.0005587717719604662,
+                "max_error_over_limit": 4.150253796320153e-05,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight1": {
+                "max_abs": 0.015625,
+                "rms": 3.0062519530829406e-05,
+                "max_error_over_limit": 0.10395010395010394,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias1": {
+                "max_abs": 0.0009765625,
+                "rms": 1.7619365551660833e-05,
+                "max_error_over_limit": 0.009457159069415546,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight2": {
+                "max_abs": 0.03125,
+                "rms": 3.2159060290883724e-05,
+                "max_error_over_limit": 0.15723270440251572,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias2": {
+                "max_abs": 0.0,
+                "rms": 0.0,
+                "max_error_over_limit": 0.0,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              }
+            }
+          },
+          "actual_backend": "cuda",
+          "fallback_reason": null
+        },
+        "triton": {
+          "vs_boundary": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 0.0039054114903183113,
+                "rms": 0.0006649245323302218,
+                "max_error_over_limit": 0.05513161736707118,
+                "violations": 0,
+                "atol": 0.05,
+                "rtol": 0.02
+              },
+              "timestep": {
+                "max_abs": 0.0016889415969671973,
+                "rms": 0.0004719579216545004,
+                "max_error_over_limit": 3.692460585925457e-05,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight1": {
+                "max_abs": 0.031053426652807303,
+                "rms": 0.0027087841697381594,
+                "max_error_over_limit": 0.11547530877041451,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias1": {
+                "max_abs": 0.029114819628388133,
+                "rms": 0.0038234615635913405,
+                "max_error_over_limit": 0.10016530652373339,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight2": {
+                "max_abs": 0.06198135260756388,
+                "rms": 0.0026330020709189775,
+                "max_error_over_limit": 0.13402820493069434,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias2": {
+                "max_abs": 0.052734375,
+                "rms": 0.006474150041478446,
+                "max_error_over_limit": 0.12233801540552787,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              }
+            }
+          },
+          "vs_reference": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 7.62939453125e-06,
+                "rms": 3.441286026388092e-08,
+                "max_error_over_limit": 0.0001524803986447542,
+                "violations": 0,
+                "atol": 0.05,
+                "rtol": 0.02
+              },
+              "timestep": {
+                "max_abs": 0.001220703125,
+                "rms": 0.0005587717719604662,
+                "max_error_over_limit": 4.150253796320153e-05,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight1": {
+                "max_abs": 0.015625,
+                "rms": 3.0062519530829406e-05,
+                "max_error_over_limit": 0.10395010395010394,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias1": {
+                "max_abs": 0.0009765625,
+                "rms": 1.7619365551660833e-05,
+                "max_error_over_limit": 0.009457159069415546,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight2": {
+                "max_abs": 0.03125,
+                "rms": 3.2159060290883724e-05,
+                "max_error_over_limit": 0.15723270440251572,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias2": {
+                "max_abs": 0.0,
+                "rms": 0.0,
+                "max_error_over_limit": 0.0,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              }
+            }
+          },
+          "actual_backend": "triton",
+          "fallback_reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "batch": 3,
+      "seed": 1701,
+      "dtype": "torch.bfloat16",
+      "upstream_rng": "cpu",
+      "input_sha256": {
+        "timestep": "51ff7dad549e271d9e784414ba4bacfb9a71e7388c83da90948a84f226013284",
+        "weight1": "594617a5407804b60c1e6f731b9e89a46f4c887f29c2b376a892cbbd69cb96ec",
+        "bias1": "3f8bd2faf42ba7e2cc8f05f39711df47746b6ab6ee21f9c129712c1e4b0650d0",
+        "weight2": "a559591f60cc51de8a87a6b7090accdfab0f3e9f11205706d211f62bf984f944",
+        "bias2": "b47cfd5569857471f1b90c88cdfaf52c597a1ae99f38c25f6673f7bcf5c7643d",
+        "upstream": "0d333d201c15ba692c7b46163554df7f85827ddbb966048bbb9770606dff209b"
+      },
+      "old_vs_boundary": {
+        "passed": true,
+        "tensors": {
+          "output": {
+            "max_abs": 4.640581141579503e-07,
+            "rms": 1.1535231402810387e-07,
+            "max_error_over_limit": 8.234242673707123e-06,
+            "violations": 0,
+            "atol": 0.05,
+            "rtol": 0.02
+          },
+          "timestep": {
+            "max_abs": 0.005696127403552964,
+            "rms": 0.003572120413231802,
+            "max_error_over_limit": 0.00017418546599011372,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight1": {
+            "max_abs": 3.371999148016336e-06,
+            "rms": 3.122180786682014e-07,
+            "max_error_over_limit": 2.9604013846408744e-05,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias1": {
+            "max_abs": 2.295748640301909e-06,
+            "rms": 4.3699846574076467e-07,
+            "max_error_over_limit": 2.1549124187524532e-05,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight2": {
+            "max_abs": 3.129599562612384e-06,
+            "rms": 9.258300973464942e-08,
+            "max_error_over_limit": 1.298160051756709e-05,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias2": {
+            "max_abs": 0.0,
+            "rms": 0.0,
+            "max_error_over_limit": 0.0,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          }
+        }
+      },
+      "reference_vs_boundary": {
+        "passed": true,
+        "tensors": {
+          "output": {
+            "max_abs": 0.0038246846865384043,
+            "rms": 0.0006651692913524136,
+            "max_error_over_limit": 0.05431196246729035,
+            "violations": 0,
+            "atol": 0.05,
+            "rtol": 0.02
+          },
+          "timestep": {
+            "max_abs": 0.0003592193825170398,
+            "rms": 0.0002690110313758926,
+            "max_error_over_limit": 4.7098069838868645e-06,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight1": {
+            "max_abs": 0.015617492848154946,
+            "rms": 0.001174259357234185,
+            "max_error_over_limit": 0.08464752279913434,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias1": {
+            "max_abs": 0.010730178810435476,
+            "rms": 0.0017154473609733508,
+            "max_error_over_limit": 0.056686516805597144,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight2": {
+            "max_abs": 0.030927353212112152,
+            "rms": 0.0011420815388426123,
+            "max_error_over_limit": 0.11588423576050005,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias2": {
+            "max_abs": 0.015625,
+            "rms": 0.003052442184319777,
+            "max_error_over_limit": 0.08665511265164645,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          }
+        }
+      },
+      "boundary_vs_full_fp64": {
+        "passed": true,
+        "tensors": {
+          "output": {
+            "max_abs": 1.4214070966661607e-05,
+            "rms": 2.795640461816994e-06,
+            "max_error_over_limit": 0.0002769933303398923,
+            "violations": 0,
+            "atol": 0.05,
+            "rtol": 0.02
+          },
+          "timestep": {
+            "max_abs": 0.06310570186724362,
+            "rms": 0.04086224118980547,
+            "max_error_over_limit": 0.0019296745111722943,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight1": {
+            "max_abs": 0.00012860618552190672,
+            "rms": 5.454428633413928e-06,
+            "max_error_over_limit": 0.0010665719806455733,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias1": {
+            "max_abs": 2.8957383322647523e-05,
+            "rms": 3.5956643540510242e-06,
+            "max_error_over_limit": 0.0002471168374489206,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight2": {
+            "max_abs": 8.273473216302563e-05,
+            "rms": 4.819237435712741e-06,
+            "max_error_over_limit": 0.0005103310838490624,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias2": {
+            "max_abs": 0.0,
+            "rms": 0.0,
+            "max_error_over_limit": 0.0,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          }
+        }
+      },
+      "candidates": {
+        "cuda": {
+          "vs_boundary": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 0.0038246846865384043,
+                "rms": 0.0006651692913565468,
+                "max_error_over_limit": 0.05431196246729035,
+                "violations": 0,
+                "atol": 0.05,
+                "rtol": 0.02
+              },
+              "timestep": {
+                "max_abs": 0.0008475006325170398,
+                "rms": 0.0005155070257574129,
+                "max_error_over_limit": 1.1111773451389267e-05,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight1": {
+                "max_abs": 0.015617492848154946,
+                "rms": 0.0011742593573761328,
+                "max_error_over_limit": 0.08464752279913434,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias1": {
+                "max_abs": 0.010730178810435476,
+                "rms": 0.0017154473609733508,
+                "max_error_over_limit": 0.056686516805597144,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight2": {
+                "max_abs": 0.030927353212112152,
+                "rms": 0.0011420815392760245,
+                "max_error_over_limit": 0.11588423576050005,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias2": {
+                "max_abs": 0.015625,
+                "rms": 0.003052442184319777,
+                "max_error_over_limit": 0.08665511265164645,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              }
+            }
+          },
+          "vs_reference": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 3.814697265625e-06,
+                "rms": 3.9736429850260414e-08,
+                "max_error_over_limit": 7.627381077687928e-05,
+                "violations": 0,
+                "atol": 0.05,
+                "rtol": 0.02
+              },
+              "timestep": {
+                "max_abs": 0.00048828125,
+                "rms": 0.0004228639666916204,
+                "max_error_over_limit": 7.465729687727938e-06,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight1": {
+                "max_abs": 0.001953125,
+                "rms": 4.436478415010519e-06,
+                "max_error_over_limit": 0.01856665428889714,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias1": {
+                "max_abs": 0.0,
+                "rms": 0.0,
+                "max_error_over_limit": 0.0,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight2": {
+                "max_abs": 0.015625,
+                "rms": 9.70004203838068e-06,
+                "max_error_over_limit": 0.08756567425569176,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias2": {
+                "max_abs": 0.0,
+                "rms": 0.0,
+                "max_error_over_limit": 0.0,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              }
+            }
+          },
+          "actual_backend": "cuda",
+          "fallback_reason": null
+        },
+        "triton": {
+          "vs_boundary": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 0.0038246846865384043,
+                "rms": 0.0006651692913565468,
+                "max_error_over_limit": 0.05431196246729035,
+                "violations": 0,
+                "atol": 0.05,
+                "rtol": 0.02
+              },
+              "timestep": {
+                "max_abs": 0.0008475006325170398,
+                "rms": 0.0005155070257574129,
+                "max_error_over_limit": 1.1111773451389267e-05,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight1": {
+                "max_abs": 0.015617492848154946,
+                "rms": 0.0011742593573761328,
+                "max_error_over_limit": 0.08464752279913434,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias1": {
+                "max_abs": 0.010730178810435476,
+                "rms": 0.0017154473609733508,
+                "max_error_over_limit": 0.056686516805597144,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight2": {
+                "max_abs": 0.030927353212112152,
+                "rms": 0.0011420815392760245,
+                "max_error_over_limit": 0.11588423576050005,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias2": {
+                "max_abs": 0.015625,
+                "rms": 0.003052442184319777,
+                "max_error_over_limit": 0.08665511265164645,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              }
+            }
+          },
+          "vs_reference": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 3.814697265625e-06,
+                "rms": 3.9736429850260414e-08,
+                "max_error_over_limit": 7.627381077687928e-05,
+                "violations": 0,
+                "atol": 0.05,
+                "rtol": 0.02
+              },
+              "timestep": {
+                "max_abs": 0.00048828125,
+                "rms": 0.0004228639666916204,
+                "max_error_over_limit": 7.465729687727938e-06,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight1": {
+                "max_abs": 0.001953125,
+                "rms": 4.436478415010519e-06,
+                "max_error_over_limit": 0.01856665428889714,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias1": {
+                "max_abs": 0.0,
+                "rms": 0.0,
+                "max_error_over_limit": 0.0,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight2": {
+                "max_abs": 0.015625,
+                "rms": 9.70004203838068e-06,
+                "max_error_over_limit": 0.08756567425569176,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias2": {
+                "max_abs": 0.0,
+                "rms": 0.0,
+                "max_error_over_limit": 0.0,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              }
+            }
+          },
+          "actual_backend": "triton",
+          "fallback_reason": null
+        }
+      },
+      "passed": true
+    },
+    {
+      "batch": 16,
+      "seed": 20261007,
+      "dtype": "torch.bfloat16",
+      "upstream_rng": "cpu",
+      "input_sha256": {
+        "timestep": "00515e266665e423c5c83607021127fdce0297d33060ba3c0d9fec1578b7de14",
+        "weight1": "5e928603d836c32d87e05f00b60448d65e97ecc628dcba53f01b3122051b029b",
+        "bias1": "4fb99184a0d4ed8555c2ce9bd6a103bb38a55c93fe01f8057911763a7ce4a2b1",
+        "weight2": "12caec956644c222fee0e78dcbc58bcfce496efa06f83b3ccd4c94c1b160ceab",
+        "bias2": "a836fde6e4ade3dd3e16a44527c92d77b79f7bba64d09851af0831116d9e8a68",
+        "upstream": "d27700260ef0555e3b79416b2fb9878bf97cbd058b03181539b205e7466e230b"
+      },
+      "old_vs_boundary": {
+        "passed": true,
+        "tensors": {
+          "output": {
+            "max_abs": 5.552147967491372e-07,
+            "rms": 1.1703822453674089e-07,
+            "max_error_over_limit": 9.631449802166272e-06,
+            "violations": 0,
+            "atol": 0.05,
+            "rtol": 0.02
+          },
+          "timestep": {
+            "max_abs": 0.0041660629631223856,
+            "rms": 0.002154130130634393,
+            "max_error_over_limit": 0.00016102709967601907,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight1": {
+            "max_abs": 6.216212390386389e-06,
+            "rms": 7.63540469624797e-07,
+            "max_error_over_limit": 5.4023604319652006e-05,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias1": {
+            "max_abs": 6.106856751397771e-06,
+            "rms": 1.0500208784817695e-06,
+            "max_error_over_limit": 3.896294636847916e-05,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight2": {
+            "max_abs": 3.5243539784346467e-06,
+            "rms": 2.449044797637515e-07,
+            "max_error_over_limit": 2.2308931556127478e-05,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias2": {
+            "max_abs": 0.0,
+            "rms": 0.0,
+            "max_error_over_limit": 0.0,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          }
+        }
+      },
+      "reference_vs_boundary": {
+        "passed": true,
+        "tensors": {
+          "output": {
+            "max_abs": 0.003893561809196644,
+            "rms": 0.0006761647587415158,
+            "max_error_over_limit": 0.05551110337961167,
+            "violations": 0,
+            "atol": 0.05,
+            "rtol": 0.02
+          },
+          "timestep": {
+            "max_abs": 0.001414191561707412,
+            "rms": 0.0005385594965568649,
+            "max_error_over_limit": 4.188673202534388e-05,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight1": {
+            "max_abs": 0.031202715672344894,
+            "rms": 0.002766815947703904,
+            "max_error_over_limit": 0.11395424187639414,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias1": {
+            "max_abs": 0.030288223185326757,
+            "rms": 0.003968584353415438,
+            "max_error_over_limit": 0.09790741490734418,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight2": {
+            "max_abs": 0.039013824596189295,
+            "rms": 0.00269849220148138,
+            "max_error_over_limit": 0.11912849866590462,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias2": {
+            "max_abs": 0.03125,
+            "rms": 0.00668872229302654,
+            "max_error_over_limit": 0.11472484248097023,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          }
+        }
+      },
+      "boundary_vs_full_fp64": {
+        "passed": true,
+        "tensors": {
+          "output": {
+            "max_abs": 3.455280214414991e-05,
+            "rms": 5.020658546062273e-06,
+            "max_error_over_limit": 0.0006885160162112746,
+            "violations": 0,
+            "atol": 0.05,
+            "rtol": 0.02
+          },
+          "timestep": {
+            "max_abs": 0.40818332666549395,
+            "rms": 0.16353250069013248,
+            "max_error_over_limit": 0.003932014287689583,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight1": {
+            "max_abs": 0.00044027662925649746,
+            "rms": 2.2617601363311026e-05,
+            "max_error_over_limit": 0.003914006981757099,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias1": {
+            "max_abs": 7.458329056042601e-05,
+            "rms": 1.446301761795295e-05,
+            "max_error_over_limit": 0.0005517213256362744,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight2": {
+            "max_abs": 0.00023830501255983627,
+            "rms": 2.0025982617422385e-05,
+            "max_error_over_limit": 0.001924122123903151,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias2": {
+            "max_abs": 0.0,
+            "rms": 0.0,
+            "max_error_over_limit": 0.0,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          }
+        }
+      },
+      "candidates": {
+        "cuda": {
+          "vs_boundary": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 0.003893561809196644,
+                "rms": 0.0006761647615359888,
+                "max_error_over_limit": 0.05551110337961167,
+                "violations": 0,
+                "atol": 0.05,
+                "rtol": 0.02
+              },
+              "timestep": {
+                "max_abs": 0.001315239159794146,
+                "rms": 0.0004946966434566125,
+                "max_error_over_limit": 2.1299819413489183e-05,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight1": {
+                "max_abs": 0.031202715672344894,
+                "rms": 0.002766815945051902,
+                "max_error_over_limit": 0.11395424187639414,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias1": {
+                "max_abs": 0.030288223185326757,
+                "rms": 0.003968584416474677,
+                "max_error_over_limit": 0.09790741490734418,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight2": {
+                "max_abs": 0.039013824596189295,
+                "rms": 0.0026984921995767516,
+                "max_error_over_limit": 0.11912849866590462,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias2": {
+                "max_abs": 0.03125,
+                "rms": 0.00668872229302654,
+                "max_error_over_limit": 0.11472484248097023,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              }
+            }
+          },
+          "vs_reference": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 0.001953125,
+                "rms": 9.86488764563763e-06,
+                "max_error_over_limit": 0.032829940906106365,
+                "violations": 0,
+                "atol": 0.05,
+                "rtol": 0.02
+              },
+              "timestep": {
+                "max_abs": 0.001220703125,
+                "rms": 0.0005643689577913491,
+                "max_error_over_limit": 3.38956776909722e-05,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight1": {
+                "max_abs": 0.0078125,
+                "rms": 2.394158892504162e-05,
+                "max_error_over_limit": 0.06510416666666666,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias1": {
+                "max_abs": 0.00390625,
+                "rms": 7.047732778193673e-05,
+                "max_error_over_limit": 0.03306878306878307,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight2": {
+                "max_abs": 0.03125,
+                "rms": 3.1208370362160994e-05,
+                "max_error_over_limit": 0.17006802721088432,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias2": {
+                "max_abs": 0.0,
+                "rms": 0.0,
+                "max_error_over_limit": 0.0,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              }
+            }
+          },
+          "actual_backend": "cuda",
+          "fallback_reason": null
+        },
+        "triton": {
+          "vs_boundary": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 0.003893561809196644,
+                "rms": 0.0006761647615359888,
+                "max_error_over_limit": 0.05551110337961167,
+                "violations": 0,
+                "atol": 0.05,
+                "rtol": 0.02
+              },
+              "timestep": {
+                "max_abs": 0.001315239159794146,
+                "rms": 0.0004946966434566125,
+                "max_error_over_limit": 2.1299819413489183e-05,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight1": {
+                "max_abs": 0.031202715672344894,
+                "rms": 0.002766815945051902,
+                "max_error_over_limit": 0.11395424187639414,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias1": {
+                "max_abs": 0.030288223185326757,
+                "rms": 0.003968584416474677,
+                "max_error_over_limit": 0.09790741490734418,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight2": {
+                "max_abs": 0.039013824596189295,
+                "rms": 0.0026984921995767516,
+                "max_error_over_limit": 0.11912849866590462,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias2": {
+                "max_abs": 0.03125,
+                "rms": 0.00668872229302654,
+                "max_error_over_limit": 0.11472484248097023,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              }
+            }
+          },
+          "vs_reference": {
+            "passed": true,
+            "tensors": {
+              "output": {
+                "max_abs": 0.001953125,
+                "rms": 9.86488764563763e-06,
+                "max_error_over_limit": 0.032829940906106365,
+                "violations": 0,
+                "atol": 0.05,
+                "rtol": 0.02
+              },
+              "timestep": {
+                "max_abs": 0.001220703125,
+                "rms": 0.0005643689577913491,
+                "max_error_over_limit": 3.38956776909722e-05,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight1": {
+                "max_abs": 0.0078125,
+                "rms": 2.394158892504162e-05,
+                "max_error_over_limit": 0.06510416666666666,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias1": {
+                "max_abs": 0.00390625,
+                "rms": 7.047732778193673e-05,
+                "max_error_over_limit": 0.03306878306878307,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "weight2": {
+                "max_abs": 0.03125,
+                "rms": 3.1208370362160994e-05,
+                "max_error_over_limit": 0.17006802721088432,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              },
+              "bias2": {
+                "max_abs": 0.0,
+                "rms": 0.0,
+                "max_error_over_limit": 0.0,
+                "violations": 0,
+                "atol": 0.1,
+                "rtol": 0.02
+              }
+            }
+          },
+          "actual_backend": "triton",
+          "fallback_reason": null
+        }
+      },
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "source_sha256": {
+    "scripts/audit_timestep_reference.py": "ded53fd87da3c50ef82049b52fc348bb9dacbc5a644b1a1a7627f5aa24cc882d",
+    "rl_engine/kernels/ops/pytorch/timestep_embed_mlp.py": "dbef4fffb7e3c97c469c820d8c31ce50e70e21c40e3a8e16abcc0f49e30758fb",
+    "rl_engine/kernels/gtest/tolerance_contract.json": "044167ec21e372017a2758dc09f805b368283c06b83f64061877628cbd101532"
+  },
+  "seconds": 30.093980818986893
+}

@@ -1,0 +1,35 @@
+........................................................................ [ 46%]
+....F................................................................... [ 92%]
+...........                                                              [100%]
+=================================== FAILURES ===================================
+_________________ test_checked_in_execute_matrix_has_zero_red __________________
+
+    def test_checked_in_execute_matrix_has_zero_red():
+>       payload = json.loads(_EXECUTE_ARTIFACT.read_text(encoding="utf-8"))
+
+tests/test_four_judgment_matrix.py:152: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/lib/python3.10/pathlib.py:1134: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/workspace/h100-results-ea55fa6/source/docs/design/ws1-c8-execute.json')
+mode = 'r', buffering = -1, encoding = 'utf-8', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return self._accessor.open(self, mode, buffering, encoding, errors,
+                                   newline)
+E       FileNotFoundError: [Errno 2] No such file or directory: '/workspace/h100-results-ea55fa6/source/docs/design/ws1-c8-execute.json'
+
+/usr/lib/python3.10/pathlib.py:1119: FileNotFoundError
+----------- generated xml file: /workspace/h100-framework-final.xml ------------
+=========================== short test summary info ============================
+FAILED tests/test_four_judgment_matrix.py::test_checked_in_execute_matrix_has_zero_red
+1 failed, 154 passed in 3.38s

@@ -109,5 +109,6 @@ server, install dependencies or alter system configuration.
 
 Detailed Chinese stage reports, including failed attempts and limitations, are in
 [timestep-reports/README.md](timestep-reports/README.md). A100 is the delivery target;
-SM90/H100 performance, full-repository native extension CI and full-model training
-are not established by these operator-level results.
+H100 sm90 correctness and microbenchmarks are now recorded in the
+[H100/reference audit report](timestep-reports/08-h100-reference-audit.md).
+Full-repository native extension CI and full-model training remain unverified.

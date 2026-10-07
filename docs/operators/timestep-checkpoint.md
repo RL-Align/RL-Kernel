@@ -1,5 +1,7 @@
 # 官方交付检查点（2026-10-02）
 
+> 历史检查点；当前 H100 验收与参考审查见 [2026-10-07 报告](timestep-reports/08-h100-reference-audit.md)。
+
 - 状态：本轮授权的实现、算子验证、A100测量和五阶段报告完成；代码未提交，待人工审查。
 - thread 01a0f7ef-7063-71e1-b087-24915728539e，host local；worktree /home/hlb/.codex/worktrees/105a/RL-Kernel。
 - 分支 codex/timestep-official-astra；HEAD 32b765ec992cd1206517104ec66506881203c91c（未commit）。
