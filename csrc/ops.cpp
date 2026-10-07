@@ -6,6 +6,7 @@
 
 // Fused LogP Declarations
 torch::Tensor fused_logp_forward(torch::Tensor logits, torch::Tensor token_ids);
+torch::Tensor fused_logp_backward(torch::Tensor logits, torch::Tensor token_ids, torch::Tensor grad_output);
 
 #if defined(__CUDACC__) || defined(KERNEL_ALIGN_WITH_SM90)
 torch::Tensor fused_logp_sm90_forward(torch::Tensor logits, torch::Tensor labels);
@@ -502,6 +503,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.doc() = "RL-Kernel High-Performance Operator Extension Library";
 
     m.def("fused_logp", &fused_logp_forward, "Fused logp forward fallback");
+    m.def("fused_logp_backward", &fused_logp_backward,
+          "Fused logp dlogits = grad * (one_hot - softmax), consistent with fused_logp");
 
 #if defined(__CUDACC__) || defined(KERNEL_ALIGN_WITH_SM90)
     m.def("fused_logp_sm90", &fused_logp_sm90_forward, "TMA-accelerated Online Softmax Fused LogP");
