@@ -501,7 +501,7 @@ at::Tensor prefix_shared_attention(
 #if !defined(USE_ROCM) && !defined(KERNEL_ALIGN_WITH_ROCM) && \
     (defined(__CUDACC__) || defined(KERNEL_ALIGN_WITH_CUDA))
 torch::Tensor h3_timestep_sinusoid_forward(torch::Tensor timestep, int64_t num_channels,
-                                           double max_period);
+                                           double max_period, bool check_range);
 #endif
 
 // PyBind11 Module Registration
@@ -762,8 +762,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 
 #if !defined(USE_ROCM) && !defined(KERNEL_ALIGN_WITH_ROCM) && \
     (defined(__CUDACC__) || defined(KERNEL_ALIGN_WITH_CUDA))
-    m.def("h3_timestep_sinusoid_forward", &h3_timestep_sinusoid_forward,
+    m.def("h3_timestep_sinusoid_forward", torch::wrap_pybind_function(h3_timestep_sinusoid_forward),
           "MiniMax-H3 FP32 [cos | sin] timestep features, bitwise to the diffusers CUDA path",
-          py::arg("timestep"), py::arg("num_channels") = 256, py::arg("max_period") = 10000.0);
+          py::arg("timestep"), py::arg("num_channels") = 256, py::arg("max_period") = 10000.0,
+          py::arg("check_range") = true);
 #endif
 }
