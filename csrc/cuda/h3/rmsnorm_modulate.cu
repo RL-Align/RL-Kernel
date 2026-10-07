@@ -276,8 +276,9 @@ Modulation make_modulation(const c10::optional<torch::Tensor>& shift,
   }
   TORCH_CHECK(sh.size(0) == sc.size(0) && sh.stride(0) == sc.stride(0),
               "shift and scale must be views of the same table layout");
-  TORCH_CHECK(ix.is_cuda() && ix.scalar_type() == at::kLong && ix.dim() == 1 && ix.is_contiguous(),
-              "row index must be a contiguous int64 CUDA tensor");
+  TORCH_CHECK(ix.is_cuda() && ix.device() == x.device() && ix.scalar_type() == at::kLong &&
+                  ix.dim() == 1 && ix.is_contiguous(),
+              "row index must be a contiguous int64 CUDA tensor on x's device");
   TORCH_CHECK(x.size(0) % ix.size(0) == 0, "x rows (", x.size(0), ") must be a multiple of S (",
               ix.size(0), ")");
   mod.shift = sh.data_ptr();
@@ -291,9 +292,9 @@ Modulation make_modulation(const c10::optional<torch::Tensor>& shift,
 void check_xw(const torch::Tensor& x, const torch::Tensor& w) {
   TORCH_CHECK(x.is_cuda() && x.dim() == 2 && x.is_contiguous(), "x must be a contiguous (M, N) CUDA tensor");
   TORCH_CHECK(x.size(0) > 0, "x must have at least one row");
-  TORCH_CHECK(w.is_cuda() && w.dim() == 1 && w.size(0) == x.size(1) && w.is_contiguous() &&
-                  w.scalar_type() == x.scalar_type(),
-              "weight must be a contiguous (N,) CUDA tensor with x's dtype");
+  TORCH_CHECK(w.is_cuda() && w.device() == x.device() && w.dim() == 1 && w.size(0) == x.size(1) &&
+                  w.is_contiguous() && w.scalar_type() == x.scalar_type(),
+              "weight must be a contiguous (N,) CUDA tensor with x's dtype on x's device");
   TORCH_CHECK(x.size(1) % kVec == 0, "N=", x.size(1), " must be a multiple of ", kVec,
               " (PyTorch's vectorized RMSNorm path)");
 }
@@ -344,8 +345,9 @@ std::vector<torch::Tensor> h3_rmsnorm_backward(
   check_xw(x, weight);
   check_rows(grad, "grad", x);
   TORCH_CHECK(grad.sizes() == x.sizes(), "grad must match x");
-  TORCH_CHECK(rstd.is_cuda() && rstd.scalar_type() == at::kFloat && rstd.numel() == x.size(0),
-              "rstd must be the forward's float32 (M,) statistics");
+  TORCH_CHECK(rstd.is_cuda() && rstd.device() == x.device() && rstd.scalar_type() == at::kFloat &&
+                  rstd.numel() == x.size(0),
+              "rstd must be the forward's float32 (M,) statistics on x's device");
   const int64_t rows = x.size(0);
   const int64_t n = x.size(1);
   const Modulation mod = make_modulation(shift, scale, index, x, n);
