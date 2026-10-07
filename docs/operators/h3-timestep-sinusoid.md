@@ -83,6 +83,14 @@ the range check it takes about 51 µs. The provider path takes about 64 µs, bec
 six eager kernels plus two concatenations. Either way the op is launch-bound: it moves
 about 1 KB per timestep.
 
+## Evidence
+
+![timestep_sinusoid_h3 on B200: latency and error vs FP64](../usage/evidence/h3-timestep-sinusoid-b200/figure.png)
+
+The data is in [`report.json`](../usage/evidence/h3-timestep-sinusoid-b200/report.json).
+`scripts/h3_evidence.py` wrote it from a clean tree at commit `0522865`, and the report
+records that commit and the environment.
+
 ## Tests
 
 ```bash
