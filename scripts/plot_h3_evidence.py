@@ -511,43 +511,13 @@ def plot_tp_adaln(report: dict[str, Any]):
         report, "tp_adaln_3mod  (column-parallel AdaLN projection, 2688 -> 96768, NCCL)"
     )
     runs = report["runs"]
-    # Left: every rank, every T, every tensor byte-equal to WS1?
-    left.set_facecolor(SURFACE)
-    left.set_title(
-        "Byte-equal to WS1 (every rank, every T)", loc="left", fontsize=11, color=INK, pad=10
+    _equality_grid(
+        left,
+        "Byte-equal to WS1 (every rank, every T)",
+        [(f"TP{run['tp']}", [e for r in run["ranks"] for e in r["equality"]]) for run in runs],
+        TP_TENSORS,
+        "rank x T",
     )
-    for y, run in enumerate(runs):
-        checks = [e for r in run["ranks"] for e in r["equality"]]
-        for x, (key, _) in enumerate(TP_TENSORS):
-            ok = sum(bool(e[key]) for e in checks)
-            good = ok == len(checks)
-            left.add_patch(
-                matplotlib.patches.FancyBboxPatch(
-                    (x + 0.06, y + 0.08),
-                    0.88,
-                    0.84,
-                    boxstyle="round,pad=0,rounding_size=0.06",
-                    facecolor=RL_KERNEL if good else PROVIDER,
-                    edgecolor=SURFACE,
-                    linewidth=2,
-                )
-            )
-            left.text(
-                x + 0.5,
-                y + 0.5,
-                f"{'equal' if good else 'DIFF'}\n{ok}/{len(checks)} rank x T",
-                ha="center",
-                va="center",
-                fontsize=8,
-                color="white",
-            )
-    left.set_xlim(0, len(TP_TENSORS))
-    left.set_ylim(len(runs), 0)
-    left.set_xticks([i + 0.5 for i in range(len(TP_TENSORS))], [label for _, label in TP_TENSORS])
-    left.set_yticks([i + 0.5 for i in range(len(runs))], [f"TP{run['tp']}" for run in runs])
-    left.tick_params(colors=MUTED, labelsize=8, length=0)
-    for side in left.spines.values():
-        side.set_visible(False)
     # Right: slowest rank's time at the largest T; WS1 on one GPU as reference lines.
     num_t = max(p["num_timesteps"] for p in runs[0]["ranks"][0]["perf"])
 
@@ -589,6 +559,144 @@ def plot_tp_adaln(report: dict[str, Any]):
     return fig
 
 
+def _equality_grid(ax, title, rows, tensors, unit) -> None:
+    """One cell per (configuration, tensor): how many checks were byte-equal to WS1."""
+
+    ax.set_facecolor(SURFACE)
+    ax.set_title(title, loc="left", fontsize=11, color=INK, pad=10)
+    for y, (_, checks) in enumerate(rows):
+        for x, (key, _) in enumerate(tensors):
+            ok = sum(bool(e[key]) for e in checks)
+            good = ok == len(checks)
+            ax.add_patch(
+                matplotlib.patches.FancyBboxPatch(
+                    (x + 0.06, y + 0.08),
+                    0.88,
+                    0.84,
+                    boxstyle="round,pad=0,rounding_size=0.06",
+                    facecolor=RL_KERNEL if good else PROVIDER,
+                    edgecolor=SURFACE,
+                    linewidth=2,
+                )
+            )
+            label = f"{'equal' if good else 'DIFF'}\n{ok}/{len(checks)} {unit}"
+            ax.text(x + 0.5, y + 0.5, label, ha="center", va="center", fontsize=8, color="white")
+    ax.set_xlim(0, len(tensors))
+    ax.set_ylim(len(rows), 0)
+    ax.set_xticks([i + 0.5 for i in range(len(tensors))], [label for _, label in tensors])
+    ax.set_yticks([i + 0.5 for i in range(len(rows))], [name for name, _ in rows])
+    ax.tick_params(colors=MUTED, labelsize=8, length=0)
+    for side in ax.spines.values():
+        side.set_visible(False)
+
+
+SP_TENSORS = (
+    ("out", "output rows"),
+    ("d_residual", "d_residual"),
+    ("d_y", "d_sublayer"),
+    ("d_weight", "d_norm_w"),
+    ("d_table", "d_table"),
+)
+
+
+def plot_sp_norm(report: dict[str, Any]):
+    fig, axes = plt.subplots(
+        1, 3, figsize=(15, 3.9), facecolor=SURFACE, gridspec_kw={"width_ratios": [1.35, 1, 0.9]}
+    )
+    env = report["environment"]
+    fig.suptitle(
+        "sp_norm_adaln  (sequence-parallel norm2(residual + gate * y) with AdaLN modulation, "
+        "H = 5376, NCCL)",
+        x=0.01,
+        ha="left",
+        fontsize=12,
+        color=INK,
+        fontweight="bold",
+    )
+    fig.text(
+        0.01,
+        0.01,
+        f"{env['gpu']} x {env['gpus']} · torch {env['torch']} · CUDA {env['cuda']} · "
+        f"commit {report['rl_kernel_commit'][:7]} · bf16",
+        fontsize=7,
+        color=MUTED,
+    )
+    runs = report["runs"]
+    _equality_grid(
+        axes[0],
+        "Byte-equal to WS1 (every rank, every case)",
+        [
+            (f"SP{run['sp']}", [c["equal"] for r in run["ranks"] for c in r["cases"]])
+            for run in runs
+        ],
+        SP_TENSORS,
+        "rank x case",
+    )
+
+    # Middle: the largest block-layout case, slowest rank.
+    big = max(
+        (c for c in runs[0]["ranks"][0]["cases"] if c["layout"] == "block"),
+        key=lambda c: c["seq"] * c["batch"],
+    )
+
+    def worst(run, key):
+        return (
+            max(
+                c[key]
+                for r in run["ranks"]
+                for c in r["cases"]
+                if (c["seq"], c["batch"], c["layout"]) == (big["seq"], big["batch"], big["layout"])
+            )
+            / 1e3
+        )
+
+    sp_runs = [run for run in runs if run["sp"] > 1]
+    ax = axes[1]
+    _style(ax, f"Region fwd+bwd, S = {big['seq']}, block layout", "ms (slowest rank)")
+    _bars(
+        ax,
+        [f"SP{run['sp']}" for run in sp_runs],
+        [("SP", RL_KERNEL, [worst(run, "sp_forward_backward_us") for run in sp_runs])],
+        "{:.2f}",
+    )
+    ws1 = worst(runs[0], "ws1_forward_backward_us")
+    ax.axhline(
+        ws1, color=PROVIDER, linestyle="--", linewidth=1.4, zorder=1, label=f"WS1, 1 GPU: {ws1:.2f}"
+    )
+    ax.set_ylim(0, ws1 * 1.35)
+    ax.legend(frameon=False, fontsize=8, labelcolor=INK, loc="upper right")
+
+    # Right: what a naive SP reduction would do instead.
+    naive = report["naive_sp"]
+    ax = axes[2]
+    _style(ax, f"Naive SP{naive['sp']} vs WS1 (S = 32768)", "% of elements that differ")
+    _bars(
+        ax,
+        ["d_norm_w", "d_table"],
+        [
+            ("naive, block", PROVIDER, [100 * naive["block"][k] for k in ("d_weight", "d_table")]),
+            (
+                "naive, interleaved",
+                PROVIDER,
+                [100 * naive["interleaved"][k] for k in ("d_weight", "d_table")],
+                "////",
+            ),
+            ("RL-Kernel SP", RL_KERNEL, [0.0, 0.0]),
+        ],
+        "{:.1f}",
+    )
+    ax.text(
+        0.98,
+        0.62,
+        "naive: each rank's WS1 backward,\nthen a rank-order sum",
+        transform=ax.transAxes,
+        ha="right",
+        fontsize=7,
+        color=MUTED,
+    )
+    return fig
+
+
 PLOTS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "timestep_sinusoid_h3": plot_sinusoid,
     "timestep_mlp_fp32": plot_mlp,
@@ -598,6 +706,7 @@ PLOTS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "adaln_gate_residual": plot_gate_residual,
     "final_adaln_out": plot_final,
     "tp_adaln_3mod": plot_tp_adaln,
+    "sp_norm_adaln": plot_sp_norm,
 }
 
 

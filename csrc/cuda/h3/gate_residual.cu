@@ -16,6 +16,8 @@
 // 16-bit values is exact in FP32, so this equals the eager VJP bitwise);
 // d_gate[i] = sum over positions mapped to i of grad * y, an FP32 segmented
 // sum over positions sorted stably by row, in fixed tiles folded in order.
+// The tile partials and the fold are also bound separately for sequence
+// parallel callers (each tile computed where its rows live, folded in order).
 
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
@@ -239,4 +241,82 @@ std::vector<torch::Tensor> h3_gate_residual_backward(torch::Tensor grad, torch::
   });
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return {dy, dgate};
+}
+
+// Sequence parallel: the WS1 d_gate tile partials over explicit row lists of
+// (grad, y) rows -> (tiles, N) FP32.
+torch::Tensor h3_gate_grad_partials(torch::Tensor grad, torch::Tensor y, torch::Tensor rows,
+                                    torch::Tensor tile_begin, torch::Tensor tile_end) {
+  TORCH_CHECK(grad.is_cuda() && grad.dim() == 2 && grad.is_contiguous(),
+              "grad must be a contiguous (M, N) CUDA tensor");
+  check_act(y, "y", grad);
+  for (const auto* t : {&rows, &tile_begin, &tile_end}) {
+    TORCH_CHECK(t->is_cuda() && t->device() == grad.device() && t->scalar_type() == at::kLong &&
+                    t->dim() == 1 && t->is_contiguous(),
+                "tile metadata must be contiguous int64 CUDA tensors on grad's device");
+  }
+  TORCH_CHECK(tile_begin.numel() == tile_end.numel(), "tile_begin and tile_end differ in length");
+  const int64_t n = grad.size(1);
+  const int64_t tiles = tile_begin.numel();
+  const c10::cuda::CUDAGuard guard(grad.device());
+  auto partial = torch::empty({tiles, n}, grad.options().dtype(at::kFloat));
+  if (tiles == 0) return partial;
+  const int threads = 256;
+  const unsigned col_blocks = static_cast<unsigned>((n + threads - 1) / threads);
+  H3_DISPATCH(grad.scalar_type(), "h3_gate_grad_partials", [&] {
+    gate_grad_partial_kernel<T><<<dim3(static_cast<unsigned>(tiles), col_blocks), threads, 0,
+                                  at::cuda::getCurrentCUDAStream()>>>(
+        reinterpret_cast<const T*>(grad.data_ptr()), reinterpret_cast<const T*>(y.data_ptr()),
+        rows.data_ptr<int64_t>(), tile_begin.data_ptr<int64_t>(), tile_end.data_ptr<int64_t>(),
+        partial.data_ptr<float>(), n);
+  });
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  return partial;
+}
+
+// The WS1 d_gate fold: each segment's tiles in ascending order, cast once to dtype.
+torch::Tensor h3_gate_grad_fold(torch::Tensor partial, torch::Tensor seg_first_tile,
+                                c10::ScalarType dtype) {
+  TORCH_CHECK(partial.is_cuda() && partial.dim() == 2 && partial.is_contiguous() &&
+                  partial.scalar_type() == at::kFloat,
+              "partial must be a contiguous float32 (tiles, N) CUDA tensor");
+  TORCH_CHECK(seg_first_tile.is_cuda() && seg_first_tile.device() == partial.device() &&
+                  seg_first_tile.scalar_type() == at::kLong && seg_first_tile.dim() == 1 &&
+                  seg_first_tile.is_contiguous(),
+              "seg_first_tile must be a contiguous int64 CUDA tensor on partial's device");
+  const int64_t n = partial.size(1);
+  const int64_t segments = seg_first_tile.numel() - 1;
+  const c10::cuda::CUDAGuard guard(partial.device());
+  auto out = torch::empty({segments, n}, partial.options().dtype(dtype));
+  const int threads = 256;
+  const unsigned col_blocks = static_cast<unsigned>((n + threads - 1) / threads);
+  H3_DISPATCH(dtype, "h3_gate_grad_fold", [&] {
+    gate_grad_fold_kernel<T><<<dim3(static_cast<unsigned>(segments), col_blocks), threads, 0,
+                               at::cuda::getCurrentCUDAStream()>>>(
+        partial.data_ptr<float>(), seg_first_tile.data_ptr<int64_t>(),
+        reinterpret_cast<T*>(out.data_ptr()), n);
+  });
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  return out;
+}
+
+// Row-local part of the WS1 backward only: d_y = cast(grad * gate[index]).
+torch::Tensor h3_gate_residual_backward_dy(torch::Tensor grad, torch::Tensor gate,
+                                           torch::Tensor index) {
+  TORCH_CHECK(grad.is_cuda() && grad.dim() == 2 && grad.is_contiguous(),
+              "grad must be a contiguous (M, N) CUDA tensor");
+  const Gate g = make_gate(gate, index, grad);
+  const int64_t rows = grad.size(0);
+  const int64_t n = grad.size(1);
+  const c10::cuda::CUDAGuard guard(grad.device());
+  auto dy = torch::empty_like(grad);
+  H3_DISPATCH(grad.scalar_type(), "h3_gate_residual_backward_dy", [&] {
+    const bool vec = can_vectorize(gate, n, {&grad, &dy});
+    gate_residual_rows_kernel<T, true><<<row_blocks(rows), 256, 0,
+                                         at::cuda::getCurrentCUDAStream()>>>(
+        reinterpret_cast<const T*>(grad.data_ptr()), nullptr, reinterpret_cast<T*>(dy.data_ptr()),
+        rows, n, g, vec);
+  });
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  return dy;
 }

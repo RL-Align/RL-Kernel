@@ -397,3 +397,46 @@ def h3_gate_residual_backward(
     tile_end: torch.Tensor,
     seg_first_tile: torch.Tensor,
 ) -> list[torch.Tensor]: ...
+def h3_rmsnorm_backward_partials(
+    grad: torch.Tensor,
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    rstd: torch.Tensor,
+    shift: torch.Tensor | None,
+    scale: torch.Tensor | None,
+    index: torch.Tensor | None,
+    dw_rows: torch.Tensor,
+    dw_begin: torch.Tensor,
+    dw_end: torch.Tensor,
+    seg_rows: torch.Tensor | None = None,
+    seg_begin: torch.Tensor | None = None,
+    seg_end: torch.Tensor | None = None,
+) -> list[torch.Tensor]: ...
+def h3_rmsnorm_fold_partials(
+    dw_partial: torch.Tensor,
+    weight: torch.Tensor,
+    seg_partial: torch.Tensor | None = None,
+    seg_first_tile: torch.Tensor | None = None,
+) -> list[torch.Tensor]: ...
+def h3_gate_grad_partials(
+    grad: torch.Tensor,
+    y: torch.Tensor,
+    rows: torch.Tensor,
+    tile_begin: torch.Tensor,
+    tile_end: torch.Tensor,
+) -> torch.Tensor: ...
+def h3_gate_grad_fold(
+    partial: torch.Tensor, seg_first_tile: torch.Tensor, dtype: torch.dtype
+) -> torch.Tensor: ...
+def h3_rmsnorm_backward_dx(
+    grad: torch.Tensor,
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    rstd: torch.Tensor,
+    shift: torch.Tensor | None = None,
+    scale: torch.Tensor | None = None,
+    index: torch.Tensor | None = None,
+) -> torch.Tensor: ...
+def h3_gate_residual_backward_dy(
+    grad: torch.Tensor, gate: torch.Tensor, index: torch.Tensor
+) -> torch.Tensor: ...
