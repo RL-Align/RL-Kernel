@@ -507,6 +507,8 @@ std::vector<torch::Tensor> h3_det_linear_forward(torch::Tensor x, torch::Tensor 
                                                  int64_t activation, bool save_pre_activation);
 torch::Tensor h3_det_linear_backward_input(torch::Tensor grad, torch::Tensor weight,
                                            c10::ScalarType out_dtype);
+torch::Tensor h3_det_linear_backward_input_partials(torch::Tensor grad, torch::Tensor weight);
+torch::Tensor h3_det_linear_fold_chunks(torch::Tensor partial, c10::ScalarType out_dtype);
 std::vector<torch::Tensor> h3_det_linear_backward_weight(torch::Tensor grad, torch::Tensor x,
                                                          c10::ScalarType w_dtype,
                                                          bool with_bias);
@@ -806,6 +808,12 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("h3_det_linear_backward_input", &h3_det_linear_backward_input,
           "Deterministic grad @ weight with fixed 64-row N chunks folded in order",
           py::arg("grad"), py::arg("weight"), py::arg("out_dtype"));
+    m.def("h3_det_linear_backward_input_partials", &h3_det_linear_backward_input_partials,
+          "Per-64-row-chunk FP32 partials of grad @ weight, before the ascending fold",
+          py::arg("grad"), py::arg("weight"));
+    m.def("h3_det_linear_fold_chunks", &h3_det_linear_fold_chunks,
+          "Ascending left fold of h3_det_linear_backward_input_partials, cast once",
+          py::arg("partial"), py::arg("out_dtype"));
     m.def("h3_det_linear_backward_weight", &h3_det_linear_backward_weight,
           "Deterministic dW/dbias as ascending-row FP32 folds",
           py::arg("grad"), py::arg("x"), py::arg("w_dtype"), py::arg("with_bias") = true);
