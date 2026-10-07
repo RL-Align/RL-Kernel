@@ -716,6 +716,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         &det_gemm_db_transposed,
         "Batch-invariant deterministic GEMM backward in canonical [N,K] layout");
     // registry RMSNorm
+    // API version 2 includes weight_offset in both entry points.
+    m.attr("rmsnorm_api_version") = 2;
     m.def("rmsnorm_forward", &rmsnorm_forward, "Batch-invariant RMSNorm forward CUDA",
           py::arg("x"), py::arg("weight"), py::arg("eps"),
           py::arg("weight_offset") = 0.0);
