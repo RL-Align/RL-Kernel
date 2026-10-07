@@ -40,9 +40,9 @@ out = op(x, norm_out_norm_w, temb, norm_out_linear_w, norm_out_linear_b, timeste
   summation tree versus cuBLAS. Rows are batch- and position-invariant.
 - **Backward.** One autograd node, so the table gradient (FP32 segment sums) goes straight into
   the projection backward without an extra BF16 rounding:
-  - `d_temb`, `dW` and `db` are 13–57× closer to FP64 than diffusers (whose error varies from
-    run to run), which also rounds the
-    table gradient to BF16 and accumulates it with `index_select` atomics;
+  - `d_temb`, `dW` and `db` are 13–57× closer to FP64 than diffusers, whose error varies from
+    run to run because it rounds the table gradient to BF16 and accumulates it with
+    `index_select` atomics;
   - `dx` and `d_norm_w` are at the BF16 rounding level for both;
   - every gradient is repeat-bitwise.
 - **Golden.** FP64, rounding only where the model declares a dtype boundary: the SiLU cast,
@@ -59,12 +59,24 @@ B200, B = 1, T = 3, pinned `norm_out` weights:
 
 | S | CUDA fwd | diffusers fwd | CUDA bwd | diffusers bwd |
 | --- | --- | --- | --- | --- |
-| 4097 | 0.13 ms | 0.15 ms | 1.62 ms | 1.09 ms |
-| 32768 | 0.39 ms | 0.78 ms | 2.86 ms | 5.32 ms |
-| 131072 | 1.24 ms | 2.93 ms | 7.78 ms | 20.7 ms |
+| 4097 | 0.13 ms | 0.15 ms | 1.64 ms | 1.10 ms |
+| 32768 | 0.39 ms | 0.78 ms | 2.88 ms | 5.36 ms |
+| 131072 | 1.23 ms | 2.92 ms | 7.80 ms | 20.7 ms |
 
 At small S the backward is dominated by fixed setup: the stable sort for the segment sums and the
 projection backward.
+
+## Evidence
+
+![final_adaln_out on B200: latency and backward accuracy](../usage/evidence/h3-final-adaln-out-b200/figure.png)
+
+There are two data files, both written from a clean tree at commit `38d575f`:
+
+- [`report.json`](../usage/evidence/h3-final-adaln-out-b200/report.json): op timings, the
+  forward-equality fraction, row invariance and backward accuracy.
+- [`chain_replay.json`](../usage/evidence/h3-final-adaln-out-b200/chain_replay.json): the
+  whole conditioning chain (timestep → … → norm_out) replayed stage by stage over
+  T in {1, 2, 3, 4} × S in {3, 257, 4097, 32768}, with the backward replay.
 
 ## Tests
 
