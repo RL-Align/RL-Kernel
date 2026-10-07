@@ -46,6 +46,18 @@ OP_SPECS = {
         },
         grad_input_names=("x", "weight"),
     ),
+    "mlp_down_gemm": OperatorSpec(
+        name="mlp_down_gemm",
+        op_class="reduction",
+        gold_path="rl_engine.kernels.ops.pytorch.linear.mlp_down_gemm.NativeMlpDownGemmOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.kernels.ops.pytorch.linear.mlp_down_gemm.NativeMlpDownGemmOp",
+            "cuda": "rl_engine.kernels.ops.cuda.linear.mlp_down_gemm.CudaMlpDownGemmOp",
+            "triton": "rl_engine.kernels.ops.triton.linear.mlp_down_gemm.TritonMlpDownGemmOp",
+        },
+        grad_input_names=("x", "weight", "bias"),
+    ),
     "qk_norm": OperatorSpec(
         name="qk_norm",
         op_class="reduction",

@@ -113,6 +113,10 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     # NON-deterministic reference (torch.matmul); reference/benchmark ONLY,
     # intentionally excluded from det_gemm dispatch (cuBLAS breaks invariance).
     PYTORCH_GEMM = "rl_engine.kernels.ops.pytorch.matmul.det_gemm.NativeGemmOp"
+    # Qwen-Image WS1 MLP down projection (pinned tensor-core schedule)
+    CUDA_MLP_DOWN_GEMM = "rl_engine.kernels.ops.cuda.linear.mlp_down_gemm.CudaMlpDownGemmOp"
+    PYTORCH_MLP_DOWN_GEMM = "rl_engine.kernels.ops.pytorch.linear.mlp_down_gemm.NativeMlpDownGemmOp"
+    TRITON_MLP_DOWN_GEMM = "rl_engine.kernels.ops.triton.linear.mlp_down_gemm.TritonMlpDownGemmOp"
     # Batch-invariant selected-logprob (WS1 #148: locked reduction order)
     TRITON_BATCH_INVARIANT_LOGP = (
         "rl_engine.kernels.ops.triton.loss.batch_invariant_logp.TritonBatchInvariantLogpOp"
@@ -585,6 +589,15 @@ class KernelRegistry:
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
                 "det_gemm": [OpBackend.CUDA_DET_GEMM, OpBackend.TRITON_DET_GEMM],
+                # Triton first: on Hopper it lowers the same pinned schedule to
+                # wgmma, which is measured byte-identical to the hand-written
+                # mma.sync kernel and ~2.5x its forward throughput. The native
+                # kernel is the no-Triton fallback, then the fp32 reference.
+                "mlp_down_gemm": [
+                    OpBackend.TRITON_MLP_DOWN_GEMM,
+                    OpBackend.CUDA_MLP_DOWN_GEMM,
+                    OpBackend.PYTORCH_MLP_DOWN_GEMM,
+                ],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
@@ -639,6 +652,10 @@ class KernelRegistry:
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
                 "det_gemm": [OpBackend.TRITON_DET_GEMM],
+                "mlp_down_gemm": [
+                    OpBackend.TRITON_MLP_DOWN_GEMM,
+                    OpBackend.PYTORCH_MLP_DOWN_GEMM,
+                ],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
@@ -677,6 +694,10 @@ class KernelRegistry:
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
                 "det_gemm": [OpBackend.TRITON_DET_GEMM],
+                "mlp_down_gemm": [
+                    OpBackend.TRITON_MLP_DOWN_GEMM,
+                    OpBackend.PYTORCH_MLP_DOWN_GEMM,
+                ],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
@@ -718,6 +739,7 @@ class KernelRegistry:
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
+                "mlp_down_gemm": [OpBackend.PYTORCH_MLP_DOWN_GEMM],
             },
             # Ascend NPU: op types without an entry fall back to their CPU
             # candidates (see the runtime override below), so only
