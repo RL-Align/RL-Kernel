@@ -16,10 +16,13 @@ from rl_engine.kernels.ops.base import _C, _EXT_AVAILABLE
 ACT_NONE = 0
 ACT_SILU = 1
 CONTRACT = "h3-det-linear-v1"
+DINPUT_CHUNK = 64  # N rows per d_input partial (kDInputChunk)
 _SYMBOLS = (
     "h3_det_linear_forward",
     "h3_det_linear_backward_input",
     "h3_det_linear_backward_weight",
+    "h3_det_linear_backward_input_partials",
+    "h3_det_linear_fold_chunks",
 )
 
 
@@ -60,6 +63,20 @@ def det_linear_backward_input(
     return _C.h3_det_linear_backward_input(
         grad.float().contiguous(), weight.contiguous(), out_dtype
     )
+
+
+def det_linear_backward_input_partials(grad: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
+    """``(ceil(N / 64), T, K)`` FP32 chunk sums of ``grad @ weight``, before the fold."""
+
+    _require()
+    return _C.h3_det_linear_backward_input_partials(grad.float().contiguous(), weight.contiguous())
+
+
+def det_linear_fold_chunks(partial: torch.Tensor, out_dtype: torch.dtype) -> torch.Tensor:
+    """Ascending left fold of the chunk partials, cast once (the second half of d_input)."""
+
+    _require()
+    return _C.h3_det_linear_fold_chunks(partial.contiguous(), out_dtype)
 
 
 def det_linear_backward_weight(

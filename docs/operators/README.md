@@ -39,4 +39,5 @@ Every operator page should include:
 - [MiniMax-H3 RMSNorm and AdaLN Modulation](h3-rmsnorm.md)
 - [MiniMax-H3 AdaLN Gated Residual](h3-adaln-gate-residual.md)
 - [MiniMax-H3 Final AdaLN Output](h3-final-adaln-out.md)
+- [MiniMax-H3 Tensor-Parallel AdaLN Projection](h3-tp-adaln-3mod.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)

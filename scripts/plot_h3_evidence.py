@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""Render an RFC #420 operator report (``scripts/h3_evidence.py``) as a PNG.
+"""Render an RFC #420 operator or WS2 report (``scripts/h3_evidence.py``,
+``scripts/h3_ws2_evidence.py``) as a PNG.
 
 Needs only the report JSON and matplotlib (not torch or a GPU), so it can run
 anywhere:
@@ -22,6 +23,7 @@ from typing import Any, Callable
 import matplotlib
 
 matplotlib.use("Agg")
+import matplotlib.patches  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 
 # Fixed series identity across every H3 figure (categorical slots 1-3).
@@ -496,6 +498,97 @@ def plot_final(report: dict[str, Any]):
     return fig
 
 
+TP_TENSORS = (
+    ("table", "table (6 x 3T rows)"),
+    ("d_temb", "d_temb"),
+    ("d_weight_shard", "dW shard"),
+    ("d_bias_shard", "db shard"),
+)
+
+
+def plot_tp_adaln(report: dict[str, Any]):
+    fig, (left, right) = _figure(
+        report, "tp_adaln_3mod  (column-parallel AdaLN projection, 2688 -> 96768, NCCL)"
+    )
+    runs = report["runs"]
+    # Left: every rank, every T, every tensor byte-equal to WS1?
+    left.set_facecolor(SURFACE)
+    left.set_title(
+        "Byte-equal to WS1 (every rank, every T)", loc="left", fontsize=11, color=INK, pad=10
+    )
+    for y, run in enumerate(runs):
+        checks = [e for r in run["ranks"] for e in r["equality"]]
+        for x, (key, _) in enumerate(TP_TENSORS):
+            ok = sum(bool(e[key]) for e in checks)
+            good = ok == len(checks)
+            left.add_patch(
+                matplotlib.patches.FancyBboxPatch(
+                    (x + 0.06, y + 0.08),
+                    0.88,
+                    0.84,
+                    boxstyle="round,pad=0,rounding_size=0.06",
+                    facecolor=RL_KERNEL if good else PROVIDER,
+                    edgecolor=SURFACE,
+                    linewidth=2,
+                )
+            )
+            left.text(
+                x + 0.5,
+                y + 0.5,
+                f"{'equal' if good else 'DIFF'}\n{ok}/{len(checks)} rank x T",
+                ha="center",
+                va="center",
+                fontsize=8,
+                color="white",
+            )
+    left.set_xlim(0, len(TP_TENSORS))
+    left.set_ylim(len(runs), 0)
+    left.set_xticks([i + 0.5 for i in range(len(TP_TENSORS))], [label for _, label in TP_TENSORS])
+    left.set_yticks([i + 0.5 for i in range(len(runs))], [f"TP{run['tp']}" for run in runs])
+    left.tick_params(colors=MUTED, labelsize=8, length=0)
+    for side in left.spines.values():
+        side.set_visible(False)
+    # Right: slowest rank's time at the largest T; WS1 on one GPU as reference lines.
+    num_t = max(p["num_timesteps"] for p in runs[0]["ranks"][0]["perf"])
+
+    def worst(run, key):
+        perf = [p for r in run["ranks"] for p in r["perf"] if p["num_timesteps"] == num_t]
+        return max(p[key] for p in perf) / 1e3
+
+    tp_runs = [run for run in runs if run["tp"] > 1]
+    _style(right, f"Time per call, T = {num_t} (slowest rank; lower is better)", "ms")
+    _bars(
+        right,
+        [f"TP{run['tp']}" for run in tp_runs],
+        [
+            ("TP fwd", RL_KERNEL, [worst(run, "tp_forward_us") for run in tp_runs]),
+            (
+                "TP fwd+bwd",
+                RL_KERNEL,
+                [worst(run, "tp_forward_backward_us") for run in tp_runs],
+                "////",
+            ),
+        ],
+        "{:.2f}",
+        log=True,
+    )
+    for key, label, style in (
+        ("ws1_forward_us", "WS1 fwd", ":"),
+        ("ws1_forward_backward_us", "WS1 fwd+bwd", "--"),
+    ):
+        value = worst(runs[0], key)
+        right.axhline(
+            value,
+            color=PROVIDER,
+            linestyle=style,
+            linewidth=1.4,
+            zorder=1,
+            label=f"{label}, 1 GPU: {value:.2f}",
+        )
+    right.legend(frameon=False, fontsize=8, labelcolor=INK, loc="upper left", ncol=2)
+    return fig
+
+
 PLOTS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "timestep_sinusoid_h3": plot_sinusoid,
     "timestep_mlp_fp32": plot_mlp,
@@ -504,6 +597,7 @@ PLOTS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "h3_rmsnorm": plot_rmsnorm,
     "adaln_gate_residual": plot_gate_residual,
     "final_adaln_out": plot_final,
+    "tp_adaln_3mod": plot_tp_adaln,
 }
 
 
