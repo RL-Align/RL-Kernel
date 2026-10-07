@@ -223,6 +223,10 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     )
     PYTORCH_H3_RMSNORM = "rl_engine.kernels.ops.pytorch.h3.rmsnorm.NativeH3RMSNormOp"
     CUDA_H3_RMSNORM = "rl_engine.kernels.ops.cuda.h3.rmsnorm.H3RMSNormCudaOp"
+    PYTORCH_H3_GATE_RESIDUAL = (
+        "rl_engine.kernels.ops.pytorch.h3.gate_residual.NativeH3GateResidualOp"
+    )
+    CUDA_H3_GATE_RESIDUAL = "rl_engine.kernels.ops.cuda.h3.gate_residual.H3GateResidualCudaOp"
 
 
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
@@ -650,6 +654,10 @@ class KernelRegistry:
                     OpBackend.PYTORCH_H3_ADALN_ROW_GATHER,
                 ],
                 "h3_rmsnorm": [OpBackend.CUDA_H3_RMSNORM, OpBackend.PYTORCH_H3_RMSNORM],
+                "adaln_gate_residual": [
+                    OpBackend.CUDA_H3_GATE_RESIDUAL,
+                    OpBackend.PYTORCH_H3_GATE_RESIDUAL,
+                ],
             },
             "rocm": {
                 "logp": [
@@ -695,6 +703,7 @@ class KernelRegistry:
                 "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
                 "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
                 "h3_rmsnorm": [OpBackend.PYTORCH_H3_RMSNORM],
+                "adaln_gate_residual": [OpBackend.PYTORCH_H3_GATE_RESIDUAL],
             },
             "musa": {
                 "logp": [OpBackend.TRITON_LOGP, OpBackend.PYTORCH_NATIVE],
@@ -744,6 +753,7 @@ class KernelRegistry:
                 "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
                 "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
                 "h3_rmsnorm": [OpBackend.PYTORCH_H3_RMSNORM],
+                "adaln_gate_residual": [OpBackend.PYTORCH_H3_GATE_RESIDUAL],
             },
             "cpu": {
                 "logp": [OpBackend.PYTORCH_NATIVE],
@@ -774,6 +784,7 @@ class KernelRegistry:
                 "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
                 "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
                 "h3_rmsnorm": [OpBackend.PYTORCH_H3_RMSNORM],
+                "adaln_gate_residual": [OpBackend.PYTORCH_H3_GATE_RESIDUAL],
             },
             # Ascend NPU: op types without an entry fall back to their CPU
             # candidates (see the runtime override below), so only

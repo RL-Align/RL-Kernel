@@ -35,6 +35,7 @@ nav:
         - operators/h3-adaln-projection.md
         - operators/h3-adaln-row-gather.md
         - operators/h3-rmsnorm.md
+        - operators/h3-adaln-gate-residual.md
   - Developer Guide:
     - contributing/README.md
     - General:

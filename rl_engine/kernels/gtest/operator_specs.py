@@ -311,6 +311,17 @@ OP_SPECS = {
         },
         grad_input_names=("x", "weight"),
     ),
+    "adaln_gate_residual": OperatorSpec(
+        name="adaln_gate_residual",
+        op_class="reduction",  # forward is elementwise; the gate VJP sums positions
+        gold_path="rl_engine.kernels.ops.pytorch.h3.gate_residual.NativeH3GateResidualOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.kernels.ops.pytorch.h3.gate_residual.NativeH3GateResidualOp",
+            "cuda": "rl_engine.kernels.ops.cuda.h3.gate_residual.H3GateResidualCudaOp",
+        },
+        grad_input_names=("residual", "y", "gate"),
+    ),
     "pack": OperatorSpec(
         name="pack",
         op_class="elementwise",

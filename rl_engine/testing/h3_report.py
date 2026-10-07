@@ -20,6 +20,7 @@ from rl_engine.testing.h3_cases import h3_packed_layout, h3_timesteps
 from rl_engine.testing.h3_provider import (
     provider_adaln_modulation,
     provider_adaln_row_gather,
+    provider_gate_residual,
     provider_norm_modulate,
     provider_time_embedder,
     provider_time_proj,
@@ -467,12 +468,117 @@ def _norm_accuracy(registry: KernelRegistry) -> dict[str, Any]:
     }
 
 
+# --------------------------------------------------------------------------- #
+# adaln_gate_residual (gate_msa after attention)
+# --------------------------------------------------------------------------- #
+
+
+def _gate_inputs(seq: int, seed: int = 0, dtype=torch.bfloat16):
+    g = torch.Generator(device="cuda").manual_seed(seed)
+    table = (torch.randn(9, 6 * 5376, device="cuda", generator=g) * 0.5).to(dtype)
+    residual = torch.randn(1, seq, 5376, device="cuda", generator=g).to(dtype)
+    y = (torch.randn(1, seq, 5376, device="cuda", generator=g) * 3).to(dtype)
+    ti, tags = h3_packed_layout(seq, 3, seed=seed)
+    return table, residual, y, ti * 3 + tags
+
+
+def _gate_view(table):
+    return table.view(table.shape[0], 6, -1)[:, 2]
+
+
+def _gate_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
+    op = registry.get_op("adaln_gate_residual", device="cuda")
+    cases = []
+    for seq in NORM_SEQ_LENS:
+        table, residual, y, index = _gate_inputs(seq)
+        gate = _gate_view(table)
+        grad = torch.randn_like(residual)
+
+        def backward(fn, residual=residual, y=y, table=table, grad=grad):
+            leaves = [t.detach().requires_grad_(True) for t in (residual, y, table)]
+            fn(leaves[0], leaves[1], _gate_view(leaves[2])).backward(grad)
+
+        cases.append(
+            {
+                "op": "adaln_gate_residual",
+                "case": f"S={seq}",
+                "backend": type(op).__name__,
+                "bytes": 3 * seq * 5376 * 2,  # read residual and y, write out
+                "candidate": lambda r=residual, y=y, g=gate, i=index: op.forward(
+                    r, y, g, i, check_range=False
+                ),
+                "provider": lambda r=residual, y=y, g=gate, i=index: provider_gate_residual(
+                    r, g, i, y
+                ),
+                "candidate_backward": lambda b=backward, i=index: b(
+                    lambda r, y_, g: op.forward(r, y_, g, i, check_range=False)
+                ),
+                "provider_backward": lambda b=backward, i=index: b(
+                    lambda r, y_, g: provider_gate_residual(r, g, i, y_)
+                ),
+            }
+        )
+    return cases
+
+
+def _gate_accuracy(registry: KernelRegistry) -> dict[str, Any]:
+    op = registry.get_op("adaln_gate_residual", device="cuda")
+    forward_bitwise = {}
+    for dtype in (torch.bfloat16, torch.float16, torch.float32):
+        table, residual, y, index = _gate_inputs(777, seed=1, dtype=dtype)
+        gate = _gate_view(table)
+        forward_bitwise[str(dtype).removeprefix("torch.")] = bool(
+            torch.equal(
+                op(residual, y, gate, index), provider_gate_residual(residual, gate, index, y)
+            )
+        )
+    table, residual, y, index = _gate_inputs(4097, seed=2)
+    invariant = bool(
+        torch.equal(
+            op(residual[:, 10:60], y[:, 10:60], _gate_view(table), index[10:60])[0],
+            op(residual, y, _gate_view(table), index)[0, 10:60],
+        )
+    )
+    grad = torch.randn(
+        residual.shape, device="cuda", generator=torch.Generator(device="cuda").manual_seed(7)
+    ).to(residual.dtype)
+
+    def grads(fn, dtype=None):
+        tensors = [t if dtype is None else t.to(dtype) for t in (residual, y, table)]
+        leaves = [t.detach().clone().requires_grad_(True) for t in tensors]
+        fn(leaves[0], leaves[1], _gate_view(leaves[2])).backward(
+            grad if dtype is None else grad.to(dtype)
+        )
+        return [leaf.grad for leaf in leaves]
+
+    ref = grads(lambda r, y_, g: provider_gate_residual(r, g, index, y_), torch.float64)
+    backward = {}
+    for name, fn in (
+        ("cuda", lambda r, y_, g: op(r, y_, g, index)),
+        ("provider", lambda r, y_, g: provider_gate_residual(r, g, index, y_)),
+    ):
+        first, second = grads(fn), grads(fn)
+        backward[name] = {
+            "repeat_bitwise_equal": all(torch.equal(a, b) for a, b in zip(first, second)),
+            "rel_error": {
+                key: float((g.double() - r).abs().max() / r.abs().max())
+                for key, g, r in zip(("d_residual", "d_sublayer", "d_gate"), first, ref)
+            },
+        }
+    return {
+        "forward_bitwise_vs_diffusers": forward_bitwise,
+        "rows_batch_invariant": invariant,
+        "backward": backward,
+    }
+
+
 PERF_CASES: dict[str, Callable[[KernelRegistry], list[dict[str, Any]]]] = {
     "timestep_sinusoid_h3": _sinusoid_perf,
     "timestep_mlp_fp32": _mlp_perf,
     "adaln_projection_3mod": _projection_perf,
     "adaln_row_gather": _gather_perf,
     "h3_rmsnorm": _norm_perf,
+    "adaln_gate_residual": _gate_perf,
 }
 ACCURACY: dict[str, Callable[[KernelRegistry], dict[str, Any]]] = {
     "timestep_sinusoid_h3": _sinusoid_accuracy,
@@ -480,4 +586,5 @@ ACCURACY: dict[str, Callable[[KernelRegistry], dict[str, Any]]] = {
     "adaln_projection_3mod": _projection_accuracy,
     "adaln_row_gather": _gather_accuracy,
     "h3_rmsnorm": _norm_accuracy,
+    "adaln_gate_residual": _gate_accuracy,
 }
