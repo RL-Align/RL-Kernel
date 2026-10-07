@@ -95,7 +95,7 @@ weight and bias) against an FP64 golden in which every declared cast is straight
 | S >= 257 (72 gradients) | RL-Kernel, separate ops | RL-Kernel, fused | diffusers |
 | --- | --- | --- | --- |
 | repeat-bitwise | 72 / 72 | 72 / 72 | 0 / 72 |
-| time embedder: max abs error / golden max | 5.3e-4 to 2.4e-3 | 6.5e-7 to 4.9e-6 | 5.6e-3 to 1.2e-1 |
+| time embedder: max abs error / golden max | 5.3e-4 to 2.4e-3 | 6.5e-7 to 4.9e-6 | 3.8e-3 to 1.3e-1, varying run to run |
 | AdaLN weight/bias: correctly rounded BF16, worst case | 59.8% | 99.57% | 1.6% |
 
 At S = 3 all three chains are deterministic. Both RL-Kernel variants reach 1.5e-6 on the
@@ -111,12 +111,25 @@ B200, T = 3, H = 5376, BF16. "write BW" counts the 6·S·H outputs; the table st
 
 | S | CUDA forward | provider forward | CUDA backward | provider backward |
 | --- | --- | --- | --- | --- |
-| 4097 | 62 µs | 92 µs | 1.10 ms | 1.44 ms |
-| 32768 | 315 µs | 587 µs | 2.10 ms | 8.66 ms |
-| 131072 | 1.24 ms (6.8 TB/s write) | 2.37 ms | 6.84 ms | 34.9 ms |
+| 4097 | 0.06 ms | 0.09 ms | 1.15 ms | 1.47 ms |
+| 32768 | 0.32 ms | 0.59 ms | 2.18 ms | 8.72 ms |
+| 131072 | 1.23 ms (6.8 TB/s write) | 2.37 ms | 6.86 ms | 34.9 ms |
 
 The backward's peak memory is about twice the provider's, because autograd stacks the
 six output gradients and the per-tile FP32 partials are materialised.
+
+## Evidence
+
+![adaln_row_gather on B200: latency and whole-chain gradient accuracy](../usage/evidence/h3-adaln-row-gather-b200/figure.png)
+
+There are two data files:
+
+- [`report.json`](../usage/evidence/h3-adaln-row-gather-b200/report.json): op timings, forward
+  bitwise checks, op-level backward, and the chain-backward cases plotted above.
+- [`chain_replay.json`](../usage/evidence/h3-adaln-row-gather-b200/chain_replay.json): the full
+  stage-wise forward replay and backward replay over T in {1, 2, 3, 4} × S in {3, 257, 4097, 32768}.
+
+Both were written from a clean tree at commit `fa551c2`.
 
 ## Tests
 
