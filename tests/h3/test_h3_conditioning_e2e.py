@@ -22,7 +22,10 @@ import torch
 from rl_engine.kernels.registry import KernelRegistry
 from rl_engine.testing import h3_chain
 
-pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA device")
+pytestmark = pytest.mark.skipif(
+    not torch.cuda.is_available() or torch.cuda.get_device_capability()[0] < 8,
+    reason="needs an SM80+ CUDA device",
+)
 
 # (T distinct timesteps, S packed rows): single row, short packed, realistic-size packed.
 CASES = [(1, 3), (3, 257), (4, 4097)]
