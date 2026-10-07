@@ -63,12 +63,35 @@ def peak_mib(fn: Callable[[], Any]) -> float:
 
 def measure(case: dict[str, Any], warmup: int = 20, iters: int = 200) -> dict[str, Any]:
     row = {key: case[key] for key in ("op", "case", "backend", "bytes") if key in case}
-    for key in TIMED_KEYS:
-        if key in case:
-            us = time_us(case[key], warmup, iters)
-            row[f"{key}_us"] = us
-            row[f"{key}_gbps"] = case["bytes"] / (us * 1e-6) / 1e9
-            row[f"{key}_peak_mib"] = peak_mib(case[key])
+    keys = [key for key in TIMED_KEYS if key in case]
+    if not keys:
+        return row
+    for _ in range(warmup):
+        for key in keys:
+            case[key]()
+    torch.cuda.synchronize()
+    samples = {key: [] for key in keys}
+    orders = []
+    for index in range(iters):
+        # Rotate the first implementation so drift does not favor one backend.
+        offset = index % len(keys)
+        order = keys[offset:] + keys[:offset]
+        orders.append(order)
+        for key in order:
+            start = torch.cuda.Event(enable_timing=True)
+            end = torch.cuda.Event(enable_timing=True)
+            start.record()
+            case[key]()
+            end.record()
+            end.synchronize()
+            samples[key].append(start.elapsed_time(end) * 1e3)
+    row["timing_samples_us"] = samples
+    row["timing_order"] = orders
+    for key in keys:
+        us = statistics.median(samples[key])
+        row[f"{key}_us"] = us
+        row[f"{key}_gbps"] = case["bytes"] / (us * 1e-6) / 1e9
+        row[f"{key}_peak_mib"] = peak_mib(case[key])
     return row
 
 
@@ -244,7 +267,7 @@ def _projection_accuracy(registry: KernelRegistry, draws: int = 20) -> dict[str,
     invariant = all(
         all(
             torch.equal(s, f[3 * i : 3 * i + 3])
-            for s, f in zip(op(temb[i : i + 1], weight, bias), full)
+            for s, f in zip(op(temb[i : i + 1], weight, bias), full, strict=True)
         )
         for i in range(9)
     )

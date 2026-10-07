@@ -12,11 +12,11 @@ from pathlib import Path
 import pytest
 import torch
 
-from rl_engine.testing.h3_weights import EXTRACTED_FILE, sha256_file
+from rl_engine.testing.h3_weights import EXTRACTED_FILE, sha256_file, sha256_tensor
 
 
 @pytest.mark.parametrize("optimize", [0, 1])
-@pytest.mark.parametrize("mismatch", [None, "dtype", "shape"])
+@pytest.mark.parametrize("mismatch", [None, "dtype", "shape", "sha256"])
 def test_manifest_validation_before_write(tmp_path, monkeypatch, optimize, mismatch):
     import huggingface_hub
     from safetensors.torch import load_file, save_file
@@ -42,6 +42,7 @@ def test_manifest_validation_before_write(tmp_path, monkeypatch, optimize, misma
             "weight": {
                 "dtype": "bfloat16" if mismatch == "dtype" else "float32",
                 "shape": [3] if mismatch == "shape" else [2],
+                "sha256": "0" * 64 if mismatch == "sha256" else sha256_tensor(tensor),
             }
         },
     }

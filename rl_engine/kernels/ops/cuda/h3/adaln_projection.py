@@ -100,6 +100,8 @@ class H3AdaLNProjectionCudaOp:
         """The raw ``(T, 6H*3)`` projection, for consumers that gather it directly."""
 
         validate_h3_adaln_projection(temb, weight, bias)
+        if not temb.is_cuda:
+            raise ValueError("H3AdaLNProjectionCudaOp needs CUDA tensors")
         return _H3AdaLNProjectionCuda.apply(temb, weight, bias)
 
     def forward_fp32(self, temb, weight, bias):

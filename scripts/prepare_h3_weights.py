@@ -23,7 +23,12 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from rl_engine.testing.h3_weights import EXTRACTED_FILE, load_h3_manifest, sha256_file  # noqa: E402
+from rl_engine.testing.h3_weights import (  # noqa: E402
+    EXTRACTED_FILE,
+    load_h3_manifest,
+    sha256_file,
+    sha256_tensor,
+)
 
 
 def _check(path: Path, expected: str) -> None:
@@ -86,6 +91,9 @@ def main() -> None:
             raise SystemExit(f"{name}: dtype {tensor.dtype} != manifest {spec['dtype']}")
         if list(tensor.shape) != spec["shape"]:
             raise SystemExit(f"{name}: shape {list(tensor.shape)} != manifest {spec['shape']}")
+        actual = sha256_tensor(tensor)
+        if actual != spec["sha256"]:
+            raise SystemExit(f"{name}: sha256 {actual} != manifest {spec['sha256']}")
 
     target = out_dir / EXTRACTED_FILE
     save_file(tensors, str(target), metadata={"revision": identity["revision"]})

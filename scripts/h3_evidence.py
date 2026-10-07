@@ -26,7 +26,11 @@ import torch  # noqa: E402
 from rl_engine.kernels.registry import KernelRegistry  # noqa: E402
 from rl_engine.testing.h3_chain import environment, git_state  # noqa: E402
 from rl_engine.testing.h3_report import ACCURACY, PERF_CASES, measure  # noqa: E402
-from rl_engine.testing.h3_weights import load_h3_manifest  # noqa: E402
+from rl_engine.testing.h3_weights import (  # noqa: E402
+    WEIGHTS_ENV,
+    h3_weights_dir,
+    load_h3_manifest,
+)
 
 
 def main() -> None:
@@ -34,6 +38,9 @@ def main() -> None:
     parser.add_argument("--op", required=True, choices=sorted(ACCURACY))
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
+    uses_weights = args.op != "timestep_sinusoid_h3"
+    if uses_weights and h3_weights_dir() is None:
+        raise SystemExit(f"set {WEIGHTS_ENV} to the scripts/prepare_h3_weights.py output dir")
     if not torch.cuda.is_available():
         raise SystemExit("needs a CUDA device")
     torch.backends.cuda.matmul.allow_tf32 = False
@@ -46,6 +53,7 @@ def main() -> None:
         "op": args.op,
         "rfc": manifest["rfc"],
         "model_revision": manifest["model_identity"]["revision"],
+        "weight_source": "pinned_checkpoint" if uses_weights else "not_applicable",
         "reference_commit": manifest["reference_implementation"]["commit"],
         **git_state(),
         "environment": environment(),
