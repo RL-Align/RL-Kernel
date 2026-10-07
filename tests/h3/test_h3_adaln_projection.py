@@ -71,7 +71,7 @@ class TestReference:
         ours = NativeH3AdaLNProjectionOp().forward(temb, weight, bias)
         theirs = provider_adaln_modulation(temb, weight, bias, hidden_size=8)
         assert len(ours) == 6
-        for a, b in zip(ours, theirs):
+        for a, b in zip(ours, theirs, strict=True):
             assert a.shape == (6, 8) and torch.equal(a, b)
 
     def test_rejects_bf16_temb(self):
@@ -144,7 +144,7 @@ class TestCudaRealWeights:
         temb = _temb(num, seed=num)
         outputs = _cuda_op()(temb, weight, bias)
         golden = NativeH3AdaLNProjectionOp().forward_fp32(temb, weight, bias)
-        for out, gold in zip(outputs, golden):
+        for out, gold in zip(outputs, golden, strict=True):
             assert out.dtype == torch.bfloat16 and out.shape == (3 * num, 5376)
             # tolerance_contract.json forward_accuracy / reduction / bfloat16.
             torch.testing.assert_close(out.float(), gold, atol=5e-2, rtol=2e-2)
@@ -174,10 +174,10 @@ class TestCudaRealWeights:
         full = op(temb, weight, bias)
         for i in range(5):
             single = op(temb[i : i + 1], weight, bias)
-            for s, f in zip(single, full):
+            for s, f in zip(single, full, strict=True):
                 assert torch.equal(s, f[3 * i : 3 * i + 3])
         swapped = op(temb.flip(0), weight, bias)
-        for s, f in zip(swapped, full):
+        for s, f in zip(swapped, full, strict=True):
             assert torch.equal(s.view(5, 3, -1).flip(0), f.view(5, 3, -1))
 
     def test_backward_against_golden(self, block0):
@@ -198,7 +198,7 @@ class TestCudaRealWeights:
         # tolerance_contract.json gradient_accuracy / reduction: FP32 temb grad
         # and BF16 weight/bias grads (rounded once from an FP32 accumulation).
         torch.testing.assert_close(leaves[0].grad.double(), ref[0].grad, atol=1e-4, rtol=1e-4)
-        for leaf, r in zip(leaves[1:], ref[1:]):
+        for leaf, r in zip(leaves[1:], ref[1:], strict=True):
             torch.testing.assert_close(leaf.grad.double(), r.grad, atol=1e-1, rtol=2e-2)
             assert (leaf.grad == r.grad.to(torch.bfloat16)).float().mean() > 0.999
 
@@ -216,6 +216,7 @@ class TestCudaSynthetic:
         for out, gold in zip(
             _cuda_op()(temb, weight, bias),
             NativeH3AdaLNProjectionOp().forward_fp32(temb, weight, bias),
+            strict=True,
         ):
             torch.testing.assert_close(out.float(), gold, **tol)
 
@@ -232,7 +233,7 @@ class TestCudaSynthetic:
             torch.autograd.backward(list(outs), grads)
             runs.append([*[o.detach() for o in outs], *[leaf.grad for leaf in leaves]])
         for later in runs[1:]:
-            for a, b in zip(runs[0], later):
+            for a, b in zip(runs[0], later, strict=True):
                 assert torch.equal(a, b)
 
     def test_temb_grad_rows_are_batch_invariant(self):
@@ -265,7 +266,7 @@ class TestCudaSynthetic:
         full = _cuda_op()(temb, weight, bias)
         for i in (0, 7, num - 1):
             single = _cuda_op()(temb[i : i + 1], weight, bias)
-            for s_out, f_out in zip(single, full):
+            for s_out, f_out in zip(single, full, strict=True):
                 assert torch.equal(s_out, f_out[3 * i : 3 * i + 3])
 
     def test_rejects_cpu(self):

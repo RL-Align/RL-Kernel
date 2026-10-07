@@ -147,7 +147,7 @@ class TestCudaRealWeights:
             3, 2688, device="cuda", generator=torch.Generator("cuda").manual_seed(0)
         )
         _cuda_op()(*leaves).backward(grad_out)
-        for name, leaf, ref in zip(NAMES, leaves, _fp64_grads(x, params, grad_out)):
+        for name, leaf, ref in zip(NAMES, leaves, _fp64_grads(x, params, grad_out), strict=True):
             # tolerance_contract.json gradient_accuracy / reduction / float32.
             torch.testing.assert_close(leaf.grad.double(), ref, atol=1e-4, rtol=1e-4, msg=name)
 
@@ -197,7 +197,7 @@ class TestCudaSynthetic:
             out.backward(grad_out)
             runs.append([out.detach(), *[leaf.grad for leaf in leaves]])
         for later in runs[1:]:
-            for a, b in zip(runs[0], later):
+            for a, b in zip(runs[0], later, strict=True):
                 assert torch.equal(a, b)
 
     def test_dx_rows_are_batch_invariant(self):
