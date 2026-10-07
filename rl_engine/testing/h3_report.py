@@ -36,41 +36,83 @@ TIMED_KEYS = (
 )
 
 
-def time_us(fn: Callable[[], Any], warmup: int = 20, iters: int = 200) -> float:
-    """Median CUDA-event time of ``fn`` in microseconds (includes the Python wrapper)."""
+def _prepared_call(
+    fn: Callable[..., Any], setup: Callable[[], Any] | None = None
+) -> Callable[[], Any]:
+    if setup is None:
+        return fn
+    prepared = setup()
+    return lambda: fn(prepared)
+
+
+def _sample_us(fn: Callable[..., Any], setup: Callable[[], Any] | None = None) -> float:
+    run = _prepared_call(fn, setup)
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+    start.record()
+    run()
+    end.record()
+    end.synchronize()
+    return start.elapsed_time(end) * 1e3
+
+
+def time_us(
+    fn: Callable[..., Any],
+    warmup: int = 20,
+    iters: int = 200,
+    *,
+    setup: Callable[[], Any] | None = None,
+) -> float:
+    """Median CUDA-event microseconds; optional setup runs outside the timed region.
+
+    When supplied, ``setup`` runs before every call and its return value is passed
+    to ``fn``. Backward measurements use it to build a fresh forward graph.
+    """
 
     for _ in range(warmup):
-        fn()
+        _prepared_call(fn, setup)()
     torch.cuda.synchronize()
-    samples = []
-    for _ in range(iters):
-        start = torch.cuda.Event(enable_timing=True)
-        end = torch.cuda.Event(enable_timing=True)
-        start.record()
-        fn()
-        end.record()
-        end.synchronize()
-        samples.append(start.elapsed_time(end) * 1e3)
-    return statistics.median(samples)
+    return statistics.median(_sample_us(fn, setup) for _ in range(iters))
 
 
-def peak_mib(fn: Callable[[], Any]) -> float:
+def peak_mib(fn: Callable[..., Any], *, setup: Callable[[], Any] | None = None) -> float:
+    """Incremental peak CUDA memory of the call, excluding optional setup."""
+
+    run = _prepared_call(fn, setup)
     torch.cuda.synchronize()
     torch.cuda.reset_peak_memory_stats()
     base = torch.cuda.memory_allocated()
-    fn()
+    run()
     torch.cuda.synchronize()
     return (torch.cuda.max_memory_allocated() - base) / 2**20
 
 
 def measure(case: dict[str, Any], warmup: int = 20, iters: int = 200) -> dict[str, Any]:
+    """Interleave timed keys, reversing their execution order on alternate iterations."""
+
     row = {key: case[key] for key in ("op", "case", "backend", "bytes") if key in case}
-    for key in TIMED_KEYS:
-        if key in case:
-            us = time_us(case[key], warmup, iters)
-            row[f"{key}_us"] = us
-            row[f"{key}_gbps"] = case["bytes"] / (us * 1e-6) / 1e9
-            row[f"{key}_peak_mib"] = peak_mib(case[key])
+    keys = [key for key in TIMED_KEYS if key in case]
+    orders = (keys, list(reversed(keys)))
+    row["execution_order"] = {
+        "policy": "alternating",
+        "iteration_0": orders[0],
+        "iteration_1": orders[1],
+    }
+    if any(key.endswith("_backward") for key in keys):
+        row["backward_timing_scope"] = "backward_only"
+    for iteration in range(warmup):
+        for key in orders[iteration % 2]:
+            _prepared_call(case[key], case.get(f"{key}_setup"))()
+    torch.cuda.synchronize()
+    samples = {key: [] for key in keys}
+    for iteration in range(iters):
+        for key in orders[iteration % 2]:
+            samples[key].append(_sample_us(case[key], case.get(f"{key}_setup")))
+    for key in keys:
+        us = statistics.median(samples[key])
+        row[f"{key}_us"] = us
+        row[f"{key}_gbps"] = case["bytes"] / (us * 1e-6) / 1e9
+        row[f"{key}_peak_mib"] = peak_mib(case[key], setup=case.get(f"{key}_setup"))
     return row
 
 
@@ -277,9 +319,12 @@ def _gather_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
         ti, tags = h3_packed_layout(seq, num_timesteps, seed=seq)
         grads = [torch.randn(seq, hidden, device="cuda").bfloat16() for _ in range(6)]
 
-        def backward(fn, ti=ti, tags=tags, grads=grads):
+        def prepare_backward(fn, ti=ti, tags=tags):
             leaf = rows.detach().requires_grad_(True)
-            torch.autograd.backward(list(fn(leaf, ti, tags)), grads)
+            return list(fn(leaf, ti, tags))
+
+        def backward(outputs, grads=grads):
+            torch.autograd.backward(outputs, grads)
 
         cases.append(
             {
@@ -290,11 +335,15 @@ def _gather_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
                 "bytes": 6 * seq * hidden * 2,
                 "candidate": lambda ti=ti, tags=tags: op.forward(rows, ti, tags, check_range=False),
                 "provider": lambda ti=ti, tags=tags: provider_adaln_row_gather(chunks, ti, tags),
-                "candidate_backward": lambda b=backward: b(
-                    lambda r, ti, tags: op.forward(r, ti, tags, check_range=False)
+                "candidate_backward": backward,
+                "provider_backward": backward,
+                "candidate_backward_setup": lambda b=prepare_backward: b(
+                    lambda r, indices, row_tags: op.forward(r, indices, row_tags, check_range=False)
                 ),
-                "provider_backward": lambda b=backward: b(
-                    lambda r, ti, tags: provider_adaln_row_gather(r.chunk(6, dim=-1), ti, tags)
+                "provider_backward_setup": lambda b=prepare_backward: b(
+                    lambda r, indices, row_tags: provider_adaln_row_gather(
+                        r.chunk(6, dim=-1), indices, row_tags
+                    )
                 ),
             }
         )
@@ -374,9 +423,12 @@ def _norm_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
         x, weight, shift, scale, index = _norm_inputs(seq)
         grad = torch.randn_like(x)
 
-        def backward(fn, x=x, weight=weight, shift=shift, scale=scale, grad=grad):
+        def prepare_backward(fn, x=x, weight=weight, shift=shift, scale=scale):
             leaves = [t.detach().requires_grad_(True) for t in (x, weight, shift, scale)]
-            fn(*leaves).backward(grad)
+            return fn(*leaves)
+
+        def backward(output, grad=grad):
+            output.backward(grad)
 
         cases.append(
             {
@@ -390,12 +442,14 @@ def _norm_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
                 "provider": lambda x=x, w=weight, sh=shift, sc=scale, i=index: (
                     provider_norm_modulate(x, w, sh, sc, i)
                 ),
-                "candidate_backward": lambda b=backward, i=index: b(
+                "candidate_backward": backward,
+                "provider_backward": backward,
+                "candidate_backward_setup": lambda b=prepare_backward, i=index: b(
                     lambda x_, w_, sh_, sc_: op.forward_modulated(
                         x_, w_, sh_, sc_, i, check_range=False
                     )
                 ),
-                "provider_backward": lambda b=backward, i=index: b(
+                "provider_backward_setup": lambda b=prepare_backward, i=index: b(
                     lambda x_, w_, sh_, sc_: provider_norm_modulate(x_, w_, sh_, sc_, i)
                 ),
             }
