@@ -70,7 +70,7 @@ def main() -> None:
         ax.text(
             i,
             vals[i],
-            f"{vals[i]:.2e}\n{cr:.2%}\ncorr.\nrounded",
+            f"{vals[i]:.2e}\n{cr:.4%}\ncorr.\nrounded",
             ha="center",
             va="bottom",
             fontsize=7,
