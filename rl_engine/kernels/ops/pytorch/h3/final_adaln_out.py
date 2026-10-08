@@ -58,9 +58,10 @@ def validate_h3_final_adaln_out(
 
 class NativeH3FinalAdaLNOutOp:
     """PyTorch reference: ``forward`` replays diffusers' ``norm_out``;
-    ``forward_fp32`` is the FP64 golden, returned in FP32. It rounds only at the
-    module boundaries the model declares (the SiLU cast and the BF16 table),
-    straight-through for the gradient."""
+    ``forward_fp32`` is the FP64 golden, returned in FP32. It rounds only where
+    the model itself stores a value in its own dtype (the SiLU cast, the BF16
+    table, the ``norm_out.norm`` output and ``1 + scale``), straight-through for
+    the gradient, and computes everything else in FP64."""
 
     op_class = "reduction"
 
@@ -89,7 +90,15 @@ class NativeH3FinalAdaLNOutOp:
         shift, scale = table.chunk(2, dim=-1)
         x64 = x.double()
         n = x64 * torch.rsqrt(x64.square().mean(-1, keepdim=True) + eps) * norm_weight.double()
-        out = n * (1.0 + scale.index_select(0, timestep_indices)) + shift.index_select(
-            0, timestep_indices
+        # norm_out.norm is an x.dtype module and diffusers forms 1 + scale in
+        # x.dtype, so both are stored rounded. 1 + scale is shared by every
+        # position of a timestep: left unrounded, its error is systematic and
+        # grows with S in d_norm_weight; n's rounding enters d_scale (and so
+        # dW, d_temb) summed over S. Identity in FP32.
+        n = n + (n.to(x.dtype).double() - n).detach()
+        one_plus_scale = 1.0 + scale.index_select(0, timestep_indices)
+        one_plus_scale = (
+            one_plus_scale + (one_plus_scale.to(x.dtype).double() - one_plus_scale).detach()
         )
+        out = n * one_plus_scale + shift.index_select(0, timestep_indices)
         return out.float()
