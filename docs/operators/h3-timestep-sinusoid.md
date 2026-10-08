@@ -94,6 +94,30 @@ The data is in [`report.json`](../usage/evidence/h3-timestep-sinusoid-b200/repor
 `scripts/h3_evidence.py` wrote it from a clean tree at commit `0522865`, and the report
 records that commit and the environment.
 
+## Existing implementations (RFC #420 reuse rule)
+
+![timestep_sinusoid vs existing implementations](../usage/evidence/h3-prior-art-b200/timestep_sinusoid.png)
+
+| Implementation | Batch-invariant | size 3: fwd err / worst grad err / fwd+bwd | size 256: fwd err / worst grad err / fwd+bwd | size 2048: fwd err / worst grad err / fwd+bwd |
+|---|---|---|---|---|
+| diffusers get_timestep_embedding (op-for-op replay) | yes | 6.7e-08 / — / 64 µs (fwd only) | 8.6e-08 / — / 64 µs (fwd only) | 9.9e-08 / — / 65 µs (fwd only) |
+| SGLang 0.5.21 timestep_embedding | yes | 6.7e-08 / — / 13 µs (fwd only) | 8.6e-08 / — / 12 µs (fwd only) | 9.9e-08 / — / 13 µs (fwd only) |
+| rl-kernel H3TimestepSinusoidCudaOp (check_range=False) | yes | 6.7e-08 / — / 16 µs (fwd only) | 8.6e-08 / — / 16 µs (fwd only) | 9.9e-08 / — / 16 µs (fwd only) |
+
+Errors are max|err| / max|ref| against the same computation in FP64; latency is the median
+forward + backward time on an otherwise idle B200. Batch invariance is bitwise and covers
+three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
+8192-timestep batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
+"no" means that at least one row, sub-batch or gradient differed. [`timestep_sinusoid.json`](../usage/evidence/h3-prior-art-b200/timestep_sinusoid.json)
+was written from a clean tree at `7a82917` by
+
+```bash
+python scripts/h3_prior_art.py --op timestep_sinusoid --out docs/usage/evidence/h3-prior-art-b200/timestep_sinusoid.json
+python scripts/plot_h3_prior_art.py docs/usage/evidence/h3-prior-art-b200/timestep_sinusoid.json
+```
+
+Libraries that do not import are skipped and recorded as unavailable in the report.
+
 ## Tests
 
 ```bash
