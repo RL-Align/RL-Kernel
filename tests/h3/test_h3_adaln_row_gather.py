@@ -8,10 +8,19 @@
 * semantic indices fail closed (out-of-range tags or timesteps, RFC probes
   H2/H3), and flipping a tag or offsetting a timestep picks a different row;
 * backward is a deterministic FP32 segmented sum: repeat-bitwise and
-  correctly rounded, unlike the atomic BF16 ``index_select`` backward.
+  correctly rounded, unlike the atomic BF16 ``index_select`` backward;
+* batch invariance: a position's output does not depend on which other
+  positions share the call, and a row's gradient does not depend on the
+  positions that reference other rows.
 """
 
 from __future__ import annotations
+
+import os
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
 
 import pytest
 import torch
@@ -123,6 +132,55 @@ class TestCudaForward:
         with pytest.raises(IndexError):
             _cuda_op()(rows, ti, tags + 3)
 
+    @pytest.mark.parametrize("entrypoint", ["native", "unchecked_wrapper"])
+    @pytest.mark.parametrize(
+        "timestep, tag, index_dtype",
+        [
+            pytest.param(-1, 0, "int32", id="negative-timestep"),
+            pytest.param(2, 0, "int64", id="timestep-past-table"),
+            pytest.param(0, 3, "int32", id="tag-past-modality-valid-row"),
+            pytest.param(1, -1, "int64", id="negative-tag-valid-row"),
+            # Multiplication by 3 wraps this value to row 2 in signed int64.
+            pytest.param((2**64 + 2) // 3, 0, "int64", id="timestep-overflow-valid-row"),
+            pytest.param(0, 2**63 - 1, "int64", id="int64-max-tag"),
+        ],
+    )
+    def test_native_bounds_assertions(self, entrypoint, timestep, tag, index_dtype):
+        """Reject semantic index violations without poisoning pytest's CUDA context."""
+
+        _cuda_op()
+        probe = textwrap.dedent(
+            """
+            import sys
+            import torch
+            from rl_engine.kernels.ops.base import _C
+            from rl_engine.kernels.ops.cuda.h3.adaln_row_gather import H3AdaLNRowGatherCudaOp
+
+            entrypoint, timestep, tag, index_dtype = sys.argv[1:]
+            rows = torch.zeros((6, 6), dtype=torch.float32, device="cuda")
+            dtype = getattr(torch, index_dtype)
+            ti = torch.tensor([int(timestep)], dtype=dtype, device="cuda")
+            tags = torch.tensor([int(tag)], dtype=dtype, device="cuda")
+            if entrypoint == "native":
+                _C.h3_adaln_row_gather_forward(rows, ti, tags, 6, 3)
+            else:
+                H3AdaLNRowGatherCudaOp().forward(rows, ti, tags, check_range=False)
+            torch.cuda.synchronize()
+            """
+        )
+        completed = subprocess.run(
+            [sys.executable, "-c", probe, entrypoint, str(timestep), str(tag), index_dtype],
+            cwd=Path(__file__).resolve().parents[2],
+            env={**os.environ, "CUDA_LAUNCH_BLOCKING": "1"},
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert completed.returncode != 0, "native gather accepted invalid semantic indices"
+        assert "device-side assert triggered" in completed.stderr, (
+            f"expected a CUDA bounds assertion, got:\n{completed.stdout}\n{completed.stderr}"
+        )
+
     def test_gather_chunks_drop_in(self):
         rows = _rows(2, hidden=16)
         ti, tags = h3_packed_layout(10, 2)
@@ -163,6 +221,39 @@ class TestCudaBackward:
         first = self._cuda_grad(rows, ti, tags, grads)
         for _ in range(3):
             assert torch.equal(self._cuda_grad(rows, ti, tags, grads), first)
+
+    def test_forward_rows_invariant_to_batch_size_and_position(self):
+        rows = _rows(3, hidden=512, seed=5)
+        ti, tags = h3_packed_layout(4097, 3, seed=5)
+        full = _cuda_op()(rows, ti, tags)
+        perm = torch.randperm(4097, generator=torch.Generator().manual_seed(5)).cuda()
+        for pick in (
+            torch.tensor([0]),
+            torch.tensor([2048]),
+            torch.arange(100, 357),
+            torch.arange(4000, 4097),
+            perm,
+        ):
+            pick = pick.cuda()
+            part = _cuda_op()(rows, ti[pick], tags[pick])
+            for a, b in zip(part, full):
+                assert torch.equal(a, b[pick])
+
+    def test_backward_row_gradient_independent_of_other_rows_tokens(self):
+        # Each row's segment is tiled on its own, so a row's gradient from the
+        # full packing equals the one from a packing of only its own positions
+        # (same order), even though ~455 positions per row cross tile boundaries.
+        rows = _rows(3, hidden=512, seed=6)
+        ti, tags = h3_packed_layout(4097, 3, seed=6)
+        grads = self._grads(4097, 512, seed=6)
+        full = self._cuda_grad(rows, ti, tags, grads)
+        flat = ti * 3 + tags
+        for r in range(rows.shape[0]):
+            own = (flat == r).nonzero().squeeze(1)
+            assert own.numel() > 256
+            alone = self._cuda_grad(rows, ti[own], tags[own], [g[own] for g in grads])
+            assert torch.equal(alone[r], full[r])
+            assert torch.count_nonzero(alone[torch.arange(rows.shape[0], device="cuda") != r]) == 0
 
     def test_unreferenced_rows_get_zero_grad(self):
         rows = _rows(3, hidden=16)

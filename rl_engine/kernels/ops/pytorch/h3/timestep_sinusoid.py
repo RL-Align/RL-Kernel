@@ -68,6 +68,8 @@ class NativeH3TimestepSinusoidOp:
     op_class = "elementwise"
 
     def __call__(self, timestep: torch.Tensor, *, num_channels: int = H3_FREQ_DIM):
+        """Return FP32 sinusoidal features for nonempty timesteps in ``[0, 1]``."""
+
         return self.forward(timestep, num_channels=num_channels)
 
     def forward(
@@ -77,6 +79,13 @@ class NativeH3TimestepSinusoidOp:
         num_channels: int = H3_FREQ_DIM,
         check_range: bool = True,
     ) -> torch.Tensor:
+        """Return FP32 ``(T, num_channels)`` cosine-then-sine features on the input device.
+
+        Require nonempty 1-D FP32, BF16 or FP16 timesteps and positive even
+        channels. Validate finite values in ``[0, 1]`` when ``check_range`` is
+        true and preserve PyTorch autograd through the provider formula.
+        """
+
         validate_h3_timesteps(timestep, num_channels, check_range=check_range)
         half = num_channels // 2
         # Same op sequence and dtypes as diffusers get_timestep_embedding with
@@ -96,6 +105,12 @@ class NativeH3TimestepSinusoidOp:
         num_channels: int = H3_FREQ_DIM,
         check_range: bool = True,
     ) -> torch.Tensor:
+        """Evaluate the validated sinusoid formula in FP64 and round once to FP32.
+
+        Return ``(T, num_channels)`` on the timestep device with cosine channels
+        followed by sine channels and gradients through the FP64 golden graph.
+        """
+
         validate_h3_timesteps(timestep, num_channels, check_range=check_range)
         half = num_channels // 2
         k = torch.arange(half, dtype=torch.float64, device=timestep.device)

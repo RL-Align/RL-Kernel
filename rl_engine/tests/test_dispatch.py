@@ -238,6 +238,8 @@ H3_OPS = (
 
 @pytest.mark.parametrize("op_name", H3_OPS)
 def test_h3_ops_prefer_cuda_and_fall_back_to_pytorch_reference(op_name):
+    """Prefer H3 CUDA backends on CUDA and use their PyTorch fallbacks elsewhere."""
+
     registry = KernelRegistry()
     cuda_chain = registry._priority_map["cuda"][op_name]
     assert cuda_chain[0].name.startswith("CUDA_H3_")

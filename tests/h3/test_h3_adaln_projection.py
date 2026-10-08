@@ -29,6 +29,8 @@ BIAS = "transformer_blocks.0.adaln_proj.linear.bias"
 
 
 def _cuda_op():
+    """Construct the CUDA projection operator, skipping missing native linear kernels."""
+
     from rl_engine.kernels.ops.cuda.h3.adaln_projection import H3AdaLNProjectionCudaOp
     from rl_engine.kernels.ops.cuda.h3.det_linear import det_linear_available
 
@@ -38,11 +40,15 @@ def _cuda_op():
 
 
 def _temb(num, dim=2688, seed=0, device="cuda"):
+    """Generate seeded FP32 timestep embeddings on CPU and move them to the test device."""
+
     g = torch.Generator(device="cpu").manual_seed(seed)
     return (torch.randn(num, dim, generator=g) * 2).to(device)
 
 
 def _synthetic(hidden, dim, dtype=torch.bfloat16, seed=0, device="cuda"):
+    """Create seeded projection weights for six chunks and three modalities per channel."""
+
     g = torch.Generator(device="cpu").manual_seed(seed)
     n_out = H3_ADALN_CHUNKS * H3_MODALITY_NUM * hidden
     weight = (torch.randn(n_out, dim, generator=g) / dim**0.5).to(dtype)
@@ -51,26 +57,34 @@ def _synthetic(hidden, dim, dtype=torch.bfloat16, seed=0, device="cuda"):
 
 
 def _flat(outputs):
+    """Flatten and concatenate all modulation chunks for elementwise comparisons."""
+
     return torch.cat([out.reshape(-1) for out in outputs])
 
 
 class TestReference:
     def test_provider_layout_matches_diffusers(self):
+        """Match the provider values and timestep-major modality layout on CPU."""
+
         temb = _temb(2, dim=16, device="cpu")
         weight, bias = _synthetic(8, 16, device="cpu")
         ours = NativeH3AdaLNProjectionOp().forward(temb, weight, bias)
         theirs = provider_adaln_modulation(temb, weight, bias, hidden_size=8)
         assert len(ours) == 6
-        for a, b in zip(ours, theirs):
+        for a, b in zip(ours, theirs, strict=True):
             assert a.shape == (6, 8) and torch.equal(a, b)
 
     def test_rejects_bf16_temb(self):
         # RFC probe H7: casting temb before the SiLU.
+        """Reject an early BF16 cast so SiLU receives the declared FP32 embeddings."""
+
         weight, bias = _synthetic(8, 16, device="cpu")
         with pytest.raises(TypeError, match="float32"):
             NativeH3AdaLNProjectionOp().forward(_temb(2, 16, device="cpu").bfloat16(), weight, bias)
 
     def test_rejects_bad_shapes(self):
+        """Reject invalid projection dimensions, empty batches, and mismatched bias dtype."""
+
         weight, bias = _synthetic(8, 16, device="cpu")
         op = NativeH3AdaLNProjectionOp()
         with pytest.raises(ValueError):  # not a multiple of 6 * 3 rows
@@ -104,6 +118,8 @@ class TestLayout:
                     assert torch.equal(out[t * 3 + m].float(), expected), (c, t, m)
 
     def test_outputs_are_views_of_one_table_like_diffusers(self):
+        """Require all six modulation chunks to share storage with the expected offsets."""
+
         weight, bias = _synthetic(16, 32)
         outputs = _cuda_op()(_temb(2, 32), weight, bias)
         base = outputs[0].untyped_storage().data_ptr()
@@ -113,6 +129,8 @@ class TestLayout:
 
 @pytest.fixture(scope="module")
 def block0(h3_weights_cpu):
+    """Move the pinned block-zero projection weight and bias to CUDA for this module."""
+
     return h3_weights_cpu[WEIGHT].cuda(), h3_weights_cpu[BIAS].cuda()
 
 
@@ -120,11 +138,13 @@ def block0(h3_weights_cpu):
 class TestCudaRealWeights:
     @pytest.mark.parametrize("num", [1, 2, 3, 4])
     def test_forward_is_correctly_rounded_declared_golden(self, block0, num):
+        """Check checkpoint accuracy and near-exact BF16 rounding of the declared golden."""
+
         weight, bias = block0
         temb = _temb(num, seed=num)
         outputs = _cuda_op()(temb, weight, bias)
         golden = NativeH3AdaLNProjectionOp().forward_fp32(temb, weight, bias)
-        for out, gold in zip(outputs, golden):
+        for out, gold in zip(outputs, golden, strict=True):
             assert out.dtype == torch.bfloat16 and out.shape == (3 * num, 5376)
             # tolerance_contract.json forward_accuracy / reduction / bfloat16.
             torch.testing.assert_close(out.float(), gold, atol=5e-2, rtol=2e-2)
@@ -146,19 +166,23 @@ class TestCudaRealWeights:
         assert (ours == early).float().mean() < 0.8
 
     def test_rows_are_batch_and_position_invariant(self, block0):
+        """Keep each timestep modulation row identical alone and under batch reordering."""
+
         weight, bias = block0
         op = _cuda_op()
         temb = _temb(5, seed=3)
         full = op(temb, weight, bias)
         for i in range(5):
             single = op(temb[i : i + 1], weight, bias)
-            for s, f in zip(single, full):
+            for s, f in zip(single, full, strict=True):
                 assert torch.equal(s, f[3 * i : 3 * i + 3])
         swapped = op(temb.flip(0), weight, bias)
-        for s, f in zip(swapped, full):
+        for s, f in zip(swapped, full, strict=True):
             assert torch.equal(s.view(5, 3, -1).flip(0), f.view(5, 3, -1))
 
     def test_backward_against_golden(self, block0):
+        """Check embedding and parameter gradients against a high-precision declared-cast VJP."""
+
         weight, bias = block0
         temb = _temb(2, seed=5)
         g = torch.Generator(device="cuda").manual_seed(0)
@@ -174,7 +198,7 @@ class TestCudaRealWeights:
         # tolerance_contract.json gradient_accuracy / reduction: FP32 temb grad
         # and BF16 weight/bias grads (rounded once from an FP32 accumulation).
         torch.testing.assert_close(leaves[0].grad.double(), ref[0].grad, atol=1e-4, rtol=1e-4)
-        for leaf, r in zip(leaves[1:], ref[1:]):
+        for leaf, r in zip(leaves[1:], ref[1:], strict=True):
             torch.testing.assert_close(leaf.grad.double(), r.grad, atol=1e-1, rtol=2e-2)
             assert (leaf.grad == r.grad.to(torch.bfloat16)).float().mean() > 0.999
 
@@ -184,16 +208,21 @@ class TestCudaSynthetic:
     @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
     @pytest.mark.parametrize("hidden, dim", [(24, 16), (40, 72), (8, 2688)])
     def test_other_sizes(self, dtype, hidden, dim):
+        """Match the projection golden at non-checkpoint dimensions in FP32 and BF16."""
+
         weight, bias = _synthetic(hidden, dim, dtype=dtype, seed=hidden)
         temb = _temb(3, dim, seed=hidden)
         tol = dict(atol=5e-2, rtol=2e-2) if dtype == torch.bfloat16 else dict(atol=1e-4, rtol=1e-4)
         for out, gold in zip(
             _cuda_op()(temb, weight, bias),
             NativeH3AdaLNProjectionOp().forward_fp32(temb, weight, bias),
+            strict=True,
         ):
             torch.testing.assert_close(out.float(), gold, **tol)
 
     def test_repeat_forward_backward_bitwise(self):
+        """Require repeated projection outputs and all input gradients to match bitwise."""
+
         weight, bias = _synthetic(64, 2688, seed=9)
         temb = _temb(3, seed=9)
         grads = [torch.randn(9, 64, device="cuda").bfloat16() for _ in range(6)]
@@ -204,15 +233,19 @@ class TestCudaSynthetic:
             torch.autograd.backward(list(outs), grads)
             runs.append([*[o.detach() for o in outs], *[leaf.grad for leaf in leaves]])
         for later in runs[1:]:
-            for a, b in zip(runs[0], later):
+            for a, b in zip(runs[0], later, strict=True):
                 assert torch.equal(a, b)
 
     def test_temb_grad_rows_are_batch_invariant(self):
+        """Keep embedding gradients bitwise equal in full batches and single-row calls."""
+
         weight, bias = _synthetic(64, 2688, seed=11)
         temb = _temb(4, seed=11)
         grads = [torch.randn(12, 64, device="cuda").bfloat16() for _ in range(6)]
 
         def d_temb(rows):
+            """Compute selected embedding-row gradients with their matching modality gradients."""
+
             leaf = temb[rows].detach().clone().requires_grad_(True)
             outs = _cuda_op()(leaf, weight, bias)
             torch.autograd.backward(
@@ -233,15 +266,19 @@ class TestCudaSynthetic:
         full = _cuda_op()(temb, weight, bias)
         for i in (0, 7, num - 1):
             single = _cuda_op()(temb[i : i + 1], weight, bias)
-            for s_out, f_out in zip(single, full):
+            for s_out, f_out in zip(single, full, strict=True):
                 assert torch.equal(s_out, f_out[3 * i : 3 * i + 3])
 
     def test_rejects_cpu(self):
+        """Reject CPU tensors at the CUDA projection boundary."""
+
         weight, bias = _synthetic(8, 16, device="cpu")
         with pytest.raises(ValueError):
             _cuda_op()(_temb(2, 16, device="cpu"), weight, bias)
 
     def test_registry_dispatches_cuda(self):
+        """Resolve the projection registry entry to its dedicated CUDA implementation."""
+
         from rl_engine.kernels.registry import KernelRegistry
 
         _cuda_op()
