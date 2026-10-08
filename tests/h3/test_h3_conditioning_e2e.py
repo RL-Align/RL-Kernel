@@ -22,7 +22,10 @@ import torch
 from rl_engine.kernels.registry import KernelRegistry
 from rl_engine.testing import h3_chain
 
-pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA device")
+pytestmark = pytest.mark.skipif(
+    not torch.cuda.is_available() or torch.cuda.get_device_capability()[0] < 8,
+    reason="needs an SM80+ CUDA device",
+)
 
 # (T distinct timesteps, S packed rows): single row, short packed, realistic-size packed.
 CASES = [(1, 3), (3, 257), (4, 4097)]
@@ -30,16 +33,22 @@ CASES = [(1, 3), (3, 257), (4, 4097)]
 
 @pytest.fixture(scope="module")
 def chain_weights(h3_weights_cpu):
+    """Move all pinned conditioning tensors to CUDA once for the end-to-end module."""
+
     return {name: tensor.cuda() for name, tensor in h3_weights_cpu.items()}
 
 
 @pytest.fixture(scope="module")
 def registry():
+    """Provide the production registry used to dispatch every conditioning stage."""
+
     return KernelRegistry()
 
 
 @pytest.mark.parametrize("num_timesteps, seq_len", CASES)
 def test_chain_forward(registry, chain_weights, num_timesteps, seq_len):
+    """Check CUDA dispatch, golden tolerance, repeatability, and declared provider parity."""
+
     report = h3_chain.run_case(
         registry, chain_weights, num_timesteps=num_timesteps, seq_len=seq_len
     )

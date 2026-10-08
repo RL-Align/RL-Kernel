@@ -26,7 +26,11 @@ from rl_engine.testing.h3_provider import (
     provider_time_embedder,
     provider_time_proj,
 )
-from rl_engine.testing.h3_weights import h3_weights_dir, load_h3_conditioning_weights
+from rl_engine.testing.h3_weights import (
+    WEIGHTS_ENV,
+    h3_weights_dir,
+    load_h3_conditioning_weights,
+)
 
 # Keys of a perf case that hold a timed callable, in display order.
 TIMED_KEYS = (
@@ -38,41 +42,91 @@ TIMED_KEYS = (
 )
 
 
-def time_us(fn: Callable[[], Any], warmup: int = 20, iters: int = 200) -> float:
-    """Median CUDA-event time of ``fn`` in microseconds (includes the Python wrapper)."""
+def _prepared_call(
+    fn: Callable[..., Any], setup: Callable[[], Any] | None = None
+) -> Callable[[], Any]:
+    if setup is None:
+        return fn
+    prepared = setup()
+    return lambda: fn(prepared)
+
+
+def _sample_us(fn: Callable[..., Any], setup: Callable[[], Any] | None = None) -> float:
+    run = _prepared_call(fn, setup)
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+    start.record()
+    run()
+    end.record()
+    end.synchronize()
+    return start.elapsed_time(end) * 1e3
+
+
+def time_us(
+    fn: Callable[..., Any],
+    warmup: int = 20,
+    iters: int = 200,
+    *,
+    setup: Callable[[], Any] | None = None,
+) -> float:
+    """Median CUDA-event microseconds; optional setup runs outside the timed region.
+
+    When supplied, ``setup`` runs before every call and its return value is passed
+    to ``fn``. Backward measurements use it to build a fresh forward graph.
+    """
 
     for _ in range(warmup):
-        fn()
+        _prepared_call(fn, setup)()
     torch.cuda.synchronize()
-    samples = []
-    for _ in range(iters):
-        start = torch.cuda.Event(enable_timing=True)
-        end = torch.cuda.Event(enable_timing=True)
-        start.record()
-        fn()
-        end.record()
-        end.synchronize()
-        samples.append(start.elapsed_time(end) * 1e3)
-    return statistics.median(samples)
+    return statistics.median(_sample_us(fn, setup) for _ in range(iters))
 
 
-def peak_mib(fn: Callable[[], Any]) -> float:
+def peak_mib(fn: Callable[..., Any], *, setup: Callable[[], Any] | None = None) -> float:
+    """Incremental peak CUDA memory of the call, excluding optional setup."""
+
+    run = _prepared_call(fn, setup)
     torch.cuda.synchronize()
     torch.cuda.reset_peak_memory_stats()
     base = torch.cuda.memory_allocated()
-    fn()
+    run()
     torch.cuda.synchronize()
     return (torch.cuda.max_memory_allocated() - base) / 2**20
 
 
 def measure(case: dict[str, Any], warmup: int = 20, iters: int = 200) -> dict[str, Any]:
+    """Interleave timed keys, reversing their execution order on alternate iterations.
+
+    Record raw CUDA-event samples, executed orders, median microseconds,
+    decimal GB/s from ``case['bytes']``, and peak allocated MiB per callable.
+    """
+
     row = {key: case[key] for key in ("op", "case", "backend", "bytes") if key in case}
-    for key in TIMED_KEYS:
-        if key in case:
-            us = time_us(case[key], warmup, iters)
-            row[f"{key}_us"] = us
-            row[f"{key}_gbps"] = case["bytes"] / (us * 1e-6) / 1e9
-            row[f"{key}_peak_mib"] = peak_mib(case[key])
+    keys = [key for key in TIMED_KEYS if key in case]
+    if not keys:
+        return row
+    orders = (keys, list(reversed(keys)))
+    row["execution_order"] = {
+        "policy": "alternating",
+        "iteration_0": orders[0],
+        "iteration_1": orders[1],
+    }
+    if any(key.endswith("_backward") for key in keys):
+        row["backward_timing_scope"] = "backward_only"
+    for iteration in range(warmup):
+        for key in orders[iteration % 2]:
+            _prepared_call(case[key], case.get(f"{key}_setup"))()
+    torch.cuda.synchronize()
+    samples = {key: [] for key in keys}
+    for iteration in range(iters):
+        for key in orders[iteration % 2]:
+            samples[key].append(_sample_us(case[key], case.get(f"{key}_setup")))
+    row["timing_samples_us"] = samples
+    row["timing_order"] = [orders[iteration % 2] for iteration in range(iters)]
+    for key in keys:
+        us = statistics.median(samples[key])
+        row[f"{key}_us"] = us
+        row[f"{key}_gbps"] = case["bytes"] / (us * 1e-6) / 1e9
+        row[f"{key}_peak_mib"] = peak_mib(case[key], setup=case.get(f"{key}_setup"))
     return row
 
 
@@ -82,6 +136,8 @@ def measure(case: dict[str, Any], warmup: int = 20, iters: int = 200) -> dict[st
 
 
 def _sinusoid_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
+    """Build CUDA sinusoid timing cases with checked, unchecked, and provider calls."""
+
     op = registry.get_op("timestep_sinusoid_h3", device="cuda")
     cases = []
     for num in (1, 2, 4, 64):
@@ -101,6 +157,8 @@ def _sinusoid_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
 
 
 def _sinusoid_accuracy(registry: KernelRegistry) -> dict[str, Any]:
+    """Compare sinusoid outputs to provider and FP64 golden across timestep counts."""
+
     op = registry.get_op("timestep_sinusoid_h3", device="cuda")
     golden = registry._get_or_create_backend(
         registry._priority_map["cpu"]["timestep_sinusoid_h3"][-1]
@@ -121,7 +179,7 @@ def _sinusoid_accuracy(registry: KernelRegistry) -> dict[str, Any]:
 
 
 def h3_params(names: list[str], shapes: list[tuple[int, ...]]) -> list[torch.Tensor]:
-    """Pinned checkpoint tensors when available, otherwise same-shape random ones."""
+    """Return CUDA checkpoint parameters, or seeded random tensors when weights are unset."""
 
     if h3_weights_dir() is not None:
         weights = load_h3_conditioning_weights("cuda", names)
@@ -142,6 +200,8 @@ MLP_SHAPES = [(5376, 256), (5376,), (2688, 5376), (2688,)]
 
 
 def _mlp_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
+    """Build CUDA MLP candidate/provider timing cases for one to four timesteps."""
+
     op = registry.get_op("timestep_mlp_fp32", device="cuda")
     params = h3_params(MLP_NAMES, MLP_SHAPES)
     weight_bytes = sum(p.numel() * p.element_size() for p in params)
@@ -162,6 +222,8 @@ def _mlp_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
 
 
 def _mlp_accuracy(registry: KernelRegistry, draws: int = 200) -> dict[str, Any]:
+    """Measure per-draw MLP error against FP64 and test single-row/batched equality."""
+
     op = registry.get_op("timestep_mlp_fp32", device="cuda")
     golden = registry._get_or_create_backend(registry._priority_map["cpu"]["timestep_mlp_fp32"][-1])
     sinusoid = registry.get_op("timestep_sinusoid_h3", device="cuda")
@@ -197,11 +259,15 @@ ADALN_NAMES = [
 
 
 def _adaln_params() -> tuple[torch.Tensor, torch.Tensor]:
+    """Return block-0 AdaLN projection weights and bias as BF16 CUDA tensors."""
+
     weight, bias = h3_params(ADALN_NAMES, [(96768, 2688), (96768,)])
     return weight.bfloat16(), bias.bfloat16()
 
 
 def _projection_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
+    """Build CUDA AdaLN candidate/provider timing cases for one to four timesteps."""
+
     op = registry.get_op("adaln_projection_3mod", device="cuda")
     weight, bias = _adaln_params()
     cases = []
@@ -221,11 +287,13 @@ def _projection_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
 
 
 def _flat_cat(outputs) -> torch.Tensor:
+    """Concatenate flattened modulation tensors in their output order."""
+
     return torch.cat([out.reshape(-1) for out in outputs])
 
 
 def _projection_accuracy(registry: KernelRegistry, draws: int = 20) -> dict[str, Any]:
-    """Fraction of BF16 outputs equal to the correctly rounded FP64 golden, per draw."""
+    """Report per-draw BF16 equality to FP64 goldens and single-row/batch invariance."""
 
     op = registry.get_op("adaln_projection_3mod", device="cuda")
     golden = registry._get_or_create_backend(
@@ -248,7 +316,7 @@ def _projection_accuracy(registry: KernelRegistry, draws: int = 20) -> dict[str,
     invariant = all(
         all(
             torch.equal(s, f[3 * i : 3 * i + 3])
-            for s, f in zip(op(temb[i : i + 1], weight, bias), full)
+            for s, f in zip(op(temb[i : i + 1], weight, bias), full, strict=True)
         )
         for i in range(9)
     )
@@ -279,9 +347,12 @@ def _gather_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
         ti, tags = h3_packed_layout(seq, num_timesteps, seed=seq)
         grads = [torch.randn(seq, hidden, device="cuda").bfloat16() for _ in range(6)]
 
-        def backward(fn, ti=ti, tags=tags, grads=grads):
+        def prepare_backward(fn, ti=ti, tags=tags):
             leaf = rows.detach().requires_grad_(True)
-            torch.autograd.backward(list(fn(leaf, ti, tags)), grads)
+            return list(fn(leaf, ti, tags))
+
+        def backward(outputs, grads=grads):
+            torch.autograd.backward(outputs, grads)
 
         cases.append(
             {
@@ -292,11 +363,15 @@ def _gather_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
                 "bytes": 6 * seq * hidden * 2,
                 "candidate": lambda ti=ti, tags=tags: op.forward(rows, ti, tags, check_range=False),
                 "provider": lambda ti=ti, tags=tags: provider_adaln_row_gather(chunks, ti, tags),
-                "candidate_backward": lambda b=backward: b(
-                    lambda r, ti, tags: op.forward(r, ti, tags, check_range=False)
+                "candidate_backward": backward,
+                "provider_backward": backward,
+                "candidate_backward_setup": lambda b=prepare_backward: b(
+                    lambda r, indices, row_tags: op.forward(r, indices, row_tags, check_range=False)
                 ),
-                "provider_backward": lambda b=backward: b(
-                    lambda r, ti, tags: provider_adaln_row_gather(r.chunk(6, dim=-1), ti, tags)
+                "provider_backward_setup": lambda b=prepare_backward: b(
+                    lambda r, indices, row_tags: provider_adaln_row_gather(
+                        r.chunk(6, dim=-1), indices, row_tags
+                    )
                 ),
             }
         )
@@ -305,7 +380,6 @@ def _gather_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
 
 def _gather_accuracy(registry: KernelRegistry) -> dict[str, Any]:
     from rl_engine.testing.h3_chain import run_backward_case
-    from rl_engine.testing.h3_weights import load_h3_conditioning_weights
 
     op = registry.get_op("adaln_row_gather", device="cuda")
     golden = registry._get_or_create_backend(registry._priority_map["cpu"]["adaln_row_gather"][-1])
@@ -315,7 +389,9 @@ def _gather_accuracy(registry: KernelRegistry) -> dict[str, Any]:
         ti, tags = h3_packed_layout(seq, 3, seed=seq)
         ours = op(rows, ti, tags)
         theirs = provider_adaln_row_gather(rows.chunk(6, dim=-1), ti, tags)
-        forward_bitwise[str(seq)] = all(torch.equal(a, b) for a, b in zip(ours, theirs))
+        forward_bitwise[str(seq)] = all(
+            torch.equal(a, b) for a, b in zip(ours, theirs, strict=True)
+        )
 
     # Op-level backward: correctly rounded FP32 segment sums vs the atomic BF16 scatter-add.
     ti, tags = h3_packed_layout(4097, 3, seed=1)
@@ -340,16 +416,22 @@ def _gather_accuracy(registry: KernelRegistry) -> dict[str, Any]:
             "correctly_rounded_fraction": float((first == gold).float().mean()),
         }
 
-    weights = load_h3_conditioning_weights("cuda")
-    chain = [
-        run_backward_case(registry, weights, num_timesteps=t, seq_len=s)
-        for t, s in ((1, 257), (3, 257), (1, 4097), (3, 4097), (4, 32768))
-    ]
-    return {
+    result: dict[str, Any] = {
         "forward_bitwise_vs_index_select": forward_bitwise,
         "op_backward": backward,
-        "chain_backward": chain,
+        "chain_backward": [],
     }
+    if h3_weights_dir() is None:
+        result["chain_backward_skipped"] = (
+            f"{WEIGHTS_ENV} not set; run scripts/prepare_h3_weights.py for chain measurements"
+        )
+    else:
+        weights = load_h3_conditioning_weights("cuda")
+        result["chain_backward"] = [
+            run_backward_case(registry, weights, num_timesteps=t, seq_len=s)
+            for t, s in ((1, 257), (3, 257), (1, 4097), (3, 4097), (4, 32768))
+        ]
+    return result
 
 
 # --------------------------------------------------------------------------- #
@@ -376,9 +458,12 @@ def _norm_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
         x, weight, shift, scale, index = _norm_inputs(seq)
         grad = torch.randn_like(x)
 
-        def backward(fn, x=x, weight=weight, shift=shift, scale=scale, grad=grad):
+        def prepare_backward(fn, x=x, weight=weight, shift=shift, scale=scale):
             leaves = [t.detach().requires_grad_(True) for t in (x, weight, shift, scale)]
-            fn(*leaves).backward(grad)
+            return fn(*leaves)
+
+        def backward(output, grad=grad):
+            output.backward(grad)
 
         cases.append(
             {
@@ -392,12 +477,14 @@ def _norm_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
                 "provider": lambda x=x, w=weight, sh=shift, sc=scale, i=index: (
                     provider_norm_modulate(x, w, sh, sc, i)
                 ),
-                "candidate_backward": lambda b=backward, i=index: b(
+                "candidate_backward": backward,
+                "provider_backward": backward,
+                "candidate_backward_setup": lambda b=prepare_backward, i=index: b(
                     lambda x_, w_, sh_, sc_: op.forward_modulated(
                         x_, w_, sh_, sc_, i, check_range=False
                     )
                 ),
-                "provider_backward": lambda b=backward, i=index: b(
+                "provider_backward_setup": lambda b=prepare_backward, i=index: b(
                     lambda x_, w_, sh_, sc_: provider_norm_modulate(x_, w_, sh_, sc_, i)
                 ),
             }
@@ -407,14 +494,19 @@ def _norm_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
 
 def _norm_accuracy(registry: KernelRegistry) -> dict[str, Any]:
     op = registry.get_op("h3_rmsnorm", device="cuda")
-    weights = load_h3_conditioning_weights("cuda")
-    plain = {}
-    for name in (
+    weight_source = "pinned_checkpoint" if h3_weights_dir() is not None else "synthetic"
+    names = [
         "transformer_blocks.0.norm1.weight",
         "transformer_blocks.0.norm2.weight",
         "token_refiner.final_norm.weight",
         "norm_out.norm.weight",
-    ):
+    ]
+    weights = {
+        name: weight.bfloat16()
+        for name, weight in zip(names, h3_params(names, [(5376,)] * len(names)), strict=True)
+    }
+    plain = {}
+    for name in names:
         x = torch.randn(2, 777, 5376, device="cuda").bfloat16()
         ref = torch.nn.functional.rms_norm(x, (5376,), weights[name], 1e-5)
         plain[name] = bool(torch.equal(op(x, weights[name]), ref))
@@ -455,13 +547,16 @@ def _norm_accuracy(registry: KernelRegistry) -> dict[str, Any]:
     ):
         first, second = grads(fn), grads(fn)
         backward[name] = {
-            "repeat_bitwise_equal": all(torch.equal(a, b) for a, b in zip(first, second)),
+            "repeat_bitwise_equal": all(
+                torch.equal(a, b) for a, b in zip(first, second, strict=True)
+            ),
             "rel_error": {
                 key: float((g.double() - r).abs().max() / r.abs().max())
-                for key, g, r in zip(("dx", "dweight", "dshift", "dscale"), first, ref)
+                for key, g, r in zip(("dx", "dweight", "dshift", "dscale"), first, ref, strict=True)
             },
         }
     return {
+        "weight_source": weight_source,
         "plain_bitwise_vs_nn_rmsnorm": plain,
         "modulated_bitwise_vs_diffusers": modulated,
         "rows_batch_invariant": invariant,
@@ -560,10 +655,14 @@ def _gate_accuracy(registry: KernelRegistry) -> dict[str, Any]:
     ):
         first, second = grads(fn), grads(fn)
         backward[name] = {
-            "repeat_bitwise_equal": all(torch.equal(a, b) for a, b in zip(first, second)),
+            "repeat_bitwise_equal": all(
+                torch.equal(a, b) for a, b in zip(first, second, strict=True)
+            ),
             "rel_error": {
                 key: float((g.double() - r).abs().max() / r.abs().max())
-                for key, g, r in zip(("d_residual", "d_sublayer", "d_gate"), first, ref)
+                for key, g, r in zip(
+                    ("d_residual", "d_sublayer", "d_gate"), first, ref, strict=True
+                )
             },
         }
     return {
