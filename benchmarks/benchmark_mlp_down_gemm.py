@@ -110,10 +110,11 @@ def _time(fn, warmup: int = WARMUP, iters: int = ITERS) -> float:
 def _peak_extra_mb(fn) -> float:
     """Peak device bytes above the baseline already allocated, in MB.
 
-    The template for this row's PR reports peak extra memory next to latency, and
-    this operator's extra memory is exactly the output (plus, for the backward, the
+    The template for this row's PR reports peak extra memory next to latency. For
+    the mma contract that is exactly the output (plus, for the backward, the
     autograd saves and the three gradient tensors) -- there is no materialized
-    intermediate anywhere.
+    intermediate. The portable fp32-tree path additionally materializes fp32
+    copies of its bf16 operands, so its figure is several hundred MB larger.
     """
 
     fn()

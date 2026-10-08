@@ -29,7 +29,7 @@ frozen, arithmetic orders, and which one a call takes is reported:
   every device and every operand layout the row supports, with no fallback.
 
 ``auto`` (the default) prefers the Hopper path when it is built and the device
-is cc 9.x, and runs the portable tree otherwise. ``general`` forces the tree
+is cc 9.0, and runs the portable tree otherwise. ``general`` forces the tree
 even on a Hopper device (that is how the two are A/B compared on one machine),
 and ``hopper`` refuses instead of silently changing the arithmetic order --
 which is what a deployment that must not change contract should pin. Both
@@ -187,7 +187,7 @@ def mlp_down_gemm_contract_used(x: torch.Tensor, weight: torch.Tensor) -> str:
 def _sm90_usable(x: torch.Tensor, weight: torch.Tensor) -> bool:
     """Whether the Hopper path can serve this contraction.
 
-    Requires the 90a entry points, a compute capability 9.x device, and the
+    Requires the 90a entry points, a compute capability 9.0 (Hopper) device, and the
     operand views the TMA tensor maps are built on: bf16 2-D operands whose
     row strides (the contiguous extents of x and weight) are multiples of 8
     elements (16 B) and whose bases are 16 B aligned. Anything else runs on the
@@ -212,7 +212,7 @@ def _sm90_usable(x: torch.Tensor, weight: torch.Tensor) -> bool:
             raise RuntimeError("mlp_down_gemm: backend 'hopper' requires bf16 operands")
         return False
     hopper_ok = (
-        torch.cuda.get_device_capability(x.device)[0] >= 9
+        torch.cuda.get_device_capability(x.device)[0] == 9
         and x.size(-1) % 8 == 0
         and weight.size(0) % 8 == 0
         and x.data_ptr() % 16 == 0
@@ -220,7 +220,7 @@ def _sm90_usable(x: torch.Tensor, weight: torch.Tensor) -> bool:
     )
     if not hopper_ok and requested == _HOPPER_BACKEND:
         raise RuntimeError(
-            "mlp_down_gemm: backend 'hopper' needs a compute capability 9.x device and "
+            "mlp_down_gemm: backend 'hopper' needs a compute capability 9.0 (Hopper) device and "
             "bf16 operands whose row strides are multiples of 8 elements; it is the "
             f"mlp-down-gemm-mma-v1 contract -- {_HOPPER_PIN_HINT}, or request 'general' "
             "for the portable mlp-down-gemm-tree-v1 tree"
@@ -231,7 +231,7 @@ def _sm90_usable(x: torch.Tensor, weight: torch.Tensor) -> bool:
 class _MlpDownGemmFunction(torch.autograd.Function):
     """Forward/backward through the requested contract.
 
-    On a cc 9.x device with the Hopper entry points built in, the forward, ``dx``
+    On a cc 9.0 device with the Hopper entry points built in, the forward, ``dx``
     and ``dW`` run on the TMA + wgmma kernel (``mlp-down-gemm-mma-v1``);
     everywhere else they run on the portable fp32 tree kernel
     (``mlp-down-gemm-tree-v1``). Each path is its own frozen arithmetic order --

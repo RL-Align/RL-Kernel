@@ -7,17 +7,17 @@
 // Compiled into the extension through the repo-wide SM90 source set (setup.py
 // `sm90_srcs`, selected by ``KERNEL_ALIGN_FORCE_SM90=1``), the same gate as the
 // other ``*_sm90.cu`` rows: the default build does not compile this file, so the
-// mma.sync kernel in mlp_down_gemm.cu is the only MLP down path there.
+// portable fp32-tree kernel in mlp_down_gemm.cu is the only MLP down path there.
 //
 // Arithmetic contract (unchanged, and the reason this file is a drop-in
-// replacement for the `mma.sync` kernel): the K reduction walks ascending
+// replacement for the portable tree kernel): the K reduction walks ascending
 // k-chunks of 16, every output element is chained through ONE fp32 accumulator,
 // there is no split-K and no atomics, bias is added once in fp32 after the whole
 // reduction, and exactly one bf16 cast happens at the store. Tiling, staging and
 // pipelining are performance only -- they never reorder work inside or across a
 // k-chunk, so every output bit is unchanged. This is the same premise the row's
 // Triton backend already relies on (wgmma.mma_async.m64n256k16 measured
-// byte-identical to the hand-written mma.sync schedule).
+// byte-identical to the hand-written Hopper schedule).
 //
 // Staging: 2-D TMA bulk-tensor loads (`cp.async.bulk.tensor`) with mbarrier
 // completion, TMA swizzle pinned to SWIZZLE_128B. The box inner extent is
@@ -25,7 +25,7 @@
 // request -- the earlier 16-B-row (swizzle NONE) variant was correct but spent
 // 8x the TMA requests and measured 120 TFLOP/s on this GPU, which is why it was
 // replaced. TMA zero-fills every out-of-bounds element, which is exactly the
-// masked-row / short-tail semantics the mma.sync path implements by hand.
+// masked-row / short-tail semantics the portable tree path implements by hand.
 //
 // Shared-memory layout: the canonical 128B-swizzled GMMA layout. TMA's
 // SWIZZLE_128B and the descriptor's layout type B128 are the *same* permutation
@@ -373,7 +373,7 @@ mlp_down_gemm_sm90_kernel(const __grid_constant__ CUtensorMap tmap_a,
         constexpr uint32_t B_KS = B_MN ? 128u : 2u;
         constexpr uint32_t A_LBO = A_MN ? 512u : 1u;
         constexpr uint32_t B_LBO = B_MN ? 512u : 1u;
-        // Four ascending k16 slabs: the reduction order is exactly the mma.sync one.
+        // Four ascending k16 slabs: the reduction order is the hardware k16 chain.
 #pragma unroll
         for (int sl = 0; sl < KC / 2; ++sl) {
             const uint32_t da = a_tile + awg + A_KS * static_cast<uint32_t>(sl);
@@ -564,7 +564,12 @@ bool sm90_device_ok() {
     if (cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, dev) != cudaSuccess) {
         return false;
     }
-    return major >= 9;
+    // The wgmma body only exists under __CUDA_ARCH_FEAT_SM90_ALL (sm_90a), so the
+    // gate is exactly major 9: on a cc >= 10 device a KERNEL_ALIGN_FORCE_SM90 build
+    // emits a non-90a cubin, where the body compiles to an inert stub -- that must
+    // fail closed here and fall back to the portable path, not launch a kernel that
+    // writes nothing.
+    return major == 9;
 }
 
 void check_sm90_operands(const void* a, const void* b, int64_t K, int64_t N) {
@@ -585,10 +590,6 @@ void check_sm90_contiguous(const torch::Tensor& a, const torch::Tensor& b) {
                 "mlp_down_gemm_sm90: operands must be contiguous");
 }
 
-// ---------------------------------------------------------------------------
-// db: ascending-row fp32 left fold (contract c-prime: exactly one correctly
-// rounded fp32 add per row, in row order, one chain per output column).
-//
 }  // namespace sm90
 
 torch::Tensor mlp_down_gemm_cuda_forward_sm90(torch::Tensor x, torch::Tensor weight,
@@ -606,7 +607,7 @@ torch::Tensor mlp_down_gemm_cuda_forward_sm90(torch::Tensor x, torch::Tensor wei
     if (out.numel() == 0) {
         return out;
     }
-    TORCH_CHECK(sm90::sm90_device_ok(), "mlp_down_gemm_sm90 requires a compute capability 9.x device");
+    TORCH_CHECK(sm90::sm90_device_ok(), "mlp_down_gemm_sm90 requires a compute capability 9.0 (Hopper) device");
     sm90::ensure_cuda_context(x.device());
     const auto* a = reinterpret_cast<const nv_bf16*>(x.data_ptr<at::BFloat16>());
     const auto* b = reinterpret_cast<const nv_bf16*>(weight.data_ptr<at::BFloat16>());
@@ -647,7 +648,7 @@ torch::Tensor mlp_down_gemm_cuda_dx_sm90(torch::Tensor g, torch::Tensor weight) 
     if (out.numel() == 0) {
         return out;
     }
-    TORCH_CHECK(sm90::sm90_device_ok(), "mlp_down_gemm_sm90 requires a compute capability 9.x device");
+    TORCH_CHECK(sm90::sm90_device_ok(), "mlp_down_gemm_sm90 requires a compute capability 9.0 (Hopper) device");
     sm90::ensure_cuda_context(g.device());
     // dx is A = g [S, Ng] K-major over the reduction Ng, B = w [Ng, Kw] MN-major.
     const auto* a = reinterpret_cast<const nv_bf16*>(g.data_ptr<at::BFloat16>());
@@ -675,7 +676,7 @@ torch::Tensor mlp_down_gemm_cuda_dw_sm90(torch::Tensor g, torch::Tensor x) {
     if (out.numel() == 0) {
         return out;
     }
-    TORCH_CHECK(sm90::sm90_device_ok(), "mlp_down_gemm_sm90 requires a compute capability 9.x device");
+    TORCH_CHECK(sm90::sm90_device_ok(), "mlp_down_gemm_sm90 requires a compute capability 9.0 (Hopper) device");
     sm90::ensure_cuda_context(g.device());
     // dW is A = g [S, Ng] MN-major, B = x [S, Kx] MN-major, reduction S.
     const auto* a = reinterpret_cast<const nv_bf16*>(g.data_ptr<at::BFloat16>());
@@ -688,7 +689,3 @@ torch::Tensor mlp_down_gemm_cuda_dw_sm90(torch::Tensor g, torch::Tensor x) {
                                     static_cast<int>(S), at::cuda::getCurrentCUDAStream());
     return out;
 }
-
-// Bias gradient: the same ascending-row fp32 left fold as the mma.sync entry
-// point, computed by a smem-staged schedule (bit-identical; see the kernel
-// comment). Only the fold's *schedule* differs, not a single add.

@@ -89,7 +89,7 @@ def _hopper_backend():
 
 _HOPPER_BACKEND = _hopper_backend()
 _HOPPER_REASON = (
-    "the Hopper mlp-down-gemm-mma-v1 path needs KERNEL_ALIGN_FORCE_SM90=1 and a cc 9.x device"
+    "the Hopper mlp-down-gemm-mma-v1 path needs KERNEL_ALIGN_FORCE_SM90=1 and a cc 9.0 device"
 )
 
 pytestmark = pytest.mark.skipif(
@@ -189,6 +189,30 @@ def _assert_identical_tolerance(got, ref, label):
     return identical, worst
 
 
+def _assert_tolerance_against_device_reference(got, ref, label):
+    """The same declared bounds against a bf16 reference already on the device.
+
+    Used where the fp32 CPU reference is out of budget (it walks K python-level
+    steps, each a vectorized fp64 ``[M, N]`` op): ``ref`` is the portable tree
+    path's store, which is the correctly-rounded bf16 value the CPU comparison
+    rounds to anyway, and the ulp scale is that reference's magnitude -- i.e. the
+    metric of :func:`_deviation` without the host round trip.
+    """
+
+    identical = float((got == ref).float().mean())
+    ulp = BF16_ULP * ref.float().abs().max().clamp_min(1e-12)
+    worst = float((got.float() - ref.float()).abs().max() / ulp)
+    assert identical >= DECLARED_MIN_IDENTICAL_FRACTION, (
+        f"{label}: only {identical * 100:.4f}% of elements are bit-identical to the "
+        f"reference (declared >= {DECLARED_MIN_IDENTICAL_FRACTION * 100:.0f}%)"
+    )
+    assert worst <= DECLARED_MAX_ULPS, (
+        f"{label}: worst element is {worst:.4f} bf16-ulps from the reference "
+        f"(declared <= {DECLARED_MAX_ULPS})"
+    )
+    return identical, worst
+
+
 def _assert_same_bytes(actual, expected, label):
     assert actual.shape == expected.shape, f"{label}: {actual.shape} vs {expected.shape}"
     assert actual.dtype == expected.dtype, f"{label}: {actual.dtype} vs {expected.dtype}"
@@ -255,6 +279,23 @@ class TestApi:
         x, weight, bias = _inputs(SMALL)
         with pytest.raises(ValueError, match="bias must be bf16"):
             TritonMlpDownGemmOp()(x, weight, bias=bias.float())
+
+    def test_strided_bias_is_read_at_the_right_elements(self):
+        """A view bias must produce the same bytes as its contiguous copy.
+
+        The kernel indexes the bias at unit stride, so the launcher has to make it
+        contiguous (the CUDA backend converts too). Before that, a stride-2 bf16
+        bias was read at the wrong elements and the forward silently returned
+        wrong values -- and disagreed with the CUDA backend on the same inputs.
+        """
+
+        x, weight, _ = _inputs(SMALL, seed=15)
+        bias = torch.randn(SMALL[2] * 2, device="cuda", dtype=torch.bfloat16)[::2]
+        assert bias.shape == (SMALL[2],) and bias.stride(0) == 2
+        op = TritonMlpDownGemmOp()
+        got = op(x, weight, bias=bias)
+        want = op(x, weight, bias=bias.contiguous())
+        _assert_same_bytes(got, want, "strided bias forward")
 
     def test_no_bias_matches_reference(self):
         x, weight, _ = _inputs(SMALL)
@@ -534,6 +575,42 @@ class TestBackward:
         assert db.dtype is torch.bfloat16
         assert torch.allclose(db.float().cpu(), ref_db, atol=1e-2, rtol=1e-2)
 
+    @pytest.mark.parametrize("rows", [REF_TOKENS[1], REF_TOKENS[2]])
+    def test_backward_at_the_reference_shapes(self, rows):
+        """Backward at 6889 and 6032 rows (the 1328^2 and 1664x928 tiers).
+
+        The fp32 CPU reference walks K python-level steps over ``[M, N]``, so it
+        cannot be run at these token counts. The tier oracle is the portable tree
+        path: it is byte-equal to that reference at 4096 rows, at the anchor and at
+        the K tails (``tests/test_mlp_down_gemm.py``), and its order depends only on
+        K, so it is the reference result here too -- and unlike the reference it
+        runs at these M. ``db`` is the same ascending fold in both contracts and is
+        additionally checked bit-for-bit against the independent fp32 reference
+        fold, which is O(M*N) and therefore affordable at any M.
+        """
+
+        from rl_engine.kernels.ops.cuda.linear.mlp_down_gemm import (
+            CudaMlpDownGemmOp,
+            mma_backend_available,
+        )
+
+        if not mma_backend_available():
+            pytest.skip("the portable CUDA path needs the CUDA extension built")
+
+        x, weight, bias = _inputs((rows, MODEL_K, MODEL_N), seed=31)
+        grad = torch.randn(rows, MODEL_N, generator=torch.Generator().manual_seed(32))
+        grad = (grad / (MODEL_N**0.5)).to(torch.bfloat16).cuda()
+        got_dx, got_dw, got_db = _grads(TritonMlpDownGemmOp(), x, weight, bias, grad)
+        with _pinned("general"):
+            tree_dx, tree_dw, tree_db = _grads(CudaMlpDownGemmOp(), x, weight, bias, grad)
+        _assert_tolerance_against_device_reference(got_dx, tree_dx, f"dx rows={rows}")
+        _assert_tolerance_against_device_reference(got_dw, tree_dw, f"dW rows={rows}")
+        _assert_same_bytes(got_db, tree_db, f"db rows={rows}")
+
+        folded = left_fold_bias_gradient(grad.float().cpu()).to(torch.bfloat16).cuda()
+        assert torch.equal(tree_db, folded), f"tree db rows={rows}"
+        assert torch.equal(got_db, folded), f"triton db rows={rows}"
+
     def test_db_is_the_ascending_fp32_fold(self):
         """``db`` is one correctly-rounded FP32 add per row, in index order."""
 
@@ -600,7 +677,7 @@ class TestCudaByteEquality:
     order, byte-equal to the fp32 CPU reference rather than to Triton).
     """
 
-    @pytest.mark.parametrize("rows", [1, 7, 129, REF_TOKENS[0]])
+    @pytest.mark.parametrize("rows", [1, 7, 129, *REF_TOKENS])
     def test_forward_bytes_equal(self, rows):
         x, weight, bias = _inputs((rows, MODEL_K, MODEL_N), seed=5)
         got = TritonMlpDownGemmOp()(x, weight, bias=bias)
@@ -618,7 +695,7 @@ class TestCudaByteEquality:
             want_nobias = _HOPPER_BACKEND(x, weight)
         _assert_same_bytes(TritonMlpDownGemmOp()(x, weight), want_nobias, "forward no bias")
 
-    @pytest.mark.parametrize("rows", [7, 129, REF_TOKENS[0]])
+    @pytest.mark.parametrize("rows", [7, 129, *REF_TOKENS])
     def test_backward_bytes_equal(self, rows):
         x, weight, bias = _inputs((rows, MODEL_K, MODEL_N), seed=7)
         grad = torch.randn(rows, MODEL_N, generator=torch.Generator().manual_seed(21))

@@ -83,14 +83,14 @@ Supporting rules:
 
 | Situation | Path used | Throughput (H100, bf16, K=12288, N=3072) |
 | --- | --- | --- |
-| Hopper (cc 9.x) and the extension built with `KERNEL_ALIGN_FORCE_SM90=1` | Triton, then the CUDA TMA+wgmma path | 448/476 forward, 395/384 end to end |
+| Hopper (cc 9.0) and the extension built with `KERNEL_ALIGN_FORCE_SM90=1` | Triton, then the CUDA TMA+wgmma path | 448/476 forward, 395/384 end to end |
 | Any NVIDIA GPU cc >= 8.0 (Ampere, Ada, Hopper, Blackwell) without the Hopper build | Triton, then the portable CUDA tree path | 10.9-11.0 forward, 12.2 end to end (byte-equal to the reference) |
 | Below cc 8.0 | the CUDA paths **raise** (no kernel exists); Triton if it supports the target, else the fp32 reference | reference |
 | ROCm / MUSA | Triton, else the fp32 reference | not measured here |
 | CPU / NPU, or any fp32 call | the fp32 reference | reference |
 
 The two CUDA paths live in separate sources, the repository's SM90 convention: the
-`mma.sync` kernel is always compiled from `csrc/cuda/gemm/mlp_down_gemm.cu`, and the
+portable fp32-tree kernel is always compiled from `csrc/cuda/gemm/mlp_down_gemm.cu`, and the
 Hopper path lives in `csrc/cuda/gemm/mlp_down_gemm_sm90.cu`, which is built only when
 the repository-wide SM90 switch is on (`KERNEL_ALIGN_FORCE_SM90=1` adds
 `-gencode=arch=compute_cc a` and `-DKERNEL_ALIGN_WITH_SM90`, exactly as it does for
@@ -98,19 +98,21 @@ the repository-wide SM90 switch is on (`KERNEL_ALIGN_FORCE_SM90=1` adds
 `RL_KERNEL_DET_GEMM_BACKEND`:
 
 ```bash
-RL_KERNEL_MLP_DOWN_GEMM_BACKEND=general  # force the portable mma.sync kernel
+RL_KERNEL_MLP_DOWN_GEMM_BACKEND=general  # force the portable fp32-tree kernel (mlp-down-gemm-tree-v1)
 RL_KERNEL_MLP_DOWN_GEMM_BACKEND=hopper   # force the Hopper path; refuse if it cannot serve
 RL_KERNEL_MLP_DOWN_GEMM_BACKEND=auto     # default: Hopper when it can serve, general otherwise
 ```
 
-`general` is how the two paths are A/B compared on one H100 (K=12288, N=3072):
-`mma.sync` 1.666/2.906 ms forward and 5.945/10.196 ms end to end at M=4096/6889,
-against the Hopper path's 0.717/1.141 ms and 2.365/4.094 ms -- and the two produce
-identical bytes, so the 2.4x is the whole difference. The general NVIDIA
-implementation is the `mma.sync` +
-`cp.async` + `ldmatrix`, unchanged from Ampere through Blackwell, bit-identical to
-the Hopper path and to the Triton backend. The Hopper file is an accelerator for
-cc 9.x rather than the only implementation.
+`general` is how the two paths are A/B compared on one machine (K=12288, N=3072):
+on an H100 80GB HBM3 the portable tree runs 21.741 ms forward (14.22 TFLOP/s) and
+57.723 ms end to end (16.07) at M=4096, against the Hopper path's 0.420 ms (735.6)
+and 1.498 ms (619.2) on the same box. The two paths are *different contracts*, so
+they do not produce the same bytes: the portable tree is byte-equal to the fp32 CPU
+reference and the Hopper path is byte-identical to the Triton backend, and the
+measured 35x end-to-end gap is the price of that exactness. The Hopper file is an
+accelerator for cc 9.0 rather than the only implementation: the portable tree needs
+no tensor cores and no TMA, which is why it serves every device and operand layout
+the row supports.
 
 ## Tensor Contract
 
@@ -191,16 +193,14 @@ bit-identical (`torch.equal`) to the reference. The harness tolerance contract
 (`atol = 5e-2`, `rtol = 2e-2` for the forward, `atol = 1e-1` for the gradients)
 is looser than these bounds.
 
-**Across backends.** The Triton backend and both CUDA paths (Hopper TMA+wgmma and
-`mma.sync`) are bit-identical to each other (`torch.equal` on forward, `dx`, `dW`,
+**Across backends.** The Triton backend and the Hopper TMA+wgmma path are
+bit-identical to each other (`torch.equal` on forward, `dx`, `dW`,
 `db`) at every token count from 1 to 6889 that has been measured, including the full
 `4096 x 12288 x 3072` model shape -- see `tests/test_mlp_down_gemm_triton.py` and the
-row's own oracle check. The C3/C4 invariance judgments likewise come back bitwise
-(`atol=rtol=0`) for every chunk/permutation/padding/batch-size pair; the
-`singleton_aggregate` sub-report for the parameter gradients is red by construction
-(a per-sample sum cannot reproduce a fused chain), exactly as it is for the merged
-`linear_logp` row, and the tolerance contract itself lists `singleton_aggregate` as a
-forbidden comparison role. That is a bonus rather than a
+row's own oracle check. The portable fp32-tree path is a *different* contract and is
+byte-equal to the fp32 CPU reference instead, so it is not byte-identical to those
+two; its invariance evidence is the suite's bitwise row/tiling/padding checks and the
+same declared tolerance against the reference. That is the split rather than a
 requirement: the RFC asks for byte equality where the arithmetic contract
 requires it (fixed reduction trees and FP32 accumulators) and otherwise for
 *measured* cross-backend equality with an explicit tolerance profile; this page
@@ -230,19 +230,35 @@ so single-run gaps below ~3% are not resolvable on this part.
 | --- | --- | --- | --- |
 | 4096 | CUDA Hopper (TMA+wgmma) | 0.685 ms (452) [0.680-0.705, i.e. 440-454] | 2.226 ms (417) [2.226-2.324, i.e. 399-417] |
 | 4096 | Triton (wgmma) | 0.667 ms (464) [463-465] | 2.392 ms (388) [2.354-2.523, i.e. 368-394] |
-| 4096 | CUDA `mma.sync` | 1.689 ms (183) | 5.634 ms (165) |
 | 6032 | CUDA Hopper (TMA+wgmma) | 1.048 ms (434) | 3.546 ms (385) |
 | 6032 | Triton (wgmma) | 1.046 ms (435) | 3.958 ms (345) |
 | 6889 | CUDA Hopper (TMA+wgmma) | 1.086 ms (479) [1.077-1.105, i.e. 471-483] | 4.010 ms (389) [3.928-4.131, i.e. 378-397] |
 | 6889 | Triton (wgmma) | 1.106 ms (470) [468-476] | 4.409 ms (354) [346-367] |
-| 6889 | CUDA `mma.sync` | 2.967 ms (175) | 10.073 ms (155) |
 
 Same-session reference points: Triton 465/478 TFLOP/s and cuBLAS bf16
 509/537 TFLOP/s forward (cuBLAS is not a candidate here -- it is not
 batch-invariant).
 
+The portable `mlp-down-gemm-tree-v1` contract is a different arithmetic order, so it
+is benchmarked on its own rather than in the table above. Measured on one H100 80GB
+HBM3 with the same harness (bf16, K=12288, N=3072; the fp32 operand up-conversion is
+part of the cost, hence the extra memory):
+
+| tokens | backend | forward | forward + `dx` + `dW` + `db` |
+| --- | --- | --- | --- |
+| 4096 | CUDA portable (fp32 tree) | 21.741 ms (14.2) | 57.723 ms (16.1) |
+| 6032 | CUDA portable (fp32 tree) | 31.887 ms (14.3) | 85.125 ms (16.1) |
+| 6889 | CUDA portable (fp32 tree) | 36.408 ms (14.3) | 96.885 ms (16.1) |
+
+It is byte-equal to the fp32 CPU reference and roughly 38x slower end to end than
+the mma contract (57.723 ms against 1.498 ms at 4096 tokens), which is exactly the
+trade the row documents: the tensor cores cannot run a tree, and the tree is what
+buys byte equality with the reference.
+
 The hand-written Hopper path went from 190 to 433-454 TFLOP/s forward (2.3-2.4x)
-once the operands arrive through TMA and the MMAs go through `wgmma`, i.e. within
+once the operands arrive through TMA and the MMAs go through `wgmma` (190 is an
+earlier per-warp-MMA revision of the Hopper file, not this PR's portable tree
+path), i.e. within
 3-7% of the Triton forward. End to end it is ahead by 6-10% at `M = 6889`
 and by a tie-to-9% margin at `M = 4096` (two clean repetitions of the reviewer's:
 398-400 TFLOP/s against Triton's 368-379; one session saw a tie, 391.3 vs 392.0),
@@ -474,12 +490,6 @@ it with a full/empty mbarrier handshake in an earlier round was 1-2% slower). An
 `TM = 256/TN = 256` tile, which would cut the arrival volume by a third, cannot be
 expressed at this warpgroup width for the register reason above.
 
-The `mma.sync` path is at the practical ceiling for per-warp MMAs on Hopper
-(~190 TFLOP/s): `TM = TN = 128`, a 2x4 warp grid of `64x32`, `BK = 64`, 3-stage
-`cp.async` ring. Larger tiles (`128x256`, `256x128`) and deeper rings were measured
-and rejected -- they fall to ~58 TFLOP/s from register pressure and the loss of the
-second resident CTA.
-
 Build the Hopper path with the repository-wide SM90 switch, which also builds the
 other `*_sm90.cu` sources:
 
@@ -488,8 +498,9 @@ KERNEL_ALIGN_FORCE_SM90=1 pip install -e . --no-build-isolation
 ```
 
 Without it `mlp_down_gemm_sm90.cu` is not compiled, the extension links without the
-`_sm90` symbols and the wrapper transparently uses the `mma.sync` path; both are the
-same contract, so no numerical expectation changes.
+`_sm90` symbols and the wrapper transparently uses the portable fp32-tree path -- a
+different, also frozen, contract, so a build without the switch is byte-equal to the
+fp32 reference instead of to Triton.
 
 ## Tests
 
@@ -572,30 +583,52 @@ the achievable agreement, and every element is inside 1 ulp of it.
 The row's ROCm slot is served by the Triton backend: the CUDA sources are NVIDIA PTX
 (`cp.async`, `ldmatrix`, `mma.sync`, and the Hopper TMA + wgmma block) and are not part
 of a ROCm build, with `csrc/ops.cpp` guarding their bindings the same way it does for
-`prefix_shared_attention`. To qualify the row on an AMD host:
+`prefix_shared_attention`. The ROCm slot of this row is **not yet validated** -- the
+step-by-step qualification below needs an AMD host, and each step names the result it
+has to produce, so a reviewer with one can close it.
 
 1. Build on the ROCm machine with a HIP torch (`torch.version.hip` non-null) and
-   Triton: `pip install -e . --no-build-isolation`. The registry then resolves
-   `device="cuda"` to the `rocm` platform, whose candidate list for this op is
-   `[TritonMlpDownGemmOp, NativeMlpDownGemmOp]`.
+   Triton: `pip install -e . --no-build-isolation`. `KERNEL_ALIGN_FORCE_SM90=1` is a
+   no-op there. The registry then resolves `device="cuda"` to the `rocm` platform,
+   whose candidate list for this op is `[TritonMlpDownGemmOp, NativeMlpDownGemmOp]`.
+   Expected: the build succeeds, and `import rl_engine._C as C; [n for n in dir(C) if
+   "mlp_down_gemm" in n]` is **empty** -- all seven `mlp_down_gemm_cuda*` symbols are
+   guarded out, and the Triton backend must not need them.
 2. Confirm the dispatch:
    `python -c "import torch; from rl_engine.kernels.registry import kernel_registry as r;
-   print(type(r.get_op('mlp_down_gemm', device='cuda')).__name__)"` prints
-   `TritonMlpDownGemmOp`.
-3. Correctness: `python -m pytest tests/test_mlp_down_gemm_triton.py -q` (its device
-   marker is `torch.cuda.is_available()`, which is true under HIP) and
+   print(type(r.get_op('mlp_down_gemm', device='cuda')).__name__)"`.
+   Expected: `TritonMlpDownGemmOp`.
+3. Correctness against the same fp32 CPU reference the CUDA paths are held to:
+   `python -m pytest tests/test_mlp_down_gemm_triton.py -q` (its device marker is
+   `torch.cuda.is_available()`, which is true under HIP), and
    `python scripts/check_operator.py --op mlp_down_gemm --candidate triton --device cuda
-   --dtype bf16 --batch 2 --seq 16 --k-dim 12288 --n-dim 3072 --check-grad`, which
-   compares against the same fp32 CPU reference the CUDA paths are held to.
-4. Numbers: `python benchmarks/benchmark_mlp_down_gemm.py --backend triton --dtype bf16
-   --batch 4096 --seq 1` (and `--batch 6889`), which gates on the reference before
-   timing.
-5. Invariance gates: the tolerance contract declares `cuda_bf16`, `triton_cuda_bf16`
-   and `ascend_bf16` only, so `check_forward_invariance.py --backend-profile` cannot be
-   run under a ROCm profile yet. A ROCm qualification should add e.g.
-   `triton_rocm_bf16` to `tolerance_contract.json` (`backend_profiles` and
-   `backend_profile_contracts`) and to that script's `choices`, then run both
-   judgments with it.
+   --dtype bf16 --batch 2 --seq 16 --k-dim 12288 --n-dim 3072 --check-grad`.
+   Expected: the suite passes, with `TestCudaByteEquality` **skipped** (it needs the
+   SM90 build and a cc 9.0 device, which a ROCm build cannot have), and the gtest
+   reports `pass_rate=1.0000` at the shared dtype policy (`atol=5e-2, rtol=2e-2` for
+   the forward, `atol=1e-1, rtol=2e-2` for the gradients).
+4. Numbers, gated on the reference before timing:
+   `python benchmarks/benchmark_mlp_down_gemm.py --backend triton --dtype bf16
+   --batch 4096 --seq 1` (and `--batch 6889`).
+   Expected: the gate line reports `identical >= 99%` and `worst <= 8.0 bf16-ulp` for
+   the forward, `dx` and `dW`, and `100.0000%` / `0.0 ulp` for `db`, then the timing
+   table. There is no expected TFLOP/s number on ROCm -- the CUDA figures on this page
+   are a different part's, not a target.
+5. In-row invariance on that backend: `test_forward_deterministic_over_three_reruns`,
+   `test_forward_row_invariant`, `test_dx_row_invariant`, `test_dw_padding_invariant`
+   and `test_db_padding_invariant` in the same suite, all `torch.equal` (i.e.
+   `atol=rtol=0`). Expected: all pass. The repository-wide C3/C4 scripts are *not*
+   part of this row's gate on any backend: their `--op` choices and their shapes come
+   from the adapters registered over the Qwen3-8B WS1 manifest
+   (`ws1-qwen3-8b-dense-primary-v6`, whose per-profile `required_nodes` are the
+   C2/C3/C4 matrix). A Qwen-Image row cannot be added there as *tracked* evidence
+   without a node and profile in that workload, and running it untracked would
+   exercise the harness's own geometry (its `--hidden`, 64 by default) rather than
+   this row's `K = 12288, N = 3072`; today
+   `check_forward_invariance.py --op mlp_down_gemm ...` exits with
+   `invalid choice: 'mlp_down_gemm'`. The row's invariance evidence is its own suite
+   (bitwise row/tiling/padding/rerun checks at the model geometry) plus the tier
+   backward tests in `tests/test_mlp_down_gemm_triton.py`.
 6. What is *not* testable there: byte-equality against the CUDA paths, which do not
    exist on ROCm. What is: the declared tolerance against the fp32 reference, and the
    backend's own batch/tiling/rerun invariance -- both covered by the suite above.
@@ -609,13 +642,15 @@ of a ROCm build, with `csrc/ops.cpp` guarding their bindings the same way it doe
   `RL_KERNEL_MLP_DOWN_GEMM_BACKEND`; the route report carries the contract id it actually took.
 - **bf16 only.** An fp32 call fails closed on the CUDA and Triton backends; the
   PyTorch reference serves fp32 callers and every non-CUDA device.
-- **SM80+** for the native `mma.sync` kernel; the TMA+wgmma path needs a Hopper
+- **SM80+** for the portable fp32-tree kernel; the TMA+wgmma path needs a Hopper
   device *and* a build with `KERNEL_ALIGN_FORCE_SM90=1` (it is emitted for
-  `compute_90a`), and Triton's wgmma lowering is Hopper-specific as well. Older
-  targets fall back to the same pinned order at lower throughput.
+  `compute_90a`, and the device gate is exactly cc 9.0 because the kernel body only
+  exists under `__CUDA_ARCH_FEAT_SM90_ALL`), and Triton's wgmma lowering is
+  Hopper-specific as well. Older targets fall back to the same pinned order at lower
+  throughput.
 - The Hopper entries require contiguous operands (the TMA tensor maps are built
-  from the extents) and check that explicitly; the `mma.sync` path stages whatever
-  strides it is given.
+  from the extents) and check that explicitly; the portable fp32-tree path stages
+  whatever strides it is given.
 - **No split-K**, by contract: a single CTA owns each output tile. Small `N` or
   `M` therefore under-fill the device, and shapes are not padded to tile
   multiples (masks handle the tails).
@@ -625,4 +660,5 @@ of a ROCm build, with `csrc/ops.cpp` guarding their bindings the same way it doe
   that a change of `M` cannot change `BLOCK_K`/`num_warps` and with it a row's
   bytes. Unusual shapes are correct but not necessarily at peak.
 - The row's train-infer guarantee is per-device: CUDA and ROCm qualify
-  separately, as the RFC requires.
+  separately, as the RFC requires. The ROCm slot is served by the Triton backend
+  and is **unvalidated** until an AMD host runs the qualification above.
