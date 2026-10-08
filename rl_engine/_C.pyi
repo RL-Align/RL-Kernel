@@ -2,6 +2,23 @@
 # This file is a type stub for the compiled C++ extension module.
 import torch
 
+def flow_sde_strict_math() -> bool: ...
+def flow_sde_step_logp_forward(
+    sample: torch.Tensor,
+    velocity: torch.Tensor,
+    params: torch.Tensor,
+    auxiliary: torch.Tensor,
+    replay: bool,
+) -> list[torch.Tensor]: ...
+def flow_sde_step_logp_backward(
+    target: torch.Tensor,
+    mean: torch.Tensor,
+    coeff: torch.Tensor,
+    grad_target: torch.Tensor,
+    grad_logp: torch.Tensor,
+    grad_mean: torch.Tensor,
+    replay: bool,
+) -> list[torch.Tensor]: ...
 def deterministic_collective_ipc_meta(
     tensor: torch.Tensor,
 ) -> tuple[list[int], int]: ...

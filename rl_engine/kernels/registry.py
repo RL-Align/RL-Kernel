@@ -66,6 +66,12 @@ class _KernelEnumMeta(EnumMeta):
 
 
 class OpBackend(Enum, metaclass=_KernelEnumMeta):
+    PYTORCH_FLOW_SDE_STEP_LOGP = (
+        "rl_engine.kernels.ops.pytorch.diffusion.flow_sde_step_logp.NativeFlowSDEStepLogpOp"
+    )
+    CUDA_FLOW_SDE_STEP_LOGP = (
+        "rl_engine.kernels.ops.cuda.diffusion.flow_sde_step_logp.CUDAFlowSDEStepLogpOp"
+    )
     # NVIDIA optimized stack
     FLASH_ATTN = "rl_engine.kernels.ops.cuda.attention.flash_attn.FlashAttentionOp"
     FLASHINFER = "rl_engine.kernels.ops.cuda.flashinfer.FlashInferOp"
@@ -735,6 +741,10 @@ class KernelRegistry:
         }
         # Preserve the former CPU fallback behavior for every operator on NPU,
         # then override only the operators with an Ascend-specific backend.
+        # Strict CUDA never substitutes the reference when the extension is
+        # missing. CPU reference is selected explicitly via device="cpu".
+        self._priority_map["cpu"]["flow_sde_step_logp"] = [OpBackend.PYTORCH_FLOW_SDE_STEP_LOGP]
+        self._priority_map["cuda"]["flow_sde_step_logp"] = [OpBackend.CUDA_FLOW_SDE_STEP_LOGP]
         self._priority_map["npu"] = {
             op_type: candidates.copy() for op_type, candidates in self._priority_map["cpu"].items()
         }
@@ -1034,6 +1044,8 @@ class KernelRegistry:
         """Select the best legacy operator for the requested device."""
 
         platform = self._platform_for_device(device)
+        if op_type == "flow_sde_step_logp" and platform not in ("cpu", "cuda"):
+            raise RuntimeError(f"flow_sde_step_logp has no qualified backend for {platform}")
         candidates = self._priority_map.get(platform, {}).get(op_type, [OpBackend.PYTORCH_NATIVE])
 
         for backend in candidates:

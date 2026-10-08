@@ -32,6 +32,17 @@ def _load_object(path: str) -> Any:
 
 
 OP_SPECS = {
+    "flow_sde_step_logp": OperatorSpec(
+        name="flow_sde_step_logp",
+        op_class="logprob",
+        gold_path="rl_engine.kernels.gtest.operator_specs.GtestFlowSDEReferenceOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.kernels.gtest.operator_specs.GtestFlowSDEReferenceOp",
+            "cuda": "rl_engine.kernels.gtest.operator_specs.GtestFlowSDECUDAOp",
+        },
+        grad_input_names=("sample", "model_output"),
+    ),
     "rms_norm": OperatorSpec(
         name="rms_norm",
         op_class="reduction",
@@ -256,6 +267,30 @@ OP_SPECS = {
         grad_input_names=("x",),
     ),
 }
+
+
+class GtestFlowSDEReferenceOp:
+    """Compare all differentiable sampling outputs; pytest also checks std/replay."""
+
+    def __init__(self):
+        from rl_engine.kernels.ops.pytorch.diffusion.flow_sde_step_logp import (
+            NativeFlowSDEStepLogpOp,
+        )
+
+        self._op = NativeFlowSDEStepLogpOp()
+
+    def __call__(self, **inputs):
+        result = self._op(**inputs)
+        return result.prev_sample, result.logp, result.mean
+
+    forward_fp32 = __call__
+
+
+class GtestFlowSDECUDAOp(GtestFlowSDEReferenceOp):
+    def __init__(self):
+        from rl_engine.kernels.ops.cuda.diffusion.flow_sde_step_logp import CUDAFlowSDEStepLogpOp
+
+        self._op = CUDAFlowSDEStepLogpOp()
 
 
 class GtestPackOp:
