@@ -126,6 +126,37 @@ BF16.
   gradient-invariance contract's singleton-aggregate check). That serial fold over rows is
   the cost; a faster tree fold would not pass that check.
 
+## Existing implementations: batch invariance of every row, accuracy, gates
+
+![qwen3_next_rms_norm vs existing implementations](../usage/evidence/qwen3-next-norm-reuse-b200/qwen3_next_rms_norm.png)
+
+| Implementation | Batch-invariant | Forward correctly rounded | Worst grad err | Forward / fwd+bwd | C3/C4 gates |
+|---|---|---|---|---|---|
+| rl-kernel Qwen3NextRMSNormCudaOp | yes | 99.9993% | 2.4e-03 | 426 / 31485 µs | not on this branch |
+| rl-kernel PyTorch reference | **no** (49 rows, 94 sub-batches) | 99.9993% | 2.4e-03 | 2146 / 5024 µs | — |
+| transformers 5.17.0 Qwen3NextRMSNorm | **no** (90 rows, 142 sub-batches) | 99.9992% | 2.4e-03 | 1449 / 4468 µs | not on this branch |
+| Liger 0.8.4 RMSNorm, offset 1, gemma | yes | 99.9993% | 2.4e-03 | 133 / 974 µs | not on this branch |
+| FLA 0.5.2 rms_norm, weight passed as 1 + w | yes | 73.0161% | 5.5e-03 | 147 / 1051 µs | not on this branch |
+| TE 2.20.2 RMSNorm(zero_centered_gamma) | **no** (175 rows, 245 sub-batches) | 99.9992% | 2.4e-03 | 156 / 779 µs | — |
+| Megatron BatchInvariantRMSNormFn(zero_centered_gamma=True) | **no** (47 rows, 62 sub-batches, 92 sweep cases) | 0.0000% | 1.2e-02 | 1439 / 5507 µs | not on this branch |
+| FlashInfer 0.6.18.post1 gemma_rmsnorm | yes | 99.9992% | — | 91 / — µs | — |
+| vLLM 0.30.0 GemmaRMSNorm.forward_cuda | **no** (16 rows, 26 sub-batches) | 99.9992% | — | 1454 / — µs | — |
+
+Batch invariance is bitwise and covers three checks: every row computed alone vs inside full
+batches of three sizes; the full workload-size batch vs sub-batches that together cover every
+row; and a dense batch-size sweep. A "no" counts the rows, sub-batches or sweep cases that
+differed. Accuracy is against FP64 at the workload size; latency is the median on an otherwise
+idle B200. The C3/C4 column runs this repository's own gate scripts unchanged, with the CUDA
+candidate replaced by a subclass of this op whose forward and backward call the other library.
+The subclass keeps this op's FP32 `dweight` row contributions, so singleton-aggregate compares
+like with like. The gate scripts for this op arrive with #468 (`qwen3_next_norm_manifest.json`); its gate results are in #468's copy of this page. [`qwen3_next_rms_norm.json`](../usage/evidence/qwen3-next-norm-reuse-b200/qwen3_next_rms_norm.json)
+was written from a clean tree at `a66493c` by
+
+```bash
+python scripts/qwen3_next_norm_reuse_check.py --op qwen3_next_rms_norm \
+    --out docs/usage/evidence/qwen3-next-norm-reuse-b200/qwen3_next_rms_norm.json [--megatron-src <Megatron-LM checkout>]
+```
+
 ## Tests
 
 ```bash
