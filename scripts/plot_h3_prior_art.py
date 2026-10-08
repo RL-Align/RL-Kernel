@@ -103,14 +103,28 @@ def main() -> None:
     for y, (_, e), d in zip(ys, entries, diff):
         bi = e["batch_invariance"]
         rep = bi["params_repeatable"]
-        note = "" if rep is None else ("; params repeatable" if rep else "; params NOT repeatable")
+        note = (
+            ""
+            if rep is None
+            else (
+                "; parameter/table grads repeatable"
+                if rep
+                else "; parameter/table grads NOT repeatable"
+            )
+        )
         verdict = "batch-invariant" if bi["batch_invariant"] else "NOT batch-invariant"
-        ax.text(max(d, 0.5) * 1.3, y, f"{d} differ — {verdict}{note}", va="center", fontsize=7)
+        ax.text(
+            max(d, 0.5) * 1.3,
+            y,
+            f"{verdict}: {d} row comparisons differ{note}",
+            va="center",
+            fontsize=7,
+        )
     ax.set_xscale("log")
     ax.set_yticks(list(ys), names, fontsize=7)
     ax.invert_yaxis()
     ax.set_xlim(0.4, max(max(diff), 1) * 1e3)
-    ax.set_title("batch invariance: bitwise comparisons that differ")
+    ax.set_title("batch invariance: bitwise row comparisons that differ, and gradient repeats")
     ax.set_xlabel(
         "every row alone vs full batches + full batch vs covering sub-batches + size sweep",
         fontsize=7,
