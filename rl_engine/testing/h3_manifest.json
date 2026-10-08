@@ -30,18 +30,54 @@
     }
   },
   "tensors": {
-    "time_embedder.linear_1.weight": {"dtype": "float32", "shape": [5376, 256]},
-    "time_embedder.linear_1.bias": {"dtype": "float32", "shape": [5376]},
-    "time_embedder.linear_2.weight": {"dtype": "float32", "shape": [2688, 5376]},
-    "time_embedder.linear_2.bias": {"dtype": "float32", "shape": [2688]},
-    "transformer_blocks.0.adaln_proj.linear.weight": {"dtype": "bfloat16", "shape": [96768, 2688]},
-    "transformer_blocks.0.adaln_proj.linear.bias": {"dtype": "bfloat16", "shape": [96768]},
-    "transformer_blocks.0.norm1.weight": {"dtype": "bfloat16", "shape": [5376]},
-    "transformer_blocks.0.norm2.weight": {"dtype": "bfloat16", "shape": [5376]},
-    "token_refiner.final_norm.weight": {"dtype": "bfloat16", "shape": [5376]},
-    "norm_out.norm.weight": {"dtype": "bfloat16", "shape": [5376]},
-    "norm_out.linear.weight": {"dtype": "bfloat16", "shape": [10752, 2688]},
-    "norm_out.linear.bias": {"dtype": "bfloat16", "shape": [10752]}
+    "time_embedder.linear_1.weight": {
+      "dtype": "float32", "shape": [5376, 256],
+      "sha256": "4c50eabe3c434dc05422e6501cdf7baa5cecbb1a7706ae9599c7a5b0e34e2913"
+    },
+    "time_embedder.linear_1.bias": {
+      "dtype": "float32", "shape": [5376],
+      "sha256": "64763a5e39cb078eb0d8c5be5d56ad36cac3dec37be93a87e106d82ea6c071b7"
+    },
+    "time_embedder.linear_2.weight": {
+      "dtype": "float32", "shape": [2688, 5376],
+      "sha256": "697819dd9413e0fec3a50987a964f1fd5db568ca545267414238f452294a8154"
+    },
+    "time_embedder.linear_2.bias": {
+      "dtype": "float32", "shape": [2688],
+      "sha256": "096a3c7539f0248698cc65376c8da260e7365bf4ccef847c09bb9a36782a743c"
+    },
+    "transformer_blocks.0.adaln_proj.linear.weight": {
+      "dtype": "bfloat16", "shape": [96768, 2688],
+      "sha256": "a0000193b30ea36a1996f53fc0d6c4c37ce5fd4585284f0f9bae570d25c6b8cf"
+    },
+    "transformer_blocks.0.adaln_proj.linear.bias": {
+      "dtype": "bfloat16", "shape": [96768],
+      "sha256": "d59f9de9e07e6b4e3b57009627e276a26971ce379555fc99dbb06d3a237c8fc0"
+    },
+    "transformer_blocks.0.norm1.weight": {
+      "dtype": "bfloat16", "shape": [5376],
+      "sha256": "5e32e4d7379a9f9302755af395ed50b5b998352a221dc2c99204a85dd9f9b49f"
+    },
+    "transformer_blocks.0.norm2.weight": {
+      "dtype": "bfloat16", "shape": [5376],
+      "sha256": "a2c513ec459414e211a3d37f77c1f556f11117f56516b22eb5912f8ff5f98872"
+    },
+    "token_refiner.final_norm.weight": {
+      "dtype": "bfloat16", "shape": [5376],
+      "sha256": "cf10a56a11370a216a4ac3afe9e8b8a3133206bccd6011a92b9aa791a9196b93"
+    },
+    "norm_out.norm.weight": {
+      "dtype": "bfloat16", "shape": [5376],
+      "sha256": "91ac17792929e0a84533b28caf71ac831ec3d666c07a473393639be20392f5ce"
+    },
+    "norm_out.linear.weight": {
+      "dtype": "bfloat16", "shape": [10752, 2688],
+      "sha256": "38063ae4b492aacd320e71d4a38a32325c0d47b29f59978f0f4979ca080fe673"
+    },
+    "norm_out.linear.bias": {
+      "dtype": "bfloat16", "shape": [10752],
+      "sha256": "3b12cdc7bbda772e7e31539ffa9a32f529dba7f4148273d2128bdc621fd27438"
+    }
   },
   "reference_implementation": {
     "repo": "huggingface/diffusers",
