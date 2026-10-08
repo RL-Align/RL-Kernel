@@ -34,7 +34,7 @@ def main() -> None:
     report = json.loads(path.read_text())
     names = list(report["row_invariance"])
     perf = report["performance"]
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10), layout="constrained")
+    fig, axes = plt.subplots(2, 2, figsize=(16, 11), layout="constrained")
     fig.suptitle(
         f"Generic fused logp backward (#174) — {report['environment']['gpu']}, "
         f"V = {report['vocab']}, BF16 logits, commit {report['git_commit'][:7]}",
@@ -70,12 +70,18 @@ def main() -> None:
         ax.text(
             i,
             vals[i],
-            f"{vals[i]:.2e}\n{cr:.4%} rounded\ncorrectly",
+            f"{vals[i]:.2e}\n{cr:.2%}\ncorr.\nrounded",
             ha="center",
             va="bottom",
-            fontsize=8,
+            fontsize=7,
         )
-    ax.set_xticks(range(len(names)), [n.replace(" (", "\n(") for n in names], fontsize=8)
+    ax.set_xticks(
+        range(len(names)),
+        [n.replace(" (", "\n(") for n in names],
+        fontsize=7,
+        rotation=30,
+        ha="right",
+    )
     ax.set_yscale("log")
     ax.set_ylim(top=max(vals) * 5)
     ax.set_title("dlogits error vs FP64: max |err| / max |dlogits| (257 rows)")
@@ -87,8 +93,9 @@ def main() -> None:
         first = next(iter(bi.values()))
         checked = first["comparisons"]
         what = (
-            f"comparisons differing (of {checked}: rows alone vs at the front / middle / back of "
-            f"{len(first['batch_sizes'])} batch sizes up to {max(first['batch_sizes'])}, bitwise)"
+            f"comparisons differing (of {checked}: rows alone vs at the front / middle / back\n"
+            f"of {len(first['batch_sizes'])} batch sizes up to {max(first['batch_sizes'])}, "
+            "bitwise)"
         )
         lp = [bi[n]["logp_differing"] for n in names]
         gr = [bi[n]["grad_differing"] for n in names]
