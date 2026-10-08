@@ -27,6 +27,8 @@ from rl_engine.testing.h3_report import PERF_CASES, TIMED_KEYS, measure  # noqa:
 
 
 def main() -> None:
+    """Benchmark selected CUDA operators, print summaries, and optionally save JSON."""
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--op", default="all", choices=["all", *PERF_CASES])
     parser.add_argument("--warmup", type=int, default=20)

@@ -124,6 +124,7 @@ __global__ void __launch_bounds__(kWarpsPerBlock * kWarp)
   using WV = Vec16<w_t>;
   using XV = Vec16<x_t>;
   constexpr int kVec = WV::kN;
+  static_assert(kCols * kRows <= kWarp, "one warp cannot store more than kWarp outputs per tile");
   static_assert(XV::kN == kVec, "x and weight share a dtype");
   constexpr int64_t kStride = static_cast<int64_t>(kWarp) * kVec;
 
@@ -499,12 +500,15 @@ torch::Tensor h3_det_linear_backward_input(torch::Tensor grad, torch::Tensor wei
   TORCH_CHECK(out_dtype == at::kFloat || out_dtype == at::kBFloat16,
               "out_dtype must be float32 or bfloat16");
   const int64_t rows = grad.size(0);
+  TORCH_CHECK(rows > 0, "grad must have at least one row");
   const int64_t n_out = weight.size(0);
   const int64_t k_in = weight.size(1);
   const c10::cuda::CUDAGuard device_guard(grad.device());
+  auto out = torch::empty({rows, k_in}, grad.options().dtype(out_dtype));
+  if (k_in == 0) return out;
+  if (n_out == 0) return out.zero_();
   const int64_t chunks = (n_out + kDInputChunk - 1) / kDInputChunk;
   auto partial = torch::empty({chunks, rows, k_in}, grad.options());
-  auto out = torch::empty({rows, k_in}, grad.options().dtype(out_dtype));
   auto stream = at::cuda::getCurrentCUDAStream();
   const int threads = 256;
   dim3 grid(static_cast<unsigned>((k_in + threads - 1) / threads), static_cast<unsigned>(chunks));
@@ -544,10 +548,15 @@ std::vector<torch::Tensor> h3_det_linear_backward_weight(torch::Tensor grad, tor
   TORCH_CHECK(w_dtype == at::kFloat || w_dtype == at::kBFloat16,
               "w_dtype must be float32 or bfloat16");
   const int64_t rows = grad.size(0);
+  TORCH_CHECK(rows > 0, "grad must have at least one row");
   const int64_t n_out = grad.size(1);
   const int64_t k_in = x.size(1);
   const c10::cuda::CUDAGuard device_guard(grad.device());
   auto dw = torch::empty({n_out, k_in}, grad.options().dtype(w_dtype));
+  if (n_out == 0) {
+    if (!with_bias) return {dw};
+    return {dw, torch::empty({n_out}, grad.options().dtype(w_dtype))};
+  }
   auto stream = at::cuda::getCurrentCUDAStream();
   const int threads = 256;
   const int64_t total = n_out * k_in;

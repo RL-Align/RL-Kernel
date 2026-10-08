@@ -55,11 +55,15 @@ class Stage:
 
 
 def mlp_params(ctx: dict[str, Any]) -> list[torch.Tensor]:
+    """Return the context's MLP weights and biases in linear_1, linear_2 call order."""
+
     weights = ctx["weights"]
     return [weights[f"time_embedder.linear_{i}.{p}"] for i in (1, 2) for p in ("weight", "bias")]
 
 
 def adaln_params(ctx: dict[str, Any]) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return the context's block-0 AdaLN projection weight and bias."""
+
     prefix = "transformer_blocks.0.adaln_proj.linear"
     return ctx["weights"][f"{prefix}.weight"], ctx["weights"][f"{prefix}.bias"]
 
@@ -126,12 +130,16 @@ BACKWARD_MODES = ("candidate", "candidate_fused", "provider")
 
 
 def _flat(value: Any) -> list[torch.Tensor]:
+    """Collect tensors from nested sequences in their original order."""
+
     if isinstance(value, torch.Tensor):
         return [value]
     return [tensor for item in value for tensor in _flat(item)]
 
 
 def compare(lhs: Any, rhs: Any, atol: float = 0.0, rtol: float = 0.0) -> dict[str, Any]:
+    """Report tensor equality, maximum FP32 absolute error, and tolerance checks."""
+
     lhs_t, rhs_t = _flat(lhs), _flat(rhs)
     bitwise = all(torch.equal(a, b) for a, b in zip(lhs_t, rhs_t, strict=True))
     max_abs = 0.0
@@ -145,6 +153,8 @@ def compare(lhs: Any, rhs: Any, atol: float = 0.0, rtol: float = 0.0) -> dict[st
 
 
 def make_context(weights, *, num_timesteps: int, seq_len: int, seed: int) -> dict[str, Any]:
+    """Build seeded CUDA timesteps and packed row labels with the supplied weights."""
+
     timestep_indices, token_tags = h3_packed_layout(seq_len, num_timesteps, seed=seed)
     return {
         "timestep": h3_timesteps(num_timesteps, seed=seed),
@@ -155,7 +165,7 @@ def make_context(weights, *, num_timesteps: int, seq_len: int, seed: int) -> dic
 
 
 def golden_op(registry: KernelRegistry, op_type: str):
-    """The PyTorch reference: the last entry of the CPU priority list."""
+    """Return the PyTorch reference at the end of the operator's CPU priority list."""
 
     return registry._get_or_create_backend(registry._priority_map["cpu"][op_type][-1])
 
@@ -169,6 +179,12 @@ def run_case(
     seed: int = 0,
     stages: list[Stage] | None = None,
 ) -> dict[str, Any]:
+    """Replay CUDA candidate, provider, and golden paths and report each stage's drift.
+
+    Supplied stages must include their prerequisites in execution order.
+    Omitting ``stages`` runs the full registered chain without gradients.
+    """
+
     stages = STAGES if stages is None else stages
     ctx = make_context(weights, num_timesteps=num_timesteps, seq_len=seq_len, seed=seed)
     report: dict[str, Any] = {
@@ -281,7 +297,11 @@ def run_backward_case(
 
 
 def git_state() -> dict[str, Any]:
+    """Return HEAD and tracked-tree dirtiness, defaulting to unknown/dirty if Git fails."""
+
     def run(*args: str) -> str:
+        """Run Git in the repository root and return stripped stdout."""
+
         return subprocess.check_output(["git", *args], cwd=REPO_ROOT, text=True).strip()
 
     try:
@@ -293,6 +313,8 @@ def git_state() -> dict[str, Any]:
 
 
 def environment() -> dict[str, Any]:
+    """Record the active CUDA device, software versions, and matmul TF32 setting."""
+
     return {
         "gpu": torch.cuda.get_device_name(),
         "capability": list(torch.cuda.get_device_capability()),

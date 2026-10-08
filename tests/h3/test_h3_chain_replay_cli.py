@@ -26,20 +26,9 @@ def no_cuda_check(monkeypatch):
     monkeypatch.setattr(h3_chain_replay.torch.cuda, "is_available", unexpected_check)
 
 
-@pytest.mark.parametrize(
-    "stages, message",
-    [
-        ("", "unknown stages"),
-        ("unknown", "unknown stages"),
-        (STAGE_NAMES[1], "ordered prefix"),
-        (STAGE_NAMES[-1], "ordered prefix"),
-        (",".join(STAGE_NAMES[:1] + STAGE_NAMES[2:]), "ordered prefix"),
-        (",".join(reversed(STAGE_NAMES)), "ordered prefix"),
-        (",".join([STAGE_NAMES[0], STAGE_NAMES[0]]), "ordered prefix"),
-    ],
-)
+@pytest.mark.parametrize("stages, message", [("", "unknown stages"), ("unknown", "unknown stages")])
 def test_reject_invalid_stages(monkeypatch, capsys, no_cuda_check, stages, message):
-    """Reject unknown stages and selections that break chain dependencies."""
+    """Reject unknown stages before any device check."""
 
     monkeypatch.setattr(sys, "argv", ["h3_chain_replay.py", "--stages", stages])
     with pytest.raises(SystemExit) as exc:
@@ -63,14 +52,23 @@ def test_backward_requires_all_stages(monkeypatch, capsys, no_cuda_check, count)
     assert "--backward requires every stage" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("count", range(1, len(STAGE_NAMES) + 1))
-def test_accept_ordered_prefix(monkeypatch, count):
-    """Allow every nonempty prefix to advance to the device requirement."""
+@pytest.mark.parametrize(
+    "stages",
+    [
+        *(",".join(STAGE_NAMES[:count]) for count in range(1, len(STAGE_NAMES) + 1)),
+        STAGE_NAMES[1],
+        STAGE_NAMES[-1],
+        ",".join(STAGE_NAMES[:1] + STAGE_NAMES[2:]),
+        ",".join(reversed(STAGE_NAMES)),
+        ",".join([STAGE_NAMES[0], STAGE_NAMES[0]]),
+    ],
+)
+def test_accept_any_known_selection(monkeypatch, stages):
+    """Any selection of known stages reaches the device requirement; the replay
+    runs its prerequisites (tests/h3/test_h3_cli.py)."""
 
     monkeypatch.setattr(h3_chain_replay.torch.cuda, "is_available", lambda: False)
-    monkeypatch.setattr(
-        sys, "argv", ["h3_chain_replay.py", "--stages", ",".join(STAGE_NAMES[:count])]
-    )
+    monkeypatch.setattr(sys, "argv", ["h3_chain_replay.py", "--stages", stages])
     with pytest.raises(SystemExit, match="the chain replay needs a CUDA device"):
         h3_chain_replay.main()
 

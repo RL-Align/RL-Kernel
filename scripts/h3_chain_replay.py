@@ -36,13 +36,13 @@ def _ints(text: str) -> list[int]:
 
 
 def main() -> None:
-    """Validate the chain prefix, replay cases, and optionally save evidence."""
+    """Replay requested CUDA stages with prerequisites and optionally save JSON evidence."""
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--stages",
         default=",".join(s.name for s in h3_chain.STAGES),
-        help="comma list of stages forming a nonempty ordered prefix of the chain",
+        help="comma list of stages to report; preceding stages run automatically",
     )
     parser.add_argument("--timesteps", type=_ints, default=[1, 2, 4], help="comma list of T")
     parser.add_argument("--seq-lens", type=_ints, default=[3, 257, 4097], help="comma list of S")
@@ -61,11 +61,11 @@ def main() -> None:
     unknown = sorted(set(wanted) - set(stage_names))
     if unknown:
         parser.error(f"unknown stages: {unknown}")
-    if wanted != stage_names[: len(wanted)]:
-        parser.error("--stages must form a nonempty ordered prefix of the chain")
-    stages = h3_chain.STAGES[: len(wanted)]
+    stages = [s for s in h3_chain.STAGES if s.name in wanted]
     if args.backward and len(stages) != len(h3_chain.STAGES):
         parser.error("--backward requires every stage of the chain")
+    last_stage = max(i for i, stage in enumerate(h3_chain.STAGES) if stage.name in wanted)
+    execution_stages = h3_chain.STAGES[: last_stage + 1]
 
     if not torch.cuda.is_available():
         raise SystemExit("the chain replay needs a CUDA device")
@@ -85,8 +85,9 @@ def main() -> None:
                 num_timesteps=num_timesteps,
                 seq_len=seq_len,
                 seed=args.seed,
-                stages=stages,
+                stages=execution_stages,
             )
+            case["stages"] = [entry for entry in case["stages"] if entry["stage"] in wanted]
             cases.append(case)
             summary = ", ".join(
                 f"{e['stage']}="
@@ -122,6 +123,7 @@ def main() -> None:
         **h3_chain.git_state(),
         "environment": h3_chain.environment(),
         "stages": [s.name for s in stages],
+        "executed_stages": [s.name for s in execution_stages],
         "cases": cases,
         "backward_cases": backward_cases,
     }
