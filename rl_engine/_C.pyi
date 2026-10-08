@@ -330,20 +330,55 @@ def h3_timestep_sinusoid_forward(
     num_channels: int = 256,
     max_period: float = 10000.0,
     check_range: bool = True,
-) -> torch.Tensor: ...
+) -> torch.Tensor:
+    """Return FP32 CUDA cosine-then-sine features of shape ``(T, num_channels)``.
+
+    Require a nonempty 1-D FP32 CUDA timestep tensor, positive even channels
+    and positive ``max_period``. Check finite values in ``[0, 1]`` when enabled;
+    the Python operator supplies the analytic backward for this native forward.
+    """
+    ...
+
 def h3_det_linear_forward(
     x: torch.Tensor,
     weight: torch.Tensor,
     bias: torch.Tensor | None = None,
     activation: int = 0,
     save_pre_activation: bool = False,
-) -> list[torch.Tensor]: ...
+) -> list[torch.Tensor]:
+    """Return a deterministic CUDA projection and optional FP32 pre-activation.
+
+    Require same-device/dtype FP32 or BF16 contiguous, 16-byte-aligned matrices
+    ``x (T, K)`` and ``weight (N, K)``, ``T > 0`` and ``K`` divisible by the
+    16-byte vector width. Optional contiguous bias is ``(N,)`` in that dtype.
+    Activation 0 is identity and 1 is SiLU; BF16 forward requires SM80 or newer.
+    Return ``[out]`` in the input dtype or ``[out, pre]`` when saving activation.
+    """
+    ...
+
 def h3_det_linear_backward_input(
     grad: torch.Tensor, weight: torch.Tensor, out_dtype: torch.dtype
-) -> torch.Tensor: ...
+) -> torch.Tensor:
+    """Return a deterministic ``(T, K)`` CUDA input gradient in ``out_dtype``.
+
+    Require contiguous FP32 ``grad (T, N)`` with ``T > 0`` and same-device
+    contiguous, 16-byte-aligned FP32 or BF16 ``weight (N, K)``. Output dtype
+    must be FP32 or BF16; output-column chunks accumulate in fixed order.
+    """
+    ...
+
 def h3_det_linear_backward_weight(
     grad: torch.Tensor, x: torch.Tensor, w_dtype: torch.dtype, with_bias: bool = True
-) -> list[torch.Tensor]: ...
+) -> list[torch.Tensor]:
+    """Return CUDA weight and optional bias gradients using an ascending row fold.
+
+    Require contiguous FP32 ``grad (T, N)`` with ``T > 0`` and same-device
+    contiguous, 16-byte-aligned FP32 or BF16 ``x (T, K)``. Return ``[dweight]``
+    with shape ``(N, K)``, or ``[dweight, dbias]`` with ``dbias (N,)`` when
+    requested, in FP32 or BF16 as specified by ``w_dtype``.
+    """
+    ...
+
 def h3_adaln_row_gather_forward(
     rows: torch.Tensor,
     timestep_indices: torch.Tensor,
