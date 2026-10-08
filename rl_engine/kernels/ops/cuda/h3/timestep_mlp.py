@@ -32,6 +32,8 @@ BACKWARD_KERNEL_ID = (
 class _H3TimestepMLPCuda(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, w1, b1, w2, b2):
+        """Evaluate the FP32 CUDA linear-SiLU-linear graph and save VJP inputs."""
+
         x = x.contiguous()
         hidden, pre = det_linear_forward(x, w1, b1, activation=ACT_SILU, save_pre_activation=True)
         (out,) = det_linear_forward(hidden, w2, b2, activation=ACT_NONE)
@@ -40,6 +42,8 @@ class _H3TimestepMLPCuda(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_out):
+        """Return requested FP32 input and parameter VJPs with fixed reduction order."""
+
         x, w1, w2, pre, hidden = ctx.saved_tensors
         need_x, need_w1, need_b1, need_w2, need_b2 = ctx.needs_input_grad
         grad_out = grad_out.float().contiguous()
@@ -81,19 +85,32 @@ class H3TimestepMLPCudaOp:
     contract = CONTRACT
 
     def __init__(self) -> None:
+        """Require all deterministic linear symbols in the CUDA extension."""
+
         if not det_linear_available():
             raise RuntimeError(
                 "rl_engine._C lacks h3_det_linear_*; rebuild with csrc/cuda/h3/det_linear.cu"
             )
 
     def __call__(self, x, w1, b1, w2, b2):
+        """Return FP32 ``(T, D)`` timestep embeddings for same-device CUDA inputs."""
+
         return self.forward(x, w1, b1, w2, b2)
 
     def forward(self, x, w1, b1, w2, b2) -> torch.Tensor:
+        """Apply two deterministic FP32 CUDA projections with an intervening SiLU.
+
+        Require same-device FP32 tensors: ``x`` is nonempty ``(T, K)``,
+        weights are ``(H, K)`` and ``(D, H)``, and biases are ``(H,)`` and
+        ``(D,)``. Return ``(T, D)`` with autograd support for all five inputs.
+        """
+
         validate_h3_timestep_mlp(x, w1, b1, w2, b2)
         if not x.is_cuda:
             raise ValueError("H3TimestepMLPCudaOp needs CUDA tensors")
         return _H3TimestepMLPCuda.apply(x, w1, b1, w2, b2)
 
     def forward_fp32(self, x, w1, b1, w2, b2) -> torch.Tensor:
+        """Use the standard CUDA MLP, whose inputs and output are already FP32."""
+
         return self.forward(x, w1, b1, w2, b2)

@@ -146,9 +146,9 @@ Gate make_gate(const torch::Tensor& gate, const torch::Tensor& index, const torc
               "gate must be a CUDA tensor with the activations' dtype");
   TORCH_CHECK(gate.dim() == 2 && gate.size(1) == x.size(1) && gate.stride(1) == 1,
               "gate must be (R, N) with unit column stride");
-  TORCH_CHECK(index.is_cuda() && index.scalar_type() == at::kLong && index.dim() == 1 &&
-                  index.is_contiguous() && index.numel() > 0,
-              "index must be a non-empty contiguous int64 CUDA tensor");
+  TORCH_CHECK(index.is_cuda() && index.device() == x.device() && index.scalar_type() == at::kLong &&
+                  index.dim() == 1 && index.is_contiguous() && index.numel() > 0,
+              "index must be a non-empty contiguous int64 tensor on ", x.device());
   TORCH_CHECK(x.size(0) % index.size(0) == 0, "rows must be a multiple of S");
   return Gate{gate.data_ptr(), gate.stride(0), index.data_ptr<int64_t>(), index.size(0)};
 }
@@ -209,8 +209,9 @@ std::vector<torch::Tensor> h3_gate_residual_backward(torch::Tensor grad, torch::
   check_act(y, "y", grad);
   const Gate g = make_gate(gate, index, grad);
   for (const auto* t : {&sorted_pos, &tile_begin, &tile_end, &seg_first_tile}) {
-    TORCH_CHECK(t->is_cuda() && t->scalar_type() == at::kLong && t->dim() == 1 && t->is_contiguous(),
-                "tile metadata must be contiguous int64 CUDA tensors");
+    TORCH_CHECK(t->is_cuda() && t->device() == grad.device() && t->scalar_type() == at::kLong &&
+                    t->dim() == 1 && t->is_contiguous(),
+                "tile metadata must be contiguous int64 tensors on ", grad.device());
   }
   const int64_t rows = grad.size(0);
   const int64_t n = grad.size(1);

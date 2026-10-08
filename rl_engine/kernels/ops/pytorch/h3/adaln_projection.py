@@ -26,6 +26,8 @@ _WEIGHT_DTYPES = (torch.bfloat16, torch.float32)
 
 
 def adaln_hidden_size(weight: torch.Tensor) -> int:
+    """Infer ``H`` from a 2-D projection weight whose row count is divisible by 18."""
+
     rows_per_hidden = H3_ADALN_CHUNKS * H3_MODALITY_NUM
     if weight.dim() != 2 or weight.shape[0] % rows_per_hidden != 0:
         raise ValueError(
@@ -36,6 +38,12 @@ def adaln_hidden_size(weight: torch.Tensor) -> int:
 
 
 def validate_h3_adaln_projection(temb: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor):
+    """Check the AdaLN input shapes, shared device and precision boundary; return ``H``.
+
+    Require nonempty FP32 ``temb`` of shape ``(T, D)`` and FP32 or BF16 weight
+    of shape ``(18H, D)`` with matching-dtype bias of shape ``(18H,)``.
+    """
+
     for name, tensor in (("temb", temb), ("weight", weight), ("bias", bias)):
         if not isinstance(tensor, torch.Tensor):
             raise TypeError(f"{name} must be a torch.Tensor")
@@ -79,14 +87,28 @@ class NativeH3AdaLNProjectionOp:
     op_class = "reduction"
 
     def __call__(self, temb, weight, bias):
+        """Return six weight-dtype ``(3T, H)`` views using the PyTorch provider path."""
+
         return self.forward(temb, weight, bias)
 
     def forward(self, temb, weight, bias) -> tuple[torch.Tensor, ...]:
+        """Apply FP32 SiLU, cast to the weight dtype and project on the input device.
+
+        Validate ``(T, D)`` embeddings and ``(18H, D)``/``(18H,)`` parameters;
+        return six weight-dtype ``(3T, H)`` views with PyTorch autograd support.
+        """
+
         hidden = validate_h3_adaln_projection(temb, weight, bias)
         table = F.linear(F.silu(temb).to(weight.dtype), weight, bias)
         return split_adaln_table(table, hidden)
 
     def forward_fp32(self, temb, weight, bias) -> tuple[torch.Tensor, ...]:
+        """Return six FP32 golden outputs from FP64 SiLU and projection arithmetic.
+
+        Preserve the declared activation rounding to the weight dtype while
+        using an identity VJP at that cast boundary for the FP64 golden graph.
+        """
+
         hidden = validate_h3_adaln_projection(temb, weight, bias)
         t64 = temb.double()
         act = t64 * torch.sigmoid(t64)
