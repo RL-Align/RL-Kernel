@@ -95,6 +95,16 @@ reductions, bit-identical on every device).
   gradients are deterministic (fixed row order + fixed upstream gradient).
 - An independent scalar spec (own `libm fmaf` chains, own indexing) pins the
   forward and the full backward chain element-by-element.
+- **Acceptance is bitwise and only bitwise**: forward and backward, both
+  dtypes, logical-element bit patterns (the harness in
+  `tests/test_txt_in_rmsnorm_linear.py`: shape, dtype, dtype-bitcast; zero
+  tolerance). A result that differs in any bit fails acceptance; error
+  statistics are diagnostics only. The generic gtest matrix
+  (`scripts/check_operator.py`, `tolerance_contract.json`) is a diagnostic
+  overlay for this operator -- its bf16 forward leg compares the fp32 gold
+  against the bf16 output and its gradient leg compares
+  autograd-through-gold against the frozen backward, both tolerance-based
+  by construction -- and cannot weaken the bitwise bar.
 
 ## Performance Notes
 
