@@ -119,6 +119,34 @@ python scripts/check_operator.py --op rms_norm_gated --candidate cuda \
     --device cuda --dtype bf16 --check-grad
 ```
 
+## Evidence
+
+![gated RMSNorm vs existing implementations on B200](../usage/evidence/qwen3-next-rms-norm-gated-b200/figure-gated_rmsnorm.png)
+
+[`report.json`](../usage/evidence/qwen3-next-rms-norm-gated-b200/report.json) was written by
+`scripts/qwen3_next_norm_evidence.py` from a clean tree at `822b085`, on an otherwise idle
+B200 (torch 2.13.0+cu130, transformers 5.17.0, vLLM 0.30.0). Head dim 128, BF16; the FP64
+golden uses vLLM's convention. The same report re-measures the zero-centred op
+([figure](../usage/evidence/qwen3-next-rms-norm-gated-b200/figure-zero_centred_rmsnorm.png)).
+
+| | rl-kernel CUDA | PyTorch reference | transformers (cast-first) | vLLM `RMSNormGated`* |
+|---|---|---|---|---|
+| rows differing alone vs in a batch, forward / `dx`,`dgate` (of 768) | **0 / 0** | 0 / 0 | 0 / 0 | 0 / n/a |
+| forward elements correctly rounded vs the golden | **99.999%** | 99.999% | 65.6% | 99.999% |
+| forward, 262144 rows | 235 µs | 774 µs | 697 µs | **81 µs** |
+| backward, 262144 rows | 114 ms | **1.4 ms** | 1.5 ms | n/a |
+
+\* forward only, no backward.
+
+- **Every implementation is row-invariant** for this op.
+- **transformers computes a different function:** it casts to BF16 before the weight
+  multiply, so 34% of its forward elements differ from vLLM's convention, and its gradients
+  are about twice as far from the golden.
+- **The backward is about 75× slower than transformers at 262144 rows**, for the same reason
+  as the zero-centred op: `dweight` (128 columns here) is folded over the rows in ascending
+  order, one thread per column, so that it meets the gradient-invariance contract's
+  singleton-aggregate check bitwise.
+
 ## Tests
 
 ```bash
