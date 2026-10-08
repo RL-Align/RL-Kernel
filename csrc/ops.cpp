@@ -253,6 +253,14 @@ std::vector<torch::Tensor> swiglu_packed_backward_cuda(
     torch::Tensor dy,
     torch::Tensor gate_up);
 
+// H3 conditioning noise mix (NVIDIA CUDA).
+#if defined(KERNEL_ALIGN_WITH_CUDA)
+torch::Tensor conditioning_noise_mix_forward(
+    torch::Tensor sample, torch::Tensor timestep, torch::Tensor noise);
+std::vector<torch::Tensor> conditioning_noise_mix_backward(
+    torch::Tensor grad, torch::Tensor timestep);
+#endif
+
 // RMSNorm Declarations & Wrappers
 
 void rmsnorm_forward_cuda(
@@ -731,6 +739,14 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Batch-invariant SwiGLU forward for [rows, 2 * intermediate]");
     m.def("swiglu_packed_backward", &swiglu_packed_backward,
           "Batch-invariant SwiGLU backward for [rows, 2 * intermediate]");
+
+    // H3 conditioning noise mix
+#if defined(KERNEL_ALIGN_WITH_CUDA)
+    m.def("conditioning_noise_mix_forward", &conditioning_noise_mix_forward,
+          "H3 conditioning noise mix forward CUDA");
+    m.def("conditioning_noise_mix_backward", &conditioning_noise_mix_backward,
+          "H3 conditioning noise mix backward CUDA");
+#endif
 
     // Deterministic standard-softmax attention (issue #147)
     m.def(
