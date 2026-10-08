@@ -6,19 +6,19 @@
 The row's CUDA backend serves the same operator with two *different*, both
 frozen, arithmetic orders, and which one a call takes is reported:
 
-* ``mlp-down-gemm-mma-v1`` -- the hardware order. The K reduction walks
+* ``mlp-down-gemm-mma`` -- the hardware order. The K reduction walks
   ascending k-chunks of 16, one fp32 accumulator chained in place per output
   element, no split-K, no atomics, bias added once in fp32, exactly one bf16
   cast at the store. Two kernels implement it and they are **byte-identical** to
   each other: ``cuda_wgmma_tma_hopper_pinned_schedule``
   (``csrc/cuda/gemm/mlp_down_gemm_sm90.cu``: Hopper TMA bulk-tensor staging
   driving ``wgmma.mma_async...m64n128k16``, built only with
-  ``KERNEL_ALIGN_FORCE_SM90=1``, used only on compute capability 9.x) and the
+  ``KERNEL_ALIGN_FORCE_SM90=1``, used only on compute capability 9.0) and the
   Triton backend, whose ``wgmma.m64n128k16`` lowering is byte-identical to it.
   On this contract the output is within the declared tolerance of the row's
   independent fp32 CPU reference, not equal to it.
 
-* ``mlp-down-gemm-tree-v1`` -- the portable order, implemented by
+* ``mlp-down-gemm-tree`` -- the portable order, implemented by
   ``cuda_fp32_tree_schedule`` (``csrc/cuda/gemm/mlp_down_gemm.cu``): the fp32
   32-wide-leaf mid-split tree *is* the operator's contract, so this path is
   byte-equal to ``mlp_down_gemm_reference_forward`` /
@@ -53,19 +53,15 @@ import torch
 from rl_engine.kernels.ops.base import _C, _EXT_AVAILABLE
 from rl_engine.utils.logger import logger
 
-MMA_CONTRACT_VERSION = "mlp-down-gemm-mma-v1"
-TREE_CONTRACT_VERSION = "mlp-down-gemm-tree-v1"
-# Advertised by the backend object: the hardware order is the shipping default
-# (Hopper wherever its symbols are built, the portable tree everywhere else).
-# The *per-call* contract is what :func:`mlp_down_gemm_contract_used` reports.
-MLP_DOWN_GEMM_CONTRACT_VERSION = MMA_CONTRACT_VERSION
+MMA_CONTRACT = "mlp-down-gemm-mma"
+TREE_CONTRACT = "mlp-down-gemm-tree"
 _REQUIRED_SYMBOLS = (
     "mlp_down_gemm_cuda_forward",
     "mlp_down_gemm_cuda_dx",
     "mlp_down_gemm_cuda_dw",
     "mlp_down_gemm_cuda_db",
 )
-# Hopper (SM90) TMA + wgmma backend for the mma contract.
+# Hopper (SM90) TMA + wgmma backend for the mma order.
 _SM90_SYMBOLS = (
     "mlp_down_gemm_cuda_forward_sm90",
     "mlp_down_gemm_cuda_dx_sm90",
@@ -74,8 +70,7 @@ _SM90_SYMBOLS = (
 _HOPPER_IMPL = "cuda_wgmma_tma_hopper_pinned_schedule"
 _TREE_IMPL = "cuda_fp32_tree_schedule"
 _HOPPER_PIN_HINT = (
-    "pin RL_KERNEL_MLP_DOWN_GEMM_BACKEND=hopper for the mlp-down-gemm-mma-v1 "
-    "hardware order"
+    "pin RL_KERNEL_MLP_DOWN_GEMM_BACKEND=hopper for the hardware-order path"
 )
 
 
@@ -105,12 +100,11 @@ def mlp_down_gemm_backend() -> str:
     """Requested CUDA backend for this row: ``auto`` (default), ``hopper``, ``general``.
 
     Mirrors ``RL_KERNEL_DET_GEMM_BACKEND``. ``general`` forces the portable
-    fp32 tree kernel (``mlp-down-gemm-tree-v1``) even on a Hopper device with the
-    wgmma build present, which is how the two contracts are A/B compared on one
-    machine; ``hopper`` forces the hardware order and refuses (rather than
-    falling back to a different arithmetic order) when it cannot serve the
-    operands. ``auto`` picks the Hopper path when it can serve the contraction
-    and the portable tree otherwise.
+    fp32-tree kernel even on a Hopper device with the wgmma build present, which is
+    how the two contracts are A/B compared on one machine; ``hopper`` forces the
+    hardware order and refuses (rather than falling back to a different arithmetic
+    order) when it cannot serve the operands. ``auto`` picks the Hopper path when
+    it can serve the contraction and the portable tree otherwise.
     """
 
     raw = os.environ.get(_BACKEND_ENV, _AUTO_BACKEND).strip().lower()
@@ -172,16 +166,16 @@ def mlp_down_gemm_backend_used(x: torch.Tensor, weight: torch.Tensor) -> str:
 def mlp_down_gemm_contract_used(x: torch.Tensor, weight: torch.Tensor) -> str:
     """Which arithmetic contract a call with these operands is under.
 
-    ``mlp-down-gemm-mma-v1`` when the Hopper TMA + wgmma kernel serves the
+    ``mlp-down-gemm-mma`` when the Hopper TMA + wgmma kernel serves the
     contraction (byte-identical to the Triton backend, within the declared
-    tolerance of the fp32 CPU reference), ``mlp-down-gemm-tree-v1`` when the
+    tolerance of the fp32 CPU reference), ``mlp-down-gemm-tree`` when the
     portable fp32 tree kernel does (byte-equal to that reference by
     construction). The two are different association orders of the same sum, so
     a consumer that needs a stable contract should pin
     ``RL_KERNEL_MLP_DOWN_GEMM_BACKEND=hopper``.
     """
 
-    return MMA_CONTRACT_VERSION if _sm90_usable(x, weight) else TREE_CONTRACT_VERSION
+    return MMA_CONTRACT if _sm90_usable(x, weight) else TREE_CONTRACT
 
 
 def _sm90_usable(x: torch.Tensor, weight: torch.Tensor) -> bool:
@@ -192,7 +186,7 @@ def _sm90_usable(x: torch.Tensor, weight: torch.Tensor) -> bool:
     row strides (the contiguous extents of x and weight) are multiples of 8
     elements (16 B) and whose bases are 16 B aligned. Anything else runs on the
     portable tree kernel instead -- which computes a different, also frozen,
-    arithmetic order, so request ``auto``/``general`` knowingly, or
+    contract, so request ``auto``/``general`` knowingly, or
     ``hopper`` to make the change an error.
     """
 
@@ -204,7 +198,7 @@ def _sm90_usable(x: torch.Tensor, weight: torch.Tensor) -> bool:
             raise RuntimeError(
                 "mlp_down_gemm: backend 'hopper' was requested but the extension has no "
                 "Hopper entry points; rebuild with KERNEL_ALIGN_FORCE_SM90=1, or request "
-                "'general' to run the portable mlp-down-gemm-tree-v1 path"
+                "'general' to run the portable fp32-tree path"
             )
         return False
     if x.dtype != torch.bfloat16:
@@ -221,9 +215,9 @@ def _sm90_usable(x: torch.Tensor, weight: torch.Tensor) -> bool:
     if not hopper_ok and requested == _HOPPER_BACKEND:
         raise RuntimeError(
             "mlp_down_gemm: backend 'hopper' needs a compute capability 9.0 (Hopper) device and "
-            "bf16 operands whose row strides are multiples of 8 elements; it is the "
-            f"mlp-down-gemm-mma-v1 contract -- {_HOPPER_PIN_HINT}, or request 'general' "
-            "for the portable mlp-down-gemm-tree-v1 tree"
+            "bf16 operands whose row strides are multiples of 8 elements; it serves the "
+            f"hardware order -- {_HOPPER_PIN_HINT}, or request 'general' "
+            "for the portable fp32-tree path"
         )
     return hopper_ok
 
@@ -232,12 +226,12 @@ class _MlpDownGemmFunction(torch.autograd.Function):
     """Forward/backward through the requested contract.
 
     On a cc 9.0 device with the Hopper entry points built in, the forward, ``dx``
-    and ``dW`` run on the TMA + wgmma kernel (``mlp-down-gemm-mma-v1``);
-    everywhere else they run on the portable fp32 tree kernel
-    (``mlp-down-gemm-tree-v1``). Each path is its own frozen arithmetic order --
+    and ``dW`` run on the TMA + wgmma kernel; everywhere else they run on the
+    portable fp32 tree kernel. Each path is its own frozen arithmetic order --
     the Hopper one is byte-identical to the Triton backend, the tree one is
     byte-equal to the row's fp32 CPU reference -- and ``db``, the ascending-row
-    fp32 left fold, is shared and bit-identical under both.
+    fp32 left fold, is shared and bit-identical under both. Which contract a call
+    took is reported by :func:`mlp_down_gemm_contract_used`.
     """
 
     @staticmethod
@@ -279,7 +273,7 @@ class _MlpDownGemmFunction(torch.autograd.Function):
             grad_b = _C.mlp_down_gemm_cuda_db(grad_output).to(bias.dtype)
         record_backward(
             "mlp_down_gemm",
-            kernel_id=MMA_CONTRACT_VERSION if ctx.use_sm90 else TREE_CONTRACT_VERSION,
+            kernel_id=MMA_CONTRACT if ctx.use_sm90 else TREE_CONTRACT,
             impl=_HOPPER_IMPL if ctx.use_sm90 else _TREE_IMPL,
             family="cuda",
         )
@@ -289,16 +283,14 @@ class _MlpDownGemmFunction(torch.autograd.Function):
 class CudaMlpDownGemmOp:
     """Evaluation backend: bf16 only, two frozen contracts, two paths.
 
-    ``contract_version`` is the hardware-order contract this backend ships by
-    default; the contract a *call* takes is
-    :func:`mlp_down_gemm_contract_used` (``mlp-down-gemm-mma-v1`` on the Hopper
-    path, ``mlp-down-gemm-tree-v1`` on the portable tree).
+    Which contract a *call* takes is reported by
+    :func:`mlp_down_gemm_contract_used` -- it depends on the build (``_sm90``
+    symbols) and on the device, so the class does not advertise one statically.
     """
 
     op_class = "reduction"
     is_batch_invariant = True  # both paths: verified by the CUDA tests
     backward_impl = _TREE_IMPL
-    contract_version = MLP_DOWN_GEMM_CONTRACT_VERSION
 
     def __init__(self) -> None:
         if not mma_backend_available():
@@ -308,8 +300,8 @@ class CudaMlpDownGemmOp:
             )
         logger.info(
             "CudaMlpDownGemmOp ready (portable fp32 tree %s; Hopper wgmma %s when built).",
-            TREE_CONTRACT_VERSION,
-            MMA_CONTRACT_VERSION,
+            TREE_CONTRACT,
+            MMA_CONTRACT,
         )
 
     def __call__(

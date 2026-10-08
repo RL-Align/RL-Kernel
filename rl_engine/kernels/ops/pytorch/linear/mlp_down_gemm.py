@@ -9,7 +9,7 @@ to the already-dtype-rounded GELU output of the up projection.
 
 This module is the **independent FP32 CPU reference** the RFC asks for, and it
 is also the contract's definition. Frozen reduction order
-(``mlp-down-gemm-tree-v1``):
+(``mlp-down-gemm-tree``):
 
 1. the reduction length splits into 32-wide leaves (short tail allowed, missing
    k treated as ``+0.0``);
@@ -38,11 +38,7 @@ import torch
 from rl_engine.utils.logger import logger
 
 LEAF_WIDTH = 32
-MLP_DOWN_GEMM_CONTRACT_VERSION = "mlp-down-gemm-tree-v1"
-# The row contract published by the CUDA backend; this module is its independent
-# fp32 reference (a different, also fixed association order, so agreement is a
-# declared tolerance -- see docs/operators/mlp-down-gemm.md).
-ROW_CONTRACT_VERSION = "mlp-down-gemm-mma-v1"
+MLP_DOWN_GEMM_CONTRACT = "mlp-down-gemm-tree"
 
 
 def _fma_rn(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
@@ -162,7 +158,7 @@ class NativeMlpDownGemmOp:
     is_batch_invariant = True
 
     def __init__(self) -> None:
-        logger.info("NativeMlpDownGemmOp ready (contract %s).", MLP_DOWN_GEMM_CONTRACT_VERSION)
+        logger.info("NativeMlpDownGemmOp ready (contract %s).", MLP_DOWN_GEMM_CONTRACT)
 
     def __call__(
         self,

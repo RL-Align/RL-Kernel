@@ -3,7 +3,7 @@
 
 """Triton backend for the Qwen-Image MLP down projection (WS1).
 
-Row contract ``mlp-down-gemm-mma-v1``: ``y = bf16(fp32_accum(x @ weight.T) + bias)``
+``y = bf16(fp32_accum(x @ weight.T) + bias)``
 with a fixed K reduction order, an FP32 accumulator, no split-K, no atomics, the
 bias added once in FP32 after the complete reduction and exactly one BF16 cast at
 the store.  Four Triton kernels implement the operator and its VJP:
@@ -98,7 +98,7 @@ from rl_engine.kernels.ops.backward_runtime import record_backward
 from rl_engine.utils.logger import logger
 
 # The row contract this backend implements (shared with the CUDA backend).
-MLP_DOWN_GEMM_CONTRACT_VERSION = "mlp-down-gemm-mma-v1"
+MLP_DOWN_GEMM_CONTRACT = "mlp-down-gemm-mma"
 # Backend-specific provenance recorded by ``record_backward``.
 TRITON_BACKEND_IMPL = "triton_mlp_down_gemm_pinned_config"
 
@@ -314,12 +314,17 @@ if _TRITON_AVAILABLE:
 def _require_2d_bf16(x: torch.Tensor, weight: torch.Tensor) -> None:
     """Validate the operand contract shared with the CUDA backend."""
 
-    if not x.is_cuda or not weight.is_cuda or x.device != weight.device:
-        raise ValueError("TritonMlpDownGemmOp requires CUDA tensors on one device")
+    supported_devices = ("cuda", "hip", "xpu", "musa")
+    if x.device.type not in supported_devices or weight.device.type not in supported_devices:
+        raise RuntimeError(
+            "TritonMlpDownGemmOp requires accelerator tensors (CUDA / ROCm / XPU / MUSA)"
+        )
+    if x.device != weight.device:
+        raise ValueError("x and weight must live on one device")
     if x.dtype is not torch.bfloat16 or weight.dtype is not torch.bfloat16:
         raise ValueError(
-            f"{MLP_DOWN_GEMM_CONTRACT_VERSION} is the model's runtime dtype: bf16 x/weight "
-            f"required, got x={x.dtype}, weight={weight.dtype}"
+            "mlp_down_gemm is bf16 only on the kernel paths: x/weight "
+            f"required bf16, got x={x.dtype}, weight={weight.dtype}"
         )
     if x.dim() < 1 or weight.dim() != 2:
         raise ValueError("mlp_down_gemm expects x [*, K] and weight [N, K]")
@@ -486,7 +491,7 @@ class _TritonMlpDownGemmFunction(torch.autograd.Function):
             grad_b = _launch_db(grad_2d).to(bias.dtype)
         record_backward(
             "mlp_down_gemm",
-            kernel_id=MLP_DOWN_GEMM_CONTRACT_VERSION,
+            kernel_id=MLP_DOWN_GEMM_CONTRACT,
             impl=TRITON_BACKEND_IMPL,
             family="triton",
         )
@@ -499,7 +504,6 @@ class TritonMlpDownGemmOp:
     op_class = "reduction"
     is_batch_invariant = True  # per pinned tiles; verified by tests/test_mlp_down_gemm_triton.py
     backward_impl = TRITON_BACKEND_IMPL
-    contract_version = MLP_DOWN_GEMM_CONTRACT_VERSION
 
     def __init__(self) -> None:
         if not _TRITON_AVAILABLE:

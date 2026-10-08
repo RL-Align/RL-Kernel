@@ -37,16 +37,16 @@ out = TritonMlpDownGemmOp()(x, weight, bias=bias)
 Two contracts, one per implementation, because the two CUDA paths make different arithmetic
 promises and the choice between them is a real trade:
 
-* **`mlp-down-gemm-tree-v1` -- the portable contract**, implemented by the general CUDA path:
-  an FP32 32-wide-leaf mid-split tree over the K reduction (exact fp32 FMA per leaf), bias once
+* **`mlp-down-gemm-tree` -- the portable contract**, implemented by the portable fp32 tree
+  kernel: an FP32 32-wide-leaf mid-split tree over the K reduction (exact fp32 FMA per leaf), bias once
   in FP32 after the complete tree, exactly one BF16 cast at the store. This is the order the
   independent FP32 CPU reference computes, so this path is **byte-equal to that reference**.
-  A tree cannot use tensor cores, so it runs on FP32 CUDA cores: ~11 TFLOP/s forward on this
-  part against the 448-476 of the hardware-order path.
-* **`mlp-down-gemm-mma-v1` -- the hardware order**, implemented by the Hopper TMA+wgmma path
+  A tree cannot use tensor cores, so it runs on FP32 CUDA cores: ~14 TFLOP/s forward on the
+  H100 80GB HBM3 measured below, against the ~740 of the tensor-core paths.
+* **`mlp-down-gemm-mma` -- the hardware order**, implemented by the Hopper TMA+wgmma path
   and by Triton: a pinned sequence of tensor-core steps -- ascending k-chunks of 16, one FP32
   accumulator chained in place, no split-K, no atomics -- with bias once in FP32 after the
-  complete reduction and exactly one BF16 cast at the store. On this contract the output is
+  complete reduction and exactly one BF16 cast at the store. On this order the output is
   within the declared tolerance of the reference rather than byte-equal to it (see below).
 
 Under either contract the K loop is the operator's *entire* reduction -- nothing is accumulated
@@ -62,7 +62,6 @@ Supporting rules:
   the RFC's precision clause restated as this row's contract. The build adds
   `--use_fast_math` only when `KERNEL_ALIGN_USE_FAST_MATH=1` is set (not the default);
   enabling it was measured to leave every tensor of this row unchanged.
-
 - BF16 inputs and BF16 output. The activations reach the kernel already rounded
   by `mlp_up_gemm_gelu`, and the single output cast is the model's rounding step.
 - Unsupported dtype/device/shape **fails closed** (no silent fp32 SGEMM, no
@@ -74,9 +73,9 @@ Supporting rules:
 
 | Backend | Wrapper | Native symbol | Status |
 | --- | --- | --- | --- |
-| Triton | `TritonMlpDownGemmOp` | `rl_engine/kernels/ops/triton/linear/mlp_down_gemm.py` | One portable source for CUDA, ROCm and MUSA: Triton is JIT-compiled per device, so there is no `*_sm90.py` counterpart and no build switch -- the arch-specific instruction is chosen by Triton's own lowering, which is why this file is the ROCm slot. CUDA default. Autotune disabled, tiles pinned, no split-K. On Hopper `tl.dot` lowers to `wgmma.mma_async.m64n256k16`; that lowering was measured byte-identical to the hand-written kernel, and is ~2.5x its forward throughput. Portable / ROCm fallback and cross-backend reference. |
+| Triton | `TritonMlpDownGemmOp` | `rl_engine/kernels/ops/triton/linear/mlp_down_gemm.py` | One portable source for CUDA, ROCm and MUSA: Triton is JIT-compiled per device, so there is no `*_sm90.py` counterpart and no build switch -- the arch-specific instruction is chosen by Triton's own lowering, which is why this file is the ROCm slot. CUDA default. Autotune disabled, tiles pinned, no split-K. On Hopper `tl.dot` lowers to `wgmma.mma_async.m64n256k16`; that lowering was measured byte-identical to the hand-written kernel, at the same throughput within noise (755 vs 736 TFLOP/s forward at M=4096 on the H100 80GB HBM3 below). Portable / ROCm fallback and cross-backend reference. |
 | CUDA (Hopper) | `CudaMlpDownGemmOp` | `csrc/cuda/gemm/mlp_down_gemm_sm90.cu` | TMA 2-D bulk-tensor loads (`CU_TENSOR_MAP_SWIZZLE_128B`, OOB fill zero, `mbarrier.arrive.expect_tx` / `try_wait.parity`) per-contraction instantiations: the forward runs `TM=128, TN=256, BK=64` with two warpgroups of `m64n256k16` and a 4-slot `wgmma.wait_group<1>` ring, while `dx`/`dW` keep `TM=256, TN=128, BK=64` with four warpgroups of `m64n128k16`. Compiled only when the extension is built with `KERNEL_ALIGN_FORCE_SM90=1`, the repository-wide SM90 switch, in the same way as the other `*_sm90.cu` sources. |
-| CUDA (portable) | `CudaMlpDownGemmOp` | `csrc/cuda/gemm/mlp_down_gemm.cu` | The `mlp-down-gemm-tree-v1` contract on FP32 CUDA cores: 64x64 smem tiles, conflict-free k-major staging, a 4x4 register block and a per-thread partial stack that merges as the reference's mid-split tree does; **byte-equal to the FP32 CPU reference**. Always compiled; NVIDIA SM80+; the fallback whenever the SM90 build or the device is absent. ~11 TFLOP/s forward. |
+| CUDA (portable) | `CudaMlpDownGemmOp` | `csrc/cuda/gemm/mlp_down_gemm.cu` | The `mlp-down-gemm-tree` order on FP32 CUDA cores: 64x64 smem tiles, conflict-free k-major staging, a 4x4 register block and a per-thread partial stack that merges as the reference's mid-split tree does; **byte-equal to the FP32 CPU reference**. Always compiled; NVIDIA SM80+; the fallback whenever the SM90 build or the device is absent. ~14 TFLOP/s forward. |
 | PyTorch | `NativeMlpDownGemmOp` | `rl_engine/kernels/ops/pytorch/linear/mlp_down_gemm.py` | Independent FP32 CPU reference: a 32-wide-leaf, mid-split FP32 tree over the same reduction length, deliberately a *different* association order, so agreement is a declared tolerance rather than a copy. Also the fp32 device fallback. |
 
 ## Backend selection at a glance
@@ -98,7 +97,7 @@ the repository-wide SM90 switch is on (`KERNEL_ALIGN_FORCE_SM90=1` adds
 `RL_KERNEL_DET_GEMM_BACKEND`:
 
 ```bash
-RL_KERNEL_MLP_DOWN_GEMM_BACKEND=general  # force the portable fp32-tree kernel (mlp-down-gemm-tree-v1)
+RL_KERNEL_MLP_DOWN_GEMM_BACKEND=general  # force the portable fp32-tree kernel (mlp-down-gemm-tree)
 RL_KERNEL_MLP_DOWN_GEMM_BACKEND=hopper   # force the Hopper path; refuse if it cannot serve
 RL_KERNEL_MLP_DOWN_GEMM_BACKEND=auto     # default: Hopper when it can serve, general otherwise
 ```
@@ -135,7 +134,7 @@ depends only on `K`, and the path is separately verified row-, batch- and tile-i
 **hardware-order** paths are byte-identical to *each other* but only within the declared
 tolerance of the reference (>= 99% identical, <= 8 bf16 ulps; measured 99.3% and 0.8-0.9 ulp),
 which is the price of the tensor cores: a tensor core does not compute a tree. Accuracy on
-both contracts is pinned against the exact result with an fp64 oracle, and it holds to within
+both orders is pinned against the exact result with an fp64 oracle, and it holds to within
 one bf16 ulp for every element measured.
 
 Measured accumulator law, taken from the device itself rather than from a datasheet. One k16
@@ -156,10 +155,10 @@ in the 24-bit round-toward-zero normalisation, not in the alignment geometry), `
 all 245 of `A = 26`'s deviations on a single-k16 oracle *and creates 221 new ones* (no uniform
 window exists), and a control shows the cause: 0 deviations in 100,526 samples with no
 truncating addend against 0.8-8.8% where one addend falls below the window. That is the honest
-limit of a CPU reference for this contract: the hardware's handling of the dropped bits is not
+limit of a CPU reference for this order: the hardware's handling of the dropped bits is not
 reproducible by any documented model, and reproducing it would mean encoding this tensor-core
 generation's undocumented low-bit behaviour exactly. **Byte equality against the reference is
-therefore provided by the portable contract instead** (`mlp-down-gemm-tree-v1`), and this
+therefore provided by the portable contract instead** (`mlp-down-gemm-tree`), and this
 contract's accuracy is pinned against an independent fp64 oracle.
 
 ## Dispatch Behavior
@@ -239,7 +238,7 @@ Same-session reference points: Triton 465/478 TFLOP/s and cuBLAS bf16
 509/537 TFLOP/s forward (cuBLAS is not a candidate here -- it is not
 batch-invariant).
 
-The portable `mlp-down-gemm-tree-v1` contract is a different arithmetic order, so it
+The portable `mlp-down-gemm-tree` path uses a different order, so it
 is benchmarked on its own rather than in the table above. Measured on one H100 80GB
 HBM3 with the same harness (bf16, K=12288, N=3072; the fp32 operand up-conversion is
 part of the cost, hence the extra memory):
@@ -251,7 +250,7 @@ part of the cost, hence the extra memory):
 | 6889 | CUDA portable (fp32 tree) | 36.408 ms (14.3) | 96.885 ms (16.1) |
 
 It is byte-equal to the fp32 CPU reference and roughly 38x slower end to end than
-the mma contract (57.723 ms against 1.498 ms at 4096 tokens), which is exactly the
+the tensor-core paths (57.723 ms against 1.498 ms at 4096 tokens), which is exactly the
 trade the row documents: the tensor cores cannot run a tree, and the tree is what
 buys byte equality with the reference.
 
@@ -499,7 +498,7 @@ KERNEL_ALIGN_FORCE_SM90=1 pip install -e . --no-build-isolation
 
 Without it `mlp_down_gemm_sm90.cu` is not compiled, the extension links without the
 `_sm90` symbols and the wrapper transparently uses the portable fp32-tree path -- a
-different, also frozen, contract, so a build without the switch is byte-equal to the
+different, also frozen, order, so a build without the switch is byte-equal to the
 fp32 reference instead of to Triton.
 
 ## Tests
@@ -636,8 +635,8 @@ has to produce, so a reviewer with one can close it.
 ## Known Limitations
 
 - **The build decides the contract.** On one Hopper machine, a build with
-  `KERNEL_ALIGN_FORCE_SM90=1` serves `mlp-down-gemm-mma-v1` through `auto`, while a plain build
-  serves `mlp-down-gemm-tree-v1`; the two are different reduction orders, so bytes differ
+  `KERNEL_ALIGN_FORCE_SM90=1` serves `mlp-down-gemm-mma` through `auto`, while a plain build
+  serves `mlp-down-gemm-tree`; the two are different reduction orders, so bytes differ
   between them. A deployment that must not change bytes pins the build *and*
   `RL_KERNEL_MLP_DOWN_GEMM_BACKEND`; the route report carries the contract id it actually took.
 - **bf16 only.** An fp32 call fails closed on the CUDA and Triton backends; the

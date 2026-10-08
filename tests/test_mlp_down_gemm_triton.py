@@ -3,7 +3,7 @@
 
 """Invariance + accuracy tests for the Triton mlp_down_gemm backend (WS1).
 
-Covers the row contract ``mlp-down-gemm-mma-v1`` as implemented by
+Covers the row contract ``mlp-down-gemm-mma`` as implemented by
 ``rl_engine.kernels.ops.triton.linear.mlp_down_gemm``:
 
 * API and fail-closed behaviour (fp32 input, non-CUDA input, K mismatch, bias
@@ -19,7 +19,7 @@ Covers the row contract ``mlp-down-gemm-mma-v1`` as implemented by
 * and byte equality with the Hopper CUDA kernel, because both implement the
   same pinned schedule (ascending k-chunks of 16 chained into one accumulator
   per output element, FP32 accumulator, no split-K, bias once in FP32, one bf16
-  cast at the store) -- which is the ``mlp-down-gemm-mma-v1`` contract, *not*
+  cast at the store) -- which is the ``mlp-down-gemm-mma`` contract, *not*
   the row's other (portable fp32 tree) contract, so that class pins
   ``RL_KERNEL_MLP_DOWN_GEMM_BACKEND=hopper`` and skips without the SM90 build.
   Measured on H100 PCIe / Triton 3.6 with seed-fixed inputs at
@@ -52,7 +52,6 @@ try:
     import triton  # noqa: F401
 
     from rl_engine.kernels.ops.triton.linear.mlp_down_gemm import (
-        MLP_DOWN_GEMM_CONTRACT_VERSION,
         TritonMlpDownGemmOp,
         _mlp_down_gemm_db_kernel,
     )
@@ -63,7 +62,7 @@ except ImportError:  # pragma: no cover - environment without Triton
 
 
 def _hopper_backend():
-    """The Hopper (``mlp-down-gemm-mma-v1``) CUDA backend, or ``None`` if unusable.
+    """The Hopper (``mlp-down-gemm-mma``) CUDA backend, or ``None`` if unusable.
 
     The byte-equality claim is about the *hardware-order* contract: Triton and
     the Hopper TMA + wgmma kernel are two implementations of it. The portable
@@ -89,7 +88,7 @@ def _hopper_backend():
 
 _HOPPER_BACKEND = _hopper_backend()
 _HOPPER_REASON = (
-    "the Hopper mlp-down-gemm-mma-v1 path needs KERNEL_ALIGN_FORCE_SM90=1 and a cc 9.0 device"
+    "the Hopper mlp-down-gemm-mma path needs KERNEL_ALIGN_FORCE_SM90=1 and a cc 9.0 device"
 )
 
 pytestmark = pytest.mark.skipif(
@@ -236,10 +235,8 @@ def _grads(op, x, weight, bias, grad):
 # API and fail-closed behaviour
 # ---------------------------------------------------------------------------
 class TestApi:
-    def test_contract_version_and_class_flags(self):
+    def test_class_flags(self):
         op = TritonMlpDownGemmOp()
-        assert MLP_DOWN_GEMM_CONTRACT_VERSION == "mlp-down-gemm-mma-v1"
-        assert op.contract_version == MLP_DOWN_GEMM_CONTRACT_VERSION
         assert op.op_class == "reduction"
         assert op.is_batch_invariant is True
 
@@ -262,7 +259,7 @@ class TestApi:
 
     def test_fail_closed_on_non_cuda_device(self):
         x, weight, bias = _inputs(SMALL)
-        with pytest.raises(ValueError, match="CUDA"):
+        with pytest.raises(RuntimeError, match="accelerator"):
             TritonMlpDownGemmOp()(x.cpu(), weight.cpu(), bias=bias.cpu())
 
     def test_fail_closed_on_k_mismatch(self):
@@ -671,7 +668,7 @@ class TestBackward:
 class TestCudaByteEquality:
     """Triton and the Hopper kernel implement the same pinned arithmetic.
 
-    Both are ``mlp-down-gemm-mma-v1``; the CUDA side is pinned with
+    Both are ``mlp-down-gemm-mma``; the CUDA side is pinned with
     ``RL_KERNEL_MLP_DOWN_GEMM_BACKEND=hopper`` so this cannot accidentally
     compare Triton against the portable tree contract (which is a different
     order, byte-equal to the fp32 CPU reference rather than to Triton).
@@ -715,10 +712,10 @@ class TestCudaByteEquality:
         _assert_same_bytes(got, want, "forward 4096x12288x3072")
 
     def test_the_hopper_path_is_the_mma_contract(self):
-        """The path Triton is compared against publishes ``mlp-down-gemm-mma-v1``."""
+        """The path Triton is compared against publishes ``mlp-down-gemm-mma``."""
 
         from rl_engine.kernels.ops.cuda.linear.mlp_down_gemm import (
-            MMA_CONTRACT_VERSION,
+            MMA_CONTRACT,
             mlp_down_gemm_backend_used,
             mlp_down_gemm_contract_used,
         )
@@ -726,4 +723,4 @@ class TestCudaByteEquality:
         x, weight, _ = _inputs((7, MODEL_K, MODEL_N), seed=9)
         with _pinned("hopper"):
             assert mlp_down_gemm_backend_used(x, weight) == "hopper"
-            assert mlp_down_gemm_contract_used(x, weight) == MMA_CONTRACT_VERSION
+            assert mlp_down_gemm_contract_used(x, weight) == MMA_CONTRACT

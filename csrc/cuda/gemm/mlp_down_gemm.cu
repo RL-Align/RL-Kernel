@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 RL-Kernel Contributors
 //
-// MLP down projection on the portable fp32 CUDA-core path: contract
-// ``mlp-down-gemm-tree-v1``.
+// MLP down projection on the portable fp32 CUDA-core path: order
+// ``mlp-down-gemm-tree``.
 //
 // This file is the general NVIDIA path of the row: what runs when the Hopper
-// TMA + wgmma kernel (``mlp_down_gemm_sm90.cu``, contract
-// ``mlp-down-gemm-mma-v1``) cannot serve the contraction, and on every
+// TMA + wgmma kernel (``mlp_down_gemm_sm90.cu``, order
+// ``mlp-down-gemm-mma``) cannot serve the contraction, and on every
 // pre-Hopper device. It implements the reduction *tree* of the independent fp32
 // CPU reference in ``rl_engine/kernels/ops/pytorch/linear/mlp_down_gemm.py``
 // literally -- ``tree_gemm``, ``left_fold_weight_gradient`` and
@@ -16,7 +16,7 @@
 // price is fp32 CUDA-core throughput (tens of TFLOP/s) instead of the Hopper
 // path's ~460 TFLOP/s; the bytes, not the speed, are the point.
 //
-// The contract, frozen:
+// The order, frozen:
 //
 //   * the reduction length R splits into 32-wide leaves (the last may be
 //     short, the missing k being ``+0.0``); each leaf is an ascending-k chain
@@ -31,7 +31,7 @@
 //     over N, so its leaf count is ``ceil(N / 32)``);
 //   * ``dW`` and ``db`` are the reference's ascending-row fp32 left folds, one
 //     ``__fmaf_rn`` per row (``db`` is therefore identical under both
-//     contracts, which is why the Hopper path shares this entry point).
+//     orders, which is why the Hopper path shares this entry point).
 //
 // Shape of the tree kernel. One CTA owns a TILE_M x TILE_N output tile and
 // each thread a TM x TN register block. The k dimension is walked a leaf at a
@@ -443,7 +443,7 @@ void launch_tree_dispatch(const float* a, const float* b, const float* bias, nv_
 // dw[n, k] = fold over rows s ascending of fma(grad[s, n], x[s, k], acc).
 // One CTA owns a [DW_TN, DW_TK] tile of dW and each thread a DW_N x DW_K
 // register block; the grad/x rows of a chunk are staged in smem so every global
-// element is read once per tile. The row order -- the whole contract -- is the
+// element is read once per tile. The row order -- the whole reduction -- is the
 // staging chunk order, and it is strictly ascending.
 constexpr int DW_TN = 64;
 constexpr int DW_TK = 64;
@@ -531,10 +531,10 @@ __global__ void mlp_down_dw_left_fold_kernel(const float* __restrict__ grad,
 // ---------------------------------------------------------------------------
 // db: the ascending-row fp32 left fold of the gradient, over columns
 // ---------------------------------------------------------------------------
-// Shared with the Hopper contract, which is why this entry point is not part of
+// Shared with the Hopper path, which is why this entry point is not part of
 // either tree/mma split: db[n] = fold over rows ascending of grad[row][n], one
 // correctly-rounded fp32 add per row (the reference's
-// ``left_fold_bias_gradient``), so it is byte-equal under both contracts.
+// ``left_fold_bias_gradient``), so it is byte-equal under both orders.
 //
 // One thread per column would launch 3072 threads and walk a 12 KB-strided
 // column each, which is latency-bound; instead the block stages row tiles
@@ -599,7 +599,7 @@ mlp_down_db_fold_wide_kernel(const nv_bf16* __restrict__ grad, float* __restrict
             const int nr = (rows - t * DB_TR < DB_TR) ? (rows - t * DB_TR) : DB_TR;
             const nv_bf16* col = cur + tid;
             int r = 0;
-            // Ascending, one fp32 add per row, single chain: the contract.
+            // Ascending, one fp32 add per row, single chain: the frozen rule.
             for (; r + 8 <= nr; r += 8) {
                 float v[8];
 #pragma unroll
@@ -625,7 +625,7 @@ mlp_down_db_fold_wide_kernel(const nv_bf16* __restrict__ grad, float* __restrict
 }  // namespace
 
 // ---------------------------------------------------------------------------
-// entry points (names and signatures unchanged across the contract split)
+// entry points (names and signatures unchanged across the order split)
 // ---------------------------------------------------------------------------
 
 torch::Tensor mlp_down_gemm_cuda_forward(torch::Tensor x, torch::Tensor weight,
@@ -634,7 +634,7 @@ torch::Tensor mlp_down_gemm_cuda_forward(torch::Tensor x, torch::Tensor weight,
     TORCH_CHECK(x.is_cuda() && weight.is_cuda(), "x and weight must be CUDA tensors");
     TORCH_CHECK(mlp_tree_device_ok(), kMlpTreeNeedsSm80);
     TORCH_CHECK(x.scalar_type() == at::kBFloat16 && weight.scalar_type() == at::kBFloat16,
-                "mlp-down-gemm-tree-v1 is a bf16 contract");
+                "mlp-down-gemm-tree requires bf16 operands");
     TORCH_CHECK(x.dim() == 2 && weight.dim() == 2, "x and weight must be 2-D");
     TORCH_CHECK(x.size(1) == weight.size(1), "x K must match weight K");
     const int64_t S = x.size(0);
@@ -667,7 +667,7 @@ torch::Tensor mlp_down_gemm_cuda_dx(torch::Tensor g, torch::Tensor weight) {
     TORCH_CHECK(g.is_cuda() && weight.is_cuda(), "g and weight must be CUDA tensors");
     TORCH_CHECK(mlp_tree_device_ok(), kMlpTreeNeedsSm80);
     TORCH_CHECK(g.scalar_type() == at::kBFloat16 && weight.scalar_type() == at::kBFloat16,
-                "mlp-down-gemm-tree-v1 is a bf16 contract");
+                "mlp-down-gemm-tree requires bf16 operands");
     TORCH_CHECK(g.dim() == 2 && weight.dim() == 2, "g and weight must be 2-D");
     TORCH_CHECK(g.size(1) == weight.size(0), "g N must match weight N");
     const int64_t S = g.size(0);
@@ -693,7 +693,7 @@ torch::Tensor mlp_down_gemm_cuda_dw(torch::Tensor g, torch::Tensor x) {
     TORCH_CHECK(g.is_cuda() && x.is_cuda(), "g and x must be CUDA tensors");
     TORCH_CHECK(mlp_tree_device_ok(), kMlpTreeNeedsSm80);
     TORCH_CHECK(g.scalar_type() == at::kBFloat16 && x.scalar_type() == at::kBFloat16,
-                "mlp-down-gemm-tree-v1 is a bf16 contract");
+                "mlp-down-gemm-tree requires bf16 operands");
     TORCH_CHECK(g.dim() == 2 && x.dim() == 2, "g and x must be 2-D");
     TORCH_CHECK(g.size(0) == x.size(0), "g and x must share the row dim");
     const int64_t rows = g.size(0);
@@ -718,11 +718,11 @@ torch::Tensor mlp_down_gemm_cuda_dw(torch::Tensor g, torch::Tensor x) {
 }
 
 // Bias gradient: ascending-row left fold over the bf16 gradient, fp32 out
-// (identical under both contracts).
+// (identical under both orders).
 torch::Tensor mlp_down_gemm_cuda_db(torch::Tensor grad) {
     const c10::cuda::CUDAGuard guard(grad.device());
     TORCH_CHECK(grad.is_cuda(), "grad must be a CUDA tensor");
-    TORCH_CHECK(grad.scalar_type() == at::kBFloat16, "mlp_down_gemm_cuda_db is a bf16 contract");
+    TORCH_CHECK(grad.scalar_type() == at::kBFloat16, "mlp_down_gemm_cuda_db requires bf16 operands");
     const int64_t cols = grad.size(-1);
     const int64_t rows = grad.numel() / cols;
     auto db = torch::empty({cols}, grad.options().dtype(at::kFloat));
