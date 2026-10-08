@@ -135,6 +135,29 @@ There are two data files:
 timings and alternating execution order. `chain_replay.json` was written from a clean tree
 at commit `fa551c2`.
 
+## Existing implementations (RFC #420 reuse rule)
+
+![adaln_row_gather vs existing implementations](../usage/evidence/h3-prior-art-b200/adaln_row_gather.png)
+
+| Implementation | Batch-invariant | size 4097: fwd err / worst grad err / fwd+bwd | size 32768: fwd err / worst grad err / fwd+bwd |
+|---|---|---|---|
+| diffusers six index_select calls | **no** (param/table grads not repeatable) | 0.0e+00 / 6.0e-02 / 1381 µs | 0.0e+00 / 2.1e-01 / 9753 µs |
+| rl-kernel H3AdaLNRowGatherCudaOp | yes | 0.0e+00 / 2.5e-03 / 1106 µs | 0.0e+00 / 3.0e-03 / 2776 µs |
+
+Errors are max|err| / max|ref| against the same computation in FP64; latency is the median
+forward + backward time on an otherwise idle B200. Batch invariance is bitwise and covers
+three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
+131072-row batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
+"no" means that at least one row, sub-batch or gradient differed. [`adaln_row_gather.json`](../usage/evidence/h3-prior-art-b200/adaln_row_gather.json)
+was written from a clean tree at `6c900ae` by
+
+```bash
+python scripts/h3_prior_art.py --op adaln_row_gather --out docs/usage/evidence/h3-prior-art-b200/adaln_row_gather.json
+python scripts/plot_h3_prior_art.py docs/usage/evidence/h3-prior-art-b200/adaln_row_gather.json
+```
+
+Libraries that do not import are skipped and recorded as unavailable in the report.
+
 ## Tests
 
 ```bash
