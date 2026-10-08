@@ -23,6 +23,9 @@ COLORS = {
     "previous VJP (full FP32 softmax)": "#7a7a7a",
     "chunked fallback": "#3aa676",
     "fused kernel": "#2a6fdb",
+    "Liger cross_entropy": "#b04fc4",
+    "FLA fused cross_entropy": "#c9a227",
+    "flash-attn cross_entropy (verl)": "#d14b4b",
 }
 
 
@@ -79,11 +82,23 @@ def main() -> None:
     ax.grid(True, axis="y", alpha=0.3)
 
     ax = axes[1, 1]
-    bi = report["row_invariance"]
-    checked = next(iter(bi.values()))["rows_checked"]
+    if "batch_size_sweep" in report:
+        bi = report["batch_size_sweep"]
+        first = next(iter(bi.values()))
+        checked = first["comparisons"]
+        what = (
+            f"comparisons differing (of {checked}: rows alone vs at the front / middle / back of "
+            f"{len(first['batch_sizes'])} batch sizes up to {max(first['batch_sizes'])}, bitwise)"
+        )
+        lp = [bi[n]["logp_differing"] for n in names]
+        gr = [bi[n]["grad_differing"] for n in names]
+    else:
+        bi = report["row_invariance"]
+        checked = next(iter(bi.values()))["rows_checked"]
+        what = f"rows differing (of {checked}; row alone vs inside a batch, bitwise)"
+        lp = [bi[n]["logp_rows_differing"] for n in names]
+        gr = [bi[n]["grad_rows_differing"] for n in names]
     ys = range(len(names))
-    lp = [bi[n]["logp_rows_differing"] for n in names]
-    gr = [bi[n]["grad_rows_differing"] for n in names]
     ax.barh([y - 0.2 for y in ys], lp, 0.4, color="#2a6fdb", label="logp")
     ax.barh([y + 0.2 for y in ys], gr, 0.4, color="#e07b39", label="dlogits")
     for y, a, b in zip(ys, lp, gr):
@@ -91,8 +106,8 @@ def main() -> None:
     ax.set_yticks(list(ys), [n.replace(" (", "\n(") for n in names], fontsize=8)
     ax.invert_yaxis()
     ax.set_xlim(0, max(3, max(lp + gr) * 1.4))
-    ax.set_xlabel(f"rows differing (of {checked}; row alone vs inside a batch, bitwise)")
-    ax.set_title("row invariance (0 = batch-invariant)")
+    ax.set_xlabel(what, fontsize=8)
+    ax.set_title("batch invariance (0 = batch-invariant)")
     ax.legend(fontsize=8)
     ax.grid(True, axis="x", alpha=0.3)
 
