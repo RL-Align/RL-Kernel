@@ -75,9 +75,18 @@ reductions, bit-identical on every device).
 - **batch invariance**: bitwise (`torch.equal` plus a dtype-bitcast
   assertion on the logical elements) across batch composition, leading
   shapes, padding, and repeat runs, for outputs and `dx` alike.
-- Tolerance values for the generic gtest matrix come from
-  `rl_engine/kernels/gtest/tolerance_contract.json`; this page intentionally
-  does not restate ad-hoc numbers.
+- **Acceptance is bitwise and only bitwise**: forward and backward, both
+  dtypes, logical-element bit patterns (the harness in
+  `tests/test_attn_out_bias_gemm.py`: shape, dtype, dtype-bitcast; zero
+  tolerance). A result that differs in any bit fails acceptance regardless
+  of any other verdict; error statistics are diagnostics only.
+- The generic gtest matrix (`scripts/check_operator.py`,
+  `rl_engine/kernels/gtest/tolerance_contract.json`) is a diagnostic overlay
+  for this operator, not an acceptance tier: its bf16 forward leg compares
+  the fp32 gold against the bf16 output (cast-level differences by
+  construction) and its gradient leg compares autograd-through-gold against
+  the frozen backward (a different computation order), so both legs are
+  tolerance-based by design -- and they cannot weaken the bitwise bar above.
 
 ## Performance Notes
 
