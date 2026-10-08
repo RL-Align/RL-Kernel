@@ -25,20 +25,33 @@ EXTRACTED_FILE = "h3_conditioning.safetensors"
 
 
 def load_h3_manifest() -> dict[str, Any]:
+    """Read the bundled checkpoint identity and pinned tensor contracts."""
+
     return json.loads(MANIFEST_PATH.read_text())
 
 
 def h3_weights_dir() -> Path | None:
+    """Expand the configured extraction directory, or return None when unset or blank."""
+
     value = os.environ.get(WEIGHTS_ENV, "").strip()
     return Path(value).expanduser() if value else None
 
 
 def sha256_file(path: Path, chunk: int = 1 << 24) -> str:
+    """Return a file SHA256 while reading bounded chunks."""
+
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         while block := handle.read(chunk):
             digest.update(block)
     return digest.hexdigest()
+
+
+def sha256_tensor(tensor: torch.Tensor) -> str:
+    """Hash a CPU tensor's contiguous bytes without safetensors metadata."""
+
+    tensor_bytes = tensor.contiguous().view(torch.uint8).numpy()
+    return hashlib.sha256(memoryview(tensor_bytes)).hexdigest()
 
 
 def load_h3_conditioning_weights(
@@ -55,15 +68,20 @@ def load_h3_conditioning_weights(
     if not path.is_file():
         raise FileNotFoundError(f"{path} missing; run scripts/prepare_h3_weights.py")
     manifest = load_h3_manifest()
-    tensors = load_file(str(path), device=str(device))
+    tensors = load_file(str(path), device="cpu")
     wanted = names if names is not None else list(manifest["tensors"])
-    out: dict[str, torch.Tensor] = {}
-    for name in wanted:
-        spec = manifest["tensors"][name]
+    for name, spec in manifest["tensors"].items():
         tensor = tensors[name]
         if str(tensor.dtype).removeprefix("torch.") != spec["dtype"]:
             raise ValueError(f"{name}: dtype {tensor.dtype} != manifest {spec['dtype']}")
         if list(tensor.shape) != spec["shape"]:
             raise ValueError(f"{name}: shape {list(tensor.shape)} != manifest {spec['shape']}")
-        out[name] = tensor
+        actual = sha256_tensor(tensor)
+        if actual != spec["sha256"]:
+            raise ValueError(f"{name}: sha256 {actual} != manifest {spec['sha256']}")
+    out: dict[str, torch.Tensor] = {}
+    for name in wanted:
+        if name not in manifest["tensors"]:
+            raise KeyError(name)
+        out[name] = tensors[name].to(device=device)
     return out

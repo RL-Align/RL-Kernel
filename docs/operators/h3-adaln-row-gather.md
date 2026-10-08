@@ -70,7 +70,7 @@ Measured on a B200 (torch 2.13.0+cu130):
 | --- | --- | --- |
 | Forward vs `index_select` | bitwise equal | |
 | `d_rows` repeat-bitwise | yes | no |
-| `d_rows` correctly rounded from the FP64 sum | 99.99999% | 7.8% |
+| `d_rows` correctly rounded from the FP64 sum | 99.99965% | 7.8% |
 | `d_rows` max abs error vs FP64 | 0.25 (1 ULP) | 4.99 |
 
 ### Fused modulation: `H3AdaLNModulationCudaOp`
@@ -111,12 +111,14 @@ B200, T = 3, H = 5376, BF16. "write BW" counts the 6·S·H outputs; the table st
 
 | S | CUDA forward | provider forward | CUDA backward | provider backward |
 | --- | --- | --- | --- | --- |
-| 4097 | 0.06 ms | 0.09 ms | 1.15 ms | 1.47 ms |
-| 32768 | 0.32 ms | 0.59 ms | 2.18 ms | 8.72 ms |
-| 131072 | 1.23 ms (6.8 TB/s write) | 2.37 ms | 6.86 ms | 34.9 ms |
+| 4097 | 0.07 ms | 0.11 ms | 0.88 ms | 1.28 ms |
+| 32768 | 0.33 ms | 0.62 ms | 1.75 ms | 8.04 ms |
+| 131072 | 1.17 ms | 2.42 ms | 5.62 ms | 32.45 ms |
 
-The backward's peak memory is about twice the provider's, because autograd stacks the
-six output gradients and the per-tile FP32 partials are materialised.
+Backward timings and peak memory exclude leaf creation and the forward pass. The CUDA
+backward stacks the six output gradients and materialises per-tile FP32 partials, adding
+8130 MiB at S = 131072; the provider adds under 2 MiB. Candidate/provider execution order
+alternates each iteration and is recorded in the report.
 
 ## Evidence
 
@@ -129,7 +131,9 @@ There are two data files:
 - [`chain_replay.json`](../usage/evidence/h3-adaln-row-gather-b200/chain_replay.json): the full
   stage-wise forward replay and backward replay over T in {1, 2, 3, 4} × S in {3, 257, 4097, 32768}.
 
-Both were written from a clean tree at commit `fa551c2`.
+`report.json` was regenerated from a clean tree at commit `80e4609` with backward-only
+timings and alternating execution order. `chain_replay.json` was written from a clean tree
+at commit `fa551c2`.
 
 ## Tests
 
