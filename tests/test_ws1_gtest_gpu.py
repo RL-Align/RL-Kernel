@@ -33,6 +33,8 @@ def _run(script: str, *args: str, timeout: int = 300) -> None:
 
 
 def test_all_ws1_single_ops_are_registered():
+    """Require gtest specs for all WS1 single operators and the H3 conditioning stages."""
+
     names = set(operator_names())
     assert {
         "rms_norm",

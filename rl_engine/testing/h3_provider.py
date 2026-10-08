@@ -19,7 +19,11 @@ import torch.nn.functional as F
 
 
 def provider_time_proj(timestep: torch.Tensor, num_channels: int = 256) -> torch.Tensor:
-    """``Timesteps(256, flip_sin_to_cos=True, downscale_freq_shift=0)``."""
+    """Replay provider FP32 cosine/sine features for ``(T,)`` timesteps.
+
+    Matches ``Timesteps(256, flip_sin_to_cos=True, downscale_freq_shift=0)``
+    with the default channel count, returning shape ``(T, 256)``.
+    """
 
     half_dim = num_channels // 2
     exponent = -math.log(10000) * torch.arange(
@@ -41,7 +45,10 @@ def provider_time_embedder(
     w2: torch.Tensor,
     b2: torch.Tensor,
 ) -> torch.Tensor:
-    """``TimestepEmbedding(256, 5376, out_dim=2688)``: linear_1 -> SiLU -> linear_2, FP32."""
+    """Replay linear_1, SiLU, and linear_2 using the checkpoint weight dtype.
+
+    H3's FP32 weights map features of shape ``(T, 256)`` to ``(T, 2688)``.
+    """
 
     sample = F.linear(features.to(w1.dtype), w1, b1)
     sample = F.silu(sample)
@@ -51,7 +58,11 @@ def provider_time_embedder(
 def provider_adaln_modulation(
     temb: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor, hidden_size: int = 5376
 ) -> tuple[torch.Tensor, ...]:
-    """``MiniMaxH3AdaLayerNormModulation.forward``: six (3T, H) views."""
+    """Replay provider SiLU, the weight-dtype cast, and the AdaLN projection.
+
+    Return six ``(3T, hidden_size)`` views in timestep-major modality order
+    for checkpoint weights shaped ``(18 * hidden_size, 2688)``.
+    """
 
     temb = F.linear(F.silu(temb).to(weight.dtype), weight, bias)
     temb = temb.view(-1, 6 * hidden_size)
