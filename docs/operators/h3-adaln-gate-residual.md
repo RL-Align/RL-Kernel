@@ -16,6 +16,8 @@ gathers the gate row inside the kernel, so the gathered `(S, H)` gate is never m
 ## Entry Point
 
 ```python
+from rl_engine.kernels.registry import kernel_registry
+
 op = kernel_registry.get_op("adaln_gate_residual", device="cuda")
 hidden = op(residual, attn_output, gate_msa, adaln_indices)
 ```

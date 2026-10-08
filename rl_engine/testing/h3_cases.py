@@ -9,7 +9,11 @@ import torch
 
 
 def h3_timesteps(num: int, *, seed: int = 0, device: str = "cuda") -> torch.Tensor:
-    """Distinct-looking timesteps in [0, 1] with both endpoints present."""
+    """Return seeded FP32 timesteps of shape ``(num,)`` on ``device``.
+
+    Requires positive ``num``; the first value is 0 and the last is 1 when
+    ``num > 1``, with all remaining values sampled uniformly in [0, 1].
+    """
 
     generator = torch.Generator(device="cpu").manual_seed(seed)
     t = torch.rand(num, generator=generator)
@@ -22,10 +26,11 @@ def h3_timesteps(num: int, *, seed: int = 0, device: str = "cuda") -> torch.Tens
 def h3_packed_layout(
     seq_len: int, num_timesteps: int, *, seed: int = 0, device: str = "cuda"
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """(timestep_indices, token_tags) for a packed sequence with every modality.
+    """Return seeded int64 timestep indices and modality tags, each shape ``(seq_len,)``.
 
-    Rows are video, text and audio blocks in random order, each block mapped
-    to a random timestep, like H3's conditioning/target packing.
+    Each row independently samples a timestep in ``[0, num_timesteps)`` and
+    a video/text/audio tag in ``[0, 3)``. The first three rows cover all tags
+    when available; both tensors are returned on ``device``.
     """
 
     generator = torch.Generator(device="cpu").manual_seed(seed)
