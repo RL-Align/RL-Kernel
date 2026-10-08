@@ -1,15 +1,12 @@
-# Attn-Out Bias GEMM (Qwen-Image WS1)
+# Attn-Out Bias GEMM (`attn_out_bias_gemm`)
 
 Deterministic attention output projection for the Qwen-Image MMDiT:
 `y = single_cast(x @ W.T + b)` over the already-dtype-rounded joint-attention
 output. Covers the mathematically identical `to_out` (image stream) and
 `to_add_out` (text stream) call sites, `[3072, 3072]` with bias.
 
-## Summary
-
-Issue [#386](https://github.com/RL-Align/RL-Kernel/issues/386) kernel-table
-row `attn_out_bias_gemm` (forward + backward; WS2 will add the TP-row parallel
-variant). The numeric contract version is
+WS1 #386 kernel-table row (forward + backward; WS2 will add the TP-row
+parallel variant). The numeric contract version is
 `attn-out-bias-gemm-tree-v1`, frozen as follows:
 
 - **K/N-dim reduction tree**: the reduction length splits into 32-wide leaves
@@ -107,6 +104,17 @@ python scripts/check_operator.py --op attn_out_bias_gemm --candidate cuda --devi
 The test file also carries the bit-equality harness (four-step comparison:
 shape, dtype, contiguous materialisation, dtype-bitcast of the logical
 elements) required by the issue acceptance list.
+
+## Implementation Files
+
+- `rl_engine/kernels/ops/pytorch/linear/attn_out_bias_gemm.py` — FP32 same-tree reference (gold)
+- `rl_engine/kernels/ops/triton/linear/attn_out_bias_gemm.py` — Triton leaf-chunk backend
+- `rl_engine/kernels/ops/cuda/linear/attn_out_bias_gemm.py` — CUDA backend wrapper
+- `csrc/cuda/gemm/attn_out_bias_gemm.cu` — CUDA kernels
+- `rl_engine/kernels/registry.py`
+- `rl_engine/kernels/gtest/operator_specs.py`
+- `tests/test_attn_out_bias_gemm.py`
+- `benchmarks/benchmark_attn_out_bias_gemm.py`
 
 ## Known Limitations
 
