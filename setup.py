@@ -156,6 +156,7 @@ def get_extensions():
             # CUDA IPC and the fixed-tree collective implementation are not
             # part of the ROCm extension.
             cuda_sources.append("csrc/cuda/distributed/deterministic_collective.cu")
+            cuda_sources.append("csrc/cuda/diffusion/flow_sde_step_logp.cu")
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
             cuda_sources.append("csrc/cuda/attention/prefix_shared_attention.cu")
@@ -163,6 +164,7 @@ def get_extensions():
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
         if envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH):
             nvcc_flags.append("--use_fast_math")
+            nvcc_flags.append("-DRLK_FLOW_SDE_FAST_MATH=1")
         if not is_rocm:
             cc_major, cc_minor = torch.cuda.get_device_capability()
             enable_sm90 = os.environ.get("KERNEL_ALIGN_FORCE_SM90") == "1"

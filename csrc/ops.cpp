@@ -7,6 +7,16 @@
 // Fused LogP Declarations
 torch::Tensor fused_logp_forward(torch::Tensor logits, torch::Tensor token_ids);
 
+#if defined(KERNEL_ALIGN_WITH_CUDA)
+bool flow_sde_strict_math();
+std::vector<torch::Tensor> flow_sde_step_logp_forward(
+    torch::Tensor sample, torch::Tensor velocity, torch::Tensor params,
+    torch::Tensor auxiliary, bool replay);
+std::vector<torch::Tensor> flow_sde_step_logp_backward(
+    torch::Tensor target, torch::Tensor mean, torch::Tensor coeff,
+    torch::Tensor grad_target, torch::Tensor grad_logp, torch::Tensor grad_mean, bool replay);
+#endif
+
 #if defined(__CUDACC__) || defined(KERNEL_ALIGN_WITH_SM90)
 torch::Tensor fused_logp_sm90_forward(torch::Tensor logits, torch::Tensor labels);
 std::vector<torch::Tensor> fused_linear_logp_sm90_forward(torch::Tensor hidden,
@@ -499,6 +509,13 @@ at::Tensor prefix_shared_attention(
 
 // PyBind11 Module Registration
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+#if defined(KERNEL_ALIGN_WITH_CUDA)
+    m.def("flow_sde_strict_math", &flow_sde_strict_math);
+    m.def("flow_sde_step_logp_forward", &flow_sde_step_logp_forward,
+          "FP32 Qwen-Image Flow-GRPO SDE step/logp (validated Python API required)");
+    m.def("flow_sde_step_logp_backward", &flow_sde_step_logp_backward,
+          "Deterministic row-local Flow-GRPO VJP");
+#endif
     m.doc() = "RL-Kernel High-Performance Operator Extension Library";
 
     m.def("fused_logp", &fused_logp_forward, "Fused logp forward fallback");
