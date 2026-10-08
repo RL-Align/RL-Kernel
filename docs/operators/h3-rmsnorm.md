@@ -21,6 +21,8 @@ gathered inside the kernel, so the `(S, H)` tensors that
 ## Entry Point
 
 ```python
+from rl_engine.kernels.registry import kernel_registry
+
 op = kernel_registry.get_op("h3_rmsnorm", device="cuda")
 n = op(x, weight)                                              # plain RMSNorm
 out = op.forward_modulated(x, weight, shift_msa, scale_msa, adaln_indices)
@@ -31,7 +33,7 @@ out = op.forward_modulated(x, weight, shift_msa, scale_msa, adaln_indices)
 | Backend | Wrapper | Native symbols | Status |
 | --- | --- | --- | --- |
 | CUDA (SM80+, validated on SM100) | `rl_engine.kernels.ops.cuda.h3.rmsnorm.H3RMSNormCudaOp` | `rl_engine._C.h3_rmsnorm_{forward,backward}` | Bitwise equal to `nn.RMSNorm` and to the diffusers modulation |
-| PyTorch reference | `rl_engine.kernels.ops.pytorch.h3.rmsnorm.NativeH3RMSNormOp` | n/a | `forward*`: provider path; `forward*_fp32`: FP64 golden |
+| PyTorch reference | `rl_engine.kernels.ops.pytorch.h3.rmsnorm.NativeH3RMSNormOp` | n/a | `forward*`: provider path; `forward*_fp32`: FP64 golden (the modulated one stores `norm(x)` and `1 + scale` in BF16, straight-through, as the model does) |
 | ROCm | n/a | n/a | Falls back to the PyTorch reference |
 
 ## Tensor Contract
@@ -79,19 +81,21 @@ B200, block `norm1` + MSA modulation, B = 1, H = 5376, BF16:
 
 | S | CUDA fwd | diffusers fwd | CUDA bwd | diffusers bwd |
 | --- | --- | --- | --- | --- |
-| 4097 | 0.06 ms | 0.11 ms | 1.08 ms | 0.95 ms |
-| 32768 | 0.31 ms | 0.75 ms | 2.50 ms | 5.20 ms |
-| 131072 | 1.17 ms | 2.90 ms | 7.40 ms | 20.6 ms |
+| 4097 | 0.08 ms | 0.12 ms | 1.23 ms | 0.85 ms |
+| 32768 | 0.35 ms | 0.76 ms | 2.18 ms | 4.40 ms |
+| 131072 | 1.21 ms | 2.90 ms | 6.17 ms | 17.55 ms |
 
 The forward is a single pass that never materialises the gathered rows. At small S the backward
-is dominated by the fixed cost of the stable sort and tile setup.
+is dominated by the fixed cost of the stable sort and tile setup. Backward timings and peak
+memory exclude leaf creation and the forward pass. Candidate/provider execution order alternates
+each iteration and is recorded in the report.
 
 ## Evidence
 
 ![h3_rmsnorm on B200: latency and backward accuracy](../usage/evidence/h3-rmsnorm-b200/figure.png)
 
 The data is in [`report.json`](../usage/evidence/h3-rmsnorm-b200/report.json), written by
-`scripts/h3_evidence.py` from a clean tree at commit `f36aa60`. It also records:
+`scripts/h3_evidence.py` from a clean tree at commit `80e4609`. It also records:
 
 - bitwise equality with `nn.RMSNorm` for all four pinned norm weights;
 - bitwise equality with diffusers for the modulation;
