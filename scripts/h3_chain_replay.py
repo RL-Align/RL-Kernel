@@ -30,12 +30,20 @@ from rl_engine.testing.h3_weights import (  # noqa: E402
 
 
 def _ints(text: str) -> list[int]:
+    """Parse a comma-separated list of integer case sizes."""
+
     return [int(v) for v in text.split(",")]
 
 
 def main() -> None:
+    """Replay requested CUDA stages with prerequisites and optionally save JSON evidence."""
+
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--stages", default=",".join(s.name for s in h3_chain.STAGES))
+    parser.add_argument(
+        "--stages",
+        default=",".join(s.name for s in h3_chain.STAGES),
+        help="comma list of stages to report; preceding stages run automatically",
+    )
     parser.add_argument("--timesteps", type=_ints, default=[1, 2, 4], help="comma list of T")
     parser.add_argument("--seq-lens", type=_ints, default=[3, 257, 4097], help="comma list of S")
     parser.add_argument("--seed", type=int, default=0)
@@ -48,13 +56,19 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    wanted = args.stages.split(",")
+    stage_names = [s.name for s in h3_chain.STAGES]
+    unknown = sorted(set(wanted) - set(stage_names))
+    if unknown:
+        parser.error(f"unknown stages: {unknown}")
+    stages = [s for s in h3_chain.STAGES if s.name in wanted]
+    if args.backward and len(stages) != len(h3_chain.STAGES):
+        parser.error("--backward requires every stage of the chain")
+    last_stage = max(i for i, stage in enumerate(h3_chain.STAGES) if stage.name in wanted)
+    execution_stages = h3_chain.STAGES[: last_stage + 1]
+
     if not torch.cuda.is_available():
         raise SystemExit("the chain replay needs a CUDA device")
-    wanted = args.stages.split(",")
-    unknown = sorted(set(wanted) - {s.name for s in h3_chain.STAGES})
-    if unknown:
-        raise SystemExit(f"unknown stages: {unknown}")
-    stages = [s for s in h3_chain.STAGES if s.name in wanted]
 
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
@@ -71,8 +85,9 @@ def main() -> None:
                 num_timesteps=num_timesteps,
                 seq_len=seq_len,
                 seed=args.seed,
-                stages=stages,
+                stages=execution_stages,
             )
+            case["stages"] = [entry for entry in case["stages"] if entry["stage"] in wanted]
             cases.append(case)
             summary = ", ".join(
                 f"{e['stage']}="
@@ -108,6 +123,7 @@ def main() -> None:
         **h3_chain.git_state(),
         "environment": h3_chain.environment(),
         "stages": [s.name for s in stages],
+        "executed_stages": [s.name for s in execution_stages],
         "cases": cases,
         "backward_cases": backward_cases,
     }

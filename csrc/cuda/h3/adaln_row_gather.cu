@@ -63,8 +63,13 @@ struct CudaType<at::Half> {
 
 template <typename idx_t>
 __device__ __forceinline__ int64_t adaln_row(const idx_t* ti, const idx_t* tags, int64_t s,
-                                             int64_t modality_num) {
-  return static_cast<int64_t>(ti[s]) * modality_num + static_cast<int64_t>(tags[s]);
+                                             int64_t modality_num, int64_t num_timesteps) {
+  const int64_t timestep = static_cast<int64_t>(ti[s]);
+  const int64_t tag = static_cast<int64_t>(tags[s]);
+  // Check each semantic index before multiplication, including values that overflow int64.
+  CUDA_KERNEL_ASSERT(timestep >= 0 && timestep < num_timesteps);
+  CUDA_KERNEL_ASSERT(tag >= 0 && tag < modality_num);
+  return timestep * modality_num + tag;
 }
 
 // One block per (s, c); 16-byte copies when every row start is 16-byte aligned.
@@ -73,10 +78,10 @@ __global__ void adaln_row_gather_kernel(const T* __restrict__ rows, int64_t row_
                                         const idx_t* __restrict__ ti,
                                         const idx_t* __restrict__ tags, T* __restrict__ out,
                                         int64_t seq, int64_t hidden, int64_t chunks,
-                                        int64_t modality_num) {
+                                        int64_t modality_num, int64_t num_timesteps) {
   for (int64_t s = blockIdx.x; s < seq; s += gridDim.x) {
     const int64_t c = blockIdx.y;
-    const int64_t r = adaln_row(ti, tags, s, modality_num);
+    const int64_t r = adaln_row(ti, tags, s, modality_num, num_timesteps);
     const T* src = rows + r * row_stride + c * hidden;
     T* dst = out + (c * seq + s) * hidden;
     if constexpr (kVector) {
@@ -146,6 +151,7 @@ torch::Tensor h3_adaln_row_gather_forward(torch::Tensor rows, torch::Tensor time
               " is not a multiple of ", chunks);
   TORCH_CHECK(modality_num > 0 && rows.size(0) % modality_num == 0, "rows count ",
               rows.size(0), " is not a multiple of ", modality_num);
+  const int64_t num_timesteps = rows.size(0) / modality_num;
   const int64_t seq = timestep_indices.numel();
   TORCH_CHECK(seq > 0, "the packed sequence must not be empty");
   check_index(timestep_indices, "timestep_indices", seq, rows);
@@ -174,10 +180,12 @@ torch::Tensor h3_adaln_row_gather_forward(torch::Tensor rows, torch::Tensor time
           const idx_t* tags = token_tags.data_ptr<idx_t>();
           if (vector) {
             adaln_row_gather_kernel<T, idx_t, true><<<grid, threads, 0, stream>>>(
-                src, rows.stride(0), ti, tags, dst, seq, hidden, chunks, modality_num);
+                src, rows.stride(0), ti, tags, dst, seq, hidden, chunks, modality_num,
+                num_timesteps);
           } else {
             adaln_row_gather_kernel<T, idx_t, false><<<grid, threads, 0, stream>>>(
-                src, rows.stride(0), ti, tags, dst, seq, hidden, chunks, modality_num);
+                src, rows.stride(0), ti, tags, dst, seq, hidden, chunks, modality_num,
+                num_timesteps);
           }
         };
         if (timestep_indices.scalar_type() == at::kLong) {

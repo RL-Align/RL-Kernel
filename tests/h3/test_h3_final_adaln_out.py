@@ -169,3 +169,31 @@ class TestCuda:
         _cuda_op()
         op = KernelRegistry().get_op("final_adaln_out", device="cuda")
         assert type(op).__name__ == "H3FinalAdaLNOutCudaOp"
+
+    @pytest.mark.parametrize("seq", [257, 1024, 4097])
+    def test_bf16_gradients_meet_gtest_contract(self, seq):
+        # The check_operator path; S=257 used to miss d_norm_weight before the
+        # golden stored norm(x) and 1 + scale in BF16 like the model does.
+        import argparse
+
+        from rl_engine.kernels.gtest import run_operator_suite
+        from rl_engine.kernels.gtest.operator_specs import make_candidate, make_operator_case
+
+        _cuda_op()
+        args = argparse.Namespace(
+            op="final_adaln_out",
+            candidate="cuda",
+            arch_key=None,
+            batch=3,
+            seq=seq,
+            normalized_dim=5376,
+            seed=123,
+            input_mode="random",
+        )
+        report = run_operator_suite(
+            "final_adaln_out",
+            candidates=[make_candidate(args)],
+            cases=[make_operator_case(args, torch.bfloat16, torch.device("cuda"))],
+            check_grad=True,
+        )
+        assert report.passed, report.candidates[0].cases[0].outputs
