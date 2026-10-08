@@ -124,7 +124,7 @@ def main() -> None:
     ax.set_yticks(list(ys), names, fontsize=7)
     ax.invert_yaxis()
     ax.set_xlim(0.4, max(max(diff), 1) * 1e3)
-    ax.set_title("batch invariance: bitwise row comparisons that differ, and gradient repeats")
+    ax.set_title("batch invariance (bitwise)")
     ax.set_xlabel(
         "every row alone vs full batches + full batch vs covering sub-batches + size sweep",
         fontsize=7,
