@@ -99,6 +99,34 @@ The data is in [`report.json`](../usage/evidence/h3-rmsnorm-b200/report.json), w
 - bitwise equality with diffusers for the modulation;
 - row invariance.
 
+## Existing implementations (RFC #420 reuse rule)
+
+![norm_modulate vs existing implementations](../usage/evidence/h3-prior-art-b200/norm_modulate.png)
+
+| Implementation | Batch-invariant | size 4097: fwd err / worst grad err / fwd+bwd | size 32768: fwd err / worst grad err / fwd+bwd |
+|---|---|---|---|
+| diffusers composition (F.rms_norm + index_select modulation) | **no** (param/table grads not repeatable) | 8.6e-03 / 4.5e-02 / 872 µs | 7.5e-03 / 1.9e-01 / 4434 µs |
+| torch F.rms_norm (no modulation) | yes | 2.1e-03 / 2.1e-03 / 331 µs | 2.0e-03 / 2.8e-03 / 850 µs |
+| TE 2.20.2 RMSNorm (no modulation) | yes | 2.1e-03 / 2.1e-03 / 471 µs | 2.0e-03 / 2.8e-03 / 1597 µs |
+| Liger 0.8.4 modulated RMSNorm + index_select | **no** (param/table grads not repeatable) | 6.6e-03 / 4.7e-02 / 810 µs | 6.9e-03 / 2.0e-01 / 3911 µs |
+| Liger 0.8.4 modulated RMSNorm + rl-kernel row gather | yes | 6.6e-03 / 6.5e-03 / 1824 µs | 6.9e-03 / 8.0e-03 / 4763 µs |
+| SGLang 0.5.21 fused_norm_scale_shift (forward only) | yes | 4.4e-03 / — / 85 µs (fwd only) | 4.1e-03 / — / 436 µs (fwd only) |
+| rl-kernel H3RMSNormCudaOp.forward_modulated | yes | 8.6e-03 / 4.2e-03 / 1093 µs | 7.5e-03 / 5.0e-03 / 2653 µs |
+
+Errors are max|err| / max|ref| against the same computation in FP64; latency is the median
+forward + backward time on an otherwise idle B200. Batch invariance is bitwise and covers
+three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
+131072-token batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
+"no" means that at least one row, sub-batch or gradient differed. [`norm_modulate.json`](../usage/evidence/h3-prior-art-b200/norm_modulate.json)
+was written from a clean tree at `ee83dec` by
+
+```bash
+python scripts/h3_prior_art.py --op norm_modulate --out docs/usage/evidence/h3-prior-art-b200/norm_modulate.json
+python scripts/plot_h3_prior_art.py docs/usage/evidence/h3-prior-art-b200/norm_modulate.json
+```
+
+Libraries that do not import are skipped and recorded as unavailable in the report.
+
 ## Tests
 
 ```bash
