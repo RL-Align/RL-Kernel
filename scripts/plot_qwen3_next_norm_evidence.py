@@ -22,13 +22,13 @@ COLORS = ["#2a6fdb", "#7a7a7a", "#e07b39", "#3aa676", "#9b59b6", "#c0392b"]
 
 
 def _short(name: str) -> str:
-    return name.replace(" (forward only)", "*")
+    return name.replace(" (forward only)", "*").replace(" (cast-first)", "\n(cast-first)")
 
 
 def plot_op(op: str, data: dict, title: str, out: Path) -> None:
     names = list(data["row_invariance"])
     color = {n: COLORS[i % len(COLORS)] for i, n in enumerate(names)}
-    fig, axes = plt.subplots(2, 2, figsize=(13, 9))
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10), layout="constrained")
     fig.suptitle(title, fontsize=13)
 
     for ax, key, label in (
@@ -52,10 +52,12 @@ def plot_op(op: str, data: dict, title: str, out: Path) -> None:
     ax = axes[1, 0]
     acc = data["accuracy"][max(data["accuracy"], key=int)]
     metrics = [
-        ("forward_max_abs", "forward max |err|"),
-        ("dx_max_abs_over_absmax", "dx max |err| / max|dx|"),
-        ("dweight_max_abs_over_absmax", "dweight max |err| / max|dw|"),
+        ("forward_max_abs", "forward\nmax |err|"),
+        ("dx_max_abs_over_absmax", "dx\nmax |err| / max"),
+        ("dweight_max_abs_over_absmax", "dweight\nmax |err| / max"),
+        ("dgate_max_abs_over_absmax", "dgate\nmax |err| / max"),
     ]
+    metrics = [m for m in metrics if any(acc[n].get(m[0]) is not None for n in names)]
     width = 0.8 / len(names)
     for i, name in enumerate(names):
         vals = [acc[name].get(m) for m, _ in metrics]
@@ -87,14 +89,13 @@ def plot_op(op: str, data: dict, title: str, out: Path) -> None:
         no_bwd = bi[n]["dx_rows_differing"] is None
         ax.text(max(f, d) + 0.2, y, f"{f} / {'n/a' if no_bwd else d}", va="center", fontsize=8)
     ax.set_yticks(list(ys), [_short(n) for n in names], fontsize=8)
+    ax.set_xlim(0, max(3, max(fwd + dx) * 1.4))
     ax.invert_yaxis()
     ax.set_xlabel(f"rows differing (of {checked}; row alone vs inside a batch, bitwise)")
     ax.set_title("row invariance (0 = batch-invariant)")
     ax.legend(fontsize=8)
     ax.grid(True, axis="x", alpha=0.3)
 
-    fig.text(0.01, 0.005, "* forward only (no backward)", fontsize=8)
-    fig.tight_layout(rect=(0, 0.02, 1, 0.96))
     fig.savefig(out, dpi=130)
     print(f"wrote {out}")
 
@@ -106,9 +107,10 @@ def main() -> None:
     ops = report["ops"]
     for op, data in ops.items():
         name = "figure.png" if len(ops) == 1 else f"figure-{op}.png"
+        hidden = data.get("hidden", report.get("hidden"))
         title = (
-            f"Qwen3-Next {op.replace('_', ' ')} — {env['gpu']}, hidden {report['hidden']}, "
-            f"BF16, commit {report['git_commit'][:7]}"
+            f"Qwen3-Next {op.replace('_', ' ')} — {env['gpu']}, hidden {hidden}, "
+            f"BF16, commit {report['git_commit'][:7]}  (* forward only)"
         )
         plot_op(op, data, title, path.parent / name)
 
