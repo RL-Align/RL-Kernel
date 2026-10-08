@@ -1,13 +1,10 @@
-# txt_in RMSNorm → Linear (Qwen-Image WS1)
+# txt_in RMSNorm → Linear (`txt_in_rmsnorm_linear`)
 
 Deterministic text-patch input block for the Qwen-Image MMDiT:
 `y = single_cast(Linear(RMSNorm(x)) + b)` with `RMSNorm(3584)` (weight, no
 bias, no mean subtraction) followed by `Linear(3584 -> 3072)` with bias.
 
-## Summary
-
-Issue [#386](https://github.com/RL-Align/RL-Kernel/issues/386) kernel-table
-row `txt_in_rmsnorm_linear` (forward + backward). The numeric contract
+WS1 #386 kernel-table row (forward + backward). The numeric contract
 version is `txt-in-rmsnorm-linear-v1`, frozen as follows:
 
 - **RMSNorm→Linear seam is FP32**: no intermediate cast anywhere inside the
@@ -126,6 +123,17 @@ shape, dtype, contiguous materialisation, dtype-bitcast of the logical
 elements) required by the issue acceptance list, plus the pinned primitive
 tests (three-step rstd vs `sqrtf`, forbidden whole-fp64 form, FMA-dot not
 mul-then-sum, true-division discipline).
+
+## Implementation Files
+
+- `rl_engine/kernels/ops/pytorch/norm/txt_in_rmsnorm_linear.py` — FP32 same-tree reference (gold)
+- `rl_engine/kernels/ops/triton/norm/txt_in_rmsnorm_linear.py` — Triton leaf-chunk backend
+- `rl_engine/kernels/ops/cuda/norm/txt_in_rmsnorm_linear.py` — CUDA backend wrapper
+- `csrc/cuda/norm/txt_in_rmsnorm_linear.cu` — CUDA kernels
+- `rl_engine/kernels/registry.py`
+- `rl_engine/kernels/gtest/operator_specs.py`
+- `tests/test_txt_in_rmsnorm_linear.py`
+- `benchmarks/benchmark_txt_in_rmsnorm_linear.py`
 
 ## Known Limitations
 
