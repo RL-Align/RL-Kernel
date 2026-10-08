@@ -1,0 +1,26 @@
+{
+  "schema_version": "p3-local-boundary.v1",
+  "foundation_compatibility": "UNVERIFIED",
+  "foundation_approval_required": true,
+  "produces": {
+    "RoutePlanCore": "RoutePlanCore.v1",
+    "RoutePlanEnvelope": "RoutePlanEnvelope.v1",
+    "CombinePlanSeed": "CombinePlanSeed.v1"
+  },
+  "consumers": {
+    "P4": "RoutePlan",
+    "P6": "CombinePlanSeed",
+    "P7": "RoutePlan"
+  },
+  "capacity_policy": "dropless_v1",
+  "slot_order": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "weight_application_owner": "P5",
+  "combine_owner": "P6"
+}
