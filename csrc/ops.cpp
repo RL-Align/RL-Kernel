@@ -115,8 +115,6 @@ void deterministic_collective_all_gather_fused(
 bool det_gemm_sm90_compiled();
 torch::Tensor det_gemm_fwd(torch::Tensor a, torch::Tensor b);
 torch::Tensor det_gemm_fwd_rhs_transposed(torch::Tensor a, torch::Tensor bt);
-torch::Tensor det_gemm_fwd_out_fp32(torch::Tensor a, torch::Tensor b);
-torch::Tensor det_gemm_fwd_rhs_transposed_out_fp32(torch::Tensor a, torch::Tensor bt);
 torch::Tensor det_gemm_da(torch::Tensor dc, torch::Tensor b);
 torch::Tensor det_gemm_db(torch::Tensor a, torch::Tensor dc);
 torch::Tensor det_gemm_db_transposed(torch::Tensor a, torch::Tensor dc);
@@ -132,30 +130,26 @@ torch::Tensor swiglu_packed_forward_cuda(torch::Tensor gate_up);
 std::vector<torch::Tensor> swiglu_packed_backward_cuda(
     torch::Tensor dy,
     torch::Tensor gate_up);
-// P5-2 ClampSwiGLU weighted declarations
-std::vector<torch::Tensor> clamp_swiglu_weighted_forward_cuda(
-    torch::Tensor gate,
-    torch::Tensor up,
-    torch::optional<torch::Tensor> p_s);
 
-// P5-5 (#64) Shared Expert MLP strict kernels (oracle-fp32-serial-v1)
-torch::Tensor p5_strict_gemm(torch::Tensor a, torch::Tensor b, bool trans_b);
-torch::Tensor p5_swiglu_shared_forward(torch::Tensor z);
-torch::Tensor p5_swiglu_shared_backward(torch::Tensor dh, torch::Tensor z);
+// Fused shared-expert fc1 + SwiGLU (csrc/cuda/moe/fused_shared_expert_mlp.cu)
+torch::Tensor fused_shared_expert_fc1_swiglu(torch::Tensor x, torch::Tensor w_fc1);
 
-std::vector<torch::Tensor> clamp_swiglu_weighted_backward_cuda(
-    torch::Tensor dh,
-    torch::Tensor gate,
-    torch::Tensor up,
-    torch::optional<torch::Tensor> p_s);
-  std::vector<torch::Tensor> clamp_swiglu_weighted_packed_forward_cuda(
-    torch::Tensor gate_up,
-    torch::optional<torch::Tensor> p_s);
+// SM90 fused routed-expert MLP (MXFP8 x MXFP4, FP8 WGMMA): csrc/cuda/moe/sm90_fused_moe_mlp.cu
+std::vector<torch::Tensor> sm90_moe_prepare_weight_ref(torch::Tensor w_scales);
+torch::Tensor sm90_moe_fc1_forward(torch::Tensor a_codes, torch::Tensor a_scales,
+                                   torch::Tensor w1_codes, torch::Tensor w1_scales,
+                                   torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets);
+std::vector<torch::Tensor> sm90_moe_fc1_swiglu_quant_forward(
+    torch::Tensor a_codes, torch::Tensor a_scales, torch::Tensor w1_codes,
+    torch::Tensor w1_scales, torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets, torch::Tensor p_s);
+torch::Tensor sm90_moe_fc3_forward(torch::Tensor h_codes, torch::Tensor h_scales,
+                                   torch::Tensor w2_codes, torch::Tensor w2_scales,
+                                   torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets);
+torch::Tensor sm90_moe_fused_mlp_forward(
+    torch::Tensor a_codes, torch::Tensor a_scales, torch::Tensor w1_codes, torch::Tensor w1_scales,
+    torch::Tensor w1_ref, torch::Tensor w1_res, torch::Tensor w2_codes, torch::Tensor w2_scales,
+    torch::Tensor w2_ref, torch::Tensor w2_res, torch::Tensor expert_offsets, torch::Tensor p_s);
 
-std::vector<torch::Tensor> clamp_swiglu_weighted_packed_backward_cuda(
-    torch::Tensor dh,
-    torch::Tensor gate_up,
-    torch::optional<torch::Tensor> p_s);
 // RMSNorm Declarations & Wrappers
 
 void rmsnorm_forward_cuda(
@@ -318,44 +312,6 @@ std::vector<torch::Tensor> swiglu_packed_backward(
   return swiglu_packed_backward_cuda(dy, gate_up);
 }
 
-std::vector<torch::Tensor> clamp_swiglu_weighted_forward(
-    torch::Tensor gate,
-    torch::Tensor up,
-    torch::optional<torch::Tensor> p_s) {
-  return clamp_swiglu_weighted_forward_cuda(
-      gate,
-      up,
-      p_s);
-}
-
-std::vector<torch::Tensor> clamp_swiglu_weighted_backward(
-    torch::Tensor dh,
-    torch::Tensor gate,
-    torch::Tensor up,
-    torch::optional<torch::Tensor> p_s) {
-  return clamp_swiglu_weighted_backward_cuda(
-      dh,
-      gate,
-      up,
-      p_s);
-}
-std::vector<torch::Tensor> clamp_swiglu_weighted_packed_forward(
-    torch::Tensor gate_up,
-    torch::optional<torch::Tensor> p_s) {
-  return clamp_swiglu_weighted_packed_forward_cuda(
-      gate_up,
-      p_s);
-}
-
-std::vector<torch::Tensor> clamp_swiglu_weighted_packed_backward(
-    torch::Tensor dh,
-    torch::Tensor gate_up,
-    torch::optional<torch::Tensor> p_s) {
-  return clamp_swiglu_weighted_packed_backward_cuda(
-      dh,
-      gate_up,
-      p_s);
-}
 // Deterministic standard-softmax attention (issue #147)
 std::vector<torch::Tensor> deterministic_attention_forward(
     torch::Tensor q,
@@ -539,14 +495,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "det_gemm_fwd_rhs_transposed",
         &det_gemm_fwd_rhs_transposed,
         "Batch-invariant deterministic GEMM with physical Bt[N,K] (C=A@Bt^T)");
-    m.def(
-        "det_gemm_fwd_out_fp32",
-        &det_gemm_fwd_out_fp32,
-        "det_gemm_fwd storing the FP32 accumulator (no final BF16 round)");
-    m.def(
-        "det_gemm_fwd_rhs_transposed_out_fp32",
-        &det_gemm_fwd_rhs_transposed_out_fp32,
-        "det_gemm_fwd_rhs_transposed storing the FP32 accumulator");
     m.def("det_gemm_da", &det_gemm_da, "Batch-invariant deterministic GEMM backward dA (dC@B^T)");
     m.def("det_gemm_db", &det_gemm_db, "Batch-invariant deterministic GEMM backward dB (A^T@dC)");
     m.def(
@@ -573,44 +521,21 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Batch-invariant SwiGLU forward for [rows, 2 * intermediate]");
     m.def("swiglu_packed_backward", &swiglu_packed_backward,
           "Batch-invariant SwiGLU backward for [rows, 2 * intermediate]");
-    m.def(
-        "clamp_swiglu_weighted_forward",
-        &clamp_swiglu_weighted_forward,
-        py::arg("gate"),
-        py::arg("up"),
-        py::arg("p_s") = py::none(),
-        "P5 clamp_swiglu_weighted forward CUDA");
 
-    // P5-5 (#64) Shared Expert MLP strict kernels (oracle-fp32-serial-v1)
-    m.def("p5_strict_gemm", &p5_strict_gemm,
-          "Strict BF16-in/FP32-out GEMM, serial ascending-k, mul-then-add");
-    m.def("p5_swiglu_shared_forward", &p5_swiglu_shared_forward,
-          "One-round SwiGLU forward, shared-expert mode (p_s = None)");
-    m.def("p5_swiglu_shared_backward", &p5_swiglu_shared_backward,
-          "One-round SwiGLU backward, shared-expert mode (p_s = None)");
+    // SM90 fused routed-expert MLP (profile p5-sm90-fused-mlp-v1)
+    m.def("fused_shared_expert_fc1_swiglu", &fused_shared_expert_fc1_swiglu,
+          "Fused shared-expert fc1 + SwiGLU (det_gemm K-tree, BF16 h out)");
+    m.def("sm90_moe_prepare_weight_ref", &sm90_moe_prepare_weight_ref,
+          "Per-column reference exponents + residuals for folded MXFP4 scales (fail-closed)");
+    m.def("sm90_moe_fc1_forward", &sm90_moe_fc1_forward,
+          "Grouped MXFP8 x MXFP4 fc1 -> FP32 z [M, 2F] (SM90 FP8 WGMMA)");
+    m.def("sm90_moe_fc1_swiglu_quant_forward", &sm90_moe_fc1_swiglu_quant_forward,
+          "fc1 + clamp-SwiGLU * p_s + MX re-quant fused epilogue -> (h codes, h scales)");
+    m.def("sm90_moe_fc3_forward", &sm90_moe_fc3_forward,
+          "Grouped MXFP8 x MXFP4 fc3 -> BF16 y [M, H]");
+    m.def("sm90_moe_fused_mlp_forward", &sm90_moe_fused_mlp_forward,
+          "Single-launch fc1 -> SwiGLU -> quant -> fc3 with h_q resident in shared memory");
 
-    m.def(
-      "clamp_swiglu_weighted_backward",
-      &clamp_swiglu_weighted_backward,
-      py::arg("dh"),
-      py::arg("gate"),
-      py::arg("up"),
-      py::arg("p_s") = py::none(),
-      "P5 clamp_swiglu_weighted backward CUDA");
-    m.def(
-        "clamp_swiglu_weighted_packed_forward",
-        &clamp_swiglu_weighted_packed_forward,
-        py::arg("gate_up"),
-        py::arg("p_s") = py::none(),
-        "P5 packed clamp_swiglu_weighted forward CUDA");
-
-    m.def(
-        "clamp_swiglu_weighted_packed_backward",
-        &clamp_swiglu_weighted_packed_backward,
-        py::arg("dh"),
-        py::arg("gate_up"),
-        py::arg("p_s") = py::none(),
-        "P5 packed clamp_swiglu_weighted backward CUDA");
     // Deterministic standard-softmax attention (issue #147)
     m.def(
         "deterministic_attention_forward",

@@ -9,7 +9,7 @@ import torch
 
 from rl_engine.kernels.ops.base import _C, _EXT_AVAILABLE
 from rl_engine.moe import fixtures, oracle
-from rl_engine.moe.cuda_provider import (
+from rl_engine.moe.backends.clamp_swiglu import (
     ClampSwiGLUWeightedCudaProvider,
 )
 

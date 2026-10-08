@@ -182,6 +182,14 @@ def resolve_provider(spec: str) -> ExpertProvider:
     aliases = {
         "reference": "rl_engine.moe.provider:ReferenceProvider",
         "stub": "rl_engine.moe.provider:StubProvider",
+        # Kernel backends live in rl_engine.moe.backends; this module keeps
+        # only the protocol, the oracle-backed reference, and the stub.
+        #
+        # The production fused kernel (backends.sm90_fused_mlp) is deliberately
+        # absent: it fuses the whole routed MLP behind one call rather than
+        # implementing the nine per-operator hooks, so it is not an
+        # ExpertProvider and check_p5.py cannot drive it.
+        "cuda": "rl_engine.moe.backends.grouped_gemm:CudaP5GemmProvider",
     }
     spec = aliases.get(spec, spec)
     if ":" not in spec:

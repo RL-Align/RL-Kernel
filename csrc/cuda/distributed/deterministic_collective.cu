@@ -51,12 +51,28 @@ struct FusedPeerPointers {
   PeerPointers slots[kFusedStagingSlots];
 };
 
+#if defined(__HIP_PLATFORM_AMD__)
+using nv_bfloat16 = __hip_bfloat16;
+using nv_bfloat162 = __hip_bfloat162;
+constexpr auto kPointerRangeStartAttribute =
+    HIP_POINTER_ATTRIBUTE_RANGE_START_ADDR;
+constexpr auto kPointerRangeSizeAttribute = HIP_POINTER_ATTRIBUTE_RANGE_SIZE;
+#else
+constexpr auto kPointerRangeStartAttribute =
+    CU_POINTER_ATTRIBUTE_RANGE_START_ADDR;
+constexpr auto kPointerRangeSizeAttribute = CU_POINTER_ATTRIBUTE_RANGE_SIZE;
+#endif
+
 bool is_supported_world_size(int64_t world_size) {
   return world_size == 1 || world_size == 2 || world_size == 4 || world_size == 8;
 }
 
 __device__ __forceinline__ uint64_t load_acquire_system(
     const uint64_t* address) {
+#if defined(__HIP_PLATFORM_AMD__)
+  return __hip_atomic_load(
+      address, __ATOMIC_ACQUIRE, __HIP_MEMORY_SCOPE_SYSTEM);
+#else
   uint64_t value;
   asm volatile(
       "ld.acquire.sys.global.u64 %0, [%1];"
@@ -64,16 +80,30 @@ __device__ __forceinline__ uint64_t load_acquire_system(
       : "l"(address)
       : "memory");
   return value;
+#endif
 }
 
 __device__ __forceinline__ void store_release_system(
     uint64_t* address,
     uint64_t value) {
+#if defined(__HIP_PLATFORM_AMD__)
+  __hip_atomic_store(
+      address, value, __ATOMIC_RELEASE, __HIP_MEMORY_SCOPE_SYSTEM);
+#else
   asm volatile(
       "st.release.sys.global.u64 [%0], %1;"
       :
       : "l"(address), "l"(value)
       : "memory");
+#endif
+}
+
+__device__ __forceinline__ void device_relax() {
+#if defined(__HIP_PLATFORM_AMD__)
+  __builtin_amdgcn_s_sleep(1);
+#else
+  __nanosleep(64);
+#endif
 }
 
 __global__ void wait_for_previous_done_kernel(
@@ -84,7 +114,7 @@ __global__ void wait_for_previous_done_kernel(
   const uint64_t sequence = load_acquire_system(local_stage_sequence);
   for (int peer = 0; peer < world_size; ++peer) {
     while (load_acquire_system(peers.done_sequences[peer]) < sequence) {
-      __nanosleep(64);
+      device_relax();
     }
   }
 }
@@ -103,7 +133,7 @@ __global__ void wait_for_staged_peers_kernel(
   const uint64_t sequence = load_acquire_system(local_stage_sequence);
   for (int peer = 0; peer < world_size; ++peer) {
     while (load_acquire_system(peers.stage_sequences[peer]) < sequence) {
-      __nanosleep(64);
+      device_relax();
     }
   }
 }
@@ -121,7 +151,7 @@ __global__ void wait_for_owner_done_kernel(
   if (blockIdx.x != 0 || threadIdx.x != 0) return;
   const uint64_t sequence = load_acquire_system(local_stage_sequence);
   while (load_acquire_system(peers.done_sequences[0]) < sequence) {
-    __nanosleep(64);
+    device_relax();
   }
 }
 
@@ -132,7 +162,7 @@ __device__ __forceinline__ void wait_for_stage_sequence(
   const uint64_t sequence = load_acquire_system(local_stage_sequence);
   for (int peer = 0; peer < world_size; ++peer) {
     while (load_acquire_system(peers.stage_sequences[peer]) < sequence) {
-      __nanosleep(64);
+      device_relax();
     }
   }
 }
@@ -151,7 +181,7 @@ __global__ void stage_payload_fast_kernel(
     const uint64_t sequence = load_acquire_system(local_stage_sequence);
     for (int peer = 0; peer < world_size; ++peer) {
       while (load_acquire_system(peers.done_sequences[peer]) < sequence) {
-        __nanosleep(64);
+        device_relax();
       }
     }
   }
@@ -270,7 +300,7 @@ __global__ void deterministic_all_reduce_fused_fast_kernel(
       for (int peer = 0; peer < WorldSize; ++peer) {
         while (load_acquire_system(reuse_peers.done_sequences[peer]) <
                reuse_after) {
-          __nanosleep(64);
+          device_relax();
         }
       }
     }
@@ -303,7 +333,7 @@ __global__ void deterministic_all_reduce_fused_fast_kernel(
         const_cast<uint64_t*>(peers.stage_sequences[rank]), sequence);
     for (int peer = 0; peer < WorldSize; ++peer) {
       while (load_acquire_system(peers.stage_sequences[peer]) < sequence) {
-        __nanosleep(64);
+        device_relax();
       }
     }
   }
@@ -398,9 +428,13 @@ __device__ __forceinline__ T ordered_add(T lower, T upper);
 
 template <>
 __device__ __forceinline__ float ordered_add(float lower, float upper) {
+#if defined(__HIP_PLATFORM_AMD__)
+  return __fadd_rn(lower, upper);
+#else
   float result;
   asm volatile("add.rn.f32 %0, %1, %2;" : "=f"(result) : "f"(lower), "f"(upper));
   return result;
+#endif
 }
 
 template <>
@@ -598,7 +632,7 @@ __global__ void deterministic_all_gather_fused_fast_kernel(
     sequence = load_acquire_system(local_stage_sequence);
     for (int peer = 0; peer < world_size; ++peer) {
       while (load_acquire_system(peers.done_sequences[peer]) < sequence) {
-        __nanosleep(64);
+        device_relax();
       }
     }
   }
@@ -626,7 +660,7 @@ __global__ void deterministic_all_gather_fused_fast_kernel(
     sequence += 1;
     for (int peer = 0; peer < world_size; ++peer) {
       while (load_acquire_system(peers.stage_sequences[peer]) < sequence) {
-        __nanosleep(64);
+        device_relax();
       }
     }
   }
@@ -1429,17 +1463,23 @@ std::tuple<std::vector<int64_t>, int64_t> deterministic_collective_ipc_meta(
   TORCH_CHECK(
       cuPointerGetAttribute(
           &allocation_base,
-          CU_POINTER_ATTRIBUTE_RANGE_START_ADDR,
+          kPointerRangeStartAttribute,
           pointer) == CUDA_SUCCESS,
       "failed to query CUDA allocation base");
   TORCH_CHECK(
       cuPointerGetAttribute(
           &allocation_size,
-          CU_POINTER_ATTRIBUTE_RANGE_SIZE,
+          kPointerRangeSizeAttribute,
           pointer) == CUDA_SUCCESS,
       "failed to query CUDA allocation size");
 
+#if defined(__HIP_PLATFORM_AMD__)
+  const int64_t offset = static_cast<int64_t>(
+      reinterpret_cast<uintptr_t>(pointer) -
+      reinterpret_cast<uintptr_t>(allocation_base));
+#else
   const int64_t offset = static_cast<int64_t>(pointer - allocation_base);
+#endif
   const int64_t tensor_bytes = tensor.numel() * tensor.element_size();
   TORCH_CHECK(offset >= 0, "invalid negative CUDA allocation offset");
   TORCH_CHECK(

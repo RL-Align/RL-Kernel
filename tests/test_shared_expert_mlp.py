@@ -48,12 +48,13 @@ def perf_provider(request):
     return _resolve_or_skip(request.param, PERF_PROVIDER_SPECS[request.param])
 
 
-def _random_batch(t: int, hidden: int, ffn: int, seed: int = 2026):
+def _random_batch(t: int, hidden: int, ffn: int, seed: int = 2026, profile: str | None = None):
     gen = torch.Generator(device="cpu").manual_seed(seed)
     batch = SharedBatch(
         x=torch.randn(t, hidden, generator=gen).to(torch.bfloat16).cuda(),
         w_fc1=(torch.randn(2 * ffn, hidden, generator=gen) / hidden**0.5).to(torch.bfloat16).cuda(),
         w_fc2=(torch.randn(hidden, ffn, generator=gen) / ffn**0.5).to(torch.bfloat16).cuda(),
+        **({} if profile is None else {"numeric_profile": profile}),
     )
     dy = torch.randn(t, hidden, generator=gen).to(torch.bfloat16).cuda()
     return batch, dy
@@ -178,7 +179,7 @@ def test_fail_closed_on_cpu_input(provider):
 @requires_cuda
 def test_perf_backend_deterministic(perf_provider):
     """Two runs of the performance profile are byte-identical."""
-    batch, dy = _random_batch(256, 1024, 512)
+    batch, dy = _random_batch(256, 1024, 512, profile=perf_provider.numeric_profile)
     runs = [_run_provider(perf_provider, batch, dy) for _ in range(2)]
     (y_a, dx_a), (y_b, dx_b) = runs
     assert tensor_sha256(y_a) == tensor_sha256(y_b)
@@ -188,13 +189,14 @@ def test_perf_backend_deterministic(perf_provider):
 @requires_cuda
 def test_perf_backend_batch_invariance(perf_provider):
     """fwd(x)[t] == fwd(x[t:t+1]) byte-for-byte also on the performance path."""
-    batch, _ = _random_batch(16, 256, 128)
+    batch, _ = _random_batch(16, 256, 128, profile=perf_provider.numeric_profile)
     y_full, _ = perf_provider.shared_expert_mlp_fwd(batch)
     for t in range(batch.x.shape[0]):
         row_batch = SharedBatch(
             x=batch.x[t : t + 1].contiguous(),
             w_fc1=batch.w_fc1,
             w_fc2=batch.w_fc2,
+            numeric_profile=batch.numeric_profile,
         )
         y_row, _ = perf_provider.shared_expert_mlp_fwd(row_batch)
         assert tensor_sha256(y_row) == tensor_sha256(y_full[t : t + 1]), f"row {t} diverged"
@@ -209,7 +211,7 @@ def test_perf_backend_close_to_oracle(perf_provider):
     path keeps FP32 accumulators (reduction-order noise only).
     """
     tol = perf_provider.oracle_tolerance
-    batch, dy = _random_batch(64, 512, 256)
+    batch, dy = _random_batch(64, 512, 256, profile=perf_provider.numeric_profile)
     y_gold, saved_gold = oracle.shared_expert_mlp_fwd(batch)
     dx_gold = oracle.shared_expert_mlp_bwd(dy, batch, saved_gold)
     y, dx = _run_provider(perf_provider, batch, dy)
