@@ -1,0 +1,185 @@
+{
+  "schema_version": "p3-negative-fixtures.v2",
+  "fixtures": [
+    {
+      "fixture_id": "missing-miles-anchor",
+      "expected": "MISSING_PROVENANCE",
+      "actual": "MISSING_PROVENANCE",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "wrong-layer-xor",
+      "expected": "INVALID_DISCRETE_PLAN",
+      "actual": "INVALID_DISCRETE_PLAN",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "duplicate-global-token",
+      "expected": "AMBIGUOUS_GLOBAL_TOKEN_MAPPING",
+      "actual": "AMBIGUOUS_GLOBAL_TOKEN_MAPPING",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "local-shard-topk",
+      "expected": "FORBIDDEN_LOCAL_SHARD_TOPK",
+      "actual": "FORBIDDEN_LOCAL_SHARD_TOPK",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "topk-nan",
+      "expected": "NON_FINITE",
+      "actual": "NON_FINITE",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "table-index-out-of-range",
+      "expected": "HASH_TABLE_INDEX_OUT_OF_RANGE",
+      "actual": "HASH_TABLE_INDEX_OUT_OF_RANGE",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "table-sentinel-invalid",
+      "expected": "HASH_TABLE_MISMATCH",
+      "actual": "HASH_TABLE_MISMATCH",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "bias-wrong-dtype",
+      "expected": "SCHEMA_MISMATCH",
+      "actual": "SCHEMA_MISMATCH",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "raw-saved",
+      "expected": "SCHEMA_MISMATCH",
+      "actual": "SCHEMA_MISMATCH",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "old-saved-abi",
+      "expected": "SCHEMA_MISMATCH",
+      "actual": "SCHEMA_MISMATCH",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "saved-identity-drift",
+      "expected": "IDENTITY_DRIFT",
+      "actual": "IDENTITY_DRIFT",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "saved-bitflip",
+      "expected": "CORRUPT_ARTIFACT",
+      "actual": "CORRUPT_ARTIFACT",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "padding-saved-bitflip",
+      "expected": "CORRUPT_ARTIFACT",
+      "actual": "CORRUPT_ARTIFACT",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "old-core-schema",
+      "expected": "SCHEMA_MISMATCH",
+      "actual": "SCHEMA_MISMATCH",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "duplicate-slot",
+      "expected": "TOPK_ORDER_MISMATCH",
+      "actual": "TOPK_ORDER_MISMATCH",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "padding-negative-zero",
+      "expected": "INVALID_DISCRETE_PLAN",
+      "actual": "INVALID_DISCRETE_PLAN",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "illegal-device-status-0",
+      "expected": "CORRUPT_ARTIFACT",
+      "actual": "CORRUPT_ARTIFACT",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "illegal-device-status-3",
+      "expected": "CORRUPT_ARTIFACT",
+      "actual": "CORRUPT_ARTIFACT",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "illegal-device-status--1",
+      "expected": "CORRUPT_ARTIFACT",
+      "actual": "CORRUPT_ARTIFACT",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "illegal-device-status-49",
+      "expected": "CORRUPT_ARTIFACT",
+      "actual": "CORRUPT_ARTIFACT",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "modified-status-reserved",
+      "expected": "CORRUPT_ARTIFACT",
+      "actual": "CORRUPT_ARTIFACT",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "stale-invocation-echo",
+      "expected": "INCOMPLETE_ARTIFACT",
+      "actual": "INCOMPLETE_ARTIFACT",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "silent-fallback",
+      "expected": "SILENT_FALLBACK",
+      "actual": "SILENT_FALLBACK",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "missing-actual-provenance",
+      "expected": "MISSING_PROVENANCE",
+      "actual": "MISSING_PROVENANCE",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "missing-kernel-build",
+      "expected": "MISSING_PROVENANCE",
+      "actual": "MISSING_PROVENANCE",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "failed-operator",
+      "expected": "UPSTREAM_EVIDENCE_MISSING",
+      "actual": "UPSTREAM_EVIDENCE_MISSING",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "hash-no-gate-uniform-weight",
+      "expected": "ROUTE_WEIGHT_BYTES_MISMATCH",
+      "actual": "ROUTE_WEIGHT_BYTES_MISMATCH",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "inplace-bias-weight",
+      "expected": "ROUTE_WEIGHT_BYTES_MISMATCH",
+      "actual": "ROUTE_WEIGHT_BYTES_MISMATCH",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "unsupported-finite-capacity",
+      "expected": "INVALID_DISCRETE_PLAN",
+      "actual": "INVALID_DISCRETE_PLAN",
+      "result": "EXPECTED_REJECTION"
+    },
+    {
+      "fixture_id": "unapproved-foundation-binding",
+      "expected": "UPSTREAM_CONTRACT_MISMATCH",
+      "actual": "UPSTREAM_CONTRACT_MISMATCH",
+      "result": "EXPECTED_REJECTION"
+    }
+  ]
+}

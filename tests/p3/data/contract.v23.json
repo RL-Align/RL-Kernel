@@ -1,0 +1,345 @@
+{
+  "contract_version": "p3-router-task-contract.v23",
+  "status": "anchor_pending",
+  "artifact_schema": "p3-start-kit-artifact.v2",
+  "recording_schema": "p3-recording.v2",
+  "provenance_schema": "p3-provenance.v2",
+  "fixture_version": "p3-fixtures.v2",
+  "operator_abi": "p3-op-abi.v4",
+  "assembler_abi": "assembler_abi.v1",
+  "topk_abi": "stable_topk6_device_abi.v1",
+  "bitmath_version": "p3-bitmath.v1",
+  "model": {
+    "H": 4096,
+    "E": 256,
+    "K": 6
+  },
+  "round_policies": [
+    "fp32_direct",
+    "bf16_round_then_widen"
+  ],
+  "capacity_policy": "dropless_v1",
+  "tie_policy": "score_desc_logical_expert_id_asc.v1",
+  "reduction_tree_id": "((a0+a1)+(a2+a3))+(a4+a5).fp32.v1",
+  "schemas": {
+    "RoutePlanCore.v1": [
+      "core_schema_version",
+      "checkpoint_id",
+      "weight_id",
+      "weight_fingerprint",
+      "absolute_layer",
+      "router_mode",
+      "global_token_id",
+      "input_token_id",
+      "capacity_policy",
+      "overflow_policy",
+      "logit_round_point",
+      "tie_break_policy",
+      "table_present",
+      "table_fingerprint",
+      "bias_present",
+      "bias_fingerprint",
+      "selection_source",
+      "weight_source",
+      "topk_index",
+      "logical_expert_id",
+      "valid",
+      "invalid_reason",
+      "route_weight",
+      "weight_score",
+      "selection_score",
+      "capacity",
+      "route_semantic_fingerprint"
+    ],
+    "RoutePlanEnvelope.v1": [
+      "envelope_schema_version",
+      "run_id",
+      "engine_id",
+      "attempt_id",
+      "source_row",
+      "physical_expert_id",
+      "placement_map_version",
+      "rank",
+      "group",
+      "topology",
+      "backend_profile",
+      "kernel",
+      "build",
+      "device",
+      "stream",
+      "event",
+      "route_artifact_fingerprint"
+    ],
+    "SavedScoreSealedV1": [
+      "z_prime",
+      "s"
+    ],
+    "SavedRouteSealedV1": [
+      "ids",
+      "a",
+      "Z",
+      "p"
+    ],
+    "CombinePlanSeed.v1": [
+      "global_token_id",
+      "slots",
+      "route_semantic_fingerprint"
+    ]
+  },
+  "operators": {
+    "router_sqrt_softplus_fwd": {
+      "owner": "T02",
+      "inputs": [
+        "z:f32[T,256]",
+        "round_policy"
+      ]
+    },
+    "router_sqrt_softplus_bwd": {
+      "owner": "T02",
+      "inputs": [
+        "ds:f32[T,256]",
+        "SavedScoreSealedV1"
+      ]
+    },
+    "hash_route_fwd": {
+      "owner": "T03",
+      "inputs": [
+        "input_token_id:i64[T]",
+        "s:f32[T,256]",
+        "tid2eid:i32[V,6]"
+      ]
+    },
+    "hash_route_bwd": {
+      "owner": "T06",
+      "inputs": [
+        "dw:f32[T,6]",
+        "SavedRouteSealedV1"
+      ]
+    },
+    "stable_topk6_fwd": {
+      "owner": "T01",
+      "inputs": [
+        "q:f32[T,256]"
+      ]
+    },
+    "learned_route_fwd": {
+      "owner": "T04",
+      "inputs": [
+        "s:f32[T,256]",
+        "b:f32[256]"
+      ]
+    },
+    "learned_route_bwd": {
+      "owner": "T06",
+      "inputs": [
+        "dw:f32[T,6]",
+        "SavedRouteSealedV1"
+      ]
+    }
+  },
+  "saved_header_fields": [
+    "version",
+    "operator_abi",
+    "row_active",
+    "route_artifact_fingerprint",
+    "forward_invocation_id",
+    "manifest_source",
+    "saved_payload_checksum"
+  ],
+  "saved_payload_types": {
+    "SavedScoreSealedV1": {
+      "z_prime": "float32[T,256]",
+      "s": "float32[T,256]"
+    },
+    "SavedRouteSealedV1": {
+      "ids": "int32[T,6]",
+      "a": "float32[T,6]",
+      "Z": "float32[T,1]",
+      "p": "float32[T,6]"
+    }
+  },
+  "operator_outputs": {
+    "router_sqrt_softplus_fwd": [
+      "s:float32[T,256]",
+      "saved_score_raw"
+    ],
+    "router_sqrt_softplus_bwd": [
+      "dz:float32[T,256]"
+    ],
+    "hash_route_fwd": [
+      "ids:int32[T,6]",
+      "weights:float32[T,6]",
+      "saved_route_raw"
+    ],
+    "hash_route_bwd": [
+      "ds:float32[T,256]"
+    ],
+    "stable_topk6_fwd": [
+      "ids:int32[T,6]"
+    ],
+    "learned_route_fwd": [
+      "ids:int32[T,6]",
+      "weights:float32[T,6]",
+      "saved_route_raw"
+    ],
+    "learned_route_bwd": [
+      "ds:float32[T,256]"
+    ]
+  },
+  "serialization": {
+    "version": "p3-canonical.v1",
+    "endianness": "little",
+    "integer": "tag i + int64; archive uint64 above INT64_MAX uses tag u",
+    "float": "tag f + raw IEEE binary32",
+    "length": "uint32",
+    "semantic_model_order": [
+      "core_schema_version",
+      "checkpoint_id",
+      "weight_id",
+      "weight_fingerprint",
+      "absolute_layer",
+      "router_mode",
+      "global_token_id",
+      "input_token_id",
+      "capacity_policy",
+      "overflow_policy",
+      "logit_round_point",
+      "tie_break_policy",
+      "table_present",
+      "table_fingerprint",
+      "bias_present",
+      "bias_fingerprint",
+      "selection_source",
+      "weight_source"
+    ],
+    "semantic_slot_order": [
+      "topk_index",
+      "logical_expert_id",
+      "valid",
+      "invalid_reason",
+      "route_weight",
+      "weight_score",
+      "selection_score",
+      "capacity"
+    ],
+    "artifact_envelope_order": [
+      "envelope_schema_version",
+      "run_id",
+      "engine_id",
+      "attempt_id",
+      "source_row",
+      "physical_expert_id",
+      "placement_map_version",
+      "rank",
+      "group",
+      "topology",
+      "backend_profile",
+      "kernel",
+      "build",
+      "device",
+      "stream",
+      "event"
+    ],
+    "irrelevant_table_bias": "present=false + 32 zero bytes",
+    "padding_in_semantic": false,
+    "padding_in_artifact": true
+  },
+  "events": [
+    {
+      "site": "score",
+      "event_index": 0,
+      "predecessor": null,
+      "phase": "forward",
+      "comparison_mode": "byte_exact",
+      "tolerance_version": "strict.v1"
+    },
+    {
+      "site": "selection",
+      "event_index": 1,
+      "predecessor": 0,
+      "phase": "forward",
+      "comparison_mode": "byte_exact",
+      "tolerance_version": "strict.v1"
+    },
+    {
+      "site": "weight",
+      "event_index": 2,
+      "predecessor": 1,
+      "phase": "forward",
+      "comparison_mode": "byte_exact",
+      "tolerance_version": "strict.v1"
+    },
+    {
+      "site": "handoff",
+      "event_index": 3,
+      "predecessor": 2,
+      "phase": "forward",
+      "comparison_mode": "byte_exact",
+      "tolerance_version": "strict.v1"
+    }
+  ],
+  "verdicts": {
+    "PASS": 0,
+    "NON_FINITE": 1,
+    "HASH_TABLE_INDEX_OUT_OF_RANGE": 2,
+    "IDENTITY_DRIFT": 10,
+    "SCHEMA_MISMATCH": 11,
+    "CORRUPT_ARTIFACT": 12,
+    "INCOMPLETE_ARTIFACT": 13,
+    "LOGIT_ROUND_POINT_MISMATCH": 14,
+    "HASH_TABLE_MISMATCH": 15,
+    "UNSUPPORTED_CAPABILITY": 16,
+    "ZERO_ACTIVE_TOKENS": 17,
+    "UPSTREAM_NON_FINITE": 18,
+    "GATE_SHARDING_MISMATCH": 19,
+    "MISSING_RANK": 20,
+    "PRE_UPDATE_WEIGHT_DRIFT": 21,
+    "STALE_RUN_METADATA": 22,
+    "CASE_PASS": 50,
+    "ROUTE_WEIGHT_BYTES_MISMATCH": 51,
+    "SCORE_BYTES_MISMATCH": 52,
+    "GRADIENT_BYTES_MISMATCH": 53,
+    "BYTE_MISMATCH": 54,
+    "TOPK_ORDER_MISMATCH": 55,
+    "TIE_BREAK_POLICY_MISMATCH": 56,
+    "INVALID_DISCRETE_PLAN": 57,
+    "INVALID_PROFILE": 58,
+    "ROUTE_SEMANTIC_FINGERPRINT_MISMATCH": 59,
+    "ROUTE_ARTIFACT_FINGERPRINT_MISMATCH": 60,
+    "SELECTION_GRADIENT_PRESENT": 61,
+    "FORBIDDEN_LOCAL_SHARD_TOPK": 62,
+    "AMBIGUOUS_GLOBAL_TOKEN_MAPPING": 63,
+    "INVALID_PLACEMENT_MAP": 64,
+    "PLACEMENT_MAP_VERSION_MISMATCH": 65,
+    "SILENT_FALLBACK": 66,
+    "MISSING_PROVENANCE": 67,
+    "MISSING_BOUNDARY_TRACE": 68,
+    "UPSTREAM_CONTRACT_MISMATCH": 69,
+    "UPSTREAM_VERDICT_MISSING": 70,
+    "UPSTREAM_EVIDENCE_MISSING": 71,
+    "NATURAL_ROUTE_MISMATCH": 72
+  },
+  "device_status": {
+    "UNSET": 2147483647,
+    "NON_FINITE": 1,
+    "HASH_TABLE_INDEX_OUT_OF_RANGE": 2
+  },
+  "miles_router_anchor": {
+    "miles_commit": "PLACEHOLDER",
+    "router_kernel/build": "PLACEHOLDER",
+    "recorded_trace_checksum": "PLACEHOLDER",
+    "tie_break_source": "PLACEHOLDER",
+    "logit_round_point_source": "PLACEHOLDER"
+  },
+  "foundation_compatibility": "UNVERIFIED",
+  "scope": {
+    "release": "T01_S0_DEVELOPMENT",
+    "hardware_profiles": [
+      "cuda.sm90.h100.v1"
+    ],
+    "cpu_profile": "synthetic-cpu.v1",
+    "capacity": "dropless-only; finite-capacity/overflow requires a separate delta",
+    "foundation": "local boundary checks only; official version/owner approval pending",
+    "miles": "real anchor and recorded L3b required before WS1"
+  }
+}

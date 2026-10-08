@@ -29,6 +29,7 @@ nav:
       - operators/sampling.md
       - operators/det-gemm.md
       - operators/embedding.md
+      - P3 Router Start Kit: operators/p3-router.md
   - Developer Guide:
     - contributing/README.md
     - General:

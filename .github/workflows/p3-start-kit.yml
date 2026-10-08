@@ -1,0 +1,50 @@
+name: P3 start kit
+on:
+  pull_request:
+    paths:
+      - "rl_engine/p3/**"
+      - "tests/p3/**"
+      - "scripts/*p3*"
+      - "examples/dsv4_p3_startkit/**"
+      - "docs/design/p3*"
+      - ".github/workflows/p3-start-kit.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  cpu:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Dependencies (native RL-Kernel build not required)
+        run: |
+          python -m pip install 'numpy>=2,<3' pytest ruff
+          python -m pip install 'torch>=2.4,<3' --index-url https://download.pytorch.org/whl/cpu
+      - name: Frozen fixtures and tests
+        env:
+          OMP_NUM_THREADS: "1"
+          PYTHONPATH: .
+        run: |
+          python scripts/generate_p3_fixtures.py --check
+          python -m pytest tests/p3 -q --junitxml=/tmp/p3-tests.xml
+          python -m rl_engine.p3 negative-fixtures
+          python -m rl_engine.p3 check_p3 --output /tmp/p3-cpu
+          python -m rl_engine.p3 verify /tmp/p3-cpu
+          ruff check rl_engine/p3 tests/p3 scripts/check_p3.py scripts/generate_p3_fixtures.py
+          ruff format --check rl_engine/p3 tests/p3 scripts/check_p3.py scripts/generate_p3_fixtures.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: p3-cpu-${{ matrix.python }}
+          path: |
+            /tmp/p3-tests.xml
+            /tmp/p3-cpu
+          if-no-files-found: error
