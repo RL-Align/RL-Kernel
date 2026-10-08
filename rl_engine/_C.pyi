@@ -256,6 +256,15 @@ def swiglu_backward(
     gate: torch.Tensor,
     up: torch.Tensor,
 ) -> list[torch.Tensor]: ...
+def conditioning_noise_mix_forward(
+    sample: torch.Tensor,
+    timestep: torch.Tensor,
+    noise: torch.Tensor,
+) -> torch.Tensor: ...
+def conditioning_noise_mix_backward(
+    grad: torch.Tensor,
+    timestep: torch.Tensor,
+) -> list[torch.Tensor]: ...
 def rmsnorm_forward(
     x: torch.Tensor,
     weight: torch.Tensor,

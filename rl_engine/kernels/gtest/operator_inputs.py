@@ -39,6 +39,7 @@ def make_operator_inputs(
         "rope": _make_rope_inputs,
         "silu": _make_silu_inputs,
         "swiglu": _make_swiglu_inputs,
+        "conditioning_noise_mix": _make_conditioning_noise_mix_inputs,
         "embedding": _make_embedding_inputs,
         "lm_head": _make_lm_head_inputs,
         "kv_cache_attention": _make_kv_cache_attention_inputs,
@@ -69,6 +70,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "rope": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}",
         "silu": f"{batch}x{seq}x{DEFAULT_INTERMEDIATE}",
         "swiglu": f"{batch}x{seq}x{DEFAULT_INTERMEDIATE}",
+        "conditioning_noise_mix": f"{batch}x{seq}x{_normalized_dim(args)}",
         "embedding": f"{batch}x{seq}x{vocab}x{_normalized_dim(args)}",
         "lm_head": f"{batch}x{seq}x{_normalized_dim(args)}x{vocab}",
         "kv_cache_attention": f"{batch}x{DEFAULT_N_HEADS}x1x{seq + 1}x{DEFAULT_HEAD_DIM}",
@@ -280,6 +282,24 @@ def _make_swiglu_inputs(
         "gate": _floating_tensor((batch, seq, DEFAULT_INTERMEDIATE), args, dtype, device, 0),
         "up": _floating_tensor((batch, seq, DEFAULT_INTERMEDIATE), args, dtype, device, 1),
     }
+
+
+def _make_conditioning_noise_mix_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    batch, seq = _batch_seq(args)
+    # Use the shared CLI's normalized_dim as a synthetic width; no normalization is applied.
+    width = _normalized_dim(args)
+    shape = (batch, seq, width)
+    sample = _floating_tensor(shape, args, dtype, device, offset=0)
+    noise = _floating_tensor(shape, args, dtype, device, offset=1)
+    if _arg_str(args, "input_mode", "random") == "constant":
+        timestep = torch.full((batch,), 0.37, dtype=dtype, device=device)
+    else:
+        timestep = torch.rand(
+            (batch,), generator=_generator(args, device, offset=2), dtype=dtype, device=device
+        )
+    return {"sample": sample, "timestep": timestep, "noise": noise}
 
 
 def _make_embedding_inputs(

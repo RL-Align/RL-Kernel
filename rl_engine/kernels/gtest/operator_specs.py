@@ -227,6 +227,19 @@ OP_SPECS = {
         },
         grad_input_names=("gate", "up"),
     ),
+    "conditioning_noise_mix": OperatorSpec(
+        name="conditioning_noise_mix",
+        op_class="elementwise",
+        gold_path="rl_engine.kernels.ops.pytorch.conditioning_noise_mix."
+        "NativeConditioningNoiseMixOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.kernels.ops.pytorch.conditioning_noise_mix."
+            "NativeConditioningNoiseMixOp",
+            "cuda": "rl_engine.kernels.ops.cuda.conditioning_noise_mix.ConditioningNoiseMixCudaOp",
+        },
+        grad_input_names=("sample", "noise"),
+    ),
     "batch_invariant_logp": OperatorSpec(
         name="batch_invariant_logp",
         op_class="logprob",

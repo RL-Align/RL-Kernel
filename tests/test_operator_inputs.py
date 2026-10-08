@@ -91,6 +91,26 @@ def test_random_logp_inputs_are_seeded():
     assert torch.equal(first["token_ids"], second["token_ids"])
 
 
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+def test_random_conditioning_noise_mix_inputs_are_seeded_and_per_sample(dtype):
+    args = _args(input_mode="random", batch=8, seed=420)
+    first = make_operator_inputs("conditioning_noise_mix", args, dtype, torch.device("cpu"))
+    repeated = make_operator_inputs("conditioning_noise_mix", args, dtype, torch.device("cpu"))
+    for name in first:
+        assert torch.equal(first[name], repeated[name])
+
+    timestep = first["timestep"]
+    assert timestep.shape == (args.batch,)
+    assert timestep.dtype == dtype
+    assert torch.isfinite(timestep).all()
+    assert ((timestep >= 0) & (timestep <= 1)).all()
+    assert timestep.unique().numel() > 1
+
+    args.seed += 1
+    changed = make_operator_inputs("conditioning_noise_mix", args, dtype, torch.device("cpu"))
+    assert not torch.equal(timestep, changed["timestep"])
+
+
 def test_cp_attention_operator_spec_registers_backward_grad_inputs():
     args = _args(op="cp_attention", input_mode="constant", batch=1, seq=2)
 
