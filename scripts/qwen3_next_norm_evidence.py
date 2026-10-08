@@ -25,24 +25,30 @@ from pathlib import Path
 from typing import Any, Callable
 
 import torch
+import torch.nn.functional as F
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from rl_engine.kernels.ops.cuda.norm.rmsnorm import Qwen3NextRMSNormCudaOp  # noqa: E402
-from rl_engine.kernels.ops.pytorch.norm.qwen3_next_rms_norm import Qwen3NextRMSNormOp  # noqa: E402
+from rl_engine.kernels.ops.cuda.norm.rmsnorm import (  # noqa: E402
+    Qwen3NextRMSNormCudaOp,
+    Qwen3NextRMSNormGatedCudaOp,
+)
+from rl_engine.kernels.ops.pytorch.norm.qwen3_next_rms_norm import (  # noqa: E402
+    Qwen3NextRMSNormGatedOp,
+    Qwen3NextRMSNormOp,
+)
 
 EPS = 1e-6
-HIDDEN = 2048  # Qwen3-Next hidden size (decoder and final norms)
-TIMED_ROWS = (1024, 4096, 16384, 65536)
 
 
 # --------------------------------------------------------------------------- #
-# Candidates: name -> (forward fn(x, w) -> y, has_backward)
+# Ops. Each candidate is fn(*row_inputs, weight) -> y, plus whether it has a
+# backward. Row inputs are sliced together for the row-invariance check.
 # --------------------------------------------------------------------------- #
 
 
-def zero_centred_candidates() -> dict[str, dict[str, Any]]:
+def zero_centred_candidates(hidden: int) -> dict[str, dict[str, Any]]:
     cands: dict[str, dict[str, Any]] = {
         "rl-kernel CUDA": {"fn": Qwen3NextRMSNormCudaOp(), "backward": True},
         "rl-kernel PyTorch reference": {"fn": Qwen3NextRMSNormOp(), "backward": True},
@@ -50,7 +56,7 @@ def zero_centred_candidates() -> dict[str, dict[str, Any]]:
     try:
         from transformers.models.qwen3_next.modeling_qwen3_next import Qwen3NextRMSNorm
 
-        module = Qwen3NextRMSNorm(HIDDEN, eps=EPS).cuda()
+        module = Qwen3NextRMSNorm(hidden, eps=EPS).cuda()
 
         def hf(x, w, module=module):
             return torch.func.functional_call(module, {"weight": w}, (x,))
@@ -64,7 +70,7 @@ def zero_centred_candidates() -> dict[str, dict[str, Any]]:
         with set_current_vllm_config(VllmConfig()):
             from vllm.model_executor.layers.layernorm import GemmaRMSNorm
 
-            gemma = GemmaRMSNorm(HIDDEN, eps=EPS).cuda()
+            gemma = GemmaRMSNorm(hidden, eps=EPS).cuda()
 
         def vllm_fwd(x, w, gemma=gemma):
             gemma.weight.data = w.detach()
@@ -85,9 +91,76 @@ def zero_centred_candidates() -> dict[str, dict[str, Any]]:
     return cands
 
 
-def zero_centred_golden(x: torch.Tensor, w: torch.Tensor) -> torch.Tensor:
+def zero_centred_golden(x, w):
     x64 = x.double()
     return x64 * torch.rsqrt(x64.square().mean(-1, keepdim=True) + EPS) * (1.0 + w.double())
+
+
+def gated_candidates(hidden: int) -> dict[str, dict[str, Any]]:
+    cuda_op, ref_op = Qwen3NextRMSNormGatedCudaOp(), Qwen3NextRMSNormGatedOp()
+    cands: dict[str, dict[str, Any]] = {
+        "rl-kernel CUDA": {"fn": lambda x, g, w: cuda_op(x, w, g, eps=EPS), "backward": True},
+        "rl-kernel PyTorch reference": {
+            "fn": lambda x, g, w: ref_op(x, w, g, eps=EPS),
+            "backward": True,
+        },
+    }
+    try:
+        from transformers.models.qwen3_next.modeling_qwen3_next import Qwen3NextRMSNormGated
+
+        module = Qwen3NextRMSNormGated(hidden, eps=EPS).cuda()
+
+        def hf(x, g, w, module=module):
+            return torch.func.functional_call(module, {"weight": w}, (x, g))
+
+        cands["transformers Qwen3NextRMSNormGated (cast-first)"] = {"fn": hf, "backward": True}
+    except ImportError:
+        pass
+    try:
+        from vllm.config import VllmConfig, set_current_vllm_config
+
+        with set_current_vllm_config(VllmConfig()):
+            from vllm.model_executor.layers.layernorm import RMSNormGated
+
+            gated = RMSNormGated(hidden, eps=EPS, norm_before_gate=True).cuda()
+
+        def vllm_fwd(x, g, w, gated=gated):
+            gated.weight.data = w.detach()
+            return gated.forward_cuda(x, g)
+
+        cands["vLLM RMSNormGated (forward only)"] = {"fn": vllm_fwd, "backward": False}
+    except ImportError:
+        pass
+    return cands
+
+
+def gated_golden(x, g, w):
+    """vLLM's convention (the one #468 implements) in FP64: x * rstd * w * silu(gate)."""
+
+    x64 = x.double()
+    return (x64 * torch.rsqrt(x64.square().mean(-1, keepdim=True) + EPS) * w.double()) * F.silu(
+        g.double()
+    )
+
+
+OPS: dict[str, dict[str, Any]] = {
+    "zero_centred_rmsnorm": {
+        "hidden": 2048,  # decoder and final norms
+        "row_inputs": 1,
+        "weight": lambda h, gen: torch.randn(h, device="cuda", generator=gen) * 0.1,
+        "candidates": zero_centred_candidates,
+        "golden": zero_centred_golden,
+        "timed_rows": (1024, 4096, 16384, 65536),
+    },
+    "gated_rmsnorm": {
+        "hidden": 128,  # GDN value head dim; rows are tokens x heads
+        "row_inputs": 2,
+        "weight": lambda h, gen: 1.0 + torch.randn(h, device="cuda", generator=gen) * 0.1,
+        "candidates": gated_candidates,
+        "golden": gated_golden,
+        "timed_rows": (4096, 16384, 65536, 262144),
+    },
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -95,36 +168,44 @@ def zero_centred_golden(x: torch.Tensor, w: torch.Tensor) -> torch.Tensor:
 # --------------------------------------------------------------------------- #
 
 
-def _inputs(rows: int, seed: int, dtype=torch.bfloat16):
+def _inputs(spec, rows: int, seed: int, dtype=torch.bfloat16):
     g = torch.Generator(device="cuda").manual_seed(seed)
-    x = (torch.randn(rows, HIDDEN, device="cuda", generator=g) * 2).to(dtype)
-    w = (torch.randn(HIDDEN, device="cuda", generator=g) * 0.1).to(dtype)
-    up = torch.randn(rows, HIDDEN, device="cuda", generator=g).to(dtype)
-    return x, w, up
+    h = spec["hidden"]
+    row_inputs = [(torch.randn(rows, h, device="cuda", generator=g) * 2).to(dtype)]
+    for _ in range(spec["row_inputs"] - 1):
+        row_inputs.append(torch.randn(rows, h, device="cuda", generator=g).to(dtype))
+    w = spec["weight"](h, g).to(dtype)
+    up = torch.randn(rows, h, device="cuda", generator=g).to(dtype)
+    return row_inputs, w, up
 
 
-def _grads(fn, x, w, up, dtype=None):
-    xl = (x if dtype is None else x.to(dtype)).detach().clone().requires_grad_(True)
-    wl = (w if dtype is None else w.to(dtype)).detach().clone().requires_grad_(True)
-    out = fn(xl, wl)
+def _grads(fn, row_inputs, w, up, dtype=None):
+    def leaf(t):
+        return (t if dtype is None else t.to(dtype)).detach().clone().requires_grad_(True)
+
+    rl, wl = [leaf(t) for t in row_inputs], leaf(w)
+    out = fn(*rl, wl)
     out.backward(up if dtype is None else up.to(dtype))
-    return out.detach(), xl.grad, wl.grad
+    return out.detach(), [t.grad for t in rl], wl.grad
 
 
-def accuracy(cands, golden, rows: int, seed: int) -> dict[str, Any]:
-    x, w, up = _inputs(rows, seed)
-    ref_out, ref_dx, ref_dw = _grads(golden, x, w, up, torch.float64)
+def accuracy(spec, cands, rows: int, seed: int) -> dict[str, Any]:
+    row_inputs, w, up = _inputs(spec, rows, seed)
+    ref_out, ref_drows, ref_dw = _grads(spec["golden"], row_inputs, w, up, torch.float64)
     result = {}
     for name, c in cands.items():
         entry: dict[str, Any] = {}
         if c["backward"]:
-            out, dx, dw = _grads(c["fn"], x, w, up)
-            for key, got, ref in (("dx", dx, ref_dx), ("dweight", dw, ref_dw)):
+            out, drows, dw = _grads(c["fn"], row_inputs, w, up)
+            pairs = [("dx", drows[0], ref_drows[0]), ("dweight", dw, ref_dw)]
+            if len(drows) > 1:
+                pairs.append(("dgate", drows[1], ref_drows[1]))
+            for key, got, ref in pairs:
                 err = (got.double() - ref).abs().max().item()
                 entry[f"{key}_max_abs_over_absmax"] = err / ref.abs().max().item()
         else:
             with torch.no_grad():
-                out = c["fn"](x, w)
+                out = c["fn"](*row_inputs, w)
         err = (out.double() - ref_out).abs()
         entry["forward_max_abs"] = err.max().item()
         entry["forward_correctly_rounded_fraction"] = (
@@ -134,27 +215,27 @@ def accuracy(cands, golden, rows: int, seed: int) -> dict[str, Any]:
     return result
 
 
-def row_invariance(cands, seeds=(3, 4, 5), rows: int = 4096, step: int = 16) -> dict[str, Any]:
+def row_invariance(spec, cands, seeds=(3, 4, 5), rows: int = 4096, step: int = 16):
     """256 rows computed alone vs the same rows inside a batch, bitwise."""
 
     result = {}
     for name, c in cands.items():
         fwd_bad = dx_bad = checked = 0
         for seed in seeds:
-            x, w, up = _inputs(rows, seed)
+            row_inputs, w, up = _inputs(spec, rows, seed)
             if c["backward"]:
-                full_out, full_dx, _ = _grads(c["fn"], x, w, up)
+                full_out, full_drows, _ = _grads(c["fn"], row_inputs, w, up)
             else:
                 with torch.no_grad():
-                    full_out = c["fn"](x, w)
+                    full_out = c["fn"](*row_inputs, w)
             for i in range(0, rows, step):
-                sl = slice(i, i + 1)
+                part = [t[i : i + 1] for t in row_inputs]
                 if c["backward"]:
-                    out, dx, _ = _grads(c["fn"], x[sl], w, up[sl])
-                    dx_bad += not torch.equal(dx[0], full_dx[i])
+                    out, drows, _ = _grads(c["fn"], part, w, up[i : i + 1])
+                    dx_bad += not all(torch.equal(d[0], fd[i]) for d, fd in zip(drows, full_drows))
                 else:
                     with torch.no_grad():
-                        out = c["fn"](x[sl], w)
+                        out = c["fn"](*part, w)
                 fwd_bad += not torch.equal(out[0], full_out[i])
                 checked += 1
         result[name] = {
@@ -182,20 +263,19 @@ def _time_us(fn: Callable[[], Any], warmup: int = 10, iters: int = 50) -> float:
     return statistics.median(samples)
 
 
-def latency(cands, rows_list=TIMED_ROWS) -> dict[str, Any]:
+def latency(spec, cands) -> dict[str, Any]:
     result: dict[str, Any] = {name: {} for name in cands}
-    for rows in rows_list:
-        x, w, up = _inputs(rows, seed=11)
+    for rows in spec["timed_rows"]:
+        row_inputs, w, up = _inputs(spec, rows, seed=11)
         for name, c in cands.items():
             row: dict[str, float] = {}
             with torch.no_grad():
-                row["forward_us"] = _time_us(lambda f=c["fn"]: f(x, w))
+                row["forward_us"] = _time_us(lambda f=c["fn"]: f(*row_inputs, w))
             if c["backward"]:
-                xl = x.detach().clone().requires_grad_(True)
-                wl = w.detach().clone().requires_grad_(True)
-                out = c["fn"](xl, wl)
+                leaves = [t.detach().clone().requires_grad_(True) for t in [*row_inputs, w]]
+                out = c["fn"](*leaves)
                 row["backward_us"] = _time_us(
-                    lambda o=out: torch.autograd.grad(o, (xl, wl), up, retain_graph=True)
+                    lambda o=out, lv=leaves: torch.autograd.grad(o, lv, up, retain_graph=True)
                 )
             result[name][str(rows)] = row
     return result
@@ -227,19 +307,27 @@ def environment() -> dict[str, Any]:
     return env
 
 
-def run_op(name: str, cands, golden) -> dict[str, Any]:
+def run_op(name: str, spec) -> dict[str, Any]:
+    cands = spec["candidates"](spec["hidden"])
     print(f"[{name}] candidates: {', '.join(cands)}", flush=True)
     report = {
-        "accuracy": {str(r): accuracy(cands, golden, r, seed=r) for r in (257, 4096)},
-        "row_invariance": row_invariance(cands),
-        "latency": latency(cands),
+        "hidden": spec["hidden"],
+        "accuracy": {str(r): accuracy(spec, cands, r, seed=r) for r in (257, 4096)},
+        "row_invariance": row_invariance(spec, cands),
+        "latency": latency(spec, cands),
     }
     for cand, entry in report["row_invariance"].items():
         print(f"  BI {cand}: {entry}", flush=True)
     return report
 
 
-def build_report(ops: dict[str, tuple[Callable, Callable]]) -> dict[str, Any]:
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--ops", default=",".join(OPS), help="comma list of ops")
+    args = parser.parse_args()
+    if not torch.cuda.is_available():
+        raise SystemExit("needs a CUDA device")
     torch.backends.cuda.matmul.allow_tf32 = False
     report = {
         "kind": "qwen3_next_norm_evidence",
@@ -247,26 +335,10 @@ def build_report(ops: dict[str, tuple[Callable, Callable]]) -> dict[str, Any]:
         "git_commit": _git("rev-parse", "HEAD") or "unknown",
         "git_dirty": bool(_git("status", "--porcelain", "--untracked-files=no")),
         "environment": environment(),
-        "hidden": HIDDEN,
         "eps": EPS,
         "dtype": "bfloat16",
-        "ops": {},
+        "ops": {name: run_op(name, OPS[name]) for name in args.ops.split(",")},
     }
-    for name, (make_cands, golden) in ops.items():
-        report["ops"][name] = run_op(name, make_cands(), golden)
-    return report
-
-
-OPS = {"zero_centred_rmsnorm": (zero_centred_candidates, zero_centred_golden)}
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--out", type=Path, required=True)
-    args = parser.parse_args()
-    if not torch.cuda.is_available():
-        raise SystemExit("needs a CUDA device")
-    report = build_report(OPS)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2) + "\n")
     print(f"wrote {args.out} (commit {report['git_commit'][:7]}, dirty={report['git_dirty']})")
