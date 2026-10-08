@@ -262,7 +262,7 @@ def get_extensions():
                 "csrc/cuda/rope_sm90.cu",  # RoPE rotate-half apply, gated to SM90 build
                 # Single-card batch-invariant embedding/lm-head.
                 "csrc/cuda/embedding_lm_head_sm90.cu",
-                # MLP down projection TMA + wgmma path (contract mlp-down-gemm-mma-v1).
+                # MLP down projection TMA + wgmma path (contract mlp-down-gemm-mma).
                 "csrc/cuda/gemm/mlp_down_gemm_sm90.cu",
             ]
             enable_sm90 = envs.env_flag(envs.KERNEL_ALIGN_FORCE_SM90)

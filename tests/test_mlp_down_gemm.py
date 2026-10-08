@@ -5,14 +5,14 @@
 The row's CUDA backend serves two *different*, both frozen, arithmetic orders
 and this file pins each against the right oracle:
 
-* ``mlp-down-gemm-mma-v1`` -- the hardware order (Hopper TMA + wgmma; the
+* ``mlp-down-gemm-mma`` -- the hardware order (Hopper TMA + wgmma; the
   Triton backend implements the same order and is byte-identical to it): the K
   reduction is a frozen sequence of k-chunks of 16 through one fp32 accumulator
   per output element, no split-K, no atomics, bias once in fp32, one bf16 cast
   at the store. Its agreement with the independent fp32 CPU tree model is a
   declared tolerance, not bit equality (measured bounds next to the constants
   below and in ``docs/operators/mlp-down-gemm.md``).
-* ``mlp-down-gemm-tree-v1`` -- the portable order: the fp32 32-wide-leaf
+* ``mlp-down-gemm-tree`` -- the portable order: the fp32 32-wide-leaf
   mid-split tree of ``rl_engine/kernels/ops/pytorch/linear/mlp_down_gemm.py``
   itself (``tree_gemm``, ``left_fold_weight_gradient``,
   ``left_fold_bias_gradient`` are the definition), so this path is **byte-equal
@@ -129,8 +129,8 @@ def _deviation(got, ref):
 # The two CUDA contracts are different arithmetic orders, so a byte-equality
 # claim has to name the path it is about: these force one.
 BACKEND_ENV = "RL_KERNEL_MLP_DOWN_GEMM_BACKEND"
-TREE_CONTRACT = "mlp-down-gemm-tree-v1"
-MMA_CONTRACT = "mlp-down-gemm-mma-v1"
+TREE_CONTRACT = "mlp-down-gemm-tree"
+MMA_CONTRACT = "mlp-down-gemm-mma"
 
 # The fp32 CPU tree walks K python-level steps, each one a vectorized fp64 [M, N]
 # op, so it runs on a row slice at the model's token counts (the tree depends only
@@ -599,7 +599,7 @@ class TestCudaPathsAndContracts:
         assert mismatches == 0, f"K={k_dim}: {mismatches} bf16 elements differ from the reference"
 
     def test_below_cc9_the_tree_contract_serves_and_is_unchanged(self, monkeypatch):
-        """Below cc 9.x the auto route is the portable tree, not a changed result."""
+        """Below cc 9.0 the auto route is the portable tree, not a changed result."""
 
         from rl_engine.kernels.ops.cuda.linear.mlp_down_gemm import (
             CudaMlpDownGemmOp,
@@ -619,7 +619,7 @@ class TestCudaPathsAndContracts:
         """`RL_KERNEL_MLP_DOWN_GEMM_BACKEND` pins the contract on one machine.
 
         `general` must produce the fp32 reference's bytes (the portable tree,
-        ``mlp-down-gemm-tree-v1``), `hopper` must refuse rather than silently
+        ``mlp-down-gemm-tree``), `hopper` must refuse rather than silently
         change the arithmetic order when it cannot serve the operands, and an
         unknown value is an error.
         """
@@ -656,12 +656,12 @@ class TestCudaPathsAndContracts:
         mod.CudaMlpDownGemmOp()(x, weight, bias=bias)
         first = capsys.readouterr().out
         assert "module=mlp_down_gemm" in first
-        # a cc 9.x device only takes the Hopper path when its symbols are compiled in
+        # a cc 9.0 device only takes the Hopper path when its symbols are compiled in
         # (`KERNEL_ALIGN_FORCE_SM90=1`); otherwise the route is the portable tree
         expected = "hopper" if _hopper_serves(x.device) else "general"
-        contract = mod.MMA_CONTRACT_VERSION if expected == "hopper" else mod.TREE_CONTRACT_VERSION
+        order_contract = mod.MMA_CONTRACT if expected == "hopper" else mod.TREE_CONTRACT
         assert "requested=auto" in first and f"actual={expected}" in first
-        assert f"contract={contract}" in first
+        assert f"contract={order_contract}" in first
         mod.CudaMlpDownGemmOp()(x, weight, bias=bias)
         assert "module=mlp_down_gemm" not in capsys.readouterr().out
 
@@ -677,7 +677,7 @@ class TestCudaPathsAndContracts:
         mod.CudaMlpDownGemmOp()(x, weight, bias=bias)
         out = capsys.readouterr().out
         assert "requested=general" in out and "actual=general" in out
-        assert f"contract={mod.TREE_CONTRACT_VERSION}" in out
+        assert f"contract={mod.TREE_CONTRACT}" in out
         # the text says the change is a contract change and how to pin it back
         assert "portable_tree_contract" in out
         assert f"{mod._BACKEND_ENV}=hopper" in out
@@ -686,9 +686,6 @@ class TestCudaPathsAndContracts:
         """Requested backend, actual backend, fallback state and contract are queryable."""
 
         from rl_engine.kernels.ops.cuda.linear.mlp_down_gemm import (
-            MMA_CONTRACT_VERSION,
-            MLP_DOWN_GEMM_CONTRACT_VERSION,
-            CudaMlpDownGemmOp,
             mlp_down_gemm_backend,
             mlp_down_gemm_backend_used,
             mlp_down_gemm_contract_used,
@@ -696,18 +693,15 @@ class TestCudaPathsAndContracts:
 
         x, weight, _ = _inputs(SMALL)
         assert mlp_down_gemm_backend() == "auto"
-        # the cc 9.x path needs its symbols built in; without them auto falls back
+        # the cc 9.0 path needs its symbols built in; without them auto falls back
         expected = "hopper" if _hopper_serves(x.device) else "general"
         assert mlp_down_gemm_backend_used(x, weight) == expected
         assert mlp_down_gemm_contract_used(x, weight) == (
-            MMA_CONTRACT_VERSION if expected == "hopper" else TREE_CONTRACT
+            MMA_CONTRACT if expected == "hopper" else TREE_CONTRACT
         )
         monkeypatch.setenv(BACKEND_ENV, "general")
         assert mlp_down_gemm_backend_used(x, weight) == "general"
         assert mlp_down_gemm_contract_used(x, weight) == TREE_CONTRACT
-        # the backend advertises the hardware contract it ships by default
-        assert MLP_DOWN_GEMM_CONTRACT_VERSION == MMA_CONTRACT_VERSION
-        assert CudaMlpDownGemmOp.contract_version == MMA_CONTRACT_VERSION
 
     def test_rocm_dispatch_uses_triton(self, monkeypatch):
         """On a ROCm torch the registry resolves this row to the Triton backend."""
@@ -748,7 +742,7 @@ class TestCudaPathsAndContracts:
 # ---------------------------------------------------------------------------
 @CUDA
 class TestHopperPath:
-    """``mlp-down-gemm-mma-v1`` on Hopper: still the order the row shipped.
+    """``mlp-down-gemm-mma`` on Hopper: still the order the row shipped.
 
     Byte identity with the Triton backend (which implements the same order) is
     asserted in ``tests/test_mlp_down_gemm_triton.py``; here the path is pinned

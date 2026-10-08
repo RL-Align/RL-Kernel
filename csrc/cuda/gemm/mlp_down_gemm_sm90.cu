@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 RL-Kernel Contributors
 //
-// Hopper (SM90) `wgmma` path for the MLP down projection, contract
-// ``mlp-down-gemm-mma-v1``.
+// Hopper (SM90) `wgmma` path for the MLP down projection, order
+// ``mlp-down-gemm-mma``.
 //
 // Compiled into the extension through the repo-wide SM90 source set (setup.py
 // `sm90_srcs`, selected by ``KERNEL_ALIGN_FORCE_SM90=1``), the same gate as the
 // other ``*_sm90.cu`` rows: the default build does not compile this file, so the
 // portable fp32-tree kernel in mlp_down_gemm.cu is the only MLP down path there.
 //
-// Arithmetic contract (unchanged, and the reason this file is a drop-in
+// Arithmetic order (unchanged, and the reason this file is a drop-in
 // replacement for the portable tree kernel): the K reduction walks ascending
 // k-chunks of 16, every output element is chained through ONE fp32 accumulator,
 // there is no split-K and no atomics, bias is added once in fp32 after the whole
@@ -597,7 +597,7 @@ torch::Tensor mlp_down_gemm_cuda_forward_sm90(torch::Tensor x, torch::Tensor wei
     const c10::cuda::CUDAGuard guard(x.device());
     TORCH_CHECK(x.is_cuda() && weight.is_cuda(), "x and weight must be CUDA tensors");
     TORCH_CHECK(x.scalar_type() == at::kBFloat16 && weight.scalar_type() == at::kBFloat16,
-                "mlp-down-gemm-mma-v1 is a bf16 contract");
+                "mlp-down-gemm-mma requires bf16 operands");
     TORCH_CHECK(x.dim() == 2 && weight.dim() == 2, "x and weight must be 2-D");
     TORCH_CHECK(x.size(1) == weight.size(1), "x K must match weight K");
     const int64_t S = x.size(0);
@@ -638,7 +638,7 @@ torch::Tensor mlp_down_gemm_cuda_dx_sm90(torch::Tensor g, torch::Tensor weight) 
     const c10::cuda::CUDAGuard guard(g.device());
     TORCH_CHECK(g.is_cuda() && weight.is_cuda(), "g and weight must be CUDA tensors");
     TORCH_CHECK(g.scalar_type() == at::kBFloat16 && weight.scalar_type() == at::kBFloat16,
-                "mlp-down-gemm-mma-v1 is a bf16 contract");
+                "mlp-down-gemm-mma requires bf16 operands");
     TORCH_CHECK(g.dim() == 2 && weight.dim() == 2, "g and weight must be 2-D");
     TORCH_CHECK(g.size(1) == weight.size(0), "g N must match weight rows");
     const int64_t S = g.size(0);
@@ -666,7 +666,7 @@ torch::Tensor mlp_down_gemm_cuda_dw_sm90(torch::Tensor g, torch::Tensor x) {
     const c10::cuda::CUDAGuard guard(g.device());
     TORCH_CHECK(g.is_cuda() && x.is_cuda(), "g and x must be CUDA tensors");
     TORCH_CHECK(g.scalar_type() == at::kBFloat16 && x.scalar_type() == at::kBFloat16,
-                "mlp-down-gemm-mma-v1 is a bf16 contract");
+                "mlp-down-gemm-mma requires bf16 operands");
     TORCH_CHECK(g.dim() == 2 && x.dim() == 2, "g and x must be 2-D");
     TORCH_CHECK(g.size(0) == x.size(0), "g S must match x S");
     const int64_t S = g.size(0);
