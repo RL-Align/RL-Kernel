@@ -19,6 +19,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+from matplotlib import transforms  # noqa: E402
 
 
 def _entries(report):
@@ -79,57 +80,54 @@ def main() -> None:
     ]
     ax.barh([y - 0.2 for y in ys], fwd, 0.4, label="forward")
     ax.barh([y + 0.2 for y in ys], [g or float("nan") for g in grad], 0.4, label="worst gradient")
+    values = [v for v in fwd + grad if v]
+    if values and max(values) / min(values) > 10:
+        ax.set_xscale("log")
+    inside = transforms.blended_transform_factory(ax.transAxes, ax.transData)
     for y, a, b in zip(ys, fwd, grad):
         ax.text(
-            max(a, b or 0) * 1.3,
+            0.98,
             y,
-            f"{a:.1e} / {b:.1e}" if b else f"{a:.1e}",
+            f"fwd {a:.1e} / grad {b:.1e}" if b else f"fwd {a:.1e}",
+            transform=inside,
+            ha="right",
             va="center",
             fontsize=7,
+            bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.8, "pad": 1},
         )
-    ax.set_xscale("log")
     ax.set_yticks(list(ys), names, fontsize=7)
     ax.invert_yaxis()
     ax.set_title(f"error vs FP64, max|err| / max|ref| (size {size})")
-    ax.legend(fontsize=7)
+    ax.legend(fontsize=7, loc="lower right")
     ax.grid(True, axis="x", alpha=0.3)
 
     ax = axes[2]
-    diff = [_differ(e["batch_invariance"]) for _, e in entries]
-    colors = [
-        "#3aa676" if e["batch_invariance"]["batch_invariant"] else "#d14b4b" for _, e in entries
-    ]
-    ax.barh(list(ys), [max(d, 0.5) for d in diff], color=colors)
-    for y, (_, e), d in zip(ys, entries, diff):
+    for y, (_, e) in zip(ys, entries):
         bi = e["batch_invariance"]
         rep = bi["params_repeatable"]
-        note = (
-            ""
-            if rep is None
-            else (
-                "; parameter/table grads repeatable"
-                if rep
-                else "; parameter/table grads NOT repeatable"
-            )
-        )
-        verdict = "batch-invariant" if bi["batch_invariant"] else "NOT batch-invariant"
+        lines = ["batch-invariant" if bi["batch_invariant"] else "NOT batch-invariant"]
+        lines.append(f"{_differ(bi)} row comparisons differ")
+        if rep is not None:
+            lines.append("parameter/table grads " + ("repeatable" if rep else "NOT repeatable"))
         ax.text(
-            max(d, 0.5) * 1.3,
+            0.02,
             y,
-            f"{verdict}: {d} row comparisons differ{note}",
+            " | ".join(lines),
             va="center",
-            fontsize=7,
+            fontsize=8,
+            color="#3aa676" if bi["batch_invariant"] else "#d14b4b",
         )
-    ax.set_xscale("log")
-    ax.set_yticks(list(ys), names, fontsize=7)
-    ax.invert_yaxis()
-    ax.set_xlim(0.4, max(max(diff), 1) * 1e3)
+    ax.set_ylim(len(entries) - 0.5, -0.5)
+    ax.set_xlim(0, 1)
+    ax.axis("off")
     ax.set_title("batch invariance (bitwise)")
-    ax.set_xlabel(
+    ax.text(
+        0.02,
+        len(entries) - 0.3,
         "every row alone vs full batches + full batch vs covering sub-batches + size sweep",
         fontsize=7,
+        color="#555555",
     )
-    ax.grid(True, axis="x", alpha=0.3)
 
     out = path.with_suffix(".png")
     fig.savefig(out, dpi=120)
