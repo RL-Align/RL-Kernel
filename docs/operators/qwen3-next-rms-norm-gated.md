@@ -142,7 +142,7 @@ golden uses vLLM's convention. The same report re-measures the zero-centred op
 - **transformers computes a different function:** it casts to BF16 before the weight
   multiply, so 34% of its forward elements differ from vLLM's convention, and its gradients
   are about twice as far from the golden.
-- **The backward is about 80× slower than transformers at 262144 rows**, for the same reason
+- **The backward is about 75× slower than transformers at 262144 rows**, for the same reason
   as the zero-centred op: `dweight` (128 columns here) is folded over the rows in ascending
   order, one thread per column, so that it meets the gradient-invariance contract's
   singleton-aggregate check bitwise.
