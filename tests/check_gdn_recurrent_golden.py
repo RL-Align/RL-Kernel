@@ -294,6 +294,52 @@ def test_conv_state_update_is_bitwise_exact(batch):
         assert torch.equal(state_got, state_ref), f"{state_dtype} batch={batch}"
 
 
+@pytest.mark.parametrize("state_dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("activation", ["silu", None])
+@pytest.mark.parametrize("with_bias", [True, False])
+def test_conv_golden_is_batch_invariant(state_dtype, activation, with_bias):
+    """L1 for the conv golden, bitwise: a sequence's output row and state block
+    do not depend on which other sequences share the step.
+
+    Every sequence of a batch of 257 is run alone; sub-batches of 2, 7 and 64 at
+    other offsets and a shuffled batch order are run too, with contiguous and
+    shuffled cache blocks, over three seeds.
+    """
+    from rl_engine.kernels.ops.pytorch.linear_attn import CausalConv1dUpdateOp
+
+    op = CausalConv1dUpdateOp()
+    batch = 257
+    for seed in (3, 4, 5):
+        g = torch.Generator(device="cpu").manual_seed(seed)
+        perm = torch.randperm(batch, generator=g).cuda()
+        shuffled_blocks = (torch.randperm(batch, generator=g) + 1).to("cuda", torch.int32)
+        for indices in (None, shuffled_blocks):
+            inp = _conv_inputs(batch, state_dtype, seed, with_bias=with_bias, indices=indices)
+
+            def run(rows, inp=inp):
+                return op.forward(
+                    inp["x"][rows],
+                    inp["state"].clone(),
+                    inp["weight"],
+                    inp["indices"][rows],
+                    bias=inp["bias"],
+                    activation=activation,
+                )
+
+            full_out, full_state = run(torch.arange(batch, device="cuda"))
+            picks = [torch.tensor([r], device="cuda") for r in range(batch)]
+            picks += [
+                torch.arange(o, o + s, device="cuda") for s, o in ((2, 0), (7, 100), (64, 193))
+            ]
+            picks.append(perm)
+            for rows in picks:
+                out, state = run(rows)
+                blocks = inp["indices"][rows].long()
+                where = f"seed={seed} rows[{int(rows[0])}..] n={rows.numel()}"
+                assert torch.equal(out, full_out[rows]), f"out {where}"
+                assert torch.equal(state[blocks], full_state[blocks]), f"state {where}"
+
+
 @pytest.mark.parametrize("batch", [1, 4, 17, 64])
 def test_conv_output_matches_provider_with_fp32_cache(batch):
     """An fp32 cache reproduces the provider except on a few output elements.
