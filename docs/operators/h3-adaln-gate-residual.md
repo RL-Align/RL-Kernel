@@ -81,6 +81,29 @@ The data is in [`report.json`](../usage/evidence/h3-adaln-gate-residual-b200/rep
 written by `scripts/h3_evidence.py` from a clean tree at commit `a26b41a`. It also records
 forward bitwise equality with diffusers in bf16, fp16 and fp32, and row invariance.
 
+## Existing implementations (RFC #420 reuse rule)
+
+![gate_residual vs existing implementations](../usage/evidence/h3-prior-art-b200/gate_residual.png)
+
+| Implementation | Batch-invariant | size 4097: fwd err / worst grad err / fwd+bwd | size 32768: fwd err / worst grad err / fwd+bwd |
+|---|---|---|---|
+| diffusers residual + gate.index_select(...) * y | **no** (param/table grads not repeatable) | 3.0e-03 / 4.3e-02 / 637 µs | 2.9e-03 / 1.4e-01 / 2502 µs |
+| rl-kernel H3GateResidualCudaOp | yes | 3.0e-03 / 2.6e-03 / 1210 µs | 2.9e-03 / 2.6e-03 / 1596 µs |
+
+Errors are max|err| / max|ref| against the same computation in FP64; latency is the median
+forward + backward time on an otherwise idle B200. Batch invariance is bitwise and covers
+three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
+131072-row batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
+"no" means that at least one row, sub-batch or gradient differed. [`gate_residual.json`](../usage/evidence/h3-prior-art-b200/gate_residual.json)
+was written from a clean tree at `4010854` by
+
+```bash
+python scripts/h3_prior_art.py --op gate_residual --out docs/usage/evidence/h3-prior-art-b200/gate_residual.json
+python scripts/plot_h3_prior_art.py docs/usage/evidence/h3-prior-art-b200/gate_residual.json
+```
+
+Libraries that do not import are skipped and recorded as unavailable in the report.
+
 ## Tests
 
 ```bash

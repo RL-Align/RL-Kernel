@@ -1,0 +1,374 @@
+{
+  "kind": "h3_prior_art",
+  "rfc": "RL-Align/RL-Kernel#420",
+  "op": "timestep_sinusoid",
+  "rl_kernel_commit": "7a82917c270cb42bc3350c1d30f97919b954dd86",
+  "tracked_tree_dirty": false,
+  "environment": {
+    "gpu": "NVIDIA B200",
+    "capability": [
+      10,
+      0
+    ],
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "python": "3.12.14",
+    "tf32": false,
+    "libraries": {
+      "torch": "2.13.0",
+      "triton": "3.7.1",
+      "diffusers": null,
+      "vllm": "0.30.0",
+      "flashinfer-python": "0.6.18.post1",
+      "sglang": "0.5.21",
+      "liger-kernel": "0.8.4",
+      "transformer_engine": "2.20.2",
+      "megatron-core": null
+    },
+    "megatron_source_commit": null,
+    "mode_environment": {
+      "plain": {}
+    }
+  },
+  "quick": false,
+  "results": {
+    "plain": {
+      "diffusers": {
+        "source": "diffusers get_timestep_embedding (op-for-op replay)",
+        "has_backward": false,
+        "batch_invariance": {
+          "all_rows": {
+            "64": {
+              "rows": 192,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            },
+            "257": {
+              "rows": 771,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            },
+            "2048": {
+              "rows": 6144,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            }
+          },
+          "params_repeatable": null,
+          "full_vs_sub_batches": {
+            "full_batch": 8192,
+            "sub_batch_sizes": [
+              1,
+              7,
+              2048,
+              4097
+            ],
+            "sub_batches": 2060,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          },
+          "batch_size_sweep": {
+            "batch_sizes": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              15,
+              16,
+              17,
+              31,
+              32,
+              33,
+              63,
+              64,
+              65,
+              127,
+              128,
+              129,
+              255,
+              256,
+              257,
+              511,
+              512,
+              513,
+              1023,
+              1024,
+              1025,
+              2047,
+              2048
+            ],
+            "probe_rows": [
+              0,
+              259,
+              515,
+              771,
+              1027,
+              1283,
+              1539,
+              2047
+            ],
+            "comparisons": 2256,
+            "differ": 0,
+            "first_failures": []
+          },
+          "batch_invariant": true
+        },
+        "accuracy_latency": {
+          "1": {
+            "fwd_rel_err": 3.205756250743063e-08,
+            "fwd_us": 63.58399987220764
+          },
+          "3": {
+            "fwd_rel_err": 6.70917436344131e-08,
+            "fwd_us": 63.87200206518173
+          },
+          "4": {
+            "fwd_rel_err": 6.70917436344131e-08,
+            "fwd_us": 63.920002430677414
+          },
+          "64": {
+            "fwd_rel_err": 7.54632437649728e-08,
+            "fwd_us": 64.01600316166878
+          },
+          "256": {
+            "fwd_rel_err": 8.564062026206226e-08,
+            "fwd_us": 64.2399974167347
+          },
+          "2048": {
+            "fwd_rel_err": 9.948448131957869e-08,
+            "fwd_us": 64.55999985337257
+          }
+        }
+      },
+      "sglang": {
+        "source": "SGLang 0.5.21 timestep_embedding",
+        "has_backward": false,
+        "batch_invariance": {
+          "all_rows": {
+            "64": {
+              "rows": 192,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            },
+            "257": {
+              "rows": 771,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            },
+            "2048": {
+              "rows": 6144,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            }
+          },
+          "params_repeatable": null,
+          "full_vs_sub_batches": {
+            "full_batch": 8192,
+            "sub_batch_sizes": [
+              1,
+              7,
+              2048,
+              4097
+            ],
+            "sub_batches": 2060,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          },
+          "batch_size_sweep": {
+            "batch_sizes": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              15,
+              16,
+              17,
+              31,
+              32,
+              33,
+              63,
+              64,
+              65,
+              127,
+              128,
+              129,
+              255,
+              256,
+              257,
+              511,
+              512,
+              513,
+              1023,
+              1024,
+              1025,
+              2047,
+              2048
+            ],
+            "probe_rows": [
+              0,
+              259,
+              515,
+              771,
+              1027,
+              1283,
+              1539,
+              2047
+            ],
+            "comparisons": 2256,
+            "differ": 0,
+            "first_failures": []
+          },
+          "batch_invariant": true
+        },
+        "accuracy_latency": {
+          "1": {
+            "fwd_rel_err": 3.205756250743063e-08,
+            "fwd_us": 12.512000277638435
+          },
+          "3": {
+            "fwd_rel_err": 6.70917436344131e-08,
+            "fwd_us": 12.512000277638435
+          },
+          "4": {
+            "fwd_rel_err": 6.70917436344131e-08,
+            "fwd_us": 12.608000077307224
+          },
+          "64": {
+            "fwd_rel_err": 7.54632437649728e-08,
+            "fwd_us": 12.559999711811543
+          },
+          "256": {
+            "fwd_rel_err": 8.564062026206226e-08,
+            "fwd_us": 12.480000033974648
+          },
+          "2048": {
+            "fwd_rel_err": 9.948448131957869e-08,
+            "fwd_us": 12.543999589979649
+          }
+        }
+      },
+      "rl_kernel": {
+        "source": "rl-kernel H3TimestepSinusoidCudaOp (check_range=False)",
+        "has_backward": false,
+        "batch_invariance": {
+          "all_rows": {
+            "64": {
+              "rows": 192,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            },
+            "257": {
+              "rows": 771,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            },
+            "2048": {
+              "rows": 6144,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            }
+          },
+          "params_repeatable": null,
+          "full_vs_sub_batches": {
+            "full_batch": 8192,
+            "sub_batch_sizes": [
+              1,
+              7,
+              2048,
+              4097
+            ],
+            "sub_batches": 2060,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          },
+          "batch_size_sweep": {
+            "batch_sizes": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              15,
+              16,
+              17,
+              31,
+              32,
+              33,
+              63,
+              64,
+              65,
+              127,
+              128,
+              129,
+              255,
+              256,
+              257,
+              511,
+              512,
+              513,
+              1023,
+              1024,
+              1025,
+              2047,
+              2048
+            ],
+            "probe_rows": [
+              0,
+              259,
+              515,
+              771,
+              1027,
+              1283,
+              1539,
+              2047
+            ],
+            "comparisons": 2256,
+            "differ": 0,
+            "first_failures": []
+          },
+          "batch_invariant": true
+        },
+        "accuracy_latency": {
+          "1": {
+            "fwd_rel_err": 3.205756250743063e-08,
+            "fwd_us": 15.48799965530634
+          },
+          "3": {
+            "fwd_rel_err": 6.70917436344131e-08,
+            "fwd_us": 15.503999777138233
+          },
+          "4": {
+            "fwd_rel_err": 6.70917436344131e-08,
+            "fwd_us": 15.519999898970127
+          },
+          "64": {
+            "fwd_rel_err": 7.54632437649728e-08,
+            "fwd_us": 15.48799965530634
+          },
+          "256": {
+            "fwd_rel_err": 8.564062026206226e-08,
+            "fwd_us": 15.536000020802021
+          },
+          "2048": {
+            "fwd_rel_err": 9.948448131957869e-08,
+            "fwd_us": 15.552000142633915
+          }
+        }
+      }
+    }
+  }
+}
