@@ -1,0 +1,256 @@
+{
+  "kind": "h3_prior_art",
+  "rfc": "RL-Align/RL-Kernel#420",
+  "op": "gate_residual",
+  "rl_kernel_commit": "401085437b33dfaac46f8fc4c593bc60bf04c2c9",
+  "tracked_tree_dirty": false,
+  "environment": {
+    "gpu": "NVIDIA B200",
+    "capability": [
+      10,
+      0
+    ],
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "python": "3.12.14",
+    "tf32": false,
+    "libraries": {
+      "torch": "2.13.0",
+      "triton": "3.7.1",
+      "diffusers": null,
+      "vllm": "0.30.0",
+      "flashinfer-python": "0.6.18.post1",
+      "sglang": "0.5.21",
+      "liger-kernel": "0.8.4",
+      "transformer_engine": "2.20.2",
+      "megatron-core": null
+    },
+    "megatron_source_commit": null,
+    "mode_environment": {
+      "plain": {}
+    }
+  },
+  "quick": false,
+  "results": {
+    "plain": {
+      "diffusers": {
+        "source": "diffusers residual + gate.index_select(...) * y",
+        "has_backward": true,
+        "batch_invariance": {
+          "all_rows": {
+            "64": {
+              "rows": 192,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            },
+            "257": {
+              "rows": 771,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            },
+            "2048": {
+              "rows": 6144,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            }
+          },
+          "params_repeatable": false,
+          "full_vs_sub_batches": {
+            "full_batch": 131072,
+            "sub_batch_sizes": [
+              1,
+              7,
+              4097,
+              32768,
+              65536
+            ],
+            "sub_batches": 2124,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          },
+          "batch_size_sweep": {
+            "batch_sizes": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              15,
+              16,
+              17,
+              31,
+              32,
+              33,
+              63,
+              64,
+              65,
+              127,
+              128,
+              129,
+              255,
+              256,
+              257,
+              511,
+              512,
+              513,
+              1023,
+              1024,
+              1025,
+              2047,
+              2048
+            ],
+            "probe_rows": [
+              0,
+              259,
+              515,
+              771,
+              1027,
+              1283,
+              1539,
+              2047
+            ],
+            "comparisons": 2256,
+            "differ": 0,
+            "first_failures": []
+          },
+          "batch_invariant": false
+        },
+        "accuracy_latency": {
+          "4097": {
+            "fwd_rel_err": 0.002994387720218618,
+            "grad_rel_err": {
+              "res": 0.0,
+              "y": 0.0025319460379000674,
+              "gate": 0.0426413874183677
+            },
+            "fwd_us": 62.04799935221672,
+            "fwd_bwd_us": 636.5279853343964
+          },
+          "32768": {
+            "fwd_rel_err": 0.0028753450414049685,
+            "grad_rel_err": {
+              "res": 0.0,
+              "y": 0.0025636917160711424,
+              "gate": 0.13599416946680765
+            },
+            "fwd_us": 410.38399934768677,
+            "fwd_bwd_us": 2502.079963684082
+          }
+        }
+      },
+      "rl_kernel": {
+        "source": "rl-kernel H3GateResidualCudaOp",
+        "has_backward": true,
+        "batch_invariance": {
+          "all_rows": {
+            "64": {
+              "rows": 192,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            },
+            "257": {
+              "rows": 771,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            },
+            "2048": {
+              "rows": 6144,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            }
+          },
+          "params_repeatable": true,
+          "full_vs_sub_batches": {
+            "full_batch": 131072,
+            "sub_batch_sizes": [
+              1,
+              7,
+              4097,
+              32768,
+              65536
+            ],
+            "sub_batches": 2124,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          },
+          "batch_size_sweep": {
+            "batch_sizes": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              15,
+              16,
+              17,
+              31,
+              32,
+              33,
+              63,
+              64,
+              65,
+              127,
+              128,
+              129,
+              255,
+              256,
+              257,
+              511,
+              512,
+              513,
+              1023,
+              1024,
+              1025,
+              2047,
+              2048
+            ],
+            "probe_rows": [
+              0,
+              259,
+              515,
+              771,
+              1027,
+              1283,
+              1539,
+              2047
+            ],
+            "comparisons": 2256,
+            "differ": 0,
+            "first_failures": []
+          },
+          "batch_invariant": true
+        },
+        "accuracy_latency": {
+          "4097": {
+            "fwd_rel_err": 0.002994387720218618,
+            "grad_rel_err": {
+              "res": 0.0,
+              "y": 0.0025319460379000674,
+              "gate": 0.0025585651639689682
+            },
+            "fwd_us": 79.45600152015686,
+            "fwd_bwd_us": 1210.256040096283
+          },
+          "32768": {
+            "fwd_rel_err": 0.0028753450414049685,
+            "grad_rel_err": {
+              "res": 0.0,
+              "y": 0.0025636917160711424,
+              "gate": 0.001969125163785725
+            },
+            "fwd_us": 279.79201078414917,
+            "fwd_bwd_us": 1595.6479907035828
+          }
+        }
+      }
+    }
+  }
+}
