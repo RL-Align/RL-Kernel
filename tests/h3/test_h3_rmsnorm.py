@@ -189,6 +189,41 @@ class TestCudaBackward:
         again = self._grads(ours, (x, w, table), grad)
         assert all(torch.equal(a, b) for a, b in zip(got, again))
 
+    @pytest.mark.parametrize("seq", [257, 1024, 4097])
+    def test_modulated_gradients_meet_contract_against_golden(self, seq):
+        # Against forward_modulated_fp32 before it stored norm(x) and 1 + scale
+        # in BF16, d_weight missed from S=1024 and d_scale at S=4097.
+        from rl_engine.kernels.gtest.tolerance import load_contract, resolve_tolerance
+
+        spec = resolve_tolerance(
+            load_contract(),
+            judgment="gradient_accuracy",
+            op_class="reduction",
+            dtype=torch.bfloat16,
+        )
+        g = torch.Generator(device="cpu").manual_seed(seq)
+        w = (torch.rand(5376, generator=g) + 0.5).bfloat16().cuda()
+        table = (torch.randn(9, 2 * 5376, generator=g) * 0.1).bfloat16().cuda()
+        ti, tags = h3_packed_layout(seq, 3, seed=seq)
+        index = ti * 3 + tags
+        x = _x((1, seq, 5376), seed=seq)
+        grad = _x((1, seq, 5376), seed=seq + 1, scale=1.0)
+        op, native = _cuda_op(), NativeH3RMSNormOp()
+
+        def run(fn, upstream):
+            def call(x_, w_, t_):
+                shift, scale = t_.chunk(2, dim=-1)
+                return fn(x_, w_, shift, scale, index)
+
+            return self._grads(call, (x, w, table), upstream)
+
+        got = run(op.forward_modulated, grad)
+        ref = run(native.forward_modulated_fp32, grad.float())
+        for name, g_, r in zip(("dx", "dweight", "dtable"), got, ref):
+            torch.testing.assert_close(
+                g_.float(), r.float(), atol=spec.atol, rtol=spec.rtol, msg=lambda m: f"{name}: {m}"
+            )
+
     def test_plain_backward_against_fp64_and_row_local_dx(self):
         w = (torch.rand(5376, generator=torch.Generator().manual_seed(7)) + 0.5).bfloat16().cuda()
         x = _x((4, 64, 5376), seed=7)
