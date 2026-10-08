@@ -98,6 +98,34 @@ The CUDA path reuses the existing `rmsnorm_fwd_kernel` reduction
 (`block_reduce_sum` over `choose_threads(H)`), so the offset costs one fp32 add per
 element and no extra memory traffic.
 
+## Evidence
+
+![zero-centred RMSNorm vs existing implementations on B200](../usage/evidence/qwen3-next-rms-norm-b200/figure.png)
+
+[`report.json`](../usage/evidence/qwen3-next-rms-norm-b200/report.json) was written by
+`scripts/qwen3_next_norm_evidence.py` from a clean tree at `3d0bae7`, on an otherwise idle
+B200 (torch 2.13.0+cu130, transformers 5.17.0, vLLM 0.30.0, FlashInfer 0.6.18). Hidden 2048,
+BF16.
+
+| | rl-kernel CUDA | PyTorch reference | transformers | vLLM `GemmaRMSNorm`* | FlashInfer `gemma_rmsnorm`* |
+|---|---|---|---|---|---|
+| rows differing alone vs in a batch, forward / `dx` (of 768) | **0 / 0** | 0 / 12 | 2 / 11 | 2 / n/a | 0 / n/a |
+| forward, 65536 rows | 425 µs | 2148 µs | 1449 µs | 1449 µs | **90 µs** |
+| backward, 65536 rows | 30.9 ms | **3.0 ms** | 3.1 ms | n/a | n/a |
+
+\* forward only, no backward.
+
+- **Accuracy is the same for every implementation:** forward max error 1.56e-2 against the
+  FP64 golden (BF16 output rounding; 99.999% of elements correctly rounded), `dx` and
+  `dweight` within 2.8e-3 and 2.1e-3 of their maximum.
+- **Row invariance:** only this op and FlashInfer give every row the same bits alone and in a
+  batch; FlashInfer has no backward. transformers and vLLM differ on 2 forward rows in 768.
+- **The backward is about 10× slower than transformers at 65536 rows.** `dweight` is folded
+  over rows in ascending order by `reduce_rows_fp32_left_fold`, one thread per column, so
+  that the batch `dweight` equals the in-order sum of single-row contributions bitwise (the
+  gradient-invariance contract's singleton-aggregate check). That serial fold over rows is
+  the cost; a faster tree fold would not pass that check.
+
 ## Tests
 
 ```bash
