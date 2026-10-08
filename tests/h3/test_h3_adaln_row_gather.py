@@ -8,7 +8,10 @@
 * semantic indices fail closed (out-of-range tags or timesteps, RFC probes
   H2/H3), and flipping a tag or offsetting a timestep picks a different row;
 * backward is a deterministic FP32 segmented sum: repeat-bitwise and
-  correctly rounded, unlike the atomic BF16 ``index_select`` backward.
+  correctly rounded, unlike the atomic BF16 ``index_select`` backward;
+* batch invariance: a position's output does not depend on which other
+  positions share the call, and a row's gradient does not depend on the
+  positions that reference other rows.
 """
 
 from __future__ import annotations
@@ -218,6 +221,39 @@ class TestCudaBackward:
         first = self._cuda_grad(rows, ti, tags, grads)
         for _ in range(3):
             assert torch.equal(self._cuda_grad(rows, ti, tags, grads), first)
+
+    def test_forward_rows_invariant_to_batch_size_and_position(self):
+        rows = _rows(3, hidden=512, seed=5)
+        ti, tags = h3_packed_layout(4097, 3, seed=5)
+        full = _cuda_op()(rows, ti, tags)
+        perm = torch.randperm(4097, generator=torch.Generator().manual_seed(5)).cuda()
+        for pick in (
+            torch.tensor([0]),
+            torch.tensor([2048]),
+            torch.arange(100, 357),
+            torch.arange(4000, 4097),
+            perm,
+        ):
+            pick = pick.cuda()
+            part = _cuda_op()(rows, ti[pick], tags[pick])
+            for a, b in zip(part, full):
+                assert torch.equal(a, b[pick])
+
+    def test_backward_row_gradient_independent_of_other_rows_tokens(self):
+        # Each row's segment is tiled on its own, so a row's gradient from the
+        # full packing equals the one from a packing of only its own positions
+        # (same order), even though ~455 positions per row cross tile boundaries.
+        rows = _rows(3, hidden=512, seed=6)
+        ti, tags = h3_packed_layout(4097, 3, seed=6)
+        grads = self._grads(4097, 512, seed=6)
+        full = self._cuda_grad(rows, ti, tags, grads)
+        flat = ti * 3 + tags
+        for r in range(rows.shape[0]):
+            own = (flat == r).nonzero().squeeze(1)
+            assert own.numel() > 256
+            alone = self._cuda_grad(rows, ti[own], tags[own], [g[own] for g in grads])
+            assert torch.equal(alone[r], full[r])
+            assert torch.count_nonzero(alone[torch.arange(rows.shape[0], device="cuda") != r]) == 0
 
     def test_unreferenced_rows_get_zero_grad(self):
         rows = _rows(3, hidden=16)
