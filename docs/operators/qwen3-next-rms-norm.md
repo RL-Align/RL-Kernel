@@ -157,6 +157,17 @@ python scripts/qwen3_next_norm_reuse_check.py --op qwen3_next_rms_norm \
     --out docs/usage/evidence/qwen3-next-norm-reuse-b200/qwen3_next_rms_norm.json [--megatron-src <Megatron-LM checkout>]
 ```
 
+
+The gate scripts support this op from this branch on. Run unchanged at `88f59f7`, with the CUDA candidate swapped for each implementation ([`qwen3_next_rms_norm_gates.json`](../usage/evidence/qwen3-next-norm-reuse-b200/qwen3_next_rms_norm_gates.json), `scripts/qwen3_next_norm_reuse_check.py --op qwen3_next_rms_norm --checks gates`):
+
+| Implementation swapped into the CUDA candidate | C3 forward | C4 gradient (incl. singleton-aggregate) |
+|---|---|---|
+| rl-kernel Qwen3NextRMSNormCudaOp | pass | pass |
+| transformers 5.17.0 Qwen3NextRMSNorm | pass | **fail** |
+| Liger 0.8.4 RMSNorm, offset 1, gemma | pass | pass |
+| FLA 0.5.2 rms_norm, weight passed as 1 + w | pass | pass |
+| Megatron BatchInvariantRMSNormFn(zero_centered_gamma=True) | **fail** | **fail** |
+
 ## Tests
 
 ```bash
