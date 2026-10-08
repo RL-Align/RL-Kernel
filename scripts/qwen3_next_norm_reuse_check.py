@@ -492,6 +492,22 @@ def _gate_child(which: str, op: str, impl: str) -> None:
     gate.main()
 
 
+def _clean(lines: list[str], megatron_src: str | None) -> list[str]:
+    """Drop warnings and replace machine-specific paths, so reports carry no local paths."""
+
+    subs = [(str(REPO_ROOT), "<repo>"), (sys.prefix, "<python>"), (str(Path.home()), "<home>")]
+    if megatron_src:
+        subs.insert(0, (str(Path(megatron_src).resolve()), "<megatron-src>"))
+    out = []
+    for line in lines:
+        if "Warning" in line or "warnings.warn" in line:
+            continue
+        for path, name in subs:
+            line = line.replace(path, name)
+        out.append(line)
+    return out
+
+
 def contract_gates(op: str, impl: str, megatron_src: str | None) -> dict[str, Any]:
     if not (REPO_ROOT / MANIFEST).exists():
         # The Qwen3-Next C3/C4 gate adapters and manifest arrive with the gated-norm PR.
@@ -514,14 +530,18 @@ def contract_gates(op: str, impl: str, megatron_src: str | None) -> dict[str, An
         proc = subprocess.run(
             cmd, capture_output=True, text=True, env={**os.environ, "RL_KERNEL_REQUIRE_EXT": "1"}
         )
-        lines = proc.stdout.splitlines()
+        lines = _clean(proc.stdout.splitlines(), megatron_src)
         summary = next((ln for ln in lines if ln.startswith("op=")), "")
         out[which] = {
             "returncode": proc.returncode,
             "passed": "passed=True" in summary and proc.returncode == 0,
             "failed_lines": [ln.strip() for ln in lines if "passed=False" in ln][:10],
             "singleton_aggregate": [ln.strip() for ln in lines if "singleton_aggregate pair" in ln],
-            "stderr_tail": proc.stderr.strip().splitlines()[-3:] if proc.returncode else [],
+            "stderr_tail": (
+                _clean(proc.stderr.strip().splitlines(), megatron_src)[-3:]
+                if proc.returncode
+                else []
+            ),
         }
     return out
 
