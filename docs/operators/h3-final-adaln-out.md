@@ -40,7 +40,7 @@ out = op(x, norm_out_norm_w, temb, norm_out_linear_w, norm_out_linear_b, timeste
   summation tree versus cuBLAS. Rows are batch- and position-invariant.
 - **Backward.** One autograd node, so the table gradient (FP32 segment sums) goes straight into
   the projection backward without an extra BF16 rounding:
-  - `d_temb`, `dW` and `db` are 22–43× closer to FP64 in the recorded run than diffusers,
+  - `d_temb`, `dW` and `db` are 22–48× closer to FP64 in the recorded run than diffusers,
     whose error varies from run to run because it rounds the table gradient to BF16 and accumulates it with
     `index_select` atomics;
   - `dx` and `d_norm_w` are at the BF16 rounding level for both;
@@ -62,9 +62,9 @@ B200, B = 1, T = 3, pinned `norm_out` weights:
 
 | S | CUDA fwd | diffusers fwd | CUDA bwd | diffusers bwd |
 | --- | --- | --- | --- | --- |
-| 4097 | 0.14 ms | 0.15 ms | 1.67 ms | 1.12 ms |
-| 32768 | 0.40 ms | 0.78 ms | 2.97 ms | 5.39 ms |
-| 131072 | 1.25 ms | 2.94 ms | 7.87 ms | 22.2 ms |
+| 4097 | 0.13 ms | 0.15 ms | 1.57 ms | 1.07 ms |
+| 32768 | 0.38 ms | 0.78 ms | 2.80 ms | 5.34 ms |
+| 131072 | 1.24 ms | 2.94 ms | 7.75 ms | 20.6 ms |
 
 At small S the backward is dominated by fixed setup: the stable sort for the segment sums and the
 projection backward.
@@ -77,11 +77,13 @@ There are two data files:
 
 - [`report.json`](../usage/evidence/h3-final-adaln-out-b200/report.json): op timings, the
   forward-equality fraction, row invariance and backward accuracy. Regenerated from a clean
-  tree at `372d6d7`, with FP64 leaves and upstream gradients and explicit BF16 forward boundaries.
+  tree at `001684d` on an otherwise idle B200, with FP64 leaves and upstream gradients. The
+  backward reference keeps only the SiLU and table roundings, so the errors include the BF16
+  rounding of `norm(x)` and `1 + scale`.
 - [`chain_replay.json`](../usage/evidence/h3-final-adaln-out-b200/chain_replay.json): the
   whole conditioning chain (timestep → … → norm_out) replayed stage by stage over
   T in {1, 2, 3, 4} × S in {3, 257, 4097, 32768}, with the backward replay. Written from a clean
-  tree at `38d575f`.
+  tree at `001684d`.
 
 ## Tests
 
