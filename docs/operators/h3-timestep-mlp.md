@@ -115,6 +115,35 @@ The data is in [`report.json`](../usage/evidence/h3-timestep-mlp-b200/report.jso
 by `scripts/h3_evidence.py` from a clean tree at commit `65ef7f6`. It also records that a
 timestep's row is bitwise identical whether it runs alone or in a batch of 9.
 
+## Existing implementations (RFC #420 reuse rule)
+
+![timestep_mlp vs existing implementations](../usage/evidence/h3-prior-art-b200/timestep_mlp.png)
+
+| Implementation | Batch-invariant | size 3: fwd err / worst grad err / fwd+bwd | size 256: fwd err / worst grad err / fwd+bwd | size 2048: fwd err / worst grad err / fwd+bwd |
+|---|---|---|---|---|
+| diffusers TimestepEmbedding, FP32 F.linear [plain] | **no** (14214 rows, 4108 sub-batches, 2232 sweep cases) | 5.7e-07 / 4.1e-07 / 777 µs | 5.7e-07 / 1.0e-06 / 832 µs | 3.7e-06 / 2.0e-06 / 3609 µs |
+| rl-kernel H3TimestepMLPCudaOp | yes | 2.6e-07 / 4.2e-07 / 748 µs | 2.3e-07 / 7.6e-07 / 4595 µs | 2.6e-07 / 2.3e-06 / 42993 µs |
+| diffusers TimestepEmbedding, FP32 F.linear [vllm] | **no** (14214 rows, 4096 sub-batches, 2232 sweep cases) | 1.8e-07 / 4.5e-07 / 752 µs | 3.7e-06 / 2.8e-06 / 921 µs | 3.7e-06 / 3.2e-06 / 3826 µs |
+| diffusers TimestepEmbedding, FP32 F.linear [sglang] | yes | 1.6e-03 / 1.6e-03 / 1036 µs | 1.5e-03 / 1.5e-03 / 1140 µs | 1.5e-03 / 1.7e-03 / 2636 µs |
+| diffusers TimestepEmbedding, FP32 F.linear [sglang_ieee] | yes | 3.3e-06 / 2.3e-06 / 2234 µs | 3.7e-06 / 2.8e-06 / 2428 µs | 3.7e-06 / 3.2e-06 / 7329 µs |
+| diffusers TimestepEmbedding, FP32 F.linear [megatron_te_native] | **no** (14214 rows, 4108 sub-batches, 2232 sweep cases) | 1.8e-07 / 4.1e-07 / 729 µs | 3.7e-06 / 1.0e-06 / 814 µs | 3.7e-06 / 2.0e-06 / 3636 µs |
+| diffusers TimestepEmbedding, FP32 F.linear [megatron_triton] | yes | 1.6e-03 / 1.6e-03 / 1027 µs | 1.5e-03 / 1.5e-03 / 1137 µs | 1.5e-03 / 1.7e-03 / 2634 µs |
+| diffusers TimestepEmbedding, FP32 F.linear [megatron_triton_ieee] | yes | 3.3e-06 / 2.3e-06 / 2309 µs | 3.7e-06 / 2.8e-06 / 2435 µs | 3.7e-06 / 3.2e-06 / 7349 µs |
+
+Errors are max|err| / max|ref| against the same computation in FP64; latency is the median
+forward + backward time on an otherwise idle B200. Batch invariance is bitwise and covers
+three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
+4096-timestep batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
+"no" means that at least one row, sub-batch or gradient differed. [`timestep_mlp.json`](../usage/evidence/h3-prior-art-b200/timestep_mlp.json)
+was written from a clean tree at `ffd958a` by
+
+```bash
+python scripts/h3_prior_art.py --op timestep_mlp --out docs/usage/evidence/h3-prior-art-b200/timestep_mlp.json --megatron-src <Megatron-LM checkout>
+python scripts/plot_h3_prior_art.py docs/usage/evidence/h3-prior-art-b200/timestep_mlp.json
+```
+
+Libraries that do not import are skipped and recorded as unavailable in the report.
+
 ## Tests
 
 ```bash
