@@ -127,6 +127,17 @@ def load_readbacks(directory: Path) -> list[dict[str, Any]]:
         values.append(value)
     if not values:
         raise ValueError(f"no framework readbacks found in {directory}")
+    from rl_engine.bi.readback import validate_plan_readbacks
+
+    launch_path = directory.parent / "launch.json"
+    expected = (
+        json.loads(launch_path.read_text(encoding="utf-8")).get("bi_plan")
+        if launch_path.is_file()
+        else None
+    )
+    errors = validate_plan_readbacks(values, expected)
+    if errors:
+        raise ValueError("; ".join(errors))
     return values
 
 

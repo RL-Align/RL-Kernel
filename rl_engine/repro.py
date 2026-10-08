@@ -682,6 +682,8 @@ def _runner_command(paths: Paths, profile: dict[str, Any], args: argparse.Namesp
 
 
 def _print_plan(paths: Paths, profile: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
+    from rl_engine.bi.runtime import enabled
+
     command = _runner_command(paths, profile, args)
     plan = {
         "schema_version": "rlkernel.repro.plan.v1",
@@ -690,6 +692,10 @@ def _print_plan(paths: Paths, profile: dict[str, Any], args: argparse.Namespace)
         "mode": canonical_arm(args.arm),
         "paths": {key: str(value) for key, value in asdict(paths).items()},
         "runner_command": command,
+        "bi": {
+            "enabled": enabled(),
+            "selection": "resolved against actual model/GPU/runtime before worker submission",
+        },
     }
     print(json.dumps(plan, indent=2))
     return plan
@@ -1063,6 +1069,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run(command).returncode
 
         paths = _resolved_paths(profile, args)
+        if args.command in {"plan", "run", "verify"}:
+            from rl_engine.bi.runtime import enabled
+
+            if enabled() and canonical_arm(args.arm) != "consistency":
+                raise ReproError(
+                    "RL_KERNEL_BI=1 requires consistency mode; unset it for native runs"
+                )
         if args.command == "doctor":
             return doctor(paths, profile, ray_address=args.ray_address, as_json=args.as_json)
         if args.command == "prepare":
@@ -1156,7 +1169,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             _run(plot_command)
             print(f"Report written to {results_root}")
             return 0
-    except (OSError, ReproError, subprocess.CalledProcessError) as exc:
+    except (OSError, ValueError, ReproError, subprocess.CalledProcessError) as exc:
         print(f"rlk-repro: {exc}", file=sys.stderr)
         return 2
     return 0

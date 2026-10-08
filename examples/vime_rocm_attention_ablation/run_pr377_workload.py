@@ -18,6 +18,7 @@ Example::
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -232,7 +233,27 @@ def main(argv=None) -> int:
             "VLLM_GPU_MEMORY_UTILIZATION": args.vllm_gpu_memory_utilization,
         }
     )
+    from rl_engine.bi.runtime import prepare_vime_environment
+
+    bi_plan = prepare_vime_environment(
+        environment,
+        model_root=config.model_root,
+        platform="rocm",
+        topology=(
+            config.num_gpus,
+            config.tensor_parallel_size,
+            config.context_parallel_size,
+            config.rollout_tensor_parallel_size,
+            config.rollout_context_parallel_size,
+        ),
+        workload={
+            "parameters": config.frozen_parameters(),
+            "prompt_data_sha256": hashlib.sha256(config.prompt_data.read_bytes()).hexdigest(),
+        },
+        repositories={"vime": str(config.vime_root), "megatron": str(config.megatron_root)},
+    )
     launch = {
+        "bi_plan": bi_plan,
         "schema_version": "rlkernel.vime_rocm_attention_arm_launch.v1",
         "mode": args.mode,
         "case_id": case_id,

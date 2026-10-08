@@ -229,8 +229,11 @@ class FrameworkOperatorIntegration:
             )
 
     def readback(self) -> dict[str, Any]:
+        from rl_engine.bi.runtime import active_plan_readback
+
         with self._lock:
             return {
+                "bi_plan": active_plan_readback(),
                 "framework": self.framework,
                 "target": self.target,
                 "plan": self.plan.to_dict(),

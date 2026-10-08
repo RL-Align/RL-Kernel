@@ -238,6 +238,15 @@ for name in (
 ):
     if name in os.environ:
         env_vars[name] = os.environ[name]
+# The reviewed plan owns its complete routing environment. Keep this dynamic so
+# future upstream-reuse PRs do not also need to edit a shell allowlist.
+from rl_engine.bi.runtime import PLAN_ENV, enabled
+if enabled():
+    if PLAN_ENV not in os.environ:
+        raise RuntimeError("RL_KERNEL_BI=1 requires the Qwen3 workload runner to prepare a plan")
+    plan = json.loads(os.environ[PLAN_ENV])
+    for name in (*plan["environment"], "RL_KERNEL_BI", PLAN_ENV):
+        env_vars[name] = os.environ[name]
 print(json.dumps({"env_vars": env_vars}))
 PY
 )"

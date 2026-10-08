@@ -6,6 +6,10 @@ does **not** require edits to `run_arm.py`, VIME model scripts, or shell
 launchers. Machine-specific paths belong in CLI options or `RLK_REPRO_*`
 environment variables; stable experiment changes belong in a copied profile.
 
+For model-level startup selection on the reference CUDA/ROCm configurations,
+see [One-switch BI execution plans](model-bi-selection.md): `export RL_KERNEL_BI=1`
+selects a reviewed paired recipe and records its identity across workers.
+
 ## CUDA quick path
 
 On one 8×H100 node, a new user only needs to provide the local Qwen3-8B
