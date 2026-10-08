@@ -107,8 +107,9 @@ class NativeH3RMSNormOp:
     ``forward`` / ``forward_modulated`` are the provider path (``F.rms_norm`` and
     the eager modulation expression, with a deterministic shift/scale gradient;
     the raw diffusers path is ``h3_provider.provider_norm_modulate``). ``forward_fp32`` /
-    ``forward_modulated_fp32`` are the golden: the same math in FP64 with no
-    intermediate rounding, returned in FP32.
+    ``forward_modulated_fp32`` are the golden: the same math in FP64, returned in
+    FP32. The modulated golden rounds, straight-through, only the two values the
+    model stores in ``x``'s dtype: ``norm(x)`` and ``1 + scale``.
     """
 
     op_class = "reduction"
@@ -139,7 +140,14 @@ class NativeH3RMSNormOp:
         validate_h3_rmsnorm(x, weight, eps)
         x64 = x.double()
         n = x64 * torch.rsqrt(x64.square().mean(dim=-1, keepdim=True) + eps) * weight.double()
-        out = n * (1.0 + scale.double().index_select(0, index)) + shift.double().index_select(
-            0, index
+        # The norm is an x.dtype module and diffusers forms 1 + scale in x.dtype.
+        # 1 + scale is shared by every position of a row, so leaving it unrounded
+        # skews d_norm_weight systematically with S; n's rounding enters d_scale
+        # summed over S. Identity in FP32.
+        n = n + (n.to(x.dtype).double() - n).detach()
+        one_plus_scale = 1.0 + scale.double().index_select(0, index)
+        one_plus_scale = (
+            one_plus_scale + (one_plus_scale.to(x.dtype).double() - one_plus_scale).detach()
         )
+        out = n * one_plus_scale + shift.double().index_select(0, index)
         return out.float()

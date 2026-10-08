@@ -31,7 +31,7 @@ out = op.forward_modulated(x, weight, shift_msa, scale_msa, adaln_indices)
 | Backend | Wrapper | Native symbols | Status |
 | --- | --- | --- | --- |
 | CUDA (SM80+, validated on SM100) | `rl_engine.kernels.ops.cuda.h3.rmsnorm.H3RMSNormCudaOp` | `rl_engine._C.h3_rmsnorm_{forward,backward}` | Bitwise equal to `nn.RMSNorm` and to the diffusers modulation |
-| PyTorch reference | `rl_engine.kernels.ops.pytorch.h3.rmsnorm.NativeH3RMSNormOp` | n/a | `forward*`: provider path; `forward*_fp32`: FP64 golden |
+| PyTorch reference | `rl_engine.kernels.ops.pytorch.h3.rmsnorm.NativeH3RMSNormOp` | n/a | `forward*`: provider path; `forward*_fp32`: FP64 golden (the modulated one stores `norm(x)` and `1 + scale` in BF16, straight-through, as the model does) |
 | ROCm | n/a | n/a | Falls back to the PyTorch reference |
 
 ## Tensor Contract
