@@ -96,6 +96,7 @@ def _filter_rocm_incompatible_nvcc_flags(flags: list[str]) -> list[str]:
 
 
 def get_extensions():
+    """Configure the optional PyTorch native extension for the active CUDA or ROCm toolchain."""
     torch, _, CUDAExtension = _load_torch_extension_tools()
     if torch is None:
         message = (

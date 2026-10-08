@@ -21,12 +21,16 @@ BACKWARD_IMPL = "row_local_fp32_analytic_tree_sum"
 
 
 def h3_sinusoid_cuda_available() -> bool:
+    """Return whether the extension provides the CUDA H3 sinusoid entry point."""
+
     return bool(_EXT_AVAILABLE and hasattr(_C, "h3_timestep_sinusoid_forward"))
 
 
 class _H3TimestepSinusoidCuda(torch.autograd.Function):
     @staticmethod
     def forward(ctx, timestep: torch.Tensor, num_channels: int, check_range: bool):
+        """Compute FP32 CUDA features and save them for the analytic timestep VJP."""
+
         t32 = timestep.detach().float().contiguous()
         out = _C.h3_timestep_sinusoid_forward(
             t32, int(num_channels), float(H3_MAX_PERIOD), check_range
@@ -38,6 +42,8 @@ class _H3TimestepSinusoidCuda(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_out: torch.Tensor):
+        """Reduce channel derivatives with a fixed FP32 tree into the timestep dtype."""
+
         (out,) = ctx.saved_tensors
         half = ctx.num_channels // 2
         freq = NativeH3TimestepSinusoidOp.frequencies_fp32(ctx.num_channels, out.device)
@@ -70,6 +76,8 @@ class H3TimestepSinusoidCudaOp:
     backward_impl = BACKWARD_IMPL
 
     def __init__(self) -> None:
+        """Require the native H3 CUDA sinusoid symbol before creating this operator."""
+
         if not h3_sinusoid_cuda_available():
             raise RuntimeError(
                 "rl_engine._C.h3_timestep_sinusoid_forward is unavailable; rebuild the "
@@ -77,6 +85,8 @@ class H3TimestepSinusoidCudaOp:
             )
 
     def __call__(self, timestep: torch.Tensor, *, num_channels: int = H3_FREQ_DIM):
+        """Return FP32 CUDA features for timesteps in ``[0, 1]`` with gradients."""
+
         return self.forward(timestep, num_channels=num_channels)
 
     def forward(
@@ -86,6 +96,13 @@ class H3TimestepSinusoidCudaOp:
         num_channels: int = H3_FREQ_DIM,
         check_range: bool = True,
     ) -> torch.Tensor:
+        """Return FP32 ``(T, num_channels)`` cosine-then-sine features on CUDA.
+
+        Require nonempty 1-D FP32, FP16 or BF16 timesteps and a positive even
+        channel count. Native validation rejects nonfinite/out-of-range values
+        when ``check_range`` is true; backward returns the original input dtype.
+        """
+
         # Native code owns value validation, avoiding a second host sync here.
         validate_h3_timesteps(timestep, num_channels, check_range=False)
         if not timestep.is_cuda:
@@ -93,5 +110,7 @@ class H3TimestepSinusoidCudaOp:
         return _H3TimestepSinusoidCuda.apply(timestep, num_channels, check_range)
 
     def forward_fp32(self, timestep: torch.Tensor, *, num_channels: int = H3_FREQ_DIM):
+        """Use the standard CUDA sinusoid path, which already returns FP32 features."""
+
         # The op is FP32 end to end; the FP32 path is the op itself.
         return self.forward(timestep, num_channels=num_channels)
