@@ -46,10 +46,10 @@ issuing ``wgmma.mma_async.sync.aligned.m64n256k16.f32.bf16.bf16`` (forward) and
 sub-chunks of one ``BLOCK_K`` chunk all writing the same accumulator register
 set inside the ascending K loop, with no k-split across warps or warpgroups;
 below ``BLOCK_M = 64`` Triton falls back to
-``mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32`` -- the very instruction
-the CUDA kernel issues -- and that configuration is byte-identical too.  Both
-lowerings were measured to produce the *same bytes* as the CUDA ``mma.sync``
-chain, at every tile/warp/stage setting swept (128 forward, 32 ``dx``, 16
+``mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32`` -- and that
+configuration is byte-identical too.  Both
+lowerings were measured to produce the *same bytes* as the CUDA Hopper
+``wgmma`` chain, at every tile/warp/stage setting swept (128 forward, 32 ``dx``, 16
 ``dW``, 15 ``db`` configurations, the forward at ``S`` in {1, 7, 129, 512, 4096,
 6889}).  ``db`` is a strict ascending-row FP32 fold and reproduces
 ``left_fold_bias_gradient`` bit for bit when the kernel writes FP32, so its BF16
@@ -344,7 +344,11 @@ def _launch_forward(
     n_dim = weight.size(0)
     out = torch.empty((rows, n_dim), dtype=torch.bfloat16, device=x2d.device)
     grid = (triton.cdiv(rows, tile.block_m), triton.cdiv(n_dim, tile.block_n))
-    bias_arg = bias if bias is not None else x2d
+    # The kernel indexes the bias at unit stride, so a view has to be made
+    # contiguous here -- exactly as the CUDA backend's ``bias->to(kFloat)`` does.
+    # Passing a strided bias through would read the wrong elements and silently
+    # return wrong values and gradients.
+    bias_arg = bias.contiguous() if bias is not None else x2d
     _mlp_down_gemm_forward_kernel[grid](
         x2d,
         weight,

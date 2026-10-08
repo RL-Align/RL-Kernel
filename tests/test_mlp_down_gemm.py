@@ -132,10 +132,10 @@ BACKEND_ENV = "RL_KERNEL_MLP_DOWN_GEMM_BACKEND"
 TREE_CONTRACT = "mlp-down-gemm-tree-v1"
 MMA_CONTRACT = "mlp-down-gemm-mma-v1"
 
-# The fp32 CPU tree costs O(M * N * K / 32) python-level steps, so it runs on a
-# row slice at the model's token counts (the tree depends only on K, and the
-# general path's row/batch invariance is tested separately) and whole at the
-# 256-token anchor. One cache entry per (kind, shape, rows) keeps the forward
+# The fp32 CPU tree walks K python-level steps, each one a vectorized fp64 [M, N]
+# op, so it runs on a row slice at the model's token counts (the tree depends only
+# on K, and the general path's row/batch invariance is tested separately) and whole
+# at the 256-token anchor. One cache entry per (kind, shape, rows) keeps the forward
 # and backward checks from paying for the same tree twice.
 TREE_REFERENCE_ROWS = 16
 _REFERENCE_CACHE: dict = {}
@@ -1085,10 +1085,11 @@ class TestIntegration:
 
     @CUDA
     def test_fail_closed_below_sm80(self, monkeypatch):
-        """The general `mma.sync` path has no kernel below sm80: it must raise.
+        """Below sm80 there is no kernel for either CUDA path: it must raise.
 
-        Below compute capability 8.0 the tensor-core and cp.async asm blocks are
-        compiled out, so a silent dispatch would return zeros instead of failing.
+        Below compute capability 8.0 the row's validated support matrix ends, so
+        a silent dispatch would run an unvalidated configuration instead of
+        failing.
         """
 
         from rl_engine.kernels.ops.cuda.linear.mlp_down_gemm import CudaMlpDownGemmOp
@@ -1097,6 +1098,45 @@ class TestIntegration:
         monkeypatch.setattr(torch.cuda, "get_device_capability", lambda device=None: (7, 5))
         with pytest.raises((ValueError, RuntimeError)):
             CudaMlpDownGemmOp()(x, weight, bias=bias)
+
+    @CUDA
+    def test_cc10_does_not_take_the_hopper_path(self, monkeypatch):
+        """A cc >= 10 device must not dispatch to the sm_90a-only wgmma body.
+
+        The body only exists under ``__CUDA_ARCH_FEAT_SM90_ALL``: on a
+        ``KERNEL_ALIGN_FORCE_SM90=1`` build for a cc >= 10 host it compiles to an
+        inert stub, so the runtime gate is cc 9.0 exactly. A cc >= 10 call takes
+        the portable tree, and asking for the hardware order raises rather than
+        changing the contract silently.
+        """
+
+        from rl_engine.kernels.ops.cuda.linear import mlp_down_gemm as cuda_mod
+
+        monkeypatch.setattr(torch.cuda, "get_device_capability", lambda device=None: (10, 0))
+        x, weight, bias = _inputs(SMALL)
+        assert cuda_mod.mlp_down_gemm_backend_used(x, weight) == "general"
+        assert cuda_mod.mlp_down_gemm_contract_used(x, weight) == TREE_CONTRACT
+        monkeypatch.setenv(BACKEND_ENV, "hopper")
+        with pytest.raises(RuntimeError):
+            cuda_mod.CudaMlpDownGemmOp()(x, weight, bias=bias)
+
+    @CUDA
+    def test_strided_bias_is_read_at_the_right_elements(self):
+        """A view bias must give the same bytes as its contiguous copy.
+
+        The kernels index the bias at unit stride, so the backend has to
+        normalize it; before that, a stride-2 bias silently returned wrong values.
+        """
+
+        from rl_engine.kernels.ops.cuda.linear.mlp_down_gemm import CudaMlpDownGemmOp
+
+        x, weight, _ = _inputs(SMALL, seed=14)
+        bias = torch.randn(SMALL[2] * 2, device="cuda", dtype=torch.bfloat16)[::2]
+        assert bias.shape == (SMALL[2],) and bias.stride(0) == 2
+        op = CudaMlpDownGemmOp()
+        assert torch.equal(
+            op(x, weight, bias=bias), op(x, weight, bias=bias.contiguous())
+        )
 
     @CUDA
     def test_fail_closed_on_shape_mismatch(self):
