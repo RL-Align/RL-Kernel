@@ -1,0 +1,160 @@
+{
+  "kind": "fused_logp_backward_evidence",
+  "issue": "RL-Align/RL-Kernel#174",
+  "git_commit": "713d8fba04532a6008bf6f35c8324de6427474ba",
+  "git_dirty": false,
+  "environment": {
+    "gpu": "NVIDIA B200",
+    "capability": [
+      10,
+      0
+    ],
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "python": "3.12.14"
+  },
+  "vocab": 151936,
+  "dtype": "bfloat16",
+  "accuracy": {
+    "torch log_softmax + gather": {
+      "logp_max_abs": 1.1502500569804397e-06,
+      "grad_max_abs": 0.007442935858069433,
+      "grad_max_abs_over_absmax": 0.0026432594375957034,
+      "grad_correctly_rounded_fraction": 0.9999345541000366
+    },
+    "previous VJP (full FP32 softmax)": {
+      "logp_max_abs": 0.05727527438916624,
+      "grad_max_abs": 0.0032133508838319003,
+      "grad_max_abs_over_absmax": 0.0011425249434258748,
+      "grad_correctly_rounded_fraction": 0.9999949932098389
+    },
+    "chunked fallback": {
+      "logp_max_abs": 0.05727527438916624,
+      "grad_max_abs": 0.0032133508838319003,
+      "grad_max_abs_over_absmax": 0.0011425249434258748,
+      "grad_correctly_rounded_fraction": 0.9999949932098389
+    },
+    "fused kernel": {
+      "logp_max_abs": 0.05727527438916624,
+      "grad_max_abs": 0.0032133508838319003,
+      "grad_max_abs_over_absmax": 0.0011425249434258748,
+      "grad_correctly_rounded_fraction": 0.9999862909317017
+    }
+  },
+  "row_invariance": {
+    "torch log_softmax + gather": {
+      "rows_checked": 768,
+      "logp_rows_differing": 0,
+      "grad_rows_differing": 0,
+      "batch_rows": 4096,
+      "seeds": [
+        3,
+        4,
+        5
+      ]
+    },
+    "previous VJP (full FP32 softmax)": {
+      "rows_checked": 768,
+      "logp_rows_differing": 0,
+      "grad_rows_differing": 0,
+      "batch_rows": 4096,
+      "seeds": [
+        3,
+        4,
+        5
+      ]
+    },
+    "chunked fallback": {
+      "rows_checked": 768,
+      "logp_rows_differing": 0,
+      "grad_rows_differing": 0,
+      "batch_rows": 4096,
+      "seeds": [
+        3,
+        4,
+        5
+      ]
+    },
+    "fused kernel": {
+      "rows_checked": 768,
+      "logp_rows_differing": 0,
+      "grad_rows_differing": 0,
+      "batch_rows": 4096,
+      "seeds": [
+        3,
+        4,
+        5
+      ]
+    }
+  },
+  "performance": {
+    "torch log_softmax + gather": {
+      "8192": {
+        "step_ms": 11.090784072875977,
+        "peak_gib": 13.910186767578125,
+        "backward_ms": 5.057216167449951
+      },
+      "16384": {
+        "step_ms": 22.07391929626465,
+        "peak_gib": 27.82037353515625,
+        "backward_ms": 9.807680130004883
+      },
+      "32768": {
+        "step_ms": 44.00249481201172,
+        "peak_gib": 55.6407470703125,
+        "backward_ms": 19.307008743286133
+      }
+    },
+    "previous VJP (full FP32 softmax)": {
+      "8192": {
+        "step_ms": 14.441727638244629,
+        "peak_gib": 11.591888427734375,
+        "backward_ms": 10.85427188873291
+      },
+      "16384": {
+        "step_ms": 28.696895599365234,
+        "peak_gib": 23.18377685546875,
+        "backward_ms": 21.400575637817383
+      },
+      "32768": {
+        "step_ms": 57.16396713256836,
+        "peak_gib": 46.3675537109375,
+        "backward_ms": 42.44211196899414
+      }
+    },
+    "chunked fallback": {
+      "8192": {
+        "step_ms": 14.979776382446289,
+        "peak_gib": 3.318526268005371,
+        "backward_ms": 11.484928131103516
+      },
+      "16384": {
+        "step_ms": 29.81622314453125,
+        "peak_gib": 5.637045860290527,
+        "backward_ms": 22.600191116333008
+      },
+      "32768": {
+        "step_ms": 59.43190383911133,
+        "peak_gib": 10.27408504486084,
+        "backward_ms": 44.82032012939453
+      }
+    },
+    "fused kernel": {
+      "8192": {
+        "step_ms": 7.0009918212890625,
+        "peak_gib": 2.31842041015625,
+        "backward_ms": 3.451296091079712
+      },
+      "16384": {
+        "step_ms": 13.736831665039062,
+        "peak_gib": 4.6368408203125,
+        "backward_ms": 6.435200214385986
+      },
+      "32768": {
+        "step_ms": 27.169471740722656,
+        "peak_gib": 9.273681640625,
+        "backward_ms": 12.475647926330566
+      }
+    }
+  }
+}

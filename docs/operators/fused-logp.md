@@ -49,6 +49,26 @@ ref = torch.log_softmax(logits.float(), dim=-1)
 ref = torch.gather(ref, dim=-1, index=token_ids.unsqueeze(-1).long()).squeeze(-1)
 ```
 
+## Backward evidence (generic CUDA op)
+
+![generic fused logp backward on B200](../usage/evidence/fused-logp-backward-b200/figure.png)
+
+[`report.json`](../usage/evidence/fused-logp-backward-b200/report.json) was written by
+`benchmarks/fused_logp_backward_evidence.py` from a clean tree at `713d8fb`, on an otherwise
+idle B200 (torch 2.13.0+cu130). V = 151936, BF16 logits.
+
+| 32768 rows | torch `log_softmax` + gather | previous VJP | chunked fallback | fused kernel |
+|---|---|---|---|---|
+| forward + backward | 44.0 ms | 57.1 ms | 59.4 ms | **27.1 ms** |
+| peak memory (incl. returned grad) | 55.6 GiB | 46.4 GiB | 10.3 GiB | **9.3 GiB** |
+| `dlogits` max error / max, vs FP64 | 2.6e-3 | 1.1e-3 | 1.1e-3 | 1.1e-3 |
+| rows differing alone vs in a batch, logp / `dlogits` (of 768) | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+
+- All four paths are batch-invariant; the existing torch path's limit is memory, not
+  invariance: it builds the FP32 `[N, V]` softmax, 55.6 GiB at 32k rows.
+- The FP64 reference is fed the same upstream gradient each path receives (the generic op's
+  forward returns BF16, the torch path's FP32), so the error columns compare like with like.
+
 ## Tests
 
 ```bash
