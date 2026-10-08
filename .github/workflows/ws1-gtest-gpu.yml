@@ -12,6 +12,8 @@ on:
   pull_request:
     branches: [ main ]
     paths:
+      - "csrc/cuda/rmsnorm.cu"
+      - "csrc/ops.cpp"
       - "rl_engine/kernels/gtest/**"
       - "rl_engine/kernels/ops/**"
       - "rl_engine/testing/**"
@@ -20,6 +22,7 @@ on:
       - "scripts/check_gradient_invariance.py"
       - "scripts/ws1_candidate_evidence.py"
       - "tests/test_ws1_*.py"
+      - "tests/test_qwen3_next_norm.py"
       - "tests/test_forward_invariance.py"
       - "tests/test_gradient_invariance.py"
       - "tests/test_four_judgment_matrix.py"
@@ -30,6 +33,8 @@ on:
   push:
     branches: [ main ]
     paths:
+      - "csrc/cuda/rmsnorm.cu"
+      - "csrc/ops.cpp"
       - "rl_engine/kernels/gtest/**"
       - "rl_engine/kernels/ops/**"
       - "rl_engine/testing/**"
@@ -38,6 +43,7 @@ on:
       - "scripts/check_gradient_invariance.py"
       - "scripts/ws1_candidate_evidence.py"
       - "tests/test_ws1_*.py"
+      - "tests/test_qwen3_next_norm.py"
       - "tests/test_forward_invariance.py"
       - "tests/test_gradient_invariance.py"
       - "tests/test_four_judgment_matrix.py"

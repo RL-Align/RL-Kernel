@@ -256,6 +256,9 @@ def swiglu_backward(
     gate: torch.Tensor,
     up: torch.Tensor,
 ) -> list[torch.Tensor]: ...
+
+rmsnorm_api_version: int
+
 def rmsnorm_forward(
     x: torch.Tensor,
     weight: torch.Tensor,

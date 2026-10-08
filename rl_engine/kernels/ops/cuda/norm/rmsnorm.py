@@ -4,6 +4,8 @@ from rl_engine.kernels.ops.backward_runtime import record_backward
 from rl_engine.kernels.ops.base import _C, _EXT_AVAILABLE
 from rl_engine.kernels.ops.vjp_fp32 import reduce_rows_fp32, rmsnorm_dweight_rows_fp32
 
+_RMSNORM_API_VERSION = 2
+
 
 def _fold_dweight_rows(rows: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
     """The single left-fold entrypoint for this backend's dweight reductions.
@@ -15,8 +17,8 @@ def _fold_dweight_rows(rows: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
     return reduce_rows_fp32(rows).to(dtype)
 
 
-def _require_cuda_symbols(what: str, *names: str) -> None:
-    """Raise when the compiled kernels backing ``what`` are missing.
+def _require_cuda_rmsnorm() -> None:
+    """Raise when the compiled RMSNorm bindings are missing or incompatible.
 
     The registry treats a backend whose construction raises as unavailable and
     falls through to the next candidate, so calling this from ``__init__`` is
@@ -25,12 +27,20 @@ def _require_cuda_symbols(what: str, *names: str) -> None:
     activation ops.
     """
     if not _EXT_AVAILABLE or _C is None:
-        raise RuntimeError(f"{what} requires the compiled rl_engine._C extension.")
+        raise RuntimeError("CUDA RMSNorm requires the compiled rl_engine._C extension.")
+    names = ("rmsnorm_forward", "rmsnorm_backward_dx")
     missing = [name for name in names if not hasattr(_C, name)]
     if missing:
         raise RuntimeError(
-            f"{what} symbols ({', '.join(missing)}) are not compiled into _C. "
+            f"CUDA RMSNorm symbols ({', '.join(missing)}) are not compiled into _C. "
             "Rebuild the extension with csrc/cuda/rmsnorm.cu."
+        )
+    api_version = getattr(_C, "rmsnorm_api_version", None)
+    if api_version != _RMSNORM_API_VERSION:
+        raise RuntimeError(
+            f"CUDA RMSNorm requires rl_engine._C RMSNorm API version {_RMSNORM_API_VERSION} "
+            f"(loaded {api_version!r}). Rebuild the extension with csrc/cuda/rmsnorm.cu "
+            "for weight_offset support."
         )
 
 
@@ -56,6 +66,7 @@ class RMSNormCuda(torch.autograd.Function):
         Output:
           y: [T, H]
         """
+        _require_cuda_rmsnorm()
         assert x.is_cuda, "x must be CUDA tensor"
         assert weight.is_cuda, "weight must be CUDA tensor"
         assert x.is_contiguous(), "x must be contiguous"
@@ -63,10 +74,6 @@ class RMSNormCuda(torch.autograd.Function):
         assert x.dim() == 2, "x must be [T, H]"
         assert weight.dim() == 1, "weight must be [H]"
         assert x.shape[1] == weight.shape[0], "hidden size mismatch"
-        assert _EXT_AVAILABLE and hasattr(
-            _C, "rmsnorm_forward"
-        ), "RMSNorm CUDA extension is unavailable. Please rebuild with rmsnorm.cu."
-
         if mask is None:
             mask = torch.ones((x.shape[0],), device=x.device, dtype=torch.bool)
         else:
@@ -134,11 +141,7 @@ class RMSNormCudaOp:
     backward_impl = "cuda_rmsnorm_dx_declared_fp32_rowfold_dw"
 
     def __init__(self) -> None:
-        _require_cuda_symbols(
-            "CUDA RMSNorm",
-            "rmsnorm_forward",
-            "rmsnorm_backward_dx",
-        )
+        _require_cuda_rmsnorm()
 
     #: Added to the weight in fp32 inside the kernel. Subclasses override it;
     #: 0.0 is the plain convention.
@@ -181,6 +184,24 @@ class Qwen3NextRMSNormCudaOp(RMSNormCudaOp):
 # --------------------------------------------------------------------------- #
 # Gated RMSNorm (Qwen3-Next GDN block)
 # --------------------------------------------------------------------------- #
+
+
+def _require_cuda_symbols(what: str, *names: str) -> None:
+    """Raise when the compiled kernels backing ``what`` are missing.
+
+    The registry treats a backend whose construction raises as unavailable and
+    falls through, so calling this from ``__init__`` is what lets a CUDA-first
+    priority list degrade to the PyTorch reference on a build without the
+    extension. Mirrors ``_require_cuda_activation`` in the activation ops.
+    """
+    if not _EXT_AVAILABLE or _C is None:
+        raise RuntimeError(f"{what} requires the compiled rl_engine._C extension.")
+    missing = [name for name in names if not hasattr(_C, name)]
+    if missing:
+        raise RuntimeError(
+            f"{what} symbols ({', '.join(missing)}) are not compiled into _C. "
+            "Rebuild the extension with csrc/cuda/rmsnorm.cu."
+        )
 
 
 #: Gate activations understood by the CUDA kernel, in binding order. ``swish`` is

@@ -355,7 +355,11 @@ if torch.cuda.is_available():  # pragma: no branch - probe only
     try:
         from rl_engine.kernels.ops.base import _C, _EXT_AVAILABLE
 
-        _CUDA_RMSNORM = _EXT_AVAILABLE and hasattr(_C, "rmsnorm_forward")
+        _CUDA_RMSNORM = (
+            _EXT_AVAILABLE
+            and getattr(_C, "rmsnorm_api_version", None) == 2
+            and all(hasattr(_C, name) for name in ("rmsnorm_forward", "rmsnorm_backward_dx"))
+        )
     except ImportError:  # pragma: no cover
         _CUDA_RMSNORM = False
 
