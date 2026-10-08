@@ -85,12 +85,28 @@ thresholds from `rl_engine/kernels/gtest/tolerance_contract.json`.
 
 ## Performance Notes
 
-Element-wise forward and backward kernels with no reductions or atomics.
+```bash
+python benchmarks/benchmark_conditioning_noise_mix.py
+```
+
+The benchmark compares the public CUDA and eager PyTorch wrappers on identical
+GPU-resident inputs after checking outputs and both input gradients bitwise.
+Default shapes are `3x257`, `1x32x400`, `1x24x1x48x80` and `1x24x17x48x80`,
+with FP16, BF16 and FP32 inputs.
+
+The shared `PerformanceProfiler` measures inference forward, backward on a
+prebuilt graph, and a fresh forward plus backward. Wrapper validation, allocation
+and autograd dispatch are timed; input generation and correctness checks are not.
+The JSON results in `reports/conditioning-noise-mix/results.json` include latency,
+timing variation, throughput and peak allocation. `report.md` summarizes latency
+and speedup.
+Use `--help` for workload and output options.
 
 ## Tests
 
 ```bash
 RL_KERNEL_REQUIRE_EXT=1 python -m pytest tests/test_conditioning_noise_mix.py -q
+python -m pytest tests/test_benchmark_conditioning_noise_mix.py -q
 python scripts/check_operator.py --op conditioning_noise_mix --candidate cuda \
   --device cuda --dtype bf16 --batch 2 --seq 7 --normalized-dim 257 --check-grad
 ```
@@ -105,6 +121,7 @@ ordering. CPU-only runs skip native CUDA tests.
   and shared input validation
 - `rl_engine/kernels/ops/cuda/conditioning_noise_mix.py` — CUDA autograd wrapper
 - `csrc/cuda/conditioning_noise_mix.cu` — CUDA forward/backward kernels
+- `benchmarks/benchmark_conditioning_noise_mix.py` — public-wrapper benchmark
 
 ## Known Limitations
 
