@@ -85,6 +85,29 @@ There are two data files:
   T in {1, 2, 3, 4} × S in {3, 257, 4097, 32768}, with the backward replay. Written from a clean
   tree at `001684d`.
 
+## Existing implementations (RFC #420 reuse rule)
+
+![final_adaln_out vs existing implementations](../usage/evidence/h3-prior-art-b200/final_adaln_out.png)
+
+| Implementation | Batch-invariant | size 4097: fwd err / worst grad err / fwd+bwd | size 32768: fwd err / worst grad err / fwd+bwd |
+|---|---|---|---|
+| diffusers MiniMaxH3AdaLayerNormOut (op-for-op replay) | **no** (param/table grads not repeatable) | 8.3e-03 / 7.3e-02 / 1021 µs | 8.9e-03 / 2.4e-01 / 4525 µs |
+| rl-kernel H3FinalAdaLNOutCudaOp | yes | 8.3e-03 / 5.2e-03 / 1642 µs | 8.9e-03 / 5.7e-03 / 2959 µs |
+
+Errors are max|err| / max|ref| against the same computation in FP64; latency is the median
+forward + backward time on an otherwise idle B200. Batch invariance is bitwise and covers
+three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
+131072-token batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
+"no" means that at least one row, sub-batch or gradient differed. [`final_adaln_out.json`](../usage/evidence/h3-prior-art-b200/final_adaln_out.json)
+was written from a clean tree at `03da729` by
+
+```bash
+python scripts/h3_prior_art.py --op final_adaln_out --out docs/usage/evidence/h3-prior-art-b200/final_adaln_out.json
+python scripts/plot_h3_prior_art.py docs/usage/evidence/h3-prior-art-b200/final_adaln_out.json
+```
+
+Libraries that do not import are skipped and recorded as unavailable in the report.
+
 ## Tests
 
 ```bash
