@@ -131,6 +131,35 @@ written by `scripts/h3_evidence.py` from a clean tree at commit `d06e120`. The r
 records that a timestep's 18 modulation rows are bitwise identical whether it runs alone
 or in a batch of 9.
 
+## Existing implementations (RFC #420 reuse rule)
+
+![adaln_projection vs existing implementations](../usage/evidence/h3-prior-art-b200/adaln_projection.png)
+
+| Implementation | Batch-invariant | size 3: fwd err / worst grad err / fwd+bwd | size 256: fwd err / worst grad err / fwd+bwd | size 2048: fwd err / worst grad err / fwd+bwd |
+|---|---|---|---|---|
+| diffusers AdaLN projection, BF16 F.linear [plain] | **no** (14214 rows, 3080 sub-batches, 2232 sweep cases) | 3.6e-03 / 3.9e-03 / 716 µs | 3.4e-03 / 3.2e-03 / 728 µs | 3.2e-03 / 3.5e-03 / 2346 µs |
+| rl-kernel H3AdaLNProjectionCudaOp | yes | 3.6e-03 / 3.9e-03 / 2276 µs | 3.4e-03 / 3.2e-03 / 77446 µs | 3.2e-03 / 3.5e-03 / 626992 µs |
+| diffusers AdaLN projection, BF16 F.linear [vllm] | yes | 3.6e-03 / 3.9e-03 / 681 µs | 3.4e-03 / 3.2e-03 / 722 µs | 3.2e-03 / 3.5e-03 / 2330 µs |
+| diffusers AdaLN projection, BF16 F.linear [sglang] | yes | 3.6e-03 / 3.9e-03 / 3096 µs | 3.4e-03 / 3.2e-03 / 3690 µs | 3.2e-03 / 3.5e-03 / 14296 µs |
+| diffusers AdaLN projection, BF16 F.linear [sglang_ieee] | yes | 3.6e-03 / 3.9e-03 / 3138 µs | 3.4e-03 / 3.2e-03 / 3740 µs | 3.2e-03 / 3.5e-03 / 14325 µs |
+| diffusers AdaLN projection, BF16 F.linear [megatron_te_native] | **no** (7107 rows, 2056 sub-batches, 1104 sweep cases) | 3.6e-03 / 3.9e-03 / 702 µs | 3.4e-03 / 3.2e-03 / 706 µs | 3.2e-03 / 3.5e-03 / 2330 µs |
+| diffusers AdaLN projection, BF16 F.linear [megatron_triton] | yes | 3.6e-03 / 3.9e-03 / 2532 µs | 3.4e-03 / 3.2e-03 / 3204 µs | 3.2e-03 / 3.5e-03 / 13771 µs |
+| diffusers AdaLN projection, BF16 F.linear [megatron_triton_ieee] | yes | 3.6e-03 / 3.9e-03 / 2533 µs | 3.4e-03 / 3.2e-03 / 3206 µs | 3.2e-03 / 3.5e-03 / 13773 µs |
+
+Errors are max|err| / max|ref| against the same computation in FP64; latency is the median
+forward + backward time on an otherwise idle B200. Batch invariance is bitwise and covers
+three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
+4096-timestep batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
+"no" means that at least one row, sub-batch or gradient differed. [`adaln_projection.json`](../usage/evidence/h3-prior-art-b200/adaln_projection.json)
+was written from a clean tree at `c88691c` by
+
+```bash
+python scripts/h3_prior_art.py --op adaln_projection --out docs/usage/evidence/h3-prior-art-b200/adaln_projection.json --megatron-src <Megatron-LM checkout>
+python scripts/plot_h3_prior_art.py docs/usage/evidence/h3-prior-art-b200/adaln_projection.json
+```
+
+Libraries that do not import are skipped and recorded as unavailable in the report.
+
 ## Tests
 
 ```bash
