@@ -1,0 +1,912 @@
+{
+  "kind": "qwen3_next_norm_reuse_check",
+  "rfc": "RL-Align/RL-Kernel#428",
+  "op": "qwen3_next_rms_norm",
+  "rl_kernel_commit": "a66493c6d0b49d78aec6df3519b70fb45eace24f",
+  "tracked_tree_dirty": false,
+  "environment": {
+    "gpu": "NVIDIA B200",
+    "capability": [
+      10,
+      0
+    ],
+    "cuda": "13.0",
+    "libraries": {
+      "torch": "2.13.0",
+      "triton": "3.7.1",
+      "transformers": "5.17.0",
+      "vllm": "0.30.0",
+      "flashinfer-python": "0.6.18.post1",
+      "liger-kernel": "0.8.4",
+      "fla-core": "0.5.2",
+      "transformer_engine": "2.20.2",
+      "megatron-core": null
+    },
+    "megatron_source_commit": "52fbcbc"
+  },
+  "quick": false,
+  "checks": [
+    "bi",
+    "gates",
+    "perf"
+  ],
+  "results": {
+    "rl_kernel": {
+      "source": "rl-kernel Qwen3NextRMSNormCudaOp",
+      "backward": "full",
+      "batch_invariance": {
+        "all_rows": {
+          "64": {
+            "rows": 192,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          },
+          "257": {
+            "rows": 771,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          },
+          "2048": {
+            "rows": 6144,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          }
+        },
+        "dweight_repeatable": true,
+        "full_vs_sub_batches": {
+          "full_batch": 65536,
+          "sub_batch_sizes": [
+            1,
+            7,
+            2048,
+            4097,
+            32768
+          ],
+          "sub_batches": 2148,
+          "fwd_differ": 0,
+          "rowgrad_differ": 0
+        },
+        "batch_size_sweep": {
+          "batch_sizes": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            15,
+            16,
+            17,
+            31,
+            32,
+            33,
+            63,
+            64,
+            65,
+            127,
+            128,
+            129,
+            255,
+            256,
+            257,
+            511,
+            512,
+            513,
+            1023,
+            1024,
+            1025,
+            2047,
+            2048
+          ],
+          "probe_rows": [
+            0,
+            259,
+            515,
+            771,
+            1027,
+            1283,
+            1539,
+            2047
+          ],
+          "comparisons": 2232,
+          "differ": 0
+        },
+        "batch_invariant": true
+      },
+      "accuracy_latency": {
+        "rows": 65536,
+        "fwd_correctly_rounded": 0.9999926686286926,
+        "fwd_max_abs_err": 0.015624080561254416,
+        "fwd_us": 426.4480024576187,
+        "grad_rel_err": {
+          "x": 0.0023939748586017722,
+          "w": 0.0019861680402388695
+        },
+        "fwd_bwd_us": 31485.487937927246
+      },
+      "contract_gates": {
+        "unavailable": "rl_engine/testing/qwen3_next_norm_manifest.json is not on this branch"
+      }
+    },
+    "reference": {
+      "source": "rl-kernel PyTorch reference",
+      "backward": "full",
+      "batch_invariance": {
+        "all_rows": {
+          "64": {
+            "rows": 192,
+            "fwd_differ": 0,
+            "rowgrad_differ": 2
+          },
+          "257": {
+            "rows": 771,
+            "fwd_differ": 0,
+            "rowgrad_differ": 7
+          },
+          "2048": {
+            "rows": 6144,
+            "fwd_differ": 0,
+            "rowgrad_differ": 40
+          }
+        },
+        "dweight_repeatable": true,
+        "full_vs_sub_batches": {
+          "full_batch": 65536,
+          "sub_batch_sizes": [
+            1,
+            7,
+            2048,
+            4097,
+            32768
+          ],
+          "sub_batches": 2148,
+          "fwd_differ": 0,
+          "rowgrad_differ": 94
+        },
+        "batch_size_sweep": {
+          "batch_sizes": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            15,
+            16,
+            17,
+            31,
+            32,
+            33,
+            63,
+            64,
+            65,
+            127,
+            128,
+            129,
+            255,
+            256,
+            257,
+            511,
+            512,
+            513,
+            1023,
+            1024,
+            1025,
+            2047,
+            2048
+          ],
+          "probe_rows": [
+            0,
+            259,
+            515,
+            771,
+            1027,
+            1283,
+            1539,
+            2047
+          ],
+          "comparisons": 2232,
+          "differ": 0
+        },
+        "batch_invariant": false
+      },
+      "accuracy_latency": {
+        "rows": 65536,
+        "fwd_correctly_rounded": 0.9999927282333374,
+        "fwd_max_abs_err": 0.015624080561254416,
+        "fwd_us": 2145.951986312866,
+        "grad_rel_err": {
+          "x": 0.0023939748586017722,
+          "w": 0.0019861680402388695
+        },
+        "fwd_bwd_us": 5024.384021759033
+      }
+    },
+    "transformers": {
+      "source": "transformers 5.17.0 Qwen3NextRMSNorm",
+      "backward": "full",
+      "batch_invariance": {
+        "all_rows": {
+          "64": {
+            "rows": 192,
+            "fwd_differ": 0,
+            "rowgrad_differ": 3
+          },
+          "257": {
+            "rows": 771,
+            "fwd_differ": 0,
+            "rowgrad_differ": 10
+          },
+          "2048": {
+            "rows": 6144,
+            "fwd_differ": 16,
+            "rowgrad_differ": 61
+          }
+        },
+        "dweight_repeatable": true,
+        "full_vs_sub_batches": {
+          "full_batch": 65536,
+          "sub_batch_sizes": [
+            1,
+            7,
+            2048,
+            4097,
+            32768
+          ],
+          "sub_batches": 2148,
+          "fwd_differ": 26,
+          "rowgrad_differ": 116
+        },
+        "batch_size_sweep": {
+          "batch_sizes": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            15,
+            16,
+            17,
+            31,
+            32,
+            33,
+            63,
+            64,
+            65,
+            127,
+            128,
+            129,
+            255,
+            256,
+            257,
+            511,
+            512,
+            513,
+            1023,
+            1024,
+            1025,
+            2047,
+            2048
+          ],
+          "probe_rows": [
+            0,
+            259,
+            515,
+            771,
+            1027,
+            1283,
+            1539,
+            2047
+          ],
+          "comparisons": 2232,
+          "differ": 0
+        },
+        "batch_invariant": false
+      },
+      "accuracy_latency": {
+        "rows": 65536,
+        "fwd_correctly_rounded": 0.9999924898147583,
+        "fwd_max_abs_err": 0.015624080561254416,
+        "fwd_us": 1449.1679668426514,
+        "grad_rel_err": {
+          "x": 0.0023939748586017722,
+          "w": 0.0019861680402388695
+        },
+        "fwd_bwd_us": 4467.727899551392
+      },
+      "contract_gates": {
+        "unavailable": "rl_engine/testing/qwen3_next_norm_manifest.json is not on this branch"
+      }
+    },
+    "liger": {
+      "source": "Liger 0.8.4 RMSNorm, offset 1, gemma",
+      "backward": "full",
+      "batch_invariance": {
+        "all_rows": {
+          "64": {
+            "rows": 192,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          },
+          "257": {
+            "rows": 771,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          },
+          "2048": {
+            "rows": 6144,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          }
+        },
+        "dweight_repeatable": true,
+        "full_vs_sub_batches": {
+          "full_batch": 65536,
+          "sub_batch_sizes": [
+            1,
+            7,
+            2048,
+            4097,
+            32768
+          ],
+          "sub_batches": 2148,
+          "fwd_differ": 0,
+          "rowgrad_differ": 0
+        },
+        "batch_size_sweep": {
+          "batch_sizes": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            15,
+            16,
+            17,
+            31,
+            32,
+            33,
+            63,
+            64,
+            65,
+            127,
+            128,
+            129,
+            255,
+            256,
+            257,
+            511,
+            512,
+            513,
+            1023,
+            1024,
+            1025,
+            2047,
+            2048
+          ],
+          "probe_rows": [
+            0,
+            259,
+            515,
+            771,
+            1027,
+            1283,
+            1539,
+            2047
+          ],
+          "comparisons": 2232,
+          "differ": 0
+        },
+        "batch_invariant": true
+      },
+      "accuracy_latency": {
+        "rows": 65536,
+        "fwd_correctly_rounded": 0.9999925494194031,
+        "fwd_max_abs_err": 0.015624080561254416,
+        "fwd_us": 133.31200182437897,
+        "grad_rel_err": {
+          "x": 0.0023939748586017722,
+          "w": 0.0019861680402388695
+        },
+        "fwd_bwd_us": 973.6000001430511
+      },
+      "contract_gates": {
+        "unavailable": "rl_engine/testing/qwen3_next_norm_manifest.json is not on this branch"
+      }
+    },
+    "fla": {
+      "source": "FLA 0.5.2 rms_norm, weight passed as 1 + w",
+      "backward": "full",
+      "batch_invariance": {
+        "all_rows": {
+          "64": {
+            "rows": 192,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          },
+          "257": {
+            "rows": 771,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          },
+          "2048": {
+            "rows": 6144,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          }
+        },
+        "dweight_repeatable": true,
+        "full_vs_sub_batches": {
+          "full_batch": 65536,
+          "sub_batch_sizes": [
+            1,
+            7,
+            2048,
+            4097,
+            32768
+          ],
+          "sub_batches": 2148,
+          "fwd_differ": 0,
+          "rowgrad_differ": 0
+        },
+        "batch_size_sweep": {
+          "batch_sizes": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            15,
+            16,
+            17,
+            31,
+            32,
+            33,
+            63,
+            64,
+            65,
+            127,
+            128,
+            129,
+            255,
+            256,
+            257,
+            511,
+            512,
+            513,
+            1023,
+            1024,
+            1025,
+            2047,
+            2048
+          ],
+          "probe_rows": [
+            0,
+            259,
+            515,
+            771,
+            1027,
+            1283,
+            1539,
+            2047
+          ],
+          "comparisons": 2232,
+          "differ": 0
+        },
+        "batch_invariant": true
+      },
+      "accuracy_latency": {
+        "rows": 65536,
+        "fwd_correctly_rounded": 0.730160653591156,
+        "fwd_max_abs_err": 0.03517675224226302,
+        "fwd_us": 146.92799746990204,
+        "grad_rel_err": {
+          "x": 0.005450811301370503,
+          "w": 0.0019861680402388695
+        },
+        "fwd_bwd_us": 1050.8000254631042
+      },
+      "contract_gates": {
+        "unavailable": "rl_engine/testing/qwen3_next_norm_manifest.json is not on this branch"
+      }
+    },
+    "transformer_engine": {
+      "source": "TE 2.20.2 RMSNorm(zero_centered_gamma)",
+      "backward": "x-only",
+      "batch_invariance": {
+        "all_rows": {
+          "64": {
+            "rows": 192,
+            "fwd_differ": 1,
+            "rowgrad_differ": 2
+          },
+          "257": {
+            "rows": 771,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          },
+          "2048": {
+            "rows": 6144,
+            "fwd_differ": 75,
+            "rowgrad_differ": 97
+          }
+        },
+        "dweight_repeatable": null,
+        "full_vs_sub_batches": {
+          "full_batch": 65536,
+          "sub_batch_sizes": [
+            1,
+            7,
+            2048,
+            4097,
+            32768
+          ],
+          "sub_batches": 2148,
+          "fwd_differ": 111,
+          "rowgrad_differ": 134
+        },
+        "batch_size_sweep": {
+          "batch_sizes": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            15,
+            16,
+            17,
+            31,
+            32,
+            33,
+            63,
+            64,
+            65,
+            127,
+            128,
+            129,
+            255,
+            256,
+            257,
+            511,
+            512,
+            513,
+            1023,
+            1024,
+            1025,
+            2047,
+            2048
+          ],
+          "probe_rows": [
+            0,
+            259,
+            515,
+            771,
+            1027,
+            1283,
+            1539,
+            2047
+          ],
+          "comparisons": 2232,
+          "differ": 0
+        },
+        "batch_invariant": false
+      },
+      "accuracy_latency": {
+        "rows": 65536,
+        "fwd_correctly_rounded": 0.9999922513961792,
+        "fwd_max_abs_err": 0.015624080561254416,
+        "fwd_us": 156.40000253915787,
+        "grad_rel_err": {
+          "x": 0.0023939340856740927
+        },
+        "fwd_bwd_us": 778.5120010375977
+      }
+    },
+    "megatron": {
+      "source": "Megatron BatchInvariantRMSNormFn(zero_centered_gamma=True)",
+      "backward": "full",
+      "batch_invariance": {
+        "all_rows": {
+          "64": {
+            "rows": 192,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          },
+          "257": {
+            "rows": 771,
+            "fwd_differ": 0,
+            "rowgrad_differ": 3
+          },
+          "2048": {
+            "rows": 6144,
+            "fwd_differ": 0,
+            "rowgrad_differ": 44
+          }
+        },
+        "dweight_repeatable": true,
+        "full_vs_sub_batches": {
+          "full_batch": 65536,
+          "sub_batch_sizes": [
+            1,
+            7,
+            2048,
+            4097,
+            32768
+          ],
+          "sub_batches": 2148,
+          "fwd_differ": 0,
+          "rowgrad_differ": 62
+        },
+        "batch_size_sweep": {
+          "batch_sizes": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            15,
+            16,
+            17,
+            31,
+            32,
+            33,
+            63,
+            64,
+            65,
+            127,
+            128,
+            129,
+            255,
+            256,
+            257,
+            511,
+            512,
+            513,
+            1023,
+            1024,
+            1025,
+            2047,
+            2048
+          ],
+          "probe_rows": [
+            0,
+            259,
+            515,
+            771,
+            1027,
+            1283,
+            1539,
+            2047
+          ],
+          "comparisons": 2232,
+          "differ": 92
+        },
+        "batch_invariant": false
+      },
+      "accuracy_latency": {
+        "rows": 65536,
+        "fwd_correctly_rounded": 7.450580596923828e-08,
+        "fwd_max_abs_err": 5.5793535592200865,
+        "fwd_us": 1438.655972480774,
+        "grad_rel_err": {
+          "x": 0.012024440704548441,
+          "w": 0.0019861680402388695
+        },
+        "fwd_bwd_us": 5506.911993026733
+      },
+      "contract_gates": {
+        "unavailable": "rl_engine/testing/qwen3_next_norm_manifest.json is not on this branch"
+      }
+    },
+    "flashinfer": {
+      "source": "FlashInfer 0.6.18.post1 gemma_rmsnorm",
+      "backward": "none",
+      "batch_invariance": {
+        "all_rows": {
+          "64": {
+            "rows": 192,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          },
+          "257": {
+            "rows": 771,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          },
+          "2048": {
+            "rows": 6144,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          }
+        },
+        "dweight_repeatable": null,
+        "full_vs_sub_batches": {
+          "full_batch": 65536,
+          "sub_batch_sizes": [
+            1,
+            7,
+            2048,
+            4097,
+            32768
+          ],
+          "sub_batches": 2148,
+          "fwd_differ": 0,
+          "rowgrad_differ": 0
+        },
+        "batch_size_sweep": {
+          "batch_sizes": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            15,
+            16,
+            17,
+            31,
+            32,
+            33,
+            63,
+            64,
+            65,
+            127,
+            128,
+            129,
+            255,
+            256,
+            257,
+            511,
+            512,
+            513,
+            1023,
+            1024,
+            1025,
+            2047,
+            2048
+          ],
+          "probe_rows": [
+            0,
+            259,
+            515,
+            771,
+            1027,
+            1283,
+            1539,
+            2047
+          ],
+          "comparisons": 2232,
+          "differ": 0
+        },
+        "batch_invariant": true
+      },
+      "accuracy_latency": {
+        "rows": 65536,
+        "fwd_correctly_rounded": 0.9999917149543762,
+        "fwd_max_abs_err": 0.015624080561254416,
+        "fwd_us": 90.71999788284302
+      }
+    },
+    "vllm": {
+      "source": "vLLM 0.30.0 GemmaRMSNorm.forward_cuda",
+      "backward": "none",
+      "batch_invariance": {
+        "all_rows": {
+          "64": {
+            "rows": 192,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          },
+          "257": {
+            "rows": 771,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          },
+          "2048": {
+            "rows": 6144,
+            "fwd_differ": 16,
+            "rowgrad_differ": 0
+          }
+        },
+        "dweight_repeatable": null,
+        "full_vs_sub_batches": {
+          "full_batch": 65536,
+          "sub_batch_sizes": [
+            1,
+            7,
+            2048,
+            4097,
+            32768
+          ],
+          "sub_batches": 2148,
+          "fwd_differ": 26,
+          "rowgrad_differ": 0
+        },
+        "batch_size_sweep": {
+          "batch_sizes": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            15,
+            16,
+            17,
+            31,
+            32,
+            33,
+            63,
+            64,
+            65,
+            127,
+            128,
+            129,
+            255,
+            256,
+            257,
+            511,
+            512,
+            513,
+            1023,
+            1024,
+            1025,
+            2047,
+            2048
+          ],
+          "probe_rows": [
+            0,
+            259,
+            515,
+            771,
+            1027,
+            1283,
+            1539,
+            2047
+          ],
+          "comparisons": 2232,
+          "differ": 0
+        },
+        "batch_invariant": false
+      },
+      "accuracy_latency": {
+        "rows": 65536,
+        "fwd_correctly_rounded": 0.9999924898147583,
+        "fwd_max_abs_err": 0.015624080561254416,
+        "fwd_us": 1454.3840289115906
+      }
+    }
+  }
+}
