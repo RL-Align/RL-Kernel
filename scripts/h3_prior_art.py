@@ -45,7 +45,6 @@ import os
 import statistics
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any, Callable
 
@@ -878,20 +877,23 @@ def main() -> None:
     results: dict[str, Any] = {}
     for mode in modes:
         print(f"[{args.op}] mode {mode}", flush=True)
-        with tempfile.TemporaryDirectory() as tmp:
-            part = Path(tmp) / "part.json"
-            cmd = [sys.executable, __file__, "--op", args.op, "--out", str(part), "--mode", mode]
-            if args.megatron_src:
-                cmd += ["--megatron-src", args.megatron_src]
-            if args.quick:
-                cmd.append("--quick")
-            env = {**os.environ, **MODES[mode]}
-            proc = subprocess.run(cmd, env=env)
-            results[mode] = (
-                json.loads(part.read_text())
-                if proc.returncode == 0 and part.exists()
-                else {"unavailable": f"subprocess exited with {proc.returncode}"}
-            )
+        # The part file sits next to the report, not in /tmp: cluster job epilogs can clear a
+        # user's /tmp while another of their jobs on the same node is still running.
+        part = args.out.with_name(f".{args.out.stem}.{mode}.part.json")
+        part.parent.mkdir(parents=True, exist_ok=True)
+        part.unlink(missing_ok=True)
+        cmd = [sys.executable, __file__, "--op", args.op, "--out", str(part), "--mode", mode]
+        if args.megatron_src:
+            cmd += ["--megatron-src", args.megatron_src]
+        if args.quick:
+            cmd.append("--quick")
+        proc = subprocess.run(cmd, env={**os.environ, **MODES[mode]})
+        results[mode] = (
+            json.loads(part.read_text())
+            if proc.returncode == 0 and part.exists()
+            else {"unavailable": f"subprocess exited with {proc.returncode}"}
+        )
+        part.unlink(missing_ok=True)
     megatron_commit = None
     if args.megatron_src:
         megatron_commit = (
