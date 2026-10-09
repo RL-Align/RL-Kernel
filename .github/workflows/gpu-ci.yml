@@ -2,7 +2,7 @@ name: GPU CI
 
 on:
   pull_request_target:
-    branches: [ main, test ]
+    branches: [ main, test, test-qwenimage ]
     paths:
       - 'csrc/**'
       - 'rl_engine/**'

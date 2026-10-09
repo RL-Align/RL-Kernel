@@ -15,9 +15,9 @@ name: WS1-chain-NPU
 
 on:
   pull_request:
-    branches: [ main, test ]
+    branches: [ main, test, test-qwenimage ]
   push:
-    branches: [ main, test ]
+    branches: [ main, test, test-qwenimage ]
   workflow_dispatch:
     inputs:
       source_repository:

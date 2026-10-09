@@ -21,5 +21,6 @@ assert trace["selected_backend"] == OpBackend.CUDA_ADALN_MODULATION.name, trace
 assert trace["fallback"] is False, trace
 print(trace)
 PY
-.venv/bin/python -m pytest tests/test_extension_smoke.py tests/test_adaln_modulation.py -q -rs -p no:cacheprovider
+.venv/bin/python -m pytest tests/test_extension_smoke.py tests/test_adaln_modulation.py \
+  tests/test_adaln_gtest.py tests/test_adaln_shared_bounds.py -q -rs -p no:cacheprovider
 bash scripts/adaln_cuda_acceptance/06_racecheck_adaln_cuda.sh

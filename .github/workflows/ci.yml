@@ -5,9 +5,9 @@ name: CI-Pipeline
 
 on:
   push:
-    branches: [ main, test ]
+    branches: [ main, test, test-qwenimage ]
   pull_request:
-    branches: [ main, test ]
+    branches: [ main, test, test-qwenimage ]
 
 permissions:
   contents: read
@@ -70,6 +70,12 @@ jobs:
 
       - name: Check refactor packaging and compatibility
         run: python ci/run.py layout -q
+
+      - name: Run AdaLN CPU contract and reference tests
+        env:
+          CUDA_VISIBLE_DEVICES: ""
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        run: python -m pytest tests/test_adaln_gtest.py tests/test_adaln_shared_bounds.py -q -rs
 
       - name: Run Mocked Hardware Discovery Tests
         run: |

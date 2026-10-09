@@ -20,4 +20,5 @@ exec "$CUDA_HOME/bin/compute-sanitizer" --tool racecheck \
   --racecheck-report analysis --error-exitcode 7 \
   .venv/bin/python -m pytest -q -rs -p no:cacheprovider \
   tests/test_adaln_modulation.py::test_cuda_adaln_bit_equality_harness \
-  tests/test_adaln_modulation.py::test_adaln_launch_geometry_preserves_bytes -k cuda "$@"
+  tests/test_adaln_modulation.py::test_adaln_launch_geometry_preserves_bytes \
+  tests/test_adaln_gtest.py::test_adaln_h3072_relocation_with_all_launch_configurations -k cuda "$@"

@@ -19,7 +19,8 @@ def _sum_hidden(values, BLOCK: tl.constexpr, LOG: tl.constexpr):
         half = 1 << level
         upper = tl.gather(values, tl.minimum(col + half, BLOCK - 1), 0)
         values = tl.where(col < half, values + upper, values)
-    return tl.sum(tl.where(col == 0, values, 0.0), 0)
+    # Extract the tree root without adding +0, which would erase a -0 sum.
+    return tl.sum(tl.gather(values, tl.full((1,), 0, tl.int32), 0), 0)
 
 
 @triton.jit
@@ -97,7 +98,7 @@ class _AdaLNTriton(torch.autograd.Function):
         _fwd[(batch * seq,)](
             x, modulation, y, gate, seq, hidden, eps,
             triton.next_power_of_2(hidden), triton.next_power_of_2(hidden).bit_length() - 1,
-            enable_fp_fusion=False, num_warps=num_warps,
+            enable_fp_fusion=False, enable_reflect_ftz=False, num_warps=num_warps,
         )
         ctx.save_for_backward(x, modulation)
         ctx.eps = eps
@@ -117,6 +118,7 @@ class _AdaLNTriton(torch.autograd.Function):
             x, modulation, grad_y.contiguous(), dx, partial_shift, partial_scale,
             seq, hidden, ctx.eps, triton.next_power_of_2(hidden),
             triton.next_power_of_2(hidden).bit_length() - 1, enable_fp_fusion=False,
+            enable_reflect_ftz=False,
             num_warps=ctx.num_warps,
         )
         _bwd_reduce[(batch, triton.cdiv(hidden, ctx.reduction_tile))](

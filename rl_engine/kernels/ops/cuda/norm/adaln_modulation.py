@@ -34,8 +34,7 @@ class CudaAdaLNModulationOp:
             raise ValueError("AdaLN threads must be 128, 256, or 512")
         self.threads = threads
         if not _EXT_AVAILABLE or not all(
-            hasattr(_C, name)
-            for name in ("adaln_modulation_forward", "adaln_modulation_backward")
+            hasattr(_C, name) for name in ("adaln_modulation_forward", "adaln_modulation_backward")
         ):
             raise RuntimeError("CUDA AdaLN extension symbols are unavailable")
 
@@ -44,8 +43,10 @@ class CudaAdaLNModulationOp:
 
     def forward(self, x, modulation, *, eps=1e-6):
         _validate(x, modulation, eps)
+        if x.shape[0] > 65535:
+            raise ValueError("CUDA AdaLN requires B <= 65535")
+        if max(x.numel(), modulation.numel()) > 2**31 - 1:
+            raise ValueError("CUDA AdaLN requires tensors to fit int32 indexing")
         if not x.is_cuda or torch.version.hip is not None or x.shape[-1] > 4096:
             raise RuntimeError("CUDA AdaLN requires NVIDIA CUDA tensors with H <= 4096")
-        return _AdaLNCuda.apply(
-            x.contiguous(), modulation.contiguous(), float(eps), self.threads
-        )
+        return _AdaLNCuda.apply(x.contiguous(), modulation.contiguous(), float(eps), self.threads)

@@ -3,6 +3,8 @@ import os
 import pytest
 import torch
 
+from rl_engine.kernels.gtest.operator_specs import GtestAdaLNReference
+from rl_engine.kernels.gtest.tolerance import load_contract, resolve_tolerance
 from rl_engine.kernels.ops.pytorch.norm.adaln_modulation import NativeAdaLNModulationOp
 from rl_engine.kernels.registry import OpBackend, kernel_registry
 
@@ -12,6 +14,29 @@ def _assert_bytes_equal(actual, expected):
     actual_bytes = actual.detach().cpu().contiguous().view(torch.uint8)
     expected_bytes = expected.detach().cpu().contiguous().view(torch.uint8)
     assert torch.equal(actual_bytes, expected_bytes)
+
+
+def _assert_accuracy(actual, expected, *, judgment="forward_accuracy"):
+    tolerance = resolve_tolerance(
+        load_contract(), judgment=judgment, op_class="reduction", dtype=actual.dtype
+    )
+    torch.testing.assert_close(
+        actual.detach().cpu().float(),
+        expected.detach().cpu().float(),
+        atol=tolerance.atol,
+        rtol=tolerance.rtol,
+    )
+
+
+def _assert_independent_shared(x, modulation, y, gate, dy, dg):
+    ref_x = x.detach().cpu().float().requires_grad_()
+    ref_modulation = modulation.detach().cpu().float().requires_grad_()
+    ref_y, ref_gate = GtestAdaLNReference().forward_fp32(ref_x, ref_modulation)
+    torch.autograd.backward((ref_y, ref_gate), (dy.cpu().float(), dg.cpu().float()))
+    _assert_accuracy(y, ref_y)
+    _assert_bytes_equal(gate, ref_gate.to(gate.dtype))
+    _assert_accuracy(x.grad, ref_x.grad, judgment="gradient_accuracy")
+    _assert_accuracy(modulation.grad, ref_modulation.grad, judgment="gradient_accuracy")
 
 
 def test_adaln_modulation_forward_and_shared_backward():
@@ -24,9 +49,7 @@ def test_adaln_modulation_forward_and_shared_backward():
 
     (y * torch.tensor([[[1.0, 2.0], [3.0, 4.0]]])).sum().backward(retain_graph=True)
     torch.testing.assert_close(x.grad, torch.zeros_like(x))
-    torch.testing.assert_close(
-        modulation.grad, torch.tensor([[4.0, 6.0, -4.0, 6.0, 0.0, 0.0]])
-    )
+    torch.testing.assert_close(modulation.grad, torch.tensor([[4.0, 6.0, -4.0, 6.0, 0.0, 0.0]]))
     x.grad.zero_()
     modulation.grad.zero_()
     gate.sum().backward()
@@ -116,9 +139,9 @@ def test_adaln_modulation_matches_independent_layer_norm_autograd():
     y_ref = torch.nn.functional.layer_norm(x_ref, (7,), eps=1e-6)
     y_ref = y_ref * (1 + scale[:, None, :]) + shift[:, None, :]
     ((y_ref * upstream).sum() + (gate_ref[:, None, :] * gate_upstream).sum()).backward()
-    torch.testing.assert_close(y, y_ref, atol=1e-6, rtol=1e-6)
-    torch.testing.assert_close(x.grad, x_ref.grad, atol=1e-6, rtol=1e-6)
-    torch.testing.assert_close(modulation.grad, modulation_ref.grad, atol=1e-6, rtol=1e-6)
+    _assert_accuracy(y, y_ref)
+    _assert_accuracy(x.grad, x_ref.grad, judgment="gradient_accuracy")
+    _assert_accuracy(modulation.grad, modulation_ref.grad, judgment="gradient_accuracy")
 
 
 def test_adaln_modulation_batch_position_does_not_change_bytes():
@@ -201,12 +224,11 @@ def test_triton_adaln_modulation_forward_backward_and_batch_position(dtype):
 
 
 def test_triton_irregular_hidden_and_bf16_tie_rounding():
-    from rl_engine.kernels.ops.triton.norm.adaln_modulation import TritonAdaLNModulationOp
-
     try:
         torch.cuda.init()
     except RuntimeError:
         pytest.skip("CUDA required")
+    from rl_engine.kernels.ops.triton.norm.adaln_modulation import TritonAdaLNModulationOp
     for hidden, seq, dtype, seed in (
         (7, 3, torch.float32, 386),
         (3072, 64, torch.bfloat16, 391),
@@ -228,13 +250,12 @@ def test_triton_irregular_hidden_and_bf16_tie_rounding():
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_adaln_gpu_padding_and_batch_size_do_not_change_valid_bytes(dtype):
-    from rl_engine.kernels.ops.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
-    from rl_engine.kernels.ops.triton.norm.adaln_modulation import TritonAdaLNModulationOp
-
     try:
         torch.cuda.init()
     except RuntimeError:
         pytest.skip("CUDA required")
+    from rl_engine.kernels.ops.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
+    from rl_engine.kernels.ops.triton.norm.adaln_modulation import TritonAdaLNModulationOp
     torch.manual_seed(392)
     x = torch.randn(1, 3, 32, device="cuda", dtype=dtype)
     modulation = torch.randn(1, 96, device="cuda", dtype=dtype)
@@ -347,6 +368,9 @@ def test_adaln_real_image_shapes_forward_backward(seq, dtype):
     _assert_bytes_equal(triton_gate, gate)
     _assert_bytes_equal(triton_x.grad, x.grad)
     _assert_bytes_equal(triton_modulation.grad, modulation.grad)
+    # Independent full-image math, in addition to the fixed-reference byte contract.
+    _assert_independent_shared(x, modulation, y, gate, dy, dg)
+    _assert_independent_shared(triton_x, triton_modulation, triton_y, triton_gate, dy, dg)
 
 
 def test_adaln_byte_comparison_distinguishes_signed_zero():
@@ -372,7 +396,8 @@ def test_adaln_launch_geometry_preserves_bytes(backend, dtype):
     else:
         ops = [
             TritonAdaLNModulationOp(num_warps=w, reduction_tile=t)
-            for w in (4, 8) for t in (64, 128, 256)
+            for w in (4, 8)
+            for t in (64, 128, 256)
         ]
     torch.manual_seed(393)
     x = torch.randn(2, 5, 3072, dtype=dtype)
@@ -389,8 +414,10 @@ def test_adaln_launch_geometry_preserves_bytes(backend, dtype):
         y, gate = op(gpu_x, gpu_modulation)
         torch.autograd.backward((y, gate), (dy.cuda(), dg.cuda()))
         for actual, expected in (
-            (y, expected_y), (gate, expected_gate),
-            (gpu_x.grad, cpu_x.grad), (gpu_modulation.grad, cpu_modulation.grad),
+            (y, expected_y),
+            (gate, expected_gate),
+            (gpu_x.grad, cpu_x.grad),
+            (gpu_modulation.grad, cpu_modulation.grad),
         ):
             _assert_bytes_equal(actual, expected)
 
@@ -414,21 +441,17 @@ def test_adaln_indexed_matches_independent_autograd(device, dtype, broadcast):
     y, gate = op(x, modulation, modulate_index=index)
     torch.autograd.backward((y, gate), (dy, dg))
 
-    ref_x = x.detach().clone().requires_grad_()
-    ref_modulation = modulation.detach().clone().requires_grad_()
-    # Independent row indexing, not the implementation's split-and-where path.
-    selected = ref_modulation.float()[torch.arange(2, device=device)[:, None] + index * 2]
-    shift, scale, ref_gate = selected.chunk(3, dim=-1)
-    ref_y = (
-        torch.nn.functional.layer_norm(ref_x.float(), (7,), eps=1e-6) * (1 + scale) + shift
-    ).to(dtype)
-    ref_gate = ref_gate.to(dtype)
-    torch.autograd.backward((ref_y, ref_gate), (dy, dg))
-    for actual, expected in (
-        (y, ref_y), (x.grad, ref_x.grad), (modulation.grad, ref_modulation.grad)
-    ):
-        torch.testing.assert_close(actual, expected, atol=2e-6, rtol=2e-6)
-    _assert_bytes_equal(gate, ref_gate)
+    ref_x = x.detach().cpu().float().requires_grad_()
+    ref_modulation = modulation.detach().cpu().float().requires_grad_()
+    # Independent row indexing and CPU LayerNorm/autograd, not split-and-where.
+    ref_y, ref_gate = GtestAdaLNReference().forward_fp32(
+        ref_x, ref_modulation, modulate_index=index
+    )
+    torch.autograd.backward((ref_y, ref_gate), (dy.cpu().float(), dg.cpu().float()))
+    _assert_accuracy(y, ref_y)
+    _assert_accuracy(x.grad, ref_x.grad, judgment="gradient_accuracy")
+    _assert_accuracy(modulation.grad, ref_modulation.grad, judgment="gradient_accuracy")
+    _assert_bytes_equal(gate, ref_gate.to(dtype))
     assert x.grad.abs().max() > 0
     assert trace["fallback"] is True
     assert trace["fallback_reason"] == "modulate_index_requires_select01"
@@ -446,9 +469,7 @@ def test_adaln_indexed_matches_independent_autograd(device, dtype, broadcast):
 )
 def test_adaln_indexed_rejects_invalid_routing(index, error):
     with pytest.raises(error):
-        NativeAdaLNModulationOp()(
-            torch.ones(1, 2, 7), torch.ones(2, 21), modulate_index=index
-        )
+        NativeAdaLNModulationOp()(torch.ones(1, 2, 7), torch.ones(2, 21), modulate_index=index)
 
 
 @pytest.mark.parametrize("backend", ["pytorch", "triton", "cuda"])
@@ -457,20 +478,21 @@ def test_adaln_indexed_rejects_invalid_routing(index, error):
 def test_adaln_shared_matches_independent_autograd(backend, hidden, dtype):
     if backend != "pytorch" and not torch.cuda.is_available():
         pytest.skip("CUDA required")
-    from rl_engine.kernels.ops.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
-    from rl_engine.kernels.ops.triton.norm.adaln_modulation import TritonAdaLNModulationOp
-
-    ops = {"pytorch": NativeAdaLNModulationOp, "triton": TritonAdaLNModulationOp,
-           "cuda": CudaAdaLNModulationOp}
     if backend == "cuda":
+        from rl_engine.kernels.ops.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
+
         try:
-            op = ops[backend]()
+            op = CudaAdaLNModulationOp()
         except RuntimeError:
             if os.environ.get("RL_KERNEL_REQUIRE_EXT") == "1":
                 raise
             pytest.skip("compiled CUDA AdaLN extension required")
+    elif backend == "triton":
+        from rl_engine.kernels.ops.triton.norm.adaln_modulation import TritonAdaLNModulationOp
+
+        op = TritonAdaLNModulationOp()
     else:
-        op = ops[backend]()
+        op = NativeAdaLNModulationOp()
     device = "cpu" if backend == "pytorch" else "cuda"
     torch.manual_seed(395)
     x = torch.randn(2, 3, hidden, device=device, dtype=dtype, requires_grad=True)
@@ -480,21 +502,4 @@ def test_adaln_shared_matches_independent_autograd(backend, hidden, dtype):
     y, gate = op(x, modulation)
     torch.autograd.backward((y, gate), (dy, dg))
 
-    ref_x = x.detach().cpu().requires_grad_()
-    ref_modulation = modulation.detach().cpu().requires_grad_()
-    shift, scale, ref_gate = ref_modulation.float().chunk(3, dim=-1)
-    ref_y = (
-        torch.nn.functional.layer_norm(ref_x.float(), (hidden,), eps=1e-6)
-        * (1 + scale[:, None, :]) + shift[:, None, :]
-    ).to(dtype)
-    ref_gate = ref_gate[:, None, :].to(dtype)
-    torch.autograd.backward((ref_y, ref_gate), (dy.cpu(), dg.cpu()))
-    for actual, expected in (
-        (y, ref_y), (x.grad, ref_x.grad), (modulation.grad, ref_modulation.grad)
-    ):
-        torch.testing.assert_close(
-            actual.cpu(), expected,
-            atol=2e-5 if dtype == torch.float32 else 0.02,
-            rtol=2e-5 if dtype == torch.float32 else 0.016,
-        )
-    _assert_bytes_equal(gate, ref_gate)
+    _assert_independent_shared(x, modulation, y, gate, dy, dg)
