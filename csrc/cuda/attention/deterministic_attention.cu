@@ -17,7 +17,6 @@
 
 namespace {
 
-constexpr int64_t kDeterministicAttentionHeadDim = 128;
 constexpr int kSoftmaxThreads = 256;
 
 // ---------------------------------------------------------------------------
@@ -220,15 +219,18 @@ void check_deterministic_attention_inputs(
   const int64_t Hkv = k.size(1);
   const int64_t Skv = k.size(2);
 
-  TORCH_CHECK(D == kDeterministicAttentionHeadDim,
-              "deterministic_attention: head dim D must be ",
-              kDeterministicAttentionHeadDim,
-              ", got ",
-              D);
+#if defined(USE_ROCM)
+  TORCH_CHECK(D == 128, "deterministic_attention: ROCm head dim D must be 128, got ", D);
+#else
+  TORCH_CHECK(D == 128 || D == 256,
+              "deterministic_attention: CUDA head dim D must be 128 or 256, got ", D);
+#endif
   TORCH_CHECK(k.size(0) == B && v.size(0) == B,
               "deterministic_attention: batch size mismatch between q/k/v");
   TORCH_CHECK(v.size(1) == Hkv && v.size(2) == Skv && k.size(3) == D && v.size(3) == D,
               "deterministic_attention: k/v shape mismatch");
+  TORCH_CHECK(B > 0 && Hq > 0 && Hkv > 0,
+              "deterministic_attention: batch size and head counts must be positive");
   TORCH_CHECK(Hq % Hkv == 0,
               "deterministic_attention: Hq (",
               Hq,
@@ -572,6 +574,17 @@ std::vector<torch::Tensor> deterministic_attention_backward(
     bool causal,
     double scale,
     torch::optional<torch::Tensor> key_padding_mask) {
+
+  check_deterministic_attention_inputs(q, k, v, key_padding_mask);
+  TORCH_CHECK(grad_output.device() == q.device() && grad_output.scalar_type() == q.scalar_type(),
+              "deterministic_attention_backward: grad_output must match q device and dtype");
+  TORCH_CHECK(grad_output.sizes() == q.sizes(),
+              "deterministic_attention_backward: grad_output must have q shape");
+  TORCH_CHECK(P.device() == q.device() && P.scalar_type() == at::kFloat,
+              "deterministic_attention_backward: P must be FP32 on the input device");
+  TORCH_CHECK(P.dim() == 4 && P.size(0) == q.size(0) && P.size(1) == q.size(1) &&
+              P.size(2) == q.size(2) && P.size(3) == k.size(2),
+              "deterministic_attention_backward: P must have shape [B, Hq, Sq, Skv]");
 
   const at::cuda::OptionalCUDAGuard device_guard(at::device_of(q));
 

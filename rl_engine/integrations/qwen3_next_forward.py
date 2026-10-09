@@ -336,3 +336,29 @@ def shared_moe(x, router_weight, gate_up_weights, down_weights):
     routes = stable_top10_routes(shared_router(x, router_weight))
     outputs = _RoutedExperts.apply(x, gate_up_weights, down_weights, routes.indices)
     return combine_routes(outputs, routes.weights), routes
+
+
+@lru_cache(maxsize=1)
+def _attention_op():
+    from rl_engine.kernels.ops.cuda.attention.deterministic_attn import DeterministicAttentionOp
+
+    return DeterministicAttentionOp()
+
+
+def shared_attention(q, k, v):
+    """Qwen TP4 GQA core: BF16 [B,4,Sq,256] over [B,1,Skv,256].
+
+    Queries must be the final Sq positions of the supplied KV prefix. This
+    covers full prefill, any contiguous prefill chunk, and one-token decode.
+    KV tensors can carry the prompt's gradient graph; no state is detached.
+    """
+    _cuda_tensors(q, k, v)
+    if q.ndim != 4 or k.ndim != 4 or v.ndim != 4:
+        raise ValueError("Qwen3-Next attention requires four-dimensional Q/K/V")
+    if q.shape[1] != 4 or k.shape[1] != 1 or q.shape[-1] != 256:
+        raise ValueError("Qwen3-Next TP4 attention requires Q heads=4, KV heads=1, D=256")
+    if q.dtype != torch.bfloat16 or k.dtype != q.dtype or v.dtype != q.dtype:
+        raise ValueError("Qwen3-Next attention inputs must be BF16")
+    if q.shape[2] > k.shape[2]:
+        raise ValueError("Query tokens must fit within the supplied KV prefix")
+    return _attention_op()(q, k, v, causal=True, scale=1 / 16)

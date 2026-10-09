@@ -15,6 +15,7 @@ from rl_engine.integrations import qwen3_next_forward as provider
         lambda: provider.shared_linear(torch.zeros(1, 8), torch.zeros(8, 8)),
         lambda: provider.stable_top10_routes(torch.zeros(1, 512)),
         lambda: provider.combine_routes(torch.zeros(1, 10, 8), torch.zeros(1, 10)),
+        lambda: provider.shared_attention(*(torch.zeros(1, 4, 8, 256) for _ in range(3))),
     ],
 )
 def test_required_cuda_primitives_reject_cpu(call):
