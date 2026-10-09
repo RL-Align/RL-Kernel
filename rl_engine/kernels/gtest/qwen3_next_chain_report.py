@@ -117,11 +117,14 @@ def build_report(
     device: str,
     gpu_name: str | None,
     compute_capability: str | None,
+    bi_matrix: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the chain report from L2 matrices and their loaded case artifacts.
 
     ``matrices[version]`` is an ``l2-matrix.json`` report; ``artifacts[version]
     [case_id][role]`` is the loaded rollout/recompute artifact of that case.
+    ``bi_matrix`` (a ``bi-matrix.json`` from the batch-invariance stage) adds a
+    ``batch_invariance`` section and must pass for the report to pass.
     """
     if not matrices or set(matrices) - set(WEIGHT_VERSIONS):
         raise ValueError(f"Weight versions must be a subset of {WEIGHT_VERSIONS}")
@@ -204,6 +207,7 @@ def build_report(
         first is None
         and all(matrix["status"] == "passed" for matrix in matrices.values())
         and all(item.passed for item in invariance)
+        and (bi_matrix is None or bi_matrix["status"] == "passed")
     )
     report = ChainGateReport(
         backend_profile=PROFILE,
@@ -264,5 +268,26 @@ def build_report(
         first_drift_cell=None if first is None else first[3],
         first_drift_layer=None if first is None else first[1],
         first_drift_family=None if first is None else first[2],
+        batch_invariance=None if bi_matrix is None else batch_invariance_section(bi_matrix),
     )
     return payload
+
+
+def batch_invariance_section(matrix: Mapping[str, Any]) -> dict[str, Any]:
+    """Per-family pass counts and the first failing cell of a ``bi-matrix.json``."""
+    families: dict[str, dict[str, int]] = {}
+    for cell_id in matrix["cell_ids"]:
+        cell = matrix["cells"][cell_id]
+        counts = families.setdefault(cell["family"], {"cells": 0, "passed": 0})
+        counts["cells"] += 1
+        counts["passed"] += int(cell["passed"])
+    first = matrix.get("first_failure")
+    return {
+        "suite": matrix["suite"],
+        "passed": matrix["status"] == "passed",
+        "families": families,
+        "first_failure": first,
+        "first_failure_family": (
+            None if first is None else matrix["cells"][first]["first_drift_family"]
+        ),
+    }

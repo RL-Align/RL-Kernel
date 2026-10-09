@@ -129,9 +129,23 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--last", type=Path, required=True)
     parser.add_argument("--chain-report", type=Path)
+    parser.add_argument(
+        "--also",
+        type=Path,
+        action="append",
+        default=[],
+        help="another finished run of the same commit, e.g. the bi stage (repeatable)",
+    )
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     runs = chain_runs(args.last)
+    for extra in args.also:
+        manifest = json.loads((extra / "run.json").read_text())
+        if manifest["source_commit"] != runs[0][0]["source_commit"]:
+            raise SystemExit(f"{extra} ran another commit")
+        if manifest["stage"] in {item[0]["stage"] for item in runs}:
+            raise SystemExit(f"{extra} repeats the stage {manifest['stage']}")
+        runs.append((manifest, extra.resolve()))
     if any(not (run / "result.json").is_file() for _, run in runs):
         raise SystemExit("Every stage on the chain must have finished")
     publish(runs, args.chain_report, args.out)

@@ -20,6 +20,7 @@ SCOPES = {
     "train1": "qwen3_next_training_update1",
     "train2": "qwen3_next_training_update2",
     "train": "qwen3_next_training_and_reload",
+    "bi": "qwen3_next_batch_invariance",
 }
 # Stages that evaluate the full model against updated weights (an L2 matrix each).
 TRAIN_STAGES = ("train1", "train2", "train")
@@ -232,6 +233,8 @@ def validate_result(manifest, result, *, run_dir=None, attempt=None):
         required.add("provider_binary")
     if manifest["stage"] == "layers":
         required |= {"layers", "checkpoint", "provider_binary"}
+    if manifest["stage"] == "bi":
+        required |= {"bi_matrix", "provider_binary"}
     if manifest["stage"] == "train":
         required |= {"updates", "reload"}
     if manifest["stage"] in ("train1", "train2"):
@@ -283,6 +286,20 @@ def validate_result(manifest, result, *, run_dir=None, attempt=None):
             counts.get(key, 0) for key in ("skipped", "errors", "failures")
         ):
             raise ValueError("Required operator tests must pass without skips")
+        if manifest["stage"] == "bi":
+            from qwen3_next_l2 import model_identity
+
+            from rl_engine.testing import qwen3_next_bi_cases as bi
+
+            matrix = json.loads((root / evidence["bi_matrix"]["path"]).read_text())
+            suite = bi.quick_cells() if manifest.get("bi_suite") == "quick" else bi.cells()
+            if (
+                matrix.get("status") != "passed"
+                or matrix.get("identity") != model_identity(manifest)
+                or matrix.get("cell_ids") != [cell.cell_id for cell in suite]
+                or any(not matrix["cells"][cell.cell_id]["passed"] for cell in suite)
+            ):
+                raise ValueError("Batch-invariance matrix is incomplete or failed")
         if manifest["stage"] in ("layers", "l2", *TRAIN_STAGES):
             from qwen3_next_l2 import model_identity
 
