@@ -48,6 +48,8 @@ def fused_logp_backward_chunked(
         rows = torch.arange(r1 - r0, device=logits.device)
         probs[rows, safe_labels[r0:r1]] -= one_hot_scale[r0:r1]
         probs.mul_((neg_grad[r0:r1] * one_hot_scale[r0:r1]).unsqueeze(1))
+        # Multiplication by zero does not clear NaNs from fully masked rows.
+        probs.masked_fill_(~valid[r0:r1].unsqueeze(1), 0)
         grad_logits[r0:r1].copy_(probs)
         del probs  # keep at most two FP32 chunks (upcast + softmax) alive
     return grad_logits

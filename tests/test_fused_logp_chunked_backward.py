@@ -81,17 +81,25 @@ def test_chunked_matches_autograd_reference(device):
 
 
 @pytest.mark.parametrize("device", _DEVICES)
-def test_out_of_range_targets_get_zero_gradient(device):
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("rows_per_chunk", [1, 5, 64])
+@pytest.mark.parametrize("masked_invalid_rows", [False, True])
+def test_out_of_range_targets_get_zero_gradient(device, dtype, rows_per_chunk, masked_invalid_rows):
     vocab = 257
-    logits, labels, grad = _make_inputs(12, vocab, torch.float32, device, seed=2)
+    logits, labels, grad = _make_inputs(12, vocab, dtype, device, seed=2)
     invalid = torch.tensor([1, 4, 9], device=device)
     labels[1], labels[4], labels[9] = -100, vocab, vocab + 5
-    actual = fused_logp_backward_chunked(logits, labels, grad, torch.float32, chunk_elems=5 * vocab)
+    if masked_invalid_rows:
+        logits[invalid] = float("-inf")
+    actual = fused_logp_backward_chunked(
+        logits, labels, grad, dtype, chunk_elems=rows_per_chunk * vocab
+    )
 
+    assert torch.isfinite(actual).all()
     assert torch.count_nonzero(actual[invalid]) == 0
     valid = torch.ones(12, dtype=torch.bool, device=device)
     valid[invalid] = False
-    expected = _unchunked_backward(logits[valid], labels[valid], grad[valid], torch.float32)
+    expected = _unchunked_backward(logits[valid], labels[valid], grad[valid], dtype)
     assert torch.equal(actual[valid], expected)
 
 
