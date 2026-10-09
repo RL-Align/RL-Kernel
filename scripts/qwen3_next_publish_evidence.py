@@ -27,13 +27,15 @@ import shutil
 import socket
 from pathlib import Path
 
+# Absolute site paths only: "cpu/data/" inside a package path is not a site path.
+_ABSOLUTE = r"(?<![\w.>-])"
 FORBIDDEN = (
-    r"/data/",
-    r"/home/",
-    r"/raid/",
-    r"/scratch",
+    _ABSOLUTE + r"/data/",
+    _ABSOLUTE + r"/home/",
+    _ABSOLUTE + r"/raid/",
+    _ABSOLUTE + r"/scratch",
     r"\bdgx-",
-    r"SLURM_",
+    r"(?i)slurm",
 )
 TEXT_SUFFIXES = (".json", ".xml", ".txt", ".log")
 
@@ -74,14 +76,22 @@ def redact(text, pairs, counts):
             counts[placeholder] = counts.get(placeholder, 0) + text.count(value)
             text = text.replace(value, placeholder)
     for pattern, placeholder in (
+        (r"/sys/fs/cgroup/[^\s\"']*/([^/\s\"']+)", r"<CGROUP>/\1"),
         (r"/[^\s\"']*/site-packages", "<SITE>"),
+        # Anything else under a site root (editable sources, base interpreters,
+        # build directories in package metadata) keeps only its last component.
+        (
+            _ABSOLUTE + r"/(?:data|home|raid|scratch)/[^\s\"'\\]*?([^/\s\"'\\]+)(?=[\s\"'\\]|$)",
+            r"<PATH>/\1",
+        ),
         (r"\bdgx-[A-Za-z0-9-]+", "<HOST>"),
         (rf"\b{re.escape(socket.gethostname())}\b", "<HOST>"),
         (rf"\b{re.escape(getpass.getuser())}\b", "<USER>"),
     ):
         text, count = re.subn(pattern, placeholder, text)
         if count:
-            counts[placeholder] = counts.get(placeholder, 0) + count
+            label = placeholder.split("/", 1)[0]
+            counts[label] = counts.get(label, 0) + count
     return text
 
 
