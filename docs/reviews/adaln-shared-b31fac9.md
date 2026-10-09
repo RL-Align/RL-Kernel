@@ -1,10 +1,88 @@
-# AdaLN shared：工作区审查与 TDD 证据（2026-10-09）
+# AdaLN shared：工作区审查与 TDD 证据（更新于 2026-10-10）
 
-## 剩余缺口与本次执行范围
+## 当前 native SM86 短验收（2026-10-10）
+
+用户授权先本地提交、重新构建 native，再执行全部短测试。输入提交为
+`f21007cccc216d214ec2589cc175bc288a5363e0`，固定比较点仍为 `b31fac9`。
+该提交包含此前全部未提交改动、两个未跟踪测试和两个审查文档，未推送。
+本节取代下方构建前记录中的 native UNPROVEN 结论；仅对明确列出的本机反例升级资格。
+
+全量构建使用独立 objects/lib 目录和 `build_ext --inplace --force`，旧 `.so` 已隔离。
+环境固定为 Python 3.12.12、PyTorch 2.12.1+cu126、CUDA toolkit 12.6.85、GCC 11.4、
+RTX3050Ti/SM86、MAX_JOBS=2、fast math=0，未安装或下载依赖。
+构建成功，实际 import 路径、构建目录产物和安装产物 hash 一致；构建期间源码不变。
+[构建参数及工具 hash](/tmp/rlk-adaln-native-f21007c-20261009T153114Z/build-manifest.json)、
+[全部源码 hash](/tmp/rlk-adaln-native-f21007c-20261009T153114Z/source.sha256)、
+[源码快照](/tmp/rlk-adaln-native-f21007c-20261009T153114Z/source.tar.gz)、
+[完整构建日志](/tmp/rlk-adaln-native-f21007c-20261009T153114Z/build.log)、
+[实际编译参数](/tmp/rlk-adaln-native-f21007c-20261009T153114Z/objects/build.ninja)、
+[import 验证](/tmp/rlk-adaln-native-f21007c-20261009T153114Z/import-verification.log)。
+
+当前 `.so`：`rl_engine/_C.cpython-312-x86_64-linux-gnu.so`；SHA256：
+`94b86feb52cb621794598b9ba6361ae3d521a370b9e6c5df74942112f2f35e61`。
+旧二进制 `d7b91b28...` 不参与本次运行，也不算当前证据。
+
+先运行提交中现有用例：**89 passed，182 deselected，5.38s**。
+检查后补齐 B65536 的 BF16 和全部 threads，强化 B65535 的非零 y backward，得到
+**98 passed，182 deselected，5.68s**。最终进一步将 CUDA fixture 扩展到三种 threads，
+让每个 canary、两 stream/两个 triple 和合法 H 边界均交叉执行：
+**216 passed，182 deselected，7.23s；零 skip、xfail、xpass、失败或 teardown 错误**。
+没有暴露需要修改 native 实现的错误；本轮只修改两个测试文件和本报告，未新增提交。
+
+| 可能错误 / 要求 | 本次反例与必须成立的断言 | 当前结论 |
+| --- | --- | --- |
+| 提前 BF16 舍入 norm/affine、保存量、partial 或 token accumulator | 早 cast 残差、1799/32768 VJP、H7/3072 BF16 对提升后 FP32 单次最终 cast、两 halfway tie；比较 y/gate/dX/dMod bytes；各自遍历 threads128/256/512 | 指定 native canary **PROVEN** |
+| hidden mean/variance 或两个 backward sum 改树，token fold 被重关联 | `[2^24,1,-2^24,1]`、variance-only 向量、正负 dy、S4 cancellation；独立手算 literal 的输出/VJP bytes；三 threads | 指定 native 归约反例 **PROVEN** |
+| signed zero 被额外 +0 擦除、合法 eps 被 FTZ、gate/dgate NaN payload 被转换 | signed-zero bytes、eps1e-40/2^-149/FP32 max 的 y0/dX±rstd/dMod literal、BF16 原始 payload 透传；三 threads，适用的两 dtype | 指定 native 反例 **PROVEN**；一般 LN NaN payload 不在资格声明中 |
+| B65535 的最后 batch 寻址或 backward grid.y 错误 | B65535,S1,H2,x=[-3,3],eps7；y=[-.75,.75]，dX=[7/128,-7/128]，dshift=[1,0]，dscale=[-.75,0]，dgate=[2,-3]；每个 batch 的 gate 使用 mod17 标签；两 dtype×三 threads共6例，检查所有行 | 合法最大 B native forward/backward **PROVEN** |
+| B65536 被非法 launch | B65536,S1,H1；公开 op 必须 ValueError `B <= 65535`，两 dtype×三 threads共6例 | 公开 fail-closed **PROVEN**；负例在 Python preflight 拒绝，不冒充独立 C++ guard 运行证据 |
+| H4095/4096 的补零或上限 off-by-one | B2,S3，两 dtype×三 threads；y/gate/dX/dMod 对独立 CPU FP32 math accuracy 和固定参考 bytes，共12例 | 指定合法 native H 边界 **PROVEN** |
+| H4097 静默进入 native / 未声明 fallback | 两 dtype公开 op 明确拒绝；H4095/4096 registry 必须选 CUDA 且 fallback=False；4097必须明确 rejected reason及fallback=True | direct 拒绝及 registry policy **PROVEN**；未声称 H4097 fallback 数值已验收 |
+| threads×H3072 batch position/padding 组合路径出错 | 128/256/512×两 dtype，B1/S3 baseline→B3每个位置、S3/5、strided x和6H view；y/gate/dX/dMod bytes、unused半区0、padding dX0 | 当前 native 三 geometry×topology **PROVEN** |
+| 第二 triple 或两 stream 错 shift / VJP 串值 | image S5/text S3、两 triple×两 dtype×三 threads共12例；独立 FP32 CPU forward/backward、gate bytes、unused半区0、另一个stream梯度不变 | 指定两 stream/两个 triple **PROVEN** |
+| 上游 stride、单个 trainable input、unused output 失效 | transposed dy、stride0 dg、x-only/modulation-only/gate-only；独立 math 或 literal bytes；三 threads×两 dtype | 指定 native autograd 用例 **PROVEN** |
+| int32 地址溢出、eps 输入域或非有限传播未验证 | 巨大 meta shape明确拒绝，不分配实数据；非法eps公开拒绝；NaN/Inf x传播及独立gate VJP | 公开 preflight及指定 nonfinite native 反例 **PROVEN**；C++负例守卫未绕过Python单独测试，完整非有限域 **PARTIAL** |
+| 用旧二进制 / 隐含 fallback 冒充 native | 加载路径和 .so SHA256与fresh build一致；运行前后所有生产源码及binary hash不变；可支持 H 的 registry必须 native/fallback=False；数值用例直接使用 CudaAdaLNModulationOp | 当前 SM86 源码/产物/运行闭环 **PROVEN** |
+| H100、三真实图像形状、racecheck/memcheck、benchmark | SM90固定环境 fresh build；S4096/6889/6032；sanitizer零hazards/errors；完整时间/峰值内存 | **UNPROVEN**，本轮未启动 |
+
+最终证据：[pytest 完整日志](/tmp/rlk-adaln-native-f21007c-20261009T153114Z/native-short-20261009T174217Z/pytest.log)、
+[JUnit](/tmp/rlk-adaln-native-f21007c-20261009T153114Z/native-short-20261009T174217Z/junit.xml)、
+[逐阶段结果及零 skip/xfail 检查](/tmp/rlk-adaln-native-f21007c-20261009T153114Z/native-short-20261009T174217Z/results.json)、
+[实际选中用例](/tmp/rlk-adaln-native-f21007c-20261009T153114Z/native-short-20261009T174217Z/selected-tests.json)、
+[固定运行环境及 registry traces](/tmp/rlk-adaln-native-f21007c-20261009T153114Z/native-short-20261009T174217Z/manifest.json)。
+182 deselected 是未选择的 CPU/Triton、indexed、真实图像及非 native checker 用例，不是 skip。
+测试中的 H4097/H5000 registry fallback 是声明过的 unsupported-H policy；支持域的数值用例无 fallback。
+
+最终测试 SHA256：
+
+- `tests/test_adaln_gtest.py`：`dbb499193632e23ccaf415d78a246a4ac1d3f3a340809cda8ad4d1e7717efa54`。
+- `tests/test_adaln_shared_bounds.py`：`48c4432a6456bb9b25e06ffbe2d9e7457cdff7e9f25b5208fcbe310e7cc98810`。
+
+运行前相对于 build source manifest 只有两个测试及本报告改变，所有生产源码保持一致；完整
+[当前源码 hash](/tmp/rlk-adaln-native-f21007c-20261009T153114Z/native-short-20261009T174217Z/source-sha256-current.json)、
+[测试 patch](/tmp/rlk-adaln-native-f21007c-20261009T153114Z/native-short-20261009T174217Z/test-changes.patch)
+和两个完整测试快照均已保存。运行期间源码/产物不变，报告在运行后更新。
+ruff、Black py312、isort black profile及 `git diff --check` 检查通过；没有重新编译或更改生产源码。
+
+复跑短矩阵使用如下选择，并保留固定环境、import hash、registry和零skip/xfail校验；
+这些额外校验的完整可审查脚本保存在证据目录 `runner.py`。
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 RLK_ADALN_REAL_SHAPES=0 \
+RL_KERNEL_REQUIRE_EXT=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+  .venv/bin/python -m pytest tests/test_adaln_gtest.py tests/test_adaln_shared_bounds.py \
+  tests/test_adaln_modulation.py -vv -ra -p no:cacheprovider \
+  -k 'cuda and not real_image and not indexed'
+```
+
+下一步仍是单独授权/由用户执行的 H100真实形状、sanitizer及benchmark；
+本机 SM86 短验收不能升级为 SM90 或一般输入域的证明。
+
+## 构建前 TDD 范围与记录（2026-10-09 历史快照）
 
 用户已授权继续按 `/tdd` 改实现、补测试；沿用公开 op 调用、autograd、registry、gtest
 接口，不要求新的接口确认。不提交/推送，不启动 H100 长测试、巨大输入或无法估计耗时的构建。
-下面是实施前待办；其最新完成状态和本次运行证据记录在下一节。
+下面保留构建前实施待办和中间运行记录；最新 native 状态以上一节为准。
 本文件下方第一轮审查及 followup 文档都属于历史源码快照，旧运行表不能算当前版本证据。
 
 | 缺口 | 修补动作 | 实施前结论 |
@@ -18,7 +96,7 @@
 | 当前源码/native binary闭环缺失 | 保存源/产物hash；仅在能够可靠估计快速完成时构建，否则提供构建与验收命令 | UNPROVEN |
 | H100真实图像、安全性、性能 | 保留三真实S、racecheck/memcheck、benchmark和pinned环境命令与清单，不自行启动 | UNPROVEN |
 
-## 本次 TDD 完成状态与当前源码证据
+## 构建前 TDD 完成状态与源码证据（历史快照）
 
 以下均通过公开 op、autograd、registry 或 gtest 观察，没有新增生产 helper mock。
 已复用旧检查器、固定字节参考、独立 FP32 CPU LayerNorm/autograd 和模型六块切片用例。

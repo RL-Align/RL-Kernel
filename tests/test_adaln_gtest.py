@@ -33,15 +33,25 @@ def _args(hidden=7):
     )
 
 
-@pytest.fixture(params=["pytorch", "triton", "cuda"])
+@pytest.fixture(
+    params=["pytorch", "triton"]
+    + [
+        pytest.param(("cuda", threads), id=f"cuda-threads{threads}")
+        for threads in (128, 256, 512)
+    ]
+)
 def shared_op(request):
-    backend = request.param
+    backend, threads = (
+        request.param if isinstance(request.param, tuple) else (request.param, None)
+    )
     if backend != "pytorch" and not torch.cuda.is_available():
         pytest.skip("CUDA required")
     args = _args()
     args.candidate = backend
     try:
         op = make_candidate(args).fn
+        if threads is not None:
+            op = type(op)(threads=threads)
     except RuntimeError:
         if backend != "cuda":
             raise
@@ -60,7 +70,9 @@ def _bytes_equal(actual, expected):
 
 
 @pytest.mark.parametrize("nan_upstream", [False, True])
-def test_adaln_gate_preserves_bf16_nan_payload_and_identity_vjp(shared_op, nan_upstream):
+def test_adaln_gate_preserves_bf16_nan_payload_and_identity_vjp(
+    shared_op, nan_upstream
+):
     op, device = shared_op
     x = torch.tensor([[[-1.0, 1.0]]], device=device, dtype=torch.bfloat16)
     m = torch.zeros(1, 6, device=device, dtype=torch.bfloat16)
@@ -119,7 +131,9 @@ def test_adaln_subnormal_eps_is_not_flushed_to_zero(shared_op, dtype, eps, rstd)
 def test_adaln_bf16_forward_casts_only_at_output(shared_op, scale, positive):
     op, device = shared_op
     x = torch.tensor([[[-1.0, 1.0]]], device=device, dtype=torch.bfloat16)
-    m = torch.tensor([[-1.0, -1.0, scale, scale, -0.0, 2.0]], device=device, dtype=torch.bfloat16)
+    m = torch.tensor(
+        [[-1.0, -1.0, scale, scale, -0.0, 2.0]], device=device, dtype=torch.bfloat16
+    )
     y, gate = op(x, m)
     # FP32 sqrt(1 + 1e-6) = 1 + 2^-21, reciprocal = 1 - 2^-21.
     # Rounding norm or (1 + 1/256) to BF16 early erases the positive residual.
@@ -129,7 +143,9 @@ def test_adaln_bf16_forward_casts_only_at_output(shared_op, scale, positive):
 
 def test_adaln_bf16_backward_keeps_partials_and_accumulators_fp32(shared_op):
     op, device = shared_op
-    x = torch.tensor([[[-3.0, 3.0]] * 3], device=device, dtype=torch.bfloat16, requires_grad=True)
+    x = torch.tensor(
+        [[[-3.0, 3.0]] * 3], device=device, dtype=torch.bfloat16, requires_grad=True
+    )
     m = torch.tensor(
         [[0.0, 0.0, 1 / 256, 1 / 256, 2.0, 3.0]],
         device=device,
@@ -157,7 +173,9 @@ def test_adaln_bf16_backward_keeps_partials_and_accumulators_fp32(shared_op):
     )
     _bytes_equal(x.grad, expected_dx)
     # FP32 left folds: 256+1-256=1; -192-3/4+192=-3/4.
-    _bytes_equal(m.grad, torch.tensor([[1.0, 0.0, -0.75, 0.0, -2.0, 0.5]], dtype=torch.bfloat16))
+    _bytes_equal(
+        m.grad, torch.tensor([[1.0, 0.0, -0.75, 0.0, -2.0, 0.5]], dtype=torch.bfloat16)
+    )
 
 
 @pytest.mark.parametrize("hidden", [7, 3072])
@@ -166,10 +184,15 @@ def test_adaln_bf16_vjp_matches_fp32_with_one_final_cast(shared_op, hidden):
     torch.manual_seed(389)
     x = torch.randn(2, 3, hidden, device=device, dtype=torch.bfloat16)
     m = torch.randn(2, 3 * hidden, device=device, dtype=torch.bfloat16)
-    dy, dg = torch.randn_like(x), torch.randn(2, 1, hidden, device=device, dtype=x.dtype)
+    dy, dg = torch.randn_like(x), torch.randn(
+        2, 1, hidden, device=device, dtype=x.dtype
+    )
     observations = []
     for dtype in (torch.bfloat16, torch.float32):
-        xx, mm = x.to(dtype).detach().requires_grad_(), m.to(dtype).detach().requires_grad_()
+        xx, mm = (
+            x.to(dtype).detach().requires_grad_(),
+            m.to(dtype).detach().requires_grad_(),
+        )
         y, gate = op(xx, mm)
         dx, dm = torch.autograd.grad((y, gate), (xx, mm), (dy.to(dtype), dg.to(dtype)))
         observations.append((y, gate, dx, dm))
@@ -180,7 +203,9 @@ def test_adaln_bf16_vjp_matches_fp32_with_one_final_cast(shared_op, hidden):
 
 
 @pytest.mark.parametrize("fraction, rounded", [(1 / 256, 1.0), (3 / 256, 1 + 4 / 256)])
-def test_adaln_bf16_boundary_rounds_halfway_values_to_even(shared_op, fraction, rounded):
+def test_adaln_bf16_boundary_rounds_halfway_values_to_even(
+    shared_op, fraction, rounded
+):
     op, device = shared_op
     x = torch.tensor([[[-1.0, 1.0]] * 2], device=device, dtype=torch.bfloat16)
     m = torch.zeros(1, 6, device=device, dtype=x.dtype)
@@ -190,7 +215,9 @@ def test_adaln_bf16_boundary_rounds_halfway_values_to_even(shared_op, fraction, 
     _bytes_equal(y, torch.tensor([[[-1 + fraction, rounded]] * 2], dtype=x.dtype))
     dy = torch.tensor([[[0.0, 1.0], [0.0, fraction]]], device=device, dtype=x.dtype)
     (dm,) = torch.autograd.grad(y, (m,), dy)
-    _bytes_equal(dm, torch.tensor([[0.0, rounded, 0.0, rounded, 0.0, 0.0]], dtype=x.dtype))
+    _bytes_equal(
+        dm, torch.tensor([[0.0, rounded, 0.0, rounded, 0.0, 0.0]], dtype=x.dtype)
+    )
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
@@ -201,7 +228,11 @@ def test_adaln_h3072_sample_bytes_survive_batch_positions_and_padding(shared_op,
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.parametrize(
     "backend,options",
-    [("triton", {"num_warps": w, "reduction_tile": t}) for w in (4, 8) for t in (64, 128, 256)]
+    [
+        ("triton", {"num_warps": w, "reduction_tile": t})
+        for w in (4, 8)
+        for t in (64, 128, 256)
+    ]
     + [("cuda", {"threads": n}) for n in (128, 256, 512)],
 )
 def test_adaln_h3072_relocation_with_all_launch_configurations(dtype, backend, options):
@@ -249,8 +280,12 @@ def _assert_h3072_relocation(shared_op, dtype, *, reference_op=None):
             dy[position, :valid], dg[position] = dy0[0], dg0[0]
             dy[position, valid:] = 0
             actual = observe(x, full, dy, dg)
-            for index, (result, expected) in enumerate(zip(actual, baseline, strict=True)):
-                result = result[position, :valid] if index in (0, 2) else result[position]
+            for index, (result, expected) in enumerate(
+                zip(actual, baseline, strict=True)
+            ):
+                result = (
+                    result[position, :valid] if index in (0, 2) else result[position]
+                )
                 _bytes_equal(result, expected[0])
             # Padding has zero VJP; IEEE arithmetic may produce either zero sign.
             assert torch.equal(
@@ -270,7 +305,9 @@ def test_adaln_backward_accepts_transposed_and_broadcast_upstreams(shared_op, dt
     dg = dg_storage[:1].expand(2, 1, 7)
     assert not dy.is_contiguous() and dg.stride(0) == 0
     actual = torch.autograd.grad(op(x, m), (x, m), (dy, dg))
-    contiguous = torch.autograd.grad(op(x, m), (x, m), (dy.contiguous(), dg.contiguous()))
+    contiguous = torch.autograd.grad(
+        op(x, m), (x, m), (dy.contiguous(), dg.contiguous())
+    )
     for result, expected in zip(actual, contiguous, strict=True):
         _bytes_equal(result, expected)
     xx = x.detach().cpu().float().requires_grad_()
@@ -284,7 +321,9 @@ def test_adaln_backward_accepts_transposed_and_broadcast_upstreams(shared_op, dt
         load_contract(), judgment="gradient_accuracy", op_class="reduction", dtype=dtype
     )
     for result, expected in zip(actual, gold, strict=True):
-        torch.testing.assert_close(result.cpu().float(), expected, atol=tol.atol, rtol=tol.rtol)
+        torch.testing.assert_close(
+            result.cpu().float(), expected, atol=tol.atol, rtol=tol.rtol
+        )
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
@@ -307,11 +346,15 @@ def test_adaln_single_trainable_input_and_unused_output(shared_op, dtype, traina
     elif trainable == "modulation":
         y.sum().backward()  # Gate is genuinely unused, rather than given a zero VJP.
         assert x.grad is None
-        _bytes_equal(m.grad, torch.tensor([[1.0, 1.0, -1.0, 1.0, 0.0, 0.0]], dtype=dtype))
+        _bytes_equal(
+            m.grad, torch.tensor([[1.0, 1.0, -1.0, 1.0, 0.0, 0.0]], dtype=dtype)
+        )
     else:
         gate.backward(torch.tensor([[[2.0, -3.0]]], device=device, dtype=dtype))
         assert torch.equal(x.grad, torch.zeros_like(x))
-        _bytes_equal(m.grad, torch.tensor([[0.0, 0.0, 0.0, 0.0, 2.0, -3.0]], dtype=dtype))
+        _bytes_equal(
+            m.grad, torch.tensor([[0.0, 0.0, 0.0, 0.0, 2.0, -3.0]], dtype=dtype)
+        )
 
 
 def test_adaln_hidden_reduction_uses_declared_pairwise_order(shared_op):
@@ -377,7 +420,9 @@ def test_adaln_modulation_gradient_uses_ascending_token_order(shared_op):
     x = torch.tensor([[[-1.0, 1.0]] * 4], device=device, requires_grad=True)
     m = torch.zeros(1, 6, device=device, requires_grad=True)
     y, gate = op(x, m, eps=0.0)
-    dy = torch.tensor([[[2**24, 0.0], [1.0, 0.0], [-(2**24), 0.0], [1.0, 0.0]]], device=device)
+    dy = torch.tensor(
+        [[[2**24, 0.0], [1.0, 0.0], [-(2**24), 0.0], [1.0, 0.0]]], device=device
+    )
     (dm,) = torch.autograd.grad((y, gate), (m,), (dy, torch.zeros_like(gate)))
     # Ascending FP32 fold is 1; reordering to lower+upper pairs would yield 2.
     _bytes_equal(dm, torch.tensor([[1.0, 0.0, -1.0, 0.0, 0.0, 0.0]]))
@@ -431,7 +476,9 @@ def test_adaln_shared_rejects_mixed_devices(shared_op):
 
 @pytest.mark.parametrize("eps", [1e39, 1e-46])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-def test_adaln_shared_rejects_eps_overflow_and_positive_underflow(shared_op, dtype, eps):
+def test_adaln_shared_rejects_eps_overflow_and_positive_underflow(
+    shared_op, dtype, eps
+):
     op, device = shared_op
     x = torch.zeros(1, 1, 2, device=device, dtype=dtype)
     m = torch.zeros(1, 6, device=device, dtype=dtype)
@@ -441,7 +488,9 @@ def test_adaln_shared_rejects_eps_overflow_and_positive_underflow(shared_op, dty
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf")])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-def test_adaln_nonfinite_activation_propagates_nan_and_preserves_gate_vjp(shared_op, dtype, value):
+def test_adaln_nonfinite_activation_propagates_nan_and_preserves_gate_vjp(
+    shared_op, dtype, value
+):
     op, device = shared_op
     x = torch.tensor([[[value, 1.0]]], device=device, dtype=dtype, requires_grad=True)
     m = torch.zeros(1, 6, device=device, dtype=dtype)
@@ -492,7 +541,11 @@ def test_adaln_gtest_detects_wrong_output_and_backward(broken):
     def corrupt(x, modulation, eps):
         # Zero-valued terms preserve connectivity while deliberately erasing a VJP.
         xx = x.detach() + x * 0 if broken == "x" else x
-        mm = modulation.detach() + modulation * 0 if broken == "modulation" else modulation
+        mm = (
+            modulation.detach() + modulation * 0
+            if broken == "modulation"
+            else modulation
+        )
         y, gate = good.fn(xx, mm, eps=eps)
         return y, gate + 1 if broken == "gate" else gate
 
@@ -519,11 +572,16 @@ def test_adaln_gtest_rejects_fp32_outputs_for_bf16_inputs(check_grad):
         return tuple(output.float() for output in good.fn(**inputs))
 
     report = run_operator_suite(
-        args.op, candidates=[replace(good, fn=wrong_dtype)], cases=[case], check_grad=check_grad
+        args.op,
+        candidates=[replace(good, fn=wrong_dtype)],
+        cases=[case],
+        check_grad=check_grad,
     )
     assert not report.passed, report.to_dict()
     checks = report.candidates[0].cases[0].outputs[:2]
-    assert all(not check.passed and "dtype mismatch" in check.message for check in checks)
+    assert all(
+        not check.passed and "dtype mismatch" in check.message for check in checks
+    )
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
@@ -535,8 +593,12 @@ def test_adaln_gate_only_and_separate_stream_chunks(shared_op, dtype, triple):
     # Separate image/text projections, each exposing a strided triple of six chunks.
     image = torch.randn(2, 5, hidden, device=device, dtype=dtype, requires_grad=True)
     text = torch.randn(2, 3, hidden, device=device, dtype=dtype, requires_grad=True)
-    image_full = torch.randn(2, 6 * hidden, device=device, dtype=dtype, requires_grad=True)
-    text_full = torch.randn(2, 6 * hidden, device=device, dtype=dtype, requires_grad=True)
+    image_full = torch.randn(
+        2, 6 * hidden, device=device, dtype=dtype, requires_grad=True
+    )
+    text_full = torch.randn(
+        2, 6 * hidden, device=device, dtype=dtype, requires_grad=True
+    )
     start, stop = triple * 3 * hidden, (triple + 1) * 3 * hidden
     unused = slice(3 * hidden, None) if triple == 0 else slice(None, 3 * hidden)
     for x, full, other in (
@@ -562,7 +624,10 @@ def test_adaln_gate_only_and_separate_stream_chunks(shared_op, dtype, triple):
         ref_m = m.detach().cpu().float().requires_grad_()
         ref_y, ref_gate = GtestAdaLNReference().forward_fp32(ref_x, ref_m)
         forward_tol = resolve_tolerance(
-            load_contract(), judgment="forward_accuracy", op_class="reduction", dtype=dtype
+            load_contract(),
+            judgment="forward_accuracy",
+            op_class="reduction",
+            dtype=dtype,
         )
         torch.testing.assert_close(
             y.detach().cpu().float(),
@@ -594,7 +659,9 @@ def test_adaln_gate_only_and_separate_stream_chunks(shared_op, dtype, triple):
 
 @pytest.mark.parametrize("hidden", [4095, 4096])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-def test_adaln_hidden_boundary_matches_independent_math_and_fixed_bytes(shared_op, dtype, hidden):
+def test_adaln_hidden_boundary_matches_independent_math_and_fixed_bytes(
+    shared_op, dtype, hidden
+):
     op, device = shared_op
     torch.manual_seed(395)
     x_cpu = torch.randn(2, 3, hidden, dtype=dtype)
@@ -606,7 +673,9 @@ def test_adaln_hidden_boundary_matches_independent_math_and_fixed_bytes(shared_o
     dx, dm = torch.autograd.grad((y, gate), (x, m), (dy.to(device), dg.to(device)))
     xx, mm = x_cpu.float().requires_grad_(), m_cpu.float().requires_grad_()
     gold_y, gold_gate = GtestAdaLNReference().forward_fp32(xx, mm)
-    gold_dx, gold_dm = torch.autograd.grad((gold_y, gold_gate), (xx, mm), (dy.float(), dg.float()))
+    gold_dx, gold_dm = torch.autograd.grad(
+        (gold_y, gold_gate), (xx, mm), (dy.float(), dg.float())
+    )
     for actual, expected, judgment in (
         (y, gold_y, "forward_accuracy"),
         (gate, gold_gate, "forward_accuracy"),
@@ -616,7 +685,9 @@ def test_adaln_hidden_boundary_matches_independent_math_and_fixed_bytes(shared_o
         tol = resolve_tolerance(
             load_contract(), judgment=judgment, op_class="reduction", dtype=dtype
         )
-        torch.testing.assert_close(actual.cpu().float(), expected, atol=tol.atol, rtol=tol.rtol)
+        torch.testing.assert_close(
+            actual.cpu().float(), expected, atol=tol.atol, rtol=tol.rtol
+        )
     fx, fm = x_cpu.detach().requires_grad_(), m_cpu.detach().requires_grad_()
     fixed_y, fixed_gate = NativeAdaLNModulationOp()(fx, fm)
     fixed_dx, fixed_dm = torch.autograd.grad((fixed_y, fixed_gate), (fx, fm), (dy, dg))
