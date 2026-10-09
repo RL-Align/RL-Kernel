@@ -16,12 +16,12 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import qwen3_next_publish_evidence as publisher  # noqa: E402
 
 PATTERNS = (
-    r"/data/",
-    r"/home/",
-    r"/raid/",
-    r"/scratch",
+    r"(?<![\w.>-])/data/",
+    r"(?<![\w.>-])/home/",
+    r"(?<![\w.>-])/raid/",
+    r"(?<![\w.>-])/scratch",
     r"\bdgx-",
-    r"SLURM_",
+    r"(?i)slurm",
     r"\bsbatch\b",
     r"\bsrun\b",
     r"\bwrd\b",
@@ -99,7 +99,20 @@ def test_publisher_replaces_every_recorded_root(tmp_path):
 def test_publisher_refuses_text_that_survives_redaction(tmp_path):
     last = chain(tmp_path)
     leak = last / "attempts" / "0" / "environment.json"
-    leak.write_text(json.dumps({"note": "copied from /scratch/elsewhere"}))
+    leak.write_text(json.dumps({"note": "SLURM_JOB_ID=123"}))
     with pytest.raises(SystemExit, match="survived redaction"):
         publisher.publish(publisher.chain_runs(last), None, tmp_path / "published")
     assert not (tmp_path / "published").exists()
+
+
+def test_relative_package_paths_are_not_site_paths(tmp_path):
+    counts = {}
+    text = publisher.redact(
+        '"vllm/ec_connector/cpu/data/base.py" "file:///data/x/editable/vime" "/home/b/env/bin/py"'
+        ' "/sys/fs/cgroup/memory/system.slice/slurmd.service/memory.limit_in_bytes"',
+        [],
+        counts,
+    )
+    assert "cpu/data/base.py" in text and "<PATH>/vime" in text and "<PATH>/py" in text
+    assert "<CGROUP>/memory.limit_in_bytes" in text
+    assert not publisher.leftovers(text)
