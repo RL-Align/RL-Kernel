@@ -258,6 +258,8 @@ def candidates(op: str) -> dict[str, dict[str, Any]]:
             source, fn, backward = factory()
             out[name] = {"source": source, "fn": fn, "backward": backward}
         except Exception as exc:  # noqa: BLE001 - optional library missing or unusable
+            if name == "rl_kernel":
+                raise RuntimeError(f"Required rl_kernel candidate is unavailable: {exc}") from exc
             out[name] = {"unavailable": f"{type(exc).__name__}: {exc}"[:300]}
     return out
 
@@ -344,8 +346,7 @@ def batch_invariance(op: str, cand: dict[str, Any], quick: bool) -> dict[str, An
         inp, ups = _inputs(op, seed, big), ups_for(seed, big)
         fo, fg = _run(fn, inp, rows, grads, ups)
         for sb in subs:
-            step = sb if sb >= 1024 else max(sb, big // 512)
-            for start in range(0, big, step):
+            for start in range(0, big, sb):
                 idx = torch.arange(start, min(start + sb, big), device=DEV)
                 o, g = _run(fn, inp, rows, grads, ups, idx)
                 checked += 1
@@ -356,6 +357,7 @@ def batch_invariance(op: str, cand: dict[str, Any], quick: bool) -> dict[str, An
     res["full_vs_sub_batches"] = {
         "full_batch": big,
         "sub_batch_sizes": list(subs),
+        "coverage": "every_row_per_sub_batch_size",
         "sub_batches": checked,
         "fwd_differ": fwd,
         "rowgrad_differ": grd,
@@ -606,9 +608,11 @@ def plot(report: dict[str, Any], path: Path) -> None:
     for y, (_, e) in zip(ys, entries):
         bi = e.get("batch_invariance")
         gates = e.get("contract_gates")
-        text = "batch-invariant: " + (
+        text = "checks passed: " + (
             "n/a" if bi is None else ("yes" if bi["batch_invariant"] else "NO")
         )
+        if bi and bi["full_vs_sub_batches"].get("coverage") == "sampled_small_sub_batches":
+            text += " (sampled)"
         if gates and "unavailable" not in gates:
             text += " | C3/C4 gates: " + (
                 "pass" if all(g["passed"] for g in gates.values()) else "FAIL"
@@ -617,7 +621,7 @@ def plot(report: dict[str, Any], path: Path) -> None:
         ax.text(0.02, y, text, va="center", fontsize=8, color="#3aa676" if good else "#d14b4b")
     ax.set_ylim(len(entries) - 0.5, -0.5)
     ax.axis("off")
-    ax.set_title("every-row batch invariance and this repository's gates")
+    ax.set_title("measured batch-invariance checks and this repository's gates")
     fig.savefig(path.with_suffix(".png"), dpi=120)
 
 

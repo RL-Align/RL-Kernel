@@ -147,23 +147,28 @@ golden uses vLLM's convention. The same report re-measures the zero-centred op
   order, one thread per column, so that it meets the gradient-invariance contract's
   singleton-aggregate check bitwise.
 
-## Existing implementations: batch invariance of every row, accuracy, gates
+## Existing implementations: measured batch invariance, accuracy, gates
 
 ![rms_norm_gated vs existing implementations](../usage/evidence/qwen3-next-norm-reuse-b200/rms_norm_gated.png)
 
-| Implementation | Batch-invariant | Forward correctly rounded | Worst grad err | Forward / fwd+bwd | C3/C4 gates |
+| Implementation | Batch-invariance checks | Forward correctly rounded | Worst grad err | Forward / fwd+bwd | C3/C4 gates |
 |---|---|---|---|---|---|
-| rl-kernel Qwen3NextRMSNormGatedCudaOp | yes | 99.9989% | 2.4e-03 | 235 / 115293 µs | pass |
-| rl-kernel PyTorch reference | yes | 99.9990% | 2.4e-03 | 772 / 1991 µs | — |
-| transformers 5.17.0 Qwen3NextRMSNormGated | yes | 65.4748% | 5.6e-03 | 695 / 2093 µs | pass |
-| FLA 0.5.2 layernorm_gated.rmsnorm_fn | yes | 99.9987% | 2.4e-03 | 177 / 882 µs | pass |
+| rl-kernel Qwen3NextRMSNormGatedCudaOp | yes (sampled) | 99.9989% | 2.4e-03 | 235 / 115293 µs | pass |
+| rl-kernel PyTorch reference | yes (sampled) | 99.9990% | 2.4e-03 | 772 / 1991 µs | — |
+| transformers 5.17.0 Qwen3NextRMSNormGated | yes (sampled) | 65.4748% | 5.6e-03 | 695 / 2093 µs | pass |
+| FLA 0.5.2 layernorm_gated.rmsnorm_fn | yes (sampled) | 99.9987% | 2.4e-03 | 177 / 882 µs | pass |
 | FLA 0.5.2 fused_norm_gate.rms_norm_gated | **no** (247 sub-batches) | 99.9987% | 2.4e-03 | 93 / 865 µs | pass |
 | vLLM 0.30.0 RMSNormGated.forward_cuda | **no** (3 rows, 3 sub-batches) | 99.9988% | — | 87 / — µs | — |
 
 Batch invariance is bitwise and covers three checks: every row computed alone vs inside full
-batches of three sizes; the full workload-size batch vs sub-batches that together cover every
-row; and a dense batch-size sweep. A "no" counts the rows, sub-batches or sweep cases that
-differed. Accuracy is against FP64 at the workload size; latency is the median on an otherwise
+batches of three sizes; sampled small sub-batches and exhaustive larger sub-batches
+of the full workload-size batch; and a batch-size sweep over probe rows. In these
+historical reports, sub-batch sizes 1 and 7 visit only 512 starts per seed, so a
+"yes (sampled)" does not establish every-row coverage at those sizes. The JSON
+records the actual stride and rows checked per size. The current script instead
+partitions the full batch at every advertised sub-batch size, covering every row
+including a final partial batch. These historical measurements have not been rerun.
+A "no" counts the rows, sub-batches or sweep cases that differed. Accuracy is against FP64 at the workload size; latency is the median on an otherwise
 idle B200. The C3/C4 column runs this repository's own gate scripts unchanged, with the CUDA
 candidate replaced by a subclass of this op whose forward and backward call the other library.
 The subclass keeps this op's FP32 `dweight` row contributions, so singleton-aggregate compares

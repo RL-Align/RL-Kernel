@@ -64,7 +64,35 @@
           ],
           "sub_batches": 2188,
           "fwd_differ": 0,
-          "rowgrad_differ": 0
+          "rowgrad_differ": 0,
+          "coverage": "sampled_small_sub_batches",
+          "coverage_by_sub_batch_size": {
+            "1": {
+              "stride": 512,
+              "rows_checked_per_seed": 512,
+              "covers_every_row": false
+            },
+            "7": {
+              "stride": 512,
+              "rows_checked_per_seed": 3584,
+              "covers_every_row": false
+            },
+            "4097": {
+              "stride": 4097,
+              "rows_checked_per_seed": 262144,
+              "covers_every_row": true
+            },
+            "65536": {
+              "stride": 65536,
+              "rows_checked_per_seed": 262144,
+              "covers_every_row": true
+            },
+            "131072": {
+              "stride": 131072,
+              "rows_checked_per_seed": 262144,
+              "covers_every_row": true
+            }
+          }
         },
         "batch_size_sweep": {
           "batch_sizes": [
@@ -185,7 +213,35 @@
           ],
           "sub_batches": 2188,
           "fwd_differ": 0,
-          "rowgrad_differ": 0
+          "rowgrad_differ": 0,
+          "coverage": "sampled_small_sub_batches",
+          "coverage_by_sub_batch_size": {
+            "1": {
+              "stride": 512,
+              "rows_checked_per_seed": 512,
+              "covers_every_row": false
+            },
+            "7": {
+              "stride": 512,
+              "rows_checked_per_seed": 3584,
+              "covers_every_row": false
+            },
+            "4097": {
+              "stride": 4097,
+              "rows_checked_per_seed": 262144,
+              "covers_every_row": true
+            },
+            "65536": {
+              "stride": 65536,
+              "rows_checked_per_seed": 262144,
+              "covers_every_row": true
+            },
+            "131072": {
+              "stride": 131072,
+              "rows_checked_per_seed": 262144,
+              "covers_every_row": true
+            }
+          }
         },
         "batch_size_sweep": {
           "batch_sizes": [
@@ -287,7 +343,35 @@
           ],
           "sub_batches": 2188,
           "fwd_differ": 0,
-          "rowgrad_differ": 0
+          "rowgrad_differ": 0,
+          "coverage": "sampled_small_sub_batches",
+          "coverage_by_sub_batch_size": {
+            "1": {
+              "stride": 512,
+              "rows_checked_per_seed": 512,
+              "covers_every_row": false
+            },
+            "7": {
+              "stride": 512,
+              "rows_checked_per_seed": 3584,
+              "covers_every_row": false
+            },
+            "4097": {
+              "stride": 4097,
+              "rows_checked_per_seed": 262144,
+              "covers_every_row": true
+            },
+            "65536": {
+              "stride": 65536,
+              "rows_checked_per_seed": 262144,
+              "covers_every_row": true
+            },
+            "131072": {
+              "stride": 131072,
+              "rows_checked_per_seed": 262144,
+              "covers_every_row": true
+            }
+          }
         },
         "batch_size_sweep": {
           "batch_sizes": [
@@ -408,7 +492,35 @@
           ],
           "sub_batches": 2188,
           "fwd_differ": 0,
-          "rowgrad_differ": 0
+          "rowgrad_differ": 0,
+          "coverage": "sampled_small_sub_batches",
+          "coverage_by_sub_batch_size": {
+            "1": {
+              "stride": 512,
+              "rows_checked_per_seed": 512,
+              "covers_every_row": false
+            },
+            "7": {
+              "stride": 512,
+              "rows_checked_per_seed": 3584,
+              "covers_every_row": false
+            },
+            "4097": {
+              "stride": 4097,
+              "rows_checked_per_seed": 262144,
+              "covers_every_row": true
+            },
+            "65536": {
+              "stride": 65536,
+              "rows_checked_per_seed": 262144,
+              "covers_every_row": true
+            },
+            "131072": {
+              "stride": 131072,
+              "rows_checked_per_seed": 262144,
+              "covers_every_row": true
+            }
+          }
         },
         "batch_size_sweep": {
           "batch_sizes": [
@@ -529,7 +641,35 @@
           ],
           "sub_batches": 2188,
           "fwd_differ": 95,
-          "rowgrad_differ": 152
+          "rowgrad_differ": 152,
+          "coverage": "sampled_small_sub_batches",
+          "coverage_by_sub_batch_size": {
+            "1": {
+              "stride": 512,
+              "rows_checked_per_seed": 512,
+              "covers_every_row": false
+            },
+            "7": {
+              "stride": 512,
+              "rows_checked_per_seed": 3584,
+              "covers_every_row": false
+            },
+            "4097": {
+              "stride": 4097,
+              "rows_checked_per_seed": 262144,
+              "covers_every_row": true
+            },
+            "65536": {
+              "stride": 65536,
+              "rows_checked_per_seed": 262144,
+              "covers_every_row": true
+            },
+            "131072": {
+              "stride": 131072,
+              "rows_checked_per_seed": 262144,
+              "covers_every_row": true
+            }
+          }
         },
         "batch_size_sweep": {
           "batch_sizes": [
@@ -650,7 +790,35 @@
           ],
           "sub_batches": 2188,
           "fwd_differ": 3,
-          "rowgrad_differ": 0
+          "rowgrad_differ": 0,
+          "coverage": "sampled_small_sub_batches",
+          "coverage_by_sub_batch_size": {
+            "1": {
+              "stride": 512,
+              "rows_checked_per_seed": 512,
+              "covers_every_row": false
+            },
+            "7": {
+              "stride": 512,
+              "rows_checked_per_seed": 3584,
+              "covers_every_row": false
+            },
+            "4097": {
+              "stride": 4097,
+              "rows_checked_per_seed": 262144,
+              "covers_every_row": true
+            },
+            "65536": {
+              "stride": 65536,
+              "rows_checked_per_seed": 262144,
+              "covers_every_row": true
+            },
+            "131072": {
+              "stride": 131072,
+              "rows_checked_per_seed": 262144,
+              "covers_every_row": true
+            }
+          }
         },
         "batch_size_sweep": {
           "batch_sizes": [
@@ -713,5 +881,8 @@
         "fwd_us": 87.07199990749359
       }
     }
-  }
+  },
+  "evidence_corrections": [
+    "Annotated historical sub-batch sampling coverage and regenerated the figure labels. Measurements were not rerun; batch_invariant records only whether the measured checks passed, not exhaustive full-batch coverage at every sub-batch size."
+  ]
 }

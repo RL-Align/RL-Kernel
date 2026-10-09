@@ -135,42 +135,7 @@
       "backward": "x-only"
     },
     "megatron": {
-      "source": "Megatron BatchInvariantRMSNormFn(zero_centered_gamma=True)",
-      "backward": "full",
-      "contract_gates": {
-        "forward": {
-          "returncode": 1,
-          "passed": false,
-          "failed_lines": [
-            "op=qwen3_next_rms_norm profile=cuda_bf16 candidate=__main__._gate_child.<locals>.Swapped::cuda passed=False",
-            "accuracy config=BN/full max_abs=1.72778440e+00 max_rel=1.14331472e+00 passed=False",
-            "accuracy config=BN/chunked max_abs=1.72778440e+00 max_rel=1.14331472e+00 passed=False",
-            "accuracy config=B1-singleton_aggregate/full/s0 max_abs=1.72659349e+00 max_rel=1.14331472e+00 passed=False",
-            "accuracy config=B1-singleton_aggregate/full/s1 max_abs=1.72467911e+00 max_rel=1.14325333e+00 passed=False",
-            "accuracy config=B1-singleton_aggregate/full/s2 max_abs=1.72347617e+00 max_rel=1.14318168e+00 passed=False",
-            "accuracy config=B1-singleton_aggregate/full/s3 max_abs=1.72778440e+00 max_rel=1.14321959e+00 passed=False",
-            "accuracy config=B1-singleton_aggregate/chunked/s0 max_abs=1.72659349e+00 max_rel=1.14331472e+00 passed=False",
-            "accuracy config=B1-singleton_aggregate/chunked/s1 max_abs=1.72467911e+00 max_rel=1.14325333e+00 passed=False",
-            "accuracy config=B1-singleton_aggregate/chunked/s2 max_abs=1.72347617e+00 max_rel=1.14318168e+00 passed=False"
-          ],
-          "singleton_aggregate": [],
-          "stderr_tail": []
-        },
-        "gradient": {
-          "returncode": 1,
-          "passed": false,
-          "failed_lines": [
-            "op=qwen3_next_rms_norm profile=cuda_bf16 candidate=__main__._gate_child.<locals>.Swapped::cuda passed=False",
-            "invariance pair=('BN/full', 'BN/chunked') tensor=dx transform=chunk max_abs=1.90734863e-06 passed=False",
-            "invariance pair=('BN/full', 'B1-singleton_aggregate/chunked/s3') tensor=dx transform=chunk max_abs=1.90734863e-06 passed=False"
-          ],
-          "singleton_aggregate": [
-            "singleton_aggregate pair=('BN/full', 'B1-singleton_aggregate/full') tensor=dweight max_abs=0.00000000e+00 passed=True",
-            "singleton_aggregate pair=('BN/full', 'B1-singleton_aggregate/chunked') tensor=dweight max_abs=0.00000000e+00 passed=True"
-          ],
-          "stderr_tail": []
-        }
-      }
+      "unavailable": "Excluded: Megatron 52fbcbc accepts zero_centered_gamma=True but uses the original weight instead of weight_eff in forward."
     },
     "flashinfer": {
       "source": "FlashInfer 0.6.18.post1 gemma_rmsnorm",
@@ -180,5 +145,8 @@
       "source": "vLLM 0.30.0 GemmaRMSNorm.forward_cuda",
       "backward": "none"
     }
-  }
+  },
+  "evidence_corrections": [
+    "Removed the invalid Megatron 52fbcbc zero-centered gate comparison. All other gate measurements and original run provenance are unchanged; gates were not rerun."
+  ]
 }

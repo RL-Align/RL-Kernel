@@ -4,7 +4,8 @@
 
 """Plot a report from scripts/qwen3_next_norm_evidence.py: one 2x2 figure per op.
 
-    python scripts/plot_qwen3_next_norm_evidence.py report.json  # figure[-<op>].png beside it
+python -m pip install matplotlib  # optional plotting dependency
+python scripts/plot_qwen3_next_norm_evidence.py report.json  # figure[-<op>].png beside it
 """
 
 from __future__ import annotations
