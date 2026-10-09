@@ -49,6 +49,41 @@ ref = torch.log_softmax(logits.float(), dim=-1)
 ref = torch.gather(ref, dim=-1, index=token_ids.unsqueeze(-1).long()).squeeze(-1)
 ```
 
+## Backward evidence (generic CUDA op)
+
+![generic fused logp backward on B200](../usage/evidence/fused-logp-backward-b200/figure.png)
+
+[`report.json`](../usage/evidence/fused-logp-backward-b200/report.json) was written by
+`benchmarks/fused_logp_backward_evidence.py --flash-attn-src <flash-attention checkout>` from a
+clean tree at `f6d3a24`, on an otherwise idle B200 (torch 2.13.0+cu130, triton 3.7.1,
+liger-kernel 0.8.4, fla-core 0.5.2, flash-attention `94e22c9`). V = 151936, BF16 logits.
+
+| 32768 rows | torch `log_softmax` + gather | chunked fallback | fused kernel | Liger CE | FLA CE | flash-attn CE (verl) |
+|---|---|---|---|---|---|---|
+| forward + backward | 44.0 ms | 59.4 ms | 27.2 ms | 15.8 ms | 7.1 ms | **6.2 ms** |
+| backward only | 19.3 ms | 44.8 ms | 12.5 ms | 11.3 ms | 3.7 ms | **3.7 ms** |
+| peak memory (incl. returned grad) | 55.6 GiB | 10.3 GiB | **9.3 GiB** | **9.3 GiB** | **9.3 GiB** | **9.3 GiB** |
+| `dlogits` max error / max, vs FP64 | 2.6e-3 | 1.1e-3 | 1.1e-3 | 1.1e-3 | 2.6e-3 | 2.6e-3 |
+| `dlogits` correctly rounded | 99.994% | 99.9995% | 99.9986% | 74.3% | 99.990% | 99.990% |
+| batch-size sweep, logp / `dlogits` differing (of 2232) | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | **92 / 92** | 0 / 0 |
+
+- The CE columns are existing implementations of the same computation (logp = -loss of a
+  per-token cross entropy). flash-attn's Triton `cross_entropy_loss` is the kernel verl's
+  `logprobs_from_logits` calls when flash-attn is installed.
+- flash-attn's and Liger's kernels are batch-invariant, need the same memory as the fused
+  kernel, and are faster: flash-attn's by 4.4× forward + backward and 3.4× on the backward
+  alone. FLA's is not batch-invariant: a few percent of rows change by one FP32 ulp with the
+  batch size.
+- What the fused kernel adds over flash-attn's: a smaller `dlogits` error (max 1.1e-3 vs
+  2.6e-3 of the largest gradient; 99.9986% vs 99.990% of elements correctly rounded) and no
+  Triton or flash-attn dependency. The generic op's forward
+  (`_C.fused_logp`, unchanged here) returns BF16 logp, while the CE kernels return FP32.
+- The batch-size sweep compares eight rows alone with the same rows at the front, middle and
+  back of batches of every size 1..9 and 2^k-1 / 2^k / 2^k+1 up to 2048, over three seeds;
+  `row_invariance` in the report (256 rows of a 4096-row batch) agrees.
+- The FP64 reference is fed the same upstream gradient each path receives (the generic op's
+  forward returns BF16, the torch and CE paths FP32), so the error rows compare like with like.
+
 ## Tests
 
 ```bash
