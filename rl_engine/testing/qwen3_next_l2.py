@@ -654,8 +654,10 @@ def native_state_shapes(request):
         raise ValueError("Native state evidence requires the fixed equal-length batch1/4 matrix")
     prompt_length = len(prompts[0])
     consumed = prompt_length + RESPONSE_LENGTH - 1
+    # L2 requests are pinned to PROMPT_LENGTHS by their own validators; batch-invariance
+    # cells use any prompt that fits the rollout profile (1024 + 16 = max_model_len).
     if (
-        prompt_length not in PROMPT_LENGTHS
+        not 1 <= prompt_length <= 1024
         or request.get("consumed_response_tokens") != RESPONSE_LENGTH - 1
         or request.get("state_position") != consumed - 1
     ):
