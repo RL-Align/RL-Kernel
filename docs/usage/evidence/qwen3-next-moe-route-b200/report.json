@@ -1,0 +1,236 @@
+{
+  "kind": "qwen3_next_prior_art_report",
+  "rfc": 428,
+  "rl_kernel_commit": "2e950f386bd3c4c2c07f41472f48878be94ea3b8",
+  "tracked_tree_dirty": false,
+  "environment": {
+    "gpu": "NVIDIA B200",
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "libraries": {
+      "vllm": "0.30.0",
+      "flashinfer-python": "0.6.18.post1",
+      "transformers": "5.17.0",
+      "triton": "3.7.1",
+      "sglang": null,
+      "megatron-core": null,
+      "transformer_engine": null,
+      "vime": null
+    }
+  },
+  "op": "qwen3_next_routed_moe",
+  "shape": {
+    "hidden": 2048,
+    "experts": 512,
+    "top_k": 10,
+    "expert_width": 512
+  },
+  "probe_rows": 8,
+  "candidates": [
+    {
+      "key": "rl_kernel_cuda",
+      "name": "rl-kernel shared_moe",
+      "source": "rl_engine.integrations.qwen3_next_forward.shared_moe",
+      "route_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": true,
+        "1024": true
+      },
+      "output_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": true,
+        "1024": true
+      },
+      "repeatable": true,
+      "dx_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": true,
+        "1024": true
+      },
+      "dweight_zero_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": true,
+        "1024": true
+      },
+      "accuracy": {
+        "rel_l2_vs_fp64": 0.0038748319159183277,
+        "max_abs_vs_fp64": 0.0021274995396960983,
+        "tokens_with_different_expert_set": 0,
+        "tokens": 256
+      },
+      "batch_invariant": true
+    },
+    {
+      "key": "hf_transformers",
+      "name": "HF transformers Qwen3NextExperts (eager)",
+      "source": "transformers 5.17.0 modeling_qwen3_next",
+      "route_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": true,
+        "1024": true
+      },
+      "output_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": true,
+        "1024": true
+      },
+      "repeatable": true,
+      "dx_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": true,
+        "1024": false
+      },
+      "dweight_zero_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": true,
+        "1024": false
+      },
+      "accuracy": {
+        "rel_l2_vs_fp64": 0.0700071926559018,
+        "max_abs_vs_fp64": 0.10691143625663532,
+        "tokens_with_different_expert_set": 11,
+        "tokens": 256
+      },
+      "batch_invariant": false
+    },
+    {
+      "key": "vllm_bi0",
+      "name": "vLLM fused_topk + fused_experts (Triton), VLLM_BATCH_INVARIANT=0",
+      "source": "vllm 0.30.0 model_executor/layers/fused_moe",
+      "route_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": false,
+        "1024": false
+      },
+      "output_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": false,
+        "1024": false
+      },
+      "repeatable": true,
+      "accuracy": {
+        "rel_l2_vs_fp64": 0.06987086350006304,
+        "max_abs_vs_fp64": 0.10691143625663532,
+        "tokens_with_different_expert_set": 11,
+        "tokens": 256
+      },
+      "batch_invariant": false
+    },
+    {
+      "key": "vllm_bi1",
+      "name": "vLLM fused_topk + fused_experts (Triton), VLLM_BATCH_INVARIANT=1",
+      "source": "vllm 0.30.0 model_executor/layers/fused_moe",
+      "route_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": true,
+        "1024": true
+      },
+      "output_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": true,
+        "1024": true
+      },
+      "repeatable": true,
+      "accuracy": {
+        "rel_l2_vs_fp64": 0.06987086350006304,
+        "max_abs_vs_fp64": 0.10691143625663532,
+        "tokens_with_different_expert_set": 11,
+        "tokens": 256
+      },
+      "batch_invariant": true
+    },
+    {
+      "key": "flashinfer_cutlass",
+      "name": "FlashInfer cutlass_fused_moe (routes from torch.topk)",
+      "source": "flashinfer 0.6.18.post1 fused_moe.cutlass_fused_moe",
+      "route_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": false,
+        "1024": false
+      },
+      "output_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": false,
+        "1024": false
+      },
+      "repeatable": true,
+      "accuracy": {
+        "rel_l2_vs_fp64": 0.06984271064260991,
+        "max_abs_vs_fp64": 0.10739971750663532,
+        "tokens_with_different_expert_set": 11,
+        "tokens": 256
+      },
+      "batch_invariant": false
+    }
+  ],
+  "latency": {
+    "forward_us": {
+      "1": {
+        "rl_kernel_cuda": 1376.3200044631958,
+        "hf_transformers": 2020.9439992904663,
+        "vllm_bi0": 356.7200005054474,
+        "vllm_bi1": 367.8240031003952,
+        "flashinfer_cutlass": 341.74399077892303
+      },
+      "8": {
+        "rl_kernel_cuda": 1379.8879981040955,
+        "hf_transformers": 12903.615951538086,
+        "vllm_bi0": 364.6879941225052,
+        "vllm_bi1": 366.5599972009659,
+        "flashinfer_cutlass": 385.2960020303726
+      },
+      "64": {
+        "rl_kernel_cuda": 1706.6399455070496,
+        "hf_transformers": 60610.20851135254,
+        "vllm_bi0": 653.984010219574,
+        "vllm_bi1": 660.3359878063202,
+        "flashinfer_cutlass": 672.1920073032379
+      },
+      "256": {
+        "rl_kernel_cuda": 1892.9439783096313,
+        "hf_transformers": 85160.57586669922,
+        "vllm_bi0": 778.6239981651306,
+        "vllm_bi1": 785.8560085296631,
+        "flashinfer_cutlass": 831.5519988536835
+      },
+      "1024": {
+        "rl_kernel_cuda": 2048.975944519043,
+        "hf_transformers": 88626.1100769043,
+        "vllm_bi0": 872.2079992294312,
+        "vllm_bi1": 881.5999925136566,
+        "flashinfer_cutlass": 850.0800132751465
+      },
+      "4096": {
+        "rl_kernel_cuda": 3047.216057777405,
+        "hf_transformers": 88805.53817749023,
+        "vllm_bi0": 1060.5120062828064,
+        "vllm_bi1": 1061.1519813537598,
+        "flashinfer_cutlass": 1079.200029373169
+      }
+    },
+    "forward_plus_backward_us": {
+      "64": {
+        "rl_kernel_cuda": 111661.79275512695,
+        "hf_transformers": 877700.2563476562
+      },
+      "1024": {
+        "rl_kernel_cuda": 166025.42114257812,
+        "hf_transformers": 1282811.6455078125
+      }
+    }
+  }
+}
