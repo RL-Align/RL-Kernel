@@ -63,7 +63,7 @@ python benchmarks/benchmark_h3_conditioning.py --op adaln_gate_residual
 
 B200, B = 1, H = 5376, BF16:
 
-| S | CUDA fwd | diffusers fwd | CUDA bwd | diffusers bwd |
+| S | CUDA fwd | diffusers fwd | CUDA fwd+bwd | diffusers fwd+bwd |
 | --- | --- | --- | --- | --- |
 | 4097 | 0.05 ms | 0.06 ms | 1.19 ms | 0.68 ms |
 | 32768 | 0.24 ms | 0.41 ms | 1.37 ms | 2.71 ms |
@@ -72,6 +72,11 @@ B200, B = 1, H = 5376, BF16:
 The forward is one pass over `residual` and `sublayer_output`, using 16-byte vectors with one
 block per row. At small S the backward pays a fixed cost of about 1 ms for the stable sort and
 tile setup.
+
+The stored timing evidence includes forward graph setup in the columns labeled
+`fwd+bwd`; those values are not backward-only measurements. The current benchmark
+prepares the graph outside the timed backward region. Historical timings are retained
+with their original commit and corrected scope.
 
 ## Evidence
 

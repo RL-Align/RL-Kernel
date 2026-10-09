@@ -48,7 +48,7 @@ def _inputs(num_t, n_out, k, dtype=torch.bfloat16, seed=0):
 
 
 class TestOwnership:
-    @pytest.mark.parametrize("tp", [1, 2, 3, 4, 6, 7, 8])
+    @pytest.mark.parametrize("tp", [1, 2, 3, 4, 6, 7, 8, 9])
     def test_shards_tile_the_table_once(self, tp):
         shards = [adaln_column_shard(N_H3, tp, r) for r in range(tp)]
         assert [s.begin for s in shards] == [0, *[s.end for s in shards[:-1]]]
@@ -146,3 +146,9 @@ def test_nccl_byte_equal_to_ws1(h3_weights_cpu, world):
     assert tp_matches_ws1(ws1, ranks) == ALL_TRUE
     assert [r["readback"]["rank"] for r in ranks] == list(range(world))
     assert {r["readback"]["collective_backend"] for r in ranks} == {"cuda_ipc_fixed_tree"}
+
+
+@pytest.mark.parametrize("n_total", [0, -1152])
+def test_rejects_nonpositive_projection(n_total):
+    with pytest.raises(ValueError, match="N must be positive"):
+        adaln_column_shard(n_total, 1, 0)

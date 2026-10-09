@@ -65,7 +65,7 @@ How many rows move depends on how the table rows interleave along the sequence:
 
 | Packing | Rows sent per rank (S = 32768, SP8, 4096 rows per rank) |
 | --- | --- |
-| block (H3's layout: each timestep's text, video and audio tokens contiguous) | 0 – 174 |
+| block (H3's layout: each timestep's text, video and audio tokens contiguous) | 0 – 224 |
 | interleaved (modality and timestep random per position; stress case) | 0 – 1536 |
 
 ## Evidence

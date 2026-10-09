@@ -211,16 +211,18 @@ class SPPlan:
     num_rows: int | None
 
 
-def sp_plan(layout: SPRowLayout, index_full=None, num_rows: int | None = None) -> SPPlan:
+def sp_plan(
+    layout: SPRowLayout, index_full=None, num_rows: int | None = None, *, device=None
+) -> SPPlan:
     """The reduction plan for one row index (``None``: the plain norm's ``dweight`` only)."""
 
-    device = index_full.device if index_full is not None else torch.device("cuda")
+    device = index_full.device if index_full is not None else torch.device(device or "cuda")
     families = [_dweight_tiles(layout.batch * layout.seq_len, device)]
     if index_full is None:
         return SPPlan(layout, _Plan(layout, families, device), None, None, None, None)
     *seg_tiles, seg_first_tile = _segment_tiles(index_full.repeat(layout.batch), num_rows)
     plan = _Plan(layout, [*families, tuple(seg_tiles)], device)
-    local_index = index_full[layout.lo : layout.hi].contiguous()
+    local_index = index_full[layout.lo : layout.hi].clone(memory_format=torch.contiguous_format)
     received = index_full[plan.recv_global % layout.seq_len]
     index_buf = torch.cat([local_index.repeat(layout.batch), received]).contiguous()
     return SPPlan(layout, plan, local_index, index_buf, seg_first_tile, num_rows)
@@ -334,18 +336,21 @@ class H3SPNormAdaLNCudaOp:
             raise RuntimeError("rl_engine._C lacks the H3 SP symbols; rebuild the CUDA extension")
         self.collective = collective
         self.layout = sp_row_layout(seq_len, batch, collective.world_size, collective.rank)
-        self._plans: list[tuple[object, int, int | None, SPPlan]] = []
+        self._plans: list[tuple[object, int, int | None, torch.device, SPPlan]] = []
 
-    def plan(self, index: torch.Tensor | None, num_rows: int | None) -> SPPlan:
+    def plan(self, index: torch.Tensor | None, num_rows: int | None, *, device=None) -> SPPlan:
         """The cached plan for this index object (rebuilt if it was modified in place)."""
 
+        device = index.device if index is not None else torch.device(device or "cuda")
+        if device.type == "cuda" and device.index is None:
+            device = torch.device("cuda", torch.cuda.current_device())
         version = -1 if index is None else index._version
-        for obj, ver, rows, plan in self._plans:
-            if obj is index and ver == version and rows == num_rows:
+        for obj, ver, rows, cached_device, plan in self._plans:
+            if obj is index and ver == version and rows == num_rows and cached_device == device:
                 return plan
-        plan = sp_plan(self.layout, index, num_rows)
+        plan = sp_plan(self.layout, index, num_rows, device=device)
         # Holding the index keeps its storage alive, so a new tensor can never alias it.
-        self._plans = [(index, version, num_rows, plan), *self._plans[:3]]
+        self._plans = [(index, version, num_rows, device, plan), *self._plans[:3]]
         return plan
 
     def _check(self, x: torch.Tensor, index: torch.Tensor | None, num_rows: int | None) -> None:
@@ -368,7 +373,9 @@ class H3SPNormAdaLNCudaOp:
     def norm(self, x, weight, eps: float = H3_NORM_EPS) -> torch.Tensor:
         self._check(x, None, None)
         validate_h3_rmsnorm(x, weight, eps)
-        return _SPRMSNorm.apply(x, weight, None, None, self.plan(None, None), self.collective, eps)
+        return _SPRMSNorm.apply(
+            x, weight, None, None, self.plan(None, None, device=x.device), self.collective, eps
+        )
 
     def norm_modulated(self, x, weight, shift, scale, index, eps: float = H3_NORM_EPS):
         self._check(x, index, shift.shape[0])
