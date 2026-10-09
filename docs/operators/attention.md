@@ -265,7 +265,7 @@ for measured peak memory at representative shapes.
 
 ## Known Limitations
 
-- First version: `D=128` only (Qwen3-8B alignment).
+- Head dim: `D=128` (Qwen3-8B) on CUDA and ROCm; `D=256` (Qwen3-Next full attention) on CUDA only.
 - Supported dtypes: BF16, FP16.
 - Full materialization of scores/P limits practical sequence length.
 - `Hq` must be divisible by `Hkv` (raises `ValueError` otherwise).

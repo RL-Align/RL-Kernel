@@ -1,0 +1,32 @@
+{
+  "status": "passed",
+  "scope": "tp4_gdn_layer0",
+  "rank": 2,
+  "rl_kernel_commit": "9e6c4f24ce4b5e8888650e1062922711dbe565e0",
+  "tracked_tree_dirty": false,
+  "provider": "qwen3-next-shared-cuda-forward-v1",
+  "environment": {
+    "gpu": "NVIDIA B200",
+    "torch": "2.13.0+cu130",
+    "vllm": "0.30.0",
+    "nccl": "2.29.7"
+  },
+  "cases": [
+    "full-chunk-8",
+    "full-chunk-64",
+    "full-chunk-256",
+    "full-chunk-1024",
+    "prompt-gradient",
+    "replicated-norm-gradient",
+    "hf-load-export"
+  ],
+  "gradient_max_abs": {
+    "A_log": 3.1377567211166024e-11,
+    "dt_bias": 3.069544618483633e-11,
+    "in_proj_qkvz.weight": 1.1714291758835316e-09,
+    "in_proj_ba.weight": 6.184563972055912e-11,
+    "conv1d.weight": 6.111804395914078e-09,
+    "norm.weight": 3.91155481338501e-08,
+    "out_proj.weight": 4.092726157978177e-10
+  }
+}
