@@ -19,9 +19,21 @@ to FP32 because CPU `torch.sqrt(float32)` can differ by one ULP from CUDA's
 correctly rounded square root. Hidden and token accumulators remain FP32.
 Inputs with S=0 or H=0 and mixed dtype/device are rejected.
 Strided model chunks are copied to contiguous storage inside
-GPU wrappers. The CUDA kernel supports H<=4096; shape-aware dispatch selects
-Triton for larger H. CUDA symbols are omitted from builds with
+GPU wrappers. The CUDA kernel supports H<=4096, B<=65535, and at most
+2^31-1 elements in each input tensor. Python checks these bounds before copying
+strided inputs; C++ checks them again before launch. Oversized B/address ranges
+raise an explicit error; the registry only resolves using H and does not silently
+fallback for these other limits. Shape-aware dispatch selects Triton for larger H.
+CUDA symbols are omitted from builds with
 `KERNEL_ALIGN_USE_FAST_MATH=1`, making fallback explicit.
+
+Shared eps must be finite and nonnegative and round to finite FP32. A positive
+eps that rounds to zero is rejected; representable subnormals, including 2^-149,
+remain supported. eps=0 remains supported; zero variance then produces IEEE NaN.
+Nonfinite LayerNorm arithmetic follows the FP32 formula and may propagate NaNs;
+its NaN payloads are outside the strict byte-equality qualification. Gate and
+dgate use a bit-preserving passthrough, including nonfinite payloads. This shared
+eps policy does not change the separate indexed/select01 fallback contract.
 
 For Qwen-Image editing, pass `modulate_index` to both resolution and execution:
 
@@ -44,6 +56,48 @@ These are derived model shapes, not tensor shapes stated by the issue.
 
 ## Validation
 
+The [2026-10-09 shared-workspace review](../reviews/adaln-shared-b31fac9.md)
+compares `b31fac9` with the actual worktree, including untracked tests. It records
+current CPU/SM86 Triton evidence separately from pending native CUDA/H100,
+full-image, geometry, sanitizer and benchmark acceptance. New public-interface
+canaries check BF16 cast boundaries, each reduction, signed zero, subnormal eps,
+gate/dgate payloads, strided upstreams and H=3072 batch positions with padding
+across all declared launch configurations. AdaLN gtest rejects a candidate's wrong
+output dtype and explicitly promotes gold leaves to FP32
+before autograd; an FP32 cast inside the gold function alone would still return
+BF16 gradients to BF16 leaves. The review includes the red/green evidence and
+H100 commands; historical results below are not current-worktree evidence.
+
+AdaLN is registered in `gtest/operator_specs.py` and `operator_inputs.py` as
+`op_class="reduction"`, with PyTorch, CUDA and Triton candidates. The independent
+gold uses FP32 CPU `torch.nn.functional.layer_norm` and autograd, without the
+production fixed-reduction or custom backward helpers. It checks both outputs
+(y and gate) and gradients of x and modulation. Accuracy thresholds come from
+`resolve_tolerance`: `forward_accuracy` for outputs and `gradient_accuracy`
+for input gradients; no private AdaLN thresholds or SM90 override are added.
+Existing fixed-reference byte comparisons remain separate, unchanged gates.
+
+```bash
+.venv/bin/python scripts/check_operator.py --op adaln_modulation \
+  --candidate pytorch --device cpu --dtype bf16 --batch 2 --seq 3 \
+  --normalized-dim 3072 --check-grad --json
+.venv/bin/python -m pytest tests/test_adaln_gtest.py -q -rs
+```
+
+Use CUDA/Triton candidates on the target GPU for native accuracy evidence.
+The three full-image tests additionally check independent CPU FP32 forward and
+backward accuracy for both GPU backends/dtypes. These additions are **pending
+GPU execution**; old SM86 results do not validate the new assertions.
+CPU tests also cover gate-only gradients, distinct image/text modulation
+chunks, corrupted-output/VJP rejection and unavailable-backend routing.
+The CLI accuracy report alone is not a provenance-checked WS1 system gate.
+
+CI branch filters now include `test-qwenimage`; CPU CI runs the new contract
+tests and the existing WS1 GPU script includes AdaLN accuracy checks. Fork
+isolation and existing GPU authorization conditions remain. A missing/skipped
+workflow is not a passing check; no CI run is claimed for these local changes.
+
+
 Run `python -m pytest tests/test_adaln_modulation.py -q` for focused tests.
 Set `RLK_ADALN_REAL_SHAPES=1` to include the three full image shapes.
 Run `python benchmarks/benchmark_adaln_modulation.py --real` for the three
@@ -57,6 +111,15 @@ compiled binary. Direct backend constructors accept validated launch settings:
 CUDA `threads={128,256,512}` (default 256); Triton `num_warps={4,8}`
 (default 4), `reduction_tile={64,128,256}` (default 128). Registry dispatch
 uses those defaults. These settings change scheduling, not the reduction order.
+
+### Historical evidence limitation (verified 2026-10-02)
+
+The following SM86 results and timings are historical observations. The two
+original `/tmp` handoffs and raw build/test/racecheck logs are no longer
+available. Surviving excerpts and recorded hashes cannot reconstruct or
+substitute for complete logs, binary provenance or newly executed evidence.
+Re-run acceptance and publish fresh complete artifacts before using it as a
+reviewable native acceptance result. H100 validation is **pending**.
 
 Local CUDA validation environment (2026-09-23): RTX 3050 Ti (SM86, 4 GiB),
 driver 610.60, CUDA toolkit/runtime 12.6, PyTorch 2.12.1+cu126, Triton 3.7.1,
@@ -116,7 +179,7 @@ RLK_ADALN_REAL_SHAPES=1 RL_KERNEL_REQUIRE_EXT=1 \
   tests/test_adaln_modulation.py -q -rs -p no:cacheprovider
 ```
 
-Local logs are `/tmp/rlk-adaln-race-fix-build.log`,
+Original, now missing logs were `/tmp/rlk-adaln-race-fix-build.log`,
 `/tmp/rlk-adaln-race-fix-racecheck.log`, and
 `/tmp/rlk-adaln-race-fix-tests.log`. They describe the uncommitted review
 fixes on top of `d14e4ed`; that commit alone predates the fix.
@@ -134,30 +197,29 @@ then script 06. Missing extension symbols or sanitizer failures must not count
 as successful native acceptance. Do not use bare `uv run` or `uv sync` to
 run these checks: invoke `.venv/bin/python` directly to preserve cu126.
 
-The statuses below apply to the measured inputs and SM86 configurations, not
-all shapes or hardware.
+The statuses below describe historical assertions within measured SM86 cases,
+not retained complete execution evidence or current H100 acceptance.
 
 | Requirement | Implementation | Test | Observed evidence | Remaining gap | Status |
 | --- | --- | --- | --- | --- | --- |
-| Shared forward/backward math at H=7/3072 | Fixed FP32 normalization and VJP | Independent LayerNorm/autograd, both dtypes, random dy/dgate | All 12 backend/dtype/H cases passed | Independent full-image autograd not covered | PROVEN |
+| Shared forward/backward math at H=7/3072 | Fixed FP32 normalization and VJP | Independent LayerNorm/autograd, both dtypes, random dy/dgate | All 12 backend/dtype/H cases passed | Independent full-image assertions added; GPU execution pending | PROVEN |
 | Race-free CUDA shared reduction | Read-result/barrier/reuse | Native harness and geometry under racecheck | 8 tests, zero hazards; original reproducer also green | Other architectures not exercised | PROVEN |
 | Launch geometry / tiling | CUDA threads 128/256/512; Triton 4/8 warps and 64/128/256 tiles | Public constructors, CPU-reference byte checks | Both dtypes passed all 3 CUDA and 6 Triton configurations | Coverage is H=3072, B=2, S=5 | PROVEN |
 | Strict byte comparator | Contiguous uint8 views | Signed-zero regression and backend comparisons | Comparator rejects +0 versus -0; full matrix passed | Exceptional floating-point payloads not covered | PROVEN |
-| Three real image sizes | S=4096/6889/6032, H=3072 | Both dtypes, random dy/dgate, CPU/native/Triton byte checks | All 6 real-shape cases passed | Full-size oracle is the fixed CPU implementation, not independent LayerNorm/autograd | PARTIAL |
+| Three real image sizes | S=4096/6889/6032, H=3072 | Both dtypes, random dy/dgate, CPU/native/Triton byte checks | All 6 real-shape cases passed | Independent FP32 CPU LayerNorm/autograd added; GPU execution pending | PARTIAL |
 | Indexed select01 | Explicit PyTorch fallback with [2B,3H] modulation | B=2, both index shapes/devices/dtypes, independent row-index and autograd gold; invalid routes | 12 indexed cases passed | No fixed-order indexed backward claim | PROVEN |
 | FP32 accumulation / final BF16 cast | FP32 reductions, CUDA RN operations, Triton fusion disabled | Cast, byte-reference and independent accuracy tests | All focused checks passed | Exhaustive rounding boundaries and fast-math-on build exclusion not exercised | PARTIAL |
 | Batch / padding invariance | Row-local hidden reduction, ascending token fold | Batch position, B=1/3, S=3/5, zero-gradient padding; raw bytes | FP32/BF16 CUDA and Triton cases passed | Tested padding matrix uses H=32 | PROVEN |
-| Registry / trace | Explicit backend selection, H limit, indexed fallback reason | Registry tests and native preflight | Native selected without fallback; indexed fallback and H limit passed | Semantic fingerprint is not a binary hash; unavailable-backend combinations are not exhaustive | PARTIAL |
+| Registry / trace | Explicit backend selection, H limit, indexed fallback reason | Registry tests and native preflight | Native selected without fallback; indexed fallback and H limit passed | Semantic fingerprint is not a binary hash; CPU unavailable-backend routing tests added; actual GPU fallback execution pending | PARTIAL |
 | Native SM86 build and binding | Conditional sources/symbols, defaulted threads argument | Symbol verification, native/reference tests and geometry launches | User build completed; new four-argument binding and full suite passed | Other build configurations untested | PROVEN |
 | Indexed optimized kernels | Agreed explicit PyTorch fallback | Fallback and trace checks | Within agreed scope | No optimized indexed kernel required | OUT OF SCOPE |
-| Full #386 WS1 exit criteria | All 19 operators and assembled model | MMDiT/LoRA, 60-layer curve, reproducible rollout logp | Not exercised by this operator suite | Separate system-level work | UNPROVEN |
+| Full #386 WS1 exit criteria | 22 WS1 rows plus Foundation, WS2 and integration | MMDiT/LoRA, 60-layer curve, reproducible rollout logp | Not exercised by this operator suite | Separate system-level work | UNPROVEN |
 
 
-The independent autograd checks are accuracy checks, not a replacement tolerance
-profile for the fixed-reference byte contract. Shared checks use FP32
-`atol=rtol=2e-5`, BF16 `atol=0.02, rtol=0.016`; indexed checks use
-`atol=rtol=2e-6`. The full-size byte checks still use the fixed CPU reference
-and do not independently validate LayerNorm/autograd at every image size.
+The independent autograd checks use the shared reduction accuracy contract.
+They do not replace strict fixed-reference and batch/topology byte checks.
+Full-image independent assertions are implemented but await GPU evidence;
+exhaustive rounding boundaries and alternative fast-math builds remain gaps.
 
 The semantic fingerprint does not identify a compiled binary. This suite does
 not claim coverage across other GPU architectures, every floating-point input,

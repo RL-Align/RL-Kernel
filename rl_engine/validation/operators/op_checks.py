@@ -29,6 +29,8 @@ class OperatorCase:
     inputs: Mapping[str, Any]
     gold_fn: Callable[..., Any]
     grad_input_names: tuple[str, ...] = ()
+    gold_input_dtype: torch.dtype | None = None
+    candidate_output_dtype: torch.dtype | None = None
 
 
 @dataclass(frozen=True)
@@ -217,7 +219,9 @@ def _run_case_backward(
         raise ValueError(f"case {case.name!r} does not declare gradient inputs")
 
     candidate_inputs = _clone_inputs_for_backward(case.inputs, case.grad_input_names)
-    gold_inputs = _clone_inputs_for_backward(case.inputs, case.grad_input_names)
+    gold_inputs = _clone_inputs_for_backward(
+        case.inputs, case.grad_input_names, dtype=case.gold_input_dtype
+    )
     candidate_outputs = _flatten_tensors(_call_candidate(candidate.fn, candidate_inputs))
     gold_outputs = _flatten_tensors(case.gold_fn(**gold_inputs))
     # Candidate and gold must use the same upstream gradients; otherwise we
@@ -364,6 +368,7 @@ def _compare_case_outputs(
             atol=atol,
             rtol=rtol,
             judgment="forward_accuracy",
+            expected_dtype=case.candidate_output_dtype,
             comparison_lhs_role=(
                 forward_spec.comparison_lhs_role if forward_spec is not None else "bf16_candidate"
             ),
@@ -394,12 +399,16 @@ def _call_candidate(candidate: Callable[..., Any] | Any, inputs: Mapping[str, An
 def _clone_inputs_for_backward(
     inputs: Mapping[str, Any],
     grad_input_names: tuple[str, ...],
+    *,
+    dtype: torch.dtype | None = None,
 ) -> dict[str, Any]:
     grad_names = set(grad_input_names)
     cloned: dict[str, Any] = {}
     for name, value in inputs.items():
         if isinstance(value, torch.Tensor):
             tensor = value.detach().clone()
+            if dtype is not None and tensor.is_floating_point():
+                tensor = tensor.to(dtype=dtype)
             if name in grad_names:
                 if not tensor.is_floating_point():
                     raise TypeError(f"gradient input {name!r} must be floating point")
@@ -520,8 +529,7 @@ def _resolve_tolerance(
     # They only mirror forward accuracy thresholds; never apply them to grads.
     if judgment != "forward_accuracy":
         raise ContractResolveError(
-            f"legacy accuracy contracts only support judgment='forward_accuracy'; "
-            f"got {judgment!r}"
+            f"legacy accuracy contracts only support judgment='forward_accuracy'; got {judgment!r}"
         )
     dtype_name = normalize_dtype_name(dtype)
     if arch_key is not None:
@@ -550,6 +558,7 @@ def _compare_output(
     comparison_lhs_role: str = "bf16_candidate",
     comparison_rhs_role: str = "fp32_reference",
     message: str = "",
+    expected_dtype: torch.dtype | None = None,
 ) -> OutputCheck:
     if candidate.shape != gold.shape:
         return OutputCheck(
@@ -582,6 +591,9 @@ def _compare_output(
         rel_error = abs_error / gold_fp32.abs().clamp_min(1e-12)
         max_rel_error = float(rel_error.max().item())
 
+    dtype_matches = expected_dtype is None or candidate.dtype == expected_dtype
+    if not dtype_matches:
+        message = f"dtype mismatch: candidate={candidate.dtype} expected={expected_dtype}"
     return OutputCheck(
         output_index=output_index,
         shape=tuple(candidate.shape),
@@ -592,7 +604,8 @@ def _compare_output(
         max_abs_error=max_abs_error,
         mean_abs_error=mean_abs_error,
         max_rel_error=max_rel_error,
-        passed=bool(torch.allclose(candidate_fp32, gold_fp32, atol=atol, rtol=rtol)),
+        passed=dtype_matches
+        and bool(torch.allclose(candidate_fp32, gold_fp32, atol=atol, rtol=rtol)),
         judgment=judgment,
         comparison_lhs_role=comparison_lhs_role,
         comparison_rhs_role=comparison_rhs_role,

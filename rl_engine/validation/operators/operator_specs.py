@@ -11,7 +11,10 @@ from typing import Any
 import torch
 
 from rl_engine.validation.operators.op_checks import CandidateSpec, OperatorCase
-from rl_engine.validation.operators.operator_inputs import make_operator_inputs, operator_shape_name
+from rl_engine.validation.operators.operator_inputs import (
+    make_operator_inputs,
+    operator_shape_name,
+)
 
 
 @dataclass(frozen=True)
@@ -22,6 +25,8 @@ class OperatorSpec:
     gold_method: str
     candidate_paths: dict[str, str]
     grad_input_names: tuple[str, ...] = ()
+    gold_input_dtype: torch.dtype | None = None
+    output_matches_input_dtype: bool = False
 
 
 def _load_object(path: str) -> Any:
@@ -32,55 +37,67 @@ def _load_object(path: str) -> Any:
 
 
 OP_SPECS = {
+    "adaln_modulation": OperatorSpec(
+        name="adaln_modulation",
+        op_class="reduction",
+        gold_path="rl_engine.validation.operators.operator_specs.GtestAdaLNReference",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": (
+                "rl_engine.kernels.ops.pytorch.norm.adaln_modulation.NativeAdaLNModulationOp"
+            ),
+            "triton": "rl_engine.kernels.ops.triton.norm.adaln_modulation.TritonAdaLNModulationOp",
+            "cuda": "rl_engine.kernels.ops.cuda.norm.adaln_modulation.CudaAdaLNModulationOp",
+        },
+        grad_input_names=("x", "modulation"),
+        gold_input_dtype=torch.float32,
+        output_matches_input_dtype=True,
+    ),
     "rms_norm": OperatorSpec(
         name="rms_norm",
         op_class="reduction",
-        gold_path="rl_engine.kernels.ops.pytorch.norm.rms_norm.NativeRMSNormOp",
+        gold_path="rl_engine.reference.norm.rms_norm.NativeRMSNormOp",
         gold_method="forward_fp32",
         candidate_paths={
-            "pytorch": "rl_engine.kernels.ops.pytorch.norm.rms_norm.NativeRMSNormOp",
-            "triton": "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp",
-            "cuda": "rl_engine.kernels.ops.cuda.norm.rmsnorm.RMSNormCudaOp",
-            "cuda-sm90": "rl_engine.kernels.ops.cuda.norm.rmsnorm.RMSNormCudaOp",
-            "ascend": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+            "pytorch": "rl_engine.reference.norm.rms_norm.NativeRMSNormOp",
+            "triton": "rl_engine.backends.shared.triton.norm.rmsnorm.RMSNormTritonOp",
+            "cuda": "rl_engine.backends.cuda.norm.rmsnorm.RMSNormCudaOp",
+            "cuda-sm90": "rl_engine.backends.cuda.norm.rmsnorm.RMSNormCudaOp",
+            "ascend": "rl_engine.backends.ascend.norm.rmsnorm.RMSNormAscendOp",
         },
         grad_input_names=("x", "weight"),
     ),
     "qk_norm": OperatorSpec(
         name="qk_norm",
         op_class="reduction",
-        gold_path="rl_engine.kernels.ops.pytorch.norm.rms_norm.NativeRMSNormOp",
+        gold_path="rl_engine.reference.norm.rms_norm.NativeRMSNormOp",
         gold_method="forward_fp32",
         candidate_paths={
-            "pytorch": "rl_engine.kernels.ops.pytorch.norm.rms_norm.NativeRMSNormOp",
-            "triton": "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp",
-            "cuda": "rl_engine.kernels.ops.cuda.norm.rmsnorm.RMSNormCudaOp",
-            "cuda-sm90": "rl_engine.kernels.ops.cuda.norm.rmsnorm.RMSNormCudaOp",
-            "ascend": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+            "pytorch": "rl_engine.reference.norm.rms_norm.NativeRMSNormOp",
+            "triton": "rl_engine.backends.shared.triton.norm.rmsnorm.RMSNormTritonOp",
+            "cuda": "rl_engine.backends.cuda.norm.rmsnorm.RMSNormCudaOp",
+            "cuda-sm90": "rl_engine.backends.cuda.norm.rmsnorm.RMSNormCudaOp",
+            "ascend": "rl_engine.backends.ascend.norm.rmsnorm.RMSNormAscendOp",
         },
         grad_input_names=("x", "weight"),
     ),
     "attention": OperatorSpec(
         name="attention",
         op_class="attention",
-        gold_path="rl_engine.kernels.ops.pytorch.attention.standard_attn.NativeAttentionOp",
+        gold_path="rl_engine.reference.attention.standard_attn.NativeAttentionOp",
         gold_method="forward_fp32",
         candidate_paths={
-            "pytorch": "rl_engine.kernels.ops.pytorch.attention.standard_attn.NativeAttentionOp",
+            "pytorch": "rl_engine.reference.attention.standard_attn.NativeAttentionOp",
             "triton": (
-                (
-                    "rl_engine.kernels.ops.triton.attention.standard_attn.TritonBatchInvariantAt"
-                    "tentionOp"
-                )
+                "rl_engine.backends.shared.triton.attention.standard_attn.TritonBatchInvariantAt"
+                "tentionOp"
             ),
             "cuda": (
-                "rl_engine.kernels.ops.cuda.attention.deterministic_attn.DeterministicAttentionOp"
+                "rl_engine.backends.cuda.attention.deterministic_attn.DeterministicAttentionOp"
             ),
             "ascend": (
-                (
-                    "rl_engine.kernels.ops.ascend.attention.deterministic_attn.DeterministicAtte"
-                    "ntionAscendOp"
-                )
+                "rl_engine.backends.ascend.attention.deterministic_attn.DeterministicAtte"
+                "ntionAscendOp"
             ),
         },
         grad_input_names=("q", "k", "v"),
@@ -96,13 +113,11 @@ OP_SPECS = {
         candidate_paths={
             "pytorch": "rl_engine.validation.operators.operator_specs.GtestPrefixSharedAttentionOp",
             "cuda": (
-                "rl_engine.kernels.ops.cuda.attention.prefix_shared_attn.PrefixSharedAttentionOp"
+                "rl_engine.backends.cuda.attention.prefix_shared_attn.PrefixSharedAttentionOp"
             ),
             "ascend": (
-                (
-                    "rl_engine.kernels.ops.ascend.attention.prefix_shared_attn.PrefixSharedAtten"
-                    "tionAscendOp"
-                )
+                "rl_engine.backends.ascend.attention.prefix_shared_attn.PrefixSharedAtten"
+                "tionAscendOp"
             ),
         },
     ),
@@ -110,18 +125,12 @@ OP_SPECS = {
         name="cp_attention",
         op_class="attention",
         gold_path=(
-            (
-                "rl_engine.kernels.ops.pytorch.attention.cp_attention.DeterministicCPAttenti"
-                "onReferenceOp"
-            )
+            "rl_engine.reference.attention.cp_attention.DeterministicCPAttentionReferenceOp"
         ),
         gold_method="forward_fp32",
         candidate_paths={
             "pytorch": (
-                (
-                    "rl_engine.kernels.ops.pytorch.attention.cp_attention.DeterministicCPAttenti"
-                    "onReferenceOp"
-                )
+                "rl_engine.reference.attention.cp_attention.DeterministicCPAttentionReferenceOp"
             ),
         },
         grad_input_names=("q", "k", "v"),
@@ -129,54 +138,54 @@ OP_SPECS = {
     "logp": OperatorSpec(
         name="logp",
         op_class="logprob",
-        gold_path="rl_engine.kernels.ops.pytorch.loss.logp.NativeLogpOp",
+        gold_path="rl_engine.reference.logprob.logp.NativeLogpOp",
         gold_method="forward_fp32",
         candidate_paths={
-            "pytorch": "rl_engine.kernels.ops.pytorch.loss.logp.NativeLogpOp",
-            "triton": "rl_engine.kernels.ops.triton.loss.logp.TritonLogpOp",
-            "cuda": "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpGenericOp",
-            "cuda-generic": "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpGenericOp",
-            "cuda-sm90": "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpSM90Op",
-            "ascend": "rl_engine.kernels.ops.ascend.loss.logp.FusedLogpAscendOp",
+            "pytorch": "rl_engine.reference.logprob.logp.NativeLogpOp",
+            "triton": "rl_engine.backends.shared.triton.logprob.logp.TritonLogpOp",
+            "cuda": "rl_engine.backends.cuda.logprob.logp.FusedLogpGenericOp",
+            "cuda-generic": "rl_engine.backends.cuda.logprob.logp.FusedLogpGenericOp",
+            "cuda-sm90": "rl_engine.backends.cuda.logprob.logp.FusedLogpSM90Op",
+            "ascend": "rl_engine.backends.ascend.logprob.logp.FusedLogpAscendOp",
         },
         grad_input_names=("logits",),
     ),
     "linear_logp": OperatorSpec(
         name="linear_logp",
         op_class="logprob",
-        gold_path="rl_engine.kernels.ops.pytorch.loss.linear_logp.NativeLinearLogpOp",
+        gold_path="rl_engine.reference.logprob.linear_logp.NativeLinearLogpOp",
         gold_method="apply",
         candidate_paths={
-            "pytorch": "rl_engine.kernels.ops.pytorch.loss.linear_logp.NativeLinearLogpOp",
-            "triton": "rl_engine.kernels.ops.triton.loss.linear_logp.TritonLinearLogpOp",
-            "cuda-sm90": "rl_engine.kernels.ops.cuda.loss.linear_logp.FusedLinearLogpSM90Op",
-            "ascend": "rl_engine.kernels.ops.ascend.loss.linear_logp.FusedLinearLogpAscendOp",
+            "pytorch": "rl_engine.reference.logprob.linear_logp.NativeLinearLogpOp",
+            "triton": "rl_engine.backends.shared.triton.logprob.linear_logp.TritonLinearLogpOp",
+            "cuda-sm90": "rl_engine.backends.cuda.logprob.linear_logp.FusedLinearLogpSM90Op",
+            "ascend": "rl_engine.backends.ascend.logprob.linear_logp.FusedLinearLogpAscendOp",
         },
         grad_input_names=("hidden", "lm_head_weight"),
     ),
     "embedding": OperatorSpec(
         name="embedding",
         op_class="elementwise",
-        gold_path="rl_engine.kernels.ops.pytorch.linear.embedding.NativeEmbeddingOp",
+        gold_path="rl_engine.reference.embedding.embedding.NativeEmbeddingOp",
         gold_method="forward_fp32",
         candidate_paths={
-            "pytorch": "rl_engine.kernels.ops.pytorch.linear.embedding.NativeEmbeddingOp",
-            "triton": "rl_engine.kernels.ops.triton.linear.embedding.TritonEmbeddingOp",
-            "cuda-sm90": "rl_engine.kernels.ops.cuda.linear.embedding.SM90EmbeddingOp",
-            "ascend": "rl_engine.kernels.ops.ascend.linear.embedding.AscendEmbeddingOp",
+            "pytorch": "rl_engine.reference.embedding.embedding.NativeEmbeddingOp",
+            "triton": "rl_engine.backends.shared.triton.embedding.embedding.TritonEmbeddingOp",
+            "cuda-sm90": "rl_engine.backends.cuda.embedding.embedding.SM90EmbeddingOp",
+            "ascend": "rl_engine.backends.ascend.embedding.embedding.AscendEmbeddingOp",
         },
         grad_input_names=("weight",),
     ),
     "lm_head": OperatorSpec(
         name="lm_head",
         op_class="reduction",
-        gold_path="rl_engine.kernels.ops.pytorch.linear.lm_head.NativeLMHeadOp",
+        gold_path="rl_engine.reference.embedding.lm_head.NativeLMHeadOp",
         gold_method="forward_fp32",
         candidate_paths={
-            "pytorch": "rl_engine.kernels.ops.pytorch.linear.lm_head.NativeLMHeadOp",
-            "triton": "rl_engine.kernels.ops.triton.linear.lm_head.TritonLMHeadOp",
-            "cuda-sm90": "rl_engine.kernels.ops.cuda.linear.lm_head.SM90LMHeadOp",
-            "ascend": "rl_engine.kernels.ops.ascend.linear.lm_head.AscendLMHeadOp",
+            "pytorch": "rl_engine.reference.embedding.lm_head.NativeLMHeadOp",
+            "triton": "rl_engine.backends.shared.triton.embedding.lm_head.TritonLMHeadOp",
+            "cuda-sm90": "rl_engine.backends.cuda.embedding.lm_head.SM90LMHeadOp",
+            "ascend": "rl_engine.backends.ascend.embedding.lm_head.AscendLMHeadOp",
         },
         grad_input_names=("hidden", "weight"),
     ),
@@ -187,77 +196,73 @@ OP_SPECS = {
         # the accuracy gold must be the same leaf-space tree, not the
         # single-rounding torch.matmul (which fails structurally at
         # near-cancellation outputs on random inputs).
-        gold_path="rl_engine.kernels.ops.pytorch.matmul.det_gemm.DetGemmTreeReferenceOp",
+        gold_path="rl_engine.reference.gemm.det_gemm.DetGemmTreeReferenceOp",
         gold_method="__call__",
         candidate_paths={
-            "pytorch": "rl_engine.kernels.ops.pytorch.matmul.det_gemm.NativeGemmOp",
-            "cuda": "rl_engine.kernels.ops.cuda.matmul.det_gemm.DetGemmOp",
-            "triton": "rl_engine.kernels.ops.triton.matmul.det_gemm.TritonDetGemmOp",
-            "ascend": "rl_engine.kernels.ops.ascend.matmul.det_gemm.DetGemmAscendOp",
+            "pytorch": "rl_engine.reference.gemm.det_gemm.NativeGemmOp",
+            "cuda": "rl_engine.backends.cuda.gemm.det_gemm.DetGemmOp",
+            "triton": "rl_engine.backends.shared.triton.gemm.det_gemm.TritonDetGemmOp",
+            "ascend": "rl_engine.backends.ascend.gemm.det_gemm.DetGemmAscendOp",
         },
         grad_input_names=("a", "b"),
     ),
     "rope": OperatorSpec(
         name="rope",
         op_class="elementwise",
-        gold_path="rl_engine.kernels.ops.pytorch.rotary_embedding.rope.NativeRoPEOp",
+        gold_path="rl_engine.reference.rope.rope.NativeRoPEOp",
         gold_method="forward_fp32",
         candidate_paths={
-            "pytorch": "rl_engine.kernels.ops.pytorch.rotary_embedding.rope.NativeRoPEOp",
-            "triton": "rl_engine.kernels.ops.triton.rotary_embedding.rope.TritonRoPEOp",
-            "cuda-sm90": "rl_engine.kernels.ops.cuda.rotary_embedding.rope.RoPESM90Op",
-            "ascend": "rl_engine.kernels.ops.ascend.rotary_embedding.rope.RoPEAscendOp",
+            "pytorch": "rl_engine.reference.rope.rope.NativeRoPEOp",
+            "triton": "rl_engine.backends.shared.triton.rope.rope.TritonRoPEOp",
+            "cuda-sm90": "rl_engine.backends.cuda.rope.rope.RoPESM90Op",
+            "ascend": "rl_engine.backends.ascend.rope.rope.RoPEAscendOp",
         },
         grad_input_names=("x",),
     ),
     "silu": OperatorSpec(
         name="silu",
         op_class="elementwise",
-        gold_path="rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSiLUOp",
+        gold_path="rl_engine.reference.activation.swiglu.NativeSiLUOp",
         gold_method="forward_fp32",
         candidate_paths={
-            "pytorch": "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSiLUOp",
-            "triton": "rl_engine.kernels.ops.triton.activation.swiglu.TritonSiLUOp",
-            "cuda": "rl_engine.kernels.ops.cuda.activation.swiglu.SiLUCudaOp",
-            "ascend": "rl_engine.kernels.ops.ascend.activation.silu.SiLUAscendOp",
+            "pytorch": "rl_engine.reference.activation.swiglu.NativeSiLUOp",
+            "triton": "rl_engine.backends.shared.triton.activation.swiglu.TritonSiLUOp",
+            "cuda": "rl_engine.backends.cuda.activation.swiglu.SiLUCudaOp",
+            "ascend": "rl_engine.backends.ascend.activation.silu.SiLUAscendOp",
         },
         grad_input_names=("x",),
     ),
     "swiglu": OperatorSpec(
         name="swiglu",
         op_class="elementwise",
-        gold_path="rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSwiGLUOp",
+        gold_path="rl_engine.reference.activation.swiglu.NativeSwiGLUOp",
         gold_method="forward_fp32",
         candidate_paths={
-            "pytorch": "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSwiGLUOp",
-            "triton": "rl_engine.kernels.ops.triton.activation.swiglu.TritonSwiGLUOp",
-            "cuda": "rl_engine.kernels.ops.cuda.activation.swiglu.SwiGLUCudaOp",
-            "ascend": "rl_engine.kernels.ops.ascend.activation.swiglu.SwiGLUAscendOp",
+            "pytorch": "rl_engine.reference.activation.swiglu.NativeSwiGLUOp",
+            "triton": "rl_engine.backends.shared.triton.activation.swiglu.TritonSwiGLUOp",
+            "cuda": "rl_engine.backends.cuda.activation.swiglu.SwiGLUCudaOp",
+            "ascend": "rl_engine.backends.ascend.activation.swiglu.SwiGLUAscendOp",
         },
         grad_input_names=("gate", "up"),
     ),
     "batch_invariant_logp": OperatorSpec(
         name="batch_invariant_logp",
         op_class="logprob",
-        gold_path=(
-            "rl_engine.kernels.ops.pytorch.loss.batch_invariant_logp.NativeBatchInvarian" "tLogpOp"
-        ),
+        gold_path=("rl_engine.reference.logprob.batch_invariant_logp.NativeBatchInvariantLogpOp"),
         gold_method="apply",
         candidate_paths={
             "pytorch": (
-                "rl_engine.kernels.ops.pytorch.loss.batch_invariant_logp.NativeBatchInvarian"
-                "tLogpOp"
+                "rl_engine.reference.logprob.batch_invariant_logp.NativeBatchInvariantLogpOp"
             ),
             "triton": (
-                "rl_engine.kernels.ops.triton.loss.batch_invariant_logp.TritonBatchInvariant"
+                "rl_engine.backends.shared.triton.logprob.batch_invariant_logp.TritonBatchInvariant"
                 "LogpOp"
             ),
             "cuda-sm90": (
-                "rl_engine.kernels.ops.cuda.loss.batch_invariant_logp.BatchInvariantLogpSM90" "Op"
+                "rl_engine.backends.cuda.logprob.batch_invariant_logp.BatchInvariantLogpSM90Op"
             ),
             "ascend": (
-                "rl_engine.kernels.ops.ascend.loss.batch_invariant_logp.BatchInvariantLogpAs"
-                "cendOp"
+                "rl_engine.backends.ascend.logprob.batch_invariant_logp.BatchInvariantLogpAscendOp"
             ),
         },
         grad_input_names=("logits",),
@@ -273,6 +278,26 @@ OP_SPECS = {
         grad_input_names=("x",),
     ),
 }
+
+
+class GtestAdaLNReference:
+    """Independent CPU FP32 LayerNorm/autograd gold, not the fixed-tree kernel.
+
+    Transfers/casts retain autograd edges to the caller's inputs. Outputs stay
+    FP32; no production normalization or custom backward helper is used.
+    """
+
+    def forward_fp32(self, x, modulation, *, eps=1e-6, modulate_index=None):
+        x32 = x.to(device="cpu", dtype=torch.float32)
+        mod32 = modulation.to(device="cpu", dtype=torch.float32)
+        if modulate_index is None:
+            shift, scale, gate = mod32[:, None, :].chunk(3, dim=-1)
+        else:
+            batch = x.shape[0]
+            rows = torch.arange(batch)[:, None] + modulate_index.cpu().long() * batch
+            shift, scale, gate = mod32[rows].chunk(3, dim=-1)
+        norm = torch.nn.functional.layer_norm(x32, (x.shape[-1],), eps=eps)
+        return norm * (1 + scale) + shift, gate
 
 
 class GtestPackOp:
@@ -306,7 +331,9 @@ class GtestPrefixSharedAttentionOp:
     op_class = "attention"
 
     def __init__(self) -> None:
-        from rl_engine.reference.attention.standard_attn import NativeAttentionOp
+        from rl_engine.reference.attention.standard_attn import (
+            NativeAttentionOp,
+        )
 
         self._op = NativeAttentionOp()
 
@@ -345,6 +372,8 @@ def make_operator_case(
         inputs=make_operator_inputs(args.op, args, dtype, device),
         gold_fn=gold_fn,
         grad_input_names=spec.grad_input_names,
+        gold_input_dtype=spec.gold_input_dtype,
+        candidate_output_dtype=dtype if spec.output_matches_input_dtype else None,
     )
 
 

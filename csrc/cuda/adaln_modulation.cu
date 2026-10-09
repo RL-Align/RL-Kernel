@@ -8,6 +8,7 @@
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/cuda/CUDAException.h>
 #include <cmath>
+#include <limits>
 
 #if defined(__CUDA_FAST_MATH__)
 #error "adaln_modulation requires CUDA compilation without --use_fast_math"
@@ -135,14 +136,21 @@ void check(const torch::Tensor& x, const torch::Tensor& modulation, double eps, 
   TORCH_CHECK(x.is_contiguous() && modulation.is_contiguous(), "AdaLN inputs must be contiguous");
   TORCH_CHECK(x.dim() == 3 && x.size(0) > 0 && x.size(1) > 0 && x.size(2) > 0,
               "x must have nonempty shape [B,S,H]");
+  TORCH_CHECK(x.size(0) <= 65535, "AdaLN CUDA requires B <= 65535");
   TORCH_CHECK(modulation.dim() == 2 && modulation.size(0) == x.size(0) &&
               modulation.size(1) == 3 * x.size(2), "modulation must have shape [B,3H]");
+  TORCH_CHECK(x.numel() <= std::numeric_limits<int>::max() &&
+              modulation.numel() <= std::numeric_limits<int>::max(),
+              "AdaLN CUDA requires tensors to fit int32 indexing");
   TORCH_CHECK(x.device() == modulation.device() && x.scalar_type() == modulation.scalar_type(),
               "AdaLN inputs must share device and dtype");
   TORCH_CHECK(x.scalar_type() == at::kFloat || x.scalar_type() == at::kBFloat16,
               "AdaLN inputs must be FP32 or BF16");
   TORCH_CHECK(x.size(2) <= 4096, "AdaLN CUDA supports H <= 4096");
   TORCH_CHECK(std::isfinite(eps) && eps >= 0.0, "eps must be finite and nonnegative");
+  const float eps32 = static_cast<float>(eps);
+  TORCH_CHECK(std::isfinite(eps32) && (eps == 0.0 || eps32 > 0.0f),
+              "eps must remain finite FP32 without positive underflow");
 }
 
 }  // namespace

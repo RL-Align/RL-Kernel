@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import math
+import struct
 
 import torch
 
@@ -46,18 +47,26 @@ def _validate(x: torch.Tensor, modulation: torch.Tensor, eps: float) -> None:
         raise TypeError("x and modulation must be FP32 or BF16")
     if not math.isfinite(eps) or eps < 0:
         raise ValueError("eps must be finite and nonnegative")
+    message = "eps must remain finite FP32 without positive underflow"
+    try:
+        eps32 = struct.unpack("f", struct.pack("f", eps))[0]
+    except OverflowError:
+        raise ValueError(message) from None
+    if not math.isfinite(eps32) or (eps > 0 and eps32 == 0):
+        raise ValueError(message)
 
 
 class _AdaLNReference(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x: torch.Tensor, modulation: torch.Tensor, eps: float):
-        shift, scale, gate = modulation.float().chunk(3, dim=-1)
+        shift, scale, _ = modulation.float().chunk(3, dim=-1)
         norm, rstd = _normalize_fp32(x, eps)
         y = (norm * (1.0 + scale[:, None, :]) + shift[:, None, :]).to(x.dtype)
         ctx.save_for_backward(norm, rstd, scale)
         ctx.x_dtype = x.dtype
         ctx.mod_dtype = modulation.dtype
-        return y, gate[:, None, :].to(modulation.dtype)
+        # Gate has no arithmetic; preserve its original BF16 payload bits.
+        return y, modulation[:, None, 2 * x.shape[-1] :]
 
     @staticmethod
     def backward(ctx, grad_y: torch.Tensor, grad_gate: torch.Tensor):
@@ -74,12 +83,12 @@ class _AdaLNReference(torch.autograd.Function):
         # S is folded in ascending logical-token order for every sample.
         dm = torch.cat(
             [
-                torch.stack([reduce_rows_fp32(rows) for rows in dy]),
-                torch.stack([reduce_rows_fp32(rows) for rows in dy * norm]),
-                grad_gate.float().squeeze(1),
+                torch.stack([reduce_rows_fp32(rows) for rows in dy]).to(ctx.mod_dtype),
+                torch.stack([reduce_rows_fp32(rows) for rows in dy * norm]).to(ctx.mod_dtype),
+                grad_gate.squeeze(1),
             ],
             dim=-1,
-        ).to(ctx.mod_dtype)
+        )
         return dx, dm, None
 
 
