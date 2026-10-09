@@ -16,6 +16,7 @@ from examples.vime_qwen3_8b_tp4_cp2_200.run_arm import (
     _mismatch_metrics_args,
     _rollout_topology,
     _submit_ray_job,
+    build_parser,
 )
 from examples.vime_qwen3_8b_tp4_cp2_200.run_supplement_suite import specs
 from examples.vime_qwen3_8b_tp4_cp2_200.validate_run import (
@@ -36,6 +37,13 @@ def test_waiting_ray_submission_streams_and_saves_log(tmp_path: Path, capsys):
     assert result.returncode == 0
     assert "ray job output" in capsys.readouterr().out
     assert (tmp_path / "run.log").read_text(encoding="utf-8") == "ray job output\n"
+
+
+def test_entropy_probe_defaults_off_and_can_be_enabled(tmp_path: Path):
+    base = ["--group", "G11", "--num-rollout", "2", "--output-root", str(tmp_path)]
+    parser = build_parser()
+    assert parser.parse_args(base).entropy_coef == 0.0
+    assert parser.parse_args([*base, "--entropy-coef", "0.01"]).entropy_coef == 0.01
 
 
 def _production_operator(framework: str, target: str, module: str) -> dict:

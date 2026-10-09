@@ -788,6 +788,152 @@ def test_megatron_deterministic_tp_reduce_keeps_identity_backward(monkeypatch):
     assert torch.equal(value.grad, torch.ones_like(value))
 
 
+def test_megatron_sequence_parallel_projection_collectives_preserve_autograd_contract():
+    from rl_engine.integrations.megatron_runtime import (
+        _DeterministicGatherFromSequenceParallelRegion,
+        _DeterministicReduceScatterToSequenceParallelRegion,
+    )
+
+    class Collective:
+        def __init__(self):
+            self.operations = []
+
+        def all_gather(self, value):
+            self.operations.append(("all_gather", tuple(value.shape)))
+            return torch.cat((value, value), dim=0)
+
+        def reduce_scatter(self, value):
+            self.operations.append(("reduce_scatter", tuple(value.shape)))
+            return value.chunk(2, dim=0)[0] + value.chunk(2, dim=0)[1]
+
+    collective = Collective()
+    local = torch.tensor([[[1.0, 2.0]]], requires_grad=True)
+    gathered = _DeterministicGatherFromSequenceParallelRegion.apply(local, collective)
+    assert gathered.shape == (2, 1, 2)
+    gathered.sum().backward()
+    assert torch.equal(local.grad, torch.full_like(local, 2.0))
+    assert collective.operations == [("all_gather", (1, 1, 2)), ("reduce_scatter", (2, 1, 2))]
+
+    collective.operations.clear()
+    full = torch.ones((2, 1, 2), requires_grad=True)
+    scattered = _DeterministicReduceScatterToSequenceParallelRegion.apply(full, collective)
+    assert scattered.shape == (1, 1, 2)
+    scattered.sum().backward()
+    assert torch.equal(full.grad, torch.ones_like(full))
+    assert collective.operations == [("reduce_scatter", (2, 1, 2)), ("all_gather", (1, 1, 2))]
+
+
+def test_megatron_strict_attention_sequence_parallel_uses_tp_collective(monkeypatch):
+    from rl_engine.kernels.ops.matmul import det_gemm
+
+    class Collective:
+        backend_id = "test.fixed_tree"
+
+        def __init__(self):
+            self.operations = []
+
+        def all_gather(self, value):
+            self.operations.append("gather")
+            return torch.cat((value, value), dim=0)
+
+        def reduce_scatter(self, value):
+            self.operations.append("scatter")
+            return value.chunk(2, dim=0)[0] + value.chunk(2, dim=0)[1]
+
+    class ColumnLinear:
+        def __init__(self):
+            self.weight = torch.eye(2, requires_grad=True)
+            self.sequence_parallel = True
+            self.gather_output = False
+            self.skip_bias_add = False
+            self.bias = None
+
+        def forward(self, input):
+            return self._forward_impl(input, self.weight), None
+
+        def _forward_impl(self, input, weight, **kwargs):
+            return input @ weight.t()
+
+    class RowLinear:
+        def __init__(self):
+            self.weight = torch.eye(2, requires_grad=True)
+            self.sequence_parallel = True
+            self.input_is_parallel = True
+            self.skip_bias_add = False
+            self.bias = None
+
+        def forward(self, input):
+            return self._forward_impl(input, self.weight), None
+
+        def _forward_impl(self, input, weight, **kwargs):
+            return input @ weight.t()
+
+    class SelfAttention:
+        def __init__(self):
+            self.linear_qkv = ColumnLinear()
+            self.linear_proj = RowLinear()
+
+    collective = Collective()
+    monkeypatch.setattr(
+        "rl_engine.integrations.megatron_runtime._fixed_tree_collective",
+        lambda module, input_value=None: collective,
+    )
+    monkeypatch.setattr(det_gemm, "det_gemm_linear_input_gradient", lambda lhs, rhs: lhs @ rhs)
+    monkeypatch.setattr(det_gemm, "det_gemm_linear_weight_gradient", lambda lhs, rhs: rhs.t() @ lhs)
+    _patch_strict_attention_projections(
+        self_attention_cls=SelfAttention,
+        column_linear_cls=ColumnLinear,
+        row_linear_cls=RowLinear,
+        det_gemm=lambda lhs, rhs: lhs @ rhs,
+    )
+    attention = SelfAttention()
+    local = torch.tensor([[[1.0, 2.0]]], requires_grad=True)
+    qkv, _ = attention.linear_qkv.forward(local)
+    output, _ = attention.linear_proj.forward(qkv)
+    assert qkv.shape == (2, 1, 2)
+    assert output.shape == local.shape
+    output.sum().backward()
+    assert torch.equal(local.grad, torch.full_like(local, 2.0))
+    assert collective.operations == ["gather", "scatter", "gather", "scatter"]
+
+
+def test_megatron_strict_lm_head_sequence_parallel_dgrad_is_sharded(monkeypatch):
+    from rl_engine.integrations.megatron_runtime import _DeterministicTPOutputProjection
+    from rl_engine.kernels.ops.matmul import det_gemm
+
+    class Collective:
+        def __init__(self):
+            self.operations = []
+
+        def all_gather(self, value):
+            self.operations.append(("gather", tuple(value.shape)))
+            return torch.cat((value, value * 3), dim=0)
+
+        def reduce_scatter(self, value):
+            self.operations.append(("scatter", tuple(value.shape)))
+            return value.chunk(2, dim=0)[0] + value.chunk(2, dim=0)[1]
+
+    collective = Collective()
+    monkeypatch.setattr("rl_engine.integrations.megatron_runtime._tp_world_size", lambda group: 2)
+    monkeypatch.setattr(
+        "rl_engine.distributed.collectives.collective_for_group",
+        lambda group, min_size_bytes: collective,
+    )
+    monkeypatch.setattr(det_gemm, "det_gemm_linear", lambda lhs, rhs: lhs @ rhs.t())
+    monkeypatch.setattr(det_gemm, "det_gemm_linear_input_gradient", lambda lhs, rhs: lhs @ rhs)
+    monkeypatch.setattr(det_gemm, "det_gemm_linear_weight_gradient", lambda lhs, rhs: rhs.t() @ lhs)
+    local = torch.tensor([[[1.0, 2.0]]], dtype=torch.bfloat16, requires_grad=True)
+    weight = torch.eye(2, dtype=torch.bfloat16, requires_grad=True)
+    logits = _DeterministicTPOutputProjection.apply(local, weight, None, object(), True)
+    assert logits.shape == (2, 1, 2)
+    assert torch.equal(logits[:, 0], torch.tensor([[1, 2], [3, 6]], dtype=torch.bfloat16))
+    logits.sum().backward()
+    assert local.grad.shape == local.shape
+    assert torch.equal(local.grad, torch.full_like(local, 2))
+    assert torch.equal(weight.grad, torch.tensor([[4, 8], [4, 8]], dtype=torch.bfloat16))
+    assert collective.operations == [("gather", (1, 1, 2)), ("scatter", (2, 1, 2))]
+
+
 def test_vllm_qwen3_strict_model_installs_without_debug_environment(monkeypatch):
     monkeypatch.delenv("RL_KERNEL_MODEL_DEBUG_DIR", raising=False)
 
