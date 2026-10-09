@@ -12,19 +12,21 @@ from rl_engine.kernels.registry import OpBackend, kernel_registry
 
 
 @pytest.fixture
-def cuda_op():
+def cuda_op(request):
     try:
-        return CudaAdaLNModulationOp()
+        return CudaAdaLNModulationOp(threads=getattr(request, "param", 256))
     except RuntimeError:
         if os.environ.get("RL_KERNEL_REQUIRE_EXT") == "1":
             raise
         pytest.skip("compiled CUDA AdaLN extension required")
 
 
-def test_cuda_shared_rejects_batch_above_grid_limit(cuda_op):
+@pytest.mark.parametrize("cuda_op", [128, 256, 512], indirect=True)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_cuda_shared_rejects_batch_above_grid_limit(cuda_op, dtype):
     device = "cuda" if torch.cuda.is_available() else "meta"
-    x = torch.zeros(65536, 1, 1, device=device)
-    m = torch.zeros(65536, 3, device=device)
+    x = torch.zeros(65536, 1, 1, device=device, dtype=dtype)
+    m = torch.zeros(65536, 3, device=device, dtype=dtype)
     with pytest.raises(ValueError, match="B <= 65535"):
         cuda_op(x, m)
 
@@ -58,17 +60,30 @@ def test_cuda_shared_registry_respects_hidden_limit(cuda_op, hidden):
         assert "CUDA_ADALN_MODULATION: H > 4096" in trace["rejected_backends"]
 
 
+@pytest.mark.parametrize("cuda_op", [128, 256, 512], indirect=True)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_cuda_shared_maximum_batch_forward_backward(cuda_op, dtype):
     if not torch.cuda.is_available():
         pytest.skip("CUDA required")
-    x = torch.zeros(65535, 1, 1, device="cuda", dtype=dtype, requires_grad=True)
-    m = torch.zeros(65535, 3, device="cuda", dtype=dtype, requires_grad=True)
-    y, gate = cuda_op(x, m)
-    dx, dm = torch.autograd.grad(gate, (x, m), torch.ones_like(gate))
-    assert torch.equal(y, torch.zeros_like(y))
-    assert torch.equal(gate, torch.zeros_like(gate))
-    assert torch.equal(dx, torch.zeros_like(dx))
+    x = torch.tensor([-3.0, 3.0], device="cuda", dtype=dtype).repeat(65535, 1, 1)
+    x.requires_grad_()
+    m = torch.zeros(65535, 6, device="cuda", dtype=dtype)
+    # Exact small integer tags expose gate batch addressing, including the last row.
+    tag = (torch.arange(65535, device="cuda") % 17).to(dtype)
+    m[:, 4], m[:, 5] = tag, -tag
+    m.requires_grad_()
+    y, gate = cuda_op(x, m, eps=7.0)
+    dy = torch.tensor([1.0, 0.0], device="cuda", dtype=dtype).expand_as(y)
+    dg = torch.tensor([2.0, -3.0], device="cuda", dtype=dtype).expand_as(gate)
+    dx, dm = torch.autograd.grad((y, gate), (x, m), (dy, dg))
+    # variance+eps=16, norm=[-3/4,3/4]; the VJP is [7/128,-7/128].
+    assert torch.equal(
+        y, torch.tensor([-0.75, 0.75], device="cuda", dtype=dtype).expand_as(y)
+    )
+    assert torch.equal(gate[:, 0], torch.stack((tag, -tag), dim=1))
+    expected_dx = torch.tensor([7 / 128, -7 / 128], device="cuda", dtype=dtype)
+    assert torch.equal(dx, expected_dx.expand_as(dx))
     expected = torch.zeros_like(m)
-    expected[:, 2] = 1
+    expected[:, 0], expected[:, 2] = 1.0, -0.75
+    expected[:, 4], expected[:, 5] = 2.0, -3.0
     assert torch.equal(dm, expected)
