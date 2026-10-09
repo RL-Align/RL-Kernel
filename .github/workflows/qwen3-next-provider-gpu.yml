@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-# RFC #428 Qwen3-Next provider comparisons: the C1/C3/C4 norm providers and the C6
-# GDN decode-step goldens, each checked against the real vLLM 0.30.0 provider.
+# RFC #428 Qwen3-Next provider comparisons: the C1/C3/C4 norm providers, the C6
+# GDN decode-step goldens and the shared GEMM/MoE route-combine provider, each
+# checked against the real vLLM 0.30.0 provider.
 #
 # These check_ files import vLLM, so the default pytest collection never runs them
 # (tests/test_framework_operator_integrations.py asserts vLLM is not imported). This
@@ -19,6 +20,7 @@ on:
     branches: [main]
     paths:
       - "rl_engine/kernels/ops/**"
+      - "rl_engine/integrations/qwen3_next*"
       - "rl_engine/testing/qwen3_next*"
       - "tests/check_*qwen3_next*.py"
       - "tests/check_gdn_recurrent_golden.py"
@@ -78,5 +80,8 @@ jobs:
           print("rl_engine._C:", loaded)
           PY
       - name: Check pinned providers in their own process
+        # The FP32 router needs IEEE Triton dots from process start.
+        env:
+          TRITON_F32_DEFAULT: ieee
         run: |
-          python3 -m pytest -q tests/check_qwen3_next_norm_providers.py tests/check_gdn_recurrent_golden.py
+          python3 -m pytest -q tests/check_qwen3_next_norm_providers.py tests/check_gdn_recurrent_golden.py tests/check_qwen3_next_forward.py
