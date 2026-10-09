@@ -428,6 +428,19 @@ def test_adaln_modulation_gradient_uses_ascending_token_order(shared_op):
     _bytes_equal(dm, torch.tensor([[1.0, 0.0, -1.0, 0.0, 0.0, 0.0]]))
 
 
+def test_adaln_independent_gold_uses_contract_token_order():
+    x = torch.tensor([[[-1.0, 1.0]] * 8])
+    m = torch.zeros(1, 6, requires_grad=True)
+    dy = torch.tensor([[[2**24, 0.0], [1.0, 0.0], [-(2**24), 0.0], [1.0, 0.0]]])
+    y, gate = GtestAdaLNReference().forward_fp32(x, m, eps=0.0)
+    (dm,) = torch.autograd.grad(
+        (y, gate), (m,), (dy.repeat(1, 2, 1), torch.zeros_like(gate))
+    )
+    # The carry from the first block is lost at 1+2^24; each ascending fold ends at 1.
+    # A reassociated CPU broadcast backward returns +/-2 for two blocks.
+    _bytes_equal(dm, torch.tensor([[1.0, 0.0, -1.0, 0.0, 0.0, 0.0]]))
+
+
 @pytest.mark.parametrize(
     "invalid, error, message",
     [

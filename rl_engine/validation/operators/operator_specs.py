@@ -280,18 +280,43 @@ OP_SPECS = {
 }
 
 
+class _GtestSharedAdaLNAffine(torch.autograd.Function):
+    """Independent CPU affine VJP with the specified ascending FP32 S fold."""
+
+    @staticmethod
+    def forward(ctx, norm, modulation):
+        shift, scale, gate = modulation.chunk(3, dim=-1)
+        ctx.save_for_backward(norm, scale)
+        return norm * (1 + scale[:, None, :]) + shift[:, None, :], gate[:, None, :]
+
+    @staticmethod
+    def backward(ctx, dy, dg):
+        norm, scale = ctx.saved_tensors
+        shift_grad = torch.zeros_like(scale)
+        scale_grad = torch.zeros_like(scale)
+        # CPU torch's broadcast backward may reassociate this reduction. The
+        # reference follows the declared token order without any kernel helper.
+        for token in range(norm.shape[1]):
+            shift_grad = shift_grad + dy[:, token, :]
+            scale_grad = scale_grad + dy[:, token, :] * norm[:, token, :]
+        dm = torch.cat((shift_grad, scale_grad, dg[:, 0, :]), dim=-1)
+        return dy * (1 + scale[:, None, :]), dm
+
+
 class GtestAdaLNReference:
     """Independent CPU FP32 LayerNorm/autograd gold, not the fixed-tree kernel.
 
     Transfers/casts retain autograd edges to the caller's inputs. Outputs stay
-    FP32; no production normalization or custom backward helper is used.
+    FP32; no production normalization or backward helper is used. Shared
+    affine gradients use a separate CPU VJP for the contract's FP32 token fold.
     """
 
     def forward_fp32(self, x, modulation, *, eps=1e-6, modulate_index=None):
         x32 = x.to(device="cpu", dtype=torch.float32)
         mod32 = modulation.to(device="cpu", dtype=torch.float32)
         if modulate_index is None:
-            shift, scale, gate = mod32[:, None, :].chunk(3, dim=-1)
+            norm = torch.nn.functional.layer_norm(x32, (x.shape[-1],), eps=eps)
+            return _GtestSharedAdaLNAffine.apply(norm, mod32)
         else:
             batch = x.shape[0]
             rows = torch.arange(batch)[:, None] + modulate_index.cpu().long() * batch

@@ -427,3 +427,45 @@ sha256sum -c "$ADALN_EVIDENCE/binary.sha256"
 - CLI JSON 是 operator debugging evidence；缺少受验证 provenance 时不能当整个 WS1 系统 EXIT。
 
 GPU CI 与 script 04 现在也会运行新 canaries。CI 未启动，workflow 配置不是运行证据。
+
+
+## 本地完整验收流水线（2026-10-10，SM86）
+
+当前流水线状态：**failed**；H100/SM90仍为 **UNPROVEN**。
+
+[完整状态与逐阶段命令](/tmp/rlk-adaln-local-acceptance-20261009T174946Z/status.json)、[固定环境及 binary hash](/tmp/rlk-adaln-local-acceptance-20261009T174946Z/manifest.json)、[源码 hash](/tmp/rlk-adaln-local-acceptance-20261009T174946Z/source.sha256)。
+
+- correctness：exit=1；passed=n/a；[完整日志](/tmp/rlk-adaln-local-acceptance-20261009T174946Z/correctness.log)。
+
+失败原因见[failure.log](/tmp/rlk-adaln-local-acceptance-20261009T174946Z/failure.log)，后续阶段未启动，不升级对应资格。
+
+
+## 真实形状暴露的独立参考错误（2026-10-10）
+
+首次完整运行381 passed、3 failed、14 deselected；三个FP32真实S均在dMod accuracy断言失败，fixed CPU与CUDA/Triton的bytes比较已经通过。旧独立参考使用CPU broadcast autograd默认S归约，该归约不遵守合同的token递增FP32 left-fold。
+
+独立最小反例：B1,S8,H2，x每行[-1,1]、eps0、shift/scale0，dy首通道[2^24,1,-2^24,1]重复两次；合同dshift=1、dscale=-1，旧gold得到2、-2。关键断言是公开GtestAdaLNReference VJP对手算literal的bytes，而非仅互相比对两个算子。
+
+[test-first red](/tmp/rlk-adaln-gold-token-order-red.log)1 failed→[green](/tmp/rlk-adaln-gold-token-order-green.log)1 passed。修复只在独立gold的shared affine使用独立CPU FP32 token fold，未调用任何生产normalization/backward helper；norm和dX仍由独立CPU F.layer_norm/autograd提供。indexed参考路径及所有原容差不变，native源码/.so未变。
+
+当前最小gold归约反例 **PROVEN**；完整真实形状复跑和后续sanitizer/benchmark状态以后续流水线证据为准。
+
+
+## 本地完整验收流水线（2026-10-10，SM86）
+
+当前流水线状态：**succeeded**；H100/SM90仍为 **UNPROVEN**。
+
+[完整状态与逐阶段命令](/tmp/rlk-adaln-local-acceptance-20261009T175945Z/status.json)、[固定环境及 binary hash](/tmp/rlk-adaln-local-acceptance-20261009T175945Z/manifest.json)、[源码 hash](/tmp/rlk-adaln-local-acceptance-20261009T175945Z/source.sha256)。
+
+- correctness：exit=0；passed=385；[完整日志](/tmp/rlk-adaln-local-acceptance-20261009T175945Z/correctness.log)。
+- racecheck：exit=0；passed=210；[完整日志](/tmp/rlk-adaln-local-acceptance-20261009T175945Z/racecheck.log)。
+  ========= RACECHECK SUMMARY: 0 hazards displayed (0 errors, 0 warnings)
+- memcheck：exit=0；passed=224；[完整日志](/tmp/rlk-adaln-local-acceptance-20261009T175945Z/memcheck.log)。
+  ========= ERROR SUMMARY: 0 errors
+- benchmark：exit=0；passed=n/a；[完整日志](/tmp/rlk-adaln-local-acceptance-20261009T175945Z/benchmark.log)。
+
+54项 benchmark 覆盖2 dtype×3 S×3 backend×3 mode；[JSON含每次采样](/tmp/rlk-adaln-local-acceptance-20261009T175945Z/benchmark/benchmark.json)、[CSV](/tmp/rlk-adaln-local-acceptance-20261009T175945Z/benchmark/benchmark.csv)。
+
+mode分别为forward、backward_only（forward graph在计时区域外准备）、forward_backward。warmup1/repeat3，时间为GPU event median；保存allocated/reserved峰值及相对计时前的extra峰值。属于本机短采样，H100需重新采样。
+
+本次可将三真实S、完整launch×batch/padding、所选sanitizer矩阵及benchmark的本机指定配置记为PROVEN；不代表一般输入域或SM90资格。源码和二进制在各阶段前后保持不变。
