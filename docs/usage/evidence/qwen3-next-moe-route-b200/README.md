@@ -1,13 +1,26 @@
 # Qwen3-Next routed MoE: prior art and TP4 gate (B200)
 
-Measured at commit `2e950f3` from a clean clone (`tracked_tree_dirty: false` in
-every file), with that clone's own `rl_engine._C`, on one node with four B200
-GPUs (driver 580.126.20), torch 2.13.0+cu130, vLLM 0.30.0, Triton 3.7.1,
-transformers 5.17.0, FlashInfer 0.6.18.post1, NCCL 2.29.7.
+`report.json` and `figure.png` were measured at commit `c58816b` from a clean
+clone (`tracked_tree_dirty: false`) on one B200 (driver 580.126.20, torch
+2.13.0+cu130, Triton 3.7.1), in two Python environments because no single one
+can import every candidate:
+
+* the training environment (VIME 0.3.2 with Megatron-core 0.16.0rc0 and
+  Transformer Engine 2.16.1, vLLM 0.30.0, FlashInfer 0.6.18.post1,
+  transformers 5.17.0): RL-Kernel, HF, vLLM, FlashInfer, Megatron-core + TE;
+* a second environment with SGLang 0.5.21: SGLang in default and
+  deterministic-inference mode. Its compiled `sgl_kernel` 0.3.21 is built for
+  another libtorch ABI and cannot load next to torch 2.13, so SGLang's two
+  kernels on this path are replaced by SGLang's own implementations of the same
+  operations (Triton `moe_sum_reduce`, JIT `moe_align_block_size`); calling any
+  other `sgl_kernel` symbol fails.
+
+`environments` in `report.json` records both. The TP4 gate files were measured
+at `2e950f3`, whose MoE code is identical (`c58816b` only adds runner candidates).
 
 | File | Produced by |
 | --- | --- |
-| `report.json` | `TRITON_F32_DEFAULT=ieee python scripts/qwen3_next_moe_prior_art.py --out report.json` (one GPU) |
+| `report.json` | `TRITON_F32_DEFAULT=ieee python scripts/qwen3_next_moe_prior_art.py --only rl_kernel_cuda,hf_transformers,vllm_bi0,vllm_bi1,flashinfer_cutlass,megatron_te --out main.json` (training environment), then `... --only sglang_triton,sglang_deterministic --merge main.json --out report.json` (SGLang environment); one GPU |
 | `figure.png` | `python scripts/plot_qwen3_next_moe_prior_art.py report.json` |
 | `tp4-moe/rank-{0..3}.json` | `TRITON_F32_DEFAULT=ieee torchrun --nproc-per-node 4 scripts/qwen3_next_tp_moe_check.py --checkpoint <Qwen3-Next-80B-A3B-Instruct> --output tp4-moe` |
 
