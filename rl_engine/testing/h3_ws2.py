@@ -144,9 +144,9 @@ def _bootstrap(rank, world, init_method, queue, inputs_path, target, kwargs):
             {k: v.cpu() if isinstance(v, torch.Tensor) else v for k, v in out.items()},
             inputs_path.with_name(f"rank{rank}.pt"),
         )
-        queue.put({"rank": rank})
         collective.close()
         dist.destroy_process_group()
+        queue.put({"rank": rank})
     except Exception:  # forwarded to the parent
         queue.put({"rank": rank, "error": traceback.format_exc()})
 
@@ -160,7 +160,9 @@ def run_world(world: int, target, inputs: dict[str, torch.Tensor], timeout: floa
     """
 
     import tempfile
+    import time
     from pathlib import Path
+    from queue import Empty
 
     import torch.multiprocessing as mp
 
@@ -176,12 +178,45 @@ def run_world(world: int, target, inputs: dict[str, torch.Tensor], timeout: floa
             ctx.Process(target=_bootstrap, args=(r, world, init, queue, path, target, kwargs))
             for r in range(world)
         ]
-        for proc in procs:
-            proc.start()
-        status = sorted((queue.get(timeout=timeout) for _ in procs), key=lambda r: r["rank"])
-        for proc in procs:
-            proc.join(timeout=120)
-        for result in status:
-            if "error" in result:
-                raise RuntimeError(f"rank {result['rank']} failed:\n{result['error']}")
-        return [{"rank": r, **torch.load(path.with_name(f"rank{r}.pt"))} for r in range(world)]
+        started = []
+        try:
+            for proc in procs:
+                proc.start()
+                started.append(proc)
+            deadline = time.monotonic() + timeout
+            pending = set(range(world))
+            while pending:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError(f"timed out waiting for ranks {sorted(pending)}")
+                try:
+                    result = queue.get(timeout=min(0.1, remaining))
+                except Empty:
+                    for rank in pending:
+                        if procs[rank].exitcode is not None:
+                            raise RuntimeError(
+                                f"rank {rank} exited with code {procs[rank].exitcode} "
+                                "without reporting a result"
+                            ) from None
+                    continue
+                if "error" in result:
+                    raise RuntimeError(f"rank {result['rank']} failed:\n{result['error']}")
+                pending.remove(result["rank"])
+            for rank, proc in enumerate(procs):
+                proc.join(timeout=max(0, deadline - time.monotonic()))
+                if proc.is_alive():
+                    raise TimeoutError(f"rank {rank} did not exit after reporting a result")
+                if proc.exitcode != 0:
+                    raise RuntimeError(f"rank {rank} exited with code {proc.exitcode}")
+            return [{"rank": r, **torch.load(path.with_name(f"rank{r}.pt"))} for r in range(world)]
+        finally:
+            for proc in started:
+                if proc.is_alive():
+                    proc.terminate()
+            for proc in started:
+                proc.join(timeout=5)
+                if proc.is_alive():
+                    proc.kill()
+                    proc.join()
+            queue.close()
+            queue.join_thread()

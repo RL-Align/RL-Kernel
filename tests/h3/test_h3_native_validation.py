@@ -16,6 +16,7 @@ def native_extension():
     from rl_engine.kernels.ops.base import _C, _EXT_AVAILABLE
 
     names = (
+        "h3_adaln_row_gather_backward",
         "h3_rmsnorm_forward",
         "h3_rmsnorm_backward",
         "h3_gate_residual_forward",
@@ -49,6 +50,10 @@ def native_case():
 def _native_call(extension, operation, boundary, case):
     x, index = case["x"], case["index"]
     tiles = tuple(case[name] for name in ("sorted_pos", "tile_begin", "tile_end", "seg_first_tile"))
+    if operation == "gather":
+        return extension.h3_adaln_row_gather_backward(
+            case["grad"].unsqueeze(0), *tiles, case["grad"].dtype
+        )
     if operation == "rmsnorm":
         modulation = (case["shift"], case["scale"], index)
         if boundary == "forward":
@@ -86,7 +91,7 @@ def test_native_rejects_invalid_row_index(
         _native_call(native_extension, operation, boundary, native_case)
 
 
-@pytest.mark.parametrize("operation", ["rmsnorm", "gate_residual"])
+@pytest.mark.parametrize("operation", ["rmsnorm", "gate_residual", "gather"])
 @pytest.mark.parametrize("metadata", ["sorted_pos", "tile_begin", "tile_end", "seg_first_tile"])
 @pytest.mark.parametrize("device", ["cpu", "other_cuda"])
 def test_native_rejects_mixed_device_tiles(
@@ -122,3 +127,47 @@ def test_native_accepts_same_device_inputs(native_extension, native_case, operat
     actual_grads = _native_call(native_extension, operation, "backward", native_case)
     for actual, expected in zip(actual_grads, expected_grads, strict=True):
         torch.testing.assert_close(actual, expected)
+
+
+@pytest.mark.parametrize("operation", ["rmsnorm", "gate_residual"])
+@pytest.mark.parametrize("boundary", ["forward", "backward"])
+@pytest.mark.parametrize("bad_index", [-1, 2])
+def test_native_rejects_out_of_range_index_in_subprocess(
+    native_extension, operation, boundary, bad_index
+):
+    # A device assertion poisons the CUDA context, so isolate each invalid launch.
+    import os
+    import subprocess
+    import sys
+
+    code = f"""
+import torch
+from rl_engine import _C
+x = torch.ones(2, 8, device='cuda')
+w = torch.ones(8, device='cuda')
+index = torch.tensor([0, {bad_index}], device='cuda', dtype=torch.int64)
+pos = torch.arange(2, device='cuda', dtype=torch.int64)
+ends = pos + 1
+seg = torch.arange(3, device='cuda', dtype=torch.int64)
+if {operation!r} == 'gate_residual':
+    if {boundary!r} == 'forward':
+        _C.h3_gate_residual_forward(x, x, x, index)
+    else:
+        _C.h3_gate_residual_backward(x, x, x, index, pos, pos, ends, seg)
+else:
+    if {boundary!r} == 'forward':
+        _C.h3_rmsnorm_forward(x, w, 1e-5, x, x, index)
+    else:
+        rstd = torch.ones(2, device='cuda')
+        _C.h3_rmsnorm_backward(x, x, w, rstd, x, x, index, pos, pos, ends, seg)
+torch.cuda.synchronize()
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env={**os.environ, "CUDA_LAUNCH_BLOCKING": "1"},
+    )
+    assert result.returncode != 0
+    assert "device-side assert" in result.stderr
