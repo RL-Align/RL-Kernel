@@ -89,4 +89,5 @@ jobs:
             tests/check_qwen3_next_forward.py tests/check_qwen3_next_attention.py \
             tests/check_qwen3_next_gdn_bridge.py tests/check_qwen3_next_gdn_sequence.py \
             tests/check_qwen3_next_conv_bridge.py tests/check_qwen3_next_core_matrix.py \
-            tests/check_qwen3_next_shared_core.py
+            tests/check_qwen3_next_shared_core.py \
+            tests/check_qwen3_next_paged_attention.py tests/check_qwen3_next_batch_invariance.py

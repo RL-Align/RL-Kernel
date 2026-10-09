@@ -17,6 +17,8 @@ import torch
 import torch.nn.functional as F
 from torch.autograd.function import once_differentiable
 
+from rl_engine.kernels.logprob_contract import LogprobContract
+
 FORWARD_PROVIDER_ID = "qwen3-next-shared-cuda-forward-v1"
 
 
@@ -362,3 +364,46 @@ def shared_attention(q, k, v):
     if q.shape[2] > k.shape[2]:
         raise ValueError("Query tokens must fit within the supplied KV prefix")
     return _attention_op()(q, k, v, causal=True, scale=1 / 16)
+
+
+def shared_logprob(local_logits, targets, *, contract, tp_group=None, with_entropy=True):
+    """Return FP32 (selected logprob, LSE, optional entropy) with 64 vocab tiles.
+
+    The existing CUDA WS2 provider supplies forward and autograd. Native VIME
+    policy_loss requests entropy even with a zero regularization coefficient.
+    Both invocation modes therefore use its same entropy-capable path, keeping
+    selected-logprob forward/backward identical across training and rollout.
+    """
+    _cuda_tensors(local_logits, targets)
+    if not isinstance(contract, LogprobContract):
+        raise ValueError("An explicit LogprobContract is required")
+    if contract.sharding.real_vocab_size != 151936 or contract.sharding.padded_vocab_size != 151936:
+        raise ValueError("Qwen3-Next logprob requires the full 151936-entry vocabulary")
+    if contract.sharding.cp_world_size != 1 or contract.sharding.tp_world_size not in (1, 4):
+        raise ValueError("Qwen3-Next logprob requires CP1 and TP4 (TP1 for component tests)")
+    if local_logits.dtype not in (torch.bfloat16, torch.float32):
+        raise ValueError("Qwen3-Next logits must be BF16 or FP32")
+    if targets.dtype not in (torch.int32, torch.int64):
+        raise ValueError("Qwen3-Next targets must have integer token IDs")
+    if not isinstance(with_entropy, bool):
+        raise ValueError("with_entropy must be a bool")
+    if not torch.isfinite(local_logits).all():
+        raise ValueError("Qwen3-Next logits must be finite")
+    from rl_engine.kernels.ops.cuda.loss.vocab_parallel_logp import (
+        CudaVocabParallelLogprobOp,
+        native_tile_stats_available,
+    )
+
+    if not native_tile_stats_available():
+        raise RuntimeError("Qwen3-Next logprob requires rebuilt CUDA tile-stat kernels")
+    selected, lse, entropy = CudaVocabParallelLogprobOp().apply_with_entropy(
+        local_logits,
+        targets,
+        contract=contract,
+        tp_group=tp_group,
+        num_vocab_tiles=64,
+        validate=True,
+        with_entropy_grad=with_entropy,
+        deterministic=True,
+    )
+    return selected, lse, entropy if with_entropy else None

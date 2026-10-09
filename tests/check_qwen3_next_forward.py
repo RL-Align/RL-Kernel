@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""Mandatory shared CUDA GEMM and MoE checks; these do not claim model L2."""
+"""Mandatory shared CUDA GEMM/MoE/logprob checks; these do not claim model L2."""
+
+from dataclasses import replace
 
 import pytest
 import torch
@@ -10,8 +12,17 @@ import torch.nn.functional as F
 from rl_engine.integrations.qwen3_next_forward import (
     combine_routes,
     shared_linear,
+    shared_logprob,
     shared_moe,
     stable_top10_routes,
+)
+from rl_engine.kernels.logprob_contract import (
+    LogprobContract,
+    LogprobDType,
+    LogprobRole,
+    MaskSpec,
+    ReductionSpec,
+    ShardingSpec,
 )
 from rl_engine.testing.tensor_identity import assert_tensor_bitwise_equal as exact
 
@@ -155,6 +166,48 @@ def test_moe_vjp_matches_independent_double_formula():
             value.grad.float(), reference.grad.float(), atol=0.00002, rtol=0.016
         )
         assert (value.grad.double() - reference.grad).norm() / reference.grad.norm() < 0.016
+
+
+def logprob_contract(tokens):
+    return LogprobContract(
+        role=LogprobRole.TRAIN,
+        dtype=LogprobDType.FP32,
+        mask=MaskSpec(tokens, (True,) * tokens),
+        sharding=ShardingSpec(0, 1, ((0, 151936),), 151936, 151936),
+        reduction=ReductionSpec(),
+    )
+
+
+def test_full_vocabulary_logprob_entropy_modes_and_gradient():
+    logits = random((4, 151936), dtype=torch.float32, grad=True)
+    targets = torch.tensor([0, 37984, 75968, 151935], device="cuda")
+    contract = logprob_contract(4)
+    logp, lse, entropy = shared_logprob(logits, targets, contract=contract)
+    infer_logp, infer_lse, empty = shared_logprob(
+        logits, targets, contract=replace(contract, role=LogprobRole.INFER), with_entropy=False
+    )
+    exact(logp, infer_logp)
+    exact(lse, infer_lse)
+    assert empty is None
+    row_logp, _, row_entropy = shared_logprob(logits[:1], targets[:1], contract=logprob_contract(1))
+    exact(row_logp, logp[:1])
+    exact(row_entropy, entropy[:1])
+    (-logp.sum() + 0.03 * entropy.sum()).backward()
+    reference = logits.detach().double().requires_grad_()
+    log_softmax = reference.log_softmax(-1)
+    expected_logp = log_softmax.gather(1, targets[:, None]).squeeze(1)
+    expected_entropy = -(log_softmax.exp() * log_softmax).sum(-1)
+    (-expected_logp.sum() + 0.03 * expected_entropy.sum()).backward()
+    torch.testing.assert_close(logp.double(), expected_logp, atol=0.00002, rtol=0)
+    torch.testing.assert_close(entropy.double(), expected_entropy, atol=0.00002, rtol=0)
+    torch.testing.assert_close(logits.grad.double(), reference.grad, atol=0.000002, rtol=0)
+
+
+def test_logprob_nan_rejected_before_comparison():
+    logits = random((1, 151936), dtype=torch.float32)
+    logits[0, 0] = torch.nan
+    with pytest.raises(ValueError, match="finite"):
+        shared_logprob(logits, torch.tensor([0], device="cuda"), contract=logprob_contract(1))
 
 
 @torch.no_grad()

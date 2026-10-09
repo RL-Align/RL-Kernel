@@ -18,7 +18,7 @@ dependencies = [
     "tabulate",
     "numpy",
     "accelerate",
-    "transformers==5.13.1",
+    "transformers>=5.13.1,<=5.17.0",
 ]
 
 [project.scripts]
@@ -31,6 +31,14 @@ rl_kernel = "rl_engine.integrations.vllm_runtime:register_vllm_plugin"
 cuda = ["flashinfer-python>=0.6.0,<0.7", "nvidia-ml-py"]
 rocm = ["aiter"]
 vllm = ["vllm>=0.6.0"]
+# The audited Qwen3-Next runtime (RFC #428): every provider check pins these.
+qwen3-next = [
+    "torch==2.13.0",
+    "transformers==5.17.0",
+    "vllm==0.30.0",
+    "triton==3.7.1",
+    "flashinfer-python==0.6.18.post1",
+]
 drift-viewer = ["Pillow>=10", "PySide6>=6.6"]
 dev = ["pytest", "black", "isort", "ruff", "mypy", "pre-commit"]
 
