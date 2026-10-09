@@ -43,8 +43,8 @@ y = rmsnorm_cuda(x, weight, eps=1e-6, weight_offset=1.0)
 
 | Argument | Shape | Dtype | Requirements |
 | --- | --- | --- | --- |
-| `x` | `[..., H]` | fp32 / bf16 / fp16 | CUDA path requires contiguous |
-| `weight` | `[H]` | matches `x` | zero-centred (upstream inits to zeros) |
+| `x` | `[..., H]` | fp32 / bf16 / fp16 | CUDA wrapper copies non-contiguous inputs; low-level `rmsnorm_cuda` requires contiguous inputs |
+| `weight` | `[H]` | matches `x` | zero-centred (upstream inits to zeros); CUDA wrapper copies non-contiguous weights; low-level `rmsnorm_cuda` requires contiguous weights |
 | `eps` | scalar | float | inside the sqrt; `1e-6` for Qwen3-Next |
 
 ## Dispatch Behavior
@@ -138,7 +138,6 @@ BF16.
 | Liger 0.8.4 RMSNorm, offset 1, gemma | yes | 99.9993% | 2.4e-03 | 133 / 974 µs | not on this branch |
 | FLA 0.5.2 rms_norm, weight passed as 1 + w | yes | 73.0161% | 5.5e-03 | 147 / 1051 µs | not on this branch |
 | TE 2.20.2 RMSNorm(zero_centered_gamma) | **no** (175 rows, 245 sub-batches) | 99.9992% | 2.4e-03 | 156 / 779 µs | — |
-| Megatron BatchInvariantRMSNormFn(zero_centered_gamma=True) | **no** (47 rows, 62 sub-batches, 92 sweep cases) | 0.0000% | 1.2e-02 | 1439 / 5507 µs | not on this branch |
 | FlashInfer 0.6.18.post1 gemma_rmsnorm | yes | 99.9992% | — | 91 / — µs | — |
 | vLLM 0.30.0 GemmaRMSNorm.forward_cuda | **no** (16 rows, 26 sub-batches) | 99.9992% | — | 1454 / — µs | — |
 
@@ -150,7 +149,15 @@ idle B200. The C3/C4 column runs this repository's own gate scripts unchanged, w
 candidate replaced by a subclass of this op whose forward and backward call the other library.
 The subclass keeps this op's FP32 `dweight` row contributions, so singleton-aggregate compares
 like with like. The gate scripts for this op arrive with #468 (`qwen3_next_norm_manifest.json`); its gate results are in #468's copy of this page. [`qwen3_next_rms_norm.json`](../usage/evidence/qwen3-next-norm-reuse-b200/qwen3_next_rms_norm.json)
-was written from a clean tree at `a66493c` by
+was originally written from a clean tree at `a66493c` by the command below. The
+Megatron `52fbcbc` result has been excluded from the report, table and figure:
+that revision computes `weight_eff` but uses the original `weight` in its forward
+output, so it does not implement the zero-centred operation despite accepting the
+flag. The remaining measurements are unchanged; the figure was regenerated from
+the corrected report without rerunning benchmarks. The reuse checker now rejects
+Megatron implementations that fail a zero-weight probe before benchmarking them.
+
+Original command:
 
 ```bash
 python scripts/qwen3_next_norm_reuse_check.py --op qwen3_next_rms_norm \
