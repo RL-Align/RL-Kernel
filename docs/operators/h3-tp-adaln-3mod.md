@@ -83,6 +83,7 @@ byte-equal to WS1 computed on the same GPU.
 | 1 | forward + backward | 1.90 ms | 1.49 ms | 1.19 ms | 1.04 ms |
 | 3 | forward | 0.10 ms | 0.11 ms | 0.11 ms | 0.12 ms |
 | 3 | forward + backward | 2.25 ms | 1.77 ms | 1.48 ms | 1.32 ms |
+| 4 | forward + backward | 2.09 ms | 1.83 ms | 1.57 ms | 1.45 ms |
 
 Times are for the slowest rank. The WS1 forward already streams the 520 MB weight at about
 5 TB/s, so the TP forward is bounded by the all-gather. `DeterministicCollective` synchronises the

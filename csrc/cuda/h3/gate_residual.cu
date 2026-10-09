@@ -50,6 +50,7 @@ struct Gate {
   int64_t stride;
   const int64_t* index;  // (S,)
   int64_t seq;
+  int64_t num_rows;
 };
 
 // One block per row (grid-strided); 16-byte vectors when the row allows it.
@@ -60,7 +61,9 @@ __global__ void gate_residual_rows_kernel(const T* __restrict__ a, const T* __re
                                           Gate gate, bool vectorized) {
   constexpr int kVecElems = 16 / sizeof(T);
   for (int64_t r = blockIdx.x; r < rows; r += gridDim.x) {
-    const T* g = static_cast<const T*>(gate.rows) + gate.index[r % gate.seq] * gate.stride;
+    const int64_t i = gate.index[r % gate.seq];
+    CUDA_KERNEL_ASSERT(i >= 0 && i < gate.num_rows);
+    const T* g = static_cast<const T*>(gate.rows) + i * gate.stride;
     const T* ar = a + r * n;
     const T* br = kDy ? nullptr : b + r * n;
     T* orow = out + r * n;
@@ -148,7 +151,7 @@ Gate make_gate(const torch::Tensor& gate, const torch::Tensor& index, const torc
                   index.dim() == 1 && index.is_contiguous() && index.numel() > 0,
               "index must be a non-empty contiguous int64 tensor on ", x.device());
   TORCH_CHECK(x.size(0) % index.size(0) == 0, "rows must be a multiple of S");
-  return Gate{gate.data_ptr(), gate.stride(0), index.data_ptr<int64_t>(), index.size(0)};
+  return Gate{gate.data_ptr(), gate.stride(0), index.data_ptr<int64_t>(), index.size(0), gate.size(0)};
 }
 
 void check_act(const torch::Tensor& t, const char* name, const torch::Tensor& like) {
