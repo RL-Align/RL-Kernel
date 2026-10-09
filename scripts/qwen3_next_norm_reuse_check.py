@@ -139,6 +139,17 @@ def _c1_candidates(hidden: int) -> list[tuple[str, Any]]:
         def fn(x, w):
             return BatchInvariantRMSNormFn.apply(x, w, EPS, True)
 
+        # Some revisions accept the flag but still multiply by the uncentered weight.
+        with torch.no_grad():
+            probe_x = torch.ones(2, hidden, device=DEV, dtype=DT)
+            probe_w = torch.zeros(hidden, device=DEV, dtype=DT)
+            expected = (probe_x.float() * (1.0 + EPS) ** -0.5).to(DT)
+            if not torch.allclose(fn(probe_x, probe_w), expected):
+                raise RuntimeError(
+                    "Megatron zero_centered_gamma=True failed the zero-weight probe; "
+                    "excluded from the zero-centered comparison"
+                )
+
         return "Megatron BatchInvariantRMSNormFn(zero_centered_gamma=True)", fn, "full"
 
     def flashinfer():

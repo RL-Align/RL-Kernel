@@ -625,104 +625,7 @@
       }
     },
     "megatron": {
-      "source": "Megatron BatchInvariantRMSNormFn(zero_centered_gamma=True)",
-      "backward": "full",
-      "batch_invariance": {
-        "all_rows": {
-          "64": {
-            "rows": 192,
-            "fwd_differ": 0,
-            "rowgrad_differ": 0
-          },
-          "257": {
-            "rows": 771,
-            "fwd_differ": 0,
-            "rowgrad_differ": 3
-          },
-          "2048": {
-            "rows": 6144,
-            "fwd_differ": 0,
-            "rowgrad_differ": 44
-          }
-        },
-        "dweight_repeatable": true,
-        "full_vs_sub_batches": {
-          "full_batch": 65536,
-          "sub_batch_sizes": [
-            1,
-            7,
-            2048,
-            4097,
-            32768
-          ],
-          "sub_batches": 2148,
-          "fwd_differ": 0,
-          "rowgrad_differ": 62
-        },
-        "batch_size_sweep": {
-          "batch_sizes": [
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            15,
-            16,
-            17,
-            31,
-            32,
-            33,
-            63,
-            64,
-            65,
-            127,
-            128,
-            129,
-            255,
-            256,
-            257,
-            511,
-            512,
-            513,
-            1023,
-            1024,
-            1025,
-            2047,
-            2048
-          ],
-          "probe_rows": [
-            0,
-            259,
-            515,
-            771,
-            1027,
-            1283,
-            1539,
-            2047
-          ],
-          "comparisons": 2232,
-          "differ": 92
-        },
-        "batch_invariant": false
-      },
-      "accuracy_latency": {
-        "rows": 65536,
-        "fwd_correctly_rounded": 7.450580596923828e-08,
-        "fwd_max_abs_err": 5.5793535592200865,
-        "fwd_us": 1438.655972480774,
-        "grad_rel_err": {
-          "x": 0.012024440704548441,
-          "w": 0.0019861680402388695
-        },
-        "fwd_bwd_us": 5506.911993026733
-      },
-      "contract_gates": {
-        "unavailable": "rl_engine/testing/qwen3_next_norm_manifest.json is not on this branch"
-      }
+      "unavailable": "Excluded: Megatron 52fbcbc accepts zero_centered_gamma=True but uses the original weight instead of weight_eff in forward."
     },
     "flashinfer": {
       "source": "FlashInfer 0.6.18.post1 gemma_rmsnorm",
@@ -908,5 +811,8 @@
         "fwd_us": 1454.3840289115906
       }
     }
-  }
+  },
+  "evidence_corrections": [
+    "Removed the invalid Megatron 52fbcbc zero-centered comparison and regenerated the figure. All other measurements and original run provenance are unchanged; benchmarks were not rerun."
+  ]
 }
