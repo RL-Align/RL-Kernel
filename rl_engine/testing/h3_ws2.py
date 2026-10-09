@@ -325,9 +325,9 @@ def _bootstrap(rank, world, init_method, queue, inputs_path, target, kwargs):
             {k: v.cpu() if isinstance(v, torch.Tensor) else v for k, v in out.items()},
             inputs_path.with_name(f"rank{rank}.pt"),
         )
-        queue.put({"rank": rank})
         collective.close()
         dist.destroy_process_group()
+        queue.put({"rank": rank})
     except Exception:  # forwarded to the parent
         queue.put({"rank": rank, "error": traceback.format_exc()})
 
@@ -341,7 +341,9 @@ def run_world(world: int, target, inputs: dict[str, torch.Tensor], timeout: floa
     """
 
     import tempfile
+    import time
     from pathlib import Path
+    from queue import Empty
 
     import torch.multiprocessing as mp
 
@@ -357,12 +359,52 @@ def run_world(world: int, target, inputs: dict[str, torch.Tensor], timeout: floa
             ctx.Process(target=_bootstrap, args=(r, world, init, queue, path, target, kwargs))
             for r in range(world)
         ]
-        for proc in procs:
-            proc.start()
-        status = sorted((queue.get(timeout=timeout) for _ in procs), key=lambda r: r["rank"])
-        for proc in procs:
-            proc.join(timeout=120)
-        for result in status:
-            if "error" in result:
-                raise RuntimeError(f"rank {result['rank']} failed:\n{result['error']}")
-        return [{"rank": r, **torch.load(path.with_name(f"rank{r}.pt"))} for r in range(world)]
+        started = []
+        deadline = time.monotonic() + timeout
+        status = {}
+        try:
+            for proc in procs:
+                proc.start()
+                started.append(proc)
+            while len(status) < world or any(proc.is_alive() for proc in procs):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError(f"rank results timed out after {timeout}s")
+                try:
+                    result = queue.get(timeout=min(0.1, remaining))
+                except Empty:
+                    exited = [
+                        (rank, proc.exitcode)
+                        for rank, proc in enumerate(procs)
+                        if proc.exitcode is not None and (proc.exitcode != 0 or rank not in status)
+                    ]
+                    if not exited:
+                        continue
+                    # A worker may have flushed its final message between the
+                    # timed read and the exit-code check.
+                    try:
+                        result = queue.get_nowait()
+                    except Empty:
+                        rank, code = exited[0]
+                        raise RuntimeError(
+                            f"rank {rank} exited with code {code} without completing"
+                        ) from None
+                if "error" in result:
+                    raise RuntimeError(f"rank {result['rank']} failed:\n{result['error']}")
+                status[result["rank"]] = result
+            for rank, proc in enumerate(procs):
+                proc.join()
+                if proc.exitcode != 0:
+                    raise RuntimeError(f"rank {rank} exited with code {proc.exitcode}")
+            return [{"rank": r, **torch.load(path.with_name(f"rank{r}.pt"))} for r in range(world)]
+        finally:
+            for proc in started:
+                if proc.is_alive():
+                    proc.terminate()
+            for proc in started:
+                proc.join(timeout=5)
+                if proc.is_alive():
+                    proc.kill()
+                    proc.join()
+            queue.close()
+            queue.join_thread()

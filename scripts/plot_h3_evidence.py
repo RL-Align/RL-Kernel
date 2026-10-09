@@ -440,6 +440,8 @@ def plot_rmsnorm(report: dict[str, Any]):
 
 
 def _latency_fwd_bwd(ax, perf: list[dict[str, Any]], provider: str) -> None:
+    combined = all(row.get("backward_timing_scope") == "forward_and_backward" for row in perf)
+    backward_label = "fwd+bwd" if combined else "bwd"
     _style(ax, "Forward and backward time (log, lower is better)", "ms")
     _bars(
         ax,
@@ -447,9 +449,14 @@ def _latency_fwd_bwd(ax, perf: list[dict[str, Any]], provider: str) -> None:
         [
             ("CUDA fwd", RL_KERNEL, [row["candidate_us"] / 1e3 for row in perf]),
             (f"{provider} fwd", PROVIDER, [row["provider_us"] / 1e3 for row in perf]),
-            ("CUDA bwd", RL_KERNEL, [row["candidate_backward_us"] / 1e3 for row in perf], "////"),
             (
-                f"{provider} bwd",
+                f"CUDA {backward_label}",
+                RL_KERNEL,
+                [row["candidate_backward_us"] / 1e3 for row in perf],
+                "////",
+            ),
+            (
+                f"{provider} {backward_label}",
                 PROVIDER,
                 [row["provider_backward_us"] / 1e3 for row in perf],
                 "////",
@@ -458,6 +465,8 @@ def _latency_fwd_bwd(ax, perf: list[dict[str, Any]], provider: str) -> None:
         "{:.2f}",
         log=True,
     )
+
+    ax.legend(frameon=False, fontsize=8, labelcolor=INK, loc="upper left", ncol=2)
 
 
 def _backward_errors(ax, backward: dict[str, Any], keys: list[str], note: str) -> None:
@@ -490,6 +499,7 @@ def _backward_errors(ax, backward: dict[str, Any], keys: list[str], note: str) -
     for text in ax.texts:
         if text.get_text() == f"{floor:.1e}":
             text.set_text("exact")
+    ax.legend(frameon=False, fontsize=8, labelcolor=INK, loc="upper left", ncol=1)
     ax.set_ylim(floor / 3, 1e4)
     ax.text(0.98, 0.80, note, transform=ax.transAxes, ha="right", fontsize=8, color=INK)
 

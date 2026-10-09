@@ -208,3 +208,106 @@ def test_nccl_region_byte_equal_to_ws1(world):
     ranks = run_world(world, sp_region_rank, {k: v.cpu() for k, v in case.items()})
     assert sp_matches_ws1(ws1, ranks) == ALL_TRUE
     assert {r["readback"]["collective_backend"] for r in ranks} == {"cuda_ipc_fixed_tree"}
+
+
+@requires_cuda
+def test_plan_snapshots_caller_index():
+    from rl_engine.kernels.ops.cuda.h3.sp_norm_adaln import sp_plan
+
+    index = torch.tensor([0, 1, 0, 1], device="cuda")
+    plan = sp_plan(sp_row_layout(4, 1, 1, 0), index, 2)
+    local, exchanged = plan.local_index.clone(), plan.index_buf.clone()
+    index.fill_(99)
+    assert torch.equal(plan.local_index, local)
+    assert torch.equal(plan.index_buf, exchanged)
+
+
+@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="needs two CUDA devices")
+def test_plain_norm_uses_activation_device_and_separate_cache():
+    _require_ext()
+    from rl_engine.kernels.ops.cuda.h3.sp_norm_adaln import H3SPNormAdaLNCudaOp
+
+    collective = SimpleNamespace(rank=0, world_size=1, all_gather=lambda x: x)
+    op = H3SPNormAdaLNCudaOp(collective, 5, 1)
+    with torch.cuda.device(0):
+        for device in ("cuda:1", "cuda:0"):
+            x = torch.randn(1, 5, 8, device=device, requires_grad=True)
+            weight = torch.randn(8, device=device, requires_grad=True)
+            ref_x = x.detach().clone().requires_grad_(True)
+            ref_w = weight.detach().clone().requires_grad_(True)
+            result = op.norm(x, weight)
+            expected = torch.nn.functional.rms_norm(ref_x, (8,), ref_w, 1e-5)
+            result.sum().backward()
+            expected.sum().backward()
+            torch.testing.assert_close(result, expected)
+            torch.testing.assert_close(x.grad, ref_x.grad)
+            torch.testing.assert_close(weight.grad, ref_w.grad)
+        assert len(op._plans) == 2
+        assert op.plan(None, None, device="cuda:1").plan.send_local.device.index == 1
+        assert op.plan(None, None, device="cuda:0").plan.send_local.device.index == 0
+
+
+def _worker_exit_without_result(rank, world, init, queue, path, target, kwargs):
+    import time
+
+    if rank == 0:
+        os._exit(kwargs["exit_code"])
+    time.sleep(60)
+
+
+def _worker_reports_error(rank, world, init, queue, path, target, kwargs):
+    import time
+
+    if rank == 0:
+        queue.put({"rank": rank, "error": "intentional worker failure"})
+    time.sleep(60)
+
+
+def _worker_never_reports(rank, world, init, queue, path, target, kwargs):
+    import time
+
+    time.sleep(60)
+
+
+@pytest.mark.parametrize("mode", ["clean_exit", "crash", "reported_error", "timeout"])
+def test_run_world_cleans_up_failed_workers(monkeypatch, mode):
+    import time
+    import torch.multiprocessing as mp
+    from rl_engine.testing import h3_ws2
+
+    workers = {
+        "clean_exit": _worker_exit_without_result,
+        "crash": _worker_exit_without_result,
+        "reported_error": _worker_reports_error,
+        "timeout": _worker_never_reports,
+    }
+    monkeypatch.setattr(h3_ws2, "_bootstrap", workers[mode])
+    monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
+    before = {p.pid for p in mp.active_children()}
+    start = time.monotonic()
+    expected = TimeoutError if mode == "timeout" else RuntimeError
+    with pytest.raises(expected):
+        run_world(
+            2,
+            None,
+            {},
+            timeout=1 if mode == "timeout" else 30,
+            exit_code=7 if mode == "crash" else 0,
+        )
+    assert time.monotonic() - start < 20
+    assert {p.pid for p in mp.active_children()} <= before
+
+
+def _worker_reports_result(rank, world, init, queue, path, target, kwargs):
+    torch.save({"value": torch.tensor(rank)}, path.with_name(f"rank{rank}.pt"))
+    queue.put({"rank": rank})
+
+
+def test_run_world_returns_rank_ordered_results(monkeypatch):
+    from rl_engine.testing import h3_ws2
+
+    monkeypatch.setattr(h3_ws2, "_bootstrap", _worker_reports_result)
+    monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
+    results = run_world(2, None, {}, timeout=30)
+    assert [result["rank"] for result in results] == [0, 1]
+    assert [result["value"].item() for result in results] == [0, 1]

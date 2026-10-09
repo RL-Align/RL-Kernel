@@ -110,7 +110,10 @@ __global__ void adaln_row_gather_partial_kernel(const g_t* __restrict__ grad,
   const int64_t h = j - c * hidden;
   const g_t* g = grad + c * seq * hidden + h;
   float acc = 0.0f;
-  for (int64_t p = tile_begin[tile]; p < tile_end[tile]; ++p) {
+  const int64_t begin = tile_begin[tile], end = tile_end[tile];
+  CUDA_KERNEL_ASSERT(begin >= 0 && begin <= end && end <= seq);
+  for (int64_t p = begin; p < end; ++p) {
+    CUDA_KERNEL_ASSERT(sorted_pos[p] >= 0 && sorted_pos[p] < seq);
     acc += to_float(g[sorted_pos[p] * hidden]);
   }
   partial[tile * width + j] = acc;
@@ -119,12 +122,14 @@ __global__ void adaln_row_gather_partial_kernel(const g_t* __restrict__ grad,
 template <typename out_t>
 __global__ void adaln_row_gather_fold_kernel(const float* __restrict__ partial,
                                              const int64_t* __restrict__ seg_first_tile,
-                                             out_t* __restrict__ out, int64_t width) {
+                                             out_t* __restrict__ out, int64_t width, int64_t tiles) {
   const int64_t r = blockIdx.x;
   const int64_t j = static_cast<int64_t>(blockIdx.y) * blockDim.x + threadIdx.x;
   if (j >= width) return;
   float acc = 0.0f;
-  for (int64_t tile = seg_first_tile[r]; tile < seg_first_tile[r + 1]; ++tile) {
+  const int64_t begin = seg_first_tile[r], end = seg_first_tile[r + 1];
+  CUDA_KERNEL_ASSERT(begin >= 0 && begin <= end && end <= tiles);
+  for (int64_t tile = begin; tile < end; ++tile) {
     acc += partial[tile * width + j];
   }
   out[r * width + j] = from_float<out_t>(acc);
@@ -207,9 +212,10 @@ torch::Tensor h3_adaln_row_gather_backward(torch::Tensor grad, torch::Tensor sor
   TORCH_CHECK(grad.is_cuda() && grad.dim() == 3 && grad.is_contiguous(),
               "grad must be a contiguous (C, S, H) CUDA tensor");
   for (const auto* t : {&sorted_pos, &tile_begin, &tile_end, &seg_first_tile}) {
-    TORCH_CHECK(t->is_cuda() && t->dim() == 1 && t->is_contiguous() &&
+    TORCH_CHECK(t->is_cuda() && t->device() == grad.device() &&
+                    t->dim() == 1 && t->is_contiguous() &&
                     t->scalar_type() == at::kLong,
-                "tile metadata must be contiguous 1-D int64 CUDA tensors");
+                "tile metadata must be contiguous 1-D int64 tensors on grad device");
   }
   TORCH_CHECK(tile_begin.numel() == tile_end.numel(), "tile_begin/tile_end length mismatch");
   const int64_t chunks = grad.size(0);
@@ -218,6 +224,8 @@ torch::Tensor h3_adaln_row_gather_backward(torch::Tensor grad, torch::Tensor sor
   const int64_t width = chunks * hidden;
   const int64_t num_rows = seg_first_tile.numel() - 1;
   const int64_t tiles = tile_begin.numel();
+  TORCH_CHECK(chunks > 0 && seq > 0 && hidden > 0 && num_rows > 0,
+              "gradient dimensions and table row count must be positive");
   TORCH_CHECK(sorted_pos.numel() == seq, "sorted_pos must have S entries");
   const c10::cuda::CUDAGuard device_guard(grad.device());
   auto out = torch::empty({num_rows, width}, grad.options().dtype(out_dtype));
@@ -244,7 +252,7 @@ torch::Tensor h3_adaln_row_gather_backward(torch::Tensor grad, torch::Tensor sor
         adaln_row_gather_fold_kernel<O>
             <<<dim3(static_cast<unsigned>(num_rows), col_blocks), threads, 0, stream>>>(
                 partial.data_ptr<float>(), seg_first_tile.data_ptr<int64_t>(),
-                reinterpret_cast<O*>(out.data_ptr<scalar_t>()), width);
+                reinterpret_cast<O*>(out.data_ptr<scalar_t>()), width, tiles);
       });
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return out;

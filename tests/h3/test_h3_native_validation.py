@@ -275,3 +275,106 @@ def test_rejects_tensor_on_another_cuda_device(native, inputs, entrypoint, name)
     message = "row index" if name == "index" else name
     with pytest.raises(RuntimeError, match=message):
         _call(native, inputs, entrypoint)
+
+
+@pytest.mark.parametrize(
+    "operation", ["gate_forward", "gate_dy", "norm_forward", "norm_dx", "norm_partials"]
+)
+@pytest.mark.parametrize("bad_index", [-1, 2])
+def test_native_table_bounds_fail_in_isolated_process(native_extension, operation, bad_index):
+    import subprocess
+    import sys
+    import textwrap
+
+    script = textwrap.dedent("""
+        import sys
+        import torch
+        from rl_engine import _C
+        op, bad = sys.argv[1], int(sys.argv[2])
+        x = torch.ones(2, 8, device="cuda")
+        w = torch.ones(8, device="cuda")
+        table = torch.ones(2, 8, device="cuda")
+        index = torch.tensor([bad, 0], device="cuda")
+        rstd = torch.ones(2, device="cuda")
+        rows = torch.arange(2, device="cuda")
+        begin = torch.tensor([0], device="cuda")
+        end = torch.tensor([2], device="cuda")
+        try:
+            if op == "gate_forward":
+                _C.h3_gate_residual_forward(x, x, table, index)
+            elif op == "gate_dy":
+                _C.h3_gate_residual_backward_dy(x, table, index)
+            elif op == "norm_forward":
+                _C.h3_rmsnorm_forward(x, w, 1e-5, table, table, index)
+            elif op == "norm_dx":
+                _C.h3_rmsnorm_backward_dx(x, x, w, rstd, table, table, index)
+            else:
+                _C.h3_rmsnorm_backward_partials(
+                    x, x, w, rstd, table, table, index, rows, begin, end, rows, begin, end)
+            torch.cuda.synchronize()
+        except RuntimeError as exc:
+            if "device-side assert" in str(exc):
+                print("BOUNDS_ASSERT_CONFIRMED")
+                sys.exit(0)
+            raise
+        raise AssertionError("invalid index reached native table lookup without an assertion")
+    """)
+    result = subprocess.run(
+        [sys.executable, "-c", script, operation, str(bad_index)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "BOUNDS_ASSERT_CONFIRMED" in result.stdout
+
+
+@pytest.mark.parametrize("metadata", ["sorted_pos", "tile_begin", "tile_end", "seg_first_tile"])
+def test_row_gather_rejects_metadata_on_other_device(native_extension, metadata):
+    if torch.cuda.device_count() < 2:
+        pytest.skip("needs two CUDA devices")
+    grad = torch.ones(6, 2, 8, device="cuda:0")
+    tensors = dict(
+        sorted_pos=torch.tensor([0, 1], device="cuda:0"),
+        tile_begin=torch.tensor([0], device="cuda:0"),
+        tile_end=torch.tensor([2], device="cuda:0"),
+        seg_first_tile=torch.tensor([0, 1], device="cuda:0"),
+    )
+    tensors[metadata] = tensors[metadata].to("cuda:1")
+    with pytest.raises(RuntimeError, match="grad device"):
+        native_extension.h3_adaln_row_gather_backward(grad, **tensors, out_dtype=torch.float32)
+
+
+@pytest.mark.parametrize("metadata", ["sorted_pos", "tile_begin", "tile_end", "seg_first_tile"])
+@pytest.mark.parametrize("bound", ["negative", "past_end"])
+def test_row_gather_metadata_bounds_in_isolated_process(native_extension, metadata, bound):
+    import subprocess
+    import sys
+    import textwrap
+
+    script = textwrap.dedent("""
+        import sys
+        import torch
+        from rl_engine import _C
+        name, bound = sys.argv[1:]
+        grad = torch.ones(6, 2, 8, device="cuda")
+        metadata = dict(sorted_pos=torch.tensor([0, 1], device="cuda"),
+                        tile_begin=torch.tensor([0], device="cuda"),
+                        tile_end=torch.tensor([2], device="cuda"),
+                        seg_first_tile=torch.tensor([0, 1], device="cuda"))
+        metadata[name][0] = -1 if bound == "negative" else 3
+        try:
+            _C.h3_adaln_row_gather_backward(grad, **metadata, out_dtype=torch.float32)
+            torch.cuda.synchronize()
+        except RuntimeError as exc:
+            if "device-side assert" in str(exc):
+                print("BOUNDS_ASSERT_CONFIRMED")
+                sys.exit(0)
+            raise
+        raise AssertionError("invalid metadata was not rejected")
+    """)
+    result = subprocess.run(
+        [sys.executable, "-c", script, metadata, bound], capture_output=True, text=True, timeout=60
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "BOUNDS_ASSERT_CONFIRMED" in result.stdout

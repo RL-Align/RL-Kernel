@@ -590,9 +590,13 @@ def _gate_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
         gate = _gate_view(table)
         grad = torch.randn_like(residual)
 
-        def backward(fn, residual=residual, y=y, table=table, grad=grad):
+        def prepare_backward(fn, residual=residual, y=y, table=table, grad=grad):
             leaves = [t.detach().requires_grad_(True) for t in (residual, y, table)]
-            fn(leaves[0], leaves[1], _gate_view(leaves[2])).backward(grad)
+            return fn(leaves[0], leaves[1], _gate_view(leaves[2])), grad
+
+        def backward(state):
+            output, grad = state
+            output.backward(grad)
 
         cases.append(
             {
@@ -606,10 +610,12 @@ def _gate_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
                 "provider": lambda r=residual, y=y, g=gate, i=index: provider_gate_residual(
                     r, g, i, y
                 ),
-                "candidate_backward": lambda b=backward, i=index: b(
+                "candidate_backward": backward,
+                "provider_backward": backward,
+                "candidate_backward_setup": lambda b=prepare_backward, i=index: b(
                     lambda r, y_, g: op.forward(r, y_, g, i, check_range=False)
                 ),
-                "provider_backward": lambda b=backward, i=index: b(
+                "provider_backward_setup": lambda b=prepare_backward, i=index: b(
                     lambda r, y_, g: provider_gate_residual(r, g, i, y_)
                 ),
             }
@@ -695,9 +701,13 @@ def _final_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
         x, nw, temb, w, b, ti = _final_inputs(seq)
         grad = torch.randn_like(x)
 
-        def backward(fn, tensors=(x, nw, temb, w, b), grad=grad):
+        def prepare_backward(fn, tensors=(x, nw, temb, w, b), grad=grad):
             leaves = [t.detach().requires_grad_(True) for t in tensors]
-            fn(*leaves).backward(grad)
+            return fn(*leaves), grad
+
+        def backward(state):
+            output, grad = state
+            output.backward(grad)
 
         cases.append(
             {
@@ -708,8 +718,12 @@ def _final_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
                 "bytes": 2 * seq * 5376 * 2 + w.numel() * 2,
                 "candidate": lambda t=(x, nw, temb, w, b), i=ti: op(*t, i),
                 "provider": lambda t=(x, nw, temb, w, b), i=ti: provider_final_adaln_out(*t, i),
-                "candidate_backward": lambda bw=backward, i=ti: bw(lambda *t: op(*t, i)),
-                "provider_backward": lambda bw=backward, i=ti: bw(
+                "candidate_backward": backward,
+                "provider_backward": backward,
+                "candidate_backward_setup": lambda bw=prepare_backward, i=ti: bw(
+                    lambda *t: op(*t, i)
+                ),
+                "provider_backward_setup": lambda bw=prepare_backward, i=ti: bw(
                     lambda *t: provider_final_adaln_out(*t, i)
                 ),
             }

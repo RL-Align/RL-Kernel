@@ -28,8 +28,10 @@ op.readback()  # tp, rank, owned columns/slots, collective backend, kernel ids, 
 Rank `r` of `tp` owns the contiguous output columns `[r * N / tp, (r + 1) * N / tp)` of the
 `N = 3 x 6 x 5376` table, which are the same rows of `adaln_proj.linear.weight` and `bias`.
 `N / tp` must be a multiple of 64, the `d_input` chunk of contract `h3-det-linear-v1`, so a shard
-never splits a WS1 partial sum. TP 1, 2, 3, 4, 6, 7 and 8 qualify. Anything else fails closed when
-the op is built.
+never splits a WS1 partial sum. The shard constructor accepts positive TP sizes satisfying
+this alignment, including 1, 2, 3, 4, 6, 7, 8 and 9 (TP=9 gives 10752 columns per rank).
+The `DeterministicCollective` backend supports only 1, 2, 4 and 8 ranks; shard alignment
+alone does not imply backend support.
 
 | TP | Columns per rank | Rank 0 owns |
 | --- | --- | --- |

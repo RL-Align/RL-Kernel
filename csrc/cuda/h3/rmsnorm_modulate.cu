@@ -108,6 +108,7 @@ struct Modulation {
   const void* shift;       // (R, N) rows with stride `row_stride` (elements), or nullptr
   const void* scale;
   int64_t row_stride;
+  int64_t num_rows;
   const int64_t* index;    // (S,) table row per sequence position
   int64_t seq;             // S: row r of x uses index[r % S]
 };
@@ -124,6 +125,7 @@ __global__ void __launch_bounds__(32 * kWarps)
   const T* scale = nullptr;
   if (mod.index != nullptr) {
     const int64_t i = mod.index[r % mod.seq];
+    CUDA_KERNEL_ASSERT(i >= 0 && i < mod.num_rows);
     shift = static_cast<const T*>(mod.shift) + i * mod.row_stride;
     scale = static_cast<const T*>(mod.scale) + i * mod.row_stride;
   }
@@ -160,9 +162,12 @@ __global__ void __launch_bounds__(32 * kWarps)
   const int64_t r = blockIdx.x;
   const T* xr = x + r * n;
   const T* gr = g + r * n;
-  const T* scale = mod.index != nullptr
-                       ? static_cast<const T*>(mod.scale) + mod.index[r % mod.seq] * mod.row_stride
-                       : nullptr;
+  const T* scale = nullptr;
+  if (mod.index != nullptr) {
+    const int64_t i = mod.index[r % mod.seq];
+    CUDA_KERNEL_ASSERT(i >= 0 && i < mod.num_rows);
+    scale = static_cast<const T*>(mod.scale) + i * mod.row_stride;
+  }
   const int numx = blockDim.x * blockDim.y;
   const int thrx = threadIdx.x + threadIdx.y * blockDim.x;
   float s = 0.0f;
@@ -204,9 +209,12 @@ __global__ void rmsnorm_dweight_partial_kernel(const T* __restrict__ g, const T*
   float acc = 0.0f;
   for (int64_t p = p0; p < p1; ++p) {
     const int64_t r = row_list != nullptr ? row_list[p] : p;
-    const T* scale = mod.index != nullptr ? static_cast<const T*>(mod.scale) +
-                                                mod.index[r % mod.seq] * mod.row_stride
-                                          : nullptr;
+    const T* scale = nullptr;
+    if (mod.index != nullptr) {
+      const int64_t i = mod.index[r % mod.seq];
+      CUDA_KERNEL_ASSERT(i >= 0 && i < mod.num_rows);
+      scale = static_cast<const T*>(mod.scale) + i * mod.row_stride;
+    }
     acc = fmaf(d_norm_out(g + r * n, scale, j), to_f(x[r * n + j]) * rstd[r], acc);
   }
   partial[static_cast<int64_t>(blockIdx.x) * n + j] = acc;
@@ -271,7 +279,7 @@ Modulation make_modulation(const c10::optional<torch::Tensor>& shift,
                            const c10::optional<torch::Tensor>& scale,
                            const c10::optional<torch::Tensor>& index, const torch::Tensor& x,
                            int64_t n) {
-  Modulation mod{nullptr, nullptr, 0, nullptr, 1};
+  Modulation mod{nullptr, nullptr, 0, 0, nullptr, 1};
   if (!index.has_value()) {
     TORCH_CHECK(!shift.has_value() && !scale.has_value(), "shift/scale need a row index");
     return mod;
@@ -296,6 +304,7 @@ Modulation make_modulation(const c10::optional<torch::Tensor>& shift,
   mod.shift = sh.data_ptr();
   mod.scale = sc.data_ptr();
   mod.row_stride = sh.stride(0);
+  mod.num_rows = sh.size(0);
   mod.index = ix.data_ptr<int64_t>();
   mod.seq = ix.size(0);
   return mod;
