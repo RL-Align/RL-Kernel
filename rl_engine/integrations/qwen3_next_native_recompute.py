@@ -27,19 +27,44 @@ from rl_engine.testing.qwen3_next_l2 import (
 from rl_engine.testing.tensor_identity import assert_tensor_bitwise_equal as exact
 
 
+def packed_layout(request):
+    """``(sequences, traced)``: every packed sequence's tokens and which ones are traced.
+
+    An L2 request packs its equal-length samples and traces all of them. A
+    batch-invariance packing request (``request["packing"]``) packs its target
+    with untraced companions of any length; only the target is traced.
+    """
+    traced = request["consumed_input_tokens"]
+    packing = request.get("packing")
+    if packing is None:
+        return traced, list(range(len(traced)))
+    sequences, index = packing["sequences"], packing["target_index"]
+    if (
+        len(traced) != 1
+        or index not in range(len(sequences))
+        or sequences[index] != traced[0]
+        or any(not row for row in sequences)
+    ):
+        raise ValueError("Packing request must contain its traced target exactly once")
+    return sequences, [index]
+
+
 def response_rows(value, request):
-    """Keep original BF16 values at P-1..P+14 for every packed sample."""
-    batch = len(request["prompt_tokens"])
+    """Keep original values at P-1..P+14 of every traced packed sample."""
+    sequences, traced = packed_layout(request)
+    starts = [0]
+    for row in sequences:
+        starts.append(starts[-1] + len(row))
     length = len(request["consumed_input_tokens"][0])
     if value.dtype not in (torch.bfloat16, torch.int64) or value.numel() == 0:
         raise ValueError("Response traces must preserve nonempty original BF16/int64 storage")
     value = value.reshape(-1, value.shape[-1])
-    if value.shape[0] < batch * length:
+    if value.shape[0] < starts[-1]:
         raise ValueError("Packed model output does not cover every frozen sample")
     positions = torch.tensor(request["prediction_positions"], device=value.device)
     if positions.shape != (16,) or positions[-1] != length - 1:
         raise ValueError("Response positions must end before consuming the last target token")
-    return torch.stack([value[index * length + positions] for index in range(batch)])
+    return torch.stack([value[starts[index] + positions] for index in traced])
 
 
 def _rank_main(rank, cases, staging):
@@ -89,18 +114,22 @@ def _rank_main(rank, cases, staging):
                         "request": str(Path(_output).with_suffix(".request.json")),
                     },
                 )
-            consumed = torch.tensor(
-                request["consumed_input_tokens"], device="cuda", dtype=torch.long
-            )
-            batch, length = consumed.shape
+            sequences, traced_rows = packed_layout(request)
+            batch, length = len(traced_rows), len(request["consumed_input_tokens"][0])
             if length != request["state_position"] + 1:
                 raise ValueError("Recompute recurrent-state position is inconsistent")
-            cu = torch.arange(batch + 1, device="cuda", dtype=torch.int32) * length
+            consumed = torch.tensor(
+                [token for row in sequences for token in row], device="cuda", dtype=torch.long
+            )
+            lengths = [len(row) for row in sequences]
+            cu = torch.tensor(
+                [0, *torch.tensor(lengths).cumsum(0).tolist()], device="cuda", dtype=torch.int32
+            )
             packed = PackedSeqParams(
                 cu_seqlens_q=cu,
                 cu_seqlens_kv=cu,
-                max_seqlen_q=length,
-                max_seqlen_kv=length,
+                max_seqlen_q=max(lengths),
+                max_seqlen_kv=max(lengths),
                 qkv_format="thd",
             )
             traces, handles = {}, []
@@ -117,7 +146,7 @@ def _rank_main(rank, cases, staging):
 
             def capture_state(index):
                 def hook(state, indices, _cu):
-                    slots = indices[:batch].long()
+                    slots = indices[traced_rows].long()
                     if (index + 1) % 4:
                         values = {
                             "convolution": state.convolution[slots],

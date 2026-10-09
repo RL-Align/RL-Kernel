@@ -6,6 +6,8 @@
 import pytest
 import torch
 
+from rl_engine.kernels.gtest.forward_invariance import _compare_logical_tensors
+from rl_engine.kernels.gtest.tolerance import load_contract
 from rl_engine.testing.tensor_identity import assert_tensor_bitwise_equal, tensor_bitwise_equal
 
 
@@ -39,3 +41,38 @@ def test_adjacent_bfloat16_values_are_rejected():
 )
 def test_logical_identity_does_not_require_matching_strides(value):
     assert_tensor_bitwise_equal(value, value.contiguous().clone())
+
+
+@pytest.mark.parametrize("judgment", ["forward_invariance", "gradient_invariance"])
+@pytest.mark.parametrize("fault", ["signed_zero", "dtype", "nan"])
+def test_gtest_invariance_uses_original_bits(judgment, fault):
+    canonical = torch.zeros(1, dtype=torch.bfloat16)
+    changed = torch.tensor([-0.0], dtype=torch.bfloat16)
+    if fault == "dtype":
+        changed = canonical.float()
+    elif fault == "nan":
+        canonical = torch.tensor([float("nan")], dtype=torch.bfloat16)
+        changed = canonical.clone()
+    result = _compare_logical_tensors(
+        canonical,
+        changed,
+        judgment=judgment,
+        contract=load_contract(),
+        op_class="reduction",
+        dtype=torch.bfloat16,
+        backend_profile="cuda_bf16",
+    )
+    assert result.passed is False
+
+
+def test_accuracy_keeps_its_tolerance_semantics():
+    result = _compare_logical_tensors(
+        torch.ones(1),
+        torch.tensor([1.0078125], dtype=torch.bfloat16),
+        judgment="forward_accuracy",
+        contract=load_contract(),
+        op_class="reduction",
+        dtype=torch.bfloat16,
+        backend_profile="cuda_bf16",
+    )
+    assert result.passed is True

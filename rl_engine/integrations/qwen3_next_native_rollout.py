@@ -85,22 +85,25 @@ def runtime_profile(config):
 
 
 def validate_request(request):
-    if request.get("role") != "rollout" or request.get("schema_version") != 1:
-        raise ValueError("A version1 rollout request is required")
+    if request.get("role") != "rollout" or request.get("schema_version") not in (1, 2):
+        raise ValueError("A version 1 (L2) or 2 (batch-invariance) rollout request is required")
+    # Version 2 is one traced target next to untraced companions.
+    bi = request["schema_version"] == 2
     digest_input = {key: value for key, value in request.items() if key != "request_sha256"}
     if json_digest(digest_input) != request.get("request_sha256"):
         raise ValueError("Rollout request identity mismatch")
     prompts, samples = request["prompt_tokens"], request["sample_ids"]
     batch = len(prompts)
     if (
-        batch not in (1, 4)
+        batch not in ((1,) if bi else (1, 4))
         or len(samples) != batch
         or any(type(sample) is not int for sample in samples)
         or len(set(samples)) != batch
     ):
         raise ValueError("Rollout requires one or four uniquely identified samples")
     length = len(prompts[0])
-    if length not in (8, 64, 256, 1024) or any(len(row) != length for row in prompts):
+    lengths = range(1, 1025) if bi else (8, 64, 256, 1024)
+    if length not in lengths or any(len(row) != length for row in prompts):
         raise ValueError("Rollout prompts must use one official matrix length")
     responses = request["response_tokens"]
     for rows in (prompts, responses or []):
@@ -137,7 +140,9 @@ def validate_request(request):
     ):
         raise ValueError("Rollout execution or response offsets differ from the pinned contract")
     if responses is None:
-        if batch != 4 or chunks != [length] or request["consumed_input_tokens"] is not None:
+        if request["consumed_input_tokens"] is not None or (
+            not bi and (batch != 4 or chunks != [length])
+        ):
             raise ValueError("Only baseline B4 full prefill may define frozen responses")
     elif request["consumed_input_tokens"] != [
         prompt + response[:-1] for prompt, response in zip(prompts, responses, strict=True)
@@ -145,6 +150,10 @@ def validate_request(request):
         raise ValueError("Consumed input must end before response token sixteen")
     if any(type(layer) is not int or layer not in range(48) for layer in request["trace_layers"]):
         raise ValueError("Debug layer indices must be in [0,48)")
+    if bi:
+        validate_companions(request, length)
+    elif "companions" in request:
+        raise ValueError("Only a version 2 request may run companions")
     identity = request["identity"]
     if identity["architecture_layers"] != 48 or identity["topology"] != {
         "tp": 4,
@@ -161,6 +170,37 @@ def validate_request(request):
     ):
         raise ValueError("Provider identity must pin the native rollout cache budget")
     return batch, length
+
+
+def validate_companions(request, length):
+    companions = request["companions"]
+    tokens, arrivals = request["companion_max_tokens"], request["arrival_steps"]
+    max_len = NATIVE_ROLLOUT_PROFILE["max_model_len"]
+    if (
+        not isinstance(companions, list)
+        or len(companions) > NATIVE_ROLLOUT_PROFILE["max_num_seqs"] - 1
+        or len(tokens) != len(companions)
+        or len(arrivals.get("companions", [])) != len(companions)
+        or type(arrivals.get("target")) is not int
+        or arrivals["target"] < 0
+        or any(type(step) is not int or step < 0 for step in arrivals["companions"])
+        or type(request["chunk_size"]) is not int
+        or request["chunk_size"] < 1
+        or length + RESPONSE_LENGTH > max_len
+    ):
+        raise ValueError("Batch-invariance companions, arrivals or chunk size are malformed")
+    for prompt, count in zip(companions, tokens, strict=True):
+        if (
+            not prompt
+            or type(count) is not int
+            or count < 1
+            or len(prompt) + count > max_len
+            or any(type(token) is not int or not 0 <= token < 151936 for token in prompt)
+        ):
+            raise ValueError("A companion does not fit the pinned rollout profile")
+
+
+RESPONSE_LENGTH = 16
 
 
 def next_scheduled_tokens(computed, prompt_length, chunks):
@@ -181,6 +221,12 @@ class ExactPrefillScheduler(Scheduler):
         active = [request for request in self.requests.values() if not request.is_finished()]
         if not active:
             return super().schedule(throttle_prefills)
+        if any(
+            (request.sampling_params.extra_args or {}).get("shared_bi_companion") is not None
+            or ((request.sampling_params.extra_args or {}).get("shared_l2") or {}).get("bi")
+            for request in active
+        ):
+            return self._schedule_batch_invariance(active, throttle_prefills)
         descriptors = [
             (request.sampling_params.extra_args or {}).get("shared_l2") for request in active
         ]
@@ -235,6 +281,82 @@ class ExactPrefillScheduler(Scheduler):
             )
         return result
 
+    def _schedule_batch_invariance(self, active, throttle_prefills):
+        """One traced target keeps its exact chunk plan; companions fill the step.
+
+        All requests of a cell are admitted before the first step (as for L2).
+        A request joins the waiting queue only at its ``arrival_step``, counted
+        in scheduled steps from the first one, so arrivals are reproducible
+        whatever the engine-core timing. Every prefilling request shares one
+        ``long_prefill_token_threshold``: the target's next planned chunk while
+        it prefills, the cell's chunk size otherwise. The target must get
+        exactly its planned token count at every step until it has consumed its
+        last input, and no request may be preempted.
+        """
+        descriptors = {}
+        for request in self.requests.values():
+            extra = request.sampling_params.extra_args or {}
+            descriptor = extra.get("shared_l2") or extra.get("shared_bi_companion")
+            if descriptor is None:
+                raise ValueError("Exact Qwen scheduler accepts only identified requests")
+            descriptors[request.request_id] = (request, descriptor, "shared_l2" in extra)
+        cells = {item[1]["request_sha256"] for item in descriptors.values()}
+        targets = [item for item in descriptors.values() if item[2]]
+        if len(cells) != 1 or len(targets) > 1:
+            raise ValueError("One batch-invariance cell runs exactly one traced target")
+        # Once the target has finished, the scheduler frees it; companions go on.
+        target, contract, _ = (
+            targets[0] if targets else (None, *next(iter(descriptors.values()))[1:])
+        )
+        cell = contract["request_sha256"]
+        if getattr(self, "_bi_cell", None) != cell:
+            self._bi_cell, self._bi_step, self._bi_started = cell, 0, False
+        if not self._bi_started and len(descriptors) < contract["total_requests"]:
+            previous = self._pause_state
+            self._pause_state = PauseState.PAUSED_ALL
+            try:
+                result = super().schedule(throttle_prefills)
+            finally:
+                self._pause_state = previous
+            if result.total_num_scheduled_tokens:
+                raise RuntimeError("The native scheduler violated the cell admission barrier")
+            return result
+        self._bi_started = True
+        held = [
+            r for r in self.waiting if descriptors[r.request_id][1]["arrival_step"] > self._bi_step
+        ]
+        if len(held) == len(self.waiting) and not self.running and held:
+            # Nothing can run before the next arrival: that arrival is now.
+            self._bi_step = min(descriptors[r.request_id][1]["arrival_step"] for r in held)
+            held = [r for r in held if descriptors[r.request_id][1]["arrival_step"] > self._bi_step]
+        self.waiting.remove_requests(held)
+        target_active = target is not None and not target.is_finished() and target not in held
+        count = None
+        if target_active:
+            count = next_scheduled_tokens(
+                target.num_computed_tokens, contract["prompt_length"], contract["prefill_chunks"]
+            )
+        prefilling = target_active and target.num_computed_tokens < contract["prompt_length"]
+        self.scheduler_config.long_prefill_token_threshold = (
+            count if prefilling else contract["chunk_size"]
+        )
+        try:
+            result = super().schedule(throttle_prefills)
+        finally:
+            for request in held:
+                self.waiting.add_request(request)
+        if result.total_num_scheduled_tokens:
+            self._bi_step += 1
+        if result.preempted_req_ids or (
+            count is not None and result.num_scheduled_tokens.get(target.request_id) != count
+        ):
+            raise RuntimeError(
+                "exact_scheduler_mismatch: target expected "
+                f"{count}, actual {result.num_scheduled_tokens.get(target.request_id)}, "
+                f"preempted {sorted(result.preempted_req_ids)}"
+            )
+        return result
+
 
 class ForceFrozenTokens(AdapterLogitsProcessor):
     """Sampling-only teacher forcing; raw model logits are observed beforehand."""
@@ -243,6 +365,8 @@ class ForceFrozenTokens(AdapterLogitsProcessor):
         return False
 
     def new_req_logits_processor(self, params):
+        if (params.extra_args or {}).get("shared_bi_companion") is not None:
+            return None  # companions generate greedily and are never traced
         descriptor = (params.extra_args or {}).get("shared_l2")
         if descriptor is None:
             raise ValueError("L2 sampling requires explicit request metadata")
@@ -301,7 +425,11 @@ class RolloutTrace:
             )
         self.row_by_sample = {sample: row for row, sample in enumerate(request["sample_ids"])}
         self.request_rows, self.progress = {}, {}
-        self.current, self.schedule = [], []
+        # Batch-invariance requests run untraced companions next to the traced
+        # target; their tokens share every step but are never recorded.
+        self.companions = request.get("companions")
+        self.untraced = set()
+        self.current, self.current_index, self.packed, self.schedule = [], [], [], []
         self.logits = torch.empty(self.batch, 16, 151936, dtype=torch.bfloat16)
         self.local_logits = torch.empty(self.batch, 16, 37984, dtype=torch.bfloat16)
         self.logprobs = torch.empty(self.batch, 16, dtype=torch.float32)
@@ -339,7 +467,21 @@ class RolloutTrace:
 
     def before_execute(self, scheduled):
         for new in scheduled.scheduled_new_reqs:
-            descriptor = (new.sampling_params.extra_args or {}).get("shared_l2", {})
+            extra = new.sampling_params.extra_args or {}
+            companion = extra.get("shared_bi_companion")
+            if companion is not None:
+                if (
+                    self.companions is None
+                    or companion.get("request_sha256") != self.request["request_sha256"]
+                    or new.prompt_token_ids != self.companions[companion["index"]]
+                    or new.num_computed_tokens != 0
+                    or new.req_id in self.untraced
+                ):
+                    raise ValueError("Untraced companion does not belong to this request")
+                self.untraced.add(new.req_id)
+                self.progress[new.req_id] = 0
+                continue
+            descriptor = extra.get("shared_l2", {})
             if descriptor.get("request_sha256") != self.request["request_sha256"]:
                 raise ValueError("Scheduler request belongs to a different L2 case")
             row = self.row_by_sample[descriptor["sample_id"]]
@@ -354,11 +496,29 @@ class RolloutTrace:
         self.scheduled = scheduled
         if not scheduled.total_num_scheduled_tokens:
             return
-        if len(scheduled.num_scheduled_tokens) != self.batch or scheduled.preempted_req_ids:
+        scheduled_ids = set(scheduled.num_scheduled_tokens)
+        traced = scheduled_ids & set(self.request_rows)
+        unfinished = {
+            req_id
+            for req_id in self.request_rows
+            if self.progress[req_id] < self.prompt_length + 15
+        }
+        # A batch-invariance target may wait for its arrival step; once it has
+        # started it must take part in every step until its last input.
+        started = {req_id for req_id in unfinished if self.progress[req_id] > 0}
+        if (
+            scheduled.preempted_req_ids
+            or scheduled_ids - traced - self.untraced
+            or (self.companions is None and len(traced) != self.batch)
+            or (self.companions is not None and not started <= traced <= unfinished)
+        ):
             raise RuntimeError("The actual native step did not preserve its required batch")
         step = {}
         for req_id, count in scheduled.num_scheduled_tokens.items():
             computed = self.progress[req_id]
+            if req_id in self.untraced:
+                step[req_id] = (None, computed, count)
+                continue
             expected = next_scheduled_tokens(
                 computed, self.prompt_length, self.request["prefill_chunks"]
             )
@@ -373,23 +533,31 @@ class RolloutTrace:
         ids = list(self.worker.model_runner.input_batch.req_ids)
         if set(ids) != set(self.step):
             raise ValueError("Actual model input batch differs from SchedulerOutput")
-        self.current = []
+        self.current, self.current_index, self.packed = [], [], []
         begin = 0
-        for req_id in ids:
+        for index, req_id in enumerate(ids):
             row, computed, count = self.step[req_id]
             end = begin + count
             if positions[begin:end].cpu().tolist() != list(range(computed, computed + count)):
                 raise ValueError("Native absolute positions differ from the scheduled offsets")
+            self.packed.append((begin, end, computed))
+            if row is None:
+                self.progress[req_id] = computed + count
+                begin = end
+                continue
             known = self.request["prompt_tokens"][row] + self.responses[row].tolist()
             if input_ids[begin:end].cpu().tolist() != known[computed : computed + count]:
                 raise ValueError(
                     "Native engine consumed tokens other than the prompt/frozen response prefix"
                 )
             self.current.append((row, begin, end, computed))
+            self.current_index.append(index)
             self.progress[req_id] = computed + count
             begin = end
         if begin != self.scheduled.total_num_scheduled_tokens:
             raise ValueError("Packed model input does not cover actual scheduled tokens")
+        if not self.current:
+            return
         self.schedule.append(
             {
                 "samples": [self.request["sample_ids"][row] for row, _, _, _ in self.current],
@@ -431,14 +599,16 @@ class RolloutTrace:
             indices, cu, _reset = metadata_sequences(
                 meta, self.scheduled.total_num_scheduled_tokens
             )
-            if cu.tolist() != [0] + [end for _, _, end, _ in self.current]:
+            if cu.tolist() != [0] + [end for _, end, _ in self.packed]:
                 raise ValueError("GDN metadata reordered sequences without matching model inputs")
             conv, recurrent = module.kv_cache
             if not is_conv_state_dim_first():
                 conv = conv.transpose(-1, -2)
-            for (row, begin, end, computed), slot in zip(
-                self.current, indices.tolist(), strict=True
-            ):
+            slots = indices.tolist()
+            if len(slots) != len(self.packed):
+                raise ValueError("GDN metadata does not cover every packed sequence")
+            for (row, begin, end, computed), index in zip(self.current, self.current_index):
+                slot = slots[index]
                 if computed + end - begin == self.prompt_length + 15:
                     self.states[layer_index]["convolution"][row] = conv[slot].detach().cpu().clone()
                     self.states[layer_index]["recurrent_state"][row] = (
@@ -449,10 +619,10 @@ class RolloutTrace:
             meta, cache = metadata[attention.layer_name], attention.kv_cache
             if not isinstance(meta, SharedAttentionMetadata):
                 raise ValueError("Full attention did not use shared native paged-KV metadata")
-            if list(meta.query_start_loc) != [0] + [end for _, _, end, _ in self.current]:
+            if list(meta.query_start_loc) != [0] + [end for _, end, _ in self.packed]:
                 raise ValueError("Full attention boundaries differ from actual packed input")
             block_size = cache.shape[2]
-            for index, (row, begin, end, computed) in enumerate(self.current):
+            for index, (row, begin, end, computed) in zip(self.current_index, self.current):
                 length = computed + end - begin
                 if length != self.prompt_length + 15:
                     continue
@@ -472,13 +642,13 @@ class RolloutTrace:
         from rl_engine.integrations.qwen3_next_logprob import qwen_logprob_contract
         from rl_engine.kernels.logprob_contract import LogprobRole
 
-        if full.shape != (len(self.current), 151936) or local.shape != (len(self.current), 37984):
+        if full.shape != (len(self.packed), 151936) or local.shape != (len(self.packed), 37984):
             raise ValueError(
                 "Native sampling rows do not correspond one-to-one with active requests"
             )
         eligible = [
             (index, row, computed + end - begin - self.prompt_length)
-            for index, (row, begin, end, computed) in enumerate(self.current)
+            for index, (row, begin, end, computed) in zip(self.current_index, self.current)
             if computed + end - begin >= self.prompt_length
         ]
         if not eligible:
@@ -775,3 +945,102 @@ def run_rollout_cases(cases):
 
 def run_rollout_case(request, output):
     run_rollout_cases([(request, output)])
+
+
+def batch_invariance_descriptors(request):
+    """Scheduler descriptors for one version 2 request, in FCFS submission order."""
+    common = {
+        "request_sha256": request["request_sha256"],
+        "total_requests": 1 + len(request["companions"]),
+        "chunk_size": request["chunk_size"],
+    }
+    responses = request["response_tokens"]
+    target = {
+        **common,
+        "bi": True,
+        "sample_id": request["sample_ids"][0],
+        "batch_size": 1,
+        "prompt_length": len(request["prompt_tokens"][0]),
+        "prefill_chunks": request["prefill_chunks"],
+        "response_tokens": None if responses is None else responses[0],
+        "arrival_step": request["arrival_steps"]["target"],
+    }
+    companions = [
+        (
+            prompt,
+            count,
+            {
+                **common,
+                "index": index,
+                "arrival_step": request["arrival_steps"]["companions"][index],
+            },
+        )
+        for index, (prompt, count) in enumerate(
+            zip(request["companions"], request["companion_max_tokens"], strict=True)
+        )
+    ]
+    entries = [(request["prompt_tokens"][0], RESPONSE_LENGTH, target, "shared_l2")] + [
+        (prompt, count, descriptor, "shared_bi_companion")
+        for prompt, count, descriptor in companions
+    ]
+    if request.get("target_last"):
+        entries = entries[1:] + entries[:1]
+    return entries
+
+
+def run_batch_invariance_cases(cases):
+    """Run version 2 cells in one engine; each artifact describes the traced target only."""
+    from vllm import SamplingParams
+
+    engine, identity = None, None
+    try:
+        for request, output in cases:
+            validate_request(request)
+            if request["schema_version"] != 2:
+                raise ValueError("Batch-invariance cells use version 2 requests")
+            if engine is None:
+                identity = request["identity"]
+                engine = _new_engine(identity)
+            elif request["identity"] != identity:
+                raise ValueError("One native rollout process cannot change its identity")
+            output = Path(output).resolve()
+            records = engine.collective_rpc(
+                "configure_l2_trace", args=(request, str(output.with_suffix(".worker-traces")))
+            )
+            if len(records) != 4 or any(
+                record["request_sha256"] != request["request_sha256"] for record in records
+            ):
+                raise RuntimeError("All TP workers must acknowledge the exact trace request")
+            entries = batch_invariance_descriptors(request)
+            sampling = [
+                SamplingParams(
+                    temperature=0,
+                    top_p=1,
+                    top_k=-1,
+                    seed=1234,
+                    ignore_eos=True,
+                    max_tokens=count,
+                    detokenize=False,
+                    extra_args={key: descriptor},
+                )
+                for _, count, descriptor, key in entries
+            ]
+            generated = engine.generate(
+                [{"prompt_token_ids": prompt} for prompt, _, _, _ in entries],
+                sampling,
+                use_tqdm=False,
+            )
+            responses = None
+            for (prompt, count, _, key), item in zip(entries, generated, strict=True):
+                tokens = list(item.outputs[0].token_ids)
+                if item.prompt_token_ids != prompt or len(tokens) != count:
+                    raise RuntimeError("Native engine did not complete every request of the cell")
+                if key == "shared_l2":
+                    responses = [tokens]
+            records = engine.collective_rpc("collect_l2_trace")
+            save_tensor_artifact(output, assemble_trace(request, records, responses))
+    finally:
+        if engine is not None:
+            engine.llm_engine.engine_core.shutdown()
+            del engine
+            gc.collect()

@@ -443,6 +443,8 @@ STAGES = {
     "train1": ("1280G", "06:00:00", "l2", "scripts/qwen3_next_training.py"),
     "train2": ("1280G", "07:00:00", "train1", "scripts/qwen3_next_training.py"),
     "train": ("1280G", "09:00:00", "train2", "scripts/qwen3_next_training.py"),
+    # Batch invariance branches off a passed l2, under the same certified profile.
+    "bi": ("512G", "06:00:00", "l2", "scripts/qwen3_next_batch_invariance.py"),
 }
 
 

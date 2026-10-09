@@ -147,3 +147,41 @@ def test_unknown_nodes_and_versions_are_rejected():
     matrices["update3"] = matrices["update1"]
     with pytest.raises(ValueError, match="subset"):
         build(matrices, artifacts)
+
+
+def test_batch_invariance_section_counts_families_and_gates_the_report():
+    matrix = {
+        "suite": "quick",
+        "status": "failed",
+        "cell_ids": ["concurrency-n04-last", "chunk-p0129-c64-f63"],
+        "first_failure": "chunk-p0129-c64-f63",
+        "cells": {
+            "concurrency-n04-last": {"family": "concurrency", "passed": True},
+            "chunk-p0129-c64-f63": {
+                "family": "chunk",
+                "passed": False,
+                "first_drift_family": "gdn",
+            },
+        },
+    }
+    matrices, artifacts = inputs()
+    report = chain.build_report(
+        matrices,
+        artifacts,
+        contract=load_contract(),
+        measured_commit="c" * 40,
+        weight_source="w",
+        weight_hash="h",
+        device="cuda",
+        gpu_name=None,
+        compute_capability=None,
+        bi_matrix=matrix,
+    )
+    section = report["batch_invariance"]
+    assert not report["passed"] and not section["passed"]
+    assert section["families"] == {
+        "concurrency": {"cells": 1, "passed": 1},
+        "chunk": {"cells": 1, "passed": 0},
+    }
+    assert section["first_failure_family"] == "gdn"
+    assert build(matrices, artifacts)["batch_invariance"] is None

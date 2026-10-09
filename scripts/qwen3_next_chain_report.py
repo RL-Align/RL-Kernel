@@ -52,6 +52,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--last", type=Path, required=True, help="last passed stage run")
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--bi", type=Path, help="passed batch-invariance (bi) stage run")
     args = parser.parse_args()
     matrices, artifacts = {}, {}
     gpu_name = None
@@ -74,6 +75,16 @@ def main():
         if gpu_name is None and environment.is_file():
             gpu_name = json.loads(environment.read_text()).get("gpu_name")
     identity = manifest["checkpoint_identity"]
+    bi_matrix = None
+    if args.bi is not None:
+        bi_manifest = json.loads((args.bi / "run.json").read_text())
+        bi_result = json.loads((args.bi / "result.json").read_text())
+        if (
+            bi_manifest["stage"] != "bi"
+            or bi_manifest["source_commit"] != manifest["source_commit"]
+        ):
+            raise SystemExit("--bi must name a bi run on the same commit as the chain")
+        bi_matrix = json.loads((args.bi / bi_result["evidence"]["bi_matrix"]["path"]).read_text())
     report = build_report(
         matrices,
         artifacts,
@@ -84,6 +95,7 @@ def main():
         device="cuda",
         gpu_name=gpu_name,
         compute_capability=None,
+        bi_matrix=bi_matrix,
     )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
