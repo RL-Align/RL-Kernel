@@ -117,7 +117,17 @@ def run_gate(description, scope, gate):
         args.output.mkdir(parents=True, exist_ok=True)
         path = args.output / f"rank-{rank}.json"
         partial = path.with_suffix(".json.partial")
-        payload = {"status": "passed", "scope": scope, "rank": rank, **provenance(), **result}
+        from rl_engine.integrations.qwen3_next_binary import imported_provider_identity
+
+        payload = {
+            "status": "passed",
+            "scope": scope,
+            "full_model_l2": "not_evaluated",
+            "rank": rank,
+            "provider_binary": imported_provider_identity(),
+            **provenance(),
+            **result,
+        }
         partial.write_text(json.dumps(payload, indent=2) + "\n")
         partial.replace(path)
         dist.barrier()

@@ -472,7 +472,7 @@ setup(
         "tabulate",
         "numpy",
         "accelerate",
-        "transformers==5.13.1",
+        "transformers>=5.13.1,<=5.17.0",
     ],
     ext_modules=get_extensions(),
     cmdclass=get_cmdclass(),
@@ -480,6 +480,13 @@ setup(
         "cuda": ["flashinfer"],
         "rocm": ["aiter"],
         "vllm": ["vllm>=0.6.0"],
+        "qwen3-next": [
+            "torch==2.13.0",
+            "transformers==5.17.0",
+            "vllm==0.30.0",
+            "triton==3.7.1",
+            "flashinfer-python==0.6.18.post1",
+        ],
         "drift-viewer": ["Pillow>=10", "PySide6>=6.6"],
     },
     entry_points={
