@@ -378,7 +378,9 @@ def chain_grads(mode: str, registry: KernelRegistry, ctx, upstream) -> list[torc
             else:
                 value = stage.golden(golden_op(registry, stage.op_type), run_ctx, value)
     outputs = list(value)
-    torch.autograd.backward(outputs, [g.to(out.dtype) for g, out in zip(upstream, outputs)])
+    torch.autograd.backward(
+        outputs, [g.to(out.dtype) for g, out in zip(upstream, outputs, strict=True)]
+    )
     return [leaves[name].grad for name in GRAD_LEAVES]
 
 

@@ -114,7 +114,7 @@ def test_measure_interleaves_and_records_both_orders(cuda_clock, keys):
     assert not any(key.endswith("_setup") for key in row)
 
 
-@pytest.mark.parametrize("operator", ["norm", "gather"])
+@pytest.mark.parametrize("operator", ["norm", "gather", "gate", "final"])
 def test_backward_perf_cases_prepare_fresh_cpu_graphs_before_events(
     monkeypatch, cuda_clock, operator
 ):
@@ -136,7 +136,7 @@ def test_backward_perf_cases_prepare_fresh_cpu_graphs_before_events(
     def track(fn, leaves, *args):
         if leaves[0].requires_grad:
             assert not cuda_clock.active
-            prepared_leaves.append(leaves)
+            prepared_leaves.append([leaf if leaf.is_leaf else leaf._base for leaf in leaves])
         cuda_clock.time += 1.0
         outputs = fn(*leaves, *args)
         return track_backward(outputs) if leaves[0].requires_grad else outputs
@@ -162,6 +162,54 @@ def test_backward_perf_cases_prepare_fresh_cpu_graphs_before_events(
         monkeypatch.setattr(h3_report, "provider_norm_modulate", forward)
         op = SimpleNamespace(forward_modulated=forward)
         build = h3_report._norm_perf
+    elif operator == "gate":
+
+        def inputs(seq):
+            return (
+                torch.randn(3, 24),
+                torch.randn(1, seq, 4),
+                torch.randn(1, seq, 4),
+                torch.arange(seq) % 3,
+            )
+
+        provider = h3_report.provider_gate_residual
+
+        def forward(residual, y, gate, index, **kwargs):
+            return track(lambda r, y_, g: provider(r, g, index, y_), [residual, y, gate])
+
+        monkeypatch.setattr(h3_report, "NORM_SEQ_LENS", (2, 3))
+        monkeypatch.setattr(h3_report, "_gate_inputs", inputs)
+        monkeypatch.setattr(
+            h3_report, "provider_gate_residual", lambda r, g, i, y: forward(r, y, g, i)
+        )
+        op = SimpleNamespace(forward=forward)
+        build = h3_report._gate_perf
+    elif operator == "final":
+
+        def inputs(seq):
+            return (
+                torch.randn(1, seq, 4),
+                torch.ones(4),
+                torch.randn(3, 2),
+                torch.randn(8, 2),
+                torch.randn(8),
+                torch.arange(seq) % 3,
+            )
+
+        def forward(x, nw, temb, w, b, ti):
+            def compute(x, nw, temb, w, b):
+                rows = torch.nn.functional.linear(torch.nn.functional.silu(temb), w, b)
+                shift, scale = rows.chunk(2, dim=-1)
+                norm = torch.nn.functional.rms_norm(x, (4,), nw)
+                return norm * (1 + scale[ti]) + shift[ti]
+
+            return track(compute, [x, nw, temb, w, b])
+
+        monkeypatch.setattr(h3_report, "NORM_SEQ_LENS", (2, 3))
+        monkeypatch.setattr(h3_report, "_final_inputs", inputs)
+        monkeypatch.setattr(h3_report, "provider_final_adaln_out", forward)
+        op = forward
+        build = h3_report._final_perf
     else:
         randn = torch.randn
 

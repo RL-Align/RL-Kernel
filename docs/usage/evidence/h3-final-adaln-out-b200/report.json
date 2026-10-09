@@ -62,7 +62,8 @@
       "candidate_backward_peak_mib": 144.779296875,
       "provider_backward_us": 1067.1520233154297,
       "provider_backward_gbps": 136.7233878699899,
-      "provider_backward_peak_mib": 252.1240234375
+      "provider_backward_peak_mib": 252.1240234375,
+      "backward_timing_scope": "forward_and_backward"
     },
     {
       "op": "final_adaln_out",
@@ -80,7 +81,8 @@
       "candidate_backward_peak_mib": 733.30615234375,
       "provider_backward_us": 5338.224172592163,
       "provider_backward_gbps": 142.8276144554955,
-      "provider_backward_peak_mib": 2016.17138671875
+      "provider_backward_peak_mib": 2016.17138671875,
+      "backward_timing_scope": "forward_and_backward"
     },
     {
       "op": "final_adaln_out",
@@ -98,7 +100,8 @@
       "candidate_backward_peak_mib": 2751.18701171875,
       "provider_backward_us": 20640.207290649414,
       "provider_backward_gbps": 139.3578562218742,
-      "provider_backward_peak_mib": 8064.54638671875
+      "provider_backward_peak_mib": 8064.54638671875,
+      "backward_timing_scope": "forward_and_backward"
     }
   ]
 }

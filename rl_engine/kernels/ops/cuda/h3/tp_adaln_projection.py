@@ -84,6 +84,8 @@ class AdaLNColumnShard:
 def adaln_column_shard(n_total: int, tp: int, rank: int) -> AdaLNColumnShard:
     if tp < 1 or not 0 <= rank < tp:
         raise ValueError(f"need 0 <= rank < tp, got rank={rank}, tp={tp}")
+    if n_total <= 0:
+        raise ValueError(f"N must be positive, got {n_total}")
     if n_total % (H3_MODALITY_NUM * H3_ADALN_CHUNKS):
         raise ValueError(f"N={n_total} is not 3 modalities x 6 chunks x H")
     if n_total % (tp * DINPUT_CHUNK):

@@ -60,7 +60,8 @@
       "candidate_backward_peak_mib": 126.6767578125,
       "provider_backward_us": 677.3119866847992,
       "provider_backward_gbps": 195.11367670730445,
-      "provider_backward_peak_mib": 252.0615234375
+      "provider_backward_peak_mib": 252.0615234375,
+      "backward_timing_scope": "forward_and_backward"
     },
     {
       "op": "adaln_gate_residual",
@@ -78,7 +79,8 @@
       "candidate_backward_peak_mib": 1008.64599609375,
       "provider_backward_us": 2706.4000368118286,
       "provider_backward_gbps": 390.5426373128183,
-      "provider_backward_peak_mib": 2016.0
+      "provider_backward_peak_mib": 2016.0,
+      "backward_timing_scope": "forward_and_backward"
     },
     {
       "op": "adaln_gate_residual",
@@ -96,7 +98,8 @@
       "candidate_backward_peak_mib": 4032.64599609375,
       "provider_backward_us": 10562.17622756958,
       "provider_backward_gbps": 400.2828906569812,
-      "provider_backward_peak_mib": 8064.0
+      "provider_backward_peak_mib": 8064.0,
+      "backward_timing_scope": "forward_and_backward"
     }
   ]
 }
