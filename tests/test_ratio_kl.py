@@ -86,6 +86,40 @@ def _reference_ratio_kl(policy_logits, ref_logits, action_ids, mask, old_logps):
     return torch.exp(delta), torch.exp(diff) - diff - 1.0
 
 
+def _active_reference_ratio_kl(policy_logits, ref_logits, action_ids, mask, old_logps):
+    """Evaluate only active rows, independently of the production log-prob helper."""
+    action = action_ids[mask].long().unsqueeze(-1)
+    policy = policy_logits[mask].float()
+    reference = ref_logits[mask].detach().float()
+    policy_logp = policy.gather(-1, action).squeeze(-1) - policy.logsumexp(-1)
+    ref_logp = reference.gather(-1, action).squeeze(-1) - reference.logsumexp(-1)
+    diff = ref_logp - policy_logp
+    return (policy_logp - old_logps[mask].float()).exp(), diff.exp() - diff - 1.0
+
+
+@pytest.fixture(
+    params=[
+        pytest.param((NativeRatioKLOp, "cpu", torch.float32, 1e-5), id="native-cpu-fp32"),
+        *[
+            pytest.param(
+                (op, "cuda", dtype, tolerance),
+                id=f"{backend}-cuda-{dtype}",
+                marks=requires_triton_cuda,
+            )
+            for op, backend in [(NativeRatioKLOp, "native"), (TritonRatioKLOp, "triton")]
+            for dtype, tolerance in [
+                (torch.float32, 1e-4),
+                (torch.float16, 2e-3),
+                (torch.bfloat16, 2e-2),
+            ]
+        ],
+    ]
+)
+def inactive_row_case(request):
+    op, device, dtype, tolerance = request.param
+    return op(), device, dtype, tolerance
+
+
 def _kernel_case(
     dtype,
     *,
@@ -222,6 +256,142 @@ def test_native_gradient_flows_to_policy_logits():
     assert torch.isfinite(policy_logits.grad).all()
     # Reference is frozen: no gradient should reach ref_logits.
     assert ref_logits.grad is None
+
+
+@pytest.mark.parametrize("inactive_value", [1000.0, float("nan"), -float("inf")])
+@pytest.mark.parametrize("strided", [False, True])
+def test_inactive_logits_do_not_contaminate_gradients(inactive_row_case, inactive_value, strided):
+    op, device, dtype, tolerance = inactive_row_case
+    torch.manual_seed(123)
+    policy = torch.randn(3, 2, 34, device=device, dtype=dtype).transpose(0, 1)[..., ::2]
+    reference = torch.randn_like(policy)
+    if strided:
+        reference = reference.transpose(0, 1).contiguous().transpose(0, 1)
+        assert not policy.is_contiguous() and not reference.is_contiguous()
+    else:
+        policy, reference = policy.contiguous(), reference.contiguous()
+    mask = torch.tensor([[True, False, True], [False, True, False]], device=device)
+    action = torch.tensor([[0, -999, 16], [999, 7, -1]], device=device)
+    old = torch.full((2, 3), -3.0, device=device).masked_fill(~mask, float("nan"))
+    policy[~mask] = inactive_value
+    reference[~mask] = inactive_value
+    policy.requires_grad_()
+    reference.requires_grad_()
+    expected_policy = policy.detach().clone().requires_grad_()
+    grad_ratio = torch.tensor([[0.5, -2.0, -0.7], [3.0, 1.2, -4.0]], device=device)
+    grad_kl = -grad_ratio + 0.25
+
+    ratio, kl = op(policy, reference, action, mask, old)
+    expected_ratio, expected_kl = _active_reference_ratio_kl(
+        expected_policy, reference, action, mask, old
+    )
+    torch.autograd.backward((ratio, kl), (grad_ratio, grad_kl))
+    torch.autograd.backward((expected_ratio, expected_kl), (grad_ratio[mask], grad_kl[mask]))
+
+    torch.testing.assert_close(ratio[mask], expected_ratio, atol=tolerance, rtol=tolerance)
+    torch.testing.assert_close(kl[mask], expected_kl, atol=tolerance, rtol=tolerance)
+    assert torch.equal(ratio[~mask], torch.ones_like(ratio[~mask]))
+    assert torch.equal(kl[~mask], torch.zeros_like(kl[~mask]))
+    assert torch.isfinite(policy.grad).all()
+    assert torch.count_nonzero(policy.grad[~mask]) == 0
+    torch.testing.assert_close(policy.grad, expected_policy.grad, atol=tolerance, rtol=tolerance)
+    assert reference.grad is None
+
+
+@pytest.mark.parametrize("inactive_value", [float("nan"), -float("inf")])
+@pytest.mark.parametrize("n_rows", [0, 6])
+def test_inactive_logits_preserve_empty_and_all_masked_backward(
+    inactive_row_case, inactive_value, n_rows
+):
+    op, device, dtype, _ = inactive_row_case
+    policy = torch.full(
+        (n_rows, 17), inactive_value, device=device, dtype=dtype, requires_grad=True
+    )
+    reference = torch.full_like(policy, inactive_value, requires_grad=True)
+    action = torch.full((n_rows,), -999, device=device, dtype=torch.long)
+    mask = torch.zeros(n_rows, device=device, dtype=torch.bool)
+    old = torch.full((n_rows,), float("nan"), device=device)
+
+    ratio, kl = op(policy, reference, action, mask, old)
+    (ratio.sum() + kl.sum()).backward()
+
+    assert ratio.shape == kl.shape == mask.shape
+    assert ratio.dtype == kl.dtype == torch.float32
+    assert torch.equal(ratio, torch.ones_like(ratio))
+    assert torch.equal(kl, torch.zeros_like(kl))
+    assert policy.grad is not None
+    assert policy.grad.shape == policy.shape and policy.grad.dtype == dtype
+    assert torch.count_nonzero(policy.grad) == 0
+    assert reference.grad is None
+
+
+@pytest.mark.parametrize("inactive_value", [0.0, float("nan"), -float("inf")])
+def test_inactive_logits_do_not_contaminate_shared_weight_gradient(
+    inactive_row_case, inactive_value
+):
+    op, device, dtype, tolerance = inactive_row_case
+    torch.manual_seed(456)
+    hidden = torch.randn(6, 4, device=device, dtype=dtype) * 0.2
+    weight = (torch.randn(4, 17, device=device, dtype=dtype) * 0.2).requires_grad_()
+    expected_weight = weight.detach().clone().requires_grad_()
+    mask = torch.tensor([True, False, True, False, True, False], device=device)
+    action = torch.tensor([0, -1, 16, 999, 7, -999], device=device)
+    old = torch.full((6,), -3.0, device=device)
+    # Additive masking preserves the path through matmul: NaN logits gradients
+    # would contaminate every weight column, even though the hidden states are finite.
+    padding = torch.zeros(6, 17, device=device, dtype=dtype).masked_fill(
+        ~mask[:, None], inactive_value
+    )
+    policy = hidden @ weight + padding
+    policy.retain_grad()
+    reference = (torch.randn_like(policy) * 0.2 + padding).requires_grad_()
+
+    ratio, kl = op(policy, reference, action, mask, old)
+    (ratio.sum() + kl.sum()).backward()
+    expected_ratio, expected_kl = _active_reference_ratio_kl(
+        hidden @ expected_weight, reference, action, mask, old
+    )
+    (expected_ratio.sum() + expected_kl.sum()).backward()
+
+    assert torch.isfinite(weight.grad).all()
+    assert torch.count_nonzero(policy.grad[~mask]) == 0
+    torch.testing.assert_close(weight.grad, expected_weight.grad, atol=tolerance, rtol=tolerance)
+    assert reference.grad is None
+
+
+@pytest.mark.parametrize("invalid_value", [float("nan"), -float("inf")])
+@pytest.mark.parametrize("source", ["policy", "reference"])
+def test_native_active_invalid_logits_remain_visible(invalid_value, source):
+    policy = torch.zeros(2, 3)
+    reference = torch.zeros_like(policy)
+    (policy if source == "policy" else reference)[0] = invalid_value
+    policy.requires_grad_()
+    ratio, kl = NativeRatioKLOp()(
+        policy,
+        reference,
+        torch.tensor([0, -999]),
+        torch.tensor([True, False]),
+        torch.zeros(2),
+    )
+
+    assert not torch.isfinite(kl[0])
+    if source == "policy":
+        assert not torch.isfinite(ratio[0])
+    (ratio.sum() + kl.sum()).backward()
+    assert not torch.isfinite(policy.grad[0]).all()
+    assert torch.count_nonzero(policy.grad[1]) == 0
+
+
+@pytest.mark.parametrize("invalid_action", [-1, 17])
+def test_native_active_invalid_action_is_rejected(invalid_action):
+    with pytest.raises(ValueError, match="active.*out-of-range"):
+        NativeRatioKLOp()(
+            torch.zeros(2, 17),
+            torch.zeros(2, 17),
+            torch.tensor([invalid_action, 999]),
+            torch.tensor([True, False]),
+            torch.zeros(2),
+        )
 
 
 # Triton fused op (validated against the native reference)
