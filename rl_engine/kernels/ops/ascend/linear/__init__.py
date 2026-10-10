@@ -1,5 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 RL-Kernel Contributors
+"""Compatibility import; the canonical module is loaded below."""
 
-from . import embedding  # noqa: F401
-from . import lm_head  # noqa: F401
+from importlib import import_module
+
+
+def __getattr__(name):
+    return getattr(import_module("rl_engine.backends.ascend.embedding"), name)

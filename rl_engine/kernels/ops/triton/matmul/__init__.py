@@ -1,4 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-from .det_gemm import TritonDetGemmOp, deterministic_gemm_triton
+"""Compatibility import; the canonical module is loaded below."""
 
-__all__ = ["TritonDetGemmOp", "deterministic_gemm_triton"]
+from importlib import import_module
+
+
+def __getattr__(name):
+    return getattr(import_module("rl_engine.backends.shared.triton.gemm"), name)
