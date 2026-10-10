@@ -9,6 +9,7 @@ from rl_engine.kernels.ops.pytorch.attention.ablation import (
     AttentionAblationOp,
     AttentionAblationResult,
 )
+from rl_engine.kernels.ops.pytorch.attention.joint_attn_softmax import NativeJointAttnSoftmaxOp
 
 
 class NativeAttentionOp:
@@ -57,4 +58,5 @@ __all__ = [
     "AttentionAblationOp",
     "AttentionAblationResult",
     "NativeAttentionOp",
+    "NativeJointAttnSoftmaxOp",
 ]

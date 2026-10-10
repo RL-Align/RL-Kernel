@@ -8,6 +8,7 @@ import argparse
 import pytest
 import torch
 
+from rl_engine.kernels.gtest import run_operator_suite
 from rl_engine.kernels.gtest.operator_inputs import make_operator_inputs, operator_shape_name
 from rl_engine.kernels.gtest.operator_specs import (
     make_candidate,
@@ -47,6 +48,7 @@ def _args(**overrides):
         "matmul",
         "det_gemm",
         "attention",
+        "joint_attn_softmax",
         "logp",
         "linear_logp",
         "batch_invariant_logp",
@@ -58,7 +60,7 @@ def _args(**overrides):
         "kv_cache_attention",
     ],
 )
-def test_operator_inputs_support_all_issue_108_ops(op_name):
+def test_operator_inputs_support_registered_ops(op_name):
     args = _args()
     inputs = make_operator_inputs(op_name, args, torch.float32, torch.device("cpu"))
 
@@ -101,6 +103,31 @@ def test_cp_attention_operator_spec_registers_backward_grad_inputs():
     assert case.op_class == "attention"
     assert case.grad_input_names == ("q", "k", "v")
     assert candidate.name == "pytorch-cp_attention"
+
+
+def test_joint_attn_softmax_operator_spec_runs_forward_and_backward():
+    args = _args(
+        op="joint_attn_softmax",
+        candidate="pytorch",
+        input_mode="random",
+        batch=2,
+        seq=17,
+    )
+
+    case = make_operator_case(args, torch.float32, torch.device("cpu"))
+    candidate = make_candidate(args)
+    report = run_operator_suite(
+        "joint_attn_softmax",
+        candidates=[candidate],
+        cases=[case],
+        check_grad=True,
+    )
+
+    assert case.op_class == "reduction"
+    assert case.grad_input_names == ("scores",)
+    assert case.inputs["scores"].shape == (2, 17)
+    assert operator_shape_name("joint_attn_softmax", args) == "2x17"
+    assert report.passed
 
 
 def test_constant_linear_logp_inputs_match_operator_contract():

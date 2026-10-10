@@ -143,6 +143,7 @@ def get_extensions():
             "csrc/cuda/activation.cu",
             "csrc/cuda/attention/deterministic_attention.cu",
         ]
+        joint_attn_softmax_cuda_enabled = False
         if is_rocm:
             # ROCm-tuned WS2 vocab-parallel logprob kernels; the shared
             # deterministic_logp_kernel.cu keeps the SM90-tuned CUDA path.
@@ -156,6 +157,12 @@ def get_extensions():
             # CUDA IPC and the fixed-tree collective implementation are not
             # part of the ROCm extension.
             cuda_sources.append("csrc/cuda/distributed/deterministic_collective.cu")
+            # The issue #386 CUDA bit reference must never inherit fast-math.
+            # When fast-math is requested for other kernels, leave these
+            # symbols out so registry fallback remains explicit and truthful.
+            joint_attn_softmax_cuda_enabled = not envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH)
+            if joint_attn_softmax_cuda_enabled:
+                cuda_sources.append("csrc/cuda/attention/joint_attn_softmax.cu")
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
             cuda_sources.append("csrc/cuda/attention/prefix_shared_attention.cu")
@@ -244,6 +251,8 @@ def get_extensions():
 
         platform_define = "-DKERNEL_ALIGN_WITH_ROCM" if is_rocm else "-DKERNEL_ALIGN_WITH_CUDA"
         cxx_flags = ["-O3", "-std=c++17", platform_define]
+        if joint_attn_softmax_cuda_enabled:
+            cxx_flags.append("-DKERNEL_ALIGN_WITH_JOINT_ATTN_SOFTMAX")
         extra_link_args = list(torch_rpath)
         if os.name != "nt" and not is_rocm:
             # CUDA IPC metadata queries use the driver API (cuPointerGetAttribute).

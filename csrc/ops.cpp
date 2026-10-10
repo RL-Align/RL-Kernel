@@ -434,6 +434,34 @@ std::vector<torch::Tensor> deterministic_attention_backward(
     double scale,
     torch::optional<torch::Tensor> key_padding_mask);
 
+// Joint-attention online softmax (issue #386)
+#if defined(KERNEL_ALIGN_WITH_JOINT_ATTN_SOFTMAX)
+std::vector<torch::Tensor> joint_attn_softmax_build_key_mapping(
+    torch::Tensor key_padding_mask);
+torch::Tensor joint_attn_softmax_forward(
+    torch::Tensor scores,
+    torch::optional<torch::Tensor> logical_to_physical,
+    torch::optional<torch::Tensor> valid_key_counts,
+    int64_t rows_per_batch);
+torch::Tensor joint_attn_softmax_forward_fp32(
+    torch::Tensor scores,
+    torch::optional<torch::Tensor> logical_to_physical,
+    torch::optional<torch::Tensor> valid_key_counts,
+    int64_t rows_per_batch);
+std::vector<torch::Tensor> joint_attn_softmax_forward_with_state(
+    torch::Tensor scores,
+    torch::optional<torch::Tensor> logical_to_physical,
+    torch::optional<torch::Tensor> valid_key_counts,
+    int64_t rows_per_batch);
+torch::Tensor joint_attn_softmax_backward(
+    torch::Tensor probabilities,
+    torch::Tensor grad_probabilities,
+    bool output_bf16,
+    torch::optional<torch::Tensor> logical_to_physical,
+    torch::optional<torch::Tensor> valid_key_counts,
+    int64_t rows_per_batch);
+#endif
+
 #if defined(KERNEL_ALIGN_WITH_ROCM)
 torch::Tensor deterministic_rope_apply_rocm(
     torch::Tensor x,
@@ -741,6 +769,46 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "deterministic_attention_backward",
         &deterministic_attention_backward,
         "Deterministic standard softmax attention backward (dQ, dK, dV)");
+#if defined(KERNEL_ALIGN_WITH_JOINT_ATTN_SOFTMAX)
+    m.def(
+        "joint_attn_softmax_build_key_mapping",
+        &joint_attn_softmax_build_key_mapping,
+        "Build the joint-attention logical-to-physical key mapping");
+    m.def(
+        "joint_attn_softmax_forward",
+        &joint_attn_softmax_forward,
+        "Joint-attention online softmax forward with one final dtype cast",
+        py::arg("scores"),
+        py::arg("logical_to_physical") = py::none(),
+        py::arg("valid_key_counts") = py::none(),
+        py::arg("rows_per_batch") = 1);
+    m.def(
+        "joint_attn_softmax_forward_fp32",
+        &joint_attn_softmax_forward_fp32,
+        "Joint-attention online softmax forward with FP32 output",
+        py::arg("scores"),
+        py::arg("logical_to_physical") = py::none(),
+        py::arg("valid_key_counts") = py::none(),
+        py::arg("rows_per_batch") = 1);
+    m.def(
+        "joint_attn_softmax_forward_with_state",
+        &joint_attn_softmax_forward_with_state,
+        "Joint-attention online softmax forward with saved FP32 probabilities",
+        py::arg("scores"),
+        py::arg("logical_to_physical") = py::none(),
+        py::arg("valid_key_counts") = py::none(),
+        py::arg("rows_per_batch") = 1);
+    m.def(
+        "joint_attn_softmax_backward",
+        &joint_attn_softmax_backward,
+        "Joint-attention online softmax backward with a final dtype cast",
+        py::arg("probabilities"),
+        py::arg("grad_probabilities"),
+        py::arg("output_bf16"),
+        py::arg("logical_to_physical") = py::none(),
+        py::arg("valid_key_counts") = py::none(),
+        py::arg("rows_per_batch") = 1);
+#endif
 #if defined(KERNEL_ALIGN_WITH_ROCM)
     m.def(
         "deterministic_rope_apply_rocm",

@@ -82,6 +82,28 @@ OP_SPECS = {
         },
         grad_input_names=("q", "k", "v"),
     ),
+    "joint_attn_softmax": OperatorSpec(
+        name="joint_attn_softmax",
+        op_class="reduction",
+        gold_path=(
+            "rl_engine.kernels.ops.pytorch.attention.joint_attn_softmax." "NativeJointAttnSoftmaxOp"
+        ),
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": (
+                "rl_engine.kernels.ops.pytorch.attention.joint_attn_softmax."
+                "NativeJointAttnSoftmaxOp"
+            ),
+            "triton": (
+                "rl_engine.kernels.ops.triton.attention.joint_attn_softmax."
+                "TritonJointAttnSoftmaxOp"
+            ),
+            "cuda": (
+                "rl_engine.kernels.ops.cuda.attention.joint_attn_softmax." "JointAttnSoftmaxCudaOp"
+            ),
+        },
+        grad_input_names=("scores",),
+    ),
     # GRPO decode: every G group attends over one shared K/V sequence
     # ([B, Skv, D] instead of [B, Hkv, Skv, D]). Forward-only (no backward),
     # same surface as the CUDA PrefixSharedAttentionOp.
