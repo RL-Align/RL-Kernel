@@ -10,7 +10,7 @@ name: WS1-gtest-GPU
 
 on:
   pull_request:
-    branches: [ main, test-qwenimage ]
+    branches: [ main ]
     paths:
       - "rl_engine/validation/**"
       - "rl_engine/backends/**"
@@ -42,7 +42,7 @@ on:
       - "ci/scripts/run_gpu_ci.sh"
       - ".github/workflows/ws1-gtest-gpu.yml"
   push:
-    branches: [ main, test-qwenimage ]
+    branches: [ main ]
     paths:
       - "rl_engine/validation/**"
       - "rl_engine/backends/**"

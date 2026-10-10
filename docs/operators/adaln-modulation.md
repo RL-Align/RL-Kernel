@@ -56,22 +56,17 @@ These are derived model shapes, not tensor shapes stated by the issue.
 
 ## Validation
 
-The [2026-10-09 shared-workspace review](../reviews/adaln-shared-b31fac9.md)
-compares `b31fac9` with the actual worktree, including untracked tests. It records
-current CPU/SM86 Triton evidence separately from pending native CUDA/H100,
-full-image, geometry, sanitizer and benchmark acceptance. New public-interface
-canaries check BF16 cast boundaries, each reduction, signed zero, subnormal eps,
-gate/dgate payloads, strided upstreams and H=3072 batch positions with padding
-across all declared launch configurations. AdaLN gtest rejects a candidate's wrong
-output dtype and explicitly promotes gold leaves to FP32
-before autograd; an FP32 cast inside the gold function alone would still return
-BF16 gradients to BF16 leaves. The review includes the red/green evidence and
-H100 commands; historical results below are not current-worktree evidence.
+Public-interface tests check BF16 cast boundaries, each reduction, signed zero,
+subnormal eps, gate/dgate payloads, strided upstreams and H=3072 batch positions
+with padding across all declared launch configurations. AdaLN gtest checks
+candidate output dtype and promotes gold leaves to FP32 before autograd;
+casting inside the gold function alone would return BF16 gradients to BF16 leaves.
 
 AdaLN is registered in `gtest/operator_specs.py` and `operator_inputs.py` as
 `op_class="reduction"`, with PyTorch, CUDA and Triton candidates. The independent
-gold uses FP32 CPU `torch.nn.functional.layer_norm` and autograd, without the
-production fixed-reduction or custom backward helpers. It checks both outputs
+gold uses FP32 CPU `torch.nn.functional.layer_norm` and autograd for normalization.
+Its independent affine VJP folds token contributions in ascending FP32 order;
+it does not call production reduction or backward helpers. It checks both outputs
 (y and gate) and gradients of x and modulation. Accuracy thresholds come from
 `resolve_tolerance`: `forward_accuracy` for outputs and `gradient_accuracy`
 for input gradients; no private AdaLN thresholds or SM90 override are added.
@@ -86,17 +81,11 @@ Existing fixed-reference byte comparisons remain separate, unchanged gates.
 
 Use CUDA/Triton candidates on the target GPU for native accuracy evidence.
 The three full-image tests additionally check independent CPU FP32 forward and
-backward accuracy for both GPU backends/dtypes. These additions are **pending
-GPU execution**; old SM86 results do not validate the new assertions.
+backward accuracy for both GPU backends/dtypes. These assertions require GPU
+execution; CPU results alone do not validate them.
 CPU tests also cover gate-only gradients, distinct image/text modulation
 chunks, corrupted-output/VJP rejection and unavailable-backend routing.
 The CLI accuracy report alone is not a provenance-checked WS1 system gate.
-
-CI branch filters now include `test-qwenimage`; CPU CI runs the new contract
-tests and the existing WS1 GPU script includes AdaLN accuracy checks. Fork
-isolation and existing GPU authorization conditions remain. A missing/skipped
-workflow is not a passing check; no CI run is claimed for these local changes.
-
 
 Run `python -m pytest tests/test_adaln_modulation.py -q` for focused tests.
 Set `RLK_ADALN_REAL_SHAPES=1` to include the three full image shapes.
@@ -112,116 +101,5 @@ CUDA `threads={128,256,512}` (default 256); Triton `num_warps={4,8}`
 (default 4), `reduction_tile={64,128,256}` (default 128). Registry dispatch
 uses those defaults. These settings change scheduling, not the reduction order.
 
-### Historical evidence limitation (verified 2026-10-02)
-
-The following SM86 results and timings are historical observations. The two
-original `/tmp` handoffs and raw build/test/racecheck logs are no longer
-available. Surviving excerpts and recorded hashes cannot reconstruct or
-substitute for complete logs, binary provenance or newly executed evidence.
-Re-run acceptance and publish fresh complete artifacts before using it as a
-reviewable native acceptance result. H100 validation is **pending**.
-
-Local CUDA validation environment (2026-09-23): RTX 3050 Ti (SM86, 4 GiB),
-driver 610.60, CUDA toolkit/runtime 12.6, PyTorch 2.12.1+cu126, Triton 3.7.1,
-Python 3.12.12. The extension was built with fast math disabled for SM86.
-The pre-review focused suite plus all three real shapes passed 18 tests with no skips.
-These historical results are not acceptance evidence for the synchronization fix.
-FP32 small-shape and BF16 real-shape CUDA forward/backward outputs were byte
-equal to the CPU reference. CUDA and Triton were also byte equal directly at
-all three real shapes, and both passed FP32/BF16 batch-size and token-padding
-byte-invariance checks.
-
-Real-shape medians below use one warmup and three samples, so they are smoke
-measurements rather than stable performance claims:
-
-| dtype | S | Triton fwd / fwd+bwd (ms) | CUDA fwd / fwd+bwd (ms) |
-| --- | ---: | ---: | ---: |
-| BF16 | 4096 | 3.069 / 20.709 | 2.998 / 23.262 |
-| BF16 | 6889 | 5.125 / 34.551 | 5.150 / 39.963 |
-| BF16 | 6032 | 4.689 / 30.302 | 4.357 / 34.718 |
-| FP32 | 4096 | 5.944 / 29.269 | 7.229 / 38.693 |
-| FP32 | 6889 | 9.840 / 48.579 | 11.948 / 65.271 |
-| FP32 | 6032 | 8.685 / 81.903 | 10.639 / 57.270 |
-
-Forward and forward+backward peak allocation matched between CUDA and Triton
-at each shape. The CUDA backward path was generally slower in this short SM86
-run; rerun with the default warmup/repeat counts on target hardware before
-making a performance claim.
-
-## Review regression checks (2026-09-24)
-
-The pre-fix current-HEAD suite passed 20 cases (including extension smoke),
-but compute-sanitizer found one forward and three backward shared-memory hazards.
-The missing synchronization was after reading the reduction result, before
-reusing its buffer. The minimal fixed-seed H=64 regression returned exit code 7
-even though its numerical assertion passed.
-
-The non-native review selection passed 30 cases with 26 deselected using
-`-k 'not cuda and not real_image and not gpu_padding'`. This does not validate
-the rebuilt native extension.
-
-Post-fix validation of the rebuilt extension passed **57 tests in 43.73s** with
-no skips, including native extension smoke and the complete focused matrix.
-The native registry selected `CUDA_ADALN_MODULATION` with `fallback=False`.
-The expanded sanitizer regression passed **8 tests** with **0 hazards,
-0 errors, and 0 warnings** (exit 0). The original seed-386 FP32
-`[1,2,3072]` forward/backward reproducer also reported zero hazards after
-the fix. Environment remained PyTorch 2.12.1+cu126, Triton 3.7.1, Python
-3.12.12, RTX 3050 Ti SM86.
-
-Observed commands (the sanitizer ran separately before the full pytest matrix):
-
-```bash
-bash scripts/adaln_cuda_acceptance/06_racecheck_adaln_cuda.sh
-PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
-RLK_ADALN_REAL_SHAPES=1 RL_KERNEL_REQUIRE_EXT=1 \
-.venv/bin/python -m pytest tests/test_extension_smoke.py \
-  tests/test_adaln_modulation.py -q -rs -p no:cacheprovider
-```
-
-Original, now missing logs were `/tmp/rlk-adaln-race-fix-build.log`,
-`/tmp/rlk-adaln-race-fix-racecheck.log`, and
-`/tmp/rlk-adaln-race-fix-tests.log`. They describe the uncommitted review
-fixes on top of `d14e4ed`; that commit alone predates the fix.
-
-Run the combined fail-closed checks using the cu126 repository environment:
-
-```bash
-bash scripts/adaln_cuda_acceptance/04_test_adaln_cuda.sh
-# Or only the sanitizer regression:
-bash scripts/adaln_cuda_acceptance/06_racecheck_adaln_cuda.sh
-```
-
-Script 04 runs the full focused suite with real shapes and required native CUDA,
-then script 06. Missing extension symbols or sanitizer failures must not count
-as successful native acceptance. Do not use bare `uv run` or `uv sync` to
-run these checks: invoke `.venv/bin/python` directly to preserve cu126.
-
-The statuses below describe historical assertions within measured SM86 cases,
-not retained complete execution evidence or current H100 acceptance.
-
-| Requirement | Implementation | Test | Observed evidence | Remaining gap | Status |
-| --- | --- | --- | --- | --- | --- |
-| Shared forward/backward math at H=7/3072 | Fixed FP32 normalization and VJP | Independent LayerNorm/autograd, both dtypes, random dy/dgate | All 12 backend/dtype/H cases passed | Independent full-image assertions added; GPU execution pending | PROVEN |
-| Race-free CUDA shared reduction | Read-result/barrier/reuse | Native harness and geometry under racecheck | 8 tests, zero hazards; original reproducer also green | Other architectures not exercised | PROVEN |
-| Launch geometry / tiling | CUDA threads 128/256/512; Triton 4/8 warps and 64/128/256 tiles | Public constructors, CPU-reference byte checks | Both dtypes passed all 3 CUDA and 6 Triton configurations | Coverage is H=3072, B=2, S=5 | PROVEN |
-| Strict byte comparator | Contiguous uint8 views | Signed-zero regression and backend comparisons | Comparator rejects +0 versus -0; full matrix passed | Exceptional floating-point payloads not covered | PROVEN |
-| Three real image sizes | S=4096/6889/6032, H=3072 | Both dtypes, random dy/dgate, CPU/native/Triton byte checks | All 6 real-shape cases passed | Independent FP32 CPU LayerNorm/autograd added; GPU execution pending | PARTIAL |
-| Indexed select01 | Explicit PyTorch fallback with [2B,3H] modulation | B=2, both index shapes/devices/dtypes, independent row-index and autograd gold; invalid routes | 12 indexed cases passed | No fixed-order indexed backward claim | PROVEN |
-| FP32 accumulation / final BF16 cast | FP32 reductions, CUDA RN operations, Triton fusion disabled | Cast, byte-reference and independent accuracy tests | All focused checks passed | Exhaustive rounding boundaries and fast-math-on build exclusion not exercised | PARTIAL |
-| Batch / padding invariance | Row-local hidden reduction, ascending token fold | Batch position, B=1/3, S=3/5, zero-gradient padding; raw bytes | FP32/BF16 CUDA and Triton cases passed | Tested padding matrix uses H=32 | PROVEN |
-| Registry / trace | Explicit backend selection, H limit, indexed fallback reason | Registry tests and native preflight | Native selected without fallback; indexed fallback and H limit passed | Semantic fingerprint is not a binary hash; CPU unavailable-backend routing tests added; actual GPU fallback execution pending | PARTIAL |
-| Native SM86 build and binding | Conditional sources/symbols, defaulted threads argument | Symbol verification, native/reference tests and geometry launches | User build completed; new four-argument binding and full suite passed | Other build configurations untested | PROVEN |
-| Indexed optimized kernels | Agreed explicit PyTorch fallback | Fallback and trace checks | Within agreed scope | No optimized indexed kernel required | OUT OF SCOPE |
-| Full #386 WS1 exit criteria | 22 WS1 rows plus Foundation, WS2 and integration | MMDiT/LoRA, 60-layer curve, reproducible rollout logp | Not exercised by this operator suite | Separate system-level work | UNPROVEN |
-
-
-The independent autograd checks use the shared reduction accuracy contract.
-They do not replace strict fixed-reference and batch/topology byte checks.
-Full-image independent assertions are implemented but await GPU evidence;
-exhaustive rounding boundaries and alternative fast-math builds remain gaps.
-
-The semantic fingerprint does not identify a compiled binary. This suite does
-not claim coverage across other GPU architectures, every floating-point input,
-or fast-math-enabled builds. Benchmark numbers above predate the synchronization
-fix; they are historical smoke measurements, not performance claims for the fix.
+Native acceptance requires a fresh extension build, source/binary identity records,
+and complete test and sanitizer logs.
