@@ -238,9 +238,9 @@ void deterministic_collective_rocm_ipc_all_gather_input(
 
 #if !defined(USE_ROCM) && !defined(KERNEL_ALIGN_WITH_ROCM)
 // Qwen-Image WS1 MLP down projection. These four entry points are the portable
-// fp32 tree path (contract mlp-down-gemm-tree-v1, byte-equal to the row's fp32
+// fp32 tree path (contract mlp-down-gemm-tree, byte-equal to the row's fp32
 // CPU reference); the *_sm90 entry points below are the Hopper hardware-order
-// path (contract mlp-down-gemm-mma-v1). Not part of a ROCm build: the sources
+// path (contract mlp-down-gemm-mma). Not part of a ROCm build: the sources
 // are NVIDIA CUDA, and ROCm uses the Triton backend.
 torch::Tensor mlp_down_gemm_cuda_forward(torch::Tensor x, torch::Tensor weight,
                                         std::optional<torch::Tensor> bias);
@@ -730,11 +730,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     // The declarations above carry the same guard: on ROCm this source is not built,
     // so repeating it here is what keeps the ROCm extension linkable.
     m.def("mlp_down_gemm_cuda_forward", &mlp_down_gemm_cuda_forward,
-          "MLP down bias GEMM forward (portable fp32 tree, mlp-down-gemm-tree-v1)");
+          "MLP down bias GEMM forward (portable fp32 tree, mlp-down-gemm-tree)");
     m.def("mlp_down_gemm_cuda_dx", &mlp_down_gemm_cuda_dx,
-          "MLP down dx on the portable fp32 tree (mlp-down-gemm-tree-v1)");
+          "MLP down dx on the portable fp32 tree (mlp-down-gemm-tree)");
     m.def("mlp_down_gemm_cuda_dw", &mlp_down_gemm_cuda_dw,
-          "MLP down dW ascending-row fp32 left fold (mlp-down-gemm-tree-v1)");
+          "MLP down dW ascending-row fp32 left fold (mlp-down-gemm-tree)");
     m.def("mlp_down_gemm_cuda_db", &mlp_down_gemm_cuda_db,
           "MLP down db ascending-row left fold (fp32; shared by both contracts)");
 #if defined(KERNEL_ALIGN_WITH_SM90)
@@ -745,11 +745,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     // source is only compiled into the SM90 set, so a plain build simply lacks
     // these symbols.
     m.def("mlp_down_gemm_cuda_forward_sm90", &mlp_down_gemm_cuda_forward_sm90,
-          "MLP down bias GEMM forward (Hopper TMA + wgmma, mlp-down-gemm-mma-v1)");
+          "MLP down bias GEMM forward (Hopper TMA + wgmma, mlp-down-gemm-mma)");
     m.def("mlp_down_gemm_cuda_dx_sm90", &mlp_down_gemm_cuda_dx_sm90,
-          "MLP down dx (Hopper TMA + wgmma, mlp-down-gemm-mma-v1)");
+          "MLP down dx (Hopper TMA + wgmma, mlp-down-gemm-mma)");
     m.def("mlp_down_gemm_cuda_dw_sm90", &mlp_down_gemm_cuda_dw_sm90,
-          "MLP down dW (Hopper TMA + wgmma, mlp-down-gemm-mma-v1)");
+          "MLP down dW (Hopper TMA + wgmma, mlp-down-gemm-mma)");
 #endif  // KERNEL_ALIGN_WITH_SM90
 #endif  // !USE_ROCM
     // registry Batch-Invariant Deterministic GEMM
