@@ -46,6 +46,19 @@ OP_SPECS = {
         },
         grad_input_names=("x", "weight"),
     ),
+    "fused_add_rmsnorm": OperatorSpec(
+        name="fused_add_rmsnorm",
+        op_class="reduction",
+        gold_path="rl_engine.kernels.ops.pytorch.norm.fused_add_rmsnorm.NativeFusedAddRMSNormOp",
+        gold_method="forward",
+        candidate_paths={
+            "pytorch": (
+                "rl_engine.kernels.ops.pytorch.norm.fused_add_rmsnorm.NativeFusedAddRMSNormOp"
+            ),
+            "triton": "rl_engine.kernels.ops.triton.norm.fused_add_rmsnorm.TritonFusedAddRMSNormOp",
+        },
+        grad_input_names=("x", "residual", "weight"),
+    ),
     "qk_norm": OperatorSpec(
         name="qk_norm",
         op_class="reduction",
