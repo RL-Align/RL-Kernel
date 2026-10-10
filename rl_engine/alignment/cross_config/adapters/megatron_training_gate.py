@@ -137,6 +137,82 @@ class TrainingCallContext:
 
 
 @dataclass(frozen=True)
+class MissingEvidence:
+    """Evidence the contract requires but this boundary cannot observe; never a pass."""
+
+    field: str
+    status: str
+    required_interface: str
+    depends_on: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "field": self.field,
+            "status": self.status,
+            "required_interface": self.required_interface,
+            "depends_on": self.depends_on,
+        }
+
+
+_ALWAYS_MISSING = (
+    MissingEvidence(
+        "gemm.executed_spec",
+        "UPSTREAM_EVIDENCE_MISSING",
+        "readback of the executed LM-head GEMM spec (accumulator dtype, K order, tile, "
+        "split-K, output cast point) bound to the fixed-K/batch-invariant harness",
+        "T01 (harness/spec) + strict kernel owner (additive provenance)",
+    ),
+    MissingEvidence(
+        "gemm.harness_fingerprint",
+        "UPSTREAM_EVIDENCE_MISSING",
+        "fingerprint of the T01 fixed-K/batch-invariant GEMM harness run on this build",
+        "T01",
+    ),
+    MissingEvidence(
+        "reduction.lse",
+        "MISSING_PROVENANCE",
+        "this call's LSE in the provider result: LinearLogpWrapper.__call__ discards it and the "
+        "VIME provider requests it only for metric entropy without returning it",
+        "rl_engine VIME provider (additive contract delta, T02 review)",
+    ),
+    MissingEvidence(
+        "reduction.global_max_sum",
+        "MISSING_PROVENANCE",
+        "per-row global max and sum; the strict merge combines per-rank LSE values only",
+        "strict kernel owner + T02 (M10 contract, additive delta)",
+    ),
+    MissingEvidence(
+        "reduction.padded_vocab_mask_applied",
+        "MISSING_PROVENANCE",
+        "kernel readback of the real-vocab bound it masked (only the declared real_vocab_size "
+        "is cross-checked today)",
+        "strict kernel owner + T02",
+    ),
+)
+_TP_MISSING = (
+    MissingEvidence(
+        "reduction.canonical_split_actual",
+        "MISSING_PROVENANCE",
+        "executed canonical summary intervals, summaries_per_rank and layout_matches "
+        "(only environment configuration is visible)",
+        "strict kernel owner (additive provenance, T01/T02 review)",
+    ),
+    MissingEvidence(
+        "reduction.redistribution_collective",
+        "MISSING_PROVENANCE",
+        "whether logits were all-gathered for canonical redistribution, and by which collective",
+        "strict kernel owner (additive provenance)",
+    ),
+    MissingEvidence(
+        "reduction.merge_order_actual",
+        "MISSING_PROVENANCE",
+        "the rank order actually used to merge summaries (only 'rank_ordered_fixed' is declared)",
+        "strict kernel owner (additive provenance)",
+    ),
+)
+
+
+@dataclass(frozen=True)
 class TrainingM10Evidence:
     """Validated training-side M10 output bound to this call's evidence."""
 
@@ -157,6 +233,11 @@ class TrainingM10Evidence:
     weight_shard: ShardDigest
     snapshot_fingerprint: str
     certifying_sources: tuple[str, ...]
+    target_owner_ranks: tuple[int, ...] = ()  # per active row, from observed targets
+    canonical_configured: Optional[Mapping[str, Any]] = None  # configured only, never evidence
+    runtime: Optional[Mapping[str, Any]] = None
+    build: Optional[Mapping[str, Any]] = None
+    missing_evidence: tuple[MissingEvidence, ...] = ()
     schema_version: str = TRAINING_M10_EVIDENCE_SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, Any]:
@@ -176,6 +257,13 @@ class TrainingM10Evidence:
             "weight_shard": self.weight_shard.to_dict(),
             "snapshot_fingerprint": self.snapshot_fingerprint,
             "certifying_sources": list(self.certifying_sources),
+            "target_owner_ranks": list(self.target_owner_ranks),
+            "canonical_configured": (
+                None if self.canonical_configured is None else dict(self.canonical_configured)
+            ),
+            "runtime": None if self.runtime is None else dict(self.runtime),
+            "build": None if self.build is None else dict(self.build),
+            "missing_evidence": [item.to_dict() for item in self.missing_evidence],
         }
 
     @property
@@ -349,6 +437,52 @@ def _check_sampling(
                 )
 
 
+def _canonical_configured(
+    snapshot: TrainingCallSnapshot,
+    *,
+    tensor_parallel: bool,
+    tp_world: int,
+    padded: int,
+    local_size: int,
+) -> Optional[dict[str, Any]]:
+    """Mirror the kernel's canonical-TP parsing on configured values (legality only)."""
+
+    raw_tp = _get(snapshot, "configured.canonical_tp")
+    raw_vocab = _get(snapshot, "configured.canonical_vocab_size")
+    if raw_tp is _MISSING or raw_vocab is _MISSING:
+        raise _fail("MISSING_PROVENANCE", "configured.canonical_tp", "not captured")
+    if not tensor_parallel:
+        return {"applicable": False, "canonical_tp": raw_tp, "canonical_vocab_size": raw_vocab}
+    try:
+        canonical_tp = tp_world if raw_tp in (None, "") else int(str(raw_tp).strip())
+        canonical_vocab = padded if raw_vocab in (None, "") else int(str(raw_vocab).strip())
+    except ValueError as exc:
+        raise _fail("IDENTITY_DRIFT", "configured.canonical_tp", f"unparsable: {exc}") from exc
+    if canonical_tp < tp_world or canonical_tp % tp_world:
+        raise _fail(
+            "IDENTITY_DRIFT",
+            "configured.canonical_tp",
+            f"{canonical_tp} is not a positive multiple of physical TP {tp_world}",
+        )
+    if canonical_vocab < padded or canonical_vocab % canonical_tp:
+        raise _fail(
+            "IDENTITY_DRIFT",
+            "configured.canonical_vocab_size",
+            f"{canonical_vocab} must be >= padded {padded} and divisible by {canonical_tp}",
+        )
+    summaries = canonical_tp // tp_world
+    canonical_local = summaries * (canonical_vocab // canonical_tp)
+    return {
+        "applicable": True,
+        "source": "configured",
+        "canonical_tp": canonical_tp,
+        "canonical_vocab_size": canonical_vocab,
+        "summaries_per_rank": summaries,
+        "canonical_local_vocab": canonical_local,
+        "layout_matches_if_configured": canonical_vocab == padded and canonical_local == local_size,
+    }
+
+
 def validate_training_call(
     snapshot: TrainingCallSnapshot, context: TrainingCallContext
 ) -> TrainingM10Evidence:
@@ -478,6 +612,43 @@ def validate_training_call(
         raise _fail("NON_FINITE", "result.logp", "non-finite active selected logprob")
     raw = active_values.contiguous().view(torch.int32).numpy().tobytes()
 
+    target_values = snapshot.target_ids
+    if target_values is None or target_values.numel() != rows:
+        raise _fail("MISSING_PROVENANCE", "target_ids", "target values not captured for this call")
+    target_values = target_values.reshape(rows).to(torch.int64)
+    active_targets = target_values[mask]
+    if bool(((active_targets < 0) | (active_targets >= real)).any()):
+        raise _fail(
+            "IDENTITY_DRIFT",
+            "target_ids",
+            f"active target outside the real vocabulary [0, {real}) (padded tail is masked)",
+        )
+    owners = tuple(int(target) // local_size for target in active_targets.tolist())
+    tensor_parallel = tp_world > 1 or entry.endswith("_tp")
+    canonical = _canonical_configured(
+        snapshot,
+        tensor_parallel=tensor_parallel,
+        tp_world=tp_world,
+        padded=padded,
+        local_size=local_size,
+    )
+    missing = _ALWAYS_MISSING + (_TP_MISSING if tensor_parallel else ())
+    build = {
+        item.name: item.value
+        for item in snapshot.fields
+        if item.name.startswith("build.") and item.present
+    }
+    runtime = {
+        name: _get(snapshot, name)
+        for name in (
+            "runtime.rng_before",
+            "runtime.rng_after",
+            "runtime.rng_consumed",
+            "runtime.stream",
+        )
+        if _get(snapshot, name) is not _MISSING
+    }
+
     certifying = tuple(
         sorted(
             {
@@ -505,11 +676,17 @@ def validate_training_call(
         weight_shard=shard,
         snapshot_fingerprint=snapshot.fingerprint,
         certifying_sources=certifying,
+        target_owner_ranks=owners,
+        canonical_configured=canonical,
+        runtime=runtime,
+        build=build,
+        missing_evidence=missing,
     )
 
 
 __all__ = [
     "IDENTITY_SAMPLING",
+    "MissingEvidence",
     "STRICT_BACKEND_ID",
     "TRAINING_M10_EVIDENCE_SCHEMA_VERSION",
     "RowLayout",

@@ -13,94 +13,35 @@ from types import SimpleNamespace
 import pytest
 import torch
 from p7_doubles import t02_sampling
-from p7_doubles.fixtures import build_fixtures, vime_request
+from p7_doubles.fixtures import vime_request
+from p7_doubles.harness import (
+    FIXTURES,
+    TP_GROUP,
+    expect,
+    make_context,
+    patch_tp2,
+    run,
+    strict_observer,
+)
 from p7_doubles.strict_linear_logp import CpuStrictLinearLogpDouble
 
 import rl_engine.integrations.megatron_training_readback as readback
 from rl_engine.alignment.cross_config.adapters import megatron_training_gate as gate
-from rl_engine.alignment.cross_config.adapters.megatron_training import (
-    PreUpdateWeightLock,
-    ShardDigest,
-    T05ContractError,
-)
 from rl_engine.integrations import framework_operators
-from rl_engine.integrations.framework_operators import MegatronLogpOperator
 from rl_engine.integrations.megatron_training_readback import TrainingLogpObserver
-from rl_engine.integrations.vime.linear_logp_provider import _provider_impl
 
 pytestmark = pytest.mark.unit
-
-FIXTURES = build_fixtures()
-TP_GROUP = object()
 
 
 @pytest.fixture
 def observer(monkeypatch):
-    monkeypatch.setenv("VIME_RL_KERNEL_STRICT", "1")
-    monkeypatch.delenv("RL_KERNEL_MODE", raising=False)
-    monkeypatch.setenv("RL_KERNEL_LOGP_CASE", "R/R")
-    monkeypatch.setattr(framework_operators, "_require_nvidia_cuda", lambda tensor, module: None)
-    instance = TrainingLogpObserver()
-    instance.install()
-    yield instance
-    instance.uninstall()
+    with strict_observer(monkeypatch) as instance:
+        yield instance
 
 
 @pytest.fixture
 def tp2(monkeypatch):
-    """Report a TP group of size 2 for ``TP_GROUP`` (no real process group on CPU)."""
-
-    def coordinates(group):
-        if group is TP_GROUP:
-            return {"group": "present", "rank": tp2.rank, "world_size": 2}
-        return {"group": None}
-
-    tp2.rank = 0
-    monkeypatch.setattr(readback, "_group_coordinates", coordinates)
-    return tp2
-
-
-def run(observer, request, wrapper=None):
-    operator = MegatronLogpOperator(
-        _provider_impl, linear_logp=wrapper or CpuStrictLinearLogpDouble()
-    )
-    operator(request)
-    return observer.snapshots[-1]
-
-
-def make_context(fixture, *, cp_rank=0, **overrides):
-    shards = tuple(
-        ShardDigest.from_tensor(
-            fixture.lm_head_weight[start:end], tp_rank=rank, vocab_start=start, vocab_end=end
-        )
-        for rank, (start, end) in enumerate(fixture.vocab_shards)
-    )
-    rows = fixture.cp_local_rows(cp_rank)
-    values = dict(
-        checkpoint_id="ckpt-0",
-        weight_id="w-0",
-        weight_lock=PreUpdateWeightLock("ckpt-0", "w-0", shards),
-        row_layout=gate.RowLayout(
-            sample_ids=tuple(f"s{i}" for i in range(len(fixture.sample_lengths))),
-            sample_lengths=fixture.sample_lengths,
-        ),
-        active_token_mask=fixture.active_mask[list(rows)].clone(),
-        lm_head_lora=False,
-        sampling_record=t02_sampling.record(t02_sampling.IDENTITY_REQUEST),
-    )
-    values.update(overrides)
-    return gate.TrainingCallContext(**values)
-
-
-def expect(status, snapshot, context, field=None):
-    """Assert the gate fails with ``status`` at ``field`` (prefix), not at an unrelated check."""
-
-    with pytest.raises(T05ContractError) as info:
-        gate.validate_training_call(snapshot, context)
-    assert info.value.status == status, str(info.value)
-    if field is not None:
-        assert info.value.field_name.startswith(field), str(info.value)
-    return info.value
+    return patch_tp2(monkeypatch)
 
 
 # --------------------------------------------------------------------------- positive paths

@@ -108,6 +108,38 @@ row keys, and the active tokens' raw FP32 bytes and their SHA-256 for the
 byte comparator (T09). `certifying_sources` lists only observed/upstream
 fields.
 
+## Execution evidence and the missing-evidence ledger (P2a)
+
+Each validated call also carries:
+
+- `build`: wrapper and kernel module source SHA-256 and kernel constants
+  (`declared`), the loaded `rl_engine._C` binary SHA-256 and the running torch
+  build (`observed`). `SM90_N_SPLIT_CONTRACT` is a vocab split count, not the
+  bit-relevant BN tile width.
+- `runtime`: RNG digests before and after the call (CPU, current CUDA device
+  if already initialized, Megatron RNG tracker states) and whether the call
+  consumed RNG; the current CUDA stream. Recorded, not gated.
+- `target_owner_ranks`: the owner TP rank of every active target, derived from
+  the observed target values and vocab partition; an active target in the
+  padded tail is `IDENTITY_DRIFT`.
+- `canonical_configured`: the canonical virtual-TP layout parsed from
+  `RL_KERNEL_STRICT_CANONICAL_TP` / `_VOCAB_SIZE` with the kernel's rules.
+  Configuration only, never evidence of the executed split; illegal values are
+  `IDENTITY_DRIFT`.
+- `missing_evidence`: what the contract requires but this boundary cannot
+  observe. Reporting it correctly does **not** complete the item.
+
+| Field | Status | Required interface | Depends on |
+|---|---|---|---|
+| `gemm.executed_spec` | `UPSTREAM_EVIDENCE_MISSING` | Executed LM-head GEMM spec (accumulator, K order, tile, split-K, cast point) bound to the fixed-K harness | T01 + strict kernel owner |
+| `gemm.harness_fingerprint` | `UPSTREAM_EVIDENCE_MISSING` | Fingerprint of the T01 fixed-K/batch-invariant harness run on this build | T01 |
+| `reduction.lse` | `MISSING_PROVENANCE` | This call's LSE in the provider result | VIME provider (additive delta, T02 review) |
+| `reduction.global_max_sum` | `MISSING_PROVENANCE` | Per-row global max and sum (merge combines per-rank LSE only) | Strict kernel owner + T02 |
+| `reduction.padded_vocab_mask_applied` | `MISSING_PROVENANCE` | Kernel readback of the real-vocab bound it masked | Strict kernel owner + T02 |
+| `reduction.canonical_split_actual` (TP) | `MISSING_PROVENANCE` | Executed canonical summary intervals / layout match | Strict kernel owner |
+| `reduction.redistribution_collective` (TP) | `MISSING_PROVENANCE` | Whether and how logits were all-gathered for redistribution | Strict kernel owner |
+| `reduction.merge_order_actual` (TP) | `MISSING_PROVENANCE` | Rank order actually used to merge summaries | Strict kernel owner |
+
 ## Failure batch and pre-update weight lock (shared with T06)
 
 `rl_engine/alignment/cross_config/adapters/megatron_training.py` defines the
@@ -133,7 +165,8 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -rs \
   tests/test_megatron_training_readback.py \
   tests/test_megatron_training_readonly.py \
   tests/test_megatron_training_gate.py \
-  tests/test_megatron_training_recorded.py
+  tests/test_megatron_training_recorded.py \
+  tests/test_megatron_training_evidence.py
 ```
 
 Synthetic fixtures live in `tests/p7_doubles/` (integer-formula values exactly

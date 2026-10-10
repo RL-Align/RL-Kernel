@@ -23,10 +23,12 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import threading
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from enum import Enum
+from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
 
 import torch
@@ -131,6 +133,8 @@ class TrainingCallSnapshot:
     selected_logprob: Optional[torch.Tensor] = dataclass_field(
         default=None, compare=False, repr=False
     )
+    # Host copy of this call's target ids (values): selected-target ownership is derived from them.
+    target_ids: Optional[torch.Tensor] = dataclass_field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         names = [item.name for item in self.fields]
@@ -228,6 +232,149 @@ def _group_coordinates(group: Any) -> dict[str, Any]:
     }
 
 
+CANONICAL_TP_ENV = "RL_KERNEL_STRICT_CANONICAL_TP"
+CANONICAL_VOCAB_ENV = "RL_KERNEL_STRICT_CANONICAL_VOCAB_SIZE"
+
+
+def _bytes_sha256(tensor: torch.Tensor) -> str:
+    flat = tensor.detach().cpu().reshape(-1)
+    dense = torch.empty(flat.shape, dtype=flat.dtype).copy_(flat)
+    return hashlib.sha256(dense.view(torch.uint8).numpy().tobytes()).hexdigest()
+
+
+def _file_sha256(path: Optional[str]) -> Optional[str]:
+    if not path:
+        return None
+    try:
+        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def _call_device(request: Any) -> Optional[torch.device]:
+    for path in ("context.hidden", "logits"):
+        value = _read(request, path)
+        if isinstance(value, torch.Tensor):
+            return value.device
+    return None
+
+
+def rng_identity(device: Optional[torch.device]) -> dict[str, Any]:
+    """Digests of RNG states; reads only, never initializes CUDA or reseeds."""
+
+    identity: dict[str, Any] = {"cpu": _bytes_sha256(torch.get_rng_state()), "cuda": None}
+    if device is not None and device.type == "cuda" and torch.cuda.is_initialized():
+        identity["cuda"] = _bytes_sha256(torch.cuda.get_rng_state(device))
+    try:
+        from megatron.core.tensor_parallel.random import get_cuda_rng_tracker
+
+        tracker = get_cuda_rng_tracker()
+        if tracker.is_initialized():
+            identity["megatron_tracker"] = {
+                str(name): _bytes_sha256(state)
+                for name, state in sorted(tracker.get_states().items())
+            }
+        else:
+            identity["megatron_tracker"] = "uninitialized"
+    except Exception:
+        identity["megatron_tracker"] = None
+    return identity
+
+
+def stream_identity(device: Optional[torch.device]) -> dict[str, Any]:
+    if device is not None and device.type == "cuda" and torch.cuda.is_initialized():
+        stream = torch.cuda.current_stream(device)
+        return {
+            "device": str(device),
+            "stream": int(stream.cuda_stream),
+            "device_name": torch.cuda.get_device_name(device),
+            "capability": list(torch.cuda.get_device_capability(device)),
+        }
+    return {"device": None if device is None else str(device), "stream": None}
+
+
+def build_identity_fields() -> tuple[EvidenceField, ...]:
+    """Code/binary identity of the strict route; computed once per observer."""
+
+    fields: list[EvidenceField] = []
+    try:
+        from rl_engine.integrations import linear_logp as wrapper_module
+
+        fields.append(
+            EvidenceField(
+                "build.wrapper_module_sha256",
+                EvidenceSource.DECLARED,
+                "rl_engine.integrations.linear_logp source",
+                _file_sha256(getattr(wrapper_module, "__file__", None)),
+            )
+        )
+    except Exception as exc:
+        fields.append(
+            EvidenceField(
+                "build.wrapper_module_sha256", EvidenceSource.DECLARED, repr(exc), None, False
+            )
+        )
+    try:
+        from rl_engine.kernels.ops.cuda.loss import linear_logp as kernel_module
+
+        fields += [
+            EvidenceField(
+                "build.kernel_module_sha256",
+                EvidenceSource.DECLARED,
+                "rl_engine.kernels.ops.cuda.loss.linear_logp source",
+                _file_sha256(getattr(kernel_module, "__file__", None)),
+            ),
+            EvidenceField(
+                "build.strict_contract_version",
+                EvidenceSource.DECLARED,
+                "kernel module constant",
+                getattr(kernel_module, "STRICT_LINEAR_LOGP_CONTRACT_VERSION", None),
+            ),
+            EvidenceField(
+                "build.sm90_n_split_contract",
+                EvidenceSource.DECLARED,
+                "kernel module constant (vocab split count, not the BN tile width)",
+                getattr(kernel_module, "SM90_N_SPLIT_CONTRACT", None),
+            ),
+        ]
+    except Exception as exc:
+        fields.append(
+            EvidenceField(
+                "build.kernel_module_sha256", EvidenceSource.DECLARED, repr(exc), None, False
+            )
+        )
+    try:
+        from rl_engine.kernels.ops.base import _C, _EXT_AVAILABLE
+
+        path = getattr(_C, "__file__", None) if _EXT_AVAILABLE else None
+        extension: Any = {
+            "loaded": bool(_EXT_AVAILABLE),
+            "path": path,
+            "sha256": _file_sha256(path),
+        }
+    except Exception as exc:
+        extension = {"loaded": False, "error": repr(exc)}
+    fields.append(
+        EvidenceField(
+            "build.extension", EvidenceSource.OBSERVED, "loaded rl_engine._C binary", extension
+        )
+    )
+    fields.append(
+        EvidenceField(
+            "build.torch",
+            EvidenceSource.OBSERVED,
+            "running torch",
+            {
+                "version": torch.__version__,
+                "cuda": torch.version.cuda,
+                "hip": torch.version.hip,
+                "cxx11abi": bool(torch._C._GLIBCXX_USE_CXX11_ABI),
+            },
+        )
+    )
+    return tuple(fields)
+
+
 def temperature_identity(value: Any) -> dict[str, Any]:
     """Whether the temperature passed to this call is the identity (1.0 or absent)."""
 
@@ -315,6 +462,44 @@ def capture_operator(operator: Any, *, digest: bool = True) -> list[EvidenceFiel
     return fields
 
 
+def capture_runtime(request: Any, before: Mapping[str, Any]) -> list[EvidenceField]:
+    """RNG before/after (consumption check), stream, and configured canonical-TP env."""
+
+    device = _call_device(request)
+    after = rng_identity(device)
+    rng_before = before.get("rng")
+    return [
+        EvidenceField(
+            "runtime.rng_before", EvidenceSource.OBSERVED, "pre-call RNG digests", rng_before
+        ),
+        EvidenceField("runtime.rng_after", EvidenceSource.OBSERVED, "post-call RNG digests", after),
+        EvidenceField(
+            "runtime.rng_consumed",
+            EvidenceSource.OBSERVED,
+            "pre/post RNG digest comparison",
+            rng_before != after,
+        ),
+        EvidenceField(
+            "runtime.stream",
+            EvidenceSource.OBSERVED,
+            "current stream at call",
+            before.get("stream"),
+        ),
+        EvidenceField(
+            "configured.canonical_tp",
+            EvidenceSource.CONFIGURED,
+            f"env {CANONICAL_TP_ENV} at call time",
+            os.environ.get(CANONICAL_TP_ENV),
+        ),
+        EvidenceField(
+            "configured.canonical_vocab_size",
+            EvidenceSource.CONFIGURED,
+            f"env {CANONICAL_VOCAB_ENV} at call time",
+            os.environ.get(CANONICAL_VOCAB_ENV),
+        ),
+    ]
+
+
 class TrainingLogpObserver:
     """Install/uninstall a read-only per-call observer on the Megatron logp operator class."""
 
@@ -335,6 +520,7 @@ class TrainingLogpObserver:
         self._next_index = 0
         self._installed_on: Optional[type[Any]] = None
         self.sink_errors: list[str] = []
+        self._build: Optional[tuple[EvidenceField, ...]] = None
 
     @property
     def snapshots(self) -> tuple[TrainingCallSnapshot, ...]:
@@ -362,12 +548,15 @@ class TrainingLogpObserver:
 
         def observed_call(operator: Any, request: Any) -> Any:
             index = observer._claim_index()
+            before = observer._before_call(request)
             try:
                 result = original(operator, request)
             except BaseException as exc:
-                observer._record(index, operator, request, None, operator_error=type(exc).__name__)
+                observer._record(
+                    index, operator, request, None, before, operator_error=type(exc).__name__
+                )
                 raise
-            observer._record(index, operator, request, result)
+            observer._record(index, operator, request, result, before)
             return result
 
         observed_call.__name__ = getattr(original, "__name__", "__call__")
@@ -388,6 +577,19 @@ class TrainingLogpObserver:
         delattr(operator_cls, _OBSERVER_MARKER)
         self._installed_on = None
 
+    def _before_call(self, request: Any) -> dict[str, Any]:
+        try:
+            device = _call_device(request)
+            return {"rng": rng_identity(device), "stream": stream_identity(device)}
+        except Exception as exc:  # never alter the training call
+            return {"error": f"{type(exc).__name__}: {exc}"}
+
+    def _build_fields(self) -> tuple[EvidenceField, ...]:
+        with self._lock:
+            if self._build is None:
+                self._build = build_identity_fields()
+            return self._build
+
     def _claim_index(self) -> int:
         with self._lock:
             index = self._next_index
@@ -400,21 +602,30 @@ class TrainingLogpObserver:
         operator: Any,
         request: Any,
         result: Any,
+        before: Mapping[str, Any],
         *,
         operator_error: Optional[str] = None,
     ) -> None:
         try:
+            if "error" in before:
+                raise RuntimeError(f"pre-call capture failed: {before['error']}")
             fields = capture_request(request, digest=self._digest)
             if result is not None:
                 fields += capture_result(result, digest=self._digest)
             fields += capture_operator(operator, digest=self._digest)
+            fields += capture_runtime(request, before)
+            fields += list(self._build_fields())
             logp = getattr(result, "logp", None) if result is not None else None
+            targets = _read(request, "target_ids")
             snapshot = TrainingCallSnapshot(
                 call_index=index,
                 fields=tuple(fields),
                 operator_error=operator_error,
                 selected_logprob=(
                     logp.detach().cpu().clone() if isinstance(logp, torch.Tensor) else None
+                ),
+                target_ids=(
+                    targets.detach().cpu().clone() if isinstance(targets, torch.Tensor) else None
                 ),
             )
         except Exception as exc:  # evidence capture must never alter the training call
@@ -444,8 +655,12 @@ __all__ = [
     "TrainingLogpObserver",
     "capture_operator",
     "capture_request",
+    "build_identity_fields",
     "capture_result",
+    "capture_runtime",
     "json_safe",
+    "rng_identity",
+    "stream_identity",
     "temperature_identity",
     "tensor_identity",
 ]
