@@ -13,7 +13,7 @@ are not shared.
 
 ## Entry Point
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 embedding = kernel_registry.get_op("embedding")
 
@@ -104,10 +104,10 @@ nondeterminism for repeated token ids at the cost of throughput.
 
 ```bash
 python -m pytest \
-  tests/test_embedding.py \
-  tests/test_triton_embedding.py \
-  tests/test_canonical_embedding.py \
-  tests/test_embedding_ascend.py -v
+  tests/ops/embedding/test_embedding.py \
+  tests/ops/embedding/test_triton_embedding.py \
+  tests/ops/embedding/test_canonical_embedding.py \
+  tests/backends/ascend/test_embedding_ascend.py -v
 ```
 
 Covers: correctness vs direct indexing (bitwise), dtype paths, non-int64 id tolerance,
@@ -119,19 +119,19 @@ Triton sorted-segment backward and canonical logical-row ordering.
 
 ## Implementation Files
 
-- `rl_engine/kernels/ops/pytorch/linear/embedding.py`
-- `rl_engine/kernels/ops/triton/linear/embedding.py`
-- `rl_engine/kernels/ops/cuda/linear/embedding.py`
-- `rl_engine/kernels/ops/canonical_embedding.py`
-- `csrc/cuda/embedding_lm_head_sm90.cu`
-- `rl_engine/kernels/ops/ascend/linear/embedding.py` — Ascend deterministic op
+- `rl_engine/reference/embedding/embedding.py`
+- `rl_engine/backends/shared/triton/embedding/embedding.py`
+- `rl_engine/backends/cuda/embedding/embedding.py`
+- `rl_engine/ops/embedding/canonical_embedding.py`
+- `csrc/cuda/embedding/embedding_lm_head_sm90.cu`
+- `rl_engine/backends/ascend/embedding/embedding.py` — Ascend deterministic op
 - `csrc/ascend/embedding_ascend.asc` — Ascend C forward kernel
 - `csrc/ascend/npu_module.cpp` — shared pybind entry for `rl_engine._C_npu`
-- `rl_engine/kernels/registry.py`
-- `tests/test_embedding.py`
-- `tests/test_triton_embedding.py`
-- `tests/test_canonical_embedding.py`
-- `tests/test_embedding_ascend.py`
+- `rl_engine/runtime/registry.py`
+- `tests/ops/embedding/test_embedding.py`
+- `tests/ops/embedding/test_triton_embedding.py`
+- `tests/ops/embedding/test_canonical_embedding.py`
+- `tests/backends/ascend/test_embedding_ascend.py`
 
 ## Known Limitations
 
