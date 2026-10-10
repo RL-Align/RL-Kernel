@@ -2,13 +2,15 @@
 
 CUDA WS1 candidate for `zzf2024`'s `h3_ffn_down_gemm` work item in
 [issue #420](https://github.com/RL-Align/RL-Kernel/issues/420).
-Base: `test-h3@32b765ec992cd1206517104ec66506881203c91c`.
+Measured base: `test-h3@32b765ec992cd1206517104ec66506881203c91c`.
+Updated for the directory refactor in `test-h3@16b8117`.
 Checkpoint: `MiniMaxAI/MiniMax-H3@42ed227ee7df40d41602854ae760620d6eb651fe`.
 
 ## Contract and scope
 
 Backend `rlkernel.h3_ffn_down.triton.fp32_tiles.v1` reuses the existing
-`triton.matmul.det_gemm._det_gemm_fp32_kernel`. BF16 operands feed FP32
+`rl_engine.backends.shared.triton.gemm.det_gemm._det_gemm_fp32_kernel`.
+The historical logical kernel identifier in traces remains stable. BF16 operands feed FP32
 32-wide dot products and ascending FP32 tile additions, followed by one BF16
 cast. The schedule is fixed at 64x64x32, four warps and two stages, with
 `enable_fp_fusion=False`, TF32 disabled, no tuning, no split-K and no fallback.
@@ -31,7 +33,7 @@ Inference requires no backward session:
 
 ```python
 import torch
-from rl_engine.kernels.ops.h3_ffn_down import H3FFNDownGemmOp
+from rl_engine.ops.gemm.h3_ffn_down import H3FFNDownGemmOp
 
 torch.backends.cuda.matmul.allow_tf32 = False
 op = H3FFNDownGemmOp()
@@ -43,7 +45,7 @@ print(op.last_execution)
 Training requires one session spanning **all forward uses and one backward call**:
 
 ```python
-from rl_engine.kernels.ops.canonical_backward import canonical_backward_session
+from rl_engine.ops.autograd.canonical_backward import canonical_backward_session
 
 with canonical_backward_session() as session:
     outputs = [op(x, down_weight, logical_keys=keys,
@@ -134,6 +136,17 @@ archives and rental details remain local and are excluded from the PR.
 GPU reports identify the measured source. Subsequent Black/isort formatting
 is recorded separately with original/current hashes, unchanged non-import AST
 and unchanged import bindings; no GPU rerun after formatting is claimed.
+
+The target-branch merge relocates the operator, adapter and tests to canonical
+packages and registers the test-only descriptor in `rl_engine.runtime.registry`.
+New reports hash the actual canonical device kernel, autograd runtime and registry;
+compatibility shims are not used as implementation fingerprints. The device
+function and operator/session non-import AST are unchanged from the submitted
+candidate. All five measured JSON files remain byte-for-byte unchanged. Local
+post-merge regression passed **101 tests**, with **3 SM90-only tests skipped**;
+the upstream layout/build suite additionally passed **32 tests** with **1 skipped**.
+No GPU rerun after the directory merge is claimed. GitHub Actions CPU/GPU workflows
+do not target `test-h3`; local checks and archived H100 runs are separate evidence.
 
 ## Reproduction and remaining qualification
 

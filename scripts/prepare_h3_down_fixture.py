@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT))
 
 import torch  # noqa: E402
 
-from rl_engine.kernels.ops.h3_ffn_down import H3_CHECKPOINT_REVISION  # noqa: E402
+from rl_engine.ops.gemm.h3_ffn_down import H3_CHECKPOINT_REVISION  # noqa: E402
 
 BASE = f"https://huggingface.co/MiniMaxAI/MiniMax-H3/resolve/{H3_CHECKPOINT_REVISION}/"
 WEIGHT_KEY = "transformer_blocks.0.ff.net.2.weight"

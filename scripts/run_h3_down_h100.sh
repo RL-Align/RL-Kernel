@@ -51,12 +51,12 @@ nvidia-smi -q > "$result_dir/nvidia-smi.txt"
 python -m pip freeze > "$result_dir/pip-freeze.txt"
 git status --short > "$result_dir/git-status.txt"
 git diff HEAD > "$result_dir/source.patch"
-python -m pytest -q tests/test_h3_ffn_down.py -k 'not on_gpu' | tee "$result_dir/cpu-tests.txt"
+python -m pytest -q tests/ops/gemm/test_h3_ffn_down.py -k 'not on_gpu' | tee "$result_dir/cpu-tests.txt"
 if [[ "${H3_BUILD_NATIVE:-0}" == 1 ]]; then
     python -m pip install --no-deps --no-build-isolation -v -e . 2>&1 | tee "$result_dir/build.log"
 fi
 set +e
-python -m pytest -q tests/test_h3_ffn_down.py | tee "$result_dir/gpu-tests.txt"
+python -m pytest -q tests/ops/gemm/test_h3_ffn_down.py | tee "$result_dir/gpu-tests.txt"
 gpu_test_status=${PIPESTATUS[0]}
 set -e
 

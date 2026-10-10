@@ -14,7 +14,7 @@ zero to inactive rows.
 ## Entry Point
 
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 pack = kernel_registry.get_op("pack")
 packed, cu_seqlens = pack(hidden_states, completion_mask)
@@ -71,9 +71,9 @@ reference exactly; no tolerance is required.
 ## Benchmark
 
 ```bash
-python benchmarks/benchmark_pack.py --smoke
+python benchmarks/operators/packing/benchmark_pack.py --smoke
 
-python benchmarks/benchmark_pack.py \
+python benchmarks/operators/packing/benchmark_pack.py \
   --device cuda \
   --dtype bfloat16 \
   --num-prompts 2 \
@@ -93,7 +93,7 @@ larger than the logits they avoid.
 ## Tests
 
 ```bash
-python -m pytest tests/test_pack.py -q
+python -m pytest tests/ops/packing/test_pack.py -q
 ```
 
 Coverage includes forward and backward correctness, non-boolean masks,
@@ -102,7 +102,7 @@ validation, unpack validation, and registry dispatch.
 
 ## Related Files
 
-- `rl_engine/kernels/ops/pytorch/packing/pack.py`
-- `rl_engine/kernels/registry.py`
-- `tests/test_pack.py`
-- `benchmarks/benchmark_pack.py`
+- `rl_engine/reference/packing/pack.py`
+- `rl_engine/runtime/registry.py`
+- `tests/ops/packing/test_pack.py`
+- `benchmarks/operators/packing/benchmark_pack.py`

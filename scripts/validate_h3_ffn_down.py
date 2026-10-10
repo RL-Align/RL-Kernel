@@ -22,15 +22,9 @@ sys.path.insert(0, str(ROOT))
 
 import torch  # noqa: E402
 
-from rl_engine.kernels.gtest.tolerance import load_contract  # noqa: E402
-from rl_engine.kernels.ops import base  # noqa: E402
-from rl_engine.kernels.ops.h3_down_validation import (  # noqa: E402
-    comparison,
-    logical_keys,
-    reference_projection,
-    training_projection,
-)
-from rl_engine.kernels.ops.h3_ffn_down import (  # noqa: E402
+from rl_engine.backends import extension as base  # noqa: E402
+from rl_engine.contracts.numerical import load_contract  # noqa: E402
+from rl_engine.ops.gemm.h3_ffn_down import (  # noqa: E402
     H3_CHECKPOINT_REVISION,
     H3_DOWN_BACKEND,
     H3_LEGACY_DOWN_BACKEND,
@@ -38,6 +32,12 @@ from rl_engine.kernels.ops.h3_ffn_down import (  # noqa: E402
     H3FFNDownGemmOp,
     _require_backend,
     _weight_gradient,
+)
+from rl_engine.validation.operators.h3_down_validation import (  # noqa: E402
+    comparison,
+    logical_keys,
+    reference_projection,
+    training_projection,
 )
 
 
@@ -64,7 +64,7 @@ def tensor_digest(tensor):
 
 
 def provenance(args):
-    contract_path = ROOT / "rl_engine/kernels/gtest/tolerance_contract.json"
+    contract_path = ROOT / "rl_engine/contracts/profiles/precision/ws1.json"
     result = {
         "git_commit": command(["git", "rev-parse", "HEAD"]),
         "git_status": command(["git", "status", "--porcelain"]),
@@ -94,12 +94,15 @@ def provenance(args):
     for name in (
         "csrc/cuda/gemm/det_gemm_kernel.cu",
         "csrc/cuda/gemm/det_gemm_tma.cuh",
-        "rl_engine/kernels/ops/h3_ffn_down.py",
-        "rl_engine/kernels/ops/h3_down_fp32_backend.py",
-        "rl_engine/kernels/ops/triton/matmul/det_gemm.py",
-        "rl_engine/kernels/ops/h3_down_validation.py",
-        "rl_engine/kernels/ops/canonical_backward.py",
-        "rl_engine/kernels/registry.py",
+        "rl_engine/ops/gemm/h3_ffn_down.py",
+        "rl_engine/backends/shared/triton/gemm/h3_down_fp32_backend.py",
+        "rl_engine/backends/shared/triton/gemm/det_gemm.py",
+        "rl_engine/validation/operators/h3_down_validation.py",
+        "rl_engine/ops/autograd/canonical_backward.py",
+        "rl_engine/ops/autograd/backward_runtime.py",
+        "rl_engine/backends/extension.py",
+        "rl_engine/contracts/numerical.py",
+        "rl_engine/runtime/registry.py",
         "scripts/validate_h3_ffn_down.py",
     ):
         result["source_hashes"][name] = sha256(ROOT / name)
@@ -158,7 +161,7 @@ def vllm_comparison(x, w, dy, reference, repeats):
     try:
         import triton
 
-        from benchmarks.vllm_batch_invariant_matmul import (
+        from benchmarks.layers.vllm_batch_invariant_matmul import (
             VLLM_BATCH_INVARIANT_SOURCE_SHA,
             matmul_config_metadata,
             matmul_persistent,
@@ -167,8 +170,8 @@ def vllm_comparison(x, w, dy, reference, repeats):
         result.update(
             source_commit=VLLM_BATCH_INVARIANT_SOURCE_SHA,
             triton_version=triton.__version__,
-            source_sha256=sha256(ROOT / "benchmarks/vllm_batch_invariant_matmul.py"),
-            configs_sha256=sha256(ROOT / "benchmarks/vllm_batch_invariant_configs.py"),
+            source_sha256=sha256(ROOT / "benchmarks/layers/vllm_batch_invariant_matmul.py"),
+            configs_sha256=sha256(ROOT / "benchmarks/layers/vllm_batch_invariant_configs.py"),
         )
         pairs = ((x, w.t()), (dy, w), (dy.t(), x))
         result["configs"] = [
