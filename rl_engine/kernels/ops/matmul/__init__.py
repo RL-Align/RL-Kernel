@@ -1,5 +1,8 @@
-"""Platform-selected matrix multiplication operators."""
+# SPDX-License-Identifier: Apache-2.0
+"""Compatibility import; the canonical module is loaded below."""
 
-from .det_gemm import DetGemmOp, deterministic_gemm
+from importlib import import_module
 
-__all__ = ["DetGemmOp", "deterministic_gemm"]
+
+def __getattr__(name):
+    return getattr(import_module("rl_engine.ops.gemm"), name)

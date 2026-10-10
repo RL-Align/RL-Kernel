@@ -12,7 +12,7 @@ logits --[ratio_kl op]--> (ratio, kl) --[clipped surrogate + beta*kl]--> loss
 
 ## Entry Point
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 ratio_kl = kernel_registry.get_op("ratio_kl")
 
@@ -84,9 +84,9 @@ The Triton op matches the native reference on `ratio` and `kl` (forward) and on 
 ## Performance Notes
 
 ```bash
-python benchmarks/benchmark_ratio_kl.py
-python benchmarks/benchmark_ratio_kl.py --g-sizes 8 --completion-lens 512 --vocab-sizes 32768,131072
-python benchmarks/benchmark_ratio_kl.py --backward-suite --smoke --dtype float16 \
+python benchmarks/operators/loss/benchmark_ratio_kl.py
+python benchmarks/operators/loss/benchmark_ratio_kl.py --g-sizes 8 --completion-lens 512 --vocab-sizes 32768,131072
+python benchmarks/operators/loss/benchmark_ratio_kl.py --backward-suite --smoke --dtype float16 \
   --warmup 10 --repeat 50
 ```
 
@@ -106,13 +106,13 @@ Indicative forward-only results (fp16, `B=16`, `T=512`):
 ## Tests
 
 ```bash
-python -m pytest tests/test_ratio_kl.py -v
+python -m pytest tests/ops/loss/test_ratio_kl.py -v
 ```
 
 ## Implementation Files
 
-- `rl_engine/kernels/ops/pytorch/loss/ratio_kl.py`
-- `rl_engine/kernels/ops/triton/loss/ratio_kl.py`
-- `rl_engine/kernels/registry.py`
-- `tests/test_ratio_kl.py`
-- `benchmarks/benchmark_ratio_kl.py`
+- `rl_engine/reference/loss/ratio_kl.py`
+- `rl_engine/backends/shared/triton/loss/ratio_kl.py`
+- `rl_engine/runtime/registry.py`
+- `tests/ops/loss/test_ratio_kl.py`
+- `benchmarks/operators/loss/benchmark_ratio_kl.py`
