@@ -29,6 +29,8 @@ nav:
       - operators/sampling.md
       - operators/det-gemm.md
       - operators/embedding.md
+      - operators/qwen3-next-rms-norm.md
+      - operators/qwen3-next-rms-norm-gated.md
   - Developer Guide:
     - contributing/README.md
     - Contributor Guide: contributing/contributor-guide.md

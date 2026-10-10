@@ -1,0 +1,95 @@
+# SPDX-License-Identifier: Apache-2.0
+# RFC #428 Qwen3-Next provider comparisons: the C1/C3/C4 norm providers, the C6
+# GDN decode-step goldens, the shared GEMM/MoE route-combine provider and the TP4
+# GDN/convolution/attention mixers, each checked against the real vLLM 0.30.0 provider.
+#
+# These check_ files import vLLM, so the default pytest collection never runs them
+# (tests/integrations/common/test_framework_operator_integrations.py asserts vLLM is not imported). This
+# workflow runs them in their own process on a self-hosted runner that a maintainer
+# registers with the labels below and keeps on the audited runtime (CUDA 13,
+# torch 2.13.0+cu130, vLLM 0.30.0). Without such a runner the job queues rather than
+# reporting a false pass.
+#
+# Security: do not use pull_request_target. Fork PRs never reach the self-hosted
+# runner; a maintainer dispatches the reviewed commit from a trusted branch.
+
+name: Qwen3-Next-provider-GPU
+
+on:
+  pull_request:
+    branches: [main, test-qwennext]
+    paths:
+      - "rl_engine/backends/**"
+      - "rl_engine/reference/**"
+      - "csrc/cuda/attention/**"
+      - "rl_engine/models/qwen3_next/**"
+      - "rl_engine/integrations/engines/train/vllm/qwen3_next*"
+      - "rl_engine/validation/models/qwen3_next*"
+      - "tools/validation/models/*qwen3_next*"
+      - "tests/models/qwen3_next/**"
+      - "tests/models/qwen3_next/check_gdn_recurrent_golden.py"
+      - ".github/workflows/qwen3-next-provider-gpu.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: qwen3-next-provider-gpu-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  fork-pr-notice:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report required trusted execution
+        run: |
+          echo "Fork code does not run on the self-hosted Qwen3-Next provider runner."
+          echo "A maintainer must dispatch this workflow from a trusted upstream branch."
+          echo "source_repository=${{ github.event.pull_request.head.repo.full_name }}"
+          echo "source_sha=${{ github.event.pull_request.head.sha }}"
+
+  provider:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, linux, x64, rl-kernel-qwen3-next]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require the audited runtime
+        run: |
+          python3 - <<'PY'
+          import torch, vllm
+          assert torch.__version__ == "2.13.0+cu130"
+          assert vllm.__version__ == "0.30.0"
+          assert torch.cuda.is_available()
+          PY
+      - name: Build the extension against that runtime
+        run: python3 setup.py build_ext --inplace
+      - name: Require the extension built from this checkout
+        # A stale editable install elsewhere on the runner would otherwise satisfy the
+        # import and test some other tree's _C.
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          from rl_engine import _C
+
+          workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+          loaded = Path(_C.__file__).resolve()
+          assert workspace in loaded.parents, f"rl_engine._C loaded from {loaded}, outside {workspace}"
+          print("rl_engine._C:", loaded)
+          PY
+      - name: Check pinned providers in their own process
+        # The FP32 router needs IEEE Triton dots from process start.
+        env:
+          TRITON_F32_DEFAULT: ieee
+        run: |
+          python3 -m pytest -q tests/models/qwen3_next/check_qwen3_next_norm_providers.py tests/models/qwen3_next/check_gdn_recurrent_golden.py \
+            tests/models/qwen3_next/check_qwen3_next_forward.py tests/models/qwen3_next/check_qwen3_next_attention.py \
+            tests/models/qwen3_next/check_qwen3_next_gdn_bridge.py tests/models/qwen3_next/check_qwen3_next_gdn_sequence.py \
+            tests/models/qwen3_next/check_qwen3_next_conv_bridge.py tests/models/qwen3_next/check_qwen3_next_core_matrix.py \
+            tests/models/qwen3_next/check_qwen3_next_shared_core.py

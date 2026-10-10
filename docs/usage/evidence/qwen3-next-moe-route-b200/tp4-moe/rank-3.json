@@ -1,0 +1,45 @@
+{
+  "status": "passed",
+  "scope": "tp4_moe_block_layer0",
+  "rank": 3,
+  "rl_kernel_commit": "2e950f386bd3c4c2c07f41472f48878be94ea3b8",
+  "tracked_tree_dirty": false,
+  "provider": "qwen3-next-shared-cuda-forward-v1",
+  "environment": {
+    "gpu": "NVIDIA B200",
+    "torch": "2.13.0+cu130",
+    "vllm": "0.30.0",
+    "nccl": "2.29.7"
+  },
+  "moe": {
+    "cases": [
+      "hf-load-export-all512experts",
+      "routes-replicated-8",
+      "full-chunk-reorder-8",
+      "routes-replicated-64",
+      "full-chunk-reorder-64",
+      "routes-replicated-256",
+      "full-chunk-reorder-256",
+      "routes-replicated-1024",
+      "full-chunk-reorder-1024",
+      "training-forward",
+      "all-parameter-gradient",
+      "replicated-router-gradient"
+    ],
+    "gradient_max_abs": {
+      "gate.weight": 1.9354047253727913e-09,
+      "experts.gate_up": 2.546585164964199e-09,
+      "experts.down": 5.296897143125534e-09,
+      "shared_expert.gate_proj.weight": 1.2665987014770508e-07,
+      "shared_expert.up_proj.weight": 2.644956111907959e-07,
+      "shared_expert.down_proj.weight": 2.998858690261841e-07,
+      "shared_expert_gate.weight": 5.513429641723633e-07
+    },
+    "forward_us": {
+      "8": 2206.4640522003174,
+      "64": 2399.104118347168,
+      "256": 1923.0719804763794,
+      "1024": 1855.455994606018
+    }
+  }
+}

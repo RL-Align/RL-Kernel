@@ -1,0 +1,47 @@
+# Qwen3-Next routed MoE: prior art and TP4 gate (B200)
+
+`report.json` and `figure.png` were measured at commit `c58816b` from a clean
+clone (`tracked_tree_dirty: false`) on one B200 (driver 580.126.20, torch
+2.13.0+cu130, Triton 3.7.1), in two Python environments because no single one
+can import every candidate:
+
+* the training environment (VIME 0.3.2 with Megatron-core 0.16.0rc0 and
+  Transformer Engine 2.16.1, vLLM 0.30.0, FlashInfer 0.6.18.post1,
+  transformers 5.17.0): RL-Kernel, HF, vLLM, FlashInfer, Megatron-core + TE;
+* a second environment with SGLang 0.5.21: SGLang in default and
+  deterministic-inference mode. Its compiled `sgl_kernel` 0.3.21 is built for
+  another libtorch ABI and cannot load next to torch 2.13, so SGLang's two
+  kernels on this path are replaced by SGLang's own implementations of the same
+  operations (Triton `moe_sum_reduce`, JIT `moe_align_block_size`); calling any
+  other `sgl_kernel` symbol fails.
+
+`environments` in `report.json` records both. The TP4 gate files were measured
+at `2e950f3`, whose MoE code is identical (`c58816b` only adds runner candidates).
+
+| File | Produced by |
+| --- | --- |
+| `report.json` | `TRITON_F32_DEFAULT=ieee python tools/validation/models/qwen3_next_moe_prior_art.py --only rl_kernel_cuda,hf_transformers,vllm_bi0,vllm_bi1,flashinfer_cutlass,megatron_te --out main.json` (training environment), then `... --only sglang_triton,sglang_deterministic --merge main.json --out report.json` (SGLang environment); one GPU |
+| `figure.png` | `python tools/validation/models/plot_qwen3_next_moe_prior_art.py report.json` |
+| `tp4-moe/rank-{0..3}.json` | `TRITON_F32_DEFAULT=ieee torchrun --nproc-per-node 4 tools/validation/models/qwen3_next_tp_moe_check.py --checkpoint <Qwen3-Next-80B-A3B-Instruct> --output tp4-moe` |
+
+The checkpoint is the official `Qwen/Qwen3-Next-80B-A3B-Instruct` revision
+`9c7f2fbe84465e40164a94cc16cd30b6999b0cc7`; the TP4 gate reads layer 0's MoE.
+
+In the same job, `TRITON_F32_DEFAULT=ieee python -m pytest -q
+tests/models/qwen3_next/check_qwen3_next_forward.py tests/validation/common/test_tensor_identity.py
+tests/models/qwen3_next/test_qwen3_next_forward_contract.py tests/models/qwen3_next/test_qwen3_next_tp_blocks.py`
+passed (65 tests). `tests/integrations/common/test_framework_operator_integrations.py` was collected
+into that same process and failed, as it must once a `check_` file has imported
+vLLM; run in its own process, as CI does, it passes.
+
+## Reading the report
+
+* Batch invariance: 8 probe tokens computed alone, and placed first and last in
+  batches of 16, 64, 256 and 1024 tokens; `true` means bitwise equal everywhere.
+  `dweight_zero_rows_bitwise` appends rows whose output gradient is zero.
+* Accuracy: 256 tokens against the HF formula evaluated in FP64 with FP64
+  routing; `tokens_with_different_expert_set` counts tokens whose ten selected
+  experts differ from the FP64 selection.
+* Latency: CUDA-event medians, candidates interleaved with the order reversed
+  every iteration. Weights are random (scale 0.02), shape H=2048, 512 experts,
+  top-10, expert width 512 (TP1).

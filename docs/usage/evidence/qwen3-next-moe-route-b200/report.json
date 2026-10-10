@@ -1,0 +1,381 @@
+{
+  "kind": "qwen3_next_prior_art_report",
+  "rfc": 428,
+  "rl_kernel_commit": "c58816bf54940195b543beda14e0de65a71182c6",
+  "tracked_tree_dirty": false,
+  "environment": {
+    "gpu": "NVIDIA B200",
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "libraries": {
+      "vllm": "0.30.0",
+      "flashinfer-python": "0.6.18.post1",
+      "transformers": "5.17.0",
+      "triton": "3.7.1",
+      "sglang": null,
+      "sgl-kernel": null,
+      "megatron_core": "0.16.0rc0",
+      "megatron-core": "0.16.0rc0",
+      "transformer_engine": "2.16.1+c9877beb",
+      "vime": "0.3.2"
+    }
+  },
+  "op": "qwen3_next_routed_moe",
+  "shape": {
+    "hidden": 2048,
+    "experts": 512,
+    "top_k": 10,
+    "expert_width": 512
+  },
+  "probe_rows": 8,
+  "candidates": [
+    {
+      "key": "rl_kernel_cuda",
+      "name": "rl-kernel shared_moe",
+      "source": "rl_engine.integrations.qwen3_next_forward.shared_moe",
+      "route_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": true,
+        "1024": true
+      },
+      "output_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": true,
+        "1024": true
+      },
+      "repeatable": true,
+      "dx_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": true,
+        "1024": true
+      },
+      "dweight_zero_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": true,
+        "1024": true
+      },
+      "accuracy": {
+        "rel_l2_vs_fp64": 0.0038748319159183277,
+        "max_abs_vs_fp64": 0.0021274995396960983,
+        "tokens_with_different_expert_set": 0,
+        "tokens": 256
+      },
+      "batch_invariant": true
+    },
+    {
+      "key": "hf_transformers",
+      "name": "HF transformers Qwen3NextExperts (eager)",
+      "source": "transformers 5.17.0 modeling_qwen3_next",
+      "route_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": true,
+        "1024": true
+      },
+      "output_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": true,
+        "1024": true
+      },
+      "repeatable": true,
+      "dx_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": true,
+        "1024": false
+      },
+      "dweight_zero_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": true,
+        "1024": false
+      },
+      "accuracy": {
+        "rel_l2_vs_fp64": 0.0700071926559018,
+        "max_abs_vs_fp64": 0.10691143625663532,
+        "tokens_with_different_expert_set": 11,
+        "tokens": 256
+      },
+      "batch_invariant": false
+    },
+    {
+      "key": "vllm_bi0",
+      "name": "vLLM fused_topk + fused_experts (Triton), VLLM_BATCH_INVARIANT=0",
+      "source": "vllm 0.30.0 model_executor/layers/fused_moe",
+      "route_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": false,
+        "1024": false
+      },
+      "output_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": false,
+        "1024": false
+      },
+      "repeatable": true,
+      "accuracy": {
+        "rel_l2_vs_fp64": 0.06987086350006304,
+        "max_abs_vs_fp64": 0.10691143625663532,
+        "tokens_with_different_expert_set": 11,
+        "tokens": 256
+      },
+      "batch_invariant": false
+    },
+    {
+      "key": "vllm_bi1",
+      "name": "vLLM fused_topk + fused_experts (Triton), VLLM_BATCH_INVARIANT=1",
+      "source": "vllm 0.30.0 model_executor/layers/fused_moe",
+      "route_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": true,
+        "1024": true
+      },
+      "output_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": true,
+        "1024": true
+      },
+      "repeatable": true,
+      "accuracy": {
+        "rel_l2_vs_fp64": 0.06987086350006304,
+        "max_abs_vs_fp64": 0.10691143625663532,
+        "tokens_with_different_expert_set": 11,
+        "tokens": 256
+      },
+      "batch_invariant": true
+    },
+    {
+      "key": "flashinfer_cutlass",
+      "name": "FlashInfer cutlass_fused_moe (routes from torch.topk)",
+      "source": "flashinfer 0.6.18.post1 fused_moe.cutlass_fused_moe",
+      "route_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": false,
+        "1024": false
+      },
+      "output_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": false,
+        "1024": false
+      },
+      "repeatable": true,
+      "accuracy": {
+        "rel_l2_vs_fp64": 0.06984271064260991,
+        "max_abs_vs_fp64": 0.10739971750663532,
+        "tokens_with_different_expert_set": 11,
+        "tokens": 256
+      },
+      "batch_invariant": false
+    },
+    {
+      "key": "megatron_te",
+      "name": "Megatron-core MoELayer + TE grouped GEMM (VIME's Qwen3-Next config)",
+      "source": "megatron-core 0.16.0rc0, transformer-engine 2.16.1+c9877beb",
+      "route_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": false,
+        "1024": false
+      },
+      "output_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": true,
+        "1024": false
+      },
+      "repeatable": true,
+      "dx_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": true,
+        "1024": false
+      },
+      "dweight_zero_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": true,
+        "1024": false
+      },
+      "accuracy": {
+        "rel_l2_vs_fp64": 0.00456482750054121,
+        "max_abs_vs_fp64": 0.0022296928321409726,
+        "tokens_with_different_expert_set": 0,
+        "tokens": 256
+      },
+      "batch_invariant": false
+    },
+    {
+      "key": "sglang_triton",
+      "name": "SGLang fused_moe (Triton), default",
+      "source": "sglang 0.5.21 moe_runner/triton_utils",
+      "route_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": false,
+        "1024": false
+      },
+      "output_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": false,
+        "1024": false
+      },
+      "repeatable": true,
+      "accuracy": {
+        "rel_l2_vs_fp64": 0.06984328047814348,
+        "max_abs_vs_fp64": 0.10739971750663532,
+        "tokens_with_different_expert_set": 11,
+        "tokens": 256
+      },
+      "batch_invariant": false
+    },
+    {
+      "key": "sglang_deterministic",
+      "name": "SGLang fused_moe (Triton), deterministic inference",
+      "source": "sglang 0.5.21 moe_runner/triton_utils",
+      "route_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": true,
+        "1024": true
+      },
+      "output_rows_bitwise": {
+        "16": true,
+        "64": true,
+        "256": true,
+        "1024": true
+      },
+      "repeatable": true,
+      "accuracy": {
+        "rel_l2_vs_fp64": 0.06984328047814348,
+        "max_abs_vs_fp64": 0.10739971750663532,
+        "tokens_with_different_expert_set": 11,
+        "tokens": 256
+      },
+      "batch_invariant": true
+    }
+  ],
+  "latency": {
+    "forward_us": {
+      "1": {
+        "rl_kernel_cuda": 1386.0480189323425,
+        "hf_transformers": 2066.7200088500977,
+        "vllm_bi0": 374.9440014362335,
+        "vllm_bi1": 387.91999220848083,
+        "flashinfer_cutlass": 368.51200461387634,
+        "megatron_te": 3787.440061569214,
+        "sglang_triton": 339.1679972410202,
+        "sglang_deterministic": 349.7439920902252
+      },
+      "8": {
+        "rl_kernel_cuda": 1395.039975643158,
+        "hf_transformers": 13072.400093078613,
+        "vllm_bi0": 381.9680064916611,
+        "vllm_bi1": 385.328009724617,
+        "flashinfer_cutlass": 432.2880059480667,
+        "megatron_te": 5061.583995819092,
+        "sglang_triton": 332.8000009059906,
+        "sglang_deterministic": 353.5839915275574
+      },
+      "64": {
+        "rl_kernel_cuda": 1687.5839829444885,
+        "hf_transformers": 62156.3835144043,
+        "vllm_bi0": 660.0319743156433,
+        "vllm_bi1": 658.3200097084045,
+        "flashinfer_cutlass": 723.4559953212738,
+        "megatron_te": 9674.047946929932,
+        "sglang_triton": 606.8799793720245,
+        "sglang_deterministic": 660.75199842453
+      },
+      "256": {
+        "rl_kernel_cuda": 1846.1920022964478,
+        "hf_transformers": 85269.61517333984,
+        "vllm_bi0": 779.8559963703156,
+        "vllm_bi1": 790.6079888343811,
+        "flashinfer_cutlass": 858.7839901447296,
+        "megatron_te": 11665.247917175293,
+        "sglang_triton": 759.0239942073822,
+        "sglang_deterministic": 819.1200196743011
+      },
+      "1024": {
+        "rl_kernel_cuda": 2043.7918901443481,
+        "hf_transformers": 89267.74215698242,
+        "vllm_bi0": 874.2719888687134,
+        "vllm_bi1": 868.9280152320862,
+        "flashinfer_cutlass": 902.5439918041229,
+        "megatron_te": 11738.048076629639,
+        "sglang_triton": 833.1039845943451,
+        "sglang_deterministic": 841.6959941387177
+      },
+      "4096": {
+        "rl_kernel_cuda": 3053.2480478286743,
+        "hf_transformers": 87444.65637207031,
+        "vllm_bi0": 1059.056043624878,
+        "vllm_bi1": 1051.2160062789917,
+        "flashinfer_cutlass": 1124.2560148239136,
+        "megatron_te": 12122.560024261475,
+        "sglang_triton": 1346.0160493850708,
+        "sglang_deterministic": 1367.3120141029358
+      }
+    },
+    "forward_plus_backward_us": {
+      "64": {
+        "rl_kernel_cuda": 113590.37017822266,
+        "hf_transformers": 876752.3193359375,
+        "megatron_te": 44856.64176940918
+      },
+      "1024": {
+        "rl_kernel_cuda": 169058.31909179688,
+        "hf_transformers": 1284274.658203125,
+        "megatron_te": 50968.2559967041
+      }
+    }
+  },
+  "environments": {
+    "main": {
+      "gpu": "NVIDIA B200",
+      "torch": "2.13.0+cu130",
+      "cuda": "13.0",
+      "libraries": {
+        "vllm": "0.30.0",
+        "flashinfer-python": "0.6.18.post1",
+        "transformers": "5.17.0",
+        "triton": "3.7.1",
+        "sglang": null,
+        "sgl-kernel": null,
+        "megatron_core": "0.16.0rc0",
+        "megatron-core": "0.16.0rc0",
+        "transformer_engine": "2.16.1+c9877beb",
+        "vime": "0.3.2"
+      }
+    },
+    "extra": {
+      "gpu": "NVIDIA B200",
+      "torch": "2.13.0+cu130",
+      "cuda": "13.0",
+      "libraries": {
+        "vllm": "0.30.0",
+        "flashinfer-python": "0.6.18.post1",
+        "transformers": "5.17.0",
+        "triton": "3.7.1",
+        "sglang": "0.5.21",
+        "sgl-kernel": "0.3.21",
+        "megatron_core": null,
+        "megatron-core": null,
+        "transformer_engine": "2.20.2",
+        "vime": null
+      }
+    }
+  }
+}
