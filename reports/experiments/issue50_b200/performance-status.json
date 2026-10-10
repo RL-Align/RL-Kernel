@@ -1,0 +1,28 @@
+{
+  "status": "complete",
+  "complete_groups": 5,
+  "requested_groups": 5,
+  "cases_per_group": 52,
+  "completed_group_hot_selector_calls": 0,
+  "cache_sources": {
+    "cold": [
+      "tuned"
+    ],
+    "restart": [
+      "disk"
+    ],
+    "precompiled": [
+      "tuned"
+    ]
+  },
+  "eager": {
+    "confirmed_benefit": 0,
+    "tuned_slower_non_overlapping": 24
+  },
+  "graph": {
+    "confirmed_benefit": 19,
+    "tuned_slower_non_overlapping": 5
+  },
+  "performance_conclusion": "graph-only: confirmed gains concentrated in small elementwise cases; no confirmed eager benefit",
+  "remaining": "ROCm hardware acceptance remains open"
+}

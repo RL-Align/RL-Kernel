@@ -1,0 +1,10 @@
+.......s..................s...................................           [100%]
+=============================== warnings summary ===============================
+tests/ops/test_autotuning_gpu.py: 36 warnings
+  <python-prefix>/lib/python3.13/site-packages/triton/compiler/code_generator.py:643: DeprecationWarning: AnnAssign.__init__ missing 1 required positional argument: 'simple'. This will become an error in Python 3.15.
+    init_node = ast.AnnAssign(target=st_target, value=default_value, annotation=annotation)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+SKIPPED [2] tests/ops/test_autotuning_gpu.py:89: Existing operator does not support this dtype
+60 passed, 2 skipped, 36 warnings in 188.90s (0:03:08)

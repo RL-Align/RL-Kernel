@@ -1,5 +1,7 @@
 import torch
 
+from rl_engine.backends.shared.triton.autotuning import TunableKernel, pin_autotune
+
 try:
     import triton
     import triton.language as tl
@@ -110,6 +112,7 @@ def rmsnorm_triton_backward_rows(grad_out, x, weight, rstd):
     return dx, partial_dw
 
 
+@pin_autotune
 class RMSNormTriton(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, weight, eps: float = 1e-6):
@@ -167,3 +170,8 @@ class RMSNormTritonOp:
         rstd = torch.rsqrt(x32.square().mean(dim=-1) + float(eps))
         rows = grad_output.float() * x32 * rstd.unsqueeze(-1)
         return {"weight": rows}
+
+
+if _TRITON_AVAILABLE:
+    _rmsnorm_fwd_kernel = TunableKernel(_rmsnorm_fwd_kernel, outputs=(2, 3))
+    _rmsnorm_bwd_dx_kernel = TunableKernel(_rmsnorm_bwd_dx_kernel, outputs=(4, 5))

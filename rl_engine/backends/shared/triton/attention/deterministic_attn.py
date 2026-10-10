@@ -48,6 +48,8 @@ import triton.language as tl
 from torch.autograd import Function
 from torch.autograd.function import once_differentiable
 
+from rl_engine.backends.shared.triton.autotuning import TunableKernel, pin_autotune
+
 _HEAD_DIM = 128
 
 _IS_ROCM = torch.version.hip is not None
@@ -661,6 +663,7 @@ def triton_deterministic_attention_backward(
     return dq, dk, dv
 
 
+@pin_autotune
 class _TritonDeterministicAttentionFn(Function):
     @staticmethod
     def forward(
@@ -882,3 +885,17 @@ __all__ = [
     "triton_deterministic_attention_fp32",
     "triton_deterministic_attention_with_lse",
 ]
+
+
+_qk_kernel = TunableKernel(_qk_kernel, outputs=(2,), core=True)
+_masked_softmax_lse_kernel = TunableKernel(
+    _masked_softmax_lse_kernel, outputs=(0, 1), inout=(0,), core=True
+)
+_pv_kernel = TunableKernel(_pv_kernel, outputs=(2,), core=True)
+_dp_kernel = TunableKernel(_dp_kernel, outputs=(2,), core=True)
+_softmax_backward_kernel = TunableKernel(
+    _softmax_backward_kernel, outputs=(0,), inout=(0,), core=True
+)
+_dq_kernel = TunableKernel(_dq_kernel, outputs=(2,), core=True)
+_dk_kernel = TunableKernel(_dk_kernel, outputs=(2,), core=True)
+_dv_kernel = TunableKernel(_dv_kernel, outputs=(2,), core=True)
