@@ -922,3 +922,83 @@ std::vector<torch::Tensor> deterministic_logp_double_backward(
     }
     return {dx, dg};
 }
+
+namespace {
+// VJP of (A, B) = (-g*p*(h-E[h]), h[target]-E[h]). For upstreams
+// (a,b), C=E[a*h]-E[a]*E[h]. All expectations use fixed row-local reductions.
+template <typename input_t, typename acc_t, int BlockSize>
+__global__ void deterministic_logp_triple_backward_kernel(
+    const input_t* logits, const acc_t* lse, const acc_t* g,
+    const int64_t* labels, const input_t* h, const input_t* a, const acc_t* b,
+    input_t* dx, acc_t* dg, input_t* dh, int vocab) {
+    const int64_t row = blockIdx.x;
+    const bool active = isfinite(lse[row]) && labels[row] >= 0 && labels[row] < vocab;
+    if (!active) {
+        for (int c = threadIdx.x; c < vocab; c += BlockSize) {
+            dx[row * vocab + c] = input_t(0);
+            dh[row * vocab + c] = input_t(0);
+        }
+        if (threadIdx.x == 0) dg[row] = 0;
+        return;
+    }
+    acc_t eh = 0, ea = 0, eah = 0;
+    for (int c = threadIdx.x; c < vocab; c += BlockSize) {
+        const int64_t i = row * vocab + c;
+        const acc_t p = exp(acc_t(logits[i]) - lse[row]);
+        eh += p * acc_t(h[i]);
+        ea += p * acc_t(a[i]);
+        eah += p * acc_t(a[i]) * acc_t(h[i]);
+    }
+    __shared__ acc_t mean_h, mean_a, covariance;
+    eh = deterministic_logp_reduce<acc_t, BlockSize>(eh);
+    if (threadIdx.x == 0) mean_h = eh;
+    __syncthreads();
+    ea = deterministic_logp_reduce<acc_t, BlockSize>(ea);
+    if (threadIdx.x == 0) mean_a = ea;
+    __syncthreads();
+    eah = deterministic_logp_reduce<acc_t, BlockSize>(eah);
+    if (threadIdx.x == 0) {
+        covariance = eah - mean_a * mean_h;
+        dg[row] = -covariance;
+    }
+    __syncthreads();
+    for (int c = threadIdx.x; c < vocab; c += BlockSize) {
+        const int64_t i = row * vocab + c;
+        const acc_t p = exp(acc_t(logits[i]) - lse[row]);
+        const acc_t hc = acc_t(h[i]) - mean_h;
+        const acc_t ac = acc_t(a[i]) - mean_a;
+        dx[i] = input_t(-g[row] * p * (ac * hc - covariance) - b[row] * p * hc);
+        dh[i] = input_t(-g[row] * p * ac + b[row] * (acc_t(c == labels[row]) - p));
+    }
+}
+} // namespace
+
+std::vector<torch::Tensor> deterministic_logp_triple_backward(
+    torch::Tensor logits, torch::Tensor lse, torch::Tensor g,
+    torch::Tensor labels, torch::Tensor h, torch::Tensor a, torch::Tensor b) {
+    check_deterministic_logp_derivative_inputs(logits, lse, g, labels);
+    check_deterministic_logp_derivative_inputs(logits, lse, b, labels);
+    for (const auto& tensor : {h, a}) {
+        TORCH_CHECK(tensor.device() == logits.device() &&
+                    tensor.scalar_type() == logits.scalar_type() && tensor.sizes() == logits.sizes(),
+                    "h and a must match logits shape, dtype and device");
+    }
+    const c10::cuda::CUDAGuard guard(logits.device());
+    auto input = logits.contiguous(), ids = labels.contiguous();
+    auto vectors = h.contiguous(), upstream = a.contiguous();
+    auto dx = torch::empty_like(input), dg = torch::empty_like(g), dh = torch::empty_like(input);
+    if (input.size(0)) {
+        AT_DISPATCH_FLOATING_TYPES_AND2(at::kHalf, at::kBFloat16, input.scalar_type(),
+            "deterministic_logp_triple_backward", ([&] {
+                using acc_t = std::conditional_t<std::is_same_v<scalar_t, double>, double, float>;
+                deterministic_logp_triple_backward_kernel<scalar_t, acc_t, 256>
+                    <<<input.size(0), 256, 0, at::cuda::getCurrentCUDAStream()>>>(
+                        input.data_ptr<scalar_t>(), lse.data_ptr<acc_t>(), g.data_ptr<acc_t>(),
+                        ids.data_ptr<int64_t>(), vectors.data_ptr<scalar_t>(),
+                        upstream.data_ptr<scalar_t>(), b.data_ptr<acc_t>(),
+                        dx.data_ptr<scalar_t>(), dg.data_ptr<acc_t>(), dh.data_ptr<scalar_t>(), input.size(1));
+            }));
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+    }
+    return {dx, dg, dh};
+}

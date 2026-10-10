@@ -194,6 +194,15 @@ def deterministic_logp_backward_fp64(
     g: torch.Tensor,
     labels: torch.Tensor,
 ) -> torch.Tensor: ...
+def deterministic_logp_triple_backward(
+    logits: torch.Tensor,
+    lse: torch.Tensor,
+    g: torch.Tensor,
+    labels: torch.Tensor,
+    h: torch.Tensor,
+    a: torch.Tensor,
+    b: torch.Tensor,
+) -> list[torch.Tensor]: ...
 def deterministic_logp_double_backward(
     logits: torch.Tensor,
     lse: torch.Tensor,

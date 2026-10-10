@@ -251,18 +251,72 @@ def _require_deterministic_symbols(backend, *names):
         raise RuntimeError("Rebuild rl_engine._C to enable deterministic LogP autograd/FP64")
 
 
-class _RejectDeterministicLogpThirdOrder(torch.autograd.Function):
+class _RejectDeterministicLogpFourthOrder(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, dx, dg, logits, upstream, h):
-        return dx, dg
+    def forward(ctx, dx, dg, dh, *dependencies):
+        return dx, dg, dh
 
     @staticmethod
     def backward(ctx, *grad_outputs):
-        raise RuntimeError("Deterministic LogP third-order gradients are unsupported")
+        raise RuntimeError("Deterministic LogP fourth-order gradients are unsupported")
+
+
+class _DeterministicLogpDoubleBackward(torch.autograd.Function):
+    """Native second derivative with a native VJP for all three inputs x, g, h."""
+
+    @staticmethod
+    def forward(ctx, logits, labels, lse, upstream, h, backend):
+        _require_deterministic_symbols(backend, "deterministic_logp_double_backward")
+        dtype = torch.float64 if logits.dtype == torch.float64 else torch.float32
+        coef = upstream.reshape(-1).to(dtype).contiguous()
+        dx, dg = backend.deterministic_logp_double_backward(
+            logits.reshape(-1, logits.size(-1)),
+            lse,
+            coef,
+            labels,
+            h.reshape(-1, logits.size(-1)).contiguous(),
+        )
+        ctx.save_for_backward(logits, labels, lse, upstream, h)
+        ctx.backend = backend
+        return dx.reshape(logits.shape), dg.to(upstream.dtype).reshape(upstream.shape)
+
+    @staticmethod
+    def backward(ctx, a, b):
+        dx, dg, dh = _DeterministicLogpDoubleBackward._native_backward(ctx, a, b)
+        if torch.is_grad_enabled():
+            # A constant upstream vector bypasses once_differentiable's error
+            # edge. Retain explicit dependencies to reject partial fourth
+            # derivatives, including those of compound losses.
+            logits, _, _, upstream, h = ctx.saved_tensors
+            dx, dg, dh = _RejectDeterministicLogpFourthOrder.apply(
+                dx, dg, dh, logits, upstream, h, a, b
+            )
+        return dx, None, None, dg, dh, None
+
+    @staticmethod
+    @once_differentiable
+    def _native_backward(ctx, a, b):
+        logits, labels, lse, upstream, h = ctx.saved_tensors
+        _require_deterministic_symbols(ctx.backend, "deterministic_logp_triple_backward")
+        dtype = torch.float64 if logits.dtype == torch.float64 else torch.float32
+        dx, dg, dh = ctx.backend.deterministic_logp_triple_backward(
+            logits.reshape(-1, logits.size(-1)),
+            lse,
+            upstream.reshape(-1).to(dtype).contiguous(),
+            labels,
+            h.reshape(-1, logits.size(-1)).contiguous(),
+            a.reshape(-1, logits.size(-1)).contiguous(),
+            b.reshape(-1).to(dtype).contiguous(),
+        )
+        return (
+            dx.reshape(logits.shape),
+            dg.to(upstream.dtype).reshape(upstream.shape),
+            dh.reshape(h.shape),
+        )
 
 
 class _DeterministicLogpBackward(torch.autograd.Function):
-    """Native VJP with an explicit native derivative, up to order two."""
+    """Native VJP with explicit native derivatives through order three."""
 
     @staticmethod
     def forward(ctx, logits, labels, lse, upstream, backend):
@@ -286,42 +340,17 @@ class _DeterministicLogpBackward(torch.autograd.Function):
                     logits.size(-1),
                     False,
                 )
-        ctx.save_for_backward(logits, targets, lse, coef, upstream)
-        ctx.upstream_shape = upstream.shape
-        ctx.upstream_dtype = upstream.dtype
+        ctx.save_for_backward(logits, targets, lse, upstream)
         ctx.backend = backend
         return grad.reshape(logits.shape)
 
     @staticmethod
     def backward(ctx, h):
-        dx, _, _, dg, _ = _DeterministicLogpBackward._native_backward(ctx, h)
-        if torch.is_grad_enabled():
-            # A constant h bypasses once_differentiable's error edge. Attach an
-            # explicit edge to all differentiable inputs so compound losses
-            # cannot silently return a partial third derivative.
-            logits, _, _, _, upstream = ctx.saved_tensors
-            dx, dg = _RejectDeterministicLogpThirdOrder.apply(dx, dg, logits, upstream, h)
+        logits, labels, lse, upstream = ctx.saved_tensors
+        dx, dg = _DeterministicLogpDoubleBackward.apply(
+            logits, labels, lse, upstream, h, ctx.backend
+        )
         return dx, None, None, dg, None
-
-    @staticmethod
-    @once_differentiable
-    def _native_backward(ctx, h):
-        logits, labels, lse, coef, _ = ctx.saved_tensors
-        _require_deterministic_symbols(ctx.backend, "deterministic_logp_double_backward")
-        dx, dg = ctx.backend.deterministic_logp_double_backward(
-            logits.reshape(-1, logits.size(-1)),
-            lse,
-            coef,
-            labels,
-            h.reshape(-1, logits.size(-1)).contiguous(),
-        )
-        return (
-            dx.reshape(logits.shape),
-            None,
-            None,
-            dg.to(ctx.upstream_dtype).reshape(ctx.upstream_shape),
-            None,
-        )
 
 
 class _DeterministicLogpAutograd(torch.autograd.Function):
@@ -375,7 +404,7 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
 
     The default call path returns float32 output so tests and downstream KL
     code observe the fixed reduction result before any lower-precision cast.
-    Dense, indexed and out calls support native first- and second-order gradients.
+    Dense, indexed and out calls support native gradients through order three.
     Explicit FP64 methods use double-precision arithmetic throughout.
     """
 

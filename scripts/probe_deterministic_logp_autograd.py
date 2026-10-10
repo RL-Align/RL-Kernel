@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""Capture native forward/VJP/double-backward provenance on the selected GPU."""
+"""Capture native forward/VJP/double/triple-backward provenance on the selected GPU."""
 
 import argparse
 import hashlib
@@ -43,6 +43,7 @@ def main():
         "gpu": torch.cuda.get_device_name(),
         "capability": torch.cuda.get_device_capability(),
         "backend": "DeterministicLogpCUDAOp",
+        "maximum_derivative_order": 3,
         "cases": [],
     }
     op = DeterministicLogpCUDAOp()
@@ -57,7 +58,8 @@ def main():
             rows = torch.tensor([0, 2, 2, -1, 7], device="cuda")
             acc = torch.float64 if dtype == torch.float64 else torch.float32
             g = torch.ones(4, device="cuda", dtype=acc, requires_grad=True)
-            h = torch.randn_like(x)
+            h = torch.randn_like(x, requires_grad=True)
+            a, b = torch.randn_like(x), torch.randn_like(g)
             buffer = torch.empty(4, device="cuda", dtype=acc)
             if out:
                 name = ("indexed_out" if indexed else "out") + (
@@ -72,7 +74,8 @@ def main():
             with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as trace:
                 y = getattr(op, name)(*inputs)
                 grad = torch.autograd.grad(y, x, g, create_graph=True)[0]
-                dx, dg = torch.autograd.grad(grad, (x, g), h)
+                dx, dg = torch.autograd.grad(grad, (x, g), h, create_graph=True)
+                tx, tg, th = torch.autograd.grad((dx, dg), (x, g, h), (a, b))
                 torch.cuda.synchronize()
             kernels = sorted(
                 {
@@ -89,13 +92,24 @@ def main():
                 if dtype == torch.float64
                 else ["deterministic_logp_forward_kernel", "deterministic_logp_backward_kernel"]
             )
-            expected.append("deterministic_logp_double_backward_kernel")
+            expected.extend(
+                [
+                    "deterministic_logp_double_backward_kernel",
+                    "deterministic_logp_triple_backward_kernel",
+                ]
+            )
             missing = [name for name in expected if not any(name in k for k in kernels)]
-            forbidden = [k for k in kernels if "softmax" in k.lower() or "triton" in k.lower()]
+            forbidden = [
+                k
+                for k in kernels
+                if "softmax" in k.lower()
+                or "triton" in k.lower()
+                or "batch_invariant_logp" in k.lower()
+            ]
             valid = (
                 not missing
                 and not forbidden
-                and bool(torch.isfinite(dx).all() & torch.isfinite(dg).all())
+                and all(bool(torch.isfinite(t).all()) for t in (dx, dg, tx, tg, th))
             )
             report["cases"].append(
                 {
@@ -112,7 +126,7 @@ def main():
     if any(case["status"] != "passed" for case in report["cases"]):
         raise RuntimeError(f"Native backend verification failed; see {args.output}")
     print(
-        f"Verified {len(report['cases'])} native forward/backward/double-backward traces: "
+        f"Verified {len(report['cases'])} native forward/backward/double/triple-backward traces: "
         f"{args.output}"
     )
 

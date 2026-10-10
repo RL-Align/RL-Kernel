@@ -264,8 +264,8 @@ def test_missing_symbols_and_third_order(op):
     x, ids, g, h = inputs(torch.float64)
     grad = torch.autograd.grad(op.apply_fp64(x, ids), x, g, create_graph=True)[0]
     second = torch.autograd.grad(grad, x, h.requires_grad_(), create_graph=True)[0]
-    with pytest.raises(RuntimeError):
-        torch.autograd.grad(second.sum(), h)
+    third = torch.autograd.grad(second.sum(), h)[0]
+    torch.testing.assert_close(third, torch.zeros_like(h), atol=1e-10, rtol=0)
     op._backend = SimpleNamespace()
     with pytest.raises(RuntimeError, match="Rebuild rl_engine._C"):
         op.apply_fp64(x, ids)
@@ -320,11 +320,17 @@ def test_composed_loss_second_derivative(op, dtype):
 
 @pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("composed", [False, True])
-def test_third_order_rejected_with_constant_vector(op, dtype, composed):
+def test_third_order_with_constant_vector(op, dtype, composed):
     x, ids, _, h = inputs(dtype)
     y = call(op, x, ids)
     loss = y.square().sum() if composed else y.sum()
     grad = torch.autograd.grad(loss, x, create_graph=True)[0]
     second = torch.autograd.grad(grad, x, h, create_graph=True)[0]
-    with pytest.raises(RuntimeError, match="third-order gradients are unsupported"):
-        torch.autograd.grad(second, x, torch.randn_like(x))
+    vector = torch.randn_like(x)
+    actual = torch.autograd.grad(second, x, vector)[0]
+    ref_y = reference(x, ids)
+    ref_loss = ref_y.square().sum() if composed else ref_y.sum()
+    first = torch.autograd.grad(ref_loss, x, create_graph=True)[0]
+    ref_second = torch.autograd.grad(first, x, h, create_graph=True)[0]
+    expected = torch.autograd.grad(ref_second, x, vector)[0]
+    torch.testing.assert_close(actual, expected, atol=ATOL[dtype] * 8, rtol=0)
