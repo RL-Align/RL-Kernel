@@ -200,6 +200,15 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     CUDA_SM90_LM_HEAD = "rl_engine.kernels.ops.cuda.linear.lm_head.SM90LMHeadOp"
     CUDA_SM90_EMBEDDING = "rl_engine.kernels.ops.cuda.linear.embedding.SM90EmbeddingOp"
 
+    # MiniMax-H3 (RFC #420) conditioning path
+    PYTORCH_H3_TIMESTEP_SINUSOID = (
+        "rl_engine.reference.minimax_h3.timestep_sinusoid.NativeH3TimestepSinusoidOp"
+    )
+    CUDA_H3_TIMESTEP_SINUSOID = (
+        "rl_engine.backends.cuda.model_specific.minimax_h3."
+        "timestep_sinusoid.H3TimestepSinusoidCudaOp"
+    )
+
 
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
     return (
@@ -609,6 +618,10 @@ class KernelRegistry:
                     OpBackend.TRITON_ROPE,
                     OpBackend.PYTORCH_NATIVE_ROPE,
                 ],
+                "timestep_sinusoid_h3": [
+                    OpBackend.CUDA_H3_TIMESTEP_SINUSOID,
+                    OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID,
+                ],
             },
             "rocm": {
                 "logp": [
@@ -649,6 +662,7 @@ class KernelRegistry:
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
+                "timestep_sinusoid_h3": [OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID],
             },
             "musa": {
                 "logp": [
@@ -697,6 +711,7 @@ class KernelRegistry:
                 ],
                 "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
+                "timestep_sinusoid_h3": [OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID],
             },
             "cpu": {
                 "logp": [OpBackend.PYTORCH_NATIVE],
@@ -722,6 +737,7 @@ class KernelRegistry:
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
+                "timestep_sinusoid_h3": [OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID],
             },
             # Ascend NPU: op types without an entry fall back to their CPU
             # candidates (see the runtime override below), so only
