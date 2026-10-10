@@ -14,8 +14,10 @@ if profile.is_file():
     os.environ["RLK_REPRO_PROFILE"] = str(profile)
     if config.get("ray_address"):
         os.environ.setdefault("RAY_API_SERVER_ADDRESS", config["ray_address"])
-    extras = [str(root)] + [str(config.get("paths", {}).get(k) or "")
-                            for k in ("runtime_site", "cuda_python_site", "te_root")]
+    extras = [str(root)] + [
+        str(config.get("paths", {}).get(k) or "")
+        for k in ("runtime_site", "cuda_python_site", "te_root")
+    ]
     extras.append(os.environ.get("PYTHONPATH", ""))
     os.environ["PYTHONPATH"] = os.pathsep.join(p for p in extras if p)
-os.execv(python, [python, str(root / "rl_engine/repro.py"), *sys.argv[1:]])
+os.execv(python, [python, str(root / "rl_engine/entrypoints/repro.py"), *sys.argv[1:]])
