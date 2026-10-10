@@ -2,7 +2,6 @@
 name: ws1-single-card-kernel
 description: Use when writing a new WS1 single-card kernel operator in this repo (rl-kernel) - PyTorch golden first, then CUDA, then ROCm, then Ascend; gtest registration; PR with exact pytest/gtest commands and results; deterministic backward when the op needs one. The Ascend section is battle-tested; CUDA/ROCm sections are placeholders.
 ---
-
 # WS1 Single-Card Kernel Workflow
 
 Follow this workflow when adding a new operator (rmsnorm / embedding / lm_head / logp /
@@ -21,13 +20,13 @@ fixed, as are the registration and PR deliverable requirements.
 3. **ROCm platform** (next section — placeholder for now).
 4. **Ascend platform** (see the Ascend section) — **only after CUDA is done**: the
    Ascend kernel mirrors the CUDA deterministic kernel's reduction contract (e.g.
-   contract v1 in `csrc/cuda/fused_linear_logp_sm90.cu`).
+   contract v1 in `csrc/cuda/logprob/fused_linear_logp_sm90.cu`).
 5. **Register in gtest**: add a platform entry (e.g. `"ascend"`) to the op's
-   `candidate_paths` in `rl_engine/kernels/gtest/operator_specs.py`. Registration
-   itself is the CI gate (`tests/test_ws1_gtest_gpu.py` checks every WS1 op is in the
+   `candidate_paths` in `rl_engine/validation/operators/operator_specs.py`. Registration
+   itself is the CI gate (`tests/validation/operators/test_ws1_gtest_gpu.py` checks every WS1 op is in the
    spec).
 6. **PR must report exact commands and results**: give the actual pytest command
-   line, the gtest command line (`scripts/check_operator.py` with full arguments),
+   line, the gtest command line (`tools/validation/operators/check_operator.py` with full arguments),
    and the outputs (template below).
 7. **Backward must also be deterministic**: whenever the op needs a backward, the
    backward must be a deterministic implementation (rules in the Ascend section).
@@ -41,6 +40,22 @@ fixed, as are the registration and PR deliverable requirements.
 (Placeholder — to be filled in.)
 
 ## Ascend (battle-tested workflow)
+
+Deep-dive companions to this section, adapted to this repo — operator development and optimization only. Load on demand:
+
+| When                                                                         | Sub-skill                                                                                                                   |
+| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Before writing a new `.asc` kernel / designing tiling                       | [ascendc-kernel-dev](ascendc_skills/ascendc-kernel-dev/SKILL.md) — programming model, kernel skeleton, tiling four-elements |
+| Using a specific API (DataCopy/Cast/flags/repeat limits, API blacklist)      | [ascendc-api-best-practices](ascendc_skills/ascendc-api-best-practices/SKILL.md)                                             |
+| Performance tuning (must preserve determinism)                               | [ascendc-perf-optimize](ascendc_skills/ascendc-perf-optimize/SKILL.md)                                                       |
+
+Source: cannbot-skills (https://gitcode.com/cann/cannbot-skills). Debugging topics
+(sync audits, precision/crash/runtime debugging) are intentionally not duplicated
+here — contributors can obtain them from the cannbot-skills repo (the `ascendc-*`
+skills under `ops/`): clone it and copy/symlink those skill directories into the
+agent's skill search path (e.g. `~/.agents/skills/`), then invoke
+`ascendc-sync-audit` / `ascendc-precision-debug` / `ascendc-crash-debug` /
+`ascendc-runtime-debug` directly when the deep references/scripts are needed.
 
 ### Branch and PR conventions
 
@@ -67,21 +82,21 @@ The complete landing list for a new Ascend op:
    just drop its `PYBIND11_MODULE` block.
 3. `setup.py` — port the Ascend extension build (bisheng, `**/*.asc` glob,
    `_find_ascend_home()` exporting `ASCEND_HOME_PATH`/`ASCEND_TOOLKIT_HOME`).
-   Fastest: `git checkout <recent-ascend-branch> -- setup.py scripts/check_operator.py`.
+   Fastest: `git checkout <recent-ascend-branch> -- setup.py tools/validation/operators/check_operator.py`.
 4. `rl_engine/_C_npu.pyi` — type stub (black: no blank line between two top-level
    defs).
 5. `rl_engine/kernels/ops/ascend/<area>/<op>.py` — the op wrapper (mirror the CUDA
    wrapper's surface: `__call__`/`apply`/`forward`/`forward_fp32`, dtype gate,
    `_NPU_EXT_AVAILABLE` + `hasattr(_C_npu, ...)` check, native fallback path).
-6. `rl_engine/kernels/gtest/operator_specs.py` — the `"ascend"` candidate.
-7. `rl_engine/kernels/registry.py` — `ASCEND_<OP>` enum member + npu priority map
+6. `rl_engine/validation/operators/operator_specs.py` — the `"ascend"` candidate.
+7. `rl_engine/runtime/registry.py` — `ASCEND_<OP>` enum member + npu priority map
    override (`self._priority_map["npu"]["<op>"] = [ASCEND_..., PYTORCH_...]`).
-8. `rl_engine/tests/test_dispatch.py` — npu priority assertion.
+8. `tests/runtime/test_dispatch.py` — npu priority assertion.
 9. `tests/test_<op>_ascend.py` — pytest suite (PR 320 style, see below).
 10. `docs/operators/<op>.md` — Ascend row in the Backends table, npu dispatch
     paragraph, Tests and Implementation Files updates (**keep existing entries**,
     add only).
-11. `scripts/check_operator.py` — already supports `--device npu` (auto-detect).
+11. `tools/validation/operators/check_operator.py` — already supports `--device npu` (auto-detect).
 
 Build and smoke test:
 
@@ -109,10 +124,11 @@ Classify the op BEFORE writing the PR:
   - Compare against the golden at the existing contract tolerances; state
     prominently in a blockquote at the top of the PR body WHY bitwise parity is
     impossible (golden's private reduction order + measured drift numbers).
-- **Never touch tolerances**: `rl_engine/kernels/gtest/tolerance_contract.json` is
+- **Never touch tolerances**: `rl_engine/contracts/profiles/precision/ws1.json` is
   read-only; look up rows by op_class x dtype.
 
 Known NPU-side golden gotchas (check before writing tests):
+
 - NPU `torch.mv` **rejects bf16** → golden references must go through the
   `forward_fp32` paths.
 - The gtest `linear_logp` forward comparison is unwinnable even for the CUDA
@@ -145,8 +161,7 @@ Known NPU-side golden gotchas (check before writing tests):
   so the instruction sequence depends only on the shape, never on batch layout or
   block assignment (the foundation of batch invariance).
 - **Scalar math in the kernel**: the scalar unit has no exp/log → use a padded
-  8-element vector `Exp`/`Log` (`SetValue → S_V flag → vector op → V_S wait →
-  GetValue`).
+  8-element vector `Exp`/`Log` (`SetValue → S_V flag → vector op → V_S wait → GetValue`).
 - **Output staging**: `SetValue` into a UB scalar buffer, `S_MTE3` flag, then
   `DataCopyPad` out to GM; drain with `MTE3_S` after each row so the next row does
   not overwrite the staging area.
@@ -199,6 +214,7 @@ cuBLAS/torch.matmul**. Priority order:
   `type(op).__name__` assertion.
 
 Test bugs already hit (check before writing new tests):
+
 - Under class-level `parametrize`, every method must take the `dtype` argument —
   move tests that don't into their own class.
 - Batch-comparison tests must **reuse the same weight** (regenerating with the same
@@ -227,11 +243,11 @@ Ready for review.
 # The exact commands that were run:
 export KERNEL_ALIGN_FORCE_ASCEND=1
 pip install -e . --no-build-isolation
-python scripts/check_operator.py --op <op> --candidate ascend --device npu \
+python tools/validation/operators/check_operator.py --op <op> --candidate ascend --device npu \
     --dtype {fp32,bf16,fp16} --batch 2 --seq 16 --vocab 257 --normalized-dim 4096 --check-grad
 python -m pytest tests/test_<op>_ascend.py -v
-python -m pytest tests/test_batch_invariant_logp.py -q    # regression
-python -m pytest rl_engine/tests/test_dispatch.py -q      # regression
+python -m pytest tests/ops/logprob/test_batch_invariant_logp.py -q    # regression
+python -m pytest tests/runtime/test_dispatch.py -q      # regression
 
 ## Test results (environment line + results table + <details> folded raw output)
 
