@@ -123,7 +123,8 @@ jobs:
             tests/test_megatron_training_provider.py \
             tests/test_megatron_training_readback.py \
             tests/test_megatron_training_readonly.py \
-            tests/test_megatron_training_gate.py
+            tests/test_megatron_training_gate.py \
+            tests/test_megatron_training_recorded.py
 
   docs:
     runs-on: ubuntu-latest

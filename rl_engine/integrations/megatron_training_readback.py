@@ -56,8 +56,22 @@ def tensor_identity(tensor: torch.Tensor, *, digest: bool = True) -> dict[str, A
         "requires_grad": bool(tensor.requires_grad),
     }
     if digest:
-        flat = detached.contiguous().cpu().reshape(-1)
+        # Hash broadcast (stride-0) dimensions once instead of materializing them:
+        # a zero-stride placeholder must not allocate [N, V_local] on the host.
+        broadcast = [
+            dim
+            for dim, (size, step) in enumerate(zip(detached.shape, detached.stride(), strict=True))
+            if step == 0 and size > 1
+        ]
+        reduced = detached
+        for dim in broadcast:
+            reduced = reduced.narrow(dim, 0, 1)
+        # contiguous() keeps stride 0 on size-1 dims, so copy into a fresh dense buffer.
+        source = reduced.cpu().reshape(-1)
+        flat = torch.empty(source.shape, dtype=source.dtype).copy_(source)
         identity["sha256"] = hashlib.sha256(flat.view(torch.uint8).numpy().tobytes()).hexdigest()
+        if broadcast:
+            identity["broadcast_dims"] = broadcast
     return identity
 
 
