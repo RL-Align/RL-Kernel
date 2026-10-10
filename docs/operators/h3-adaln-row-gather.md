@@ -62,7 +62,7 @@ read-back; pass `check_range=False` when the indices are already validated.
   the gradient. `index_select`'s own backward is an atomic scatter-add in the gradient
   dtype (BF16), which is neither deterministic nor accurate.
 - **Tolerance class.** The VJP is a segmented reduction, so gtest judges the op as
-  `reduction`. The forward is asserted bitwise in `tests/h3`.
+  `reduction`. The forward is asserted bitwise in `tests/models/minimax_h3`.
 
 Measured on a B200 (torch 2.13.0+cu130):
 
