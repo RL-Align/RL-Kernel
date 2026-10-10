@@ -108,6 +108,7 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     PYTORCH_PACK = "rl_engine.kernels.ops.pytorch.packing.pack.NativePackOp"
     # Batch-invariant deterministic GEMM (WS1 #146)
     CUDA_DET_GEMM = "rl_engine.kernels.ops.cuda.matmul.det_gemm.DetGemmOp"
+    MUSA_DET_GEMM = "rl_engine.kernels.ops.musa.matmul.det_gemm.MusaDetGemmOp"
     TRITON_DET_GEMM = "rl_engine.kernels.ops.triton.matmul.det_gemm.TritonDetGemmOp"
     ASCEND_DET_GEMM = "rl_engine.kernels.ops.ascend.matmul.det_gemm.DetGemmAscendOp"
     # NON-deterministic reference (torch.matmul); reference/benchmark ONLY,
@@ -676,7 +677,7 @@ class KernelRegistry:
                 ],
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
-                "det_gemm": [OpBackend.TRITON_DET_GEMM],
+                "det_gemm": [OpBackend.MUSA_DET_GEMM, OpBackend.TRITON_DET_GEMM],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,

@@ -125,7 +125,10 @@ class TestMusaPlatform:
                 OpBackend.PYTORCH_GRPO_LOSS,
             ],
             "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
-            "det_gemm": [OpBackend.TRITON_DET_GEMM],
+            "det_gemm": [
+                OpBackend.MUSA_DET_GEMM,
+                OpBackend.TRITON_DET_GEMM,
+            ],
             "batch_invariant_logp": [
                 OpBackend.TRITON_BATCH_INVARIANT_LOGP,
                 OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
@@ -152,7 +155,10 @@ class TestMusaPlatform:
         self._mock_musa_device(monkeypatch)
         registry = KernelRegistry()
 
-        assert registry._priority_map["musa"]["det_gemm"] == [OpBackend.TRITON_DET_GEMM]
+        assert registry._priority_map["musa"]["det_gemm"] == [
+            OpBackend.MUSA_DET_GEMM,
+            OpBackend.TRITON_DET_GEMM,
+        ]
 
 
 def test_registry_explicit_device_selects_device_platform(monkeypatch):

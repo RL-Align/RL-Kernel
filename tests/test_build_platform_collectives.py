@@ -23,6 +23,10 @@ def _load_extension_config(monkeypatch, *, hip: str | None) -> dict[str, Any]:
     monkeypatch.setattr(setuptools, "setup", fake_setup)
     monkeypatch.setattr(cpp_extension, "CUDAExtension", fake_extension)
     monkeypatch.setattr(torch.version, "hip", hip, raising=False)
+    monkeypatch.delenv("TORCH_MUSA_ARCH_LIST", raising=False)
+    monkeypatch.delenv("FORCE_MUSA", raising=False)
+    if hasattr(torch, "musa"):
+        monkeypatch.setattr(torch.musa, "is_available", lambda: False)
     monkeypatch.delenv("KERNEL_ALIGN_FORCE_SM90", raising=False)
     monkeypatch.delenv("KERNEL_ALIGN_DET_GEMM_SM90", raising=False)
     if hip is None:
