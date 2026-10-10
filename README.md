@@ -14,8 +14,8 @@
   <a href="https://rl-align.slack.com/join/shared_invite/zt-46bxj7uyt-gEK3xzwSJr_lppJsZolR~g#/shared-invite/email"><img src="https://img.shields.io/badge/Slack-Join%20Us-4A154B" alt="Slack"></a>
   <a href="https://www.linkedin.com/company/rl-align"><img src="https://img.shields.io/badge/LinkedIn-Follow-0A66C2?logo=linkedin&logoColor=white" alt="Follow RL-Align on LinkedIn"></a>
   <a href="https://x.com/RLKernel"><img src="https://img.shields.io/badge/X-Follow-000000?logo=x&logoColor=white" alt="Follow RL-Kernel on X"></a>
-  <a href="./docs/community/wechat.md"><img src="https://img.shields.io/badge/WeChat-Join%20Group-07C160?logo=wechat&logoColor=white" alt="WeChat"></a>
-  <a href="./docs/assets/whatsapp-group.png"><img src="https://img.shields.io/badge/WhatsApp-Join%20Group-25D366?logo=whatsapp&logoColor=white" alt="WhatsApp"></a>
+  <a href="docs/community/wechat.md"><img src="https://img.shields.io/badge/WeChat-Join%20Group-07C160?logo=wechat&logoColor=white" alt="WeChat"></a>
+  <a href="docs/assets/whatsapp-group.png"><img src="https://img.shields.io/badge/WhatsApp-Join%20Group-25D366?logo=whatsapp&logoColor=white" alt="WhatsApp"></a>
   <a href="https://deepwiki.com/RL-Align/RL-Kernel"><img src="https://img.shields.io/badge/Ask-DeepWiki-7B3FE4" alt="Ask DeepWiki"></a>
   <a href="#hardware-support"><img src="https://img.shields.io/badge/Supported-CUDA%20%7C%20ROCm-2ea44f" alt="CUDA and ROCm supported"></a>
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="Apache 2.0 license"></a>
@@ -56,6 +56,13 @@ differences enter the policy ratios and KL terms used by RL algorithms.
 - **Hardware:** NVIDIA SM90 and AMD gfx942 are supported. Ascend dav_c220 has partial
   operator coverage. Support for other hardware is in progress.
 
+## Repository layout
+
+The [directory and ownership guide](docs/architecture/repository-layout.md) describes
+models, contracts, shared operators, hardware backends, rollout/train engines, tests,
+CI and benchmark locations. See the [Dense refactor acceptance checklist](docs/validation/refactor-acceptance.md)
+for CUDA/ROCm validation. Legacy import and launcher paths remain supported.
+
 ## Architecture
 
 RL-Kernel sits between execution engines and accelerator backends. Its runtime adapters
@@ -75,7 +82,7 @@ The current end-to-end path uses Qwen3-8B Dense with vime.
 
 | Area | Current | Next |
 | :--- | :--- | :--- |
-| **Model** | Qwen3-8B Dense | [DeepSeek-V4-Flash-0731 MoE](./docs/blog/2026-08-09-dsv4-flash-moe-consistency-roadmap.md) |
+| **Model** | Qwen3-8B Dense | [DeepSeek-V4-Flash-0731 MoE](docs/blog/2026-08-09-dsv4-flash-moe-consistency-roadmap.md) |
 | **Orchestration** | vime | Miles and AReaL |
 | **Engines** | vLLM rollout and Megatron-LM training | More rollout and training engines |
 
@@ -83,19 +90,19 @@ The current end-to-end path uses Qwen3-8B Dense with vime.
 
 ### CUDA H100
 
-<img src="./docs/assets/blog/rl-kernel-v0.1.0/cuda-training-consistency.png" alt="Qwen3-8B H100 train/rollout mismatch count and maximum absolute LogP difference over 200 steps">
+<img src="docs/assets/blog/rl-kernel-v0.1.0/cuda-training-consistency.png" alt="Qwen3-8B H100 train/rollout mismatch count and maximum absolute LogP difference over 200 steps">
 
-<img src="./docs/assets/blog/rl-kernel-v0.1.0/cuda-mean-logprob-difference.png" alt="Qwen3-8B H100 mean absolute train/rollout LogP difference over 200 steps">
+<img src="docs/assets/blog/rl-kernel-v0.1.0/cuda-mean-logprob-difference.png" alt="Qwen3-8B H100 mean absolute train/rollout LogP difference over 200 steps">
 
-<img src="./docs/assets/blog/rl-kernel-v0.1.0/cuda-performance.png" alt="Qwen3-8B H100 200-step performance matrix">
+<img src="docs/assets/blog/rl-kernel-v0.1.0/cuda-performance.png" alt="Qwen3-8B H100 200-step performance matrix">
 
 ### ROCm MI300X
 
-<img src="./docs/assets/blog/rl-kernel-v0.1.0/rocm-training-consistency.png" alt="Qwen3-8B ROCm train/rollout mismatch count and maximum absolute LogP difference over 200 steps">
+<img src="docs/assets/blog/rl-kernel-v0.1.0/rocm-training-consistency.png" alt="Qwen3-8B ROCm train/rollout mismatch count and maximum absolute LogP difference over 200 steps">
 
-<img src="./docs/assets/blog/rl-kernel-v0.1.0/rocm-mean-logprob-difference.png" alt="Qwen3-8B ROCm mean absolute train/rollout LogP difference over 200 steps">
+<img src="docs/assets/blog/rl-kernel-v0.1.0/rocm-mean-logprob-difference.png" alt="Qwen3-8B ROCm mean absolute train/rollout LogP difference over 200 steps">
 
-<img src="./docs/assets/blog/rl-kernel-v0.1.0/rocm-performance.png" alt="Qwen3-8B ROCm MI300X 200-step performance matrix">
+<img src="docs/assets/blog/rl-kernel-v0.1.0/rocm-performance.png" alt="Qwen3-8B ROCm MI300X 200-step performance matrix">
 
 ## Hardware Support
 
@@ -115,14 +122,14 @@ hardware models is in progress.
 ## Quick Start
 
 Use a compatible vime environment on an eight-GPU H100 or MI300X node.
-Clone the project and follow the [installation guide](./docs/getting_started/installation.md)
+Clone the project and follow the [installation guide](docs/getting_started/installation.md)
 for your CUDA or ROCm build:
 
 git clone https://github.com/RL-Align/RL-Kernel.git<br>
 cd RL-Kernel
 
-Complete the one-time [CUDA setup](./docs/usage/qwen3-vime-consistency.md#cuda-quick-path)
-or [ROCm setup](./docs/usage/qwen3-vime-consistency.md#rocm-mi300x-and-gfx942).
+Complete the one-time [CUDA setup](docs/usage/qwen3-vime-consistency.md#cuda-quick-path)
+or [ROCm setup](docs/usage/qwen3-vime-consistency.md#rocm-mi300x-and-gfx942).
 Save the backend, Python, framework, model and data paths in .rlk-profile.json
 or select a profile with RLK_REPRO_PROFILE. No launcher edits are needed.
 Both backends then use the same command:
@@ -146,7 +153,7 @@ With the supplied ROCm profile, a three-step check measured 58.29 s/step
 versus native's 57.40 s (+1.55%), with zero raw-bit logprob mismatches.
 Use `--steps 3` for that short check; timing depends on generated lengths and
 the environment, and the native execution-record limitation is documented below.
-See [ROCm performance reproduction](./docs/usage/rocm-sparse-performance.md)
+See [ROCm performance reproduction](docs/usage/rocm-sparse-performance.md)
 for the full comparison command, measurements and validation limits.
 
 On CUDA, rollout CP and top-k are configurable too; this short check performs
@@ -160,16 +167,16 @@ Rollout TP × CP must divide eight. CUDA accepts top-k -1 (disabled) or a
 positive integer, and temperature 0 for greedy sampling. ROCm currently
 requires top-k -1 and positive temperature. ROCm rollout CP > 1 remains
 unvalidated, and verify is CUDA-only. See the
-[CUDA/ROCm support table](./docs/usage/cuda-rocm-consistency-audit.md#common-command)
-and [measured H100 results](./docs/usage/h100-matrix-validation.md) for exact coverage.
+[CUDA/ROCm support table](docs/usage/cuda-rocm-consistency-audit.md#common-command)
+and [measured H100 results](docs/usage/h100-matrix-validation.md) for exact coverage.
 
 ## Community and Contributions
 
 Join us on [Slack](https://rl-align.slack.com/join/shared_invite/zt-46bxj7uyt-gEK3xzwSJr_lppJsZolR~g#/shared-invite/email)
-or [WeChat](./docs/community/wechat.md), and
+or [WeChat](docs/community/wechat.md), and
 [open an issue](https://github.com/RL-Align/RL-Kernel/issues) for bugs and feature requests.
 Contributions to kernels, framework integrations, hardware adaptation, and benchmarks
-are welcome. See the [contributing guide](./docs/contributing/README.md).
+are welcome. See the [contributing guide](docs/contributing/README.md).
 
 ## Acknowledgments
 
@@ -179,4 +186,4 @@ RL-Kernel builds on the work of the open-source AI infrastructure community, inc
 [FlashInfer](https://github.com/flashinfer-ai/flashinfer).
 We thank their contributors and everyone helping bring RL-Kernel to new accelerators.
 
-Licensed under the [Apache License 2.0](./LICENSE).
+Licensed under the [Apache License 2.0](LICENSE).

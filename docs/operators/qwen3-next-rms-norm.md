@@ -18,8 +18,8 @@ which `vllm/model_executor/models/qwen3_next.py` aliases as `Qwen3NextRMSNorm`.
 ## Entry Point
 
 ```python
-from rl_engine.kernels.ops.pytorch.norm.qwen3_next_rms_norm import Qwen3NextRMSNormOp
-from rl_engine.kernels.ops.cuda.norm.rmsnorm import Qwen3NextRMSNormCudaOp, rmsnorm_cuda
+from rl_engine.reference.norm.qwen3_next_rms_norm import Qwen3NextRMSNormOp
+from rl_engine.backends.cuda.norm.rmsnorm import Qwen3NextRMSNormCudaOp, rmsnorm_cuda
 
 y = Qwen3NextRMSNormOp().forward(x, weight, eps=1e-6)       # reference
 y = Qwen3NextRMSNormCudaOp().forward(x, weight, eps=1e-6)   # CUDA
@@ -89,7 +89,7 @@ equal to passing an explicit fp32 `1 + w` weight, and differs from a bf16-folded
 
 Accuracy tests resolve their tolerances from `tolerance_contract.json`
 (`forward_accuracy`, `reduction` × dtype). The bounds in
-`tests/check_qwen3_next_norm_providers.py` are provider-gap bounds, not contract
+`tests/models/qwen3_next/check_qwen3_next_norm_providers.py` are provider-gap bounds, not contract
 thresholds.
 
 ## Performance Notes
@@ -103,7 +103,7 @@ element and no extra memory traffic.
 ![zero-centred RMSNorm vs existing implementations on B200](../usage/evidence/qwen3-next-rms-norm-b200/figure.png)
 
 [`report.json`](../usage/evidence/qwen3-next-rms-norm-b200/report.json) was written by
-`scripts/qwen3_next_norm_evidence.py` from a clean tree at `3d0bae7`, on an otherwise idle
+`tools/validation/models/qwen3_next_norm_evidence.py` from a clean tree at `3d0bae7`, on an otherwise idle
 B200 (torch 2.13.0+cu130, transformers 5.17.0, vLLM 0.30.0, FlashInfer 0.6.18). Hidden 2048,
 BF16.
 
@@ -129,8 +129,8 @@ BF16.
 ## Tests
 
 ```bash
-python -m pytest tests/test_qwen3_next_norm.py -v
-python scripts/check_operator.py --op qwen3_next_rms_norm --candidate cuda \
+python -m pytest tests/models/qwen3_next/test_qwen3_next_norm.py -v
+python tools/validation/operators/check_operator.py --op qwen3_next_rms_norm --candidate cuda \
     --device cuda --dtype bf16 --check-grad
 ```
 

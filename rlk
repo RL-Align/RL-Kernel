@@ -20,4 +20,4 @@ if profile.is_file():
     ]
     extras.append(os.environ.get("PYTHONPATH", ""))
     os.environ["PYTHONPATH"] = os.pathsep.join(p for p in extras if p)
-os.execv(python, [python, str(root / "rl_engine/repro.py"), *sys.argv[1:]])
+os.execv(python, [python, str(root / "rl_engine/entrypoints/repro.py"), *sys.argv[1:]])
