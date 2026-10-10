@@ -5,7 +5,6 @@ import pytest
 import torch
 
 from rl_engine.kernels.ops.pytorch.loss.grpo_loss import NativeGRPOLossOp
-from rl_engine.kernels.ops.triton.loss.grpo_loss import TritonGRPOLossOp
 from rl_engine.platforms.device import device_ctx
 from rl_engine.testing import (
     compute_policy_ratio,
@@ -17,6 +16,8 @@ from rl_engine.testing import (
 
 try:
     import triton  # noqa: F401
+
+    from rl_engine.kernels.ops.triton.loss.grpo_loss import TritonGRPOLossOp
 
     _HAS_TRITON = True
 except ImportError:  # pragma: no cover
@@ -116,6 +117,135 @@ def test_variable_group_boundaries():
     g1 = (torch.tensor([10.0, 20.0, 30.0]) - 20.0) / (200.0 / 3.0) ** 0.5
     expected = torch.cat([g0, g1])
     assert torch.allclose(got, expected, atol=1e-5)
+
+
+@pytest.mark.parametrize(
+    "backend",
+    [
+        "native_cpu",
+        pytest.param(
+            "native_cuda",
+            marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available"),
+        ),
+        pytest.param("triton", marks=requires_triton_cuda),
+    ],
+)
+@pytest.mark.parametrize(
+    "dtype,offset,step",
+    [
+        (torch.float32, 10000.0, 1.0),
+        (torch.float16, 10000.0, 16.0),
+        (torch.bfloat16, 16384.0, 256.0),
+    ],
+)
+@pytest.mark.parametrize(
+    "values,bounds,group_kwargs",
+    [
+        pytest.param([0, 1, 10, 12], [0, 2, 4], {"samples_per_prompt": 2}, id="uniform"),
+        pytest.param(
+            [0, 1, 2, 10, 12, 14], [0, 3, 6], {"samples_per_prompt": 3}, id="non_power_of_two"
+        ),
+        pytest.param(
+            [0, 2, 4, 10, 12, 42],
+            [0, 3, 5, 6],
+            {"group_boundaries": [0, 3, 5, 6]},
+            id="variable_and_singleton",
+        ),
+        pytest.param([2, 2, 2, 12, 12, 12], [0, 3, 6], {"samples_per_prompt": 3}, id="constant"),
+    ],
+)
+def test_group_advantages_is_stable_under_large_reward_offset(
+    backend, dtype, offset, step, values, bounds, group_kwargs
+):
+    """Compare group normalization with an FP64 reference for large-offset rewards."""
+    device = "cpu" if backend == "native_cpu" else "cuda"
+    op = TritonGRPOLossOp() if backend == "triton" else NativeGRPOLossOp()
+    # Keep the reward differences representable in each input dtype.
+    rewards = (torch.tensor(values, device=device, dtype=torch.float32) * step + offset).to(dtype)
+    reference = []
+    for start, end in zip(bounds[:-1], bounds[1:], strict=True):
+        group = rewards[start:end].double()
+        reference.append((group - group.mean()) / group.std(unbiased=False).clamp_min(1e-6))
+    expected = torch.cat(reference).float()
+
+    got = op.group_advantages(rewards, **group_kwargs)
+
+    assert got.dtype == torch.float32
+    # Triton reductions use a fixed tree and may differ from the double
+    # precision reference by a few ulps for non-power-of-two groups.
+    torch.testing.assert_close(got, expected, atol=1e-3, rtol=1e-3)
+
+
+@pytest.mark.parametrize(
+    "backend",
+    [
+        "native_cpu",
+        pytest.param(
+            "native_cuda",
+            marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available"),
+        ),
+        pytest.param("triton", marks=requires_triton_cuda),
+    ],
+)
+@pytest.mark.parametrize(
+    "values,group_kwargs,expected",
+    [
+        pytest.param(
+            [100000000.0, 100000008.0],
+            {"samples_per_prompt": 2},
+            [-1.0, 1.0],
+            id="rounded_mean_uniform",
+        ),
+        pytest.param(
+            [100000000.0, 100000008.0],
+            {"group_boundaries": [0, 2]},
+            [-1.0, 1.0],
+            id="rounded_mean_boundaries",
+        ),
+        pytest.param([100.1] * 7, {"samples_per_prompt": 7}, [0.0] * 7, id="constant_uniform"),
+        pytest.param(
+            [100.1] * 7, {"group_boundaries": [0, 7]}, [0.0] * 7, id="constant_boundaries"
+        ),
+        pytest.param(
+            [100000000.0, 100000008.0] + [100.1] * 7 + [42.0, -100000008.0, -100000000.0],
+            {"group_boundaries": [0, 2, 9, 10, 12]},
+            [-1.0, 1.0] + [0.0] * 8 + [-1.0, 1.0],
+            id="independent_variable_groups",
+        ),
+    ],
+)
+def test_group_advantages_offset_centering_preserves_exact_results(
+    backend, values, group_kwargs, expected
+):
+    """Avoid absolute-mean rounding and give constant groups exactly zero advantage."""
+    device = "cpu" if backend == "native_cpu" else "cuda"
+    op = TritonGRPOLossOp() if backend == "triton" else NativeGRPOLossOp()
+    rewards = torch.tensor(values, device=device, dtype=torch.float32)
+
+    got = op.group_advantages(rewards, **group_kwargs)
+
+    torch.testing.assert_close(
+        got, torch.tensor(expected, device=device, dtype=torch.float32), atol=0.0, rtol=0.0
+    )
+
+
+@pytest.mark.parametrize(
+    "device",
+    [
+        "cpu",
+        pytest.param(
+            "cuda",
+            marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available"),
+        ),
+    ],
+)
+def test_native_group_advantages_offset_centering_preserves_empty_input(device):
+    """An empty batch has no group reference to gather and stays empty."""
+    rewards = torch.empty(0, device=device)
+
+    got = NativeGRPOLossOp().group_advantages(rewards, samples_per_prompt=2)
+
+    torch.testing.assert_close(got, rewards, atol=0.0, rtol=0.0)
 
 
 def test_requires_exactly_one_group_spec():

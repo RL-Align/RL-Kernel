@@ -51,6 +51,17 @@ Provide **exactly one** of:
 - `group_boundaries` — CSR-style offsets of length `num_groups + 1` (e.g. `[0, 8, 16, 24]`)
   for variable-sized groups.
 
+Both Native and Triton normalize rewards in FP32 after subtracting each group's
+first reward. They compute the mean of these differences, center them, and use
+their mean squared value as the population variance. The standard deviation is
+floored at `eps` (default `1e-6`). Removing the shared offset before reducing avoids
+rounding a large absolute mean: FP32 rewards `[100000000., 100000008.]` produce
+advantages `[-1., 1.]`. Constant groups, including seven identical FP32 rewards of
+`100.1`, produce exactly zero advantages.
+
+The Native path adds group-offset indexing and elementwise work proportional to
+the number of rewards; normalization remains FP32 and linear in batch size.
+
 ## Backends
 
 | Backend | Wrapper | Native symbol | Status |
@@ -196,7 +207,8 @@ Reference semantics (`NativeGRPOLossOp`):
 
 ```python
 # advantages: group-normalized rewards (population std, unbiased=False)
-grouped = rewards.view(-1, samples_per_prompt)
+grouped = rewards.float().view(-1, samples_per_prompt)
+grouped = grouped - grouped[:, :1]
 adv = (grouped - grouped.mean(1, keepdim=True)) / grouped.std(1, keepdim=True, unbiased=False).clamp_min(1e-6)
 adv = adv.reshape(-1)[:, None].expand_as(completion_mask).masked_fill(~completion_mask, 0.0)
 
@@ -246,7 +258,11 @@ python -m pytest tests/test_distributed_grpo_loss.py -v
 
 `test_grpo_loss.py` covers the native reference (group advantages + loss from logits),
 Triton forward/backward vs native, masked-token invariance, an SGD loss step, and
-registry dispatch. Triton tests skip without CUDA + Triton.
+registry dispatch. Reward-normalization regressions cover large offsets against
+an FP64 reference, unrepresentable absolute means, constant non-power-of-two groups,
+both group specifications, and variable-sized groups with distinct offsets and
+singletons across Native CPU, Native CUDA, and Triton CUDA. Native empty batches
+are also covered. Triton tests skip without CUDA + Triton.
 
 `test_distributed_grpo_loss.py` covers every `(TP, DP)` combination reachable with
 four ranks — `tp2`, `tp4`, `dp2`, `dp4`, `tp2xdp2` — each compared bitwise against a

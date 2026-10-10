@@ -35,6 +35,12 @@ def _group_norm_kernel(
     eps,
     GROUP_BLOCK: tl.constexpr,
 ):
+    """Write FP32 normalized advantages for one reward group per program.
+
+    ``bounds_ptr`` supplies group offsets, and ``GROUP_BLOCK`` covers each
+    group's rewards. Compute centered population variance in FP32, excluding
+    padded lanes, and floor the standard deviation at ``eps``.
+    """
     g = tl.program_id(0)
     start = tl.load(bounds_ptr + g)
     end = tl.load(bounds_ptr + g + 1)
@@ -45,13 +51,19 @@ def _group_norm_kernel(
     rewards = tl.load(rewards_ptr + start + offs, mask=keep, other=0.0).to(tl.float32)
 
     count = (end - start).to(tl.float32)
-    mean = tl.sum(rewards, axis=0) / count
-    # Population variance (unbiased=False): E[x^2] - E[x]^2. Masked lanes are 0.
-    sq_mean = tl.sum(rewards * rewards, axis=0) / count
-    std = tl.sqrt(tl.maximum(sq_mean - mean * mean, 0.0))
+    # Center relative to one reward before reducing.  This removes the large
+    # shared offset without first rounding an absolute mean, and makes every
+    # residual exactly zero for a constant group (including non-power-of-two
+    # group sizes).  Masked lanes must not contribute to either reduction.
+    first_reward = tl.load(rewards_ptr + start).to(tl.float32)
+    deltas = tl.where(keep, rewards - first_reward, 0.0)
+    delta_mean = tl.div_rn(tl.sum(deltas, axis=0), count)
+    centered = tl.where(keep, deltas - delta_mean, 0.0)
+    variance = tl.sum(centered * centered, axis=0) / count
+    std = tl.sqrt(tl.maximum(variance, 0.0))
     std = tl.maximum(std, eps)
 
-    adv = (rewards - mean) / std
+    adv = centered / std
     tl.store(adv_ptr + start + offs, adv, mask=keep)
 
 
