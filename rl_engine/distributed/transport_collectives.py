@@ -1,20 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 RL-Kernel Contributors
-"""Compatibility imports for the unified deterministic collectives.
+"""Compatibility import; the canonical module is loaded below."""
 
-The implementation now lives in :mod:`rl_engine.distributed.collectives`.
-This module remains as a stable import path for older benchmark and integration
-callers; it contains no separate collective implementation.
-"""
+import importlib
+import sys
+from pathlib import Path
 
-from rl_engine.distributed.collectives import (
-    RCCLDeterministicCollective,
-    TorchDistributedDeterministicCollective,
-    create_deterministic_collective,
-)
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-__all__ = [
-    "RCCLDeterministicCollective",
-    "TorchDistributedDeterministicCollective",
-    "create_deterministic_collective",
-]
+if __name__ == "__main__":
+    import runpy
+
+    runpy.run_module("rl_engine.distributed.transports.collectives", run_name="__main__")
+else:
+    sys.modules[__name__] = importlib.import_module("rl_engine.distributed.transports.collectives")
