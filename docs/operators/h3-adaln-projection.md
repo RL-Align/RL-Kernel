@@ -135,6 +135,11 @@ or in a batch of 9.
 
 ![adaln_projection vs existing implementations](../../reports/experiments/h3-prior-art-b200/adaln_projection.png)
 
+The sizes below are timestep (input row) counts T. `H3AdaLNProjectionCudaOp`
+streams its 520 MB weight once per 8 rows; T = 256 and 2048 require additional
+weight passes and are outside its intended T ≤ 8 range. This accounts for the
+steep increase in the reported CUDA forward + backward times (77.4 and 627 ms).
+
 | Implementation | Batch-invariant | size 3: fwd err / worst grad err / fwd+bwd | size 256: fwd err / worst grad err / fwd+bwd | size 2048: fwd err / worst grad err / fwd+bwd |
 |---|---|---|---|---|
 | diffusers AdaLN projection, BF16 F.linear [plain] | **no** (14214 rows, 3080 sub-batches, 2232 sweep cases) | 3.6e-03 / 3.9e-03 / 716 µs | 3.4e-03 / 3.2e-03 / 728 µs | 3.2e-03 / 3.5e-03 / 2346 µs |
