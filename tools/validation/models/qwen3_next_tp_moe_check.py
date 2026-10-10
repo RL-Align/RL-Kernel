@@ -32,21 +32,23 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-import torch
-import torch.distributed as dist
-from safetensors import safe_open
+import torch  # noqa: E402
+import torch.distributed as dist  # noqa: E402
+from safetensors import safe_open  # noqa: E402
 
-from rl_engine.models.qwen3_next.qwen3_next_forward import (
+from rl_engine.models.qwen3_next.qwen3_next_forward import (  # noqa: E402
     FORWARD_PROVIDER_ID,
     shared_router,
     stable_top10_routes,
 )
-from rl_engine.models.qwen3_next.qwen3_next_tp_blocks import (
+from rl_engine.models.qwen3_next.qwen3_next_tp_blocks import (  # noqa: E402
     TP4MoE,
     assemble_moe_weight,
     moe_hf_shapes,
 )
-from rl_engine.validation.common.tensor_identity import assert_tensor_bitwise_equal as exact
+from rl_engine.validation.common.tensor_identity import (  # noqa: E402
+    assert_tensor_bitwise_equal as exact,
+)
 
 ROOT = Path(__file__).resolve().parents[3]
 TOKEN_COUNTS = (8, 64, 256, 1024)
