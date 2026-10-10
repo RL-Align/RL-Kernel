@@ -1,0 +1,1 @@
+"""tests.distributed.collectives package."""
