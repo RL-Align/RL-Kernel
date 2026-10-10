@@ -1,6 +1,6 @@
 # P7 T05: Megatron Training Provider and Readback
 
-Status: **P0** (interfaces, test inputs, read-only observation skeleton). Draft
+Status: **P1 in progress** (P0 interfaces and observation skeleton; P1 fail-closed gate). Draft
 schemas carry a `-draft` version suffix until the P7 Foundation owner (T01)
 publishes the public schemas.
 
@@ -74,6 +74,40 @@ observer.uninstall()      # restores the exact original function
   synchronization and host traffic; enable it only for evidence runs.
 - Install is idempotent; a second observer on the same class is refused.
 
+## Fail-closed gate (P1)
+
+`rl_engine/alignment/cross_config/adapters/megatron_training_gate.py` validates
+one frozen snapshot plus a `TrainingCallContext` (row layout, active mask,
+checkpoint/weight identity, weight lock, LM-head LoRA state, four-layer
+sampling record), all of which the VIME request does not carry. It never
+reads live objects and never recomputes numerics. Order, identity first:
+
+1. Snapshot complete (no capture/operator error, selected logprob captured).
+2. Input schema: BF16 `[N, H]` hidden, BF16 `[V_local, H]` shard, INT64 `[N]`
+   targets, logits `[N, V_local]` → `SCHEMA_MISMATCH`.
+3. Row identity via `canonical_cp.packed_gather_indices` (padding rows are
+   `None`); unknown layouts → `UNSUPPORTED_CAPABILITY`.
+4. TP coordinates from the actual group; configured metadata that disagrees →
+   `IDENTITY_DRIFT`; vocab ownership must equal the rank's equal shard.
+5. Weight lock on the observed shard digest → `PRE_UPDATE_WEIGHT_DRIFT`; an
+   LM-head bias (not covered by the lock) → `UNSUPPORTED_CAPABILITY`.
+6. Executed path from `strict_entrypoint` cross-checked with the provider's
+   `execution` block; provenance shapes must match this call's observed
+   inputs (stale evidence → `MISSING_PROVENANCE`); non-strict backend or any
+   fallback flag → `SILENT_FALLBACK`.
+7. Sampling: keep mask, sparse nucleus or non-identity temperature →
+   `SAMPLING_PARAMS_MISMATCH`; the four-layer record must exist and its
+   normalized/materialized/actual layers must be identity.
+8. LM-head LoRA must have been inspected (`None` → `MISSING_PROVENANCE`) and be
+   absent (`True` → `UNSUPPORTED_CAPABILITY`).
+9. Active mask BOOL `[N]`, padding rows inactive, at least one active token,
+   FP32 output, all active values finite.
+
+The result, `TrainingM10Evidence`, carries the FP32 `[N]` selected logprob,
+row keys, and the active tokens' raw FP32 bytes and their SHA-256 for the
+byte comparator (T09). `certifying_sources` lists only observed/upstream
+fields.
+
 ## Failure batch and pre-update weight lock (shared with T06)
 
 `rl_engine/alignment/cross_config/adapters/megatron_training.py` defines the
@@ -97,7 +131,8 @@ CPU-only, run in CI (`.github/workflows/ci.yml`):
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -rs \
   tests/test_megatron_training_provider.py \
   tests/test_megatron_training_readback.py \
-  tests/test_megatron_training_readonly.py
+  tests/test_megatron_training_readonly.py \
+  tests/test_megatron_training_gate.py
 ```
 
 Synthetic fixtures live in `tests/p7_doubles/` (integer-formula values exactly

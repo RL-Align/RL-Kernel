@@ -80,8 +80,9 @@ def test_fields_carry_their_source(observed):
     assert snap.field("logits").source is EvidenceSource.OBSERVED
     assert snap.field("context.hidden").source is EvidenceSource.OBSERVED
     assert snap.field("metadata").source is EvidenceSource.CONFIGURED
-    assert snap.field("backend_id").source is EvidenceSource.DECLARED
-    assert snap.field("provenance").source is EvidenceSource.DECLARED
+    assert snap.field("result.backend_id").source is EvidenceSource.DECLARED
+    assert snap.field("result.provenance").source is EvidenceSource.DECLARED
+    assert snap.field("operator.provenance").source is EvidenceSource.DECLARED
     assert snap.field("linear_logp.provenance").source is EvidenceSource.DECLARED
     assert snap.capture_error is None and snap.operator_error is None
 

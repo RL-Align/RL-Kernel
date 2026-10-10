@@ -25,6 +25,7 @@ import hashlib
 import json
 import threading
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from enum import Enum
 from typing import Any, Callable, Mapping, Optional
 
@@ -111,6 +112,16 @@ class TrainingCallSnapshot:
     capture_error: Optional[str] = None
     operator_error: Optional[str] = None
     schema_version: str = EVIDENCE_SCHEMA_VERSION
+    # Host copy of this call's selected logprob (values, not just identity): the
+    # M10 output and the non-finite gate need them. Its identity is in ``fields``.
+    selected_logprob: Optional[torch.Tensor] = dataclass_field(
+        default=None, compare=False, repr=False
+    )
+
+    def __post_init__(self) -> None:
+        names = [item.name for item in self.fields]
+        if len(set(names)) != len(names):
+            raise ValueError(f"duplicate evidence field names: {sorted(names)}")
 
     def field(self, name: str) -> EvidenceField:
         for item in self.fields:
@@ -150,12 +161,19 @@ def _read(root: Any, path: str) -> Any:
 
 
 def _field(
-    root: Any, path: str, source: EvidenceSource, *, origin: str, digest: bool
+    root: Any,
+    path: str,
+    source: EvidenceSource,
+    *,
+    origin: str,
+    digest: bool,
+    name: Optional[str] = None,
 ) -> EvidenceField:
+    label = name or path
     value = _read(root, path)
     if value is _ABSENT:
-        return EvidenceField(path, source, origin, None, present=False)
-    return EvidenceField(path, source, origin, json_safe(value, digest=digest))
+        return EvidenceField(label, source, origin, None, present=False)
+    return EvidenceField(label, source, origin, json_safe(value, digest=digest))
 
 
 _REQUEST_OBSERVED = (
@@ -196,11 +214,32 @@ def _group_coordinates(group: Any) -> dict[str, Any]:
     }
 
 
+def temperature_identity(value: Any) -> dict[str, Any]:
+    """Whether the temperature passed to this call is the identity (1.0 or absent)."""
+
+    if value is None:
+        return {"kind": "none", "identity": True}
+    if isinstance(value, torch.Tensor):
+        detached = value.detach()
+        return {"kind": "tensor", "identity": bool(torch.all(detached == 1).item())}
+    return {"kind": "scalar", "identity": float(value) == 1.0, "value": float(value)}
+
+
 def capture_request(request: Any, *, digest: bool = True) -> list[EvidenceField]:
     fields = [
         _field(request, path, EvidenceSource.OBSERVED, origin=f"request.{path}", digest=digest)
         for path in _REQUEST_OBSERVED
     ]
+    temperature = _read(request, "temperature")
+    fields.append(
+        EvidenceField(
+            "temperature.identity",
+            EvidenceSource.OBSERVED,
+            "request.temperature (value check)",
+            None if temperature is _ABSENT else temperature_identity(temperature),
+            present=temperature is not _ABSENT,
+        )
+    )
     group = _read(request, "tensor_parallel_group")
     fields.append(
         EvidenceField(
@@ -220,22 +259,17 @@ def capture_request(request: Any, *, digest: bool = True) -> list[EvidenceField]
 
 
 def capture_result(result: Any, *, digest: bool = True) -> list[EvidenceField]:
+    observed = ("logp", "entropy")
     return [
-        _field(result, "logp", EvidenceSource.OBSERVED, origin="result.logp", digest=digest),
-        _field(result, "entropy", EvidenceSource.OBSERVED, origin="result.entropy", digest=digest),
-        _field(
-            result, "backend_id", EvidenceSource.DECLARED, origin="result.backend_id", digest=digest
-        ),
         _field(
             result,
-            "contract_id",
-            EvidenceSource.DECLARED,
-            origin="result.contract_id",
+            path,
+            EvidenceSource.OBSERVED if path in observed else EvidenceSource.DECLARED,
+            origin=f"result.{path}",
             digest=digest,
-        ),
-        _field(
-            result, "provenance", EvidenceSource.DECLARED, origin="result.provenance", digest=digest
-        ),
+            name=f"result.{path}",
+        )
+        for path in ("logp", "entropy", "backend_id", "contract_id", "provenance")
     ]
 
 
@@ -247,6 +281,7 @@ def capture_operator(operator: Any, *, digest: bool = True) -> list[EvidenceFiel
             EvidenceSource.DECLARED,
             origin="operator.provenance",
             digest=digest,
+            name="operator.provenance",
         )
     ]
     linear = getattr(operator, "_linear_logp", None)
@@ -359,8 +394,14 @@ class TrainingLogpObserver:
             if result is not None:
                 fields += capture_result(result, digest=self._digest)
             fields += capture_operator(operator, digest=self._digest)
+            logp = getattr(result, "logp", None) if result is not None else None
             snapshot = TrainingCallSnapshot(
-                call_index=index, fields=tuple(fields), operator_error=operator_error
+                call_index=index,
+                fields=tuple(fields),
+                operator_error=operator_error,
+                selected_logprob=(
+                    logp.detach().cpu().clone() if isinstance(logp, torch.Tensor) else None
+                ),
             )
         except Exception as exc:  # evidence capture must never alter the training call
             snapshot = TrainingCallSnapshot(
@@ -391,5 +432,6 @@ __all__ = [
     "capture_request",
     "capture_result",
     "json_safe",
+    "temperature_identity",
     "tensor_identity",
 ]
