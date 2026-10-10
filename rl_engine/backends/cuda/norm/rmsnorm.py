@@ -4,9 +4,11 @@ from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.ops.autograd.vjp_fp32 import reduce_rows_fp32, rmsnorm_dweight_rows_fp32
 
+_RMSNORM_API_VERSION = 2
 
-def _require_cuda_symbols(what: str, *names: str) -> None:
-    """Raise when the compiled kernels backing ``what`` are missing.
+
+def _require_cuda_rmsnorm() -> None:
+    """Raise when the compiled RMSNorm bindings are missing or incompatible.
 
     The registry treats a backend whose construction raises as unavailable and
     falls through to the next candidate, so calling this from ``__init__`` is
@@ -15,12 +17,20 @@ def _require_cuda_symbols(what: str, *names: str) -> None:
     activation ops.
     """
     if not _EXT_AVAILABLE or _C is None:
-        raise RuntimeError(f"{what} requires the compiled rl_engine._C extension.")
+        raise RuntimeError("CUDA RMSNorm requires the compiled rl_engine._C extension.")
+    names = ("rmsnorm_forward", "rmsnorm_backward_dx")
     missing = [name for name in names if not hasattr(_C, name)]
     if missing:
         raise RuntimeError(
-            f"{what} symbols ({', '.join(missing)}) are not compiled into _C. "
+            f"CUDA RMSNorm symbols ({', '.join(missing)}) are not compiled into _C. "
             "Rebuild the extension with csrc/cuda/norm/rmsnorm.cu."
+        )
+    api_version = getattr(_C, "rmsnorm_api_version", None)
+    if api_version != _RMSNORM_API_VERSION:
+        raise RuntimeError(
+            f"CUDA RMSNorm requires rl_engine._C RMSNorm API version {_RMSNORM_API_VERSION} "
+            f"(loaded {api_version!r}). Rebuild the extension with csrc/cuda/norm/rmsnorm.cu "
+            "for weight_offset support."
         )
 
 
@@ -30,20 +40,23 @@ class RMSNormCuda(torch.autograd.Function):
     """
 
     @staticmethod
-    def forward(ctx, x, weight, mask=None, eps=1e-6):
+    def forward(ctx, x, weight, mask=None, eps=1e-6, weight_offset=0.0):
         """
         Forward:
-          y = x * rsqrt(mean(x^2) + eps) * weight
+          y = x * rsqrt(mean(x^2) + eps) * (weight_offset + weight)
 
         Input:
           x:      [T, H], fp16/bf16/fp32 CUDA tensor
           weight: [H],    fp16/bf16/fp32 CUDA tensor
           mask:   [T],    bool CUDA tensor
           eps:    float
+          weight_offset: float, added to weight in fp32 inside the kernel.
+                  1.0 selects the zero-centred (1 + w) convention.
 
         Output:
           y: [T, H]
         """
+        _require_cuda_rmsnorm()
         assert x.is_cuda, "x must be CUDA tensor"
         assert weight.is_cuda, "weight must be CUDA tensor"
         assert x.is_contiguous(), "x must be contiguous"
@@ -51,10 +64,6 @@ class RMSNormCuda(torch.autograd.Function):
         assert x.dim() == 2, "x must be [T, H]"
         assert weight.dim() == 1, "weight must be [H]"
         assert x.shape[1] == weight.shape[0], "hidden size mismatch"
-        assert _EXT_AVAILABLE and hasattr(
-            _C, "rmsnorm_forward"
-        ), "RMSNorm CUDA extension is unavailable. Please rebuild with rmsnorm.cu."
-
         if mask is None:
             mask = torch.ones((x.shape[0],), device=x.device, dtype=torch.bool)
         else:
@@ -64,10 +73,11 @@ class RMSNormCuda(torch.autograd.Function):
             assert mask.dim() == 1, "mask must be [T]"
             assert mask.shape[0] == x.shape[0], "mask length mismatch"
 
-        y, rstd = _C.rmsnorm_forward(x, weight, float(eps))
+        y, rstd = _C.rmsnorm_forward(x, weight, float(eps), float(weight_offset))
 
         ctx.save_for_backward(x, weight, rstd, mask)
         ctx.eps = eps
+        ctx.weight_offset = float(weight_offset)
 
         return y
 
@@ -81,7 +91,7 @@ class RMSNormCuda(torch.autograd.Function):
         x, weight, rstd, mask = ctx.saved_tensors
         dy = grad_out.contiguous()
 
-        dx = _C.rmsnorm_backward_dx(dy, x, weight, rstd)
+        dx = _C.rmsnorm_backward_dx(dy, x, weight, rstd, ctx.weight_offset)
 
         # The shape-independent FP32 left fold preserves the C2 Batch/Chunk
         # reduction order while the CUDA reducer executes it in one launch.
@@ -101,16 +111,18 @@ class RMSNormCuda(torch.autograd.Function):
             family="cuda",
         )
 
-        return dx, dw, None, None
+        # dw is unchanged by the offset: d/dw (offset + w) == d/dw w.
+        return dx, dw, None, None, None
 
 
-def rmsnorm_cuda(x, weight, eps=1e-6, mask=None):
+def rmsnorm_cuda(x, weight, eps=1e-6, mask=None, weight_offset=0.0):
     """
     use:
         y = rmsnorm_cuda(x, weight)
         y = rmsnorm_cuda(x, weight, mask=mask)
+        y = rmsnorm_cuda(x, weight, weight_offset=1.0)   # zero-centred weight
     """
-    return RMSNormCuda.apply(x, weight, mask, eps)
+    return RMSNormCuda.apply(x, weight, mask, eps, weight_offset)
 
 
 class RMSNormCudaOp:
@@ -119,11 +131,11 @@ class RMSNormCudaOp:
     backward_impl = "cuda_rmsnorm_dx_declared_fp32_rowfold_dw"
 
     def __init__(self) -> None:
-        _require_cuda_symbols(
-            "CUDA RMSNorm",
-            "rmsnorm_forward",
-            "rmsnorm_backward_dx",
-        )
+        _require_cuda_rmsnorm()
+
+    #: Added to the weight in fp32 inside the kernel. Subclasses override it;
+    #: 0.0 is the plain convention.
+    weight_offset = 0.0
 
     def __call__(self, x, weight, *, eps=1e-6):
         return self.forward(x, weight, eps=eps)
@@ -131,12 +143,29 @@ class RMSNormCudaOp:
     def forward(self, x, weight, *, eps=1e-6):
         hidden = x.shape[-1]
         x_2d = x.contiguous().view(-1, hidden)
-        y_2d = rmsnorm_cuda(x_2d, weight.contiguous(), eps=eps)
+        y_2d = rmsnorm_cuda(x_2d, weight.contiguous(), eps=eps, weight_offset=self.weight_offset)
         return y_2d.view_as(x)
 
     def parameter_vjp_contributions_fp32(self, *, x, weight, grad_output, eps=1e-6):
-        del weight
-        x32 = x.float()
-        rstd = torch.rsqrt(x32.square().mean(dim=-1) + float(eps))
-        rows = grad_output.float() * x32 * rstd.unsqueeze(-1)
+        hidden = x.shape[-1]
+        # Only `rstd` is used, and it does not depend on the offset; the offset is
+        # passed so this is the same call the forward makes, not because it matters.
+        _, rstd = _C.rmsnorm_forward(
+            x.contiguous().reshape(-1, hidden),
+            weight.contiguous(),
+            float(eps),
+            float(self.weight_offset),
+        )
+        rows = rmsnorm_dweight_rows_fp32(x, grad_output, rstd=rstd.reshape(x.shape[:-1]))
         return {"weight": rows}
+
+
+class Qwen3NextRMSNormCudaOp(RMSNormCudaOp):
+    """Zero-centred CUDA RMSNorm: ``y = x * rstd * (1 + weight)``.
+
+    The decoder and final norms of Qwen3-Next (and Gemma) store a zero-centred
+    weight. The ``+1`` is applied inside the kernel after the fp32 upcast, so it
+    is never rounded through the low-precision weight dtype.
+    """
+
+    weight_offset = 1.0
