@@ -10,8 +10,11 @@ on:
       - 'pyproject.toml'
       - 'setup.py'
       - 'requirements*.txt'
+      - 'requirements/**'
+      - 'build_tools/**'
+      - 'MANIFEST.in'
       - 'docker/Dockerfile.cuda'
-      - 'ci/run_gpu_ci.sh'
+      - 'ci/scripts/run_gpu_ci.sh'
       - '.github/workflows/gpu-ci.yml'
     types: [ opened, synchronize, reopened, labeled ]
 
@@ -78,4 +81,4 @@ jobs:
           GPU_ID: ${{ matrix.gpu_id }}
           TARGET_SM: ${{ matrix.target_sm }}
           KERNEL_ALIGN_FORCE_SM90: ${{ matrix.force_sm90 }}
-        run: bash ci/run_gpu_ci.sh
+        run: bash ci/scripts/run_gpu_ci.sh
