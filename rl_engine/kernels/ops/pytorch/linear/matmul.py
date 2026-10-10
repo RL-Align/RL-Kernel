@@ -1,28 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 RL-Kernel Contributors
+"""Compatibility import; the canonical module is loaded below."""
 
-from __future__ import annotations
+import importlib
+import sys
+from pathlib import Path
 
-import torch
-from torch import Tensor
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[5]))
 
+if __name__ == "__main__":
+    import runpy
 
-class NativeMatmulOp(torch.nn.Module):
-    """Pure PyTorch reference GEMM.
-
-    It intentionally uses one `torch.matmul` call in fp32 for
-    the gold path and does not implement split-K or manual blocked accumulation.
-    """
-
-    op_class = "reduction"
-
-    def __init__(self) -> None:
-        super().__init__()
-
-    def forward(self, a: Tensor, b: Tensor) -> Tensor:
-        """Compute `a @ b` and return the input dtype."""
-        return self.forward_fp32(a, b).to(dtype=a.dtype)
-
-    def forward_fp32(self, a: Tensor, b: Tensor) -> Tensor:
-        """fp32 gold standard: cast inputs to fp32, then call `torch.matmul` once."""
-        return torch.matmul(a.float(), b.float())
+    runpy.run_module("rl_engine.reference.embedding.matmul", run_name="__main__")
+else:
+    sys.modules[__name__] = importlib.import_module("rl_engine.reference.embedding.matmul")

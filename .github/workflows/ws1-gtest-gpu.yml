@@ -12,38 +12,54 @@ on:
   pull_request:
     branches: [ main ]
     paths:
-      - "rl_engine/kernels/gtest/**"
-      - "rl_engine/kernels/ops/**"
-      - "rl_engine/testing/**"
-      - "scripts/sweep_ws1_four_judgments.py"
-      - "scripts/check_forward_invariance.py"
-      - "scripts/check_gradient_invariance.py"
-      - "scripts/ws1_candidate_evidence.py"
-      - "tests/test_ws1_*.py"
-      - "tests/test_forward_invariance.py"
-      - "tests/test_gradient_invariance.py"
-      - "tests/test_four_judgment_matrix.py"
-      - "tests/test_triton_batch_invariant_attention.py"
-      - "ci/run_ws1_gtest.sh"
-      - "ci/run_gpu_ci.sh"
+      - "rl_engine/validation/**"
+      - "rl_engine/backends/**"
+      - "rl_engine/config/**"
+      - "rl_engine/contracts/**"
+      - "rl_engine/ops/**"
+      - "rl_engine/models/**"
+      - "rl_engine/runtime/**"
+      - "rl_engine/reference/**"
+      - "build_tools/**"
+      - "csrc/**"
+      - "tools/validation/operators/sweep_ws1_four_judgments.py"
+      - "tools/validation/operators/check_forward_invariance.py"
+      - "tools/validation/operators/check_gradient_invariance.py"
+      - "tools/validation/operators/ws1_candidate_evidence.py"
+      - "tests/validation/**"
+      - "tests/models/**"
+      - "tests/validation/operators/test_forward_invariance.py"
+      - "tests/validation/operators/test_gradient_invariance.py"
+      - "tests/validation/operators/test_four_judgment_matrix.py"
+      - "tests/ops/attention/test_triton_batch_invariant_attention.py"
+      - "ci/scripts/run_ws1_gtest.sh"
+      - "ci/scripts/run_gpu_ci.sh"
       - ".github/workflows/ws1-gtest-gpu.yml"
   push:
     branches: [ main ]
     paths:
-      - "rl_engine/kernels/gtest/**"
-      - "rl_engine/kernels/ops/**"
-      - "rl_engine/testing/**"
-      - "scripts/sweep_ws1_four_judgments.py"
-      - "scripts/check_forward_invariance.py"
-      - "scripts/check_gradient_invariance.py"
-      - "scripts/ws1_candidate_evidence.py"
-      - "tests/test_ws1_*.py"
-      - "tests/test_forward_invariance.py"
-      - "tests/test_gradient_invariance.py"
-      - "tests/test_four_judgment_matrix.py"
-      - "tests/test_triton_batch_invariant_attention.py"
-      - "ci/run_ws1_gtest.sh"
-      - "ci/run_gpu_ci.sh"
+      - "rl_engine/validation/**"
+      - "rl_engine/backends/**"
+      - "rl_engine/config/**"
+      - "rl_engine/contracts/**"
+      - "rl_engine/ops/**"
+      - "rl_engine/models/**"
+      - "rl_engine/runtime/**"
+      - "rl_engine/reference/**"
+      - "build_tools/**"
+      - "csrc/**"
+      - "tools/validation/operators/sweep_ws1_four_judgments.py"
+      - "tools/validation/operators/check_forward_invariance.py"
+      - "tools/validation/operators/check_gradient_invariance.py"
+      - "tools/validation/operators/ws1_candidate_evidence.py"
+      - "tests/validation/**"
+      - "tests/models/**"
+      - "tests/validation/operators/test_forward_invariance.py"
+      - "tests/validation/operators/test_gradient_invariance.py"
+      - "tests/validation/operators/test_four_judgment_matrix.py"
+      - "tests/ops/attention/test_triton_batch_invariant_attention.py"
+      - "ci/scripts/run_ws1_gtest.sh"
+      - "ci/scripts/run_gpu_ci.sh"
       - ".github/workflows/ws1-gtest-gpu.yml"
   workflow_dispatch:
 
@@ -97,7 +113,7 @@ jobs:
           TARGET_SM: ${{ matrix.target_sm }}
           KERNEL_ALIGN_FORCE_SM90: ${{ matrix.force_sm90 }}
           TEST_SUITE: ws1-gtest
-        run: bash ci/run_gpu_ci.sh
+        run: bash ci/scripts/run_gpu_ci.sh
 
       - name: Upload C8 execute JSON
         if: always()
