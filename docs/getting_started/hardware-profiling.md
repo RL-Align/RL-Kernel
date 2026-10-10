@@ -79,11 +79,11 @@ Before collecting profiler output, run focused tests that confirm the dispatch
 and profiler paths work in the selected CUDA environment.
 
 ```bash
-CUDA_VISIBLE_DEVICES=<physical_gpu_index> python -m pytest rl_engine/tests/test_dispatch.py -v
+CUDA_VISIBLE_DEVICES=<physical_gpu_index> python -m pytest tests/runtime/test_dispatch.py -v
 ```
 
 ```bash
-CUDA_VISIBLE_DEVICES=<physical_gpu_index> python -m pytest tests/test_profiler.py -v
+CUDA_VISIBLE_DEVICES=<physical_gpu_index> python -m pytest tests/benchmarks/test_profiler.py -v
 ```
 
 If these tests fail, fix the environment or implementation issue before treating
@@ -96,7 +96,7 @@ selection, CSV/JSON writing, and status semantics. Do not use single-run smoke
 latency as a publishable benchmark number.
 
 ```bash
-CUDA_VISIBLE_DEVICES=<physical_gpu_index> python scripts/run_profile_suite.py \
+CUDA_VISIBLE_DEVICES=<physical_gpu_index> python tools/benchmarking/run_profile_suite.py \
   --device cuda \
   --dtype float32 \
   --batch-sizes 2 \
@@ -132,7 +132,7 @@ match the target RL workload. Prefer multiple warmup and measured iterations for
 performance comparisons.
 
 ```bash
-CUDA_VISIBLE_DEVICES=<physical_gpu_index> python scripts/run_profile_suite.py \
+CUDA_VISIBLE_DEVICES=<physical_gpu_index> python tools/benchmarking/run_profile_suite.py \
   --device cuda \
   --dtype float16 \
   --batch-sizes 8,16,32 \
@@ -150,7 +150,7 @@ For sampling workloads, keep the top-k and top-p settings close to the target
 serving or training configuration.
 
 ```bash
-CUDA_VISIBLE_DEVICES=<physical_gpu_index> python scripts/run_profile_suite.py \
+CUDA_VISIBLE_DEVICES=<physical_gpu_index> python tools/benchmarking/run_profile_suite.py \
   --device cuda \
   --dtype float16 \
   --batch-sizes 64,128,256 \
@@ -172,7 +172,7 @@ extension and require fused dispatch explicitly.
 
 ```bash
 MAX_JOBS=2 python setup.py build_ext --inplace
-CUDA_VISIBLE_DEVICES=<physical_gpu_index> python examples/grpo_single_gpu.py \
+CUDA_VISIBLE_DEVICES=<physical_gpu_index> python examples/post_training/grpo_single_gpu.py \
   --device cuda \
   --require-fused-logp \
   --steps 2 \

@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 RL-Kernel Contributors
+"""Compatibility import; the canonical module is loaded below."""
 
-from .final_logit_softcap import NativeFinalLogitSoftcapOp
-from .swiglu import NativeSiLUOp, NativeSwiGLUOp
+from importlib import import_module
 
-__all__ = ["NativeFinalLogitSoftcapOp", "NativeSiLUOp", "NativeSwiGLUOp"]
+
+def __getattr__(name):
+    return getattr(import_module("rl_engine.reference.activation"), name)

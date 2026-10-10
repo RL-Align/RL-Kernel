@@ -18,7 +18,7 @@ REFERENCE_SCRIPT = REPO_ROOT / "scripts" / "gemma4_reference.py"
 
 
 def _load_pure_workload_module():
-    path = REPO_ROOT / "rl_engine/testing/gemma4_workload.py"
+    path = REPO_ROOT / "rl_engine/models/gemma/gemma4_workload.py"
     spec = importlib.util.spec_from_file_location("_gemma4_workload_tests", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

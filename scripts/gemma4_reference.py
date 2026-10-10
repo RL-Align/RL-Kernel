@@ -20,7 +20,7 @@ from pathlib import Path
 
 def _load_workload_module():
     """Load the pure-Python fingerprint module without importing torch-heavy package helpers."""
-    module_path = Path(__file__).resolve().parents[1] / "rl_engine/testing/gemma4_workload.py"
+    module_path = Path(__file__).resolve().parents[1] / "rl_engine/models/gemma/gemma4_workload.py"
     spec = importlib.util.spec_from_file_location("_gemma4_workload_cli", module_path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"cannot load workload module at {module_path}")
