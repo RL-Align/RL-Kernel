@@ -415,6 +415,40 @@ class _DeterministicCopyToTensorParallelRegion(torch.autograd.Function):
         return collective.all_reduce(grad_output.contiguous()), None
 
 
+class _DeterministicGatherFromSequenceParallelRegion(torch.autograd.Function):
+    """Gather sequence shards for a TP column projection; scatter its dgrad."""
+
+    @staticmethod
+    def forward(ctx: Any, input_value: torch.Tensor, collective: Any | None) -> torch.Tensor:
+        ctx.collective = collective
+        if collective is None:
+            return input_value
+        return collective.all_gather(input_value.contiguous())
+
+    @staticmethod
+    def backward(ctx: Any, grad_output: torch.Tensor) -> tuple[torch.Tensor, None]:
+        if ctx.collective is None:
+            return grad_output, None
+        return ctx.collective.reduce_scatter(grad_output.contiguous()), None
+
+
+class _DeterministicReduceScatterToSequenceParallelRegion(torch.autograd.Function):
+    """Reduce a TP row projection into sequence shards; gather its dgrad."""
+
+    @staticmethod
+    def forward(ctx: Any, input_value: torch.Tensor, collective: Any | None) -> torch.Tensor:
+        ctx.collective = collective
+        if collective is None:
+            return input_value
+        return collective.reduce_scatter(input_value.contiguous())
+
+    @staticmethod
+    def backward(ctx: Any, grad_output: torch.Tensor) -> tuple[torch.Tensor, None]:
+        if ctx.collective is None:
+            return grad_output, None
+        return ctx.collective.all_gather(grad_output.contiguous()), None
+
+
 def _deterministic_reduce_from_tensor_model_parallel_region(
     input_value: torch.Tensor,
     collective: Any | None,
@@ -567,9 +601,24 @@ class _DeterministicTPOutputProjection(torch.autograd.Function):
         weight: torch.Tensor,
         bias: torch.Tensor | None,
         tp_group: Any,
+        sequence_parallel: bool,
     ) -> torch.Tensor:
         from rl_engine.kernels.ops.matmul.det_gemm import det_gemm_linear
 
+        ctx.collective = None
+        ctx.input_shape = input_value.shape
+        if sequence_parallel and _tp_world_size(tp_group) > 1:
+            from rl_engine.distributed.collectives import collective_for_group
+
+            ctx.collective = collective_for_group(
+                tp_group,
+                min_size_bytes=input_value.numel()
+                * input_value.element_size()
+                * _tp_world_size(tp_group),
+            )
+            if ctx.collective is None:
+                raise RuntimeError("strict SP LM head requires a deterministic TP collective")
+            input_value = ctx.collective.all_gather(input_value.contiguous())
         if input_value.ndim == 3:
             input_2d = input_value.transpose(0, 1).contiguous().reshape(-1, input_value.shape[-1])
             ctx.batch_major = True
@@ -581,7 +630,7 @@ class _DeterministicTPOutputProjection(torch.autograd.Function):
         if bias is not None:
             output_2d = (output_2d.float() + bias.float().reshape(1, -1)).to(torch.bfloat16)
         ctx.save_for_backward(input_2d, weight_2d)
-        ctx.input_shape = input_value.shape
+        ctx.full_input_shape = input_value.shape
         ctx.input_dtype = input_value.dtype
         ctx.weight_dtype = weight.dtype
         ctx.bias_dtype = None if bias is None else bias.dtype
@@ -612,15 +661,22 @@ class _DeterministicTPOutputProjection(torch.autograd.Function):
             grad_input = _canonical_column_input_gradient(
                 dlogits, weight, _tp_world_size(ctx.tp_group)
             )
-            _deterministic_tp_all_reduce_(grad_input, ctx.tp_group)
+            if ctx.collective is None:
+                _deterministic_tp_all_reduce_(grad_input, ctx.tp_group)
             if ctx.batch_major:
                 grad_input = (
-                    grad_input.reshape(ctx.input_shape[1], ctx.input_shape[0], ctx.input_shape[2])
+                    grad_input.reshape(
+                        ctx.full_input_shape[1], ctx.full_input_shape[0], ctx.full_input_shape[2]
+                    )
                     .transpose(0, 1)
                     .contiguous()
                 )
             else:
-                grad_input = grad_input.reshape(ctx.input_shape)
+                grad_input = grad_input.reshape(ctx.full_input_shape)
+            if ctx.collective is not None:
+                grad_input = ctx.collective.reduce_scatter(grad_input.contiguous())
+            if grad_input.shape != ctx.input_shape:
+                raise RuntimeError("strict TP LM-head dgrad does not match the input layout")
             grad_input = grad_input.to(ctx.input_dtype)
         if ctx.needs_input_grad[1]:
             tp_world = _tp_world_size(ctx.tp_group)
@@ -632,7 +688,7 @@ class _DeterministicTPOutputProjection(torch.autograd.Function):
             ).to(ctx.weight_dtype)
         if ctx.has_bias and ctx.needs_input_grad[2]:
             grad_bias = dlogits.float().sum(dim=0).to(ctx.bias_dtype)
-        return grad_input, grad_weight, grad_bias, None
+        return grad_input, grad_weight, grad_bias, None, None
 
 
 def _optional_class(path: str) -> type[Any] | None:
@@ -793,6 +849,8 @@ def _patch_strict_attention_projections(
         input_value: torch.Tensor,
     ) -> torch.Tensor:
         if copy_to_tp is not None:
+            if sequence_parallel_enabled(module):
+                raise RuntimeError("strict SP Attention requires a deterministic TP collective")
             record_collective_backend(
                 core_attention,
                 _MEGATRON_TP_QKV_DGRAD_COLLECTIVE_ATTR,
@@ -805,6 +863,8 @@ def _patch_strict_attention_projections(
             _MEGATRON_TP_QKV_DGRAD_COLLECTIVE_ATTR,
             _collective_backend_id(collective),
         )
+        if sequence_parallel_enabled(module):
+            return _DeterministicGatherFromSequenceParallelRegion.apply(input_value, collective)
         return _deterministic_copy_to_tensor_model_parallel_region(input_value, collective)
 
     def strict_tp_reduce(
@@ -813,6 +873,8 @@ def _patch_strict_attention_projections(
         input_value: torch.Tensor,
     ) -> torch.Tensor:
         if reduce_from_tp is not None:
+            if sequence_parallel_enabled(module):
+                raise RuntimeError("strict SP Attention requires a deterministic TP collective")
             record_collective_backend(
                 core_attention,
                 _MEGATRON_TP_OUTPUT_PROJECTION_COLLECTIVE_ATTR,
@@ -825,6 +887,10 @@ def _patch_strict_attention_projections(
             _MEGATRON_TP_OUTPUT_PROJECTION_COLLECTIVE_ATTR,
             _collective_backend_id(collective),
         )
+        if sequence_parallel_enabled(module):
+            return _DeterministicReduceScatterToSequenceParallelRegion.apply(
+                input_value, collective
+            )
         return _deterministic_reduce_from_tensor_model_parallel_region(input_value, collective)
 
     def bind_collective_identity(module: Any, core_attention: Any, attribute: str) -> None:
@@ -894,10 +960,8 @@ def _patch_strict_attention_projections(
         qkv = instance.linear_qkv
         projection = instance.linear_proj
         core_attention = getattr(instance, "core_attention", None)
-        if sequence_parallel_enabled(qkv) or sequence_parallel_enabled(projection):
-            raise RuntimeError(
-                "strict Attention projection collectives do not support sequence parallelism"
-            )
+        if sequence_parallel_enabled(qkv) != sequence_parallel_enabled(projection):
+            raise RuntimeError("strict Attention QKV and output projection SP settings differ")
         setattr(qkv, _STRICT_ATTENTION_PROJECTION_MARKER, "qkv")
         setattr(projection, _STRICT_ATTENTION_PROJECTION_MARKER, "o_proj")
         object.__setattr__(qkv, _STRICT_ATTENTION_CORE_MARKER, core_attention)
@@ -1062,15 +1126,17 @@ def _patch_strict_logp_output_layer(
         )
         if gather_output:
             raise RuntimeError("strict reusable TP LM head does not support gathered logits")
-        if bool(getattr(instance, "sequence_parallel", False)):
-            raise RuntimeError("strict reusable TP LM head does not support sequence parallelism")
         if bool(getattr(instance, "explicit_expert_comm", False)) or bool(
             getattr(instance, "disable_grad_reduce", False)
         ):
             raise RuntimeError("strict reusable TP LM head requires ordinary TP dgrad reduction")
         bias = instance.bias if not instance.skip_bias_add else None
         output = _DeterministicTPOutputProjection.apply(
-            input_, output_weight, bias, instance.tp_group
+            input_,
+            output_weight,
+            bias,
+            instance.tp_group,
+            bool(getattr(instance, "sequence_parallel", False)),
         )
         instance._rl_kernel_local_logits = output
         output_bias = instance.bias if instance.skip_bias_add else None

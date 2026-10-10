@@ -352,6 +352,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rollout-top-k", type=int, default=-1)
     parser.add_argument("--lr", type=float, default=5e-7)
     parser.add_argument("--weight-decay", type=float, default=0.1)
+    parser.add_argument("--entropy-coef", type=float, default=0.0)
     parser.add_argument("--require-updates", action="store_true")
     parser.add_argument(
         "--use-kl-loss",
@@ -406,6 +407,8 @@ def main(argv: list[str] | None = None) -> int:
         raise ValueError("--lr must be finite and positive")
     if not math.isfinite(args.weight_decay) or args.weight_decay < 0:
         raise ValueError("--weight-decay must be finite and nonnegative")
+    if not math.isfinite(args.entropy_coef) or args.entropy_coef < 0:
+        raise ValueError("--entropy-coef must be finite and nonnegative")
     if not math.isfinite(args.kl_loss_coef) or args.kl_loss_coef < 0:
         raise ValueError("--kl-loss-coef must be finite and nonnegative")
     # VIME passes this value to vLLM ParallelConfig.prefill_context_parallel_size.
@@ -592,7 +595,7 @@ def main(argv: list[str] | None = None) -> int:
         "--adam-beta2",
         "0.98",
         "--entropy-coef",
-        "0",
+        str(args.entropy_coef),
         "--global-batch-size",
         str(args.global_batch_size),
         "--balance-data",
@@ -602,6 +605,7 @@ def main(argv: list[str] | None = None) -> int:
         str(128 * canonical_tp // int(topology["tp"])),
         "--context-parallel-size",
         str(topology["cp"]),
+        "--sequence-parallel",
         "--cp-comm-type",
         "p2p",
         "--pipeline-model-parallel-size",
@@ -721,6 +725,7 @@ def main(argv: list[str] | None = None) -> int:
         },
         "algorithm": {
             "optimizer": {"name": "adam", "lr": args.lr, "weight_decay": args.weight_decay},
+            "entropy_coefficient": args.entropy_coef,
             "require_updates": args.require_updates,
             "advantage_estimator": "grpo",
             "reward_model": "deepscaler",

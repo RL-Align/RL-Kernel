@@ -65,7 +65,7 @@ def test_lm_head_autograd_uses_canonical_subtree(monkeypatch, shape):
     x = torch.randn(shape, generator=gen).bfloat16().requires_grad_()
     w = torch.randn(32, 8, generator=gen).bfloat16().requires_grad_()
     b = torch.randn(32, generator=gen).bfloat16().requires_grad_()
-    output = runtime._DeterministicTPOutputProjection.apply(x, w, b, object())
+    output = runtime._DeterministicTPOutputProjection.apply(x, w, b, object(), False)
     dy = torch.randn(output.shape, generator=gen).bfloat16()
     output.backward(dy)
 
