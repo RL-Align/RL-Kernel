@@ -239,6 +239,11 @@ def get_extensions():
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
             cuda_sources.append("csrc/cuda/attention/prefix_shared_attention.cu")
+            # Same reason: NVIDIA PTX (cp.async, ldmatrix, mma.sync, and the Hopper
+            # TMA + wgmma block). The ROCm dispatcher uses the Triton backend for
+            # this operator; mlp_down_gemm.cu is deliberately absent from the ROCm
+            # source list, and csrc/bindings/ops.cpp guards its bindings to match.
+            cuda_sources.append("csrc/cuda/gemm/mlp_down_gemm.cu")
 
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
         if envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH):
@@ -337,6 +342,8 @@ def get_extensions():
                 "csrc/cuda/rope/rope_sm90.cu",  # RoPE rotate-half apply, gated to SM90 build
                 # Single-card batch-invariant embedding/lm-head.
                 "csrc/cuda/embedding/embedding_lm_head_sm90.cu",
+                # MLP down projection TMA + wgmma path (contract mlp-down-gemm-mma).
+                "csrc/cuda/gemm/mlp_down_gemm_sm90.cu",
             ]
             enable_sm90 = envs.env_flag(envs.KERNEL_ALIGN_FORCE_SM90)
             present_sm90 = [s for s in sm90_srcs if os.path.exists(s)]

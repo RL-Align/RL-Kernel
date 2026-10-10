@@ -8,6 +8,7 @@ Examples, from the repository root:
 
 ```bash
 python benchmarks/operators/gemm/benchmark_det_gemm.py --help
+python benchmarks/operators/gemm/benchmark_mlp_down_gemm.py --help
 python benchmarks/distributed/benchmark_rocm_collectives.py --help
 python benchmarks/e2e/benchmark_stateless_executor.py --help
 ```

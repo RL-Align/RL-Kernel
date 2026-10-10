@@ -30,6 +30,7 @@ def make_operator_inputs(
         "pack": _make_pack_inputs,
         "matmul": _make_matmul_inputs,
         "det_gemm": _make_det_gemm_inputs,
+        "mlp_down_gemm": _make_mlp_down_gemm_inputs,
         "attention": _make_attention_inputs,
         "prefix_shared_attention": _make_prefix_shared_attention_inputs,
         "cp_attention": _make_cp_attention_inputs,
@@ -59,6 +60,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "pack": f"{batch}x{seq}x{_normalized_dim(args)}",
         "matmul": f"{batch}x{seq}x{_matmul_k(args)}x{_matmul_n(args)}",
         "det_gemm": f"{batch}x{seq}x{_matmul_k(args)}x{_matmul_n(args)}",
+        "mlp_down_gemm": f"{batch}x{seq}x{_matmul_k(args)}x{_matmul_n(args)}",
         "attention": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}",
         "prefix_shared_attention": f"{batch}x{_arg_int(args, 'n_heads', DEFAULT_N_HEADS)}"
         f"x{seq}x{DEFAULT_HEAD_DIM}",
@@ -144,6 +146,22 @@ def _make_det_gemm_inputs(
     return {
         "a": _floating_tensor((m_dim, k_dim), args, dtype, device, offset=0),
         "b": _floating_tensor((k_dim, n_dim), args, dtype, device, offset=1),
+    }
+
+
+def _make_mlp_down_gemm_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    """Qwen-Image MLP down projection: [M, K] x [N, K] + bias -> [M, N]."""
+
+    batch, seq = _batch_seq(args)
+    k_dim = _matmul_k(args)
+    n_dim = _matmul_n(args)
+    rows = batch * seq
+    return {
+        "x": _floating_tensor((rows, k_dim), args, dtype, device, offset=0),
+        "weight": _floating_tensor((n_dim, k_dim), args, dtype, device, offset=1),
+        "bias": _floating_tensor((n_dim,), args, dtype, device, offset=2),
     }
 
 

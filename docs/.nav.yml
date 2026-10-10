@@ -23,6 +23,7 @@ nav:
       - operators/batch-invariant-logp.md
       - operators/linear-logp-tp-test.md
       - operators/grpo-loss.md
+      - operators/mlp-down-gemm.md
       - operators/lm_head.md
       - operators/ratio-kl.md
       - operators/pack-and-pad.md

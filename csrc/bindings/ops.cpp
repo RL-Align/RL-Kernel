@@ -236,6 +236,28 @@ void deterministic_collective_rocm_ipc_all_gather_input(
     torch::Tensor output);
 #endif
 
+#if !defined(USE_ROCM) && !defined(KERNEL_ALIGN_WITH_ROCM)
+// Qwen-Image WS1 MLP down projection. These four entry points are the portable
+// fp32 tree path (contract mlp-down-gemm-tree, byte-equal to the row's fp32
+// CPU reference); the *_sm90 entry points below are the Hopper hardware-order
+// path (contract mlp-down-gemm-mma). Not part of a ROCm build: the sources
+// are NVIDIA CUDA, and ROCm uses the Triton backend.
+torch::Tensor mlp_down_gemm_cuda_forward(torch::Tensor x, torch::Tensor weight,
+                                        std::optional<torch::Tensor> bias);
+torch::Tensor mlp_down_gemm_cuda_dx(torch::Tensor g, torch::Tensor weight);
+torch::Tensor mlp_down_gemm_cuda_dw(torch::Tensor g, torch::Tensor x);
+torch::Tensor mlp_down_gemm_cuda_db(torch::Tensor grad);
+#if defined(KERNEL_ALIGN_WITH_SM90)
+// Hopper (SM90) TMA + wgmma path for the same contract; identical signatures.
+// Defined in csrc/cuda/gemm/mlp_down_gemm_sm90.cu, which the build compiles only
+// into the SM90 source set (setup.py, KERNEL_ALIGN_FORCE_SM90=1).
+torch::Tensor mlp_down_gemm_cuda_forward_sm90(torch::Tensor x, torch::Tensor weight,
+                                             std::optional<torch::Tensor> bias);
+torch::Tensor mlp_down_gemm_cuda_dx_sm90(torch::Tensor g, torch::Tensor weight);
+torch::Tensor mlp_down_gemm_cuda_dw_sm90(torch::Tensor g, torch::Tensor x);
+#endif  // KERNEL_ALIGN_WITH_SM90
+#endif  // !USE_ROCM
+
 // Batch-Invariant Deterministic GEMM Declarations
 bool det_gemm_sm90_compiled();
 torch::Tensor det_gemm_fwd(torch::Tensor a, torch::Tensor b);
@@ -703,6 +725,33 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("prefix_shared_attention", &prefix_shared_attention, "Prefix-Shared Fused Attention for GRPO");
 #endif
 
+    // registry Qwen-Image MLP down projection (two frozen contracts)
+#if !defined(USE_ROCM)
+    // The declarations above carry the same guard: on ROCm this source is not built,
+    // so repeating it here is what keeps the ROCm extension linkable.
+    m.def("mlp_down_gemm_cuda_forward", &mlp_down_gemm_cuda_forward,
+          "MLP down bias GEMM forward (portable fp32 tree, mlp-down-gemm-tree)");
+    m.def("mlp_down_gemm_cuda_dx", &mlp_down_gemm_cuda_dx,
+          "MLP down dx on the portable fp32 tree (mlp-down-gemm-tree)");
+    m.def("mlp_down_gemm_cuda_dw", &mlp_down_gemm_cuda_dw,
+          "MLP down dW ascending-row fp32 left fold (mlp-down-gemm-tree)");
+    m.def("mlp_down_gemm_cuda_db", &mlp_down_gemm_cuda_db,
+          "MLP down db ascending-row left fold (fp32; shared by both contracts)");
+#if defined(KERNEL_ALIGN_WITH_SM90)
+    // Hopper TMA + wgmma backend for the hardware-order contract: the reduction
+    // order, the fp32 bias add and the single bf16 cast match the Triton backend,
+    // so this is a drop-in for Triton but a *different* arithmetic order from the
+    // tree entry points above. The declarations above share this guard and the
+    // source is only compiled into the SM90 set, so a plain build simply lacks
+    // these symbols.
+    m.def("mlp_down_gemm_cuda_forward_sm90", &mlp_down_gemm_cuda_forward_sm90,
+          "MLP down bias GEMM forward (Hopper TMA + wgmma, mlp-down-gemm-mma)");
+    m.def("mlp_down_gemm_cuda_dx_sm90", &mlp_down_gemm_cuda_dx_sm90,
+          "MLP down dx (Hopper TMA + wgmma, mlp-down-gemm-mma)");
+    m.def("mlp_down_gemm_cuda_dw_sm90", &mlp_down_gemm_cuda_dw_sm90,
+          "MLP down dW (Hopper TMA + wgmma, mlp-down-gemm-mma)");
+#endif  // KERNEL_ALIGN_WITH_SM90
+#endif  // !USE_ROCM
     // registry Batch-Invariant Deterministic GEMM
     m.def("det_gemm_sm90_compiled", &det_gemm_sm90_compiled,
           "Whether the extension contains the SM90 deterministic GEMM implementation");

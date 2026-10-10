@@ -141,6 +141,12 @@ class TestMusaPlatform:
             ],
             "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
             "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
+            # Qwen-Image WS1 MLP down projection: the CUDA sources are NVIDIA PTX, so
+            # Triton is the validated backend on MUSA too.
+            "mlp_down_gemm": [
+                OpBackend.TRITON_MLP_DOWN_GEMM,
+                OpBackend.PYTORCH_MLP_DOWN_GEMM,
+            ],
         }
         for op_name, candidates in expected.items():
             assert registry._priority_map["musa"][op_name] == candidates
