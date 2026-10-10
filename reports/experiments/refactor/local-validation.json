@@ -1,0 +1,76 @@
+{
+  "baseline_commit": "bea224b56715187fd72d13ef55b16cd3666c7d5e",
+  "candidate_branch": "refactor",
+  "environment": {
+    "os": "Darwin",
+    "architecture": "arm64",
+    "python": "3.12.13",
+    "torch": "2.14.1",
+    "cuda_available": false,
+    "hip": null
+  },
+  "existing_suite": {
+    "baseline": {
+      "counts": {
+        "skipped": 1920,
+        "passed": 1832,
+        "failure": 5
+      },
+      "failures": [
+        "tests.distributed.test_rocm_attention_transport::test_rccl_adapter_world_sizes_match_the_shared_collective",
+        "tests.test_distributed_grpo_loss.TestSingleRank::test_dispatch_resolves_this_backend",
+        "tests.test_distributed_grpo_loss.TestNegativeControls::test_regrouping_the_token_sum_moves_the_per_sequence_vector",
+        "tests.test_distributed_logprob_comparison::test_tp2_cp2_gloo_cli_emits_per_rank_report",
+        "tests.test_rocm_aot_slot_rebinding::test_exported_row_projection_graph_resolves_current_process_ipc_handle"
+      ]
+    },
+    "candidate": {
+      "counts": {
+        "skipped": 1920,
+        "passed": 1832,
+        "failure": 5
+      },
+      "failures": [
+        "tests.backends.rocm.test_rocm_aot_slot_rebinding::test_exported_row_projection_graph_resolves_current_process_ipc_handle",
+        "tests.distributed.cp.test_rocm_attention_transport::test_rccl_adapter_world_sizes_match_the_shared_collective",
+        "tests.distributed.tp.test_distributed_grpo_loss.TestSingleRank::test_dispatch_resolves_this_backend",
+        "tests.distributed.tp.test_distributed_grpo_loss.TestNegativeControls::test_regrouping_the_token_sum_moves_the_per_sequence_vector",
+        "tests.validation.common.test_distributed_logprob_comparison::test_tp2_cp2_gloo_cli_emits_per_rank_report"
+      ]
+    },
+    "collection_exclusions": [
+      "Triton unavailable: benchmark_qwen_ffn_layout, grpo_loss, ratio_kl, triton_batch_invariant_attention",
+      "Pre-existing missing _AITER_FWD_REQUIRED_KEYWORDS export: test_rocm_aiter_api_contract"
+    ]
+  },
+  "additional_checks": {
+    "layout_suite": {
+      "passed": 28,
+      "skipped": 1,
+      "reason": "native extension unavailable on this CPU host"
+    },
+    "focused_followup": {
+      "passed": 232,
+      "skipped": 23
+    },
+    "numerical_jsons_byte_identical": true,
+    "archive_artifacts_byte_identical": 74,
+    "native_sources_checked": 35,
+    "python_operator_modules_checked": 90,
+    "wheel_and_sdist_build": "passed",
+    "installed_wheel_resources_and_entrypoints": "passed",
+    "mkdocs_strict": "passed",
+    "mypy_ci_environment": "passed",
+    "mypy_with_torch_stubs": {
+      "baseline_errors": 14,
+      "candidate_errors": 14,
+      "new_errors": 0
+    }
+  },
+  "gpu_acceptance": {
+    "cuda": "pending",
+    "rocm": "pending",
+    "numerical_requirement": "zero raw-bit mismatches in each supported train/rollout configuration",
+    "performance_policy": "report differences only; reviewer decides, no percentage gate"
+  }
+}
