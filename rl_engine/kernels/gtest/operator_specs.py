@@ -215,6 +215,7 @@ OP_SPECS = {
             "CudaTxtInRMSNormLinearOp",
         },
         grad_input_names=("x", "norm_weight", "weight", "bias"),
+        bitwise_strict=True,
     ),
     "det_gemm": OperatorSpec(
         name="det_gemm",

@@ -99,12 +99,12 @@ reductions, bit-identical on every device).
   dtypes, logical-element bit patterns (the harness in
   `tests/test_txt_in_rmsnorm_linear.py`: shape, dtype, dtype-bitcast; zero
   tolerance). A result that differs in any bit fails acceptance; error
-  statistics are diagnostics only. The generic gtest matrix
-  (`scripts/check_operator.py`, `tolerance_contract.json`) is a diagnostic
-  overlay for this operator -- its bf16 forward leg compares the fp32 gold
-  against the bf16 output and its gradient leg compares
-  autograd-through-gold against the frozen backward, both tolerance-based
-  by construction -- and cannot weaken the bitwise bar.
+  statistics are diagnostics only. The generic gtest matrix enforces the
+  same bar for this operator (`bitwise_strict` in
+  `rl_engine/kernels/gtest/operator_specs.py`): the forward criterion is
+  the gold cast once to the output dtype, compared on the dtype bitcast;
+  the gradient leg differentiates the gold OP itself (its frozen backward)
+  with the same upstream bits, then compares bit-for-bit.
 
 ## Performance Notes
 
