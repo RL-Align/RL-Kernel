@@ -159,9 +159,11 @@ multi-GPU alignment, or real-model rollout support. See the
 
 ## Deterministic CUDA Training
 
-The deterministic single-GPU LogP backend supports first-order native CUDA
-backward for FP32, FP16, and BF16 logits. The forward saves the LSE from its fixed
-reduction, and backward uses `deterministic_logp_backward`; no PyTorch or Triton
+The deterministic single-GPU LogP backend supports first- and second-order
+native CUDA gradients for FP32, FP16, BF16, and explicit FP64 interfaces. Forward
+saves the LSE from a fixed reduction. First backward uses
+`deterministic_logp_backward` (or `deterministic_logp_backward_fp64`); second
+backward uses `deterministic_logp_double_backward`. No PyTorch softmax or Triton
 backward fallback is used. Rebuild the extension after updating the source.
 
 ```bash
@@ -179,17 +181,53 @@ does not demonstrate that the training gradient used this backend.
 `apply`, `apply_fp32`, `indexed_fp32`, and their online aliases support gradients.
 Indexed outputs retain the full row shape: unselected rows and invalid targets
 have zero gradients; duplicate indices select a row once, and out-of-range row
-indices are ignored. `out` variants are inference-only and reject gradient mode
-when logits or the output buffer require gradients; use `torch.no_grad()` for
-these interfaces. FP64 remains inference-only, and second-order gradients are
-unsupported.
+indices are ignored. Third-order gradients are unsupported.
+
+For true double precision, use `apply_fp64`, `indexed_fp64`, `out_fp64`, or
+`indexed_out_fp64` (also available as `online_fp64`, `online_indexed_fp64`,
+`online_out_fp64`, and `online_indexed_out_fp64`). These require FP64 logits and
+use FP64 reduction, LSE, outputs, and derivatives; FP64 out buffers must also be
+double precision. Default calls and existing FP32 interfaces retain their
+historical FP32 arithmetic and output contract, including FP64 inference inputs.
+FP64 training through those older interfaces raises an error directing callers
+to the explicit FP64 methods.
+
+`out` and `indexed_out`, including online/FP64 variants, support logits gradients
+through a differentiable copy into the supplied buffer. The buffer must be
+contiguous, on the logits device, not require gradients, and not share storage
+with logits, token IDs, or row indices. Indexed out preserves unselected buffer
+values. Training allocates a temporary result; it is not a zero-allocation API.
+After writing, the buffer participates in the graph. To reuse it after completing
+backward, detach it explicitly. Do not mutate a buffer still needed by a pending
+backward. Existing `no_grad` inference behavior is preserved.
+
+```python
+op = DeterministicLogpCUDAOp()  # from rl_engine.kernels.ops.cuda.loss.logp
+x = torch.randn(3, 129, device="cuda", dtype=torch.float64, requires_grad=True)
+ids = torch.tensor([0, 1, 2], device="cuda")
+buffer = torch.empty(3, device="cuda", dtype=torch.float64)
+y = op.out_fp64(x, ids, buffer)
+grad = torch.autograd.grad(y.sum(), x, create_graph=True)[0]
+hvp = torch.autograd.grad(grad, x, torch.randn_like(x))[0]
+buffer = buffer.detach()  # eligible for reuse after this backward
+```
 
 Run the native autograd regressions alongside the existing forward checks:
 
 ```bash
 python -m pytest tests/test_deterministic_logp_autograd.py \
-  tests/test_deterministic_logp.py -v -rs
+  tests/test_deterministic_logp_higher_order.py tests/test_deterministic_logp.py -v -rs
 ```
+
+Capture the loaded extension hash, source commit, and actual CUDA kernel names:
+
+```bash
+python scripts/probe_deterministic_logp_autograd.py --output runs/logp-native.json
+```
+
+The probe checks all four precisions across dense/indexed and allocating/out
+interfaces. It fails if native forward, first backward, or second backward is
+missing, or a softmax/Triton replacement appears in the trace.
 
 Record skipped tests separately. SM90/Hopper and Ascend-only tests do not validate
 B200 support. These checks cover a single GPU and synthetic inputs; they do not

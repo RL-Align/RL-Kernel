@@ -1,6 +1,8 @@
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAException.h>
+#include <c10/cuda/CUDAGuard.h>
+#include <type_traits>
 #include <cuda_runtime.h>
 #include <algorithm>
 #include <limits>
@@ -742,4 +744,181 @@ torch::Tensor deterministic_logp_backward(
         }));
     C10_CUDA_KERNEL_LAUNCH_CHECK();
     return grad;
+}
+
+// Single-device FP64 and double backward. Keep the legacy FP32 forward and
+// vocab-parallel backward unchanged, including their reduction topology.
+namespace {
+template <typename acc_t, int BlockSize, bool Max = false>
+__device__ acc_t deterministic_logp_reduce(acc_t value) {
+    constexpr int Warps = BlockSize / 32;
+    __shared__ acc_t shared[Warps];
+    const int lane = threadIdx.x % 32, warp = threadIdx.x / 32;
+    for (int offset = 16; offset; offset >>= 1) {
+        acc_t other = deterministic_logp_shfl_down_32(value, offset);
+        value = Max ? (value > other ? value : other) : value + other;
+    }
+    if (lane == 0) shared[warp] = value;
+    __syncthreads();
+    value = threadIdx.x < Warps ? shared[threadIdx.x] : (Max ? acc_t(-INFINITY) : acc_t(0));
+    if (warp == 0) {
+        for (int offset = 16; offset; offset >>= 1) {
+            acc_t other = deterministic_logp_shfl_down_32(value, offset);
+            value = Max ? (value > other ? value : other) : value + other;
+        }
+    }
+    return value;
+}
+
+template <int BlockSize>
+__global__ void deterministic_logp_forward_fp64_kernel(
+    const double* logits, const int64_t* labels, const int64_t* indices,
+    double* output, double* lse, int64_t rows, int vocab) {
+    const int64_t row = indices ? indices[blockIdx.x] : blockIdx.x;
+    if (row < 0 || row >= rows) return;
+    const double* x = logits + row * vocab;
+    double maximum = -INFINITY;
+    for (int c = threadIdx.x; c < vocab; c += BlockSize) maximum = fmax(maximum, x[c]);
+    maximum = deterministic_logp_reduce<double, BlockSize, true>(maximum);
+    __shared__ double row_max, row_sum;
+    if (threadIdx.x == 0) row_max = maximum;
+    __syncthreads();
+    double sum = 0;
+    for (int c = threadIdx.x; c < vocab; c += BlockSize) sum += exp(x[c] - row_max);
+    sum = deterministic_logp_reduce<double, BlockSize>(sum);
+    if (threadIdx.x == 0) row_sum = sum;
+    __syncthreads();
+    if (threadIdx.x == 0) {
+        const int64_t target = labels[row];
+        const bool valid = target >= 0 && target < vocab;
+        output[row] = valid ? x[target] - row_max - log(row_sum) : 0.;
+        if (lse) lse[row] = valid ? row_max + log(row_sum) : -INFINITY;
+    }
+}
+
+__global__ void deterministic_logp_backward_fp64_kernel(
+    const double* logits, const double* lse, const double* g,
+    const int64_t* labels, double* output, int vocab) {
+    const int64_t row = blockIdx.x;
+    const bool active = isfinite(lse[row]) && labels[row] >= 0 && labels[row] < vocab;
+    for (int c = threadIdx.x; c < vocab; c += blockDim.x) {
+        const int64_t i = row * vocab + c;
+        output[i] = active ? g[row] * (double(c == labels[row]) - exp(logits[i] - lse[row])) : 0.;
+    }
+}
+
+template <typename input_t, typename acc_t, int BlockSize>
+__global__ void deterministic_logp_double_backward_kernel(
+    const input_t* logits, const acc_t* lse, const acc_t* g,
+    const int64_t* labels, const input_t* h, input_t* dx, acc_t* dg, int vocab) {
+    const int64_t row = blockIdx.x;
+    const bool active = isfinite(lse[row]) && labels[row] >= 0 && labels[row] < vocab;
+    if (!active) {
+        for (int c = threadIdx.x; c < vocab; c += BlockSize) dx[row * vocab + c] = input_t(0);
+        if (threadIdx.x == 0) dg[row] = 0;
+        return;
+    }
+    acc_t dot = 0;
+    for (int c = threadIdx.x; c < vocab; c += BlockSize) {
+        const int64_t i = row * vocab + c;
+        dot += acc_t(h[i]) * exp(acc_t(logits[i]) - lse[row]);
+    }
+    dot = deterministic_logp_reduce<acc_t, BlockSize>(dot);
+    __shared__ acc_t row_dot;
+    if (threadIdx.x == 0) {
+        row_dot = dot;
+        dg[row] = acc_t(h[row * vocab + labels[row]]) - dot;
+    }
+    __syncthreads();
+    for (int c = threadIdx.x; c < vocab; c += BlockSize) {
+        const int64_t i = row * vocab + c;
+        const acc_t p = exp(acc_t(logits[i]) - lse[row]);
+        dx[i] = input_t(-g[row] * p * (acc_t(h[i]) - row_dot));
+    }
+}
+
+void check_deterministic_logp_derivative_inputs(
+    const torch::Tensor& logits, const torch::Tensor& lse,
+    const torch::Tensor& g, const torch::Tensor& labels) {
+    // Reuse shape, vocabulary, device and index dtype validation.
+    check_deterministic_logp_inputs(logits, labels, g);
+    TORCH_CHECK(logits.scalar_type() == at::kDouble || logits.scalar_type() == at::kFloat ||
+                logits.scalar_type() == at::kHalf || logits.scalar_type() == at::kBFloat16,
+                "unsupported logits dtype");
+    const auto dtype = logits.scalar_type() == at::kDouble ? at::kDouble : at::kFloat;
+    TORCH_CHECK(g.scalar_type() == dtype, "gradient coefficient has the wrong dtype");
+    TORCH_CHECK(lse.device() == logits.device() && lse.scalar_type() == dtype &&
+                lse.dim() == 1 && lse.numel() == logits.size(0) && lse.is_contiguous(),
+                "lse must be a contiguous row vector with the accumulation dtype on the logits device");
+}
+} // namespace
+
+std::vector<torch::Tensor> deterministic_logp_forward_fp64(
+    torch::Tensor logits, torch::Tensor token_ids,
+    torch::optional<torch::Tensor> row_indices, bool save_lse) {
+    TORCH_CHECK(logits.dim() == 2, "logits must be 2D");
+    TORCH_CHECK(logits.scalar_type() == at::kDouble, "FP64 LogP requires float64 logits");
+    auto output = torch::zeros({logits.size(0)}, logits.options());
+    auto lse = save_lse ? torch::full({logits.size(0)}, -INFINITY, logits.options())
+                        : torch::empty({0}, logits.options());
+    check_deterministic_logp_inputs(logits, token_ids, output);
+    if (row_indices.has_value()) check_deterministic_logp_indices(logits, *row_indices);
+    const c10::cuda::CUDAGuard guard(logits.device());
+    auto input = logits.contiguous(), labels = token_ids.contiguous();
+    auto indices = row_indices.has_value() ? row_indices->contiguous() : torch::Tensor();
+    const int64_t launch_rows = indices.defined() ? indices.numel() : input.size(0);
+    if (launch_rows) {
+        auto stream = at::cuda::getCurrentCUDAStream();
+        const int64_t* idx = indices.defined() ? indices.data_ptr<int64_t>() : nullptr;
+        double* saved = save_lse ? lse.data_ptr<double>() : nullptr;
+#define LAUNCH_FP64(B) deterministic_logp_forward_fp64_kernel<B><<<launch_rows, B, 0, stream>>>( \
+            input.data_ptr<double>(), labels.data_ptr<int64_t>(), idx, output.data_ptr<double>(), \
+            saved, input.size(0), input.size(1))
+        if (input.size(1) <= 128) { LAUNCH_FP64(128); }
+        else if (input.size(1) <= 4096) { LAUNCH_FP64(256); }
+        else { LAUNCH_FP64(512); }
+#undef LAUNCH_FP64
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+    }
+    return {output, lse};
+}
+
+torch::Tensor deterministic_logp_backward_fp64(
+    torch::Tensor logits, torch::Tensor lse, torch::Tensor g, torch::Tensor labels) {
+    check_deterministic_logp_derivative_inputs(logits, lse, g, labels);
+    TORCH_CHECK(logits.scalar_type() == at::kDouble, "FP64 backward requires float64 logits");
+    const c10::cuda::CUDAGuard guard(logits.device());
+    auto input = logits.contiguous(), ids = labels.contiguous();
+    auto output = torch::empty_like(input);
+    if (input.size(0)) {
+        deterministic_logp_backward_fp64_kernel<<<input.size(0), 256, 0, at::cuda::getCurrentCUDAStream()>>>(
+            input.data_ptr<double>(), lse.data_ptr<double>(), g.data_ptr<double>(),
+            ids.data_ptr<int64_t>(), output.data_ptr<double>(), input.size(1));
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+    }
+    return output;
+}
+
+std::vector<torch::Tensor> deterministic_logp_double_backward(
+    torch::Tensor logits, torch::Tensor lse, torch::Tensor g,
+    torch::Tensor labels, torch::Tensor h) {
+    check_deterministic_logp_derivative_inputs(logits, lse, g, labels);
+    TORCH_CHECK(h.device() == logits.device() && h.scalar_type() == logits.scalar_type() &&
+                h.sizes() == logits.sizes(), "h must match logits shape, dtype and device");
+    const c10::cuda::CUDAGuard guard(logits.device());
+    auto input = logits.contiguous(), ids = labels.contiguous(), upstream = h.contiguous();
+    auto dx = torch::empty_like(input), dg = torch::empty_like(g);
+    if (input.size(0)) {
+        AT_DISPATCH_FLOATING_TYPES_AND2(at::kHalf, at::kBFloat16, input.scalar_type(),
+            "deterministic_logp_double_backward", ([&] {
+                using acc_t = std::conditional_t<std::is_same_v<scalar_t, double>, double, float>;
+                deterministic_logp_double_backward_kernel<scalar_t, acc_t, 256>
+                    <<<input.size(0), 256, 0, at::cuda::getCurrentCUDAStream()>>>(
+                        input.data_ptr<scalar_t>(), lse.data_ptr<acc_t>(), g.data_ptr<acc_t>(),
+                        ids.data_ptr<int64_t>(), upstream.data_ptr<scalar_t>(),
+                        dx.data_ptr<scalar_t>(), dg.data_ptr<acc_t>(), input.size(1));
+            }));
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+    }
+    return {dx, dg};
 }

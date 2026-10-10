@@ -143,7 +143,10 @@ def test_indexed_layout_gradient_bits(op, dtype):
     bits(torch.cat(chunks), baseline)
     order = torch.tensor([6, 0, 4, 2, 5, 1, 3], device="cuda")
     inverse = torch.argsort(order)
-    bits(gradient(logits[order], ids[order], inverse[selected], upstream[order]), baseline[order])
+    bits(
+        gradient(logits[order], ids[order], inverse[selected], upstream[order]),
+        baseline[order],
+    )
     padded, labels = inputs(4097, dtype, (16,))
     with torch.no_grad():
         padded[3:10].copy_(logits)
@@ -157,7 +160,7 @@ def test_indexed_layout_gradient_bits(op, dtype):
 
 @pytest.mark.parametrize("method", ["out", "indexed_out", "online_out", "online_indexed_out"])
 @pytest.mark.parametrize("output_grad", [False, True])
-def test_out_requires_no_grad(op, method, output_grad):
+def test_out_buffer_gradient_contract(op, method, output_grad):
     logits, ids = inputs(17, torch.float32)
     logits.requires_grad_(not output_grad)
     output = torch.empty_like(ids, dtype=torch.float32, requires_grad=output_grad)
@@ -166,8 +169,13 @@ def test_out_requires_no_grad(op, method, output_grad):
         if "indexed" in method
         else (logits, ids, output)
     )
-    with pytest.raises(RuntimeError, match="inference-only"):
-        getattr(op, method)(*args)
+    if output_grad:
+        with pytest.raises(RuntimeError, match="must not require gradients"):
+            getattr(op, method)(*args)
+    else:
+        result = getattr(op, method)(*args)
+        assert result.data_ptr() == output.data_ptr()
+        assert torch.autograd.grad(result.sum(), logits)[0].shape == logits.shape
     with torch.no_grad():
         result = getattr(op, method)(*args)
         assert result.data_ptr() == output.data_ptr()
@@ -175,7 +183,8 @@ def test_out_requires_no_grad(op, method, output_grad):
 
 
 @pytest.mark.parametrize(
-    "method", ["apply", "apply_fp32", "online_fp32", "indexed_fp32", "online_indexed_fp32"]
+    "method",
+    ["apply", "apply_fp32", "online_fp32", "indexed_fp32", "online_indexed_fp32"],
 )
 def test_aliases_and_float64_inference(op, method):
     logits, ids = inputs(17, torch.float64)
@@ -199,9 +208,9 @@ def test_missing_native_symbol_is_actionable(op):
         op(logits, ids)
 
 
-def test_second_order_rejected(op):
+def test_second_order_supported(op):
     logits, ids = inputs(17, torch.float32)
     upstream = torch.ones_like(ids, dtype=torch.float32, requires_grad=True)
     grad = torch.autograd.grad(op(logits, ids), logits, upstream, create_graph=True)[0]
-    with pytest.raises(RuntimeError):
-        torch.autograd.grad(grad.sum(), upstream)
+    actual = torch.autograd.grad(grad.sum(), upstream)[0]
+    torch.testing.assert_close(actual, torch.zeros_like(upstream), atol=1e-6, rtol=0)
