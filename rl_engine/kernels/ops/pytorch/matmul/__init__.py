@@ -1,4 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-from .det_gemm import NativeGemmOp, native_gemm
+"""Compatibility import; the canonical module is loaded below."""
 
-__all__ = ["NativeGemmOp", "native_gemm"]
+from importlib import import_module
+
+
+def __getattr__(name):
+    return getattr(import_module("rl_engine.reference.gemm"), name)

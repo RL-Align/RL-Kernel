@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 RL-Kernel Contributors
+"""Compatibility import; the canonical module is loaded below."""
 
-from rl_engine.kernels.ops.cuda.rotary_embedding.rope import RoPESM90Op
+from importlib import import_module
 
-__all__ = ["RoPESM90Op"]
+
+def __getattr__(name):
+    return getattr(import_module("rl_engine.backends.cuda.rope"), name)
