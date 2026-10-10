@@ -25,8 +25,8 @@ out = op(x, norm_out_norm_w, temb, norm_out_linear_w, norm_out_linear_b, timeste
 
 | Backend | Wrapper | Native symbols | Status |
 | --- | --- | --- | --- |
-| CUDA (SM80+) | `rl_engine.kernels.ops.cuda.h3.final_adaln_out.H3FinalAdaLNOutCudaOp` | `rl_engine._C.h3_det_linear_*`, `rl_engine._C.h3_rmsnorm_*` | One autograd node |
-| PyTorch reference | `rl_engine.kernels.ops.pytorch.h3.final_adaln_out.NativeH3FinalAdaLNOutOp` | n/a | `forward`: diffusers replay; `forward_fp32`: FP64 golden |
+| CUDA (SM80+) | `rl_engine.backends.cuda.model_specific.minimax_h3.final_adaln_out.H3FinalAdaLNOutCudaOp` | `rl_engine._C.h3_det_linear_*`, `rl_engine._C.h3_rmsnorm_*` | One autograd node |
+| PyTorch reference | `rl_engine.reference.minimax_h3.final_adaln_out.NativeH3FinalAdaLNOutOp` | n/a | `forward`: diffusers replay; `forward_fp32`: FP64 golden |
 | ROCm | n/a | n/a | Falls back to the PyTorch reference |
 
 ## Numerics
@@ -55,7 +55,7 @@ out = op(x, norm_out_norm_w, temb, norm_out_linear_w, norm_out_linear_b, timeste
 ## Performance Notes
 
 ```bash
-python benchmarks/benchmark_h3_conditioning.py --op final_adaln_out
+python benchmarks/models/benchmark_h3_conditioning.py --op final_adaln_out
 ```
 
 B200, B = 1, T = 3, pinned `norm_out` weights. Backward timings exclude input
@@ -72,23 +72,23 @@ projection backward.
 
 ## Evidence
 
-![final_adaln_out on B200: latency and backward accuracy](../usage/evidence/h3-final-adaln-out-b200/figure.png)
+![final_adaln_out on B200: latency and backward accuracy](../../reports/experiments/h3-final-adaln-out-b200/figure.png)
 
 There are two data files:
 
-- [`report.json`](../usage/evidence/h3-final-adaln-out-b200/report.json): op timings, the
+- [`report.json`](../../reports/experiments/h3-final-adaln-out-b200/report.json): op timings, the
   forward-equality fraction, row invariance and backward accuracy. Regenerated from a clean
   tree at `bde1d8d` on an otherwise idle B200, with FP64 leaves and upstream gradients. The
   backward reference keeps only the SiLU and table roundings, so the errors include the BF16
   rounding of `norm(x)` and `1 + scale`.
-- [`chain_replay.json`](../usage/evidence/h3-final-adaln-out-b200/chain_replay.json): the
+- [`chain_replay.json`](../../reports/experiments/h3-final-adaln-out-b200/chain_replay.json): the
   whole conditioning chain (timestep → … → norm_out) replayed stage by stage over
   T in {1, 2, 3, 4} × S in {3, 257, 4097, 32768}, with the backward replay. Written from a clean
   tree at `001684d`.
 
 ## Existing implementations (RFC #420 reuse rule)
 
-![final_adaln_out vs existing implementations](../usage/evidence/h3-prior-art-b200/final_adaln_out.png)
+![final_adaln_out vs existing implementations](../../reports/experiments/h3-prior-art-b200/final_adaln_out.png)
 
 | Implementation | Batch-invariant | size 4097: fwd err / worst grad err / fwd+bwd | size 32768: fwd err / worst grad err / fwd+bwd |
 |---|---|---|---|
@@ -99,12 +99,12 @@ Errors are max|err| / max|ref| against the same computation in FP64; latency is 
 forward + backward time on an otherwise idle B200. Batch invariance is bitwise and covers
 three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
 131072-token batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
-"no" means that at least one row, sub-batch or gradient differed. [`final_adaln_out.json`](../usage/evidence/h3-prior-art-b200/final_adaln_out.json)
+"no" means that at least one row, sub-batch or gradient differed. [`final_adaln_out.json`](../../reports/experiments/h3-prior-art-b200/final_adaln_out.json)
 was written from a clean tree at `03da729` by
 
 ```bash
-python scripts/h3_prior_art.py --op final_adaln_out --out docs/usage/evidence/h3-prior-art-b200/final_adaln_out.json
-python scripts/plot_h3_prior_art.py docs/usage/evidence/h3-prior-art-b200/final_adaln_out.json
+python tools/validation/models/h3_prior_art.py --op final_adaln_out --out reports/experiments/h3-prior-art-b200/final_adaln_out.json
+python tools/validation/models/plot_h3_prior_art.py reports/experiments/h3-prior-art-b200/final_adaln_out.json
 ```
 
 Libraries that do not import are skipped and recorded as unavailable in the report.
@@ -112,14 +112,14 @@ Libraries that do not import are skipped and recorded as unavailable in the repo
 ## Tests
 
 ```bash
-export RL_KERNEL_H3_WEIGHTS=<dir written by scripts/prepare_h3_weights.py>
-python -m pytest tests/h3/test_h3_final_adaln_out.py -v       # operator
-python -m pytest tests/h3/test_h3_conditioning_e2e.py -v      # end to end: timestep -> ... -> norm_out
-python scripts/check_operator.py --op final_adaln_out --candidate cuda --device cuda \
+export RL_KERNEL_H3_WEIGHTS=<dir written by tools/weights/prepare_h3_weights.py>
+python -m pytest tests/models/minimax_h3/test_h3_final_adaln_out.py -v       # operator
+python -m pytest tests/models/minimax_h3/test_h3_conditioning_e2e.py -v      # end to end: timestep -> ... -> norm_out
+python tools/validation/operators/check_operator.py --op final_adaln_out --candidate cuda --device cuda \
     --dtype bf16 --batch 3 --seq 4097 --normalized-dim 5376 --check-grad   # also 257, 1024
-python scripts/h3_evidence.py --op final_adaln_out \
-    --out docs/usage/evidence/h3-final-adaln-out-b200/report.json
-python scripts/plot_h3_evidence.py docs/usage/evidence/h3-final-adaln-out-b200/report.json
+python tools/validation/models/h3_evidence.py --op final_adaln_out \
+    --out reports/experiments/h3-final-adaln-out-b200/report.json
+python tools/validation/models/plot_h3_evidence.py reports/experiments/h3-final-adaln-out-b200/report.json
 ```
 
 ## Known Limitations

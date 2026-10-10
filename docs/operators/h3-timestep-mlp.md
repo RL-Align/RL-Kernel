@@ -15,12 +15,12 @@ activations and output are all FP32. `temb` stays FP32 because every AdaLN
 projection applies its own SiLU before casting to BF16.
 
 Pinned model: `MiniMaxAI/MiniMax-H3@42ed227`. The tensors are
-`time_embedder.linear_{1,2}.{weight,bias}` (see `rl_engine/testing/h3_manifest.json`).
+`time_embedder.linear_{1,2}.{weight,bias}` (see `rl_engine/validation/models/h3_manifest.json`).
 
 ## Entry Point
 
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 op = kernel_registry.get_op("timestep_mlp_fp32", device="cuda")
 temb = op(features, w1, b1, w2, b2)          # all float32
@@ -30,8 +30,8 @@ temb = op(features, w1, b1, w2, b2)          # all float32
 
 | Backend | Wrapper | Native symbols | Status |
 | --- | --- | --- | --- |
-| CUDA (SM90, SM100) | `rl_engine.kernels.ops.cuda.h3.timestep_mlp.H3TimestepMLPCudaOp` | `rl_engine._C.h3_det_linear_{forward,backward_input,backward_weight}` | Contract `h3-det-linear-v1` |
-| PyTorch reference | `rl_engine.kernels.ops.pytorch.h3.timestep_mlp.NativeH3TimestepMLPOp` | n/a | `forward`: provider path (`F.linear`/`F.silu`); `forward_fp32`: FP64 golden |
+| CUDA (SM90, SM100) | `rl_engine.backends.cuda.model_specific.minimax_h3.timestep_mlp.H3TimestepMLPCudaOp` | `rl_engine._C.h3_det_linear_{forward,backward_input,backward_weight}` | Contract `h3-det-linear-v1` |
+| PyTorch reference | `rl_engine.reference.minimax_h3.timestep_mlp.NativeH3TimestepMLPOp` | n/a | `forward`: provider path (`F.linear`/`F.silu`); `forward_fp32`: FP64 golden |
 | ROCm | n/a | n/a | Falls back to the PyTorch reference |
 
 ## Tensor Contract
@@ -86,13 +86,13 @@ Both outputs are about 100× inside the contract (`reduction` / `float32`, atol 
 1e-4). Neither is more accurate in general: cuBLAS's tree happens to do slightly better
 on these weights. What the CUDA kernel adds is a fixed summation order, which makes each
 row batch- and position-invariant and every run repeat-bitwise, and it is 2× faster
-for T >= 2. The two outputs are not bitwise equal, so `scripts/h3_chain_replay.py`
+for T >= 2. The two outputs are not bitwise equal, so `tools/validation/models/h3_chain_replay.py`
 reports this stage as the chain's `first_drift`, which is expected for a reduction.
 
 ## Performance Notes
 
 ```bash
-python benchmarks/benchmark_h3_conditioning.py --op timestep_mlp_fp32
+python benchmarks/models/benchmark_h3_conditioning.py --op timestep_mlp_fp32
 ```
 
 B200, pinned weights (63.3 MB FP32). End-to-end op times include the Python wrapper:
@@ -109,15 +109,15 @@ kernel time.
 
 ## Evidence
 
-![timestep_mlp_fp32 on B200: latency and per-draw error vs FP64](../usage/evidence/h3-timestep-mlp-b200/figure.png)
+![timestep_mlp_fp32 on B200: latency and per-draw error vs FP64](../../reports/experiments/h3-timestep-mlp-b200/figure.png)
 
-The data is in [`report.json`](../usage/evidence/h3-timestep-mlp-b200/report.json), written
-by `scripts/h3_evidence.py` from a clean tree at commit `65ef7f6`. It also records that a
+The data is in [`report.json`](../../reports/experiments/h3-timestep-mlp-b200/report.json), written
+by `tools/validation/models/h3_evidence.py` from a clean tree at commit `65ef7f6`. It also records that a
 timestep's row is bitwise identical whether it runs alone or in a batch of 9.
 
 ## Existing implementations (RFC #420 reuse rule)
 
-![timestep_mlp vs existing implementations](../usage/evidence/h3-prior-art-b200/timestep_mlp.png)
+![timestep_mlp vs existing implementations](../../reports/experiments/h3-prior-art-b200/timestep_mlp.png)
 
 | Implementation | Batch-invariant | size 3: fwd err / worst grad err / fwd+bwd | size 256: fwd err / worst grad err / fwd+bwd | size 2048: fwd err / worst grad err / fwd+bwd |
 |---|---|---|---|---|
@@ -134,12 +134,12 @@ Errors are max|err| / max|ref| against the same computation in FP64; latency is 
 forward + backward time on an otherwise idle B200. Batch invariance is bitwise and covers
 three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
 4096-timestep batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
-"no" means that at least one row, sub-batch or gradient differed. [`timestep_mlp.json`](../usage/evidence/h3-prior-art-b200/timestep_mlp.json)
+"no" means that at least one row, sub-batch or gradient differed. [`timestep_mlp.json`](../../reports/experiments/h3-prior-art-b200/timestep_mlp.json)
 was written from a clean tree at `ffd958a` by
 
 ```bash
-python scripts/h3_prior_art.py --op timestep_mlp --out docs/usage/evidence/h3-prior-art-b200/timestep_mlp.json --megatron-src <Megatron-LM checkout>
-python scripts/plot_h3_prior_art.py docs/usage/evidence/h3-prior-art-b200/timestep_mlp.json
+python tools/validation/models/h3_prior_art.py --op timestep_mlp --out reports/experiments/h3-prior-art-b200/timestep_mlp.json --megatron-src <Megatron-LM checkout>
+python tools/validation/models/plot_h3_prior_art.py reports/experiments/h3-prior-art-b200/timestep_mlp.json
 ```
 
 Libraries that do not import are skipped and recorded as unavailable in the report.
@@ -147,14 +147,14 @@ Libraries that do not import are skipped and recorded as unavailable in the repo
 ## Tests
 
 ```bash
-export RL_KERNEL_H3_WEIGHTS=<dir written by scripts/prepare_h3_weights.py>
-python -m pytest tests/h3/test_h3_timestep_mlp.py -v           # operator
-python -m pytest tests/h3/test_h3_conditioning_e2e.py -v       # end to end: sinusoid -> MLP
-python scripts/check_operator.py --op timestep_mlp_fp32 --candidate cuda --device cuda \
+export RL_KERNEL_H3_WEIGHTS=<dir written by tools/weights/prepare_h3_weights.py>
+python -m pytest tests/models/minimax_h3/test_h3_timestep_mlp.py -v           # operator
+python -m pytest tests/models/minimax_h3/test_h3_conditioning_e2e.py -v       # end to end: sinusoid -> MLP
+python tools/validation/operators/check_operator.py --op timestep_mlp_fp32 --candidate cuda --device cuda \
     --dtype fp32 --batch 3 --check-grad
-python scripts/h3_evidence.py --op timestep_mlp_fp32 \
-    --out docs/usage/evidence/h3-timestep-mlp-b200/report.json
-python scripts/plot_h3_evidence.py docs/usage/evidence/h3-timestep-mlp-b200/report.json
+python tools/validation/models/h3_evidence.py --op timestep_mlp_fp32 \
+    --out reports/experiments/h3-timestep-mlp-b200/report.json
+python tools/validation/models/plot_h3_evidence.py reports/experiments/h3-timestep-mlp-b200/report.json
 ```
 
 ## Known Limitations

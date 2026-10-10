@@ -16,7 +16,7 @@ gathers the gate row inside the kernel, so the gathered `(S, H)` gate is never m
 ## Entry Point
 
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 op = kernel_registry.get_op("adaln_gate_residual", device="cuda")
 hidden = op(residual, attn_output, gate_msa, adaln_indices)
@@ -26,8 +26,8 @@ hidden = op(residual, attn_output, gate_msa, adaln_indices)
 
 | Backend | Wrapper | Native symbols | Status |
 | --- | --- | --- | --- |
-| CUDA | `rl_engine.kernels.ops.cuda.h3.gate_residual.H3GateResidualCudaOp` | `rl_engine._C.h3_gate_residual_{forward,backward}` | Forward and `d_sublayer` bitwise equal to diffusers |
-| PyTorch reference | `rl_engine.kernels.ops.pytorch.h3.gate_residual.NativeH3GateResidualOp` | n/a | Eager forward with a deterministic gate gradient; `forward_fp32`: FP64 golden |
+| CUDA | `rl_engine.backends.cuda.model_specific.minimax_h3.gate_residual.H3GateResidualCudaOp` | `rl_engine._C.h3_gate_residual_{forward,backward}` | Forward and `d_sublayer` bitwise equal to diffusers |
+| PyTorch reference | `rl_engine.reference.minimax_h3.gate_residual.NativeH3GateResidualOp` | n/a | Eager forward with a deterministic gate gradient; `forward_fp32`: FP64 golden |
 | ROCm | n/a | n/a | Falls back to the PyTorch reference |
 
 ## Tensor Contract
@@ -58,7 +58,7 @@ hidden = op(residual, attn_output, gate_msa, adaln_indices)
 ## Performance Notes
 
 ```bash
-python benchmarks/benchmark_h3_conditioning.py --op adaln_gate_residual
+python benchmarks/models/benchmark_h3_conditioning.py --op adaln_gate_residual
 ```
 
 B200, B = 1, H = 5376, BF16. Backward timings exclude input and forward-graph setup:
@@ -75,15 +75,15 @@ tile setup.
 
 ## Evidence
 
-![adaln_gate_residual on B200: latency and backward accuracy](../usage/evidence/h3-adaln-gate-residual-b200/figure.png)
+![adaln_gate_residual on B200: latency and backward accuracy](../../reports/experiments/h3-adaln-gate-residual-b200/figure.png)
 
-The data is in [`report.json`](../usage/evidence/h3-adaln-gate-residual-b200/report.json),
-written by `scripts/h3_evidence.py` from a clean tree at commit `bde1d8d`. It also records
+The data is in [`report.json`](../../reports/experiments/h3-adaln-gate-residual-b200/report.json),
+written by `tools/validation/models/h3_evidence.py` from a clean tree at commit `bde1d8d`. It also records
 forward bitwise equality with diffusers in bf16, fp16 and fp32, and row invariance.
 
 ## Existing implementations (RFC #420 reuse rule)
 
-![gate_residual vs existing implementations](../usage/evidence/h3-prior-art-b200/gate_residual.png)
+![gate_residual vs existing implementations](../../reports/experiments/h3-prior-art-b200/gate_residual.png)
 
 | Implementation | Batch-invariant | size 4097: fwd err / worst grad err / fwd+bwd | size 32768: fwd err / worst grad err / fwd+bwd |
 |---|---|---|---|
@@ -94,12 +94,12 @@ Errors are max|err| / max|ref| against the same computation in FP64; latency is 
 forward + backward time on an otherwise idle B200. Batch invariance is bitwise and covers
 three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
 131072-row batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
-"no" means that at least one row, sub-batch or gradient differed. [`gate_residual.json`](../usage/evidence/h3-prior-art-b200/gate_residual.json)
+"no" means that at least one row, sub-batch or gradient differed. [`gate_residual.json`](../../reports/experiments/h3-prior-art-b200/gate_residual.json)
 was written from a clean tree at `4010854` by
 
 ```bash
-python scripts/h3_prior_art.py --op gate_residual --out docs/usage/evidence/h3-prior-art-b200/gate_residual.json
-python scripts/plot_h3_prior_art.py docs/usage/evidence/h3-prior-art-b200/gate_residual.json
+python tools/validation/models/h3_prior_art.py --op gate_residual --out reports/experiments/h3-prior-art-b200/gate_residual.json
+python tools/validation/models/plot_h3_prior_art.py reports/experiments/h3-prior-art-b200/gate_residual.json
 ```
 
 Libraries that do not import are skipped and recorded as unavailable in the report.
@@ -107,14 +107,14 @@ Libraries that do not import are skipped and recorded as unavailable in the repo
 ## Tests
 
 ```bash
-export RL_KERNEL_H3_WEIGHTS=<dir written by scripts/prepare_h3_weights.py>
-python -m pytest tests/h3/test_h3_adaln_gate_residual.py -v   # operator
-python -m pytest tests/h3/test_h3_conditioning_e2e.py -v      # end to end, incl. the gated residual
-python scripts/check_operator.py --op adaln_gate_residual --candidate cuda --device cuda \
+export RL_KERNEL_H3_WEIGHTS=<dir written by tools/weights/prepare_h3_weights.py>
+python -m pytest tests/models/minimax_h3/test_h3_adaln_gate_residual.py -v   # operator
+python -m pytest tests/models/minimax_h3/test_h3_conditioning_e2e.py -v      # end to end, incl. the gated residual
+python tools/validation/operators/check_operator.py --op adaln_gate_residual --candidate cuda --device cuda \
     --dtype bf16 --batch 3 --seq 1365 --normalized-dim 5376 --check-grad
-python scripts/h3_evidence.py --op adaln_gate_residual \
-    --out docs/usage/evidence/h3-adaln-gate-residual-b200/report.json
-python scripts/plot_h3_evidence.py docs/usage/evidence/h3-adaln-gate-residual-b200/report.json
+python tools/validation/models/h3_evidence.py --op adaln_gate_residual \
+    --out reports/experiments/h3-adaln-gate-residual-b200/report.json
+python tools/validation/models/plot_h3_evidence.py reports/experiments/h3-adaln-gate-residual-b200/report.json
 ```
 
 ## Known Limitations
