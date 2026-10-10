@@ -1,7 +1,12 @@
 # Developer Guide
 
-This section collects general contribution material, design documents, and operator
-development notes for RL-Kernel.
+Start with the [Contributor Guide](contributor-guide.md) to choose where your PR's
+implementation, configuration, tests, benchmarks, and documentation belong.
+It explains the boundaries between models, operators, hardware backends, runtime
+dispatch, distributed execution, and train/rollout integrations.
+
+This section also contains architecture references, numerical contracts,
+integration guides, validation procedures, and historical design documents.
 
 Before merging a new operator, include:
 
@@ -13,6 +18,8 @@ Before merging a new operator, include:
 
 Useful pages:
 
+- [Contributor Guide](contributor-guide.md)
+- [Repository Layout and Ownership](../architecture/repository-layout.md)
 - [Documentation Guide](documentation.md)
 - [Testing](testing.md)
-- [Runtime Dispatch](../design/runtime-dispatch.md)
+- [Runtime Dispatch](../architecture/runtime-dispatch.md)
