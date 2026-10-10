@@ -55,6 +55,17 @@ def _version(name: str) -> str | None:
         return None
 
 
+def _merge_latency(base: dict, extra: dict) -> dict:
+    """Per-candidate latencies merged at any depth (prefill is keyed by size first)."""
+    merged = dict(base)
+    for key, value in extra.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            merged[key] = _merge_latency(base[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
 def merge(base: dict, extra: dict) -> dict:
     """``base`` with ``extra``'s candidates and latencies added (same commit and GPU)."""
     for field in ("rl_kernel_commit", "tracked_tree_dirty", "shape", "op"):
@@ -65,13 +76,7 @@ def merge(base: dict, extra: dict) -> dict:
     keys = {c["key"] for c in base["candidates"]}
     added = [c for c in extra["candidates"] if c["key"] not in keys]
     merged = dict(base, candidates=base["candidates"] + added)
-    merged["latency"] = {
-        section: {
-            size: {**values, **extra["latency"][section].get(size, {})}
-            for size, values in sizes.items()
-        }
-        for section, sizes in base["latency"].items()
-    }
+    merged["latency"] = _merge_latency(base["latency"], extra["latency"])
     merged["environments"] = {"main": base["environment"], "extra": extra["environment"]}
     return merged
 
