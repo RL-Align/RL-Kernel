@@ -10,8 +10,8 @@ integration guides, validation procedures, and historical design documents.
 
 Every commit in a pull request must carry a `Signed-off-by:` trailer per the
 Developer Certificate of Origin (DCO) — sign your commits with `git commit -s`.
-The [full DCO guide](dco.md) covers repair workflows, email-matching rules,
-and signing policies.
+The [contributing guide](../CONTRIBUTING.md) covers repair workflows,
+email-matching rules, and signing policies.
 
 Before merging a new operator, include:
 
@@ -28,5 +28,5 @@ Useful pages:
 - [Documentation Guide](documentation.md)
 - [Testing](testing.md)
 - [Automated PR Review](ocr-review.md)
-- [Sign your work (DCO)](dco.md)
+- [Contributing Guide](../CONTRIBUTING.md)
 - [Runtime Dispatch](../architecture/runtime-dispatch.md)

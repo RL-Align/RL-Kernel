@@ -33,7 +33,7 @@ nav:
   - Developer Guide:
     - contributing/README.md
     - Contributor Guide: contributing/contributor-guide.md
-    - Sign your work (DCO): contributing/dco.md
+    - Contributing Guide: CONTRIBUTING.md
     - General:
       - contributing/documentation.md
       - contributing/gtest-usage.md
