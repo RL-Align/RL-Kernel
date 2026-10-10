@@ -226,3 +226,6 @@ csrc/hip/*_hip.hip
 
 # Per-machine launcher paths
 .rlk-profile.json
+
+# Local timestep development caches
+.timestep-cache/
