@@ -1,4 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-from .det_gemm import DetGemmOp, deterministic_gemm
+"""Compatibility import; the canonical module is loaded below."""
 
-__all__ = ["DetGemmOp", "deterministic_gemm"]
+from importlib import import_module
+
+
+def __getattr__(name):
+    return getattr(import_module("rl_engine.backends.cuda.gemm"), name)

@@ -6,7 +6,7 @@ to optimized vendor libraries when available and falls back to PyTorch sampling 
 ## Entry Point
 
 ```python
-from rl_engine.kernels.sampling import SamplerBackend
+from rl_engine.ops.sampling.api import SamplerBackend
 
 sampler = SamplerBackend()
 tokens = sampler.sample(logits, top_k=50, top_p=0.95, temperature=1.0)
@@ -38,7 +38,7 @@ tokens = sampler.sample(logits, top_k=50, top_p=0.95, temperature=1.0)
 ## Tests and Benchmarks
 
 ```bash
-python benchmarks/benchmark_sampling.py
+python benchmarks/operators/sampling/benchmark_sampling.py
 ```
 
 Add focused tests when changing backend routing, supported sampling modes, or numerical
@@ -46,5 +46,5 @@ behavior.
 
 ## Implementation Files
 
-- `rl_engine/kernels/sampling.py`
+- `rl_engine/ops/sampling/api.py`
 - `rl_engine/platforms/constants.py`
