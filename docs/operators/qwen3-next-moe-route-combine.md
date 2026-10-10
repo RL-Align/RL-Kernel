@@ -69,7 +69,9 @@ the selected probabilities; the indices are discrete.
 | vLLM, `VLLM_BATCH_INVARIANT=1` | yes | yes | none | no VJP for training; BF16 router logits (Qwen3-Next and VIME route in FP32); routed weight applied in the expert GEMM epilogue on the BF16 output, then routes summed by `moe_sum` |
 | HF `Qwen3NextExperts` (eager) | yes | yes | autograd | `dx`/`dW` change with batch size (cuBLAS shape heuristics); BF16 router; `index_add_` combine in BF16 |
 | FlashInfer `cutlass_fused_moe` | (torch routing) | no | none | output changes with batch size; no VJP |
-| SGLang, Megatron-core, Transformer Engine | not measured | not measured | - | not installable next to the pinned vLLM 0.30.0 / torch 2.13 runtime |
+| Megatron-core 0.16 `MoELayer` + TE 2.16 grouped GEMM, as VIME configures Qwen3-Next | no (256+) | no (1024) | autograd, not BI | FP32 router routes like FP64, but the routing, output, dx and dW change with batch size |
+| SGLang 0.5.21 Triton `fused_moe`, default | no (256+) | no (256+) | none | tuned configs and the BF16 router GEMM depend on the token count |
+| SGLang, deterministic inference | yes | yes | none | inference only; BF16 router logits; its deterministic tile (64/64/32) is the one vLLM uses in batch-invariant mode |
 
 What RL-Kernel reuses: vLLM's batch-invariant GEMM for the router and the
 backward, and vLLM's `fused_moe` Triton kernel for the forward expert GEMMs,
@@ -91,25 +93,32 @@ commands are in
 
 TP1 shape (H=2048, 512 experts, top-10, width 512), random weights, BF16:
 
-| | RL-Kernel `shared_moe` | vLLM BI=1 | vLLM BI=0 | FlashInfer CUTLASS | HF eager |
-| --- | --- | --- | --- | --- | --- |
-| routes / output BI (16-1024 tokens) | **yes / yes** | yes / yes | no / no (256+) | no / no (256+) | yes / yes |
-| dx / dW BI | **yes / yes** | no backward | no backward | no backward | no / no (1024) |
-| rel. L2 error vs FP64 | **3.9e-3** | 7.0e-2 | 7.0e-2 | 7.0e-2 | 7.0e-2 |
-| tokens routed unlike FP64 (of 256) | **0** | 11 | 11 | 11 | 11 |
-| forward, 1 / 64 / 1024 / 4096 tokens (ms) | 1.38 / 1.71 / 2.05 / 3.05 | 0.37 / 0.66 / 0.88 / 1.06 | 0.36 / 0.65 / 0.87 / 1.06 | 0.34 / 0.67 / 0.85 / 1.08 | 2.0 / 61 / 89 / 89 |
-| forward + backward, 64 / 1024 tokens (ms) | 112 / 166 | - | - | - | 878 / 1283 |
+| | routes / output BI (16-1024 tokens) | dx / dW BI | rel. L2 vs FP64 | tokens routed unlike FP64 (of 256) | forward, 1 / 64 / 1024 / 4096 tokens (ms) | fwd + bwd, 64 / 1024 (ms) |
+| --- | --- | --- | --- | --- | --- | --- |
+| **RL-Kernel `shared_moe`** | **yes / yes** | **yes / yes** | **3.9e-3** | **0** | 1.39 / 1.69 / 2.04 / 3.05 | 114 / 169 |
+| Megatron-core + TE (VIME config) | no / no | no / no (1024) | 4.6e-3 | 0 | 3.8 / 9.7 / 11.7 / 12.1 | 45 / 51 |
+| vLLM BI=1 | yes / yes | no backward | 7.0e-2 | 11 | 0.39 / 0.66 / 0.87 / 1.05 | - |
+| SGLang deterministic | yes / yes | no backward | 7.0e-2 | 11 | 0.35 / 0.66 / 0.84 / 1.37 | - |
+| vLLM BI=0 | no / no | no backward | 7.0e-2 | 11 | 0.38 / 0.66 / 0.87 / 1.06 | - |
+| SGLang default | no / no | no backward | 7.0e-2 | 11 | 0.34 / 0.61 / 0.83 / 1.35 | - |
+| FlashInfer CUTLASS | no / no | no backward | 7.0e-2 | 11 | 0.37 / 0.72 / 0.90 / 1.12 | - |
+| HF eager | yes / yes | no / no (1024) | 7.0e-2 | 11 | 2.1 / 62 / 89 / 87 | 877 / 1284 |
 
-* The accuracy gap is the router: every other candidate computes BF16 router
-  logits, and 11 of 256 tokens then select a different expert set than FP64
-  routing does. RL-Kernel routes in FP32 and selects the same experts.
+* The accuracy gap is the router: every candidate with BF16 router logits sends
+  11 of 256 tokens to a different expert set than FP64 routing does. RL-Kernel
+  and Megatron-core (VIME's training path) route in FP32 and select the same
+  experts as FP64.
+* The only batch-invariant candidates are RL-Kernel and the inference-only
+  modes of vLLM and SGLang; of these, only RL-Kernel has a backward, so only it
+  can run the same forward on the training and the rollout side.
 * RL-Kernel's forward is 2-4x slower than vLLM's. About 0.5 ms of it, at any
   token count, is the FP32 IEEE router GEMM, which is part of the contract.
   The expert GEMMs themselves run in vLLM's kernel. The per-expert GEMM loop
   they replace (same bits) took 47 / 66 / 71 ms at 64 / 1024 / 4096 tokens in
   a local B200 run of the same runner; that run is not part of this evidence.
 * The backward is still a per-expert loop of pinned GEMMs (512 experts x 4
-  GEMMs) and dominates a training step's MoE time.
+  GEMMs): 169 ms at 1024 tokens, against 51 ms for Megatron-core + TE, which is
+  not batch-invariant. It dominates a training step's MoE time.
 
 TP4 gate on the real layer-0 weights (`tp4-moe/rank-*.json`): all twelve cases
 pass on all four ranks, including the round trip of all 512 experts, identical

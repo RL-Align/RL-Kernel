@@ -34,7 +34,7 @@ SURFACE = "#fcfcfb"
 PASS = "#1baf7a"
 FAIL = "#d64545"
 NA = "#e4e3dd"
-EXISTING = ("#eb6834", "#b8501f", "#f29a62", "#8a3a15")
+EXISTING = ("#eb6834", "#b8501f", "#f29a62", "#8a3a15", "#f6bd94", "#d9773f", "#6b2a0e")
 
 LABELS = {
     "rl_kernel_cuda": "RL-Kernel shared_moe",
@@ -42,6 +42,9 @@ LABELS = {
     "vllm_bi0": "vLLM fused_moe (BI=0)",
     "vllm_bi1": "vLLM fused_moe (BI=1)",
     "flashinfer_cutlass": "FlashInfer cutlass_fused_moe",
+    "megatron_te": "Megatron-core + TE (VIME config)",
+    "sglang_triton": "SGLang fused_moe (default)",
+    "sglang_deterministic": "SGLang fused_moe (deterministic)",
 }
 CHECKS = (
     ("route_rows_bitwise", "routes"),
