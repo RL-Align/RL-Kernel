@@ -4,6 +4,7 @@
 import sys
 from types import ModuleType
 
+import pytest
 import torch
 
 import rl_engine.platforms.device as device_module
@@ -229,6 +230,22 @@ def test_npu_registry_preserves_per_operator_cpu_fallbacks(monkeypatch):
         OpBackend.ASCEND_FUSED_LINEAR_LOGP,
         OpBackend.PYTORCH_LINEAR_LOGP,
     ]
+
+
+H3_OPS = ("timestep_sinusoid_h3", "timestep_mlp_fp32", "adaln_projection_3mod")
+
+
+@pytest.mark.parametrize("op_name", H3_OPS)
+def test_h3_ops_prefer_cuda_and_fall_back_to_pytorch_reference(op_name):
+    """Prefer H3 CUDA backends on CUDA and use their PyTorch fallbacks elsewhere."""
+
+    registry = KernelRegistry()
+    cuda_chain = registry._priority_map["cuda"][op_name]
+    assert cuda_chain[0].name.startswith("CUDA_H3_")
+    assert cuda_chain[-1].name.startswith("PYTORCH_H3_")
+    for platform in ("rocm", "musa", "cpu", "npu"):
+        chain = registry._priority_map[platform][op_name]
+        assert [backend.name for backend in chain] == [cuda_chain[-1].name]
 
 
 def test_npu_available_handles_runtime_failure(monkeypatch):
