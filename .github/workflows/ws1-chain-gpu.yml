@@ -8,9 +8,9 @@ name: WS1-chain-GPU
 
 on:
   pull_request:
-    branches: [ main, test, test-qwenimage ]
+    branches: [ main, test ]
   push:
-    branches: [ main, test, test-qwenimage ]
+    branches: [ main, test ]
   workflow_dispatch:
     inputs:
       source_repository:

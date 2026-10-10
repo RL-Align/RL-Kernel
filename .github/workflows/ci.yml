@@ -5,9 +5,9 @@ name: CI-Pipeline
 
 on:
   push:
-    branches: [ main, test, test-qwenimage ]
+    branches: [ main, test ]
   pull_request:
-    branches: [ main, test, test-qwenimage ]
+    branches: [ main, test ]
 
 permissions:
   contents: read
