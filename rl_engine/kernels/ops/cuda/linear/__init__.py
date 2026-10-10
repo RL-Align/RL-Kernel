@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 RL-Kernel Contributors
+"""Compatibility import; the canonical module is loaded below."""
 
-from rl_engine.kernels.ops.cuda.linear.embedding import SM90EmbeddingOp
-from rl_engine.kernels.ops.cuda.linear.lm_head import SM90LMHeadOp
+from importlib import import_module
 
-__all__ = ["SM90EmbeddingOp", "SM90LMHeadOp"]
+
+def __getattr__(name):
+    return getattr(import_module("rl_engine.backends.cuda.embedding"), name)

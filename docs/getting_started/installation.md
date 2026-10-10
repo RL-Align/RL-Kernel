@@ -68,7 +68,7 @@ cd ..
 Verify the environment from the RL-Kernel checkout:
 
 ```bash
-python scripts/check_rocm_env.py
+python tools/env/check_rocm_env.py
 ```
 
 RL-Kernel uses external FlashAttention as the default ROCm attention path. To
@@ -82,7 +82,7 @@ export RL_KERNEL_ROCM_ATTN_BACKEND=sdpa
 
 ```bash
 pip install -e ".[dev]"
-pip install -r requirements-docs.txt
+pip install -r requirements/docs.txt
 ```
 
 ## Documentation Preview

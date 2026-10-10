@@ -1,0 +1,4 @@
+include pyproject.toml setup.py README.md LICENSE
+recursive-include build_tools *.py
+recursive-include csrc *.cpp *.cu *.cuh *.h *.hip *.asc
+recursive-include rl_engine *.json *.jsonl *.sh *.patch *.pyi

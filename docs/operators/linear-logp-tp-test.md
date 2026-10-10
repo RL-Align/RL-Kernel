@@ -12,14 +12,14 @@ operator API with vocab-sharded LM-head weights:
 ## Test Script
 
 ```bash
-tests/linear_logp_tp.py
+tests/distributed/tp/linear_logp_tp.py
 ```
 
 Launch it with `torchrun`; do not run it with plain `python` unless you are
 debugging argument parsing only.
 
 ```bash
-torchrun --standalone --nproc_per_node=4 tests/linear_logp_tp.py
+torchrun --standalone --nproc_per_node=4 tests/distributed/tp/linear_logp_tp.py
 ```
 
 The script has two phases:
@@ -60,7 +60,7 @@ same node before launching.
 Start with a small fp32 run. This should be numerically tight and easy to debug:
 
 ```bash
-torchrun --standalone --nproc_per_node=4 tests/linear_logp_tp.py \
+torchrun --standalone --nproc_per_node=4 tests/distributed/tp/linear_logp_tp.py \
   --dtype fp32 \
   --tokens 128 \
   --hidden-size 256 \
@@ -71,7 +71,7 @@ torchrun --standalone --nproc_per_node=4 tests/linear_logp_tp.py \
 Then run the bf16 path that matches the intended Hopper use case:
 
 ```bash
-torchrun --standalone --nproc_per_node=4 tests/linear_logp_tp.py \
+torchrun --standalone --nproc_per_node=4 tests/distributed/tp/linear_logp_tp.py \
   --dtype bf16 \
   --tokens 256 \
   --hidden-size 512 \
@@ -83,7 +83,7 @@ torchrun --standalone --nproc_per_node=4 tests/linear_logp_tp.py \
 Finally run a larger TP smoke without the full reference:
 
 ```bash
-torchrun --standalone --nproc_per_node=4 tests/linear_logp_tp.py \
+torchrun --standalone --nproc_per_node=4 tests/distributed/tp/linear_logp_tp.py \
   --dtype bf16 \
   --tokens 256 \
   --hidden-size 512 \
@@ -105,7 +105,7 @@ This bypasses registry/backend selection and directly tests the shared TP
 autograd path.
 
 ```bash
-torchrun --standalone --nproc_per_node=4 tests/linear_logp_tp.py \
+torchrun --standalone --nproc_per_node=4 tests/distributed/tp/linear_logp_tp.py \
   --op-source native \
   --dtype fp32 \
   --tokens 128 \
@@ -123,7 +123,7 @@ Triton bf16 paths accumulate matmuls in fp32, so `fp32` reference mode compares
 against the same semantic target.
 
 ```bash
-torchrun --standalone --nproc_per_node=4 tests/linear_logp_tp.py \
+torchrun --standalone --nproc_per_node=4 tests/distributed/tp/linear_logp_tp.py \
   --op-source registry \
   --dtype bf16 \
   --reference-mode fp32 \
@@ -142,7 +142,7 @@ dtype. It is useful for understanding PyTorch full-GEMM vs shard-GEMM drift, but
 the main correctness target is the fp32-accumulation reference above.
 
 ```bash
-torchrun --standalone --nproc_per_node=4 tests/linear_logp_tp.py \
+torchrun --standalone --nproc_per_node=4 tests/distributed/tp/linear_logp_tp.py \
   --op-source registry \
   --dtype bf16 \
   --reference-mode matching \
@@ -161,7 +161,7 @@ Use this when Triton is installed. The TP kwargs should route through the shared
 TP path instead of the local non-TP Triton kernel.
 
 ```bash
-torchrun --standalone --nproc_per_node=4 tests/linear_logp_tp.py \
+torchrun --standalone --nproc_per_node=4 tests/distributed/tp/linear_logp_tp.py \
   --op-source triton \
   --dtype bf16 \
   --reference-mode fp32 \
@@ -176,7 +176,7 @@ Use this only after rebuilding with `KERNEL_ALIGN_FORCE_SM90=1`. The direct SM90
 op still delegates to the shared TP path once TP kwargs are present.
 
 ```bash
-torchrun --standalone --nproc_per_node=4 tests/linear_logp_tp.py \
+torchrun --standalone --nproc_per_node=4 tests/distributed/tp/linear_logp_tp.py \
   --op-source sm90 \
   --dtype bf16 \
   --reference-mode fp32 \
@@ -191,7 +191,7 @@ This checks the end-to-end distributed path at a more realistic shape without
 building full reference logits.
 
 ```bash
-torchrun --standalone --nproc_per_node=4 tests/linear_logp_tp.py \
+torchrun --standalone --nproc_per_node=4 tests/distributed/tp/linear_logp_tp.py \
   --op-source registry \
   --dtype bf16 \
   --reference-mode fp32 \
