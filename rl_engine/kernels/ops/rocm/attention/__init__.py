@@ -1,17 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 RL-Kernel Contributors
+"""Compatibility import; the canonical module is loaded below."""
 
-from .flash_attn import (
-    RocmFlashAttentionOp,
-    StrictRocmAiterCKAttentionCore,
-    StrictRocmAttentionUnavailable,
-)
-from .strict_runtime import StrictRocmAttentionResult, StrictRocmAttentionRuntime
+from importlib import import_module
 
-__all__ = [
-    "RocmFlashAttentionOp",
-    "StrictRocmAiterCKAttentionCore",
-    "StrictRocmAttentionRuntime",
-    "StrictRocmAttentionResult",
-    "StrictRocmAttentionUnavailable",
-]
+
+def __getattr__(name):
+    return getattr(import_module("rl_engine.backends.rocm.attention"), name)
