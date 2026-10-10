@@ -236,6 +236,10 @@ void deterministic_collective_rocm_ipc_all_gather_input(
 // Batch-Invariant Deterministic GEMM Declarations
 bool det_gemm_sm90_compiled();
 torch::Tensor det_gemm_fwd(torch::Tensor a, torch::Tensor b);
+torch::Tensor attn_out_bias_gemm_cuda_forward(
+    torch::Tensor x, torch::Tensor weight, c10::optional<torch::Tensor> bias, bool bf16_out);
+torch::Tensor attn_out_tree_gemm_cuda(torch::Tensor a, torch::Tensor b);
+torch::Tensor attn_out_dw_left_fold_cuda(torch::Tensor grad, torch::Tensor x);
 torch::Tensor det_gemm_fwd_rhs_transposed(torch::Tensor a, torch::Tensor bt);
 torch::Tensor det_gemm_da(torch::Tensor dc, torch::Tensor b);
 torch::Tensor det_gemm_db(torch::Tensor a, torch::Tensor dc);
@@ -701,6 +705,12 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("det_gemm_sm90_compiled", &det_gemm_sm90_compiled,
           "Whether the extension contains the SM90 deterministic GEMM implementation");
     m.def("det_gemm_fwd", &det_gemm_fwd, "Batch-invariant deterministic GEMM forward (C=A@B)");
+    m.def("attn_out_bias_gemm_cuda_forward", &attn_out_bias_gemm_cuda_forward,
+          "Qwen-Image attn-out bias GEMM forward (frozen tree contract, FMA chain)");
+    m.def("attn_out_tree_gemm_cuda", &attn_out_tree_gemm_cuda,
+          "attn-out contract tree GEMM (fp32 in/out), used for dx");
+    m.def("attn_out_dw_left_fold_cuda", &attn_out_dw_left_fold_cuda,
+          "attn-out dW ascending-row left fold (fp32 in/out)");
     m.def(
         "det_gemm_fwd_rhs_transposed",
         &det_gemm_fwd_rhs_transposed,
