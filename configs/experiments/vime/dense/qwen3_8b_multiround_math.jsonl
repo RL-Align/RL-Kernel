@@ -1,0 +1,32 @@
+{"prompt":[{"role":"user","content":"Solve 1+1. Give a concise solution and end with the final answer in \\boxed{}."}],"label":"2"}
+{"prompt":[{"role":"user","content":"Solve 12*13. Give a concise solution and end with the final answer in \\boxed{}."}],"label":"156"}
+{"prompt":[{"role":"user","content":"Compute 3/4 + 1/8. Give a concise solution and end with the final answer in \\boxed{}."}],"label":"7/8"}
+{"prompt":[{"role":"user","content":"Solve 2x+3=11. Give a concise solution and end with the final answer in \\boxed{}."}],"label":"4"}
+{"prompt":[{"role":"user","content":"What is 15 percent of 80? Give a concise solution and end with the final answer in \\boxed{}."}],"label":"12"}
+{"prompt":[{"role":"user","content":"A rectangle has sides 7 and 4. What is its perimeter? Give a concise solution and end with the final answer in \\boxed{}."}],"label":"22"}
+{"prompt":[{"role":"user","content":"What is the average of 6, 8, and 10? Give a concise solution and end with the final answer in \\boxed{}."}],"label":"8"}
+{"prompt":[{"role":"user","content":"Compute 2^5+3. Give a concise solution and end with the final answer in \\boxed{}."}],"label":"35"}
+{"prompt":[{"role":"user","content":"What is the positive square root of 144? Give a concise solution and end with the final answer in \\boxed{}."}],"label":"12"}
+{"prompt":[{"role":"user","content":"If x^2=49 and x is positive, find x. Give a concise solution and end with the final answer in \\boxed{}."}],"label":"7"}
+{"prompt":[{"role":"user","content":"Compute 17*19. Give a concise solution and end with the final answer in \\boxed{}."}],"label":"323"}
+{"prompt":[{"role":"user","content":"Compute (2/3)/(4/5). Give a concise solution and end with the final answer in \\boxed{}."}],"label":"5/6"}
+{"prompt":[{"role":"user","content":"An item costs 80 and is discounted by 25 percent. What is the sale price? Give a concise solution and end with the final answer in \\boxed{}."}],"label":"60"}
+{"prompt":[{"role":"user","content":"What is the probability of getting heads twice in two fair coin flips? Give a concise solution and end with the final answer in \\boxed{}."}],"label":"1/4"}
+{"prompt":[{"role":"user","content":"The sequence is 2,5,8,11,... What is its 10th term? Give a concise solution and end with the final answer in \\boxed{}."}],"label":"29"}
+{"prompt":[{"role":"user","content":"Solve 3x+2=20. Give a concise solution and end with the final answer in \\boxed{}."}],"label":"6"}
+{"prompt":[{"role":"user","content":"A triangle has base 10 and height 6. What is its area? Give a concise solution and end with the final answer in \\boxed{}."}],"label":"30"}
+{"prompt":[{"role":"user","content":"Five workers finish a job in 12 days at the same rate. How many days would ten workers need? Give a concise solution and end with the final answer in \\boxed{}."}],"label":"6"}
+{"prompt":[{"role":"user","content":"Write 0.125 as a reduced fraction. Give a concise solution and end with the final answer in \\boxed{}."}],"label":"1/8"}
+{"prompt":[{"role":"user","content":"Solve x/3+2=7. Give a concise solution and end with the final answer in \\boxed{}."}],"label":"15"}
+{"prompt":[{"role":"user","content":"What is the sum of the first 10 positive integers? Give a concise solution and end with the final answer in \\boxed{}."}],"label":"55"}
+{"prompt":[{"role":"user","content":"What is 30 percent of 250? Give a concise solution and end with the final answer in \\boxed{}."}],"label":"75"}
+{"prompt":[{"role":"user","content":"A right triangle has legs 3 and 4. What is its hypotenuse? Give a concise solution and end with the final answer in \\boxed{}."}],"label":"5"}
+{"prompt":[{"role":"user","content":"Two numbers are in the ratio 2:3 and sum to 25. What is the larger number? Give a concise solution and end with the final answer in \\boxed{}."}],"label":"15"}
+{"prompt":[{"role":"user","content":"Reduce 18/24 to lowest terms. Give a concise solution and end with the final answer in \\boxed{}."}],"label":"3/4"}
+{"prompt":[{"role":"user","content":"Compute 4^3-2^3. Give a concise solution and end with the final answer in \\boxed{}."}],"label":"56"}
+{"prompt":[{"role":"user","content":"A car travels at 40 km/h for 2.5 hours. How far does it travel? Give a concise solution and end with the final answer in \\boxed{}."}],"label":"100"}
+{"prompt":[{"role":"user","content":"What is the probability that a fair six-sided die shows an even number? Give a concise solution and end with the final answer in \\boxed{}."}],"label":"1/2"}
+{"prompt":[{"role":"user","content":"Compute 9^2-7^2. Give a concise solution and end with the final answer in \\boxed{}."}],"label":"32"}
+{"prompt":[{"role":"user","content":"Solve 5x-4=31. Give a concise solution and end with the final answer in \\boxed{}."}],"label":"7"}
+{"prompt":[{"role":"user","content":"What is the sum of the first 20 positive integers? Give a concise solution and end with the final answer in \\boxed{}."}],"label":"210"}
+{"prompt":[{"role":"user","content":"If a number is increased by 7 to become 19, what was the original number? Give a concise solution and end with the final answer in \\boxed{}."}],"label":"12"}
