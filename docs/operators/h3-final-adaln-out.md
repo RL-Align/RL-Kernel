@@ -40,7 +40,7 @@ out = op(x, norm_out_norm_w, temb, norm_out_linear_w, norm_out_linear_b, timeste
   summation tree versus cuBLAS. Rows are batch- and position-invariant.
 - **Backward.** One autograd node, so the table gradient (FP32 segment sums) goes straight into
   the projection backward without an extra BF16 rounding:
-  - `d_temb`, `dW` and `db` are 22–48× closer to FP64 in the recorded run than diffusers,
+  - `d_temb`, `dW` and `db` are 21–37× closer to FP64 in the recorded run than diffusers,
     whose error varies from run to run because it rounds the table gradient to BF16 and accumulates it with
     `index_select` atomics;
   - `dx` and `d_norm_w` are at the BF16 rounding level for both;
@@ -58,13 +58,14 @@ out = op(x, norm_out_norm_w, temb, norm_out_linear_w, norm_out_linear_b, timeste
 python benchmarks/models/benchmark_h3_conditioning.py --op final_adaln_out
 ```
 
-B200, B = 1, T = 3, pinned `norm_out` weights:
+B200, B = 1, T = 3, pinned `norm_out` weights. Backward timings exclude input
+and forward-graph setup:
 
 | S | CUDA fwd | diffusers fwd | CUDA fwd+bwd | diffusers fwd+bwd |
 | --- | --- | --- | --- | --- |
-| 4097 | 0.13 ms | 0.15 ms | 1.57 ms | 1.07 ms |
-| 32768 | 0.38 ms | 0.78 ms | 2.80 ms | 5.34 ms |
-| 131072 | 1.24 ms | 2.94 ms | 7.75 ms | 20.6 ms |
+| 4097 | 0.19 ms | 0.18 ms | 1.40 ms | 0.85 ms |
+| 32768 | 0.46 ms | 0.80 ms | 2.59 ms | 4.49 ms |
+| 131072 | 1.32 ms | 3.02 ms | 7.05 ms | 17.69 ms |
 
 At small S the backward is dominated by fixed setup: the stable sort for the segment sums and the
 projection backward.
@@ -82,7 +83,7 @@ There are two data files:
 
 - [`report.json`](../../reports/experiments/h3-final-adaln-out-b200/report.json): op timings, the
   forward-equality fraction, row invariance and backward accuracy. Regenerated from a clean
-  tree at `001684d` on an otherwise idle B200, with FP64 leaves and upstream gradients. The
+  tree at `bde1d8d` on an otherwise idle B200, with FP64 leaves and upstream gradients. The
   backward reference keeps only the SiLU and table roundings, so the errors include the BF16
   rounding of `norm(x)` and `1 + scale`.
 - [`chain_replay.json`](../../reports/experiments/h3-final-adaln-out-b200/chain_replay.json): the

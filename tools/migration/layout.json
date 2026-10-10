@@ -910,6 +910,7 @@
     "tests/h3/test_h3_timestep_sinusoid.py": "tests/models/minimax_h3/test_h3_timestep_sinusoid.py",
     "tests/h3/test_h3_tp_adaln.py": "tests/models/minimax_h3/test_h3_tp_adaln.py",
     "tests/h3/test_h3_weights.py": "tests/models/minimax_h3/test_h3_weights.py",
+    "tests/h3/test_h3_ws2_processes.py": "tests/models/minimax_h3/test_h3_ws2_processes.py",
     "tests/h3/test_prepare_h3_weights.py": "tests/models/minimax_h3/test_prepare_h3_weights.py",
     "tests/linear_logp_tp.py": "tests/distributed/tp/linear_logp_tp.py",
     "tests/test_alignment_model_wrappers.py": "tests/models/qwen3/test_alignment_model_wrappers.py",
