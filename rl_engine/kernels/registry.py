@@ -204,6 +204,27 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
     return (
         OperatorBackendDescriptor(
+            semantic_op="h3_ffn_down_gemm",
+            backend_id="rlkernel.h3_ffn_down.triton.fp32_tiles.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"cuda"}),
+            supported_dtypes=frozenset({"bfloat16"}),
+            supported_topologies={"world_size": (1,), "tensor_parallel_size": (1,)},
+            determinism_or_alignment_properties={
+                "arithmetic": "fp32_dot_tiles_ordered_fp32_adds_bf16_epilogue",
+                "shape": "14336_to_5376",
+                "weight_gradient_order": "canonical_logical_keys",
+                "gpu_qualified": False,
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=("rl_engine.kernels.ops.h3_ffn_down.H3FFNDownGemmOp"),
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="h3-down-triton-fp32-tiles-candidate-v1",
+            # Strict production resolution remains gated until H3 GPU evidence exists.
+            is_smoke_only=True,
+        ),
+        OperatorBackendDescriptor(
             semantic_op="selected_logprob",
             backend_id="rlkernel.reference_logp",
             supported_targets=frozenset({"rollout", "training"}),
