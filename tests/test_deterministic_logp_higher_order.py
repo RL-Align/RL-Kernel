@@ -23,7 +23,7 @@ ATOL = {
 def op(record_property):
     result = DeterministicLogpCUDAOp()
     record_property("backend", type(result).__name__)
-    record_property("second_backward", "_C.deterministic_logp_double_backward")
+    record_property("second_backward", "recursive probability/row-sum CUDA primitives")
     return result
 
 

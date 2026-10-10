@@ -1002,3 +1002,83 @@ std::vector<torch::Tensor> deterministic_logp_triple_backward(
     }
     return {dx, dg, dh};
 }
+
+namespace {
+template <typename input_t, typename acc_t>
+__global__ void deterministic_logp_probability_kernel(
+    const input_t* x, const acc_t* lse, const bool* active, acc_t* p, int vocab) {
+    const int64_t row = blockIdx.x;
+    for (int c = threadIdx.x; c < vocab; c += blockDim.x) {
+        const int64_t i = row * vocab + c;
+        p[i] = active[row] && isfinite(lse[row]) ? exp(acc_t(x[i]) - lse[row]) : acc_t(0);
+    }
+}
+template <typename scalar_t>
+__global__ void deterministic_logp_row_sum_kernel(const scalar_t* x, scalar_t* y, int vocab) {
+    scalar_t sum = 0;
+    for (int c = threadIdx.x; c < vocab; c += 256) sum += x[int64_t(blockIdx.x) * vocab + c];
+    sum = deterministic_logp_reduce<scalar_t, 256>(sum);
+    if (threadIdx.x == 0) y[blockIdx.x] = sum;
+}
+__global__ void deterministic_logp_selection_kernel(const int64_t* indices, bool* mask, int64_t n, int64_t rows) {
+    for (int64_t i = int64_t(blockIdx.x) * blockDim.x + threadIdx.x; i < n; i += int64_t(gridDim.x) * blockDim.x) {
+        const int64_t row = indices[i];
+        if (row >= 0 && row < rows) mask[row] = true;
+    }
+}
+} // namespace
+
+torch::Tensor deterministic_logp_probability(torch::Tensor logits, torch::Tensor lse, torch::Tensor active) {
+    auto labels = torch::zeros({logits.size(0)}, logits.options().dtype(at::kLong));
+    check_deterministic_logp_derivative_inputs(logits, lse, lse, labels);
+    TORCH_CHECK(active.device() == logits.device() && active.scalar_type() == at::kBool &&
+                active.dim() == 1 && active.numel() == logits.size(0), "active must be a boolean row vector on the logits device");
+    const c10::cuda::CUDAGuard guard(logits.device());
+    auto input = logits.contiguous(), mask = active.contiguous();
+    auto result = torch::empty(input.sizes(), lse.options());
+    if (input.size(0)) {
+        AT_DISPATCH_FLOATING_TYPES_AND2(at::kHalf, at::kBFloat16, input.scalar_type(),
+            "deterministic_logp_probability", ([&] {
+                using acc_t = std::conditional_t<std::is_same_v<scalar_t, double>, double, float>;
+                deterministic_logp_probability_kernel<scalar_t, acc_t><<<input.size(0), 256, 0, at::cuda::getCurrentCUDAStream()>>>(
+                    input.data_ptr<scalar_t>(), lse.data_ptr<acc_t>(), mask.data_ptr<bool>(), result.data_ptr<acc_t>(), input.size(1));
+            }));
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+    }
+    return result;
+}
+
+torch::Tensor deterministic_logp_row_sum(torch::Tensor values) {
+    TORCH_CHECK(values.is_cuda() && values.dim() == 2 && values.size(1) > 0,
+                "values must be a CUDA matrix with non-empty vocabulary");
+    TORCH_CHECK(values.scalar_type() == at::kFloat || values.scalar_type() == at::kDouble,
+                "row sum requires float32 or float64");
+    TORCH_CHECK(values.size(0) <= std::numeric_limits<int>::max() && values.size(1) <= std::numeric_limits<int>::max(), "matrix exceeds kernel limits");
+    const c10::cuda::CUDAGuard guard(values.device());
+    auto input = values.contiguous();
+    auto output = torch::empty({input.size(0)}, input.options());
+    if (input.size(0)) {
+        AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "deterministic_logp_row_sum", ([&] {
+            deterministic_logp_row_sum_kernel<scalar_t><<<input.size(0), 256, 0, at::cuda::getCurrentCUDAStream()>>>(
+                input.data_ptr<scalar_t>(), output.data_ptr<scalar_t>(), input.size(1));
+        }));
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+    }
+    return output;
+}
+
+torch::Tensor deterministic_logp_selection(torch::Tensor indices, int64_t rows) {
+    TORCH_CHECK(indices.is_cuda() && indices.dim() == 1 && indices.scalar_type() == at::kLong,
+                "indices must be a CUDA int64 vector");
+    TORCH_CHECK(rows >= 0, "rows must be nonnegative");
+    const c10::cuda::CUDAGuard guard(indices.device());
+    auto input = indices.contiguous();
+    auto result = torch::zeros({rows}, indices.options().dtype(at::kBool));
+    if (input.numel() && rows) {
+        const int blocks = std::min<int64_t>((input.numel() + 255) / 256, 65535);
+        deterministic_logp_selection_kernel<<<blocks, 256, 0, at::cuda::getCurrentCUDAStream()>>>(
+            input.data_ptr<int64_t>(), result.data_ptr<bool>(), input.numel(), rows);
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+    }
+    return result;
+}

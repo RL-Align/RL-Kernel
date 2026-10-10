@@ -16,7 +16,7 @@ pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is u
 @pytest.fixture
 def op(record_property):
     record_property("backend", "DeterministicLogpCUDAOp")
-    record_property("third_backward", "_C.deterministic_logp_triple_backward")
+    record_property("third_backward", "recursive probability/row-sum CUDA primitives")
     return DeterministicLogpCUDAOp()
 
 
@@ -76,7 +76,13 @@ def test_each_second_output(op, dtype, branch):
     a, b = h.detach().flip(-1), g.detach().flip(0)
     dx, dg = second(call(op, x, ids), x, g, h)
     # Exercise autograd's zero materialization for the unused second output.
-    actual = torch.autograd.grad(dx if branch == "x" else dg, (x, g, h), a if branch == "x" else b)
+    actual = torch.autograd.grad(
+        dx if branch == "x" else dg,
+        (x, g, h),
+        a if branch == "x" else b,
+        allow_unused=True,
+        materialize_grads=True,
+    )
     expected = third(reference(x, ids), x, g, h, a, b, branch)
     for got, ref in zip(actual, expected):
         torch.testing.assert_close(got, ref, atol=ATOL[dtype], rtol=0)
@@ -156,26 +162,26 @@ def test_third_noncontiguous_empty_out(op, dtype, empty, selection):
 
 @pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("composed", [False, True])
-def test_fourth_rejected(op, dtype, composed):
+def test_fourth_reference(op, dtype, composed):
     x, ids, _, h = inputs(dtype)
     y = call(op, x, ids)
     loss = y.square().sum() if composed else y.sum()
     first = torch.autograd.grad(loss, x, create_graph=True)[0]
     sec = torch.autograd.grad(first, x, h, create_graph=True)[0]
     tri = torch.autograd.grad(sec, x, h.flip(-1), create_graph=True)[0]
-    with pytest.raises(RuntimeError, match="fourth-order gradients are unsupported"):
-        torch.autograd.grad(tri, x, torch.ones_like(x))
+    actual = torch.autograd.grad(tri, x, h)[0]
+    ref_y = reference(x, ids)
+    loss = ref_y.square().sum() if composed else ref_y.sum()
+    first = torch.autograd.grad(loss, x, create_graph=True)[0]
+    sec = torch.autograd.grad(first, x, h, create_graph=True)[0]
+    tri = torch.autograd.grad(sec, x, h.flip(-1), create_graph=True)[0]
+    expected = torch.autograd.grad(tri, x, h)[0]
+    torch.testing.assert_close(actual, expected, atol=ATOL[dtype] * 8, rtol=0)
 
 
-def test_missing_triple_symbol(op):
-    names = (
-        "deterministic_logp_forward_with_lse",
-        "deterministic_logp_backward",
-        "deterministic_logp_double_backward",
-    )
+def test_missing_recursive_symbol(op):
+    names = ("deterministic_logp_forward_with_lse", "deterministic_logp_backward")
     op._backend = SimpleNamespace(**{name: getattr(op._backend, name) for name in names})
     x, ids, g, h = inputs(torch.float32)
-    h.requires_grad_()
-    dx, _ = second(op(x, ids), x, g, h)
     with pytest.raises(RuntimeError, match="Rebuild rl_engine._C"):
-        torch.autograd.grad(dx, x, h)
+        torch.autograd.grad(op(x, ids), x, g, create_graph=True)

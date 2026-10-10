@@ -159,13 +159,27 @@ multi-GPU alignment, or real-model rollout support. See the
 
 ## Deterministic CUDA Training
 
-The deterministic single-GPU LogP backend supports first-, second-, and third-order
-native CUDA gradients for FP32, FP16, BF16, and explicit FP64 interfaces. Forward
-saves the LSE from a fixed reduction. First backward uses
-`deterministic_logp_backward` (or `deterministic_logp_backward_fp64`); second
-backward uses `deterministic_logp_double_backward`, and third backward uses
-`deterministic_logp_triple_backward`. No PyTorch softmax or Triton
-backward fallback is used. Rebuild the extension after updating the source.
+The deterministic single-GPU LogP backend uses a recursively differentiable
+implementation for FP32, FP16, BF16, and explicit FP64. There is no hard-coded
+derivative-order limit. The acceptance suite defaults to orders 1–8; this is the
+validated range, not an algorithmic cap or proof that every order has been tested.
+
+Ordinary first backward retains `deterministic_logp_backward` (or the FP64 variant).
+With `create_graph=True` or `torch.func` transforms, derivatives compose custom
+CUDA probability and fixed-order row-sum kernels with CUDA pointwise operations,
+row expansion, and target gather/scatter. This path is a composition of kernels,
+not one fused high-order kernel. Its derivative formulas close over the same
+primitives; it does not add a kernel for each derivative order. Existing second/
+third-backward extension symbols remain compatible but are not used by this graph.
+No library softmax or Triton backward fallback is used. Rebuild the extension
+when updating the source.
+
+The supported transforms are `torch.func.grad`, `vjp`, `jvp`, `vmap`, `jacrev`,
+`jacfwd`, and `hessian`, including nested vmap and forward/reverse compositions.
+Forward AD also works inside `no_grad`. As in PyTorch, gradients with respect to
+mathematically unused inputs may require `allow_unused=True, materialize_grads=True`
+when using `torch.autograd.grad` directly. `torch.compile` and `functionalize` are
+not included in this acceptance scope.
 
 ```bash
 python examples/grpo_single_gpu.py \
@@ -182,7 +196,7 @@ does not demonstrate that the training gradient used this backend.
 `apply`, `apply_fp32`, `indexed_fp32`, and their online aliases support gradients.
 Indexed outputs retain the full row shape: unselected rows and invalid targets
 have zero gradients; duplicate indices select a row once, and out-of-range row
-indices are ignored. Fourth-order gradients are explicitly rejected, including for compound losses.
+indices are ignored. All derivative orders use the same masking semantics, including for compound losses.
 
 For true double precision, use `apply_fp64`, `indexed_fp64`, `out_fp64`, or
 `indexed_out_fp64` (also available as `online_fp64`, `online_indexed_fp64`,
@@ -190,8 +204,8 @@ For true double precision, use `apply_fp64`, `indexed_fp64`, `out_fp64`, or
 use FP64 reduction, LSE, outputs, and derivatives; FP64 out buffers must also be
 double precision. Default calls and existing FP32 interfaces retain their
 historical FP32 arithmetic and output contract, including FP64 inference inputs.
-FP64 training through those older interfaces raises an error directing callers
-to the explicit FP64 methods.
+FP64 training and transforms use the explicit FP64 methods; attempting them
+through the older FP32 interfaces raises an actionable error.
 
 `out` and `indexed_out`, including online/FP64 variants, support logits gradients
 through a differentiable copy into the supplied buffer. The buffer must be
@@ -201,6 +215,14 @@ values. Training allocates a temporary result; it is not a zero-allocation API.
 After writing, the buffer participates in the graph. To reuse it after completing
 backward, detach it explicitly. Do not mutate a buffer still needed by a pending
 backward. Existing `no_grad` inference behavior is preserved.
+
+Inside transforms, create out buffers within the transformed function. Under
+vmap, derive factories from the mapped input (for example `x.new_empty(ids.shape,
+dtype=torch.float64)`) or pass independently mapped buffers with `in_dims=0`.
+Unmapped shared writes and mutation of captured external buffers during `grad`
+are rejected; out never silently substitutes a different output allocation.
+The explicit vmap rules evaluate each sample independently, including empty and
+nested mapped batches; they make no vectorized-performance guarantee.
 
 ```python
 op = DeterministicLogpCUDAOp()  # from rl_engine.kernels.ops.cuda.loss.logp
@@ -219,18 +241,25 @@ Run the native autograd regressions alongside the existing forward checks:
 ```bash
 python -m pytest tests/test_deterministic_logp_autograd.py \
   tests/test_deterministic_logp_higher_order.py \
-  tests/test_deterministic_logp_third_order.py tests/test_deterministic_logp.py -v -rs
+  tests/test_deterministic_logp_third_order.py \
+  tests/test_deterministic_logp_recursive.py tests/test_deterministic_logp.py -v -rs
+
+# Extend acceptance orders without changing the implementation:
+RL_KERNEL_LOGP_MAX_ORDER=10 python -m pytest \
+  tests/test_deterministic_logp_recursive.py -k recursive_orders -v
 ```
 
 Capture the loaded extension hash, source commit, and actual CUDA kernel names:
 
 ```bash
-python scripts/probe_deterministic_logp_autograd.py --output runs/logp-native.json
+python scripts/probe_deterministic_logp_autograd.py --max-order 8 --output runs/logp-native.json
 ```
 
 The probe checks all four precisions across dense/indexed and allocating/out
-interfaces. It fails if native forward, first, second, or third backward is
-missing, or a softmax/Triton replacement appears in the trace.
+interfaces, separately recording fused first backward, recursive derivatives,
+and `torch.func`. It records custom CUDA and ATen/test-harness kernel names,
+source commit, and extension hash. Missing required kernels, softmax/Triton
+replacements, or continued use of the per-order derivative kernels fail the probe.
 
 Record skipped tests separately. SM90/Hopper and Ascend-only tests do not validate
 B200 support. These checks cover a single GPU and synthetic inputs; they do not

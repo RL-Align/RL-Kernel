@@ -4,9 +4,17 @@
 import os
 
 import torch
-from torch.autograd.function import once_differentiable
 
 from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+from rl_engine.backends.cuda.logprob._deterministic_autograd import logp as _deterministic_logp
+from rl_engine.backends.cuda.logprob._deterministic_autograd import needs_ad as _needs_ad
+from rl_engine.backends.cuda.logprob._deterministic_autograd import (
+    require as _require_deterministic_symbols,
+)
+from rl_engine.backends.cuda.logprob._deterministic_autograd import selection as _selection
+from rl_engine.backends.cuda.logprob._deterministic_autograd import (
+    storage_tensor as _storage_tensor,
+)
 from rl_engine.utils.logger import logger
 
 
@@ -246,165 +254,12 @@ class FusedLogpGenericOp:
         return results.view(orig_shape)
 
 
-def _require_deterministic_symbols(backend, *names):
-    if any(not hasattr(backend, name) for name in names):
-        raise RuntimeError("Rebuild rl_engine._C to enable deterministic LogP autograd/FP64")
-
-
-class _RejectDeterministicLogpFourthOrder(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, dx, dg, dh, *dependencies):
-        return dx, dg, dh
-
-    @staticmethod
-    def backward(ctx, *grad_outputs):
-        raise RuntimeError("Deterministic LogP fourth-order gradients are unsupported")
-
-
-class _DeterministicLogpDoubleBackward(torch.autograd.Function):
-    """Native second derivative with a native VJP for all three inputs x, g, h."""
-
-    @staticmethod
-    def forward(ctx, logits, labels, lse, upstream, h, backend):
-        _require_deterministic_symbols(backend, "deterministic_logp_double_backward")
-        dtype = torch.float64 if logits.dtype == torch.float64 else torch.float32
-        coef = upstream.reshape(-1).to(dtype).contiguous()
-        dx, dg = backend.deterministic_logp_double_backward(
-            logits.reshape(-1, logits.size(-1)),
-            lse,
-            coef,
-            labels,
-            h.reshape(-1, logits.size(-1)).contiguous(),
-        )
-        ctx.save_for_backward(logits, labels, lse, upstream, h)
-        ctx.backend = backend
-        return dx.reshape(logits.shape), dg.to(upstream.dtype).reshape(upstream.shape)
-
-    @staticmethod
-    def backward(ctx, a, b):
-        dx, dg, dh = _DeterministicLogpDoubleBackward._native_backward(ctx, a, b)
-        if torch.is_grad_enabled():
-            # A constant upstream vector bypasses once_differentiable's error
-            # edge. Retain explicit dependencies to reject partial fourth
-            # derivatives, including those of compound losses.
-            logits, _, _, upstream, h = ctx.saved_tensors
-            dx, dg, dh = _RejectDeterministicLogpFourthOrder.apply(
-                dx, dg, dh, logits, upstream, h, a, b
-            )
-        return dx, None, None, dg, dh, None
-
-    @staticmethod
-    @once_differentiable
-    def _native_backward(ctx, a, b):
-        logits, labels, lse, upstream, h = ctx.saved_tensors
-        _require_deterministic_symbols(ctx.backend, "deterministic_logp_triple_backward")
-        dtype = torch.float64 if logits.dtype == torch.float64 else torch.float32
-        dx, dg, dh = ctx.backend.deterministic_logp_triple_backward(
-            logits.reshape(-1, logits.size(-1)),
-            lse,
-            upstream.reshape(-1).to(dtype).contiguous(),
-            labels,
-            h.reshape(-1, logits.size(-1)).contiguous(),
-            a.reshape(-1, logits.size(-1)).contiguous(),
-            b.reshape(-1).to(dtype).contiguous(),
-        )
-        return (
-            dx.reshape(logits.shape),
-            dg.to(upstream.dtype).reshape(upstream.shape),
-            dh.reshape(h.shape),
-        )
-
-
-class _DeterministicLogpBackward(torch.autograd.Function):
-    """Native VJP with explicit native derivatives through order three."""
-
-    @staticmethod
-    def forward(ctx, logits, labels, lse, upstream, backend):
-        dtype = torch.float64 if logits.dtype == torch.float64 else torch.float32
-        coef = upstream.reshape(-1).to(dtype).contiguous()
-        input_2d = logits.reshape(-1, logits.size(-1))
-        active = torch.isfinite(lse) & (labels >= 0) & (labels < logits.size(-1))
-        coef = coef.masked_fill(~active, 0)
-        targets = labels.masked_fill(~active, -1)
-        with torch.cuda.device(logits.device):
-            if dtype == torch.float64:
-                grad = backend.deterministic_logp_backward_fp64(input_2d, lse, coef, targets)
-            else:
-                grad = backend.deterministic_logp_backward(
-                    input_2d,
-                    lse,
-                    coef,
-                    torch.zeros_like(coef),
-                    targets,
-                    0,
-                    logits.size(-1),
-                    False,
-                )
-        ctx.save_for_backward(logits, targets, lse, upstream)
-        ctx.backend = backend
-        return grad.reshape(logits.shape)
-
-    @staticmethod
-    def backward(ctx, h):
-        logits, labels, lse, upstream = ctx.saved_tensors
-        dx, dg = _DeterministicLogpDoubleBackward.apply(
-            logits, labels, lse, upstream, h, ctx.backend
-        )
-        return dx, None, None, dg, None
-
-
-class _DeterministicLogpAutograd(torch.autograd.Function):
-    """Save the original input so native double backward reconnects to its graph."""
-
-    @staticmethod
-    def forward(ctx, logits, token_ids, row_indices, backend, fp64):
-        if fp64:
-            if logits.dtype != torch.float64:
-                raise TypeError("FP64 LogP requires float64 logits")
-            _require_deterministic_symbols(
-                backend,
-                "deterministic_logp_forward_fp64",
-                "deterministic_logp_backward_fp64",
-            )
-        else:
-            if logits.dtype not in (torch.float32, torch.float16, torch.bfloat16):
-                raise TypeError(
-                    "FP32 LogP autograd supports float32, float16, and bfloat16; "
-                    "use apply_fp64 or indexed_fp64 for float64 gradients"
-                )
-            _require_deterministic_symbols(
-                backend,
-                "deterministic_logp_forward_with_lse",
-                "deterministic_logp_backward",
-            )
-        logits_2d = logits.reshape(-1, logits.size(-1))
-        labels = token_ids.reshape(-1).to(device=logits.device, dtype=torch.long).contiguous()
-        with torch.cuda.device(logits.device):
-            if fp64:
-                output, lse = backend.deterministic_logp_forward_fp64(
-                    logits_2d, labels, row_indices, True
-                )
-            else:
-                output, lse = backend.deterministic_logp_forward_with_lse(
-                    logits_2d, labels, row_indices
-                )
-        ctx.save_for_backward(logits, labels, lse)
-        ctx.backend = backend
-        return output.reshape(logits.shape[:-1])
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        logits, labels, lse = ctx.saved_tensors
-        grad = _DeterministicLogpBackward.apply(logits, labels, lse, grad_output, ctx.backend)
-        return grad, None, None, None, None
-
-
 class DeterministicLogpCUDAOp(FusedLogpGenericOp):
     """Batch-invariant deterministic CUDA LogP.
 
     The default call path returns float32 output so tests and downstream KL
     code observe the fixed reduction result before any lower-precision cast.
-    Dense, indexed and out calls support native gradients through order three.
+    Dense, indexed and out calls support recursively differentiable CUDA gradients.
     Explicit FP64 methods use double-precision arithmetic throughout.
     """
 
@@ -417,6 +272,31 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
         self.op = self._backend.deterministic_logp_forward_fp32
         logger.info("Successfully linked to precompiled _C.deterministic_logp kernel.")
 
+    def _prepare_inputs(self, logits, token_ids):
+        shape = logits.shape[:-1]
+        rows = logits.numel() // logits.shape[-1]
+        return (
+            logits.reshape(rows, logits.shape[-1]),
+            token_ids.reshape(token_ids.numel())
+            .to(device=logits.device, dtype=torch.long)
+            .contiguous(),
+            shape,
+        )
+
+    def _prepare_output(self, output, shape):
+        if output.shape != shape:
+            raise ValueError(
+                f"output shape {tuple(output.shape)} must match logits leading shape {tuple(shape)}"
+            )
+        return output.reshape(output.numel())
+
+    def _prepare_indices(self, row_indices, logits):
+        return (
+            row_indices.reshape(row_indices.numel())
+            .to(device=logits.device, dtype=torch.long)
+            .contiguous()
+        )
+
     def __call__(self, logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
         return self.apply_fp32(logits, token_ids)
 
@@ -424,8 +304,8 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
         return self.apply_fp32(logits, token_ids)
 
     def apply_fp32(self, logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
-        if torch.is_grad_enabled() and logits.requires_grad:
-            return _DeterministicLogpAutograd.apply(logits, token_ids, None, self._backend, False)
+        if _needs_ad(logits):
+            return _deterministic_logp(logits, token_ids, None, self._backend, False)
         logits_2d, token_ids_1d, orig_shape = self._prepare_inputs(logits, token_ids)
         results = self._backend.deterministic_logp_forward_fp32(logits_2d, token_ids_1d)
         return results.view(orig_shape)
@@ -437,13 +317,15 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
         allowed = (torch.float16, torch.bfloat16, torch.float32, torch.float64)
         if output.dtype not in allowed or (fp64 and output.dtype != torch.float64):
             raise RuntimeError("output dtype must be floating point (float64 for FP64 interfaces)")
-        if torch.is_grad_enabled():
+        if torch.is_grad_enabled() or _needs_ad(logits):
             if output.requires_grad:
                 raise RuntimeError(
                     "out buffer must not require gradients; detach it after the previous backward"
                 )
             for tensor in (logits, token_ids, row_indices):
-                if tensor is not None and torch._C._overlaps(output, tensor):
+                if tensor is not None and torch._C._overlaps(
+                    _storage_tensor(output), _storage_tensor(tensor)
+                ):
                     raise RuntimeError("out buffer must not share storage with inputs")
 
     def _copy_out(self, logits, token_ids, row_indices, output, fp64=False):
@@ -460,9 +342,7 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
                 else self.indexed_fp32(logits, token_ids, row_indices)
             )
             rows = self._prepare_indices(row_indices, logits)
-            rows = rows[(rows >= 0) & (rows < result.numel())].unique()
-            mask = torch.zeros(result.numel(), dtype=torch.bool, device=logits.device)
-            mask[rows] = True
+            mask = _selection(rows, result.numel(), self._backend)
             result = torch.where(mask.reshape(result.shape), result, output)
         output.copy_(result)
         return output
@@ -471,7 +351,7 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
         self, logits: torch.Tensor, token_ids: torch.Tensor, output: torch.Tensor
     ) -> torch.Tensor:
         self._validate_out(logits, token_ids, None, output)
-        if torch.is_grad_enabled() and logits.requires_grad:
+        if _needs_ad(logits):
             return self._copy_out(logits, token_ids, None, output)
         logits_2d, token_ids_1d, orig_shape = self._prepare_inputs(logits, token_ids)
         results = self._backend.deterministic_logp_forward_out(
@@ -487,7 +367,7 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
         output: torch.Tensor,
     ) -> torch.Tensor:
         self._validate_out(logits, token_ids, row_indices, output)
-        if torch.is_grad_enabled() and logits.requires_grad:
+        if _needs_ad(logits):
             return self._copy_out(logits, token_ids, row_indices, output)
         logits_2d, token_ids_1d, orig_shape = self._prepare_inputs(logits, token_ids)
         results = self._backend.deterministic_logp_forward_indexed_out(
@@ -510,10 +390,8 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
         if logits.dtype != torch.float64:
             raise TypeError("FP64 LogP requires float64 logits")
         _require_deterministic_symbols(self._backend, "deterministic_logp_forward_fp64")
-        if torch.is_grad_enabled() and logits.requires_grad:
-            return _DeterministicLogpAutograd.apply(
-                logits, token_ids, row_indices, self._backend, True
-            )
+        if _needs_ad(logits):
+            return _deterministic_logp(logits, token_ids, row_indices, self._backend, True)
         x, labels, shape = self._prepare_inputs(logits, token_ids)
         result, _ = self._backend.deterministic_logp_forward_fp64(x, labels, row_indices, False)
         return result.reshape(shape)
@@ -544,10 +422,8 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
     ) -> torch.Tensor:
         logits_2d, token_ids_1d, orig_shape = self._prepare_inputs(logits, token_ids)
         row_indices_1d = self._prepare_indices(row_indices, logits)
-        if torch.is_grad_enabled() and logits.requires_grad:
-            return _DeterministicLogpAutograd.apply(
-                logits, token_ids, row_indices_1d, self._backend, False
-            )
+        if _needs_ad(logits):
+            return _deterministic_logp(logits, token_ids, row_indices_1d, self._backend, False)
         results = self._backend.deterministic_logp_forward_indexed_fp32(
             logits_2d, token_ids_1d, row_indices_1d
         )

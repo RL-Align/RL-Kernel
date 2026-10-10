@@ -104,6 +104,9 @@ std::vector<torch::Tensor> deterministic_logp_forward_fp64(
     torch::Tensor logits, torch::Tensor token_ids, torch::optional<torch::Tensor> row_indices, bool save_lse);
 torch::Tensor deterministic_logp_backward_fp64(
     torch::Tensor logits, torch::Tensor lse, torch::Tensor g, torch::Tensor labels);
+torch::Tensor deterministic_logp_probability(torch::Tensor logits, torch::Tensor lse, torch::Tensor active);
+torch::Tensor deterministic_logp_row_sum(torch::Tensor values);
+torch::Tensor deterministic_logp_selection(torch::Tensor indices, int64_t rows);
 std::vector<torch::Tensor> deterministic_logp_triple_backward(
     torch::Tensor logits, torch::Tensor lse, torch::Tensor g, torch::Tensor labels,
     torch::Tensor h, torch::Tensor a, torch::Tensor b);
@@ -586,6 +589,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           py::arg("logits"), py::arg("token_ids"), py::arg("row_indices") = py::none(),
           py::arg("save_lse") = false);
     m.def("deterministic_logp_backward_fp64", &deterministic_logp_backward_fp64);
+    m.def("deterministic_logp_probability", &deterministic_logp_probability);
+    m.def("deterministic_logp_row_sum", &deterministic_logp_row_sum);
+    m.def("deterministic_logp_selection", &deterministic_logp_selection);
     m.def("deterministic_logp_triple_backward", &deterministic_logp_triple_backward);
     m.def("deterministic_logp_double_backward", &deterministic_logp_double_backward);
     m.def("deterministic_logp_forward_with_lse", &deterministic_logp_forward_with_lse,
