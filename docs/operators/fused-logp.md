@@ -7,7 +7,7 @@ pressure at large group sizes.
 ## Entry Point
 
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 logp_op = kernel_registry.get_op("logp")
 output = logp_op(logits, token_ids)
@@ -16,7 +16,7 @@ output = logp_op(logits, token_ids)
 The PyTorch native reference also exposes the Issue #108 interface:
 
 ```python
-from rl_engine.kernels.ops.pytorch.loss.logp import NativeLogpOp
+from rl_engine.reference.logprob.logp import NativeLogpOp
 
 logp_ref = NativeLogpOp()
 output = logp_ref.forward(logits, token_ids)
@@ -52,25 +52,25 @@ ref = torch.gather(ref, dim=-1, index=token_ids.unsqueeze(-1).long()).squeeze(-1
 ## Tests
 
 ```bash
-python -m pytest tests/test_logp.py -q
-python -m pytest tests/test_op_accuracy.py -q
+python -m pytest tests/ops/logprob/test_logp.py -q
+python -m pytest tests/ops/test_op_accuracy.py -q
 ```
 
-`tests/test_logp.py` covers the PyTorch reference contract, dtype behavior,
+`tests/ops/logprob/test_logp.py` covers the PyTorch reference contract, dtype behavior,
 backward-compatible aliases, batch invariance, and registry dispatch. The existing
 operator accuracy tests continue to validate native/CUDA fused API compatibility.
 
 ## Implementation Files
 
-- `rl_engine/kernels/registry.py`
-- `rl_engine/kernels/ops/pytorch/loss/logp.py` — PyTorch native reference
-- `rl_engine/kernels/ops/cuda/loss/logp.py` — CUDA fused LogP (SM90 + generic)
-- `rl_engine/kernels/ops/ascend/loss/logp.py` — Ascend deterministic op
-- `csrc/ops.cpp`
-- `csrc/fused_logp_kernel.cu`
-- `csrc/cuda/fused_logp_sm90.cu`
-- `csrc/deterministic_logp_kernel.cu` — CUDA deterministic kernel (reference reduction)
+- `rl_engine/runtime/registry.py`
+- `rl_engine/reference/logprob/logp.py` — PyTorch native reference
+- `rl_engine/backends/cuda/logprob/logp.py` — CUDA fused LogP (SM90 + generic)
+- `rl_engine/backends/ascend/logprob/logp.py` — Ascend deterministic op
+- `csrc/bindings/ops.cpp`
+- `csrc/cuda/logprob/fused_logp_kernel.cu`
+- `csrc/cuda/logprob/fused_logp_sm90.cu`
+- `csrc/cuda/logprob/deterministic_logp_kernel.cu` — CUDA deterministic kernel (reference reduction)
 - `csrc/ascend/fused_logp_ascend.asc` — Ascend C forward kernel
 - `csrc/ascend/npu_module.cpp` — shared pybind entry for `rl_engine._C_npu`
-- `tests/test_logp.py`
-- `tests/test_logp_ascend.py` — Ascend correctness + batch-invariance tests
+- `tests/ops/logprob/test_logp.py`
+- `tests/backends/ascend/test_logp_ascend.py` — Ascend correctness + batch-invariance tests
