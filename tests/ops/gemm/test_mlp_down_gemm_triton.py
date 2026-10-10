@@ -297,7 +297,9 @@ class TestApi:
     def test_no_bias_matches_reference(self):
         x, weight, _ = _inputs(SMALL)
         got = TritonMlpDownGemmOp()(x, weight)
-        identical, worst = _deviation(got, _reference_forward(x, weight, torch.zeros(weight.size(0))))
+        identical, worst = _deviation(
+            got, _reference_forward(x, weight, torch.zeros(weight.size(0)))
+        )
         assert worst <= 1.0, f"no-bias path: worst={worst:.3f} ulp"
         assert identical >= 0.99, f"no-bias path: identical={identical}"
 
@@ -495,11 +497,11 @@ class TestExactTruth:
             op(x, weight), torch.full((3, n_dim), float(k_dim), dtype=torch.bfloat16).cuda()
         )
         bias = torch.arange(n_dim, dtype=torch.float32).bfloat16().cuda()
-        want = (
-            (torch.tensor(float(k_dim)) + bias.float()).bfloat16().expand(3, n_dim).contiguous()
-        )
+        want = (torch.tensor(float(k_dim)) + bias.float()).bfloat16().expand(3, n_dim).contiguous()
         assert torch.equal(op(x, weight, bias=bias), want.cuda())
-        assert torch.equal(op(torch.zeros_like(x), weight, bias=bias), bias.expand(3, n_dim).contiguous())
+        assert torch.equal(
+            op(torch.zeros_like(x), weight, bias=bias), bias.expand(3, n_dim).contiguous()
+        )
 
     @pytest.mark.parametrize("k_dim", [12288, 12287, 12289])
     def test_one_hot_covers_every_leaf_boundary(self, k_dim):
@@ -530,8 +532,8 @@ class TestExactTruth:
         truth64 = x.double() @ weight.double().T
         truth = (truth64.float() + bias.float()).bfloat16()
         got = TritonMlpDownGemmOp()(x, weight, bias=bias)
-        deviation = (
-            (got.float().double() - truth.float().double()).abs() / _ulp_of_max_magnitude(truth)
+        deviation = (got.float().double() - truth.float().double()).abs() / _ulp_of_max_magnitude(
+            truth
         )
         assert deviation.max().item() <= 2.0, f"{shape}: worst {deviation.max().item():.3f} ulp"
         identical = float((got == truth).float().mean())
@@ -539,7 +541,9 @@ class TestExactTruth:
 
     def test_backward_matches_exact_fp64(self):
         x, weight, bias = _inputs(GATE_SHAPE)
-        grad = torch.randn(GATE_SHAPE[0], GATE_SHAPE[2], generator=torch.Generator().manual_seed(11))
+        grad = torch.randn(
+            GATE_SHAPE[0], GATE_SHAPE[2], generator=torch.Generator().manual_seed(11)
+        )
         grad = grad.bfloat16().cuda()
         dx, dW, db = _grads(TritonMlpDownGemmOp(), x, weight, bias, grad)
         x64, w64, b64 = (t.double().requires_grad_(True) for t in (x, weight, bias))
@@ -547,10 +551,12 @@ class TestExactTruth:
         for name, got, want in (("dx", dx, x64.grad), ("dW", dW, w64.grad), ("db", db, b64.grad)):
             truth = want.bfloat16()
             deviation = (
-                (got.float().double() - truth.float().double()).abs() / _ulp_of_max_magnitude(truth)
-            )
+                got.float().double() - truth.float().double()
+            ).abs() / _ulp_of_max_magnitude(truth)
             assert deviation.max().item() <= 2.0, f"{name}: worst {deviation.max().item():.3f} ulp"
-            assert float((got == truth).float().mean()) >= 0.99, f"{name} diverges from the exact gradient"
+            assert (
+                float((got == truth).float().mean()) >= 0.99
+            ), f"{name} diverges from the exact gradient"
 
 
 # ---------------------------------------------------------------------------

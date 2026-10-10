@@ -53,9 +53,7 @@ from rl_engine.reference.gemm.mlp_down_gemm import (
     mlp_down_gemm_reference_forward,
 )
 
-CUDA = pytest.mark.skipif(
-    not torch.cuda.is_available(), reason="CUDA backend requires a GPU"
-)
+CUDA = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA backend requires a GPU")
 
 # --- measured contract bounds (H100 PCIe, bf16; see the docs page) -----------
 # Below the mma's k-chunk count the fp32 accumulation order cannot differ, so
@@ -159,9 +157,9 @@ def _backend(name):
 def _grad_of(shape, rows=None, seed=11):
     rows = shape[0] if rows is None else rows
     gen = torch.Generator().manual_seed(seed)
-    return (torch.randn(rows, shape[2], generator=gen) / (shape[2] ** 0.5)).to(
-        torch.bfloat16
-    ).cuda()
+    return (
+        (torch.randn(rows, shape[2], generator=gen) / (shape[2] ** 0.5)).to(torch.bfloat16).cuda()
+    )
 
 
 def _reference_rows(shape, kind, rows):
@@ -418,9 +416,9 @@ class TestTreeContractByteEquality:
         (ref,) = _reference_rows(shape, "forward", checked)
         want = ref.bfloat16()
         mismatches = _byte_mismatches(got[:checked], want)
-        assert mismatches == 0, (
-            f"{shape}: {mismatches} of {want.numel()} bf16 elements differ from the fp32 reference"
-        )
+        assert (
+            mismatches == 0
+        ), f"{shape}: {mismatches} of {want.numel()} bf16 elements differ from the fp32 reference"
 
     def test_forward_is_byte_equal_to_the_reference_at_the_anchor_whole(self):
         """The 256-token anchor row for row -- the reference really is the oracle."""
@@ -434,9 +432,9 @@ class TestTreeContractByteEquality:
         (ref,) = _reference_rows(shape, "forward", shape[0])
         want = ref.bfloat16()
         mismatches = _byte_mismatches(got, want)
-        assert mismatches == 0, (
-            f"{shape}: {mismatches} of {want.numel()} bf16 elements differ from the fp32 reference"
-        )
+        assert (
+            mismatches == 0
+        ), f"{shape}: {mismatches} of {want.numel()} bf16 elements differ from the fp32 reference"
 
     def test_no_bias_is_byte_equal_to_the_reference(self):
         from rl_engine.backends.cuda.gemm.mlp_down_gemm import CudaMlpDownGemmOp
@@ -499,9 +497,9 @@ class TestTreePathInvariance:
             op = CudaMlpDownGemmOp()
             full = op(x, weight, bias=bias)
             for rows in (1, 7, x.shape[0] - 1):
-                assert torch.equal(op(x[:rows].contiguous(), weight, bias=bias), full[:rows]), (
-                    f"rows={rows}"
-                )
+                assert torch.equal(
+                    op(x[:rows].contiguous(), weight, bias=bias), full[:rows]
+                ), f"rows={rows}"
 
     def test_forward_tiling_invariant(self):
         """Padded tiles (and the partial k leaf) must not leak into a row's bytes."""
@@ -825,9 +823,11 @@ class TestBackward:
 
         x, weight, bias = _inputs(shape)
         grad_gen = torch.Generator().manual_seed(11)
-        grad = (torch.randn(shape[0], shape[2], generator=grad_gen) / (shape[2] ** 0.5)).to(
-            torch.bfloat16
-        ).cuda()
+        grad = (
+            (torch.randn(shape[0], shape[2], generator=grad_gen) / (shape[2] ** 0.5))
+            .to(torch.bfloat16)
+            .cuda()
+        )
         x.requires_grad_(True)
         weight.requires_grad_(True)
         bias.requires_grad_(True)
@@ -852,9 +852,11 @@ class TestBackward:
         from rl_engine.backends.cuda.gemm.mlp_down_gemm import CudaMlpDownGemmOp
 
         x, weight, bias = _inputs((24, MODEL_K, MODEL_N))
-        grad = torch.randn(24, MODEL_N, generator=torch.Generator().manual_seed(12)).to(
-            torch.bfloat16
-        ).cuda()
+        grad = (
+            torch.randn(24, MODEL_N, generator=torch.Generator().manual_seed(12))
+            .to(torch.bfloat16)
+            .cuda()
+        )
         bias.requires_grad_(True)
         CudaMlpDownGemmOp()(x, weight, bias=bias).backward(grad)
         folded = torch.zeros(MODEL_N, dtype=torch.float32)
@@ -867,9 +869,11 @@ class TestBackward:
 
         op = CudaMlpDownGemmOp()
         x, weight, bias = _inputs(SMALL)
-        grad = torch.randn(SMALL[0], SMALL[2], generator=torch.Generator().manual_seed(13)).to(
-            torch.bfloat16
-        ).cuda()
+        grad = (
+            torch.randn(SMALL[0], SMALL[2], generator=torch.Generator().manual_seed(13))
+            .to(torch.bfloat16)
+            .cuda()
+        )
 
         def run():
             xr = x.clone().requires_grad_(True)
@@ -924,7 +928,9 @@ class TestExactTruth:
         bi = torch.randint(-8, 9, (n_dim,), generator=gen).float()
         x, weight, bias = xi.bfloat16().cuda(), wi.bfloat16().cuda(), bi.bfloat16().cuda()
         op = CudaMlpDownGemmOp()
-        assert torch.equal(op(x, weight, bias=bias), (xi.double() @ wi.double().T + bi.double()).bfloat16().cuda())
+        assert torch.equal(
+            op(x, weight, bias=bias), (xi.double() @ wi.double().T + bi.double()).bfloat16().cuda()
+        )
         assert torch.equal(op(x, weight), (xi.double() @ wi.double().T).bfloat16().cuda())
 
     def test_full_k_identity_and_bias(self):
@@ -997,7 +1003,9 @@ class TestExactTruth:
         truth64 = x.double() @ weight.double().T
         truth = (truth64.float() + bias.float()).bfloat16()
         got = CudaMlpDownGemmOp()(x, weight, bias=bias)
-        deviation = (got.float().double() - truth.float().double()).abs() / _ulp_of_max_magnitude(truth)
+        deviation = (got.float().double() - truth.float().double()).abs() / _ulp_of_max_magnitude(
+            truth
+        )
         assert deviation.max().item() <= 2.0, f"{shape}: worst {deviation.max().item():.3f} ulp"
         identical = float((got == truth).float().mean())
         assert identical >= 0.99, f"{shape}: only {identical:.4f} bit-identical"
@@ -1015,11 +1023,19 @@ class TestExactTruth:
         CudaMlpDownGemmOp()(xr, wr, bias=br).backward(grad)
         x64, w64, b64 = (t.double().requires_grad_(True) for t in (x, weight, bias))
         (x64 @ w64.T + b64).backward(grad.double())
-        for name, got, want in (("dx", xr.grad, x64.grad), ("dW", wr.grad, w64.grad), ("db", br.grad, b64.grad)):
+        for name, got, want in (
+            ("dx", xr.grad, x64.grad),
+            ("dW", wr.grad, w64.grad),
+            ("db", br.grad, b64.grad),
+        ):
             truth = want.bfloat16()
-            deviation = (got.float().double() - truth.float().double()).abs() / _ulp_of_max_magnitude(truth)
+            deviation = (
+                got.float().double() - truth.float().double()
+            ).abs() / _ulp_of_max_magnitude(truth)
             assert deviation.max().item() <= 2.0, f"{name}: worst {deviation.max().item():.3f} ulp"
-            assert float((got == truth).float().mean()) >= 0.99, f"{name} diverges from the exact gradient"
+            assert (
+                float((got == truth).float().mean()) >= 0.99
+            ), f"{name} diverges from the exact gradient"
 
 
 # ---------------------------------------------------------------------------
@@ -1062,9 +1078,7 @@ class TestIntegration:
         args = argparse.Namespace(
             batch=2, seq=16, k_dim=12288, n_dim=3072, dtype="float32", seed=0, device="cpu"
         )
-        tensors = make_operator_inputs(
-            "mlp_down_gemm", args, torch.float32, torch.device("cpu")
-        )
+        tensors = make_operator_inputs("mlp_down_gemm", args, torch.float32, torch.device("cpu"))
         assert tensors["x"].shape == (32, 12288)
         assert tensors["weight"].shape == (3072, 12288)
         assert tensors["bias"].shape == (3072,)
@@ -1128,9 +1142,7 @@ class TestIntegration:
         bias = torch.randn(SMALL[2] * 2, device="cuda", dtype=torch.bfloat16)[::2]
         assert bias.shape == (SMALL[2],) and bias.stride(0) == 2
         op = CudaMlpDownGemmOp()
-        assert torch.equal(
-            op(x, weight, bias=bias), op(x, weight, bias=bias.contiguous())
-        )
+        assert torch.equal(op(x, weight, bias=bias), op(x, weight, bias=bias.contiguous()))
 
     @CUDA
     def test_fail_closed_on_shape_mismatch(self):

@@ -54,9 +54,7 @@ OP_SPECS = {
         candidate_paths={
             "pytorch": "rl_engine.reference.gemm.mlp_down_gemm.NativeMlpDownGemmOp",
             "cuda": "rl_engine.backends.cuda.gemm.mlp_down_gemm.CudaMlpDownGemmOp",
-            "triton": (
-                "rl_engine.backends.shared.triton.gemm.mlp_down_gemm.TritonMlpDownGemmOp"
-            ),
+            "triton": ("rl_engine.backends.shared.triton.gemm.mlp_down_gemm.TritonMlpDownGemmOp"),
         },
         grad_input_names=("x", "weight", "bias"),
     ),

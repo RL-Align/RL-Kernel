@@ -502,7 +502,9 @@ class TritonMlpDownGemmOp:
     """Triton backend for the row contract: pinned tiles, bf16 only."""
 
     op_class = "reduction"
-    is_batch_invariant = True  # per pinned tiles; verified by tests/ops/gemm/test_mlp_down_gemm_triton.py
+    is_batch_invariant = (
+        True  # per pinned tiles; verified by tests/ops/gemm/test_mlp_down_gemm_triton.py
+    )
     backward_impl = TRITON_BACKEND_IMPL
 
     def __init__(self) -> None:
@@ -545,5 +547,5 @@ class TritonMlpDownGemmOp:
 
         x = x.detach().requires_grad_(True)
         weight = weight.detach().requires_grad_(True)
-        self.forward(x, weight).backward(grad_output)
-        return x.grad, weight.grad
+        grad_x, grad_weight = torch.autograd.grad(self.forward(x, weight), (x, weight), grad_output)
+        return grad_x, grad_weight
