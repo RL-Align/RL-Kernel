@@ -500,6 +500,21 @@ at::Tensor prefix_shared_attention(
 #endif
 #endif
 
+// MiniMax-H3 (RFC #420) conditioning-path declarations. CUDA only.
+#if !defined(USE_ROCM) && !defined(KERNEL_ALIGN_WITH_ROCM) && \
+    (defined(__CUDACC__) || defined(KERNEL_ALIGN_WITH_CUDA))
+torch::Tensor h3_timestep_sinusoid_forward(torch::Tensor timestep, int64_t num_channels,
+                                           double max_period, bool check_range);
+std::vector<torch::Tensor> h3_det_linear_forward(torch::Tensor x, torch::Tensor weight,
+                                                 c10::optional<torch::Tensor> bias,
+                                                 int64_t activation, bool save_pre_activation);
+torch::Tensor h3_det_linear_backward_input(torch::Tensor grad, torch::Tensor weight,
+                                           c10::ScalarType out_dtype);
+std::vector<torch::Tensor> h3_det_linear_backward_weight(torch::Tensor grad, torch::Tensor x,
+                                                         c10::ScalarType w_dtype,
+                                                         bool with_bias);
+#endif
+
 // PyBind11 Module Registration
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.doc() = "RL-Kernel High-Performance Operator Extension Library";
@@ -757,5 +772,23 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         &deterministic_rope_apply_token_major_rocm,
         "Deterministic GPT-NeoX token-major RoPE apply for ROCm");
 #endif
+#endif
+
+#if !defined(USE_ROCM) && !defined(KERNEL_ALIGN_WITH_ROCM) && \
+    (defined(__CUDACC__) || defined(KERNEL_ALIGN_WITH_CUDA))
+    m.def("h3_timestep_sinusoid_forward", torch::wrap_pybind_function(h3_timestep_sinusoid_forward),
+          "MiniMax-H3 FP32 [cos | sin] timestep features, bitwise to the diffusers CUDA path",
+          py::arg("timestep"), py::arg("num_channels") = 256, py::arg("max_period") = 10000.0,
+          py::arg("check_range") = true);
+    m.def("h3_det_linear_forward", &h3_det_linear_forward,
+          "Batch-invariant warp-per-column linear (contract h3-det-linear-v1), optional SiLU",
+          py::arg("x"), py::arg("weight"), py::arg("bias") = py::none(),
+          py::arg("activation") = 0, py::arg("save_pre_activation") = false);
+    m.def("h3_det_linear_backward_input", &h3_det_linear_backward_input,
+          "Deterministic grad @ weight with fixed 64-row N chunks folded in order",
+          py::arg("grad"), py::arg("weight"), py::arg("out_dtype"));
+    m.def("h3_det_linear_backward_weight", &h3_det_linear_backward_weight,
+          "Deterministic dW/dbias as ascending-row FP32 folds",
+          py::arg("grad"), py::arg("x"), py::arg("w_dtype"), py::arg("with_bias") = true);
 #endif
 }
