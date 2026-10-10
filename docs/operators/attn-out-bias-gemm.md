@@ -80,13 +80,14 @@ reductions, bit-identical on every device).
   `tests/test_attn_out_bias_gemm.py`: shape, dtype, dtype-bitcast; zero
   tolerance). A result that differs in any bit fails acceptance regardless
   of any other verdict; error statistics are diagnostics only.
-- The generic gtest matrix (`scripts/check_operator.py`,
-  `rl_engine/kernels/gtest/tolerance_contract.json`) is a diagnostic overlay
-  for this operator, not an acceptance tier: its bf16 forward leg compares
-  the fp32 gold against the bf16 output (cast-level differences by
-  construction) and its gradient leg compares autograd-through-gold against
-  the frozen backward (a different computation order), so both legs are
-  tolerance-based by design -- and they cannot weaken the bitwise bar above.
+- The generic gtest matrix enforces the same bar for this operator
+  (`bitwise_strict` in `rl_engine/kernels/gtest/operator_specs.py`): the
+  forward pass criterion is the gold cast ONCE to the output dtype, compared
+  on the dtype bitcast; the gradient leg differentiates the gold OP itself
+  (its ``autograd.Function.backward`` IS the frozen chain) with the same
+  upstream bits as the candidate, then compares bit-for-bit. Tolerances are
+  never consulted for ``passed``; the printed error statistics (against the
+  fp32 gold) are diagnostics only.
 
 ## Performance Notes
 
