@@ -1,0 +1,152 @@
+{
+  "kind": "qwen3_next_norm_reuse_check",
+  "rfc": "RL-Align/RL-Kernel#428",
+  "op": "qwen3_next_rms_norm",
+  "rl_kernel_commit": "88f59f7d06741ba533a7b9b718b331ee885b93b7",
+  "tracked_tree_dirty": false,
+  "environment": {
+    "gpu": "NVIDIA B200",
+    "capability": [
+      10,
+      0
+    ],
+    "cuda": "13.0",
+    "libraries": {
+      "torch": "2.13.0",
+      "triton": "3.7.1",
+      "transformers": "5.17.0",
+      "vllm": "0.30.0",
+      "flashinfer-python": "0.6.18.post1",
+      "liger-kernel": "0.8.4",
+      "fla-core": "0.5.2",
+      "transformer_engine": "2.20.2",
+      "megatron-core": null
+    },
+    "megatron_source_commit": "52fbcbc"
+  },
+  "quick": false,
+  "checks": [
+    "gates"
+  ],
+  "results": {
+    "rl_kernel": {
+      "source": "rl-kernel Qwen3NextRMSNormCudaOp",
+      "backward": "full",
+      "contract_gates": {
+        "forward": {
+          "returncode": 0,
+          "passed": true,
+          "failed_lines": [],
+          "singleton_aggregate": [],
+          "stderr_tail": []
+        },
+        "gradient": {
+          "returncode": 0,
+          "passed": true,
+          "failed_lines": [],
+          "singleton_aggregate": [
+            "singleton_aggregate pair=('BN/full', 'B1-singleton_aggregate/full') tensor=dweight max_abs=0.00000000e+00 passed=True",
+            "singleton_aggregate pair=('BN/full', 'B1-singleton_aggregate/chunked') tensor=dweight max_abs=0.00000000e+00 passed=True"
+          ],
+          "stderr_tail": []
+        }
+      }
+    },
+    "reference": {
+      "source": "rl-kernel PyTorch reference",
+      "backward": "full"
+    },
+    "transformers": {
+      "source": "transformers 5.17.0 Qwen3NextRMSNorm",
+      "backward": "full",
+      "contract_gates": {
+        "forward": {
+          "returncode": 0,
+          "passed": true,
+          "failed_lines": [],
+          "singleton_aggregate": [],
+          "stderr_tail": []
+        },
+        "gradient": {
+          "returncode": 1,
+          "passed": false,
+          "failed_lines": [
+            "op=qwen3_next_rms_norm profile=cuda_bf16 candidate=__main__._gate_child.<locals>.Swapped::cuda passed=False",
+            "invariance pair=('BN/full', 'BN/chunked') tensor=dx transform=chunk max_abs=1.52587891e-05 passed=False",
+            "invariance pair=('BN/full', 'B1-singleton_aggregate/full/s2') tensor=dx transform=batch_size max_abs=1.52587891e-05 passed=False",
+            "invariance pair=('BN/full', 'B1-singleton_aggregate/chunked/s2') tensor=dx transform=chunk max_abs=1.52587891e-05 passed=False"
+          ],
+          "singleton_aggregate": [
+            "singleton_aggregate pair=('BN/full', 'B1-singleton_aggregate/full') tensor=dweight max_abs=0.00000000e+00 passed=True",
+            "singleton_aggregate pair=('BN/full', 'B1-singleton_aggregate/chunked') tensor=dweight max_abs=0.00000000e+00 passed=True"
+          ],
+          "stderr_tail": []
+        }
+      }
+    },
+    "liger": {
+      "source": "Liger 0.8.4 RMSNorm, offset 1, gemma",
+      "backward": "full",
+      "contract_gates": {
+        "forward": {
+          "returncode": 0,
+          "passed": true,
+          "failed_lines": [],
+          "singleton_aggregate": [],
+          "stderr_tail": []
+        },
+        "gradient": {
+          "returncode": 0,
+          "passed": true,
+          "failed_lines": [],
+          "singleton_aggregate": [
+            "singleton_aggregate pair=('BN/full', 'B1-singleton_aggregate/full') tensor=dweight max_abs=0.00000000e+00 passed=True",
+            "singleton_aggregate pair=('BN/full', 'B1-singleton_aggregate/chunked') tensor=dweight max_abs=0.00000000e+00 passed=True"
+          ],
+          "stderr_tail": []
+        }
+      }
+    },
+    "fla": {
+      "source": "FLA 0.5.2 rms_norm, weight passed as 1 + w",
+      "backward": "full",
+      "contract_gates": {
+        "forward": {
+          "returncode": 0,
+          "passed": true,
+          "failed_lines": [],
+          "singleton_aggregate": [],
+          "stderr_tail": []
+        },
+        "gradient": {
+          "returncode": 0,
+          "passed": true,
+          "failed_lines": [],
+          "singleton_aggregate": [
+            "singleton_aggregate pair=('BN/full', 'B1-singleton_aggregate/full') tensor=dweight max_abs=0.00000000e+00 passed=True",
+            "singleton_aggregate pair=('BN/full', 'B1-singleton_aggregate/chunked') tensor=dweight max_abs=0.00000000e+00 passed=True"
+          ],
+          "stderr_tail": []
+        }
+      }
+    },
+    "transformer_engine": {
+      "source": "TE 2.20.2 RMSNorm(zero_centered_gamma)",
+      "backward": "x-only"
+    },
+    "megatron": {
+      "unavailable": "Excluded: Megatron 52fbcbc accepts zero_centered_gamma=True but uses the original weight instead of weight_eff in forward."
+    },
+    "flashinfer": {
+      "source": "FlashInfer 0.6.18.post1 gemma_rmsnorm",
+      "backward": "none"
+    },
+    "vllm": {
+      "source": "vLLM 0.30.0 GemmaRMSNorm.forward_cuda",
+      "backward": "none"
+    }
+  },
+  "evidence_corrections": [
+    "Removed the invalid Megatron 52fbcbc zero-centered gate comparison. All other gate measurements and original run provenance are unchanged; gates were not rerun."
+  ]
+}
