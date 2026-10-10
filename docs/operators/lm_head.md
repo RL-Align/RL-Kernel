@@ -16,7 +16,7 @@ HF `nn.Linear` `[out, in]` convention. It is independent from the embedding tabl
 ## Entry Point
 
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 lm_head = kernel_registry.get_op("lm_head")
 
@@ -113,7 +113,7 @@ GEMM symbols are missing instead of silently falling back to cuBLAS for bf16 gra
 ## Tests
 
 ```bash
-python -m pytest tests/test_lm_head.py tests/test_lm_head_ascend.py -v
+python -m pytest tests/ops/embedding/test_lm_head.py tests/backends/ascend/test_lm_head_ascend.py -v
 ```
 
 Covers fp32 correctness vs the fixed-K reference, precision-context safety, bf16/fp16
@@ -126,12 +126,12 @@ repeated runs), and NPU registry dispatch.
 
 ## Implementation Files
 
-- `rl_engine/kernels/ops/pytorch/linear/lm_head.py`
-- `rl_engine/kernels/ops/cuda/linear/lm_head.py`
-- `csrc/cuda/embedding_lm_head_sm90.cu`
-- `rl_engine/kernels/ops/ascend/linear/lm_head.py` — Ascend deterministic op
+- `rl_engine/reference/embedding/lm_head.py`
+- `rl_engine/backends/cuda/embedding/lm_head.py`
+- `csrc/cuda/embedding/embedding_lm_head_sm90.cu`
+- `rl_engine/backends/ascend/embedding/lm_head.py` — Ascend deterministic op
 - `csrc/ascend/lm_head_ascend.asc` — Ascend C forward kernel
 - `csrc/ascend/npu_module.cpp` — shared pybind entry for `rl_engine._C_npu`
-- `rl_engine/kernels/registry.py`
-- `tests/test_lm_head.py`
-- `tests/test_lm_head_ascend.py`
+- `rl_engine/runtime/registry.py`
+- `tests/ops/embedding/test_lm_head.py`
+- `tests/backends/ascend/test_lm_head_ascend.py`

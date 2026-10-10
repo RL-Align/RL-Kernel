@@ -10,8 +10,8 @@ BF16 weight per block) across tensor-parallel ranks (RFC #420, WS2). Every rank 
 ## Entry Point
 
 ```python
-from rl_engine.distributed.collectives import DeterministicCollective
-from rl_engine.kernels.ops.cuda.h3.tp_adaln_projection import (
+from rl_engine.distributed.algorithms.collectives import DeterministicCollective
+from rl_engine.backends.cuda.model_specific.minimax_h3.tp_adaln_projection import (
     H3TPAdaLNProjectionCudaOp,
     shard_adaln_projection,
 )
@@ -70,9 +70,9 @@ size, where the multi-block path takes about 45 µs. This matters for the forwar
 
 ## Evidence
 
-![tp_adaln_3mod on 8 x B200: byte equality and time](../usage/evidence/h3-tp-adaln-3mod-b200/figure.png)
+![tp_adaln_3mod on 8 x B200: byte equality and time](../../reports/experiments/h3-tp-adaln-3mod-b200/figure.png)
 
-The report is written by `scripts/h3_ws2_evidence.py` from a clean tree at commit `4947996`, with
+The report is written by `tools/validation/models/h3_ws2_evidence.py` from a clean tree at commit `4947996`, with
 real NCCL processes on one 8 x B200 node, one GPU per rank, on the pinned block-0 weights. For
 TP 1, 2, 4 and 8 and T = 1..4, every rank's table and `d_temb`, and its `dW`/`db` shard, are
 byte-equal to WS1 computed on the same GPU.
@@ -93,11 +93,11 @@ and gains 1.7-1.8x at TP8. Each rank also holds only `1 / tp` of the weight and 
 ## Tests
 
 ```bash
-export RL_KERNEL_H3_WEIGHTS=<dir written by scripts/prepare_h3_weights.py>
-python -m pytest tests/h3/test_h3_tp_adaln.py -v   # ownership, shard arithmetic, NCCL TP2/4/8
-python scripts/h3_ws2_evidence.py --op tp_adaln_3mod --worlds 1,2,4,8 \
-    --out docs/usage/evidence/h3-tp-adaln-3mod-b200/report.json
-python scripts/plot_h3_evidence.py docs/usage/evidence/h3-tp-adaln-3mod-b200/report.json
+export RL_KERNEL_H3_WEIGHTS=<dir written by tools/weights/prepare_h3_weights.py>
+python -m pytest tests/models/minimax_h3/test_h3_tp_adaln.py -v   # ownership, shard arithmetic, NCCL TP2/4/8
+python tools/validation/models/h3_ws2_evidence.py --op tp_adaln_3mod --worlds 1,2,4,8 \
+    --out reports/experiments/h3-tp-adaln-3mod-b200/report.json
+python tools/validation/models/plot_h3_evidence.py reports/experiments/h3-tp-adaln-3mod-b200/report.json
 ```
 
 The NCCL tests need as many GPUs as ranks and skip otherwise. The shard-arithmetic tests check
