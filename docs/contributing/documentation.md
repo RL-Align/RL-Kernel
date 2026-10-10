@@ -6,7 +6,7 @@ Pages site.
 ## Local Build
 
 ```bash
-pip install -r requirements-docs.txt
+pip install -r requirements/docs.txt
 mkdocs build --strict -f mkdocs.yaml
 ```
 
