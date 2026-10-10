@@ -187,14 +187,36 @@ def test_c2_ascend_cases_pin_real_ascend_kernels_and_sources():
 
 def test_c3_c4_every_required_adapter_resolves_an_ascend_candidate():
     manifest = load_manifest()
+    model_id = manifest.model_identity["model_id"]
     for name, adapter in GRADIENT_ADAPTERS.items():
         if adapter.requirement not in ("required",):
+            continue
+        # An adapter scoped to another model (the CUDA-only Qwen3-Next norms)
+        # resolves to `absent_not_required` for this manifest by design; this
+        # test covers the chain of the model whose manifest it loads.
+        if adapter.model_id not in (None, model_id):
             continue
         resolved = resolve_profile_candidate(adapter, PROFILE, manifest)
         assert resolved["status"] == "declared", name
         assert resolved["expected_backend_id"] == "ascend", name
         assert resolved["candidate_path"], name
         assert candidate_family(str(resolved["expected_backend_id"])) == "ascend"
+
+
+def test_model_scoped_adapters_are_absent_not_required_for_other_models():
+    """The scoping the test above relies on must actually hold.
+
+    Without this, skipping scoped adapters could hide one that silently resolves
+    to a real candidate for the wrong model.
+    """
+    manifest = load_manifest()
+    model_id = manifest.model_identity["model_id"]
+    scoped = [a for a in GRADIENT_ADAPTERS.values() if a.model_id not in (None, model_id)]
+    assert scoped, "expected at least the Qwen3-Next norm adapters to be model-scoped"
+    for adapter in scoped:
+        resolved = resolve_profile_candidate(adapter, PROFILE, manifest)
+        assert resolved["status"] == "absent_not_required", adapter.op_name
+        assert resolved["candidate_path"] is None, adapter.op_name
 
 
 def test_c4_adapter_status_matrix_has_no_red_ascend_rows():

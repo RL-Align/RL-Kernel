@@ -1,0 +1,759 @@
+{
+  "version": "1.0",
+  "workload_id": "qwen3-next-80b-a3b-norm-c3-c4-v1",
+  "seed": 20260812,
+  "model_identity": {
+    "model_id": "Qwen/Qwen3-Next-80B-A3B-Instruct",
+    "revision": "9c7f2fbe84465e40164a94cc16cd30b6999b0cc7",
+    "config_fingerprint": {
+      "num_hidden_layers": 48,
+      "hidden_size": 2048,
+      "intermediate_size": 5120,
+      "num_attention_heads": 16,
+      "num_key_value_heads": 2,
+      "head_dim": 256,
+      "vocab_size": 151936,
+      "linear_key_head_dim": 128,
+      "linear_value_head_dim": 128,
+      "linear_num_key_heads": 16,
+      "linear_num_value_heads": 32,
+      "num_experts": 512,
+      "num_experts_per_tok": 10
+    },
+    "exit_forbids_architecture_shrink": true,
+    "weight_snapshot": {
+      "pin_method": "revision-and-sha256",
+      "total_size_bytes": 162649725440,
+      "index_file": "model.safetensors.index.json",
+      "index_sha256": "0e5274f538d750abdd7fd55a36bad64100f9e881d59c65f6a59f364d2f8b6dd7",
+      "content_hash_algorithm": "sha256-of-sorted-shard-records-v1",
+      "content_hash": "00a6a3b5573ccbac2e01fadb673c2cd7bca172d40ddd73f95ed7afa5cbdb9dcd",
+      "shards": [
+        {
+          "filename": "model-00001-of-00041.safetensors",
+          "size_bytes": 3999619256,
+          "sha256": "d8908fd48650169854b5ed815cb01bfc1741152cc58795ec99188862c6a29e11"
+        },
+        {
+          "filename": "model-00002-of-00041.safetensors",
+          "size_bytes": 3999841784,
+          "sha256": "c753c9bfaca220781d4030c3a99e69b4a256434c9d6ec223f5147edc265289df"
+        },
+        {
+          "filename": "model-00003-of-00041.safetensors",
+          "size_bytes": 3999515584,
+          "sha256": "51aaa14dd50c5ab90c363227bfb1ac51182118f588e0141dcaadda012548407c"
+        },
+        {
+          "filename": "model-00004-of-00041.safetensors",
+          "size_bytes": 3999842000,
+          "sha256": "82a33096134fb6e7751a423f142e79b1bbe89f45242b75397c2d7170fffa75bd"
+        },
+        {
+          "filename": "model-00005-of-00041.safetensors",
+          "size_bytes": 3999842208,
+          "sha256": "41abda7bf93f27c36cb28382114f5b33defa6dbfd154abb6886a6fec20f9e479"
+        },
+        {
+          "filename": "model-00006-of-00041.safetensors",
+          "size_bytes": 3999853216,
+          "sha256": "a7794475040ebd62c9a1f9c94c17e7c600873e14fcabc656b32faea09bc7fd2d"
+        },
+        {
+          "filename": "model-00007-of-00041.safetensors",
+          "size_bytes": 3999841912,
+          "sha256": "64d7e90d00ce15cc8bbf7677ad07bf3cffc9e90a1b777e3334fa15ffea219d6b"
+        },
+        {
+          "filename": "model-00008-of-00041.safetensors",
+          "size_bytes": 3999842000,
+          "sha256": "9ace9b99e71490d619656956d457744f727647b3f36fa3d801798a5156599d35"
+        },
+        {
+          "filename": "model-00009-of-00041.safetensors",
+          "size_bytes": 3999843192,
+          "sha256": "5b1b374c9e6100077c446a293566c1f644475c94739ab08b7fa26ba847110216"
+        },
+        {
+          "filename": "model-00010-of-00041.safetensors",
+          "size_bytes": 3999517808,
+          "sha256": "38e51dc850a39c325324e6ddd23347e6e3e76cba1341aeef2e1f260ca2cb9f49"
+        },
+        {
+          "filename": "model-00011-of-00041.safetensors",
+          "size_bytes": 4000181296,
+          "sha256": "c06719dc79fbbc796b8751ccbb29c8ecbdb686de9f89e3c741b5bbfec203cf0c"
+        },
+        {
+          "filename": "model-00012-of-00041.safetensors",
+          "size_bytes": 3999843880,
+          "sha256": "349036c3e3f6a8645af47906dae7272bd5352f822a3c354a16ef4084b3555679"
+        },
+        {
+          "filename": "model-00013-of-00041.safetensors",
+          "size_bytes": 3999517472,
+          "sha256": "bfab17d1535ef23e99e54ff3156ce1456aa5f0a4a93b281a7adb9d8b921dc829"
+        },
+        {
+          "filename": "model-00014-of-00041.safetensors",
+          "size_bytes": 3999843984,
+          "sha256": "318d10df78f1647189941884acc01616a6a78d5d45d74ea30955be7f509c580a"
+        },
+        {
+          "filename": "model-00015-of-00041.safetensors",
+          "size_bytes": 4000181736,
+          "sha256": "aa3400abde789ecca625b8cea37aa31232bf6696923f10981d028518a2393173"
+        },
+        {
+          "filename": "model-00016-of-00041.safetensors",
+          "size_bytes": 3999517256,
+          "sha256": "3776700f68222f0174bb14fea8480da41d928a1bfd6b5317c4fc2b14006d506e"
+        },
+        {
+          "filename": "model-00017-of-00041.safetensors",
+          "size_bytes": 3999843880,
+          "sha256": "052726cd55224d3d217dac93eaed060215b8029afb44861c0d927d87c6a046ab"
+        },
+        {
+          "filename": "model-00018-of-00041.safetensors",
+          "size_bytes": 3999843880,
+          "sha256": "dd1b8d843e0013ed3beb6ba7fc36dc4b1f2df5d71b40520f82f369cd8fce5cba"
+        },
+        {
+          "filename": "model-00019-of-00041.safetensors",
+          "size_bytes": 3999844096,
+          "sha256": "bfe5489c61334f9ce9bc6b369c3edf44420d7f585c6438f3afb98a120b26e6f3"
+        },
+        {
+          "filename": "model-00020-of-00041.safetensors",
+          "size_bytes": 3999855040,
+          "sha256": "eba3113cbd34304751e148502f314be5ceae6e7d830bd33f2c0cf3bb8dfb28c2"
+        },
+        {
+          "filename": "model-00021-of-00041.safetensors",
+          "size_bytes": 3999843792,
+          "sha256": "9ddd72e8ada4480e86e4230639210df1039802db9f78537673c19117d2e69b95"
+        },
+        {
+          "filename": "model-00022-of-00041.safetensors",
+          "size_bytes": 3999843880,
+          "sha256": "c6fc2bb1762d34b8db83fb11566e462c9166e132bb2bfcef45a33a4bd41c02db"
+        },
+        {
+          "filename": "model-00023-of-00041.safetensors",
+          "size_bytes": 3999517464,
+          "sha256": "484bf8c327f7f7aaa20fbc4f6800d4aab7870749335b6f6bbfdb83570a1f66e2"
+        },
+        {
+          "filename": "model-00024-of-00041.safetensors",
+          "size_bytes": 3999844264,
+          "sha256": "cfbb94709f5dac71ffe144ee3b9a976a49a2a9b9863caa29620fbc65820c2342"
+        },
+        {
+          "filename": "model-00025-of-00041.safetensors",
+          "size_bytes": 4000181296,
+          "sha256": "b5799d19dcccfb17b108b5349900a4c42eb7bc241149cb7d1b38b48c707070cf"
+        },
+        {
+          "filename": "model-00026-of-00041.safetensors",
+          "size_bytes": 3999517472,
+          "sha256": "98003819929196d2f6f05c42603e9124a7a7853f372089eed3ffbd0c244fbdac"
+        },
+        {
+          "filename": "model-00027-of-00041.safetensors",
+          "size_bytes": 3999843880,
+          "sha256": "3d6b8b9d1c0c262cc8a63c41c3f75053ab8b31b6107130800718048da64b86db"
+        },
+        {
+          "filename": "model-00028-of-00041.safetensors",
+          "size_bytes": 3999843984,
+          "sha256": "836d4a85cc72243c6caee2b6cf470cd598d6ab817e0685daf1128fd97bb133e3"
+        },
+        {
+          "filename": "model-00029-of-00041.safetensors",
+          "size_bytes": 3999855320,
+          "sha256": "7b083d02c732458cfaaee8b0d1407626ad5ee10fc7eeed6b294b7d6853ac30e8"
+        },
+        {
+          "filename": "model-00030-of-00041.safetensors",
+          "size_bytes": 3999843672,
+          "sha256": "e81006eeaa1152c67798640be46b710e87d44a307effca60cbdb7e9d1a3b268b"
+        },
+        {
+          "filename": "model-00031-of-00041.safetensors",
+          "size_bytes": 3999843880,
+          "sha256": "4fd46dbc55ceefa6146a7687cd02d040087c58b0f7ea42c4cd7dc66b838f531c"
+        },
+        {
+          "filename": "model-00032-of-00041.safetensors",
+          "size_bytes": 3999843880,
+          "sha256": "7edf6738b9bc204f0b39e9c7899515d1a1ed9d7d5f7c1cce32c981120c4f034d"
+        },
+        {
+          "filename": "model-00033-of-00041.safetensors",
+          "size_bytes": 3999517688,
+          "sha256": "9f0f735e75e8d648b4b8d601a598d489fc4e4c7876da4f3406bf3bcc8990a181"
+        },
+        {
+          "filename": "model-00034-of-00041.safetensors",
+          "size_bytes": 4000181496,
+          "sha256": "3499ba70dbb6a9acf87509c3b82c5790461a73f8d0d12f0e3699354f34dc02b7"
+        },
+        {
+          "filename": "model-00035-of-00041.safetensors",
+          "size_bytes": 3999843792,
+          "sha256": "de04b5e39b9494b44becacf22fbe9c02890ef323a3dfe37640a2bfa80335504c"
+        },
+        {
+          "filename": "model-00036-of-00041.safetensors",
+          "size_bytes": 3999517472,
+          "sha256": "3eddb88c62194513f94ef3b1c11577ad324fdcc21265ff7b11a4b50d50b03c5f"
+        },
+        {
+          "filename": "model-00037-of-00041.safetensors",
+          "size_bytes": 3999843872,
+          "sha256": "01992493e00d45d5fec4b5989392f401c9ebe3e13973edaaf1973577e132ca11"
+        },
+        {
+          "filename": "model-00038-of-00041.safetensors",
+          "size_bytes": 3999844264,
+          "sha256": "e328c6d2e5f2a42eb99a0335bde7aa4c42cbd72b88fb988d5a2c96ba6231e95e"
+        },
+        {
+          "filename": "model-00039-of-00041.safetensors",
+          "size_bytes": 3999854888,
+          "sha256": "15063cd0a46af3fa37e74590534f62a81f1ede5340e7640713bf98f39f20961d"
+        },
+        {
+          "filename": "model-00040-of-00041.safetensors",
+          "size_bytes": 3365572496,
+          "sha256": "e458c4f4345d7082e7063f381ee1962725f84c44d53a5b70afb77e601ff22017"
+        },
+        {
+          "filename": "model-00041-of-00041.safetensors",
+          "size_bytes": 3301131296,
+          "sha256": "1f3ac4d828f7e08dd14eb4dc6f282139ae1fa0d894e43f247da2539d2ef43826"
+        }
+      ],
+      "weight_files_total_size_bytes": 162659161528
+    }
+  },
+  "chain_semantics": {
+    "execution_dtype": "bfloat16",
+    "reference_dtype": "float32",
+    "accumulation_dtype": "float32",
+    "temperature": 1.0,
+    "loss_reduction": "sum_over_active_tokens_then_optional_mean_by_active_count",
+    "logprob_selection": "selected_token_logprob_on_active_mask",
+    "active_token_policy": "active selected tokens only",
+    "aggregates": [
+      "max_abs_dlogp",
+      "approx_kl0",
+      "clipfrac0"
+    ],
+    "clip_interval": [
+      0.8,
+      1.2
+    ],
+    "clip_interval_note": "Pinned for clipfrac0; must match C1 chain_logprob_aggregates.default_clip_interval unless an explicit contract revision changes both.",
+    "comparison_roles_source": "rl_engine/kernels/gtest/tolerance_contract.json",
+    "forbidden_comparison_roles": [
+      "baseline",
+      "singleton_aggregate"
+    ],
+    "singleton_aggregate_note": "singleton_aggregate is a C2 execution/aggregation mode only. It must never populate comparison_lhs_role or comparison_rhs_role.",
+    "tf32_policy_ref": "rl_engine/kernels/gtest/tolerance_contract.json#/policy/tf32",
+    "tf32_note": "WS1 TF32 enable/disable is owned by the C1 contract; C2 gates must not introduce a private TF32 policy.",
+    "report_naming": {
+      "comparison_lhs_role": "from_c1_by_report_kind",
+      "comparison_rhs_role": "from_c1_by_report_kind",
+      "forbidden_in_reports": [
+        "baseline",
+        "singleton_aggregate"
+      ],
+      "singleton_aggregate_is": "c2_execution_aggregation_mode_only",
+      "note": "C2 freezes naming rules; C3+ emit reports that must obey these roles."
+    },
+    "backend_actual_semantics": {
+      "c2_representative_actual_source": "scripts/ws1_candidate_evidence.py runtime execution",
+      "full_model_runtime_observed_actual_owner": [
+        "C3",
+        "C8",
+        "C10",
+        "C11"
+      ],
+      "note": "C2 executes every representative case and records runtime-observed actual backend/kernel provenance. Later children own full-model dispatch provenance."
+    }
+  },
+  "stochastic_policy": {
+    "dropout": 0.0,
+    "attention_dropout": 0.0,
+    "sampling_in_logprob_parity": false,
+    "canonical_gate_uses_dropout_zero": true,
+    "rng_source": "manifest_seed_plus_logical_sample_token_identity",
+    "undeclared_randomness": "hard_fail",
+    "retained_stochastic_ops": []
+  },
+  "primary_matrix": {
+    "description": "Fixed #150 Batch \u00d7 Chunked-Prefill matrix prerequisite workload cells.",
+    "N": 4,
+    "batch_size_bn": 4,
+    "sample_ids": [
+      "s0",
+      "s1",
+      "s2",
+      "s3"
+    ],
+    "sample_order_fixed": true,
+    "batch_permutation": {
+      "enabled": true,
+      "permutation": [
+        2,
+        0,
+        3,
+        1
+      ],
+      "target_sample_position_in_bn": 0,
+      "note": "Permutation exercises layout invariance; logical compare restores sample_id order."
+    },
+    "chunk": {
+      "chunk_size_tokens": 7,
+      "require_ge_2_chunks": true,
+      "non_divisible_case": true,
+      "note": "Longest primary seq_len=19 with chunk_size=7 yields chunks [7,7,5]."
+    },
+    "cells": [
+      {
+        "cell_id": "B1-singleton_aggregate/full",
+        "batch_mode": "singleton_aggregate",
+        "batch_size_per_run": 1,
+        "num_runs": 4,
+        "prefill_mode": "full",
+        "aggregation": {
+          "order": "sample_ids",
+          "denominator": "active_token_count_across_all_samples"
+        }
+      },
+      {
+        "cell_id": "BN/full",
+        "batch_mode": "batched",
+        "batch_size_per_run": 4,
+        "num_runs": 1,
+        "prefill_mode": "full",
+        "aggregation": {
+          "order": "sample_ids",
+          "denominator": "active_token_count_across_all_samples"
+        }
+      },
+      {
+        "cell_id": "B1-singleton_aggregate/chunked",
+        "batch_mode": "singleton_aggregate",
+        "batch_size_per_run": 1,
+        "num_runs": 4,
+        "prefill_mode": "chunked",
+        "aggregation": {
+          "order": "sample_ids",
+          "denominator": "active_token_count_across_all_samples"
+        }
+      },
+      {
+        "cell_id": "BN/chunked",
+        "batch_mode": "batched",
+        "batch_size_per_run": 4,
+        "num_runs": 1,
+        "prefill_mode": "chunked",
+        "aggregation": {
+          "order": "sample_ids",
+          "denominator": "active_token_count_across_all_samples"
+        }
+      }
+    ]
+  },
+  "fixtures": {
+    "prompt_template": "ws1_fixed_token_fixture",
+    "dtype_for_token_tensors": "int64",
+    "position_ids": {
+      "basis": "logical_zero_based_per_sample",
+      "reset_after_pack_boundary": true
+    },
+    "attention_mask": {
+      "active_value": 1,
+      "padding_value": 0,
+      "causal": true
+    },
+    "primary_seq_len": 19,
+    "primary_prompt_len": 8,
+    "short_seq_len": 8,
+    "long_seq_len": 32,
+    "varlen_seq_lens": [
+      11,
+      16,
+      13,
+      19
+    ],
+    "padding": {
+      "modes": [
+        "right",
+        "left"
+      ],
+      "pad_token_id": 151643,
+      "primary_padded_len": 20
+    },
+    "packing": {
+      "status": "supported",
+      "implementation": "rl_engine.kernels.ops.pytorch.packing.pack.NativePackOp",
+      "packed_fixture": {
+        "sample_order": [
+          "s0",
+          "s1",
+          "s2",
+          "s3"
+        ],
+        "segment_lengths": [
+          11,
+          16,
+          13,
+          19
+        ],
+        "total_tokens": 59,
+        "restore_key": [
+          "sample_id",
+          "token_position"
+        ]
+      }
+    },
+    "loss_mask": {
+      "prompt_tokens_active": false,
+      "completion_tokens_active": true
+    },
+    "samples": [
+      {
+        "sample_id": "s0",
+        "seq_len": 11,
+        "prompt_len": 8,
+        "token_ids": [
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          200,
+          201,
+          202
+        ]
+      },
+      {
+        "sample_id": "s1",
+        "seq_len": 16,
+        "prompt_len": 8,
+        "token_ids": [
+          110,
+          111,
+          112,
+          113,
+          114,
+          115,
+          116,
+          117,
+          210,
+          211,
+          212,
+          213,
+          214,
+          215,
+          216,
+          217
+        ]
+      },
+      {
+        "sample_id": "s2",
+        "seq_len": 13,
+        "prompt_len": 8,
+        "token_ids": [
+          120,
+          121,
+          122,
+          123,
+          124,
+          125,
+          126,
+          127,
+          220,
+          221,
+          222,
+          223,
+          224
+        ]
+      },
+      {
+        "sample_id": "s3",
+        "seq_len": 19,
+        "prompt_len": 8,
+        "token_ids": [
+          130,
+          131,
+          132,
+          133,
+          134,
+          135,
+          136,
+          137,
+          230,
+          231,
+          232,
+          233,
+          234,
+          235,
+          236,
+          237,
+          238,
+          239,
+          240
+        ]
+      }
+    ],
+    "short_full_model_fixture": {
+      "fixture_id": "short_full_model_seq8",
+      "seq_len": 8,
+      "prompt_len": 4,
+      "token_ids": [
+        310,
+        311,
+        312,
+        313,
+        410,
+        411,
+        412,
+        413
+      ],
+      "note": "Shorter sequence on full architecture+weights only; never shrinks layers/hidden/heads/vocab.",
+      "candidate_case_ids": [
+        "short_full_model_seq8_qwen3_next_rms_norm",
+        "short_full_model_seq8_rms_norm_gated"
+      ]
+    },
+    "long_full_model_fixture": {
+      "fixture_id": "long_full_model_seq32",
+      "seq_len": 32,
+      "prompt_len": 16,
+      "token_ids": [
+        500,
+        501,
+        502,
+        503,
+        504,
+        505,
+        506,
+        507,
+        508,
+        509,
+        510,
+        511,
+        512,
+        513,
+        514,
+        515,
+        600,
+        601,
+        602,
+        603,
+        604,
+        605,
+        606,
+        607,
+        608,
+        609,
+        610,
+        611,
+        612,
+        613,
+        614,
+        615
+      ],
+      "note": "Long fixed sequence on the same full architecture and pinned weight snapshot.",
+      "candidate_case_ids": [
+        "long_full_model_seq32_qwen3_next_rms_norm",
+        "long_full_model_seq32_rms_norm_gated"
+      ]
+    },
+    "representative_full_model_fixture": {
+      "fixture_id": "rep_full_model_seq16",
+      "seq_len": 16,
+      "prompt_len": 8,
+      "sample_ids": [
+        "s0",
+        "s1",
+        "s2",
+        "s3"
+      ],
+      "note": "Primary variable-length matrix fixture; full architecture+weights.",
+      "candidate_case_ids": [
+        "rep_full_model_seq16_qwen3_next_rms_norm",
+        "rep_full_model_seq16_rms_norm_gated"
+      ]
+    },
+    "prompt_lens": [
+      8,
+      8,
+      8,
+      8
+    ],
+    "completion_lens": [
+      3,
+      8,
+      5,
+      11
+    ],
+    "max_completion_len": 11
+  },
+  "logical_identity": {
+    "key": [
+      "sample_id",
+      "token_position"
+    ],
+    "token_position_basis": "logical_unpadded_index_in_sample",
+    "restore_before_compare_after": [
+      "pad",
+      "pack",
+      "chunk",
+      "batch_permute"
+    ],
+    "gradient_singleton_aggregate": {
+      "definition": "N independent B=1 runs of the same N logical samples, aggregated with fixed sample order and active-token denominator",
+      "compare_to": "single B=N run of the same logical sample/token multiset",
+      "forbid_different_sample_sets": true
+    }
+  },
+  "capabilities": {
+    "required_chain_ops": [
+      {
+        "op": "qwen3_next_rms_norm",
+        "status": "required"
+      },
+      {
+        "op": "rms_norm_gated",
+        "status": "required"
+      }
+    ],
+    "operator_spec_map": {
+      "qwen3_next_rms_norm": "qwen3_next_rms_norm",
+      "rms_norm_gated": "rms_norm_gated"
+    }
+  },
+  "backend_profiles": {
+    "cuda_bf16": {
+      "backend_family": "cuda",
+      "execution_dtype": "bfloat16",
+      "required_nodes": [
+        {
+          "node": "qwen3_next_rms_norm",
+          "status": "declared",
+          "expected_backend_id": "cuda",
+          "expected_kernel_config_id": "rl_engine.kernels.ops.cuda.norm.rmsnorm.Qwen3NextRMSNormCudaOp",
+          "algorithm_property": "fixed row reduction and ordered FP32 parameter fold"
+        },
+        {
+          "node": "rms_norm_gated",
+          "status": "declared",
+          "expected_backend_id": "cuda",
+          "expected_kernel_config_id": "rl_engine.kernels.ops.cuda.norm.rmsnorm.Qwen3NextRMSNormGatedCudaOp",
+          "algorithm_property": "fixed row reduction and ordered FP32 parameter fold"
+        }
+      ]
+    },
+    "triton_cuda_bf16": {
+      "backend_family": "triton",
+      "execution_dtype": "bfloat16",
+      "required_nodes": [
+        {
+          "node": "qwen3_next_rms_norm",
+          "status": "missing_required",
+          "expected_backend_id": null,
+          "expected_kernel_config_id": null,
+          "algorithm_property": "fixed row reduction and ordered FP32 parameter fold"
+        },
+        {
+          "node": "rms_norm_gated",
+          "status": "missing_required",
+          "expected_backend_id": null,
+          "expected_kernel_config_id": null,
+          "algorithm_property": "fixed row reduction and ordered FP32 parameter fold"
+        }
+      ]
+    },
+    "ascend_bf16": {
+      "backend_family": "ascend",
+      "execution_dtype": "bfloat16",
+      "required_nodes": [
+        {
+          "node": "qwen3_next_rms_norm",
+          "status": "missing_required",
+          "expected_backend_id": null,
+          "expected_kernel_config_id": null,
+          "algorithm_property": "fixed row reduction and ordered FP32 parameter fold"
+        },
+        {
+          "node": "rms_norm_gated",
+          "status": "missing_required",
+          "expected_backend_id": null,
+          "expected_kernel_config_id": null,
+          "algorithm_property": "fixed row reduction and ordered FP32 parameter fold"
+        }
+      ]
+    }
+  },
+  "representative_cases": [
+    {
+      "case_id": "short_full_model_seq8_qwen3_next_rms_norm",
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "qwen3_next_rms_norm",
+      "hidden": 2048,
+      "architecture_identity": "qwen3_next_80b_a3b_norm_operators"
+    },
+    {
+      "case_id": "short_full_model_seq8_rms_norm_gated",
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "rms_norm_gated",
+      "hidden": 128,
+      "architecture_identity": "qwen3_next_80b_a3b_norm_operators"
+    },
+    {
+      "case_id": "long_full_model_seq32_qwen3_next_rms_norm",
+      "fixture_id": "long_full_model_seq32",
+      "operator_spec": "qwen3_next_rms_norm",
+      "hidden": 2048,
+      "architecture_identity": "qwen3_next_80b_a3b_norm_operators"
+    },
+    {
+      "case_id": "long_full_model_seq32_rms_norm_gated",
+      "fixture_id": "long_full_model_seq32",
+      "operator_spec": "rms_norm_gated",
+      "hidden": 128,
+      "architecture_identity": "qwen3_next_80b_a3b_norm_operators"
+    },
+    {
+      "case_id": "rep_full_model_seq16_qwen3_next_rms_norm",
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "qwen3_next_rms_norm",
+      "hidden": 2048,
+      "architecture_identity": "qwen3_next_80b_a3b_norm_operators"
+    },
+    {
+      "case_id": "rep_full_model_seq16_rms_norm_gated",
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "rms_norm_gated",
+      "hidden": 128,
+      "architecture_identity": "qwen3_next_80b_a3b_norm_operators"
+    }
+  ],
+  "fixture_identity_sha256": "3ac9490ffbb1486edac6ea509811fd4d5affbe880b208bd7d9b052b0ce418442",
+  "provenance_boundary": {
+    "scope": "Synthetic norm inputs at checkpoint dimensions; not checkpoint execution or model-level L2.",
+    "runtime_verified": false
+  },
+  "scope": "qwen3_next_norm_operators",
+  "full_model_evidence": false
+}
