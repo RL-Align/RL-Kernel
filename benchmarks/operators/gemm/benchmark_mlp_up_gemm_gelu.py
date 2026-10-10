@@ -15,7 +15,8 @@ tensor is the row's explicit memory trade-off.
 
 Usage::
 
-    CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python benchmarks/benchmark_mlp_up_gemm_gelu.py \\
+    CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. \\
+        python benchmarks/operators/gemm/benchmark_mlp_up_gemm_gelu.py \\
         --backend cuda --dtype bf16 --batch 4096 --seq 1
 """
 
@@ -25,7 +26,7 @@ import argparse
 
 import torch
 
-from rl_engine.kernels.ops.pytorch.linear.mlp_up_gemm_gelu import (
+from rl_engine.reference.gemm.mlp_up_gemm_gelu import (
     mlp_up_gemm_gelu_reference_backward,
     mlp_up_gemm_gelu_reference_forward,
     mlp_up_gemm_gelu_reference_pre,
@@ -43,15 +44,11 @@ DEFAULT_GATE_ROWS = 256
 
 def _load_backend(name: str):
     if name == "triton":
-        from rl_engine.kernels.ops.triton.linear.mlp_up_gemm_gelu import (
-            TritonMlpUpGemmGeluOp,
-        )
+        from rl_engine.backends.shared.triton.gemm.mlp_up_gemm_gelu import TritonMlpUpGemmGeluOp
 
         return TritonMlpUpGemmGeluOp()
     if name == "cuda":
-        from rl_engine.kernels.ops.cuda.linear.mlp_up_gemm_gelu import (
-            CudaMlpUpGemmGeluOp,
-        )
+        from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
 
         return CudaMlpUpGemmGeluOp()
     raise ValueError(f"unknown backend {name!r}")

@@ -26,7 +26,7 @@ and this file pins each against the right oracle:
   bit-identical (measured bounds next to the constants below and in
   ``docs/operators/mlp-up-gemm-gelu.md``).
 * ``mlp-up-gemm-gelu-tree`` -- the portable order: the fp32 32-wide-leaf
-  mid-split tree of ``rl_engine/kernels/ops/pytorch/linear/mlp_up_gemm_gelu.py``
+  mid-split tree of ``rl_engine/reference/gemm/mlp_up_gemm_gelu.py``
   itself (``tree_gemm``, ``left_fold_weight_gradient``,
   ``left_fold_bias_gradient`` are the definition), so this path is **byte-equal
   to the reference's pre-activation, gate and gradients** on every shape. It
@@ -99,7 +99,7 @@ from contextlib import contextmanager
 import pytest
 import torch
 
-from rl_engine.kernels.ops.pytorch.linear.mlp_up_gemm_gelu import (
+from rl_engine.reference.gemm.mlp_up_gemm_gelu import (
     NativeMlpUpGemmGeluOp,
     gelu_tanh_argument,
     gelu_tanh_fp32,
@@ -141,7 +141,7 @@ GELU_MAX_ULPS = 2.0
 # still two orders of magnitude tighter than the bf16 store tolerance. Byte
 # equality of ``pre`` belongs to the portable tree contract (whose ``pre`` *is*
 # the reference's own tree) and to the two mma implementations against each other
-# (Hopper vs Triton, ``tests/test_mlp_up_gemm_gelu_triton.py``).
+# (Hopper vs Triton, ``tests/ops/gemm/test_mlp_up_gemm_gelu_triton.py``).
 FP32_MAX_ULPS = 64.0
 
 # --- the model's own geometry (issue #386) -----------------------------------
@@ -371,7 +371,7 @@ def _grad_of(shape, rows=None, seed=11):
 def op_forward(x, weight, bias=None):
     """``CudaMlpUpGemmGeluOp`` forward on 2-D or lead-dim operands."""
 
-    from rl_engine.kernels.ops.cuda.linear.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
+    from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
 
     return CudaMlpUpGemmGeluOp()(x, weight, bias=bias)
 
@@ -384,7 +384,7 @@ def _forward_device(x2d, weight, bias=None, *, emit_pre=True, sm90=False):
     ``emit_pre`` promises; higher-level checks use the op.
     """
 
-    from rl_engine.kernels.ops.base import _C, _EXT_AVAILABLE
+    from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 
     symbol = "mlp_up_gemm_gelu_cuda_forward_sm90" if sm90 else "mlp_up_gemm_gelu_cuda_forward"
     if not _EXT_AVAILABLE or _C is None or not hasattr(_C, symbol):
@@ -395,7 +395,7 @@ def _forward_device(x2d, weight, bias=None, *, emit_pre=True, sm90=False):
 def _gate_device(grad, pre):
     """The device gate: ``bf16(f32(grad) * gelu_tanh_grad_fp32(pre))``."""
 
-    from rl_engine.kernels.ops.base import _C, _EXT_AVAILABLE
+    from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 
     if not _EXT_AVAILABLE or _C is None or not hasattr(_C, "mlp_up_gemm_gelu_cuda_gate"):
         pytest.skip("the CUDA extension does not provide the mlp_up_gemm_gelu gate entry point")
@@ -412,9 +412,7 @@ def _route_pre(x2d, weight, bias=None):
     decision, and the ``_C`` entry it names is the one the op would call.
     """
 
-    from rl_engine.kernels.ops.cuda.linear.mlp_up_gemm_gelu import (
-        mlp_up_gemm_gelu_backend_used,
-    )
+    from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import mlp_up_gemm_gelu_backend_used
 
     sm90 = mlp_up_gemm_gelu_backend_used(x2d, weight) == "hopper"
     return _forward_device(x2d, weight, bias, emit_pre=True, sm90=sm90)[1]
@@ -515,7 +513,7 @@ def _reference_backward_with_gate(x, weight, pre, grad, gate, key):
 def _hopper_serves(device=None) -> bool:
     """Whether the Hopper path is built *and* this device can take it."""
 
-    from rl_engine.kernels.ops.cuda.linear.mlp_up_gemm_gelu import sm90_backend_compiled
+    from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import sm90_backend_compiled
 
     if not sm90_backend_compiled():
         return False
@@ -897,7 +895,7 @@ def _backward_with_device_gate(shape, checked):
     the byte comparison isolates is exactly the three contractions.
     """
 
-    from rl_engine.kernels.ops.cuda.linear.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
+    from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
 
     rows, k_dim, n_dim = shape
     x, weight, bias = _inputs(shape)
@@ -1098,7 +1096,7 @@ class TestGateAndEmitPre:
         op, so both sides are the same path.
         """
 
-        from rl_engine.kernels.ops.cuda.linear import mlp_up_gemm_gelu as mod
+        from rl_engine.backends.cuda.gemm import mlp_up_gemm_gelu as mod
 
         x, weight, bias = _inputs(SMALL)
         xr, wr, br = (t.clone().requires_grad_(True) for t in (x, weight, bias))
@@ -1132,7 +1130,7 @@ class TestCudaPathsAndContracts:
 
     Each is verified against its own oracle elsewhere -- the tree path byte-for-
     byte against the fp32 CPU reference above, the Hopper path against Triton in
-    ``tests/test_mlp_up_gemm_gelu_triton.py``. What is checked here is the
+    ``tests/ops/gemm/test_mlp_up_gemm_gelu_triton.py``. What is checked here is the
     routing: which path a call takes, what contract it reports, and that no path
     silently becomes the other.
     """
@@ -1147,7 +1145,7 @@ class TestCudaPathsAndContracts:
         ~1 s per row at K = 3072); the routing assertions cover the whole shape.
         """
 
-        from rl_engine.kernels.ops.cuda.linear.mlp_up_gemm_gelu import (
+        from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import (
             mlp_up_gemm_gelu_backend_used,
             mlp_up_gemm_gelu_contract_used,
         )
@@ -1176,9 +1174,7 @@ class TestCudaPathsAndContracts:
         :class:`TestTreeContractByteEquality`'s tail shapes.
         """
 
-        from rl_engine.kernels.ops.cuda.linear.mlp_up_gemm_gelu import (
-            mlp_up_gemm_gelu_contract_used,
-        )
+        from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import mlp_up_gemm_gelu_contract_used
 
         rows, k_dim, n_dim = shape
         checked = min(rows, TREE_REFERENCE_ROWS)
@@ -1194,7 +1190,7 @@ class TestCudaPathsAndContracts:
     def test_below_cc9_the_tree_contract_serves_and_is_unchanged(self, monkeypatch):
         """Below cc 9.0 the auto route is the portable tree, not a changed result."""
 
-        from rl_engine.kernels.ops.cuda.linear.mlp_up_gemm_gelu import (
+        from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import (
             mlp_up_gemm_gelu_backend_used,
             mlp_up_gemm_gelu_contract_used,
         )
@@ -1216,9 +1212,7 @@ class TestCudaPathsAndContracts:
         and an unknown value is an error.
         """
 
-        from rl_engine.kernels.ops.cuda.linear.mlp_up_gemm_gelu import (
-            mlp_up_gemm_gelu_contract_used,
-        )
+        from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import mlp_up_gemm_gelu_contract_used
 
         x, weight, bias = _inputs(SMALL)
         monkeypatch.setenv(BACKEND_ENV, "general")
@@ -1240,7 +1234,7 @@ class TestCudaPathsAndContracts:
     def test_route_report_is_emitted_once(self, monkeypatch, capsys):
         """First call emits `[RL-Kernel][route] ... module=mlp_up_gemm_gelu ...` once."""
 
-        from rl_engine.kernels.ops.cuda.linear import mlp_up_gemm_gelu as mod
+        from rl_engine.backends.cuda.gemm import mlp_up_gemm_gelu as mod
 
         monkeypatch.setattr(mod, "_ROUTE_REPORTED", False)
         monkeypatch.delenv(mod._BACKEND_ENV, raising=False)
@@ -1261,7 +1255,7 @@ class TestCudaPathsAndContracts:
     def test_route_report_names_the_contract_and_the_pin(self, monkeypatch, capsys):
         """A pinned `general` reports the tree contract and how to pin it back."""
 
-        from rl_engine.kernels.ops.cuda.linear import mlp_up_gemm_gelu as mod
+        from rl_engine.backends.cuda.gemm import mlp_up_gemm_gelu as mod
 
         monkeypatch.setattr(mod, "_ROUTE_REPORTED", False)
         monkeypatch.setenv(mod._BACKEND_ENV, "general")
@@ -1278,7 +1272,7 @@ class TestCudaPathsAndContracts:
     def test_reports_requested_actual_backend_and_contract(self, monkeypatch):
         """Requested backend, actual backend, fallback state and contract are queryable."""
 
-        from rl_engine.kernels.ops.cuda.linear.mlp_up_gemm_gelu import (
+        from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import (
             mlp_up_gemm_gelu_backend,
             mlp_up_gemm_gelu_backend_used,
             mlp_up_gemm_gelu_contract_used,
@@ -1299,7 +1293,7 @@ class TestCudaPathsAndContracts:
     def test_rocm_dispatch_uses_triton(self, monkeypatch):
         """On a ROCm torch the registry resolves this row to the Triton backend."""
 
-        from rl_engine.kernels.registry import kernel_registry
+        from rl_engine.runtime.registry import kernel_registry
 
         monkeypatch.setattr(torch.version, "hip", "6.0.0")
         op = kernel_registry.get_op("mlp_up_gemm_gelu", device=torch.device("cuda"))
@@ -1308,7 +1302,7 @@ class TestCudaPathsAndContracts:
     def test_cuda_op_fails_closed_on_rocm(self, monkeypatch):
         """The CUDA op must refuse on ROCm rather than reach for absent symbols."""
 
-        from rl_engine.kernels.ops.cuda.linear.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
+        from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
 
         x, weight, bias = _inputs(SMALL)
         monkeypatch.setattr(torch.version, "hip", "6.0.0")
@@ -1336,7 +1330,7 @@ class TestHopperPath:
     """``mlp-up-gemm-gelu-mma`` on Hopper: the row's hardware order.
 
     Byte identity with the Triton backend (which implements the same order) is
-    asserted in ``tests/test_mlp_up_gemm_gelu_triton.py``; here the path is
+    asserted in ``tests/ops/gemm/test_mlp_up_gemm_gelu_triton.py``; here the path is
     pinned with ``RL_KERNEL_MLP_UP_GEMM_GELU_BACKEND=hopper`` and checked against
     the independent fp32 reference. This is the *mma* contract, whose reduction
     associates the sum differently than the reference's tree, so its ``pre`` is
@@ -1367,7 +1361,7 @@ class TestHopperPath:
         fraction is reported. The GELU value keeps the declared bf16 tolerance.
         """
 
-        from rl_engine.kernels.ops.cuda.linear.mlp_up_gemm_gelu import (
+        from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import (
             mlp_up_gemm_gelu_backend_used,
             mlp_up_gemm_gelu_contract_used,
         )
@@ -1401,7 +1395,7 @@ class TestHopperPath:
         paths publish the same (byte-equal) ``pre`` and hence the same device gate.
         """
 
-        from rl_engine.kernels.ops.cuda.linear.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
+        from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
 
         shape = (32, MODEL_K, MODEL_N)
         checked = TREE_REFERENCE_ROWS
@@ -1428,9 +1422,7 @@ class TestHopperPath:
         assert torch.equal(br.grad.cpu(), ref_db.to(torch.bfloat16))
 
     def test_hopper_is_requestable_and_the_contract_is_reported(self):
-        from rl_engine.kernels.ops.cuda.linear.mlp_up_gemm_gelu import (
-            mlp_up_gemm_gelu_backend_used,
-        )
+        from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import mlp_up_gemm_gelu_backend_used
 
         x, weight, bias = _inputs(SMALL)
         self._skip_without_hopper(x.device)
@@ -1662,7 +1654,7 @@ class TestIntegration:
         stays as the no-Triton fallback.
         """
 
-        from rl_engine.kernels.registry import kernel_registry
+        from rl_engine.runtime.registry import kernel_registry
 
         cpu_op = kernel_registry.get_op("mlp_up_gemm_gelu", device=torch.device("cpu"))
         assert type(cpu_op).__name__ == "NativeMlpUpGemmGeluOp"
@@ -1670,12 +1662,12 @@ class TestIntegration:
             cuda_op = kernel_registry.get_op("mlp_up_gemm_gelu", device=torch.device("cuda"))
             assert type(cuda_op).__name__ in ("TritonMlpUpGemmGeluOp", "CudaMlpUpGemmGeluOp")
             # The native kernel must stay loadable as the fallback path.
-            from rl_engine.kernels.ops.cuda.linear.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
+            from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
 
             assert CudaMlpUpGemmGeluOp() is not None
 
     def test_gtest_spec_registered(self):
-        from rl_engine.kernels.gtest.operator_specs import OP_SPECS
+        from rl_engine.validation.operators.operator_specs import OP_SPECS
 
         spec = OP_SPECS["mlp_up_gemm_gelu"]
         assert spec.op_class == "reduction"
@@ -1685,7 +1677,7 @@ class TestIntegration:
     def test_gtest_inputs_shapes(self):
         import argparse
 
-        from rl_engine.kernels.gtest.operator_inputs import make_operator_inputs
+        from rl_engine.validation.operators.operator_inputs import make_operator_inputs
 
         args = argparse.Namespace(
             batch=2, seq=16, k_dim=MODEL_K, n_dim=MODEL_N, dtype="float32", seed=0, device="cpu"
@@ -1697,7 +1689,7 @@ class TestIntegration:
 
     @CUDA
     def test_fail_closed_on_fp32_input(self):
-        from rl_engine.kernels.ops.cuda.linear.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
+        from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
 
         x, weight, bias = _inputs(SMALL, dtype=torch.float32)
         with pytest.raises((ValueError, RuntimeError)):
@@ -1712,7 +1704,7 @@ class TestIntegration:
         failing.
         """
 
-        from rl_engine.kernels.ops.cuda.linear.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
+        from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
 
         x, weight, bias = _inputs(SMALL)
         monkeypatch.setattr(torch.cuda, "get_device_capability", lambda device=None: (7, 5))
@@ -1721,7 +1713,7 @@ class TestIntegration:
 
     @CUDA
     def test_fail_closed_on_non_bf16_bias(self):
-        from rl_engine.kernels.ops.cuda.linear.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
+        from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
 
         x, weight, bias = _inputs(SMALL)
         with pytest.raises((ValueError, RuntimeError)):
@@ -1729,7 +1721,7 @@ class TestIntegration:
 
     @CUDA
     def test_fail_closed_on_bias_shape(self):
-        from rl_engine.kernels.ops.cuda.linear.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
+        from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
 
         x, weight, bias = _inputs(SMALL)
         with pytest.raises((ValueError, RuntimeError)):
@@ -1737,7 +1729,7 @@ class TestIntegration:
 
     @CUDA
     def test_fail_closed_on_k_mismatch(self):
-        from rl_engine.kernels.ops.cuda.linear.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
+        from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
 
         x, weight, bias = _inputs(SMALL)
         with pytest.raises((ValueError, RuntimeError)):
@@ -1754,7 +1746,7 @@ class TestIntegration:
         changing the contract silently.
         """
 
-        from rl_engine.kernels.ops.cuda.linear import mlp_up_gemm_gelu as cuda_mod
+        from rl_engine.backends.cuda.gemm import mlp_up_gemm_gelu as cuda_mod
 
         monkeypatch.setattr(torch.cuda, "get_device_capability", lambda device=None: (10, 0))
         x, weight, bias = _inputs(SMALL)
@@ -1778,7 +1770,7 @@ class TestIntegration:
         assert torch.equal(op_forward(x, weight, bias), op_forward(x, weight, bias.contiguous()))
 
     def test_fail_closed_on_non_cuda_device(self):
-        from rl_engine.kernels.ops.cuda.linear.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
+        from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
 
         x, weight, bias = _cpu_inputs(SMALL)
         with pytest.raises((ValueError, RuntimeError)):

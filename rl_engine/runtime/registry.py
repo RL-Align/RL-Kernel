@@ -209,12 +209,10 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     CUDA_SM90_LM_HEAD = "rl_engine.kernels.ops.cuda.linear.lm_head.SM90LMHeadOp"
     CUDA_SM90_EMBEDDING = "rl_engine.kernels.ops.cuda.linear.embedding.SM90EmbeddingOp"
     # Qwen-Image WS1 MLP up projection + tanh GELU (pinned tensor-core schedule)
-    CUDA_MLP_UP_GEMM_GELU = "rl_engine.kernels.ops.cuda.linear.mlp_up_gemm_gelu.CudaMlpUpGemmGeluOp"
-    PYTORCH_MLP_UP_GEMM_GELU = (
-        "rl_engine.kernels.ops.pytorch.linear.mlp_up_gemm_gelu.NativeMlpUpGemmGeluOp"
-    )
+    CUDA_MLP_UP_GEMM_GELU = "rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu.CudaMlpUpGemmGeluOp"
+    PYTORCH_MLP_UP_GEMM_GELU = "rl_engine.reference.gemm.mlp_up_gemm_gelu.NativeMlpUpGemmGeluOp"
     TRITON_MLP_UP_GEMM_GELU = (
-        "rl_engine.kernels.ops.triton.linear.mlp_up_gemm_gelu.TritonMlpUpGemmGeluOp"
+        "rl_engine.backends.shared.triton.gemm.mlp_up_gemm_gelu.TritonMlpUpGemmGeluOp"
     )
 
 

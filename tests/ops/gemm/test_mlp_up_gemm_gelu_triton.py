@@ -4,7 +4,7 @@
 """Invariance + accuracy tests for the Triton mlp_up_gemm_gelu backend (WS1).
 
 Covers the row contract ``mlp-up-gemm-gelu-mma`` as implemented by
-``rl_engine.kernels.ops.triton.linear.mlp_up_gemm_gelu``:
+``rl_engine.backends.shared.triton.gemm.mlp_up_gemm_gelu``:
 
 * API and fail-closed behaviour (fp32 input, non-CUDA input, K mismatch, bias
   length mismatch, fp32 bias),
@@ -49,7 +49,7 @@ from contextlib import contextmanager
 import pytest
 import torch
 
-from rl_engine.kernels.ops.pytorch.linear.mlp_up_gemm_gelu import (
+from rl_engine.reference.gemm.mlp_up_gemm_gelu import (
     gelu_tanh_argument,
     gelu_tanh_fp32,
     left_fold_bias_gradient,
@@ -62,7 +62,7 @@ from rl_engine.kernels.ops.pytorch.linear.mlp_up_gemm_gelu import (
 try:
     import triton  # noqa: F401
 
-    from rl_engine.kernels.ops.triton.linear.mlp_up_gemm_gelu import (
+    from rl_engine.backends.shared.triton.gemm.mlp_up_gemm_gelu import (
         MLP_UP_GEMM_GELU_CONTRACT,
         TRITON_BACKEND_IMPL,
         TritonMlpUpGemmGeluOp,
@@ -86,7 +86,7 @@ def _hopper_backend():
     """
 
     try:
-        from rl_engine.kernels.ops.cuda.linear.mlp_up_gemm_gelu import (
+        from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import (
             CudaMlpUpGemmGeluOp,
             mma_backend_available,
             sm90_backend_compiled,
@@ -978,7 +978,7 @@ class TestBackward:
         epilogue, so ``dx``/``dW``/``db`` are byte-equal to it (the portable tree
         path is a *different* order and a different gate, so it is not this
         contract's oracle -- it is byte-equal to the fp32 CPU reference instead,
-        pinned on bounded slices in ``tests/test_mlp_up_gemm_gelu.py``). ``db`` is
+        pinned on bounded slices in ``tests/ops/gemm/test_mlp_up_gemm_gelu.py``). ``db`` is
         additionally checked bit-for-bit against the independent fp32 fold of the
         gate (``left_fold_bias_gradient``), which is O(M*N) and so affordable at
         any M.
@@ -1082,7 +1082,7 @@ class TestCudaByteEquality:
         got_gate = _gate_of(grad, pre)
         with _pinned("hopper"):
             _, cuda_pre = _cuda_with_pre(x, weight, bias=bias)
-            from rl_engine.kernels.ops.base import _C
+            from rl_engine.backends.extension import _C
 
             want_gate = _C.mlp_up_gemm_gelu_cuda_gate(grad, cuda_pre)
         assert _byte_mismatches(pre, cuda_pre) == 0
@@ -1109,7 +1109,7 @@ class TestCudaByteEquality:
     def test_the_hopper_path_is_the_mma_contract(self):
         """The path Triton is compared against publishes ``mlp-up-gemm-gelu-mma``."""
 
-        from rl_engine.kernels.ops.cuda.linear.mlp_up_gemm_gelu import (
+        from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import (
             MMA_CONTRACT,
             mlp_up_gemm_gelu_backend_used,
             mlp_up_gemm_gelu_contract_used,

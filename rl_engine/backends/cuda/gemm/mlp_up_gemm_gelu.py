@@ -58,13 +58,12 @@ from __future__ import annotations
 
 import os
 from threading import Lock
-
 from typing import Optional
 
 import torch
 
-from rl_engine.kernels.ops.base import _C, _EXT_AVAILABLE
-from rl_engine.runtime_mode import rl_kernel_mode, route_report_enabled
+from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+from rl_engine.runtime.policy import rl_kernel_mode, route_report_enabled
 from rl_engine.utils.logger import logger
 
 MMA_CONTRACT = "mlp-up-gemm-gelu-mma"
@@ -301,7 +300,7 @@ class _MlpUpGemmGeluFunction(torch.autograd.Function):
     def backward(  # type: ignore[override]
         ctx, grad_output: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], None]:
-        from rl_engine.kernels.ops.backward_runtime import record_backward
+        from rl_engine.ops.autograd.backward_runtime import record_backward
 
         x2d, weight, bias, pre = ctx.saved_tensors
         if pre.numel() == 0:

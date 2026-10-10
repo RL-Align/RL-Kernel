@@ -62,7 +62,7 @@ tanh is byte-equal.  ``db`` is a strict ascending-row FP32 fold and reproduces
 ``left_fold_bias_gradient`` bit for bit when the kernel writes FP32, so its BF16
 store is exactly one rounding away from the reference fold.
 
-Measured with ``benchmarks/benchmark_mlp_up_gemm_gelu.py`` (shape ``K = 3072``,
+Measured with ``benchmarks/operators/gemm/benchmark_mlp_up_gemm_gelu.py`` (shape ``K = 3072``,
 ``N = 12288``, BF16); the pinned tiles below were chosen offline from a sweep
 over block sizes, warps and stages at ``M`` in {4096, 6032, 6889}, and every
 candidate in that sweep was byte-identical to the CUDA mma backend, so the
@@ -96,7 +96,7 @@ except ImportError:  # pragma: no cover - environment without Triton
     libdevice = None
     _TRITON_AVAILABLE = False
 
-from rl_engine.kernels.ops.backward_runtime import record_backward
+from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.utils.logger import logger
 
 # The row contract this backend implements (shared with the CUDA backend).
@@ -699,7 +699,9 @@ class TritonMlpUpGemmGeluOp:
     """Triton backend for the row contract: pinned tiles, bf16 only."""
 
     op_class = "reduction"
-    is_batch_invariant = True  # per pinned tiles; verified by tests/test_mlp_up_gemm_gelu_triton.py
+    is_batch_invariant = (
+        True  # per pinned tiles; verified by tests/ops/gemm/test_mlp_up_gemm_gelu_triton.py
+    )
     backward_impl = TRITON_BACKEND_IMPL
 
     def __init__(self) -> None:

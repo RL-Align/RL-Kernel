@@ -8,7 +8,7 @@
 // TMA + wgmma kernel (``mlp_up_gemm_gelu_sm90.cu``, order
 // ``mlp-up-gemm-gelu-mma``) cannot serve the contraction, and on every
 // pre-Hopper device. It implements the reduction *tree* of the independent fp32
-// CPU reference in ``rl_engine/kernels/ops/pytorch/linear/mlp_up_gemm_gelu.py``
+// CPU reference in ``rl_engine/reference/gemm/mlp_up_gemm_gelu.py``
 // literally -- ``tree_gemm``, ``left_fold_weight_gradient`` and
 // ``left_fold_bias_gradient`` are the definition -- so every output byte is
 // equal to ``mlp_up_gemm_gelu_reference_pre`` /

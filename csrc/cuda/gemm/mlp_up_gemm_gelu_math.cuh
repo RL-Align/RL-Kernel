@@ -12,7 +12,7 @@
 //
 // Every operation is pinned with an explicit rounding intrinsic. The compiler
 // must not reassociate or contract the sequence: the operator's fp32 reference
-// in `rl_engine/kernels/ops/pytorch/linear/mlp_up_gemm_gelu.py` emulates exactly
+// in `rl_engine/reference/gemm/mlp_up_gemm_gelu.py` emulates exactly
 // these operations in fp64 (correctly rounded), and the byte-equality checks
 // compare the pre-activation, the polynomial and the gradient against it. The
 // only unpinned step is `tanhf` itself, the operator's single transcendental:

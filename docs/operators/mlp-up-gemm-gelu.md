@@ -27,9 +27,9 @@ y = op(x, weight, bias=bias)   # [M, K] @ [N, K].T + [N] -> GELU -> [M, N] bf16
 Direct construction of a specific backend:
 
 ```python
-from rl_engine.kernels.ops.triton.linear.mlp_up_gemm_gelu import TritonMlpUpGemmGeluOp
-from rl_engine.kernels.ops.cuda.linear.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
-from rl_engine.kernels.ops.pytorch.linear.mlp_up_gemm_gelu import NativeMlpUpGemmGeluOp
+from rl_engine.backends.shared.triton.gemm.mlp_up_gemm_gelu import TritonMlpUpGemmGeluOp
+from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
+from rl_engine.reference.gemm.mlp_up_gemm_gelu import NativeMlpUpGemmGeluOp
 
 y = TritonMlpUpGemmGeluOp()(x, weight, bias=bias)
 ```
@@ -173,10 +173,10 @@ activation footprint. The benchmark reports the inference footprint, the
 
 | Backend | Wrapper | Native symbol | Status |
 | --- | --- | --- | --- |
-| Triton | `TritonMlpUpGemmGeluOp` | `rl_engine/kernels/ops/triton/linear/mlp_up_gemm_gelu.py` | One portable source for CUDA, ROCm and MUSA: Triton is JIT-compiled per device, so there is no `*_sm90.py` counterpart and no build switch -- the arch-specific instruction is chosen by Triton's own lowering, which is why this file is the ROCm slot. Autotune disabled, tiles pinned, no split-K. On Hopper `tl.dot` lowers to `wgmma.mma_async.m64n256k16`, byte-identical to the hand-written kernel (contract `mlp-up-gemm-gelu-mma`). Portable / ROCm fallback and cross-backend reference. |
+| Triton | `TritonMlpUpGemmGeluOp` | `rl_engine/backends/shared/triton/gemm/mlp_up_gemm_gelu.py` | One portable source for CUDA, ROCm and MUSA: Triton is JIT-compiled per device, so there is no `*_sm90.py` counterpart and no build switch -- the arch-specific instruction is chosen by Triton's own lowering, which is why this file is the ROCm slot. Autotune disabled, tiles pinned, no split-K. On Hopper `tl.dot` lowers to `wgmma.mma_async.m64n256k16`, byte-identical to the hand-written kernel (contract `mlp-up-gemm-gelu-mma`). Portable / ROCm fallback and cross-backend reference. |
 | CUDA (Hopper) | `CudaMlpUpGemmGeluOp` | `csrc/cuda/gemm/mlp_up_gemm_gelu_sm90.cu` | TMA 2-D bulk-tensor loads (`CU_TENSOR_MAP_SWIZZLE_128B`, OOB fill zero, `mbarrier.arrive.expect_tx` / `try_wait.parity`) driving `wgmma.mma_async.m64n256k16` for the forward; `dx`/`dW` reuse the down row's `TM=256, TN=128, BK=64` four-warpgroup shape. The epilogue adds the bias in fp32, applies the frozen GELU and keeps the single bf16 cast; the same kernel writes the fp32 `pre` tile when `emit_pre` is set. Compiled only when the extension is built with `KERNEL_ALIGN_FORCE_SM90=1` (the repository-wide SM90 switch) and used only on a compute capability 9.0 device. |
 | CUDA (portable) | `CudaMlpUpGemmGeluOp` | `csrc/cuda/gemm/mlp_up_gemm_gelu.cu` | The `mlp-up-gemm-gelu-tree` order on FP32 CUDA cores: a 32-wide-leaf mid-split tree with per-thread partial stacks that merge as the reference's mid-split tree does, bias once in fp32, the frozen GELU and one bf16 cast; **its `pre` is byte-equal to the FP32 CPU reference**. Always compiled; NVIDIA SM80+; the fallback whenever the SM90 build or the device is absent. Also provides the shared gate and `db` kernels. |
-| PyTorch | `NativeMlpUpGemmGeluOp` | `rl_engine/kernels/ops/pytorch/linear/mlp_up_gemm_gelu.py` | Independent FP32 CPU reference (`mlp_up_gemm_gelu_reference_pre`/`_forward`/`_gate`/`_backward`): a 32-wide-leaf, mid-split FP32 tree over the same reduction length plus the frozen GELU, deliberately a *different* association order than the mma paths, so agreement there is a declared tolerance. Also the fp32 device fallback. |
+| PyTorch | `NativeMlpUpGemmGeluOp` | `rl_engine/reference/gemm/mlp_up_gemm_gelu.py` | Independent FP32 CPU reference (`mlp_up_gemm_gelu_reference_pre`/`_forward`/`_gate`/`_backward`): a 32-wide-leaf, mid-split FP32 tree over the same reduction length plus the frozen GELU, deliberately a *different* association order than the mma paths, so agreement there is a declared tolerance. Also the fp32 device fallback. |
 
 ## Backend Selection at a Glance
 
@@ -239,7 +239,7 @@ if `hopper` was pinned, refuses in favour of) the portable tree.
 ## `_C` Symbols
 
 All symbols are exported by the extension's `_C` module and gated by
-`csrc/ops.cpp` (owned elsewhere). The two `.cu` sources implement exactly these:
+`csrc/bindings/ops.cpp` (owned elsewhere). The two `.cu` sources implement exactly these:
 
 | Symbol | Signature | Notes |
 | --- | --- | --- |
@@ -308,7 +308,7 @@ are byte-equal to *each other* on `pre`, `y`, the gate, `dx`, `dW` and `db`.
 bit-identical to each other (`torch.equal` on `pre`, forward, `dx`, `dW`, `db`)
 because they execute the same pinned k-chunk chain; the portable fp32-tree path
 is a *different* contract and is byte-equal to the fp32 CPU reference instead.
-See `tests/test_mlp_up_gemm_gelu.py` and `tests/test_mlp_up_gemm_gelu_triton.py`
+See `tests/ops/gemm/test_mlp_up_gemm_gelu.py` and `tests/ops/gemm/test_mlp_up_gemm_gelu_triton.py`
 for the byte-equality anchors, the tolerance checks and the fp64 oracle.
 
 ## Performance Notes
@@ -349,11 +349,11 @@ against a 101.1 µs DRAM roofline at 3.35 TB/s. The remaining distance to the
 fused forward) is the GELU epilogue run at one CTA per SM, not the tiling.
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python benchmarks/benchmark_mlp_up_gemm_gelu.py \
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python benchmarks/operators/gemm/benchmark_mlp_up_gemm_gelu.py \
     --backend cuda --dtype bf16 --batch 4096 --seq 1
-CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python benchmarks/benchmark_mlp_up_gemm_gelu.py \
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python benchmarks/operators/gemm/benchmark_mlp_up_gemm_gelu.py \
     --backend cuda --dtype bf16 --batch 6032 --seq 1
-CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python benchmarks/benchmark_mlp_up_gemm_gelu.py \
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python benchmarks/operators/gemm/benchmark_mlp_up_gemm_gelu.py \
     --backend triton --dtype bf16 --batch 6889 --seq 1
 ```
 
@@ -381,7 +381,7 @@ training-step column counts all six (`forward` = 2·M·K·N and
 
 ```text
 CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. RL_KERNEL_MLP_UP_GEMM_GELU_BACKEND=general \
-    python benchmarks/benchmark_mlp_up_gemm_gelu.py --backend cuda --dtype bf16 --batch 6889 --seq 1
+    python benchmarks/operators/gemm/benchmark_mlp_up_gemm_gelu.py --backend cuda --dtype bf16 --batch 6889 --seq 1
 ```
 
 Measured with `RL_KERNEL_MLP_UP_GEMM_GELU_BACKEND=general` (the portable
@@ -458,11 +458,11 @@ different, also frozen, order.
 ## Tests
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m pytest tests/test_mlp_up_gemm_gelu.py -q
-CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m pytest tests/test_mlp_up_gemm_gelu_triton.py -q
-CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python scripts/check_operator.py --op mlp_up_gemm_gelu \
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m pytest tests/ops/gemm/test_mlp_up_gemm_gelu.py -q
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m pytest tests/ops/gemm/test_mlp_up_gemm_gelu_triton.py -q
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python tools/validation/operators/check_operator.py --op mlp_up_gemm_gelu \
     --candidate cuda --device cuda --dtype bf16 --batch 64 --seq 64 --k-dim 3072 --n-dim 12288 --check-grad
-CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python scripts/check_operator.py --op mlp_up_gemm_gelu \
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python tools/validation/operators/check_operator.py --op mlp_up_gemm_gelu \
     --candidate triton --device cuda --dtype bf16 --batch 83 --seq 83 --k-dim 3072 --n-dim 12288 --check-grad
 ```
 
@@ -476,7 +476,7 @@ deviation proven to come only from `tanh`), the three gradients compared
 the gate against `mlp_up_gemm_gelu_reference_gate`, the `emit_pre=False`
 inference path (no `pre`, same `y` bytes), the fail-closed cases (fp32, cc < 8,
 non-bf16/mismatched bias, ROCm, K mismatch, rank errors) and registry/route
-dispatch. `pytest tests/test_mlp_up_gemm_gelu.py tests/test_mlp_up_gemm_gelu_triton.py -q`
+dispatch. `pytest tests/ops/gemm/test_mlp_up_gemm_gelu.py tests/ops/gemm/test_mlp_up_gemm_gelu_triton.py -q`
 reports `173 passed in 174.81s` on the H100 (the fp32 CPU reference is bounded to
 a 16-row slice per shape and torch is pinned to one intra-op thread around it --
 the reference is elementwise fp64 work, where a 128-thread pool costs ~20x what
