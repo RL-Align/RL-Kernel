@@ -24,6 +24,8 @@ nav:
       - operators/linear-logp-tp-test.md
       - operators/grpo-loss.md
       - operators/lm_head.md
+      - operators/attn-out-bias-gemm.md
+      - operators/txt-in-rmsnorm-linear.md
       - operators/ratio-kl.md
       - operators/pack-and-pad.md
       - operators/sampling.md

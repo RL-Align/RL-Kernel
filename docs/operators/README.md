@@ -27,6 +27,8 @@ Every operator page should include:
 - [GRPO Loss](grpo-loss.md)
 - [RoPE](rope.md)
 - [LM Head](lm_head.md)
+- [Attn-Out Bias GEMM](attn-out-bias-gemm.md)
+- [txt_in RMSNorm → Linear](txt-in-rmsnorm-linear.md)
 - [Policy Ratio + KL Penalty](ratio-kl.md)
 - [Pack and Pad](pack-and-pad.md)
 - [Matmul](matmul.md)
