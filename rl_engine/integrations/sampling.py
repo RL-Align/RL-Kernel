@@ -61,6 +61,12 @@ def vocab_parallel_sampling_keep_mask(
     TP ranks have identical token ownership. CP groups deliberately do not
     participate: their token rows are independent. Inactive packed/prompt
     rows stay unmasked so discarded targets do not introduce infinities.
+
+    ``temperature``, ``top_p``, and ``top_k`` accept scalars, one-element
+    tensors, or array-like values with one element per original row, before
+    ``active_rows`` selection. Per-row values follow the same row indices as
+    the logits through selection and chunking. ``None`` disables the
+    corresponding ``top_p`` or ``top_k`` filter.
     """
     if chunk_size <= 0:
         raise ValueError("sampling mask chunk size must be positive")
@@ -76,6 +82,22 @@ def vocab_parallel_sampling_keep_mask(
         if active_rows is None
         else active_rows.nonzero().reshape(-1)
     )
+    parameters = {}
+    for name, value, dtype in (
+        ("temperature", temperature, torch.float32),
+        ("top_p", top_p, torch.float32),
+        ("top_k", top_k, torch.long),
+    ):
+        if value is not None:
+            value = torch.as_tensor(value, dtype=dtype, device=local_logits.device).reshape(-1)
+            if value.numel() not in (1, local_logits.size(0)):
+                raise ValueError(
+                    f"{name} must be scalar or have one value per original row "
+                    f"({local_logits.size(0)} rows); got {value.numel()} values"
+                )
+        parameters[name] = value
+    if indices.numel() == 0:
+        return keep
     for chunk in indices.split(chunk_size):
         local = local_logits.detach().index_select(0, chunk).contiguous()
         if world > 1:
@@ -84,7 +106,13 @@ def vocab_parallel_sampling_keep_mask(
             complete = torch.cat(shards, dim=1)[:, :real_vocab_size]
         else:
             complete = local[:, :real_vocab_size]
-        mask = sampling_keep_mask(complete, temperature=temperature, top_p=top_p, top_k=top_k)
+        chunk_parameters = {
+            name: (
+                value.index_select(0, chunk) if value is not None and value.numel() != 1 else value
+            )
+            for name, value in parameters.items()
+        }
+        mask = sampling_keep_mask(complete, **chunk_parameters)
         selected = torch.zeros_like(local, dtype=torch.bool)
         start = rank * width
         count = max(0, min(width, real_vocab_size - start))
