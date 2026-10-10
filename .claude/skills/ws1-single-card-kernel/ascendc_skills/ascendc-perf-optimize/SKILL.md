@@ -95,7 +95,7 @@ the Step 1 tiling.
 After every change, rerun the same baseline command and record the numbers:
 
 ```bash
-python scripts/check_operator.py --op <op> --candidate ascend --device npu \
+python tools/validation/operators/check_operator.py --op <op> --candidate ascend --device npu \
     --dtype fp16 --batch 2 --seq 16 --vocab 257 --normalized-dim 4096
 python -m pytest tests/test_<op>_ascend.py -q   # correctness + invariance must still pass
 ```

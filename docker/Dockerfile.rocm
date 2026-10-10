@@ -18,7 +18,8 @@ ENV MAX_JOBS=8
 USER root
 WORKDIR /opt/rl-kernel
 
-COPY pyproject.toml setup.py* requirements*.txt ./
+COPY requirements.txt ./
+COPY requirements/ ./requirements/
 
 RUN pip install --no-cache-dir -U pip \
  && pip install --no-cache-dir -r requirements.txt \

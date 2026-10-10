@@ -1,11 +1,20 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 RL-Kernel Contributors
+"""Compatibility import; the canonical module is loaded below."""
 
-"""User-facing ROCm Qwen3-8B native/consistency launcher."""
+import importlib
+import sys
+from pathlib import Path
 
-from __future__ import annotations
-
-from .run_pr377_workload import main
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    import runpy
+
+    runpy.run_module(
+        "rl_engine.integrations.orchestrators.vime.experiments.rocm_attention.run_qwen3_8b",
+        run_name="__main__",
+    )
+else:
+    sys.modules[__name__] = importlib.import_module(
+        "rl_engine.integrations.orchestrators.vime.experiments.rocm_attention.run_qwen3_8b"
+    )

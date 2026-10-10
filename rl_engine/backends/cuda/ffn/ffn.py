@@ -1,0 +1,1083 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 RL-Kernel Contributors
+"""Bias-free gated FFN assembled from deterministic CUDA kernels."""
+
+from __future__ import annotations
+
+import os
+from collections.abc import Callable
+from typing import Any
+
+import torch
+from torch import Tensor
+
+from rl_engine.backends.cuda.gemm.det_gemm import (
+    det_gemm_backend,
+    det_gemm_linear,
+    det_gemm_linear_input_gradient,
+    det_gemm_linear_weight_gradient,
+)
+from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+from rl_engine.distributed.algorithms.collectives import _COLLECTIVES as _SHARED_COLLECTIVES
+from rl_engine.distributed.algorithms.collectives import (
+    collective_for_group,
+    deterministic_all_reduce_inplace,
+    deterministic_all_reduce_staged,
+    deterministic_staging_reserve,
+)
+
+QWEN3_8B_HIDDEN_SIZE = 4096
+QWEN3_8B_INTERMEDIATE_SIZE = 12288
+BACKEND_ID = "rlkernel.ffn.qwen3.deterministic.v1"
+
+_DET_GEMM_SYMBOLS = (
+    "det_gemm_fwd",
+    "det_gemm_fwd_rhs_transposed",
+    "det_gemm_db_transposed",
+)
+_SWIGLU_SYMBOLS = (
+    "swiglu_forward",
+    "swiglu_backward",
+)
+_PACKED_SWIGLU_SYMBOLS = (
+    "swiglu_packed_forward",
+    "swiglu_packed_backward",
+)
+_REQUIRED_SYMBOLS = _DET_GEMM_SYMBOLS + _SWIGLU_SYMBOLS
+_COLLECTIVE_MIN_CAPACITY_BYTES = 64 * 1024 * 1024
+# Backward-compatible test hook; ownership lives in the shared communication layer.
+_COLLECTIVES = _SHARED_COLLECTIVES
+_PACKED_INFERENCE_OBSERVERS: list[Callable[[], None]] = []
+
+
+def register_packed_inference_observer(callback: Callable[[], None]) -> None:
+    """Arm one execution callback for the graph-captured rollout custom op."""
+
+    if not callable(callback):
+        raise TypeError("packed inference observer must be callable")
+    _PACKED_INFERENCE_OBSERVERS.append(callback)
+
+
+def _notify_packed_inference_observers() -> None:
+    callbacks = tuple(_PACKED_INFERENCE_OBSERVERS)
+    _PACKED_INFERENCE_OBSERVERS.clear()
+    for callback in callbacks:
+        callback()
+
+
+def _packed_gate_up_inference(hidden: Tensor, weight: Tensor) -> Tensor:
+    gate_up = det_gemm_linear(hidden, weight, native_op=_C.det_gemm_fwd_rhs_transposed)
+    return _C.swiglu_packed_forward(gate_up)
+
+
+@torch.library.custom_op("rl_kernel::qwen3_ffn_packed_inference_cuda", mutates_args=())
+def _qwen3_ffn_packed_inference(
+    rmsnorm_output: Tensor,
+    fused_gate_up_weight: Tensor,
+    down_weight: Tensor,
+) -> Tensor:
+    """Run the graph-safe compute portion of the strict rollout FFN."""
+
+    _notify_packed_inference_observers()
+    input_shape = rmsnorm_output.shape
+    hidden_2d = rmsnorm_output.reshape(-1, input_shape[-1]).contiguous()
+    activated = _packed_gate_up_inference(hidden_2d, fused_gate_up_weight)
+    output = det_gemm_linear(
+        activated,
+        down_weight,
+        native_op=_C.det_gemm_fwd_rhs_transposed,
+    )
+    return output.reshape(*input_shape[:-1], output.size(-1))
+
+
+@_qwen3_ffn_packed_inference.register_fake
+def _qwen3_ffn_packed_inference_fake(
+    rmsnorm_output: Tensor,
+    fused_gate_up_weight: Tensor,
+    down_weight: Tensor,
+) -> Tensor:
+    del fused_gate_up_weight
+    return rmsnorm_output.new_empty((*rmsnorm_output.shape[:-1], down_weight.shape[0]))
+
+
+@torch.library.custom_op(
+    "rl_kernel::qwen3_ffn_packed_inference_to_staging_cuda",
+    mutates_args={"output"},
+)
+def _qwen3_ffn_packed_inference_to_staging(
+    rmsnorm_output: Tensor,
+    fused_gate_up_weight: Tensor,
+    down_weight: Tensor,
+    output: Tensor,
+) -> None:
+    """Run strict FFN compute with the down projection targeting IPC staging."""
+
+    _notify_packed_inference_observers()
+    hidden_2d = rmsnorm_output.reshape(-1, rmsnorm_output.shape[-1]).contiguous()
+    activated = _packed_gate_up_inference(hidden_2d, fused_gate_up_weight)
+    det_gemm_linear(
+        activated,
+        down_weight,
+        native_op=_C.det_gemm_fwd_rhs_transposed,
+        out=output,
+    )
+
+
+@_qwen3_ffn_packed_inference_to_staging.register_fake
+def _qwen3_ffn_packed_inference_to_staging_fake(
+    rmsnorm_output: Tensor,
+    fused_gate_up_weight: Tensor,
+    down_weight: Tensor,
+    output: Tensor,
+) -> None:
+    del rmsnorm_output, fused_gate_up_weight, down_weight, output
+
+
+@torch.library.custom_op("rl_kernel::qwen3_ffn_canonical_columns_cuda", mutates_args=())
+def _qwen3_ffn_canonical_columns(
+    hidden: Tensor,
+    gate_up_weight: Tensor,
+    down_weight: Tensor,
+    chunks: int,
+) -> Tensor:
+    """Share the column GEMM while preserving every canonical K chunk."""
+    _notify_packed_inference_observers()
+    x = hidden.reshape(-1, hidden.size(-1)).contiguous()
+    activated = _packed_gate_up_inference(x, gate_up_weight)
+    width = activated.size(1) // chunks
+    parts = [
+        det_gemm_linear(
+            activated.narrow(1, i * width, width),
+            down_weight.narrow(1, i * width, width),
+            native_op=_C.det_gemm_fwd_rhs_transposed,
+        )
+        for i in range(chunks)
+    ]
+    while len(parts) > 1:
+        parts = [parts[i] + parts[i + 1] for i in range(0, len(parts), 2)]
+    return parts[0].reshape(*hidden.shape[:-1], down_weight.size(0))
+
+
+@_qwen3_ffn_canonical_columns.register_fake
+def _qwen3_ffn_canonical_columns_fake(hidden, gate_up_weight, down_weight, chunks):
+    return hidden.new_empty((*hidden.shape[:-1], down_weight.size(0)))
+
+
+def _canonical_packed_ffn_local_output(
+    rmsnorm_output: Tensor,
+    fused_gate_up_weight: Tensor,
+    down_weight: Tensor,
+    canonical_chunks: int,
+) -> Tensor:
+    if canonical_chunks == 1:
+        return _qwen3_ffn_packed_inference(
+            rmsnorm_output,
+            fused_gate_up_weight,
+            down_weight,
+        )
+    if fused_gate_up_weight.size(0) % 2:
+        raise ValueError("fused gate/up weight must contain equal gate and up shards")
+    intermediate = fused_gate_up_weight.size(0) // 2
+    if intermediate % canonical_chunks or down_weight.size(1) != intermediate:
+        raise ValueError("packed FFN weights cannot form canonical TP shards")
+    if det_gemm_backend() == "cublaslt_nosplitk":
+        return _qwen3_ffn_canonical_columns(
+            rmsnorm_output, fused_gate_up_weight, down_weight, canonical_chunks
+        )
+    width = intermediate // canonical_chunks
+    gate_weight, up_weight = torch.split(fused_gate_up_weight, intermediate, dim=0)
+    partials = []
+    for chunk in range(canonical_chunks):
+        start = chunk * width
+        packed_weight = torch.cat(
+            (
+                gate_weight.narrow(0, start, width),
+                up_weight.narrow(0, start, width),
+            ),
+            dim=0,
+        ).contiguous()
+        partials.append(
+            _qwen3_ffn_packed_inference(
+                rmsnorm_output,
+                packed_weight,
+                down_weight.narrow(1, start, width).contiguous(),
+            )
+        )
+    while len(partials) > 1:
+        partials = [partials[index] + partials[index + 1] for index in range(0, len(partials), 2)]
+    return partials[0]
+
+
+def qwen3_ffn_packed_inference(
+    rmsnorm_output: Tensor,
+    fused_gate_up_weight: Tensor,
+    down_weight: Tensor,
+    *,
+    collective_handle: int = 0,
+    tp_world_size: int = 1,
+    collective: Any | None = None,
+) -> Tensor:
+    """Inference-only packed FFN entry compatible with torch.compile."""
+
+    canonical_tp = int(os.getenv("RL_KERNEL_STRICT_CANONICAL_TP", str(tp_world_size)))
+    if canonical_tp < tp_world_size or canonical_tp % tp_world_size:
+        raise ValueError(
+            f"canonical TP {canonical_tp} must be a positive multiple of rollout TP={tp_world_size}"
+        )
+    canonical_chunks = canonical_tp // tp_world_size
+
+    def canonical_local_output() -> Tensor:
+        return _canonical_packed_ffn_local_output(
+            rmsnorm_output, fused_gate_up_weight, down_weight, canonical_chunks
+        )
+
+    if tp_world_size <= 1:
+        return canonical_local_output()
+    if collective_handle <= 0:
+        raise RuntimeError("packed rollout FFN requires a bound TP collective")
+    input_shape = rmsnorm_output.shape
+    output_shape_2d = (
+        rmsnorm_output.numel() // input_shape[-1],
+        down_weight.shape[0],
+    )
+    direct_staging = (
+        None if collective is None else getattr(collective, "direct_staging_view", None)
+    )
+    direct_output = (
+        None
+        if not callable(direct_staging) or canonical_chunks != 1
+        else direct_staging(output_shape_2d, dtype=rmsnorm_output.dtype)
+    )
+    if direct_output is not None:
+        deterministic_staging_reserve(
+            direct_output,
+            collective_handle=collective_handle,
+        )
+        _qwen3_ffn_packed_inference_to_staging(
+            rmsnorm_output,
+            fused_gate_up_weight,
+            down_weight,
+            direct_output,
+        )
+        reduced = deterministic_all_reduce_staged(
+            direct_output,
+            collective_handle=collective_handle,
+        )
+        return reduced.reshape(*input_shape[:-1], down_weight.shape[0])
+    output = canonical_local_output()
+    return deterministic_all_reduce_inplace(
+        output,
+        collective_handle=collective_handle,
+    )
+
+
+def _require_ffn_kernels(*, disable_split_k: bool, packed_gate_up: bool = False) -> None:
+    required: tuple[str, ...] = _REQUIRED_SYMBOLS if disable_split_k else _SWIGLU_SYMBOLS
+    if packed_gate_up:
+        required = tuple(required) + tuple(_PACKED_SWIGLU_SYMBOLS)
+    missing = [name for name in required if not hasattr(_C, name)]
+    if not _EXT_AVAILABLE or _C is None or missing:
+        suffix = f" Missing symbols: {', '.join(missing)}." if missing else ""
+        needed = (
+            "compiled deterministic GEMM and SwiGLU GPU kernels"
+            if disable_split_k
+            else "compiled SwiGLU GPU kernels"
+        )
+        raise RuntimeError(f"qwen3_ffn requires the {needed}.{suffix}")
+
+
+def _linear_fwd(a: Tensor, weight: Tensor, *, disable_split_k: bool) -> Tensor:
+    if disable_split_k:
+        return det_gemm_linear(
+            a,
+            weight,
+            native_op=_C.det_gemm_fwd_rhs_transposed,
+        )
+    # cuBLASLt / CUTLASS: may use split-K. Detach so Autograd.Function owns backward.
+    with torch.no_grad():
+        return torch.nn.functional.linear(a, weight)
+
+
+def _canonical_tp_column_projection(
+    input_value: Tensor,
+    weight: Tensor,
+    *,
+    tp_world: int,
+    disable_split_k: bool,
+) -> Tensor:
+    """Run column projections at the validated canonical TP output width."""
+
+    canonical_tp = int(os.getenv("RL_KERNEL_STRICT_CANONICAL_TP", str(tp_world)))
+    if canonical_tp < tp_world or canonical_tp % tp_world:
+        raise ValueError(
+            f"canonical TP {canonical_tp} must be a positive multiple of TP={tp_world}"
+        )
+    chunks = canonical_tp // tp_world
+    if chunks == 1:
+        return _linear_fwd(input_value, weight, disable_split_k=disable_split_k)
+    if weight.size(0) % chunks:
+        raise ValueError(
+            f"column projection rows {weight.size(0)} do not divide into {chunks} chunks"
+        )
+    if disable_split_k and det_gemm_backend() == "cublaslt_nosplitk":
+        return _linear_fwd(input_value, weight, disable_split_k=True)
+    rows = weight.size(0) // chunks
+    return torch.cat(
+        [
+            _linear_fwd(
+                input_value,
+                weight.narrow(0, chunk * rows, rows).contiguous(),
+                disable_split_k=disable_split_k,
+            )
+            for chunk in range(chunks)
+        ],
+        dim=1,
+    )
+
+
+def _canonical_tp_down_projection(
+    activated: Tensor,
+    down_weight: Tensor,
+    *,
+    tp_world: int,
+    disable_split_k: bool,
+) -> Tensor:
+    """Recreate the canonical TP fixed tree before the physical TP reduce."""
+
+    canonical_tp = int(os.getenv("RL_KERNEL_STRICT_CANONICAL_TP", str(tp_world)))
+    if canonical_tp < tp_world or canonical_tp % tp_world:
+        raise ValueError(
+            f"canonical TP {canonical_tp} must be a positive multiple of TP={tp_world}"
+        )
+    chunks = canonical_tp // tp_world
+    if chunks == 1:
+        return _linear_fwd(activated, down_weight, disable_split_k=disable_split_k)
+    if activated.size(1) % chunks or down_weight.size(1) != activated.size(1):
+        raise ValueError("FFN intermediate shard cannot form canonical TP chunks")
+    width = activated.size(1) // chunks
+    partials = [
+        _linear_fwd(
+            activated.narrow(1, chunk * width, width).contiguous(),
+            down_weight.narrow(1, chunk * width, width).contiguous(),
+            disable_split_k=disable_split_k,
+        )
+        for chunk in range(chunks)
+    ]
+    while len(partials) > 1:
+        partials = [partials[index] + partials[index + 1] for index in range(0, len(partials), 2)]
+    return partials[0]
+
+
+def _linear_da(grad_output: Tensor, weight: Tensor, *, disable_split_k: bool) -> Tensor:
+    if disable_split_k:
+        return det_gemm_linear_input_gradient(
+            grad_output,
+            weight,
+            native_op=_C.det_gemm_fwd,
+        )
+    with torch.no_grad():
+        return torch.matmul(grad_output, weight)
+
+
+def _linear_dw(a: Tensor, grad_output: Tensor, *, disable_split_k: bool) -> Tensor:
+    if disable_split_k:
+        return det_gemm_linear_weight_gradient(
+            a,
+            grad_output,
+            native_op=_C.det_gemm_db_transposed,
+        )
+    with torch.no_grad():
+        return torch.matmul(grad_output.t().contiguous(), a)
+
+
+def _canonical_tp_chunks(tp_world):
+    canonical = int(os.getenv("RL_KERNEL_STRICT_CANONICAL_TP", str(tp_world)))
+    if canonical < tp_world or canonical % tp_world:
+        raise ValueError("canonical TP must be a positive multiple of physical TP")
+    chunks = canonical // tp_world
+    if chunks & (chunks - 1):
+        raise ValueError("canonical TP chunks must form a balanced binary tree")
+    return chunks
+
+
+def _canonical_tp_input_gradient(grad, weight, *, tp_world, column, disable_split_k):
+    chunks = _canonical_tp_chunks(tp_world)
+    if chunks == 1 or not disable_split_k:
+        return _linear_da(grad, weight, disable_split_k=disable_split_k)
+    axis = 0 if column else 1
+    if weight.size(axis) % chunks:
+        raise ValueError("FFN gradient shard does not divide canonical TP")
+    if not column and det_gemm_backend() == "cublaslt_nosplitk":
+        return _linear_da(grad, weight, disable_split_k=True)
+    width = weight.size(axis) // chunks
+    parts = [
+        _linear_da(
+            grad.narrow(1, i * width, width).contiguous() if column else grad,
+            weight.narrow(axis, i * width, width).contiguous(),
+            disable_split_k=True,
+        )
+        for i in range(chunks)
+    ]
+    if not column:
+        return torch.cat(parts, dim=1)
+    while len(parts) > 1:
+        parts = [parts[i] + parts[i + 1] for i in range(0, len(parts), 2)]
+    return parts[0]
+
+
+def _canonical_tp_weight_gradient(a, grad, *, tp_world, column, disable_split_k):
+    chunks = _canonical_tp_chunks(tp_world)
+    if chunks == 1 or not disable_split_k:
+        return _linear_dw(a, grad, disable_split_k=disable_split_k)
+    sharded = grad if column else a
+    if sharded.size(1) % chunks:
+        raise ValueError("FFN weight gradient does not divide canonical TP")
+    if det_gemm_backend() == "cublaslt_nosplitk":
+        # The token reduction dimension is unchanged; only independent
+        # weight-gradient rows/columns are grouped into one GEMM.
+        return _linear_dw(a, grad, disable_split_k=True)
+    width = sharded.size(1) // chunks
+    parts = [
+        _linear_dw(
+            a if column else a.narrow(1, i * width, width).contiguous(),
+            grad.narrow(1, i * width, width).contiguous() if column else grad,
+            disable_split_k=True,
+        )
+        for i in range(chunks)
+    ]
+    return torch.cat(parts, dim=0 if column else 1)
+
+
+def _require_parallel_group(group: Any, name: str):
+    if group is None:
+        return None
+
+    import torch.distributed as dist
+
+    if not dist.is_available():
+        raise RuntimeError(f"{name}-parallel FFN requires torch.distributed.")
+    if not dist.is_initialized():
+        raise RuntimeError(f"{name}-parallel FFN requires an initialized process group.")
+    if dist.get_world_size(group=group) <= 1:
+        return None
+    return dist
+
+
+def _validate_ffn_inputs(
+    rmsnorm_output: Tensor,
+    gate_weight: Tensor,
+    up_weight: Tensor,
+    down_weight: Tensor,
+    fused_gate_up_weight: Tensor | None,
+) -> None:
+    tensors = {
+        "rmsnorm_output": rmsnorm_output,
+        "gate_weight": gate_weight,
+        "up_weight": up_weight,
+        "down_weight": down_weight,
+    }
+    if fused_gate_up_weight is not None:
+        tensors["fused_gate_up_weight"] = fused_gate_up_weight
+    for name, tensor in tensors.items():
+        if not isinstance(tensor, Tensor):
+            raise TypeError(f"{name} must be a torch.Tensor, got {type(tensor)!r}.")
+
+    if rmsnorm_output.dim() < 1:
+        raise ValueError("rmsnorm_output must have at least one dimension.")
+    if rmsnorm_output.numel() == 0:
+        raise ValueError("rmsnorm_output must contain at least one token.")
+    for name, weight in (
+        ("gate_weight", gate_weight),
+        ("up_weight", up_weight),
+        ("down_weight", down_weight),
+    ):
+        if weight.dim() != 2:
+            raise ValueError(f"{name} must be 2-D, got shape {tuple(weight.shape)}.")
+
+    hidden_size = rmsnorm_output.size(-1)
+    intermediate_size = gate_weight.size(0)
+    expected_shapes = {
+        "gate_weight": (intermediate_size, hidden_size),
+        "up_weight": (intermediate_size, hidden_size),
+        "down_weight": (hidden_size, intermediate_size),
+    }
+    if fused_gate_up_weight is not None:
+        expected_shapes["fused_gate_up_weight"] = (2 * intermediate_size, hidden_size)
+    for name, expected in expected_shapes.items():
+        actual = tuple(tensors[name].shape)
+        if actual != expected:
+            raise ValueError(f"{name} must have shape {expected}, got {actual}.")
+
+    for name, tensor in tensors.items():
+        if tensor.dtype != torch.bfloat16:
+            raise TypeError(f"{name} must have dtype bfloat16, got {tensor.dtype}.")
+        if not tensor.is_cuda:
+            raise RuntimeError(f"{name} must be on a CUDA GPU device, got '{tensor.device}'.")
+        if tensor.device != rmsnorm_output.device:
+            raise RuntimeError(
+                f"all FFN inputs must be on {rmsnorm_output.device}, got {name} on {tensor.device}."
+            )
+
+
+def _collective_for_group(group: Any, *, min_size_bytes: int):
+    return collective_for_group(
+        group=group,
+        min_size_bytes=min_size_bytes,
+        minimum_capacity_bytes=_COLLECTIVE_MIN_CAPACITY_BYTES,
+    )
+
+
+def _all_gather_tokens(tensor: Tensor, collective: Any) -> Tensor:
+    return collective.all_gather(tensor.contiguous())
+
+
+def _all_gather_packed_tokens(*tensors: Tensor, collective: Any) -> tuple[Tensor, ...]:
+    """Gather same-row tensors with one handshake and no repacking copies."""
+
+    return collective.all_gather_many(tuple(tensor.contiguous() for tensor in tensors))
+
+
+def _reduce_scatter_tokens(tensor: Tensor, collective: Any) -> Tensor:
+    world_size = collective.world_size
+    if tensor.size(0) % world_size != 0:
+        raise ValueError(
+            "the gathered token count must be divisible by the tensor-parallel "
+            f"world size, got {tensor.size(0)} and {world_size}."
+        )
+    return collective.reduce_scatter(tensor.contiguous())
+
+
+def _all_reduce_inplace(tensor: Tensor, collective: Any) -> Tensor:
+    return collective.all_reduce(tensor, out=tensor)
+
+
+class _DeterministicFFNFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(
+        ctx,
+        rmsnorm_output: Tensor,
+        gate_weight: Tensor,
+        up_weight: Tensor,
+        down_weight: Tensor,
+        fused_gate_up_weight: Tensor | None,
+        tp_group: Any,
+        cp_group: Any,
+        sequence_parallel: bool,
+        disable_split_k: bool,
+    ) -> Tensor:
+        tp_dist = _require_parallel_group(tp_group, "tensor")
+        _require_parallel_group(cp_group, "context")
+        if sequence_parallel and tp_dist is None:
+            raise ValueError("sequence_parallel requires a tensor-parallel group.")
+
+        input_shape = rmsnorm_output.shape
+        rmsnorm_output_2d = rmsnorm_output.reshape(-1, input_shape[-1]).contiguous()
+        tp_world = tp_dist.get_world_size(group=tp_group) if tp_dist is not None else 1
+        gemm_tokens = rmsnorm_output_2d.size(0) * (tp_world if sequence_parallel else 1)
+        element_size = rmsnorm_output_2d.element_size()
+        token_hidden_bytes = gemm_tokens * rmsnorm_output_2d.size(1) * element_size
+        # Sequence-parallel backward reduces the gate and up input-gradient
+        # lanes together. ``reduce_scatter_many`` packs those lanes along the
+        # final dimension, so reserve capacity for both lanes in one transport
+        # call rather than growing the collective (or failing) mid-backward.
+        reduction_bytes = token_hidden_bytes * (2 if sequence_parallel else 1)
+        min_size_bytes = max(
+            reduction_bytes,
+            gemm_tokens * gate_weight.size(0) * element_size,
+            gate_weight.numel() * element_size,
+            up_weight.numel() * element_size,
+            down_weight.numel() * element_size,
+        )
+        if cp_group is not None:
+            packed_width = 2 * rmsnorm_output_2d.size(1) + 3 * gate_weight.size(0)
+            min_size_bytes = max(
+                min_size_bytes,
+                gemm_tokens * packed_width * element_size,
+            )
+        # Create TP before CP so every rank follows the same group order.
+        tp_collective = _collective_for_group(tp_group, min_size_bytes=min_size_bytes)
+        cp_collective = _collective_for_group(cp_group, min_size_bytes=min_size_bytes)
+
+        if sequence_parallel:
+            rmsnorm_output_2d = _all_gather_tokens(rmsnorm_output_2d, tp_collective)
+
+        combine_columns = disable_split_k and det_gemm_backend() == "cublaslt_nosplitk"
+        packed_gate_up = (
+            fused_gate_up_weight is not None
+            and disable_split_k
+            and (_canonical_tp_chunks(tp_world) == 1 or combine_columns)
+        )
+        if packed_gate_up:
+            assert fused_gate_up_weight is not None
+            canonical_tp = int(os.getenv("RL_KERNEL_STRICT_CANONICAL_TP", str(tp_world)))
+            if canonical_tp == tp_world or combine_columns:
+                gate_up = _linear_fwd(rmsnorm_output_2d, fused_gate_up_weight, disable_split_k=True)
+            else:
+                gate_w, up_w = fused_gate_up_weight.chunk(2, dim=0)
+                gate_up = torch.cat(
+                    [
+                        _canonical_tp_column_projection(
+                            rmsnorm_output_2d, w, tp_world=tp_world, disable_split_k=True
+                        )
+                        for w in (gate_w, up_w)
+                    ],
+                    dim=-1,
+                )
+            activated = _C.swiglu_packed_forward(gate_up)
+        else:
+            gate = _canonical_tp_column_projection(
+                rmsnorm_output_2d,
+                gate_weight,
+                tp_world=tp_world,
+                disable_split_k=disable_split_k,
+            )
+            up = _canonical_tp_column_projection(
+                rmsnorm_output_2d,
+                up_weight,
+                tp_world=tp_world,
+                disable_split_k=disable_split_k,
+            )
+            activated = _C.swiglu_forward(gate, up)
+        output = _canonical_tp_down_projection(
+            activated,
+            down_weight,
+            tp_world=tp_world,
+            disable_split_k=disable_split_k,
+        )
+
+        if sequence_parallel:
+            output = _reduce_scatter_tokens(output, tp_collective)
+        elif tp_collective is not None:
+            output = _all_reduce_inplace(output, tp_collective)
+
+        if packed_gate_up:
+            ctx.save_for_backward(
+                rmsnorm_output_2d,
+                gate_up,
+                activated,
+                gate_weight,
+                up_weight,
+                down_weight,
+            )
+        else:
+            ctx.save_for_backward(
+                rmsnorm_output_2d,
+                gate,
+                up,
+                activated,
+                gate_weight,
+                up_weight,
+                down_weight,
+            )
+        ctx.input_shape = input_shape
+        ctx.tp_world = tp_world
+        ctx.tp_collective = tp_collective
+        from rl_engine.distributed.algorithms.canonical_cp import current_layout
+
+        ctx.cp_layout = current_layout()
+        ctx.cp_collective = cp_collective
+        ctx.sequence_parallel = sequence_parallel
+        ctx.disable_split_k = disable_split_k
+        ctx.packed_gate_up = packed_gate_up
+        return output.reshape(*input_shape[:-1], output.size(-1))
+
+    @staticmethod
+    def backward(ctx, grad_output: Tensor):
+        if ctx.packed_gate_up:
+            (
+                rmsnorm_output,
+                gate_up,
+                activated,
+                gate_weight,
+                up_weight,
+                down_weight,
+            ) = ctx.saved_tensors
+        else:
+            (
+                rmsnorm_output,
+                gate,
+                up,
+                activated,
+                gate_weight,
+                up_weight,
+                down_weight,
+            ) = ctx.saved_tensors
+        tp_collective = ctx.tp_collective
+        cp_collective = ctx.cp_collective
+        disable_split_k = ctx.disable_split_k
+        grad_output = grad_output.reshape(-1, grad_output.size(-1)).contiguous()
+        if ctx.sequence_parallel:
+            grad_output = _all_gather_tokens(grad_output, tp_collective)
+
+        # Down input-gradient shards concatenate across TP; no TP reduction.
+        grad_activated = _canonical_tp_input_gradient(
+            grad_output,
+            down_weight,
+            tp_world=ctx.tp_world,
+            column=False,
+            disable_split_k=disable_split_k,
+        )
+        if ctx.packed_gate_up:
+            grad_gate, grad_up = _C.swiglu_packed_backward(grad_activated, gate_up)
+        else:
+            grad_gate, grad_up = _C.swiglu_backward(grad_activated, gate, up)
+
+        # Weight gradients must see every CP token so the GEMM K-tree matches
+        # CP=1. These payloads become available before any weight-gradient GEMM,
+        # so one rank-ordered gather preserves the arithmetic contract while
+        # avoiding four redundant collective handshakes per layer.
+        if cp_collective is not None or ctx.cp_layout is not None:
+            gather = (
+                (lambda *values, **kw: values)
+                if cp_collective is None
+                else _all_gather_packed_tokens
+            )
+            (
+                activated_full,
+                grad_output_full,
+                rmsnorm_full,
+                grad_gate_full,
+                grad_up_full,
+            ) = gather(
+                activated,
+                grad_output,
+                rmsnorm_output,
+                grad_gate,
+                grad_up,
+                collective=cp_collective,
+            )
+            if ctx.cp_layout is not None:
+                activated_full, grad_output_full, rmsnorm_full, grad_gate_full, grad_up_full = (
+                    ctx.cp_layout.ordered(value)
+                    for value in (
+                        activated_full,
+                        grad_output_full,
+                        rmsnorm_full,
+                        grad_gate_full,
+                        grad_up_full,
+                    )
+                )
+            grad_down_weight = _canonical_tp_weight_gradient(
+                activated_full,
+                grad_output_full,
+                tp_world=ctx.tp_world,
+                column=False,
+                disable_split_k=disable_split_k,
+            )
+            grad_gate_weight = _canonical_tp_weight_gradient(
+                rmsnorm_full,
+                grad_gate_full,
+                tp_world=ctx.tp_world,
+                column=True,
+                disable_split_k=disable_split_k,
+            )
+            grad_up_weight = _canonical_tp_weight_gradient(
+                rmsnorm_full,
+                grad_up_full,
+                tp_world=ctx.tp_world,
+                column=True,
+                disable_split_k=disable_split_k,
+            )
+        else:
+            grad_down_weight = _canonical_tp_weight_gradient(
+                activated,
+                grad_output,
+                tp_world=ctx.tp_world,
+                column=False,
+                disable_split_k=disable_split_k,
+            )
+            grad_gate_weight = _canonical_tp_weight_gradient(
+                rmsnorm_output,
+                grad_gate,
+                tp_world=ctx.tp_world,
+                column=True,
+                disable_split_k=disable_split_k,
+            )
+            grad_up_weight = _canonical_tp_weight_gradient(
+                rmsnorm_output,
+                grad_up,
+                tp_world=ctx.tp_world,
+                column=True,
+                disable_split_k=disable_split_k,
+            )
+
+        # Gate/Up input gradients reduce across TP, then add locally.
+        grad_rmsnorm_from_gate = _canonical_tp_input_gradient(
+            grad_gate,
+            gate_weight,
+            tp_world=ctx.tp_world,
+            column=True,
+            disable_split_k=disable_split_k,
+        )
+        grad_rmsnorm_from_up = _canonical_tp_input_gradient(
+            grad_up,
+            up_weight,
+            tp_world=ctx.tp_world,
+            column=True,
+            disable_split_k=disable_split_k,
+        )
+        if ctx.sequence_parallel:
+            # These are independent reduction lanes. Pack them into one
+            # ReduceScatter while keeping each lane's balanced rank tree
+            # separate; adding them before the collective would change the
+            # floating-point parenthesization and break cross-TP bitwise
+            # invariance.
+            grad_rmsnorm_from_gate, grad_rmsnorm_from_up = tp_collective.reduce_scatter_many(
+                (grad_rmsnorm_from_gate, grad_rmsnorm_from_up)
+            )
+        elif tp_collective is not None:
+            grad_rmsnorm_from_gate = _all_reduce_inplace(
+                grad_rmsnorm_from_gate,
+                tp_collective,
+            )
+            grad_rmsnorm_from_up = _all_reduce_inplace(
+                grad_rmsnorm_from_up,
+                tp_collective,
+            )
+
+        grad_rmsnorm_output = grad_rmsnorm_from_gate.add_(grad_rmsnorm_from_up)
+        return (
+            grad_rmsnorm_output.reshape(ctx.input_shape),
+            grad_gate_weight,
+            grad_up_weight,
+            grad_down_weight,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+
+
+def qwen3_ffn(
+    rmsnorm_output: Tensor,
+    gate_weight: Tensor,
+    up_weight: Tensor,
+    down_weight: Tensor,
+    *,
+    fused_gate_up_weight: Tensor | None = None,
+    tp_group: Any = None,
+    cp_group: Any = None,
+    sequence_parallel: bool = False,
+    deterministic: bool | None = None,
+    disable_split_k: bool | None = None,
+) -> Tensor:
+    """Apply a bias-free SiLU-gated FFN with deterministic backward kernels.
+
+    Args:
+        rmsnorm_output: RMSNorm output, shape ``[..., H]``.
+        gate_weight: Gate projection weight in ``[out, in]`` layout, shape
+            ``[I_local, H]``.
+        up_weight: Up projection weight in ``[out, in]`` layout, shape
+            ``[I_local, H]``.
+        down_weight: Down projection weight in ``[out, in]`` layout, shape
+            ``[H, I_local]``.
+        fused_gate_up_weight: Optional existing framework weight in
+            ``[2 * I_local, H]`` layout. Strict CUDA execution consumes this
+            with one GEMM launch while returning gradients through the
+            separate gate/up views, so the framework parameter layout stays
+            unchanged.
+        tp_group: Optional tensor-parallel process group. Gate and Up are
+            column-parallel; Down is row-parallel. Reductions use the CUDA
+            deterministic fixed-tree collectives.
+        cp_group: Optional context-parallel process group. Each rank owns
+            different token rows and the same local weight shards. Weight
+            gradients AllGather tokens along CP and run the full-token
+            ``det_gemm_db_transposed`` so they match CP=1 bitwise.
+        sequence_parallel: Whether ``rmsnorm_output`` and the returned output
+            are sharded on the flattened token dimension across ``tp_group``.
+            Token gather/scatter use the deterministic AllGather and
+            ReduceScatter.
+        deterministic: Select the RL-Kernel fixed-reduction GEMM when True
+            (default), or the production ``torch.matmul`` GEMM when False.
+        disable_split_k: Compatibility alias for ``deterministic``. New code
+            should use ``deterministic`` because Split-K is only one possible
+            implementation detail of the production GEMM.
+
+    Returns:
+        FFN output with shape ``[..., H]``.
+    """
+    if not isinstance(sequence_parallel, bool):
+        raise TypeError("sequence_parallel must be a bool.")
+    deterministic = _resolve_deterministic_mode(deterministic, disable_split_k)
+    _validate_ffn_inputs(
+        rmsnorm_output,
+        gate_weight,
+        up_weight,
+        down_weight,
+        fused_gate_up_weight,
+    )
+    _require_ffn_kernels(
+        disable_split_k=deterministic,
+        packed_gate_up=fused_gate_up_weight is not None and deterministic,
+    )
+    return _DeterministicFFNFunction.apply(
+        rmsnorm_output,
+        gate_weight,
+        up_weight,
+        down_weight,
+        fused_gate_up_weight,
+        tp_group,
+        cp_group,
+        sequence_parallel,
+        deterministic,
+    )
+
+
+def _resolve_deterministic_mode(
+    deterministic: bool | None,
+    disable_split_k: bool | None,
+) -> bool:
+    if deterministic is not None and not isinstance(deterministic, bool):
+        raise TypeError("deterministic must be a bool or None.")
+    if disable_split_k is not None and not isinstance(disable_split_k, bool):
+        raise TypeError("disable_split_k must be a bool or None.")
+    if (
+        deterministic is not None
+        and disable_split_k is not None
+        and deterministic != disable_split_k
+    ):
+        raise ValueError("deterministic and disable_split_k select conflicting FFN backends.")
+    if deterministic is not None:
+        return deterministic
+    if disable_split_k is not None:
+        return disable_split_k
+    return True
+
+
+class Qwen3FFNOp:
+    """Instantiable Qwen3 FFN wrapper for semantic operator dispatch."""
+
+    op_class = "ffn"
+    is_batch_invariant = True
+    backend_id = BACKEND_ID
+
+    def __init__(self) -> None:
+        # Keep graph-bound IPC resources alive independently of the module-level
+        # lookup cache. CUDA Graphs retain only the small opaque C++ handle.
+        self._packed_inference_collectives: dict[int, Any] = {}
+
+    def prepare_packed_inference(
+        self,
+        fused_gate_up_weight: Tensor,
+        down_weight: Tensor,
+        *,
+        tp_group: Any,
+    ) -> tuple[int, int]:
+        """Create the rollout TP resource before Dynamo captures the model."""
+
+        if tp_group is None:
+            return 0, 1
+        dist = _require_parallel_group(tp_group, "tensor")
+        if dist is None:
+            return 0, 1
+        tp_world_size = int(dist.get_world_size(group=tp_group))
+        if fused_gate_up_weight.size(0) % 2:
+            raise ValueError("fused gate/up weight must contain two equal shards")
+        element_size = fused_gate_up_weight.element_size()
+        min_size_bytes = (
+            max(
+                fused_gate_up_weight.numel() // 2,
+                down_weight.numel(),
+            )
+            * element_size
+        )
+        collective = _collective_for_group(
+            tp_group,
+            min_size_bytes=min_size_bytes,
+        )
+        max_capture = int(os.getenv("RL_KERNEL_VLLM_CUDAGRAPH_MAX_CAPTURE_SIZE", "0"))
+        if max_capture <= 0:
+            raise RuntimeError("packed rollout FFN requires a positive graph capture size")
+        collective.prepare_direct_staging_views(
+            ((batch, int(down_weight.shape[0])) for batch in range(1, max_capture + 1)),
+            dtype=down_weight.dtype,
+        )
+        runtime_handle = int(collective._handle)
+        collective_handle = runtime_handle
+        self._packed_inference_collectives[collective_handle] = collective
+        return collective_handle, tp_world_size
+
+    def packed_inference_backend_id(self, collective_handle: int) -> str:
+        collective = self._packed_inference_collectives.get(collective_handle)
+        if collective is None:
+            raise RuntimeError("packed rollout FFN collective is not bound")
+        return str(
+            getattr(
+                collective,
+                "backend_id",
+                "deterministic_all_reduce.ipc_localized_fixed_tree.v1",
+            )
+        )
+
+    def packed_inference(
+        self,
+        rmsnorm_output: Tensor,
+        fused_gate_up_weight: Tensor,
+        down_weight: Tensor,
+        *,
+        collective_handle: int,
+        tp_world_size: int,
+    ) -> Tensor:
+        return qwen3_ffn_packed_inference(
+            rmsnorm_output,
+            fused_gate_up_weight,
+            down_weight,
+            collective_handle=collective_handle,
+            tp_world_size=tp_world_size,
+            collective=self._packed_inference_collectives.get(collective_handle),
+        )
+
+    def __call__(
+        self,
+        rmsnorm_output: Tensor,
+        gate_weight: Tensor,
+        up_weight: Tensor,
+        down_weight: Tensor,
+        *,
+        fused_gate_up_weight: Tensor | None = None,
+        tp_group: Any = None,
+        cp_group: Any = None,
+        sequence_parallel: bool = False,
+        deterministic: bool | None = None,
+        disable_split_k: bool | None = None,
+    ) -> Tensor:
+        return self.apply(
+            rmsnorm_output,
+            gate_weight,
+            up_weight,
+            down_weight,
+            fused_gate_up_weight=fused_gate_up_weight,
+            tp_group=tp_group,
+            cp_group=cp_group,
+            sequence_parallel=sequence_parallel,
+            deterministic=deterministic,
+            disable_split_k=disable_split_k,
+        )
+
+    def apply(
+        self,
+        rmsnorm_output: Tensor,
+        gate_weight: Tensor,
+        up_weight: Tensor,
+        down_weight: Tensor,
+        *,
+        fused_gate_up_weight: Tensor | None = None,
+        tp_group: Any = None,
+        cp_group: Any = None,
+        sequence_parallel: bool = False,
+        deterministic: bool | None = None,
+        disable_split_k: bool | None = None,
+    ) -> Tensor:
+        return qwen3_ffn(
+            rmsnorm_output,
+            gate_weight,
+            up_weight,
+            down_weight,
+            fused_gate_up_weight=fused_gate_up_weight,
+            tp_group=tp_group,
+            cp_group=cp_group,
+            sequence_parallel=sequence_parallel,
+            deterministic=deterministic,
+            disable_split_k=disable_split_k,
+        )

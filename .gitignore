@@ -8,10 +8,10 @@ __pycache__/
 
 # Distribution / packaging
 .Python
-build/
+/build/
 build_jit/
 develop-eggs/
-dist/
+/dist/
 downloads/
 eggs/
 .eggs/
@@ -138,9 +138,9 @@ celerybeat.pid
 .env
 .envrc
 .venv
-env/
+/env/
 venv/
-ENV/
+/ENV/
 env.bak/
 venv.bak/
 
@@ -224,3 +224,5 @@ csrc/hip/*_hip.hip
 
 # Per-machine launcher paths
 .rlk-profile.json
+
+/artifacts/
