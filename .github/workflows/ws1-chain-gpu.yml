@@ -93,7 +93,7 @@ jobs:
           KERNEL_ALIGN_FORCE_SM90: ${{ matrix.force_sm90 }}
           TEST_SUITE: ws1-chain
           WS1_WEIGHTS_PATH: ""
-        run: bash ci/run_gpu_ci.sh
+        run: bash ci/scripts/run_gpu_ci.sh
 
       - name: Upload C8/C10/C11 JSON
         if: always()

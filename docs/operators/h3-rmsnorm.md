@@ -21,7 +21,7 @@ gathered inside the kernel, so the `(S, H)` tensors that
 ## Entry Point
 
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 op = kernel_registry.get_op("h3_rmsnorm", device="cuda")
 n = op(x, weight)                                              # plain RMSNorm
@@ -32,8 +32,8 @@ out = op.forward_modulated(x, weight, shift_msa, scale_msa, adaln_indices)
 
 | Backend | Wrapper | Native symbols | Status |
 | --- | --- | --- | --- |
-| CUDA (SM80+, validated on SM100) | `rl_engine.kernels.ops.cuda.h3.rmsnorm.H3RMSNormCudaOp` | `rl_engine._C.h3_rmsnorm_{forward,backward}` | Bitwise equal to `nn.RMSNorm` and to the diffusers modulation |
-| PyTorch reference | `rl_engine.kernels.ops.pytorch.h3.rmsnorm.NativeH3RMSNormOp` | n/a | `forward*`: provider path; `forward*_fp32`: FP64 golden (the modulated one stores `norm(x)` and `1 + scale` in BF16, straight-through, as the model does) |
+| CUDA (SM80+, validated on SM100) | `rl_engine.backends.cuda.model_specific.minimax_h3.rmsnorm.H3RMSNormCudaOp` | `rl_engine._C.h3_rmsnorm_{forward,backward}` | Bitwise equal to `nn.RMSNorm` and to the diffusers modulation |
+| PyTorch reference | `rl_engine.reference.minimax_h3.rmsnorm.NativeH3RMSNormOp` | n/a | `forward*`: provider path; `forward*_fp32`: FP64 golden (the modulated one stores `norm(x)` and `1 + scale` in BF16, straight-through, as the model does) |
 | ROCm | n/a | n/a | Falls back to the PyTorch reference |
 
 ## Tensor Contract
@@ -74,7 +74,7 @@ closed.
 ## Performance Notes
 
 ```bash
-python benchmarks/benchmark_h3_conditioning.py --op h3_rmsnorm
+python benchmarks/models/benchmark_h3_conditioning.py --op h3_rmsnorm
 ```
 
 B200, block `norm1` + MSA modulation, B = 1, H = 5376, BF16:
@@ -92,10 +92,10 @@ each iteration and is recorded in the report.
 
 ## Evidence
 
-![h3_rmsnorm on B200: latency and backward accuracy](../usage/evidence/h3-rmsnorm-b200/figure.png)
+![h3_rmsnorm on B200: latency and backward accuracy](../../reports/experiments/h3-rmsnorm-b200/figure.png)
 
-The data is in [`report.json`](../usage/evidence/h3-rmsnorm-b200/report.json), written by
-`scripts/h3_evidence.py` from a clean tree at commit `80e4609`. It also records:
+The data is in [`report.json`](../../reports/experiments/h3-rmsnorm-b200/report.json), written by
+`tools/validation/models/h3_evidence.py` from a clean tree at commit `80e4609`. It also records:
 
 - bitwise equality with `nn.RMSNorm` for all four pinned norm weights;
 - bitwise equality with diffusers for the modulation;
@@ -103,7 +103,7 @@ The data is in [`report.json`](../usage/evidence/h3-rmsnorm-b200/report.json), w
 
 ## Existing implementations (RFC #420 reuse rule)
 
-![norm_modulate vs existing implementations](../usage/evidence/h3-prior-art-b200/norm_modulate.png)
+![norm_modulate vs existing implementations](../../reports/experiments/h3-prior-art-b200/norm_modulate.png)
 
 | Implementation | Batch-invariant | size 4097: fwd err / worst grad err / fwd+bwd | size 32768: fwd err / worst grad err / fwd+bwd |
 |---|---|---|---|
@@ -119,12 +119,12 @@ Errors are max|err| / max|ref| against the same computation in FP64; latency is 
 forward + backward time on an otherwise idle B200. Batch invariance is bitwise and covers
 three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
 131072-token batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
-"no" means that at least one row, sub-batch or gradient differed. [`norm_modulate.json`](../usage/evidence/h3-prior-art-b200/norm_modulate.json)
+"no" means that at least one row, sub-batch or gradient differed. [`norm_modulate.json`](../../reports/experiments/h3-prior-art-b200/norm_modulate.json)
 was written from a clean tree at `ee83dec` by
 
 ```bash
-python scripts/h3_prior_art.py --op norm_modulate --out docs/usage/evidence/h3-prior-art-b200/norm_modulate.json
-python scripts/plot_h3_prior_art.py docs/usage/evidence/h3-prior-art-b200/norm_modulate.json
+python tools/validation/models/h3_prior_art.py --op norm_modulate --out reports/experiments/h3-prior-art-b200/norm_modulate.json
+python tools/validation/models/plot_h3_prior_art.py reports/experiments/h3-prior-art-b200/norm_modulate.json
 ```
 
 Libraries that do not import are skipped and recorded as unavailable in the report.
@@ -132,13 +132,13 @@ Libraries that do not import are skipped and recorded as unavailable in the repo
 ## Tests
 
 ```bash
-export RL_KERNEL_H3_WEIGHTS=<dir written by scripts/prepare_h3_weights.py>
-python -m pytest tests/h3/test_h3_rmsnorm.py -v               # operator
-python -m pytest tests/h3/test_h3_conditioning_e2e.py -v      # end to end, incl. block norm1 + modulation
-python scripts/check_operator.py --op h3_rmsnorm --candidate cuda --device cuda \
+export RL_KERNEL_H3_WEIGHTS=<dir written by tools/weights/prepare_h3_weights.py>
+python -m pytest tests/models/minimax_h3/test_h3_rmsnorm.py -v               # operator
+python -m pytest tests/models/minimax_h3/test_h3_conditioning_e2e.py -v      # end to end, incl. block norm1 + modulation
+python tools/validation/operators/check_operator.py --op h3_rmsnorm --candidate cuda --device cuda \
     --dtype bf16 --batch 2 --seq 257 --normalized-dim 5376 --check-grad
-python scripts/h3_evidence.py --op h3_rmsnorm --out docs/usage/evidence/h3-rmsnorm-b200/report.json
-python scripts/plot_h3_evidence.py docs/usage/evidence/h3-rmsnorm-b200/report.json
+python tools/validation/models/h3_evidence.py --op h3_rmsnorm --out reports/experiments/h3-rmsnorm-b200/report.json
+python tools/validation/models/plot_h3_evidence.py reports/experiments/h3-rmsnorm-b200/report.json
 ```
 
 ## Known Limitations
