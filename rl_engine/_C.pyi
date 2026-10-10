@@ -325,3 +325,153 @@ def deterministic_collective_rocm_ipc_all_gather_input(
     input: torch.Tensor,
     output: torch.Tensor,
 ) -> None: ...
+def h3_timestep_sinusoid_forward(
+    timestep: torch.Tensor,
+    num_channels: int = 256,
+    max_period: float = 10000.0,
+    check_range: bool = True,
+) -> torch.Tensor:
+    """Return FP32 CUDA cosine-then-sine features of shape ``(T, num_channels)``.
+
+    Require a nonempty 1-D FP32 CUDA timestep tensor, positive even channels
+    and positive ``max_period``. Check finite values in ``[0, 1]`` when enabled;
+    the Python operator supplies the analytic backward for this native forward.
+    """
+    ...
+
+def h3_det_linear_forward(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    bias: torch.Tensor | None = None,
+    activation: int = 0,
+    save_pre_activation: bool = False,
+) -> list[torch.Tensor]:
+    """Return a deterministic CUDA projection and optional FP32 pre-activation.
+
+    Require same-device/dtype FP32 or BF16 contiguous, 16-byte-aligned matrices
+    ``x (T, K)`` and ``weight (N, K)``, ``T > 0`` and ``K`` divisible by the
+    16-byte vector width. Optional contiguous bias is ``(N,)`` in that dtype.
+    Activation 0 is identity and 1 is SiLU; BF16 forward requires SM80 or newer.
+    Return ``[out]`` in the input dtype or ``[out, pre]`` when saving activation.
+    """
+    ...
+
+def h3_det_linear_backward_input(
+    grad: torch.Tensor, weight: torch.Tensor, out_dtype: torch.dtype
+) -> torch.Tensor:
+    """Return a deterministic ``(T, K)`` CUDA input gradient in ``out_dtype``.
+
+    Require contiguous FP32 ``grad (T, N)`` with ``T > 0`` and same-device
+    contiguous, 16-byte-aligned FP32 or BF16 ``weight (N, K)``. Output dtype
+    must be FP32 or BF16; output-column chunks accumulate in fixed order.
+    """
+    ...
+
+def h3_det_linear_backward_input_partials(
+    grad: torch.Tensor, weight: torch.Tensor
+) -> torch.Tensor: ...
+def h3_det_linear_fold_chunks(partial: torch.Tensor, out_dtype: torch.dtype) -> torch.Tensor: ...
+def h3_det_linear_backward_weight(
+    grad: torch.Tensor, x: torch.Tensor, w_dtype: torch.dtype, with_bias: bool = True
+) -> list[torch.Tensor]:
+    """Return CUDA weight and optional bias gradients using an ascending row fold.
+
+    Require contiguous FP32 ``grad (T, N)`` with ``T > 0`` and same-device
+    contiguous, 16-byte-aligned FP32 or BF16 ``x (T, K)``. Return ``[dweight]``
+    with shape ``(N, K)``, or ``[dweight, dbias]`` with ``dbias (N,)`` when
+    requested, in FP32 or BF16 as specified by ``w_dtype``.
+    """
+    ...
+
+def h3_adaln_row_gather_forward(
+    rows: torch.Tensor,
+    timestep_indices: torch.Tensor,
+    token_tags: torch.Tensor,
+    chunks: int = 6,
+    modality_num: int = 3,
+) -> torch.Tensor: ...
+def h3_adaln_row_gather_backward(
+    grad: torch.Tensor,
+    sorted_pos: torch.Tensor,
+    tile_begin: torch.Tensor,
+    tile_end: torch.Tensor,
+    seg_first_tile: torch.Tensor,
+    out_dtype: torch.dtype,
+) -> torch.Tensor: ...
+def h3_rmsnorm_forward(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    eps: float,
+    shift: torch.Tensor | None = None,
+    scale: torch.Tensor | None = None,
+    index: torch.Tensor | None = None,
+) -> list[torch.Tensor]: ...
+def h3_rmsnorm_backward(
+    grad: torch.Tensor,
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    rstd: torch.Tensor,
+    shift: torch.Tensor | None = None,
+    scale: torch.Tensor | None = None,
+    index: torch.Tensor | None = None,
+    sorted_pos: torch.Tensor | None = None,
+    tile_begin: torch.Tensor | None = None,
+    tile_end: torch.Tensor | None = None,
+    seg_first_tile: torch.Tensor | None = None,
+) -> list[torch.Tensor]: ...
+def h3_gate_residual_forward(
+    residual: torch.Tensor, y: torch.Tensor, gate: torch.Tensor, index: torch.Tensor
+) -> torch.Tensor: ...
+def h3_gate_residual_backward(
+    grad: torch.Tensor,
+    y: torch.Tensor,
+    gate: torch.Tensor,
+    index: torch.Tensor,
+    sorted_pos: torch.Tensor,
+    tile_begin: torch.Tensor,
+    tile_end: torch.Tensor,
+    seg_first_tile: torch.Tensor,
+) -> list[torch.Tensor]: ...
+def h3_rmsnorm_backward_partials(
+    grad: torch.Tensor,
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    rstd: torch.Tensor,
+    shift: torch.Tensor | None,
+    scale: torch.Tensor | None,
+    index: torch.Tensor | None,
+    dw_rows: torch.Tensor,
+    dw_begin: torch.Tensor,
+    dw_end: torch.Tensor,
+    seg_rows: torch.Tensor | None = None,
+    seg_begin: torch.Tensor | None = None,
+    seg_end: torch.Tensor | None = None,
+) -> list[torch.Tensor]: ...
+def h3_rmsnorm_fold_partials(
+    dw_partial: torch.Tensor,
+    weight: torch.Tensor,
+    seg_partial: torch.Tensor | None = None,
+    seg_first_tile: torch.Tensor | None = None,
+) -> list[torch.Tensor]: ...
+def h3_gate_grad_partials(
+    grad: torch.Tensor,
+    y: torch.Tensor,
+    rows: torch.Tensor,
+    tile_begin: torch.Tensor,
+    tile_end: torch.Tensor,
+) -> torch.Tensor: ...
+def h3_gate_grad_fold(
+    partial: torch.Tensor, seg_first_tile: torch.Tensor, dtype: torch.dtype
+) -> torch.Tensor: ...
+def h3_rmsnorm_backward_dx(
+    grad: torch.Tensor,
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    rstd: torch.Tensor,
+    shift: torch.Tensor | None = None,
+    scale: torch.Tensor | None = None,
+    index: torch.Tensor | None = None,
+) -> torch.Tensor: ...
+def h3_gate_residual_backward_dy(
+    grad: torch.Tensor, gate: torch.Tensor, index: torch.Tensor
+) -> torch.Tensor: ...

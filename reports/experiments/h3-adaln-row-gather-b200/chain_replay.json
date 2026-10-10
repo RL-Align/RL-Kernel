@@ -1,0 +1,3955 @@
+{
+  "kind": "h3_conditioning_chain_replay",
+  "rfc": "RL-Align/RL-Kernel#420",
+  "model_revision": "42ed227ee7df40d41602854ae760620d6eb651fe",
+  "weights_sha256": {
+    "diffusion_pytorch_model-00001-of-00014.safetensors": {
+      "sha256": "2d847200c45c09dd7f973c1b096663068408ef851ee0b3711d059b6dc5dcd028",
+      "size_bytes": 4825958704
+    }
+  },
+  "reference_commit": "f53d552036a0d1bd5570782a39cd40cfabf112bc",
+  "rl_kernel_commit": "fa551c2aa0ee038be2e486a0ef5ff0fb03de49c0",
+  "tracked_tree_dirty": false,
+  "environment": {
+    "gpu": "NVIDIA B200",
+    "capability": [
+      10,
+      0
+    ],
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "python": "3.12.14",
+    "tf32": false
+  },
+  "stages": [
+    "timestep_sinusoid_h3",
+    "timestep_mlp_fp32",
+    "adaln_projection_3mod",
+    "adaln_row_gather"
+  ],
+  "cases": [
+    {
+      "num_timesteps": 1,
+      "seq_len": 3,
+      "seed": 0,
+      "stages": [
+        {
+          "stage": "timestep_sinusoid_h3",
+          "backend": "H3TimestepSinusoidCudaOp",
+          "kernel_id": "rl_engine._C.h3_timestep_sinusoid_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "timestep_mlp_fp32",
+          "backend": "H3TimestepMLPCudaOp",
+          "kernel_id": "rl_engine._C.h3_det_linear_forward[silu]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 7.301568984985352e-07,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 7.301568984985352e-07,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 1.1213123798370361e-06,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 3.91155481338501e-07,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_projection_3mod",
+          "backend": "H3AdaLNProjectionCudaOp",
+          "kernel_id": "torch.silu[fp32]+cast[weight_dtype]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.004549264907836914,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.004549264907836914,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_row_gather",
+          "backend": "H3AdaLNRowGatherCudaOp",
+          "kernel_id": "rl_engine._C.h3_adaln_row_gather_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.004549264907836914,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.004549264907836914,
+            "within_tolerance": true
+          }
+        }
+      ],
+      "first_drift": "timestep_mlp_fp32",
+      "first_isolated_drift": "timestep_mlp_fp32"
+    },
+    {
+      "num_timesteps": 1,
+      "seq_len": 257,
+      "seed": 0,
+      "stages": [
+        {
+          "stage": "timestep_sinusoid_h3",
+          "backend": "H3TimestepSinusoidCudaOp",
+          "kernel_id": "rl_engine._C.h3_timestep_sinusoid_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "timestep_mlp_fp32",
+          "backend": "H3TimestepMLPCudaOp",
+          "kernel_id": "rl_engine._C.h3_det_linear_forward[silu]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 7.301568984985352e-07,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 7.301568984985352e-07,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 1.1213123798370361e-06,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 3.91155481338501e-07,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_projection_3mod",
+          "backend": "H3AdaLNProjectionCudaOp",
+          "kernel_id": "torch.silu[fp32]+cast[weight_dtype]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.004549264907836914,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.004549264907836914,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_row_gather",
+          "backend": "H3AdaLNRowGatherCudaOp",
+          "kernel_id": "rl_engine._C.h3_adaln_row_gather_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.004549264907836914,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.004549264907836914,
+            "within_tolerance": true
+          }
+        }
+      ],
+      "first_drift": "timestep_mlp_fp32",
+      "first_isolated_drift": "timestep_mlp_fp32"
+    },
+    {
+      "num_timesteps": 1,
+      "seq_len": 4097,
+      "seed": 0,
+      "stages": [
+        {
+          "stage": "timestep_sinusoid_h3",
+          "backend": "H3TimestepSinusoidCudaOp",
+          "kernel_id": "rl_engine._C.h3_timestep_sinusoid_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "timestep_mlp_fp32",
+          "backend": "H3TimestepMLPCudaOp",
+          "kernel_id": "rl_engine._C.h3_det_linear_forward[silu]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 7.301568984985352e-07,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 7.301568984985352e-07,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 1.1213123798370361e-06,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 3.91155481338501e-07,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_projection_3mod",
+          "backend": "H3AdaLNProjectionCudaOp",
+          "kernel_id": "torch.silu[fp32]+cast[weight_dtype]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.004549264907836914,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.004549264907836914,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_row_gather",
+          "backend": "H3AdaLNRowGatherCudaOp",
+          "kernel_id": "rl_engine._C.h3_adaln_row_gather_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.004549264907836914,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.004549264907836914,
+            "within_tolerance": true
+          }
+        }
+      ],
+      "first_drift": "timestep_mlp_fp32",
+      "first_isolated_drift": "timestep_mlp_fp32"
+    },
+    {
+      "num_timesteps": 1,
+      "seq_len": 32768,
+      "seed": 0,
+      "stages": [
+        {
+          "stage": "timestep_sinusoid_h3",
+          "backend": "H3TimestepSinusoidCudaOp",
+          "kernel_id": "rl_engine._C.h3_timestep_sinusoid_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "timestep_mlp_fp32",
+          "backend": "H3TimestepMLPCudaOp",
+          "kernel_id": "rl_engine._C.h3_det_linear_forward[silu]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 7.301568984985352e-07,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 7.301568984985352e-07,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 1.1213123798370361e-06,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 3.91155481338501e-07,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_projection_3mod",
+          "backend": "H3AdaLNProjectionCudaOp",
+          "kernel_id": "torch.silu[fp32]+cast[weight_dtype]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.004549264907836914,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.004549264907836914,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_row_gather",
+          "backend": "H3AdaLNRowGatherCudaOp",
+          "kernel_id": "rl_engine._C.h3_adaln_row_gather_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.004549264907836914,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.004549264907836914,
+            "within_tolerance": true
+          }
+        }
+      ],
+      "first_drift": "timestep_mlp_fp32",
+      "first_isolated_drift": "timestep_mlp_fp32"
+    },
+    {
+      "num_timesteps": 2,
+      "seq_len": 3,
+      "seed": 0,
+      "stages": [
+        {
+          "stage": "timestep_sinusoid_h3",
+          "backend": "H3TimestepSinusoidCudaOp",
+          "kernel_id": "rl_engine._C.h3_timestep_sinusoid_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.960464477539063e-08,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.960464477539063e-08,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "timestep_mlp_fp32",
+          "backend": "H3TimestepMLPCudaOp",
+          "kernel_id": "rl_engine._C.h3_det_linear_forward[silu]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 6.109476089477539e-07,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 6.109476089477539e-07,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 1.1213123798370361e-06,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.103647708892822e-07,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_projection_3mod",
+          "backend": "H3AdaLNProjectionCudaOp",
+          "kernel_id": "torch.silu[fp32]+cast[weight_dtype]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007626533508300781,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007626533508300781,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_row_gather",
+          "backend": "H3AdaLNRowGatherCudaOp",
+          "kernel_id": "rl_engine._C.h3_adaln_row_gather_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.003903031349182129,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.003903031349182129,
+            "within_tolerance": true
+          }
+        }
+      ],
+      "first_drift": "timestep_mlp_fp32",
+      "first_isolated_drift": "timestep_mlp_fp32"
+    },
+    {
+      "num_timesteps": 2,
+      "seq_len": 257,
+      "seed": 0,
+      "stages": [
+        {
+          "stage": "timestep_sinusoid_h3",
+          "backend": "H3TimestepSinusoidCudaOp",
+          "kernel_id": "rl_engine._C.h3_timestep_sinusoid_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.960464477539063e-08,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.960464477539063e-08,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "timestep_mlp_fp32",
+          "backend": "H3TimestepMLPCudaOp",
+          "kernel_id": "rl_engine._C.h3_det_linear_forward[silu]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 6.109476089477539e-07,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 6.109476089477539e-07,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 1.1213123798370361e-06,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.103647708892822e-07,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_projection_3mod",
+          "backend": "H3AdaLNProjectionCudaOp",
+          "kernel_id": "torch.silu[fp32]+cast[weight_dtype]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007626533508300781,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007626533508300781,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_row_gather",
+          "backend": "H3AdaLNRowGatherCudaOp",
+          "kernel_id": "rl_engine._C.h3_adaln_row_gather_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007626533508300781,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007626533508300781,
+            "within_tolerance": true
+          }
+        }
+      ],
+      "first_drift": "timestep_mlp_fp32",
+      "first_isolated_drift": "timestep_mlp_fp32"
+    },
+    {
+      "num_timesteps": 2,
+      "seq_len": 4097,
+      "seed": 0,
+      "stages": [
+        {
+          "stage": "timestep_sinusoid_h3",
+          "backend": "H3TimestepSinusoidCudaOp",
+          "kernel_id": "rl_engine._C.h3_timestep_sinusoid_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.960464477539063e-08,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.960464477539063e-08,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "timestep_mlp_fp32",
+          "backend": "H3TimestepMLPCudaOp",
+          "kernel_id": "rl_engine._C.h3_det_linear_forward[silu]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 6.109476089477539e-07,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 6.109476089477539e-07,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 1.1213123798370361e-06,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.103647708892822e-07,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_projection_3mod",
+          "backend": "H3AdaLNProjectionCudaOp",
+          "kernel_id": "torch.silu[fp32]+cast[weight_dtype]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007626533508300781,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007626533508300781,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_row_gather",
+          "backend": "H3AdaLNRowGatherCudaOp",
+          "kernel_id": "rl_engine._C.h3_adaln_row_gather_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007626533508300781,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007626533508300781,
+            "within_tolerance": true
+          }
+        }
+      ],
+      "first_drift": "timestep_mlp_fp32",
+      "first_isolated_drift": "timestep_mlp_fp32"
+    },
+    {
+      "num_timesteps": 2,
+      "seq_len": 32768,
+      "seed": 0,
+      "stages": [
+        {
+          "stage": "timestep_sinusoid_h3",
+          "backend": "H3TimestepSinusoidCudaOp",
+          "kernel_id": "rl_engine._C.h3_timestep_sinusoid_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.960464477539063e-08,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.960464477539063e-08,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "timestep_mlp_fp32",
+          "backend": "H3TimestepMLPCudaOp",
+          "kernel_id": "rl_engine._C.h3_det_linear_forward[silu]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 6.109476089477539e-07,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 6.109476089477539e-07,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 1.1213123798370361e-06,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.103647708892822e-07,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_projection_3mod",
+          "backend": "H3AdaLNProjectionCudaOp",
+          "kernel_id": "torch.silu[fp32]+cast[weight_dtype]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007626533508300781,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007626533508300781,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_row_gather",
+          "backend": "H3AdaLNRowGatherCudaOp",
+          "kernel_id": "rl_engine._C.h3_adaln_row_gather_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007626533508300781,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007626533508300781,
+            "within_tolerance": true
+          }
+        }
+      ],
+      "first_drift": "timestep_mlp_fp32",
+      "first_isolated_drift": "timestep_mlp_fp32"
+    },
+    {
+      "num_timesteps": 3,
+      "seq_len": 3,
+      "seed": 0,
+      "stages": [
+        {
+          "stage": "timestep_sinusoid_h3",
+          "backend": "H3TimestepSinusoidCudaOp",
+          "kernel_id": "rl_engine._C.h3_timestep_sinusoid_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.960464477539063e-08,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.960464477539063e-08,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "timestep_mlp_fp32",
+          "backend": "H3TimestepMLPCudaOp",
+          "kernel_id": "rl_engine._C.h3_det_linear_forward[silu]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 6.109476089477539e-07,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 6.109476089477539e-07,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 1.1213123798370361e-06,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.103647708892822e-07,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_projection_3mod",
+          "backend": "H3AdaLNProjectionCudaOp",
+          "kernel_id": "torch.silu[fp32]+cast[weight_dtype]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.015625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.015625,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.0078105926513671875,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007814407348632812,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_row_gather",
+          "backend": "H3AdaLNRowGatherCudaOp",
+          "kernel_id": "rl_engine._C.h3_adaln_row_gather_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.003897547721862793,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.003897547721862793,
+            "within_tolerance": true
+          }
+        }
+      ],
+      "first_drift": "timestep_mlp_fp32",
+      "first_isolated_drift": "timestep_mlp_fp32"
+    },
+    {
+      "num_timesteps": 3,
+      "seq_len": 257,
+      "seed": 0,
+      "stages": [
+        {
+          "stage": "timestep_sinusoid_h3",
+          "backend": "H3TimestepSinusoidCudaOp",
+          "kernel_id": "rl_engine._C.h3_timestep_sinusoid_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.960464477539063e-08,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.960464477539063e-08,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "timestep_mlp_fp32",
+          "backend": "H3TimestepMLPCudaOp",
+          "kernel_id": "rl_engine._C.h3_det_linear_forward[silu]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 6.109476089477539e-07,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 6.109476089477539e-07,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 1.1213123798370361e-06,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.103647708892822e-07,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_projection_3mod",
+          "backend": "H3AdaLNProjectionCudaOp",
+          "kernel_id": "torch.silu[fp32]+cast[weight_dtype]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.015625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.015625,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.0078105926513671875,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007814407348632812,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_row_gather",
+          "backend": "H3AdaLNRowGatherCudaOp",
+          "kernel_id": "rl_engine._C.h3_adaln_row_gather_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.015625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.0078105926513671875,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007814407348632812,
+            "within_tolerance": true
+          }
+        }
+      ],
+      "first_drift": "timestep_mlp_fp32",
+      "first_isolated_drift": "timestep_mlp_fp32"
+    },
+    {
+      "num_timesteps": 3,
+      "seq_len": 4097,
+      "seed": 0,
+      "stages": [
+        {
+          "stage": "timestep_sinusoid_h3",
+          "backend": "H3TimestepSinusoidCudaOp",
+          "kernel_id": "rl_engine._C.h3_timestep_sinusoid_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.960464477539063e-08,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.960464477539063e-08,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "timestep_mlp_fp32",
+          "backend": "H3TimestepMLPCudaOp",
+          "kernel_id": "rl_engine._C.h3_det_linear_forward[silu]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 6.109476089477539e-07,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 6.109476089477539e-07,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 1.1213123798370361e-06,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.103647708892822e-07,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_projection_3mod",
+          "backend": "H3AdaLNProjectionCudaOp",
+          "kernel_id": "torch.silu[fp32]+cast[weight_dtype]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.015625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.015625,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.0078105926513671875,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007814407348632812,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_row_gather",
+          "backend": "H3AdaLNRowGatherCudaOp",
+          "kernel_id": "rl_engine._C.h3_adaln_row_gather_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.015625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.0078105926513671875,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007814407348632812,
+            "within_tolerance": true
+          }
+        }
+      ],
+      "first_drift": "timestep_mlp_fp32",
+      "first_isolated_drift": "timestep_mlp_fp32"
+    },
+    {
+      "num_timesteps": 3,
+      "seq_len": 32768,
+      "seed": 0,
+      "stages": [
+        {
+          "stage": "timestep_sinusoid_h3",
+          "backend": "H3TimestepSinusoidCudaOp",
+          "kernel_id": "rl_engine._C.h3_timestep_sinusoid_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.960464477539063e-08,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.960464477539063e-08,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "timestep_mlp_fp32",
+          "backend": "H3TimestepMLPCudaOp",
+          "kernel_id": "rl_engine._C.h3_det_linear_forward[silu]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 6.109476089477539e-07,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 6.109476089477539e-07,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 1.1213123798370361e-06,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.103647708892822e-07,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_projection_3mod",
+          "backend": "H3AdaLNProjectionCudaOp",
+          "kernel_id": "torch.silu[fp32]+cast[weight_dtype]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.015625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.015625,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.0078105926513671875,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007814407348632812,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_row_gather",
+          "backend": "H3AdaLNRowGatherCudaOp",
+          "kernel_id": "rl_engine._C.h3_adaln_row_gather_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.015625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.0078105926513671875,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007814407348632812,
+            "within_tolerance": true
+          }
+        }
+      ],
+      "first_drift": "timestep_mlp_fp32",
+      "first_isolated_drift": "timestep_mlp_fp32"
+    },
+    {
+      "num_timesteps": 4,
+      "seq_len": 3,
+      "seed": 0,
+      "stages": [
+        {
+          "stage": "timestep_sinusoid_h3",
+          "backend": "H3TimestepSinusoidCudaOp",
+          "kernel_id": "rl_engine._C.h3_timestep_sinusoid_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.960464477539063e-08,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.960464477539063e-08,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "timestep_mlp_fp32",
+          "backend": "H3TimestepMLPCudaOp",
+          "kernel_id": "rl_engine._C.h3_det_linear_forward[silu]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 6.109476089477539e-07,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 6.109476089477539e-07,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 1.1213123798370361e-06,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.103647708892822e-07,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_projection_3mod",
+          "backend": "H3AdaLNProjectionCudaOp",
+          "kernel_id": "torch.silu[fp32]+cast[weight_dtype]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.015625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.015625,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.0078105926513671875,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007814407348632812,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_row_gather",
+          "backend": "H3AdaLNRowGatherCudaOp",
+          "kernel_id": "rl_engine._C.h3_adaln_row_gather_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.00390625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.003903031349182129,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.003903031349182129,
+            "within_tolerance": true
+          }
+        }
+      ],
+      "first_drift": "timestep_mlp_fp32",
+      "first_isolated_drift": "timestep_mlp_fp32"
+    },
+    {
+      "num_timesteps": 4,
+      "seq_len": 257,
+      "seed": 0,
+      "stages": [
+        {
+          "stage": "timestep_sinusoid_h3",
+          "backend": "H3TimestepSinusoidCudaOp",
+          "kernel_id": "rl_engine._C.h3_timestep_sinusoid_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.960464477539063e-08,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.960464477539063e-08,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "timestep_mlp_fp32",
+          "backend": "H3TimestepMLPCudaOp",
+          "kernel_id": "rl_engine._C.h3_det_linear_forward[silu]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 6.109476089477539e-07,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 6.109476089477539e-07,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 1.1213123798370361e-06,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.103647708892822e-07,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_projection_3mod",
+          "backend": "H3AdaLNProjectionCudaOp",
+          "kernel_id": "torch.silu[fp32]+cast[weight_dtype]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.015625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.015625,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.0078105926513671875,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007814407348632812,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_row_gather",
+          "backend": "H3AdaLNRowGatherCudaOp",
+          "kernel_id": "rl_engine._C.h3_adaln_row_gather_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.015625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.0078105926513671875,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007814407348632812,
+            "within_tolerance": true
+          }
+        }
+      ],
+      "first_drift": "timestep_mlp_fp32",
+      "first_isolated_drift": "timestep_mlp_fp32"
+    },
+    {
+      "num_timesteps": 4,
+      "seq_len": 4097,
+      "seed": 0,
+      "stages": [
+        {
+          "stage": "timestep_sinusoid_h3",
+          "backend": "H3TimestepSinusoidCudaOp",
+          "kernel_id": "rl_engine._C.h3_timestep_sinusoid_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.960464477539063e-08,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.960464477539063e-08,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "timestep_mlp_fp32",
+          "backend": "H3TimestepMLPCudaOp",
+          "kernel_id": "rl_engine._C.h3_det_linear_forward[silu]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 6.109476089477539e-07,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 6.109476089477539e-07,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 1.1213123798370361e-06,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.103647708892822e-07,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_projection_3mod",
+          "backend": "H3AdaLNProjectionCudaOp",
+          "kernel_id": "torch.silu[fp32]+cast[weight_dtype]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.015625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.015625,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.0078105926513671875,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007814407348632812,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_row_gather",
+          "backend": "H3AdaLNRowGatherCudaOp",
+          "kernel_id": "rl_engine._C.h3_adaln_row_gather_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.015625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.0078105926513671875,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007814407348632812,
+            "within_tolerance": true
+          }
+        }
+      ],
+      "first_drift": "timestep_mlp_fp32",
+      "first_isolated_drift": "timestep_mlp_fp32"
+    },
+    {
+      "num_timesteps": 4,
+      "seq_len": 32768,
+      "seed": 0,
+      "stages": [
+        {
+          "stage": "timestep_sinusoid_h3",
+          "backend": "H3TimestepSinusoidCudaOp",
+          "kernel_id": "rl_engine._C.h3_timestep_sinusoid_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.960464477539063e-08,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.960464477539063e-08,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "timestep_mlp_fp32",
+          "backend": "H3TimestepMLPCudaOp",
+          "kernel_id": "rl_engine._C.h3_det_linear_forward[silu]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 6.109476089477539e-07,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 6.109476089477539e-07,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 1.1213123798370361e-06,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 5.103647708892822e-07,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_projection_3mod",
+          "backend": "H3AdaLNProjectionCudaOp",
+          "kernel_id": "torch.silu[fp32]+cast[weight_dtype]+rl_engine._C.h3_det_linear_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.015625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.015625,
+            "within_tolerance": false
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.0078105926513671875,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007814407348632812,
+            "within_tolerance": true
+          }
+        },
+        {
+          "stage": "adaln_row_gather",
+          "backend": "H3AdaLNRowGatherCudaOp",
+          "kernel_id": "rl_engine._C.h3_adaln_row_gather_forward",
+          "repeat_bitwise_equal": true,
+          "chained_vs_provider": {
+            "bitwise_equal": false,
+            "max_abs": 0.015625,
+            "within_tolerance": false
+          },
+          "isolated_vs_provider": {
+            "bitwise_equal": true,
+            "max_abs": 0.0,
+            "within_tolerance": true
+          },
+          "chained_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.0078105926513671875,
+            "within_tolerance": true
+          },
+          "provider_vs_golden": {
+            "bitwise_equal": false,
+            "max_abs": 0.007814407348632812,
+            "within_tolerance": true
+          }
+        }
+      ],
+      "first_drift": "timestep_mlp_fp32",
+      "first_isolated_drift": "timestep_mlp_fp32"
+    }
+  ],
+  "backward_cases": [
+    {
+      "num_timesteps": 1,
+      "seq_len": 3,
+      "leaves": {
+        "time_embedder.linear_1.weight": {
+          "golden_absmax": 14.676741600036621,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 2.193450927734375e-05,
+            "max_abs_vs_golden_over_absmax": 1.494508069299627e-06,
+            "correctly_rounded_fraction": 0.5142298936843872
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 2.193450927734375e-05,
+            "max_abs_vs_golden_over_absmax": 1.494508069299627e-06,
+            "correctly_rounded_fraction": 0.5142298936843872
+          },
+          "provider": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.020853519439697266,
+            "max_abs_vs_golden_over_absmax": 0.0014208548236638308,
+            "correctly_rounded_fraction": 0.5
+          }
+        },
+        "time_embedder.linear_1.bias": {
+          "golden_absmax": 14.676741600036621,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 2.193450927734375e-05,
+            "max_abs_vs_golden_over_absmax": 1.494508069299627e-06,
+            "correctly_rounded_fraction": 0.02845982275903225
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 2.193450927734375e-05,
+            "max_abs_vs_golden_over_absmax": 1.494508069299627e-06,
+            "correctly_rounded_fraction": 0.02845982275903225
+          },
+          "provider": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.020853519439697266,
+            "max_abs_vs_golden_over_absmax": 0.0014208548236638308,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "time_embedder.linear_2.weight": {
+          "golden_absmax": 20.589889526367188,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 3.147125244140625e-05,
+            "max_abs_vs_golden_over_absmax": 1.5284808796423022e-06,
+            "correctly_rounded_fraction": 0.016372647136449814
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 3.147125244140625e-05,
+            "max_abs_vs_golden_over_absmax": 1.5284808796423022e-06,
+            "correctly_rounded_fraction": 0.016372647136449814
+          },
+          "provider": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.066619873046875,
+            "max_abs_vs_golden_over_absmax": 0.0032355624716728926,
+            "correctly_rounded_fraction": 2.4081899027805775e-05
+          }
+        },
+        "time_embedder.linear_2.bias": {
+          "golden_absmax": 73.953369140625,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.000110626220703125,
+            "max_abs_vs_golden_over_absmax": 1.4958915244278614e-06,
+            "correctly_rounded_fraction": 0.0524553582072258
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.000110626220703125,
+            "max_abs_vs_golden_over_absmax": 1.4958915244278614e-06,
+            "correctly_rounded_fraction": 0.0524553582072258
+          },
+          "provider": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.23928070068359375,
+            "max_abs_vs_golden_over_absmax": 0.0032355617731809616,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.weight": {
+          "golden_absmax": 1.140625,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 6.103515625e-05,
+            "max_abs_vs_golden_over_absmax": 5.351027357392013e-05,
+            "correctly_rounded_fraction": 0.9957404732704163
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 6.103515625e-05,
+            "max_abs_vs_golden_over_absmax": 5.351027357392013e-05,
+            "correctly_rounded_fraction": 0.9957404732704163
+          },
+          "provider": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 3.0517578125e-05,
+            "max_abs_vs_golden_over_absmax": 2.6755136786960065e-05,
+            "correctly_rounded_fraction": 0.998334527015686
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.bias": {
+          "golden_absmax": 4.46875,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0,
+            "max_abs_vs_golden_over_absmax": 0.0,
+            "correctly_rounded_fraction": 0.9999999403953552
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0,
+            "max_abs_vs_golden_over_absmax": 0.0,
+            "correctly_rounded_fraction": 0.9999999403953552
+          },
+          "provider": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0,
+            "max_abs_vs_golden_over_absmax": 0.0,
+            "correctly_rounded_fraction": 0.9999999403953552
+          }
+        }
+      }
+    },
+    {
+      "num_timesteps": 1,
+      "seq_len": 257,
+      "leaves": {
+        "time_embedder.linear_1.weight": {
+          "golden_absmax": 114.75843048095703,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.151611328125,
+            "max_abs_vs_golden_over_absmax": 0.0013211345067247748,
+            "correctly_rounded_fraction": 0.5
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 8.392333984375e-05,
+            "max_abs_vs_golden_over_absmax": 7.313043397516594e-07,
+            "correctly_rounded_fraction": 0.5096726417541504
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 1.3018841743469238,
+            "max_abs_vs_golden_over_absmax": 0.011344562284648418,
+            "correctly_rounded_fraction": 0.5
+          }
+        },
+        "time_embedder.linear_1.bias": {
+          "golden_absmax": 114.75843048095703,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.151611328125,
+            "max_abs_vs_golden_over_absmax": 0.0013211345067247748,
+            "correctly_rounded_fraction": 0.0
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 8.392333984375e-05,
+            "max_abs_vs_golden_over_absmax": 7.313043397516594e-07,
+            "correctly_rounded_fraction": 0.0193452388048172
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 1.3018841743469238,
+            "max_abs_vs_golden_over_absmax": 0.011344562284648418,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "time_embedder.linear_2.weight": {
+          "golden_absmax": 174.07337951660156,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.22721099853515625,
+            "max_abs_vs_golden_over_absmax": 0.0013052598806098104,
+            "correctly_rounded_fraction": 1.1487342817417812e-05
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.00023651123046875,
+            "max_abs_vs_golden_over_absmax": 1.358686972707801e-06,
+            "correctly_rounded_fraction": 0.013279437087476254
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 1.529754638671875,
+            "max_abs_vs_golden_over_absmax": 0.008787986822426319,
+            "correctly_rounded_fraction": 3.5292437132738996e-06
+          }
+        },
+        "time_embedder.linear_2.bias": {
+          "golden_absmax": 625.2249755859375,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.8160858154296875,
+            "max_abs_vs_golden_over_absmax": 0.001305267447605729,
+            "correctly_rounded_fraction": 0.0
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0008544921875,
+            "max_abs_vs_golden_over_absmax": 1.3666955283042626e-06,
+            "correctly_rounded_fraction": 0.0372023805975914
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 5.4945068359375,
+            "max_abs_vs_golden_over_absmax": 0.008788047358393669,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.weight": {
+          "golden_absmax": 11.4375,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0625,
+            "max_abs_vs_golden_over_absmax": 0.005464480724185705,
+            "correctly_rounded_fraction": 0.7395860552787781
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.00048828125,
+            "max_abs_vs_golden_over_absmax": 4.269125565770082e-05,
+            "correctly_rounded_fraction": 0.9957284331321716
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 0.25,
+            "max_abs_vs_golden_over_absmax": 0.02185792289674282,
+            "correctly_rounded_fraction": 0.17165133357048035
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.bias": {
+          "golden_absmax": 44.5,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0,
+            "max_abs_vs_golden_over_absmax": 0.0,
+            "correctly_rounded_fraction": 0.9999999403953552
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0,
+            "max_abs_vs_golden_over_absmax": 0.0,
+            "correctly_rounded_fraction": 0.9999999403953552
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 0.875,
+            "max_abs_vs_golden_over_absmax": 0.019662922248244286,
+            "correctly_rounded_fraction": 0.17448949813842773
+          }
+        }
+      }
+    },
+    {
+      "num_timesteps": 1,
+      "seq_len": 4097,
+      "leaves": {
+        "time_embedder.linear_1.weight": {
+          "golden_absmax": 533.5582885742188,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.8239898681640625,
+            "max_abs_vs_golden_over_absmax": 0.001544329570606351,
+            "correctly_rounded_fraction": 0.5
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.000701904296875,
+            "max_abs_vs_golden_over_absmax": 1.3155156466382323e-06,
+            "correctly_rounded_fraction": 0.5178571343421936
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 10.64801025390625,
+            "max_abs_vs_golden_over_absmax": 0.019956601783633232,
+            "correctly_rounded_fraction": 0.5
+          }
+        },
+        "time_embedder.linear_1.bias": {
+          "golden_absmax": 533.5582885742188,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.8239898681640625,
+            "max_abs_vs_golden_over_absmax": 0.001544329570606351,
+            "correctly_rounded_fraction": 0.0
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.000701904296875,
+            "max_abs_vs_golden_over_absmax": 1.3155156466382323e-06,
+            "correctly_rounded_fraction": 0.0357142873108387
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 10.64801025390625,
+            "max_abs_vs_golden_over_absmax": 0.019956601783633232,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "time_embedder.linear_2.weight": {
+          "golden_absmax": 627.8563232421875,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 1.204010009765625,
+            "max_abs_vs_golden_over_absmax": 0.0019176520872861147,
+            "correctly_rounded_fraction": 2.560431767051341e-06
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0008544921875,
+            "max_abs_vs_golden_over_absmax": 1.360967758046172e-06,
+            "correctly_rounded_fraction": 0.015629082918167114
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 24.599517822265625,
+            "max_abs_vs_golden_over_absmax": 0.039180170744657516,
+            "correctly_rounded_fraction": 1.1764145710912999e-06
+          }
+        },
+        "time_embedder.linear_2.bias": {
+          "golden_absmax": 2255.091796875,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 4.324493408203125,
+            "max_abs_vs_golden_over_absmax": 0.001917657325975597,
+            "correctly_rounded_fraction": 0.0
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0030517578125,
+            "max_abs_vs_golden_over_absmax": 1.3532743423638749e-06,
+            "correctly_rounded_fraction": 0.0520833358168602
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 88.3548583984375,
+            "max_abs_vs_golden_over_absmax": 0.03918015956878662,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.weight": {
+          "golden_absmax": 39.25,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.25,
+            "max_abs_vs_golden_over_absmax": 0.006369426846504211,
+            "correctly_rounded_fraction": 0.7380850911140442
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.001953125,
+            "max_abs_vs_golden_over_absmax": 4.976114723831415e-05,
+            "correctly_rounded_fraction": 0.9957199096679688
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 3.875,
+            "max_abs_vs_golden_over_absmax": 0.09872611612081528,
+            "correctly_rounded_fraction": 0.045190975069999695
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.bias": {
+          "golden_absmax": 153.0,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.001953125,
+            "max_abs_vs_golden_over_absmax": 1.2765523024427239e-05,
+            "correctly_rounded_fraction": 0.999968945980072
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.001953125,
+            "max_abs_vs_golden_over_absmax": 1.2765523024427239e-05,
+            "correctly_rounded_fraction": 0.999968945980072
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 15.0,
+            "max_abs_vs_golden_over_absmax": 0.09803921729326248,
+            "correctly_rounded_fraction": 0.04515955597162247
+          }
+        }
+      }
+    },
+    {
+      "num_timesteps": 1,
+      "seq_len": 32768,
+      "leaves": {
+        "time_embedder.linear_1.weight": {
+          "golden_absmax": 1096.3087158203125,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 1.691497802734375,
+            "max_abs_vs_golden_over_absmax": 0.00154290278442204,
+            "correctly_rounded_fraction": 0.5
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0022430419921875,
+            "max_abs_vs_golden_over_absmax": 2.045994961008546e-06,
+            "correctly_rounded_fraction": 0.5103236436843872
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 129.3043670654297,
+            "max_abs_vs_golden_over_absmax": 0.11794521659612656,
+            "correctly_rounded_fraction": 0.5
+          }
+        },
+        "time_embedder.linear_1.bias": {
+          "golden_absmax": 1096.3087158203125,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 1.691497802734375,
+            "max_abs_vs_golden_over_absmax": 0.00154290278442204,
+            "correctly_rounded_fraction": 0.0
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0022430419921875,
+            "max_abs_vs_golden_over_absmax": 2.045994961008546e-06,
+            "correctly_rounded_fraction": 0.0206473208963871
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 129.3043670654297,
+            "max_abs_vs_golden_over_absmax": 0.11794521659612656,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "time_embedder.linear_2.weight": {
+          "golden_absmax": 2459.76708984375,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 2.49169921875,
+            "max_abs_vs_golden_over_absmax": 0.0010129817528650165,
+            "correctly_rounded_fraction": 5.453027551993728e-05
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0032958984375,
+            "max_abs_vs_golden_over_absmax": 1.3399229601418483e-06,
+            "correctly_rounded_fraction": 0.016593534499406815
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 322.1355895996094,
+            "max_abs_vs_golden_over_absmax": 0.1309618204832077,
+            "correctly_rounded_fraction": 6.920085837691659e-08
+          }
+        },
+        "time_embedder.linear_2.bias": {
+          "golden_absmax": 8834.82421875,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 8.94921875,
+            "max_abs_vs_golden_over_absmax": 0.0010129481088370085,
+            "correctly_rounded_fraction": 0.00037202381645329297
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.01171875,
+            "max_abs_vs_golden_over_absmax": 1.3264270819490775e-06,
+            "correctly_rounded_fraction": 0.063988097012043
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 1157.0247802734375,
+            "max_abs_vs_golden_over_absmax": 0.1309618353843689,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.weight": {
+          "golden_absmax": 121.5,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.5,
+            "max_abs_vs_golden_over_absmax": 0.004115226212888956,
+            "correctly_rounded_fraction": 0.737601637840271
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0625,
+            "max_abs_vs_golden_over_absmax": 0.0005144032766111195,
+            "correctly_rounded_fraction": 0.9956783652305603
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 43.5,
+            "max_abs_vs_golden_over_absmax": 0.3580246865749359,
+            "correctly_rounded_fraction": 0.01575867086648941
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.bias": {
+          "golden_absmax": 476.0,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0078125,
+            "max_abs_vs_golden_over_absmax": 1.641281596675981e-05,
+            "correctly_rounded_fraction": 0.999968945980072
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0078125,
+            "max_abs_vs_golden_over_absmax": 1.641281596675981e-05,
+            "correctly_rounded_fraction": 0.999968945980072
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 170.0,
+            "max_abs_vs_golden_over_absmax": 0.3571428656578064,
+            "correctly_rounded_fraction": 0.015666335821151733
+          }
+        }
+      }
+    },
+    {
+      "num_timesteps": 2,
+      "seq_len": 3,
+      "leaves": {
+        "time_embedder.linear_1.weight": {
+          "golden_absmax": 8.766688346862793,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 8.821487426757812e-06,
+            "max_abs_vs_golden_over_absmax": 1.0062508408736903e-06,
+            "correctly_rounded_fraction": 0.0394497849047184
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 8.821487426757812e-06,
+            "max_abs_vs_golden_over_absmax": 1.0062508408736903e-06,
+            "correctly_rounded_fraction": 0.0394497849047184
+          },
+          "provider": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.024131298065185547,
+            "max_abs_vs_golden_over_absmax": 0.0027526128105819225,
+            "correctly_rounded_fraction": 2.1798271063744323e-06
+          }
+        },
+        "time_embedder.linear_1.bias": {
+          "golden_absmax": 8.766688346862793,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 8.58306884765625e-06,
+            "max_abs_vs_golden_over_absmax": 9.790549029276008e-07,
+            "correctly_rounded_fraction": 0.0461309514939785
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 8.58306884765625e-06,
+            "max_abs_vs_golden_over_absmax": 9.790549029276008e-07,
+            "correctly_rounded_fraction": 0.0461309514939785
+          },
+          "provider": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.024131298065185547,
+            "max_abs_vs_golden_over_absmax": 0.0027526128105819225,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "time_embedder.linear_2.weight": {
+          "golden_absmax": 21.970394134521484,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 1.811981201171875e-05,
+            "max_abs_vs_golden_over_absmax": 8.24737696802913e-07,
+            "correctly_rounded_fraction": 0.019412847235798836
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 1.811981201171875e-05,
+            "max_abs_vs_golden_over_absmax": 8.24737696802913e-07,
+            "correctly_rounded_fraction": 0.019412847235798836
+          },
+          "provider": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.04718971252441406,
+            "max_abs_vs_golden_over_absmax": 0.0021478773560374975,
+            "correctly_rounded_fraction": 1.972224526980426e-05
+          }
+        },
+        "time_embedder.linear_2.bias": {
+          "golden_absmax": 78.91429901123047,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 6.4849853515625e-05,
+            "max_abs_vs_golden_over_absmax": 8.21775699932914e-07,
+            "correctly_rounded_fraction": 0.110863097012043
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 6.4849853515625e-05,
+            "max_abs_vs_golden_over_absmax": 8.21775699932914e-07,
+            "correctly_rounded_fraction": 0.110863097012043
+          },
+          "provider": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.16949462890625,
+            "max_abs_vs_golden_over_absmax": 0.0021478317212313414,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.weight": {
+          "golden_absmax": 3.578125,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 6.103515625e-05,
+            "max_abs_vs_golden_over_absmax": 1.705786053207703e-05,
+            "correctly_rounded_fraction": 0.9982069134712219
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 6.103515625e-05,
+            "max_abs_vs_golden_over_absmax": 1.705786053207703e-05,
+            "correctly_rounded_fraction": 0.9982069134712219
+          },
+          "provider": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 3.0517578125e-05,
+            "max_abs_vs_golden_over_absmax": 8.528930266038515e-06,
+            "correctly_rounded_fraction": 0.998363733291626
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.bias": {
+          "golden_absmax": 4.46875,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0,
+            "max_abs_vs_golden_over_absmax": 0.0,
+            "correctly_rounded_fraction": 0.9999999403953552
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0,
+            "max_abs_vs_golden_over_absmax": 0.0,
+            "correctly_rounded_fraction": 0.9999999403953552
+          },
+          "provider": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0,
+            "max_abs_vs_golden_over_absmax": 0.0,
+            "correctly_rounded_fraction": 0.9999999403953552
+          }
+        }
+      }
+    },
+    {
+      "num_timesteps": 2,
+      "seq_len": 257,
+      "leaves": {
+        "time_embedder.linear_1.weight": {
+          "golden_absmax": 95.00251007080078,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.126617431640625,
+            "max_abs_vs_golden_over_absmax": 0.0013327798806130886,
+            "correctly_rounded_fraction": 5.158923886483535e-05
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.00016021728515625,
+            "max_abs_vs_golden_over_absmax": 1.6864531744431588e-06,
+            "correctly_rounded_fraction": 0.02457391656935215
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 0.3639969825744629,
+            "max_abs_vs_golden_over_absmax": 0.003831445937976241,
+            "correctly_rounded_fraction": 7.266090165103378e-07
+          }
+        },
+        "time_embedder.linear_1.bias": {
+          "golden_absmax": 95.00251007080078,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.12661361694335938,
+            "max_abs_vs_golden_over_absmax": 0.0013327397173270583,
+            "correctly_rounded_fraction": 0.0
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.00012969970703125,
+            "max_abs_vs_golden_over_absmax": 1.365223965876794e-06,
+            "correctly_rounded_fraction": 0.02752976305782795
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 0.36399686336517334,
+            "max_abs_vs_golden_over_absmax": 0.003831444773823023,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "time_embedder.linear_2.weight": {
+          "golden_absmax": 173.80873107910156,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.2622566223144531,
+            "max_abs_vs_golden_over_absmax": 0.001508880639448762,
+            "correctly_rounded_fraction": 2.3874295948189683e-05
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.00018310546875,
+            "max_abs_vs_golden_over_absmax": 1.0534882903812104e-06,
+            "correctly_rounded_fraction": 0.014370596036314964
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 1.4940261840820312,
+            "max_abs_vs_golden_over_absmax": 0.008595806546509266,
+            "correctly_rounded_fraction": 2.4912308163038688e-06
+          }
+        },
+        "time_embedder.linear_2.bias": {
+          "golden_absmax": 624.3004150390625,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.941986083984375,
+            "max_abs_vs_golden_over_absmax": 0.0015088666696101427,
+            "correctly_rounded_fraction": 0.0
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.00067138671875,
+            "max_abs_vs_golden_over_absmax": 1.0754224604170304e-06,
+            "correctly_rounded_fraction": 0.0457589291036129
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 5.366363525390625,
+            "max_abs_vs_golden_over_absmax": 0.008595802821218967,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.weight": {
+          "golden_absmax": 25.75,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.125,
+            "max_abs_vs_golden_over_absmax": 0.004854368977248669,
+            "correctly_rounded_fraction": 0.6666338443756104
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.00048828125,
+            "max_abs_vs_golden_over_absmax": 1.8962378817377612e-05,
+            "correctly_rounded_fraction": 0.9989553093910217
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 0.5,
+            "max_abs_vs_golden_over_absmax": 0.019417475908994675,
+            "correctly_rounded_fraction": 0.2250475138425827
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.bias": {
+          "golden_absmax": 44.5,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.25,
+            "max_abs_vs_golden_over_absmax": 0.00561797758564353,
+            "correctly_rounded_fraction": 0.6273354887962341
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0,
+            "max_abs_vs_golden_over_absmax": 0.0,
+            "correctly_rounded_fraction": 0.9999999403953552
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 0.625,
+            "max_abs_vs_golden_over_absmax": 0.014044944196939468,
+            "correctly_rounded_fraction": 0.21870866417884827
+          }
+        }
+      }
+    },
+    {
+      "num_timesteps": 2,
+      "seq_len": 4097,
+      "leaves": {
+        "time_embedder.linear_1.weight": {
+          "golden_absmax": 527.6658935546875,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.27825927734375,
+            "max_abs_vs_golden_over_absmax": 0.0005273398710414767,
+            "correctly_rounded_fraction": 4.359654212748865e-06
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.00042724609375,
+            "max_abs_vs_golden_over_absmax": 8.096905617094308e-07,
+            "correctly_rounded_fraction": 0.0324409119784832
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 12.919952392578125,
+            "max_abs_vs_golden_over_absmax": 0.02448510006070137,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "time_embedder.linear_1.bias": {
+          "golden_absmax": 527.6620483398438,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.2781982421875,
+            "max_abs_vs_golden_over_absmax": 0.000527228054124862,
+            "correctly_rounded_fraction": 0.0
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.00042724609375,
+            "max_abs_vs_golden_over_absmax": 8.096964734249923e-07,
+            "correctly_rounded_fraction": 0.0355282761156559
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 12.919921875,
+            "max_abs_vs_golden_over_absmax": 0.02448522113263607,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "time_embedder.linear_2.weight": {
+          "golden_absmax": 630.265869140625,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.8614501953125,
+            "max_abs_vs_golden_over_absmax": 0.001366804470308125,
+            "correctly_rounded_fraction": 2.255947947560344e-05
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.000732421875,
+            "max_abs_vs_golden_over_absmax": 1.162084004135977e-06,
+            "correctly_rounded_fraction": 0.01656709983944893
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 19.454803466796875,
+            "max_abs_vs_golden_over_absmax": 0.03086761385202408,
+            "correctly_rounded_fraction": 1.3148163588994066e-06
+          }
+        },
+        "time_embedder.linear_2.bias": {
+          "golden_absmax": 2263.81787109375,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 3.09423828125,
+            "max_abs_vs_golden_over_absmax": 0.0013668229803442955,
+            "correctly_rounded_fraction": 0.0
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0025634765625,
+            "max_abs_vs_golden_over_absmax": 1.1323687658659765e-06,
+            "correctly_rounded_fraction": 0.0699404776096344
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 69.87863159179688,
+            "max_abs_vs_golden_over_absmax": 0.030867602676153183,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.weight": {
+          "golden_absmax": 115.0,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.5,
+            "max_abs_vs_golden_over_absmax": 0.004347825888544321,
+            "correctly_rounded_fraction": 0.6659318208694458
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.03125,
+            "max_abs_vs_golden_over_absmax": 0.00027173911803402007,
+            "correctly_rounded_fraction": 0.9989242553710938
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 5.5,
+            "max_abs_vs_golden_over_absmax": 0.04782608523964882,
+            "correctly_rounded_fraction": 0.06274387985467911
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.bias": {
+          "golden_absmax": 153.0,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 1.0,
+            "max_abs_vs_golden_over_absmax": 0.006535947788506746,
+            "correctly_rounded_fraction": 0.6259506940841675
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0,
+            "max_abs_vs_golden_over_absmax": 0.0,
+            "correctly_rounded_fraction": 0.9999999403953552
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 8.25,
+            "max_abs_vs_golden_over_absmax": 0.053921569138765335,
+            "correctly_rounded_fraction": 0.0617869533598423
+          }
+        }
+      }
+    },
+    {
+      "num_timesteps": 2,
+      "seq_len": 32768,
+      "leaves": {
+        "time_embedder.linear_1.weight": {
+          "golden_absmax": 744.156982421875,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 1.7833938598632812,
+            "max_abs_vs_golden_over_absmax": 0.0023965290747582912,
+            "correctly_rounded_fraction": 1.2352353223832324e-05
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.001129150390625,
+            "max_abs_vs_golden_over_absmax": 1.5173551446423517e-06,
+            "correctly_rounded_fraction": 0.0301063172519207
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 87.67558288574219,
+            "max_abs_vs_golden_over_absmax": 0.1178186684846878,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "time_embedder.linear_1.bias": {
+          "golden_absmax": 744.156982421875,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 1.7833938598632812,
+            "max_abs_vs_golden_over_absmax": 0.0023965290747582912,
+            "correctly_rounded_fraction": 0.0
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.00109100341796875,
+            "max_abs_vs_golden_over_absmax": 1.4660930673926487e-06,
+            "correctly_rounded_fraction": 0.0329241082072258
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 87.67555236816406,
+            "max_abs_vs_golden_over_absmax": 0.11781862378120422,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "time_embedder.linear_2.weight": {
+          "golden_absmax": 2462.752685546875,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 3.5404052734375,
+            "max_abs_vs_golden_over_absmax": 0.001437580562196672,
+            "correctly_rounded_fraction": 2.7334339392837137e-05
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.002685546875,
+            "max_abs_vs_golden_over_absmax": 1.0904655027843546e-06,
+            "correctly_rounded_fraction": 0.0176222063601017
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 200.62046813964844,
+            "max_abs_vs_golden_over_absmax": 0.08146188408136368,
+            "correctly_rounded_fraction": 6.920085979800206e-07
+          }
+        },
+        "time_embedder.linear_2.bias": {
+          "golden_absmax": 8845.9306640625,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 12.716552734375,
+            "max_abs_vs_golden_over_absmax": 0.0014375596074387431,
+            "correctly_rounded_fraction": 0.0
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.009765625,
+            "max_abs_vs_golden_over_absmax": 1.103968088500551e-06,
+            "correctly_rounded_fraction": 0.0658482164144516
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 720.5938720703125,
+            "max_abs_vs_golden_over_absmax": 0.08146049082279205,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.weight": {
+          "golden_absmax": 298.0,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 1.0,
+            "max_abs_vs_golden_over_absmax": 0.003355704713612795,
+            "correctly_rounded_fraction": 0.6657332181930542
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.5,
+            "max_abs_vs_golden_over_absmax": 0.0016778523568063974,
+            "correctly_rounded_fraction": 0.9988868236541748
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 47.0,
+            "max_abs_vs_golden_over_absmax": 0.15771812200546265,
+            "correctly_rounded_fraction": 0.022447003051638603
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.bias": {
+          "golden_absmax": 476.0,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 2.0,
+            "max_abs_vs_golden_over_absmax": 0.004201680887490511,
+            "correctly_rounded_fraction": 0.6236565709114075
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.5,
+            "max_abs_vs_golden_over_absmax": 0.0010504202218726277,
+            "correctly_rounded_fraction": 0.9999483227729797
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 62.25,
+            "max_abs_vs_golden_over_absmax": 0.13077731430530548,
+            "correctly_rounded_fraction": 0.022641781717538834
+          }
+        }
+      }
+    },
+    {
+      "num_timesteps": 3,
+      "seq_len": 3,
+      "leaves": {
+        "time_embedder.linear_1.weight": {
+          "golden_absmax": 11.570573806762695,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 1.2099742889404297e-05,
+            "max_abs_vs_golden_over_absmax": 1.0457340522407321e-06,
+            "correctly_rounded_fraction": 0.0445265993475914
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 1.2099742889404297e-05,
+            "max_abs_vs_golden_over_absmax": 1.0457340522407321e-06,
+            "correctly_rounded_fraction": 0.0445265993475914
+          },
+          "provider": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.025829792022705078,
+            "max_abs_vs_golden_over_absmax": 0.0022323690354824066,
+            "correctly_rounded_fraction": 1.4532180330206756e-06
+          }
+        },
+        "time_embedder.linear_1.bias": {
+          "golden_absmax": 11.57003402709961,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 1.208484172821045e-05,
+            "max_abs_vs_golden_over_absmax": 1.0444948657095665e-06,
+            "correctly_rounded_fraction": 0.0403645858168602
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 1.208484172821045e-05,
+            "max_abs_vs_golden_over_absmax": 1.0444948657095665e-06,
+            "correctly_rounded_fraction": 0.0403645858168602
+          },
+          "provider": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.025829792022705078,
+            "max_abs_vs_golden_over_absmax": 0.0022324733436107635,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "time_embedder.linear_2.weight": {
+          "golden_absmax": 20.580326080322266,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 1.52587890625e-05,
+            "max_abs_vs_golden_over_absmax": 7.414259926008526e-07,
+            "correctly_rounded_fraction": 0.019046567380428314
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 1.52587890625e-05,
+            "max_abs_vs_golden_over_absmax": 7.414259926008526e-07,
+            "correctly_rounded_fraction": 0.019046567380428314
+          },
+          "provider": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.04852867126464844,
+            "max_abs_vs_golden_over_absmax": 0.002358012832701206,
+            "correctly_rounded_fraction": 2.159066752938088e-05
+          }
+        },
+        "time_embedder.linear_2.bias": {
+          "golden_absmax": 73.91921997070312,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 5.7220458984375e-05,
+            "max_abs_vs_golden_over_absmax": 7.740944738543476e-07,
+            "correctly_rounded_fraction": 0.1011904776096344
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 5.7220458984375e-05,
+            "max_abs_vs_golden_over_absmax": 7.740944738543476e-07,
+            "correctly_rounded_fraction": 0.1011904776096344
+          },
+          "provider": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.1743011474609375,
+            "max_abs_vs_golden_over_absmax": 0.002357994904741645,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.weight": {
+          "golden_absmax": 2.859375,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 6.103515625e-05,
+            "max_abs_vs_golden_over_absmax": 2.134562782885041e-05,
+            "correctly_rounded_fraction": 0.9968344569206238
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 6.103515625e-05,
+            "max_abs_vs_golden_over_absmax": 2.134562782885041e-05,
+            "correctly_rounded_fraction": 0.9968344569206238
+          },
+          "provider": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 3.0517578125e-05,
+            "max_abs_vs_golden_over_absmax": 1.0672813914425205e-05,
+            "correctly_rounded_fraction": 0.9970113635063171
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.bias": {
+          "golden_absmax": 4.46875,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0,
+            "max_abs_vs_golden_over_absmax": 0.0,
+            "correctly_rounded_fraction": 0.9999999403953552
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0,
+            "max_abs_vs_golden_over_absmax": 0.0,
+            "correctly_rounded_fraction": 0.9999999403953552
+          },
+          "provider": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0,
+            "max_abs_vs_golden_over_absmax": 0.0,
+            "correctly_rounded_fraction": 0.9999999403953552
+          }
+        }
+      }
+    },
+    {
+      "num_timesteps": 3,
+      "seq_len": 257,
+      "leaves": {
+        "time_embedder.linear_1.weight": {
+          "golden_absmax": 73.0098876953125,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.1087639331817627,
+            "max_abs_vs_golden_over_absmax": 0.0014897150686010718,
+            "correctly_rounded_fraction": 4.359654212748865e-06
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.00018215179443359375,
+            "max_abs_vs_golden_over_absmax": 2.494892214599531e-06,
+            "correctly_rounded_fraction": 0.02586873434484005
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 1.2452354431152344,
+            "max_abs_vs_golden_over_absmax": 0.017055708914995193,
+            "correctly_rounded_fraction": 1.52587890625e-05
+          }
+        },
+        "time_embedder.linear_1.bias": {
+          "golden_absmax": 73.0098876953125,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.1087636947631836,
+            "max_abs_vs_golden_over_absmax": 0.0014897118089720607,
+            "correctly_rounded_fraction": 0.0
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0001819133758544922,
+            "max_abs_vs_golden_over_absmax": 2.4916266738728154e-06,
+            "correctly_rounded_fraction": 0.0232514888048172
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 1.2452354431152344,
+            "max_abs_vs_golden_over_absmax": 0.017055708914995193,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "time_embedder.linear_2.weight": {
+          "golden_absmax": 173.8400421142578,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.2456045150756836,
+            "max_abs_vs_golden_over_absmax": 0.001412819023244083,
+            "correctly_rounded_fraction": 2.089865847665351e-05
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.000171661376953125,
+            "max_abs_vs_golden_over_absmax": 9.874673878584872e-07,
+            "correctly_rounded_fraction": 0.012266821227967739
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 1.2523880004882812,
+            "max_abs_vs_golden_over_absmax": 0.00720425508916378,
+            "correctly_rounded_fraction": 3.3216410884051584e-06
+          }
+        },
+        "time_embedder.linear_2.bias": {
+          "golden_absmax": 624.4014892578125,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.8821792602539062,
+            "max_abs_vs_golden_over_absmax": 0.0014128397451713681,
+            "correctly_rounded_fraction": 0.0
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0006103515625,
+            "max_abs_vs_golden_over_absmax": 9.774985301191919e-07,
+            "correctly_rounded_fraction": 0.0412946417927742
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 4.498443603515625,
+            "max_abs_vs_golden_over_absmax": 0.007204408757388592,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.weight": {
+          "golden_absmax": 27.375,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.125,
+            "max_abs_vs_golden_over_absmax": 0.004566209856420755,
+            "correctly_rounded_fraction": 0.6352493762969971
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.00048828125,
+            "max_abs_vs_golden_over_absmax": 1.7836757251643576e-05,
+            "correctly_rounded_fraction": 0.9988961815834045
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 0.3125,
+            "max_abs_vs_golden_over_absmax": 0.01141552533954382,
+            "correctly_rounded_fraction": 0.26146775484085083
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.bias": {
+          "golden_absmax": 44.5,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.25,
+            "max_abs_vs_golden_over_absmax": 0.00561797758564353,
+            "correctly_rounded_fraction": 0.6106977462768555
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0,
+            "max_abs_vs_golden_over_absmax": 0.0,
+            "correctly_rounded_fraction": 0.9999999403953552
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 0.4375,
+            "max_abs_vs_golden_over_absmax": 0.009831461124122143,
+            "correctly_rounded_fraction": 0.25494998693466187
+          }
+        }
+      }
+    },
+    {
+      "num_timesteps": 3,
+      "seq_len": 4097,
+      "leaves": {
+        "time_embedder.linear_1.weight": {
+          "golden_absmax": 216.79254150390625,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.34185791015625,
+            "max_abs_vs_golden_over_absmax": 0.0015768896555528045,
+            "correctly_rounded_fraction": 4.650297705666162e-05
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0009307861328125,
+            "max_abs_vs_golden_over_absmax": 4.293441634217743e-06,
+            "correctly_rounded_fraction": 0.02635483630001545
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 7.714607238769531,
+            "max_abs_vs_golden_over_absmax": 0.035585206001996994,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "time_embedder.linear_1.bias": {
+          "golden_absmax": 189.4628448486328,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.3418426513671875,
+            "max_abs_vs_golden_over_absmax": 0.0018042727606371045,
+            "correctly_rounded_fraction": 0.0
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0009307861328125,
+            "max_abs_vs_golden_over_absmax": 4.912763415632071e-06,
+            "correctly_rounded_fraction": 0.0204613097012043
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 6.5852203369140625,
+            "max_abs_vs_golden_over_absmax": 0.03475731611251831,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "time_embedder.linear_2.weight": {
+          "golden_absmax": 632.3684692382812,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 1.124969482421875,
+            "max_abs_vs_golden_over_absmax": 0.0017789778066799045,
+            "correctly_rounded_fraction": 2.3805096134310588e-05
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0009765625,
+            "max_abs_vs_golden_over_absmax": 1.544293468214164e-06,
+            "correctly_rounded_fraction": 0.011527756229043007
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 15.004081726074219,
+            "max_abs_vs_golden_over_absmax": 0.023726802319288254,
+            "correctly_rounded_fraction": 1.7300214949500514e-06
+          }
+        },
+        "time_embedder.linear_2.bias": {
+          "golden_absmax": 2271.419677734375,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 4.0406494140625,
+            "max_abs_vs_golden_over_absmax": 0.0017789092380553484,
+            "correctly_rounded_fraction": 0.0
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0037841796875,
+            "max_abs_vs_golden_over_absmax": 1.6659976154187461e-06,
+            "correctly_rounded_fraction": 0.0338541679084301
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 53.892181396484375,
+            "max_abs_vs_golden_over_absmax": 0.0237262099981308,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.weight": {
+          "golden_absmax": 94.5,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.5,
+            "max_abs_vs_golden_over_absmax": 0.005291005130857229,
+            "correctly_rounded_fraction": 0.6358715295791626
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.00390625,
+            "max_abs_vs_golden_over_absmax": 4.13359775848221e-05,
+            "correctly_rounded_fraction": 0.9988698363304138
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 5.25,
+            "max_abs_vs_golden_over_absmax": 0.0555555559694767,
+            "correctly_rounded_fraction": 0.07476150244474411
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.bias": {
+          "golden_absmax": 153.0,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 1.0,
+            "max_abs_vs_golden_over_absmax": 0.006535947788506746,
+            "correctly_rounded_fraction": 0.6086929440498352
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.00390625,
+            "max_abs_vs_golden_over_absmax": 2.5531046048854478e-05,
+            "correctly_rounded_fraction": 0.9999896287918091
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 7.0,
+            "max_abs_vs_golden_over_absmax": 0.04575163498520851,
+            "correctly_rounded_fraction": 0.074373759329319
+          }
+        }
+      }
+    },
+    {
+      "num_timesteps": 3,
+      "seq_len": 32768,
+      "leaves": {
+        "time_embedder.linear_1.weight": {
+          "golden_absmax": 1221.45751953125,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 1.3370361328125,
+            "max_abs_vs_golden_over_absmax": 0.0010946234688162804,
+            "correctly_rounded_fraction": 6.5394810917496216e-06
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.001739501953125,
+            "max_abs_vs_golden_over_absmax": 1.424119886905828e-06,
+            "correctly_rounded_fraction": 0.0268104188144207
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 42.02140808105469,
+            "max_abs_vs_golden_over_absmax": 0.03440267592668533,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "time_embedder.linear_1.bias": {
+          "golden_absmax": 1221.45751953125,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 1.3369140625,
+            "max_abs_vs_golden_over_absmax": 0.0010945235844701529,
+            "correctly_rounded_fraction": 0.0
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.001708984375,
+            "max_abs_vs_golden_over_absmax": 1.3991353853270994e-06,
+            "correctly_rounded_fraction": 0.032738097012043
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 42.016990661621094,
+            "max_abs_vs_golden_over_absmax": 0.03439905866980553,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "time_embedder.linear_2.weight": {
+          "golden_absmax": 2460.399169921875,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 3.100341796875,
+            "max_abs_vs_golden_over_absmax": 0.0012600970221683383,
+            "correctly_rounded_fraction": 2.9894770705141127e-05
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.00274658203125,
+            "max_abs_vs_golden_over_absmax": 1.1163156159454957e-06,
+            "correctly_rounded_fraction": 0.01790323108434677
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 143.638427734375,
+            "max_abs_vs_golden_over_absmax": 0.0583801306784153,
+            "correctly_rounded_fraction": 4.152051360506448e-07
+          }
+        },
+        "time_embedder.linear_2.bias": {
+          "golden_absmax": 8837.2431640625,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 11.13623046875,
+            "max_abs_vs_golden_over_absmax": 0.0012601475464180112,
+            "correctly_rounded_fraction": 0.00037202381645329297
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.00927734375,
+            "max_abs_vs_golden_over_absmax": 1.0498006304260343e-06,
+            "correctly_rounded_fraction": 0.0632440522313118
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 515.924560546875,
+            "max_abs_vs_golden_over_absmax": 0.05838071182370186,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.weight": {
+          "golden_absmax": 288.0,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 2.0,
+            "max_abs_vs_golden_over_absmax": 0.0069444444961845875,
+            "correctly_rounded_fraction": 0.6357954144477844
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.5,
+            "max_abs_vs_golden_over_absmax": 0.0017361111240461469,
+            "correctly_rounded_fraction": 0.9988410472869873
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 34.25,
+            "max_abs_vs_golden_over_absmax": 0.1189236119389534,
+            "correctly_rounded_fraction": 0.02671528421342373
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.bias": {
+          "golden_absmax": 476.0,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 2.0,
+            "max_abs_vs_golden_over_absmax": 0.004201680887490511,
+            "correctly_rounded_fraction": 0.6103463768959045
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.125,
+            "max_abs_vs_golden_over_absmax": 0.00026260505546815693,
+            "correctly_rounded_fraction": 0.9999379515647888
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 52.0,
+            "max_abs_vs_golden_over_absmax": 0.10924369841814041,
+            "correctly_rounded_fraction": 0.025752313435077667
+          }
+        }
+      }
+    },
+    {
+      "num_timesteps": 4,
+      "seq_len": 3,
+      "leaves": {
+        "time_embedder.linear_1.weight": {
+          "golden_absmax": 8.766688346862793,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 8.821487426757812e-06,
+            "max_abs_vs_golden_over_absmax": 1.0062508408736903e-06,
+            "correctly_rounded_fraction": 0.0394497849047184
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 8.821487426757812e-06,
+            "max_abs_vs_golden_over_absmax": 1.0062508408736903e-06,
+            "correctly_rounded_fraction": 0.0394497849047184
+          },
+          "provider": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.024135589599609375,
+            "max_abs_vs_golden_over_absmax": 0.002753102220594883,
+            "correctly_rounded_fraction": 1.4532180330206756e-06
+          }
+        },
+        "time_embedder.linear_1.bias": {
+          "golden_absmax": 8.766688346862793,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 8.58306884765625e-06,
+            "max_abs_vs_golden_over_absmax": 9.790549029276008e-07,
+            "correctly_rounded_fraction": 0.0461309514939785
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 8.58306884765625e-06,
+            "max_abs_vs_golden_over_absmax": 9.790549029276008e-07,
+            "correctly_rounded_fraction": 0.0461309514939785
+          },
+          "provider": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.024135589599609375,
+            "max_abs_vs_golden_over_absmax": 0.002753102220594883,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "time_embedder.linear_2.weight": {
+          "golden_absmax": 21.970394134521484,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 1.811981201171875e-05,
+            "max_abs_vs_golden_over_absmax": 8.24737696802913e-07,
+            "correctly_rounded_fraction": 0.019412847235798836
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 1.811981201171875e-05,
+            "max_abs_vs_golden_over_absmax": 8.24737696802913e-07,
+            "correctly_rounded_fraction": 0.019412847235798836
+          },
+          "provider": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.04718971252441406,
+            "max_abs_vs_golden_over_absmax": 0.0021478773560374975,
+            "correctly_rounded_fraction": 1.972224526980426e-05
+          }
+        },
+        "time_embedder.linear_2.bias": {
+          "golden_absmax": 78.91429901123047,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 6.4849853515625e-05,
+            "max_abs_vs_golden_over_absmax": 8.21775699932914e-07,
+            "correctly_rounded_fraction": 0.110863097012043
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 6.4849853515625e-05,
+            "max_abs_vs_golden_over_absmax": 8.21775699932914e-07,
+            "correctly_rounded_fraction": 0.110863097012043
+          },
+          "provider": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.16949462890625,
+            "max_abs_vs_golden_over_absmax": 0.0021478317212313414,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.weight": {
+          "golden_absmax": 3.578125,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 6.103515625e-05,
+            "max_abs_vs_golden_over_absmax": 1.705786053207703e-05,
+            "correctly_rounded_fraction": 0.9982069134712219
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 6.103515625e-05,
+            "max_abs_vs_golden_over_absmax": 1.705786053207703e-05,
+            "correctly_rounded_fraction": 0.9982069134712219
+          },
+          "provider": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 3.0517578125e-05,
+            "max_abs_vs_golden_over_absmax": 8.528930266038515e-06,
+            "correctly_rounded_fraction": 0.998363733291626
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.bias": {
+          "golden_absmax": 4.46875,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0,
+            "max_abs_vs_golden_over_absmax": 0.0,
+            "correctly_rounded_fraction": 0.9999999403953552
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0,
+            "max_abs_vs_golden_over_absmax": 0.0,
+            "correctly_rounded_fraction": 0.9999999403953552
+          },
+          "provider": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0,
+            "max_abs_vs_golden_over_absmax": 0.0,
+            "correctly_rounded_fraction": 0.9999999403953552
+          }
+        }
+      }
+    },
+    {
+      "num_timesteps": 4,
+      "seq_len": 257,
+      "leaves": {
+        "time_embedder.linear_1.weight": {
+          "golden_absmax": 54.46367263793945,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.11591720581054688,
+            "max_abs_vs_golden_over_absmax": 0.0021283398382365704,
+            "correctly_rounded_fraction": 3.6330450257082703e-06
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 6.4849853515625e-05,
+            "max_abs_vs_golden_over_absmax": 1.1906992085641832e-06,
+            "correctly_rounded_fraction": 0.02683221735060215
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 0.5249824523925781,
+            "max_abs_vs_golden_over_absmax": 0.009639130905270576,
+            "correctly_rounded_fraction": 7.2660900514165405e-06
+          }
+        },
+        "time_embedder.linear_1.bias": {
+          "golden_absmax": 54.46367263793945,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.11591720581054688,
+            "max_abs_vs_golden_over_absmax": 0.0021283398382365704,
+            "correctly_rounded_fraction": 0.0
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 5.340576171875e-05,
+            "max_abs_vs_golden_over_absmax": 9.805758054426406e-07,
+            "correctly_rounded_fraction": 0.0271577388048172
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 0.5249824523925781,
+            "max_abs_vs_golden_over_absmax": 0.009639130905270576,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "time_embedder.linear_2.weight": {
+          "golden_absmax": 173.8180694580078,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.2628202438354492,
+            "max_abs_vs_golden_over_absmax": 0.001512042130343616,
+            "correctly_rounded_fraction": 1.4670581549580675e-05
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.00014495849609375,
+            "max_abs_vs_golden_over_absmax": 8.339667942891538e-07,
+            "correctly_rounded_fraction": 0.012976337224245071
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 0.9543752670288086,
+            "max_abs_vs_golden_over_absmax": 0.0054906560108065605,
+            "correctly_rounded_fraction": 5.2592654355976265e-06
+          }
+        },
+        "time_embedder.linear_2.bias": {
+          "golden_absmax": 624.3176879882812,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.9439964294433594,
+            "max_abs_vs_golden_over_absmax": 0.0015120450407266617,
+            "correctly_rounded_fraction": 0.0
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.000537872314453125,
+            "max_abs_vs_golden_over_absmax": 8.615362503405777e-07,
+            "correctly_rounded_fraction": 0.0386904776096344
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 3.4279212951660156,
+            "max_abs_vs_golden_over_absmax": 0.0054906681180000305,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.weight": {
+          "golden_absmax": 25.5,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.125,
+            "max_abs_vs_golden_over_absmax": 0.0049019609577953815,
+            "correctly_rounded_fraction": 0.619565486907959
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.00048828125,
+            "max_abs_vs_golden_over_absmax": 1.914828499138821e-05,
+            "correctly_rounded_fraction": 0.9988008141517639
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 0.375,
+            "max_abs_vs_golden_over_absmax": 0.014705882407724857,
+            "correctly_rounded_fraction": 0.2861616015434265
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.bias": {
+          "golden_absmax": 44.5,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.25,
+            "max_abs_vs_golden_over_absmax": 0.00561797758564353,
+            "correctly_rounded_fraction": 0.597811222076416
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0,
+            "max_abs_vs_golden_over_absmax": 0.0,
+            "correctly_rounded_fraction": 0.9999999403953552
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 0.5,
+            "max_abs_vs_golden_over_absmax": 0.01123595517128706,
+            "correctly_rounded_fraction": 0.28086763620376587
+          }
+        }
+      }
+    },
+    {
+      "num_timesteps": 4,
+      "seq_len": 4097,
+      "leaves": {
+        "time_embedder.linear_1.weight": {
+          "golden_absmax": 326.7618713378906,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.541351318359375,
+            "max_abs_vs_golden_over_absmax": 0.0016567150596529245,
+            "correctly_rounded_fraction": 3.705705967149697e-05
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.000244140625,
+            "max_abs_vs_golden_over_absmax": 7.471514891221887e-07,
+            "correctly_rounded_fraction": 0.0328994020819664
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 3.4827728271484375,
+            "max_abs_vs_golden_over_absmax": 0.010658442974090576,
+            "correctly_rounded_fraction": 7.266090165103378e-07
+          }
+        },
+        "time_embedder.linear_1.bias": {
+          "golden_absmax": 326.7618713378906,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.5413436889648438,
+            "max_abs_vs_golden_over_absmax": 0.0016566917765885592,
+            "correctly_rounded_fraction": 0.0
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.000213623046875,
+            "max_abs_vs_golden_over_absmax": 6.537575814036245e-07,
+            "correctly_rounded_fraction": 0.0319940485060215
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 3.4827651977539062,
+            "max_abs_vs_golden_over_absmax": 0.01065841969102621,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "time_embedder.linear_2.weight": {
+          "golden_absmax": 630.1971435546875,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.950373649597168,
+            "max_abs_vs_golden_over_absmax": 0.0015080576995387673,
+            "correctly_rounded_fraction": 2.4981509341159835e-05
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0006103515625,
+            "max_abs_vs_golden_over_absmax": 9.685089708000305e-07,
+            "correctly_rounded_fraction": 0.013629386201500893
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 14.818405151367188,
+            "max_abs_vs_golden_over_absmax": 0.023513920605182648,
+            "correctly_rounded_fraction": 8.304102721012896e-07
+          }
+        },
+        "time_embedder.linear_2.bias": {
+          "golden_absmax": 2263.544677734375,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 3.4134902954101562,
+            "max_abs_vs_golden_over_absmax": 0.0015080287121236324,
+            "correctly_rounded_fraction": 0.0
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.002197265625,
+            "max_abs_vs_golden_over_absmax": 9.70718929238501e-07,
+            "correctly_rounded_fraction": 0.0498511902987957
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 53.2242431640625,
+            "max_abs_vs_golden_over_absmax": 0.02351367101073265,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.weight": {
+          "golden_absmax": 104.0,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.5,
+            "max_abs_vs_golden_over_absmax": 0.004807692486792803,
+            "correctly_rounded_fraction": 0.6189784407615662
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.03125,
+            "max_abs_vs_golden_over_absmax": 0.0003004807804245502,
+            "correctly_rounded_fraction": 0.9987642765045166
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 3.0,
+            "max_abs_vs_golden_over_absmax": 0.028846153989434242,
+            "correctly_rounded_fraction": 0.0855673998594284
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.bias": {
+          "golden_absmax": 153.0,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 1.0,
+            "max_abs_vs_golden_over_absmax": 0.006535947788506746,
+            "correctly_rounded_fraction": 0.6000640392303467
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.00390625,
+            "max_abs_vs_golden_over_absmax": 2.5531046048854478e-05,
+            "correctly_rounded_fraction": 0.9999793171882629
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 5.25,
+            "max_abs_vs_golden_over_absmax": 0.03431372717022896,
+            "correctly_rounded_fraction": 0.08447007089853287
+          }
+        }
+      }
+    },
+    {
+      "num_timesteps": 4,
+      "seq_len": 32768,
+      "leaves": {
+        "time_embedder.linear_1.weight": {
+          "golden_absmax": 826.173095703125,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.6436309814453125,
+            "max_abs_vs_golden_over_absmax": 0.0007790509844198823,
+            "correctly_rounded_fraction": 3.4150623832829297e-05
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0011138916015625,
+            "max_abs_vs_golden_over_absmax": 1.348254500044277e-06,
+            "correctly_rounded_fraction": 0.02686346136033535
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 38.62217712402344,
+            "max_abs_vs_golden_over_absmax": 0.046748287975788116,
+            "correctly_rounded_fraction": 1.4532180330206756e-06
+          }
+        },
+        "time_embedder.linear_1.bias": {
+          "golden_absmax": 826.173095703125,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.6436004638671875,
+            "max_abs_vs_golden_over_absmax": 0.0007790140807628632,
+            "correctly_rounded_fraction": 0.00018601190822664648
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0011138916015625,
+            "max_abs_vs_golden_over_absmax": 1.348254500044277e-06,
+            "correctly_rounded_fraction": 0.0282738097012043
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 38.622161865234375,
+            "max_abs_vs_golden_over_absmax": 0.046748269349336624,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "time_embedder.linear_2.weight": {
+          "golden_absmax": 2460.831298828125,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 2.702392578125,
+            "max_abs_vs_golden_over_absmax": 0.0010981624945998192,
+            "correctly_rounded_fraction": 3.480803206912242e-05
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0030517578125,
+            "max_abs_vs_golden_over_absmax": 1.2401328604028095e-06,
+            "correctly_rounded_fraction": 0.018226468935608864
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 101.59765625,
+            "max_abs_vs_golden_over_absmax": 0.041285909712314606,
+            "correctly_rounded_fraction": 8.99611166005343e-07
+          }
+        },
+        "time_embedder.linear_2.bias": {
+          "golden_absmax": 8838.8046875,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 9.70703125,
+            "max_abs_vs_golden_over_absmax": 0.0010982289677485824,
+            "correctly_rounded_fraction": 0.00037202381645329297
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.01171875,
+            "max_abs_vs_golden_over_absmax": 1.3258297713036882e-06,
+            "correctly_rounded_fraction": 0.0569196455180645
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 364.91552734375,
+            "max_abs_vs_golden_over_absmax": 0.041285619139671326,
+            "correctly_rounded_fraction": 0.0
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.weight": {
+          "golden_absmax": 282.0,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 1.0,
+            "max_abs_vs_golden_over_absmax": 0.003546099178493023,
+            "correctly_rounded_fraction": 0.6200082898139954
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.0625,
+            "max_abs_vs_golden_over_absmax": 0.00022163119865581393,
+            "correctly_rounded_fraction": 0.9987457394599915
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 25.0,
+            "max_abs_vs_golden_over_absmax": 0.08865248411893845,
+            "correctly_rounded_fraction": 0.030473006889224052
+          }
+        },
+        "transformer_blocks.0.adaln_proj.linear.bias": {
+          "golden_absmax": 476.0,
+          "candidate": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 2.0,
+            "max_abs_vs_golden_over_absmax": 0.004201680887490511,
+            "correctly_rounded_fraction": 0.5982245802879333
+          },
+          "candidate_fused": {
+            "repeat_bitwise_equal": true,
+            "max_abs_vs_golden": 0.00390625,
+            "max_abs_vs_golden_over_absmax": 8.206407983379904e-06,
+            "correctly_rounded_fraction": 0.9999586343765259
+          },
+          "provider": {
+            "repeat_bitwise_equal": false,
+            "max_abs_vs_golden": 40.0,
+            "max_abs_vs_golden_over_absmax": 0.08403361588716507,
+            "correctly_rounded_fraction": 0.03078497014939785
+          }
+        }
+      }
+    }
+  ]
+}

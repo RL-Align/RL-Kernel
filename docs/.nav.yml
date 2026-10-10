@@ -29,6 +29,16 @@ nav:
       - operators/sampling.md
       - operators/det-gemm.md
       - operators/embedding.md
+      - MiniMax-H3:
+        - operators/h3-timestep-sinusoid.md
+        - operators/h3-timestep-mlp.md
+        - operators/h3-adaln-projection.md
+        - operators/h3-adaln-row-gather.md
+        - operators/h3-rmsnorm.md
+        - operators/h3-adaln-gate-residual.md
+        - operators/h3-final-adaln-out.md
+        - operators/h3-tp-adaln-3mod.md
+        - operators/h3-sp-norm-adaln.md
   - Developer Guide:
     - contributing/README.md
     - Contributor Guide: contributing/contributor-guide.md
