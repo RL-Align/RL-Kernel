@@ -4,6 +4,7 @@
 import os
 
 import torch
+from torch.autograd.function import once_differentiable
 
 from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 from rl_engine.utils.logger import logger
@@ -245,11 +246,46 @@ class FusedLogpGenericOp:
         return results.view(orig_shape)
 
 
+class _DeterministicLogpAutograd(torch.autograd.Function):
+    """First-order CUDA VJP using the forward kernel's fixed-reduction LSE."""
+
+    @staticmethod
+    def forward(ctx, logits, token_ids, row_indices, backend):
+        if logits.dtype not in (torch.float32, torch.float16, torch.bfloat16):
+            raise TypeError("Deterministic LogP autograd supports float32, float16, and bfloat16")
+        if not all(
+            hasattr(backend, name)
+            for name in ("deterministic_logp_forward_with_lse", "deterministic_logp_backward")
+        ):
+            raise RuntimeError("Rebuild rl_engine._C to enable deterministic LogP autograd")
+        logits_2d = logits.reshape(-1, logits.size(-1))
+        labels = token_ids.reshape(-1).to(device=logits.device, dtype=torch.long).contiguous()
+        output, lse = backend.deterministic_logp_forward_with_lse(logits_2d, labels, row_indices)
+        ctx.save_for_backward(logits_2d, labels, lse)
+        ctx.input_shape = logits.shape
+        ctx.backend = backend
+        return output.reshape(logits.shape[:-1])
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, grad_output):
+        logits, labels, lse = ctx.saved_tensors
+        active = torch.isfinite(lse) & (labels >= 0) & (labels < logits.size(-1))
+        coef = grad_output.reshape(-1).float().masked_fill(~active, 0).contiguous()
+        targets = labels.masked_fill(~active, -1)
+        grad = ctx.backend.deterministic_logp_backward(
+            logits, lse, coef, torch.zeros_like(coef), targets, 0, logits.size(-1), False
+        )
+        return grad.reshape(ctx.input_shape), None, None, None
+
+
 class DeterministicLogpCUDAOp(FusedLogpGenericOp):
     """Batch-invariant deterministic CUDA LogP.
 
     The default call path returns float32 output so tests and downstream KL
     code observe the fixed reduction result before any lower-precision cast.
+    FP32/FP16/BF16 dense and indexed calls support first-order CUDA gradients.
+    Preallocated out interfaces are inference-only.
     """
 
     is_batch_invariant = True
@@ -268,6 +304,8 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
         return self.apply_fp32(logits, token_ids)
 
     def apply_fp32(self, logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
+        if torch.is_grad_enabled() and logits.requires_grad:
+            return _DeterministicLogpAutograd.apply(logits, token_ids, None, self._backend)
         logits_2d, token_ids_1d, orig_shape = self._prepare_inputs(logits, token_ids)
         results = self._backend.deterministic_logp_forward_fp32(logits_2d, token_ids_1d)
         return results.view(orig_shape)
@@ -276,6 +314,11 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
         self, logits: torch.Tensor, token_ids: torch.Tensor, output: torch.Tensor
     ) -> torch.Tensor:
         logits_2d, token_ids_1d, orig_shape = self._prepare_inputs(logits, token_ids)
+        if torch.is_grad_enabled() and (logits.requires_grad or output.requires_grad):
+            raise RuntimeError(
+                "Deterministic LogP out interfaces are inference-only; "
+                "use apply_fp32 or indexed_fp32"
+            )
         output_1d = self._prepare_output(output, orig_shape)
         results = self._backend.deterministic_logp_forward_out(logits_2d, token_ids_1d, output_1d)
         return results.view(orig_shape)
@@ -289,6 +332,11 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
     ) -> torch.Tensor:
         logits_2d, token_ids_1d, orig_shape = self._prepare_inputs(logits, token_ids)
         row_indices_1d = self._prepare_indices(row_indices, logits)
+        if torch.is_grad_enabled() and (logits.requires_grad or output.requires_grad):
+            raise RuntimeError(
+                "Deterministic LogP out interfaces are inference-only; "
+                "use apply_fp32 or indexed_fp32"
+            )
         output_1d = self._prepare_output(output, orig_shape)
         results = self._backend.deterministic_logp_forward_indexed_out(
             logits_2d, token_ids_1d, row_indices_1d, output_1d
@@ -300,6 +348,10 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
     ) -> torch.Tensor:
         logits_2d, token_ids_1d, orig_shape = self._prepare_inputs(logits, token_ids)
         row_indices_1d = self._prepare_indices(row_indices, logits)
+        if torch.is_grad_enabled() and logits.requires_grad:
+            return _DeterministicLogpAutograd.apply(
+                logits, token_ids, row_indices_1d, self._backend
+            )
         results = self._backend.deterministic_logp_forward_indexed_fp32(
             logits_2d, token_ids_1d, row_indices_1d
         )

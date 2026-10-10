@@ -157,6 +157,44 @@ selected backend has no autograd path. It does not establish fused backward,
 multi-GPU alignment, or real-model rollout support. See the
 [single-GPU GRPO guide](../usage/grpo-single-gpu-example.md) for details.
 
+## Deterministic CUDA Training
+
+The deterministic single-GPU LogP backend supports first-order native CUDA
+backward for FP32, FP16, and BF16 logits. The forward saves the LSE from its fixed
+reduction, and backward uses `deterministic_logp_backward`; no PyTorch or Triton
+backward fallback is used. Rebuild the extension after updating the source.
+
+```bash
+python examples/grpo_single_gpu.py \
+  --device cuda --logp-backend deterministic \
+  --require-fused-logp --require-batch-invariant-logp \
+  --steps 3 --num-prompts 1 --samples-per-prompt 2 \
+  --prompt-len 2 --completion-len 3 --vocab-size 257 --hidden-dim 8
+```
+
+Require both `backend=DeterministicLogpCUDAOp` and
+`train_logp_source=DeterministicLogpCUDAOp` in the log. A successful forward alone
+does not demonstrate that the training gradient used this backend.
+
+`apply`, `apply_fp32`, `indexed_fp32`, and their online aliases support gradients.
+Indexed outputs retain the full row shape: unselected rows and invalid targets
+have zero gradients; duplicate indices select a row once, and out-of-range row
+indices are ignored. `out` variants are inference-only and reject gradient mode
+when logits or the output buffer require gradients; use `torch.no_grad()` for
+these interfaces. FP64 remains inference-only, and second-order gradients are
+unsupported.
+
+Run the native autograd regressions alongside the existing forward checks:
+
+```bash
+python -m pytest tests/test_deterministic_logp_autograd.py \
+  tests/test_deterministic_logp.py -v -rs
+```
+
+Record skipped tests separately. SM90/Hopper and Ascend-only tests do not validate
+B200 support. These checks cover a single GPU and synthetic inputs; they do not
+establish multi-GPU or production-model training support.
+
 ## Troubleshooting and Evidence
 
 | Symptom | Check |

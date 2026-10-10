@@ -105,7 +105,8 @@ __global__ void __launch_bounds__(BlockSize) deterministic_logp_forward_kernel(
     output_t* __restrict__ output,
     const int64_t* __restrict__ row_indices,
     int64_t total_rows,
-    int vocab_size) {
+    int vocab_size,
+    float* __restrict__ lse) {
     int64_t row = row_indices == nullptr ? blockIdx.x : row_indices[blockIdx.x];
     if (row < 0 || row >= total_rows) {
         return;
@@ -146,8 +147,10 @@ __global__ void __launch_bounds__(BlockSize) deterministic_logp_forward_kernel(
         if (target_id >= 0 && target_id < vocab_size) {
             float target_logit = static_cast<float>(row_logits[target_id]);
             output[row] = static_cast<output_t>(target_logit - row_max - logf(row_sum));
+            if (lse != nullptr) lse[row] = row_max + logf(row_sum);
         } else {
             output[row] = static_cast<output_t>(0.0f);
+            if (lse != nullptr) lse[row] = -INFINITY;
         }
     }
 }
@@ -192,9 +195,6 @@ void check_deterministic_logp_inputs(
 void check_deterministic_logp_indices(
     const torch::Tensor& logits,
     const torch::Tensor& row_indices) {
-    TORCH_CHECK(
-        reinterpret_cast<uintptr_t>(logits.data_ptr()) % 16 == 0,
-        "logits must be 16-byte aligned");
     TORCH_CHECK(row_indices.is_cuda(), "row_indices must be a CUDA tensor");
     TORCH_CHECK(
         logits.device() == row_indices.device(),
@@ -213,7 +213,8 @@ void launch_deterministic_logp_kernel(
     const int64_t* row_indices_ptr,
     int64_t launch_rows,
     int64_t total_rows,
-    int64_t vocab_size) {
+    int64_t vocab_size,
+    float* lse = nullptr) {
     if (launch_rows == 0) {
         return;
     }
@@ -250,7 +251,8 @@ void launch_deterministic_logp_kernel(
                             output.data_ptr<output_t>(),
                             row_indices_ptr,
                             total_rows,
-                            vocab_size_i32);
+                            vocab_size_i32,
+                            lse);
                     } else if (vocab_size <= kDeterministicLogpMediumVocabLimit) {
                         deterministic_logp_forward_kernel<
                             input_t,
@@ -265,7 +267,8 @@ void launch_deterministic_logp_kernel(
                             output.data_ptr<output_t>(),
                             row_indices_ptr,
                             total_rows,
-                            vocab_size_i32);
+                            vocab_size_i32,
+                            lse);
                     } else {
                         deterministic_logp_forward_kernel<
                             input_t,
@@ -280,7 +283,8 @@ void launch_deterministic_logp_kernel(
                             output.data_ptr<output_t>(),
                             row_indices_ptr,
                             total_rows,
-                            vocab_size_i32);
+                            vocab_size_i32,
+                            lse);
                     }
                 }));
         }));
@@ -319,6 +323,9 @@ torch::Tensor deterministic_logp_forward_indexed_out(
     torch::Tensor row_indices,
     torch::Tensor output) {
     check_deterministic_logp_inputs(logits, token_ids, output);
+    TORCH_CHECK(
+        reinterpret_cast<uintptr_t>(logits.data_ptr()) % 16 == 0,
+        "logits must be 16-byte aligned");
     check_deterministic_logp_indices(logits, row_indices);
 
     auto logits_contig = logits.contiguous();
@@ -360,6 +367,29 @@ torch::Tensor deterministic_logp_forward_indexed_fp32(
     TORCH_CHECK(logits.dim() == 2, "logits must be a 2D tensor");
     auto output = torch::zeros({logits.size(0)}, logits.options().dtype(at::ScalarType::Float));
     return deterministic_logp_forward_indexed_out(logits, token_ids, row_indices, output);
+}
+
+std::vector<torch::Tensor> deterministic_logp_forward_with_lse(
+    torch::Tensor logits,
+    torch::Tensor token_ids,
+    torch::optional<torch::Tensor> row_indices) {
+    TORCH_CHECK(logits.dim() == 2, "logits must be a 2D tensor");
+    auto options = logits.options().dtype(at::ScalarType::Float);
+    auto output = torch::zeros({logits.size(0)}, options);
+    auto lse = torch::full({logits.size(0)}, -INFINITY, options);
+    check_deterministic_logp_inputs(logits, token_ids, output);
+    if (row_indices.has_value()) {
+        check_deterministic_logp_indices(logits, *row_indices);
+    }
+    auto input = logits.contiguous();
+    auto labels = token_ids.contiguous();
+    auto indices = row_indices.has_value() ? row_indices->contiguous() : torch::Tensor();
+    launch_deterministic_logp_kernel(
+        input, labels, output,
+        indices.defined() ? indices.data_ptr<int64_t>() : nullptr,
+        indices.defined() ? indices.numel() : input.size(0),
+        input.size(0), input.size(1), lse.data_ptr<float>());
+    return {output, lse};
 }
 
 namespace {

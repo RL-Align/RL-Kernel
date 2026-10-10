@@ -100,6 +100,8 @@ torch::Tensor fused_logp_forward_online_indexed_fp32(torch::Tensor logits, torch
 torch::Tensor deterministic_logp_forward(torch::Tensor logits, torch::Tensor token_ids);
 torch::Tensor deterministic_logp_forward_out(torch::Tensor logits, torch::Tensor token_ids, torch::Tensor output);
 torch::Tensor deterministic_logp_forward_fp32(torch::Tensor logits, torch::Tensor token_ids);
+std::vector<torch::Tensor> deterministic_logp_forward_with_lse(
+    torch::Tensor logits, torch::Tensor token_ids, torch::optional<torch::Tensor> row_indices);
 torch::Tensor deterministic_logp_forward_indexed_out(torch::Tensor logits, torch::Tensor token_ids, torch::Tensor row_indices, torch::Tensor output);
 torch::Tensor deterministic_logp_forward_indexed_fp32(torch::Tensor logits, torch::Tensor token_ids, torch::Tensor row_indices);
 std::vector<torch::Tensor> deterministic_logp_tile_stats(
@@ -570,6 +572,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("deterministic_logp_forward_fp32", &deterministic_logp_forward_fp32, "Batch-invariant deterministic logp fp32");
     m.def("deterministic_logp_forward_indexed_out", &deterministic_logp_forward_indexed_out, "Batch-invariant deterministic logp indexed out");
     m.def("deterministic_logp_forward_indexed_fp32", &deterministic_logp_forward_indexed_fp32, "Batch-invariant deterministic logp indexed fp32");
+    m.def("deterministic_logp_forward_with_lse", &deterministic_logp_forward_with_lse,
+          "Deterministic logp and saved FP32 LSE for autograd",
+          py::arg("logits"), py::arg("token_ids"), py::arg("row_indices") = py::none());
     m.def("deterministic_logp_tile_stats", &deterministic_logp_tile_stats,
           "Deterministic local vocab-tile FP32 max and sumexp partials");
     m.def("deterministic_logp_backward", &deterministic_logp_backward,
