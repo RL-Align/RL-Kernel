@@ -31,7 +31,17 @@ SURFACE = "#fcfcfb"
 PASS = "#1baf7a"
 FAIL = "#d64545"
 NA = "#e4e3dd"
-EXISTING = ("#eb6834", "#b8501f", "#f29a62", "#8a3a15", "#f6bd94", "#d9773f")
+EXISTING = (
+    "#eb6834",
+    "#b8501f",
+    "#f29a62",
+    "#8a3a15",
+    "#f6bd94",
+    "#d9773f",
+    "#6b2a0e",
+    "#c96a2c",
+    "#f0a878",
+)
 
 LABELS = {
     "rl_kernel_cuda": "RL-Kernel deterministic",
@@ -40,15 +50,19 @@ LABELS = {
     "vllm_fa2_split1": "vLLM FA2 (num_splits=1)",
     "vllm_triton_2d": "vLLM Triton unified (2D)",
     "flashinfer": "FlashInfer ragged prefill",
+    "fa4_cute": "FlashAttention-4 (CuTe)",
+    "te_fused": "TE, cuDNN fused (inference)",
+    "te_training": "TE, unfused (training)",
+    "megatron_local": "Megatron-core local",
 }
 COLUMNS = (
     ("batch_bitwise", "first", "batch: first"),
     ("batch_bitwise", "last", "batch: last"),
     ("prefill_decode_bitwise", "last_64", "chunk: last 64"),
     ("prefill_decode_bitwise", "last_1", "decode: last 1"),
-    ("backward_repeat_bitwise", "dq", "bwd dq"),
-    ("backward_repeat_bitwise", "dk", "bwd dk"),
-    ("backward_repeat_bitwise", "dv", "bwd dv"),
+    ("backward_batch_bitwise", "dq", "bwd dq (packed)"),
+    ("backward_batch_bitwise", "dk", "bwd dk (packed)"),
+    ("backward_batch_bitwise", "dv", "bwd dv (packed)"),
 )
 
 
