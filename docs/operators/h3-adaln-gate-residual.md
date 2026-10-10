@@ -61,29 +61,24 @@ hidden = op(residual, attn_output, gate_msa, adaln_indices)
 python benchmarks/models/benchmark_h3_conditioning.py --op adaln_gate_residual
 ```
 
-B200, B = 1, H = 5376, BF16:
+B200, B = 1, H = 5376, BF16. Backward timings exclude input and forward-graph setup:
 
-| S | CUDA fwd | diffusers fwd | CUDA fwd+bwd | diffusers fwd+bwd |
+| S | CUDA fwd | diffusers fwd | CUDA bwd | diffusers bwd |
 | --- | --- | --- | --- | --- |
-| 4097 | 0.05 ms | 0.06 ms | 1.19 ms | 0.68 ms |
-| 32768 | 0.24 ms | 0.41 ms | 1.37 ms | 2.71 ms |
-| 131072 | 0.92 ms | 1.59 ms | 3.29 ms | 10.6 ms |
+| 4097 | 0.07 ms | 0.09 ms | 1.12 ms | 0.58 ms |
+| 32768 | 0.24 ms | 0.42 ms | 1.12 ms | 2.24 ms |
+| 131072 | 0.88 ms | 1.61 ms | 2.22 ms | 8.92 ms |
 
 The forward is one pass over `residual` and `sublayer_output`, using 16-byte vectors with one
 block per row. At small S the backward pays a fixed cost of about 1 ms for the stable sort and
 tile setup.
-
-The stored timing evidence includes forward graph setup in the columns labeled
-`fwd+bwd`; those values are not backward-only measurements. The current benchmark
-prepares the graph outside the timed backward region. Historical timings are retained
-with their original commit and corrected scope.
 
 ## Evidence
 
 ![adaln_gate_residual on B200: latency and backward accuracy](../../reports/experiments/h3-adaln-gate-residual-b200/figure.png)
 
 The data is in [`report.json`](../../reports/experiments/h3-adaln-gate-residual-b200/report.json),
-written by `tools/validation/models/h3_evidence.py` from a clean tree at commit `a26b41a`. It also records
+written by `tools/validation/models/h3_evidence.py` from a clean tree at commit `bde1d8d`. It also records
 forward bitwise equality with diffusers in bf16, fp16 and fp32, and row invariance.
 
 ## Existing implementations (RFC #420 reuse rule)
