@@ -7,8 +7,8 @@ candidate backends using the same GPT-NeoX/Hugging Face rotate-half convention.
 ## Entry Point
 
 ```python
-from rl_engine.kernels.registry import kernel_registry
-from rl_engine.kernels.ops.pytorch.rotary_embedding import NativeRoPEOp
+from rl_engine.runtime.registry import kernel_registry
+from rl_engine.reference.rope import NativeRoPEOp
 
 rope = kernel_registry.get_op("rope")
 output = rope.forward(x, positions, theta=1_000_000.0)
@@ -18,7 +18,7 @@ reference = NativeRoPEOp().forward_fp32(x, positions, theta=1_000_000.0)
 The operator can also be imported directly:
 
 ```python
-from rl_engine.kernels.ops.pytorch.rotary_embedding import NativeRoPEOp
+from rl_engine.reference.rope import NativeRoPEOp
 
 rope = NativeRoPEOp()
 ```
@@ -86,7 +86,7 @@ slicing a row must match applying RoPE to that row alone.
 ## Tests
 
 ```bash
-python -m pytest tests/test_rope.py -q
+python -m pytest tests/ops/rope/test_rope.py -q
 ```
 
 The test covers shape, dtype behavior, HF rotate-half equivalence, `positions`
@@ -94,9 +94,9 @@ as `[S]` and `[B, S]`, batch invariance, and Qwen3 query/key head shapes.
 
 ## Implementation Files
 
-- `rl_engine/kernels/ops/pytorch/rotary_embedding/rope.py`
-- `rl_engine/kernels/ops/ascend/rotary_embedding/rope.py`
+- `rl_engine/reference/rope/rope.py`
+- `rl_engine/backends/ascend/rope/rope.py`
 - `csrc/ascend/rope_ascend.asc`
-- `rl_engine/kernels/ops/pytorch/rotary_embedding/__init__.py`
-- `rl_engine/kernels/registry.py`
-- `tests/test_rope.py`
+- `rl_engine/reference/rope/__init__.py`
+- `rl_engine/runtime/registry.py`
+- `tests/ops/rope/test_rope.py`

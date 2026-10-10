@@ -125,7 +125,7 @@ Two rules keep the handoff safe:
 Create bridges through `make_weight_bridge(...)` when possible:
 
 ```python
-from rl_engine.executors.bridge import make_weight_bridge
+from rl_engine.integrations.common.weights import make_weight_bridge
 
 training_bridge = make_weight_bridge(
     "shared-memory",
@@ -147,7 +147,7 @@ This example uses CPU shared memory so it can run without CUDA:
 ```python
 import torch
 
-from rl_engine.executors.bridge import SharedMemoryTensorBridge
+from rl_engine.integrations.common.weights import SharedMemoryTensorBridge
 
 model = torch.nn.Sequential(torch.nn.Linear(4, 4), torch.nn.LayerNorm(4))
 
@@ -182,8 +182,8 @@ place.
 ```python
 import torch
 
-from rl_engine.executors.bridge import SharedMemoryTensorBridge
-from rl_engine.executors.rollout import RolloutExecutor
+from rl_engine.integrations.common.weights import SharedMemoryTensorBridge
+from rl_engine.integrations.engines.rollout.interface import RolloutExecutor
 
 model = torch.nn.Linear(4, 4)
 publisher = SharedMemoryTensorBridge(source_worker="trainer", source_rank=0)
@@ -213,7 +213,7 @@ vLLM receives the format it expects.
 For vLLM IPC:
 
 ```python
-from rl_engine.executors.bridge import VLLMIPCWeightUpdateRequestBuilder
+from rl_engine.integrations.common.weights import VLLMIPCWeightUpdateRequestBuilder
 
 builder = VLLMIPCWeightUpdateRequestBuilder(is_checkpoint_format=False)
 request = builder(manifest, imported_cuda_tensors)
@@ -254,29 +254,29 @@ transport succeeded.
 Run the local protocol smoke:
 
 ```bash
-python benchmarks/benchmark_weight_sync_bridge.py --smoke --mode local
-python benchmarks/benchmark_weight_sync_bridge.py --smoke --mode shared-memory
+python benchmarks/e2e/benchmark_weight_sync_bridge.py --smoke --mode local
+python benchmarks/e2e/benchmark_weight_sync_bridge.py --smoke --mode shared-memory
 ```
 
 Run CUDA transport probes when CUDA is available:
 
 ```bash
-python benchmarks/benchmark_weight_sync_bridge.py --smoke --mode cuda-vmm
-python benchmarks/benchmark_weight_sync_bridge.py --smoke --mode cuda-ipc
+python benchmarks/e2e/benchmark_weight_sync_bridge.py --smoke --mode cuda-vmm
+python benchmarks/e2e/benchmark_weight_sync_bridge.py --smoke --mode cuda-ipc
 ```
 
 Run rollout and vLLM paths:
 
 ```bash
-python benchmarks/benchmark_weight_sync_bridge.py --smoke --mode rollout-update
+python benchmarks/e2e/benchmark_weight_sync_bridge.py --smoke --mode rollout-update
 ```
 
 Install the vLLM extra before running the vLLM benchmark modes:
 
 ```bash
 pip install -e ".[vllm]"
-python benchmarks/benchmark_weight_sync_bridge.py --mode vllm-cuda-ipc-hot-update --model /path/to/model
-python benchmarks/benchmark_weight_sync_bridge.py --mode vllm-cuda-vmm-external-storage --model /path/to/model
+python benchmarks/e2e/benchmark_weight_sync_bridge.py --mode vllm-cuda-ipc-hot-update --model /path/to/model
+python benchmarks/e2e/benchmark_weight_sync_bridge.py --mode vllm-cuda-vmm-external-storage --model /path/to/model
 ```
 
 The benchmark prints one JSON row with:

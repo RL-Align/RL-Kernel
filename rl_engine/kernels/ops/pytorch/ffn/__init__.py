@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 RL-Kernel Contributors
+"""Compatibility import; the canonical module is loaded below."""
 
-from .ffn import BACKEND_ID, Qwen3FFNOp, qwen3_ffn
+from importlib import import_module
 
-__all__ = ["BACKEND_ID", "Qwen3FFNOp", "qwen3_ffn"]
+
+def __getattr__(name):
+    return getattr(import_module("rl_engine.reference.ffn"), name)

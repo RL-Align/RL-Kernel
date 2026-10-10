@@ -27,11 +27,11 @@ log probability computation, sampling, and memory pressure dominate the critical
 
 Where to get started depends on the type of user:
 
-- Run RL-Kernel locally with the [Quickstart Guide](./getting_started/quickstart.md).
-- Read the latest writeup: [Announcing RL-Kernel for vime](./blog/2026-07-08-announcing-rl-kernel-linear-logp-for-vime.md).
-- Understand supported kernels from the [Operators](./operators/README.md) section.
-- Add a new operator by following the [Developer Guide](./contributing/README.md).
-- Read dispatch details in the [Runtime Dispatch design document](./design/runtime-dispatch.md).
+- Run RL-Kernel locally with the [Quickstart Guide](getting_started/quickstart.md).
+- Read the latest writeup: [Announcing RL-Kernel for vime](blog/2026-07-08-announcing-rl-kernel-linear-logp-for-vime.md).
+- Understand supported kernels from the [Operators](operators/README.md) section.
+- Add a new operator by following the [Developer Guide](contributing/README.md).
+- Read dispatch details in the [Runtime Dispatch design document](architecture/runtime-dispatch.md).
 
 RL-Kernel focuses on:
 

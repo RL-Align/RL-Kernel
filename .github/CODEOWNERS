@@ -4,50 +4,61 @@
 # This list covers the core components of RL-Kernel that require careful review.
 /rl_engine/ @Flink-ddd @inaniloquentee
 /rl_engine/alignment/ @inaniloquentee @Flink-ddd
+/rl_engine/validation/ @inaniloquentee @Flink-ddd
 /rl_engine/executors/ @inaniloquentee @Flink-ddd
+/rl_engine/integrations/ @inaniloquentee @Flink-ddd
 /rl_engine/platforms/ @Flink-ddd
 /rl_engine/utils/ @Flink-ddd
 
 # Kernel dispatch, Python fallbacks, and native extensions.
 /rl_engine/kernels/ @Flink-ddd @inaniloquentee @KJLdefeated
-/rl_engine/kernels/ops/base.py @Flink-ddd @KJLdefeated
-/rl_engine/kernels/registry.py @Flink-ddd @inaniloquentee @KJLdefeated
-/rl_engine/kernels/sampling.py @Flink-ddd @inaniloquentee @KJLdefeated
-/rl_engine/kernels/ops/cuda/ @Flink-ddd @inaniloquentee @KJLdefeated
-/rl_engine/kernels/ops/cuda/attention/ @Flink-ddd @EthanZero2Hero @KJLdefeated
-/rl_engine/kernels/ops/cuda/loss/ @Flink-ddd @inaniloquentee @KJLdefeated
-/rl_engine/kernels/ops/pytorch/ @inaniloquentee @Flink-ddd @KJLdefeated
-/rl_engine/kernels/ops/pytorch/norm/ @maxiaosong1124 @Flink-ddd @KJLdefeated
-/rl_engine/kernels/ops/triton/ @EthanZero2Hero @Flink-ddd @KJLdefeated
+/rl_engine/ops/ @Flink-ddd @inaniloquentee @KJLdefeated
+/rl_engine/backends/extension.py @Flink-ddd @KJLdefeated @ryankert01
+/rl_engine/runtime/registry.py @Flink-ddd @inaniloquentee @KJLdefeated @ryankert01
+/rl_engine/ops/sampling/api.py @Flink-ddd @inaniloquentee @KJLdefeated @ryankert01
+/rl_engine/kernels/ops/cuda/ @Flink-ddd @inaniloquentee @KJLdefeated @ryankert01
+/rl_engine/backends/cuda/ @Flink-ddd @inaniloquentee @KJLdefeated @ryankert01
+/rl_engine/kernels/ops/cuda/attention/ @Flink-ddd @EthanZero2Hero @KJLdefeated @ryankert01
+/rl_engine/backends/cuda/attention/ @Flink-ddd @EthanZero2Hero @KJLdefeated @ryankert01
+/rl_engine/kernels/ops/cuda/loss/ @Flink-ddd @inaniloquentee @KJLdefeated @ryankert01
+/rl_engine/backends/cuda/logprob/ @Flink-ddd @inaniloquentee @KJLdefeated @ryankert01
+/rl_engine/kernels/ops/pytorch/ @inaniloquentee @Flink-ddd @KJLdefeated @ryankert01
+/rl_engine/reference/ @inaniloquentee @Flink-ddd @KJLdefeated @ryankert01
+/rl_engine/kernels/ops/pytorch/norm/ @maxiaosong1124 @Flink-ddd @KJLdefeated @ryankert01
+/rl_engine/reference/norm/ @maxiaosong1124 @Flink-ddd @KJLdefeated @ryankert01
+/rl_engine/kernels/ops/triton/ @EthanZero2Hero @Flink-ddd @KJLdefeated @ryankert01
+/rl_engine/backends/shared/triton/ @EthanZero2Hero @Flink-ddd @KJLdefeated @ryankert01
 /rl_engine/kernels/ops/rocm/ @Flink-ddd
+/rl_engine/backends/rocm/ @Flink-ddd
 
 # C++/CUDA sources.
 /csrc/ @Flink-ddd @inaniloquentee @bitborne @KJLdefeated
-/csrc/fused_logp_kernel.cu @inaniloquentee @Flink-ddd @bitborne @KJLdefeated
-/csrc/cuda/fused_logp_sm90.cu @Flink-ddd @bitborne @KJLdefeated
-/csrc/cuda/attention/ @Flink-ddd @EthanZero2Hero @bitborne @KJLdefeated
-/csrc/utils/ @Flink-ddd @bitborne @KJLdefeated
+/csrc/cuda/logprob/fused_logp_kernel.cu @inaniloquentee @Flink-ddd @bitborne @KJLdefeated @ryankert01
+/csrc/cuda/logprob/fused_logp_sm90.cu @Flink-ddd @bitborne @KJLdefeated @ryankert01
+/csrc/cuda/attention/ @Flink-ddd @EthanZero2Hero @bitborne @KJLdefeated @ryankert01
+/csrc/utils/ @Flink-ddd @bitborne @KJLdefeated @ryankert01
+/csrc/cuda/utils/ @Flink-ddd @bitborne @KJLdefeated @ryankert01
 
 # Rollout, training, and RL examples.
-/rl_engine/alignment/model_wrappers.py @inaniloquentee @Flink-ddd
+/rl_engine/models/wrappers.py @inaniloquentee @Flink-ddd
 /examples/ @inaniloquentee @Flink-ddd
-/examples/grpo_single_gpu.py @inaniloquentee @Flink-ddd
+/examples/post_training/grpo_single_gpu.py @inaniloquentee @Flink-ddd
 
 # Benchmarks and profiling.
 /benchmarks/ @Flink-ddd @inaniloquentee
-/benchmarks/profiler.py @Flink-ddd
+/benchmarks/common/profiler.py @Flink-ddd
 /scripts/ @Flink-ddd
-/scripts/run_profile_suite.py @Flink-ddd
+/tools/benchmarking/run_profile_suite.py @Flink-ddd
 
 # Tests.
 /tests/ @Flink-ddd @inaniloquentee
-/tests/test_alignment_model_wrappers.py @inaniloquentee @Flink-ddd
-/tests/test_grpo_single_gpu_example.py @inaniloquentee @Flink-ddd
-/tests/test_op_accuracy.py @Flink-ddd @inaniloquentee
-/tests/test_reference_ops.py @inaniloquentee @maxiaosong1124
-/tests/test_profiler.py @Flink-ddd
-/tests/test_vllm_rollout_sampler.py @inaniloquentee @Flink-ddd
-/tests/test_weight_sync_bridge.py @inaniloquentee @Flink-ddd
+/tests/models/qwen3/test_alignment_model_wrappers.py @inaniloquentee @Flink-ddd
+/tests/e2e/test_grpo_single_gpu_example.py @inaniloquentee @Flink-ddd
+/tests/ops/test_op_accuracy.py @Flink-ddd @inaniloquentee
+/tests/reference/test_reference_ops.py @inaniloquentee @maxiaosong1124
+/tests/benchmarks/test_profiler.py @Flink-ddd
+/tests/integrations/engines/rollout/vllm/test_vllm_rollout_sampler.py @inaniloquentee @Flink-ddd
+/tests/integrations/common/test_weight_sync_bridge.py @inaniloquentee @Flink-ddd
 
 # CI, packaging, and build configuration.
 /.github/ @Flink-ddd @bitborne @ziying
@@ -67,4 +78,11 @@
 /docs/usage/grpo-single-gpu-example.md @inaniloquentee @Flink-ddd
 /docs/usage/weight-sync-bridge.md @inaniloquentee @Flink-ddd
 /mkdocs.yaml @Flink-ddd
-/requirements-docs.txt @Flink-ddd
+/requirements/docs.txt @Flink-ddd
+
+/build_tools/ @Flink-ddd @inaniloquentee
+/configs/ @Flink-ddd @inaniloquentee
+/requirements/ @Flink-ddd
+/ci/ @Flink-ddd @bitborne @ziying
+/tools/ @Flink-ddd
+/reports/ @Flink-ddd @inaniloquentee

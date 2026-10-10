@@ -1,6 +1,6 @@
 # ROCm G11 performance path
 
-Use the updated [ROCm companion patches](../../examples/vime_rocm_attention_ablation/companion_patches/README.md),
+Use the updated [ROCm companion patches](https://github.com/RL-Align/RL-Kernel/blob/main/rl_engine/integrations/orchestrators/vime/patches/rocm_attention/README.md),
 rebuild RL-Kernel for `gfx942`, and configure the local paths in the profile.
 The README Quick start command is the canonical entry point:
 

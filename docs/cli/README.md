@@ -20,7 +20,7 @@ hardware, runtime setup, Ray configuration, and profile customization.
 
 CUDA `plan` and `run` accept `--tp-size`, `--cp-size`,
 `--rollout-tp-size`, and `--rollout-cp-size`. ROCm uses the separate
-`examples.vime_rocm_attention_ablation.run_qwen3_8b` module documented
+`rl_engine.integrations.orchestrators.vime.experiments.rocm_attention.run_qwen3_8b` module documented
 in the guide because it owns ROCm-specific Ray, AITER/CK, RCCL, and HIP Graph
 setup.
 
@@ -29,7 +29,7 @@ setup.
 The repository also contains lower-level developer commands:
 
 ```bash
-python scripts/run_perf.py
-python benchmarks/benchmark_sampling.py
-python benchmarks/benchmark_grpo_op.py
+python tools/benchmarking/run_perf.py
+python benchmarks/operators/sampling/benchmark_sampling.py
+python benchmarks/operators/loss/benchmark_grpo_op.py
 ```

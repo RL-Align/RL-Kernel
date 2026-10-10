@@ -16,7 +16,7 @@ the row guarantees; see [Accuracy](#accuracy).
 ## Entry Point
 
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 op = kernel_registry.get_op("mlp_down_gemm", device="cuda")
 out = op(x, weight, bias=bias)          # [M, K] @ [N, K].T + [N] -> [M, N]
@@ -25,9 +25,9 @@ out = op(x, weight, bias=bias)          # [M, K] @ [N, K].T + [N] -> [M, N]
 Direct construction of a specific backend:
 
 ```python
-from rl_engine.kernels.ops.triton.linear.mlp_down_gemm import TritonMlpDownGemmOp
-from rl_engine.kernels.ops.cuda.linear.mlp_down_gemm import CudaMlpDownGemmOp
-from rl_engine.kernels.ops.pytorch.linear.mlp_down_gemm import NativeMlpDownGemmOp
+from rl_engine.backends.shared.triton.gemm.mlp_down_gemm import TritonMlpDownGemmOp
+from rl_engine.backends.cuda.gemm.mlp_down_gemm import CudaMlpDownGemmOp
+from rl_engine.reference.gemm.mlp_down_gemm import NativeMlpDownGemmOp
 
 out = TritonMlpDownGemmOp()(x, weight, bias=bias)
 ```
@@ -73,10 +73,10 @@ Supporting rules:
 
 | Backend | Wrapper | Native symbol | Status |
 | --- | --- | --- | --- |
-| Triton | `TritonMlpDownGemmOp` | `rl_engine/kernels/ops/triton/linear/mlp_down_gemm.py` | One portable source for CUDA, ROCm and MUSA: Triton is JIT-compiled per device, so there is no `*_sm90.py` counterpart and no build switch -- the arch-specific instruction is chosen by Triton's own lowering, which is why this file is the ROCm slot. CUDA default. Autotune disabled, tiles pinned, no split-K. On Hopper `tl.dot` lowers to `wgmma.mma_async.m64n256k16`; that lowering was measured byte-identical to the hand-written kernel, at the same throughput within noise (755 vs 736 TFLOP/s forward at M=4096 on the H100 80GB HBM3 below). Portable / ROCm fallback and cross-backend reference. |
+| Triton | `TritonMlpDownGemmOp` | `rl_engine/backends/shared/triton/gemm/mlp_down_gemm.py` | One portable source for CUDA, ROCm and MUSA: Triton is JIT-compiled per device, so there is no `*_sm90.py` counterpart and no build switch -- the arch-specific instruction is chosen by Triton's own lowering, which is why this file is the ROCm slot. CUDA default. Autotune disabled, tiles pinned, no split-K. On Hopper `tl.dot` lowers to `wgmma.mma_async.m64n256k16`; that lowering was measured byte-identical to the hand-written kernel, at the same throughput within noise (755 vs 736 TFLOP/s forward at M=4096 on the H100 80GB HBM3 below). Portable / ROCm fallback and cross-backend reference. |
 | CUDA (Hopper) | `CudaMlpDownGemmOp` | `csrc/cuda/gemm/mlp_down_gemm_sm90.cu` | TMA 2-D bulk-tensor loads (`CU_TENSOR_MAP_SWIZZLE_128B`, OOB fill zero, `mbarrier.arrive.expect_tx` / `try_wait.parity`) per-contraction instantiations: the forward runs `TM=128, TN=256, BK=64` with two warpgroups of `m64n256k16` and a 4-slot `wgmma.wait_group<1>` ring, while `dx`/`dW` keep `TM=256, TN=128, BK=64` with four warpgroups of `m64n128k16`. Compiled only when the extension is built with `KERNEL_ALIGN_FORCE_SM90=1`, the repository-wide SM90 switch, in the same way as the other `*_sm90.cu` sources. |
 | CUDA (portable) | `CudaMlpDownGemmOp` | `csrc/cuda/gemm/mlp_down_gemm.cu` | The `mlp-down-gemm-tree` order on FP32 CUDA cores: 64x64 smem tiles, conflict-free k-major staging, a 4x4 register block and a per-thread partial stack that merges as the reference's mid-split tree does; **byte-equal to the FP32 CPU reference**. Always compiled; NVIDIA SM80+; the fallback whenever the SM90 build or the device is absent. ~14 TFLOP/s forward. |
-| PyTorch | `NativeMlpDownGemmOp` | `rl_engine/kernels/ops/pytorch/linear/mlp_down_gemm.py` | Independent FP32 CPU reference: a 32-wide-leaf, mid-split FP32 tree over the same reduction length, deliberately a *different* association order, so agreement is a declared tolerance rather than a copy. Also the fp32 device fallback. |
+| PyTorch | `NativeMlpDownGemmOp` | `rl_engine/reference/gemm/mlp_down_gemm.py` | Independent FP32 CPU reference: a 32-wide-leaf, mid-split FP32 tree over the same reduction length, deliberately a *different* association order, so agreement is a declared tolerance rather than a copy. Also the fp32 device fallback. |
 
 ## Backend selection at a glance
 
@@ -177,7 +177,7 @@ Two different questions, measured separately.
 **Against the independent FP32 reference.** Declared bounds: at least 99% of
 output elements bit-identical to the correctly-rounded BF16 reference, and every
 element within 8 BF16 ulps of `max|reference|`. Measured on H100 PCIe with
-model-like scaled inputs (`benchmarks/benchmark_mlp_down_gemm.py`, 32 gate rows,
+model-like scaled inputs (`benchmarks/operators/gemm/benchmark_mlp_down_gemm.py`, 32 gate rows,
 `K = 12288`):
 
 | quantity | identical | worst deviation |
@@ -195,7 +195,7 @@ is looser than these bounds.
 **Across backends.** The Triton backend and the Hopper TMA+wgmma path are
 bit-identical to each other (`torch.equal` on forward, `dx`, `dW`,
 `db`) at every token count from 1 to 6889 that has been measured, including the full
-`4096 x 12288 x 3072` model shape -- see `tests/test_mlp_down_gemm_triton.py` and the
+`4096 x 12288 x 3072` model shape -- see `tests/ops/gemm/test_mlp_down_gemm_triton.py` and the
 row's own oracle check. The portable fp32-tree path is a *different* contract and is
 byte-equal to the fp32 CPU reference instead, so it is not byte-identical to those
 two; its invariance evidence is the suite's bitwise row/tiling/padding checks and the
@@ -210,11 +210,11 @@ Ascend `embedding` claim cross-backend bit identity.
 ## Performance Notes
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python benchmarks/benchmark_mlp_down_gemm.py \
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python benchmarks/operators/gemm/benchmark_mlp_down_gemm.py \
     --backend triton --dtype bf16 --batch 4096 --seq 1
-CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python benchmarks/benchmark_mlp_down_gemm.py \
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python benchmarks/operators/gemm/benchmark_mlp_down_gemm.py \
     --backend cuda --dtype bf16 --batch 6889 --seq 1
-CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python benchmarks/benchmark_mlp_down_gemm.py \
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python benchmarks/operators/gemm/benchmark_mlp_down_gemm.py \
     --backend cuda --dtype bf16 --batch 6032 --seq 1
 ```
 
@@ -504,11 +504,11 @@ fp32 reference instead of to Triton.
 ## Tests
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m pytest tests/test_mlp_down_gemm.py -q
-CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m pytest tests/test_mlp_down_gemm_triton.py -q
-CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python scripts/check_operator.py --op mlp_down_gemm \
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m pytest tests/ops/gemm/test_mlp_down_gemm.py -q
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python -m pytest tests/ops/gemm/test_mlp_down_gemm_triton.py -q
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python tools/validation/operators/check_operator.py --op mlp_down_gemm \
     --candidate cuda --device cuda --dtype bf16 --batch 64 --seq 64 --k-dim 12288 --n-dim 3072 --check-grad
-CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python scripts/check_operator.py --op mlp_down_gemm \
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python tools/validation/operators/check_operator.py --op mlp_down_gemm \
     --candidate triton --device cuda --dtype bf16 --batch 83 --seq 83 --k-dim 12288 --n-dim 3072 --check-grad
 ```
 
@@ -519,7 +519,7 @@ reference, the bias epilogue, the three gradients, the per-path contract reporti
 fail-closed behaviour, and registry dispatch. The portable path is additionally asserted
 **byte-equal to the FP32 CPU reference** (forward, `dx`, `dW`, `db`, at the anchor, the RFC
 tiers, the odd tails and a tiling shape), and the tree's dispatch boundaries (33/65/.../2049
-leaves) are byte-exact. `pytest tests/test_mlp_down_gemm.py tests/test_mlp_down_gemm_triton.py -q`
+leaves) are byte-exact. `pytest tests/ops/gemm/test_mlp_down_gemm.py tests/ops/gemm/test_mlp_down_gemm_triton.py -q`
 reports 129 passed on the SM90 build and 114 passed with 15 skipped on the default build.
 
 Shapes are the model's own: `K = 12288` and `N = 3072` everywhere, with the token
@@ -581,7 +581,7 @@ the achievable agreement, and every element is inside 1 ulp of it.
 
 The row's ROCm slot is served by the Triton backend: the CUDA sources are NVIDIA PTX
 (`cp.async`, `ldmatrix`, `mma.sync`, and the Hopper TMA + wgmma block) and are not part
-of a ROCm build, with `csrc/ops.cpp` guarding their bindings the same way it does for
+of a ROCm build, with `csrc/bindings/ops.cpp` guarding their bindings the same way it does for
 `prefix_shared_attention`. The ROCm slot of this row is **not yet validated** -- the
 step-by-step qualification below needs an AMD host, and each step names the result it
 has to produce, so a reviewer with one can close it.
@@ -594,20 +594,20 @@ has to produce, so a reviewer with one can close it.
    "mlp_down_gemm" in n]` is **empty** -- all seven `mlp_down_gemm_cuda*` symbols are
    guarded out, and the Triton backend must not need them.
 2. Confirm the dispatch:
-   `python -c "import torch; from rl_engine.kernels.registry import kernel_registry as r;
+   `python -c "import torch; from rl_engine.runtime.registry import kernel_registry as r;
    print(type(r.get_op('mlp_down_gemm', device='cuda')).__name__)"`.
    Expected: `TritonMlpDownGemmOp`.
 3. Correctness against the same fp32 CPU reference the CUDA paths are held to:
-   `python -m pytest tests/test_mlp_down_gemm_triton.py -q` (its device marker is
+   `python -m pytest tests/ops/gemm/test_mlp_down_gemm_triton.py -q` (its device marker is
    `torch.cuda.is_available()`, which is true under HIP), and
-   `python scripts/check_operator.py --op mlp_down_gemm --candidate triton --device cuda
+   `python tools/validation/operators/check_operator.py --op mlp_down_gemm --candidate triton --device cuda
    --dtype bf16 --batch 2 --seq 16 --k-dim 12288 --n-dim 3072 --check-grad`.
    Expected: the suite passes, with `TestCudaByteEquality` **skipped** (it needs the
    SM90 build and a cc 9.0 device, which a ROCm build cannot have), and the gtest
    reports `pass_rate=1.0000` at the shared dtype policy (`atol=5e-2, rtol=2e-2` for
    the forward, `atol=1e-1, rtol=2e-2` for the gradients).
 4. Numbers, gated on the reference before timing:
-   `python benchmarks/benchmark_mlp_down_gemm.py --backend triton --dtype bf16
+   `python benchmarks/operators/gemm/benchmark_mlp_down_gemm.py --backend triton --dtype bf16
    --batch 4096 --seq 1` (and `--batch 6889`).
    Expected: the gate line reports `identical >= 99%` and `worst <= 8.0 bf16-ulp` for
    the forward, `dx` and `dW`, and `100.0000%` / `0.0 ulp` for `db`, then the timing
@@ -627,7 +627,7 @@ has to produce, so a reviewer with one can close it.
    `check_forward_invariance.py --op mlp_down_gemm ...` exits with
    `invalid choice: 'mlp_down_gemm'`. The row's invariance evidence is its own suite
    (bitwise row/tiling/padding/rerun checks at the model geometry) plus the tier
-   backward tests in `tests/test_mlp_down_gemm_triton.py`.
+   backward tests in `tests/ops/gemm/test_mlp_down_gemm_triton.py`.
 6. What is *not* testable there: byte-equality against the CUDA paths, which do not
    exist on ROCm. What is: the declared tolerance against the fp32 reference, and the
    backend's own batch/tiling/rerun invariance -- both covered by the suite above.

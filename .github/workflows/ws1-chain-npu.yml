@@ -81,7 +81,7 @@ jobs:
           npu-smi info || true
 
       - name: Run WS1 Ascend C3-C11 gates
-        run: bash ci/run_ws1_ascend_ci.sh
+        run: bash ci/scripts/run_ws1_ascend_ci.sh
 
       - name: Upload C2/C8/C10 JSON
         if: always()

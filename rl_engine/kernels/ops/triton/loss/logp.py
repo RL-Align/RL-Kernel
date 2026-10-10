@@ -1,26 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 RL-Kernel Contributors
+"""Compatibility import; the canonical module is loaded below."""
 
-"""Plain selected-logprob API backed by the deterministic Triton kernel."""
+import importlib
+import sys
+from pathlib import Path
 
-import torch
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[5]))
 
-from rl_engine.kernels.ops.triton.loss.batch_invariant_logp import TritonBatchInvariantLogpOp
+if __name__ == "__main__":
+    import runpy
 
-
-class TritonLogpOp(TritonBatchInvariantLogpOp):
-    def __call__(
-        self,
-        logits: torch.Tensor,
-        token_ids: torch.Tensor,
-        ignore_index: int = -100,
-        *,
-        validate: bool = True,
-    ) -> torch.Tensor:
-        return super().__call__(logits, token_ids, ignore_index=ignore_index, validate=validate)
-
-    def forward(self, logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
-        return self.__call__(logits, token_ids)
-
-    def forward_fp32(self, logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
-        return self.__call__(logits, token_ids)
+    runpy.run_module("rl_engine.backends.shared.triton.logprob.logp", run_name="__main__")
+else:
+    sys.modules[__name__] = importlib.import_module("rl_engine.backends.shared.triton.logprob.logp")

@@ -1,5 +1,8 @@
-"""ROCm logprob operators."""
+# SPDX-License-Identifier: Apache-2.0
+"""Compatibility import; the canonical module is loaded below."""
 
-from .vocab_parallel_logp import RocmVocabParallelLogprobOp
+from importlib import import_module
 
-__all__ = ["RocmVocabParallelLogprobOp"]
+
+def __getattr__(name):
+    return getattr(import_module("rl_engine.backends.rocm.loss"), name)

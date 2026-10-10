@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 RL-Kernel Contributors
+"""Compatibility import; the canonical module is loaded below."""
 
-from rl_engine.kernels.ops.pytorch.rotary_embedding.rope import NativeRoPEOp
+from importlib import import_module
 
-__all__ = ["NativeRoPEOp"]
+
+def __getattr__(name):
+    return getattr(import_module("rl_engine.reference.rope"), name)
