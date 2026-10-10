@@ -1,5 +1,8 @@
-"""ROCm rotary embedding operators."""
+# SPDX-License-Identifier: Apache-2.0
+"""Compatibility import; the canonical module is loaded below."""
 
-from .rope import RocmDeterministicRoPEOp
+from importlib import import_module
 
-__all__ = ["RocmDeterministicRoPEOp"]
+
+def __getattr__(name):
+    return getattr(import_module("rl_engine.backends.rocm.rope"), name)

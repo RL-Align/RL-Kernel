@@ -1,0 +1,12 @@
+.git
+.venv
+**/__pycache__
+.pytest_cache
+.mypy_cache
+.ruff_cache
+build
+dist
+site
+artifacts
+runs
+.rlk-profile.json

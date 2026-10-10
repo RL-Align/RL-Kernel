@@ -7,7 +7,7 @@ width 512, TP4-local width 128) and adds a gated shared expert. RFC #428 row
 `moe_route_combine_contract` asks for a routed MoE whose output for a token is a
 pure function of that token: the same bits whatever else is in the batch, in
 training replay and in rollout. This page states the contract and how
-`rl_engine.integrations.qwen3_next_forward.shared_moe` meets it.
+`rl_engine.models.qwen3_next.qwen3_next_forward.shared_moe` meets it.
 
 Upstream references: `transformers` `Qwen3NextSparseMoeBlock` (5.17.0) and vLLM
 0.30.0 `fused_topk` + `fused_experts`.
@@ -15,8 +15,8 @@ Upstream references: `transformers` `Qwen3NextSparseMoeBlock` (5.17.0) and vLLM
 ## Entry Point
 
 ```python
-from rl_engine.integrations.qwen3_next_forward import shared_moe, stable_top10_routes
-from rl_engine.integrations.qwen3_next_tp_blocks import TP4MoE
+from rl_engine.models.qwen3_next.qwen3_next_forward import shared_moe, stable_top10_routes
+from rl_engine.models.qwen3_next.qwen3_next_tp_blocks import TP4MoE
 
 routed, routes = shared_moe(x, router_weight, gate_up, down)  # TP-local, not reduced
 block = TP4MoE(group=tp_group, device="cuda")                  # routed + shared, reduced
@@ -79,13 +79,13 @@ which is batch-invariant per route at the fixed tile. What it implements: the
 FP32 fixed-order routing, the stable tie rule, the atomic-free FP32 combine, the
 deterministic backward and the TP4 boundaries. The grouped kernel's per-route
 output is bitwise equal to the per-expert pinned GEMM loop it replaced
-(`tests/check_qwen3_next_forward.py::test_grouped_*`), so this is a speed change
+(`tests/models/qwen3_next/check_qwen3_next_forward.py::test_grouped_*`), so this is a speed change
 with no change in bits.
 
 ## Results
 
-Measured on B200 with `scripts/qwen3_next_moe_prior_art.py` and the TP4 gate
-`scripts/qwen3_next_tp_moe_check.py`; the reports, the figure and the exact
+Measured on B200 with `tools/validation/models/qwen3_next_moe_prior_art.py` and the TP4 gate
+`tools/validation/models/qwen3_next_tp_moe_check.py`; the reports, the figure and the exact
 commands are in
 [`docs/usage/evidence/qwen3-next-moe-route-b200/`](../usage/evidence/qwen3-next-moe-route-b200/README.md).
 
@@ -130,11 +130,11 @@ shared expert + all-reduce) takes 1.9-2.4 ms at 8-1024 tokens.
 
 | File | Device | Covers |
 | --- | --- | --- |
-| `tests/test_qwen3_next_forward_contract.py` | CPU | CPU rejection, vLLM pin, fixed-order sum/softmax row independence |
-| `tests/test_qwen3_next_tp_blocks.py` | CPU | HF shard/assemble round trips, replica drift rejection, TP4 parameter ownership |
-| `tests/test_tensor_identity.py` | CPU | raw-bit identity (signed zero, NaN/Inf, dtype) |
-| `tests/check_qwen3_next_forward.py` | CUDA + vLLM | GEMM batch/chunk/reorder, route ties, combine order, MoE VJP vs FP64, route and output batch invariance, grouped == per-expert bitwise, fail-closed TD path |
-| `scripts/qwen3_next_tp_moe_check.py` | 4 x CUDA | real layer-0 weights: HF round trip, replicated routes, chunk/reorder, training forward, gradients |
+| `tests/models/qwen3_next/test_qwen3_next_forward_contract.py` | CPU | CPU rejection, vLLM pin, fixed-order sum/softmax row independence |
+| `tests/models/qwen3_next/test_qwen3_next_tp_blocks.py` | CPU | HF shard/assemble round trips, replica drift rejection, TP4 parameter ownership |
+| `tests/validation/common/test_tensor_identity.py` | CPU | raw-bit identity (signed zero, NaN/Inf, dtype) |
+| `tests/models/qwen3_next/check_qwen3_next_forward.py` | CUDA + vLLM | GEMM batch/chunk/reorder, route ties, combine order, MoE VJP vs FP64, route and output batch invariance, grouped == per-expert bitwise, fail-closed TD path |
+| `tools/validation/models/qwen3_next_tp_moe_check.py` | 4 x CUDA | real layer-0 weights: HF round trip, replicated routes, chunk/reorder, training forward, gradients |
 
 The `check_` file imports vLLM, so it runs in the `Qwen3-Next-provider-GPU`
 workflow rather than the default collection.

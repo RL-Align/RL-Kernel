@@ -2,10 +2,10 @@
 
 | Directory | Measured at | Produced by |
 | --- | --- | --- |
-| `tp4-gdn/` | `9e6c4f2` | `torchrun --nproc-per-node 4 scripts/qwen3_next_tp_gdn_check.py --checkpoint <ckpt> --output tp4-gdn` |
-| `tp4-attention/` | `9e6c4f2` | `torchrun --nproc-per-node 4 scripts/qwen3_next_tp_attention_check.py --checkpoint <ckpt> --output tp4-attention` |
-| `tp4-moe/` | `9e6c4f2` | `TRITON_F32_DEFAULT=ieee torchrun --nproc-per-node 4 scripts/qwen3_next_tp_moe_check.py --checkpoint <ckpt> --output tp4-moe` |
-| `attention/report.json`, `attention/figure.png` | `703c6dc` | two processes, then `scripts/plot_qwen3_next_attention_prior_art.py attention/report.json` (see below) |
+| `tp4-gdn/` | `9e6c4f2` | `torchrun --nproc-per-node 4 tools/validation/models/qwen3_next_tp_gdn_check.py --checkpoint <ckpt> --output tp4-gdn` |
+| `tp4-attention/` | `9e6c4f2` | `torchrun --nproc-per-node 4 tools/validation/models/qwen3_next_tp_attention_check.py --checkpoint <ckpt> --output tp4-attention` |
+| `tp4-moe/` | `9e6c4f2` | `TRITON_F32_DEFAULT=ieee torchrun --nproc-per-node 4 tools/validation/models/qwen3_next_tp_moe_check.py --checkpoint <ckpt> --output tp4-moe` |
+| `attention/report.json`, `attention/figure.png` | `703c6dc` | two processes, then `tools/validation/models/plot_qwen3_next_attention_prior_art.py attention/report.json` (see below) |
 
 Every file records its commit and `tracked_tree_dirty: false`; each run used a
 clean clone with its own `rl_engine._C` built in place, on B200 GPUs (driver
@@ -17,7 +17,7 @@ and plot on top of `9e6c4f2` (and the MoE evidence merge).
 
 In the job that ran the gates, the mixer GPU checks
 (`tests/check_qwen3_next_{attention,gdn_bridge,gdn_sequence,conv_bridge,core_matrix,shared_core,forward}.py`)
-and the CPU tests passed together (123 tests); `tests/test_framework_operator_integrations.py`,
+and the CPU tests passed together (123 tests); `tests/integrations/common/test_framework_operator_integrations.py`,
 collected into the same process after vLLM was imported, failed as it must and
 passes in its own process. The existing attention suites
 (`test_deterministic_attention_cuda`, `test_attention`, `test_attention_correctness`,
@@ -39,10 +39,10 @@ the candidate order reversed every iteration.
 The report was produced in two processes of the same job and merged:
 
 ```bash
-python scripts/qwen3_next_attention_prior_art.py \
+python tools/validation/models/qwen3_next_attention_prior_art.py \
   --only rl_kernel_cuda,torch_sdpa,vllm_fa2_auto,vllm_fa2_split1,vllm_triton_2d,flashinfer,fa4_cute,te_training,megatron_local \
   --out report-main.json
-python scripts/qwen3_next_attention_prior_art.py --only te_fused --merge report-main.json --out report.json
+python tools/validation/models/qwen3_next_attention_prior_art.py --only te_fused --merge report-main.json --out report.json
 ```
 
 Both run in the training environment (vLLM 0.30.0, Megatron-core 0.16.0rc0,

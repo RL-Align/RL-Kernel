@@ -20,17 +20,17 @@ at `2e950f3`, whose MoE code is identical (`c58816b` only adds runner candidates
 
 | File | Produced by |
 | --- | --- |
-| `report.json` | `TRITON_F32_DEFAULT=ieee python scripts/qwen3_next_moe_prior_art.py --only rl_kernel_cuda,hf_transformers,vllm_bi0,vllm_bi1,flashinfer_cutlass,megatron_te --out main.json` (training environment), then `... --only sglang_triton,sglang_deterministic --merge main.json --out report.json` (SGLang environment); one GPU |
-| `figure.png` | `python scripts/plot_qwen3_next_moe_prior_art.py report.json` |
-| `tp4-moe/rank-{0..3}.json` | `TRITON_F32_DEFAULT=ieee torchrun --nproc-per-node 4 scripts/qwen3_next_tp_moe_check.py --checkpoint <Qwen3-Next-80B-A3B-Instruct> --output tp4-moe` |
+| `report.json` | `TRITON_F32_DEFAULT=ieee python tools/validation/models/qwen3_next_moe_prior_art.py --only rl_kernel_cuda,hf_transformers,vllm_bi0,vllm_bi1,flashinfer_cutlass,megatron_te --out main.json` (training environment), then `... --only sglang_triton,sglang_deterministic --merge main.json --out report.json` (SGLang environment); one GPU |
+| `figure.png` | `python tools/validation/models/plot_qwen3_next_moe_prior_art.py report.json` |
+| `tp4-moe/rank-{0..3}.json` | `TRITON_F32_DEFAULT=ieee torchrun --nproc-per-node 4 tools/validation/models/qwen3_next_tp_moe_check.py --checkpoint <Qwen3-Next-80B-A3B-Instruct> --output tp4-moe` |
 
 The checkpoint is the official `Qwen/Qwen3-Next-80B-A3B-Instruct` revision
 `9c7f2fbe84465e40164a94cc16cd30b6999b0cc7`; the TP4 gate reads layer 0's MoE.
 
 In the same job, `TRITON_F32_DEFAULT=ieee python -m pytest -q
-tests/check_qwen3_next_forward.py tests/test_tensor_identity.py
-tests/test_qwen3_next_forward_contract.py tests/test_qwen3_next_tp_blocks.py`
-passed (65 tests). `tests/test_framework_operator_integrations.py` was collected
+tests/models/qwen3_next/check_qwen3_next_forward.py tests/validation/common/test_tensor_identity.py
+tests/models/qwen3_next/test_qwen3_next_forward_contract.py tests/models/qwen3_next/test_qwen3_next_tp_blocks.py`
+passed (65 tests). `tests/integrations/common/test_framework_operator_integrations.py` was collected
 into that same process and failed, as it must once a `check_` file has imported
 vLLM; run in its own process, as CI does, it passes.
 
