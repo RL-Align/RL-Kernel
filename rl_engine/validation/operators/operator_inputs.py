@@ -16,6 +16,10 @@ DEFAULT_INTERMEDIATE = 12288
 DEFAULT_VOCAB = 151936
 DEFAULT_ROPE_THETA = 1.0e6
 DEFAULT_RMS_EPS = 1.0e-6
+H3_FREQ_DIM = 256
+H3_TIME_HIDDEN = 5376
+H3_TIME_EMBED = 2688
+H3_HIDDEN = 5376
 
 
 def make_operator_inputs(
@@ -24,6 +28,7 @@ def make_operator_inputs(
     dtype: torch.dtype,
     device: torch.device,
 ) -> dict[str, Any]:
+    """Build operator keyword inputs on the requested device from CLI shape and seed options."""
     builders = {
         "rms_norm": _make_rms_norm_inputs,
         "qk_norm": _make_qk_norm_inputs,
@@ -42,6 +47,13 @@ def make_operator_inputs(
         "embedding": _make_embedding_inputs,
         "lm_head": _make_lm_head_inputs,
         "kv_cache_attention": _make_kv_cache_attention_inputs,
+        "timestep_sinusoid_h3": _make_timestep_sinusoid_h3_inputs,
+        "timestep_mlp_fp32": _make_timestep_mlp_fp32_inputs,
+        "adaln_projection_3mod": _make_adaln_projection_3mod_inputs,
+        "adaln_row_gather": _make_adaln_row_gather_inputs,
+        "h3_rmsnorm": _make_h3_rmsnorm_inputs,
+        "adaln_gate_residual": _make_adaln_gate_residual_inputs,
+        "final_adaln_out": _make_final_adaln_out_inputs,
     }
     try:
         return builders[op_name](args, dtype, device)
@@ -50,6 +62,7 @@ def make_operator_inputs(
 
 
 def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
+    """Return the operator's dimension label for benchmark and evidence reports."""
     batch, seq = _batch_seq(args)
     vocab = _arg_int(args, "vocab", DEFAULT_VOCAB)
     names = {
@@ -72,6 +85,16 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "embedding": f"{batch}x{seq}x{vocab}x{_normalized_dim(args)}",
         "lm_head": f"{batch}x{seq}x{_normalized_dim(args)}x{vocab}",
         "kv_cache_attention": f"{batch}x{DEFAULT_N_HEADS}x1x{seq + 1}x{DEFAULT_HEAD_DIM}",
+        "timestep_sinusoid_h3": f"{_h3_num_timesteps(args)}x{H3_FREQ_DIM}",
+        "timestep_mlp_fp32": f"{_h3_num_timesteps(args)}x{H3_FREQ_DIM}x{H3_TIME_HIDDEN}"
+        f"x{H3_TIME_EMBED}",
+        "adaln_projection_3mod": f"{_h3_num_timesteps(args)}x{H3_TIME_EMBED}"
+        f"x{6 * 3 * _h3_hidden(args)}",
+        "adaln_row_gather": f"{3 * _h3_num_timesteps(args)}x{6 * _h3_hidden(args)}"
+        f"->{batch * seq}",
+        "h3_rmsnorm": f"{batch}x{seq}x{_h3_hidden(args)}",
+        "adaln_gate_residual": f"{batch}x{seq}x{_h3_hidden(args)}",
+        "final_adaln_out": f"{batch}x{seq}x{_h3_hidden(args)}",
     }
     try:
         return names[op_name]
@@ -328,6 +351,151 @@ def _make_kv_cache_attention_inputs(
             (batch, DEFAULT_N_KV_HEADS, 1, DEFAULT_HEAD_DIM), args, dtype, device, 4
         ),
         "causal": True,
+    }
+
+
+def _h3_num_timesteps(args: argparse.Namespace) -> int:
+    """Read the packed H3 timestep count, falling back to the CLI batch size."""
+    # H3 packs a handful of distinct timesteps; reuse --batch as their count.
+    return _arg_int(args, "num_timesteps", _arg_int(args, "batch", 2))
+
+
+def _h3_timesteps(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> torch.Tensor:
+    """Build seeded timesteps in [0, 1] with endpoint cases in the requested storage dtype."""
+    num = _h3_num_timesteps(args)
+    mode = _arg_str(args, "input_mode", "random")
+    if mode == "constant":
+        t = torch.full((num,), 0.5, device=device)
+    else:
+        t = torch.rand((num,), generator=_generator(args, device, offset=7), device=device)
+    t[0] = 0.0
+    if num > 1:
+        t[-1] = 1.0
+    return t.to(dtype)
+
+
+def _make_timestep_sinusoid_h3_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    """Supply a one-dimensional packed timestep tensor to the H3 sinusoid operator."""
+    return {"timestep": _h3_timesteps(args, dtype, device)}
+
+
+def _make_timestep_mlp_fp32_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    """Build [T, 256] sinusoid features and seeded FP32 256→5376→2688 MLP parameters."""
+    # The H3 time_embedder is declared FP32; ``dtype`` does not apply to it.
+    del dtype
+    from rl_engine.reference.minimax_h3.timestep_sinusoid import NativeH3TimestepSinusoidOp
+
+    features = NativeH3TimestepSinusoidOp().forward(_h3_timesteps(args, torch.float32, device))
+    scale1, scale2 = H3_FREQ_DIM**-0.5, H3_TIME_HIDDEN**-0.5
+    return {
+        "x": features,
+        "w1": _floating_tensor((H3_TIME_HIDDEN, H3_FREQ_DIM), args, torch.float32, device, 1)
+        * scale1,
+        "b1": _floating_tensor((H3_TIME_HIDDEN,), args, torch.float32, device, 2) * 0.1,
+        "w2": _floating_tensor((H3_TIME_EMBED, H3_TIME_HIDDEN), args, torch.float32, device, 3)
+        * scale2,
+        "b2": _floating_tensor((H3_TIME_EMBED,), args, torch.float32, device, 4) * 0.1,
+    }
+
+
+def _h3_hidden(args: argparse.Namespace) -> int:
+    """Read the AdaLN channel width, defaulting to the checkpoint's 5376 channels."""
+    return _arg_int(args, "normalized_dim", H3_HIDDEN)
+
+
+def _make_adaln_projection_3mod_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    """Build FP32 [T, 2688] embeddings and 18H projection parameters in the chosen dtype."""
+    # temb is FP32 by contract (the SiLU runs before the cast); ``dtype`` is the
+    # projection's weight dtype, BF16 in the checkpoint.
+    n_out = 6 * 3 * _h3_hidden(args)
+    temb = _floating_tensor(
+        (_h3_num_timesteps(args), H3_TIME_EMBED), args, torch.float32, device, 0
+    )
+    weight = _floating_tensor((n_out, H3_TIME_EMBED), args, torch.float32, device, 1)
+    bias = _floating_tensor((n_out,), args, torch.float32, device, 2)
+    return {
+        "temb": temb * 2.0,
+        "weight": (weight * H3_TIME_EMBED**-0.5).to(dtype),
+        "bias": (bias * 0.1).to(dtype),
+    }
+
+
+def _make_adaln_row_gather_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    # T distinct timesteps (--batch) and a packed sequence of batch * seq rows
+    # mixing all three modalities.
+    batch, seq = _batch_seq(args)
+    num_timesteps = _h3_num_timesteps(args)
+    generator = _generator(args, device, offset=29)
+    packed = batch * seq
+    token_tags = torch.randint(0, 3, (packed,), generator=generator, device=device)
+    timestep_indices = torch.randint(
+        0, num_timesteps, (packed,), generator=generator, device=device
+    )
+    rows = _floating_tensor((3 * num_timesteps, 6 * _h3_hidden(args)), args, dtype, device, 0)
+    return {"rows": rows, "timestep_indices": timestep_indices, "token_tags": token_tags}
+
+
+def _make_h3_rmsnorm_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    batch, seq = _batch_seq(args)
+    hidden = _h3_hidden(args)
+    weight = _floating_tensor((hidden,), args, torch.float32, device, 1).abs() + 0.5
+    return {
+        "x": _floating_tensor((batch, seq, hidden), args, dtype, device, 0),
+        "weight": weight.to(dtype),
+        "eps": 1e-5,
+    }
+
+
+def _make_adaln_gate_residual_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    # gate rows: 3 modality rows for each of --num-timesteps (default --batch) timesteps.
+    batch, seq = _batch_seq(args)
+    hidden = _h3_hidden(args)
+    rows = 3 * _h3_num_timesteps(args)
+    generator = _generator(args, device, offset=31)
+    return {
+        "residual": _floating_tensor((batch, seq, hidden), args, dtype, device, 0),
+        "y": _floating_tensor((batch, seq, hidden), args, dtype, device, 1),
+        "gate": (_floating_tensor((rows, hidden), args, torch.float32, device, 2) * 0.5).to(dtype),
+        "index": torch.randint(0, rows, (seq,), generator=generator, device=device),
+    }
+
+
+def _make_final_adaln_out_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    # temb is FP32 by contract; norm_out.linear/norm/x use ``dtype`` (BF16 in H3).
+    batch, seq = _batch_seq(args)
+    hidden = _h3_hidden(args)
+    num_timesteps = _h3_num_timesteps(args)
+    # Realistic scales (norm weight in [0.5, 1], unit activations): with unscaled
+    # inputs the parameter gradients sum hundreds of rows into values ~1e3, and
+    # their cancelling elements cannot meet a per-element FP32 atol.
+    linear = _floating_tensor((2 * hidden, H3_TIME_EMBED), args, torch.float32, device, 3)
+    norm = 0.5 + 0.5 * torch.sigmoid(_floating_tensor((hidden,), args, torch.float32, device, 4))
+    generator = _generator(args, device, offset=37)
+    return {
+        "x": _floating_tensor((batch, seq, hidden), args, dtype, device, 0),
+        "norm_weight": norm.to(dtype),
+        "temb": _floating_tensor((num_timesteps, H3_TIME_EMBED), args, torch.float32, device, 1),
+        "weight": (linear * H3_TIME_EMBED**-0.5).to(dtype),
+        "bias": (_floating_tensor((2 * hidden,), args, torch.float32, device, 2) * 0.1).to(dtype),
+        "timestep_indices": torch.randint(
+            0, num_timesteps, (seq,), generator=generator, device=device
+        ),
     }
 
 

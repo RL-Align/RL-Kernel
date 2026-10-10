@@ -1,0 +1,104 @@
+{
+  "kind": "h3_operator_report",
+  "op": "final_adaln_out",
+  "rfc": "RL-Align/RL-Kernel#420",
+  "model_revision": "42ed227ee7df40d41602854ae760620d6eb651fe",
+  "reference_commit": "f53d552036a0d1bd5570782a39cd40cfabf112bc",
+  "rl_kernel_commit": "001684df3351e5184aad97949ce46090c841f78c",
+  "tracked_tree_dirty": false,
+  "environment": {
+    "gpu": "NVIDIA B200",
+    "capability": [
+      10,
+      0
+    ],
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "python": "3.12.14",
+    "tf32": false
+  },
+  "accuracy": {
+    "equal_to_diffusers_fraction": 0.9996244311332703,
+    "max_abs_vs_golden": 0.4453125,
+    "provider_max_abs_vs_golden": 0.4453125,
+    "rows_batch_invariant": true,
+    "backward": {
+      "cuda": {
+        "repeat_bitwise_equal": true,
+        "rel_error": {
+          "dx": 0.002330429519732287,
+          "d_norm_w": 0.0022793000129727424,
+          "d_temb": 0.0009756835628084515,
+          "dW": 0.00310445472056345,
+          "db": 0.002154037178337913
+        }
+      },
+      "provider": {
+        "repeat_bitwise_equal": false,
+        "rel_error": {
+          "dx": 0.004053890312809679,
+          "d_norm_w": 0.002528636418480549,
+          "d_temb": 0.04659744238769698,
+          "dW": 0.06805166726367931,
+          "db": 0.05380328827271135
+        }
+      }
+    }
+  },
+  "perf": [
+    {
+      "op": "final_adaln_out",
+      "case": "S=4097",
+      "backend": "H3FinalAdaLNOutCudaOp",
+      "bytes": 145904640,
+      "candidate_us": 130.35199791193008,
+      "candidate_gbps": 1119.3126483460405,
+      "candidate_peak_mib": 42.103515625,
+      "provider_us": 147.5840061903,
+      "provider_gbps": 988.6209472581023,
+      "provider_peak_mib": 168.1025390625,
+      "candidate_backward_us": 1570.5919861793518,
+      "candidate_backward_gbps": 92.89786353420155,
+      "candidate_backward_peak_mib": 144.779296875,
+      "provider_backward_us": 1067.1520233154297,
+      "provider_backward_gbps": 136.7233878699899,
+      "provider_backward_peak_mib": 252.1240234375
+    },
+    {
+      "op": "final_adaln_out",
+      "case": "S=32768",
+      "backend": "H3FinalAdaLNOutCudaOp",
+      "bytes": 762445824,
+      "candidate_us": 384.3519985675812,
+      "candidate_gbps": 1983.7175996001438,
+      "candidate_peak_mib": 336.2021484375,
+      "provider_us": 781.4080119132996,
+      "provider_gbps": 975.7333075369038,
+      "provider_peak_mib": 1344.0615234375,
+      "candidate_backward_us": 2804.8959970474243,
+      "candidate_backward_gbps": 271.82677176001863,
+      "candidate_backward_peak_mib": 733.30615234375,
+      "provider_backward_us": 5338.224172592163,
+      "provider_backward_gbps": 142.8276144554955,
+      "provider_backward_peak_mib": 2016.17138671875
+    },
+    {
+      "op": "final_adaln_out",
+      "case": "S=131072",
+      "backend": "H3FinalAdaLNOutCudaOp",
+      "bytes": 2876375040,
+      "candidate_us": 1236.8000149726868,
+      "candidate_gbps": 2325.6589627899716,
+      "candidate_peak_mib": 1344.5771484375,
+      "provider_us": 2940.224051475525,
+      "provider_gbps": 978.2843040674119,
+      "provider_peak_mib": 5376.0615234375,
+      "candidate_backward_us": 7754.447937011719,
+      "candidate_backward_gbps": 370.9322782697604,
+      "candidate_backward_peak_mib": 2751.18701171875,
+      "provider_backward_us": 20640.207290649414,
+      "provider_backward_gbps": 139.3578562218742,
+      "provider_backward_peak_mib": 8064.54638671875
+    }
+  ]
+}
