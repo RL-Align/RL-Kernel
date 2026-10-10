@@ -5,9 +5,9 @@ name: CI-Pipeline
 
 on:
   push:
-    branches: [ main, test ]
+    branches: [ main, test, test-nemotron ]
   pull_request:
-    branches: [ main, test ]
+    branches: [ main, test, test-nemotron ]
 
 permissions:
   contents: read
@@ -76,6 +76,12 @@ jobs:
             tests/test_stateless_executor.py \
             tests/test_tolerance_contract.py \
             tests/test_kernel_registry.py
+
+      - name: Run Nemotron Router Contract Tests (CPU-safe)
+        run: |
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \
+            tests/nemotron/test_nemotron_router_reference.py \
+            tests/nemotron/test_nemotron_router_cuda.py
 
       - name: Run Attention Ground-Truth Tests (CPU-safe)
         run: |
