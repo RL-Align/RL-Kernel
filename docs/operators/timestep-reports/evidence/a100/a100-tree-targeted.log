@@ -1,3 +1,0 @@
-WARNING 10-01 23:50:56 [RL-Kernel]: Core binary extension (_C) unavailable: cannot import name '_C' from 'rl_engine' (/home/linux/timestep-official-astra-01a0f7ef/src/rl_engine/__init__.py). Falling back to native code.
-{"backend": "cuda", "dtype": "fp32", "batch": 16, "seed": 9386, "passed": false, "elapsed_seconds": 91.14180885899987}
-{"backend": "triton", "dtype": "fp32", "batch": 16, "seed": 9386, "passed": false, "elapsed_seconds": 4.13874834201124}

@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest" errors="1" failures="0" skipped="0" tests="1" time="1.635" timestamp="2026-10-07T00:25:59.026560+00:00" hostname="3b54a55a599d"><testcase classname="" name="tests.test_profiler" time="0.000"><error message="collection failure">ImportError while importing test module '/workspace/h100-results-ea55fa6/source/tests/test_profiler.py'.
-Hint: make sure your test modules/packages have valid Python names.
-Traceback:
-/usr/lib/python3.10/importlib/__init__.py:126: in import_module
-    return _bootstrap._gcd_import(name[level:], package, level)
-tests/test_profiler.py:12: in &lt;module&gt;
-    from benchmarks.profiler import (
-E   ModuleNotFoundError: No module named 'benchmarks'</error></testcase></testsuite></testsuites>

@@ -1,9 +1,0 @@
-WARNING 10-06 23:58:10 [RL-Kernel]: Core binary extension (_C) unavailable: cannot import name '_C' from 'rl_engine' (/workspace/h100-results-ea55fa6/source/rl_engine/__init__.py). Falling back to native code.
-{"backend": "cuda", "dtype": "fp32", "batch": 33, "seed": 386, "passed": true, "elapsed_seconds": 1.1878870092332363}
-{"backend": "cuda", "dtype": "fp32", "batch": 64, "seed": 386, "passed": true, "elapsed_seconds": 0.11544224806129932}
-{"backend": "cuda", "dtype": "bf16", "batch": 33, "seed": 386, "passed": true, "elapsed_seconds": 0.07579968310892582}
-{"backend": "cuda", "dtype": "bf16", "batch": 64, "seed": 386, "passed": true, "elapsed_seconds": 0.12820340506732464}
-{"backend": "triton", "dtype": "fp32", "batch": 33, "seed": 386, "passed": true, "elapsed_seconds": 2.7734936606138945}
-{"backend": "triton", "dtype": "fp32", "batch": 64, "seed": 386, "passed": true, "elapsed_seconds": 1.0494244508445263}
-{"backend": "triton", "dtype": "bf16", "batch": 33, "seed": 386, "passed": true, "elapsed_seconds": 0.16696543619036674}
-{"backend": "triton", "dtype": "bf16", "batch": 64, "seed": 386, "passed": true, "elapsed_seconds": 0.25377886928617954}

@@ -107,8 +107,6 @@ runs, the matrix, package inventory and device information. Activate the desired
 venv and set CUDA_HOME/CPATH for your environment first. It does not connect to a
 server, install dependencies or alter system configuration.
 
-Detailed Chinese stage reports, including failed attempts and limitations, are in
-[timestep-reports/README.md](timestep-reports/README.md). A100 is the delivery target;
-H100 sm90 correctness and microbenchmarks are now recorded in the
-[H100/reference audit report](timestep-reports/08-h100-reference-audit.md).
+GPU acceptance results, the independent reference audit, reproduction commands,
+and limitations are summarized in [the validation report](timestep-reports/README.md).
 Full-repository native extension CI and full-model training remain unverified.

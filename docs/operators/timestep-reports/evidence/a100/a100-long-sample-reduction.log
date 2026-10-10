@@ -1,9 +1,0 @@
-WARNING 10-02 00:11:04 [RL-Kernel]: Core binary extension (_C) unavailable: cannot import name '_C' from 'rl_engine' (/home/linux/timestep-official-astra-01a0f7ef/src/rl_engine/__init__.py). Falling back to native code.
-{"backend": "cuda", "dtype": "fp32", "batch": 33, "seed": 386, "passed": true, "elapsed_seconds": 2.7605279959971085}
-{"backend": "cuda", "dtype": "fp32", "batch": 64, "seed": 386, "passed": true, "elapsed_seconds": 0.2397297410061583}
-{"backend": "cuda", "dtype": "bf16", "batch": 33, "seed": 386, "passed": true, "elapsed_seconds": 0.15225799199834}
-{"backend": "cuda", "dtype": "bf16", "batch": 64, "seed": 386, "passed": true, "elapsed_seconds": 0.24188992100243922}
-{"backend": "triton", "dtype": "fp32", "batch": 33, "seed": 386, "passed": true, "elapsed_seconds": 5.779763411002932}
-{"backend": "triton", "dtype": "fp32", "batch": 64, "seed": 386, "passed": true, "elapsed_seconds": 2.2148762169963447}
-{"backend": "triton", "dtype": "bf16", "batch": 33, "seed": 386, "passed": true, "elapsed_seconds": 0.2135866929893382}
-{"backend": "triton", "dtype": "bf16", "batch": 64, "seed": 386, "passed": true, "elapsed_seconds": 0.369603717001155}

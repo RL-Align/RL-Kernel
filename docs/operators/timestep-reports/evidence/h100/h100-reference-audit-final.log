@@ -1,9 +1,0 @@
-WARNING 10-07 00:22:53 [RL-Kernel]: Core binary extension (_C) unavailable: cannot import name '_C' from 'rl_engine' (/workspace/h100-results-ea55fa6/source/rl_engine/__init__.py). Falling back to native code.
-{"batch": 16, "seed": 9386, "dtype": "torch.float32", "upstream_rng": "cuda", "passed": true}
-{"batch": 16, "seed": 9386, "dtype": "torch.float32", "upstream_rng": "cpu", "passed": true}
-{"batch": 3, "seed": 1701, "dtype": "torch.float32", "upstream_rng": "cpu", "passed": true}
-{"batch": 16, "seed": 20261007, "dtype": "torch.float32", "upstream_rng": "cpu", "passed": true}
-{"batch": 16, "seed": 9386, "dtype": "torch.bfloat16", "upstream_rng": "cuda", "passed": true}
-{"batch": 16, "seed": 9386, "dtype": "torch.bfloat16", "upstream_rng": "cpu", "passed": true}
-{"batch": 3, "seed": 1701, "dtype": "torch.bfloat16", "upstream_rng": "cpu", "passed": true}
-{"batch": 16, "seed": 20261007, "dtype": "torch.bfloat16", "upstream_rng": "cpu", "passed": true}
