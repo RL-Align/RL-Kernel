@@ -31,7 +31,7 @@ nav:
       - operators/embedding.md
   - Developer Guide:
     - contributing/README.md
-    - Sign your work (DCO): contributing/dco.md
+    - Contributing Guide: CONTRIBUTING.md
     - General:
       - contributing/*
       - contributing/operator-doc-template.md
