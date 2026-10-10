@@ -12,7 +12,8 @@ CUDA extension and ``--backend pytorch`` never needs Triton.
 
 Usage::
 
-    CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python benchmarks/operators/gemm/benchmark_mlp_down_gemm.py \\
+    CUDA_VISIBLE_DEVICES=0 PYTHONPATH=. python \\
+        benchmarks/operators/gemm/benchmark_mlp_down_gemm.py \\
         --backend triton --dtype bf16 --batch 4096 --seq 1
 """
 
@@ -188,9 +189,7 @@ def main() -> None:
     out = op(x, weight, bias=bias)
     assert out.dtype is torch.bfloat16 and out.shape == (rows, args.n_dim), (out.dtype, out.shape)
 
-    gate_passed, gate_lines = _accuracy_gate(
-        op, x, weight, bias, args.gate_rows, backward=True
-    )
+    gate_passed, gate_lines = _accuracy_gate(op, x, weight, bias, args.gate_rows, backward=True)
 
     xr = x.detach().clone().requires_grad_(True)
     wr = weight.detach().clone().requires_grad_(True)

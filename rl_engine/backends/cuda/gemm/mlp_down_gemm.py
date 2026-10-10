@@ -45,12 +45,12 @@ from __future__ import annotations
 
 import os
 from threading import Lock
-
 from typing import Optional
 
 import torch
 
 from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+from rl_engine.runtime.policy import rl_kernel_mode, route_report_enabled
 from rl_engine.utils.logger import logger
 
 MMA_CONTRACT = "mlp-down-gemm-mma"
@@ -69,9 +69,7 @@ _SM90_SYMBOLS = (
 )
 _HOPPER_IMPL = "cuda_wgmma_tma_hopper_pinned_schedule"
 _TREE_IMPL = "cuda_fp32_tree_schedule"
-_HOPPER_PIN_HINT = (
-    "pin RL_KERNEL_MLP_DOWN_GEMM_BACKEND=hopper for the hardware-order path"
-)
+_HOPPER_PIN_HINT = "pin RL_KERNEL_MLP_DOWN_GEMM_BACKEND=hopper for the hardware-order path"
 
 
 def mma_backend_available() -> bool:
@@ -83,8 +81,6 @@ def sm90_backend_compiled() -> bool:
 
     return _EXT_AVAILABLE and all(hasattr(_C, name) for name in _SM90_SYMBOLS)
 
-
-from rl_engine.runtime.policy import rl_kernel_mode, route_report_enabled
 
 _ROUTE_REPORTED = False
 _ROUTE_REPORT_LOCK = Lock()
@@ -320,8 +316,8 @@ class CudaMlpDownGemmOp:
 
         x = x.detach().requires_grad_(True)
         weight = weight.detach().requires_grad_(True)
-        self.forward(x, weight).backward(grad_output)
-        return x.grad, weight.grad
+        grad_x, grad_weight = torch.autograd.grad(self.forward(x, weight), (x, weight), grad_output)
+        return grad_x, grad_weight
 
     def forward(
         self,

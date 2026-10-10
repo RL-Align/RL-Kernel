@@ -117,9 +117,7 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     # Qwen-Image WS1 MLP down projection (pinned tensor-core schedule)
     CUDA_MLP_DOWN_GEMM = "rl_engine.backends.cuda.gemm.mlp_down_gemm.CudaMlpDownGemmOp"
     PYTORCH_MLP_DOWN_GEMM = "rl_engine.reference.gemm.mlp_down_gemm.NativeMlpDownGemmOp"
-    TRITON_MLP_DOWN_GEMM = (
-        "rl_engine.backends.shared.triton.gemm.mlp_down_gemm.TritonMlpDownGemmOp"
-    )
+    TRITON_MLP_DOWN_GEMM = "rl_engine.backends.shared.triton.gemm.mlp_down_gemm.TritonMlpDownGemmOp"
     # Batch-invariant selected-logprob (WS1 #148: locked reduction order)
     TRITON_BATCH_INVARIANT_LOGP = (
         "rl_engine.kernels.ops.triton.loss.batch_invariant_logp.TritonBatchInvariantLogpOp"
