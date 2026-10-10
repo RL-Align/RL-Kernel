@@ -16,7 +16,7 @@ so the forward `[N, V]` tensor never lands in HBM.
 ## Entry Point
 
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 linear_logp = kernel_registry.get_op("linear_logp")
 
@@ -42,7 +42,7 @@ logp.sum().backward()  # gradients flow into hidden, lm_head_weight, bias
 | Ascend NPU | `FusedLinearLogpAscendOp` | Batch-invariant Ascend C forward mirroring the SM90 reduction contract: ascending vocab-row scan with the online rescale chain, per-row fp32 dots over a fixed D-tile order, `min(zt - lse, 0)` clamp; the shared chunked backward. Output fp32. |
 | PyTorch native | `NativeLinearLogpOp` | Naive `F.linear` + `log_softmax` + `gather` reference; CPU / Triton-less fallback. |
 
-The SM90 backend (`csrc/cuda/fused_linear_logp_sm90.cu`) streams hidden/weight
+The SM90 backend (`csrc/cuda/logprob/fused_linear_logp_sm90.cu`) streams hidden/weight
 tiles via TMA (`cp.async.bulk.tensor`, mbarrier-completed, double-buffered),
 contracts each `[BM, BN]` logit tile with the warp-level tensor-core MMA path
 (`ldmatrix` + `mma.sync.m16n8k16`, fp32 accumulation), folds it into a per-row
@@ -112,8 +112,8 @@ reference (it is more accurate than a bf16 `F.linear`, which rounds the logits).
 ## Performance
 
 ```bash
-python benchmarks/benchmark_linear_logp.py
-python benchmarks/benchmark_linear_logp.py --configs "4096,2048,32768;4096,2048,131072"
+python benchmarks/operators/logprob/benchmark_linear_logp.py
+python benchmarks/operators/logprob/benchmark_linear_logp.py --configs "4096,2048,32768;4096,2048,131072"
 ```
 
 Measured on an **NVIDIA H100 80GB** (SM90), bf16, N=4096, D=2048, CUDA 12.8.
@@ -155,7 +155,7 @@ more fully streaming backward remains future work.
 ## Tests
 
 ```bash
-python -m pytest tests/test_linear_logp.py -v
+python -m pytest tests/ops/logprob/test_linear_logp.py -v
 ```
 
 Covers the native reference vs the materialized definition, Triton forward (fp32 and
@@ -168,15 +168,15 @@ For 4-GPU tensor-parallel validation, use
 
 ## Implementation Files
 
-- `rl_engine/kernels/ops/triton/loss/linear_logp.py`
-- `rl_engine/kernels/ops/pytorch/loss/linear_logp.py` — native reference, chunked backward, TP helpers
-- `rl_engine/kernels/ops/cuda/loss/linear_logp.py` — CUDA fused implementation (SM90 wrapper + chunked backward)
-- `rl_engine/kernels/ops/ascend/loss/linear_logp.py` — Ascend deterministic op
-- `csrc/cuda/fused_linear_logp_sm90.cu`, `csrc/ops.cpp`, `setup.py` — SM90 kernel + build
+- `rl_engine/backends/shared/triton/logprob/linear_logp.py`
+- `rl_engine/reference/logprob/linear_logp.py` — native reference, chunked backward, TP helpers
+- `rl_engine/backends/cuda/logprob/linear_logp.py` — CUDA fused implementation (SM90 wrapper + chunked backward)
+- `rl_engine/backends/ascend/logprob/linear_logp.py` — Ascend deterministic op
+- `csrc/cuda/logprob/fused_linear_logp_sm90.cu`, `csrc/bindings/ops.cpp`, `setup.py` — SM90 kernel + build
 - `csrc/ascend/fused_linear_logp_ascend.asc` — Ascend C forward kernel
 - `csrc/ascend/npu_module.cpp` — shared pybind entry for `rl_engine._C_npu`
-- `rl_engine/kernels/registry.py`
-- `tests/test_linear_logp.py`
-- `tests/test_linear_logp_ascend.py` — Ascend correctness + batch-invariance tests
-- `benchmarks/benchmark_linear_logp.py`
+- `rl_engine/runtime/registry.py`
+- `tests/ops/logprob/test_linear_logp.py`
+- `tests/backends/ascend/test_linear_logp_ascend.py` — Ascend correctness + batch-invariance tests
+- `benchmarks/operators/logprob/benchmark_linear_logp.py`
 - `docs/design/fused-linear-logp.md`
