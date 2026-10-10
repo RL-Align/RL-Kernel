@@ -14,13 +14,13 @@ arg[t, k] = t * freq[k]
 out[t]    = [cos(arg[t]) | sin(arg[t])]    (T, 256), float32
 ```
 
-Pinned model: `MiniMaxAI/MiniMax-H3@42ed227` (`rl_engine/testing/h3_manifest.json`).
+Pinned model: `MiniMaxAI/MiniMax-H3@42ed227` (`rl_engine/validation/models/h3_manifest.json`).
 Provider reference: `huggingface/diffusers@f53d552`, `get_timestep_embedding`.
 
 ## Entry Point
 
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 op = kernel_registry.get_op("timestep_sinusoid_h3", device="cuda")
 features = op(timestep)              # timestep: (T,) in [0, 1] -> (T, 256) float32
@@ -30,8 +30,8 @@ features = op(timestep)              # timestep: (T,) in [0, 1] -> (T, 256) floa
 
 | Backend | Wrapper | Native symbol | Status |
 | --- | --- | --- | --- |
-| CUDA (SM90, SM100) | `rl_engine.kernels.ops.cuda.h3.timestep_sinusoid.H3TimestepSinusoidCudaOp` | `rl_engine._C.h3_timestep_sinusoid_forward` | Bitwise equal to the provider path |
-| PyTorch reference | `rl_engine.kernels.ops.pytorch.h3.timestep_sinusoid.NativeH3TimestepSinusoidOp` | n/a | `forward`: provider replay; `forward_fp32`: FP64 golden |
+| CUDA (SM90, SM100) | `rl_engine.backends.cuda.model_specific.minimax_h3.timestep_sinusoid.H3TimestepSinusoidCudaOp` | `rl_engine._C.h3_timestep_sinusoid_forward` | Bitwise equal to the provider path |
+| PyTorch reference | `rl_engine.reference.minimax_h3.timestep_sinusoid.NativeH3TimestepSinusoidOp` | n/a | `forward`: provider replay; `forward_fp32`: FP64 golden |
 | ROCm | n/a | n/a | Falls back to the PyTorch reference |
 
 ## Tensor Contract
@@ -78,7 +78,7 @@ Measured on a B200 (torch 2.13.0+cu130):
 ## Performance Notes
 
 ```bash
-python benchmarks/benchmark_h3_conditioning.py --op timestep_sinusoid_h3
+python benchmarks/models/benchmark_h3_conditioning.py --op timestep_sinusoid_h3
 ```
 
 On a B200 this is a single launch of about 15 µs, independent of `T` for `T <= 64`. With
@@ -88,15 +88,15 @@ about 1 KB per timestep.
 
 ## Evidence
 
-![timestep_sinusoid_h3 on B200: latency and error vs FP64](../usage/evidence/h3-timestep-sinusoid-b200/figure.png)
+![timestep_sinusoid_h3 on B200: latency and error vs FP64](../../reports/experiments/h3-timestep-sinusoid-b200/figure.png)
 
-The data is in [`report.json`](../usage/evidence/h3-timestep-sinusoid-b200/report.json).
-`scripts/h3_evidence.py` wrote it from a clean tree at commit `0522865`, and the report
+The data is in [`report.json`](../../reports/experiments/h3-timestep-sinusoid-b200/report.json).
+`tools/validation/models/h3_evidence.py` wrote it from a clean tree at commit `0522865`, and the report
 records that commit and the environment.
 
 ## Existing implementations (RFC #420 reuse rule)
 
-![timestep_sinusoid vs existing implementations](../usage/evidence/h3-prior-art-b200/timestep_sinusoid.png)
+![timestep_sinusoid vs existing implementations](../../reports/experiments/h3-prior-art-b200/timestep_sinusoid.png)
 
 | Implementation | Batch-invariant | size 3: fwd err / worst grad err / fwd+bwd | size 256: fwd err / worst grad err / fwd+bwd | size 2048: fwd err / worst grad err / fwd+bwd |
 |---|---|---|---|---|
@@ -108,12 +108,12 @@ Errors are max|err| / max|ref| against the same computation in FP64; latency is 
 forward + backward time on an otherwise idle B200. Batch invariance is bitwise and covers
 three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
 8192-timestep batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
-"no" means that at least one row, sub-batch or gradient differed. [`timestep_sinusoid.json`](../usage/evidence/h3-prior-art-b200/timestep_sinusoid.json)
+"no" means that at least one row, sub-batch or gradient differed. [`timestep_sinusoid.json`](../../reports/experiments/h3-prior-art-b200/timestep_sinusoid.json)
 was written from a clean tree at `7a82917` by
 
 ```bash
-python scripts/h3_prior_art.py --op timestep_sinusoid --out docs/usage/evidence/h3-prior-art-b200/timestep_sinusoid.json
-python scripts/plot_h3_prior_art.py docs/usage/evidence/h3-prior-art-b200/timestep_sinusoid.json
+python tools/validation/models/h3_prior_art.py --op timestep_sinusoid --out reports/experiments/h3-prior-art-b200/timestep_sinusoid.json
+python tools/validation/models/plot_h3_prior_art.py reports/experiments/h3-prior-art-b200/timestep_sinusoid.json
 ```
 
 Libraries that do not import are skipped and recorded as unavailable in the report.
@@ -121,14 +121,14 @@ Libraries that do not import are skipped and recorded as unavailable in the repo
 ## Tests
 
 ```bash
-export RL_KERNEL_H3_WEIGHTS=<dir written by scripts/prepare_h3_weights.py>
-python -m pytest tests/h3/test_h3_timestep_sinusoid.py -v      # operator
-python -m pytest tests/h3/test_h3_conditioning_e2e.py -v       # end to end, pinned weights
-python scripts/check_operator.py --op timestep_sinusoid_h3 --candidate cuda --device cuda \
+export RL_KERNEL_H3_WEIGHTS=<dir written by tools/weights/prepare_h3_weights.py>
+python -m pytest tests/models/minimax_h3/test_h3_timestep_sinusoid.py -v      # operator
+python -m pytest tests/models/minimax_h3/test_h3_conditioning_e2e.py -v       # end to end, pinned weights
+python tools/validation/operators/check_operator.py --op timestep_sinusoid_h3 --candidate cuda --device cuda \
     --dtype fp32 --batch 7 --check-grad
-python scripts/h3_evidence.py --op timestep_sinusoid_h3 \
-    --out docs/usage/evidence/h3-timestep-sinusoid-b200/report.json
-python scripts/plot_h3_evidence.py docs/usage/evidence/h3-timestep-sinusoid-b200/report.json
+python tools/validation/models/h3_evidence.py --op timestep_sinusoid_h3 \
+    --out reports/experiments/h3-timestep-sinusoid-b200/report.json
+python tools/validation/models/plot_h3_evidence.py reports/experiments/h3-timestep-sinusoid-b200/report.json
 ```
 
 ## Known Limitations
