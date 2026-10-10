@@ -8,10 +8,10 @@ __pycache__/
 
 # Distribution / packaging
 .Python
-build/
+/build/
 build_jit/
 develop-eggs/
-dist/
+/dist/
 downloads/
 eggs/
 .eggs/
@@ -96,10 +96,8 @@ ipython_config.py
 #Pipfile.lock
 
 # UV
-#   Similar to Pipfile.lock, it is generally recommended to include uv.lock in version control.
-#   This is especially recommended for binary packages to ensure reproducibility, and is more
-#   commonly ignored for libraries.
-#uv.lock
+# Keep generated lockfiles local to each development environment.
+uv.lock
 .uv-cache/
 
 # poetry
@@ -140,9 +138,9 @@ celerybeat.pid
 .env
 .envrc
 .venv
-env/
+/env/
 venv/
-ENV/
+/ENV/
 env.bak/
 venv.bak/
 
@@ -226,3 +224,5 @@ csrc/hip/*_hip.hip
 
 # Per-machine launcher paths
 .rlk-profile.json
+
+/artifacts/
