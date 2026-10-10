@@ -19,11 +19,11 @@ Added for RFC #428 C1 on the Qwen3-Next rollout-vs-replay path.
 ## Entry Point
 
 ```python
-from rl_engine.kernels.ops.pytorch.norm.qwen3_next_rms_norm import (
+from rl_engine.reference.norm.qwen3_next_rms_norm import (
     Qwen3NextRMSNormGatedOp,      # strict / vLLM convention
     Qwen3NextRMSNormGatedHFOp,    # transformers convention, kept as a witness
 )
-from rl_engine.kernels.ops.cuda.norm.rmsnorm import (
+from rl_engine.backends.cuda.norm.rmsnorm import (
     Qwen3NextRMSNormGatedCudaOp,
     rmsnorm_gated_cuda,
 )
@@ -74,14 +74,14 @@ that raises at call time.
 Claim levels:
 
 - **L1** for `Qwen3NextRMSNormGatedCudaOp`: prefix slices in
-  `tests/test_qwen3_next_norm.py`, and batch size, chunking, padding and permutation
-  in the C3/C4 gates (`ci/run_ws1_gtest.sh`).
+  `tests/models/qwen3_next/test_qwen3_next_norm.py`, and batch size, chunking, padding and permutation
+  in the C3/C4 gates (`ci/scripts/run_ws1_gtest.sh`).
 - **L0** is not separately tested for the CUDA op; no test repeats it.
 - L2 is not claimed.
 
 Accuracy tests resolve their tolerances from `tolerance_contract.json`
 (`forward_accuracy`, `reduction` × dtype). The bounds in
-`tests/check_qwen3_next_norm_providers.py` are provider-gap bounds, not contract
+`tests/models/qwen3_next/check_qwen3_next_norm_providers.py` are provider-gap bounds, not contract
 thresholds.
 
 `transformers` casts the normalized value back to the input dtype *before* the weight
@@ -97,7 +97,7 @@ is an open question for RFC #428.
 "Bitwise equal to vLLM" is undefined until a provider is named. Over 40 seeds (bf16,
 `head_v_dim=128`, 512 rows, B200), vLLM's eager `forward_native` and `forward_cuda`
 disagreed on 21, worst `1.56e-2`; in fp32 they stay within the asserted `1e-5`. These
-figures come from `tests/check_qwen3_next_norm_providers.py`, which imports real vLLM
+figures come from `tests/models/qwen3_next/check_qwen3_next_norm_providers.py`, which imports real vLLM
 and must be run explicitly. The PyTorch reference reproduces the convention, not
 vLLM's reduction tree.
 
@@ -115,7 +115,7 @@ Reuses the existing `block_reduce_sum` / `choose_threads(H)` reduction, so the g
 costs one extra load and one fp32 multiply per element.
 
 ```bash
-python scripts/check_operator.py --op rms_norm_gated --candidate cuda \
+python tools/validation/operators/check_operator.py --op rms_norm_gated --candidate cuda \
     --device cuda --dtype bf16 --check-grad
 ```
 
@@ -124,7 +124,7 @@ python scripts/check_operator.py --op rms_norm_gated --candidate cuda \
 ![gated RMSNorm vs existing implementations on B200](../usage/evidence/qwen3-next-rms-norm-gated-b200/figure-gated_rmsnorm.png)
 
 [`report.json`](../usage/evidence/qwen3-next-rms-norm-gated-b200/report.json) was written by
-`scripts/qwen3_next_norm_evidence.py` from a clean tree at `822b085`, on an otherwise idle
+`tools/validation/models/qwen3_next_norm_evidence.py` from a clean tree at `822b085`, on an otherwise idle
 B200 (torch 2.13.0+cu130, transformers 5.17.0, vLLM 0.30.0). Head dim 128, BF16; the FP64
 golden uses vLLM's convention. The same report re-measures the zero-centred op
 ([figure](../usage/evidence/qwen3-next-rms-norm-gated-b200/figure-zero_centred_rmsnorm.png)).
@@ -150,9 +150,9 @@ golden uses vLLM's convention. The same report re-measures the zero-centred op
 ## Tests
 
 ```bash
-python -m pytest tests/test_qwen3_next_norm.py -v
+python -m pytest tests/models/qwen3_next/test_qwen3_next_norm.py -v
 # imports real vLLM, so it is not collected by default:
-python -m pytest tests/check_qwen3_next_norm_providers.py -v
+python -m pytest tests/models/qwen3_next/check_qwen3_next_norm_providers.py -v
 ```
 
 ## Known Limitations
