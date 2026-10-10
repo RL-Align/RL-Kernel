@@ -108,8 +108,8 @@ into the training score; ROCm replays support membership, then recomputes scores
 
 ## Companion source setup
 
-CUDA requires the [CUDA VIME patch](https://github.com/RL-Align/RL-Kernel/blob/main/examples/vime_qwen3_8b_tp4_cp2_200/companion_patches/README.md);
-ROCm requires its own [VIME, Megatron and vLLM patches](https://github.com/RL-Align/RL-Kernel/blob/main/examples/vime_rocm_attention_ablation/companion_patches/README.md).
+CUDA requires the [CUDA VIME patch](https://github.com/RL-Align/RL-Kernel/blob/main/rl_engine/integrations/orchestrators/vime/patches/dense/README.md);
+ROCm requires its own [VIME, Megatron and vLLM patches](https://github.com/RL-Align/RL-Kernel/blob/main/rl_engine/integrations/orchestrators/vime/patches/rocm_attention/README.md).
 They use different framework revisions. The CUDA patch is based on publicly
 available VIME commit `c80200e7aef08edc918e50a3998ea981bd689934`, includes inherited
 H100 integration changes, and was checked in an isolated Git index to reproduce

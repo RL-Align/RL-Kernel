@@ -19,7 +19,7 @@ takes `[*, V]` logits as input and returns one selected log-probability per row.
 ## Entry Point
 
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 batch_invariant_logp = kernel_registry.get_op("batch_invariant_logp")
 
@@ -57,13 +57,13 @@ or device, dispatch is unchanged (Triton -> PyTorch).
 ## Tensor Parallel
 
 `VocabParallelLogprobOp`
-(`rl_engine/kernels/ops/pytorch/loss/vocab_parallel_logp.py`)
+(`rl_engine/reference/logprob/vocab_parallel_logp.py`)
 **TP=1, TP=2, and TP=4 produce bit-identical results.**
 
 The backends above are single-shard (TP=1) references and do not yet export vocab-domain
 LSE or carry vocab-shard metadata, so they are declared incompatible with strict WS2
 requests instead of being selected as a silent fallback. The contract objects are
-documented in `rl_engine.kernels.logprob_contract`.
+documented in `rl_engine.contracts.operators.logprob`.
 
 The TP-aware implementation uses the following fixed-order construction:
 
@@ -80,10 +80,10 @@ The TP-aware implementation uses the following fixed-order construction:
 Usage goes through the contract-aware entry point:
 
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 result = kernel_registry.get_logprob_op(contract)   # LogprobContract from
-op = result.op                                      # rl_engine.kernels.logprob_contract
+op = result.op                                      # rl_engine.contracts.operators.logprob
 logp, lse = op(local_logits, target_ids, contract=contract, tp_group=tp_group)
 ```
 
@@ -93,7 +93,7 @@ The optional Vime adapter is owned by RL-Kernel and can be selected without
 patching Megatron or vLLM:
 
 ```text
---linear-logp-provider rl_engine.integrations.vime.linear_logp_provider.provider
+--linear-logp-provider rl_engine.integrations.orchestrators.vime.providers.linear_logp_provider.provider
 --linear-logp-provider-mode strict
 ```
 
@@ -112,12 +112,12 @@ configuration error. This adapter does not import Vime.
 
 ## Benchmarks
 
-`benchmarks/benchmark_batch_invariant_logp.py` compares Native, Triton, and the
+`benchmarks/operators/logprob/benchmark_batch_invariant_logp.py` compares Native, Triton, and the
 CUDA SM90 backend (forward latency and peak VRAM across a vocab sweep, bf16):
 
 ```bash
-python benchmarks/benchmark_batch_invariant_logp.py
-python benchmarks/benchmark_batch_invariant_logp.py --configs "4096,128256;8192,151936"
+python benchmarks/operators/logprob/benchmark_batch_invariant_logp.py
+python benchmarks/operators/logprob/benchmark_batch_invariant_logp.py --configs "4096,128256;8192,151936"
 ```
 
 The CUDA column is only shown when the SM90 kernel is compiled in; otherwise the
@@ -128,7 +128,7 @@ benchmark reports Native vs Triton only.
 Environment: NVIDIA H200 (Hopper, SM90, cc 9.0), CUDA 12.8 / `nvcc` 12.8.93,
 PyTorch 2.11.0+cu128, `KERNEL_ALIGN_FORCE_SM90=1`. dtype bf16, 20 iters + 5
 warmup. "MB" is peak extra device memory above baseline. Both tables are
-reproduced by `benchmarks/benchmark_batch_invariant_logp.py --backward`.
+reproduced by `benchmarks/operators/logprob/benchmark_batch_invariant_logp.py --backward`.
 
 **Forward**
 
@@ -240,7 +240,7 @@ within the same backend use exact equality where appropriate.
 ```python
 import torch
 
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 op = kernel_registry.get_op("batch_invariant_logp")
 
@@ -259,7 +259,7 @@ out.sum().backward()
 ## Tests
 
 ```bash
-python -m pytest tests/test_batch_invariant_logp.py -q -rs
+python -m pytest tests/ops/logprob/test_batch_invariant_logp.py -q -rs
 ```
 
 All backends (Native, Triton) are tested in a single file. Coverage includes:
@@ -273,13 +273,13 @@ WSL/Linux with CUDA.
 
 ## Implementation Files
 
-- `rl_engine/kernels/ops/pytorch/loss/batch_invariant_logp.py`
-- `rl_engine/kernels/ops/triton/loss/batch_invariant_logp.py`
-- `rl_engine/kernels/ops/cuda/loss/batch_invariant_logp.py`
-- `csrc/cuda/batch_invariant_logp_kernel_sm90.cu`
-- `rl_engine/kernels/registry.py`
-- `tests/test_batch_invariant_logp.py`
-- `benchmarks/benchmark_batch_invariant_logp.py`
-- `rl_engine/kernels/ops/pytorch/loss/vocab_parallel_logp.py`
-- `rl_engine/kernels/logprob_contract.py`
-- `tests/test_vocab_parallel_logp.py`
+- `rl_engine/reference/logprob/batch_invariant_logp.py`
+- `rl_engine/backends/shared/triton/logprob/batch_invariant_logp.py`
+- `rl_engine/backends/cuda/logprob/batch_invariant_logp.py`
+- `csrc/cuda/logprob/batch_invariant_logp_kernel_sm90.cu`
+- `rl_engine/runtime/registry.py`
+- `tests/ops/logprob/test_batch_invariant_logp.py`
+- `benchmarks/operators/logprob/benchmark_batch_invariant_logp.py`
+- `rl_engine/reference/logprob/vocab_parallel_logp.py`
+- `rl_engine/contracts/operators/logprob.py`
+- `tests/distributed/tp/test_vocab_parallel_logp.py`

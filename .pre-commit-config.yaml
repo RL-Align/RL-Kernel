@@ -4,23 +4,26 @@ repos:
     hooks:
       - id: trailing-whitespace
         # Unified diffs include significant context markers and pinned hashes.
-        exclude: '\.patch$'
+        exclude: '(\.patch$|^reports/archive/)'
       - id: end-of-file-fixer
+        exclude: ^reports/archive/
       - id: check-yaml
         exclude: 'mkdocs\.yaml$'
       - id: check-added-large-files
-        exclude: 'docs/assets/.*'
+        exclude: '^(docs/assets/|reports/archive/)'
 
   - repo: https://github.com/psf/black
     rev: 24.4.2
     hooks:
       - id: black
+        exclude: ^reports/archive/
         args: [--line-length=100]
 
   - repo: https://github.com/PyCQA/isort
     rev: 5.13.2
     hooks:
       - id: isort
+        exclude: ^reports/archive/
         args: ["--profile", "black", "--line-length=100"]
 
   - repo: https://github.com/PyCQA/flake8
