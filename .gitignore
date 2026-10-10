@@ -210,6 +210,7 @@ __marimo__/
 
 # Cross-configuration alignment local run artifacts
 /runs/
+/artifacts/h3-down/
 
 # Local dev notes (not for upstream)
 _dev_notes/
