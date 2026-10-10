@@ -131,6 +131,12 @@ def _base(
     )
 
 
+def make_fixture(name: str, **kwargs: Any) -> M10Fixture:
+    """Public builder for larger ad-hoc fixtures (same integer formulas; not pinned)."""
+
+    return _base(name, **kwargs)
+
+
 def _flip_one_weight_bit(weight: torch.Tensor) -> torch.Tensor:
     flipped = weight.clone()
     raw = flipped.view(torch.int16)
@@ -267,5 +273,6 @@ __all__ = [
     "build_fixtures",
     "fixture_digest",
     "local_logits",
+    "make_fixture",
     "vime_request",
 ]
