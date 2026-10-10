@@ -18,7 +18,7 @@ are semantic inputs (RFC #420 §4): they are validated, never clamped.
 ## Entry Point
 
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 op = kernel_registry.get_op("adaln_row_gather", device="cuda")
 outs = op(table.view(-1, 6 * 5376), timestep_indices, token_tags)    # six (S, 5376)
@@ -29,12 +29,12 @@ outs = op.gather_chunks((shift_msa, ..., gate_mlp), timestep_indices, token_tags
 
 | Backend | Wrapper | Native symbols | Status |
 | --- | --- | --- | --- |
-| CUDA (SM90, SM100) | `rl_engine.kernels.ops.cuda.h3.adaln_row_gather.H3AdaLNRowGatherCudaOp` | `rl_engine._C.h3_adaln_row_gather_{forward,backward}` | Forward bitwise equal to `index_select`; deterministic backward |
-| PyTorch reference | `rl_engine.kernels.ops.pytorch.h3.adaln_row_gather.NativeH3AdaLNRowGatherOp` | n/a | `index_select` forward; deterministic per-row FP32 backward |
+| CUDA (SM90, SM100) | `rl_engine.backends.cuda.model_specific.minimax_h3.adaln_row_gather.H3AdaLNRowGatherCudaOp` | `rl_engine._C.h3_adaln_row_gather_{forward,backward}` | Forward bitwise equal to `index_select`; deterministic backward |
+| PyTorch reference | `rl_engine.reference.minimax_h3.adaln_row_gather.NativeH3AdaLNRowGatherOp` | n/a | `index_select` forward; deterministic per-row FP32 backward |
 | ROCm | n/a | n/a | Falls back to the PyTorch reference |
 
 The raw diffusers path, including its atomic backward, is kept as
-`rl_engine.testing.h3_provider.provider_adaln_row_gather` for evidence.
+`rl_engine.validation.models.h3_provider.provider_adaln_row_gather` for evidence.
 
 ## Tensor Contract
 
@@ -75,7 +75,7 @@ Measured on a B200 (torch 2.13.0+cu130):
 
 ### Fused modulation: `H3AdaLNModulationCudaOp`
 
-`rl_engine.kernels.ops.cuda.h3.adaln_modulation.H3AdaLNModulationCudaOp(temb, weight, bias,
+`rl_engine.backends.cuda.model_specific.minimax_h3.adaln_modulation.H3AdaLNModulationCudaOp(temb, weight, bias,
 timestep_indices, token_tags)` runs [`adaln_projection_3mod`](h3-adaln-projection.md) and
 this gather as one autograd node. Its forward uses the same kernels and is bitwise equal
 to calling the two ops in sequence.
@@ -87,7 +87,7 @@ backward. Use it wherever both ops run back to back, as they do in an H3 block.
 
 ### Whole-chain backward
 
-`scripts/h3_chain_replay.py --backward` runs on the pinned weights for
+`tools/validation/models/h3_chain_replay.py --backward` runs on the pinned weights for
 T in {1, 2, 3, 4} × S in {3, 257, 4097, 32768}. It checks six parameter gradients in each
 of the 16 cases (the time embedder's `linear_{1,2}.{weight,bias}` and block 0's AdaLN
 weight and bias) against an FP64 golden in which every declared cast is straight-through:
@@ -104,7 +104,7 @@ time embedder, against 3.2e-3 for diffusers.
 ## Performance Notes
 
 ```bash
-python benchmarks/benchmark_h3_conditioning.py --op adaln_row_gather
+python benchmarks/models/benchmark_h3_conditioning.py --op adaln_row_gather
 ```
 
 B200, T = 3, H = 5376, BF16. "write BW" counts the 6·S·H outputs; the table stays in L2.
@@ -122,13 +122,13 @@ alternates each iteration and is recorded in the report.
 
 ## Evidence
 
-![adaln_row_gather on B200: latency and whole-chain gradient accuracy](../usage/evidence/h3-adaln-row-gather-b200/figure.png)
+![adaln_row_gather on B200: latency and whole-chain gradient accuracy](../../reports/experiments/h3-adaln-row-gather-b200/figure.png)
 
 There are two data files:
 
-- [`report.json`](../usage/evidence/h3-adaln-row-gather-b200/report.json): op timings, forward
+- [`report.json`](../../reports/experiments/h3-adaln-row-gather-b200/report.json): op timings, forward
   bitwise checks, op-level backward, and the chain-backward cases plotted above.
-- [`chain_replay.json`](../usage/evidence/h3-adaln-row-gather-b200/chain_replay.json): the full
+- [`chain_replay.json`](../../reports/experiments/h3-adaln-row-gather-b200/chain_replay.json): the full
   stage-wise forward replay and backward replay over T in {1, 2, 3, 4} × S in {3, 257, 4097, 32768}.
 
 `report.json` was regenerated from a clean tree at commit `80e4609` with backward-only
@@ -137,7 +137,7 @@ at commit `fa551c2`.
 
 ## Existing implementations (RFC #420 reuse rule)
 
-![adaln_row_gather vs existing implementations](../usage/evidence/h3-prior-art-b200/adaln_row_gather.png)
+![adaln_row_gather vs existing implementations](../../reports/experiments/h3-prior-art-b200/adaln_row_gather.png)
 
 | Implementation | Batch-invariant | size 4097: fwd err / worst grad err / fwd+bwd | size 32768: fwd err / worst grad err / fwd+bwd |
 |---|---|---|---|
@@ -148,12 +148,12 @@ Errors are max|err| / max|ref| against the same computation in FP64; latency is 
 forward + backward time on an otherwise idle B200. Batch invariance is bitwise and covers
 three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
 131072-row batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
-"no" means that at least one row, sub-batch or gradient differed. [`adaln_row_gather.json`](../usage/evidence/h3-prior-art-b200/adaln_row_gather.json)
+"no" means that at least one row, sub-batch or gradient differed. [`adaln_row_gather.json`](../../reports/experiments/h3-prior-art-b200/adaln_row_gather.json)
 was written from a clean tree at `6c900ae` by
 
 ```bash
-python scripts/h3_prior_art.py --op adaln_row_gather --out docs/usage/evidence/h3-prior-art-b200/adaln_row_gather.json
-python scripts/plot_h3_prior_art.py docs/usage/evidence/h3-prior-art-b200/adaln_row_gather.json
+python tools/validation/models/h3_prior_art.py --op adaln_row_gather --out reports/experiments/h3-prior-art-b200/adaln_row_gather.json
+python tools/validation/models/plot_h3_prior_art.py reports/experiments/h3-prior-art-b200/adaln_row_gather.json
 ```
 
 Libraries that do not import are skipped and recorded as unavailable in the report.
@@ -161,16 +161,16 @@ Libraries that do not import are skipped and recorded as unavailable in the repo
 ## Tests
 
 ```bash
-export RL_KERNEL_H3_WEIGHTS=<dir written by scripts/prepare_h3_weights.py>
-python -m pytest tests/h3/test_h3_adaln_row_gather.py tests/h3/test_h3_adaln_modulation.py -v
-python -m pytest tests/h3/test_h3_conditioning_e2e.py -v       # whole chain, forward + backward
-python scripts/check_operator.py --op adaln_row_gather --candidate cuda --device cuda \
+export RL_KERNEL_H3_WEIGHTS=<dir written by tools/weights/prepare_h3_weights.py>
+python -m pytest tests/models/minimax_h3/test_h3_adaln_row_gather.py tests/models/minimax_h3/test_h3_adaln_modulation.py -v
+python -m pytest tests/models/minimax_h3/test_h3_conditioning_e2e.py -v       # whole chain, forward + backward
+python tools/validation/operators/check_operator.py --op adaln_row_gather --candidate cuda --device cuda \
     --dtype bf16 --batch 3 --seq 1365 --normalized-dim 5376 --check-grad
-python scripts/h3_evidence.py --op adaln_row_gather \
-    --out docs/usage/evidence/h3-adaln-row-gather-b200/report.json
-python scripts/plot_h3_evidence.py docs/usage/evidence/h3-adaln-row-gather-b200/report.json
-python scripts/h3_chain_replay.py --timesteps 1,2,3,4 --seq-lens 3,257,4097,32768 \
-    --backward --out docs/usage/evidence/h3-adaln-row-gather-b200/chain_replay.json
+python tools/validation/models/h3_evidence.py --op adaln_row_gather \
+    --out reports/experiments/h3-adaln-row-gather-b200/report.json
+python tools/validation/models/plot_h3_evidence.py reports/experiments/h3-adaln-row-gather-b200/report.json
+python tools/validation/models/h3_chain_replay.py --timesteps 1,2,3,4 --seq-lens 3,257,4097,32768 \
+    --backward --out reports/experiments/h3-adaln-row-gather-b200/chain_replay.json
 ```
 
 ## Known Limitations

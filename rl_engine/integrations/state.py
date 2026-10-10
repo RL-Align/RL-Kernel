@@ -1,57 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 RL-Kernel Contributors
+"""Compatibility import; the canonical module is loaded below."""
 
-"""Process-local framework integration state.
+import importlib
+import sys
+from pathlib import Path
 
-Ray actors and vLLM workers are separate processes, so each process owns one
-integration object and emits its own readback file.  Keeping the registry here
-also lets the Vime logprob provider join the same Megatron call accounting as
-the Attention and FFN hooks.
-"""
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from __future__ import annotations
+if __name__ == "__main__":
+    import runpy
 
-from threading import Lock
-from typing import Literal
-
-from rl_engine.integrations.runtime import FrameworkOperatorIntegration
-
-FrameworkName = Literal["megatron", "vllm"]
-
-_ACTIVE: dict[FrameworkName, FrameworkOperatorIntegration] = {}
-_LOCK = Lock()
-
-
-def set_active_integration(
-    framework: FrameworkName,
-    integration: FrameworkOperatorIntegration,
-) -> None:
-    if integration.framework != framework:
-        raise ValueError(
-            f"integration framework {integration.framework!r} does not match {framework!r}"
-        )
-    with _LOCK:
-        existing = _ACTIVE.get(framework)
-        if existing is not None and existing is not integration:
-            raise RuntimeError(f"{framework} integration is already installed in this process")
-        _ACTIVE[framework] = integration
-
-
-def get_active_integration(
-    framework: FrameworkName,
-) -> FrameworkOperatorIntegration | None:
-    with _LOCK:
-        return _ACTIVE.get(framework)
-
-
-def clear_active_integration(framework: FrameworkName) -> None:
-    with _LOCK:
-        _ACTIVE.pop(framework, None)
-
-
-__all__ = [
-    "FrameworkName",
-    "clear_active_integration",
-    "get_active_integration",
-    "set_active_integration",
-]
+    runpy.run_module("rl_engine.integrations.common.state", run_name="__main__")
+else:
+    sys.modules[__name__] = importlib.import_module("rl_engine.integrations.common.state")

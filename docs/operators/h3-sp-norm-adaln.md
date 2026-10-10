@@ -11,8 +11,8 @@ and the [gated residual](h3-adaln-gate-residual.md). Every rank's output and row
 ## Entry Point
 
 ```python
-from rl_engine.distributed.collectives import DeterministicCollective
-from rl_engine.kernels.ops.cuda.h3.sp_norm_adaln import H3SPNormAdaLNCudaOp
+from rl_engine.distributed.algorithms.collectives import DeterministicCollective
+from rl_engine.backends.cuda.model_specific.minimax_h3.sp_norm_adaln import H3SPNormAdaLNCudaOp
 
 collective = DeterministicCollective(group=sp_group, device=local_rank)
 op = H3SPNormAdaLNCudaOp(collective, seq_len=S, batch=B)
@@ -70,9 +70,9 @@ How many rows move depends on how the table rows interleave along the sequence:
 
 ## Evidence
 
-![sp_norm_adaln on 8 x B200: byte equality, time, naive SP](../usage/evidence/h3-sp-norm-adaln-b200/figure.png)
+![sp_norm_adaln on 8 x B200: byte equality, time, naive SP](../../reports/experiments/h3-sp-norm-adaln-b200/figure.png)
 
-The report is written by `scripts/h3_ws2_evidence.py` from a clean tree at commit `6c0d380`, with
+The report is written by `tools/validation/models/h3_ws2_evidence.py` from a clean tree at commit `6c0d380`, with
 real NCCL processes on one 8 x B200 node, one GPU per rank. The region is
 `norm2(residual + gate_msa[row] * y)` with `shift_mlp`/`scale_mlp` modulation, H = 5376, BF16. It
 covers six cases: S = 4097 (block, interleaved, B = 2), 32768 (block, interleaved) and 131072
@@ -97,10 +97,10 @@ or 21% (interleaved) of `d_table` elements.
 ## Tests
 
 ```bash
-python -m pytest tests/h3/test_h3_sp_norm_adaln.py -v   # layout, rank backward, NCCL SP2/4/8
-python scripts/h3_ws2_evidence.py --op sp_norm_adaln --worlds 1,2,4,8 \
-    --out docs/usage/evidence/h3-sp-norm-adaln-b200/report.json
-python scripts/plot_h3_evidence.py docs/usage/evidence/h3-sp-norm-adaln-b200/report.json
+python -m pytest tests/models/minimax_h3/test_h3_sp_norm_adaln.py -v   # layout, rank backward, NCCL SP2/4/8
+python tools/validation/models/h3_ws2_evidence.py --op sp_norm_adaln --worlds 1,2,4,8 \
+    --out reports/experiments/h3-sp-norm-adaln-b200/report.json
+python tools/validation/models/plot_h3_evidence.py reports/experiments/h3-sp-norm-adaln-b200/report.json
 ```
 
 The rank-backward tests run SP 2–8 on one GPU, with ranks as threads around the plain backward

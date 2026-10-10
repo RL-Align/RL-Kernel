@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 RL-Kernel Contributors
+"""Compatibility import; the canonical module is loaded below."""
 
-from rl_engine.kernels.ops.ascend.matmul.det_gemm import DetGemmAscendOp
+from importlib import import_module
 
-__all__ = ["DetGemmAscendOp"]
+
+def __getattr__(name):
+    return getattr(import_module("rl_engine.backends.ascend.gemm"), name)

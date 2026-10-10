@@ -23,7 +23,7 @@ Pinned model: `MiniMaxAI/MiniMax-H3@42ed227`, `transformer_blocks.0.adaln_proj.l
 ## Entry Point
 
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 op = kernel_registry.get_op("adaln_projection_3mod", device="cuda")
 shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = op(temb, weight, bias)
@@ -34,8 +34,8 @@ table = op.forward_table(temb, weight, bias)   # raw (T, 96768) for a fused gath
 
 | Backend | Wrapper | Native symbols | Status |
 | --- | --- | --- | --- |
-| CUDA (SM80+, validated on SM100) | `rl_engine.kernels.ops.cuda.h3.adaln_projection.H3AdaLNProjectionCudaOp` | `rl_engine._C.h3_det_linear_*` | BF16 weights: contract `h3-det-linear-bf16-mma-v1`; FP32 weights: `h3-det-linear-v1` |
-| PyTorch reference | `rl_engine.kernels.ops.pytorch.h3.adaln_projection.NativeH3AdaLNProjectionOp` | n/a | `forward`: provider path; `forward_fp32`: declared-cast FP64 golden |
+| CUDA (SM80+, validated on SM100) | `rl_engine.backends.cuda.model_specific.minimax_h3.adaln_projection.H3AdaLNProjectionCudaOp` | `rl_engine._C.h3_det_linear_*` | BF16 weights: contract `h3-det-linear-bf16-mma-v1`; FP32 weights: `h3-det-linear-v1` |
+| PyTorch reference | `rl_engine.reference.minimax_h3.adaln_projection.NativeH3AdaLNProjectionOp` | n/a | `forward`: provider path; `forward_fp32`: declared-cast FP64 golden |
 | ROCm | n/a | n/a | Falls back to the PyTorch reference |
 
 ## Tensor Contract
@@ -101,7 +101,7 @@ for gradients.
 ## Performance Notes
 
 ```bash
-python benchmarks/benchmark_h3_conditioning.py --op adaln_projection_3mod
+python benchmarks/models/benchmark_h3_conditioning.py --op adaln_projection_3mod
 ```
 
 B200, pinned BF16 weights (520 MB per block, streamed once per call):
@@ -124,16 +124,16 @@ dependence on T.
 
 ## Evidence
 
-![adaln_projection_3mod on B200: latency and correctly rounded outputs](../usage/evidence/h3-adaln-projection-b200/figure.png)
+![adaln_projection_3mod on B200: latency and correctly rounded outputs](../../reports/experiments/h3-adaln-projection-b200/figure.png)
 
-The data is in [`report.json`](../usage/evidence/h3-adaln-projection-b200/report.json),
-written by `scripts/h3_evidence.py` from a clean tree at commit `d06e120`. The report also
+The data is in [`report.json`](../../reports/experiments/h3-adaln-projection-b200/report.json),
+written by `tools/validation/models/h3_evidence.py` from a clean tree at commit `d06e120`. The report also
 records that a timestep's 18 modulation rows are bitwise identical whether it runs alone
 or in a batch of 9.
 
 ## Existing implementations (RFC #420 reuse rule)
 
-![adaln_projection vs existing implementations](../usage/evidence/h3-prior-art-b200/adaln_projection.png)
+![adaln_projection vs existing implementations](../../reports/experiments/h3-prior-art-b200/adaln_projection.png)
 
 | Implementation | Batch-invariant | size 3: fwd err / worst grad err / fwd+bwd | size 256: fwd err / worst grad err / fwd+bwd | size 2048: fwd err / worst grad err / fwd+bwd |
 |---|---|---|---|---|
@@ -150,12 +150,12 @@ Errors are max|err| / max|ref| against the same computation in FP64; latency is 
 forward + backward time on an otherwise idle B200. Batch invariance is bitwise and covers
 three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
 4096-timestep batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
-"no" means that at least one row, sub-batch or gradient differed. [`adaln_projection.json`](../usage/evidence/h3-prior-art-b200/adaln_projection.json)
+"no" means that at least one row, sub-batch or gradient differed. [`adaln_projection.json`](../../reports/experiments/h3-prior-art-b200/adaln_projection.json)
 was written from a clean tree at `c88691c` by
 
 ```bash
-python scripts/h3_prior_art.py --op adaln_projection --out docs/usage/evidence/h3-prior-art-b200/adaln_projection.json --megatron-src <Megatron-LM checkout>
-python scripts/plot_h3_prior_art.py docs/usage/evidence/h3-prior-art-b200/adaln_projection.json
+python tools/validation/models/h3_prior_art.py --op adaln_projection --out reports/experiments/h3-prior-art-b200/adaln_projection.json --megatron-src <Megatron-LM checkout>
+python tools/validation/models/plot_h3_prior_art.py reports/experiments/h3-prior-art-b200/adaln_projection.json
 ```
 
 Libraries that do not import are skipped and recorded as unavailable in the report.
@@ -163,14 +163,14 @@ Libraries that do not import are skipped and recorded as unavailable in the repo
 ## Tests
 
 ```bash
-export RL_KERNEL_H3_WEIGHTS=<dir written by scripts/prepare_h3_weights.py>
-python -m pytest tests/h3/test_h3_adaln_projection.py -v       # operator
-python -m pytest tests/h3/test_h3_conditioning_e2e.py -v       # end to end: sinusoid -> MLP -> projection
-python scripts/check_operator.py --op adaln_projection_3mod --candidate cuda --device cuda \
+export RL_KERNEL_H3_WEIGHTS=<dir written by tools/weights/prepare_h3_weights.py>
+python -m pytest tests/models/minimax_h3/test_h3_adaln_projection.py -v       # operator
+python -m pytest tests/models/minimax_h3/test_h3_conditioning_e2e.py -v       # end to end: sinusoid -> MLP -> projection
+python tools/validation/operators/check_operator.py --op adaln_projection_3mod --candidate cuda --device cuda \
     --dtype bf16 --batch 3 --normalized-dim 5376 --check-grad
-python scripts/h3_evidence.py --op adaln_projection_3mod \
-    --out docs/usage/evidence/h3-adaln-projection-b200/report.json
-python scripts/plot_h3_evidence.py docs/usage/evidence/h3-adaln-projection-b200/report.json
+python tools/validation/models/h3_evidence.py --op adaln_projection_3mod \
+    --out reports/experiments/h3-adaln-projection-b200/report.json
+python tools/validation/models/plot_h3_evidence.py reports/experiments/h3-adaln-projection-b200/report.json
 ```
 
 ## Known Limitations
