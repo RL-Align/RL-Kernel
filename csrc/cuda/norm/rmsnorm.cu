@@ -108,7 +108,8 @@ __global__ void rmsnorm_fwd_kernel(
     float* __restrict__ rstd,
     int T,
     int H,
-    float eps
+    float eps,
+    float weight_offset
 ) {
     int row = blockIdx.x;
     int tid = threadIdx.x;
@@ -135,10 +136,17 @@ __global__ void rmsnorm_fwd_kernel(
 
     __syncthreads();
 
-    // Write y = x * rstd * weight.
+    // Write y = x * rstd * (weight_offset + weight). The offset is added in
+    // fp32 after the upcast: a zero-centred weight (Qwen3-Next, Gemma) must not
+    // have its "+1" folded into the low-precision weight beforehand, which would
+    // round the offset and break the bitwise contract.
     for (int col = tid; col < H; col += blockDim.x) {
         float xv = load_as_float<scalar_t>(x_row + col);
         float wv = load_as_float<weight_t>(weight + col);
+        // Guarded: `-0.0f + 0.0f` is +0.0f, so an unconditional add would flip the
+        // sign bit of -0.0 weights on the plain path. Pinned by
+        // tests/models/qwen3_next/test_qwen3_next_norm.py::test_cuda_plain_signed_zero_is_preserved.
+        if (weight_offset != 0.0f) wv += weight_offset;
         float out = xv * row_rstd * wv;
         store_from_float<scalar_t>(y_row + col, out);
     }
@@ -153,7 +161,8 @@ __global__ void rmsnorm_bwd_dx_kernel(
     const float* __restrict__ rstd,
     scalar_t* __restrict__ dx,
     int T,
-    int H
+    int H,
+    float weight_offset
 ) {
     int row = blockIdx.x;
     int tid = threadIdx.x;
@@ -168,6 +177,7 @@ __global__ void rmsnorm_bwd_dx_kernel(
         float dyv = load_as_float<scalar_t>(dy_row + col);
         float xv = load_as_float<scalar_t>(x_row + col);
         float wv = load_as_float<weight_t>(weight + col);
+        if (weight_offset != 0.0f) wv += weight_offset;
         local_dot += dyv * wv * xv;
     }
 
@@ -180,12 +190,140 @@ __global__ void rmsnorm_bwd_dx_kernel(
         float dyv = load_as_float<scalar_t>(dy_row + col);
         float xv = load_as_float<scalar_t>(x_row + col);
         float wv = load_as_float<weight_t>(weight + col);
+        if (weight_offset != 0.0f) wv += weight_offset;
 
         float out = r * dyv * wv - xv * coeff;
         store_from_float<scalar_t>(dx_row + col, out);
     }
 }
 
+
+// ---------------------------------------------------------------------------
+// Gated RMSNorm (Qwen3-Next GDN block).
+//
+//   y = x * rstd * (weight_offset + weight) * act(gate)
+//
+// The gate activation and the weight multiply are both evaluated in fp32 and
+// there is exactly one cast, at the store. This mirrors vLLM's RMSNormGated
+// with norm_before_gate=True, which is how the GDN block constructs it.
+//
+// ACT selects the gate activation: 0 = silu/swish, 1 = sigmoid. expf (not the
+// __expf intrinsic) is used deliberately -- the fast intrinsic trades accuracy
+// for speed and would put the result further from the fp32 reference.
+// ---------------------------------------------------------------------------
+
+template <int ACT>
+__device__ __forceinline__ float gate_activation(float z) {
+    const float sigma = 1.0f / (1.0f + expf(-z));
+    return (ACT == 0) ? z * sigma : sigma;
+}
+
+template <int ACT>
+__device__ __forceinline__ float gate_activation_grad(float z) {
+    const float sigma = 1.0f / (1.0f + expf(-z));
+    // d/dz [z * sigma] = sigma * (1 + z * (1 - sigma));  d/dz [sigma] = sigma * (1 - sigma)
+    return (ACT == 0) ? sigma * (1.0f + z * (1.0f - sigma)) : sigma * (1.0f - sigma);
+}
+
+
+template <typename scalar_t, typename weight_t, int ACT>
+__global__ void rmsnorm_gated_fwd_kernel(
+    const scalar_t* __restrict__ x,
+    const weight_t* __restrict__ weight,
+    const scalar_t* __restrict__ gate,
+    scalar_t* __restrict__ y,
+    float* __restrict__ rstd,
+    int T,
+    int H,
+    float eps,
+    float weight_offset
+) {
+    int row = blockIdx.x;
+    int tid = threadIdx.x;
+
+    const scalar_t* x_row = x + row * H;
+    const scalar_t* gate_row = gate + row * H;
+    scalar_t* y_row = y + row * H;
+
+    float local_sum = 0.0f;
+
+    // The statistic is over x only; the gate never enters the reduction, so
+    // rstd here is bit-identical to the ungated kernel's for the same x.
+    for (int col = tid; col < H; col += blockDim.x) {
+        float xv = load_as_float<scalar_t>(x_row + col);
+        local_sum += xv * xv;
+    }
+
+    float sum = block_reduce_sum(local_sum);
+
+    float row_rstd = rsqrtf(sum / static_cast<float>(H) + eps);
+
+    if (tid == 0) {
+        rstd[row] = row_rstd;
+    }
+
+    __syncthreads();
+
+    for (int col = tid; col < H; col += blockDim.x) {
+        float xv = load_as_float<scalar_t>(x_row + col);
+        float wv = load_as_float<weight_t>(weight + col);
+        if (weight_offset != 0.0f) wv += weight_offset;
+        float zv = load_as_float<scalar_t>(gate_row + col);
+        float out = xv * row_rstd * wv * gate_activation<ACT>(zv);
+        store_from_float<scalar_t>(y_row + col, out);
+    }
+}
+
+
+template <typename scalar_t, typename weight_t, int ACT>
+__global__ void rmsnorm_gated_bwd_dx_kernel(
+    const scalar_t* __restrict__ dy,
+    const scalar_t* __restrict__ x,
+    const weight_t* __restrict__ weight,
+    const scalar_t* __restrict__ gate,
+    const float* __restrict__ rstd,
+    scalar_t* __restrict__ dx,
+    int T,
+    int H,
+    float weight_offset
+) {
+    int row = blockIdx.x;
+    int tid = threadIdx.x;
+
+    const scalar_t* dy_row = dy + row * H;
+    const scalar_t* x_row = x + row * H;
+    const scalar_t* gate_row = gate + row * H;
+    scalar_t* dx_row = dx + row * H;
+
+    float local_dot = 0.0f;
+
+    // Identical to the ungated dx, with the per-column scale (w + offset)
+    // replaced by (w + offset) * act(gate): the gate is a constant wrt x.
+    for (int col = tid; col < H; col += blockDim.x) {
+        float dyv = load_as_float<scalar_t>(dy_row + col);
+        float xv = load_as_float<scalar_t>(x_row + col);
+        float wv = load_as_float<weight_t>(weight + col);
+        if (weight_offset != 0.0f) wv += weight_offset;
+        float zv = load_as_float<scalar_t>(gate_row + col);
+        local_dot += dyv * (wv * gate_activation<ACT>(zv)) * xv;
+    }
+
+    float dot = block_reduce_sum(local_dot);
+
+    float r = rstd[row];
+    float coeff = dot * r * r * r / static_cast<float>(H);
+
+    for (int col = tid; col < H; col += blockDim.x) {
+        float dyv = load_as_float<scalar_t>(dy_row + col);
+        float xv = load_as_float<scalar_t>(x_row + col);
+        float wv = load_as_float<weight_t>(weight + col);
+        if (weight_offset != 0.0f) wv += weight_offset;
+        float zv = load_as_float<scalar_t>(gate_row + col);
+
+        float out = r * dyv * (wv * gate_activation<ACT>(zv)) - xv * coeff;
+        store_from_float<scalar_t>(dx_row + col, out);
+    }
+}
 
 template <typename scalar_t>
 __global__ void rmsnorm_partial_dw_kernel(
@@ -247,12 +385,14 @@ void rmsnorm_forward_cuda(
     torch::Tensor weight,
     torch::Tensor y,
     torch::Tensor rstd,
-    double eps
+    double eps,
+    double weight_offset
 ) {
     // Launch on x's device: the current CUDA stream belongs to the current
     // device, which need not be x's.
     const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
     int T = x.size(0);
+    if (T == 0) return;
     int H = x.size(1);
     int threads = choose_threads(H);
     size_t smem = threads * sizeof(float);
@@ -270,10 +410,12 @@ void rmsnorm_forward_cuda(
                 rstd.data_ptr<float>(),
                 T,
                 H,
-                static_cast<float>(eps)
+                static_cast<float>(eps),
+                static_cast<float>(weight_offset)
             );
         });
     });
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 
@@ -282,10 +424,12 @@ void rmsnorm_backward_dx_cuda(
     torch::Tensor x,
     torch::Tensor weight,
     torch::Tensor rstd,
-    torch::Tensor dx
+    torch::Tensor dx,
+    double weight_offset
 ) {
     const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
     int T = x.size(0);
+    if (T == 0) return;
     int H = x.size(1);
     int threads = choose_threads(H);
     size_t smem = threads * sizeof(float);
@@ -303,12 +447,93 @@ void rmsnorm_backward_dx_cuda(
                 rstd.data_ptr<float>(),
                 dx.data_ptr<x_t>(),
                 T,
-                H
+                H,
+                static_cast<float>(weight_offset)
             );
         });
     });
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
+
+void rmsnorm_gated_forward_cuda(
+    torch::Tensor x,
+    torch::Tensor weight,
+    torch::Tensor gate,
+    torch::Tensor y,
+    torch::Tensor rstd,
+    double eps,
+    double weight_offset,
+    int64_t activation
+) {
+    const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
+    int T = x.size(0);
+    if (T == 0) return;
+    int H = x.size(1);
+    int threads = choose_threads(H);
+    size_t smem = threads * sizeof(float);
+
+    cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+
+    AT_DISPATCH_FLOATING_TYPES_AND2(at::kHalf, at::kBFloat16, x.scalar_type(), "rmsnorm_gated_forward_cuda", [&] {
+        using x_t = scalar_t;
+        AT_DISPATCH_FLOATING_TYPES_AND2(at::kHalf, at::kBFloat16, weight.scalar_type(), "rmsnorm_gated_forward_weight_cuda", [&] {
+            using w_t = scalar_t;
+            if (activation == 0) {
+                rmsnorm_gated_fwd_kernel<x_t, w_t, 0><<<T, threads, smem, stream>>>(
+                    x.data_ptr<x_t>(), weight.data_ptr<w_t>(), gate.data_ptr<x_t>(),
+                    y.data_ptr<x_t>(), rstd.data_ptr<float>(),
+                    T, H, static_cast<float>(eps), static_cast<float>(weight_offset));
+            } else {
+                rmsnorm_gated_fwd_kernel<x_t, w_t, 1><<<T, threads, smem, stream>>>(
+                    x.data_ptr<x_t>(), weight.data_ptr<w_t>(), gate.data_ptr<x_t>(),
+                    y.data_ptr<x_t>(), rstd.data_ptr<float>(),
+                    T, H, static_cast<float>(eps), static_cast<float>(weight_offset));
+            }
+        });
+    });
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+}
+
+
+void rmsnorm_gated_backward_dx_cuda(
+    torch::Tensor dy,
+    torch::Tensor x,
+    torch::Tensor weight,
+    torch::Tensor gate,
+    torch::Tensor rstd,
+    torch::Tensor dx,
+    double weight_offset,
+    int64_t activation
+) {
+    const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
+    int T = x.size(0);
+    if (T == 0) return;
+    int H = x.size(1);
+    int threads = choose_threads(H);
+    size_t smem = threads * sizeof(float);
+
+    cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+
+    AT_DISPATCH_FLOATING_TYPES_AND2(at::kHalf, at::kBFloat16, x.scalar_type(), "rmsnorm_gated_backward_dx_cuda", [&] {
+        using x_t = scalar_t;
+        AT_DISPATCH_FLOATING_TYPES_AND2(at::kHalf, at::kBFloat16, weight.scalar_type(), "rmsnorm_gated_backward_dx_weight_cuda", [&] {
+            using w_t = scalar_t;
+            if (activation == 0) {
+                rmsnorm_gated_bwd_dx_kernel<x_t, w_t, 0><<<T, threads, smem, stream>>>(
+                    dy.data_ptr<x_t>(), x.data_ptr<x_t>(), weight.data_ptr<w_t>(),
+                    gate.data_ptr<x_t>(), rstd.data_ptr<float>(), dx.data_ptr<x_t>(),
+                    T, H, static_cast<float>(weight_offset));
+            } else {
+                rmsnorm_gated_bwd_dx_kernel<x_t, w_t, 1><<<T, threads, smem, stream>>>(
+                    dy.data_ptr<x_t>(), x.data_ptr<x_t>(), weight.data_ptr<w_t>(),
+                    gate.data_ptr<x_t>(), rstd.data_ptr<float>(), dx.data_ptr<x_t>(),
+                    T, H, static_cast<float>(weight_offset));
+            }
+        });
+    });
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+}
 
 void rmsnorm_backward_partial_dw_cuda(
     torch::Tensor dy,
@@ -319,6 +544,7 @@ void rmsnorm_backward_partial_dw_cuda(
 ) {
     const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
     int T = x.size(0);
+    if (T == 0) return;
     int H = x.size(1);
 
     int chunks = (T + RMSNORM_DW_ROWS_PER_CHUNK - 1) / RMSNORM_DW_ROWS_PER_CHUNK;
@@ -338,6 +564,7 @@ void rmsnorm_backward_partial_dw_cuda(
             H
         );
     });
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 
@@ -360,6 +587,7 @@ void rmsnorm_backward_reduce_dw_cuda(
         chunks,
         H
     );
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 #if !defined(USE_ROCM)

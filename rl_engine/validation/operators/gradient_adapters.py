@@ -53,6 +53,7 @@ class GradientAdapterSpec:
     source_files: tuple[str, ...]
     shape_dependent_bwd_accum: str = "forbidden"
     atomic_add: str = "forbidden"
+    model_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -114,6 +115,26 @@ GRADIENT_ADAPTERS: dict[str, GradientAdapterSpec] = {
             "rl_engine/backends/shared/triton/norm/rmsnorm.py",
             "csrc/cuda/norm/rmsnorm.cu",
         ),
+    ),
+    "qwen3_next_rms_norm": GradientAdapterSpec(
+        op_name="qwen3_next_rms_norm",
+        chain_node="qwen3_next_rms_norm",
+        op_class="reduction",
+        spec_name="qwen3_next_rms_norm",
+        tensors=(_DX, _DWEIGHT),
+        requirement="required",
+        source_files=("rl_engine/backends/cuda/norm/rmsnorm.py", "csrc/cuda/norm/rmsnorm.cu"),
+        model_id="Qwen/Qwen3-Next-80B-A3B-Instruct",
+    ),
+    "rms_norm_gated": GradientAdapterSpec(
+        op_name="rms_norm_gated",
+        chain_node="rms_norm_gated",
+        op_class="reduction",
+        spec_name="rms_norm_gated",
+        tensors=(_DX, _DWEIGHT, _DGATE),
+        requirement="required",
+        source_files=("rl_engine/backends/cuda/norm/rmsnorm.py", "csrc/cuda/norm/rmsnorm.cu"),
+        model_id="Qwen/Qwen3-Next-80B-A3B-Instruct",
     ),
     "qk_norm": GradientAdapterSpec(
         op_name="qk_norm",
@@ -291,18 +312,27 @@ def get_adapter(op_name: str) -> GradientAdapterSpec:
         raise KeyError(f"unknown gradient adapter {op_name!r}") from exc
 
 
-def required_gradient_adapters() -> tuple[GradientAdapterSpec, ...]:
+def required_gradient_adapters(
+    manifest: WS1Manifest | None = None,
+) -> tuple[GradientAdapterSpec, ...]:
+    selected = manifest or load_manifest()
+    model_id = selected.model_identity["model_id"]
+    subset = selected.raw.get("scope") == "qwen3_next_norm_operators"
     return tuple(
         spec
         for spec in GRADIENT_ADAPTERS.values()
         if spec.requirement in ("required", "layout_supported")
+        and spec.model_id in (None, model_id)
+        and (not subset or spec.model_id == model_id)
     )
 
 
-def required_forward_adapters() -> tuple[GradientAdapterSpec, ...]:
+def required_forward_adapters(
+    manifest: WS1Manifest | None = None,
+) -> tuple[GradientAdapterSpec, ...]:
     """Same enumerable WS1 ops as C4; C3 reuses the registry, not a second list."""
 
-    return required_gradient_adapters()
+    return required_gradient_adapters(manifest)
 
 
 @dataclass(frozen=True)
@@ -620,9 +650,9 @@ def _row_parameters(
     head_dim: int = 16,
 ) -> dict[str, torch.Tensor]:
     """Config-independent trainable parameters, built in the execution dtype."""
-    if op_name == "rms_norm":
+    if op_name in {"rms_norm", "qwen3_next_rms_norm"}:
         return {"weight": _shared_parameter((hidden,), device=device, dtype=dtype, offset=1)}
-    if op_name == "qk_norm":
+    if op_name in {"qk_norm", "rms_norm_gated"}:
         return {"weight": _shared_parameter((head_dim,), device=device, dtype=dtype, offset=1)}
     if op_name == "det_gemm":
         return {"b": _shared_parameter((hidden, hidden), device=device, dtype=dtype, offset=2)}
@@ -663,9 +693,16 @@ def _row_inputs(
     """
     n = len(keys)
     leading = (n,)
-    if op_name == "rms_norm":
+    if op_name in {"rms_norm", "qwen3_next_rms_norm"}:
         return {
             "x": _stack_rows(keys, leading, (hidden,), device=device, dtype=dtype),
+            "weight": params["weight"],
+            "eps": 1.0e-6,
+        }
+    if op_name == "rms_norm_gated":
+        return {
+            "x": _stack_rows(keys, leading, (head_dim,), device=device, dtype=dtype),
+            "gate": _stack_rows(keys, leading, (head_dim,), device=device, dtype=dtype, offset=7),
             "weight": params["weight"],
             "eps": 1.0e-6,
         }
@@ -1228,6 +1265,15 @@ def resolve_profile_candidate(
     manifest: WS1Manifest | None = None,
 ) -> dict[str, Any]:
     m = manifest if manifest is not None else load_manifest()
+    subset = m.raw.get("scope") == "qwen3_next_norm_operators"
+    if adapter.model_id not in (None, m.model_identity["model_id"]) or (
+        subset and adapter.model_id != m.model_identity["model_id"]
+    ):
+        return {
+            "status": "absent_not_required",
+            "expected_backend_id": None,
+            "candidate_path": None,
+        }
     if adapter.requirement == "absent_not_required":
         return {
             "status": "absent_not_required",

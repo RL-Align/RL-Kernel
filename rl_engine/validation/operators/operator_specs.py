@@ -46,6 +46,30 @@ OP_SPECS = {
         },
         grad_input_names=("x", "weight"),
     ),
+    "rms_norm_gated": OperatorSpec(
+        name="rms_norm_gated",
+        op_class="reduction",
+        gold_path=("rl_engine.reference.norm.qwen3_next_rms_norm.Qwen3NextRMSNormGatedOp"),
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": ("rl_engine.reference.norm.qwen3_next_rms_norm.Qwen3NextRMSNormGatedOp"),
+            "cuda": ("rl_engine.kernels.ops.cuda.norm.rmsnorm.Qwen3NextRMSNormGatedCudaOp"),
+            "cuda-sm90": ("rl_engine.kernels.ops.cuda.norm.rmsnorm.Qwen3NextRMSNormGatedCudaOp"),
+        },
+        grad_input_names=("x", "weight", "gate"),
+    ),
+    "qwen3_next_rms_norm": OperatorSpec(
+        name="qwen3_next_rms_norm",
+        op_class="reduction",
+        gold_path=("rl_engine.reference.norm.qwen3_next_rms_norm.Qwen3NextRMSNormOp"),
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": ("rl_engine.reference.norm.qwen3_next_rms_norm.Qwen3NextRMSNormOp"),
+            "cuda": "rl_engine.kernels.ops.cuda.norm.rmsnorm.Qwen3NextRMSNormCudaOp",
+            "cuda-sm90": ("rl_engine.kernels.ops.cuda.norm.rmsnorm.Qwen3NextRMSNormCudaOp"),
+        },
+        grad_input_names=("x", "weight"),
+    ),
     "qk_norm": OperatorSpec(
         name="qk_norm",
         op_class="reduction",

@@ -19,6 +19,7 @@ echo "[ws1-gtest] interpreter=$PY out=$OUT"
 
 "$PY" -m pytest -q \
   tests/validation/operators/test_ws1_gtest_gpu.py \
+  tests/models/qwen3_next/test_qwen3_next_norm.py \
   tests/ops/attention/test_triton_batch_invariant_attention.py \
   tests/validation/operators/test_four_judgment_matrix.py \
   tests/validation/operators/test_ws1_candidate_evidence.py \
@@ -75,3 +76,14 @@ for cell in required:
         )
 print("[ws1-gtest] C8 gate passed")
 PY
+
+echo "[ws1-gtest] Qwen3-Next C3/C4 norms (operator scope)"
+QWEN3_NEXT_NORM_MANIFEST=rl_engine/validation/models/qwen3_next_norm_manifest.json
+"$PY" tools/validation/operators/check_forward_invariance.py --manifest "$QWEN3_NEXT_NORM_MANIFEST" \
+  --op qwen3_next_rms_norm --candidate cuda --backend-profile cuda_bf16 --hidden 2048 --head-dim 128
+"$PY" tools/validation/operators/check_gradient_invariance.py --manifest "$QWEN3_NEXT_NORM_MANIFEST" \
+  --op qwen3_next_rms_norm --candidate cuda --backend-profile cuda_bf16 --hidden 2048 --head-dim 128
+"$PY" tools/validation/operators/check_forward_invariance.py --manifest "$QWEN3_NEXT_NORM_MANIFEST" \
+  --op rms_norm_gated --candidate cuda --backend-profile cuda_bf16 --hidden 2048 --head-dim 128
+"$PY" tools/validation/operators/check_gradient_invariance.py --manifest "$QWEN3_NEXT_NORM_MANIFEST" \
+  --op rms_norm_gated --candidate cuda --backend-profile cuda_bf16 --hidden 2048 --head-dim 128
