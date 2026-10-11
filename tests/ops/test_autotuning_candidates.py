@@ -15,6 +15,7 @@ pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA/ROCm
 
 
 def bits(a, b):
+    """Assert both tensors have the same shape, dtype and bytes."""
     assert a.shape == b.shape and a.dtype == b.dtype
     assert torch.equal(a.contiguous().view(torch.uint8), b.contiguous().view(torch.uint8))
 
@@ -25,7 +26,10 @@ def qualify(monkeypatch, request):
     seen = set()
 
     def getitem(kernel, grid):
+        """Return a launcher for ``kernel`` and ``grid`` that qualifies every candidate."""
+
         def launch(*args, **kwargs):
+            """Check all candidates bitwise on cloned outputs, then launch the fixed config."""
             reference = list(args)
             for i in kernel.outputs:
                 reference[i] = args[i].clone()
@@ -92,6 +96,10 @@ WIDTHS = {
 @pytest.mark.parametrize("seed", [0, 1, 2026])
 @pytest.mark.parametrize("scenario", ["boundaries", "strided", "special", "empty"])
 def test_all_candidates(qualify, monkeypatch, request, name, dtype, seed, scenario):
+    """Every candidate matches the fixed launch bitwise for outputs, gradients and inputs.
+
+    Inputs the fixed backend rejects must raise the same error with tuning enabled.
+    """
     if not supported(name, dtype):
         pytest.skip("Existing unsupported dtype")
     torch.manual_seed(seed)
@@ -187,6 +195,7 @@ def test_all_candidates(qualify, monkeypatch, request, name, dtype, seed, scenar
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32])
 @pytest.mark.parametrize("seed", [0, 1, 2026])
 def test_fully_masked_candidates(qualify, name, dtype, seed):
+    """With every position masked, all candidates produce exactly zero gradients."""
     if not supported(name, dtype):
         pytest.skip("Existing unsupported dtype")
     torch.manual_seed(seed)
@@ -221,6 +230,7 @@ def test_fully_masked_candidates(qualify, name, dtype, seed):
 @pytest.mark.parametrize("seed", [0, 1, 2026])
 @pytest.mark.parametrize("values", ["random", "special"])
 def test_fp32_output_and_lse_variants(qualify, monkeypatch, name, dtype, seed, values):
+    """FP32-output and LSE entry points match the fixed backend bitwise, with gradients."""
     from benchmarks.tuning.autotuning_cases import fixed_case
 
     torch.manual_seed(seed)

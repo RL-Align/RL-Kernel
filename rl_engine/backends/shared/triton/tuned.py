@@ -13,8 +13,11 @@ from rl_engine.platforms.autotuner import autotune_enabled
 
 
 def _performance_entry(method):
+    """Wrap ``method`` to run in a core tuning scope and expose its launch provenance."""
+
     @wraps(method)
     def call(self, *args, **kwargs):
+        """Run the fixed backend method inside a tuning scope and record provenance."""
         state = TuneState(autotune_enabled(), core=True)
         self.autotune_provenance = {
             "backend": self.backend_id,
@@ -44,6 +47,7 @@ class TunedAttentionOp(TritonDeterministicAttentionOp):
     is_batch_invariant = False
 
     def __init__(self, *, require_bitwise_libm: bool = False):
+        """Build the op; ``require_bitwise_libm`` defaults to False for the Triton path."""
         # Compare to the fixed Triton implementation, not the native CUDA libm.
         super().__init__(require_bitwise_libm=require_bitwise_libm)
 

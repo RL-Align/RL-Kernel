@@ -21,6 +21,7 @@ from benchmarks.tuning.autotuning_cases import (
 
 
 def summary(values):
+    """Return the median, min and max of ``values`` together with the raw samples."""
     return {
         "median": statistics.median(values),
         "min": min(values),
@@ -54,6 +55,7 @@ def ensure_idle():
 
 
 def experiment_case(spec, directory, mode, *, validate_only=False):
+    """Run ``_experiment_case`` on a side stream, then make the caller's stream wait."""
     import torch
 
     caller = torch.cuda.current_stream()
@@ -67,6 +69,11 @@ def experiment_case(spec, directory, mode, *, validate_only=False):
 
 
 def _experiment_case(spec, directory, mode, *, validate_only=False):
+    """Tune and validate one spec against the fixed baseline, then time both unless validating.
+
+    ``mode`` is ``cold``, ``restart`` (selections must come from disk) or ``precompiled``
+    (candidates are compiled first so the first call excludes JIT).
+    """
     import torch
 
     from rl_engine.backends.shared.triton import autotuning as adapter
@@ -87,6 +94,7 @@ def _experiment_case(spec, directory, mode, *, validate_only=False):
     original_profile = adapter._profile_candidates
 
     def select(signature, *args, **kwargs):
+        """Call the real selector and record each selection's kernel, phase, config, source."""
         selected = original_select(signature, *args, **kwargs)
         selected_records.append(
             {
@@ -101,6 +109,7 @@ def _experiment_case(spec, directory, mode, *, validate_only=False):
     tuner.select = select
 
     def timed_profile(*args, **kwargs):
+        """Run the original candidate profiler and record its wall time in ms."""
         start = time.perf_counter()
         result = original_profile(*args, **kwargs)
         profile_ms.append((time.perf_counter() - start) * 1000)
@@ -130,6 +139,7 @@ def _experiment_case(spec, directory, mode, *, validate_only=False):
     grad_outputs = tuple(torch.ones_like(x) for x in outputs) if outputs else None
 
     def run(enabled):
+        """Run the spec's phase once: tuned path if ``enabled``, fixed path otherwise."""
         nonlocal grad_outputs
         if phase == "backward":
             return torch.autograd.grad(
@@ -143,6 +153,7 @@ def _experiment_case(spec, directory, mode, *, validate_only=False):
         return value
 
     def call(enabled):
+        """Run the phase inside a core tuning scope enabled according to ``enabled``."""
         with adapter.tuning_scope(adapter.TuneState(enabled, core=True)):
             return run(enabled)
 
@@ -150,6 +161,7 @@ def _experiment_case(spec, directory, mode, *, validate_only=False):
     if mode == "precompiled":
 
         def compile_only(candidates, args, outputs, inout, launch):
+            """Compile all candidates on private buffers; fake timings keep the default."""
             from triton.runtime.errors import OutOfResources
 
             times = {}
@@ -261,6 +273,7 @@ def _experiment_case(spec, directory, mode, *, validate_only=False):
 
 
 def experiment_worker(specs, directory, mode, *, validate_only=False):
+    """Run ``specs`` in this process with tuning on; return device metadata and results."""
     import torch
 
     from rl_engine.backends.shared.triton import autotuning as adapter
@@ -293,6 +306,10 @@ def experiment_worker(specs, directory, mode, *, validate_only=False):
 
 
 def run_experiments(args, directory):
+    """Run cold, restart and precompiled worker processes per trial and aggregate the results.
+
+    Blocked or failed runs still write a status record to ``args.output`` before re-raising.
+    """
     import torch
 
     names = OPERATORS if args.operator == "all" else (args.operator,)
@@ -412,6 +429,7 @@ def run_experiments(args, directory):
 
 
 def aggregate_trials(specs, trials):
+    """Summarise restart timings per spec; report break-even only for confirmed savings."""
     aggregates = []
     for index, spec in enumerate(specs):
         cost = statistics.median(t["precompiled"]["cases"][index]["first_call_ms"] for t in trials)

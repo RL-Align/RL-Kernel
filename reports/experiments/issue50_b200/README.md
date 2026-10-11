@@ -13,13 +13,17 @@ Two environments were used:
 | A | 3.13.13 | 2.14.0+cu130 | 3.8.0 | not built (PyTorch 2.14 headers require C++20; the extension builds with C++17) | this directory |
 | B | 3.12.14 | 2.13.0+cu130 | 3.7.1 | built in place from this tree | [native/](native/) |
 
-The functional suites in the table below ran the exact fingerprinted source in
-both environments. The existing-suite comparison, the multi-GPU tests and the
-performance experiment ran on the previous revision, which differs only in
-review fixes: type annotations, the canonical `rl_engine.runtime.policy` import,
-a renamed loop variable in `get_op`, an fsync of the cache directory after the
-atomic rename, and per-candidate (rather than per-test) handling of
-`OutOfResources` in the qualification test.
+The functional suites in the table below ran on a revision whose code is
+identical to the fingerprinted source; the only difference is docstrings (the
+ASTs match with docstrings removed). The existing-suite comparison, the multi-GPU
+tests and the performance experiment ran on an earlier revision. It differs only
+in review fixes:
+- type annotations;
+- the canonical `rl_engine.runtime.policy` import;
+- a renamed loop variable in `get_op`;
+- private-cache-directory checks, plus an fsync after the atomic rename;
+- per-candidate (rather than per-test) handling of `OutOfResources` in the
+  qualification test.
 
 ## Numerical and functional results
 
@@ -27,8 +31,8 @@ atomic rename, and per-candidate (rather than per-test) handling of
 | --- | --- | ---: | ---: | ---: | --- |
 | GEMM, `RL_KERNEL_MODE=auto RL_KERNEL_AUTOTUNE=0` | B | 73 | 9 | 0 | [xml](native/gemm-off.xml), [log](native/gemm-off.txt) |
 | GEMM, `RL_KERNEL_MODE=auto RL_KERNEL_AUTOTUNE=1` | B | 73 | 9 | 0 | [xml](native/gemm-on.xml), [log](native/gemm-on.txt) |
-| HAL and registry | A | 31 | 0 | 0 | [xml](hal.xml), [log](hal.txt) |
-| | B | 31 | 0 | 0 | [xml](native/hal.xml), [log](native/hal.txt) |
+| HAL and registry | A | 34 | 0 | 0 | [xml](hal.xml), [log](hal.txt) |
+| | B | 34 | 0 | 0 | [xml](native/hal.xml), [log](native/hal.txt) |
 | Operator, cache and graph regressions | A | 60 | 2 | 0 | [xml](gpu.xml), [log](gpu.txt) |
 | | B | 60 | 2 | 0 | [xml](native/gpu.xml), [log](native/gpu.txt) |
 | Candidate qualification | A | 402 | 27 | 0 | [xml](qualification.xml), [log](qualification.txt) |

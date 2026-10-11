@@ -15,11 +15,13 @@ from pathlib import Path
 
 
 def _summary(values: list[float]) -> dict[str, float]:
+    """Return the median, min and max of ``values``."""
     ordered = sorted(values)
     return {"median": statistics.median(ordered), "min": ordered[0], "max": ordered[-1]}
 
 
 def worker(directory: str, shape: tuple[int, int], scan_candidates: bool) -> dict:
+    """Time legacy SiLU tuning in this process: first call, eager wall and graph device time."""
     import torch
 
     from rl_engine.backends.shared.triton.activation.swiglu import TritonSiLUOp, _silu_fwd_kernel
@@ -131,6 +133,7 @@ def worker(directory: str, shape: tuple[int, int], scan_candidates: bool) -> dic
 
 
 def main():
+    """Parse arguments and run an experiment worker, the operator matrix or the SiLU benchmark."""
     # Keep worker stdout a JSON-only protocol, including core backend startup logs.
     os.environ["RL_KERNEL_LOG_STREAM"] = "stderr"
     parser = argparse.ArgumentParser(description=__doc__)

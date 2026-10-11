@@ -22,6 +22,8 @@ OPERATORS = (
 
 @dataclass
 class Workload:
+    """An operator call with its inputs, keyword arguments and whether it has a backward."""
+
     op: Callable
     inputs: tuple
     kwargs: dict = field(default_factory=dict)
@@ -29,15 +31,20 @@ class Workload:
 
     @property
     def variables(self):
+        """Return the inputs that require gradients, or ``()`` without a backward."""
         return tuple(x for x in self.inputs if x.requires_grad) if self.backward else ()
 
     def forward(self):
+        """Call the operator and return its outputs, always as a tuple."""
         value = self.op(*self.inputs, **self.kwargs)
         return value if isinstance(value, tuple) else (value,)
 
 
 def make_case(name, dtype, *, rows=3, width=129, layout="contiguous", values="random", causal=True):
+    """Build a deterministic CUDA workload for operator ``name`` with the requested data."""
+
     def tensor(shape, grad=True):
+        """Create a CUDA tensor of ``shape``, optionally strided or filled with special values."""
         storage_shape = (*shape[:-1], shape[-1] * 2) if layout == "strided" else shape
         x = torch.randn(storage_shape, device="cuda", dtype=dtype)
         if layout == "strided":
@@ -145,6 +152,7 @@ def make_case(name, dtype, *, rows=3, width=129, layout="contiguous", values="ra
 
 
 def supported(name, dtype):
+    """Return False for dtypes the existing operators reject: FP16 GEMM, FP32 attention."""
     return not (
         (name == "gemm" and dtype == torch.float16)
         or (name == "attention" and dtype == torch.float32)
@@ -152,6 +160,7 @@ def supported(name, dtype):
 
 
 def preset_shape(name, preset):
+    """Return the ``(rows, width)`` used for ``name`` under the small or throughput preset."""
     if preset == "small":
         return (3, 128) if name in ("rope", "attention") else (3, 129)
     return {

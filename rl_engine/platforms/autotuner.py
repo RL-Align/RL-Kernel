@@ -27,6 +27,7 @@ _SCHEMA = 1
 
 
 def autotune_enabled() -> bool:
+    """Return whether tuning is on: ``RL_KERNEL_AUTOTUNE=1`` in ``RL_KERNEL_MODE=auto``."""
     return os.getenv("RL_KERNEL_AUTOTUNE", "0") == "1" and rl_kernel_mode() == RLKernelMode.AUTO
 
 
@@ -37,16 +38,20 @@ class TuneConfig:
     options: tuple[tuple[str, int], ...] = ()
 
     def to_dict(self) -> dict[str, int]:
+        """Return the overrides as Triton launch keyword arguments."""
         return dict(self.options)
 
 
 @dataclass(frozen=True)
 class TuneSelection:
+    """A selected configuration and where it came from: tuned, disk, memory or capture_default."""
+
     config: TuneConfig
     source: str
 
 
 def cache_key(signature: Mapping, candidates: tuple[TuneConfig, ...]) -> str:
+    """Hash the launch signature and candidate list into a stable cache file name."""
     encoded = json.dumps(
         {
             "schema": _SCHEMA,
@@ -60,10 +65,23 @@ def cache_key(signature: Mapping, candidates: tuple[TuneConfig, ...]) -> str:
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
+def _untrusted_reason(directory: Path) -> str | None:
+    """Explain why other users could rewrite selections in ``directory``, if they could."""
+    if not hasattr(os, "getuid"):
+        return None
+    status = directory.stat()
+    if status.st_uid != os.getuid():
+        return "owned by another user"
+    if status.st_mode & 0o022:
+        return "writable by group or others"
+    return None
+
+
 class PersistentAutotuner:
     """Cache configuration choices. ``evaluate`` returns milliseconds or rejects with None."""
 
     def __init__(self, cache_dir: Path | None = None):
+        """Use ``cache_dir``, or resolve the environment/default directory on select."""
         self.cache_dir = cache_dir
         self._memory: dict[str, TuneConfig] = {}
         self._lock = threading.RLock()
@@ -77,6 +95,12 @@ class PersistentAutotuner:
         persistent: bool = True,
         capture: bool = False,
     ) -> TuneSelection:
+        """Return the cached configuration for ``signature``, tuning it on first use.
+
+        ``evaluate`` returns a timing in milliseconds, or ``None`` to reject a
+        candidate. During graph capture this never evaluates or touches disk; it
+        returns a memory hit or the unchanged launch.
+        """
         if not candidates or candidates[0] != TuneConfig():
             raise ValueError("The first candidate must be the unchanged launch")
         key = cache_key(signature, candidates)
@@ -119,12 +143,20 @@ class PersistentAutotuner:
     @staticmethod
     @contextmanager
     def _disk_lock(directory: Path, key: str, enabled: bool) -> Iterator[bool]:
+        """Yield True while holding the per-key file lock, or False for memory only."""
         if not enabled:
             yield False
             return
         handle = None
         try:
-            directory.mkdir(parents=True, exist_ok=True)
+            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+            reason = _untrusted_reason(directory)
+            if reason is not None:
+                _LOG.warning(
+                    "Autotune cache %s is not private (%s); using memory", directory, reason
+                )
+                yield False
+                return
             handle = (directory / f"{key}.lock").open("a")
             fcntl.flock(handle, fcntl.LOCK_EX)
         except OSError as exc:
@@ -140,6 +172,7 @@ class PersistentAutotuner:
 
     @staticmethod
     def _read(path: Path, key: str, candidates: tuple[TuneConfig, ...]) -> TuneConfig | None:
+        """Return the candidate cached for ``key`` at ``path``, or None if absent/invalid."""
         try:
             record = json.loads(path.read_text())
         except FileNotFoundError:
@@ -160,6 +193,7 @@ class PersistentAutotuner:
 
     @staticmethod
     def _write(path: Path, key: str, config: TuneConfig) -> None:
+        """Atomically persist ``config`` for ``key``; on I/O errors log and keep memory."""
         temporary = None
         try:
             with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as stream:

@@ -13,6 +13,7 @@ pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA/ROCm
 
 @pytest.fixture
 def tuning(monkeypatch, tmp_path):
+    """Enable auto-mode tuning with a fresh tuner cached in ``tmp_path``."""
     monkeypatch.setenv("RL_KERNEL_MODE", "auto")
     monkeypatch.setenv("RL_KERNEL_AUTOTUNE", "1")
     monkeypatch.setattr(autotuning, "_TUNER", PersistentAutotuner(tmp_path))
@@ -20,12 +21,16 @@ def tuning(monkeypatch, tmp_path):
 
 
 def equal_bits(a, b):
+    """Assert both tensors have the same dtype, shape and bytes."""
     assert a.dtype == b.dtype and a.shape == b.shape
     assert torch.equal(a.contiguous().view(torch.uint8), b.contiguous().view(torch.uint8))
 
 
 def _case(name, dtype):
+    """Return ``(op, inputs)`` for ``name`` with small odd-sized or strided tensors."""
+
     def tensor(shape):
+        """Create a random CUDA tensor of ``shape`` that requires gradients."""
         return torch.randn(shape, device="cuda", dtype=dtype, requires_grad=True)
 
     if name in ("silu", "swiglu"):
@@ -83,6 +88,7 @@ def _case(name, dtype):
 )
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32])
 def test_forward_backward_and_hot_cache(tuning, monkeypatch, name, dtype):
+    """Tuned outputs and gradients match the fixed run; repeat calls skip selection."""
     if (name == "gemm" and dtype == torch.float16) or (
         name == "attention" and dtype == torch.float32
     ):
@@ -101,6 +107,7 @@ def test_forward_backward_and_hot_cache(tuning, monkeypatch, name, dtype):
         if repetition:
 
             def unexpected_selection(*args, **kwargs):
+                """Fail if a hot launch reaches the selector."""
                 pytest.fail("Hot launches must bypass selection and disk access")
 
             monkeypatch.setattr(autotuning._TUNER, "select", unexpected_selection)
@@ -116,6 +123,7 @@ def test_forward_backward_and_hot_cache(tuning, monkeypatch, name, dtype):
 
 
 def test_grpo_normalization(tuning, monkeypatch):
+    """GRPO group advantages are bitwise identical with tuning off and on."""
     from rl_engine.backends.shared.triton.loss.grpo_loss import TritonGRPOLossOp
 
     op = TritonGRPOLossOp()
@@ -127,6 +135,7 @@ def test_grpo_normalization(tuning, monkeypatch):
 
 
 def test_strict_core_never_tunes(tuning):
+    """A core backend called outside a performance scope never reaches the tuner."""
     from rl_engine.backends.shared.triton.logprob.batch_invariant_logp import (
         TritonBatchInvariantLogpOp,
     )
@@ -138,6 +147,7 @@ def test_strict_core_never_tunes(tuning):
 
 
 def test_graph_capture_cold_and_warm(tuning):
+    """Graph replays of SiLU, captured cold or after tuning, match eager output."""
     from rl_engine.backends.shared.triton.activation.swiglu import TritonSiLUOp
 
     op = TritonSiLUOp()
@@ -157,6 +167,7 @@ def test_graph_capture_cold_and_warm(tuning):
 
 
 def test_special_values_and_empty(tuning, monkeypatch):
+    """SiLU keeps zeros, infinities and NaN bitwise; empty inputs keep their shape."""
     from rl_engine.backends.shared.triton.activation.swiglu import TritonSiLUOp
 
     op = TritonSiLUOp()
@@ -170,6 +181,7 @@ def test_special_values_and_empty(tuning, monkeypatch):
 
 @pytest.mark.parametrize("mode", ["strict", "audit", "off"])
 def test_modes_disable_even_explicit_backends(tuning, monkeypatch, mode):
+    """Non-auto modes disable tuning even for an explicit tuned backend."""
     from rl_engine.backends.shared.triton.tuned import TunedLogpOp
 
     monkeypatch.setenv("RL_KERNEL_MODE", mode)
@@ -181,6 +193,7 @@ def test_modes_disable_even_explicit_backends(tuning, monkeypatch, mode):
 
 
 def test_fixed_gemm_attention_and_indirect_lm_head(tuning):
+    """Fixed GEMM, LM head and attention backends never reach the tuner."""
     from rl_engine.backends.shared.triton.attention.deterministic_attn import (
         TritonDeterministicAttentionOp,
     )
@@ -198,6 +211,7 @@ def test_fixed_gemm_attention_and_indirect_lm_head(tuning):
 
 @pytest.mark.parametrize("name", ["rmsnorm", "ratio_kl", "logp"])
 def test_cached_configuration_on_new_values(tuning, monkeypatch, name):
+    """A cached configuration stays bitwise equal to the fixed launch on new inputs."""
     op, inputs = _case(name, torch.float32)
     op(*inputs)
     for _ in range(3):
@@ -216,6 +230,7 @@ def test_cached_configuration_on_new_values(tuning, monkeypatch, name):
 
 
 def test_fp32_input_gemm_backward_retains_existing_error(tuning, monkeypatch):
+    """FP32-input GEMM backward raises the existing ``TypeError`` with tuning off or on."""
     from rl_engine.backends.shared.triton.tuned import TunedGemmOp
 
     a = torch.randn((2, 8), device="cuda", requires_grad=True)
@@ -227,6 +242,7 @@ def test_fp32_input_gemm_backward_retains_existing_error(tuning, monkeypatch):
 
 
 def test_graph_profiler_resets_read_write_buffers(tuning):
+    """Graph profiling restores read/write buffers so the scratch holds one update."""
     from rl_engine.backends.shared.triton.attention.deterministic_attn import (
         _softmax_backward_kernel,
     )
@@ -241,6 +257,7 @@ def test_graph_profiler_resets_read_write_buffers(tuning):
     observed = []
 
     def run(config, buffers):
+        """Launch the softmax backward kernel and remember the buffers it received."""
         observed[:] = buffers
         return raw(*buffers, LANES=256, num_warps=4, **config.to_dict())
 
@@ -254,6 +271,7 @@ def test_graph_profiler_resets_read_write_buffers(tuning):
 
 
 def test_profiling_preserves_callers_stream(tuning):
+    """Tuning on a side stream keeps it current and matches the fixed output."""
     from rl_engine.backends.shared.triton.activation.swiglu import TritonSiLUOp
 
     op = TritonSiLUOp()
@@ -274,6 +292,7 @@ def test_profiling_preserves_callers_stream(tuning):
     ["silu", "swiglu", "rope", "embedding", "rmsnorm", "ratio_kl", "gemm", "attention", "logp"],
 )
 def test_hot_new_values_and_gradients(tuning, monkeypatch, name):
+    """Hot launches on new seeds match fixed results; backward keeps the forward policy."""
     from benchmarks.tuning.autotuning_cases import make_case
 
     for seed in (0, 1, 2026):
@@ -299,6 +318,7 @@ def test_hot_new_values_and_gradients(tuning, monkeypatch, name):
 @pytest.mark.parametrize("name", ["silu", "rmsnorm", "gemm", "attention", "logp"])
 @pytest.mark.parametrize("warm", [False, True])
 def test_forward_backward_graph_no_disk_or_profile(tuning, monkeypatch, name, warm):
+    """Captured forward/backward replays match fixed results without disk or profiling."""
     from benchmarks.tuning.autotuning_cases import make_case
 
     caller = torch.cuda.current_stream()
@@ -309,6 +329,7 @@ def test_forward_backward_graph_no_disk_or_profile(tuning, monkeypatch, name, wa
         case = make_case(name, torch.bfloat16, width=128)
 
         def run():
+            """Run forward and backward; return the outputs followed by the gradients."""
             values = case.forward()
             gradients = torch.autograd.grad(
                 values, case.variables, tuple(torch.ones_like(x) for x in values)
@@ -338,6 +359,7 @@ def test_forward_backward_graph_no_disk_or_profile(tuning, monkeypatch, name, wa
 
 @pytest.mark.parametrize("name", ["gemm", "attention"])
 def test_unsupported_core_dtype_preserves_fixed_error(tuning, name):
+    """Tuned backends raise the fixed backend's error for unsupported dtypes."""
     from rl_engine.backends.shared.triton.tuned import TunedAttentionOp, TunedGemmOp
 
     if name == "gemm":

@@ -7,4 +7,4 @@
 =========================== short test summary info ============================
 SKIPPED [24] tests/ops/test_autotuning_candidates.py:96: Existing unsupported dtype
 SKIPPED [3] tests/ops/test_autotuning_candidates.py:191: Existing unsupported dtype
-402 passed, 27 skipped in 30.50s
+402 passed, 27 skipped in 112.79s (0:01:52)
