@@ -1,4 +1,4 @@
 .......s..................s...................................           [100%]
 =========================== short test summary info ============================
 SKIPPED [2] tests/ops/test_autotuning_gpu.py:89: Existing operator does not support this dtype
-60 passed, 2 skipped in 165.19s (0:02:45)
+60 passed, 2 skipped in 14.32s

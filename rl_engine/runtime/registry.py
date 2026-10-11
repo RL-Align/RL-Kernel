@@ -1068,8 +1068,8 @@ class KernelRegistry:
             return selected
         candidates = self._priority_map.get(platform, {}).get(op_type, [OpBackend.PYTORCH_NATIVE])
 
-        for backend in candidates:
-            op_instance = self._get_or_create_backend(backend)
+        for candidate_backend in candidates:
+            op_instance = self._get_or_create_backend(candidate_backend)
             if op_instance is not None:
                 return op_instance
 

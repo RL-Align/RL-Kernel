@@ -3,4 +3,4 @@
 =========================== short test summary info ============================
 SKIPPED [8] tests/ops/gemm/test_det_gemm.py:229: leaf specialization raw-byte tests require ROCm gfx942
 SKIPPED [1] tests/ops/gemm/test_det_gemm.py:253: leaf specialization raw-byte tests require ROCm gfx942
-73 passed, 9 skipped in 8.51s
+73 passed, 9 skipped in 8.04s

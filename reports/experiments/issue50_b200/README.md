@@ -13,10 +13,13 @@ Two environments were used:
 | A | 3.13.13 | 2.14.0+cu130 | 3.8.0 | not built (PyTorch 2.14 headers require C++20; the extension builds with C++17) | this directory |
 | B | 3.12.14 | 2.13.0+cu130 | 3.7.1 | built in place from this tree | [native/](native/) |
 
-Environment B ran the exact fingerprinted source. Environment A ran an earlier
-snapshot that differs only in `tests/ops/gemm/test_det_gemm.py` and one import line
-in `tests/benchmarks/test_autotuning_benchmark.py`; GEMM results therefore come
-from environment B only, and the benchmark row was rerun with the final file.
+The functional suites in the table below ran the exact fingerprinted source in
+both environments. The existing-suite comparison, the multi-GPU tests and the
+performance experiment ran on the previous revision, which differs only in
+review fixes: type annotations, the canonical `rl_engine.runtime.policy` import,
+a renamed loop variable in `get_op`, an fsync of the cache directory after the
+atomic rename, and per-candidate (rather than per-test) handling of
+`OutOfResources` in the qualification test.
 
 ## Numerical and functional results
 
@@ -25,11 +28,13 @@ from environment B only, and the benchmark row was rerun with the final file.
 | GEMM, `RL_KERNEL_MODE=auto RL_KERNEL_AUTOTUNE=0` | B | 73 | 9 | 0 | [xml](native/gemm-off.xml), [log](native/gemm-off.txt) |
 | GEMM, `RL_KERNEL_MODE=auto RL_KERNEL_AUTOTUNE=1` | B | 73 | 9 | 0 | [xml](native/gemm-on.xml), [log](native/gemm-on.txt) |
 | HAL and registry | A | 31 | 0 | 0 | [xml](hal.xml), [log](hal.txt) |
+| | B | 31 | 0 | 0 | [xml](native/hal.xml), [log](native/hal.txt) |
 | Operator, cache and graph regressions | A | 60 | 2 | 0 | [xml](gpu.xml), [log](gpu.txt) |
 | | B | 60 | 2 | 0 | [xml](native/gpu.xml), [log](native/gpu.txt) |
 | Candidate qualification | A | 402 | 27 | 0 | [xml](qualification.xml), [log](qualification.txt) |
 | | B | 402 | 27 | 0 | [xml](native/qualification.xml), [log](native/qualification.txt) |
 | Benchmark functionality | A | 18 | 0 | 0 | [xml](benchmark-functional.xml), [log](benchmark-functional.txt) |
+| | B | 18 | 0 | 0 | [xml](native/benchmark-functional.xml), [log](native/benchmark-functional.txt) |
 
 Commands, from the repository root:
 
@@ -44,7 +49,7 @@ python -m pytest -q -rs tests/benchmarks/test_autotuning_benchmark.py
 Candidate qualification launches every production candidate directly and
 compares output, auxiliary/workspace and gradient bytes with the fixed launch;
 there is no selector or fallback in that path. All candidates matched under both
-Triton versions. The [coverage manifest](qualified-configurations.json), extracted
+Triton versions, and none was resource-limited. The [coverage manifest](qualified-configurations.json), extracted
 from the JUnit `qualified_launches` properties, lists 24 CUDA-reachable kernels and
 101 kernel/configuration pairs.
 
