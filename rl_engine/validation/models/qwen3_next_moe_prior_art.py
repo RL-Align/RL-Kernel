@@ -64,14 +64,14 @@ def _sample_us(fn: Callable[[], Any]) -> float:
     return start.elapsed_time(end) * 1000.0
 
 
-def time_interleaved(calls: dict[str, Callable[[], Any]], warmup: int = 5, iters: int = 30):
+def time_interleaved(calls: dict[str, Callable[..., Any]], warmup: int = 5, iters: int = 30):
     """Median latency per candidate; the order alternates so none always runs first."""
     keys = list(calls)
     orders = (keys, list(reversed(keys)))
     for i in range(warmup):
         for key in orders[i % 2]:
             calls[key]()
-    samples = {key: [] for key in keys}
+    samples: dict[str, list[float]] = {key: [] for key in keys}
     for i in range(iters):
         for key in orders[i % 2]:
             samples[key].append(_sample_us(calls[key]))
