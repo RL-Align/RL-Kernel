@@ -66,6 +66,8 @@ class _KernelEnumMeta(EnumMeta):
 
 
 class OpBackend(Enum, metaclass=_KernelEnumMeta):
+    """Operator backend import paths; an unknown name raises ``ValueError`` listing members."""
+
     TRITON_TUNED_GEMM = "rl_engine.backends.shared.triton.tuned.TunedGemmOp"
     TRITON_TUNED_ATTENTION = "rl_engine.backends.shared.triton.tuned.TunedAttentionOp"
     TRITON_TUNED_LOGP = "rl_engine.backends.shared.triton.tuned.TunedLogpOp"

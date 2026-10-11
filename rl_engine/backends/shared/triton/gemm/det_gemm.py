@@ -1043,6 +1043,8 @@ def _triton_tree_gemm(
 
 @pin_autotune
 class _TritonDetGemmFn(torch.autograd.Function):
+    """Autograd function for the fixed K-tree GEMM; backward reuses the forward tuning policy."""
+
     @staticmethod
     def forward(ctx, a, b, output_fp32=False):
         ctx.save_for_backward(a, b)
@@ -1076,6 +1078,7 @@ class TritonDetGemmOp:
     """Batch-invariant deterministic GEMM, Triton path."""
 
     def __init__(self):
+        """Fail fast when Triton is unavailable, then log that the op is ready."""
         if not _TRITON_AVAILABLE:
             raise RuntimeError("Triton not available for TritonDetGemmOp")
         logger.info("%s ready (fixed K-tree arithmetic).", type(self).__name__)

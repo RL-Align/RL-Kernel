@@ -23,6 +23,8 @@ from rl_engine.platforms.autotuner import PersistentAutotuner, TuneConfig, autot
 
 @dataclass
 class TuneState:
+    """Per-call tuning policy, plus the launch records collected for provenance."""
+
     enabled: bool
     core: bool = False
     records: list[dict] = field(default_factory=list)
@@ -36,6 +38,7 @@ _DEVICES: dict[tuple[int, int], dict] = {}
 
 @contextmanager
 def tuning_scope(state: TuneState):
+    """Apply ``state`` to the Triton launches made inside this context."""
     token = _STATE.set(state)
     try:
         yield state
@@ -50,6 +53,7 @@ def pin_autotune(function_class):
 
     @wraps(forward)
     def pinned_forward(ctx, *args, **kwargs):
+        """Run forward under the current policy and keep it for backward."""
         ctx.autotune_state = _STATE.get()
         if ctx.autotune_state is not None:
             return forward(ctx, *args, **kwargs)
@@ -59,6 +63,7 @@ def pin_autotune(function_class):
 
     @wraps(backward)
     def pinned_backward(ctx, *args, **kwargs):
+        """Run backward under the policy captured in forward."""
         with tuning_scope(replace(ctx.autotune_state, phase="backward")):
             return backward(ctx, *args, **kwargs)
 
@@ -68,6 +73,7 @@ def pin_autotune(function_class):
 
 
 def _device_identity(device: torch.device, capture: bool) -> dict | None:
+    """Return cached device, driver and toolkit identity; None if uncached during capture."""
     index = device.index if device.index is not None else torch.cuda.current_device()
     key = (os.getpid(), index)
     if key in _DEVICES:
@@ -110,6 +116,7 @@ def _device_identity(device: torch.device, capture: bool) -> dict | None:
 
 
 def _bitwise_equal(left: torch.Tensor, right: torch.Tensor) -> bool:
+    """Return whether two tensors have identical bytes."""
     return torch.equal(left.contiguous().view(torch.uint8), right.contiguous().view(torch.uint8))
 
 
@@ -214,6 +221,7 @@ class TunableKernel:
         tune_warps: bool = False,
         inout: tuple[int, ...] = (),
     ):
+        """Record the launch contract and hash kernel and tuner sources as the revision."""
         self._launches: dict[tuple, tuple[TuneConfig, Any, dict[str, Any]]] = {}
         self.kernel = kernel
         self.outputs = outputs
@@ -233,7 +241,10 @@ class TunableKernel:
         self.revision = hashlib.sha256(source.encode()).hexdigest()
 
     def __getitem__(self, grid):
+        """Return a launcher for ``grid`` that uses the cached or newly selected config."""
+
         def launch(*args, **kwargs):
+            """Launch with the selected configuration, or the fixed one when tuning is off."""
             state = _STATE.get()
             enabled = state.enabled if state is not None else autotune_enabled()
             if (
@@ -306,6 +317,7 @@ class TunableKernel:
                 }
 
                 def run(config, buffers):
+                    """Launch ``config`` on private output buffers."""
                     options = {**kwargs, **config.to_dict()}
                     selected_grid = grid
                     if self.flat_block is not None and "BLOCK" in config.to_dict():
@@ -316,6 +328,7 @@ class TunableKernel:
                 timings = None
 
                 def evaluate(config):
+                    """Time ``config``, or return None if its output bytes differ."""
                     nonlocal timings
                     if timings is None:
                         timings = _profile_candidates(

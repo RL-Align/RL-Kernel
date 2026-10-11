@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import json
 import multiprocessing
+import os
 from pathlib import Path
 
 import pytest
@@ -18,21 +19,25 @@ CANDIDATES = (DEFAULT, FAST)
 
 
 def _timing(config):
+    """Fake timing: the default launch takes 2 ms and every other candidate 1 ms."""
     return 2.0 if config == DEFAULT else 1.0
 
 
 def _worker(directory, queue):
+    """Select in a child process and put the chosen config and its source on ``queue``."""
     result = PersistentAutotuner(Path(directory)).select({"op": "example"}, CANDIDATES, _timing)
     queue.put((result.config.to_dict(), result.source))
 
 
 def test_memory_disk_and_key_isolation(tmp_path):
+    """Hits come from memory, then disk; changing any signature field tunes again."""
     tuner = PersistentAutotuner(tmp_path)
     sig = {"device": "gpu0", "shape": [4, 8], "dtype": "float32", "version": 1}
     first = tuner.select(sig, CANDIDATES, _timing)
     assert first.config == FAST and first.source == "tuned"
 
     def unexpected(_):
+        """Fail if a cache hit benchmarks a candidate."""
         pytest.fail("Cache hit must not benchmark")
 
     assert tuner.select(sig, CANDIDATES, unexpected).source == "memory"
@@ -47,6 +52,7 @@ def test_memory_disk_and_key_isolation(tmp_path):
 
 
 def test_rejection_and_ties_keep_default(tmp_path):
+    """Rejections and ties keep the default; a rejected default or NaN timing raises."""
     tuner = PersistentAutotuner(tmp_path)
     assert tuner.select({}, CANDIDATES, lambda c: 1 if c == DEFAULT else None).config == DEFAULT
     assert tuner.select({"tie": True}, CANDIDATES, lambda _: 1).config == DEFAULT
@@ -60,6 +66,7 @@ def test_rejection_and_ties_keep_default(tmp_path):
     "contents", ["{bad json", "[]", '{"schema":0}', '{"schema":1,"config":{"num_warps":999}}']
 )
 def test_corrupt_cache_is_replaced(tmp_path, contents, caplog):
+    """Corrupt or incompatible cache files are ignored, logged and rewritten."""
     path = tmp_path / f"{cache_key({}, CANDIDATES)}.json"
     path.write_text(contents)
     result = PersistentAutotuner(tmp_path).select({}, CANDIDATES, _timing)
@@ -69,6 +76,7 @@ def test_corrupt_cache_is_replaced(tmp_path, contents, caplog):
 
 
 def test_unwritable_cache_and_no_identity(tmp_path, caplog):
+    """An unusable cache path falls back to memory; nonpersistent mode creates nothing."""
     unavailable = tmp_path / "file"
     unavailable.write_text("not a directory")
     tuner = PersistentAutotuner(unavailable)
@@ -80,9 +88,11 @@ def test_unwritable_cache_and_no_identity(tmp_path, caplog):
 
 
 def test_capture_does_not_access_disk_or_benchmark(tmp_path):
+    """During capture, selection returns the default or a memory hit, never timing."""
     tuner = PersistentAutotuner(tmp_path / "absent")
 
     def unexpected(_):
+        """Fail if graph capture benchmarks a candidate."""
         pytest.fail("Capture cannot benchmark")
 
     assert tuner.select({}, CANDIDATES, unexpected, capture=True).source == "capture_default"
@@ -92,6 +102,7 @@ def test_capture_does_not_access_disk_or_benchmark(tmp_path):
 
 
 def test_concurrent_processes_and_restart(tmp_path):
+    """Three concurrent processes agree; one tunes and the others read it from disk."""
     ctx = multiprocessing.get_context("spawn")
     queue = ctx.Queue()
     workers = [ctx.Process(target=_worker, args=(str(tmp_path), queue)) for _ in range(3)]
@@ -108,13 +119,17 @@ def test_concurrent_processes_and_restart(tmp_path):
 @pytest.mark.parametrize("mode", ["strict", "audit", "auto", "off"])
 @pytest.mark.parametrize("flag", ["0", "1"])
 def test_opt_in_policy(monkeypatch, mode, flag):
+    """Tuning is on only for ``RL_KERNEL_MODE=auto`` with ``RL_KERNEL_AUTOTUNE=1``."""
     monkeypatch.setenv("RL_KERNEL_MODE", mode)
     monkeypatch.setenv("RL_KERNEL_AUTOTUNE", flag)
     assert autotune_enabled() == (mode == "auto" and flag == "1")
 
 
 def test_programming_errors_propagate(tmp_path):
+    """Exceptions from ``evaluate`` propagate and leave no cache record behind."""
+
     def broken(_):
+        """Simulate a kernel callback that raises ``OSError``."""
         raise OSError("kernel callback failed")
 
     with pytest.raises(OSError, match="kernel callback"):
@@ -123,6 +138,7 @@ def test_programming_errors_propagate(tmp_path):
 
 
 def test_explicit_backend_dispatch_does_not_change_strict_routes(monkeypatch):
+    """Explicit tuned IDs resolve; default routes and mismatched or CPU requests do not."""
     from rl_engine.runtime.registry import KernelRegistry, OpBackend
 
     registry = KernelRegistry()
@@ -130,6 +146,7 @@ def test_explicit_backend_dispatch_does_not_change_strict_routes(monkeypatch):
     sentinel = object()
 
     def load(backend):
+        """Record the requested backend and return a sentinel."""
         selected.append(backend)
         return sentinel
 
@@ -147,3 +164,30 @@ def test_explicit_backend_dispatch_does_not_change_strict_routes(monkeypatch):
         registry.get_op("logp", device="cuda", backend="rlkernel.triton.tuned_gemm")
     with pytest.raises(ValueError, match="CUDA or ROCm"):
         registry.get_op("logp", device="cpu", backend="rlkernel.triton.tuned_logp")
+
+
+@pytest.mark.skipif(not hasattr(os, "getuid"), reason="POSIX ownership checks only")
+def test_created_cache_directory_is_private(tmp_path):
+    """A newly created cache directory gets mode 0o700 and stores the selection."""
+    directory = tmp_path / "new" / "cache"
+    assert PersistentAutotuner(directory).select({}, CANDIDATES, _timing).source == "tuned"
+    assert directory.stat().st_mode & 0o777 == 0o700
+    assert list(directory.glob("*.json"))
+
+
+@pytest.mark.skipif(not hasattr(os, "getuid"), reason="POSIX ownership checks only")
+@pytest.mark.parametrize("shared", ["group_writable", "foreign_owner"])
+def test_untrusted_cache_directory_falls_back_to_memory(tmp_path, monkeypatch, shared):
+    """A group-writable or foreign-owned cache directory is never read or written."""
+    directory = tmp_path / "shared"
+    directory.mkdir()
+    if shared == "group_writable":
+        directory.chmod(0o770)
+    else:
+        uid = os.getuid()
+        monkeypatch.setattr(os, "getuid", lambda: uid + 1)
+    first = PersistentAutotuner(directory).select({}, CANDIDATES, _timing)
+    assert first.config == FAST and first.source == "tuned"
+    assert not list(directory.iterdir())
+    # A fresh process cannot reuse an untrusted record; it tunes again.
+    assert PersistentAutotuner(directory).select({}, CANDIDATES, _timing).source == "tuned"

@@ -10,6 +10,12 @@ export RL_KERNEL_AUTOTUNE_CACHE_DIR=/path/to/cache
 ```
 
 Both settings are required. `strict`, `audit`, and `off` retain fixed launches.
+
+The cache directory must be private. The tuner creates it with mode `0700`. If it
+already exists and is owned by another user, or is writable by group or others,
+selections stay in memory and a warning is logged. Anyone who can write cache
+records can choose among the qualified candidates, so do not share a writable
+cache across users.
 Autograd retains the forward policy for backward, even if environment variables
 subsequently change. Configure the environment before starting work.
 

@@ -10,11 +10,13 @@ from benchmarks.tuning import autotuning_experiment as experiment
 
 
 def test_cuda_admission_rejects_external_process(monkeypatch):
+    """On CUDA, a foreign PID on the visible GPU blocks the run; our own PID passes."""
     monkeypatch.setattr(torch.version, "hip", None)
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "1")
     calls = []
 
     def processes(command, **kwargs):
+        """Record the ``nvidia-smi`` command and list our PID plus a foreign one."""
         calls.append(command)
         return f"{os.getpid()}\n123456789\n"
 
@@ -30,6 +32,7 @@ def test_cuda_admission_rejects_external_process(monkeypatch):
     "listing", ["amdsmi module not found", "GPU:0\nprocess 123456789 uses 10 MB GPU memory"]
 )
 def test_rocm_admission_fails_closed(monkeypatch, listing):
+    """On ROCm, an unreadable listing or a foreign process makes admission fail."""
     monkeypatch.setattr(torch.version, "hip", "test")
     monkeypatch.setattr(torch.cuda, "list_gpu_processes", lambda _: listing)
     with pytest.raises(RuntimeError):
@@ -37,6 +40,7 @@ def test_rocm_admission_fails_closed(monkeypatch, listing):
 
 
 def test_rocm_admission_ignores_own_process(monkeypatch):
+    """On ROCm, a listing containing only this process is admitted."""
     monkeypatch.setattr(torch.version, "hip", "test")
     monkeypatch.setattr(
         torch.cuda,
@@ -51,6 +55,7 @@ def test_rocm_admission_ignores_own_process(monkeypatch):
     [(8, "confirmed", 5000), (12, "unconfirmed", None), (10, "unconfirmed", None)],
 )
 def test_amortization_requires_confirmed_positive_savings(tuned, benefit, break_even):
+    """Break-even is reported only when every tuned median beats every fixed one."""
     trials = []
     for _ in range(5):
         timing = {"fixed": {"median": 10}, "tuned": {"median": tuned}}
@@ -117,6 +122,7 @@ def test_benchmark_paths_without_performance_claims(monkeypatch, tmp_path, name)
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA/ROCm required")
 def test_benchmark_cache_reused_by_new_process(tmp_path):
+    """A restarted worker loads every selection from disk and never re-selects."""
     import json
     import subprocess
     import sys
