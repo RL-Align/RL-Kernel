@@ -101,7 +101,8 @@ jobs:
             tests/models/qwen3_next/test_qwen3_next_chain_report.py \
             tests/models/qwen3_next/test_qwen3_next_run.py \
             tests/models/qwen3_next/test_qwen3_next_evidence_redaction.py \
-            tests/models/qwen3_next/test_qwen3_next_bi_cases.py
+            tests/models/qwen3_next/test_qwen3_next_bi_cases.py \
+            tests/models/qwen3_next/test_qwen3_next_tp_reductions.py
 
       - name: Run Cross-Configuration Contract Tests (CPU-safe)
         run: |
