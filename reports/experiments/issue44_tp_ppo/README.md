@@ -110,6 +110,54 @@ With `RUN_TP_CUDA=1`, `tests/integrations/common/test_ppo.py`,
 `tests/integrations/engines/train/test_ppo_adapters.py` report 26 passed
 ([log](pytest-gpu.txt)).
 
+## 5. Validation after rebasing onto current main
+
+Implementation `c28c022f` is based on `main@16b81175` (the repository refactor).
+The communication and PPO implementations now live in `integrations/common`,
+framework adapters in `integrations/engines/train`, and the old bridge module
+remains a compatibility import. The vLLM child resolves its module from the
+checkout root after the test harness moved into `tests/distributed/tp`.
+
+The [validation report](main-rebase/validation.json) records new runs on two
+B200 GPUs shared across roles, separately from the earlier four-GPU evidence.
+Both real-framework/vLLM jobs ran from outside the checkout to exercise the
+isolated child's module path.
+
+| Check | Result |
+| --- | --- |
+| Selected PPO, TP scalar, stateless scoring/training, weight bridge and DeepSpeed worker regressions, `RUN_TP_CUDA=1` | 111 passed, no skips |
+| `ci/run.py layout -q`, CUDA hidden | 32 passed, 1 GPU extension smoke test skipped |
+| Megatron + vLLM, Actor TP=2 / Critic TP=1 / vLLM TP=1 | two complete rounds |
+| DeepSpeed/Megatron + vLLM, same topology | two complete rounds; four optimizer steps per trainable role |
+| Maximum behavior-logprob error, both jobs | 4.7684e-7 |
+| Cross-framework final Actor / Critic parameter maximum error | 0 / 0 |
+| Installed / sampled versions | 0,1,2 / 0,1 |
+| Cached tokens after installation / on same-version replay, per request | 0 / 16 |
+
+Both trainable models changed and both frozen models remained unchanged.
+These are correctness checks for the tiny FP32 model; no production performance
+claim follows from them.
+
+Regression command ([output](main-rebase/pytest-regression.txt)):
+
+```bash
+RUN_TP_CUDA=1 OMP_NUM_THREADS=1 python -m pytest \
+  tests/integrations/common/test_ppo.py \
+  tests/integrations/common/test_tp_scalar.py \
+  tests/integrations/engines/train/test_ppo_adapters.py \
+  tests/runtime/test_stateless_executor.py \
+  tests/runtime/test_stateless_training_contract.py \
+  tests/integrations/common/test_weight_sync_bridge.py \
+  tests/integrations/engines/train/deepspeed/test_deepspeed_training_worker.py -q
+```
+
+For the framework runs, use the optional environments and overlay described in
+`examples/post_training/tp_ppo/README.md`, include the checkout root in
+`PYTHONPATH`, and run `tests.distributed.tp.check_tp_ppo_rollout` with
+`--gpu-layout shared`, `--critic-tp 1` and the isolated `--vllm-python`. Both
+framework choices were run with four processes from an external working
+directory. Ruff, the cluster script's shell syntax, and whitespace checks passed.
+
 ## Limits
 
 - **Framework configurations not validated:**
