@@ -1,0 +1,4836 @@
+{
+  "mode": "vllm_local",
+  "phase": "reuse",
+  "accuracy_seed": 0,
+  "source": {
+    "base_sha": "55f83d2b9043f41dca84440d9002ca30f5d3fac4",
+    "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_source_sha256": {},
+    "workspace_source_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "qwenimage_source_sha256": {
+      "csrc/cuda/model_specific/qwenimage/det_linear.cu": "859da456b0c776f3492b3197c252866e33d9a7088508b701b7c4a179ee709afb",
+      "csrc/cuda/model_specific/qwenimage/token_sum.cu": "1aace24523ff95520ab5d482e2e0f17d09a2efcf93efc8de865c7bcc157cf3ba",
+      "rl_engine/backends/cuda/model_specific/qwenimage/__init__.py": "95c46d40c4aed2d4c26a65bc0cc64331e42b237673293ea5ed45b79ebc11d4b4",
+      "rl_engine/backends/cuda/model_specific/qwenimage/adaln_mod_projection.py": "710df5416a2adf5b2576468ff63584b6699e6bdecd59906370049bf09f1b3286",
+      "rl_engine/backends/cuda/model_specific/qwenimage/final_adaln_out.py": "f6afe4b7568e2026c4b046a4fd0a02589f817d815198af33173d2dba61773f19",
+      "rl_engine/reference/model_specific/qwenimage/__init__.py": "95c46d40c4aed2d4c26a65bc0cc64331e42b237673293ea5ed45b79ebc11d4b4",
+      "rl_engine/reference/model_specific/qwenimage/adaln_mod_projection.py": "1ebc740ddff575055ee66ed714a8c7cc5c6cee2701d582a665289e9ad1a4fe3d",
+      "rl_engine/reference/model_specific/qwenimage/final_adaln_out.py": "60441610c04d04d0fb1cd7320be8584e76772c110a3cfed77ddf826dbde9b53c",
+      "benchmarks/models/qwenimage/__init__.py": "a63ebc79ed10d9ed98484565a353438bd13f5801a8f51d7505d0921bf6942742",
+      "benchmarks/models/qwenimage/adaln_evidence.py": "9dc9f3da0069d36c602baef07d687fb1aeba8fda0163d17fc446e0a543fe1f3e",
+      "benchmarks/models/qwenimage/adaln_parameter_screen.py": "05562ef30d09296c2ccd1cdeb44085568b8c877d01f5fb1df4b983e84945ec03",
+      "benchmarks/models/qwenimage/adaln_prior_art.py": "647aa9fc81e02bf3c7806ed6c2a3e578fb3e1a0b000b4388a12367ef86de3139",
+      "benchmarks/models/qwenimage/adaln_reuse_bi_audit.py": "88dd3d390e647bbc883b76622309fad54dac3618630dcca0785e555db329a671",
+      "benchmarks/models/qwenimage/adaln_reuse_candidate.py": "4598f6db94462ac30f3bdd3defae16f0ce7a34ac59eb1996d18e86f498c029b6",
+      "benchmarks/models/qwenimage/plot_adaln_audit.py": "6151e6abccca8f647c2fbeadf92f12e43ed1c07954db9f2db2f035284cbd407c",
+      "benchmarks/models/qwenimage/plot_adaln_evidence.py": "16d6bed0ee5b808814c5f7157145a730750d0b1aaf94762e6f72a256e942c1e2",
+      "benchmarks/models/qwenimage/streams.py": "bd27383eee59404df295f724f6c7d620db3d3d7074c19dd94d51a711b38acf02",
+      "benchmarks/models/qwenimage/validate_adaln_repair.py": "8b663191323b455470a2313cdfefd837657441b300ffd0e0767453f9f407db03"
+    },
+    "extension_sha256": "5d1054db8bba2eaedbd391d0c23b6683acea9ed04fcd64d6f369faed75aa9e0f",
+    "clean_commit": true
+  },
+  "cases": [
+    {
+      "stream": "image",
+      "dtype": "torch.bfloat16",
+      "weights": {
+        "transformer_blocks.0.img_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "22ef33e6865806f3e1d2bc137bd1a41510cf0619ed0c85fba35a626cd7bad018",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.img_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "f4d2241820fa1a1895d7136bd5653ae0984a50bf0a0961a312b45e0e393d8218",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 0.0007102272727272727,
+        "temb": 0.0013375396742077623,
+        "weight": 0.0031093047650859887,
+        "bias": 0.002188183807439825
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  0.15039999783039093,
+                  0.15641599893569946,
+                  0.14575999975204468,
+                  0.1494400054216385,
+                  0.14588800072669983,
+                  0.13945600390434265,
+                  0.1446080058813095,
+                  0.14528000354766846,
+                  0.15027199685573578,
+                  0.14511999487876892
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 0.14582400023937225
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  2.249056100845337,
+                  2.203455924987793,
+                  2.196063995361328,
+                  2.264832019805908,
+                  2.196160078048706,
+                  2.250432014465332,
+                  2.1985599994659424,
+                  2.1976959705352783,
+                  2.1904640197753906,
+                  2.2336320877075195
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 2.2010079622268677
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  2.3865280151367188,
+                  2.295520067214966,
+                  2.267807960510254,
+                  2.3688321113586426,
+                  2.369312047958374,
+                  2.3904640674591064,
+                  2.3756799697875977,
+                  2.3975679874420166,
+                  2.375231981277466,
+                  2.3731839656829834
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 2.3742079734802246
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 339904512
+            }
+          }
+        },
+        {
+          "batch": 3,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  0.1406719982624054,
+                  0.138047993183136,
+                  0.13715200126171112,
+                  0.13782399892807007,
+                  0.13574400544166565,
+                  0.13420799374580383,
+                  0.13491199910640717,
+                  0.13513599336147308,
+                  0.1414400041103363,
+                  0.13631999492645264
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 0.13673599809408188
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  2.1632959842681885,
+                  2.1708478927612305,
+                  2.1752638816833496,
+                  2.2089920043945312,
+                  2.186336040496826,
+                  2.2080318927764893,
+                  2.204063892364502,
+                  2.210655927658081,
+                  2.1494081020355225,
+                  2.1614720821380615
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 2.180799961090088
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  2.3440639972686768,
+                  2.386143922805786,
+                  2.349760055541992,
+                  2.3605120182037354,
+                  2.3871679306030273,
+                  2.3231360912323,
+                  2.2949440479278564,
+                  2.247999906539917,
+                  2.3559041023254395,
+                  2.3932158946990967
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 2.352832078933716
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 340236288
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  0.11555200070142746,
+                  0.11510399729013443,
+                  0.10784000158309937,
+                  0.10976000130176544,
+                  0.10742399841547012,
+                  0.10620799660682678,
+                  0.10467199981212616,
+                  0.10435199737548828,
+                  0.10819199681282043,
+                  0.10688000172376633
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 0.10763199999928474
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  2.63971209526062,
+                  2.6540160179138184,
+                  2.6489920616149902,
+                  2.6607680320739746,
+                  2.6613759994506836,
+                  2.6255359649658203,
+                  2.6489920616149902,
+                  2.644416093826294,
+                  2.638240098953247,
+                  2.642944097518921
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 2.646704077720642
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  2.76911997795105,
+                  2.873471975326538,
+                  2.8324480056762695,
+                  2.827359914779663,
+                  2.823359966278076,
+                  2.8201920986175537,
+                  2.8654398918151855,
+                  2.825824022293091,
+                  2.891263961791992,
+                  2.775360107421875
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 2.826591968536377
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 382205952
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  0.4453760087490082,
+                  0.44784000515937805,
+                  0.4414080083370209,
+                  0.43801599740982056,
+                  0.43641600012779236,
+                  0.43644800782203674,
+                  0.43587198853492737,
+                  0.4386880099773407,
+                  0.4381119906902313,
+                  0.4434239864349365
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 0.438400000333786
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  9.603008270263672,
+                  9.60524845123291,
+                  9.616127967834473,
+                  9.614720344543457,
+                  9.599967956542969,
+                  9.586912155151367,
+                  9.583328247070312,
+                  9.599648475646973,
+                  9.632575988769531,
+                  9.603391647338867
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 9.60319995880127
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  9.952544212341309,
+                  9.951519966125488,
+                  9.951680183410645,
+                  9.888640403747559,
+                  9.87276840209961,
+                  9.949919700622559,
+                  9.952735900878906,
+                  9.948543548583984,
+                  9.95030403137207,
+                  9.948127746582031
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 9.950111865997314
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 679477248
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "image",
+      "dtype": "torch.float32",
+      "weights": {
+        "transformer_blocks.0.img_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "22ef33e6865806f3e1d2bc137bd1a41510cf0619ed0c85fba35a626cd7bad018",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.img_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "f4d2241820fa1a1895d7136bd5653ae0984a50bf0a0961a312b45e0e393d8218",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 1.5183194788849913e-06,
+        "temb": 1.8327359852933242e-06,
+        "weight": 1.2601489105323987e-07,
+        "bias": 5.007435123128072e-08
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  0.7926080226898193,
+                  0.7925119996070862,
+                  0.7907840013504028,
+                  0.7864000201225281,
+                  0.7870399951934814,
+                  0.7844480276107788,
+                  0.7888960242271423,
+                  0.7822719812393188,
+                  0.7881280183792114,
+                  0.7867839932441711
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 0.7875840067863464
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  2.0851199626922607,
+                  2.061824083328247,
+                  2.060512065887451,
+                  2.103487968444824,
+                  2.06659197807312,
+                  2.0690560340881348,
+                  2.0567679405212402,
+                  2.0549120903015137,
+                  2.057663917541504,
+                  2.057568073272705
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 2.061168074607849
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  2.6471359729766846,
+                  2.6395199298858643,
+                  2.6443839073181152,
+                  2.644927978515625,
+                  2.6451520919799805,
+                  2.6393918991088867,
+                  2.6435840129852295,
+                  2.640928030014038,
+                  2.6394879817962646,
+                  2.5738561153411865
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 2.642256021499634
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 226775040
+            }
+          }
+        },
+        {
+          "batch": 3,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  0.8050240278244019,
+                  0.8004800081253052,
+                  0.7989760041236877,
+                  0.7985280156135559,
+                  0.7973120212554932,
+                  0.795520007610321,
+                  0.8043839931488037,
+                  0.7956479787826538,
+                  0.7996799945831299,
+                  0.7967680096626282
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 0.7987520098686218
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  2.0321600437164307,
+                  2.029344081878662,
+                  2.0355520248413086,
+                  2.033504009246826,
+                  2.078399896621704,
+                  2.083967924118042,
+                  2.0463359355926514,
+                  1.997056007385254,
+                  2.0210559368133545,
+                  2.020832061767578
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 2.0328320264816284
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  2.6300160884857178,
+                  2.627232074737549,
+                  2.630176067352295,
+                  2.5685760974884033,
+                  2.550015926361084,
+                  2.5412800312042236,
+                  2.6361279487609863,
+                  2.630784034729004,
+                  2.6281919479370117,
+                  2.626688003540039
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 2.6277120113372803
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 227192832
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  1.5358400344848633,
+                  1.531999945640564,
+                  1.5322879552841187,
+                  1.528607964515686,
+                  1.5262080430984497,
+                  1.531775951385498,
+                  1.5281599760055542,
+                  1.5276800394058228,
+                  1.5275520086288452,
+                  1.5268479585647583
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 1.5283839702606201
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  2.495584011077881,
+                  2.4987521171569824,
+                  2.5023040771484375,
+                  2.571903944015503,
+                  2.472223997116089,
+                  2.5484158992767334,
+                  2.542464017868042,
+                  2.5004160404205322,
+                  2.4927361011505127,
+                  2.4935998916625977
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 2.4995840787887573
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  3.8279359340667725,
+                  3.763711929321289,
+                  3.8264000415802,
+                  3.829087972640991,
+                  3.8263680934906006,
+                  3.8283839225769043,
+                  3.8279359340667725,
+                  3.763808012008667,
+                  3.8271360397338867,
+                  3.7655680179595947
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 3.8267680406570435
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 280043520
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  11.85968017578125,
+                  11.863712310791016,
+                  11.853759765625,
+                  11.860480308532715,
+                  11.859871864318848,
+                  11.855487823486328,
+                  11.855423927307129,
+                  11.858176231384277,
+                  11.856096267700195,
+                  11.854175567626953
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 11.857136249542236
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  9.37491226196289,
+                  9.41049575805664,
+                  9.370911598205566,
+                  9.431872367858887,
+                  9.401023864746094,
+                  9.409664154052734,
+                  9.406399726867676,
+                  9.38419246673584,
+                  9.374176025390625,
+                  9.370176315307617
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 9.392608165740967
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  21.044095993041992,
+                  21.032960891723633,
+                  21.044607162475586,
+                  21.038047790527344,
+                  20.98371124267578,
+                  21.042015075683594,
+                  21.041791915893555,
+                  21.04252815246582,
+                  21.040000915527344,
+                  21.04297637939453
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 21.041903495788574
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 739320832
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "text",
+      "dtype": "torch.bfloat16",
+      "weights": {
+        "transformer_blocks.0.txt_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "7fc5615cea51f21640ae26b29e4595fe96295113b1fd31b117664c1b85d360c2",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.txt_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "537d4e06e6fe7428a331637871fcf8c9c4899b296b5419e12abb3a3972adfc72",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 0.0009765625,
+        "temb": 0.0019412816630083021,
+        "weight": 0.0031093047650859887,
+        "bias": 0.002188183807439825
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  0.14207999408245087,
+                  0.13657599687576294,
+                  0.13516800105571747,
+                  0.14057600498199463,
+                  0.13872000575065613,
+                  0.1393599957227707,
+                  0.14102399349212646,
+                  0.1393280029296875,
+                  0.13705599308013916,
+                  0.13555200397968292
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 0.13902400434017181
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  2.1897919178009033,
+                  2.2427520751953125,
+                  2.249727964401245,
+                  2.180000066757202,
+                  2.192352056503296,
+                  2.1965439319610596,
+                  2.1885440349578857,
+                  2.196928024291992,
+                  2.2574079036712646,
+                  2.1858561038970947
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 2.1944479942321777
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  2.265536069869995,
+                  2.2874879837036133,
+                  2.378688097000122,
+                  2.3754239082336426,
+                  2.3843839168548584,
+                  2.3783040046691895,
+                  2.411328077316284,
+                  2.376800060272217,
+                  2.285151958465576,
+                  2.3800320625305176
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 2.377552032470703
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 339904512
+            }
+          }
+        },
+        {
+          "batch": 3,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  0.14268800616264343,
+                  0.14137600362300873,
+                  0.1382399946451187,
+                  0.1358720064163208,
+                  0.13756799697875977,
+                  0.13583999872207642,
+                  0.13651199638843536,
+                  0.13318400084972382,
+                  0.1351040005683899,
+                  0.13363200426101685
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 0.13619200140237808
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  2.168544054031372,
+                  2.164896011352539,
+                  2.1655359268188477,
+                  2.1780800819396973,
+                  2.162368059158325,
+                  2.2031679153442383,
+                  2.243328094482422,
+                  2.1664319038391113,
+                  2.178816080093384,
+                  2.1674559116363525
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 2.1679999828338623
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  2.347872018814087,
+                  2.4144959449768066,
+                  2.3068161010742188,
+                  2.2779200077056885,
+                  2.225856065750122,
+                  2.3707199096679688,
+                  2.3462400436401367,
+                  2.353247880935669,
+                  2.385215997695923,
+                  2.354624032974243
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 2.350559949874878
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 340236288
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  0.11046399921178818,
+                  0.10716799646615982,
+                  0.1058880016207695,
+                  0.1061440035700798,
+                  0.1064319983124733,
+                  0.10838399827480316,
+                  0.10579200088977814,
+                  0.10441599786281586,
+                  0.10380800068378448,
+                  0.11004800349473953
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 0.10628800094127655
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  2.6450560092926025,
+                  2.647104024887085,
+                  2.65775990486145,
+                  2.644160032272339,
+                  2.641472101211548,
+                  2.642944097518921,
+                  2.7132480144500732,
+                  2.6389760971069336,
+                  2.626336097717285,
+                  2.7076799869537354
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 2.6446080207824707
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  2.8270719051361084,
+                  2.8296639919281006,
+                  2.7645440101623535,
+                  2.7156479358673096,
+                  2.8280959129333496,
+                  2.820255994796753,
+                  2.8251841068267822,
+                  2.8460159301757812,
+                  2.8226559162139893,
+                  2.8559999465942383
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 2.8261280059814453
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 382205952
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  0.44972801208496094,
+                  0.4405120015144348,
+                  0.4394240081310272,
+                  0.438975989818573,
+                  0.43696001172065735,
+                  0.43801599740982056,
+                  0.436383992433548,
+                  0.435232013463974,
+                  0.4408639967441559,
+                  0.4366079866886139
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 0.4384959936141968
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  9.640735626220703,
+                  9.669792175292969,
+                  9.610560417175293,
+                  9.60416030883789,
+                  9.60051155090332,
+                  9.617728233337402,
+                  9.603391647338867,
+                  9.588479995727539,
+                  9.575584411621094,
+                  9.611455917358398
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 9.607360363006592
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  9.947999954223633,
+                  9.952032089233398,
+                  9.955615997314453,
+                  9.957375526428223,
+                  9.94819164276123,
+                  9.954719543457031,
+                  9.954367637634277,
+                  9.889856338500977,
+                  9.955007553100586,
+                  9.95638370513916
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 9.954543590545654
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 679477248
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "text",
+      "dtype": "torch.float32",
+      "weights": {
+        "transformer_blocks.0.txt_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "7fc5615cea51f21640ae26b29e4595fe96295113b1fd31b117664c1b85d360c2",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.txt_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "537d4e06e6fe7428a331637871fcf8c9c4899b296b5419e12abb3a3972adfc72",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 1.2188368681386174e-06,
+        "temb": 4.465900779879222e-06,
+        "weight": 1.2601489105323987e-07,
+        "bias": 5.007435123128072e-08
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  0.7891839742660522,
+                  0.7871999740600586,
+                  0.7868160009384155,
+                  0.7885119915008545,
+                  0.7836160063743591,
+                  0.7842879891395569,
+                  0.7842879891395569,
+                  0.7831680178642273,
+                  0.7842879891395569,
+                  0.7830399870872498
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 0.7842879891395569
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  2.101248025894165,
+                  2.0589759349823,
+                  2.0523838996887207,
+                  2.052351951599121,
+                  2.0527679920196533,
+                  2.098912000656128,
+                  2.0656960010528564,
+                  2.0640320777893066,
+                  2.0589120388031006,
+                  2.0547521114349365
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 2.0589439868927
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  2.5809600353240967,
+                  2.6458559036254883,
+                  2.6433279514312744,
+                  2.651423931121826,
+                  2.645024061203003,
+                  2.640768051147461,
+                  2.642656087875366,
+                  2.649087905883789,
+                  2.643903970718384,
+                  2.5863358974456787
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 2.643615961074829
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 226775040
+            }
+          }
+        },
+        {
+          "batch": 3,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  0.80348801612854,
+                  0.7997440099716187,
+                  0.7975360155105591,
+                  0.7971199750900269,
+                  0.7968959808349609,
+                  0.7976639866828918,
+                  0.799839973449707,
+                  0.794655978679657,
+                  0.7965120077133179,
+                  0.7989439964294434
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 0.7976000010967255
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  2.051424026489258,
+                  2.040992021560669,
+                  2.0261120796203613,
+                  2.029247999191284,
+                  2.061568021774292,
+                  2.056960105895996,
+                  2.100224018096924,
+                  2.002943992614746,
+                  2.0391039848327637,
+                  2.022304058074951
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 2.0400480031967163
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  2.629823923110962,
+                  2.5648961067199707,
+                  2.5457921028137207,
+                  2.5406079292297363,
+                  2.6404800415039062,
+                  2.630496025085449,
+                  2.634592056274414,
+                  2.6324799060821533,
+                  2.631648063659668,
+                  2.569119930267334
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 2.6301599740982056
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 227192832
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  1.5318399667739868,
+                  1.530079960823059,
+                  1.5291839838027954,
+                  1.5251519680023193,
+                  1.5269759893417358,
+                  1.5267200469970703,
+                  1.5329920053482056,
+                  1.5258560180664062,
+                  1.5295360088348389,
+                  1.5255359411239624
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 1.5280799865722656
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  2.4917759895324707,
+                  2.590912103652954,
+                  2.499903917312622,
+                  2.4992640018463135,
+                  2.5102078914642334,
+                  2.50166392326355,
+                  2.4899840354919434,
+                  2.499903917312622,
+                  2.5254080295562744,
+                  2.524735927581787
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 2.500783920288086
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  3.8265280723571777,
+                  3.8279359340667725,
+                  3.827967882156372,
+                  3.8315839767456055,
+                  3.8268160820007324,
+                  3.7606399059295654,
+                  3.7418880462646484,
+                  3.8285439014434814,
+                  3.826688051223755,
+                  3.828768014907837
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 3.8273760080337524
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 280043520
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  11.867679595947266,
+                  11.860544204711914,
+                  11.852800369262695,
+                  11.856608390808105,
+                  11.855487823486328,
+                  11.851615905761719,
+                  11.863967895507812,
+                  11.859328269958496,
+                  11.858624458312988,
+                  11.853983879089355
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 11.857616424560547
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  9.37440013885498,
+                  9.374272346496582,
+                  9.416671752929688,
+                  9.397151947021484,
+                  9.351872444152832,
+                  9.366175651550293,
+                  9.411999702453613,
+                  9.364704132080078,
+                  9.370047569274902,
+                  9.366687774658203
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 9.372159957885742
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  20.975296020507812,
+                  20.961503982543945,
+                  20.969120025634766,
+                  21.040607452392578,
+                  21.041664123535156,
+                  21.025632858276367,
+                  21.03753662109375,
+                  21.044511795043945,
+                  21.04876708984375,
+                  20.97772789001465
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 21.03158473968506
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 739320832
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "final",
+      "dtype": "torch.bfloat16",
+      "weights": {
+        "norm_out.linear.weight": {
+          "shape": [
+            6144,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "613ffb1bfa5aeedcf38208f87ca420212706c6f4c6f527de1a6bab58e36c2afb",
+          "shard": "diffusion_pytorch_model-00009-of-00009.safetensors",
+          "download_etag": "ae0fef149890f61d54572baa1e806de97156c7ec5b7bbbbbbf27a2d87f33af61"
+        },
+        "norm_out.linear.bias": {
+          "shape": [
+            6144
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "06ef4a795107a9dd4bcb5ab387a63291fd934ea8e31ecb2a87c98fb0628c13fd",
+          "shard": "diffusion_pytorch_model-00009-of-00009.safetensors",
+          "download_etag": "ae0fef149890f61d54572baa1e806de97156c7ec5b7bbbbbbf27a2d87f33af61"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 0.0003078817733990148,
+        "x": 0.003379820097165924,
+        "temb": 0.005712340593293303,
+        "weight": 0.00517754451340496,
+        "bias": 0.0040532119374307955
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "x": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 33,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  0.14371199905872345,
+                  0.13212800025939941,
+                  0.14108799397945404,
+                  0.13715200126171112,
+                  0.13926400244235992,
+                  0.13145600259304047,
+                  0.13302400708198547,
+                  0.13315199315547943,
+                  0.1292800009250641,
+                  0.13075199723243713
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 0.13308800011873245
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  0.8719040155410767,
+                  1.1155519485473633,
+                  1.1016960144042969,
+                  1.0998400449752808,
+                  1.1259520053863525,
+                  1.124735951423645,
+                  1.1263999938964844,
+                  1.103551983833313,
+                  1.0989760160446167,
+                  0.9134399890899658
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 1.102623999118805
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  1.2840960025787354,
+                  1.4099520444869995,
+                  1.3972159624099731,
+                  1.4082560539245605,
+                  1.407871961593628,
+                  1.4719359874725342,
+                  1.4203200340270996,
+                  1.4080959558486938,
+                  1.4219520092010498,
+                  1.4364479780197144
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 1.40910404920578
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 113909760
+            }
+          }
+        },
+        {
+          "batch": 2,
+          "sequence": 4096,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  0.4046719968318939,
+                  0.3890880048274994,
+                  0.38198399543762207,
+                  0.38204801082611084,
+                  0.3776639997959137,
+                  0.3875519931316376,
+                  0.3856959939002991,
+                  0.38172799348831177,
+                  0.3855679929256439,
+                  0.3872640132904053
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 0.3856319934129715
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  1.218400001525879,
+                  1.2064000368118286,
+                  1.2183040380477905,
+                  1.225376009941101,
+                  1.204192042350769,
+                  1.1837120056152344,
+                  1.2067519426345825,
+                  1.221119999885559,
+                  1.212448000907898,
+                  1.2079999446868896
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 1.2102239727973938
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  1.506943941116333,
+                  1.515552043914795,
+                  1.5075520277023315,
+                  1.5638400316238403,
+                  1.5631999969482422,
+                  1.48854398727417,
+                  1.5527679920196533,
+                  1.5161279439926147,
+                  1.531391978263855,
+                  1.5045119524002075
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 1.5158399939537048
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 509723136
+            }
+          }
+        },
+        {
+          "batch": 1,
+          "sequence": 6889,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  0.32892799377441406,
+                  0.3248000144958496,
+                  0.3182080090045929,
+                  0.3224320113658905,
+                  0.31881600618362427,
+                  0.32256001234054565,
+                  0.3222079873085022,
+                  0.3173440098762512,
+                  0.31779199838638306,
+                  0.3129599988460541
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 0.32051199674606323
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  1.184224009513855,
+                  1.2198079824447632,
+                  1.243008017539978,
+                  1.1965440511703491,
+                  1.2114239931106567,
+                  1.174623966217041,
+                  1.1775039434432983,
+                  1.182271957397461,
+                  1.1843199729919434,
+                  1.1867200136184692
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 1.1855199933052063
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  1.366528034210205,
+                  1.5511679649353027,
+                  1.4832960367202759,
+                  1.499295949935913,
+                  1.4776959419250488,
+                  1.4059200286865234,
+                  1.4735679626464844,
+                  1.4871360063552856,
+                  1.5416640043258667,
+                  1.4792959690093994
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 1.4812960028648376
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 452076032
+            }
+          }
+        },
+        {
+          "batch": 1,
+          "sequence": 6032,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  0.29420799016952515,
+                  0.2950719892978668,
+                  0.2913599908351898,
+                  0.28806400299072266,
+                  0.28569599986076355,
+                  0.28703999519348145,
+                  0.2961280047893524,
+                  0.28886398673057556,
+                  0.2868799865245819,
+                  0.2871679961681366
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 0.2884639948606491
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  1.1969599723815918,
+                  1.1918079853057861,
+                  1.1573439836502075,
+                  1.19868803024292,
+                  0.9815040230751038,
+                  1.149407982826233,
+                  1.152448058128357,
+                  1.1582080125808716,
+                  1.1566720008850098,
+                  1.171455979347229
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 1.1577759981155396
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  1.3378239870071411,
+                  1.342527985572815,
+                  1.3114880323410034,
+                  1.292672038078308,
+                  1.4558080434799194,
+                  1.5230079889297485,
+                  1.4534080028533936,
+                  1.4564800262451172,
+                  1.4546879529953003,
+                  1.334015965461731
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 1.3979679942131042
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 408920576
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 3,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  0.13519999384880066,
+                  0.12547199428081512,
+                  0.12281599640846252,
+                  0.12166400253772736,
+                  0.12470400333404541,
+                  0.1273919939994812,
+                  0.12105599790811539,
+                  0.12479999661445618,
+                  0.1196800023317337,
+                  0.11814399808645248
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 0.12375999987125397
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  1.315071940422058,
+                  1.2543679475784302,
+                  1.289504051208496,
+                  1.3123199939727783,
+                  1.286944031715393,
+                  1.3440320491790771,
+                  1.281823992729187,
+                  1.2815359830856323,
+                  1.2609280347824097,
+                  1.2620480060577393
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 1.28438401222229
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  1.5653760433197021,
+                  1.5584959983825684,
+                  1.609887957572937,
+                  1.4856959581375122,
+                  1.481376051902771,
+                  1.413472056388855,
+                  1.6285120248794556,
+                  1.5700160264968872,
+                  1.5631999969482422,
+                  1.5754879713058472
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 1.5642880201339722
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 141557760
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 3,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  0.4118080139160156,
+                  0.40595200657844543,
+                  0.4074240028858185,
+                  0.4051840007305145,
+                  0.40774399042129517,
+                  0.4036160111427307,
+                  0.40374401211738586,
+                  0.40374401211738586,
+                  0.40195199847221375,
+                  0.4023680090904236
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 0.4044640064239502
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  3.7146880626678467,
+                  3.704767942428589,
+                  3.733760118484497,
+                  3.720031976699829,
+                  3.6972479820251465,
+                  3.6879680156707764,
+                  3.7131199836730957,
+                  3.775520086288452,
+                  3.710239887237549,
+                  3.7056000232696533
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 3.7116799354553223
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  4.082687854766846,
+                  3.936800003051758,
+                  3.9249279499053955,
+                  3.9227840900421143,
+                  4.020736217498779,
+                  4.005184173583984,
+                  4.004064083099365,
+                  4.001664161682129,
+                  4.001567840576172,
+                  4.0234880447387695
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 4.002864122390747
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 364929536
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "final",
+      "dtype": "torch.float32",
+      "weights": {
+        "norm_out.linear.weight": {
+          "shape": [
+            6144,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "613ffb1bfa5aeedcf38208f87ca420212706c6f4c6f527de1a6bab58e36c2afb",
+          "shard": "diffusion_pytorch_model-00009-of-00009.safetensors",
+          "download_etag": "ae0fef149890f61d54572baa1e806de97156c7ec5b7bbbbbbf27a2d87f33af61"
+        },
+        "norm_out.linear.bias": {
+          "shape": [
+            6144
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "06ef4a795107a9dd4bcb5ab387a63291fd934ea8e31ecb2a87c98fb0628c13fd",
+          "shard": "diffusion_pytorch_model-00009-of-00009.safetensors",
+          "download_etag": "ae0fef149890f61d54572baa1e806de97156c7ec5b7bbbbbbf27a2d87f33af61"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 1.050487715183967e-06,
+        "x": 9.988318586171006e-07,
+        "temb": 2.535181130127741e-06,
+        "weight": 1.611449087501953e-07,
+        "bias": 1.037766860497995e-07
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "x": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 33,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  0.7914559841156006,
+                  0.7823039889335632,
+                  0.7809919714927673,
+                  0.7779840230941772,
+                  0.7816960215568542,
+                  0.7817919850349426,
+                  0.7846400141716003,
+                  0.7813119888305664,
+                  0.7810879945755005,
+                  0.7820159792900085
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 0.7817440032958984
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  1.0382399559020996,
+                  1.0412800312042236,
+                  1.0374079942703247,
+                  1.036736011505127,
+                  1.105407953262329,
+                  1.060863971710205,
+                  1.0734399557113647,
+                  1.0266560316085815,
+                  1.0234559774398804,
+                  1.03056001663208
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 1.0378239750862122
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  1.5222400426864624,
+                  1.5321600437164307,
+                  1.522655963897705,
+                  1.4655040502548218,
+                  1.4526400566101074,
+                  1.5262080430984497,
+                  1.5284160375595093,
+                  1.5275839567184448,
+                  1.5315200090408325,
+                  1.527392029762268
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 1.5268000364303589
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 76824576
+            }
+          }
+        },
+        {
+          "batch": 2,
+          "sequence": 4096,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  0.9855679869651794,
+                  0.9829760193824768,
+                  0.9822080135345459,
+                  0.9827200174331665,
+                  0.9833279848098755,
+                  0.980351984500885,
+                  0.985696017742157,
+                  0.9826560020446777,
+                  0.9815679788589478,
+                  0.9817600250244141
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 0.9826880097389221
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  1.0680639743804932,
+                  1.1275520324707031,
+                  1.1136640310287476,
+                  1.0685759782791138,
+                  1.0991359949111938,
+                  1.0364480018615723,
+                  1.0610560178756714,
+                  1.0599039793014526,
+                  1.0535680055618286,
+                  1.0656319856643677
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 1.0668479800224304
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  1.9344960451126099,
+                  1.9333440065383911,
+                  1.9364479780197144,
+                  1.9365119934082031,
+                  1.9351680278778076,
+                  1.9335999488830566,
+                  1.875167965888977,
+                  1.8615679740905762,
+                  1.9413119554519653,
+                  1.9355520009994507
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 1.9348320364952087
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 660767232
+            }
+          }
+        },
+        {
+          "batch": 1,
+          "sequence": 6889,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  0.9296000003814697,
+                  0.9253439903259277,
+                  0.9220160245895386,
+                  0.9217919707298279,
+                  0.9159039855003357,
+                  0.9247360229492188,
+                  0.9192320108413696,
+                  0.9165760278701782,
+                  0.9180480241775513,
+                  0.9149119853973389
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 0.9205119907855988
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  1.0471359491348267,
+                  1.0888320207595825,
+                  1.039039969444275,
+                  1.0713599920272827,
+                  1.0709760189056396,
+                  1.0576640367507935,
+                  1.0768320560455322,
+                  1.0397119522094727,
+                  1.0415680408477783,
+                  1.0384639501571655
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 1.05239999294281
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  1.8480960130691528,
+                  1.8474880456924438,
+                  1.8515199422836304,
+                  1.8508479595184326,
+                  1.8507519960403442,
+                  1.852128028869629,
+                  1.7931840419769287,
+                  1.8516160249710083,
+                  1.8471039533615112,
+                  1.8524479866027832
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 1.8507999777793884
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 579078656
+            }
+          }
+        },
+        {
+          "batch": 1,
+          "sequence": 6032,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  0.9093120098114014,
+                  0.9055039882659912,
+                  0.9014400243759155,
+                  0.9025599956512451,
+                  0.900704026222229,
+                  0.9025279879570007,
+                  0.9015359878540039,
+                  0.9012799859046936,
+                  0.898688018321991,
+                  0.8997759819030762
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 0.9014880061149597
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  1.035423994064331,
+                  1.0367039442062378,
+                  1.0352959632873535,
+                  1.0771520137786865,
+                  1.018239974975586,
+                  1.0475200414657593,
+                  1.0421760082244873,
+                  1.0386879444122314,
+                  1.0856000185012817,
+                  1.060256004333496
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 1.0404319763183594
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  1.7416640520095825,
+                  1.728767991065979,
+                  1.8093440532684326,
+                  1.8071039915084839,
+                  1.8065279722213745,
+                  1.8116799592971802,
+                  1.8158719539642334,
+                  1.8069759607315063,
+                  1.8037439584732056,
+                  1.7521599531173706
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 1.8067519664764404
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 520126976
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 3,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  0.8259519934654236,
+                  0.8177599906921387,
+                  0.8187839984893799,
+                  0.8169280290603638,
+                  0.8139839768409729,
+                  0.815455973148346,
+                  0.8167999982833862,
+                  0.818880021572113,
+                  0.8133440017700195,
+                  0.8147839903831482
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 0.816864013671875
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  1.195904016494751,
+                  1.207360029220581,
+                  1.1960959434509277,
+                  1.2224639654159546,
+                  1.208832025527954,
+                  1.1951680183410645,
+                  1.211359977722168,
+                  1.1804800033569336,
+                  1.2328640222549438,
+                  1.183616042137146
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 1.2017279863357544
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  1.6695040464401245,
+                  1.7298239469528198,
+                  1.724287986755371,
+                  1.7278399467468262,
+                  1.7285120487213135,
+                  1.7379839420318604,
+                  1.7255680561065674,
+                  1.7261439561843872,
+                  1.7273279428482056,
+                  1.6681920289993286
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 1.7267359495162964
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 125853696
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 3,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_local": [
+                  4.605535984039307,
+                  4.607359886169434,
+                  4.601408004760742,
+                  4.600543975830078,
+                  4.6038079261779785,
+                  4.600224018096924,
+                  4.593855857849121,
+                  4.599616050720215,
+                  4.6051201820373535,
+                  4.598752021789551
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 4.60097599029541
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  3.5326080322265625,
+                  3.5287680625915527,
+                  3.5312321186065674,
+                  3.569119930267334,
+                  3.558784008026123,
+                  3.552095890045166,
+                  3.501120090484619,
+                  3.5262720584869385,
+                  3.5642879009246826,
+                  3.5262720584869385
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 3.531920075416565
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_local": [
+                  8.012703895568848,
+                  7.955391883850098,
+                  8.022591590881348,
+                  8.014752388000488,
+                  8.016480445861816,
+                  8.019455909729004,
+                  8.011199951171875,
+                  8.013855934143066,
+                  8.011391639709473,
+                  7.950911998748779
+                ]
+              },
+              "order": [
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ],
+                [
+                  "vllm_local"
+                ]
+              ],
+              "median_ms": {
+                "vllm_local": 8.013279914855957
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_local": 503341568
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "environment": {
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "gpu": "NVIDIA B200",
+    "workspace": {
+      "CUBLAS_WORKSPACE_CONFIG": null,
+      "CUBLASLT_WORKSPACE_SIZE": null
+    },
+    "tf32": false
+  },
+  "scope": "sample batch BI; final uses S=3 for large B, long S tested separately; shared parameter gradients: same ordered inputs, repeat only",
+  "packages": {
+    "torch": "2.13.0",
+    "triton": "3.7.1",
+    "diffusers": null,
+    "vllm": "0.30.0",
+    "sglang": "0.5.21",
+    "liger-kernel": "0.8.4",
+    "transformer_engine": null,
+    "megatron-core": null
+  }
+}

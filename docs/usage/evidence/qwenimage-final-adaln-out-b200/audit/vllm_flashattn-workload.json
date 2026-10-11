@@ -1,0 +1,471 @@
+{
+  "mode": "vllm_flashattn",
+  "phase": "workload",
+  "accuracy_seed": 0,
+  "source": {
+    "base_sha": "55f83d2b9043f41dca84440d9002ca30f5d3fac4",
+    "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_source_sha256": {},
+    "workspace_source_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "qwenimage_source_sha256": {
+      "csrc/cuda/model_specific/qwenimage/det_linear.cu": "859da456b0c776f3492b3197c252866e33d9a7088508b701b7c4a179ee709afb",
+      "csrc/cuda/model_specific/qwenimage/token_sum.cu": "1aace24523ff95520ab5d482e2e0f17d09a2efcf93efc8de865c7bcc157cf3ba",
+      "rl_engine/backends/cuda/model_specific/qwenimage/__init__.py": "95c46d40c4aed2d4c26a65bc0cc64331e42b237673293ea5ed45b79ebc11d4b4",
+      "rl_engine/backends/cuda/model_specific/qwenimage/adaln_mod_projection.py": "710df5416a2adf5b2576468ff63584b6699e6bdecd59906370049bf09f1b3286",
+      "rl_engine/backends/cuda/model_specific/qwenimage/final_adaln_out.py": "f6afe4b7568e2026c4b046a4fd0a02589f817d815198af33173d2dba61773f19",
+      "rl_engine/reference/model_specific/qwenimage/__init__.py": "95c46d40c4aed2d4c26a65bc0cc64331e42b237673293ea5ed45b79ebc11d4b4",
+      "rl_engine/reference/model_specific/qwenimage/adaln_mod_projection.py": "1ebc740ddff575055ee66ed714a8c7cc5c6cee2701d582a665289e9ad1a4fe3d",
+      "rl_engine/reference/model_specific/qwenimage/final_adaln_out.py": "60441610c04d04d0fb1cd7320be8584e76772c110a3cfed77ddf826dbde9b53c",
+      "benchmarks/models/qwenimage/__init__.py": "a63ebc79ed10d9ed98484565a353438bd13f5801a8f51d7505d0921bf6942742",
+      "benchmarks/models/qwenimage/adaln_evidence.py": "9dc9f3da0069d36c602baef07d687fb1aeba8fda0163d17fc446e0a543fe1f3e",
+      "benchmarks/models/qwenimage/adaln_parameter_screen.py": "05562ef30d09296c2ccd1cdeb44085568b8c877d01f5fb1df4b983e84945ec03",
+      "benchmarks/models/qwenimage/adaln_prior_art.py": "647aa9fc81e02bf3c7806ed6c2a3e578fb3e1a0b000b4388a12367ef86de3139",
+      "benchmarks/models/qwenimage/adaln_reuse_bi_audit.py": "88dd3d390e647bbc883b76622309fad54dac3618630dcca0785e555db329a671",
+      "benchmarks/models/qwenimage/adaln_reuse_candidate.py": "4598f6db94462ac30f3bdd3defae16f0ce7a34ac59eb1996d18e86f498c029b6",
+      "benchmarks/models/qwenimage/plot_adaln_audit.py": "6151e6abccca8f647c2fbeadf92f12e43ed1c07954db9f2db2f035284cbd407c",
+      "benchmarks/models/qwenimage/plot_adaln_evidence.py": "16d6bed0ee5b808814c5f7157145a730750d0b1aaf94762e6f72a256e942c1e2",
+      "benchmarks/models/qwenimage/streams.py": "bd27383eee59404df295f724f6c7d620db3d3d7074c19dd94d51a711b38acf02",
+      "benchmarks/models/qwenimage/validate_adaln_repair.py": "8b663191323b455470a2313cdfefd837657441b300ffd0e0767453f9f407db03"
+    },
+    "extension_sha256": "5d1054db8bba2eaedbd391d0c23b6683acea9ed04fcd64d6f369faed75aa9e0f",
+    "clean_commit": true
+  },
+  "cases": [
+    {
+      "stream": "final",
+      "dtype": "torch.bfloat16",
+      "weights": {
+        "norm_out.linear.weight": {
+          "shape": [
+            6144,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "613ffb1bfa5aeedcf38208f87ca420212706c6f4c6f527de1a6bab58e36c2afb",
+          "shard": "diffusion_pytorch_model-00009-of-00009.safetensors",
+          "download_etag": "ae0fef149890f61d54572baa1e806de97156c7ec5b7bbbbbbf27a2d87f33af61"
+        },
+        "norm_out.linear.bias": {
+          "shape": [
+            6144
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "06ef4a795107a9dd4bcb5ab387a63291fd934ea8e31ecb2a87c98fb0628c13fd",
+          "shard": "diffusion_pytorch_model-00009-of-00009.safetensors",
+          "download_etag": "ae0fef149890f61d54572baa1e806de97156c7ec5b7bbbbbbf27a2d87f33af61"
+        }
+      },
+      "checks": [
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 7,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 64,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 257,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 1024,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 2048,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 7,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 64,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 257,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 1024,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 2048,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 7,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 64,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 257,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 1024,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 2048,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        }
+      ]
+    },
+    {
+      "stream": "final",
+      "dtype": "torch.float32",
+      "weights": {
+        "norm_out.linear.weight": {
+          "shape": [
+            6144,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "613ffb1bfa5aeedcf38208f87ca420212706c6f4c6f527de1a6bab58e36c2afb",
+          "shard": "diffusion_pytorch_model-00009-of-00009.safetensors",
+          "download_etag": "ae0fef149890f61d54572baa1e806de97156c7ec5b7bbbbbbf27a2d87f33af61"
+        },
+        "norm_out.linear.bias": {
+          "shape": [
+            6144
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "06ef4a795107a9dd4bcb5ab387a63291fd934ea8e31ecb2a87c98fb0628c13fd",
+          "shard": "diffusion_pytorch_model-00009-of-00009.safetensors",
+          "download_etag": "ae0fef149890f61d54572baa1e806de97156c7ec5b7bbbbbbf27a2d87f33af61"
+        }
+      },
+      "checks": [
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 7,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 64,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 257,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 1024,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 2048,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 7,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 64,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 257,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 1024,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 2048,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 7,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 64,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 257,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 1024,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 2048,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "x": 0,
+            "temb": 0
+          }
+        }
+      ]
+    }
+  ],
+  "environment": {
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "gpu": "NVIDIA B200",
+    "workspace": {
+      "CUBLAS_WORKSPACE_CONFIG": null,
+      "CUBLASLT_WORKSPACE_SIZE": null
+    },
+    "tf32": false
+  },
+  "scope": "sample batch BI; final uses S=3 for large B, long S tested separately; shared parameter gradients: same ordered inputs, repeat only",
+  "packages": {
+    "torch": "2.13.0",
+    "triton": "3.7.1",
+    "diffusers": null,
+    "vllm": "0.30.0",
+    "sglang": "0.5.21",
+    "liger-kernel": "0.8.4",
+    "transformer_engine": null,
+    "megatron-core": null,
+    "flash-attention-source": "94e22c906678e5483fa0e9e24d8e787bc2c0ed4c"
+  }
+}
