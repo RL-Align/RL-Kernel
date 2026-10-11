@@ -98,11 +98,12 @@ python benchmarks/benchmark_attn_out_bias_gemm.py --rows 512,4096,6889 --backwar
 
 Measured on RTX 5090 (sm_120), bf16, torch 2.13.0+cu130 (re-measured on the
 refactored base): Triton leaf-chunk forward 1.9 ms at S=512, 17.5 ms at
-S=4096, 41 ms at S=6889; peak allocated memory 0.17 / 1.05 / 1.71 GiB
-forward and 0.24 / 1.31 / 2.07 GiB forward+backward (the backward tree
-partials plus dW dominate the extra footprint). The CUDA per-thread kernel
-trades speed (about 4-7x slower across tiers) for O(S*N) memory (no partial
-planes). The Triton path bounds partials to `(12 + log2(96))` output tiles
+S=4096, 41 ms at S=6889 (16.8x / 12.3x / 10.0x vs the reference;
+forward+backward 7.1 / 72.1 / 152.5 ms); peak allocated memory
+0.17 / 1.05 / 1.71 GiB forward and 0.24 / 1.31 / 2.07 GiB forward+backward
+(the backward tree partials plus dW dominate the extra footprint). The CUDA
+per-thread kernel trades speed (about 3-7x slower across tiers and modes)
+for O(S*N) memory (no partial planes). The Triton path bounds partials to `(12 + log2(96))` output tiles
 via chunked depth-first combination.
 
 ## Tests
