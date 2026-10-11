@@ -191,6 +191,10 @@ cython_debug/
 # Ruff stuff:
 .ruff_cache/
 
+# Local tool caches and browser artifacts
+.playwright-mcp/
+.pre-commit-cache/
+
 # PyPI configuration file
 .pypirc
 
