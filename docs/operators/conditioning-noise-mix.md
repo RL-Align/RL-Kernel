@@ -90,7 +90,22 @@ thresholds from `rl_engine/contracts/profiles/precision/ws1.json`.
 
 ## Performance Notes
 
-Element-wise forward and backward kernels with no reductions or atomics.
+```bash
+python -m benchmarks.operators.conditioning.benchmark_conditioning_noise_mix
+```
+
+The benchmark compares the public CUDA and eager PyTorch wrappers on identical
+GPU-resident inputs after checking outputs and both input gradients bitwise.
+Default shapes are `3x257`, `1x32x400`, `1x24x1x48x80` and `1x24x17x48x80`,
+with FP16, BF16 and FP32 inputs.
+
+The shared `PerformanceProfiler` measures inference forward, backward on a
+prebuilt graph, and a fresh forward plus backward. Wrapper validation, allocation
+and autograd dispatch are timed; input generation and correctness checks are not.
+The JSON results in `artifacts/benchmarks/conditioning-noise-mix/results.json` include latency,
+timing variation, throughput and peak allocation. `report.md` summarizes latency
+and speedup.
+Use `--help` for workload and output options.
 
 ## Tests
 
@@ -99,6 +114,7 @@ Install the pinned Diffusers reference for reproducible upstream parity checks:
 ```bash
 python -m pip install "diffusers @ git+https://github.com/huggingface/diffusers.git@f53d552036a0d1bd5570782a39cd40cfabf112bc"
 RL_KERNEL_REQUIRE_EXT=1 python -m pytest tests/ops/conditioning/test_conditioning_noise_mix.py -q
+python -m pytest tests/benchmarks/test_benchmark_conditioning_noise_mix.py -q
 python -m tools.validation.operators.check_operator --op conditioning_noise_mix --candidate cuda \
   --device cuda --dtype bf16 --batch 2 --seq 7 --normalized-dim 257 --check-grad
 ```
@@ -114,3 +130,4 @@ the Diffusers MiniMax-H3 scheduler is unavailable.
   and shared input validation
 - `rl_engine/backends/cuda/conditioning/conditioning_noise_mix.py` — CUDA autograd wrapper
 - `csrc/cuda/conditioning/conditioning_noise_mix.cu` — CUDA forward/backward kernels
+- `benchmarks/operators/conditioning/benchmark_conditioning_noise_mix.py` — public-wrapper benchmark
