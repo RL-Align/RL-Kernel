@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 RL-Kernel Contributors
+"""Compatibility import; the canonical module is loaded below."""
 
-from . import batch_invariant_logp  # noqa: F401
-from . import linear_logp  # noqa: F401
-from . import logp  # noqa: F401
+from importlib import import_module
+
+
+def __getattr__(name):
+    return getattr(import_module("rl_engine.backends.ascend.loss"), name)
