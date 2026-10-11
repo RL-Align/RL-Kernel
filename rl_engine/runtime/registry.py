@@ -199,6 +199,12 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     PYTORCH_NATIVE_EMBEDDING = "rl_engine.kernels.ops.pytorch.linear.embedding.NativeEmbeddingOp"
     CUDA_SM90_LM_HEAD = "rl_engine.kernels.ops.cuda.linear.lm_head.SM90LMHeadOp"
     CUDA_SM90_EMBEDDING = "rl_engine.kernels.ops.cuda.linear.embedding.SM90EmbeddingOp"
+    # Qwen-Image WS1 MLP up projection + tanh GELU (pinned tensor-core schedule)
+    CUDA_MLP_UP_GEMM_GELU = "rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu.CudaMlpUpGemmGeluOp"
+    PYTORCH_MLP_UP_GEMM_GELU = "rl_engine.reference.gemm.mlp_up_gemm_gelu.NativeMlpUpGemmGeluOp"
+    TRITON_MLP_UP_GEMM_GELU = (
+        "rl_engine.backends.shared.triton.gemm.mlp_up_gemm_gelu.TritonMlpUpGemmGeluOp"
+    )
 
 
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
@@ -585,6 +591,15 @@ class KernelRegistry:
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
                 "det_gemm": [OpBackend.CUDA_DET_GEMM, OpBackend.TRITON_DET_GEMM],
+                # Qwen-Image WS1 MLP up projection + GELU. Triton first: on
+                # Hopper it lowers the same pinned schedule to wgmma (measured
+                # byte-identical to the hand-written sm90 kernel); the native
+                # CUDA backend is the tree/mma pair, then the fp32 reference.
+                "mlp_up_gemm_gelu": [
+                    OpBackend.TRITON_MLP_UP_GEMM_GELU,
+                    OpBackend.CUDA_MLP_UP_GEMM_GELU,
+                    OpBackend.PYTORCH_MLP_UP_GEMM_GELU,
+                ],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
@@ -639,6 +654,11 @@ class KernelRegistry:
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
                 "det_gemm": [OpBackend.TRITON_DET_GEMM],
+                # The CUDA sources are NVIDIA PTX; Triton serves ROCm/MUSA.
+                "mlp_up_gemm_gelu": [
+                    OpBackend.TRITON_MLP_UP_GEMM_GELU,
+                    OpBackend.PYTORCH_MLP_UP_GEMM_GELU,
+                ],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
@@ -681,6 +701,11 @@ class KernelRegistry:
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
                 "det_gemm": [OpBackend.TRITON_DET_GEMM],
+                # The CUDA sources are NVIDIA PTX; Triton serves ROCm/MUSA.
+                "mlp_up_gemm_gelu": [
+                    OpBackend.TRITON_MLP_UP_GEMM_GELU,
+                    OpBackend.PYTORCH_MLP_UP_GEMM_GELU,
+                ],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
@@ -722,6 +747,7 @@ class KernelRegistry:
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
+                "mlp_up_gemm_gelu": [OpBackend.PYTORCH_MLP_UP_GEMM_GELU],
             },
             # Ascend NPU: op types without an entry fall back to their CPU
             # candidates (see the runtime override below), so only

@@ -46,6 +46,20 @@ OP_SPECS = {
         },
         grad_input_names=("x", "weight"),
     ),
+    "mlp_up_gemm_gelu": OperatorSpec(
+        name="mlp_up_gemm_gelu",
+        op_class="reduction",
+        gold_path=("rl_engine.reference.gemm.mlp_up_gemm_gelu.NativeMlpUpGemmGeluOp"),
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": ("rl_engine.reference.gemm.mlp_up_gemm_gelu.NativeMlpUpGemmGeluOp"),
+            "cuda": "rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu.CudaMlpUpGemmGeluOp",
+            "triton": (
+                "rl_engine.backends.shared.triton.gemm.mlp_up_gemm_gelu.TritonMlpUpGemmGeluOp"
+            ),
+        },
+        grad_input_names=("x", "weight", "bias"),
+    ),
     "qk_norm": OperatorSpec(
         name="qk_norm",
         op_class="reduction",
