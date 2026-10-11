@@ -30,7 +30,9 @@ Commands use the current repository layout; at `c67ec14` these runners were
 in `scripts/` and `ci/`. The stages ran the code of `c67ec14`; the copy in this directory was made by
 the publisher of `3025497`, which only adds redaction rules (`redaction.json`
 counts the placeholders) and changes no measured byte. `SHA256SUMS` covers
-every file except this README.
+every file except this README and `figure.png`, which
+`python tools/validation/models/plot_qwen3_next_chain.py docs/usage/evidence/qwen3-next-chain-b200`
+draws from the published files.
 
 `train` was preempted and restarted several times. The training journal lets a
 restarted run continue from its last durable step, and one restarted run reused
