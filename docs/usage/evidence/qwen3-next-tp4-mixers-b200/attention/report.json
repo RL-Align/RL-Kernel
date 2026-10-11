@@ -1,7 +1,7 @@
 {
   "kind": "qwen3_next_prior_art_report",
   "rfc": 428,
-  "rl_kernel_commit": "65170777576cb957fb5557ef13bb46ce695a9f1a",
+  "rl_kernel_commit": "703c6dca23da2f42b288fefe70f2073ef6a97986",
   "tracked_tree_dirty": false,
   "environment": {
     "gpu": "NVIDIA B200",
@@ -13,9 +13,10 @@
       "transformers": "5.17.0",
       "triton": "3.7.1",
       "sglang": null,
-      "megatron-core": null,
-      "transformer_engine": null,
-      "vime": null
+      "megatron-core": "0.16.0rc0",
+      "megatron_core": "0.16.0rc0",
+      "transformer_engine": "2.16.1+c9877beb",
+      "vime": "0.3.2"
     }
   },
   "op": "qwen3_next_tp4_attention",
@@ -45,7 +46,7 @@
         "last_1": true
       },
       "repeatable": true,
-      "backward_repeat_bitwise": {
+      "backward_batch_bitwise": {
         "dq": true,
         "dk": true,
         "dv": true
@@ -69,7 +70,7 @@
         "last_1": false
       },
       "repeatable": true,
-      "backward_repeat_bitwise": {
+      "backward_batch_bitwise": {
         "dq": false,
         "dk": true,
         "dv": true
@@ -155,46 +156,191 @@
         "max_abs_vs_fp64": 0.0066821561991154965
       },
       "batch_invariant": false
+    },
+    {
+      "key": "fa4_cute",
+      "name": "FlashAttention-4 (CuTe DSL) varlen, vendored by vLLM",
+      "source": "vllm 0.30.0 vllm_flash_attn/cute (its head-dim-256 SM100 backward has no deterministic mode)",
+      "batch_bitwise": {
+        "first": true,
+        "last": true
+      },
+      "prefill_decode_bitwise": {
+        "last_64": true,
+        "last_1": true
+      },
+      "repeatable": true,
+      "backward_batch_bitwise": {
+        "dq": true,
+        "dk": true,
+        "dv": true
+      },
+      "accuracy": {
+        "rel_l2_vs_fp64": 0.0020224522459116262,
+        "max_abs_vs_fp64": 0.0066821561991154965
+      },
+      "batch_invariant": true
+    },
+    {
+      "key": "te_training",
+      "name": "Transformer Engine DotProductAttention (THD), training: unfused fallback",
+      "source": "transformer-engine 2.16.1+c9877beb (selected for head-dim-256 training on SM100)",
+      "batch_bitwise": {
+        "first": false,
+        "last": false
+      },
+      "prefill_decode_failed": "RuntimeError: The size of tensor a (1000) must match the size of tensor b (64) at non-singleton dimension 3",
+      "prefill_decode_bitwise": {
+        "last_64": false,
+        "last_1": false
+      },
+      "repeatable": true,
+      "backward_batch_bitwise": {
+        "dq": false,
+        "dk": false,
+        "dv": false
+      },
+      "accuracy": {
+        "rel_l2_vs_fp64": 0.003577689514635195,
+        "max_abs_vs_fp64": 0.012889566535712937
+      },
+      "batch_invariant": false
+    },
+    {
+      "key": "megatron_local",
+      "name": "Megatron-core DotProductAttention (local, one launch per sequence)",
+      "source": "megatron-core 0.16.0rc0",
+      "batch_bitwise": {
+        "first": true,
+        "last": true
+      },
+      "prefill_decode_bitwise": {
+        "last_64": true,
+        "last_1": true
+      },
+      "repeatable": true,
+      "backward_batch_bitwise": {
+        "dq": true,
+        "dk": true,
+        "dv": true
+      },
+      "accuracy": {
+        "rel_l2_vs_fp64": 0.003577688032086663,
+        "max_abs_vs_fp64": 0.012889566535712937
+      },
+      "batch_invariant": true
+    },
+    {
+      "key": "te_fused",
+      "name": "Transformer Engine DotProductAttention (THD), inference: cuDNN fused",
+      "source": "transformer-engine 2.16.1+c9877beb (no fused head-dim-256 backward on SM100)",
+      "batch_bitwise": {
+        "first": true,
+        "last": true
+      },
+      "prefill_decode_bitwise": {
+        "last_64": true,
+        "last_1": true
+      },
+      "repeatable": true,
+      "accuracy": {
+        "rel_l2_vs_fp64": 0.002051519013469327,
+        "max_abs_vs_fp64": 0.0066821561991154965
+      },
+      "batch_invariant": true
     }
   ],
   "latency": {
     "prefill_us": {
       "512": {
-        "rl_kernel_cuda": 721.9359874725342,
-        "torch_sdpa": 68.30399855971336,
-        "vllm_fa2_auto": 112.91199922561646,
-        "vllm_fa2_split1": 116.35199934244156,
-        "vllm_triton_2d": 250.46399980783463,
-        "flashinfer": 220.7840010523796
+        "rl_kernel_cuda": 725.02401471138,
+        "torch_sdpa": 66.0800002515316,
+        "vllm_fa2_auto": 118.46399679780006,
+        "vllm_fa2_split1": 118.71999874711037,
+        "vllm_triton_2d": 263.88800144195557,
+        "flashinfer": 237.88800090551376,
+        "fa4_cute": 210.09600162506104,
+        "te_training": 2039.6959781646729,
+        "megatron_local": 324.5760053396225,
+        "te_fused": 336.70400083065033
       },
       "2048": {
-        "rl_kernel_cuda": 10143.984317779541,
-        "torch_sdpa": 112.11200058460236,
-        "vllm_fa2_auto": 151.32799744606018,
-        "vllm_fa2_split1": 151.32799744606018,
-        "vllm_triton_2d": 304.4160008430481,
-        "flashinfer": 277.18399465084076
+        "rl_kernel_cuda": 10141.616344451904,
+        "torch_sdpa": 115.9840002655983,
+        "vllm_fa2_auto": 152.8479978442192,
+        "vllm_fa2_split1": 156.78400546312332,
+        "vllm_triton_2d": 324.6240019798279,
+        "flashinfer": 293.16800832748413,
+        "fa4_cute": 211.31199598312378,
+        "te_training": 5458.016157150269,
+        "megatron_local": 320.8480030298233,
+        "te_fused": 323.0559974908829
       },
       "8192": {
-        "rl_kernel_cuda": 159744.88067626953,
-        "torch_sdpa": 618.4000074863434,
-        "vllm_fa2_auto": 647.5839912891388,
-        "vllm_fa2_split1": 660.783976316452,
-        "vllm_triton_2d": 1129.1040182113647,
-        "flashinfer": 758.1599950790405
+        "rl_kernel_cuda": 159770.19500732422,
+        "torch_sdpa": 607.344001531601,
+        "vllm_fa2_auto": 661.2959802150726,
+        "vllm_fa2_split1": 657.3439836502075,
+        "vllm_triton_2d": 1134.160041809082,
+        "flashinfer": 764.3359899520874,
+        "fa4_cute": 312.0640069246292,
+        "te_training": 22656.047821044922,
+        "megatron_local": 3245.0079917907715,
+        "te_fused": 612.496018409729
       }
     },
     "decode_us_kv8192": {
-      "rl_kernel_cuda": 769.6319818496704,
-      "torch_sdpa": 306.207999587059,
-      "vllm_fa2_auto": 154.52800691127777,
-      "vllm_fa2_split1": 332.96000957489014,
-      "vllm_triton_2d": 550.7360100746155,
-      "flashinfer": 225.21600127220154
+      "rl_kernel_cuda": 757.8720152378082,
+      "torch_sdpa": 314.2559975385666,
+      "vllm_fa2_auto": 164.39999639987946,
+      "vllm_fa2_split1": 336.4799916744232,
+      "vllm_triton_2d": 564.3199980258942,
+      "flashinfer": 235.24799942970276,
+      "fa4_cute": 256.49599730968475,
+      "te_training": 4540.832042694092,
+      "megatron_local": 304.56000566482544,
+      "te_fused": 443.83999705314636
     },
     "forward_plus_backward_us_2048": {
-      "rl_kernel_cuda": 25106.52732849121,
-      "torch_sdpa": 785.3440046310425
+      "rl_kernel_cuda": 25026.527404785156,
+      "torch_sdpa": 741.6639924049377,
+      "fa4_cute": 912.8959774971008,
+      "te_training": 10321.47216796875,
+      "megatron_local": 1336.4800214767456
+    }
+  },
+  "environments": {
+    "main": {
+      "gpu": "NVIDIA B200",
+      "torch": "2.13.0+cu130",
+      "cuda": "13.0",
+      "libraries": {
+        "vllm": "0.30.0",
+        "flashinfer-python": "0.6.18.post1",
+        "transformers": "5.17.0",
+        "triton": "3.7.1",
+        "sglang": null,
+        "megatron-core": "0.16.0rc0",
+        "megatron_core": "0.16.0rc0",
+        "transformer_engine": "2.16.1+c9877beb",
+        "vime": "0.3.2"
+      }
+    },
+    "extra": {
+      "gpu": "NVIDIA B200",
+      "torch": "2.13.0+cu130",
+      "cuda": "13.0",
+      "libraries": {
+        "vllm": "0.30.0",
+        "flashinfer-python": "0.6.18.post1",
+        "transformers": "5.17.0",
+        "triton": "3.7.1",
+        "sglang": null,
+        "megatron-core": "0.16.0rc0",
+        "megatron_core": "0.16.0rc0",
+        "transformer_engine": "2.16.1+c9877beb",
+        "vime": "0.3.2"
+      }
     }
   }
 }
