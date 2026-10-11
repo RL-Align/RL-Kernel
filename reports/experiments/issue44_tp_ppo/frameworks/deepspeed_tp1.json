@@ -1,0 +1,33 @@
+{
+  "framework": "deepspeed",
+  "megatron_core": "0.15.3",
+  "deepspeed": "0.19.7",
+  "numpy": "1.26.4",
+  "tp": 1,
+  "torch": "2.9.1+cu130",
+  "gpu": "NVIDIA B200",
+  "max_abs_errors": {
+    "initial": 0.0,
+    "values": 0.0,
+    "rewards": 0.0,
+    "gradients": 0.0,
+    "updated": 0.0,
+    "actor_logps": 0.0,
+    "actor_after": 0.0,
+    "actor_gradients": 0.0,
+    "critic_after": 0.0,
+    "grad_norm": 0.0
+  },
+  "metrics": {
+    "actor": {
+      "updates": 2,
+      "loss": -0.02826564572751522,
+      "grad_norm": 5.67893961215395
+    },
+    "critic": {
+      "updates": 2,
+      "loss": 0.00017110967019107193,
+      "grad_norm": 0.018469301788412624
+    }
+  }
+}

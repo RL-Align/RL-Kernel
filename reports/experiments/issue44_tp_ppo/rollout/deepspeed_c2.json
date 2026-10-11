@@ -1,0 +1,599 @@
+[
+  {
+    "framework": "deepspeed",
+    "rollout_backend": "megatron",
+    "gpu_layout": "shared",
+    "cuda_device": 0,
+    "hidden_size": 32,
+    "behavior_logprob_max_errors": [
+      2.384185791015625e-07,
+      2.384185791015625e-07
+    ],
+    "role": "actor",
+    "rank": 0,
+    "actor_tp": 2,
+    "critic_tp": 2,
+    "rounds": [
+      {
+        "metrics": {
+          "updates": 2,
+          "loss": -0.02386177038507764,
+          "grad_norm": 4.806270112788174,
+          "actor_version": 1,
+          "critic_version": 1,
+          "sequences": 2,
+          "transport_payload_bytes": 316592,
+          "transport_elapsed_ms": 131.15762476809323,
+          "round_seconds": 2.378229050023947
+        },
+        "tokens": [
+          [
+            0,
+            1,
+            2,
+            1,
+            17,
+            31,
+            0
+          ],
+          [
+            1,
+            3,
+            4,
+            21,
+            21,
+            23,
+            30
+          ]
+        ],
+        "rewards": [
+          0.011223774403333664,
+          -0.0062717595137655735
+        ],
+        "terminated": [
+          true,
+          false
+        ]
+      },
+      {
+        "metrics": {
+          "updates": 2,
+          "loss": -0.019168853759765625,
+          "grad_norm": 3.885186527723746,
+          "actor_version": 2,
+          "critic_version": 2,
+          "sequences": 2,
+          "transport_payload_bytes": 158896,
+          "transport_elapsed_ms": 110.12280901195481,
+          "round_seconds": 0.2873959940043278
+        },
+        "tokens": [
+          [
+            0,
+            1,
+            2,
+            18,
+            11,
+            16,
+            16
+          ],
+          [
+            1,
+            3,
+            4,
+            1,
+            29,
+            27,
+            3
+          ]
+        ],
+        "rewards": [
+          0.0063516926020383835,
+          -0.010358724743127823
+        ],
+        "terminated": [
+          false,
+          false
+        ]
+      }
+    ],
+    "parameter_delta": 0.003276596777141094,
+    "frozen_unchanged": true,
+    "engine_steps": 4
+  },
+  {
+    "framework": "deepspeed",
+    "rollout_backend": "megatron",
+    "gpu_layout": "shared",
+    "cuda_device": 1,
+    "hidden_size": 32,
+    "behavior_logprob_max_errors": [
+      2.384185791015625e-07,
+      2.384185791015625e-07
+    ],
+    "role": "actor",
+    "rank": 1,
+    "actor_tp": 2,
+    "critic_tp": 2,
+    "rounds": [
+      {
+        "metrics": {
+          "updates": 2,
+          "loss": -0.02386177038507764,
+          "grad_norm": 4.806270112788174,
+          "actor_version": 1,
+          "critic_version": 1,
+          "sequences": 2,
+          "transport_payload_bytes": 158296,
+          "transport_elapsed_ms": 75.78861608635634,
+          "round_seconds": 2.3792997149867006
+        },
+        "tokens": [
+          [
+            0,
+            1,
+            2,
+            1,
+            17,
+            31,
+            0
+          ],
+          [
+            1,
+            3,
+            4,
+            21,
+            21,
+            23,
+            30
+          ]
+        ],
+        "rewards": [
+          0.011223774403333664,
+          -0.0062717595137655735
+        ],
+        "terminated": [
+          true,
+          false
+        ]
+      },
+      {
+        "metrics": {
+          "updates": 2,
+          "loss": -0.019168853759765625,
+          "grad_norm": 3.885186527723746,
+          "actor_version": 2,
+          "critic_version": 2,
+          "sequences": 2,
+          "transport_payload_bytes": 79448,
+          "transport_elapsed_ms": 60.86271395906806,
+          "round_seconds": 0.2886561590130441
+        },
+        "tokens": [
+          [
+            0,
+            1,
+            2,
+            18,
+            11,
+            16,
+            16
+          ],
+          [
+            1,
+            3,
+            4,
+            1,
+            29,
+            27,
+            3
+          ]
+        ],
+        "rewards": [
+          0.0063516926020383835,
+          -0.010358724743127823
+        ],
+        "terminated": [
+          false,
+          false
+        ]
+      }
+    ],
+    "parameter_delta": 0.003276596777141094,
+    "frozen_unchanged": true,
+    "engine_steps": 4
+  },
+  {
+    "framework": "deepspeed",
+    "rollout_backend": "megatron",
+    "gpu_layout": "shared",
+    "cuda_device": 0,
+    "hidden_size": 32,
+    "behavior_logprob_max_errors": [],
+    "role": "critic",
+    "rank": 2,
+    "actor_tp": 2,
+    "critic_tp": 2,
+    "rounds": [
+      {
+        "metrics": {
+          "updates": 2,
+          "loss": 2.5489267500233836e-05,
+          "grad_norm": 0.001537140577120103,
+          "actor_version": 1,
+          "critic_version": 1,
+          "sequences": 2,
+          "transport_payload_bytes": 316592,
+          "transport_elapsed_ms": 109.48828491382301,
+          "round_seconds": 2.3791039059869945
+        },
+        "tokens": [
+          [
+            0,
+            1,
+            2,
+            1,
+            17,
+            31,
+            0
+          ],
+          [
+            1,
+            3,
+            4,
+            21,
+            21,
+            23,
+            30
+          ]
+        ],
+        "rewards": [
+          0.011223774403333664,
+          -0.0062717595137655735
+        ],
+        "terminated": [
+          true,
+          false
+        ]
+      },
+      {
+        "metrics": {
+          "updates": 2,
+          "loss": 0.0001264293969143182,
+          "grad_norm": 0.00832787905294239,
+          "actor_version": 2,
+          "critic_version": 2,
+          "sequences": 2,
+          "transport_payload_bytes": 158896,
+          "transport_elapsed_ms": 101.06609296053648,
+          "round_seconds": 0.2886057860450819
+        },
+        "tokens": [
+          [
+            0,
+            1,
+            2,
+            18,
+            11,
+            16,
+            16
+          ],
+          [
+            1,
+            3,
+            4,
+            1,
+            29,
+            27,
+            3
+          ]
+        ],
+        "rewards": [
+          0.0063516926020383835,
+          -0.010358724743127823
+        ],
+        "terminated": [
+          false,
+          false
+        ]
+      }
+    ],
+    "parameter_delta": 0.00014903108240105212,
+    "frozen_unchanged": true,
+    "engine_steps": 4
+  },
+  {
+    "framework": "deepspeed",
+    "rollout_backend": "megatron",
+    "gpu_layout": "shared",
+    "cuda_device": 1,
+    "hidden_size": 32,
+    "behavior_logprob_max_errors": [],
+    "role": "critic",
+    "rank": 3,
+    "actor_tp": 2,
+    "critic_tp": 2,
+    "rounds": [
+      {
+        "metrics": {
+          "updates": 2,
+          "loss": 2.5489267500233836e-05,
+          "grad_norm": 0.001537140577120103,
+          "actor_version": 1,
+          "critic_version": 1,
+          "sequences": 2,
+          "transport_payload_bytes": 158296,
+          "transport_elapsed_ms": 69.38823300879449,
+          "round_seconds": 2.379028336959891
+        },
+        "tokens": [
+          [
+            0,
+            1,
+            2,
+            1,
+            17,
+            31,
+            0
+          ],
+          [
+            1,
+            3,
+            4,
+            21,
+            21,
+            23,
+            30
+          ]
+        ],
+        "rewards": [
+          0.011223774403333664,
+          -0.0062717595137655735
+        ],
+        "terminated": [
+          true,
+          false
+        ]
+      },
+      {
+        "metrics": {
+          "updates": 2,
+          "loss": 0.0001264293969143182,
+          "grad_norm": 0.00832787905294239,
+          "actor_version": 2,
+          "critic_version": 2,
+          "sequences": 2,
+          "transport_payload_bytes": 79448,
+          "transport_elapsed_ms": 63.43630491755903,
+          "round_seconds": 0.2884587270091288
+        },
+        "tokens": [
+          [
+            0,
+            1,
+            2,
+            18,
+            11,
+            16,
+            16
+          ],
+          [
+            1,
+            3,
+            4,
+            1,
+            29,
+            27,
+            3
+          ]
+        ],
+        "rewards": [
+          0.0063516926020383835,
+          -0.010358724743127823
+        ],
+        "terminated": [
+          false,
+          false
+        ]
+      }
+    ],
+    "parameter_delta": 0.00014903108240105212,
+    "frozen_unchanged": true,
+    "engine_steps": 4
+  },
+  {
+    "framework": "deepspeed",
+    "rollout_backend": "megatron",
+    "gpu_layout": "shared",
+    "cuda_device": 0,
+    "hidden_size": 32,
+    "behavior_logprob_max_errors": [],
+    "role": "rollout",
+    "rank": 4,
+    "actor_tp": 2,
+    "critic_tp": 2,
+    "rounds": [
+      {
+        "metrics": {
+          "actor_version": 1,
+          "critic_version": 1,
+          "sequences": 2,
+          "transport_payload_bytes": 316592,
+          "transport_elapsed_ms": 1010.8617210062221,
+          "round_seconds": 2.3789232400013134
+        },
+        "tokens": [
+          [
+            0,
+            1,
+            2,
+            1,
+            17,
+            31,
+            0
+          ],
+          [
+            1,
+            3,
+            4,
+            21,
+            21,
+            23,
+            30
+          ]
+        ],
+        "rewards": [
+          0.011223774403333664,
+          -0.0062717595137655735
+        ],
+        "terminated": [
+          true,
+          false
+        ]
+      },
+      {
+        "metrics": {
+          "actor_version": 2,
+          "critic_version": 2,
+          "sequences": 2,
+          "transport_payload_bytes": 158896,
+          "transport_elapsed_ms": 105.10286304634064,
+          "round_seconds": 0.28800881904317066
+        },
+        "tokens": [
+          [
+            0,
+            1,
+            2,
+            18,
+            11,
+            16,
+            16
+          ],
+          [
+            1,
+            3,
+            4,
+            1,
+            29,
+            27,
+            3
+          ]
+        ],
+        "rewards": [
+          0.0063516926020383835,
+          -0.010358724743127823
+        ],
+        "terminated": [
+          false,
+          false
+        ]
+      }
+    ],
+    "installed": [
+      0,
+      1,
+      2
+    ],
+    "sampled": [
+      0,
+      1
+    ]
+  },
+  {
+    "framework": "deepspeed",
+    "rollout_backend": "megatron",
+    "gpu_layout": "shared",
+    "cuda_device": 1,
+    "hidden_size": 32,
+    "behavior_logprob_max_errors": [],
+    "role": "rollout",
+    "rank": 5,
+    "actor_tp": 2,
+    "critic_tp": 2,
+    "rounds": [
+      {
+        "metrics": {
+          "actor_version": 1,
+          "critic_version": 1,
+          "sequences": 2,
+          "transport_payload_bytes": 158296,
+          "transport_elapsed_ms": 967.4368429114111,
+          "round_seconds": 2.3785900980001315
+        },
+        "tokens": [
+          [
+            0,
+            1,
+            2,
+            1,
+            17,
+            31,
+            0
+          ],
+          [
+            1,
+            3,
+            4,
+            21,
+            21,
+            23,
+            30
+          ]
+        ],
+        "rewards": [
+          0.011223774403333664,
+          -0.0062717595137655735
+        ],
+        "terminated": [
+          true,
+          false
+        ]
+      },
+      {
+        "metrics": {
+          "actor_version": 2,
+          "critic_version": 2,
+          "sequences": 2,
+          "transport_payload_bytes": 79448,
+          "transport_elapsed_ms": 64.95319498935714,
+          "round_seconds": 0.28777263400843367
+        },
+        "tokens": [
+          [
+            0,
+            1,
+            2,
+            18,
+            11,
+            16,
+            16
+          ],
+          [
+            1,
+            3,
+            4,
+            1,
+            29,
+            27,
+            3
+          ]
+        ],
+        "rewards": [
+          0.0063516926020383835,
+          -0.010358724743127823
+        ],
+        "terminated": [
+          false,
+          false
+        ]
+      }
+    ],
+    "installed": [
+      0,
+      1,
+      2
+    ],
+    "sampled": []
+  }
+]

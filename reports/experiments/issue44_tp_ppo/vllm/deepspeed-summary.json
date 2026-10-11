@@ -1,0 +1,668 @@
+[
+  {
+    "framework": "deepspeed",
+    "rollout_backend": "vllm",
+    "gpu_layout": "dedicated",
+    "cuda_device": 0,
+    "hidden_size": 128,
+    "behavior_logprob_max_errors": [
+      2.384185791015625e-07,
+      4.76837158203125e-07
+    ],
+    "role": "actor",
+    "rank": 0,
+    "actor_tp": 2,
+    "critic_tp": 1,
+    "rounds": [
+      {
+        "metrics": {
+          "updates": 2,
+          "loss": -0.05019568527738194,
+          "grad_norm": 10.49064417358457,
+          "actor_version": 1,
+          "critic_version": 1,
+          "sequences": 2,
+          "transport_payload_bytes": 4509488,
+          "transport_elapsed_ms": 48.92854788340628,
+          "round_seconds": 7.648432902991772
+        },
+        "tokens": [
+          [
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            21,
+            17,
+            31
+          ],
+          [
+            0,
+            0,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            1,
+            17,
+            31
+          ]
+        ],
+        "rewards": [
+          0.03464888036251068,
+          0.024512335658073425
+        ],
+        "terminated": [
+          true,
+          true
+        ]
+      },
+      {
+        "metrics": {
+          "updates": 2,
+          "loss": -0.050430409610271454,
+          "grad_norm": 11.60000205132802,
+          "actor_version": 2,
+          "critic_version": 2,
+          "sequences": 2,
+          "transport_payload_bytes": 2256856,
+          "transport_elapsed_ms": 32.094565976876765,
+          "round_seconds": 0.7297855479991995
+        },
+        "tokens": [
+          [
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            18,
+            11,
+            16,
+            16
+          ],
+          [
+            0,
+            0,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            18,
+            11,
+            16,
+            16
+          ]
+        ],
+        "rewards": [
+          0.008187131024897099,
+          0.007581322453916073
+        ],
+        "terminated": [
+          false,
+          false
+        ]
+      }
+    ],
+    "parameter_delta": 0.0020209471695125103,
+    "frozen_unchanged": true,
+    "engine_steps": 4
+  },
+  {
+    "framework": "deepspeed",
+    "rollout_backend": "vllm",
+    "gpu_layout": "dedicated",
+    "cuda_device": 1,
+    "hidden_size": 128,
+    "behavior_logprob_max_errors": [
+      2.384185791015625e-07,
+      4.76837158203125e-07
+    ],
+    "role": "actor",
+    "rank": 1,
+    "actor_tp": 2,
+    "critic_tp": 1,
+    "rounds": [
+      {
+        "metrics": {
+          "updates": 2,
+          "loss": -0.05019568527738194,
+          "grad_norm": 10.49064417358457,
+          "actor_version": 1,
+          "critic_version": 1,
+          "sequences": 2,
+          "transport_payload_bytes": 2254744,
+          "transport_elapsed_ms": 11.786815011873841,
+          "round_seconds": 7.649250285001472
+        },
+        "tokens": [
+          [
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            21,
+            17,
+            31
+          ],
+          [
+            0,
+            0,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            1,
+            17,
+            31
+          ]
+        ],
+        "rewards": [
+          0.03464888036251068,
+          0.024512335658073425
+        ],
+        "terminated": [
+          true,
+          true
+        ]
+      },
+      {
+        "metrics": {
+          "updates": 2,
+          "loss": -0.050430409610271454,
+          "grad_norm": 11.60000205132802,
+          "actor_version": 2,
+          "critic_version": 2,
+          "sequences": 2,
+          "transport_payload_bytes": 1128428,
+          "transport_elapsed_ms": 3.7434760597534478,
+          "round_seconds": 0.7309685829677619
+        },
+        "tokens": [
+          [
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            18,
+            11,
+            16,
+            16
+          ],
+          [
+            0,
+            0,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            18,
+            11,
+            16,
+            16
+          ]
+        ],
+        "rewards": [
+          0.008187131024897099,
+          0.007581322453916073
+        ],
+        "terminated": [
+          false,
+          false
+        ]
+      }
+    ],
+    "parameter_delta": 0.0020209471695125103,
+    "frozen_unchanged": true,
+    "engine_steps": 4
+  },
+  {
+    "framework": "deepspeed",
+    "rollout_backend": "vllm",
+    "gpu_layout": "dedicated",
+    "cuda_device": 2,
+    "hidden_size": 128,
+    "behavior_logprob_max_errors": [],
+    "role": "critic",
+    "rank": 2,
+    "actor_tp": 2,
+    "critic_tp": 1,
+    "rounds": [
+      {
+        "metrics": {
+          "updates": 2,
+          "loss": 0.0003991222765762359,
+          "grad_norm": 0.05960956708404579,
+          "actor_version": 1,
+          "critic_version": 1,
+          "sequences": 2,
+          "transport_payload_bytes": 4509488,
+          "transport_elapsed_ms": 39.78506202111021,
+          "round_seconds": 7.649058345996309
+        },
+        "tokens": [
+          [
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            21,
+            17,
+            31
+          ],
+          [
+            0,
+            0,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            1,
+            17,
+            31
+          ]
+        ],
+        "rewards": [
+          0.03464888036251068,
+          0.024512335658073425
+        ],
+        "terminated": [
+          true,
+          true
+        ]
+      },
+      {
+        "metrics": {
+          "updates": 2,
+          "loss": 0.00016811870591482148,
+          "grad_norm": 0.046517453483233016,
+          "actor_version": 2,
+          "critic_version": 2,
+          "sequences": 2,
+          "transport_payload_bytes": 2256856,
+          "transport_elapsed_ms": 28.188101015985012,
+          "round_seconds": 0.7300932589569129
+        },
+        "tokens": [
+          [
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            18,
+            11,
+            16,
+            16
+          ],
+          [
+            0,
+            0,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            18,
+            11,
+            16,
+            16
+          ]
+        ],
+        "rewards": [
+          0.008187131024897099,
+          0.007581322453916073
+        ],
+        "terminated": [
+          false,
+          false
+        ]
+      }
+    ],
+    "parameter_delta": 0.0007412246777676046,
+    "frozen_unchanged": true,
+    "engine_steps": 4
+  },
+  {
+    "framework": "deepspeed",
+    "rollout_backend": "vllm",
+    "gpu_layout": "dedicated",
+    "cuda_device": 3,
+    "hidden_size": 128,
+    "behavior_logprob_max_errors": [],
+    "role": "rollout",
+    "rank": 3,
+    "actor_tp": 2,
+    "critic_tp": 1,
+    "rounds": [
+      {
+        "metrics": {
+          "actor_version": 1,
+          "critic_version": 1,
+          "sequences": 2,
+          "transport_payload_bytes": 4509488,
+          "transport_elapsed_ms": 557.325414090883,
+          "round_seconds": 7.64860434300499
+        },
+        "tokens": [
+          [
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            21,
+            17,
+            31
+          ],
+          [
+            0,
+            0,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            1,
+            17,
+            31
+          ]
+        ],
+        "rewards": [
+          0.03464888036251068,
+          0.024512335658073425
+        ],
+        "terminated": [
+          true,
+          true
+        ]
+      },
+      {
+        "metrics": {
+          "actor_version": 2,
+          "critic_version": 2,
+          "sequences": 2,
+          "transport_payload_bytes": 2256856,
+          "transport_elapsed_ms": 28.026831976603717,
+          "round_seconds": 0.7295491700060666
+        },
+        "tokens": [
+          [
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            18,
+            11,
+            16,
+            16
+          ],
+          [
+            0,
+            0,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            4,
+            5,
+            2,
+            3,
+            18,
+            11,
+            16,
+            16
+          ]
+        ],
+        "rewards": [
+          0.008187131024897099,
+          0.007581322453916073
+        ],
+        "terminated": [
+          false,
+          false
+        ]
+      }
+    ],
+    "installed": [
+      0,
+      1,
+      2
+    ],
+    "sampled": [
+      0,
+      1
+    ]
+  }
+]

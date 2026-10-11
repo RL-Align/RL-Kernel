@@ -2659,11 +2659,133 @@ def make_weight_bridge(
     raise WeightBridgeUnavailableError(f"unknown weight bridge transport: {transport}")
 
 
+def synchronize_validation(
+    error: Optional[str], *, group: torch.distributed.ProcessGroup, device: torch.device
+) -> None:
+    """Raise the first rank's validation error on every member of an explicit group.
+
+    Call before model collectives, in the same order on all members. Runtime
+    failures *inside* a model collective still require a process-group timeout.
+    """
+    dist = torch.distributed
+    if group is None or dist.get_rank(group) < 0:
+        raise ValueError("an explicit process group containing this rank is required")
+    rank = dist.get_rank()
+    failed_rank = torch.tensor(
+        rank if error else torch.iinfo(torch.int64).max, device=device, dtype=torch.int64
+    )
+    dist.all_reduce(failed_rank, op=dist.ReduceOp.MIN, group=group)
+    source = int(failed_rank.item())
+    if source == torch.iinfo(torch.int64).max:
+        return
+    message = (error or "").encode("utf-8")[:4096]
+    size = torch.tensor(len(message) if rank == source else 0, device=device)
+    dist.broadcast(size, src=source, group=group)
+    payload = torch.zeros(int(size.item()), dtype=torch.uint8, device=device)
+    if rank == source:
+        payload.copy_(torch.tensor(list(message), dtype=torch.uint8, device=device))
+    dist.broadcast(payload, src=source, group=group)
+    raise ValueError(bytes(payload.cpu().tolist()).decode("utf-8", errors="replace"))
+
+
+class TensorPacketBridge:
+    """Broadcast a fixed-schema tensor packet with dynamic shapes, without pickle.
+
+    Every member must supply identical ordered ``fields`` and global ``source``.
+    Only source supplies tensors. Process groups and their timeouts are owned by
+    the caller. This transport does not move tensors between devices implicitly.
+    """
+
+    _dtypes = (
+        torch.int64,
+        torch.int32,
+        torch.bool,
+        torch.float32,
+        torch.float64,
+        torch.float16,
+        torch.bfloat16,
+        torch.uint8,
+    )
+
+    def __init__(
+        self,
+        *,
+        group: torch.distributed.ProcessGroup,
+        source: int,
+        device: torch.device | str,
+    ) -> None:
+        self.group = group
+        self.source = source
+        self.device = torch.device(device)
+        if group is None or torch.distributed.get_rank(group) < 0:
+            raise ValueError("an explicit process group containing this rank is required")
+        if source not in torch.distributed.get_process_group_ranks(group):
+            raise ValueError("source must be a global rank in the packet group")
+        self.metrics: dict[str, float | int] = {}
+
+    def broadcast(
+        self,
+        fields: tuple[str, ...],
+        tensors: Optional[Mapping[str, torch.Tensor]] = None,
+    ) -> dict[str, torch.Tensor]:
+        started = time.perf_counter()
+        is_source = torch.distributed.get_rank() == self.source
+        error = None
+        if is_source:
+            if tensors is None or set(tensors) != set(fields) or len(set(fields)) != len(fields):
+                error = "tensor packet fields do not match the agreed schema"
+            else:
+                for name in fields:
+                    value = tensors[name]
+                    if not isinstance(value, torch.Tensor):
+                        error = f"packet field {name} must be a tensor"
+                        break
+                    if value.dtype not in self._dtypes or value.ndim > 8:
+                        error = f"unsupported packet dtype or dimension for {name}"
+                        break
+                    if value.device != self.device:
+                        error = f"packet field {name} must be on {self.device}"
+                        break
+        synchronize_validation(error, group=self.group, device=self.device)
+        # Validation above raised on every member unless the source has all tensors.
+        source_tensors: Mapping[str, torch.Tensor] = tensors if tensors is not None else {}
+        header = torch.zeros((len(fields), 10), dtype=torch.int64, device=self.device)
+        if is_source:
+            for index, name in enumerate(fields):
+                value = source_tensors[name]
+                header[index, 0] = self._dtypes.index(value.dtype)
+                header[index, 1] = value.ndim
+                header[index, 2 : 2 + value.ndim] = torch.tensor(value.shape, device=self.device)
+        torch.distributed.broadcast(header, src=self.source, group=self.group)
+        result = {}
+        payload_bytes = 0
+        calls = 1
+        for name, entry in zip(fields, header.cpu().tolist(), strict=True):
+            shape = tuple(entry[2 : 2 + entry[1]])
+            if is_source:
+                # Transport is a detached snapshot; local training graphs stay with their owner.
+                value = source_tensors[name].detach().contiguous().clone()
+            else:
+                value = torch.empty(shape, dtype=self._dtypes[entry[0]], device=self.device)
+            if value.numel():
+                torch.distributed.broadcast(value, src=self.source, group=self.group)
+                calls += 1
+            payload_bytes += value.numel() * value.element_size()
+            result[name] = value
+        self.metrics = {
+            "payload_bytes": payload_bytes,
+            "broadcast_calls": calls,
+            "elapsed_ms": (time.perf_counter() - started) * 1000,
+        }
+        return result
+
+
 __all__ = [
     "CUDAVMMTensorBridge",
     "IPCWeightBridge",
     "LocalTensorCopyBridge",
     "SharedMemoryTensorBridge",
+    "TensorPacketBridge",
     "TensorDescriptor",
     "VLLMCUDAVMMExternalStorageAdapter",
     "VLLMCheckpointWeightReloadAdapter",
@@ -2681,4 +2803,5 @@ __all__ = [
     "WeightUpdateManifest",
     "WeightUpdateRejectedError",
     "make_weight_bridge",
+    "synchronize_validation",
 ]
