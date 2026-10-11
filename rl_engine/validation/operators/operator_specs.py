@@ -154,6 +154,20 @@ OP_SPECS = {
         },
         grad_input_names=("hidden", "lm_head_weight"),
     ),
+    # Model-pinned row: fails closed unless --vocab 131072 --normalized-dim 2688 (bf16).
+    "nemotron_h_lm_head_logprob": OperatorSpec(
+        name="nemotron_h_lm_head_logprob",
+        op_class="logprob",
+        gold_path="rl_engine.kernels.ops.pytorch.loss.linear_logp.NativeLinearLogpOp",
+        gold_method="apply",
+        candidate_paths={
+            "cuda-sm90": (
+                "rl_engine.kernels.ops.cuda.loss.nemotron_h_lm_head_logp."
+                "NemotronHLMHeadLogprobSM90Op"
+            ),
+        },
+        grad_input_names=("hidden", "lm_head_weight"),
+    ),
     "embedding": OperatorSpec(
         name="embedding",
         op_class="elementwise",
