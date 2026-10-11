@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "source_tree": "425a350105f757b41cbddf73cf0cae2cbcc9c892",
+  "actual": {
+    "module": "rl_engine._C",
+    "path": "<RUN>/source/rl_engine/_C.cpython-312-x86_64-linux-gnu.so",
+    "sha256": "9cc187da3c78c0fd326134d618856f53c869155b51bfd6c47e6fa410fb188090"
+  },
+  "archive": {
+    "path": "<RUN>/attempts/0/provider-binary.so",
+    "sha256": "9cc187da3c78c0fd326134d618856f53c869155b51bfd6c47e6fa410fb188090"
+  }
+}
