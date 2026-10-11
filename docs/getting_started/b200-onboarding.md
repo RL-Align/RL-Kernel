@@ -95,10 +95,10 @@ GPU architectures so an earlier extension cannot be mistaken for this build.
 
 ```bash
 python -m pytest \
-  tests/test_extension_smoke.py \
-  rl_engine/tests/test_dispatch.py \
-  tests/test_profiler.py \
-  tests/test_grpo_single_gpu_example.py -v
+  tests/build/test_extension_smoke.py \
+  tests/runtime/test_dispatch.py \
+  tests/benchmarks/test_profiler.py \
+  tests/e2e/test_grpo_single_gpu_example.py -v
 ```
 
 The extension smoke test must pass, not skip: it imports `_C` directly, launches
@@ -109,7 +109,7 @@ that a B200 kernel launched.
 Run the same small profiler shapes as the A100 workflow:
 
 ```bash
-python scripts/run_profile_suite.py \
+python tools/benchmarking/run_profile_suite.py \
   --device cuda \
   --dtype float32 \
   --batch-sizes 2 \
@@ -132,7 +132,7 @@ one-repeat run checks wiring only; use an idle GPU and the larger shapes in the
 ## 5. Run Strict Fused GRPO
 
 ```bash
-python examples/grpo_single_gpu.py \
+python examples/post_training/grpo_single_gpu.py \
   --device cuda \
   --require-fused-logp \
   --steps 2 \
@@ -182,7 +182,7 @@ when using `torch.autograd.grad` directly. `torch.compile` and `functionalize` a
 not included in this acceptance scope.
 
 ```bash
-python examples/grpo_single_gpu.py \
+python examples/post_training/grpo_single_gpu.py \
   --device cuda --logp-backend deterministic \
   --require-fused-logp --require-batch-invariant-logp \
   --steps 3 --num-prompts 1 --samples-per-prompt 2 \
@@ -225,7 +225,7 @@ The explicit vmap rules evaluate each sample independently, including empty and
 nested mapped batches; they make no vectorized-performance guarantee.
 
 ```python
-op = DeterministicLogpCUDAOp()  # from rl_engine.kernels.ops.cuda.loss.logp
+op = DeterministicLogpCUDAOp()  # from rl_engine.backends.cuda.logprob.logp
 x = torch.randn(3, 129, device="cuda", dtype=torch.float64, requires_grad=True)
 ids = torch.tensor([0, 1, 2], device="cuda")
 buffer = torch.empty(3, device="cuda", dtype=torch.float64)
@@ -239,20 +239,20 @@ buffer = buffer.detach()  # eligible for reuse after this backward
 Run the native autograd regressions alongside the existing forward checks:
 
 ```bash
-python -m pytest tests/test_deterministic_logp_autograd.py \
-  tests/test_deterministic_logp_higher_order.py \
-  tests/test_deterministic_logp_third_order.py \
-  tests/test_deterministic_logp_recursive.py tests/test_deterministic_logp.py -v -rs
+python -m pytest tests/ops/logprob/test_deterministic_logp_autograd.py \
+  tests/ops/logprob/test_deterministic_logp_higher_order.py \
+  tests/ops/logprob/test_deterministic_logp_third_order.py \
+  tests/ops/logprob/test_deterministic_logp_recursive.py tests/ops/logprob/test_deterministic_logp.py -v -rs
 
 # Extend acceptance orders without changing the implementation:
 RL_KERNEL_LOGP_MAX_ORDER=10 python -m pytest \
-  tests/test_deterministic_logp_recursive.py -k recursive_orders -v
+  tests/ops/logprob/test_deterministic_logp_recursive.py -k recursive_orders -v
 ```
 
 Capture the loaded extension hash, source commit, and actual CUDA kernel names:
 
 ```bash
-python scripts/probe_deterministic_logp_autograd.py --max-order 8 --output runs/logp-native.json
+python tools/validation/operators/probe_deterministic_logp_autograd.py --max-order 8 --output runs/logp-native.json
 ```
 
 The probe checks all four precisions across dense/indexed and allocating/out

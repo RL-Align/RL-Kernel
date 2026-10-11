@@ -5,7 +5,6 @@ import os
 
 import torch
 
-from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 from rl_engine.backends.cuda.logprob._deterministic_autograd import logp as _deterministic_logp
 from rl_engine.backends.cuda.logprob._deterministic_autograd import needs_ad as _needs_ad
 from rl_engine.backends.cuda.logprob._deterministic_autograd import (
@@ -15,6 +14,7 @@ from rl_engine.backends.cuda.logprob._deterministic_autograd import selection as
 from rl_engine.backends.cuda.logprob._deterministic_autograd import (
     storage_tensor as _storage_tensor,
 )
+from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 from rl_engine.utils.logger import logger
 
 

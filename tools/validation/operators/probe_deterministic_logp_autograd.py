@@ -10,14 +10,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-SOURCE = Path(__file__).resolve().parents[1]
+SOURCE = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(SOURCE))
 
 import torch  # noqa: E402
 from torch.profiler import ProfilerActivity, profile  # noqa: E402
 
 from rl_engine import _C  # noqa: E402
-from rl_engine.kernels.ops.cuda.loss.logp import DeterministicLogpCUDAOp  # noqa: E402
+from rl_engine.backends.cuda.logprob.logp import DeterministicLogpCUDAOp  # noqa: E402
 
 
 def main():

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from rl_engine.kernels.ops.cuda.loss.logp import DeterministicLogpCUDAOp
+from rl_engine.backends.cuda.logprob.logp import DeterministicLogpCUDAOp
 
 pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is unavailable")
 DTYPES = [torch.float32, torch.float16, torch.bfloat16, torch.float64]
