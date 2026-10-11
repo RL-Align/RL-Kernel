@@ -21,11 +21,18 @@ from benchmarks.models.qwenimage.streams import STREAMS
 from rl_engine.backends.cuda.model_specific.qwenimage.adaln_mod_projection import (
     QwenImageAdaLNModProjectionCudaOp,
 )
+from rl_engine.backends.cuda.model_specific.qwenimage.final_adaln_out import (
+    QwenImageFinalAdaLNOutCudaOp,
+)
 from rl_engine.backends.extension import _C
 from rl_engine.contracts.numerical import load_contract
 from rl_engine.reference.model_specific.qwenimage.adaln_mod_projection import (
     QwenImageAdaLNModProjectionReference,
     reference_projection,
+)
+from rl_engine.reference.model_specific.qwenimage.final_adaln_out import (
+    QwenImageFinalAdaLNOutReference,
+    reference_final,
 )
 
 CHECKPOINT_REVISION = "75e0b4be04f60ec59a75f475837eced720f823b6"
@@ -128,9 +135,9 @@ def compare(actual, expected, dtype, judgment):
     }
 
 
-def correctness(candidate, args, kind):
+def correctness(candidate, args, kind, fp64_check=False):
     dtype = args["temb"].dtype
-    reference = reference_projection
+    reference = reference_projection if kind == "projection" else reference_final
     cpu = {k: v.detach().cpu().float().requires_grad_() for k, v in args.items()}
     y = candidate(**args)
     gold = reference(**cpu, execution_dtype=dtype)
@@ -149,6 +156,20 @@ def correctness(candidate, args, kind):
     metrics["repeat_bitwise"] = bool(
         equal_bytes(y, again) and all(equal_bytes(a, b) for a, b in zip(grads, repeat))
     )
+    if fp64_check and kind == "final" and dtype == torch.float32:
+        high = {k: v.detach().cpu().double().requires_grad_() for k, v in args.items()}
+        high_output = reference(**high, execution_dtype=dtype)
+        high_grads = torch.autograd.grad(high_output, tuple(high.values()), grad.cpu().double())
+        metrics["fp64_diagnostic"] = {
+            "candidate_gradients": {
+                k: compare(a, b, dtype, "gradient_accuracy")
+                for k, a, b in zip(args, grads, high_grads)
+            },
+            "cpu_fp32_gradients": {
+                k: compare(a, b, dtype, "gradient_accuracy")
+                for k, a, b in zip(args, gold_grads, high_grads)
+            },
+        }
     del gold, gold_grads, cpu
     return metrics
 
@@ -209,6 +230,7 @@ def main():
     parser.add_argument("--model", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--repeats", type=int, default=10)
+    parser.add_argument("--fp64-check", action="store_true")
     opts = parser.parse_args()
     torch.set_num_threads(8)
     torch.manual_seed(71)
@@ -238,11 +260,23 @@ def main():
     for label, stem in STREAMS:
         weights, manifest = load_weights(opts.model, stem)
         report["weights"].update(manifest)
-        kind = "projection"
-        candidate = QwenImageAdaLNModProjectionCudaOp()
-        native = QwenImageAdaLNModProjectionReference()
+        kind = "final" if label == "final" else "projection"
+        candidate = (
+            QwenImageFinalAdaLNOutCudaOp()
+            if kind == "final"
+            else QwenImageAdaLNModProjectionCudaOp()
+        )
+        native = (
+            QwenImageFinalAdaLNOutReference()
+            if kind == "final"
+            else QwenImageAdaLNModProjectionReference()
+        )
         for dtype in (torch.bfloat16, torch.float32):
-            for batch, seq in [(1, 1), (2, 1), (4, 1), (9, 1)]:
+            for batch, seq in (
+                [(1, 33), (2, 4096), (1, 6889), (1, 6032)]
+                if kind == "final"
+                else [(1, 1), (2, 1), (4, 1), (9, 1)]
+            ):
                 args = {
                     "temb": torch.randn(batch, 3072, device="cuda", dtype=dtype).requires_grad_(),
                     **{
@@ -250,13 +284,17 @@ def main():
                         for k, v in weights.items()
                     },
                 }
+                if kind == "final":
+                    args["x"] = torch.randn(
+                        batch, seq, 3072, device="cuda", dtype=dtype
+                    ).requires_grad_()
                 entry = {
                     "stream": label,
                     "dtype": str(dtype),
                     "batch": batch,
                     "seq": seq,
                     "readback": candidate.implementation_info(**args),
-                    "correctness": correctness(candidate, args, kind),
+                    "correctness": correctness(candidate, args, kind, opts.fp64_check),
                     "timing": benchmark(
                         {"candidate": candidate, "native": native}, args, opts.repeats
                     ),
