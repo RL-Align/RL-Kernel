@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterator, Mapping
 
-from rl_engine.runtime_mode import RLKernelMode, rl_kernel_mode
+from rl_engine.runtime.policy import RLKernelMode, rl_kernel_mode
 
 _LOG = logging.getLogger(__name__)
 _SCHEMA = 1
@@ -168,6 +168,18 @@ class PersistentAutotuner:
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(temporary, path)
+            temporary = None
+            try:
+                directory = os.open(path.parent, os.O_RDONLY)
+            except OSError:
+                directory = None
+            if directory is not None:
+                try:
+                    os.fsync(directory)
+                except OSError:
+                    pass
+                finally:
+                    os.close(directory)
         except OSError as exc:
             _LOG.warning("Cannot persist autotune selection; using memory: %s", exc)
         finally:

@@ -14,6 +14,7 @@ from dataclasses import dataclass, field, replace
 from functools import wraps
 from importlib.metadata import version
 from pathlib import Path
+from typing import Any
 
 import torch
 
@@ -213,7 +214,7 @@ class TunableKernel:
         tune_warps: bool = False,
         inout: tuple[int, ...] = (),
     ):
-        self._launches = {}
+        self._launches: dict[tuple, tuple[TuneConfig, Any, dict[str, Any]]] = {}
         self.kernel = kernel
         self.outputs = outputs
         if not set(inout).issubset(outputs):
@@ -224,10 +225,12 @@ class TunableKernel:
         self.tune_warps = tune_warps or flat_block is not None
         self.name = f"{kernel.fn.__module__}.{kernel.fn.__name__}"
         # Include helpers and host launch constants, not just the JIT body.
-        source = inspect.getsource(inspect.getmodule(kernel.fn))
-        self.revision = hashlib.sha256(
-            (source + inspect.getsource(inspect.getmodule(TuneState))).encode()
-        ).hexdigest()
+        kernel_module = inspect.getmodule(kernel.fn)
+        tuner_module = inspect.getmodule(TuneState)
+        if kernel_module is None or tuner_module is None:
+            raise RuntimeError(f"Cannot resolve the source module of {self.name}")
+        source = inspect.getsource(kernel_module) + inspect.getsource(tuner_module)
+        self.revision = hashlib.sha256(source.encode()).hexdigest()
 
     def __getitem__(self, grid):
         def launch(*args, **kwargs):

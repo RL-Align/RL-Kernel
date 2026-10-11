@@ -51,7 +51,10 @@ def qualify(monkeypatch, request):
                 except OutOfResources as exc:
                     if config == TuneConfig():
                         raise
-                    pytest.skip(f"resource limitation: {kernel.name} {config}: {exc}")
+                    request.node.user_properties.append(
+                        ("resource_limited", f"{kernel.name} {config}: {exc}")
+                    )
+                    continue
                 for i in kernel.outputs:
                     left = reference[i].contiguous().view(torch.uint8)
                     right = trial[i].contiguous().view(torch.uint8)
