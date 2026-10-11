@@ -1,0 +1,451 @@
+{
+  "source": {
+    "base_sha": "55f83d2b9043f41dca84440d9002ca30f5d3fac4",
+    "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_source_sha256": {},
+    "workspace_source_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "qwenimage_source_sha256": {
+      "csrc/cuda/model_specific/qwenimage/det_linear.cu": "859da456b0c776f3492b3197c252866e33d9a7088508b701b7c4a179ee709afb",
+      "csrc/cuda/model_specific/qwenimage/token_sum.cu": "1aace24523ff95520ab5d482e2e0f17d09a2efcf93efc8de865c7bcc157cf3ba",
+      "rl_engine/backends/cuda/model_specific/qwenimage/__init__.py": "95c46d40c4aed2d4c26a65bc0cc64331e42b237673293ea5ed45b79ebc11d4b4",
+      "rl_engine/backends/cuda/model_specific/qwenimage/adaln_mod_projection.py": "710df5416a2adf5b2576468ff63584b6699e6bdecd59906370049bf09f1b3286",
+      "rl_engine/backends/cuda/model_specific/qwenimage/final_adaln_out.py": "f6afe4b7568e2026c4b046a4fd0a02589f817d815198af33173d2dba61773f19",
+      "rl_engine/reference/model_specific/qwenimage/__init__.py": "95c46d40c4aed2d4c26a65bc0cc64331e42b237673293ea5ed45b79ebc11d4b4",
+      "rl_engine/reference/model_specific/qwenimage/adaln_mod_projection.py": "1ebc740ddff575055ee66ed714a8c7cc5c6cee2701d582a665289e9ad1a4fe3d",
+      "rl_engine/reference/model_specific/qwenimage/final_adaln_out.py": "60441610c04d04d0fb1cd7320be8584e76772c110a3cfed77ddf826dbde9b53c",
+      "benchmarks/models/qwenimage/__init__.py": "a63ebc79ed10d9ed98484565a353438bd13f5801a8f51d7505d0921bf6942742",
+      "benchmarks/models/qwenimage/adaln_evidence.py": "9dc9f3da0069d36c602baef07d687fb1aeba8fda0163d17fc446e0a543fe1f3e",
+      "benchmarks/models/qwenimage/adaln_parameter_screen.py": "05562ef30d09296c2ccd1cdeb44085568b8c877d01f5fb1df4b983e84945ec03",
+      "benchmarks/models/qwenimage/adaln_prior_art.py": "647aa9fc81e02bf3c7806ed6c2a3e578fb3e1a0b000b4388a12367ef86de3139",
+      "benchmarks/models/qwenimage/adaln_reuse_bi_audit.py": "88dd3d390e647bbc883b76622309fad54dac3618630dcca0785e555db329a671",
+      "benchmarks/models/qwenimage/adaln_reuse_candidate.py": "4598f6db94462ac30f3bdd3defae16f0ce7a34ac59eb1996d18e86f498c029b6",
+      "benchmarks/models/qwenimage/plot_adaln_audit.py": "6151e6abccca8f647c2fbeadf92f12e43ed1c07954db9f2db2f035284cbd407c",
+      "benchmarks/models/qwenimage/plot_adaln_evidence.py": "16d6bed0ee5b808814c5f7157145a730750d0b1aaf94762e6f72a256e942c1e2",
+      "benchmarks/models/qwenimage/streams.py": "bd27383eee59404df295f724f6c7d620db3d3d7074c19dd94d51a711b38acf02",
+      "benchmarks/models/qwenimage/validate_adaln_repair.py": "8b663191323b455470a2313cdfefd837657441b300ffd0e0767453f9f407db03"
+    },
+    "extension_sha256": "5d1054db8bba2eaedbd391d0c23b6683acea9ed04fcd64d6f369faed75aa9e0f",
+    "clean_commit": true
+  },
+  "torch": "2.13.0+cu130",
+  "gpu": "NVIDIA B200",
+  "construction": "grad[B,2]=1; grad[0]=2**26; grad[-1]=-2**26; act[B,7]=1; act[:,1::2]=1.5",
+  "cases": [
+    {
+      "dtype": "torch.float32",
+      "batch": 255,
+      "fp64": [
+        [
+          253.0,
+          379.5,
+          253.0,
+          379.5,
+          253.0,
+          379.5,
+          253.0
+        ],
+        [
+          253.0,
+          379.5,
+          253.0,
+          379.5,
+          253.0,
+          379.5,
+          253.0
+        ]
+      ],
+      "fixed_actual": [
+        [
+          253.0,
+          379.5,
+          253.0,
+          379.5,
+          253.0,
+          379.5,
+          253.0
+        ],
+        [
+          253.0,
+          379.5,
+          253.0,
+          379.5,
+          253.0,
+          379.5,
+          253.0
+        ]
+      ],
+      "fixed_contract": {
+        "passed": true,
+        "max_abs": 0.0,
+        "max_tolerance_ratio": 0.0,
+        "violations": 0,
+        "atol": 0.0001,
+        "rtol": 0.0001
+      }
+    },
+    {
+      "dtype": "torch.float32",
+      "batch": 256,
+      "fp64": [
+        [
+          254.0,
+          381.0,
+          254.0,
+          381.0,
+          254.0,
+          381.0,
+          254.0
+        ],
+        [
+          254.0,
+          381.0,
+          254.0,
+          381.0,
+          254.0,
+          381.0,
+          254.0
+        ]
+      ],
+      "fixed_actual": [
+        [
+          254.0,
+          381.0,
+          254.0,
+          381.0,
+          254.0,
+          381.0,
+          254.0
+        ],
+        [
+          254.0,
+          381.0,
+          254.0,
+          381.0,
+          254.0,
+          381.0,
+          254.0
+        ]
+      ],
+      "fixed_contract": {
+        "passed": true,
+        "max_abs": 0.0,
+        "max_tolerance_ratio": 0.0,
+        "violations": 0,
+        "atol": 0.0001,
+        "rtol": 0.0001
+      }
+    },
+    {
+      "dtype": "torch.float32",
+      "batch": 257,
+      "fp64": [
+        [
+          255.0,
+          382.5,
+          255.0,
+          382.5,
+          255.0,
+          382.5,
+          255.0
+        ],
+        [
+          255.0,
+          382.5,
+          255.0,
+          382.5,
+          255.0,
+          382.5,
+          255.0
+        ]
+      ],
+      "fixed_actual": [
+        [
+          255.0,
+          382.5,
+          255.0,
+          382.5,
+          255.0,
+          382.5,
+          255.0
+        ],
+        [
+          255.0,
+          382.5,
+          255.0,
+          382.5,
+          255.0,
+          382.5,
+          255.0
+        ]
+      ],
+      "fixed_contract": {
+        "passed": true,
+        "max_abs": 0.0,
+        "max_tolerance_ratio": 0.0,
+        "violations": 0,
+        "atol": 0.0001,
+        "rtol": 0.0001
+      }
+    },
+    {
+      "dtype": "torch.float32",
+      "batch": 2048,
+      "fp64": [
+        [
+          2046.0,
+          3069.0,
+          2046.0,
+          3069.0,
+          2046.0,
+          3069.0,
+          2046.0
+        ],
+        [
+          2046.0,
+          3069.0,
+          2046.0,
+          3069.0,
+          2046.0,
+          3069.0,
+          2046.0
+        ]
+      ],
+      "fixed_actual": [
+        [
+          2046.0,
+          3069.0,
+          2046.0,
+          3069.0,
+          2046.0,
+          3069.0,
+          2046.0
+        ],
+        [
+          2046.0,
+          3069.0,
+          2046.0,
+          3069.0,
+          2046.0,
+          3069.0,
+          2046.0
+        ]
+      ],
+      "fixed_contract": {
+        "passed": true,
+        "max_abs": 0.0,
+        "max_tolerance_ratio": 0.0,
+        "violations": 0,
+        "atol": 0.0001,
+        "rtol": 0.0001
+      }
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "batch": 255,
+      "fp64": [
+        [
+          253.0,
+          379.5,
+          253.0,
+          379.5,
+          253.0,
+          379.5,
+          253.0
+        ],
+        [
+          253.0,
+          379.5,
+          253.0,
+          379.5,
+          253.0,
+          379.5,
+          253.0
+        ]
+      ],
+      "fixed_actual": [
+        [
+          253.0,
+          380.0,
+          253.0,
+          380.0,
+          253.0,
+          380.0,
+          253.0
+        ],
+        [
+          253.0,
+          380.0,
+          253.0,
+          380.0,
+          253.0,
+          380.0,
+          253.0
+        ]
+      ],
+      "fixed_contract": {
+        "passed": true,
+        "max_abs": 0.5,
+        "max_tolerance_ratio": 0.06501951068639755,
+        "violations": 0,
+        "atol": 0.1,
+        "rtol": 0.02
+      }
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "batch": 256,
+      "fp64": [
+        [
+          254.0,
+          381.0,
+          254.0,
+          381.0,
+          254.0,
+          381.0,
+          254.0
+        ],
+        [
+          254.0,
+          381.0,
+          254.0,
+          381.0,
+          254.0,
+          381.0,
+          254.0
+        ]
+      ],
+      "fixed_actual": [
+        [
+          254.0,
+          380.0,
+          254.0,
+          380.0,
+          254.0,
+          380.0,
+          254.0
+        ],
+        [
+          254.0,
+          380.0,
+          254.0,
+          380.0,
+          254.0,
+          380.0,
+          254.0
+        ]
+      ],
+      "fixed_contract": {
+        "passed": true,
+        "max_abs": 1.0,
+        "max_tolerance_ratio": 0.12953367829322815,
+        "violations": 0,
+        "atol": 0.1,
+        "rtol": 0.02
+      }
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "batch": 257,
+      "fp64": [
+        [
+          255.0,
+          382.5,
+          255.0,
+          382.5,
+          255.0,
+          382.5,
+          255.0
+        ],
+        [
+          255.0,
+          382.5,
+          255.0,
+          382.5,
+          255.0,
+          382.5,
+          255.0
+        ]
+      ],
+      "fixed_actual": [
+        [
+          255.0,
+          382.0,
+          255.0,
+          382.0,
+          255.0,
+          382.0,
+          255.0
+        ],
+        [
+          255.0,
+          382.0,
+          255.0,
+          382.0,
+          255.0,
+          382.0,
+          255.0
+        ]
+      ],
+      "fixed_contract": {
+        "passed": true,
+        "max_abs": 0.5,
+        "max_tolerance_ratio": 0.06451613456010818,
+        "violations": 0,
+        "atol": 0.1,
+        "rtol": 0.02
+      }
+    },
+    {
+      "dtype": "torch.bfloat16",
+      "batch": 2048,
+      "fp64": [
+        [
+          2046.0,
+          3069.0,
+          2046.0,
+          3069.0,
+          2046.0,
+          3069.0,
+          2046.0
+        ],
+        [
+          2046.0,
+          3069.0,
+          2046.0,
+          3069.0,
+          2046.0,
+          3069.0,
+          2046.0
+        ]
+      ],
+      "fixed_actual": [
+        [
+          2048.0,
+          3072.0,
+          2048.0,
+          3072.0,
+          2048.0,
+          3072.0,
+          2048.0
+        ],
+        [
+          2048.0,
+          3072.0,
+          2048.0,
+          3072.0,
+          2048.0,
+          3072.0,
+          2048.0
+        ]
+      ],
+      "fixed_contract": {
+        "passed": true,
+        "max_abs": 3.0,
+        "max_tolerance_ratio": 0.048796359449625015,
+        "violations": 0,
+        "atol": 0.1,
+        "rtol": 0.02
+      }
+    }
+  ]
+}

@@ -16,6 +16,8 @@ nav:
       - Hardware Profiling Guide: getting_started/hardware-profiling.md
     - Operators:
       - operators/README.md
+      - operators/qwenimage-adaln-mod-projection.md
+      - operators/qwenimage-final-adaln-out.md
       - operators/activation.md
       - operators/attention.md
       - operators/fused-logp.md

@@ -1,0 +1,4836 @@
+{
+  "mode": "cublas_policy",
+  "phase": "reuse",
+  "accuracy_seed": 0,
+  "source": {
+    "base_sha": "55f83d2b9043f41dca84440d9002ca30f5d3fac4",
+    "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_source_sha256": {},
+    "workspace_source_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "qwenimage_source_sha256": {
+      "csrc/cuda/model_specific/qwenimage/det_linear.cu": "859da456b0c776f3492b3197c252866e33d9a7088508b701b7c4a179ee709afb",
+      "csrc/cuda/model_specific/qwenimage/token_sum.cu": "1aace24523ff95520ab5d482e2e0f17d09a2efcf93efc8de865c7bcc157cf3ba",
+      "rl_engine/backends/cuda/model_specific/qwenimage/__init__.py": "95c46d40c4aed2d4c26a65bc0cc64331e42b237673293ea5ed45b79ebc11d4b4",
+      "rl_engine/backends/cuda/model_specific/qwenimage/adaln_mod_projection.py": "710df5416a2adf5b2576468ff63584b6699e6bdecd59906370049bf09f1b3286",
+      "rl_engine/backends/cuda/model_specific/qwenimage/final_adaln_out.py": "f6afe4b7568e2026c4b046a4fd0a02589f817d815198af33173d2dba61773f19",
+      "rl_engine/reference/model_specific/qwenimage/__init__.py": "95c46d40c4aed2d4c26a65bc0cc64331e42b237673293ea5ed45b79ebc11d4b4",
+      "rl_engine/reference/model_specific/qwenimage/adaln_mod_projection.py": "1ebc740ddff575055ee66ed714a8c7cc5c6cee2701d582a665289e9ad1a4fe3d",
+      "rl_engine/reference/model_specific/qwenimage/final_adaln_out.py": "60441610c04d04d0fb1cd7320be8584e76772c110a3cfed77ddf826dbde9b53c",
+      "benchmarks/models/qwenimage/__init__.py": "a63ebc79ed10d9ed98484565a353438bd13f5801a8f51d7505d0921bf6942742",
+      "benchmarks/models/qwenimage/adaln_evidence.py": "9dc9f3da0069d36c602baef07d687fb1aeba8fda0163d17fc446e0a543fe1f3e",
+      "benchmarks/models/qwenimage/adaln_parameter_screen.py": "05562ef30d09296c2ccd1cdeb44085568b8c877d01f5fb1df4b983e84945ec03",
+      "benchmarks/models/qwenimage/adaln_prior_art.py": "647aa9fc81e02bf3c7806ed6c2a3e578fb3e1a0b000b4388a12367ef86de3139",
+      "benchmarks/models/qwenimage/adaln_reuse_bi_audit.py": "88dd3d390e647bbc883b76622309fad54dac3618630dcca0785e555db329a671",
+      "benchmarks/models/qwenimage/adaln_reuse_candidate.py": "4598f6db94462ac30f3bdd3defae16f0ce7a34ac59eb1996d18e86f498c029b6",
+      "benchmarks/models/qwenimage/plot_adaln_audit.py": "6151e6abccca8f647c2fbeadf92f12e43ed1c07954db9f2db2f035284cbd407c",
+      "benchmarks/models/qwenimage/plot_adaln_evidence.py": "16d6bed0ee5b808814c5f7157145a730750d0b1aaf94762e6f72a256e942c1e2",
+      "benchmarks/models/qwenimage/streams.py": "bd27383eee59404df295f724f6c7d620db3d3d7074c19dd94d51a711b38acf02",
+      "benchmarks/models/qwenimage/validate_adaln_repair.py": "8b663191323b455470a2313cdfefd837657441b300ffd0e0767453f9f407db03"
+    },
+    "extension_sha256": "5d1054db8bba2eaedbd391d0c23b6683acea9ed04fcd64d6f369faed75aa9e0f",
+    "clean_commit": true
+  },
+  "cases": [
+    {
+      "stream": "image",
+      "dtype": "torch.bfloat16",
+      "weights": {
+        "transformer_blocks.0.img_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "22ef33e6865806f3e1d2bc137bd1a41510cf0619ed0c85fba35a626cd7bad018",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.img_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "f4d2241820fa1a1895d7136bd5653ae0984a50bf0a0961a312b45e0e393d8218",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 0.0007102272727272727,
+        "temb": 0.0021352098780145655,
+        "weight": 0.0031093047650859887,
+        "bias": 0.002188183807439825
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.04390399903059006,
+                  0.04310400038957596,
+                  0.04022400081157684,
+                  0.040991999208927155,
+                  0.04131200164556503,
+                  0.04108799993991852,
+                  0.04016000032424927,
+                  0.039872001856565475,
+                  0.040192000567913055,
+                  0.04022400081157684
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.040608000010252
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.6089919805526733,
+                  0.5169919729232788,
+                  0.5060480237007141,
+                  0.5973439812660217,
+                  0.17580799758434296,
+                  0.3620480000972748,
+                  0.33292800188064575,
+                  0.5202239751815796,
+                  0.5717759728431702,
+                  0.5688319802284241
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.5186079740524292
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.6189759969711304,
+                  0.6918399930000305,
+                  0.5114880204200745,
+                  0.4169920086860657,
+                  0.5048959851264954,
+                  0.4872959852218628,
+                  0.6818879842758179,
+                  0.6612480282783508,
+                  0.6711360216140747,
+                  0.6315199732780457
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.625247985124588
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 113369088
+            }
+          }
+        },
+        {
+          "batch": 3,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.04095999896526337,
+                  0.03888000175356865,
+                  0.03852799907326698,
+                  0.039712000638246536,
+                  0.03948799893260002,
+                  0.03840000182390213,
+                  0.03798399865627289,
+                  0.039135999977588654,
+                  0.038816001266241074,
+                  0.038943998515605927
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.03891200013458729
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.5602560043334961,
+                  0.5097600221633911,
+                  0.5095040202140808,
+                  0.3781439960002899,
+                  0.1287039965391159,
+                  0.48793599009513855,
+                  0.5028799772262573,
+                  0.5097280144691467,
+                  0.5708159804344177,
+                  0.5698879957199097
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.5096160173416138
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.5084480047225952,
+                  0.17708800733089447,
+                  0.5961920022964478,
+                  0.6268159747123718,
+                  0.615776002407074,
+                  0.6619840264320374,
+                  0.6298559904098511,
+                  0.6618559956550598,
+                  0.6242240071296692,
+                  0.6495360136032104
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.6255199909210205
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 113541120
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.05052800104022026,
+                  0.04793599992990494,
+                  0.04665600135922432,
+                  0.04710400104522705,
+                  0.04505600035190582,
+                  0.04543999955058098,
+                  0.04700800031423569,
+                  0.04531199857592583,
+                  0.04483199864625931,
+                  0.04681599885225296
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.04673600010573864
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.5626879930496216,
+                  0.5239999890327454,
+                  0.5639359951019287,
+                  0.5092480182647705,
+                  0.1573760062456131,
+                  0.3739520013332367,
+                  0.4984639883041382,
+                  0.5019199848175049,
+                  0.5035840272903442,
+                  0.4928640127182007
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.5027520060539246
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.4343680143356323,
+                  0.6727359890937805,
+                  0.6206719875335693,
+                  0.630079984664917,
+                  0.6208320260047913,
+                  0.6406400203704834,
+                  0.485727995634079,
+                  0.6415359973907471,
+                  0.515392005443573,
+                  0.6319680213928223
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.6254560053348541
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 135303168
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.15225599706172943,
+                  0.14947199821472168,
+                  0.14847999811172485,
+                  0.1478080004453659,
+                  0.14800000190734863,
+                  0.14662399888038635,
+                  0.14534400403499603,
+                  0.14588800072669983,
+                  0.14467200636863708,
+                  0.14511999487876892
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.14721599966287613
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.3555839955806732,
+                  0.3547840118408203,
+                  0.39798399806022644,
+                  0.357695996761322,
+                  0.3547520041465759,
+                  0.3270080089569092,
+                  0.5217599868774414,
+                  0.5658239722251892,
+                  0.5643839836120605,
+                  0.5597119927406311
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.37783999741077423
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.5307520031929016,
+                  0.6869120001792908,
+                  0.6802240014076233,
+                  0.6326720118522644,
+                  0.6351040005683899,
+                  0.5408639907836914,
+                  0.6333439946174622,
+                  0.6431040167808533,
+                  0.6409279704093933,
+                  0.4792959988117218
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.634223997592926
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 449876992
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "image",
+      "dtype": "torch.float32",
+      "weights": {
+        "transformer_blocks.0.img_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "22ef33e6865806f3e1d2bc137bd1a41510cf0619ed0c85fba35a626cd7bad018",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.img_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "f4d2241820fa1a1895d7136bd5653ae0984a50bf0a0961a312b45e0e393d8218",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 8.676111307914236e-08,
+        "temb": 3.322163921758796e-07,
+        "weight": 1.2601489105323987e-07,
+        "bias": 5.007435123128072e-08
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.05673599988222122,
+                  0.0560000017285347,
+                  0.05696000158786774,
+                  0.05603199824690819,
+                  0.05455999821424484,
+                  0.057023998349905014,
+                  0.05462399870157242,
+                  0.054207999259233475,
+                  0.05375999957323074,
+                  0.05612799897789955
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.05601599998772144
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.5192639827728271,
+                  0.5013120174407959,
+                  0.5279359817504883,
+                  0.33267199993133545,
+                  0.38998401165008545,
+                  0.5298560261726379,
+                  0.4963200092315674,
+                  0.5711680054664612,
+                  0.5348160266876221,
+                  0.5141119956970215
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.5166879892349243
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.49004799127578735,
+                  0.5851200222969055,
+                  0.5906559824943542,
+                  0.6002879738807678,
+                  0.625823974609375,
+                  0.5343040227890015,
+                  0.6120319962501526,
+                  0.6307200193405151,
+                  0.5194879770278931,
+                  0.4005439877510071
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.5878880023956299
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 226738176
+            }
+          }
+        },
+        {
+          "batch": 3,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.11190400272607803,
+                  0.1120000034570694,
+                  0.10969600081443787,
+                  0.11372800171375275,
+                  0.1111999973654747,
+                  0.11052799969911575,
+                  0.10979200154542923,
+                  0.1098880022764206,
+                  0.11100800335407257,
+                  0.11091200262308121
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.11096000298857689
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.5098879933357239,
+                  0.4962559938430786,
+                  0.5013759732246399,
+                  0.4986239969730377,
+                  0.4970879852771759,
+                  0.29951998591423035,
+                  0.4691520035266876,
+                  0.5547199845314026,
+                  0.531711995601654,
+                  0.5527039766311646
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.4999999850988388
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.6280320286750793,
+                  0.4381760060787201,
+                  0.3949759900569916,
+                  0.5019199848175049,
+                  0.6623679995536804,
+                  0.6004160046577454,
+                  0.6815999746322632,
+                  0.6627839803695679,
+                  0.6789759993553162,
+                  0.6054080128669739
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.6167200207710266
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 227082240
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.4986560046672821,
+                  0.49744001030921936,
+                  0.4925119876861572,
+                  0.4922559857368469,
+                  0.4917120039463043,
+                  0.4904319941997528,
+                  0.4893760085105896,
+                  0.49062401056289673,
+                  0.49212801456451416,
+                  0.4904640018939972
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.49192000925540924
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  1.4163199663162231,
+                  1.4279359579086304,
+                  1.4000639915466309,
+                  1.3760639429092407,
+                  1.418496012687683,
+                  1.4340800046920776,
+                  1.399232029914856,
+                  1.3844159841537476,
+                  1.4126720428466797,
+                  1.4164479970932007
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 1.4144960045814514
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  1.761023998260498,
+                  1.757472038269043,
+                  1.707327961921692,
+                  1.693984031677246,
+                  1.763808012008667,
+                  1.7613120079040527,
+                  1.7657279968261719,
+                  1.7701760530471802,
+                  1.763551950454712,
+                  1.761504054069519
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 1.7614080309867859
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 270606336
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  3.7695999145507812,
+                  3.7693119049072266,
+                  3.7707200050354004,
+                  3.7705600261688232,
+                  3.7705600261688232,
+                  3.7704319953918457,
+                  3.7703359127044678,
+                  3.7707839012145996,
+                  3.7694079875946045,
+                  3.7714240550994873
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 3.7704960107803345
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  7.993375778198242,
+                  7.988704204559326,
+                  7.98956823348999,
+                  7.981823921203613,
+                  8.03264045715332,
+                  8.00879955291748,
+                  7.975423812866211,
+                  8.038399696350098,
+                  7.985472202301025,
+                  8.00057601928711
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 7.991472005844116
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  11.565695762634277,
+                  11.61945629119873,
+                  11.626720428466797,
+                  11.564191818237305,
+                  11.62054443359375,
+                  11.618975639343262,
+                  11.611167907714844,
+                  11.61849594116211,
+                  11.561887741088867,
+                  11.554335594177246
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 11.614831924438477
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 739320832
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "text",
+      "dtype": "torch.bfloat16",
+      "weights": {
+        "transformer_blocks.0.txt_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "7fc5615cea51f21640ae26b29e4595fe96295113b1fd31b117664c1b85d360c2",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.txt_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "537d4e06e6fe7428a331637871fcf8c9c4899b296b5419e12abb3a3972adfc72",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 0.0009765625,
+        "temb": 0.0037906331728412125,
+        "weight": 0.0031093047650859887,
+        "bias": 0.002188183807439825
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.04016000032424927,
+                  0.04064000025391579,
+                  0.040863998234272,
+                  0.039872001856565475,
+                  0.040031999349594116,
+                  0.03999999910593033,
+                  0.0395519994199276,
+                  0.03939199820160866,
+                  0.03923200070858002,
+                  0.03852799907326698
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.0399360004812479
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.36403200030326843,
+                  0.13167999684810638,
+                  0.1281919926404953,
+                  0.12758399546146393,
+                  0.12643200159072876,
+                  0.1271039992570877,
+                  0.12643200159072876,
+                  0.12646399438381195,
+                  0.12406399846076965,
+                  0.12643200159072876
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.12678399682044983
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.1600639969110489,
+                  0.16099199652671814,
+                  0.16022400557994843,
+                  0.16041600704193115,
+                  0.15936000645160675,
+                  0.16252799332141876,
+                  0.15398399531841278,
+                  0.1584320068359375,
+                  0.15587200224399567,
+                  0.15887999534606934
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.15971200168132782
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 113369088
+            }
+          }
+        },
+        {
+          "batch": 3,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.04224000126123428,
+                  0.03999999910593033,
+                  0.038656000047922134,
+                  0.040383998304605484,
+                  0.04041599854826927,
+                  0.03836800158023834,
+                  0.03888000175356865,
+                  0.039135999977588654,
+                  0.03782400116324425,
+                  0.038656000047922134
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.03900800086557865
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.5803200006484985,
+                  0.5143679976463318,
+                  0.5035200119018555,
+                  0.5114880204200745,
+                  0.5597119927406311,
+                  0.3866879940032959,
+                  0.3384000062942505,
+                  0.3345920145511627,
+                  0.4750080108642578,
+                  0.5069440007209778
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.5052320063114166
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.5391039848327637,
+                  0.7426559925079346,
+                  0.4901759922504425,
+                  0.6727359890937805,
+                  0.6330879926681519,
+                  0.6201279759407043,
+                  0.6138560175895691,
+                  0.6716480255126953,
+                  0.6257920265197754,
+                  0.5337920188903809
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.6229600012302399
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 113541120
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.047200001776218414,
+                  0.04620800167322159,
+                  0.0459199994802475,
+                  0.04787199944257736,
+                  0.045343998819589615,
+                  0.045791998505592346,
+                  0.04527999833226204,
+                  0.04419200122356415,
+                  0.04479999840259552,
+                  0.044895999133586884
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.04556799866259098
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.32447999715805054,
+                  0.4978559911251068,
+                  0.5024960041046143,
+                  0.5527679920196533,
+                  0.5452160239219666,
+                  0.5637120008468628,
+                  0.5012159943580627,
+                  0.35705599188804626,
+                  0.33721598982810974,
+                  0.5251839756965637
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.5018559992313385
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.6175040006637573,
+                  0.7461119890213013,
+                  0.6738880276679993,
+                  0.6151360273361206,
+                  0.4912639856338501,
+                  0.18771199882030487,
+                  0.44460800290107727,
+                  0.6715520024299622,
+                  0.6733440160751343,
+                  0.6728960275650024
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.6445280015468597
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 135303168
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.1509760022163391,
+                  0.14921599626541138,
+                  0.14815999567508698,
+                  0.14697599411010742,
+                  0.1467200070619583,
+                  0.1451839953660965,
+                  0.144896000623703,
+                  0.14537599682807922,
+                  0.14560000598430634,
+                  0.14511999487876892
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.14616000652313232
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.5509120225906372,
+                  0.49875199794769287,
+                  0.5789120197296143,
+                  0.5333759784698486,
+                  0.528768002986908,
+                  0.3777279853820801,
+                  0.5296000242233276,
+                  0.5693119764328003,
+                  0.5831999778747559,
+                  0.5231999754905701
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.5314880013465881
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.5754879713058472,
+                  0.6586880087852478,
+                  0.6631039977073669,
+                  0.5335040092468262,
+                  0.5363519787788391,
+                  0.6334720253944397,
+                  0.6581760048866272,
+                  0.6353279948234558,
+                  0.6342719793319702,
+                  0.6746559739112854
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.634799987077713
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 449876992
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "text",
+      "dtype": "torch.float32",
+      "weights": {
+        "transformer_blocks.0.txt_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "7fc5615cea51f21640ae26b29e4595fe96295113b1fd31b117664c1b85d360c2",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.txt_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "537d4e06e6fe7428a331637871fcf8c9c4899b296b5419e12abb3a3972adfc72",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 1.1891091396474316e-07,
+        "temb": 6.236398211248578e-07,
+        "weight": 1.2601489105323987e-07,
+        "bias": 5.007435123128072e-08
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.05734400078654289,
+                  0.05728000029921532,
+                  0.054976001381874084,
+                  0.05612799897789955,
+                  0.05558399856090546,
+                  0.05555199831724167,
+                  0.05644800141453743,
+                  0.0562559999525547,
+                  0.05603199824690819,
+                  0.05423999950289726
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.05607999861240387
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.3413439989089966,
+                  0.34627199172973633,
+                  0.41200000047683716,
+                  0.3421120047569275,
+                  0.1812800019979477,
+                  0.18137599527835846,
+                  0.3421120047569275,
+                  0.38598400354385376,
+                  0.34624001383781433,
+                  0.47577598690986633
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.3441760092973709
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.5983359813690186,
+                  0.48262399435043335,
+                  0.4329279959201813,
+                  0.43187201023101807,
+                  0.6105920076370239,
+                  0.6613439917564392,
+                  0.620352029800415,
+                  0.642848014831543,
+                  0.5152000188827515,
+                  0.39392000436782837
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.556768000125885
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 226738176
+            }
+          }
+        },
+        {
+          "batch": 3,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.11209599673748016,
+                  0.11203200370073318,
+                  0.10915199667215347,
+                  0.11072000116109848,
+                  0.11084800213575363,
+                  0.11055999994277954,
+                  0.11030399799346924,
+                  0.10873600095510483,
+                  0.11212799698114395,
+                  0.11068800091743469
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.11070400103926659
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.4875839948654175,
+                  0.4742079973220825,
+                  0.5070400238037109,
+                  0.46246400475502014,
+                  0.305759996175766,
+                  0.2885439991950989,
+                  0.47171199321746826,
+                  0.563647985458374,
+                  0.5001599788665771,
+                  0.49849599599838257
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.48089599609375
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.5346879959106445,
+                  0.6709439754486084,
+                  0.6415359973907471,
+                  0.6537280082702637,
+                  0.6509760022163391,
+                  0.5999040007591248,
+                  0.6042559742927551,
+                  0.6211839914321899,
+                  0.5838080048561096,
+                  0.39561599493026733
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.6127199828624725
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 227082240
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.49353599548339844,
+                  0.49273601174354553,
+                  0.48998400568962097,
+                  0.48998400568962097,
+                  0.4922879934310913,
+                  0.49059200286865234,
+                  0.4891200065612793,
+                  0.49033600091934204,
+                  0.49136000871658325,
+                  0.4915199875831604
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.4909760057926178
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  1.412992000579834,
+                  1.4876799583435059,
+                  1.4528640508651733,
+                  1.4177279472351074,
+                  1.3876479864120483,
+                  1.4153920412063599,
+                  1.4228800535202026,
+                  1.4669760465621948,
+                  1.4155199527740479,
+                  1.4699840545654297
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 1.420304000377655
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  1.70905601978302,
+                  1.693824052810669,
+                  1.694815993309021,
+                  1.7615679502487183,
+                  1.763808012008667,
+                  1.7568639516830444,
+                  1.7645119428634644,
+                  1.7627840042114258,
+                  1.76528000831604,
+                  1.7634559869766235
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 1.762175977230072
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 270606336
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  3.7706239223480225,
+                  3.7703359127044678,
+                  3.7713279724121094,
+                  3.768671989440918,
+                  3.770400047302246,
+                  3.769984006881714,
+                  3.7700159549713135,
+                  3.76963210105896,
+                  3.7718400955200195,
+                  3.7717440128326416
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 3.770367980003357
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  8.04736042022705,
+                  7.994592189788818,
+                  8.029472351074219,
+                  7.987840175628662,
+                  7.955967903137207,
+                  8.026816368103027,
+                  7.985695838928223,
+                  7.986752033233643,
+                  7.9964799880981445,
+                  7.992544174194336
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 7.993568181991577
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  11.564672470092773,
+                  11.613120079040527,
+                  11.617919921875,
+                  11.613951683044434,
+                  11.611328125,
+                  11.616703987121582,
+                  11.615072250366211,
+                  11.616640090942383,
+                  11.6146240234375,
+                  11.573087692260742
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 11.614287853240967
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 739320832
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "final",
+      "dtype": "torch.bfloat16",
+      "weights": {
+        "norm_out.linear.weight": {
+          "shape": [
+            6144,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "613ffb1bfa5aeedcf38208f87ca420212706c6f4c6f527de1a6bab58e36c2afb",
+          "shard": "diffusion_pytorch_model-00009-of-00009.safetensors",
+          "download_etag": "ae0fef149890f61d54572baa1e806de97156c7ec5b7bbbbbbf27a2d87f33af61"
+        },
+        "norm_out.linear.bias": {
+          "shape": [
+            6144
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "06ef4a795107a9dd4bcb5ab387a63291fd934ea8e31ecb2a87c98fb0628c13fd",
+          "shard": "diffusion_pytorch_model-00009-of-00009.safetensors",
+          "download_etag": "ae0fef149890f61d54572baa1e806de97156c7ec5b7bbbbbbf27a2d87f33af61"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 0.0003078817733990148,
+        "x": 0.003379820097165924,
+        "temb": 0.005905976490849045,
+        "weight": 0.00517754451340496,
+        "bias": 0.0040532119374307955
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "x": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 33,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.06806399673223495,
+                  0.06617599725723267,
+                  0.06707199662923813,
+                  0.06911999732255936,
+                  0.06419199705123901,
+                  0.06451199948787689,
+                  0.06377600133419037,
+                  0.06390400230884552,
+                  0.06380800157785416,
+                  0.060896001756191254
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.06435199826955795
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.5966399908065796,
+                  0.6201279759407043,
+                  0.4647040069103241,
+                  0.4392639994621277,
+                  0.6097279787063599,
+                  0.630079984664917,
+                  0.5934399962425232,
+                  0.5920959711074829,
+                  0.6452479958534241,
+                  0.6624320149421692
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.6031839847564697
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.45286399126052856,
+                  0.3166399896144867,
+                  0.7391359806060791,
+                  0.793503999710083,
+                  0.8452159762382507,
+                  0.843936026096344,
+                  0.8011839985847473,
+                  0.8238080143928528,
+                  0.8001599907875061,
+                  0.8340479731559753
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.8006719946861267
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 38393856
+            }
+          }
+        },
+        {
+          "batch": 2,
+          "sequence": 4096,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.20310400426387787,
+                  0.20150400698184967,
+                  0.20236800611019135,
+                  0.1993280053138733,
+                  0.19808000326156616,
+                  0.19935999810695648,
+                  0.20147199928760529,
+                  0.2014400064945221,
+                  0.1982080042362213,
+                  0.20022399723529816
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.20083200186491013
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.6058239936828613,
+                  0.6561279892921448,
+                  0.6081920266151428,
+                  0.601248025894165,
+                  0.48256000876426697,
+                  0.5088000297546387,
+                  0.4671359956264496,
+                  0.5969280004501343,
+                  0.6392639875411987,
+                  0.6768320202827454
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.6035360097885132
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.6962239742279053,
+                  0.6243199706077576,
+                  0.7172799706459045,
+                  0.8961279988288879,
+                  0.8385599851608276,
+                  0.8474239706993103,
+                  0.8655359745025635,
+                  0.8472959995269775,
+                  0.8547199964523315,
+                  0.8807359933853149
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.8473599851131439
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 409059840
+            }
+          }
+        },
+        {
+          "batch": 1,
+          "sequence": 6889,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.15299199521541595,
+                  0.15705600380897522,
+                  0.15238399803638458,
+                  0.1507200002670288,
+                  0.1539520025253296,
+                  0.15196800231933594,
+                  0.1520320028066635,
+                  0.14873600006103516,
+                  0.150176003575325,
+                  0.15161600708961487
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.15200000256299973
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.609279990196228,
+                  0.6164479851722717,
+                  0.6045439839363098,
+                  0.49481600522994995,
+                  0.2572160065174103,
+                  0.4442560076713562,
+                  0.48924800753593445,
+                  0.6005439758300781,
+                  0.6640639901161194,
+                  0.63264000415802
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.602543979883194
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.7852799892425537,
+                  0.7319039702415466,
+                  0.7546560168266296,
+                  0.9239040017127991,
+                  0.8826559782028198,
+                  0.8431680202484131,
+                  0.820576012134552,
+                  0.8140159845352173,
+                  0.8423680067062378,
+                  0.8214079737663269
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.8209919929504395
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 367424000
+            }
+          }
+        },
+        {
+          "batch": 1,
+          "sequence": 6032,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.14076800644397736,
+                  0.1417279988527298,
+                  0.1401280015707016,
+                  0.1398719996213913,
+                  0.13702400028705597,
+                  0.14035199582576752,
+                  0.14057600498199463,
+                  0.13868799805641174,
+                  0.13811199367046356,
+                  0.13737599551677704
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.14000000059604645
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.6042559742927551,
+                  0.6045439839363098,
+                  0.6796159744262695,
+                  0.26025599241256714,
+                  0.46028798818588257,
+                  0.5733439922332764,
+                  0.5983679890632629,
+                  0.6042240262031555,
+                  0.6193600296974182,
+                  0.676800012588501
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.6042400002479553
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.7059839963912964,
+                  0.48291200399398804,
+                  0.5799999833106995,
+                  0.8235840201377869,
+                  0.8736000061035156,
+                  0.8901119828224182,
+                  0.8060799837112427,
+                  0.8050879836082458,
+                  0.8319360017776489,
+                  0.8326079845428467
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.8148320019245148
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 334799360
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 3,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.07036799937486649,
+                  0.06623999774456024,
+                  0.06614399701356888,
+                  0.06719999760389328,
+                  0.06403200328350067,
+                  0.06748799979686737,
+                  0.06592000275850296,
+                  0.0655359998345375,
+                  0.0655680000782013,
+                  0.0642239972949028
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.06603199988603592
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.6231039762496948,
+                  0.6096320152282715,
+                  0.3954879939556122,
+                  0.6573439836502075,
+                  0.6474559903144836,
+                  0.5950400233268738,
+                  0.6453120112419128,
+                  0.5999040007591248,
+                  0.6686720252037048,
+                  0.6461759805679321
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.6342079937458038
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.540287971496582,
+                  0.6837120056152344,
+                  0.8403840065002441,
+                  0.8597440123558044,
+                  0.8028479814529419,
+                  0.8739839792251587,
+                  0.8523839712142944,
+                  0.6797119975090027,
+                  0.5600000023841858,
+                  0.5503039956092834
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.7432799935340881
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 58208256
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 3,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.22675199806690216,
+                  0.2247679978609085,
+                  0.2242240011692047,
+                  0.2210880070924759,
+                  0.22179199755191803,
+                  0.2210880070924759,
+                  0.2207999974489212,
+                  0.2207999974489212,
+                  0.22015999257564545,
+                  0.220768004655838
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.2210880070924759
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.6224960088729858,
+                  0.6555200219154358,
+                  0.6257280111312866,
+                  0.6154879927635193,
+                  0.5373439788818359,
+                  0.3550400137901306,
+                  0.39529600739479065,
+                  0.39190399646759033,
+                  0.6063680052757263,
+                  0.6346560120582581
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.6109279990196228
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.7912319898605347,
+                  0.8029760122299194,
+                  0.769536018371582,
+                  0.5674560070037842,
+                  0.554527997970581,
+                  0.5508480072021484,
+                  0.6124799847602844,
+                  0.7895680069923401,
+                  0.895904004573822,
+                  0.883840024471283
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.7795520126819611
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 302002688
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "final",
+      "dtype": "torch.float32",
+      "weights": {
+        "norm_out.linear.weight": {
+          "shape": [
+            6144,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "613ffb1bfa5aeedcf38208f87ca420212706c6f4c6f527de1a6bab58e36c2afb",
+          "shard": "diffusion_pytorch_model-00009-of-00009.safetensors",
+          "download_etag": "ae0fef149890f61d54572baa1e806de97156c7ec5b7bbbbbbf27a2d87f33af61"
+        },
+        "norm_out.linear.bias": {
+          "shape": [
+            6144
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "06ef4a795107a9dd4bcb5ab387a63291fd934ea8e31ecb2a87c98fb0628c13fd",
+          "shard": "diffusion_pytorch_model-00009-of-00009.safetensors",
+          "download_etag": "ae0fef149890f61d54572baa1e806de97156c7ec5b7bbbbbbf27a2d87f33af61"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 1.5006967359770956e-07,
+        "x": 1.1013294010721937e-07,
+        "temb": 9.310621970443409e-07,
+        "weight": 1.611449087501953e-07,
+        "bias": 1.037766860497995e-07
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "x": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 33,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.07001599669456482,
+                  0.06960000097751617,
+                  0.060095999389886856,
+                  0.06137600168585777,
+                  0.06035200133919716,
+                  0.05875200033187866,
+                  0.05993599817156792,
+                  0.059039998799562454,
+                  0.0594559982419014,
+                  0.0597120001912117
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.060015998780727386
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.19753600656986237,
+                  0.18643200397491455,
+                  0.1791680008172989,
+                  0.17660799622535706,
+                  0.18012799322605133,
+                  0.17235200107097626,
+                  0.324864000082016,
+                  0.1825920045375824,
+                  0.1759359985589981,
+                  0.17689600586891174
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.1796479970216751
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.6110399961471558,
+                  0.8126400113105774,
+                  0.8840640187263489,
+                  0.7647039890289307,
+                  0.7567039728164673,
+                  0.8343039751052856,
+                  0.8318719863891602,
+                  0.7608000040054321,
+                  0.7928320169448853,
+                  0.42179200053215027
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.778768002986908
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 76787712
+            }
+          }
+        },
+        {
+          "batch": 2,
+          "sequence": 4096,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.25804799795150757,
+                  0.25222399830818176,
+                  0.25116801261901855,
+                  0.2508479952812195,
+                  0.2516160011291504,
+                  0.25036799907684326,
+                  0.2500480115413666,
+                  0.2503040134906769,
+                  0.2492160052061081,
+                  0.2510400116443634
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.25094400346279144
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.7807999849319458,
+                  0.8588160276412964,
+                  0.8268799781799316,
+                  0.7958719730377197,
+                  0.7726719975471497,
+                  0.6111680269241333,
+                  0.6001279950141907,
+                  0.7490559816360474,
+                  0.782912015914917,
+                  0.8347839713096619
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.7818560004234314
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.9624959826469421,
+                  0.9866880178451538,
+                  0.9618239998817444,
+                  1.0168319940567017,
+                  0.9622719883918762,
+                  0.9753919839859009,
+                  0.8792960047721863,
+                  0.8838719725608826,
+                  0.8831040263175964,
+                  0.9542400240898132
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.9620479941368103
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 660767232
+            }
+          }
+        },
+        {
+          "batch": 1,
+          "sequence": 6889,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.2006080001592636,
+                  0.1998399943113327,
+                  0.1960960030555725,
+                  0.1971839964389801,
+                  0.19728000462055206,
+                  0.19753600656986237,
+                  0.19968000054359436,
+                  0.19545599818229675,
+                  0.1971520036458969,
+                  0.1945600062608719
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.19723200052976608
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.6232640147209167,
+                  0.6138560175895691,
+                  0.6081920266151428,
+                  0.3474240005016327,
+                  0.3203839957714081,
+                  0.5690879821777344,
+                  0.6560959815979004,
+                  0.5947200059890747,
+                  0.5871359705924988,
+                  0.5944640040397644
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.5945920050144196
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.5076159834861755,
+                  0.49564799666404724,
+                  0.5130559802055359,
+                  0.5672000050544739,
+                  0.7758399844169617,
+                  0.8540800213813782,
+                  0.7734079957008362,
+                  0.8555840253829956,
+                  0.5668799877166748,
+                  0.7724159955978394
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.6698080003261566
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 579078656
+            }
+          }
+        },
+        {
+          "batch": 1,
+          "sequence": 6032,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.1828480064868927,
+                  0.18108800053596497,
+                  0.1812800019979477,
+                  0.18367999792099,
+                  0.18108800053596497,
+                  0.17900800704956055,
+                  0.1793919950723648,
+                  0.17945599555969238,
+                  0.18041600286960602,
+                  0.17830400168895721
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.1807520017027855
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.6333760023117065,
+                  0.6213759779930115,
+                  0.3667199909687042,
+                  0.6521279811859131,
+                  0.4039680063724518,
+                  0.6073279976844788,
+                  0.6798400282859802,
+                  0.6195840239524841,
+                  0.6084160208702087,
+                  0.6084799766540527
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.6140320003032684
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.5301759839057922,
+                  0.46537598967552185,
+                  0.45283201336860657,
+                  0.6087999939918518,
+                  0.8418560028076172,
+                  0.8505600094795227,
+                  0.8203520178794861,
+                  0.7689279913902283,
+                  0.813696026802063,
+                  0.7937920093536377
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.781360000371933
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 520126976
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 3,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.2762880027294159,
+                  0.2725760042667389,
+                  0.270687997341156,
+                  0.26976001262664795,
+                  0.2683520019054413,
+                  0.2677760124206543,
+                  0.26790401339530945,
+                  0.2677440047264099,
+                  0.26815998554229736,
+                  0.26822400093078613
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.2682880014181137
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.8483840227127075,
+                  0.7889279723167419,
+                  0.7961599826812744,
+                  0.8049280047416687,
+                  0.5611199736595154,
+                  0.5693439841270447,
+                  0.6911680102348328,
+                  0.5690879821777344,
+                  0.5681920051574707,
+                  0.7976639866828918
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.7400479912757874
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  0.8474559783935547,
+                  0.839680016040802,
+                  0.838591992855072,
+                  0.994271993637085,
+                  1.0295039415359497,
+                  1.0388480424880981,
+                  1.0145599842071533,
+                  0.9971200227737427,
+                  0.9980159997940063,
+                  0.8405759930610657
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 0.9956960082054138
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 116416512
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 3,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  1.5779199600219727,
+                  1.576640009880066,
+                  1.579327940940857,
+                  1.5779520273208618,
+                  1.5768959522247314,
+                  1.5752320289611816,
+                  1.578879952430725,
+                  1.5750399827957153,
+                  1.5788480043411255,
+                  1.5785280466079712
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 1.5779359936714172
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  3.0517120361328125,
+                  3.1234560012817383,
+                  3.0968639850616455,
+                  3.068608045578003,
+                  3.0337278842926025,
+                  3.058624029159546,
+                  3.052288055419922,
+                  3.069535970687866,
+                  3.058624029159546,
+                  3.055488109588623
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 3.058624029159546
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "cublas_policy": [
+                  4.4383039474487305,
+                  4.439519882202148,
+                  4.499199867248535,
+                  4.495327949523926,
+                  4.495999813079834,
+                  4.495071887969971,
+                  4.4991679191589355,
+                  4.495423793792725,
+                  4.4449920654296875,
+                  4.431935787200928
+                ]
+              },
+              "order": [
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ],
+                [
+                  "cublas_policy"
+                ]
+              ],
+              "median_ms": {
+                "cublas_policy": 4.495199918746948
+              }
+            },
+            "peak_increment_bytes": {
+              "cublas_policy": 503341568
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "environment": {
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "gpu": "NVIDIA B200",
+    "workspace": {
+      "CUBLAS_WORKSPACE_CONFIG": ":16:8",
+      "CUBLASLT_WORKSPACE_SIZE": "1"
+    },
+    "tf32": false
+  },
+  "scope": "sample batch BI; final uses S=3 for large B, long S tested separately; shared parameter gradients: same ordered inputs, repeat only",
+  "packages": {
+    "torch": "2.13.0",
+    "triton": "3.7.1",
+    "diffusers": null,
+    "vllm": "0.30.0",
+    "sglang": "0.5.21",
+    "liger-kernel": "0.8.4",
+    "transformer_engine": null,
+    "megatron-core": null
+  }
+}

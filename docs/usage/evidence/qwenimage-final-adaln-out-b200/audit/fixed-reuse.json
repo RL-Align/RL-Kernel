@@ -1,0 +1,4836 @@
+{
+  "mode": "fixed",
+  "phase": "reuse",
+  "accuracy_seed": 0,
+  "source": {
+    "base_sha": "55f83d2b9043f41dca84440d9002ca30f5d3fac4",
+    "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_source_sha256": {},
+    "workspace_source_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "qwenimage_source_sha256": {
+      "csrc/cuda/model_specific/qwenimage/det_linear.cu": "859da456b0c776f3492b3197c252866e33d9a7088508b701b7c4a179ee709afb",
+      "csrc/cuda/model_specific/qwenimage/token_sum.cu": "1aace24523ff95520ab5d482e2e0f17d09a2efcf93efc8de865c7bcc157cf3ba",
+      "rl_engine/backends/cuda/model_specific/qwenimage/__init__.py": "95c46d40c4aed2d4c26a65bc0cc64331e42b237673293ea5ed45b79ebc11d4b4",
+      "rl_engine/backends/cuda/model_specific/qwenimage/adaln_mod_projection.py": "710df5416a2adf5b2576468ff63584b6699e6bdecd59906370049bf09f1b3286",
+      "rl_engine/backends/cuda/model_specific/qwenimage/final_adaln_out.py": "f6afe4b7568e2026c4b046a4fd0a02589f817d815198af33173d2dba61773f19",
+      "rl_engine/reference/model_specific/qwenimage/__init__.py": "95c46d40c4aed2d4c26a65bc0cc64331e42b237673293ea5ed45b79ebc11d4b4",
+      "rl_engine/reference/model_specific/qwenimage/adaln_mod_projection.py": "1ebc740ddff575055ee66ed714a8c7cc5c6cee2701d582a665289e9ad1a4fe3d",
+      "rl_engine/reference/model_specific/qwenimage/final_adaln_out.py": "60441610c04d04d0fb1cd7320be8584e76772c110a3cfed77ddf826dbde9b53c",
+      "benchmarks/models/qwenimage/__init__.py": "a63ebc79ed10d9ed98484565a353438bd13f5801a8f51d7505d0921bf6942742",
+      "benchmarks/models/qwenimage/adaln_evidence.py": "9dc9f3da0069d36c602baef07d687fb1aeba8fda0163d17fc446e0a543fe1f3e",
+      "benchmarks/models/qwenimage/adaln_parameter_screen.py": "05562ef30d09296c2ccd1cdeb44085568b8c877d01f5fb1df4b983e84945ec03",
+      "benchmarks/models/qwenimage/adaln_prior_art.py": "647aa9fc81e02bf3c7806ed6c2a3e578fb3e1a0b000b4388a12367ef86de3139",
+      "benchmarks/models/qwenimage/adaln_reuse_bi_audit.py": "88dd3d390e647bbc883b76622309fad54dac3618630dcca0785e555db329a671",
+      "benchmarks/models/qwenimage/adaln_reuse_candidate.py": "4598f6db94462ac30f3bdd3defae16f0ce7a34ac59eb1996d18e86f498c029b6",
+      "benchmarks/models/qwenimage/plot_adaln_audit.py": "6151e6abccca8f647c2fbeadf92f12e43ed1c07954db9f2db2f035284cbd407c",
+      "benchmarks/models/qwenimage/plot_adaln_evidence.py": "16d6bed0ee5b808814c5f7157145a730750d0b1aaf94762e6f72a256e942c1e2",
+      "benchmarks/models/qwenimage/streams.py": "bd27383eee59404df295f724f6c7d620db3d3d7074c19dd94d51a711b38acf02",
+      "benchmarks/models/qwenimage/validate_adaln_repair.py": "8b663191323b455470a2313cdfefd837657441b300ffd0e0767453f9f407db03"
+    },
+    "extension_sha256": "5d1054db8bba2eaedbd391d0c23b6683acea9ed04fcd64d6f369faed75aa9e0f",
+    "clean_commit": true
+  },
+  "cases": [
+    {
+      "stream": "image",
+      "dtype": "torch.bfloat16",
+      "weights": {
+        "transformer_blocks.0.img_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "22ef33e6865806f3e1d2bc137bd1a41510cf0619ed0c85fba35a626cd7bad018",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.img_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "f4d2241820fa1a1895d7136bd5653ae0984a50bf0a0961a312b45e0e393d8218",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 0.0003551136363636364,
+        "temb": 0.0013375396742077623,
+        "weight": 0.0031093047650859887,
+        "bias": 0.002188183807439825
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  0.05289600044488907,
+                  0.053727999329566956,
+                  0.05398400127887726,
+                  0.054687999188899994,
+                  0.053279999643564224,
+                  0.053408000618219376,
+                  0.05075199902057648,
+                  0.050624001771211624,
+                  0.05238400027155876,
+                  0.05119999870657921
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.053088000044226646
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.7050880193710327,
+                  0.6648960113525391,
+                  0.493120014667511,
+                  0.6593599915504456,
+                  0.7210559844970703,
+                  0.670527994632721,
+                  0.6691200137138367,
+                  0.6701120138168335,
+                  0.7259839773178101,
+                  0.6604160070419312
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.6696160137653351
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.5131840109825134,
+                  0.5962240099906921,
+                  0.832863986492157,
+                  0.7762240171432495,
+                  0.7769920229911804,
+                  0.7757120132446289,
+                  0.8353599905967712,
+                  0.604416012763977,
+                  0.5902400016784668,
+                  0.8218560218811035
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.7759680151939392
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 116987904
+            }
+          }
+        },
+        {
+          "batch": 3,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  0.05183999985456467,
+                  0.05222399905323982,
+                  0.05052800104022026,
+                  0.05027199909090996,
+                  0.05113599821925163,
+                  0.0488319993019104,
+                  0.05071999877691269,
+                  0.05008000135421753,
+                  0.049984000623226166,
+                  0.05119999870657921
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.050623999908566475
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.7668160200119019,
+                  0.7864000201225281,
+                  0.7968639731407166,
+                  0.7896320223808289,
+                  0.7759039998054504,
+                  0.5883520245552063,
+                  0.5840960144996643,
+                  0.7741119861602783,
+                  0.7754560112953186,
+                  0.7741760015487671
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.7748160064220428
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.6921600103378296,
+                  0.6906880140304565,
+                  0.9411839842796326,
+                  0.9076799750328064,
+                  0.9384639859199524,
+                  0.8704959750175476,
+                  0.9123200178146362,
+                  0.8950080275535583,
+                  0.8751040101051331,
+                  0.8690879940986633
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.8850560188293457
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 124397568
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  0.8088319897651672,
+                  0.8080319762229919,
+                  0.8110079765319824,
+                  0.8064960241317749,
+                  0.8068479895591736,
+                  0.8067200183868408,
+                  0.8056960105895996,
+                  0.8048319816589355,
+                  0.8060799837112427,
+                  0.8048639893531799
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.8066080212593079
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  20.414783477783203,
+                  20.391679763793945,
+                  20.383935928344727,
+                  20.400192260742188,
+                  20.41539192199707,
+                  20.375167846679688,
+                  20.33670425415039,
+                  20.411775588989258,
+                  20.39472007751465,
+                  20.392799377441406
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 20.393759727478027
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  21.033727645874023,
+                  20.985151290893555,
+                  20.927839279174805,
+                  21.0031681060791,
+                  21.027551651000977,
+                  20.964767456054688,
+                  20.94268798828125,
+                  20.92643165588379,
+                  20.955007553100586,
+                  20.97609519958496
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 20.970431327819824
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 1061720064
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  6.407199859619141,
+                  6.407519817352295,
+                  6.403007984161377,
+                  6.402304172515869,
+                  6.4022722244262695,
+                  6.3994879722595215,
+                  6.403711795806885,
+                  6.404736042022705,
+                  6.399903774261475,
+                  6.403168201446533
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 6.403088092803955
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  168.3712921142578,
+                  168.48300170898438,
+                  168.61756896972656,
+                  168.7786865234375,
+                  168.80592346191406,
+                  168.60092163085938,
+                  168.6625213623047,
+                  168.3910675048828,
+                  168.52589416503906,
+                  168.58505249023438
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 168.59298706054688
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  174.6879425048828,
+                  174.51046752929688,
+                  174.8942413330078,
+                  174.9152374267578,
+                  174.89715576171875,
+                  174.97482299804688,
+                  174.8507843017578,
+                  174.6290283203125,
+                  174.7159423828125,
+                  174.9167938232422
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 174.8725128173828
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 7700779008
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "image",
+      "dtype": "torch.float32",
+      "weights": {
+        "transformer_blocks.0.img_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "22ef33e6865806f3e1d2bc137bd1a41510cf0619ed0c85fba35a626cd7bad018",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.img_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "f4d2241820fa1a1895d7136bd5653ae0984a50bf0a0961a312b45e0e393d8218",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 1.3014166961871354e-07,
+        "temb": 4.9077917160244473e-08,
+        "weight": 1.2994655174549205e-07,
+        "bias": 3.3382900820853816e-08
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  0.06172800064086914,
+                  0.06489600241184235,
+                  0.06230400130152702,
+                  0.06377600133419037,
+                  0.07180800288915634,
+                  0.05967999994754791,
+                  0.06140799820423126,
+                  0.061664000153541565,
+                  0.061344001442193985,
+                  0.060416001826524734
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.06169600039720535
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.6504639983177185,
+                  0.643392026424408,
+                  0.48655998706817627,
+                  0.6430400013923645,
+                  0.6535680294036865,
+                  0.6863359808921814,
+                  0.48214399814605713,
+                  0.6394559741020203,
+                  0.6567040085792542,
+                  0.6505600214004517
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.6469280123710632
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.6590080261230469,
+                  0.4943999946117401,
+                  0.493120014667511,
+                  0.6451519727706909,
+                  0.6686720252037048,
+                  0.7551680207252502,
+                  0.780128002166748,
+                  0.7553279995918274,
+                  0.7946879863739014,
+                  0.7443519830703735
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.7065120041370392
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 230277120
+            }
+          }
+        },
+        {
+          "batch": 3,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  0.07039999961853027,
+                  0.06697600334882736,
+                  0.06486400216817856,
+                  0.06592000275850296,
+                  0.06678400188684464,
+                  0.06576000154018402,
+                  0.06543999910354614,
+                  0.06732799857854843,
+                  0.06752000004053116,
+                  0.06617599725723267
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.06647999957203865
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.7140480279922485,
+                  0.7142080068588257,
+                  0.7641599774360657,
+                  0.7319039702415466,
+                  0.585856020450592,
+                  0.5759680271148682,
+                  0.792415976524353,
+                  0.7359039783477783,
+                  0.7358080148696899,
+                  0.748416006565094
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.7338559925556183
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.8627200126647949,
+                  0.8045120239257812,
+                  0.7479360103607178,
+                  0.8396480083465576,
+                  0.8959360122680664,
+                  0.8458240032196045,
+                  0.6880639791488647,
+                  0.8416320085525513,
+                  0.8526080250740051,
+                  0.8452799916267395
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.8434560000896454
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 237699072
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  2.5239360332489014,
+                  2.491487979888916,
+                  2.4785919189453125,
+                  2.469088077545166,
+                  2.46230411529541,
+                  2.467103958129883,
+                  2.4715840816497803,
+                  2.4567999839782715,
+                  2.4623360633850098,
+                  2.4725120067596436
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 2.470336079597473
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  20.711135864257812,
+                  20.6364803314209,
+                  20.667743682861328,
+                  20.6496639251709,
+                  20.692703247070312,
+                  20.6395206451416,
+                  20.583711624145508,
+                  20.66636848449707,
+                  20.695903778076172,
+                  20.64156723022461
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 20.658016204833984
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  23.37651252746582,
+                  23.326688766479492,
+                  23.391136169433594,
+                  23.411935806274414,
+                  23.362720489501953,
+                  23.39027214050293,
+                  23.400896072387695,
+                  23.401248931884766,
+                  23.40127944946289,
+                  23.42723274230957
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 23.396016120910645
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 1176576000
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  29.965599060058594,
+                  29.998016357421875,
+                  30.016767501831055,
+                  29.9880313873291,
+                  29.980607986450195,
+                  29.94144058227539,
+                  29.974720001220703,
+                  30.017248153686523,
+                  30.001279830932617,
+                  29.957183837890625
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 29.98431968688965
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  167.54464721679688,
+                  167.49801635742188,
+                  167.61984252929688,
+                  167.27561950683594,
+                  167.52767944335938,
+                  167.39479064941406,
+                  167.60739135742188,
+                  167.523681640625,
+                  167.49705505371094,
+                  167.49122619628906
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 167.51084899902344
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  197.24847412109375,
+                  196.96470642089844,
+                  197.36524963378906,
+                  197.11180114746094,
+                  197.37139892578125,
+                  197.52447509765625,
+                  197.0894012451172,
+                  197.29481506347656,
+                  197.23741149902344,
+                  197.22752380371094
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 197.2429428100586
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 7826644992
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "text",
+      "dtype": "torch.bfloat16",
+      "weights": {
+        "transformer_blocks.0.txt_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "7fc5615cea51f21640ae26b29e4595fe96295113b1fd31b117664c1b85d360c2",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.txt_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "537d4e06e6fe7428a331637871fcf8c9c4899b296b5419e12abb3a3972adfc72",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 0.00048828125,
+        "temb": 0.0019412816630083021,
+        "weight": 0.0031093047650859887,
+        "bias": 0.002188183807439825
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  0.05177599936723709,
+                  0.04912000149488449,
+                  0.05382400006055832,
+                  0.04873599857091904,
+                  0.04899200052022934,
+                  0.04915200173854828,
+                  0.049855999648571014,
+                  0.049536000937223434,
+                  0.04838399961590767,
+                  0.05132799968123436
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.04934400133788586
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.6637439727783203,
+                  0.4936639964580536,
+                  0.7340480089187622,
+                  0.7173439860343933,
+                  0.6678079962730408,
+                  0.684544026851654,
+                  0.6687359809875488,
+                  0.669152021408081,
+                  0.6810879707336426,
+                  0.7075520157814026
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.6751199960708618
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.8355839848518372,
+                  0.7761279940605164,
+                  0.8146560192108154,
+                  0.7773119807243347,
+                  0.7747520208358765,
+                  0.7783039808273315,
+                  0.5991359949111938,
+                  0.5922560095787048,
+                  0.7735360264778137,
+                  0.7759360074996948
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.7760320007801056
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 116987904
+            }
+          }
+        },
+        {
+          "batch": 3,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  0.05289600044488907,
+                  0.04975999891757965,
+                  0.05008000135421753,
+                  0.0496320016682148,
+                  0.054207999259233475,
+                  0.0504320003092289,
+                  0.050016000866889954,
+                  0.04918399825692177,
+                  0.050944000482559204,
+                  0.05056000128388405
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.05025600083172321
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.7862399816513062,
+                  0.5911359786987305,
+                  0.7608320116996765,
+                  0.7585600018501282,
+                  0.7663360238075256,
+                  0.7649919986724854,
+                  0.8182079792022705,
+                  0.7710400223731995,
+                  0.7585920095443726,
+                  0.7711679935455322
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.7656640112400055
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.8695679903030396,
+                  0.8671039938926697,
+                  0.8696320056915283,
+                  0.8703359961509705,
+                  0.9048640131950378,
+                  0.913919985294342,
+                  0.619871973991394,
+                  0.7812479734420776,
+                  0.8649920225143433,
+                  0.8696960210800171
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.8695999979972839
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 124397568
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  0.8077120184898376,
+                  0.8067520260810852,
+                  0.806879997253418,
+                  0.809503972530365,
+                  0.8056640028953552,
+                  0.8061439990997314,
+                  0.807424008846283,
+                  0.8079040050506592,
+                  0.8049280047416687,
+                  0.8054400086402893
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.8068160116672516
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  20.4017276763916,
+                  20.4085750579834,
+                  20.4617919921875,
+                  20.37731170654297,
+                  20.431936264038086,
+                  20.366304397583008,
+                  20.358591079711914,
+                  20.35308837890625,
+                  20.37593650817871,
+                  20.384000778198242
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 20.380656242370605
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  21.032224655151367,
+                  20.97644805908203,
+                  20.9638729095459,
+                  21.046367645263672,
+                  21.02284812927246,
+                  21.010879516601562,
+                  21.04761505126953,
+                  21.047136306762695,
+                  21.0482234954834,
+                  21.04684829711914
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 21.03929615020752
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 1061720064
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  6.425151824951172,
+                  6.41158390045166,
+                  6.421247959136963,
+                  6.417664051055908,
+                  6.414752006530762,
+                  6.407904148101807,
+                  6.416607856750488,
+                  6.417151927947998,
+                  6.420383930206299,
+                  6.4205121994018555
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 6.417407989501953
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  168.635009765625,
+                  168.75135803222656,
+                  168.6534423828125,
+                  168.61827087402344,
+                  168.73178100585938,
+                  168.67584228515625,
+                  168.57760620117188,
+                  168.695556640625,
+                  168.88006591796875,
+                  168.57986450195312
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 168.66464233398438
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  174.9578857421875,
+                  174.7124481201172,
+                  174.6045379638672,
+                  174.8091583251953,
+                  175.00559997558594,
+                  174.6149444580078,
+                  174.73878479003906,
+                  174.73744201660156,
+                  174.623291015625,
+                  174.61500549316406
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 174.72494506835938
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 7700779008
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "text",
+      "dtype": "torch.float32",
+      "weights": {
+        "transformer_blocks.0.txt_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "7fc5615cea51f21640ae26b29e4595fe96295113b1fd31b117664c1b85d360c2",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.txt_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "537d4e06e6fe7428a331637871fcf8c9c4899b296b5419e12abb3a3972adfc72",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 1.4863864245592894e-07,
+        "temb": 1.2646690406307395e-07,
+        "weight": 1.2994655174549205e-07,
+        "bias": 3.3382900820853816e-08
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  0.06627199798822403,
+                  0.06201599910855293,
+                  0.060447998344898224,
+                  0.06019200012087822,
+                  0.06035200133919716,
+                  0.06003199890255928,
+                  0.05993599817156792,
+                  0.06060799956321716,
+                  0.06022400036454201,
+                  0.058400001376867294
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.06028800085186958
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.6256319880485535,
+                  0.6340799927711487,
+                  0.7525439858436584,
+                  0.6239039897918701,
+                  0.6744639873504639,
+                  0.6403840184211731,
+                  0.695904016494751,
+                  0.6487039923667908,
+                  0.6511039733886719,
+                  0.6556800007820129
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.6499039828777313
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.7528319954872131,
+                  0.7564799785614014,
+                  0.8106560111045837,
+                  0.7753279805183411,
+                  0.8093439936637878,
+                  0.8126400113105774,
+                  0.7451840043067932,
+                  0.757311999797821,
+                  0.5184000134468079,
+                  0.4933759868144989
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.7568959891796112
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 230277120
+            }
+          }
+        },
+        {
+          "batch": 3,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  0.07321599870920181,
+                  0.07552000135183334,
+                  0.07212799787521362,
+                  0.06960000097751617,
+                  0.06889600306749344,
+                  0.07123199850320816,
+                  0.06880000233650208,
+                  0.06595200300216675,
+                  0.06860800087451935,
+                  0.07062400132417679
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.07011200115084648
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.7157760262489319,
+                  0.7242239713668823,
+                  0.742143988609314,
+                  0.7531200051307678,
+                  0.557856023311615,
+                  0.5470399856567383,
+                  0.7491520047187805,
+                  0.7106239795684814,
+                  0.772704005241394,
+                  0.7718080282211304
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.7331839799880981
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.8444479703903198,
+                  0.8407999873161316,
+                  0.9248319864273071,
+                  0.8531200289726257,
+                  0.8628479838371277,
+                  0.891327977180481,
+                  0.8587200045585632,
+                  0.9120960235595703,
+                  0.7710719704627991,
+                  0.6846399903297424
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.8559200167655945
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 237699072
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  2.521343946456909,
+                  2.5031681060791016,
+                  2.497983932495117,
+                  2.504767894744873,
+                  2.490367889404297,
+                  2.480959892272949,
+                  2.484384059906006,
+                  2.479775905609131,
+                  2.478208065032959,
+                  2.471712112426758
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 2.4873759746551514
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  20.677087783813477,
+                  20.692703247070312,
+                  20.631391525268555,
+                  20.669055938720703,
+                  20.643648147583008,
+                  20.635135650634766,
+                  20.660415649414062,
+                  20.636415481567383,
+                  20.644351959228516,
+                  20.644287109375
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 20.644319534301758
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  23.36390495300293,
+                  23.379776000976562,
+                  23.440671920776367,
+                  23.413631439208984,
+                  23.39254379272461,
+                  23.427072525024414,
+                  23.356735229492188,
+                  23.45689582824707,
+                  23.463743209838867,
+                  23.41606330871582
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 23.414847373962402
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 1176576000
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  29.840639114379883,
+                  29.929344177246094,
+                  29.95644760131836,
+                  29.956159591674805,
+                  29.964128494262695,
+                  29.93769645690918,
+                  29.979904174804688,
+                  29.998943328857422,
+                  29.943552017211914,
+                  29.902912139892578
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 29.94985580444336
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  167.52630615234375,
+                  167.6051788330078,
+                  167.4568634033203,
+                  167.45254516601562,
+                  167.26803588867188,
+                  167.6546630859375,
+                  167.47613525390625,
+                  167.63778686523438,
+                  167.5338592529297,
+                  167.55381774902344
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 167.53008270263672
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  197.17181396484375,
+                  197.06166076660156,
+                  197.13973999023438,
+                  197.15724182128906,
+                  197.18896484375,
+                  197.2869110107422,
+                  197.2426300048828,
+                  197.27801513671875,
+                  197.2527618408203,
+                  197.15353393554688
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 197.18038940429688
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 7826644992
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "final",
+      "dtype": "torch.bfloat16",
+      "weights": {
+        "norm_out.linear.weight": {
+          "shape": [
+            6144,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "613ffb1bfa5aeedcf38208f87ca420212706c6f4c6f527de1a6bab58e36c2afb",
+          "shard": "diffusion_pytorch_model-00009-of-00009.safetensors",
+          "download_etag": "ae0fef149890f61d54572baa1e806de97156c7ec5b7bbbbbbf27a2d87f33af61"
+        },
+        "norm_out.linear.bias": {
+          "shape": [
+            6144
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "06ef4a795107a9dd4bcb5ab387a63291fd934ea8e31ecb2a87c98fb0628c13fd",
+          "shard": "diffusion_pytorch_model-00009-of-00009.safetensors",
+          "download_etag": "ae0fef149890f61d54572baa1e806de97156c7ec5b7bbbbbbf27a2d87f33af61"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 0.0,
+        "x": 0.003379820097165924,
+        "temb": 0.002547106122521999,
+        "weight": 0.0027365798274600374,
+        "bias": 0.002239271121623488
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "x": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 33,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  0.08710400015115738,
+                  0.08867199718952179,
+                  0.0867839977145195,
+                  0.08569599688053131,
+                  0.08636800199747086,
+                  0.08326400071382523,
+                  0.08089599758386612,
+                  0.08640000224113464,
+                  0.08374399691820145,
+                  0.08297599852085114
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.08603199943900108
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.31433600187301636,
+                  0.2991040050983429,
+                  0.2948479950428009,
+                  0.6648640036582947,
+                  0.6760320067405701,
+                  0.6786559820175171,
+                  0.6789119839668274,
+                  0.6821439862251282,
+                  0.6119679808616638,
+                  0.7596480250358582
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.6704480051994324
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  1.0393279790878296,
+                  0.9379519820213318,
+                  0.9389439821243286,
+                  0.9789440035820007,
+                  0.928384006023407,
+                  0.780672013759613,
+                  0.7174400091171265,
+                  0.7786239981651306,
+                  0.9165760278701782,
+                  0.9171839952468872
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.9227840006351471
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 41245696
+            }
+          }
+        },
+        {
+          "batch": 2,
+          "sequence": 4096,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  0.32310399413108826,
+                  0.32313600182533264,
+                  0.31884801387786865,
+                  0.31753599643707275,
+                  0.3173440098762512,
+                  0.3182719945907593,
+                  0.3161279857158661,
+                  0.31862398982048035,
+                  0.3210879862308502,
+                  0.3203200101852417
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.3187360018491745
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.8909760117530823,
+                  0.8533120155334473,
+                  0.8266879916191101,
+                  0.86735999584198,
+                  0.6646720170974731,
+                  0.6596800088882446,
+                  0.8274880051612854,
+                  0.8381119966506958,
+                  0.8267199993133545,
+                  0.8285120129585266
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.828000009059906
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.9459519982337952,
+                  0.9635199904441833,
+                  1.0824960470199585,
+                  1.0455360412597656,
+                  0.9869440197944641,
+                  1.0671679973602295,
+                  1.0413440465927124,
+                  1.039072036743164,
+                  1.0399680137634277,
+                  0.9945279955863953
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 1.039520025253296
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 755064832
+            }
+          }
+        },
+        {
+          "batch": 1,
+          "sequence": 6889,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  0.25782400369644165,
+                  0.26105600595474243,
+                  0.25571200251579285,
+                  0.25625601410865784,
+                  0.2587200105190277,
+                  0.25699201226234436,
+                  0.2574079930782318,
+                  0.2580159902572632,
+                  0.25603199005126953,
+                  0.2584959864616394
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.25761599838733673
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.5991039872169495,
+                  0.7665280103683472,
+                  0.5904960036277771,
+                  0.8133760094642639,
+                  0.6006399989128113,
+                  0.5886719822883606,
+                  0.591871976852417,
+                  0.5917760133743286,
+                  0.5923839807510376,
+                  0.5671039819717407
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.5921279788017273
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  1.0156160593032837,
+                  0.9692479968070984,
+                  0.9681280255317688,
+                  1.000991940498352,
+                  0.9676799774169922,
+                  0.9709759950637817,
+                  0.9684159755706787,
+                  0.8735039830207825,
+                  0.8575360178947449,
+                  0.8521280288696289
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.9682720005512238
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 634957824
+            }
+          }
+        },
+        {
+          "batch": 1,
+          "sequence": 6032,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  0.23615999519824982,
+                  0.2309119999408722,
+                  0.2309119999408722,
+                  0.2301120012998581,
+                  0.23683199286460876,
+                  0.23043200373649597,
+                  0.2279359996318817,
+                  0.22652800381183624,
+                  0.2290239930152893,
+                  0.22739200294017792
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.23027200251817703
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.7350080013275146,
+                  0.7158719897270203,
+                  0.7552639842033386,
+                  0.7132800221443176,
+                  0.7521920204162598,
+                  0.7047359943389893,
+                  0.7780799865722656,
+                  0.7628800272941589,
+                  0.707584023475647,
+                  0.7457280158996582
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.7403680086135864
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.7833279967308044,
+                  0.9661759734153748,
+                  0.9402559995651245,
+                  0.926751971244812,
+                  0.9718080163002014,
+                  0.9581440091133118,
+                  0.9295679926872253,
+                  0.7895680069923401,
+                  0.7936959862709045,
+                  0.9436799883842468
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.9349119961261749
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 555970560
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 3,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  0.7964479923248291,
+                  0.7910079956054688,
+                  0.7879999876022339,
+                  0.7897279858589172,
+                  0.7914239764213562,
+                  0.7917119860649109,
+                  0.7878400087356567,
+                  0.7878720164299011,
+                  0.7892159819602966,
+                  0.7865279912948608
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.7894719839096069
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  7.092959880828857,
+                  7.109983921051025,
+                  7.056352138519287,
+                  7.103487968444824,
+                  7.059552192687988,
+                  7.064256191253662,
+                  7.061855792999268,
+                  7.075071811676025,
+                  7.070687770843506,
+                  7.073823928833008
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 7.072255849838257
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  7.645503997802734,
+                  7.639200210571289,
+                  7.650720119476318,
+                  7.6045122146606445,
+                  7.639743804931641,
+                  7.6405439376831055,
+                  7.638495922088623,
+                  7.653408050537109,
+                  7.6457600593566895,
+                  7.6465277671813965
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 7.64302396774292
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 410535936
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 3,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  6.055840015411377,
+                  6.053215980529785,
+                  6.058784008026123,
+                  6.056640148162842,
+                  6.063648223876953,
+                  6.059232234954834,
+                  6.051551818847656,
+                  6.052127838134766,
+                  6.047872066497803,
+                  6.055776119232178
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 6.055808067321777
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  55.8941764831543,
+                  55.77888107299805,
+                  56.01136016845703,
+                  55.97792053222656,
+                  55.99827194213867,
+                  55.89299011230469,
+                  56.11747360229492,
+                  55.97593688964844,
+                  55.83977508544922,
+                  55.84022521972656
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 55.93505668640137
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  61.86000061035156,
+                  61.92563247680664,
+                  61.99388885498047,
+                  61.96758270263672,
+                  61.918399810791016,
+                  61.94937515258789,
+                  61.9167366027832,
+                  61.750911712646484,
+                  61.69084930419922,
+                  61.90790557861328
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 61.91756820678711
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 3019960320
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "final",
+      "dtype": "torch.float32",
+      "weights": {
+        "norm_out.linear.weight": {
+          "shape": [
+            6144,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "613ffb1bfa5aeedcf38208f87ca420212706c6f4c6f527de1a6bab58e36c2afb",
+          "shard": "diffusion_pytorch_model-00009-of-00009.safetensors",
+          "download_etag": "ae0fef149890f61d54572baa1e806de97156c7ec5b7bbbbbbf27a2d87f33af61"
+        },
+        "norm_out.linear.bias": {
+          "shape": [
+            6144
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "06ef4a795107a9dd4bcb5ab387a63291fd934ea8e31ecb2a87c98fb0628c13fd",
+          "shard": "diffusion_pytorch_model-00009-of-00009.safetensors",
+          "download_etag": "ae0fef149890f61d54572baa1e806de97156c7ec5b7bbbbbbf27a2d87f33af61"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 1.8758709199713696e-07,
+        "x": 1.9712212946362973e-07,
+        "temb": 2.183113118583169e-07,
+        "weight": 1.611449087501953e-07,
+        "bias": 8.098239180311436e-08
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "x": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 33,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  0.07603199779987335,
+                  0.07747200131416321,
+                  0.07068800181150436,
+                  0.06982400268316269,
+                  0.0767040029168129,
+                  0.0761599987745285,
+                  0.07433599978685379,
+                  0.07177600264549255,
+                  0.07267200201749802,
+                  0.07500799745321274
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.07467199862003326
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.6451200246810913,
+                  0.6772480010986328,
+                  0.7588480114936829,
+                  0.6771199703216553,
+                  0.5326079726219177,
+                  0.420960009098053,
+                  0.28543999791145325,
+                  0.6105279922485352,
+                  0.7102720141410828,
+                  0.7049919962882996
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.6611199975013733
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.8988800048828125,
+                  0.856224000453949,
+                  0.8246399760246277,
+                  0.9065600037574768,
+                  0.8638719916343689,
+                  0.8706240057945251,
+                  0.8271679878234863,
+                  0.8452799916267395,
+                  0.9639679789543152,
+                  0.5109120011329651
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.8600479960441589
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 78816256
+            }
+          }
+        },
+        {
+          "batch": 2,
+          "sequence": 4096,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  0.2441280037164688,
+                  0.2401919960975647,
+                  0.24048000574111938,
+                  0.23827199637889862,
+                  0.235167995095253,
+                  0.24031999707221985,
+                  0.23731200397014618,
+                  0.23974399268627167,
+                  0.24028800427913666,
+                  0.24028800427913666
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.24024000018835068
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.6823999881744385,
+                  0.6859520077705383,
+                  0.7461119890213013,
+                  0.6649600267410278,
+                  0.6666880249977112,
+                  0.5043839812278748,
+                  0.7145280241966248,
+                  0.6486719846725464,
+                  0.700160026550293,
+                  0.7012159824371338
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.6841759979724884
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.8604480028152466,
+                  0.7496320009231567,
+                  0.8621439933776855,
+                  0.903007984161377,
+                  0.8580800294876099,
+                  0.8695999979972839,
+                  0.7765120267868042,
+                  0.8027840256690979,
+                  0.8893759846687317,
+                  0.891040027141571
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.8612959980964661
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 607338496
+            }
+          }
+        },
+        {
+          "batch": 1,
+          "sequence": 6889,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  0.20448000729084015,
+                  0.20393599569797516,
+                  0.2017280012369156,
+                  0.2014400064945221,
+                  0.2006399929523468,
+                  0.2019840031862259,
+                  0.20041599869728088,
+                  0.19779199361801147,
+                  0.20441600680351257,
+                  0.20278400182724
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.20185600221157074
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.6473600268363953,
+                  0.6969280242919922,
+                  0.6303679943084717,
+                  0.6687679886817932,
+                  0.6370239853858948,
+                  0.6324800252914429,
+                  0.6098560094833374,
+                  0.7004479765892029,
+                  0.6337599754333496,
+                  0.6579200029373169
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.642192006111145
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.6735039949417114,
+                  0.8720639944076538,
+                  0.8380159735679626,
+                  0.7614719867706299,
+                  0.7083520293235779,
+                  0.7174080014228821,
+                  0.7018880248069763,
+                  0.8300480246543884,
+                  0.9075199961662292,
+                  0.836575984954834
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.7957600057125092
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 510732288
+            }
+          }
+        },
+        {
+          "batch": 1,
+          "sequence": 6032,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  0.18512000143527985,
+                  0.18361599743366241,
+                  0.1844799965620041,
+                  0.18307200074195862,
+                  0.18169599771499634,
+                  0.18345600366592407,
+                  0.1820479929447174,
+                  0.1852799952030182,
+                  0.18188799917697906,
+                  0.1849599927663803
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.18353600054979324
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.577888011932373,
+                  0.6281920075416565,
+                  0.6417919993400574,
+                  0.662880003452301,
+                  0.6880000233650208,
+                  0.646016001701355,
+                  0.6395519971847534,
+                  0.6413760185241699,
+                  0.6395840048789978,
+                  0.6610559821128845
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.6415840089321136
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  0.875648021697998,
+                  0.8771520256996155,
+                  0.8572480082511902,
+                  0.875935971736908,
+                  0.826367974281311,
+                  0.8276479840278625,
+                  0.8485119938850403,
+                  0.5661439895629883,
+                  0.5534080266952515,
+                  0.5541759729385376
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 0.8380799889564514
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 447442944
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 3,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  1.4128639698028564,
+                  1.4012479782104492,
+                  1.4131519794464111,
+                  1.394592046737671,
+                  1.408959984779358,
+                  1.4078079462051392,
+                  1.413599967956543,
+                  1.414944052696228,
+                  1.4163520336151123,
+                  1.4014079570770264
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 1.4109119772911072
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  6.86243200302124,
+                  6.870272159576416,
+                  6.85971212387085,
+                  6.8621439933776855,
+                  6.885727882385254,
+                  6.851200103759766,
+                  6.842080116271973,
+                  6.864255905151367,
+                  6.892352104187012,
+                  6.868063926696777
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 6.863343954086304
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  8.081503868103027,
+                  8.075615882873535,
+                  8.042752265930176,
+                  8.035231590270996,
+                  8.074463844299316,
+                  8.035200119018555,
+                  8.078880310058594,
+                  8.065695762634277,
+                  8.07795238494873,
+                  8.079487800598145
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 8.075039863586426
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 446724096
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 3,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "fixed": [
+                  11.967007637023926,
+                  11.9868803024292,
+                  12.01097583770752,
+                  12.022080421447754,
+                  11.961952209472656,
+                  11.956864356994629,
+                  11.957183837890625,
+                  11.988096237182617,
+                  11.958784103393555,
+                  11.966912269592285
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 11.966959953308105
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "fixed": [
+                  56.808990478515625,
+                  56.71356964111328,
+                  56.86076736450195,
+                  56.85424041748047,
+                  56.88547134399414,
+                  56.65776062011719,
+                  56.61123275756836,
+                  56.5522575378418,
+                  56.85279846191406,
+                  56.915679931640625
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 56.830894470214844
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "fixed": [
+                  68.63263702392578,
+                  68.5672607421875,
+                  68.35971069335938,
+                  68.63561248779297,
+                  68.34249877929688,
+                  68.73235321044922,
+                  68.61427307128906,
+                  68.18745422363281,
+                  68.54093170166016,
+                  68.6734390258789
+                ]
+              },
+              "order": [
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ],
+                [
+                  "fixed"
+                ]
+              ],
+              "median_ms": {
+                "fixed": 68.59076690673828
+              }
+            },
+            "peak_increment_bytes": {
+              "fixed": 3045138432
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "environment": {
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "gpu": "NVIDIA B200",
+    "workspace": {
+      "CUBLAS_WORKSPACE_CONFIG": null,
+      "CUBLASLT_WORKSPACE_SIZE": null
+    },
+    "tf32": false
+  },
+  "scope": "sample batch BI; final uses S=3 for large B, long S tested separately; shared parameter gradients: same ordered inputs, repeat only",
+  "packages": {
+    "torch": "2.13.0",
+    "triton": "3.7.1",
+    "diffusers": null,
+    "vllm": "0.30.0",
+    "sglang": "0.5.21",
+    "liger-kernel": "0.8.4",
+    "transformer_engine": null,
+    "megatron-core": null
+  }
+}

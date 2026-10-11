@@ -1,0 +1,2085 @@
+{
+  "mode": "vllm_flashattn",
+  "phase": "reuse",
+  "accuracy_seed": 0,
+  "source": {
+    "base_sha": "55f83d2b9043f41dca84440d9002ca30f5d3fac4",
+    "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_source_sha256": {},
+    "workspace_source_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "qwenimage_source_sha256": {
+      "csrc/cuda/model_specific/qwenimage/det_linear.cu": "859da456b0c776f3492b3197c252866e33d9a7088508b701b7c4a179ee709afb",
+      "csrc/cuda/model_specific/qwenimage/token_sum.cu": "1aace24523ff95520ab5d482e2e0f17d09a2efcf93efc8de865c7bcc157cf3ba",
+      "rl_engine/backends/cuda/model_specific/qwenimage/__init__.py": "95c46d40c4aed2d4c26a65bc0cc64331e42b237673293ea5ed45b79ebc11d4b4",
+      "rl_engine/backends/cuda/model_specific/qwenimage/adaln_mod_projection.py": "710df5416a2adf5b2576468ff63584b6699e6bdecd59906370049bf09f1b3286",
+      "rl_engine/backends/cuda/model_specific/qwenimage/final_adaln_out.py": "f6afe4b7568e2026c4b046a4fd0a02589f817d815198af33173d2dba61773f19",
+      "rl_engine/reference/model_specific/qwenimage/__init__.py": "95c46d40c4aed2d4c26a65bc0cc64331e42b237673293ea5ed45b79ebc11d4b4",
+      "rl_engine/reference/model_specific/qwenimage/adaln_mod_projection.py": "1ebc740ddff575055ee66ed714a8c7cc5c6cee2701d582a665289e9ad1a4fe3d",
+      "rl_engine/reference/model_specific/qwenimage/final_adaln_out.py": "60441610c04d04d0fb1cd7320be8584e76772c110a3cfed77ddf826dbde9b53c",
+      "benchmarks/models/qwenimage/__init__.py": "a63ebc79ed10d9ed98484565a353438bd13f5801a8f51d7505d0921bf6942742",
+      "benchmarks/models/qwenimage/adaln_evidence.py": "9dc9f3da0069d36c602baef07d687fb1aeba8fda0163d17fc446e0a543fe1f3e",
+      "benchmarks/models/qwenimage/adaln_parameter_screen.py": "05562ef30d09296c2ccd1cdeb44085568b8c877d01f5fb1df4b983e84945ec03",
+      "benchmarks/models/qwenimage/adaln_prior_art.py": "647aa9fc81e02bf3c7806ed6c2a3e578fb3e1a0b000b4388a12367ef86de3139",
+      "benchmarks/models/qwenimage/adaln_reuse_bi_audit.py": "88dd3d390e647bbc883b76622309fad54dac3618630dcca0785e555db329a671",
+      "benchmarks/models/qwenimage/adaln_reuse_candidate.py": "4598f6db94462ac30f3bdd3defae16f0ce7a34ac59eb1996d18e86f498c029b6",
+      "benchmarks/models/qwenimage/plot_adaln_audit.py": "6151e6abccca8f647c2fbeadf92f12e43ed1c07954db9f2db2f035284cbd407c",
+      "benchmarks/models/qwenimage/plot_adaln_evidence.py": "16d6bed0ee5b808814c5f7157145a730750d0b1aaf94762e6f72a256e942c1e2",
+      "benchmarks/models/qwenimage/streams.py": "bd27383eee59404df295f724f6c7d620db3d3d7074c19dd94d51a711b38acf02",
+      "benchmarks/models/qwenimage/validate_adaln_repair.py": "8b663191323b455470a2313cdfefd837657441b300ffd0e0767453f9f407db03"
+    },
+    "extension_sha256": "5d1054db8bba2eaedbd391d0c23b6683acea9ed04fcd64d6f369faed75aa9e0f",
+    "clean_commit": true
+  },
+  "cases": [
+    {
+      "stream": "final",
+      "dtype": "torch.bfloat16",
+      "weights": {
+        "norm_out.linear.weight": {
+          "shape": [
+            6144,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "613ffb1bfa5aeedcf38208f87ca420212706c6f4c6f527de1a6bab58e36c2afb",
+          "shard": "diffusion_pytorch_model-00009-of-00009.safetensors",
+          "download_etag": "ae0fef149890f61d54572baa1e806de97156c7ec5b7bbbbbbf27a2d87f33af61"
+        },
+        "norm_out.linear.bias": {
+          "shape": [
+            6144
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "06ef4a795107a9dd4bcb5ab387a63291fd934ea8e31ecb2a87c98fb0628c13fd",
+          "shard": "diffusion_pytorch_model-00009-of-00009.safetensors",
+          "download_etag": "ae0fef149890f61d54572baa1e806de97156c7ec5b7bbbbbbf27a2d87f33af61"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 0.0003078817733990148,
+        "x": 0.003379820097165924,
+        "temb": 0.005712340593293303,
+        "weight": 0.00517754451340496,
+        "bias": 0.0040532119374307955
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "x": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 33,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  0.36793598532676697,
+                  0.37750399112701416,
+                  0.37571200728416443,
+                  0.3569279909133911,
+                  0.36105599999427795,
+                  0.3731519877910614,
+                  0.36316800117492676,
+                  0.34563198685646057,
+                  0.3392319977283478,
+                  0.3405439853668213
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 0.36211200058460236
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  1.3692799806594849,
+                  1.4053759574890137,
+                  1.3704960346221924,
+                  1.3566720485687256,
+                  1.4627519845962524,
+                  1.4499200582504272,
+                  1.3440959453582764,
+                  1.4025280475616455,
+                  1.3727680444717407,
+                  1.3540159463882446
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 1.3716320395469666
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  1.7781120538711548,
+                  1.9791680574417114,
+                  1.9077759981155396,
+                  1.9346879720687866,
+                  1.9207680225372314,
+                  1.895616054534912,
+                  1.918496012687683,
+                  1.9056639671325684,
+                  1.9880640506744385,
+                  1.7740800380706787
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 1.9131360054016113
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_flashattn": 113909760
+            }
+          }
+        },
+        {
+          "batch": 2,
+          "sequence": 4096,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  0.505952000617981,
+                  0.49663999676704407,
+                  0.5045760273933411,
+                  0.4940800070762634,
+                  0.5070400238037109,
+                  0.496288001537323,
+                  0.49564799666404724,
+                  0.4825280010700226,
+                  0.5024639964103699,
+                  0.4930880069732666
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 0.49646399915218353
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  1.0884480476379395,
+                  1.0866880416870117,
+                  1.3828799724578857,
+                  1.3594880104064941,
+                  1.407904028892517,
+                  1.3871040344238281,
+                  1.3502720594406128,
+                  1.3469760417938232,
+                  1.3545279502868652,
+                  1.357983946800232
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 1.3562559485435486
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  1.938655972480774,
+                  1.935263991355896,
+                  1.9611200094223022,
+                  1.916543960571289,
+                  1.9143359661102295,
+                  1.9864319562911987,
+                  1.8269439935684204,
+                  1.9063680171966553,
+                  1.9177600145339966,
+                  1.9197759628295898
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 1.9187679886817932
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_flashattn": 509747712
+            }
+          }
+        },
+        {
+          "batch": 1,
+          "sequence": 6889,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  0.43696001172065735,
+                  0.4326399862766266,
+                  0.4521600008010864,
+                  0.43507200479507446,
+                  0.4331839978694916,
+                  0.42451199889183044,
+                  0.43116798996925354,
+                  0.42800000309944153,
+                  0.4368639886379242,
+                  0.42767998576164246
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 0.4329119920730591
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  1.0662720203399658,
+                  1.0597120523452759,
+                  1.0673919916152954,
+                  1.0579839944839478,
+                  1.4442880153656006,
+                  1.4048000574111938,
+                  1.3815360069274902,
+                  1.3700159788131714,
+                  1.4612799882888794,
+                  1.4618560075759888
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 1.3757759928703308
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  1.7961280345916748,
+                  1.7989439964294434,
+                  2.0180160999298096,
+                  1.9052799940109253,
+                  2.0426559448242188,
+                  1.7811199426651,
+                  1.9478720426559448,
+                  1.8963520526885986,
+                  1.910591959953308,
+                  1.9523199796676636
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 1.9079359769821167
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_flashattn": 452100608
+            }
+          }
+        },
+        {
+          "batch": 1,
+          "sequence": 6032,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  0.41548800468444824,
+                  0.43212801218032837,
+                  0.41679999232292175,
+                  0.42316800355911255,
+                  0.4078719913959503,
+                  0.41548800468444824,
+                  0.4251520037651062,
+                  0.4203520119190216,
+                  0.41225600242614746,
+                  0.39904001355171204
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 0.416143998503685
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  1.362112045288086,
+                  1.413599967956543,
+                  1.3569600582122803,
+                  1.3524160385131836,
+                  1.3267840147018433,
+                  1.432096004486084,
+                  1.4278719425201416,
+                  1.3524160385131836,
+                  1.360543966293335,
+                  1.3971519470214844
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 1.3613280057907104
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  1.914463996887207,
+                  1.9058879613876343,
+                  1.9713599681854248,
+                  1.8988159894943237,
+                  1.9427520036697388,
+                  1.9055999517440796,
+                  1.9113600254058838,
+                  1.90009605884552,
+                  1.9043200016021729,
+                  1.9688639640808105
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 1.908623993396759
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_flashattn": 408945152
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 3,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  0.3691520094871521,
+                  0.37136000394821167,
+                  0.38016000390052795,
+                  0.3532480001449585,
+                  0.35305601358413696,
+                  0.3476159870624542,
+                  0.33670398592948914,
+                  0.36976000666618347,
+                  0.3516159951686859,
+                  0.3426559865474701
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 0.35315200686454773
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  1.5829440355300903,
+                  1.5296000242233276,
+                  1.5175039768218994,
+                  1.5207680463790894,
+                  1.6075520515441895,
+                  1.5148799419403076,
+                  1.5412160158157349,
+                  1.5150400400161743,
+                  1.5588159561157227,
+                  1.5186879634857178
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 1.5251840353012085
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  2.142911911010742,
+                  2.052095890045166,
+                  1.9704960584640503,
+                  2.086143970489502,
+                  2.0694398880004883,
+                  2.0834240913391113,
+                  2.1870720386505127,
+                  2.0666561126708984,
+                  2.06441593170166,
+                  2.0684800148010254
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 2.068959951400757
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_flashattn": 141557760
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 3,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  0.4695039987564087,
+                  0.45580801367759705,
+                  0.44761601090431213,
+                  0.4448640048503876,
+                  0.44038400053977966,
+                  0.4472639858722687,
+                  0.4631040096282959,
+                  0.44947201013565063,
+                  0.44784000515937805,
+                  0.458624005317688
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 0.44865600764751434
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  3.894144058227539,
+                  3.90499210357666,
+                  3.8828799724578857,
+                  3.8982720375061035,
+                  3.889888048171997,
+                  3.9734721183776855,
+                  4.008416175842285,
+                  3.8816640377044678,
+                  3.964128017425537,
+                  3.881920099258423
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 3.8962080478668213
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  4.443488121032715,
+                  4.528128147125244,
+                  4.3957438468933105,
+                  4.294528007507324,
+                  4.502079963684082,
+                  4.560416221618652,
+                  4.4390082359313965,
+                  4.504735946655273,
+                  4.458847999572754,
+                  4.442016124725342
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 4.451168060302734
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_flashattn": 398819840
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "final",
+      "dtype": "torch.float32",
+      "weights": {
+        "norm_out.linear.weight": {
+          "shape": [
+            6144,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "613ffb1bfa5aeedcf38208f87ca420212706c6f4c6f527de1a6bab58e36c2afb",
+          "shard": "diffusion_pytorch_model-00009-of-00009.safetensors",
+          "download_etag": "ae0fef149890f61d54572baa1e806de97156c7ec5b7bbbbbbf27a2d87f33af61"
+        },
+        "norm_out.linear.bias": {
+          "shape": [
+            6144
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "06ef4a795107a9dd4bcb5ab387a63291fd934ea8e31ecb2a87c98fb0628c13fd",
+          "shard": "diffusion_pytorch_model-00009-of-00009.safetensors",
+          "download_etag": "ae0fef149890f61d54572baa1e806de97156c7ec5b7bbbbbbf27a2d87f33af61"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 1.050487715183967e-06,
+        "x": 9.988318586171006e-07,
+        "temb": 2.251463331255593e-06,
+        "weight": 1.6225243695938526e-07,
+        "bias": 1.4174055887772422e-07
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "x": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 33,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  0.8018239736557007,
+                  0.8008319735527039,
+                  0.8002560138702393,
+                  0.8033599853515625,
+                  0.802944004535675,
+                  0.7982079982757568,
+                  0.7986879944801331,
+                  0.7956799864768982,
+                  0.7966399788856506,
+                  0.8039039969444275
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 0.8005439937114716
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  1.080191969871521,
+                  1.0552639961242676,
+                  1.0502079725265503,
+                  1.05948805809021,
+                  1.0545599460601807,
+                  1.056831955909729,
+                  1.0548160076141357,
+                  1.0604480504989624,
+                  1.0355520248413086,
+                  1.0510400533676147
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 1.0550400018692017
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  1.492576003074646,
+                  1.4852800369262695,
+                  1.4948159456253052,
+                  1.5060479640960693,
+                  1.486624002456665,
+                  1.4899200201034546,
+                  1.4907519817352295,
+                  1.4921280145645142,
+                  1.497056007385254,
+                  1.494655966758728
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 1.49235200881958
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_flashattn": 76824576
+            }
+          }
+        },
+        {
+          "batch": 2,
+          "sequence": 4096,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  1.0322240591049194,
+                  1.0331519842147827,
+                  1.0349440574645996,
+                  1.0351999998092651,
+                  1.0365439653396606,
+                  1.0317120552062988,
+                  1.0306559801101685,
+                  1.0343040227890015,
+                  1.0340800285339355,
+                  1.0328320264816284
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 1.0336160063743591
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  1.041759967803955,
+                  1.045248031616211,
+                  1.0602240562438965,
+                  1.0662720203399658,
+                  1.066815972328186,
+                  1.0376960039138794,
+                  1.0446720123291016,
+                  1.045151948928833,
+                  1.049183964729309,
+                  1.0583679676055908
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 1.04721599817276
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  1.942080020904541,
+                  1.9471360445022583,
+                  1.944991946220398,
+                  1.9497920274734497,
+                  1.9481920003890991,
+                  1.9403200149536133,
+                  1.943392038345337,
+                  1.9549440145492554,
+                  1.938655972480774,
+                  1.9495359659194946
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 1.9460639953613281
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_flashattn": 660791808
+            }
+          }
+        },
+        {
+          "batch": 1,
+          "sequence": 6889,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  0.9652479887008667,
+                  0.9684799909591675,
+                  0.9621120095252991,
+                  0.9582399725914001,
+                  0.9639040231704712,
+                  0.9581120014190674,
+                  0.9659199714660645,
+                  0.9626240134239197,
+                  0.9607999920845032,
+                  0.9622399806976318
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 0.9624319970607758
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  1.0567359924316406,
+                  1.0489599704742432,
+                  1.0452159643173218,
+                  1.062656044960022,
+                  1.0759999752044678,
+                  1.0692800283432007,
+                  1.0479040145874023,
+                  1.0677440166473389,
+                  1.0595200061798096,
+                  1.059775948524475
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 1.0596479773521423
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  1.8563519716262817,
+                  1.849951982498169,
+                  1.8502399921417236,
+                  1.8490560054779053,
+                  1.841215968132019,
+                  1.846943974494934,
+                  1.856544017791748,
+                  1.84716796875,
+                  1.8458880186080933,
+                  1.8509119749069214
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 1.849503993988037
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_flashattn": 579103232
+            }
+          }
+        },
+        {
+          "batch": 1,
+          "sequence": 6032,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  0.9429759979248047,
+                  0.945472002029419,
+                  0.941215991973877,
+                  0.9484480023384094,
+                  0.9434559941291809,
+                  0.9432640075683594,
+                  0.9442560076713562,
+                  0.9376959800720215,
+                  0.9459519982337952,
+                  0.9426239728927612
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 0.9433600008487701
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  1.0598399639129639,
+                  1.0508480072021484,
+                  1.0499839782714844,
+                  1.060096025466919,
+                  1.0497280359268188,
+                  1.039423942565918,
+                  1.054975986480713,
+                  1.0560640096664429,
+                  1.0428800582885742,
+                  1.052224040031433
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 1.0515360236167908
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  1.8068480491638184,
+                  1.8094719648361206,
+                  1.8088959455490112,
+                  1.8039679527282715,
+                  1.8080639839172363,
+                  1.8148479461669922,
+                  1.8085440397262573,
+                  1.808575987815857,
+                  1.8087999820709229,
+                  1.8191039562225342
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 1.80868798494339
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_flashattn": 520151552
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 3,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  0.842303991317749,
+                  0.8398720026016235,
+                  0.8390079736709595,
+                  0.8368639945983887,
+                  0.8451200127601624,
+                  0.8366400003433228,
+                  0.8358399868011475,
+                  0.8441920280456543,
+                  0.8404800295829773,
+                  0.8380159735679626
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 0.8394399881362915
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  1.203104019165039,
+                  1.2013440132141113,
+                  1.2034879922866821,
+                  1.2173759937286377,
+                  1.194432020187378,
+                  1.2041280269622803,
+                  1.2051199674606323,
+                  1.1917120218276978,
+                  1.1858559846878052,
+                  1.1947840452194214
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 1.2022240161895752
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  1.7018239498138428,
+                  1.698815941810608,
+                  1.701856017112732,
+                  1.7031359672546387,
+                  1.7001919746398926,
+                  1.7029759883880615,
+                  1.7039999961853027,
+                  1.6987520456314087,
+                  1.701856017112732,
+                  1.7052479982376099
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 1.701856017112732
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_flashattn": 125853696
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 3,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  4.64793586730957,
+                  4.642303943634033,
+                  4.645535945892334,
+                  4.647903919219971,
+                  4.646048069000244,
+                  4.639135837554932,
+                  4.639520168304443,
+                  4.64035177230835,
+                  4.648287773132324,
+                  4.644864082336426
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 4.64520001411438
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  3.541248083114624,
+                  3.5653440952301025,
+                  3.539263963699341,
+                  3.5297598838806152,
+                  3.546463966369629,
+                  3.5544960498809814,
+                  3.5226240158081055,
+                  3.529952049255371,
+                  3.5391039848327637,
+                  3.550879955291748
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 3.5402560234069824
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_flashattn": [
+                  8.01046371459961,
+                  8.018560409545898,
+                  8.02233600616455,
+                  8.019264221191406,
+                  8.02239990234375,
+                  8.016256332397461,
+                  8.018400192260742,
+                  8.017791748046875,
+                  8.016287803649902,
+                  8.015040397644043
+                ]
+              },
+              "order": [
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ],
+                [
+                  "vllm_flashattn"
+                ]
+              ],
+              "median_ms": {
+                "vllm_flashattn": 8.018095970153809
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_flashattn": 503341568
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "environment": {
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "gpu": "NVIDIA B200",
+    "workspace": {
+      "CUBLAS_WORKSPACE_CONFIG": null,
+      "CUBLASLT_WORKSPACE_SIZE": null
+    },
+    "tf32": false
+  },
+  "scope": "sample batch BI; final uses S=3 for large B, long S tested separately; shared parameter gradients: same ordered inputs, repeat only",
+  "packages": {
+    "torch": "2.13.0",
+    "triton": "3.7.1",
+    "diffusers": null,
+    "vllm": "0.30.0",
+    "sglang": "0.5.21",
+    "liger-kernel": "0.8.4",
+    "transformer_engine": null,
+    "megatron-core": null,
+    "flash-attention-source": "94e22c906678e5483fa0e9e24d8e787bc2c0ed4c"
+  }
+}

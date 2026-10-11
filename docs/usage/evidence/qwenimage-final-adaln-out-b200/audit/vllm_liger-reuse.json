@@ -1,0 +1,2084 @@
+{
+  "mode": "vllm_liger",
+  "phase": "reuse",
+  "accuracy_seed": 0,
+  "source": {
+    "base_sha": "55f83d2b9043f41dca84440d9002ca30f5d3fac4",
+    "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_source_sha256": {},
+    "workspace_source_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "qwenimage_source_sha256": {
+      "csrc/cuda/model_specific/qwenimage/det_linear.cu": "859da456b0c776f3492b3197c252866e33d9a7088508b701b7c4a179ee709afb",
+      "csrc/cuda/model_specific/qwenimage/token_sum.cu": "1aace24523ff95520ab5d482e2e0f17d09a2efcf93efc8de865c7bcc157cf3ba",
+      "rl_engine/backends/cuda/model_specific/qwenimage/__init__.py": "95c46d40c4aed2d4c26a65bc0cc64331e42b237673293ea5ed45b79ebc11d4b4",
+      "rl_engine/backends/cuda/model_specific/qwenimage/adaln_mod_projection.py": "710df5416a2adf5b2576468ff63584b6699e6bdecd59906370049bf09f1b3286",
+      "rl_engine/backends/cuda/model_specific/qwenimage/final_adaln_out.py": "f6afe4b7568e2026c4b046a4fd0a02589f817d815198af33173d2dba61773f19",
+      "rl_engine/reference/model_specific/qwenimage/__init__.py": "95c46d40c4aed2d4c26a65bc0cc64331e42b237673293ea5ed45b79ebc11d4b4",
+      "rl_engine/reference/model_specific/qwenimage/adaln_mod_projection.py": "1ebc740ddff575055ee66ed714a8c7cc5c6cee2701d582a665289e9ad1a4fe3d",
+      "rl_engine/reference/model_specific/qwenimage/final_adaln_out.py": "60441610c04d04d0fb1cd7320be8584e76772c110a3cfed77ddf826dbde9b53c",
+      "benchmarks/models/qwenimage/__init__.py": "a63ebc79ed10d9ed98484565a353438bd13f5801a8f51d7505d0921bf6942742",
+      "benchmarks/models/qwenimage/adaln_evidence.py": "9dc9f3da0069d36c602baef07d687fb1aeba8fda0163d17fc446e0a543fe1f3e",
+      "benchmarks/models/qwenimage/adaln_parameter_screen.py": "05562ef30d09296c2ccd1cdeb44085568b8c877d01f5fb1df4b983e84945ec03",
+      "benchmarks/models/qwenimage/adaln_prior_art.py": "647aa9fc81e02bf3c7806ed6c2a3e578fb3e1a0b000b4388a12367ef86de3139",
+      "benchmarks/models/qwenimage/adaln_reuse_bi_audit.py": "88dd3d390e647bbc883b76622309fad54dac3618630dcca0785e555db329a671",
+      "benchmarks/models/qwenimage/adaln_reuse_candidate.py": "4598f6db94462ac30f3bdd3defae16f0ce7a34ac59eb1996d18e86f498c029b6",
+      "benchmarks/models/qwenimage/plot_adaln_audit.py": "6151e6abccca8f647c2fbeadf92f12e43ed1c07954db9f2db2f035284cbd407c",
+      "benchmarks/models/qwenimage/plot_adaln_evidence.py": "16d6bed0ee5b808814c5f7157145a730750d0b1aaf94762e6f72a256e942c1e2",
+      "benchmarks/models/qwenimage/streams.py": "bd27383eee59404df295f724f6c7d620db3d3d7074c19dd94d51a711b38acf02",
+      "benchmarks/models/qwenimage/validate_adaln_repair.py": "8b663191323b455470a2313cdfefd837657441b300ffd0e0767453f9f407db03"
+    },
+    "extension_sha256": "5d1054db8bba2eaedbd391d0c23b6683acea9ed04fcd64d6f369faed75aa9e0f",
+    "clean_commit": true
+  },
+  "cases": [
+    {
+      "stream": "final",
+      "dtype": "torch.bfloat16",
+      "weights": {
+        "norm_out.linear.weight": {
+          "shape": [
+            6144,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "613ffb1bfa5aeedcf38208f87ca420212706c6f4c6f527de1a6bab58e36c2afb",
+          "shard": "diffusion_pytorch_model-00009-of-00009.safetensors",
+          "download_etag": "ae0fef149890f61d54572baa1e806de97156c7ec5b7bbbbbbf27a2d87f33af61"
+        },
+        "norm_out.linear.bias": {
+          "shape": [
+            6144
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "06ef4a795107a9dd4bcb5ab387a63291fd934ea8e31ecb2a87c98fb0628c13fd",
+          "shard": "diffusion_pytorch_model-00009-of-00009.safetensors",
+          "download_etag": "ae0fef149890f61d54572baa1e806de97156c7ec5b7bbbbbbf27a2d87f33af61"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 0.0003078817733990148,
+        "x": 0.003379820097165924,
+        "temb": 0.005712340593293303,
+        "weight": 0.00517754451340496,
+        "bias": 0.0040532119374307955
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "x": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 33,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  0.19724799692630768,
+                  0.19200000166893005,
+                  0.20214399695396423,
+                  0.18838399648666382,
+                  0.17763200402259827,
+                  0.17420800030231476,
+                  0.1785919964313507,
+                  0.18646399676799774,
+                  0.1847359985113144,
+                  0.16707199811935425
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 0.18559999763965607
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  1.2454400062561035,
+                  1.2121920585632324,
+                  1.260032057762146,
+                  1.2143679857254028,
+                  1.2143360376358032,
+                  1.2021759748458862,
+                  1.205888032913208,
+                  1.3013440370559692,
+                  0.9636160135269165,
+                  1.3015040159225464
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 1.214352011680603
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  1.6162240505218506,
+                  1.557695984840393,
+                  1.5659199953079224,
+                  1.5966720581054688,
+                  1.4684159755706787,
+                  1.4060800075531006,
+                  1.624608039855957,
+                  1.565567970275879,
+                  1.5635520219802856,
+                  1.5561599731445312
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 1.5645599961280823
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_liger": 113909760
+            }
+          }
+        },
+        {
+          "batch": 2,
+          "sequence": 4096,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  0.39718401432037354,
+                  0.3906239867210388,
+                  0.39024001359939575,
+                  0.39180800318717957,
+                  0.38889598846435547,
+                  0.3967680037021637,
+                  0.38470399379730225,
+                  0.3830080032348633,
+                  0.38838401436805725,
+                  0.39136001467704773
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 0.3904320001602173
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  1.3195840120315552,
+                  1.2652479410171509,
+                  1.2642240524291992,
+                  1.308575987815857,
+                  1.2941440343856812,
+                  1.2735040187835693,
+                  1.310528039932251,
+                  1.307744026184082,
+                  1.3353279829025269,
+                  1.2764159440994263
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 1.3009440302848816
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  1.6312639713287354,
+                  1.6219840049743652,
+                  1.7675199508666992,
+                  1.6383039951324463,
+                  1.6616319417953491,
+                  1.6261759996414185,
+                  1.6177599430084229,
+                  1.6603519916534424,
+                  1.593727946281433,
+                  1.4720640182495117
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 1.628719985485077
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_liger": 509747712
+            }
+          }
+        },
+        {
+          "batch": 1,
+          "sequence": 6889,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  0.3269760012626648,
+                  0.32547199726104736,
+                  0.32499200105667114,
+                  0.3280639946460724,
+                  0.3264639973640442,
+                  0.32281601428985596,
+                  0.32047998905181885,
+                  0.32335999608039856,
+                  0.32921600341796875,
+                  0.3230400085449219
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 0.32523199915885925
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  1.2865279912948608,
+                  1.254080057144165,
+                  1.285248041152954,
+                  1.3275840282440186,
+                  1.2420799732208252,
+                  1.2589759826660156,
+                  1.2421760559082031,
+                  1.2410880327224731,
+                  1.2331520318984985,
+                  1.233504056930542
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 1.248128056526184
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  1.5094720125198364,
+                  1.4340800046920776,
+                  1.5949440002441406,
+                  1.64409601688385,
+                  1.593183994293213,
+                  1.6119999885559082,
+                  1.6017919778823853,
+                  1.6030080318450928,
+                  1.5969280004501343,
+                  1.4679679870605469
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 1.5959360003471375
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_liger": 452100608
+            }
+          }
+        },
+        {
+          "batch": 1,
+          "sequence": 6032,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  0.30399999022483826,
+                  0.298880010843277,
+                  0.3062399923801422,
+                  0.2984960079193115,
+                  0.29686400294303894,
+                  0.30031999945640564,
+                  0.2975359857082367,
+                  0.296671986579895,
+                  0.298880010843277,
+                  0.29305601119995117
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 0.29868800938129425
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  1.2254400253295898,
+                  1.231935977935791,
+                  1.224287986755371,
+                  1.2385599613189697,
+                  1.2791999578475952,
+                  1.266592025756836,
+                  1.2129600048065186,
+                  1.2245759963989258,
+                  1.2367360591888428,
+                  1.2356799840927124
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 1.2338079810142517
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  1.3169920444488525,
+                  1.4191679954528809,
+                  1.6417280435562134,
+                  1.5791360139846802,
+                  1.5864959955215454,
+                  1.5830399990081787,
+                  1.5793919563293457,
+                  1.6009279489517212,
+                  1.5881600379943848,
+                  1.581279993057251
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 1.5821599960327148
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_liger": 408945152
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 3,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  0.1884479969739914,
+                  0.18080000579357147,
+                  0.17452800273895264,
+                  0.1905599981546402,
+                  0.1796800047159195,
+                  0.17299200594425201,
+                  0.16915200650691986,
+                  0.16972799599170685,
+                  0.18809600174427032,
+                  0.17423999309539795
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 0.17710400372743607
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  1.3779200315475464,
+                  1.3672959804534912,
+                  1.3896640539169312,
+                  1.370911955833435,
+                  1.4082239866256714,
+                  1.4203200340270996,
+                  1.35862398147583,
+                  1.4226239919662476,
+                  1.4143680334091187,
+                  1.3616000413894653
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 1.3837920427322388
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  1.8090239763259888,
+                  1.6490559577941895,
+                  1.5617599487304688,
+                  1.7344000339508057,
+                  1.7243520021438599,
+                  1.7212159633636475,
+                  1.7729920148849487,
+                  1.7235840559005737,
+                  1.772063970565796,
+                  1.5305919647216797
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 1.7239680290222168
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_liger": 142082048
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 3,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  0.41312000155448914,
+                  0.4142720103263855,
+                  0.412992000579834,
+                  0.4106239974498749,
+                  0.41443198919296265,
+                  0.411296010017395,
+                  0.4084480106830597,
+                  0.40540799498558044,
+                  0.40585601329803467,
+                  0.41523200273513794
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 0.4121440052986145
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  3.769184112548828,
+                  3.7680320739746094,
+                  3.807935953140259,
+                  3.761823892593384,
+                  3.795488119125366,
+                  3.7804160118103027,
+                  3.8130879402160645,
+                  3.7899839878082275,
+                  3.7608320713043213,
+                  3.7623040676116943
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 3.7748000621795654
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  4.1681599617004395,
+                  4.181248188018799,
+                  4.156415939331055,
+                  4.007167816162109,
+                  3.9811840057373047,
+                  4.12224006652832,
+                  4.1735358238220215,
+                  4.1663360595703125,
+                  4.169792175292969,
+                  4.192831993103027
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 4.167248010635376
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_liger": 364929536
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "final",
+      "dtype": "torch.float32",
+      "weights": {
+        "norm_out.linear.weight": {
+          "shape": [
+            6144,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "613ffb1bfa5aeedcf38208f87ca420212706c6f4c6f527de1a6bab58e36c2afb",
+          "shard": "diffusion_pytorch_model-00009-of-00009.safetensors",
+          "download_etag": "ae0fef149890f61d54572baa1e806de97156c7ec5b7bbbbbbf27a2d87f33af61"
+        },
+        "norm_out.linear.bias": {
+          "shape": [
+            6144
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "06ef4a795107a9dd4bcb5ab387a63291fd934ea8e31ecb2a87c98fb0628c13fd",
+          "shard": "diffusion_pytorch_model-00009-of-00009.safetensors",
+          "download_etag": "ae0fef149890f61d54572baa1e806de97156c7ec5b7bbbbbbf27a2d87f33af61"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 1.1255225519828219e-06,
+        "x": 9.715042670704486e-07,
+        "temb": 2.535181130127741e-06,
+        "weight": 1.649235948010376e-07,
+        "bias": 1.2453532227498056e-07
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "x": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 33,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  0.7923200130462646,
+                  0.7899839878082275,
+                  0.7862079739570618,
+                  0.7895039916038513,
+                  0.7904959917068481,
+                  0.7873920202255249,
+                  0.7856320142745972,
+                  0.7841920256614685,
+                  0.7847359776496887,
+                  0.7869439721107483
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 0.7871679961681366
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  1.13264000415802,
+                  1.1661759614944458,
+                  1.1944960355758667,
+                  1.1443519592285156,
+                  1.1403199434280396,
+                  1.2337599992752075,
+                  1.1584320068359375,
+                  1.1242239475250244,
+                  1.1655679941177368,
+                  1.1391359567642212
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 1.1513919830322266
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  1.5354880094528198,
+                  1.6864639520645142,
+                  1.4764800071716309,
+                  1.4828799962997437,
+                  1.5567679405212402,
+                  1.5322240591049194,
+                  1.5329279899597168,
+                  1.535423994064331,
+                  1.539903998374939,
+                  1.543776035308838
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 1.5354560017585754
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_liger": 76824576
+            }
+          }
+        },
+        {
+          "batch": 2,
+          "sequence": 4096,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  1.0007359981536865,
+                  0.9954879879951477,
+                  0.9936320185661316,
+                  0.9902719855308533,
+                  0.995136022567749,
+                  0.9932479858398438,
+                  0.9901440143585205,
+                  0.9897599816322327,
+                  0.9890239834785461,
+                  0.9937919974327087
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 0.9934400022029877
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  0.9602559804916382,
+                  1.1784000396728516,
+                  1.170367956161499,
+                  1.192352056503296,
+                  1.1367360353469849,
+                  1.1400320529937744,
+                  1.1361600160598755,
+                  1.1242560148239136,
+                  1.135424017906189,
+                  1.1759999990463257
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 1.1383840441703796
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  1.994271993637085,
+                  1.9935359954833984,
+                  1.9269440174102783,
+                  1.9952640533447266,
+                  1.9962879419326782,
+                  2.002432107925415,
+                  1.932096004486084,
+                  2.002016067504883,
+                  1.9952000379562378,
+                  1.9926400184631348
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 1.9947360157966614
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_liger": 660791808
+            }
+          }
+        },
+        {
+          "batch": 1,
+          "sequence": 6889,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  0.9338560104370117,
+                  0.9278720021247864,
+                  0.9256319999694824,
+                  0.9234560132026672,
+                  0.9339839816093445,
+                  0.9288640022277832,
+                  0.9242560267448425,
+                  0.9276480078697205,
+                  0.9254400134086609,
+                  0.9270079731941223
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 0.9273279905319214
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  1.190816044807434,
+                  1.1558400392532349,
+                  1.1962560415267944,
+                  1.1881920099258423,
+                  1.1996480226516724,
+                  1.1745920181274414,
+                  1.1768640279769897,
+                  1.1547839641571045,
+                  1.1566720008850098,
+                  1.1418240070343018
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 1.1757280230522156
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  1.899135947227478,
+                  1.8943359851837158,
+                  1.9118080139160156,
+                  1.8434239625930786,
+                  1.898848056793213,
+                  1.8966079950332642,
+                  1.9045439958572388,
+                  1.902176022529602,
+                  1.9010560512542725,
+                  1.893664002418518
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 1.8989920020103455
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_liger": 579103232
+            }
+          }
+        },
+        {
+          "batch": 1,
+          "sequence": 6032,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  0.9155200123786926,
+                  0.9109439849853516,
+                  0.9094079732894897,
+                  0.9110720157623291,
+                  0.9169920086860657,
+                  0.9098880290985107,
+                  0.910431981086731,
+                  0.9086080193519592,
+                  0.9074239730834961,
+                  0.9158719778060913
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 0.9106879830360413
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  1.1740800142288208,
+                  1.1396479606628418,
+                  1.1444159746170044,
+                  1.1438080072402954,
+                  1.275488018989563,
+                  1.171712040901184,
+                  1.1687359809875488,
+                  1.12118399143219,
+                  1.155776023864746,
+                  1.136415958404541
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 1.1500959992408752
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  1.790112018585205,
+                  1.8536319732666016,
+                  1.7918399572372437,
+                  1.8530559539794922,
+                  1.850592017173767,
+                  1.8501440286636353,
+                  1.8549439907073975,
+                  1.8647680282592773,
+                  1.857632040977478,
+                  1.853119969367981
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 1.8530879616737366
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_liger": 520151552
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 3,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  0.830560028553009,
+                  0.8273919820785522,
+                  0.8245760202407837,
+                  0.8254079818725586,
+                  0.8314880132675171,
+                  0.8262400031089783,
+                  0.8227199912071228,
+                  0.8253120183944702,
+                  0.8213440179824829,
+                  0.8201919794082642
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 0.8253600001335144
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  1.2977279424667358,
+                  1.2878400087356567,
+                  1.3526719808578491,
+                  1.289504051208496,
+                  1.2878400087356567,
+                  1.3259199857711792,
+                  1.3249280452728271,
+                  1.3423999547958374,
+                  1.3527679443359375,
+                  1.3285119533538818
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 1.3254240155220032
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  1.755295991897583,
+                  1.7466239929199219,
+                  1.745919942855835,
+                  1.7449599504470825,
+                  1.6821759939193726,
+                  1.6717760562896729,
+                  1.7453759908676147,
+                  1.7467199563980103,
+                  1.7475839853286743,
+                  1.747648000717163
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 1.7462719678878784
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_liger": 125853696
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 3,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  4.614783763885498,
+                  4.611551761627197,
+                  4.611904144287109,
+                  4.609280109405518,
+                  4.618048191070557,
+                  4.6080641746521,
+                  4.607679843902588,
+                  4.605855941772461,
+                  4.6077117919921875,
+                  4.610464096069336
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 4.609872102737427
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  3.6249279975891113,
+                  3.683743953704834,
+                  3.621151924133301,
+                  3.635456085205078,
+                  3.7116479873657227,
+                  3.6692159175872803,
+                  3.6568000316619873,
+                  3.6270720958709717,
+                  3.6320641040802,
+                  3.677567958831787
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 3.6461280584335327
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "vllm_liger": [
+                  8.065471649169922,
+                  8.063232421875,
+                  8.00057601928711,
+                  7.987679958343506,
+                  8.06067180633545,
+                  8.060992240905762,
+                  8.063232421875,
+                  8.06550407409668,
+                  8.064000129699707,
+                  8.06383991241455
+                ]
+              },
+              "order": [
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ],
+                [
+                  "vllm_liger"
+                ]
+              ],
+              "median_ms": {
+                "vllm_liger": 8.063232421875
+              }
+            },
+            "peak_increment_bytes": {
+              "vllm_liger": 503341568
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "environment": {
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "gpu": "NVIDIA B200",
+    "workspace": {
+      "CUBLAS_WORKSPACE_CONFIG": null,
+      "CUBLASLT_WORKSPACE_SIZE": null
+    },
+    "tf32": false
+  },
+  "scope": "sample batch BI; final uses S=3 for large B, long S tested separately; shared parameter gradients: same ordered inputs, repeat only",
+  "packages": {
+    "torch": "2.13.0",
+    "triton": "3.7.1",
+    "diffusers": null,
+    "vllm": "0.30.0",
+    "sglang": "0.5.21",
+    "liger-kernel": "0.8.4",
+    "transformer_engine": null,
+    "megatron-core": null
+  }
+}
