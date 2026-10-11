@@ -21,12 +21,27 @@ from typing import Optional
 
 import torch
 
+from rl_engine.backends.cuda.embedding.embedding import SM90EmbeddingOp
 from rl_engine.backends.cuda.gemm.det_gemm import (
     det_gemm_backend_id,
+    det_gemm_fallback_reason,
     det_gemm_linear_input_gradient,
     det_gemm_linear_weight_gradient,
 )
+from rl_engine.backends.cuda.logprob.linear_logp import (
+    SM90_LINEAR_LOGP_CONTRACT_VERSION,
+    sm90_deterministic_linear_logp,
+)
 from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+from rl_engine.models.nemotron_h.lm_head_contract import (
+    CHECKPOINT_ID,
+    CHECKPOINT_REVISION,
+    LM_HEAD_LOGPROB_CONTRACT_VERSION,
+    NEMOTRON_H_LM_HEAD_SPEC,
+    NemotronHGeometryError,
+    validate_embedding_geometry,
+    validate_lm_head_logprob_geometry,
+)
 from rl_engine.ops.autograd.backward_runtime import record_backward
 
 # Mirrors of ``BM`` / ``BN`` in csrc/cuda/logprob/fused_linear_logp_sm90.cu. Backward
@@ -203,3 +218,150 @@ class _NemotronHStrictLMHeadLogpAutograd(torch.autograd.Function):
         if grad_hidden is not None:
             grad_hidden = grad_hidden.reshape(*ctx.lead_shape, hidden_2d.size(1))
         return grad_hidden, grad_weight, None, None, None
+
+
+def _is_hopper(device: torch.device) -> bool:
+    return device.type == "cuda" and torch.cuda.get_device_capability(device)[0] == 9
+
+
+def _require_hopper(tensor: torch.Tensor) -> None:
+    if not _is_hopper(tensor.device):
+        raise NemotronHGeometryError(
+            "Nemotron-H lm_head_logprob strict contract: inputs must live on an SM90 CUDA device"
+        )
+
+
+def _per_token_temperature(
+    temperature: Optional[torch.Tensor], rows: int, device: torch.device
+) -> Optional[torch.Tensor]:
+    if temperature is None:
+        return None
+    temp = temperature.to(device=device).reshape(-1)
+    if temp.numel() == 1:
+        temp = temp.expand(rows)
+    temp = temp.contiguous()
+    if rows and bool((temp <= 0).any().item()):
+        raise NemotronHGeometryError(
+            "Nemotron-H lm_head_logprob strict contract: temperature must be strictly positive"
+        )
+    return temp
+
+
+def _require_target_range(target_ids: torch.Tensor) -> None:
+    if target_ids.numel() == 0:
+        return
+    vocab = NEMOTRON_H_LM_HEAD_SPEC.vocab_size
+    if bool(((target_ids < 0) | (target_ids >= vocab)).any().item()):
+        raise NemotronHGeometryError(
+            f"Nemotron-H lm_head_logprob strict contract: target_ids must be in [0, {vocab})"
+        )
+
+
+class NemotronHLMHeadLogprobSM90Op:
+    """Strict SM90 embedding lookup and LM-head selected-token logprob for Nemotron-H.
+
+    * ``embed`` is the untied, unscaled input embedding (bitwise row copy).
+    * ``logprob`` is the training entry: FP32 ``(logp, lse)`` with the strict
+      backward of this module.
+    * ``logprob_with_logits`` is the rollout entry: identical ``logp``/``lse``
+      bytes plus the unscaled FP32 logits for the sampler (inference only).
+
+    Every entry fails closed outside the pinned checkpoint geometry.
+    """
+
+    op_class = "logprob"
+    is_batch_invariant = True
+    contract_version = LM_HEAD_LOGPROB_CONTRACT_VERSION
+
+    def __init__(self) -> None:
+        _require_strict_symbols()
+        if not torch.cuda.is_available() or torch.cuda.get_device_capability()[0] != 9:
+            raise RuntimeError("NemotronHLMHeadLogprobSM90Op requires an SM90 (Hopper) device")
+        self._embedding = SM90EmbeddingOp()
+
+    def embed(self, token_ids: torch.Tensor, embed_weight: torch.Tensor) -> torch.Tensor:
+        validate_embedding_geometry(token_ids, embed_weight)
+        _require_hopper(embed_weight)
+        return self._embedding.forward(token_ids, embed_weight)
+
+    def _prepare(
+        self,
+        hidden: torch.Tensor,
+        lm_head_weight: torch.Tensor,
+        target_ids: torch.Tensor,
+        temperature: Optional[torch.Tensor],
+        embed_weight: Optional[torch.Tensor],
+    ) -> Optional[torch.Tensor]:
+        validate_lm_head_logprob_geometry(
+            hidden,
+            lm_head_weight,
+            target_ids,
+            embed_weight=embed_weight,
+            temperature=temperature,
+        )
+        _require_hopper(hidden)
+        _require_target_range(target_ids)
+        rows = hidden.numel() // hidden.size(-1)
+        return _per_token_temperature(temperature, rows, hidden.device)
+
+    def logprob(
+        self,
+        hidden: torch.Tensor,
+        lm_head_weight: torch.Tensor,
+        target_ids: torch.Tensor,
+        *,
+        temperature: Optional[torch.Tensor] = None,
+        embed_weight: Optional[torch.Tensor] = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        temp = self._prepare(hidden, lm_head_weight, target_ids, temperature, embed_weight)
+        return _NemotronHStrictLMHeadLogpAutograd.apply(
+            hidden, lm_head_weight, target_ids, temp, -1
+        )
+
+    def logprob_with_logits(
+        self,
+        hidden: torch.Tensor,
+        lm_head_weight: torch.Tensor,
+        target_ids: torch.Tensor,
+        *,
+        temperature: Optional[torch.Tensor] = None,
+        embed_weight: Optional[torch.Tensor] = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        if torch.is_grad_enabled() and (hidden.requires_grad or lm_head_weight.requires_grad):
+            raise RuntimeError("logprob_with_logits is the inference-only rollout entry")
+        temp = self._prepare(hidden, lm_head_weight, target_ids, temperature, embed_weight)
+        return sm90_deterministic_linear_logp(
+            hidden, lm_head_weight, target_ids, temperature=temp, return_logits=True
+        )
+
+    def forward(
+        self,
+        hidden: torch.Tensor,
+        lm_head_weight: torch.Tensor,
+        target_ids: torch.Tensor,
+        bias: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """Operator-checker entry: selected-token logp only."""
+
+        validate_lm_head_logprob_geometry(hidden, lm_head_weight, target_ids, bias=bias)
+        logp, _lse = self.logprob(hidden, lm_head_weight, target_ids)
+        return logp
+
+    __call__ = forward
+
+    @staticmethod
+    def provenance() -> dict[str, object]:
+        fallback_reason = det_gemm_fallback_reason()
+        return {
+            "contract_version": LM_HEAD_LOGPROB_CONTRACT_VERSION,
+            "checkpoint_id": CHECKPOINT_ID,
+            "checkpoint_revision": CHECKPOINT_REVISION,
+            "forward_contract_version": SM90_LINEAR_LOGP_CONTRACT_VERSION,
+            "forward_kernel_id": "rl_engine._C.fused_linear_logp_sm90",
+            "dlogits_kernel_id": _DLOGITS_KERNEL_ID,
+            "embedding_kernel_id": "rl_engine._C.embedding_sm90_forward",
+            "det_gemm_backend_id": det_gemm_backend_id(),
+            "det_gemm_fallback_reason": fallback_reason,
+            "dlogits_budget_elems": DLOGITS_BUDGET_ELEMS,
+            "fallback": False,
+        }
