@@ -6,8 +6,9 @@
 Run each mode in a fresh process. cublas_policy reproduces vLLM's two cuBLAS
 workspace settings, not the complete vLLM integration. The vLLM, SGLang and
 Megatron modes use each project's batch-invariant persistent matmul with the
-same FP32 VJP adapter. No backend math flags are changed. FP64 comparisons use
-the declared storage boundaries/STE.
+same FP32 VJP adapter; vllm_liger and vllm_flashattn also replace the final
+LayerNorm with Liger's or flash-attention's Triton LayerNorm. No backend math
+flags are changed. FP64 comparisons use the declared storage boundaries/STE.
 """
 import argparse
 import importlib.metadata
@@ -25,6 +26,8 @@ p.add_argument(
         "cublas_policy",
         "fixed",
         "vllm_local",
+        "vllm_liger",
+        "vllm_flashattn",
         "sglang_local",
         "megatron_local",
     ],
@@ -40,12 +43,13 @@ p.add_argument("--output", type=Path, required=True)
 p.add_argument("--seed", type=int, default=0)
 p.add_argument("--capture-failures", action="store_true")
 p.add_argument("--megatron-src", type=Path, help="Megatron-LM checkout for megatron_local")
+p.add_argument("--flash-attn-src", type=Path, help="flash-attention checkout for vllm_flashattn")
 a = p.parse_args()
 if a.mode == "cublas_policy":
     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
     os.environ["CUBLASLT_WORKSPACE_SIZE"] = "1"
 
-if a.mode in ("vllm_local", "sglang_local", "megatron_local"):
+if a.mode in ("vllm_local", "vllm_liger", "vllm_flashattn", "sglang_local", "megatron_local"):
     os.environ["TRITON_F32_DEFAULT"] = "ieee"
 if a.mode == "megatron_local":
     assert a.megatron_src, "--megatron-src is required for megatron_local"
@@ -67,9 +71,16 @@ from benchmarks.models.qwenimage.adaln_evidence import (  # noqa: E402
 from rl_engine.backends.cuda.model_specific.qwenimage.adaln_mod_projection import (  # noqa: E402
     QwenImageAdaLNModProjectionCudaOp,
 )
+from rl_engine.backends.cuda.model_specific.qwenimage.final_adaln_out import (  # noqa: E402
+    QwenImageFinalAdaLNOutCudaOp,
+)
 from rl_engine.reference.model_specific.qwenimage.adaln_mod_projection import (  # noqa: E402
     QwenImageAdaLNModProjectionReference,
     reference_projection,
+)
+from rl_engine.reference.model_specific.qwenimage.final_adaln_out import (  # noqa: E402
+    QwenImageFinalAdaLNOutReference,
+    reference_final,
 )
 
 torch.set_num_threads(8)
@@ -89,7 +100,10 @@ report = dict(
         },
         tf32=torch.backends.cuda.matmul.allow_tf32,
     ),
-    scope=("sample batch BI; " "shared parameter gradients: same ordered inputs, repeat only"),
+    scope=(
+        "sample batch BI; final uses S=3 for large B, long S tested separately; "
+        "shared parameter gradients: same ordered inputs, repeat only"
+    ),
 )
 report["packages"] = {}
 for lib in [
@@ -98,6 +112,7 @@ for lib in [
     "diffusers",
     "vllm",
     "sglang",
+    "liger-kernel",
     "transformer_engine",
     "megatron-core",
 ]:
@@ -105,6 +120,11 @@ for lib in [
         report["packages"][lib] = importlib.metadata.version(lib)
     except importlib.metadata.PackageNotFoundError:
         report["packages"][lib] = None
+if a.mode == "vllm_flashattn":
+    assert a.flash_attn_src, "--flash-attn-src is required for vllm_flashattn"
+    report["packages"]["flash-attention-source"] = subprocess.check_output(
+        ["git", "-C", str(a.flash_attn_src), "rev-parse", "HEAD"], text=True
+    ).strip()
 if a.mode == "megatron_local":
     report["packages"]["megatron-lm-source"] = subprocess.check_output(
         ["git", "-C", str(a.megatron_src), "rev-parse", "HEAD"], text=True
@@ -149,14 +169,19 @@ def metric(x, y):
 
 
 for stream, stem in STREAMS:
+    if a.mode in ("vllm_liger", "vllm_flashattn") and stream != "final":
+        continue
     weights, manifest = load_weights(a.model, stem)
+    final = stream == "final"
     fn = (
-        QwenImageAdaLNModProjectionCudaOp()
+        (QwenImageFinalAdaLNOutCudaOp() if final else QwenImageAdaLNModProjectionCudaOp())
         if a.mode == "fixed"
-        else QwenImageAdaLNModProjectionReference()
+        else (
+            QwenImageFinalAdaLNOutReference() if final else QwenImageAdaLNModProjectionReference()
+        )
     )
-    if a.mode in ("vllm_local", "sglang_local", "megatron_local"):
-        from benchmarks.models.qwenimage.adaln_reuse_candidate import Projection
+    if a.mode in ("vllm_local", "vllm_liger", "vllm_flashattn", "sglang_local", "megatron_local"):
+        from benchmarks.models.qwenimage.adaln_reuse_candidate import Final, Projection
 
         if a.mode == "sglang_local":
             import benchmarks.models.qwenimage.adaln_reuse_candidate as adapter
@@ -172,7 +197,15 @@ for stream, stem in STREAMS:
             )
 
             adapter.matmul_persistent = matmul_persistent
-        fn = Projection()
+        fn = Final() if final else Projection()
+        if a.mode == "vllm_liger":
+            from benchmarks.models.qwenimage.adaln_reuse_candidate import FinalLiger
+
+            fn = FinalLiger()
+        if a.mode == "vllm_flashattn":
+            from benchmarks.models.qwenimage.adaln_reuse_candidate import FinalFlashAttn
+
+            fn = FinalFlashAttn(a.flash_attn_src)
     for dtype in [torch.bfloat16, torch.float32]:
         w, b = [weights[k].cuda().to(dtype) for k in ("weight", "bias")]
         case = dict(stream=stream, dtype=str(dtype), weights=manifest, checks=[])
@@ -185,7 +218,12 @@ for stream, stem in STREAMS:
                 weight=w,
                 bias=b,
             )
-            shape = (batch, w.shape[0])
+            if final:
+                inp = {
+                    "x": torch.randn(batch, seq, 3072, device="cuda", dtype=dtype, generator=gen),
+                    **inp,
+                }
+            shape = (batch, seq, 3072) if final else (batch, w.shape[0])
             upstream = torch.randn(shape, device="cuda", dtype=dtype, generator=gen)
             return inp, upstream
 
@@ -223,12 +261,20 @@ for stream, stem in STREAMS:
                 save()
             print(a.mode, stream, dtype, "parameters complete", flush=True)
         elif a.phase in ("accuracy", "accuracy_large"):
-            shapes = [(256, 1), (2048, 1)] if a.phase == "accuracy_large" else [(1, 1), (3, 1)]
+            shapes = (
+                [(256, 3 if final else 1), (2048, 3 if final else 1)]
+                if a.phase == "accuracy_large"
+                else (
+                    [(1, 3), (3, 3), (1, 4096), (1, 6889), (1, 6032)] if final else [(1, 1), (3, 1)]
+                )
+            )
             for batch, seq in shapes:
                 inp, g = inputs(batch, seq, a.seed)
                 out = run(fn, inp, g, True)
                 hi = {k: v.double().cpu().requires_grad_() for k, v in inp.items()}
-                gold = reference_projection(**hi, execution_dtype=dtype)
+                gold = (reference_final if final else reference_projection)(
+                    **hi, execution_dtype=dtype
+                )
                 gg = torch.autograd.grad(gold, tuple(hi.values()), g.double().cpu())
                 expected = {"output": gold.detach(), **dict(zip(hi, gg))}
                 case["checks"].append(
@@ -249,7 +295,9 @@ for stream, stem in STREAMS:
                     )
                 )
                 low = {k: v.float().cpu().requires_grad_() for k, v in inp.items()}
-                low_y = reference_projection(**low, execution_dtype=dtype)
+                low_y = (reference_final if final else reference_projection)(
+                    **low, execution_dtype=dtype
+                )
                 low_g = torch.autograd.grad(low_y, tuple(low.values()), g.float().cpu())
                 low_expected = {"output": low_y.detach(), **dict(zip(low, low_g))}
                 case["checks"][-1]["cpu_fp32_contract"] = {
@@ -296,7 +344,7 @@ for stream, stem in STREAMS:
             inp, g = inputs(3)
             out = run(fn, inp, g, True)
             hi = {k: v.double().cpu().requires_grad_() for k, v in inp.items()}
-            gold = reference_projection(**hi, execution_dtype=dtype)
+            gold = (reference_final if final else reference_projection)(**hi, execution_dtype=dtype)
             gg = torch.autograd.grad(gold, tuple(hi.values()), g.double().cpu())
             expected = {"output": gold.detach(), **dict(zip(hi, gg))}
             case["fp64_relative_max_error"] = {k: metric(v, expected[k]) for k, v in out.items()}
@@ -304,7 +352,11 @@ for stream, stem in STREAMS:
                 k: equal_bytes(v, run(fn, inp, g, True)[k]) for k, v in out.items()
             }
             case["performance"] = []
-            for batch, seq in [(1, 1), (3, 1), (256, 1), (2048, 1)]:
+            for batch, seq in (
+                [(1, 33), (2, 4096), (1, 6889), (1, 6032), (256, 3), (2048, 3)]
+                if final
+                else [(1, 1), (3, 1), (256, 1), (2048, 1)]
+            ):
                 inp, g = inputs(batch, seq)
                 inp = {k: v.detach().requires_grad_() for k, v in inp.items()}
                 case["performance"].append(
@@ -436,4 +488,22 @@ for stream, stem in STREAMS:
                 )
                 save()
                 print(a.mode, stream, dtype, "seed", seed, "BI complete", flush=True)
+            if final:
+                for seq in [31, 32, 33, 4096, 6889, 6032]:
+                    inp, g = inputs(2, seq, 127)
+                    whole = run(fn, inp, g)
+                    singles = [
+                        run(fn, sliced(inp, slice(i, i + 1)), g[i : i + 1]) for i in range(2)
+                    ]
+                    case["checks"].append(
+                        dict(
+                            kind="long_sequence",
+                            sequence=seq,
+                            rows=2,
+                            mismatched_rows=stats(
+                                whole,
+                                {k: torch.cat([s[k] for s in singles]) for k in whole},
+                            ),
+                        )
+                    )
         save()

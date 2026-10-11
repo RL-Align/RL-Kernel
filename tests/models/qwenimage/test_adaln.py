@@ -5,11 +5,15 @@ import torch
 from rl_engine.backends.cuda.model_specific.qwenimage.adaln_mod_projection import (
     QwenImageAdaLNModProjectionCudaOp,
 )
+from rl_engine.backends.cuda.model_specific.qwenimage.final_adaln_out import (
+    QwenImageFinalAdaLNOutCudaOp,
+)
 from rl_engine.contracts.numerical import load_contract
 from rl_engine.reference.model_specific.qwenimage.adaln_mod_projection import reference_projection
+from rl_engine.reference.model_specific.qwenimage.final_adaln_out import reference_final
 
 pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
-KINDS = ["projection"]
+KINDS = ["projection", "final"]
 
 
 def equal_bytes(left, right):
@@ -30,14 +34,20 @@ def inputs(kind, dtype, batch=2, seq=33, device="cuda:0", seed=19):
 
     args = {
         "temb": rand((batch, 3072)),
-        "weight": rand((6 * 3072, 3072), 0.02),
-        "bias": rand((6 * 3072,), 0.01),
+        "weight": rand(((6 if kind == "projection" else 2) * 3072, 3072), 0.02),
+        "bias": rand(((6 if kind == "projection" else 2) * 3072,), 0.01),
     }
+    if kind == "final":
+        args["x"] = rand((batch, seq, 3072))
     return args
 
 
 def operator(kind):
-    return QwenImageAdaLNModProjectionCudaOp()
+    return (
+        QwenImageAdaLNModProjectionCudaOp()
+        if kind == "projection"
+        else QwenImageFinalAdaLNOutCudaOp()
+    )
 
 
 def random_upstream(y, seed=127):
@@ -68,7 +78,7 @@ def assert_accurate(actual, expected, dtype, judgment):
 def test_cpu_reference_all_gradients(kind, dtype, seq):
     args = inputs(kind, dtype, seq=seq)
     gold = {k: v.detach().cpu().float().requires_grad_() for k, v in args.items()}
-    ref = reference_projection
+    ref = reference_projection if kind == "projection" else reference_final
     y = operator(kind)(**args)
     gy = ref(**gold, execution_dtype=dtype)
     grad = random_upstream(y)
@@ -100,6 +110,25 @@ def test_batch_position_and_repeat_bytes(kind, dtype):
         for k in ("x", "temb"):
             if k in args:
                 assert equal_bytes(sg[k], grads[k][order]), (k, order)
+
+
+@pytest.mark.parametrize("seq", [4096, 6889, 6032])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("seed", [0, 127, 2026])
+def test_long_sequence_gradients(seq, dtype, seed):
+    args = inputs("final", dtype, batch=1, seq=seq)
+    gold = {k: v.detach().cpu().float().requires_grad_() for k, v in args.items()}
+    y = operator("final")(**args)
+    gy = reference_final(**gold, execution_dtype=dtype)
+    grad = random_upstream(y, seed)
+    a = torch.autograd.grad(y, tuple(args.values()), grad)
+    b = torch.autograd.grad(gy, tuple(gold.values()), grad.float().cpu())
+    assert_accurate(y, gy, dtype, "forward_accuracy")
+    for k, av, bv in zip(args, a, b):
+        try:
+            assert_accurate(av, bv, dtype, "gradient_accuracy")
+        except AssertionError as exc:
+            raise AssertionError(k) from exc
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -162,7 +191,7 @@ def test_registry_and_gtest(kind):
     from rl_engine.validation.operators.op_checks import run_operator_suite
     from rl_engine.validation.operators.operator_specs import make_candidate, make_operator_case
 
-    name = "qwenimage_adaln_mod_projection"
+    name = "qwenimage_adaln_mod_projection" if kind == "projection" else "qwenimage_final_adaln_out"
     registry = KernelRegistry()
     op = registry.get_op(name, device="cuda:0")
     assert isinstance(op, type(operator(kind)))
@@ -207,3 +236,14 @@ def test_projection_chunk_order():
     out = operator("projection")(**args)
     for i, chunk in enumerate(out.chunk(6, -1)):
         assert equal_bytes(chunk, torch.full_like(chunk, i))
+
+
+def test_final_scale_then_shift_and_layernorm():
+    args = inputs("final", torch.float32, batch=1)
+    args["weight"] = torch.zeros_like(args["weight"])
+    args["bias"] = torch.cat(
+        [torch.full((3072,), 2.0, device="cuda"), torch.full((3072,), 7.0, device="cuda")]
+    )
+    args["x"] = torch.full_like(args["x"], 13.0)
+    out = operator("final")(**args)
+    assert equal_bytes(out, torch.full_like(out, 7.0))
