@@ -5,15 +5,15 @@ stage after another on nodes with four B200 GPUs, in one environment
 (`environment_sha256` `118384371a88…` in every `run.json`), on the official
 `Qwen/Qwen3-Next-80B-A3B-Instruct` revision
 `9c7f2fbe84465e40164a94cc16cd30b6999b0cc7`. Each stage was launched with the
-launcher of that commit, `python scripts/qwen3_next_run.py --stage <stage>
+launcher, `python tools/validation/models/qwen3_next_run.py --stage <stage>
 --previous <run of the stage before> --runs-root <runs> --checkpoint <checkpoint>
 --cuda-home <cuda-13.0> --python <venv>/bin/python` (see
 `docs/usage/qwen3-next-chain.md`), and the reports were made with:
 
 ```bash
-python scripts/qwen3_next_chain_report.py --last <runs>/<...-train-...> --out chain-report.json
-bash ci/run_qwen3_next_chain_gate.sh chain-report.json
-python scripts/qwen3_next_publish_evidence.py --last <runs>/<...-train-...> \
+python tools/validation/models/qwen3_next_chain_report.py --last <runs>/<...-train-...> --out chain-report.json
+bash ci/scripts/run_qwen3_next_chain_gate.sh chain-report.json
+python tools/validation/models/qwen3_next_publish_evidence.py --last <runs>/<...-train-...> \
     --chain-report chain-report.json --out docs/usage/evidence/qwen3-next-chain-b200
 ```
 
@@ -26,7 +26,8 @@ python scripts/qwen3_next_publish_evidence.py --last <runs>/<...-train-...> \
 | `train/` | checkpoint reload, L2 on the reloaded weights, continuous and resumed controls | passed, 16/16; reload == update 2 |
 | `chain-report.json` | chain-gate report (`qwen3-next-chain-v1`, compatible with `ws1-c10-c11-v5`) | passed, 64 cells, `first_drift: null` |
 
-The stages ran the code of `c67ec14`; the copy in this directory was made by
+Commands use the current repository layout; at `c67ec14` these runners were
+in `scripts/` and `ci/`. The stages ran the code of `c67ec14`; the copy in this directory was made by
 the publisher of `3025497`, which only adds redaction rules (`redaction.json`
 counts the placeholders) and changes no measured byte. `SHA256SUMS` covers
 every file except this README.
