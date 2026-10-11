@@ -5,16 +5,17 @@ stage after another on one node with four B200 GPUs, in one environment
 (`environment_sha256` `118384371a88…` in every `run.json`):
 
 ```bash
-python scripts/qwen3_next_run.py --stage all --until l2 \
+python tools/validation/models/qwen3_next_run.py --stage all --until l2 \
     --runs-root <runs> --checkpoint <checkpoint> --cuda-home <cuda-13.0> --python <venv>/bin/python
-python scripts/qwen3_next_run.py --stage bi --bi-suite full --previous <runs>/<...-l2-...> \
+python tools/validation/models/qwen3_next_run.py --stage bi --bi-suite full --previous <runs>/<...-l2-...> \
     --runs-root <runs> --checkpoint <checkpoint> --cuda-home <cuda-13.0> --python <venv>/bin/python
-python scripts/qwen3_next_chain_report.py --last <...-l2-...> --bi <...-bi-...> --out chain-report.json
-python scripts/qwen3_next_publish_evidence.py --last <...-l2-...> --also <...-bi-...> \
+python tools/validation/models/qwen3_next_chain_report.py --last <...-l2-...> --bi <...-bi-...> --out chain-report.json
+python tools/validation/models/qwen3_next_publish_evidence.py --last <...-l2-...> --also <...-bi-...> \
     --chain-report chain-report.json --out docs/usage/evidence/qwen3-next-batch-invariance-b200
 ```
 
-The stages ran the code of `759755e`; the copy in this directory was made by
+Commands use the current repository layout; at `759755e` these runners were
+in `scripts/`. The stages ran the code of `759755e`; the copy in this directory was made by
 the publisher of `3025497`, which only adds redaction rules (`redaction.json`
 counts the placeholders) and changes no measured byte. `SHA256SUMS` covers
 every file.

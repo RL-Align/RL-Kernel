@@ -1,0 +1,3857 @@
+{
+  "schema_version": 1,
+  "description": "Qwen3-Next batch-invariance cells; regenerate with python -m rl_engine.validation.models.qwen3_next_bi_cases --write",
+  "cells": [
+    {
+      "cell_id": "concurrency-n01-first",
+      "family": "concurrency",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 64,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "concurrency-n02-first",
+      "family": "concurrency",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 64,
+      "chunk_size": 64,
+      "companions": [
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 7
+        }
+      ],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "concurrency-n02-last",
+      "family": "concurrency",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 64,
+      "chunk_size": 64,
+      "companions": [
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 7
+        }
+      ],
+      "target_last": true,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "concurrency-n04-first",
+      "family": "concurrency",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 64,
+      "chunk_size": 64,
+      "companions": [
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 7
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 14
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 21
+        }
+      ],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "concurrency-n04-last",
+      "family": "concurrency",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 64,
+      "chunk_size": 64,
+      "companions": [
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 7
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 14
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 21
+        }
+      ],
+      "target_last": true,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "concurrency-n08-first",
+      "family": "concurrency",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 64,
+      "chunk_size": 64,
+      "companions": [
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 7
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 14
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 21
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 28
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 35
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 42
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 49
+        }
+      ],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "concurrency-n08-last",
+      "family": "concurrency",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 64,
+      "chunk_size": 64,
+      "companions": [
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 7
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 14
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 21
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 28
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 35
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 42
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 49
+        }
+      ],
+      "target_last": true,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "concurrency-n16-first",
+      "family": "concurrency",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 64,
+      "chunk_size": 64,
+      "companions": [
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 7
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 14
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 21
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 28
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 35
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 42
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 49
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 56
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 63
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 70
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 77
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 84
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 91
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 98
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 105
+        }
+      ],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "concurrency-n16-last",
+      "family": "concurrency",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 64,
+      "chunk_size": 64,
+      "companions": [
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 7
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 14
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 21
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 28
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 35
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 42
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 49
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 56
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 63
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 70
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 77
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 84
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 91
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 98
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 105
+        }
+      ],
+      "target_last": true,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "concurrency-n32-first",
+      "family": "concurrency",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 64,
+      "chunk_size": 64,
+      "companions": [
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 7
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 14
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 21
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 28
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 35
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 42
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 49
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 56
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 63
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 70
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 77
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 84
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 91
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 98
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 105
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 112
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 119
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 126
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 133
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 140
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 147
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 154
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 161
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 168
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 175
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 182
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 189
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 196
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 203
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 210
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 217
+        }
+      ],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "concurrency-n32-last",
+      "family": "concurrency",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 64,
+      "chunk_size": 64,
+      "companions": [
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 7
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 14
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 21
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 28
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 35
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 42
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 49
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 56
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 63
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 70
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 77
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 84
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 91
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 98
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 105
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 112
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 119
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 126
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 133
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 140
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 147
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 154
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 161
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 168
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 175
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 182
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 189
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 196
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 203
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 210
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 217
+        }
+      ],
+      "target_last": true,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "concurrency-n64-first",
+      "family": "concurrency",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 64,
+      "chunk_size": 64,
+      "companions": [
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 7
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 14
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 21
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 28
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 35
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 42
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 49
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 56
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 63
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 70
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 77
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 84
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 91
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 98
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 105
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 112
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 119
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 126
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 133
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 140
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 147
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 154
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 161
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 168
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 175
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 182
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 189
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 196
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 203
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 210
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 217
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 224
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 231
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 238
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 245
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 252
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 259
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 266
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 273
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 280
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 287
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 294
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 301
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 308
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 315
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 322
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 329
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 336
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 343
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 350
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 357
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 364
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 371
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 378
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 385
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 392
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 399
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 406
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 413
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 420
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 427
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 434
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 441
+        }
+      ],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "concurrency-n64-last",
+      "family": "concurrency",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 64,
+      "chunk_size": 64,
+      "companions": [
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 7
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 14
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 21
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 28
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 35
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 42
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 49
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 56
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 63
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 70
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 77
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 84
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 91
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 98
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 105
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 112
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 119
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 126
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 133
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 140
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 147
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 154
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 161
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 168
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 175
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 182
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 189
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 196
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 203
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 210
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 217
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 224
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 231
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 238
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 245
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 252
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 259
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 266
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 273
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 280
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 287
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 294
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 301
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 308
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 315
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 322
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 329
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 336
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 343
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 350
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 357
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 364
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 371
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 378
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 385
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 392
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 399
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 406
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 413
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 420
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 427
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 434
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 441
+        }
+      ],
+      "target_last": true,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "interference-same-text",
+      "family": "interference",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 64,
+      "chunk_size": 64,
+      "companions": [
+        {
+          "text": 0,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 7
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 14
+        },
+        {
+          "text": 2,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 21
+        }
+      ],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "interference-short-companions",
+      "family": "interference",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 64,
+      "chunk_size": 64,
+      "companions": [
+        {
+          "text": 1,
+          "prompt_length": 2,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 7
+        },
+        {
+          "text": 2,
+          "prompt_length": 3,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 14
+        },
+        {
+          "text": 3,
+          "prompt_length": 5,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 21
+        },
+        {
+          "text": 0,
+          "prompt_length": 1,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 28
+        },
+        {
+          "text": 1,
+          "prompt_length": 2,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 35
+        },
+        {
+          "text": 2,
+          "prompt_length": 3,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 42
+        },
+        {
+          "text": 3,
+          "prompt_length": 5,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 49
+        }
+      ],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "interference-long-companions",
+      "family": "interference",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 64,
+      "chunk_size": 64,
+      "companions": [
+        {
+          "text": 2,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 7
+        },
+        {
+          "text": 3,
+          "prompt_length": 1024,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 14
+        },
+        {
+          "text": 0,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 21
+        }
+      ],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "interference-mixed-lengths",
+      "family": "interference",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 64,
+      "chunk_size": 64,
+      "companions": [
+        {
+          "text": 3,
+          "prompt_length": 777,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 7
+        },
+        {
+          "text": 0,
+          "prompt_length": 1024,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 14
+        },
+        {
+          "text": 1,
+          "prompt_length": 8,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 21
+        },
+        {
+          "text": 2,
+          "prompt_length": 63,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 28
+        },
+        {
+          "text": 3,
+          "prompt_length": 129,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 35
+        },
+        {
+          "text": 0,
+          "prompt_length": 777,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 42
+        },
+        {
+          "text": 1,
+          "prompt_length": 1024,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 49
+        },
+        {
+          "text": 2,
+          "prompt_length": 8,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 56
+        },
+        {
+          "text": 3,
+          "prompt_length": 63,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 63
+        },
+        {
+          "text": 0,
+          "prompt_length": 129,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 70
+        },
+        {
+          "text": 1,
+          "prompt_length": 777,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 77
+        },
+        {
+          "text": 2,
+          "prompt_length": 1024,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 84
+        },
+        {
+          "text": 3,
+          "prompt_length": 8,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 91
+        },
+        {
+          "text": 0,
+          "prompt_length": 63,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 98
+        },
+        {
+          "text": 1,
+          "prompt_length": 129,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 105
+        }
+      ],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "interference-arrive-in-prefill",
+      "family": "interference",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 64,
+      "chunk_size": 64,
+      "companions": [
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 2,
+          "offset": 7
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 2,
+          "offset": 14
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 2,
+          "offset": 21
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 2,
+          "offset": 28
+        }
+      ],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "interference-arrive-in-decode",
+      "family": "interference",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 64,
+      "chunk_size": 64,
+      "companions": [
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 6,
+          "offset": 7
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 6,
+          "offset": 14
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 6,
+          "offset": 21
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 6,
+          "offset": 28
+        }
+      ],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "interference-arrive-at-last-decode",
+      "family": "interference",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 64,
+      "chunk_size": 64,
+      "companions": [
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 18,
+          "offset": 7
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 18,
+          "offset": 14
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 18,
+          "offset": 21
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 18,
+          "offset": 28
+        }
+      ],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "interference-long-generations",
+      "family": "interference",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 64,
+      "chunk_size": 64,
+      "companions": [
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 24,
+          "arrival_step": 0,
+          "offset": 7
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 24,
+          "arrival_step": 0,
+          "offset": 14
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 24,
+          "arrival_step": 0,
+          "offset": 21
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 24,
+          "arrival_step": 0,
+          "offset": 28
+        }
+      ],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "interference-single-token-generations",
+      "family": "interference",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 64,
+      "chunk_size": 64,
+      "companions": [
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 1,
+          "arrival_step": 0,
+          "offset": 7
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 1,
+          "arrival_step": 0,
+          "offset": 14
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 1,
+          "arrival_step": 0,
+          "offset": 21
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 1,
+          "arrival_step": 0,
+          "offset": 28
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 1,
+          "arrival_step": 0,
+          "offset": 35
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 1,
+          "arrival_step": 0,
+          "offset": 42
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 1,
+          "arrival_step": 0,
+          "offset": 49
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 1,
+          "arrival_step": 0,
+          "offset": 56
+        }
+      ],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "interference-target-last-arrival",
+      "family": "interference",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 3,
+        "offset": 0
+      },
+      "first_chunk": 64,
+      "chunk_size": 64,
+      "companions": [
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 7
+        },
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 14
+        },
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 21
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 28
+        }
+      ],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0063-c64-f01",
+      "family": "chunk",
+      "target": {
+        "text": 3,
+        "prompt_length": 63,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 1,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0063-c64-f63",
+      "family": "chunk",
+      "target": {
+        "text": 3,
+        "prompt_length": 63,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 63,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0063-c64-f65",
+      "family": "chunk",
+      "target": {
+        "text": 3,
+        "prompt_length": 63,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 65,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0063-c128-f01",
+      "family": "chunk",
+      "target": {
+        "text": 3,
+        "prompt_length": 63,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 1,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0063-c128-f63",
+      "family": "chunk",
+      "target": {
+        "text": 3,
+        "prompt_length": 63,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 63,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0063-c128-f65",
+      "family": "chunk",
+      "target": {
+        "text": 3,
+        "prompt_length": 63,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 65,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0064-c64-f01",
+      "family": "chunk",
+      "target": {
+        "text": 0,
+        "prompt_length": 64,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 1,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0064-c64-f63",
+      "family": "chunk",
+      "target": {
+        "text": 0,
+        "prompt_length": 64,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 63,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0064-c64-f65",
+      "family": "chunk",
+      "target": {
+        "text": 0,
+        "prompt_length": 64,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 65,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0064-c128-f01",
+      "family": "chunk",
+      "target": {
+        "text": 0,
+        "prompt_length": 64,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 1,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0064-c128-f63",
+      "family": "chunk",
+      "target": {
+        "text": 0,
+        "prompt_length": 64,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 63,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0064-c128-f65",
+      "family": "chunk",
+      "target": {
+        "text": 0,
+        "prompt_length": 64,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 65,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0065-c64-f01",
+      "family": "chunk",
+      "target": {
+        "text": 1,
+        "prompt_length": 65,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 1,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0065-c64-f63",
+      "family": "chunk",
+      "target": {
+        "text": 1,
+        "prompt_length": 65,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 63,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0065-c64-f65",
+      "family": "chunk",
+      "target": {
+        "text": 1,
+        "prompt_length": 65,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 65,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0065-c128-f01",
+      "family": "chunk",
+      "target": {
+        "text": 1,
+        "prompt_length": 65,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 1,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0065-c128-f63",
+      "family": "chunk",
+      "target": {
+        "text": 1,
+        "prompt_length": 65,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 63,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0065-c128-f65",
+      "family": "chunk",
+      "target": {
+        "text": 1,
+        "prompt_length": 65,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 65,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0127-c64-f01",
+      "family": "chunk",
+      "target": {
+        "text": 3,
+        "prompt_length": 127,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 1,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0127-c64-f63",
+      "family": "chunk",
+      "target": {
+        "text": 3,
+        "prompt_length": 127,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 63,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0127-c64-f65",
+      "family": "chunk",
+      "target": {
+        "text": 3,
+        "prompt_length": 127,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 65,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0127-c128-f01",
+      "family": "chunk",
+      "target": {
+        "text": 3,
+        "prompt_length": 127,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 1,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0127-c128-f63",
+      "family": "chunk",
+      "target": {
+        "text": 3,
+        "prompt_length": 127,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 63,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0127-c128-f65",
+      "family": "chunk",
+      "target": {
+        "text": 3,
+        "prompt_length": 127,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 65,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0128-c64-f01",
+      "family": "chunk",
+      "target": {
+        "text": 0,
+        "prompt_length": 128,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 1,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0128-c64-f63",
+      "family": "chunk",
+      "target": {
+        "text": 0,
+        "prompt_length": 128,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 63,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0128-c64-f65",
+      "family": "chunk",
+      "target": {
+        "text": 0,
+        "prompt_length": 128,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 65,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0128-c128-f01",
+      "family": "chunk",
+      "target": {
+        "text": 0,
+        "prompt_length": 128,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 1,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0128-c128-f63",
+      "family": "chunk",
+      "target": {
+        "text": 0,
+        "prompt_length": 128,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 63,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0128-c128-f65",
+      "family": "chunk",
+      "target": {
+        "text": 0,
+        "prompt_length": 128,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 65,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0129-c64-f01",
+      "family": "chunk",
+      "target": {
+        "text": 1,
+        "prompt_length": 129,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 1,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0129-c64-f63",
+      "family": "chunk",
+      "target": {
+        "text": 1,
+        "prompt_length": 129,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 63,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0129-c64-f65",
+      "family": "chunk",
+      "target": {
+        "text": 1,
+        "prompt_length": 129,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 65,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0129-c128-f01",
+      "family": "chunk",
+      "target": {
+        "text": 1,
+        "prompt_length": 129,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 1,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0129-c128-f63",
+      "family": "chunk",
+      "target": {
+        "text": 1,
+        "prompt_length": 129,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 63,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0129-c128-f65",
+      "family": "chunk",
+      "target": {
+        "text": 1,
+        "prompt_length": 129,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 65,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0527-c64-f01",
+      "family": "chunk",
+      "target": {
+        "text": 3,
+        "prompt_length": 527,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 1,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0527-c64-f63",
+      "family": "chunk",
+      "target": {
+        "text": 3,
+        "prompt_length": 527,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 63,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0527-c64-f65",
+      "family": "chunk",
+      "target": {
+        "text": 3,
+        "prompt_length": 527,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 65,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0527-c128-f01",
+      "family": "chunk",
+      "target": {
+        "text": 3,
+        "prompt_length": 527,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 1,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0527-c128-f63",
+      "family": "chunk",
+      "target": {
+        "text": 3,
+        "prompt_length": 527,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 63,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0527-c128-f65",
+      "family": "chunk",
+      "target": {
+        "text": 3,
+        "prompt_length": 527,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 65,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0528-c64-f01",
+      "family": "chunk",
+      "target": {
+        "text": 0,
+        "prompt_length": 528,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 1,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0528-c64-f63",
+      "family": "chunk",
+      "target": {
+        "text": 0,
+        "prompt_length": 528,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 63,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0528-c64-f65",
+      "family": "chunk",
+      "target": {
+        "text": 0,
+        "prompt_length": 528,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 65,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0528-c128-f01",
+      "family": "chunk",
+      "target": {
+        "text": 0,
+        "prompt_length": 528,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 1,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0528-c128-f63",
+      "family": "chunk",
+      "target": {
+        "text": 0,
+        "prompt_length": 528,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 63,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0528-c128-f65",
+      "family": "chunk",
+      "target": {
+        "text": 0,
+        "prompt_length": 528,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 65,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0529-c64-f01",
+      "family": "chunk",
+      "target": {
+        "text": 1,
+        "prompt_length": 529,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 1,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0529-c64-f63",
+      "family": "chunk",
+      "target": {
+        "text": 1,
+        "prompt_length": 529,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 63,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0529-c64-f65",
+      "family": "chunk",
+      "target": {
+        "text": 1,
+        "prompt_length": 529,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 65,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0529-c128-f01",
+      "family": "chunk",
+      "target": {
+        "text": 1,
+        "prompt_length": 529,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 1,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0529-c128-f63",
+      "family": "chunk",
+      "target": {
+        "text": 1,
+        "prompt_length": 529,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 63,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p0529-c128-f65",
+      "family": "chunk",
+      "target": {
+        "text": 1,
+        "prompt_length": 529,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 65,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p1023-c64-f01",
+      "family": "chunk",
+      "target": {
+        "text": 3,
+        "prompt_length": 1023,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 1,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p1023-c64-f63",
+      "family": "chunk",
+      "target": {
+        "text": 3,
+        "prompt_length": 1023,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 63,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p1023-c64-f65",
+      "family": "chunk",
+      "target": {
+        "text": 3,
+        "prompt_length": 1023,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 65,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p1023-c128-f01",
+      "family": "chunk",
+      "target": {
+        "text": 3,
+        "prompt_length": 1023,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 1,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p1023-c128-f63",
+      "family": "chunk",
+      "target": {
+        "text": 3,
+        "prompt_length": 1023,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 63,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p1023-c128-f65",
+      "family": "chunk",
+      "target": {
+        "text": 3,
+        "prompt_length": 1023,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 65,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p1024-c64-f01",
+      "family": "chunk",
+      "target": {
+        "text": 0,
+        "prompt_length": 1024,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 1,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p1024-c64-f63",
+      "family": "chunk",
+      "target": {
+        "text": 0,
+        "prompt_length": 1024,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 63,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p1024-c64-f65",
+      "family": "chunk",
+      "target": {
+        "text": 0,
+        "prompt_length": 1024,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 65,
+      "chunk_size": 64,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p1024-c128-f01",
+      "family": "chunk",
+      "target": {
+        "text": 0,
+        "prompt_length": 1024,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 1,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p1024-c128-f63",
+      "family": "chunk",
+      "target": {
+        "text": 0,
+        "prompt_length": 1024,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 63,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "chunk-p1024-c128-f65",
+      "family": "chunk",
+      "target": {
+        "text": 0,
+        "prompt_length": 1024,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 65,
+      "chunk_size": 128,
+      "companions": [],
+      "target_last": false,
+      "engine": "rollout"
+    },
+    {
+      "cell_id": "packing-two-sequences-first",
+      "family": "packing",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 256,
+      "chunk_size": 256,
+      "companions": [
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 7
+        }
+      ],
+      "target_last": false,
+      "engine": "replay"
+    },
+    {
+      "cell_id": "packing-two-sequences-last",
+      "family": "packing",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 256,
+      "chunk_size": 256,
+      "companions": [
+        {
+          "text": 2,
+          "prompt_length": 512,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 7
+        }
+      ],
+      "target_last": true,
+      "engine": "replay"
+    },
+    {
+      "cell_id": "packing-four-sequences-first",
+      "family": "packing",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 256,
+      "chunk_size": 256,
+      "companions": [
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 7
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 14
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 21
+        }
+      ],
+      "target_last": false,
+      "engine": "replay"
+    },
+    {
+      "cell_id": "packing-four-sequences-last",
+      "family": "packing",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 256,
+      "chunk_size": 256,
+      "companions": [
+        {
+          "text": 3,
+          "prompt_length": 1000,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 7
+        },
+        {
+          "text": 0,
+          "prompt_length": 37,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 14
+        },
+        {
+          "text": 1,
+          "prompt_length": 256,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 21
+        }
+      ],
+      "target_last": true,
+      "engine": "replay"
+    },
+    {
+      "cell_id": "packing-eight-mixed-first",
+      "family": "packing",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 256,
+      "chunk_size": 256,
+      "companions": [
+        {
+          "text": 0,
+          "prompt_length": 8,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 7
+        },
+        {
+          "text": 1,
+          "prompt_length": 63,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 14
+        },
+        {
+          "text": 2,
+          "prompt_length": 129,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 21
+        },
+        {
+          "text": 3,
+          "prompt_length": 777,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 28
+        },
+        {
+          "text": 0,
+          "prompt_length": 8,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 35
+        },
+        {
+          "text": 1,
+          "prompt_length": 63,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 42
+        },
+        {
+          "text": 2,
+          "prompt_length": 129,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 49
+        }
+      ],
+      "target_last": false,
+      "engine": "replay"
+    },
+    {
+      "cell_id": "packing-eight-mixed-last",
+      "family": "packing",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 256,
+      "chunk_size": 256,
+      "companions": [
+        {
+          "text": 0,
+          "prompt_length": 8,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 7
+        },
+        {
+          "text": 1,
+          "prompt_length": 63,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 14
+        },
+        {
+          "text": 2,
+          "prompt_length": 129,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 21
+        },
+        {
+          "text": 3,
+          "prompt_length": 777,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 28
+        },
+        {
+          "text": 0,
+          "prompt_length": 8,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 35
+        },
+        {
+          "text": 1,
+          "prompt_length": 63,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 42
+        },
+        {
+          "text": 2,
+          "prompt_length": 129,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 49
+        }
+      ],
+      "target_last": true,
+      "engine": "replay"
+    },
+    {
+      "cell_id": "packing-one-token-neighbours-first",
+      "family": "packing",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 256,
+      "chunk_size": 256,
+      "companions": [
+        {
+          "text": 1,
+          "prompt_length": 1,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 7
+        },
+        {
+          "text": 2,
+          "prompt_length": 1,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 14
+        },
+        {
+          "text": 3,
+          "prompt_length": 1,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 21
+        }
+      ],
+      "target_last": false,
+      "engine": "replay"
+    },
+    {
+      "cell_id": "packing-one-token-neighbours-last",
+      "family": "packing",
+      "target": {
+        "text": 0,
+        "prompt_length": 256,
+        "max_tokens": 16,
+        "arrival_step": 0,
+        "offset": 0
+      },
+      "first_chunk": 256,
+      "chunk_size": 256,
+      "companions": [
+        {
+          "text": 1,
+          "prompt_length": 1,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 7
+        },
+        {
+          "text": 2,
+          "prompt_length": 1,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 14
+        },
+        {
+          "text": 3,
+          "prompt_length": 1,
+          "max_tokens": 16,
+          "arrival_step": 0,
+          "offset": 21
+        }
+      ],
+      "target_last": true,
+      "engine": "replay"
+    }
+  ],
+  "cells_sha256": "f4709588a5d1e4fdceffc74df74d8c5980f8321e484906324e507d5b55ebcfae"
+}
