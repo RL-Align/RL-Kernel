@@ -81,6 +81,9 @@ def test_plugin_enforces_real_pytest_outcomes(tmp_path, outcome):
         "-q",
         "-p",
         "no:cacheprovider",
+        # Node ids are relative to the rootdir; keep it here even under another checkout.
+        "--rootdir",
+        str(tmp_path),
         "-p",
         "rl_engine.validation.models.pytest_case_manifest",
         "--case-manifest",
