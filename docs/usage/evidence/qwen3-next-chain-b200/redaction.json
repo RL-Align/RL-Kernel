@@ -1,0 +1,15 @@
+{
+  "placeholders": {
+    "<CGROUP>": 9,
+    "<CHECKPOINT>": 35,
+    "<CUDA_HOME>": 18,
+    "<HOME>": 7117,
+    "<HOST>": 1,
+    "<PATH>": 99,
+    "<PYTHON>": 18,
+    "<PYTHON_ENV>": 88,
+    "<RUN>": 258,
+    "<RUNS>": 12,
+    "<SITE>": 7161
+  }
+}
