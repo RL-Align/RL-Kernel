@@ -18,7 +18,9 @@ Commands use the current repository layout; at `759755e` these runners were
 in `scripts/`. The stages ran the code of `759755e`; the copy in this directory was made by
 the publisher of `3025497`, which only adds redaction rules (`redaction.json`
 counts the placeholders) and changes no measured byte. `SHA256SUMS` covers
-every file.
+every file except this README and `figure.png`, which
+`python tools/validation/models/plot_qwen3_next_batch_invariance.py docs/usage/evidence/qwen3-next-batch-invariance-b200`
+draws from the published files.
 
 | Stage | Result |
 | --- | --- |
