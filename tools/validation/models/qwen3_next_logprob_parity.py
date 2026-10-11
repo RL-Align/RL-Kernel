@@ -17,7 +17,8 @@ where ranks combine values:
   layer 3 and the MoE block of layer 0;
 * the TP4 selected-token logprob, LSE and entropy (and the logits gradient),
   the gathered sampling logits, and the same logprob computed on one rank over
-  the gathered full-vocabulary logits (TP1), which must be bitwise equal;
+  the gathered full-vocabulary logits (TP1); selected logprob and LSE must be
+  bitwise equal (entropy is merged in rank order and only recorded);
 * a negative control: the attention ``o_proj`` row-parallel partials reduced by
   RL-Kernel's deterministic collective and, separately, by ``torch.distributed``
   ``all_reduce`` on NCCL.
@@ -201,9 +202,15 @@ def parity(checkpoint, generator):
             if key.startswith(("embedding.forward", "logprob.tp4.selected", "sampling_logits")):
                 if peer_points[key] != points[key]:
                     raise AssertionError(f"{key} differs between ranks")
-    for part in ("selected", "lse", "entropy"):
+    # Selected logprob and LSE merge per-tile statistics in global tile order, so
+    # they cannot depend on the TP degree. Entropy is summed per shard in rank
+    # order (WS2 provider); it is recorded, not required, across TP degrees.
+    for part in ("selected", "lse"):
         if points[f"logprob.tp4.{part}"] != points[f"logprob.tp1.{part}"]:
             raise AssertionError(f"TP4 {part} differs from TP1")
+    points["entropy.tp4_equals_tp1"] = (
+        points["logprob.tp4.entropy"] == points["logprob.tp1.entropy"]
+    )
     return {
         "tokens": TOKENS,
         "nccl_settings": {name: os.environ.get(name) for name in NCCL_SETTINGS},

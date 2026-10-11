@@ -8,7 +8,7 @@
         --runs <dir per NCCL setting>... --out report.json
 
 Every point except the raw-NCCL negative control must have one digest per rank
-across all settings, and the TP4 logprob must equal TP1. The report records how
+across all settings, and the TP4 selected logprob and LSE must equal TP1. The report records how
 many distinct digests each point produced, per rank.
 """
 
@@ -45,7 +45,7 @@ def compare(runs):
         r["points"][f"logprob.tp4.{part}"] == r["points"][f"logprob.tp1.{part}"]
         for rs in reports.values()
         for r in rs
-        for part in ("selected", "lse", "entropy")
+        for part in ("selected", "lse")
     )
     return {
         "kind": "qwen3_next_distributed_logprob_parity",
@@ -59,6 +59,9 @@ def compare(runs):
         "deterministic_points_invariant": invariant,
         "tp4_equals_tp1": tp1,
         "nccl_all_reduce_varies": max(table[CONTROL]["distinct_digests_per_rank"]) > 1,
+        "entropy_tp4_equals_tp1": all(
+            r["points"]["entropy.tp4_equals_tp1"] for rs in reports.values() for r in rs
+        ),
         "full_logits_match_gathered": all(
             r["points"]["full_logits.matches_gathered"] for rs in reports.values() for r in rs
         ),
