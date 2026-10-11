@@ -16,6 +16,7 @@ DEFAULT_INTERMEDIATE = 12288
 DEFAULT_VOCAB = 151936
 DEFAULT_ROPE_THETA = 1.0e6
 DEFAULT_RMS_EPS = 1.0e-6
+DEFAULT_ATTN_OUT_DIM = 3072  # Qwen-Image MMDiT inner dim (24 heads x 128)
 
 
 def make_operator_inputs(
@@ -41,6 +42,7 @@ def make_operator_inputs(
         "swiglu": _make_swiglu_inputs,
         "embedding": _make_embedding_inputs,
         "lm_head": _make_lm_head_inputs,
+        "attn_out_bias_gemm": _make_attn_out_bias_gemm_inputs,
         "kv_cache_attention": _make_kv_cache_attention_inputs,
     }
     try:
@@ -71,6 +73,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "swiglu": f"{batch}x{seq}x{DEFAULT_INTERMEDIATE}",
         "embedding": f"{batch}x{seq}x{vocab}x{_normalized_dim(args)}",
         "lm_head": f"{batch}x{seq}x{_normalized_dim(args)}x{vocab}",
+        "attn_out_bias_gemm": f"{batch}x{seq}x{_attn_out_dim(args)}",
         "kv_cache_attention": f"{batch}x{DEFAULT_N_HEADS}x1x{seq + 1}x{DEFAULT_HEAD_DIM}",
     }
     try:
@@ -305,6 +308,23 @@ def _make_lm_head_inputs(
         "weight": _floating_tensor((vocab, hidden_dim), args, dtype, device, 1),
         "bias": None,
     }
+
+
+def _make_attn_out_bias_gemm_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    """Qwen-Image attention output projection: [S, 3072] bias GEMM with bias."""
+    batch, seq = _batch_seq(args)
+    dim = _attn_out_dim(args)
+    return {
+        "x": _floating_tensor((batch, seq, dim), args, dtype, device, offset=0),
+        "weight": _floating_tensor((dim, dim), args, dtype, device, offset=1),
+        "bias": _floating_tensor((dim,), args, dtype, device, offset=2),
+    }
+
+
+def _attn_out_dim(args: argparse.Namespace) -> int:
+    return _arg_int(args, "normalized_dim", DEFAULT_ATTN_OUT_DIM)
 
 
 def _make_kv_cache_attention_inputs(

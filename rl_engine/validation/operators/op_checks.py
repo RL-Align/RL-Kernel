@@ -4,8 +4,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import asdict, dataclass
-from typing import Any
+from dataclasses import asdict, dataclass, replace
+from typing import Any, Optional
 
 import torch
 
@@ -29,6 +29,15 @@ class OperatorCase:
     inputs: Mapping[str, Any]
     gold_fn: Callable[..., Any]
     grad_input_names: tuple[str, ...] = ()
+    # Bitwise-strict operators (WS1 frozen-contract tree ops): the pass
+    # criterion is exact logical-element bit-pattern equality. Forward legs
+    # compare against the gold cast ONCE to the candidate's output dtype;
+    # the gradient leg differentiates ``gold_backward_fn`` -- the gold OP
+    # itself, whose autograd.Function.backward IS the frozen chain -- with
+    # the same upstream bits as the candidate. Tolerances are never
+    # consulted for ``passed``; error statistics stay diagnostics.
+    bitwise_strict: bool = False
+    gold_backward_fn: Optional[Callable[..., Any]] = None
 
 
 @dataclass(frozen=True)
@@ -219,7 +228,19 @@ def _run_case_backward(
     candidate_inputs = _clone_inputs_for_backward(case.inputs, case.grad_input_names)
     gold_inputs = _clone_inputs_for_backward(case.inputs, case.grad_input_names)
     candidate_outputs = _flatten_tensors(_call_candidate(candidate.fn, candidate_inputs))
-    gold_outputs = _flatten_tensors(case.gold_fn(**gold_inputs))
+    # Frozen-backward gold: differentiate the gold OP itself (its
+    # autograd.Function.backward is the frozen chain) instead of the plain
+    # gold_fn graph, so the gradient gold shares the contract's rounding
+    # positions and bitwise equality is meaningful. The FORWARD comparison
+    # still uses the fp32 gold_fn view (identical bits after the single
+    # output cast), keeping provenance dtype checks unchanged.
+    gold_forward = case.gold_backward_fn if case.gold_backward_fn is not None else case.gold_fn
+    gold_graph_outputs = _flatten_tensors(gold_forward(**gold_inputs))
+    gold_outputs = (
+        _flatten_tensors(case.gold_fn(**gold_inputs))
+        if case.gold_backward_fn is not None
+        else gold_graph_outputs
+    )
     # Candidate and gold must use the same upstream gradients; otherwise we
     # would compare different vector-Jacobian products.
     # grad_mode="ones" is the old output.sum().backward() smoke path.
@@ -236,10 +257,10 @@ def _run_case_backward(
         grad_outputs=shared_upstreams,
     )
     gold_grads = _backward_grads(
-        gold_outputs,
+        gold_graph_outputs,
         gold_inputs,
         case.grad_input_names,
-        grad_outputs=_match_grad_outputs(shared_upstreams, gold_outputs),
+        grad_outputs=_match_grad_outputs(shared_upstreams, gold_graph_outputs),
     )
     output_checks = _compare_case_outputs(
         candidate,
@@ -294,6 +315,13 @@ def _run_case_backward(
             zip(case.grad_input_names, candidate_grads, gold_grads, strict=True)
         )
     ]
+    if case.bitwise_strict:
+        grad_checks = [
+            _bitwise_verdict(check, candidate_grad, gold_grad)
+            for check, candidate_grad, gold_grad in zip(
+                grad_checks, candidate_grads, gold_grads, strict=True
+            )
+        ]
     checks = [*output_checks, *grad_checks]
     return CaseCheck(
         case_name=case.name,
@@ -375,6 +403,13 @@ def _compare_case_outputs(
             zip(candidate_outputs, gold_outputs, strict=True)
         )
     ]
+    if case.bitwise_strict:
+        output_checks = [
+            _bitwise_verdict(check, candidate_output, gold_output)
+            for check, candidate_output, gold_output in zip(
+                output_checks, candidate_outputs, gold_outputs, strict=True
+            )
+        ]
     return CaseCheck(
         case_name=case.name,
         dtype=str(case.dtype),
@@ -537,6 +572,44 @@ def _resolve_tolerance(
 
     values = contract["accuracy"]["default"][op_class][dtype_name]
     return float(values["atol"]), float(values.get("rtol", 0.0))
+
+
+_BITWISE_VIEWS = {torch.bfloat16: torch.int16, torch.float32: torch.int32}
+
+
+def _bitwise_verdict(
+    check: OutputCheck, candidate_output: torch.Tensor, gold_output: torch.Tensor
+) -> OutputCheck:
+    """Override a tolerance verdict with the exact bit-pattern bar.
+
+    Expected bits are the gold's logical elements after ONE cast to the
+    candidate's output dtype (the frozen contract's single RNE output cast);
+    equality is asserted on the dtype bitcast, so NaN payloads and signed
+    zeros compare by pattern, not by value. Error statistics computed by the
+    tolerance comparison are preserved as diagnostics.
+    """
+    if candidate_output.shape != gold_output.shape:
+        passed = False
+        note = "bitwise: shape mismatch"
+    else:
+        if candidate_output.dtype not in _BITWISE_VIEWS:
+            raise ValueError(
+                f"bitwise_strict supports bf16/fp32 outputs, got {candidate_output.dtype}"
+            )
+        expected = (
+            gold_output
+            if gold_output.dtype == candidate_output.dtype
+            else gold_output.to(candidate_output.dtype)
+        )
+        passed = bool(
+            torch.equal(
+                expected.contiguous().view(_BITWISE_VIEWS[candidate_output.dtype]),
+                candidate_output.contiguous().view(_BITWISE_VIEWS[candidate_output.dtype]),
+            )
+        )
+        note = "bitwise" if passed else "bitwise: bit-pattern mismatch"
+    message = f"{check.message} [{note}]" if check.message else note
+    return replace(check, passed=passed, message=message)
 
 
 def _compare_output(
