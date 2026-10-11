@@ -29,6 +29,7 @@ Every operator page should include:
 - [LM Head](lm_head.md)
 - [Policy Ratio + KL Penalty](ratio-kl.md)
 - [Pack and Pad](pack-and-pad.md)
+- [Packed Index Copy](packed-index-copy.md)
 - [Matmul](matmul.md)
 - [Sampling](sampling.md)
 - [Token Embedding](embedding.md)
