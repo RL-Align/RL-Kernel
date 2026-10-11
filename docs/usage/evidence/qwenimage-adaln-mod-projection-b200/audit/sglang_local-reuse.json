@@ -1,0 +1,2804 @@
+{
+  "mode": "sglang_local",
+  "phase": "reuse",
+  "accuracy_seed": 0,
+  "source": {
+    "base_sha": "893642643f4095451987c326a1449524d3c15496",
+    "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_source_sha256": {},
+    "workspace_source_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "qwenimage_source_sha256": {
+      "csrc/cuda/model_specific/qwenimage/det_linear.cu": "859da456b0c776f3492b3197c252866e33d9a7088508b701b7c4a179ee709afb",
+      "rl_engine/backends/cuda/model_specific/qwenimage/__init__.py": "95c46d40c4aed2d4c26a65bc0cc64331e42b237673293ea5ed45b79ebc11d4b4",
+      "rl_engine/backends/cuda/model_specific/qwenimage/adaln_mod_projection.py": "f8ad94517879c9135e0ed3bc24469c6fc9a24ea07179fd1c52d3235c5ef13dcc",
+      "rl_engine/reference/model_specific/qwenimage/__init__.py": "95c46d40c4aed2d4c26a65bc0cc64331e42b237673293ea5ed45b79ebc11d4b4",
+      "rl_engine/reference/model_specific/qwenimage/adaln_mod_projection.py": "1ebc740ddff575055ee66ed714a8c7cc5c6cee2701d582a665289e9ad1a4fe3d",
+      "benchmarks/models/qwenimage/__init__.py": "a63ebc79ed10d9ed98484565a353438bd13f5801a8f51d7505d0921bf6942742",
+      "benchmarks/models/qwenimage/adaln_evidence.py": "b212244aa016b406e441ba1648467dd97ed936c3ddca92db526ebcea666efbd8",
+      "benchmarks/models/qwenimage/adaln_parameter_screen.py": "05562ef30d09296c2ccd1cdeb44085568b8c877d01f5fb1df4b983e84945ec03",
+      "benchmarks/models/qwenimage/adaln_prior_art.py": "647aa9fc81e02bf3c7806ed6c2a3e578fb3e1a0b000b4388a12367ef86de3139",
+      "benchmarks/models/qwenimage/adaln_reuse_bi_audit.py": "7e20df2a16c4f31cc1cf82cfb10f031f3ff454f4a96585a20267cde8171cef71",
+      "benchmarks/models/qwenimage/adaln_reuse_candidate.py": "e636d6e4fee136e6c8716c973969f8074c77c18ed49d3cd11a246389a9fc4a16",
+      "benchmarks/models/qwenimage/plot_adaln_audit.py": "f362800e95c7a64c31a4d16b8e3ba02fd8783ea386a6773281f22e2f48d3248e",
+      "benchmarks/models/qwenimage/plot_adaln_evidence.py": "16d6bed0ee5b808814c5f7157145a730750d0b1aaf94762e6f72a256e942c1e2",
+      "benchmarks/models/qwenimage/streams.py": "86fd5d8e28fde856c50c704580a3df11c1d2af3e7774a50503ab7f7c1635b3ae",
+      "benchmarks/models/qwenimage/validate_adaln_repair.py": "e093f246042c02a850b8eee49893bcc54f92c13c5d7710924a73e49406724e1f"
+    },
+    "extension_sha256": "fe366383d6f8983c22cb9f4233d8e537f0d45f1600ad3c7c47fbdfb87094aaef",
+    "clean_commit": true
+  },
+  "cases": [
+    {
+      "stream": "image",
+      "dtype": "torch.bfloat16",
+      "weights": {
+        "transformer_blocks.0.img_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "22ef33e6865806f3e1d2bc137bd1a41510cf0619ed0c85fba35a626cd7bad018",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.img_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "f4d2241820fa1a1895d7136bd5653ae0984a50bf0a0961a312b45e0e393d8218",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 0.0007102272727272727,
+        "temb": 0.0013375396742077623,
+        "weight": 0.0031093047650859887,
+        "bias": 0.002188183807439825
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "sglang_local": [
+                  0.14665600657463074,
+                  0.14185599982738495,
+                  0.14601600170135498,
+                  0.14185599982738495,
+                  0.14076800644397736,
+                  0.13964800536632538,
+                  0.1382720023393631,
+                  0.1432960033416748,
+                  0.14422400295734406,
+                  0.14150400459766388
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 0.14185599982738495
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  2.0248959064483643,
+                  2.231584072113037,
+                  2.241055965423584,
+                  2.2289280891418457,
+                  2.227423906326294,
+                  2.2631680965423584,
+                  2.179840087890625,
+                  2.1968960762023926,
+                  2.18940806388855,
+                  2.2564799785614014
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 2.22817599773407
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  2.365920066833496,
+                  2.3681600093841553,
+                  2.372864007949829,
+                  2.364000082015991,
+                  2.3689920902252197,
+                  2.429919958114624,
+                  2.430432081222534,
+                  2.3930559158325195,
+                  2.410111904144287,
+                  2.356640100479126
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 2.3709280490875244
+              }
+            },
+            "peak_increment_bytes": {
+              "sglang_local": 339904512
+            }
+          }
+        },
+        {
+          "batch": 3,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "sglang_local": [
+                  0.14723199605941772,
+                  0.14207999408245087,
+                  0.13439999520778656,
+                  0.13708800077438354,
+                  0.13971200585365295,
+                  0.13872000575065613,
+                  0.13743999600410461,
+                  0.13583999872207642,
+                  0.14457599818706512,
+                  0.14297600090503693
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 0.13921600580215454
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  2.1600000858306885,
+                  2.159615993499756,
+                  2.1994879245758057,
+                  2.2291839122772217,
+                  2.1842880249023438,
+                  2.1447360515594482,
+                  2.1971840858459473,
+                  2.176608085632324,
+                  2.1647040843963623,
+                  2.1673600673675537
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 2.171984076499939
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  2.397696018218994,
+                  2.3446719646453857,
+                  2.2469120025634766,
+                  2.390496015548706,
+                  2.387104034423828,
+                  2.368191957473755,
+                  2.39353609085083,
+                  2.3703999519348145,
+                  2.330303907394409,
+                  2.3377599716186523
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 2.3692959547042847
+              }
+            },
+            "peak_increment_bytes": {
+              "sglang_local": 340236288
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "sglang_local": [
+                  0.11993599683046341,
+                  0.11388800293207169,
+                  0.11020799726247787,
+                  0.10742399841547012,
+                  0.10716799646615982,
+                  0.10623999685049057,
+                  0.10473600029945374,
+                  0.10559999942779541,
+                  0.10460799932479858,
+                  0.10409600287675858
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 0.1067039966583252
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  2.7397758960723877,
+                  2.710400104522705,
+                  2.693376064300537,
+                  2.6760640144348145,
+                  2.737407922744751,
+                  2.680543899536133,
+                  2.6717119216918945,
+                  2.700511932373047,
+                  2.729599952697754,
+                  2.6824638843536377
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 2.696943998336792
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  2.8421120643615723,
+                  2.864000082015991,
+                  2.8450241088867188,
+                  2.852191925048828,
+                  2.885024070739746,
+                  2.9042880535125732,
+                  2.76694393157959,
+                  2.7221438884735107,
+                  2.8962879180908203,
+                  2.8523199558258057
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 2.852255940437317
+              }
+            },
+            "peak_increment_bytes": {
+              "sglang_local": 382205952
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "sglang_local": [
+                  0.45180800557136536,
+                  0.45023998618125916,
+                  0.44655999541282654,
+                  0.4442879855632782,
+                  0.4435200095176697,
+                  0.4424000084400177,
+                  0.44143998622894287,
+                  0.4440320134162903,
+                  0.4484480023384094,
+                  0.4429759979248047
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 0.44415999948978424
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  9.749695777893066,
+                  9.757984161376953,
+                  9.70911979675293,
+                  9.703295707702637,
+                  9.712672233581543,
+                  9.699295997619629,
+                  9.692031860351562,
+                  9.676799774169922,
+                  9.76688003540039,
+                  9.703968048095703
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 9.706543922424316
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  10.048640251159668,
+                  9.999072074890137,
+                  10.052000045776367,
+                  10.04793643951416,
+                  10.047679901123047,
+                  10.043840408325195,
+                  10.051872253417969,
+                  10.050880432128906,
+                  10.04751968383789,
+                  10.04751968383789
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 10.047808170318604
+              }
+            },
+            "peak_increment_bytes": {
+              "sglang_local": 679477248
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "image",
+      "dtype": "torch.float32",
+      "weights": {
+        "transformer_blocks.0.img_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "22ef33e6865806f3e1d2bc137bd1a41510cf0619ed0c85fba35a626cd7bad018",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.img_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "f4d2241820fa1a1895d7136bd5653ae0984a50bf0a0961a312b45e0e393d8218",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 1.5183194788849913e-06,
+        "temb": 1.8327359852933242e-06,
+        "weight": 1.2601489105323987e-07,
+        "bias": 5.007435123128072e-08
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "sglang_local": [
+                  0.8014400005340576,
+                  0.7975999712944031,
+                  0.8000320196151733,
+                  0.7905920147895813,
+                  0.7907519936561584,
+                  0.7884160280227661,
+                  0.786624014377594,
+                  0.7857919931411743,
+                  0.7908480167388916,
+                  0.7882879972457886
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 0.7906720042228699
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  2.0883519649505615,
+                  2.0556159019470215,
+                  2.057919979095459,
+                  2.0662078857421875,
+                  2.096287965774536,
+                  2.0590078830718994,
+                  2.109312057495117,
+                  2.0888640880584717,
+                  2.0889599323272705,
+                  2.052031993865967
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 2.0772799253463745
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  2.580512046813965,
+                  2.6339199542999268,
+                  2.6439359188079834,
+                  2.632159948348999,
+                  2.6371519565582275,
+                  2.6309759616851807,
+                  2.6368319988250732,
+                  2.6286399364471436,
+                  2.5748159885406494,
+                  2.6344640254974365
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 2.633039951324463
+              }
+            },
+            "peak_increment_bytes": {
+              "sglang_local": 226775040
+            }
+          }
+        },
+        {
+          "batch": 3,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "sglang_local": [
+                  0.7766720056533813,
+                  0.7702400088310242,
+                  0.7703359723091125,
+                  0.7684159874916077,
+                  0.7694079875946045,
+                  0.7715200185775757,
+                  0.7691519856452942,
+                  0.769760012626648,
+                  0.7656959891319275,
+                  0.7688320279121399
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 0.7695840001106262
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  2.0636160373687744,
+                  2.0696640014648438,
+                  2.034719944000244,
+                  2.0311999320983887,
+                  2.03987193107605,
+                  2.0278398990631104,
+                  2.017728090286255,
+                  2.031359910964966,
+                  2.0587520599365234,
+                  2.0832319259643555
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 2.037295937538147
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  2.5859200954437256,
+                  2.584671974182129,
+                  2.5929598808288574,
+                  2.525887966156006,
+                  2.58735990524292,
+                  2.5871360301971436,
+                  2.59334397315979,
+                  2.588320016860962,
+                  2.5894720554351807,
+                  2.587455987930298
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 2.587407946586609
+              }
+            },
+            "peak_increment_bytes": {
+              "sglang_local": 227192832
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "sglang_local": [
+                  1.5283520221710205,
+                  1.5191999673843384,
+                  1.52019202709198,
+                  1.5209280252456665,
+                  1.516543984413147,
+                  1.518272042274475,
+                  1.515712022781372,
+                  1.521888017654419,
+                  1.5226880311965942,
+                  1.5204479694366455
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 1.5203199982643127
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  2.5251519680023193,
+                  2.56060791015625,
+                  2.5858240127563477,
+                  2.5181760787963867,
+                  2.5228159427642822,
+                  2.5888640880584717,
+                  2.525279998779297,
+                  2.519167900085449,
+                  2.5004160404205322,
+                  2.522752046585083
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 2.523983955383301
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  3.843519926071167,
+                  3.84499192237854,
+                  3.780128002166748,
+                  3.8430399894714355,
+                  3.8386878967285156,
+                  3.8420159816741943,
+                  3.8423359394073486,
+                  3.836735963821411,
+                  3.8467841148376465,
+                  3.8429760932922363
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 3.8426560163497925
+              }
+            },
+            "peak_increment_bytes": {
+              "sglang_local": 280043520
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "sglang_local": [
+                  11.757472038269043,
+                  11.743647575378418,
+                  11.743071556091309,
+                  11.750368118286133,
+                  11.744256019592285,
+                  11.74345588684082,
+                  11.738016128540039,
+                  11.749343872070312,
+                  11.74630355834961,
+                  11.740511894226074
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 11.743951797485352
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  9.47481632232666,
+                  9.495743751525879,
+                  9.47379207611084,
+                  9.468255996704102,
+                  9.509504318237305,
+                  9.440863609313965,
+                  9.491840362548828,
+                  9.494976043701172,
+                  9.437055587768555,
+                  9.513343811035156
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 9.483328342437744
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  21.01036834716797,
+                  21.007360458374023,
+                  20.94416046142578,
+                  21.01103973388672,
+                  21.01363182067871,
+                  21.00713539123535,
+                  21.011072158813477,
+                  21.014623641967773,
+                  20.941247940063477,
+                  21.01139259338379
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 21.010704040527344
+              }
+            },
+            "peak_increment_bytes": {
+              "sglang_local": 739320832
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "text",
+      "dtype": "torch.bfloat16",
+      "weights": {
+        "transformer_blocks.0.txt_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "7fc5615cea51f21640ae26b29e4595fe96295113b1fd31b117664c1b85d360c2",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.txt_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "537d4e06e6fe7428a331637871fcf8c9c4899b296b5419e12abb3a3972adfc72",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 0.0009765625,
+        "temb": 0.0019412816630083021,
+        "weight": 0.0031093047650859887,
+        "bias": 0.002188183807439825
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "sglang_local": [
+                  0.14486399292945862,
+                  0.14294399321079254,
+                  0.1398719996213913,
+                  0.1356160044670105,
+                  0.13542400300502777,
+                  0.13849599659442902,
+                  0.14025600254535675,
+                  0.13660800457000732,
+                  0.13622400164604187,
+                  0.13891200721263885
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 0.13870400190353394
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  2.259104013442993,
+                  2.1929919719696045,
+                  2.2163519859313965,
+                  2.1842880249023438,
+                  2.2250239849090576,
+                  2.195136070251465,
+                  2.189919948577881,
+                  2.2095999717712402,
+                  2.197376012802124,
+                  2.174367904663086
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 2.1962560415267944
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  2.424639940261841,
+                  2.3922879695892334,
+                  2.3722240924835205,
+                  2.4303998947143555,
+                  2.3201920986175537,
+                  2.4063360691070557,
+                  2.374687910079956,
+                  2.407520055770874,
+                  2.400576114654541,
+                  2.375231981277466
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 2.396432042121887
+              }
+            },
+            "peak_increment_bytes": {
+              "sglang_local": 339904512
+            }
+          }
+        },
+        {
+          "batch": 3,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "sglang_local": [
+                  0.1456640064716339,
+                  0.1390720009803772,
+                  0.14070400595664978,
+                  0.1398400068283081,
+                  0.13651199638843536,
+                  0.13734400272369385,
+                  0.14182400703430176,
+                  0.14076800644397736,
+                  0.13977600634098053,
+                  0.13344000279903412
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 0.13980800658464432
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  2.12825608253479,
+                  2.1915199756622314,
+                  2.188767910003662,
+                  2.1516799926757812,
+                  2.1504321098327637,
+                  2.1616640090942383,
+                  2.159327983856201,
+                  2.1627840995788574,
+                  2.2020480632781982,
+                  2.2177278995513916
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 2.162224054336548
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  2.3468799591064453,
+                  2.407327890396118,
+                  2.3202240467071533,
+                  2.2607359886169434,
+                  2.3562240600585938,
+                  2.344831943511963,
+                  2.3371520042419434,
+                  2.351775884628296,
+                  2.348383903503418,
+                  2.28604793548584
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 2.345855951309204
+              }
+            },
+            "peak_increment_bytes": {
+              "sglang_local": 340236288
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "sglang_local": [
+                  0.11231999844312668,
+                  0.10732799768447876,
+                  0.1050880029797554,
+                  0.10543999820947647,
+                  0.10716799646615982,
+                  0.10534399747848511,
+                  0.10419200360774994,
+                  0.10320000350475311,
+                  0.10316800326108932,
+                  0.10592000186443329
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 0.10539199784398079
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  2.674623966217041,
+                  2.734623908996582,
+                  2.6698238849639893,
+                  2.7051520347595215,
+                  2.735136032104492,
+                  2.695359945297241,
+                  2.6943678855895996,
+                  2.7246720790863037,
+                  2.6463680267333984,
+                  2.722111940383911
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 2.7002559900283813
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  2.8612799644470215,
+                  2.938944101333618,
+                  2.7558720111846924,
+                  2.871840000152588,
+                  2.845792055130005,
+                  2.9109439849853516,
+                  2.884608030319214,
+                  2.8492801189422607,
+                  2.9041919708251953,
+                  2.8878400325775146
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 2.878224015235901
+              }
+            },
+            "peak_increment_bytes": {
+              "sglang_local": 382205952
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "sglang_local": [
+                  0.45321598649024963,
+                  0.4482879936695099,
+                  0.44630399346351624,
+                  0.44758400321006775,
+                  0.454367995262146,
+                  0.44470399618148804,
+                  0.447488009929657,
+                  0.44233599305152893,
+                  0.4453440010547638,
+                  0.44649600982666016
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 0.44699200987815857
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  9.77888011932373,
+                  9.710304260253906,
+                  9.706720352172852,
+                  9.710623741149902,
+                  9.715423583984375,
+                  9.717632293701172,
+                  9.68387222290039,
+                  9.676095962524414,
+                  9.722047805786133,
+                  9.717344284057617
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 9.713023662567139
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  9.984959602355957,
+                  10.05504035949707,
+                  9.992416381835938,
+                  10.051168441772461,
+                  10.053119659423828,
+                  10.052512168884277,
+                  10.049504280090332,
+                  10.223775863647461,
+                  10.058943748474121,
+                  10.047295570373535
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 10.05184030532837
+              }
+            },
+            "peak_increment_bytes": {
+              "sglang_local": 679477248
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "text",
+      "dtype": "torch.float32",
+      "weights": {
+        "transformer_blocks.0.txt_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "7fc5615cea51f21640ae26b29e4595fe96295113b1fd31b117664c1b85d360c2",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.txt_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "537d4e06e6fe7428a331637871fcf8c9c4899b296b5419e12abb3a3972adfc72",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 1.2188368681386174e-06,
+        "temb": 4.465900779879222e-06,
+        "weight": 1.2601489105323987e-07,
+        "bias": 5.007435123128072e-08
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "sglang_local": [
+                  0.7916799783706665,
+                  0.787231981754303,
+                  0.7865920066833496,
+                  0.7877439856529236,
+                  0.7861440181732178,
+                  0.7877439856529236,
+                  0.7884799838066101,
+                  0.7842239737510681,
+                  0.7890239953994751,
+                  0.787168025970459
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 0.7874879837036133
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  2.0769600868225098,
+                  2.0504000186920166,
+                  2.0846400260925293,
+                  2.113503932952881,
+                  2.078432083129883,
+                  2.059583902359009,
+                  2.0382399559020996,
+                  2.0504961013793945,
+                  2.0555200576782227,
+                  2.1302719116210938
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 2.0682719945907593
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  2.638079881668091,
+                  2.6382079124450684,
+                  2.634335994720459,
+                  2.636863946914673,
+                  2.638688087463379,
+                  2.641887903213501,
+                  2.6377921104431152,
+                  2.6461119651794434,
+                  2.641887903213501,
+                  2.5759999752044678
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 2.6381438970565796
+              }
+            },
+            "peak_increment_bytes": {
+              "sglang_local": 226775040
+            }
+          }
+        },
+        {
+          "batch": 3,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "sglang_local": [
+                  0.7739520072937012,
+                  0.7680320143699646,
+                  0.7693439722061157,
+                  0.7693439722061157,
+                  0.7683200240135193,
+                  0.7696639895439148,
+                  0.7641599774360657,
+                  0.7690879702568054,
+                  0.7711679935455322,
+                  0.7674559950828552
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 0.7692159712314606
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  2.02239990234375,
+                  2.0667519569396973,
+                  2.0214719772338867,
+                  2.021440029144287,
+                  2.0207359790802,
+                  2.0672640800476074,
+                  2.0566720962524414,
+                  2.045248031616211,
+                  2.025952100753784,
+                  2.0199038982391357
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 2.024176001548767
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  2.5880959033966064,
+                  2.5959999561309814,
+                  2.5949440002441406,
+                  2.5938880443573,
+                  2.5900158882141113,
+                  2.595616102218628,
+                  2.526495933532715,
+                  2.511807918548584,
+                  2.591264009475708,
+                  2.592223882675171
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 2.5917439460754395
+              }
+            },
+            "peak_increment_bytes": {
+              "sglang_local": 227192832
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "sglang_local": [
+                  1.527232050895691,
+                  1.5179200172424316,
+                  1.5190080404281616,
+                  1.5149439573287964,
+                  1.5157760381698608,
+                  1.5172159671783447,
+                  1.5229120254516602,
+                  1.5164799690246582,
+                  1.5196479558944702,
+                  1.52019202709198
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 1.5184640288352966
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  2.524735927581787,
+                  2.5207679271698,
+                  2.5948801040649414,
+                  2.5577280521392822,
+                  2.549855947494507,
+                  2.5307199954986572,
+                  2.517888069152832,
+                  2.5888960361480713,
+                  2.520832061767578,
+                  2.5166079998016357
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 2.527727961540222
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  3.842303991317749,
+                  3.8423359394073486,
+                  3.842400074005127,
+                  3.840735912322998,
+                  3.8412160873413086,
+                  3.779520034790039,
+                  3.758784055709839,
+                  3.842495918273926,
+                  3.8414719104766846,
+                  3.849087953567505
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 3.841887950897217
+              }
+            },
+            "peak_increment_bytes": {
+              "sglang_local": 280043520
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "sglang_local": [
+                  11.748096466064453,
+                  11.7424955368042,
+                  11.74681568145752,
+                  11.744256019592285,
+                  11.747808456420898,
+                  11.73971176147461,
+                  11.740384101867676,
+                  11.739359855651855,
+                  11.739871978759766,
+                  11.747615814208984
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 11.743375778198242
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  9.462240219116211,
+                  9.464032173156738,
+                  9.491519927978516,
+                  9.49071979522705,
+                  9.483712196350098,
+                  9.48470401763916,
+                  9.517184257507324,
+                  9.443648338317871,
+                  9.4518404006958,
+                  9.456159591674805
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 9.473872184753418
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "sglang_local": [
+                  20.928831100463867,
+                  21.00614356994629,
+                  21.010112762451172,
+                  20.947999954223633,
+                  21.01468849182129,
+                  21.016704559326172,
+                  21.005184173583984,
+                  21.011199951171875,
+                  20.948959350585938,
+                  21.010271072387695
+                ]
+              },
+              "order": [
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ],
+                [
+                  "sglang_local"
+                ]
+              ],
+              "median_ms": {
+                "sglang_local": 21.00812816619873
+              }
+            },
+            "peak_increment_bytes": {
+              "sglang_local": 739320832
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "environment": {
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "gpu": "NVIDIA B200",
+    "workspace": {
+      "CUBLAS_WORKSPACE_CONFIG": null,
+      "CUBLASLT_WORKSPACE_SIZE": null
+    },
+    "tf32": false
+  },
+  "scope": "sample batch BI; shared parameter gradients: same ordered inputs, repeat only",
+  "packages": {
+    "torch": "2.13.0",
+    "triton": "3.7.1",
+    "diffusers": null,
+    "vllm": "0.30.0",
+    "sglang": "0.5.21",
+    "transformer_engine": null,
+    "megatron-core": null
+  }
+}

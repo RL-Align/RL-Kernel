@@ -1,0 +1,2804 @@
+{
+  "mode": "native",
+  "phase": "reuse",
+  "accuracy_seed": 0,
+  "source": {
+    "base_sha": "893642643f4095451987c326a1449524d3c15496",
+    "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_source_sha256": {},
+    "workspace_source_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "qwenimage_source_sha256": {
+      "csrc/cuda/model_specific/qwenimage/det_linear.cu": "859da456b0c776f3492b3197c252866e33d9a7088508b701b7c4a179ee709afb",
+      "rl_engine/backends/cuda/model_specific/qwenimage/__init__.py": "95c46d40c4aed2d4c26a65bc0cc64331e42b237673293ea5ed45b79ebc11d4b4",
+      "rl_engine/backends/cuda/model_specific/qwenimage/adaln_mod_projection.py": "f8ad94517879c9135e0ed3bc24469c6fc9a24ea07179fd1c52d3235c5ef13dcc",
+      "rl_engine/reference/model_specific/qwenimage/__init__.py": "95c46d40c4aed2d4c26a65bc0cc64331e42b237673293ea5ed45b79ebc11d4b4",
+      "rl_engine/reference/model_specific/qwenimage/adaln_mod_projection.py": "1ebc740ddff575055ee66ed714a8c7cc5c6cee2701d582a665289e9ad1a4fe3d",
+      "benchmarks/models/qwenimage/__init__.py": "a63ebc79ed10d9ed98484565a353438bd13f5801a8f51d7505d0921bf6942742",
+      "benchmarks/models/qwenimage/adaln_evidence.py": "b212244aa016b406e441ba1648467dd97ed936c3ddca92db526ebcea666efbd8",
+      "benchmarks/models/qwenimage/adaln_parameter_screen.py": "05562ef30d09296c2ccd1cdeb44085568b8c877d01f5fb1df4b983e84945ec03",
+      "benchmarks/models/qwenimage/adaln_prior_art.py": "647aa9fc81e02bf3c7806ed6c2a3e578fb3e1a0b000b4388a12367ef86de3139",
+      "benchmarks/models/qwenimage/adaln_reuse_bi_audit.py": "7e20df2a16c4f31cc1cf82cfb10f031f3ff454f4a96585a20267cde8171cef71",
+      "benchmarks/models/qwenimage/adaln_reuse_candidate.py": "e636d6e4fee136e6c8716c973969f8074c77c18ed49d3cd11a246389a9fc4a16",
+      "benchmarks/models/qwenimage/plot_adaln_audit.py": "f362800e95c7a64c31a4d16b8e3ba02fd8783ea386a6773281f22e2f48d3248e",
+      "benchmarks/models/qwenimage/plot_adaln_evidence.py": "16d6bed0ee5b808814c5f7157145a730750d0b1aaf94762e6f72a256e942c1e2",
+      "benchmarks/models/qwenimage/streams.py": "86fd5d8e28fde856c50c704580a3df11c1d2af3e7774a50503ab7f7c1635b3ae",
+      "benchmarks/models/qwenimage/validate_adaln_repair.py": "e093f246042c02a850b8eee49893bcc54f92c13c5d7710924a73e49406724e1f"
+    },
+    "extension_sha256": "fe366383d6f8983c22cb9f4233d8e537f0d45f1600ad3c7c47fbdfb87094aaef",
+    "clean_commit": true
+  },
+  "cases": [
+    {
+      "stream": "image",
+      "dtype": "torch.bfloat16",
+      "weights": {
+        "transformer_blocks.0.img_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "22ef33e6865806f3e1d2bc137bd1a41510cf0619ed0c85fba35a626cd7bad018",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.img_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "f4d2241820fa1a1895d7136bd5653ae0984a50bf0a0961a312b45e0e393d8218",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 0.0007102272727272727,
+        "temb": 0.0021352098780145655,
+        "weight": 0.0031093047650859887,
+        "bias": 0.002188183807439825
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "native": [
+                  0.04281599819660187,
+                  0.0424639992415905,
+                  0.04025600105524063,
+                  0.041471999138593674,
+                  0.0414079986512661,
+                  0.04012800008058548,
+                  0.04016000032424927,
+                  0.041439998894929886,
+                  0.039423998445272446,
+                  0.041120000183582306
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.0412639994174242
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "native": [
+                  0.14796799421310425,
+                  0.14281600713729858,
+                  0.14262400567531586,
+                  0.14691199362277985,
+                  0.14764800667762756,
+                  0.1313920021057129,
+                  0.1337279975414276,
+                  0.13551999628543854,
+                  0.13523200154304504,
+                  0.13212800025939941
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.1390720009803772
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "native": [
+                  0.18009600043296814,
+                  0.18639999628067017,
+                  0.17846399545669556,
+                  0.1815039962530136,
+                  0.17504000663757324,
+                  0.17660799622535706,
+                  0.16735999286174774,
+                  0.17574399709701538,
+                  0.177824005484581,
+                  0.17155200242996216
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.17721600085496902
+              }
+            },
+            "peak_increment_bytes": {
+              "native": 113369088
+            }
+          }
+        },
+        {
+          "batch": 3,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "native": [
+                  0.04044799879193306,
+                  0.0387520007789135,
+                  0.038943998515605927,
+                  0.038495998829603195,
+                  0.03846399858593941,
+                  0.038943998515605927,
+                  0.038975998759269714,
+                  0.03824000060558319,
+                  0.03862399980425835,
+                  0.04057599976658821
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.03884799964725971
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "native": [
+                  0.13344000279903412,
+                  0.13708800077438354,
+                  0.13542400300502777,
+                  0.11753600090742111,
+                  0.11993599683046341,
+                  0.10899200290441513,
+                  0.1167680025100708,
+                  0.12169600278139114,
+                  0.11724799871444702,
+                  0.11638399958610535
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.11873599886894226
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "native": [
+                  0.14934399724006653,
+                  0.14630399644374847,
+                  0.1528960019350052,
+                  0.16105599701404572,
+                  0.16281600296497345,
+                  0.15641599893569946,
+                  0.14659200608730316,
+                  0.1544640064239502,
+                  0.16601599752902985,
+                  0.15782399475574493
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.15544000267982483
+              }
+            },
+            "peak_increment_bytes": {
+              "native": 113541120
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "native": [
+                  0.04896000027656555,
+                  0.047680001705884933,
+                  0.046431999653577805,
+                  0.047200001776218414,
+                  0.04527999833226204,
+                  0.044895999133586884,
+                  0.0453759990632534,
+                  0.04495999962091446,
+                  0.04636799916625023,
+                  0.044863998889923096
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.045871999114751816
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "native": [
+                  0.14998400211334229,
+                  0.13897599279880524,
+                  0.1334719955921173,
+                  0.13846400380134583,
+                  0.13020800054073334,
+                  0.12284799665212631,
+                  0.11971200257539749,
+                  0.1265919953584671,
+                  0.12412799894809723,
+                  0.13120000064373016
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.13070400059223175
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "native": [
+                  0.16211199760437012,
+                  0.16153599321842194,
+                  0.1565759927034378,
+                  0.15574400126934052,
+                  0.16310399770736694,
+                  0.1615999937057495,
+                  0.1693439930677414,
+                  0.16409599781036377,
+                  0.1613440066576004,
+                  0.15875199437141418
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.16156799346208572
+              }
+            },
+            "peak_increment_bytes": {
+              "native": 135303168
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "native": [
+                  0.15382400155067444,
+                  0.1536960005760193,
+                  0.15065599977970123,
+                  0.15039999783039093,
+                  0.15052799880504608,
+                  0.1502400040626526,
+                  0.15011200308799744,
+                  0.15011200308799744,
+                  0.14985600113868713,
+                  0.14950400590896606
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.15032000094652176
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "native": [
+                  0.3449600040912628,
+                  0.33935999870300293,
+                  0.3343360126018524,
+                  0.34275200963020325,
+                  0.32739201188087463,
+                  0.3299199938774109,
+                  0.3361920118331909,
+                  0.3314880132675171,
+                  0.33161601424217224,
+                  0.33372798562049866
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.33403199911117554
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "native": [
+                  0.4652160108089447,
+                  0.4681920111179352,
+                  0.4673280119895935,
+                  0.4679679870605469,
+                  0.4679040014743805,
+                  0.4675520062446594,
+                  0.46751999855041504,
+                  0.47011199593544006,
+                  0.46777600049972534,
+                  0.4692800045013428
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.4678400009870529
+              }
+            },
+            "peak_increment_bytes": {
+              "native": 449876992
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "image",
+      "dtype": "torch.float32",
+      "weights": {
+        "transformer_blocks.0.img_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "22ef33e6865806f3e1d2bc137bd1a41510cf0619ed0c85fba35a626cd7bad018",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.img_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "f4d2241820fa1a1895d7136bd5653ae0984a50bf0a0961a312b45e0e393d8218",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 8.676111307914236e-08,
+        "temb": 3.322163921758796e-07,
+        "weight": 1.2601489105323987e-07,
+        "bias": 5.007435123128072e-08
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "native": [
+                  0.057312000542879105,
+                  0.05788800120353699,
+                  0.056703999638557434,
+                  0.055456001311540604,
+                  0.0560000017285347,
+                  0.055456001311540604,
+                  0.05555199831724167,
+                  0.05548800155520439,
+                  0.05974400043487549,
+                  0.054336000233888626
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.055776000022888184
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "native": [
+                  0.5901119709014893,
+                  0.5537279844284058,
+                  0.5591359734535217,
+                  0.567359983921051,
+                  0.20985600352287292,
+                  0.39187198877334595,
+                  0.335999995470047,
+                  0.6277440190315247,
+                  0.5941759943962097,
+                  0.5212159752845764
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.5564319789409637
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "native": [
+                  0.5985599756240845,
+                  0.6758720278739929,
+                  0.48124799132347107,
+                  0.2327679991722107,
+                  0.5575680136680603,
+                  0.6305919885635376,
+                  0.7144320011138916,
+                  0.6632000207901001,
+                  0.590175986289978,
+                  0.6733120083808899
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.614575982093811
+              }
+            },
+            "peak_increment_bytes": {
+              "native": 226738176
+            }
+          }
+        },
+        {
+          "batch": 3,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "native": [
+                  0.11212799698114395,
+                  0.11420799791812897,
+                  0.1103999987244606,
+                  0.11052799969911575,
+                  0.10995200276374817,
+                  0.11107199639081955,
+                  0.10940799862146378,
+                  0.10995200276374817,
+                  0.10972800105810165,
+                  0.11049599945545197
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.11044799908995628
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "native": [
+                  0.47206398844718933,
+                  0.5384640097618103,
+                  0.5663679838180542,
+                  0.6381120085716248,
+                  0.5192959904670715,
+                  0.5471680164337158,
+                  0.6854079961776733,
+                  0.5766720175743103,
+                  0.5155519843101501,
+                  0.5590720176696777
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.5531200170516968
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "native": [
+                  0.6711680293083191,
+                  0.6341440081596375,
+                  0.44995200634002686,
+                  0.4375680088996887,
+                  0.4840959906578064,
+                  0.6054080128669739,
+                  0.6128000020980835,
+                  0.6378880143165588,
+                  0.6366400122642517,
+                  0.6424639821052551
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.6234720051288605
+              }
+            },
+            "peak_increment_bytes": {
+              "native": 227082240
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "native": [
+                  0.4992640018463135,
+                  0.49510401487350464,
+                  0.49241599440574646,
+                  0.4943679869174957,
+                  0.4922879934310913,
+                  0.49372801184654236,
+                  0.49564799666404724,
+                  0.4922240078449249,
+                  0.4947519898414612,
+                  0.49270400404930115
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.49404799938201904
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "native": [
+                  1.4060800075531006,
+                  1.4312000274658203,
+                  1.4228800535202026,
+                  1.4224319458007812,
+                  1.4314559698104858,
+                  1.3735359907150269,
+                  1.4467519521713257,
+                  1.4038079977035522,
+                  1.447775959968567,
+                  1.463871955871582
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 1.4270400404930115
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "native": [
+                  1.7379839420318604,
+                  1.6998399496078491,
+                  1.6731840372085571,
+                  1.7437119483947754,
+                  1.7392319440841675,
+                  1.739967942237854,
+                  1.689471960067749,
+                  1.738368034362793,
+                  1.7423360347747803,
+                  1.7449920177459717
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 1.7387999892234802
+              }
+            },
+            "peak_increment_bytes": {
+              "native": 270606336
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "native": [
+                  3.7810239791870117,
+                  3.779711961746216,
+                  3.780895948410034,
+                  3.780639886856079,
+                  3.7801918983459473,
+                  3.784480094909668,
+                  3.7803521156311035,
+                  3.7779839038848877,
+                  3.778815984725952,
+                  3.777631998062134
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 3.7802720069885254
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "native": [
+                  8.088064193725586,
+                  8.039423942565918,
+                  8.017536163330078,
+                  8.005855560302734,
+                  8.071423530578613,
+                  7.980639934539795,
+                  8.004223823547363,
+                  8.00716781616211,
+                  8.020031929016113,
+                  8.019295692443848
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 8.018415927886963
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "native": [
+                  11.640512466430664,
+                  11.58572769165039,
+                  11.580320358276367,
+                  11.579903602600098,
+                  11.643072128295898,
+                  11.64022445678711,
+                  11.64243221282959,
+                  11.647071838378906,
+                  11.644607543945312,
+                  11.594976425170898
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 11.640368461608887
+              }
+            },
+            "peak_increment_bytes": {
+              "native": 739320832
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "text",
+      "dtype": "torch.bfloat16",
+      "weights": {
+        "transformer_blocks.0.txt_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "7fc5615cea51f21640ae26b29e4595fe96295113b1fd31b117664c1b85d360c2",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.txt_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "537d4e06e6fe7428a331637871fcf8c9c4899b296b5419e12abb3a3972adfc72",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 0.0009765625,
+        "temb": 0.0037906331728412125,
+        "weight": 0.0031093047650859887,
+        "bias": 0.002188183807439825
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "native": [
+                  0.03993599861860275,
+                  0.039103999733924866,
+                  0.03961599990725517,
+                  0.04064000025391579,
+                  0.03903999924659729,
+                  0.037856001406908035,
+                  0.039744000881910324,
+                  0.03782400116324425,
+                  0.03903999924659729,
+                  0.039264000952243805
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.039184000343084335
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "native": [
+                  0.12915199995040894,
+                  0.12831999361515045,
+                  0.12956799566745758,
+                  0.12435200065374374,
+                  0.12348800152540207,
+                  0.12547199428081512,
+                  0.12406399846076965,
+                  0.1249919980764389,
+                  0.12479999661445618,
+                  0.1250240057706833
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.1250080019235611
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "native": [
+                  0.15887999534606934,
+                  0.15779200196266174,
+                  0.1555519998073578,
+                  0.15836800634860992,
+                  0.15689599514007568,
+                  0.15731200575828552,
+                  0.1565759927034378,
+                  0.155008003115654,
+                  0.15689599514007568,
+                  0.1560640037059784
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.15689599514007568
+              }
+            },
+            "peak_increment_bytes": {
+              "native": 113369088
+            }
+          }
+        },
+        {
+          "batch": 3,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "native": [
+                  0.041728001087903976,
+                  0.04012800008058548,
+                  0.03814399987459183,
+                  0.03932800143957138,
+                  0.038656000047922134,
+                  0.03776000067591667,
+                  0.039744000881910324,
+                  0.03951999917626381,
+                  0.0387520007789135,
+                  0.038176000118255615
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.03904000110924244
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "native": [
+                  0.35766398906707764,
+                  0.35651201009750366,
+                  0.3364480137825012,
+                  0.3357119858264923,
+                  0.12249600142240524,
+                  0.11267200112342834,
+                  0.3458560109138489,
+                  0.426144003868103,
+                  0.3418880105018616,
+                  0.38998401165008545
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.3438720107078552
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "native": [
+                  0.37094399333000183,
+                  0.15782399475574493,
+                  0.15647999942302704,
+                  0.14847999811172485,
+                  0.14710399508476257,
+                  0.14713600277900696,
+                  0.147039994597435,
+                  0.1446080058813095,
+                  0.1440960019826889,
+                  0.3792000114917755
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.1478080004453659
+              }
+            },
+            "peak_increment_bytes": {
+              "native": 113541120
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "native": [
+                  0.046751998364925385,
+                  0.04707200080156326,
+                  0.04662400111556053,
+                  0.045152001082897186,
+                  0.04508800059556961,
+                  0.04499199986457825,
+                  0.04479999840259552,
+                  0.044863998889923096,
+                  0.04508800059556961,
+                  0.04438399896025658
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.04508800059556961
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "native": [
+                  0.40751999616622925,
+                  0.33510398864746094,
+                  0.3460800051689148,
+                  0.1218239963054657,
+                  0.11568000167608261,
+                  0.37507200241088867,
+                  0.3591359853744507,
+                  0.382176011800766,
+                  0.3893119990825653,
+                  0.3319999873638153
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.35260799527168274
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "native": [
+                  0.1555519998073578,
+                  0.1541759967803955,
+                  0.36774399876594543,
+                  0.36022400856018066,
+                  0.38499200344085693,
+                  0.47302401065826416,
+                  0.40460801124572754,
+                  0.3922879993915558,
+                  0.37011200189590454,
+                  0.3667519986629486
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.368928000330925
+              }
+            },
+            "peak_increment_bytes": {
+              "native": 135303168
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "native": [
+                  0.1544959992170334,
+                  0.15193599462509155,
+                  0.15136000514030457,
+                  0.1493760049343109,
+                  0.150176003575325,
+                  0.15027199685573578,
+                  0.1496639996767044,
+                  0.14771200716495514,
+                  0.15004800260066986,
+                  0.14905600249767303
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.15011200308799744
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "native": [
+                  0.49296000599861145,
+                  0.5203199982643127,
+                  0.5061759948730469,
+                  0.5146560072898865,
+                  0.32892799377441406,
+                  0.32870399951934814,
+                  0.3835200071334839,
+                  0.585856020450592,
+                  0.5314559936523438,
+                  0.5787839889526367
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.5104160010814667
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "native": [
+                  0.6752960085868835,
+                  0.5352320075035095,
+                  0.48364800214767456,
+                  0.7720959782600403,
+                  0.7011520266532898,
+                  0.7684800028800964,
+                  0.6753280162811279,
+                  0.7631360292434692,
+                  0.6433280110359192,
+                  0.6707519888877869
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.6753120124340057
+              }
+            },
+            "peak_increment_bytes": {
+              "native": 449876992
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "text",
+      "dtype": "torch.float32",
+      "weights": {
+        "transformer_blocks.0.txt_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "7fc5615cea51f21640ae26b29e4595fe96295113b1fd31b117664c1b85d360c2",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.txt_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "537d4e06e6fe7428a331637871fcf8c9c4899b296b5419e12abb3a3972adfc72",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 1.1891091396474316e-07,
+        "temb": 6.236398211248578e-07,
+        "weight": 1.2601489105323987e-07,
+        "bias": 5.007435123128072e-08
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "native": [
+                  0.055424001067876816,
+                  0.05663999915122986,
+                  0.05593600124120712,
+                  0.05446400120854378,
+                  0.05536000058054924,
+                  0.053888000547885895,
+                  0.05651199817657471,
+                  0.055424001067876816,
+                  0.058368001133203506,
+                  0.05632000043988228
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.05568000115454197
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "native": [
+                  0.34678399562835693,
+                  0.39446398615837097,
+                  0.3383040130138397,
+                  0.35894399881362915,
+                  0.20524799823760986,
+                  0.4298880100250244,
+                  0.40454399585723877,
+                  0.49827200174331665,
+                  0.5123839974403381,
+                  0.5943040251731873
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.39950399100780487
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "native": [
+                  0.625823974609375,
+                  0.5778239965438843,
+                  0.30425599217414856,
+                  0.3815999925136566,
+                  0.6734399795532227,
+                  0.6425600051879883,
+                  0.6848000288009644,
+                  0.5991680026054382,
+                  0.6855999827384949,
+                  0.4848960041999817
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.6124959886074066
+              }
+            },
+            "peak_increment_bytes": {
+              "native": 226738176
+            }
+          }
+        },
+        {
+          "batch": 3,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "native": [
+                  0.11206399649381638,
+                  0.11180800199508667,
+                  0.11247999966144562,
+                  0.11033599823713303,
+                  0.11264000087976456,
+                  0.11091200262308121,
+                  0.10972800105810165,
+                  0.1098560020327568,
+                  0.11036799848079681,
+                  0.11075200140476227
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.11083200201392174
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "native": [
+                  0.4923520088195801,
+                  0.4915519952774048,
+                  0.4700799882411957,
+                  0.5346879959106445,
+                  0.41839998960494995,
+                  0.407039999961853,
+                  0.5559999942779541,
+                  0.5648959875106812,
+                  0.5963199734687805,
+                  0.5451520085334778
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.5135200023651123
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "native": [
+                  0.6682559847831726,
+                  0.729856014251709,
+                  0.7131199836730957,
+                  0.6218240261077881,
+                  0.4676479995250702,
+                  0.4769600033760071,
+                  0.6615039706230164,
+                  0.6122879981994629,
+                  0.6627519726753235,
+                  0.6626880168914795
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.6620959937572479
+              }
+            },
+            "peak_increment_bytes": {
+              "native": 227082240
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "native": [
+                  0.4965760111808777,
+                  0.49241599440574646,
+                  0.4923520088195801,
+                  0.492031991481781,
+                  0.49590399861335754,
+                  0.4920960068702698,
+                  0.49187201261520386,
+                  0.495712012052536,
+                  0.4928640127182007,
+                  0.4938240051269531
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 0.49264000356197357
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "native": [
+                  1.428447961807251,
+                  1.4192320108413696,
+                  1.369663953781128,
+                  1.4040000438690186,
+                  1.375648021697998,
+                  1.3969919681549072,
+                  1.4124799966812134,
+                  1.430016040802002,
+                  1.4457600116729736,
+                  1.3649920225143433
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 1.408240020275116
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "native": [
+                  1.6728639602661133,
+                  1.6696319580078125,
+                  1.7384639978408813,
+                  1.7391040325164795,
+                  1.7416960000991821,
+                  1.7323839664459229,
+                  1.7473599910736084,
+                  1.741312026977539,
+                  1.7405439615249634,
+                  1.741152048110962
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 1.7398239970207214
+              }
+            },
+            "peak_increment_bytes": {
+              "native": 270606336
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "native": [
+                  3.7782399654388428,
+                  3.7786879539489746,
+                  3.7790400981903076,
+                  3.7822399139404297,
+                  3.7802560329437256,
+                  3.778304100036621,
+                  3.7810239791870117,
+                  3.7790400981903076,
+                  3.77891206741333,
+                  3.780224084854126
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 3.7790400981903076
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "native": [
+                  8.035840034484863,
+                  8.006175994873047,
+                  8.003135681152344,
+                  8.014816284179688,
+                  8.039648056030273,
+                  8.061216354370117,
+                  7.993120193481445,
+                  8.009023666381836,
+                  8.102592468261719,
+                  8.019807815551758
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 8.017312049865723
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "native": [
+                  11.595040321350098,
+                  11.583168029785156,
+                  11.644288063049316,
+                  11.64515209197998,
+                  11.645824432373047,
+                  11.644351959228516,
+                  11.645631790161133,
+                  11.643872261047363,
+                  11.643072128295898,
+                  11.593376159667969
+                ]
+              },
+              "order": [
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ],
+                [
+                  "native"
+                ]
+              ],
+              "median_ms": {
+                "native": 11.64408016204834
+              }
+            },
+            "peak_increment_bytes": {
+              "native": 739320832
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "environment": {
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "gpu": "NVIDIA B200",
+    "workspace": {
+      "CUBLAS_WORKSPACE_CONFIG": null,
+      "CUBLASLT_WORKSPACE_SIZE": null
+    },
+    "tf32": false
+  },
+  "scope": "sample batch BI; shared parameter gradients: same ordered inputs, repeat only",
+  "packages": {
+    "torch": "2.13.0",
+    "triton": "3.7.1",
+    "diffusers": null,
+    "vllm": "0.30.0",
+    "sglang": "0.5.21",
+    "transformer_engine": null,
+    "megatron-core": null
+  }
+}

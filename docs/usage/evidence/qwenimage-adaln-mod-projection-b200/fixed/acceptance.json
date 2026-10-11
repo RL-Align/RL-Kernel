@@ -1,0 +1,58 @@
+{
+  "qualified": true,
+  "commit": "893642643f4095451987c326a1449524d3c15496",
+  "extension_sha256": "fe366383d6f8983c22cb9f4233d8e537f0d45f1600ad3c7c47fbdfb87094aaef",
+  "reports": [
+    {
+      "file": "accuracy-0.json",
+      "checks": 8,
+      "failures": 0
+    },
+    {
+      "file": "accuracy-127.json",
+      "checks": 8,
+      "failures": 0
+    },
+    {
+      "file": "accuracy-2026.json",
+      "checks": 8,
+      "failures": 0
+    },
+    {
+      "file": "accuracy_large-0.json",
+      "checks": 8,
+      "failures": 0
+    },
+    {
+      "file": "accuracy_large-127.json",
+      "checks": 8,
+      "failures": 0
+    },
+    {
+      "file": "accuracy_large-2026.json",
+      "checks": 8,
+      "failures": 0
+    },
+    {
+      "file": "bi-0.json",
+      "checks": 1608,
+      "failures": 0
+    },
+    {
+      "file": "workload-0.json",
+      "checks": 60,
+      "failures": 0
+    },
+    {
+      "file": "parameters-0.json",
+      "checks": 84,
+      "failures": 0
+    },
+    {
+      "file": "cancellation-screen.json",
+      "checks": 8,
+      "failures": 0
+    }
+  ],
+  "failures": []
+}

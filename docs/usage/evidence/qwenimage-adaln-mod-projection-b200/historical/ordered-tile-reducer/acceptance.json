@@ -1,0 +1,64 @@
+{
+  "qualified": true,
+  "commit": "98e352fbe63bd3b5a9caa90aa33bb01d37a5b50d",
+  "candidate_source_sha256": "75f0bec26407ea5d0cbb811785b2d718a31a8c55531f7ed2cc97470da51b6826",
+  "extension_sha256": "30a5113f26dfc79fa26951b12668de4b0b759a3ab439e17b69107096f7218055",
+  "reports": [
+    {
+      "file": "accuracy-0.json",
+      "checks": 18,
+      "failures": 0
+    },
+    {
+      "file": "accuracy-127.json",
+      "checks": 18,
+      "failures": 0
+    },
+    {
+      "file": "accuracy-2026.json",
+      "checks": 18,
+      "failures": 0
+    },
+    {
+      "file": "accuracy_large-0.json",
+      "checks": 12,
+      "failures": 0
+    },
+    {
+      "file": "accuracy_large-127.json",
+      "checks": 12,
+      "failures": 0
+    },
+    {
+      "file": "accuracy_large-2026.json",
+      "checks": 12,
+      "failures": 0
+    },
+    {
+      "file": "bi-0.json",
+      "checks": 2424,
+      "failures": 0
+    },
+    {
+      "file": "workload-0.json",
+      "checks": 90,
+      "failures": 0
+    },
+    {
+      "file": "parameters-0.json",
+      "checks": 126,
+      "failures": 0
+    },
+    {
+      "file": "cancellation-screen.json",
+      "checks": 8,
+      "failures": 0
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "checks": 126,
+      "failures": 0
+    }
+  ],
+  "failures": []
+}

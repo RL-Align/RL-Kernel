@@ -1,0 +1,2805 @@
+{
+  "mode": "megatron_local",
+  "phase": "reuse",
+  "accuracy_seed": 0,
+  "source": {
+    "base_sha": "893642643f4095451987c326a1449524d3c15496",
+    "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_source_sha256": {},
+    "workspace_source_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "qwenimage_source_sha256": {
+      "csrc/cuda/model_specific/qwenimage/det_linear.cu": "859da456b0c776f3492b3197c252866e33d9a7088508b701b7c4a179ee709afb",
+      "rl_engine/backends/cuda/model_specific/qwenimage/__init__.py": "95c46d40c4aed2d4c26a65bc0cc64331e42b237673293ea5ed45b79ebc11d4b4",
+      "rl_engine/backends/cuda/model_specific/qwenimage/adaln_mod_projection.py": "f8ad94517879c9135e0ed3bc24469c6fc9a24ea07179fd1c52d3235c5ef13dcc",
+      "rl_engine/reference/model_specific/qwenimage/__init__.py": "95c46d40c4aed2d4c26a65bc0cc64331e42b237673293ea5ed45b79ebc11d4b4",
+      "rl_engine/reference/model_specific/qwenimage/adaln_mod_projection.py": "1ebc740ddff575055ee66ed714a8c7cc5c6cee2701d582a665289e9ad1a4fe3d",
+      "benchmarks/models/qwenimage/__init__.py": "a63ebc79ed10d9ed98484565a353438bd13f5801a8f51d7505d0921bf6942742",
+      "benchmarks/models/qwenimage/adaln_evidence.py": "b212244aa016b406e441ba1648467dd97ed936c3ddca92db526ebcea666efbd8",
+      "benchmarks/models/qwenimage/adaln_parameter_screen.py": "05562ef30d09296c2ccd1cdeb44085568b8c877d01f5fb1df4b983e84945ec03",
+      "benchmarks/models/qwenimage/adaln_prior_art.py": "647aa9fc81e02bf3c7806ed6c2a3e578fb3e1a0b000b4388a12367ef86de3139",
+      "benchmarks/models/qwenimage/adaln_reuse_bi_audit.py": "7e20df2a16c4f31cc1cf82cfb10f031f3ff454f4a96585a20267cde8171cef71",
+      "benchmarks/models/qwenimage/adaln_reuse_candidate.py": "e636d6e4fee136e6c8716c973969f8074c77c18ed49d3cd11a246389a9fc4a16",
+      "benchmarks/models/qwenimage/plot_adaln_audit.py": "f362800e95c7a64c31a4d16b8e3ba02fd8783ea386a6773281f22e2f48d3248e",
+      "benchmarks/models/qwenimage/plot_adaln_evidence.py": "16d6bed0ee5b808814c5f7157145a730750d0b1aaf94762e6f72a256e942c1e2",
+      "benchmarks/models/qwenimage/streams.py": "86fd5d8e28fde856c50c704580a3df11c1d2af3e7774a50503ab7f7c1635b3ae",
+      "benchmarks/models/qwenimage/validate_adaln_repair.py": "e093f246042c02a850b8eee49893bcc54f92c13c5d7710924a73e49406724e1f"
+    },
+    "extension_sha256": "fe366383d6f8983c22cb9f4233d8e537f0d45f1600ad3c7c47fbdfb87094aaef",
+    "clean_commit": true
+  },
+  "cases": [
+    {
+      "stream": "image",
+      "dtype": "torch.bfloat16",
+      "weights": {
+        "transformer_blocks.0.img_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "22ef33e6865806f3e1d2bc137bd1a41510cf0619ed0c85fba35a626cd7bad018",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.img_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "f4d2241820fa1a1895d7136bd5653ae0984a50bf0a0961a312b45e0e393d8218",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 0.0007102272727272727,
+        "temb": 0.0013375396742077623,
+        "weight": 0.0031093047650859887,
+        "bias": 0.002188183807439825
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "megatron_local": [
+                  0.15116800367832184,
+                  0.1430400013923645,
+                  0.1422719955444336,
+                  0.14291200041770935,
+                  0.14006400108337402,
+                  0.13865600526332855,
+                  0.13875199854373932,
+                  0.13740800321102142,
+                  0.14028799533843994,
+                  0.1353279948234558
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 0.14017599821090698
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  2.218111991882324,
+                  2.0366721153259277,
+                  2.3349759578704834,
+                  2.2013120651245117,
+                  2.238271951675415,
+                  2.2043519020080566,
+                  2.22271990776062,
+                  2.2058238983154297,
+                  2.208575963973999,
+                  2.1861441135406494
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 2.2071999311447144
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  2.382944107055664,
+                  2.3850560188293457,
+                  2.45251202583313,
+                  2.382591962814331,
+                  2.437472105026245,
+                  2.3967039585113525,
+                  2.376768112182617,
+                  2.378175973892212,
+                  2.3233280181884766,
+                  2.374527931213379
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 2.3827680349349976
+              }
+            },
+            "peak_increment_bytes": {
+              "megatron_local": 339904512
+            }
+          }
+        },
+        {
+          "batch": 3,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "megatron_local": [
+                  0.14963200688362122,
+                  0.14636799693107605,
+                  0.14079999923706055,
+                  0.13577599823474884,
+                  0.1451839953660965,
+                  0.14150400459766388,
+                  0.13952000439167023,
+                  0.14179199934005737,
+                  0.1510400027036667,
+                  0.14448000490665436
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 0.14313600212335587
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  2.1727681159973145,
+                  2.214400053024292,
+                  2.169919967651367,
+                  2.228800058364868,
+                  2.1655681133270264,
+                  2.209023952484131,
+                  2.0104639530181885,
+                  2.193727970123291,
+                  2.1924479007720947,
+                  2.200671911239624
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 2.193087935447693
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  2.3459200859069824,
+                  2.350656032562256,
+                  2.3559999465942383,
+                  2.2655038833618164,
+                  2.239392042160034,
+                  2.3909120559692383,
+                  2.3558080196380615,
+                  2.3549439907073975,
+                  2.3536319732666016,
+                  2.3523199558258057
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 2.3529759645462036
+              }
+            },
+            "peak_increment_bytes": {
+              "megatron_local": 340236288
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "megatron_local": [
+                  0.11827199906110764,
+                  0.10927999764680862,
+                  0.10784000158309937,
+                  0.10473600029945374,
+                  0.10361599922180176,
+                  0.10540799796581268,
+                  0.10463999956846237,
+                  0.10304000228643417,
+                  0.10262399911880493,
+                  0.10252799838781357
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 0.10468799993395805
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  2.7091519832611084,
+                  2.6452479362487793,
+                  2.689728021621704,
+                  2.718111991882324,
+                  2.7034881114959717,
+                  2.666016101837158,
+                  2.6523520946502686,
+                  2.6500799655914307,
+                  2.6495680809020996,
+                  2.6653759479522705
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 2.6656960248947144
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  2.8188159465789795,
+                  2.842047929763794,
+                  2.88972806930542,
+                  2.81878399848938,
+                  2.819808006286621,
+                  2.8287360668182373,
+                  2.728640079498291,
+                  2.881632089614868,
+                  2.894752025604248,
+                  2.864448070526123
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 2.8353919982910156
+              }
+            },
+            "peak_increment_bytes": {
+              "megatron_local": 382205952
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "megatron_local": [
+                  0.44016000628471375,
+                  0.4323199987411499,
+                  0.43167999386787415,
+                  0.4307200014591217,
+                  0.4304639995098114,
+                  0.4296959936618805,
+                  0.4291520118713379,
+                  0.42553600668907166,
+                  0.4261760115623474,
+                  0.4294719994068146
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 0.43007999658584595
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  9.651519775390625,
+                  9.619872093200684,
+                  9.657183647155762,
+                  9.653023719787598,
+                  9.657792091369629,
+                  9.63145637512207,
+                  9.583807945251465,
+                  9.607935905456543,
+                  9.674752235412598,
+                  9.639488220214844
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 9.645503997802734
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  9.87395191192627,
+                  9.936063766479492,
+                  9.939423561096191,
+                  9.938143730163574,
+                  9.938688278198242,
+                  9.939104080200195,
+                  9.930015563964844,
+                  9.875967979431152,
+                  9.938719749450684,
+                  9.934528350830078
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 9.937103748321533
+              }
+            },
+            "peak_increment_bytes": {
+              "megatron_local": 679477248
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "image",
+      "dtype": "torch.float32",
+      "weights": {
+        "transformer_blocks.0.img_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "22ef33e6865806f3e1d2bc137bd1a41510cf0619ed0c85fba35a626cd7bad018",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.img_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "f4d2241820fa1a1895d7136bd5653ae0984a50bf0a0961a312b45e0e393d8218",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 1.5183194788849913e-06,
+        "temb": 1.8327359852933242e-06,
+        "weight": 1.2601489105323987e-07,
+        "bias": 5.007435123128072e-08
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "megatron_local": [
+                  0.7945600152015686,
+                  0.787551999092102,
+                  0.7885760068893433,
+                  0.7867199778556824,
+                  0.7879679799079895,
+                  0.7855679988861084,
+                  0.7886080145835876,
+                  0.7886080145835876,
+                  0.7892159819602966,
+                  0.7889279723167419
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 0.7885920107364655
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  2.0577919483184814,
+                  2.0602240562438965,
+                  2.1051840782165527,
+                  2.094208002090454,
+                  2.056447982788086,
+                  2.0852479934692383,
+                  2.0551040172576904,
+                  2.068864107131958,
+                  2.0739519596099854,
+                  2.1170239448547363
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 2.0714080333709717
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  2.648128032684326,
+                  2.6470720767974854,
+                  2.6531200408935547,
+                  2.6475839614868164,
+                  2.6565439701080322,
+                  2.645888090133667,
+                  2.6518399715423584,
+                  2.5891199111938477,
+                  2.5762879848480225,
+                  2.6449599266052246
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 2.647328019142151
+              }
+            },
+            "peak_increment_bytes": {
+              "megatron_local": 226775040
+            }
+          }
+        },
+        {
+          "batch": 3,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "megatron_local": [
+                  0.8050240278244019,
+                  0.7991359829902649,
+                  0.7998080253601074,
+                  0.7979199886322021,
+                  0.7995520234107971,
+                  0.7971199750900269,
+                  0.7982720136642456,
+                  0.7987200021743774,
+                  0.7981119751930237,
+                  0.7982079982757568
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 0.7984960079193115
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  2.038464069366455,
+                  2.0987839698791504,
+                  2.024415969848633,
+                  2.0460801124572754,
+                  2.100192070007324,
+                  2.0357120037078857,
+                  2.028223991394043,
+                  2.066175937652588,
+                  2.0431039333343506,
+                  2.0704638957977295
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 2.044592022895813
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  2.6357760429382324,
+                  2.5724799633026123,
+                  2.555840015411377,
+                  2.632352113723755,
+                  2.63919997215271,
+                  2.63590407371521,
+                  2.6369919776916504,
+                  2.637376070022583,
+                  2.6353600025177,
+                  2.635648012161255
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 2.6357120275497437
+              }
+            },
+            "peak_increment_bytes": {
+              "megatron_local": 227192832
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "megatron_local": [
+                  1.5406399965286255,
+                  1.5349440574645996,
+                  1.5374399423599243,
+                  1.5345280170440674,
+                  1.5419199466705322,
+                  1.5361920595169067,
+                  1.5317440032958984,
+                  1.533087968826294,
+                  1.5360000133514404,
+                  1.5341440439224243
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 1.53547203540802
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  2.5007359981536865,
+                  2.559551954269409,
+                  2.5295040607452393,
+                  2.4977920055389404,
+                  2.5503039360046387,
+                  2.719360113143921,
+                  2.5154240131378174,
+                  2.545408010482788,
+                  2.5275518894195557,
+                  2.4792320728302
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 2.5285279750823975
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  3.8340160846710205,
+                  3.8319358825683594,
+                  3.7710399627685547,
+                  3.7506558895111084,
+                  3.8292479515075684,
+                  3.832479953765869,
+                  3.834847927093506,
+                  3.831007957458496,
+                  3.8329598903656006,
+                  3.8323519229888916
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 3.8321439027786255
+              }
+            },
+            "peak_increment_bytes": {
+              "megatron_local": 280043520
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "megatron_local": [
+                  11.865728378295898,
+                  11.870528221130371,
+                  11.880191802978516,
+                  11.872735977172852,
+                  11.872639656066895,
+                  11.870880126953125,
+                  11.88150405883789,
+                  11.877951622009277,
+                  11.892352104187012,
+                  11.88150405883789
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 11.875343799591064
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  9.41427230834961,
+                  9.422592163085938,
+                  9.453408241271973,
+                  9.391839981079102,
+                  9.409152030944824,
+                  9.380767822265625,
+                  9.40124797821045,
+                  9.437503814697266,
+                  9.370431900024414,
+                  9.373855590820312
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 9.405200004577637
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  21.034944534301758,
+                  20.97612762451172,
+                  20.957216262817383,
+                  21.03811264038086,
+                  21.035104751586914,
+                  21.03481674194336,
+                  21.04262351989746,
+                  21.037599563598633,
+                  21.038175582885742,
+                  21.036672592163086
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 21.035888671875
+              }
+            },
+            "peak_increment_bytes": {
+              "megatron_local": 739320832
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "text",
+      "dtype": "torch.bfloat16",
+      "weights": {
+        "transformer_blocks.0.txt_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "7fc5615cea51f21640ae26b29e4595fe96295113b1fd31b117664c1b85d360c2",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.txt_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "537d4e06e6fe7428a331637871fcf8c9c4899b296b5419e12abb3a3972adfc72",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 0.0009765625,
+        "temb": 0.0019412816630083021,
+        "weight": 0.0031093047650859887,
+        "bias": 0.002188183807439825
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "megatron_local": [
+                  0.13676799833774567,
+                  0.1391039937734604,
+                  0.14025600254535675,
+                  0.13491199910640717,
+                  0.1356160044670105,
+                  0.14256000518798828,
+                  0.13779200613498688,
+                  0.13100799918174744,
+                  0.13091200590133667,
+                  0.13887999951839447
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 0.13728000223636627
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  2.208928108215332,
+                  2.255903959274292,
+                  2.197535991668701,
+                  2.200223922729492,
+                  2.214303970336914,
+                  2.218751907348633,
+                  2.222815990447998,
+                  2.2435519695281982,
+                  2.213792085647583,
+                  2.2121920585632324
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 2.2140480279922485
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  2.388159990310669,
+                  2.293951988220215,
+                  2.2755839824676514,
+                  2.3956799507141113,
+                  2.2907519340515137,
+                  2.386591911315918,
+                  2.3830080032348633,
+                  2.3741118907928467,
+                  2.386496067047119,
+                  2.350816011428833
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 2.378559947013855
+              }
+            },
+            "peak_increment_bytes": {
+              "megatron_local": 339904512
+            }
+          }
+        },
+        {
+          "batch": 3,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "megatron_local": [
+                  0.14137600362300873,
+                  0.13788799941539764,
+                  0.14588800072669983,
+                  0.1390720009803772,
+                  0.13388800621032715,
+                  0.13820800185203552,
+                  0.14259199798107147,
+                  0.14054399728775024,
+                  0.13769599795341492,
+                  0.13990400731563568
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 0.13948800414800644
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  2.1880319118499756,
+                  2.1791999340057373,
+                  2.1744320392608643,
+                  2.231519937515259,
+                  2.175679922103882,
+                  2.2117760181427,
+                  2.225600004196167,
+                  2.1759679317474365,
+                  2.1703360080718994,
+                  2.200256109237671
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 2.1836159229278564
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  2.305759906768799,
+                  2.237152099609375,
+                  2.396735906600952,
+                  2.381887912750244,
+                  2.4153599739074707,
+                  2.3598079681396484,
+                  2.357664108276367,
+                  2.3898239135742188,
+                  2.3544960021972656,
+                  2.348288059234619
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 2.358736038208008
+              }
+            },
+            "peak_increment_bytes": {
+              "megatron_local": 340236288
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "megatron_local": [
+                  0.10847999900579453,
+                  0.10447999835014343,
+                  0.10380800068378448,
+                  0.10329599678516388,
+                  0.10268799960613251,
+                  0.10288000106811523,
+                  0.1042879968881607,
+                  0.10288000106811523,
+                  0.10195200145244598,
+                  0.10940799862146378
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 0.10355199873447418
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  2.651968002319336,
+                  2.688159942626953,
+                  2.6499838829040527,
+                  2.7032320499420166,
+                  2.7007040977478027,
+                  2.6820480823516846,
+                  2.652224063873291,
+                  2.67523193359375,
+                  2.6680641174316406,
+                  2.622879981994629
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 2.6716480255126953
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  2.8611199855804443,
+                  2.8826239109039307,
+                  2.863647937774658,
+                  2.7490880489349365,
+                  2.8615360260009766,
+                  2.8274240493774414,
+                  2.8859519958496094,
+                  2.8592000007629395,
+                  2.822848081588745,
+                  2.870368003845215
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 2.8613280057907104
+              }
+            },
+            "peak_increment_bytes": {
+              "megatron_local": 382205952
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "megatron_local": [
+                  0.44150400161743164,
+                  0.43859198689460754,
+                  0.43433600664138794,
+                  0.43065598607063293,
+                  0.43084800243377686,
+                  0.4288960099220276,
+                  0.42905598878860474,
+                  0.4354879856109619,
+                  0.43379199504852295,
+                  0.43027201294898987
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 0.4323199987411499
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  9.657055854797363,
+                  9.644448280334473,
+                  9.615232467651367,
+                  9.665023803710938,
+                  9.623104095458984,
+                  9.645503997802734,
+                  9.65231990814209,
+                  9.61023998260498,
+                  9.609375953674316,
+                  9.62764835357666
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 9.636048316955566
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  9.94655990600586,
+                  9.938688278198242,
+                  9.958368301391602,
+                  9.879776000976562,
+                  9.851424217224121,
+                  9.940704345703125,
+                  9.93667221069336,
+                  9.945343971252441,
+                  9.94649600982666,
+                  9.93718433380127
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 9.939696311950684
+              }
+            },
+            "peak_increment_bytes": {
+              "megatron_local": 679477248
+            }
+          }
+        }
+      ]
+    },
+    {
+      "stream": "text",
+      "dtype": "torch.float32",
+      "weights": {
+        "transformer_blocks.0.txt_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "7fc5615cea51f21640ae26b29e4595fe96295113b1fd31b117664c1b85d360c2",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.txt_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "537d4e06e6fe7428a331637871fcf8c9c4899b296b5419e12abb3a3972adfc72",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [],
+      "fp64_relative_max_error": {
+        "output": 1.2188368681386174e-06,
+        "temb": 4.465900779879222e-06,
+        "weight": 1.2601489105323987e-07,
+        "bias": 5.007435123128072e-08
+      },
+      "repeat_all_gradients": {
+        "output": true,
+        "temb": true,
+        "weight": true,
+        "bias": true
+      },
+      "performance": [
+        {
+          "batch": 1,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "megatron_local": [
+                  0.7899519801139832,
+                  0.7862079739570618,
+                  0.7896000146865845,
+                  0.7887679934501648,
+                  0.7863680124282837,
+                  0.7884479761123657,
+                  0.7846400141716003,
+                  0.7884160280227661,
+                  0.7862719893455505,
+                  0.7857599854469299
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 0.7873920202255249
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  2.0576961040496826,
+                  2.1151680946350098,
+                  2.0386240482330322,
+                  2.122528076171875,
+                  2.0802879333496094,
+                  2.109312057495117,
+                  2.030208110809326,
+                  2.052799940109253,
+                  2.0588479042053223,
+                  2.092895984649658
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 2.069567918777466
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  2.5852160453796387,
+                  2.653088092803955,
+                  2.649183988571167,
+                  2.6482880115509033,
+                  2.651263952255249,
+                  2.6519999504089355,
+                  2.583008050918579,
+                  2.651423931121826,
+                  2.5840320587158203,
+                  2.6548800468444824
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 2.650223970413208
+              }
+            },
+            "peak_increment_bytes": {
+              "megatron_local": 226775040
+            }
+          }
+        },
+        {
+          "batch": 3,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "megatron_local": [
+                  0.8024320006370544,
+                  0.8000640273094177,
+                  0.7995200157165527,
+                  0.7975360155105591,
+                  0.7993280291557312,
+                  0.7977280020713806,
+                  0.7979840040206909,
+                  0.8030400276184082,
+                  0.8009920120239258,
+                  0.7975680232048035
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 0.799424022436142
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  2.029439926147461,
+                  2.039520025253296,
+                  2.0260798931121826,
+                  2.029536008834839,
+                  2.05948805809021,
+                  2.037087917327881,
+                  2.091264009475708,
+                  2.0429439544677734,
+                  2.0288960933685303,
+                  2.0299201011657715
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 2.033504009246826
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  2.636352062225342,
+                  2.577120065689087,
+                  2.5507519245147705,
+                  2.641119956970215,
+                  2.6446080207824707,
+                  2.6406400203704834,
+                  2.635103940963745,
+                  2.6412160396575928,
+                  2.636928081512451,
+                  2.6400320529937744
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 2.638480067253113
+              }
+            },
+            "peak_increment_bytes": {
+              "megatron_local": 227192832
+            }
+          }
+        },
+        {
+          "batch": 256,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "megatron_local": [
+                  1.532863974571228,
+                  1.5315519571304321,
+                  1.5372480154037476,
+                  1.5310720205307007,
+                  1.5303360223770142,
+                  1.5309439897537231,
+                  1.5307199954986572,
+                  1.532863974571228,
+                  1.5296000242233276,
+                  1.5349760055541992
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 1.5313119888305664
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  2.5575358867645264,
+                  2.569216012954712,
+                  2.5099198818206787,
+                  2.4730560779571533,
+                  2.505311965942383,
+                  2.5018560886383057,
+                  2.514847993850708,
+                  2.4924159049987793,
+                  2.4993278980255127,
+                  2.5247039794921875
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 2.5076159238815308
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  3.830944061279297,
+                  3.837599992752075,
+                  3.8338561058044434,
+                  3.833695888519287,
+                  3.8306241035461426,
+                  3.835200071334839,
+                  3.763456106185913,
+                  3.753983974456787,
+                  3.8354880809783936,
+                  3.8286399841308594
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 3.832319974899292
+              }
+            },
+            "peak_increment_bytes": {
+              "megatron_local": 280043520
+            }
+          }
+        },
+        {
+          "batch": 2048,
+          "sequence": 1,
+          "measurements": {
+            "forward": {
+              "samples_ms": {
+                "megatron_local": [
+                  11.877152442932129,
+                  11.8689603805542,
+                  11.870944023132324,
+                  11.867263793945312,
+                  11.86473560333252,
+                  11.870335578918457,
+                  11.868191719055176,
+                  11.86400032043457,
+                  11.869183540344238,
+                  11.870431900024414
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 11.869071960449219
+              }
+            },
+            "backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  9.410431861877441,
+                  9.367679595947266,
+                  9.383456230163574,
+                  9.359904289245605,
+                  9.420031547546387,
+                  9.420960426330566,
+                  9.33625602722168,
+                  9.411744117736816,
+                  9.372735977172852,
+                  9.371135711669922
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 9.378096103668213
+              }
+            },
+            "forward_backward": {
+              "samples_ms": {
+                "megatron_local": [
+                  20.980607986450195,
+                  20.956640243530273,
+                  21.037919998168945,
+                  21.048255920410156,
+                  21.05014419555664,
+                  21.040416717529297,
+                  21.04243278503418,
+                  21.03923225402832,
+                  21.04435157775879,
+                  20.978239059448242
+                ]
+              },
+              "order": [
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ],
+                [
+                  "megatron_local"
+                ]
+              ],
+              "median_ms": {
+                "megatron_local": 21.03982448577881
+              }
+            },
+            "peak_increment_bytes": {
+              "megatron_local": 739320832
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "environment": {
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "gpu": "NVIDIA B200",
+    "workspace": {
+      "CUBLAS_WORKSPACE_CONFIG": null,
+      "CUBLASLT_WORKSPACE_SIZE": null
+    },
+    "tf32": false
+  },
+  "scope": "sample batch BI; shared parameter gradients: same ordered inputs, repeat only",
+  "packages": {
+    "torch": "2.13.0",
+    "triton": "3.7.1",
+    "diffusers": null,
+    "vllm": "0.30.0",
+    "sglang": "0.5.21",
+    "transformer_engine": null,
+    "megatron-core": null,
+    "megatron-lm-source": "52fbcbc18c2992db1747a4558f430e0519604ad0"
+  }
+}

@@ -1,0 +1,1148 @@
+{
+  "qualified": false,
+  "extension_sha256": "cf37963b257f5fa2037144aba8d24e602489385da8fecfbde4d0c2d452e4f562",
+  "reports": [
+    {
+      "file": "accuracy-0.json",
+      "checks": 18,
+      "failures": 0
+    },
+    {
+      "file": "accuracy-127.json",
+      "checks": 18,
+      "failures": 0
+    },
+    {
+      "file": "accuracy-2026.json",
+      "checks": 18,
+      "failures": 0
+    },
+    {
+      "file": "accuracy_large-0.json",
+      "checks": 12,
+      "failures": 0
+    },
+    {
+      "file": "accuracy_large-127.json",
+      "checks": 12,
+      "failures": 0
+    },
+    {
+      "file": "accuracy_large-2026.json",
+      "checks": 12,
+      "failures": 0
+    },
+    {
+      "file": "bi-0.json",
+      "checks": 2424,
+      "failures": 0
+    },
+    {
+      "file": "workload-0.json",
+      "checks": 90,
+      "failures": 0
+    },
+    {
+      "file": "parameters-0.json",
+      "checks": 126,
+      "failures": 0
+    },
+    {
+      "file": "cancellation-screen.json",
+      "checks": 8,
+      "failures": 7
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "checks": 126,
+      "failures": 36
+    }
+  ],
+  "failures": [
+    {
+      "file": "cancellation-screen.json",
+      "check": {
+        "dtype": "torch.float32",
+        "batch": 255,
+        "fp64": [
+          [
+            253.0,
+            379.5,
+            253.0,
+            379.5,
+            253.0,
+            379.5,
+            253.0
+          ],
+          [
+            253.0,
+            379.5,
+            253.0,
+            379.5,
+            253.0,
+            379.5,
+            253.0
+          ]
+        ],
+        "fixed_actual": [
+          [
+            253.0,
+            379.5,
+            253.0,
+            379.5,
+            253.0,
+            379.5,
+            253.0
+          ],
+          [
+            253.0,
+            379.5,
+            253.0,
+            379.5,
+            253.0,
+            379.5,
+            253.0
+          ]
+        ],
+        "candidate_actual": [
+          [
+            224.0,
+            336.0,
+            224.0,
+            336.0,
+            224.0,
+            336.0,
+            224.0
+          ],
+          [
+            224.0,
+            336.0,
+            224.0,
+            336.0,
+            224.0,
+            336.0,
+            224.0
+          ]
+        ],
+        "fixed_contract": {
+          "passed": true,
+          "max_abs": 0.0,
+          "max_tolerance_ratio": 0.0,
+          "violations": 0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "candidate_contract": {
+          "passed": false,
+          "max_abs": 43.5,
+          "max_tolerance_ratio": 1143.2325439453125,
+          "violations": 14,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      }
+    },
+    {
+      "file": "cancellation-screen.json",
+      "check": {
+        "dtype": "torch.float32",
+        "batch": 256,
+        "fp64": [
+          [
+            254.0,
+            381.0,
+            254.0,
+            381.0,
+            254.0,
+            381.0,
+            254.0
+          ],
+          [
+            254.0,
+            381.0,
+            254.0,
+            381.0,
+            254.0,
+            381.0,
+            254.0
+          ]
+        ],
+        "fixed_actual": [
+          [
+            254.0,
+            381.0,
+            254.0,
+            381.0,
+            254.0,
+            381.0,
+            254.0
+          ],
+          [
+            254.0,
+            381.0,
+            254.0,
+            381.0,
+            254.0,
+            381.0,
+            254.0
+          ]
+        ],
+        "candidate_actual": [
+          [
+            224.0,
+            336.0,
+            224.0,
+            336.0,
+            224.0,
+            336.0,
+            224.0
+          ],
+          [
+            224.0,
+            336.0,
+            224.0,
+            336.0,
+            224.0,
+            336.0,
+            224.0
+          ]
+        ],
+        "fixed_contract": {
+          "passed": true,
+          "max_abs": 0.0,
+          "max_tolerance_ratio": 0.0,
+          "violations": 0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "candidate_contract": {
+          "passed": false,
+          "max_abs": 45.0,
+          "max_tolerance_ratio": 1178.0103759765625,
+          "violations": 14,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      }
+    },
+    {
+      "file": "cancellation-screen.json",
+      "check": {
+        "dtype": "torch.float32",
+        "batch": 257,
+        "fp64": [
+          [
+            255.0,
+            382.5,
+            255.0,
+            382.5,
+            255.0,
+            382.5,
+            255.0
+          ],
+          [
+            255.0,
+            382.5,
+            255.0,
+            382.5,
+            255.0,
+            382.5,
+            255.0
+          ]
+        ],
+        "fixed_actual": [
+          [
+            255.0,
+            382.5,
+            255.0,
+            382.5,
+            255.0,
+            382.5,
+            255.0
+          ],
+          [
+            255.0,
+            382.5,
+            255.0,
+            382.5,
+            255.0,
+            382.5,
+            255.0
+          ]
+        ],
+        "candidate_actual": [
+          [
+            224.0,
+            336.0,
+            224.0,
+            336.0,
+            224.0,
+            336.0,
+            224.0
+          ],
+          [
+            224.0,
+            336.0,
+            224.0,
+            336.0,
+            224.0,
+            336.0,
+            224.0
+          ]
+        ],
+        "fixed_contract": {
+          "passed": true,
+          "max_abs": 0.0,
+          "max_tolerance_ratio": 0.0,
+          "violations": 0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "candidate_contract": {
+          "passed": false,
+          "max_abs": 46.5,
+          "max_tolerance_ratio": 1212.5162353515625,
+          "violations": 14,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      }
+    },
+    {
+      "file": "cancellation-screen.json",
+      "check": {
+        "dtype": "torch.float32",
+        "batch": 2048,
+        "fp64": [
+          [
+            2046.0,
+            3069.0,
+            2046.0,
+            3069.0,
+            2046.0,
+            3069.0,
+            2046.0
+          ],
+          [
+            2046.0,
+            3069.0,
+            2046.0,
+            3069.0,
+            2046.0,
+            3069.0,
+            2046.0
+          ]
+        ],
+        "fixed_actual": [
+          [
+            2046.0,
+            3069.0,
+            2046.0,
+            3069.0,
+            2046.0,
+            3069.0,
+            2046.0
+          ],
+          [
+            2046.0,
+            3069.0,
+            2046.0,
+            3069.0,
+            2046.0,
+            3069.0,
+            2046.0
+          ]
+        ],
+        "candidate_actual": [
+          [
+            2016.0,
+            3024.0,
+            2016.0,
+            3024.0,
+            2016.0,
+            3024.0,
+            2016.0
+          ],
+          [
+            2016.0,
+            3024.0,
+            2016.0,
+            3024.0,
+            2016.0,
+            3024.0,
+            2016.0
+          ]
+        ],
+        "fixed_contract": {
+          "passed": true,
+          "max_abs": 0.0,
+          "max_tolerance_ratio": 0.0,
+          "violations": 0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "candidate_contract": {
+          "passed": false,
+          "max_abs": 45.0,
+          "max_tolerance_ratio": 146.57981872558594,
+          "violations": 14,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      }
+    },
+    {
+      "file": "cancellation-screen.json",
+      "check": {
+        "dtype": "torch.bfloat16",
+        "batch": 255,
+        "fp64": [
+          [
+            253.0,
+            379.5,
+            253.0,
+            379.5,
+            253.0,
+            379.5,
+            253.0
+          ],
+          [
+            253.0,
+            379.5,
+            253.0,
+            379.5,
+            253.0,
+            379.5,
+            253.0
+          ]
+        ],
+        "fixed_actual": [
+          [
+            253.0,
+            380.0,
+            253.0,
+            380.0,
+            253.0,
+            380.0,
+            253.0
+          ],
+          [
+            253.0,
+            380.0,
+            253.0,
+            380.0,
+            253.0,
+            380.0,
+            253.0
+          ]
+        ],
+        "candidate_actual": [
+          [
+            216.0,
+            328.0,
+            216.0,
+            328.0,
+            216.0,
+            328.0,
+            216.0
+          ],
+          [
+            216.0,
+            328.0,
+            216.0,
+            328.0,
+            216.0,
+            328.0,
+            216.0
+          ]
+        ],
+        "fixed_contract": {
+          "passed": true,
+          "max_abs": 0.5,
+          "max_tolerance_ratio": 0.06501951068639755,
+          "violations": 0,
+          "atol": 0.1,
+          "rtol": 0.02
+        },
+        "candidate_contract": {
+          "passed": false,
+          "max_abs": 51.5,
+          "max_tolerance_ratio": 7.1705427169799805,
+          "violations": 14,
+          "atol": 0.1,
+          "rtol": 0.02
+        }
+      }
+    },
+    {
+      "file": "cancellation-screen.json",
+      "check": {
+        "dtype": "torch.bfloat16",
+        "batch": 256,
+        "fp64": [
+          [
+            254.0,
+            381.0,
+            254.0,
+            381.0,
+            254.0,
+            381.0,
+            254.0
+          ],
+          [
+            254.0,
+            381.0,
+            254.0,
+            381.0,
+            254.0,
+            381.0,
+            254.0
+          ]
+        ],
+        "fixed_actual": [
+          [
+            254.0,
+            380.0,
+            254.0,
+            380.0,
+            254.0,
+            380.0,
+            254.0
+          ],
+          [
+            254.0,
+            380.0,
+            254.0,
+            380.0,
+            254.0,
+            380.0,
+            254.0
+          ]
+        ],
+        "candidate_actual": [
+          [
+            216.0,
+            328.0,
+            216.0,
+            328.0,
+            216.0,
+            328.0,
+            216.0
+          ],
+          [
+            216.0,
+            328.0,
+            216.0,
+            328.0,
+            216.0,
+            328.0,
+            216.0
+          ]
+        ],
+        "fixed_contract": {
+          "passed": true,
+          "max_abs": 1.0,
+          "max_tolerance_ratio": 0.12953367829322815,
+          "violations": 0,
+          "atol": 0.1,
+          "rtol": 0.02
+        },
+        "candidate_contract": {
+          "passed": false,
+          "max_abs": 53.0,
+          "max_tolerance_ratio": 7.335907459259033,
+          "violations": 14,
+          "atol": 0.1,
+          "rtol": 0.02
+        }
+      }
+    },
+    {
+      "file": "cancellation-screen.json",
+      "check": {
+        "dtype": "torch.bfloat16",
+        "batch": 257,
+        "fp64": [
+          [
+            255.0,
+            382.5,
+            255.0,
+            382.5,
+            255.0,
+            382.5,
+            255.0
+          ],
+          [
+            255.0,
+            382.5,
+            255.0,
+            382.5,
+            255.0,
+            382.5,
+            255.0
+          ]
+        ],
+        "fixed_actual": [
+          [
+            255.0,
+            382.0,
+            255.0,
+            382.0,
+            255.0,
+            382.0,
+            255.0
+          ],
+          [
+            255.0,
+            382.0,
+            255.0,
+            382.0,
+            255.0,
+            382.0,
+            255.0
+          ]
+        ],
+        "candidate_actual": [
+          [
+            224.0,
+            336.0,
+            224.0,
+            336.0,
+            224.0,
+            336.0,
+            224.0
+          ],
+          [
+            224.0,
+            336.0,
+            224.0,
+            336.0,
+            224.0,
+            336.0,
+            224.0
+          ]
+        ],
+        "fixed_contract": {
+          "passed": true,
+          "max_abs": 0.5,
+          "max_tolerance_ratio": 0.06451613456010818,
+          "violations": 0,
+          "atol": 0.1,
+          "rtol": 0.02
+        },
+        "candidate_contract": {
+          "passed": false,
+          "max_abs": 46.5,
+          "max_tolerance_ratio": 6.000000476837158,
+          "violations": 14,
+          "atol": 0.1,
+          "rtol": 0.02
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "image",
+      "dtype": "torch.bfloat16",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 256,
+        "seed": 0,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "image",
+      "dtype": "torch.bfloat16",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 257,
+        "seed": 0,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "image",
+      "dtype": "torch.bfloat16",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 256,
+        "seed": 127,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "image",
+      "dtype": "torch.bfloat16",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 257,
+        "seed": 127,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "image",
+      "dtype": "torch.bfloat16",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 256,
+        "seed": 2026,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "image",
+      "dtype": "torch.bfloat16",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 257,
+        "seed": 2026,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "image",
+      "dtype": "torch.float32",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 256,
+        "seed": 0,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "image",
+      "dtype": "torch.float32",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 257,
+        "seed": 0,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "image",
+      "dtype": "torch.float32",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 256,
+        "seed": 127,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "image",
+      "dtype": "torch.float32",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 257,
+        "seed": 127,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "image",
+      "dtype": "torch.float32",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 256,
+        "seed": 2026,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "image",
+      "dtype": "torch.float32",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 257,
+        "seed": 2026,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "text",
+      "dtype": "torch.bfloat16",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 256,
+        "seed": 0,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "text",
+      "dtype": "torch.bfloat16",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 257,
+        "seed": 0,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "text",
+      "dtype": "torch.bfloat16",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 256,
+        "seed": 127,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "text",
+      "dtype": "torch.bfloat16",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 257,
+        "seed": 127,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "text",
+      "dtype": "torch.bfloat16",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 256,
+        "seed": 2026,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "text",
+      "dtype": "torch.bfloat16",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 257,
+        "seed": 2026,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "text",
+      "dtype": "torch.float32",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 256,
+        "seed": 0,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "text",
+      "dtype": "torch.float32",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 257,
+        "seed": 0,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "text",
+      "dtype": "torch.float32",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 256,
+        "seed": 127,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "text",
+      "dtype": "torch.float32",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 257,
+        "seed": 127,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "text",
+      "dtype": "torch.float32",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 256,
+        "seed": 2026,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "text",
+      "dtype": "torch.float32",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 257,
+        "seed": 2026,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "final",
+      "dtype": "torch.bfloat16",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 256,
+        "seed": 0,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "final",
+      "dtype": "torch.bfloat16",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 257,
+        "seed": 0,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "final",
+      "dtype": "torch.bfloat16",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 256,
+        "seed": 127,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "final",
+      "dtype": "torch.bfloat16",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 257,
+        "seed": 127,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "final",
+      "dtype": "torch.bfloat16",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 256,
+        "seed": 2026,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "final",
+      "dtype": "torch.bfloat16",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 257,
+        "seed": 2026,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "final",
+      "dtype": "torch.float32",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 256,
+        "seed": 0,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "final",
+      "dtype": "torch.float32",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 257,
+        "seed": 0,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "final",
+      "dtype": "torch.float32",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 256,
+        "seed": 127,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "final",
+      "dtype": "torch.float32",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 257,
+        "seed": 127,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "final",
+      "dtype": "torch.float32",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 256,
+        "seed": 2026,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    },
+    {
+      "file": "dispatch-parameters-0.json",
+      "stream": "final",
+      "dtype": "torch.float32",
+      "check": {
+        "kind": "ordered_contributions_zero_padding",
+        "batch": 257,
+        "seed": 2026,
+        "all_equal": {
+          "weight": false,
+          "bias": true
+        }
+      }
+    }
+  ]
+}
