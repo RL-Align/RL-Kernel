@@ -24,6 +24,11 @@ class OperatorSpec:
     grad_input_names: tuple[str, ...] = ()
     gold_input_dtype: torch.dtype | None = None
     output_matches_input_dtype: bool = False
+    # WS1 frozen-contract ops: gtest acceptance is bitwise (exact logical-
+    # element bit patterns, forward and backward; see OperatorCase). The
+    # gradient gold is the op's OWN frozen backward, not autograd through
+    # the fp32 forward view.
+    bitwise_strict: bool = False
 
 
 def _load_object(path: str) -> Any:
@@ -246,6 +251,23 @@ OP_SPECS = {
             "ascend": "rl_engine.kernels.ops.ascend.linear.lm_head.AscendLMHeadOp",
         },
         grad_input_names=("hidden", "weight"),
+    ),
+    "attn_out_bias_gemm": OperatorSpec(
+        name="attn_out_bias_gemm",
+        op_class="reduction",
+        # Same-tree gold: the reference evaluates the frozen 32-leaf mid-split
+        # tree with explicit elementwise ops (no matmul), so the byte-for-byte
+        # bar from issue #386 is reached against THIS gold, not torch.matmul.
+        gold_path="rl_engine.reference.gemm.attn_out_bias_gemm." "NativeAttnOutBiasGemmOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.gemm.attn_out_bias_gemm." "NativeAttnOutBiasGemmOp",
+            "triton": "rl_engine.backends.shared.triton.gemm.attn_out_bias_gemm."
+            "TritonAttnOutBiasGemmOp",
+            "cuda": "rl_engine.backends.cuda.gemm.attn_out_bias_gemm." "CudaAttnOutBiasGemmOp",
+        },
+        grad_input_names=("x", "weight", "bias"),
+        bitwise_strict=True,
     ),
     "det_gemm": OperatorSpec(
         name="det_gemm",
@@ -487,6 +509,8 @@ def make_operator_case(
         grad_input_names=spec.grad_input_names,
         gold_input_dtype=spec.gold_input_dtype,
         candidate_output_dtype=dtype if spec.output_matches_input_dtype else None,
+        bitwise_strict=spec.bitwise_strict,
+        gold_backward_fn=gold_op if spec.bitwise_strict else None,
     )
 
 
