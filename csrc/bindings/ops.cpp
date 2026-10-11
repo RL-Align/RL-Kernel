@@ -256,6 +256,17 @@ std::vector<torch::Tensor> swiglu_packed_backward_cuda(
     torch::Tensor dy,
     torch::Tensor gate_up);
 
+// H3 packed input construction (NVIDIA CUDA).
+#if defined(KERNEL_ALIGN_WITH_CUDA)
+torch::Tensor packed_index_copy_forward(
+    torch::Tensor text, torch::Tensor video, torch::Tensor audio,
+    torch::Tensor text_indices, torch::Tensor video_indices, torch::Tensor audio_indices,
+    int64_t sequence_length);
+std::vector<torch::Tensor> packed_index_copy_backward(
+    torch::Tensor grad, torch::Tensor text_indices,
+    torch::Tensor video_indices, torch::Tensor audio_indices);
+#endif
+
 // RMSNorm Declarations & Wrappers
 
 void rmsnorm_forward_cuda(
@@ -737,6 +748,13 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Batch-invariant SwiGLU forward for [rows, 2 * intermediate]");
     m.def("swiglu_packed_backward", &swiglu_packed_backward,
           "Batch-invariant SwiGLU backward for [rows, 2 * intermediate]");
+
+#if defined(KERNEL_ALIGN_WITH_CUDA)
+    m.def("packed_index_copy_forward", &packed_index_copy_forward,
+          "H3 packed index copy forward CUDA");
+    m.def("packed_index_copy_backward", &packed_index_copy_backward,
+          "H3 packed index copy backward CUDA");
+#endif
 
     // Deterministic standard-softmax attention (issue #147)
     m.def(

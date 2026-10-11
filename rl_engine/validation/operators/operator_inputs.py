@@ -28,6 +28,7 @@ def make_operator_inputs(
         "rms_norm": _make_rms_norm_inputs,
         "qk_norm": _make_qk_norm_inputs,
         "pack": _make_pack_inputs,
+        "packed_index_copy": _make_packed_index_copy_inputs,
         "matmul": _make_matmul_inputs,
         "det_gemm": _make_det_gemm_inputs,
         "attention": _make_attention_inputs,
@@ -57,6 +58,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "qk_norm": f"{batch}x{seq}x{_arg_int(args, 'n_heads', DEFAULT_N_HEADS)}x"
         f"{_arg_int(args, 'head_dim', DEFAULT_HEAD_DIM)}",
         "pack": f"{batch}x{seq}x{_normalized_dim(args)}",
+        "packed_index_copy": f"{batch}x{seq}x{_normalized_dim(args)}",
         "matmul": f"{batch}x{seq}x{_matmul_k(args)}x{_matmul_n(args)}",
         "det_gemm": f"{batch}x{seq}x{_matmul_k(args)}x{_matmul_n(args)}",
         "attention": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}",
@@ -120,6 +122,24 @@ def _make_pack_inputs(
         mask = torch.randint(0, 2, (batch, seq), generator=generator, device=device) > 0
         mask[:, 0] = True
     return {"x": x, "mask": mask}
+
+
+def _make_packed_index_copy_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    batch, seq = _batch_seq(args)
+    hidden = _normalized_dim(args)
+    indices = torch.arange(seq, device=device, dtype=torch.int64)
+    text_indices, video_indices, audio_indices = (indices[i::3].contiguous() for i in range(3))
+    return {
+        "text": _floating_tensor((batch, text_indices.numel(), hidden), args, dtype, device, 0),
+        "video": _floating_tensor((batch, video_indices.numel(), hidden), args, dtype, device, 1),
+        "audio": _floating_tensor((batch, audio_indices.numel(), hidden), args, dtype, device, 2),
+        "text_indices": text_indices,
+        "video_indices": video_indices,
+        "audio_indices": audio_indices,
+        "sequence_length": seq + 2,
+    }
 
 
 def _make_matmul_inputs(

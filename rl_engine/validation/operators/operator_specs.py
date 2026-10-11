@@ -262,6 +262,17 @@ OP_SPECS = {
         },
         grad_input_names=("logits",),
     ),
+    "packed_index_copy": OperatorSpec(
+        name="packed_index_copy",
+        op_class="elementwise",
+        gold_path="rl_engine.reference.packing.packed_index_copy.NativePackedIndexCopyOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "cuda": "rl_engine.backends.cuda.packing.packed_index_copy.PackedIndexCopyCudaOp",
+            "pytorch": "rl_engine.reference.packing.packed_index_copy.NativePackedIndexCopyOp",
+        },
+        grad_input_names=("text", "video", "audio"),
+    ),
     "pack": OperatorSpec(
         name="pack",
         op_class="elementwise",
