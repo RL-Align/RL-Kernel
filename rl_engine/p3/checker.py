@@ -1,16 +1,14 @@
 """T01 compatibility stub. T09 extends this module with L1–L3b attribution."""
 
-from functools import wraps
-
 import numpy as np
 
-from .assembler import combine_seed, token_fingerprint
+from .assembler import artifact_fingerprint, combine_seed, token_fingerprint
 from .contract import (
     CAPACITY_POLICY,
     CORE_FIELDS,
     CORE_SCHEMA,
-    ENVELOPE_FIELDS,
     ENVELOPE_SCHEMA,
+    ENVELOPE_SCHEMA_V2,
     EVENT_MANIFEST,
     MILES_ANCHOR,
     MODEL_FIELDS,
@@ -30,22 +28,10 @@ from .contract import (
     P3Verdict,
     SavedRouteSealedV1,
     SavedScoreSealedV1,
+    envelope_fields,
 )
 from .oracle import require, tensor
-from .serialization import canonical, fingerprint
-
-
-def checked_structure(fn):
-    @wraps(fn)
-    def checked(*args, **kwargs):
-        try:
-            return fn(*args, **kwargs)
-        except P3Error:
-            raise
-        except (KeyError, TypeError, ValueError, IndexError, AttributeError, OverflowError) as exc:
-            raise P3Error(P3Verdict.SCHEMA_MISMATCH, f"malformed {fn.__name__} input") from exc
-
-    return checked
+from .serialization import canonical, checked_structure, fingerprint, ordered_record
 
 
 def check_anchor(anchor=None):
@@ -91,17 +77,33 @@ def check_compatibility(producer):
 
 
 @checked_structure
-def validate_plan(bundle):
+def validate_plan(bundle, *, expected_runtime=None, expected_placement_version=None):
     plan = bundle["RoutePlan"]
     rows, envelopes = plan["core"], plan["envelope"]
     placement = plan["placement_map"]
     mapping = placement["logical_to_physical"]
     require(
-        len(mapping) == E and sorted(mapping) == list(range(E)),
+        len(mapping) == E
+        and all(type(e) is int for e in mapping)
+        and sorted(mapping) == list(range(E)),
         P3Verdict.INVALID_PLACEMENT_MAP,
         "archived placement not bijective",
     )
+    require(
+        isinstance(placement["version"], str)
+        and placement["version"]
+        and (
+            expected_placement_version is None or placement["version"] == expected_placement_version
+        ),
+        P3Verdict.PLACEMENT_MAP_VERSION_MISMATCH,
+        "unexpected placement version",
+    )
     identity = plan["identity"]
+    require(
+        len({t[0] for t in identity["tokens"]}) == len(identity["tokens"]),
+        P3Verdict.AMBIGUOUS_GLOBAL_TOKEN_MAPPING,
+        "duplicate expected token identity",
+    )
     expected_tokens = dict(identity["tokens"])
     require(
         len(rows) == len(envelopes) and len(rows) % 6 == 0,
@@ -109,17 +111,86 @@ def validate_plan(bundle):
         "six slots and matching envelopes required",
     )
     for row in rows:
+        ordered_record(CORE_SCHEMA, row)
         require(
             tuple(row) == CORE_FIELDS and row["core_schema_version"] == CORE_SCHEMA,
             P3Verdict.SCHEMA_MISMATCH,
             "Core field order/version mismatch",
         )
+    version = envelopes[0]["envelope_schema_version"] if envelopes else ENVELOPE_SCHEMA
+    fields = envelope_fields(version)
     for env in envelopes:
+        ordered_record(version, env)
         require(
-            tuple(env) == ENVELOPE_FIELDS + ("route_artifact_fingerprint",)
-            and env["envelope_schema_version"] == ENVELOPE_SCHEMA,
+            tuple(env) == fields + ("route_artifact_fingerprint",)
+            and env["envelope_schema_version"] == version,
             P3Verdict.SCHEMA_MISMATCH,
             "Envelope field order/version mismatch",
+        )
+        require(
+            env["run_id"]
+            and env["engine_id"]
+            and 0 < env["attempt_id"] <= 0xFFFFFFFF
+            and env["rank"] >= 0
+            and all(
+                env[k] != ""
+                for k in (
+                    "group",
+                    "topology",
+                    "backend_profile",
+                    "kernel",
+                    "build",
+                    "device",
+                    "stream",
+                    "event",
+                )
+            ),
+            P3Verdict.MISSING_PROVENANCE,
+            "missing runtime identity or execution metadata",
+        )
+        runtime_keys = tuple(
+            k
+            for k in fields
+            if k not in ("source_row", "physical_expert_id", "placement_map_version")
+        )
+        require(
+            canonical({k: env[k] for k in runtime_keys})
+            == canonical({k: envelopes[0][k] for k in runtime_keys}),
+            P3Verdict.IDENTITY_DRIFT,
+            "runtime identity changed between slots",
+        )
+    if version == ENVELOPE_SCHEMA_V2:
+        from .mocks import validate_ownership, validate_ownership_metadata
+
+        metadata = envelopes[0]
+        expected_set = plan["expected_token_set"]
+        validate_ownership_metadata(metadata["token_ownership"], expected_set)
+        validate_ownership(plan, expected_set)
+        require(
+            metadata["expected_token_set_fingerprint"] == fingerprint(expected_set),
+            P3Verdict.CORRUPT_ARTIFACT,
+            "rank token declaration checksum mismatch",
+        )
+        require(
+            expected_set == sorted(expected_tokens),
+            P3Verdict.IDENTITY_DRIFT,
+            "rank expected tokens differ from case identity",
+        )
+    if expected_runtime is not None:
+        require(
+            envelopes
+            and isinstance(expected_runtime, dict)
+            and all(
+                k in fields or (version == ENVELOPE_SCHEMA_V2 and k == "expected_token_set")
+                for k in expected_runtime
+            )
+            and all(
+                canonical(plan[k] if k == "expected_token_set" else env[k]) == canonical(v)
+                for env in envelopes
+                for k, v in expected_runtime.items()
+            ),
+            P3Verdict.IDENTITY_DRIFT,
+            "Envelope differs from consumer runtime declaration",
         )
     tokens = {}
     for offset in range(0, len(rows), 6):
@@ -135,6 +206,30 @@ def validate_plan(bundle):
             P3Verdict.IDENTITY_DRIFT,
             "slot token identity changed",
         )
+        if token < 0:
+            require(
+                all(
+                    r["checkpoint_id"] == identity["checkpoint_id"]
+                    and r["weight_id"] == identity["weight_id"]
+                    and r["weight_fingerprint"] == identity["weight_fingerprint"]
+                    and r["absolute_layer"] == identity["layer"]
+                    and r["router_mode"] == identity["mode"]
+                    and r["logit_round_point"] == identity["round_policy"]
+                    and r["tie_break_policy"] == TIE_POLICY
+                    and r["capacity_policy"] == r["overflow_policy"] == CAPACITY_POLICY
+                    and r["capacity"] == -1
+                    and r["table_fingerprint"] == (identity["table"] or "00" * 32)
+                    and r["bias_fingerprint"] == (identity["bias"] or "00" * 32)
+                    and r["table_present"] is (identity["mode"] == "hash")
+                    and r["bias_present"] is (identity["mode"] == "learned")
+                    and r["weight_source"] == "pre_bias_score"
+                    and r["selection_source"]
+                    == ("tid2eid.table_slot" if identity["mode"] == "hash" else "post_bias_score")
+                    for r in token_rows
+                ),
+                P3Verdict.IDENTITY_DRIFT,
+                "Core model identity drift, including padding",
+            )
         if token < 0:
             require(
                 all(
@@ -246,10 +341,7 @@ def validate_plan(bundle):
         P3Verdict.ROUTE_SEMANTIC_FINGERPRINT_MISMATCH,
         "case/per-token map mismatch",
     )
-    envelope_body = [{k: env[k] for k in ENVELOPE_FIELDS} for env in envelopes]
-    expected = fingerprint(
-        {"case_id": plan["identity"]["case_id"], "core": rows, "envelope": envelope_body}
-    )
+    expected = artifact_fingerprint(plan["identity"]["case_id"], rows, envelopes)
     require(
         expected == plan["route_artifact_fingerprint"]
         and all(e["route_artifact_fingerprint"] == expected for e in envelopes),
@@ -631,7 +723,6 @@ def validate_recording(recording, *, check_diagnostics=True):
 
 def compare_recordings(left, right):
     """Small T01 comparator hook. T09 extends its ladder and distributed attribution."""
-    from .contract import P3Error
 
     try:
         require(

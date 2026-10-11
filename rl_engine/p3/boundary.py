@@ -34,6 +34,8 @@ def consume(
     expected_boundary=BOUNDARY_VERSION,
     capacity_policy="dropless_v1",
     require_foundation=False,
+    expected_runtime=None,
+    expected_placement_version=None,
 ):
     """Versioned consumer mock shared by the three downstream handoff examples."""
     from .checker import validate_plan
@@ -55,7 +57,11 @@ def consume(
         P3Verdict.UNSUPPORTED_CAPABILITY,
         "unknown consumer",
     )
-    validate_plan(bundle)
+    validate_plan(
+        bundle,
+        expected_runtime=expected_runtime,
+        expected_placement_version=expected_placement_version,
+    )
     require(
         canonical(bundle["RoutePlan"]["identity"]) == canonical(expected_identity),
         P3Verdict.IDENTITY_DRIFT,
