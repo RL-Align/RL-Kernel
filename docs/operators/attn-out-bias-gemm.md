@@ -31,7 +31,7 @@ parallel variant). The numeric contract version is
 ## Entry Point
 
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 op = kernel_registry.get_op("attn_out_bias_gemm")           # dispatch
 out = op(x, weight, bias=bias)                              # [*lead, 3072]
@@ -77,11 +77,11 @@ reductions, bit-identical on every device).
   shapes, padding, and repeat runs, for outputs and `dx` alike.
 - **Acceptance is bitwise and only bitwise**: forward and backward, both
   dtypes, logical-element bit patterns (the harness in
-  `tests/test_attn_out_bias_gemm.py`: shape, dtype, dtype-bitcast; zero
+  `tests/ops/gemm/test_attn_out_bias_gemm.py`: shape, dtype, dtype-bitcast; zero
   tolerance). A result that differs in any bit fails acceptance regardless
   of any other verdict; error statistics are diagnostics only.
 - The generic gtest matrix enforces the same bar for this operator
-  (`bitwise_strict` in `rl_engine/kernels/gtest/operator_specs.py`): the
+  (`bitwise_strict` in `rl_engine/validation/operators/operator_specs.py`): the
   forward pass criterion is the gold cast ONCE to the output dtype, compared
   on the dtype bitcast; the gradient leg differentiates the gold OP itself
   (its ``autograd.Function.backward`` IS the frozen chain) with the same
@@ -109,7 +109,7 @@ via chunked depth-first combination.
 ## Tests
 
 ```bash
-python -m pytest tests/test_attn_out_bias_gemm.py -q
+python -m pytest tests/ops/gemm/test_attn_out_bias_gemm.py -q
 python scripts/check_operator.py --op attn_out_bias_gemm --candidate pytorch --device cpu --dtype fp32
 python scripts/check_operator.py --op attn_out_bias_gemm --candidate triton --device cuda --dtype bf16 --check-grad
 python scripts/check_operator.py --op attn_out_bias_gemm --candidate cuda --device cuda --dtype bf16 --check-grad
@@ -133,7 +133,8 @@ elements) required by the issue acceptance list.
 ## Known Limitations
 
 - The Triton forward materialises leaf partial planes per chunk; peak extra
-  memory is ~3.2 GB at the largest acceptance tier (S=6889). Streamed or
+  memory is 1.71 GiB forward / 2.07 GiB forward+backward (allocated) at the
+  largest acceptance tier (S=6889). Streamed or
   in-kernel tree combination is future work.
 - Tensor-core (mma) paths are excluded on purpose: PTX does not specify the
   internal accumulation tree of `mma.sync`, so the reduction tree cannot be
