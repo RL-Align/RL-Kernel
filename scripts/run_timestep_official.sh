@@ -33,7 +33,7 @@ PYENV
 nvidia-smi >> "$run_dir/environment.txt"
 nvcc --version >> "$run_dir/environment.txt"
 python -m pip freeze > "$run_dir/packages.txt"
-python -m pytest tests/test_timestep_official.py tests/test_tolerance_contract.py tests/test_operator_inputs.py -q > "$run_dir/pytest.log" 2>&1
+python -m pytest tests/test_timestep_official.py tests/contracts/test_tolerance_contract.py tests/validation/operators/test_operator_inputs.py -q > "$run_dir/pytest.log" 2>&1
 for backend in cuda triton; do
     for dtype in fp32 bf16; do
         python scripts/check_operator.py --op timestep_embed_mlp --candidate "$backend" \

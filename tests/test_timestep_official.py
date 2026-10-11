@@ -136,3 +136,26 @@ class TimestepGpuEdgeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_timestep_registration_survives_layout_migration():
+    import importlib
+    from argparse import Namespace
+
+    for name in ("operator_inputs", "operator_specs"):
+        legacy = importlib.import_module("rl_engine.kernels.gtest." + name)
+        canonical = importlib.import_module("rl_engine.validation.operators." + name)
+        assert legacy is canonical
+    from rl_engine.validation.operators.operator_inputs import (
+        make_operator_inputs,
+        operator_shape_name,
+    )
+    from rl_engine.validation.operators.operator_specs import OP_SPECS, _load_object
+
+    args = Namespace(batch=1, seq=1, seed=386, input_mode="random")
+    values = make_operator_inputs("timestep_embed_mlp", args, torch.float32, torch.device("cpu"))
+    assert values["weight1"].shape == (3072, 256)
+    assert values["weight2"].shape == (3072, 3072)
+    assert operator_shape_name("timestep_embed_mlp", args) == "1x256x3072"
+    for path in OP_SPECS["timestep_embed_mlp"].candidate_paths.values():
+        assert callable(_load_object(path))

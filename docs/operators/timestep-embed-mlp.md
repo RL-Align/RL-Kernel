@@ -83,7 +83,7 @@ identify this independently built extension's execution path.
 
 ```bash
 OMP_NUM_THREADS=4 python -m pytest tests/test_timestep_official.py \
-    tests/test_tolerance_contract.py tests/test_operator_inputs.py -q
+    tests/contracts/test_tolerance_contract.py tests/validation/operators/test_operator_inputs.py -q
 
 python scripts/check_operator.py --op timestep_embed_mlp --candidate cuda \
     --device cuda --dtype bf16 --batch 3 --seq 1 --seed 386 --check-grad --json

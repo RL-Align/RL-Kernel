@@ -150,3 +150,16 @@ from the current source, and isolates CUDA/Triton caches. It preserves the
 original arithmetic and tolerances. The audit refuses to overwrite its output;
 its pass status uses the phase-boundary comparison, candidate/reference agreement
 and real-backend checks, while retaining old-reference and all-FP64 failures.
+
+## Integration after the target-branch refactor
+
+The PR incorporates `test-qwenimage` at `16b8117`. Operator registration now
+lives in `rl_engine/validation/operators`, and extension configuration lives
+in `build_tools/extensions.py`; legacy validation imports remain compatible.
+The acceptance script and reproduction commands use the relocated test paths.
+
+Local integration validation passed 94 tests, including reference finite
+differences, input registration, build configuration, layout compatibility,
+and GPU edge cases on a GeForce GTX 1650 Ti (sm75). The CUDA/Triton operator
+sources and the A100/H100 evidence bundles are unchanged. This integration
+check is not a new A100 or H100 production acceptance run.
