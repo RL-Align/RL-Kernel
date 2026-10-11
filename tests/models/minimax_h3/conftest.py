@@ -15,6 +15,7 @@ import torch
 from rl_engine.validation.models.h3_weights import (
     WEIGHTS_ENV,
     h3_weights_dir,
+    load_h3_block_weights,
     load_h3_conditioning_weights,
 )
 
@@ -27,5 +28,19 @@ def h3_weights_cpu() -> dict[str, torch.Tensor]:
         pytest.skip(f"{WEIGHTS_ENV} not set; run tools/weights/prepare_h3_weights.py")
     try:
         return load_h3_conditioning_weights("cpu")
+    except FileNotFoundError as exc:
+        pytest.skip(str(exc))
+
+
+@pytest.fixture(scope="session")
+def h3_block_weights_cuda() -> dict[str, torch.Tensor]:
+    """Conditioning plus block-0 tensors on CUDA, skipping when they were not extracted."""
+
+    if h3_weights_dir() is None:
+        pytest.skip(f"{WEIGHTS_ENV} not set; run tools/weights/prepare_h3_weights.py --block")
+    if not torch.cuda.is_available():
+        pytest.skip("needs CUDA")
+    try:
+        return load_h3_block_weights("cuda")
     except FileNotFoundError as exc:
         pytest.skip(str(exc))
