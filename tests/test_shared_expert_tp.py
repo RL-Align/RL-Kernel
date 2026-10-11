@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import pytest
 import torch
+from dataclasses import replace
 
 from rl_engine.moe import fixtures, oracle
 from rl_engine.moe.contract import SharedBatch, tensor_sha256
 from rl_engine.moe.parallel import (
     SharedOnceLedger,
+    TP_TREE_PROFILE,
     TPSimulatedSharedExpertProvider,
     combine_shared_once,
     shard_shared_batch,
@@ -41,7 +43,12 @@ def _run(provider, batch: SharedBatch, dy: torch.Tensor):
 
 
 def _batch_and_dy(t: int = 16):
-    batch = fixtures.make_shared_batch("shared_t16").to("cuda")
+    # The TP provider's _check_batch requires the batch to declare the tree8
+    # profile; fixtures build ORACLE_PROFILE batches.
+    batch = replace(
+        fixtures.make_shared_batch("shared_t16").to("cuda"),
+        numeric_profile=TP_TREE_PROFILE,
+    )
     dy = fixtures.make_grad_output("shared_t16", (t, batch.x.shape[1])).to("cuda")
     return batch, dy
 
@@ -102,7 +109,12 @@ def test_batch_invariance_under_tp(base):
     provider = _provider(base, 4)
     y_full, _ = provider.shared_expert_mlp_fwd(batch)
     for t in range(0, batch.x.shape[0], 5):
-        row = SharedBatch(x=batch.x[t : t + 1].contiguous(), w_fc1=batch.w_fc1, w_fc2=batch.w_fc2)
+        row = SharedBatch(
+            x=batch.x[t : t + 1].contiguous(),
+            w_fc1=batch.w_fc1,
+            w_fc2=batch.w_fc2,
+            numeric_profile=TP_TREE_PROFILE,
+        )
         y_row, _ = provider.shared_expert_mlp_fwd(row)
         assert tensor_sha256(y_row) == tensor_sha256(y_full[t : t + 1]), f"row {t}"
 

@@ -166,7 +166,6 @@ class TPSimulatedSharedExpertProvider(_StrictSharedExpertProvider):
 
     name = "shared-expert-tp-sim"
     numeric_profile = TP_TREE_PROFILE
-    strict_profile = False
 
     def __init__(self, base: str = "cuda", tp: int = 1) -> None:
         if base not in _BASE_BACKENDS:

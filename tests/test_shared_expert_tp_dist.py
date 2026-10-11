@@ -14,6 +14,7 @@ import os
 
 import pytest
 import torch
+from dataclasses import replace
 
 requires_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
 
@@ -25,7 +26,7 @@ def _rank_main(rank: int, world: int, rendezvous: str, out_path: str) -> None:
     from rl_engine.moe.backends.shared_expert import CudaSharedExpertProvider
     from rl_engine.moe.contract import tensor_sha256
     from rl_engine.moe.parallel import OrderedTreeReducer, shard_shared_batch
-    from rl_engine.moe.parallel.shared_expert_tp import NUM_LEAVES
+    from rl_engine.moe.parallel.shared_expert_tp import NUM_LEAVES, TP_TREE_PROFILE
 
     dist.init_process_group("gloo", init_method=f"file://{rendezvous}", rank=rank, world_size=world)
     try:
@@ -66,13 +67,16 @@ def test_multiprocess_tp_matches_simulation(tmp_path, world):
 
     from rl_engine.moe import fixtures
     from rl_engine.moe.contract import tensor_sha256
-    from rl_engine.moe.parallel import TPSimulatedSharedExpertProvider
+    from rl_engine.moe.parallel import TP_TREE_PROFILE, TPSimulatedSharedExpertProvider
 
     try:
         provider = TPSimulatedSharedExpertProvider(base="cuda", tp=world)
     except NotImplementedError as exc:
         pytest.skip(f"cuda backend unavailable: {exc}")
-    batch = fixtures.make_shared_batch("shared_t16").to("cuda")
+    batch = replace(
+        fixtures.make_shared_batch("shared_t16").to("cuda"),
+        numeric_profile=TP_TREE_PROFILE,
+    )
     y_sim, _ = provider.shared_expert_mlp_fwd(batch)
 
     rendezvous = tmp_path / "rdzv"
