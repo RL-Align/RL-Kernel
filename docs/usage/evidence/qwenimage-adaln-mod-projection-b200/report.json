@@ -1,0 +1,4756 @@
+{
+  "checkpoint": "Qwen/Qwen-Image",
+  "checkpoint_revision": "75e0b4be04f60ec59a75f475837eced720f823b6",
+  "diffusers_revision": "d961a388fd02e4db38d17350c8dd9b8abe642e05",
+  "diffusers_source_sha256": {
+    "transformer_qwenimage.py": "0bad11901deae69f05aec01fd464e51e38582d455068f2851ee665036179321f",
+    "normalization.py": "a3c40cee9308a0e339cca21c14bf51f394c61ae68e5b9a578e5636441f5eaa84"
+  },
+  "source": {
+    "base_sha": "893642643f4095451987c326a1449524d3c15496",
+    "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_source_sha256": {},
+    "workspace_source_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "qwenimage_source_sha256": {
+      "csrc/cuda/model_specific/qwenimage/det_linear.cu": "859da456b0c776f3492b3197c252866e33d9a7088508b701b7c4a179ee709afb",
+      "rl_engine/backends/cuda/model_specific/qwenimage/__init__.py": "95c46d40c4aed2d4c26a65bc0cc64331e42b237673293ea5ed45b79ebc11d4b4",
+      "rl_engine/backends/cuda/model_specific/qwenimage/adaln_mod_projection.py": "f8ad94517879c9135e0ed3bc24469c6fc9a24ea07179fd1c52d3235c5ef13dcc",
+      "rl_engine/reference/model_specific/qwenimage/__init__.py": "95c46d40c4aed2d4c26a65bc0cc64331e42b237673293ea5ed45b79ebc11d4b4",
+      "rl_engine/reference/model_specific/qwenimage/adaln_mod_projection.py": "1ebc740ddff575055ee66ed714a8c7cc5c6cee2701d582a665289e9ad1a4fe3d",
+      "benchmarks/models/qwenimage/__init__.py": "a63ebc79ed10d9ed98484565a353438bd13f5801a8f51d7505d0921bf6942742",
+      "benchmarks/models/qwenimage/adaln_evidence.py": "b212244aa016b406e441ba1648467dd97ed936c3ddca92db526ebcea666efbd8",
+      "benchmarks/models/qwenimage/adaln_parameter_screen.py": "05562ef30d09296c2ccd1cdeb44085568b8c877d01f5fb1df4b983e84945ec03",
+      "benchmarks/models/qwenimage/adaln_prior_art.py": "647aa9fc81e02bf3c7806ed6c2a3e578fb3e1a0b000b4388a12367ef86de3139",
+      "benchmarks/models/qwenimage/adaln_reuse_bi_audit.py": "7e20df2a16c4f31cc1cf82cfb10f031f3ff454f4a96585a20267cde8171cef71",
+      "benchmarks/models/qwenimage/adaln_reuse_candidate.py": "e636d6e4fee136e6c8716c973969f8074c77c18ed49d3cd11a246389a9fc4a16",
+      "benchmarks/models/qwenimage/plot_adaln_audit.py": "f362800e95c7a64c31a4d16b8e3ba02fd8783ea386a6773281f22e2f48d3248e",
+      "benchmarks/models/qwenimage/plot_adaln_evidence.py": "16d6bed0ee5b808814c5f7157145a730750d0b1aaf94762e6f72a256e942c1e2",
+      "benchmarks/models/qwenimage/streams.py": "86fd5d8e28fde856c50c704580a3df11c1d2af3e7774a50503ab7f7c1635b3ae",
+      "benchmarks/models/qwenimage/validate_adaln_repair.py": "e093f246042c02a850b8eee49893bcc54f92c13c5d7710924a73e49406724e1f"
+    },
+    "extension_sha256": "fe366383d6f8983c22cb9f4233d8e537f0d45f1600ad3c7c47fbdfb87094aaef",
+    "clean_commit": true
+  },
+  "environment": {
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "driver": "580.126.20",
+    "gpu": "NVIDIA B200",
+    "tf32": false
+  },
+  "weights": {
+    "transformer_blocks.0.img_mod.1.weight": {
+      "shape": [
+        18432,
+        3072
+      ],
+      "dtype": "torch.bfloat16",
+      "sha256": "22ef33e6865806f3e1d2bc137bd1a41510cf0619ed0c85fba35a626cd7bad018",
+      "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+      "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+    },
+    "transformer_blocks.0.img_mod.1.bias": {
+      "shape": [
+        18432
+      ],
+      "dtype": "torch.bfloat16",
+      "sha256": "f4d2241820fa1a1895d7136bd5653ae0984a50bf0a0961a312b45e0e393d8218",
+      "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+      "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+    },
+    "transformer_blocks.0.txt_mod.1.weight": {
+      "shape": [
+        18432,
+        3072
+      ],
+      "dtype": "torch.bfloat16",
+      "sha256": "7fc5615cea51f21640ae26b29e4595fe96295113b1fd31b117664c1b85d360c2",
+      "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+      "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+    },
+    "transformer_blocks.0.txt_mod.1.bias": {
+      "shape": [
+        18432
+      ],
+      "dtype": "torch.bfloat16",
+      "sha256": "537d4e06e6fe7428a331637871fcf8c9c4899b296b5419e12abb3a3972adfc72",
+      "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+      "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+    }
+  },
+  "cases": [
+    {
+      "stream": "image",
+      "dtype": "torch.bfloat16",
+      "batch": 1,
+      "seq": 1,
+      "readback": {
+        "operator": "qwenimage_adaln_mod_projection",
+        "requested_backend": "cuda",
+        "actual_backend": "cuda",
+        "contract": "qwenimage-adaln-v2",
+        "fallback": false,
+        "accumulation_dtype": "float32",
+        "projection_kernel": "rl_engine._C.qwenimage_det_linear_forward",
+        "projection_tree": "mma_k16_ascending",
+        "backward": "compensated_64_column_partials_kahan_fold; ascending_batch_neumaier_dW_product_residual_db",
+        "parameter_gradient_kernel": "rl_engine._C.qwenimage_det_linear_backward_weight",
+        "parameter_gradient_backend": "cuda_compensated",
+        "backward_contract": "qwenimage-parameter-grad-neumaier-v2",
+        "activation": "aten.silu; fp32 analytic VJP",
+        "execution_dtype": "torch.bfloat16",
+        "device": "cuda:0",
+        "capability": [
+          10,
+          0
+        ]
+      },
+      "correctness": {
+        "forward": {
+          "passed": true,
+          "max_abs": 0.000244140625,
+          "max_tolerance_ratio": 0.004818348214030266,
+          "violations": 0,
+          "atol": 0.05,
+          "rtol": 0.02
+        },
+        "gradients": {
+          "temb": {
+            "passed": true,
+            "max_abs": 0.06244468688964844,
+            "max_tolerance_ratio": 0.14133451879024506,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight": {
+            "passed": true,
+            "max_abs": 0.03125,
+            "max_tolerance_ratio": 0.1193317398428917,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias": {
+            "passed": true,
+            "max_abs": 0.0,
+            "max_tolerance_ratio": 0.0,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          }
+        },
+        "repeat_bitwise": true
+      },
+      "timing": {
+        "forward": {
+          "samples_ms": {
+            "candidate": [
+              0.11776000261306763,
+              0.053279999643564224,
+              0.06761600077152252,
+              0.04886399954557419,
+              0.05718399956822395,
+              0.05692800134420395,
+              0.05987200140953064,
+              0.04931199923157692,
+              0.056992001831531525,
+              0.04742399975657463
+            ],
+            "native": [
+              0.04259200021624565,
+              0.04227200150489807,
+              0.041600000113248825,
+              0.039455998688936234,
+              0.0432640016078949,
+              0.039744000881910324,
+              0.04057599976658821,
+              0.03920000046491623,
+              0.04185599833726883,
+              0.03977600112557411
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.05696000158786774,
+            "native": 0.04108799993991852
+          }
+        },
+        "backward": {
+          "samples_ms": {
+            "candidate": [
+              0.7783039808273315,
+              0.5200319886207581,
+              0.4944640100002289,
+              0.4999360144138336,
+              0.4734080135822296,
+              0.49907198548316956,
+              0.4930559992790222,
+              0.47443199157714844,
+              0.4665600061416626,
+              0.4698239862918854
+            ],
+            "native": [
+              0.23423999547958374,
+              0.39267200231552124,
+              0.346560001373291,
+              0.41887998580932617,
+              0.13353599607944489,
+              0.39958399534225464,
+              0.13849599659442902,
+              0.1356479972600937,
+              0.1340160071849823,
+              0.12966400384902954
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.49376000463962555,
+            "native": 0.18636799603700638
+          }
+        },
+        "forward_backward": {
+          "samples_ms": {
+            "candidate": [
+              0.650048017501831,
+              0.8413119912147522,
+              0.7958719730377197,
+              0.7996159791946411,
+              0.8438079953193665,
+              0.8585919737815857,
+              0.8102399706840515,
+              0.7986239790916443,
+              0.8418880105018616,
+              0.5894719958305359
+            ],
+            "native": [
+              0.7444800138473511,
+              0.753055989742279,
+              0.7029439806938171,
+              0.6823040246963501,
+              0.27161601185798645,
+              0.46956801414489746,
+              0.6784960031509399,
+              0.6767680048942566,
+              0.7194240093231201,
+              0.5529919862747192
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.8049279749393463,
+            "native": 0.680400013923645
+          }
+        },
+        "peak_increment_bytes": {
+          "candidate": 116987904,
+          "native": 113369088
+        }
+      }
+    },
+    {
+      "stream": "image",
+      "dtype": "torch.bfloat16",
+      "batch": 2,
+      "seq": 1,
+      "readback": {
+        "operator": "qwenimage_adaln_mod_projection",
+        "requested_backend": "cuda",
+        "actual_backend": "cuda",
+        "contract": "qwenimage-adaln-v2",
+        "fallback": false,
+        "accumulation_dtype": "float32",
+        "projection_kernel": "rl_engine._C.qwenimage_det_linear_forward",
+        "projection_tree": "mma_k16_ascending",
+        "backward": "compensated_64_column_partials_kahan_fold; ascending_batch_neumaier_dW_product_residual_db",
+        "parameter_gradient_kernel": "rl_engine._C.qwenimage_det_linear_backward_weight",
+        "parameter_gradient_backend": "cuda_compensated",
+        "backward_contract": "qwenimage-parameter-grad-neumaier-v2",
+        "activation": "aten.silu; fp32 analytic VJP",
+        "execution_dtype": "torch.bfloat16",
+        "device": "cuda:0",
+        "capability": [
+          10,
+          0
+        ]
+      },
+      "correctness": {
+        "forward": {
+          "passed": true,
+          "max_abs": 0.0009765625,
+          "max_tolerance_ratio": 0.018375596031546593,
+          "violations": 0,
+          "atol": 0.05,
+          "rtol": 0.02
+        },
+        "gradients": {
+          "temb": {
+            "passed": true,
+            "max_abs": 0.06172943115234375,
+            "max_tolerance_ratio": 0.14111459255218506,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight": {
+            "passed": true,
+            "max_abs": 0.03125,
+            "max_tolerance_ratio": 0.11955195665359497,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias": {
+            "passed": true,
+            "max_abs": 0.015625,
+            "max_tolerance_ratio": 0.08665511012077332,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          }
+        },
+        "repeat_bitwise": true
+      },
+      "timing": {
+        "forward": {
+          "samples_ms": {
+            "candidate": [
+              0.055743999779224396,
+              0.04947200044989586,
+              0.06019200012087822,
+              0.048448000103235245,
+              0.052319999784231186,
+              0.04732799902558327,
+              0.05100800096988678,
+              0.04761600121855736,
+              0.05552000179886818,
+              0.048128001391887665
+            ],
+            "native": [
+              0.04009599983692169,
+              0.044064000248909,
+              0.03993599861860275,
+              0.03868800029158592,
+              0.0395519994199276,
+              0.038047999143600464,
+              0.03862399980425835,
+              0.038015998899936676,
+              0.03859199956059456,
+              0.03846399858593941
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.05024000070989132,
+            "native": 0.038656000047922134
+          }
+        },
+        "backward": {
+          "samples_ms": {
+            "candidate": [
+              0.749888002872467,
+              0.7639679908752441,
+              0.7465919852256775,
+              0.7528319954872131,
+              0.7430400252342224,
+              0.7927680015563965,
+              0.7581760287284851,
+              0.7441920042037964,
+              0.5523200035095215,
+              0.7331200242042542
+            ],
+            "native": [
+              0.3843519985675812,
+              0.3367680013179779,
+              0.3762879967689514,
+              0.36662399768829346,
+              0.6472640037536621,
+              0.5752320289611816,
+              0.6085759997367859,
+              0.6464319825172424,
+              0.5826879739761353,
+              0.5960959792137146
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.7482399940490723,
+            "native": 0.5789600014686584
+          }
+        },
+        "forward_backward": {
+          "samples_ms": {
+            "candidate": [
+              0.6245440244674683,
+              0.8605759739875793,
+              0.8573439717292786,
+              0.8485440015792847,
+              0.8188480138778687,
+              0.8850880265235901,
+              0.8391680121421814,
+              0.8970879912376404,
+              0.8403199911117554,
+              0.8381119966506958
+            ],
+            "native": [
+              0.4559679925441742,
+              0.6648640036582947,
+              0.6933760046958923,
+              0.6945279836654663,
+              0.5078080296516418,
+              0.19155199825763702,
+              0.6659520268440247,
+              0.713375985622406,
+              0.6946880221366882,
+              0.7547199726104736
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.84443199634552,
+            "native": 0.6796640157699585
+          }
+        },
+        "peak_increment_bytes": {
+          "candidate": 120692736,
+          "native": 113455104
+        }
+      }
+    },
+    {
+      "stream": "image",
+      "dtype": "torch.bfloat16",
+      "batch": 4,
+      "seq": 1,
+      "readback": {
+        "operator": "qwenimage_adaln_mod_projection",
+        "requested_backend": "cuda",
+        "actual_backend": "cuda",
+        "contract": "qwenimage-adaln-v2",
+        "fallback": false,
+        "accumulation_dtype": "float32",
+        "projection_kernel": "rl_engine._C.qwenimage_det_linear_forward",
+        "projection_tree": "mma_k16_ascending",
+        "backward": "compensated_64_column_partials_kahan_fold; ascending_batch_neumaier_dW_product_residual_db",
+        "parameter_gradient_kernel": "rl_engine._C.qwenimage_det_linear_backward_weight",
+        "parameter_gradient_backend": "cuda_compensated",
+        "backward_contract": "qwenimage-parameter-grad-neumaier-v2",
+        "activation": "aten.silu; fp32 analytic VJP",
+        "execution_dtype": "torch.bfloat16",
+        "device": "cuda:0",
+        "capability": [
+          10,
+          0
+        ]
+      },
+      "correctness": {
+        "forward": {
+          "passed": true,
+          "max_abs": 0.00390625,
+          "max_tolerance_ratio": 0.06410256028175354,
+          "violations": 0,
+          "atol": 0.05,
+          "rtol": 0.02
+        },
+        "gradients": {
+          "temb": {
+            "passed": true,
+            "max_abs": 0.11873626708984375,
+            "max_tolerance_ratio": 0.15473048388957977,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight": {
+            "passed": true,
+            "max_abs": 0.05146026611328125,
+            "max_tolerance_ratio": 0.12209687381982803,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias": {
+            "passed": true,
+            "max_abs": 0.015625,
+            "max_tolerance_ratio": 0.08665511012077332,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          }
+        },
+        "repeat_bitwise": true
+      },
+      "timing": {
+        "forward": {
+          "samples_ms": {
+            "candidate": [
+              0.05644800141453743,
+              0.04896000027656555,
+              0.05276799947023392,
+              0.06351999938488007,
+              0.051711998879909515,
+              0.047839999198913574,
+              0.05270399898290634,
+              0.04745600000023842,
+              0.0568000003695488,
+              0.04755200073122978
+            ],
+            "native": [
+              0.04188799858093262,
+              0.04064000025391579,
+              0.03999999910593033,
+              0.03843199834227562,
+              0.04150399938225746,
+              0.03840000182390213,
+              0.04032000154256821,
+              0.03788800165057182,
+              0.04022400081157684,
+              0.03907199949026108
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.05220799893140793,
+            "native": 0.040111999958753586
+          }
+        },
+        "backward": {
+          "samples_ms": {
+            "candidate": [
+              0.8422080278396606,
+              0.6821759939193726,
+              0.8478080034255981,
+              0.8391680121421814,
+              0.8187199831008911,
+              0.8210880160331726,
+              0.885312020778656,
+              0.8782079815864563,
+              0.8215360045433044,
+              0.8424320220947266
+            ],
+            "native": [
+              0.5750399827957153,
+              0.5962240099906921,
+              0.40915200114250183,
+              0.6012799739837646,
+              0.6022400259971619,
+              0.6056640148162842,
+              0.41177600622177124,
+              0.7086399793624878,
+              0.6318079829216003,
+              0.5960639715194702
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.840688019990921,
+            "native": 0.5987519919872284
+          }
+        },
+        "forward_backward": {
+          "samples_ms": {
+            "candidate": [
+              0.9835519790649414,
+              0.7871999740600586,
+              0.913536012172699,
+              1.0320639610290527,
+              0.7479360103607178,
+              0.9417920112609863,
+              0.9559999704360962,
+              0.9394879937171936,
+              0.9399679899215698,
+              0.9471359848976135
+            ],
+            "native": [
+              0.6699519753456116,
+              0.6932160258293152,
+              0.40956801176071167,
+              0.17123199999332428,
+              0.5376960039138794,
+              0.7332159876823425,
+              0.6661120057106018,
+              0.6322879791259766,
+              0.6942399740219116,
+              0.5197439789772034
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.9408800005912781,
+            "native": 0.6491999924182892
+          }
+        },
+        "peak_increment_bytes": {
+          "candidate": 128102400,
+          "native": 113627136
+        }
+      }
+    },
+    {
+      "stream": "image",
+      "dtype": "torch.bfloat16",
+      "batch": 9,
+      "seq": 1,
+      "readback": {
+        "operator": "qwenimage_adaln_mod_projection",
+        "requested_backend": "cuda",
+        "actual_backend": "cuda",
+        "contract": "qwenimage-adaln-v2",
+        "fallback": false,
+        "accumulation_dtype": "float32",
+        "projection_kernel": "rl_engine._C.qwenimage_det_linear_forward",
+        "projection_tree": "mma_k16_ascending",
+        "backward": "compensated_64_column_partials_kahan_fold; ascending_batch_neumaier_dW_product_residual_db",
+        "parameter_gradient_kernel": "rl_engine._C.qwenimage_det_linear_backward_weight",
+        "parameter_gradient_backend": "cuda_compensated",
+        "backward_contract": "qwenimage-parameter-grad-neumaier-v2",
+        "activation": "aten.silu; fp32 analytic VJP",
+        "execution_dtype": "torch.bfloat16",
+        "device": "cuda:0",
+        "capability": [
+          10,
+          0
+        ]
+      },
+      "correctness": {
+        "forward": {
+          "passed": true,
+          "max_abs": 0.015625,
+          "max_tolerance_ratio": 0.1501501500606537,
+          "violations": 0,
+          "atol": 0.05,
+          "rtol": 0.02
+        },
+        "gradients": {
+          "temb": {
+            "passed": true,
+            "max_abs": 0.06239509582519531,
+            "max_tolerance_ratio": 0.14691027998924255,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight": {
+            "passed": true,
+            "max_abs": 0.06133842468261719,
+            "max_tolerance_ratio": 0.14474351704120636,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias": {
+            "passed": true,
+            "max_abs": 0.03125,
+            "max_tolerance_ratio": 0.1193317398428917,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          }
+        },
+        "repeat_bitwise": true
+      },
+      "timing": {
+        "forward": {
+          "samples_ms": {
+            "candidate": [
+              0.1019200012087822,
+              0.07667200267314911,
+              0.07840000092983246,
+              0.07289600372314453,
+              0.08048000186681747,
+              0.07206399738788605,
+              0.07811199873685837,
+              0.07023999840021133,
+              0.0764160007238388,
+              0.07321599870920181
+            ],
+            "native": [
+              0.044096000492572784,
+              0.038943998515605927,
+              0.04054399952292442,
+              0.04016000032424927,
+              0.04054399952292442,
+              0.03872000053524971,
+              0.04134399816393852,
+              0.03996799886226654,
+              0.03923200070858002,
+              0.03968000039458275
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.07654400169849396,
+            "native": 0.040063999593257904
+          }
+        },
+        "backward": {
+          "samples_ms": {
+            "candidate": [
+              1.3377280235290527,
+              1.3338559865951538,
+              1.369696021080017,
+              1.35043203830719,
+              1.3693439960479736,
+              1.3942400217056274,
+              1.321984052658081,
+              1.403872013092041,
+              1.3497920036315918,
+              1.3732160329818726
+            ],
+            "native": [
+              0.5632320046424866,
+              0.6168959736824036,
+              0.6127679944038391,
+              0.378464013338089,
+              0.5760319828987122,
+              0.5672640204429626,
+              0.5796480178833008,
+              0.6527360081672668,
+              0.3962559998035431,
+              0.4249599874019623
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 1.3598880171775818,
+            "native": 0.5716480016708374
+          }
+        },
+        "forward_backward": {
+          "samples_ms": {
+            "candidate": [
+              1.4583040475845337,
+              1.384384036064148,
+              1.48198401927948,
+              1.429792046546936,
+              1.4015040397644043,
+              1.4356800317764282,
+              1.4598400592803955,
+              1.2290560007095337,
+              1.2523200511932373,
+              1.4447040557861328
+            ],
+            "native": [
+              0.42841601371765137,
+              0.4163520038127899,
+              0.5004799962043762,
+              0.4671359956264496,
+              0.6883839964866638,
+              0.7148799896240234,
+              0.5276479721069336,
+              0.1955839991569519,
+              0.7027199864387512,
+              0.6823359727859497
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 1.4327360391616821,
+            "native": 0.5140639841556549
+          }
+        },
+        "peak_increment_bytes": {
+          "candidate": 146626560,
+          "native": 114057216
+        }
+      }
+    },
+    {
+      "stream": "image",
+      "dtype": "torch.float32",
+      "batch": 1,
+      "seq": 1,
+      "readback": {
+        "operator": "qwenimage_adaln_mod_projection",
+        "requested_backend": "cuda",
+        "actual_backend": "cuda",
+        "contract": "qwenimage-adaln-v2",
+        "fallback": false,
+        "accumulation_dtype": "float32",
+        "projection_kernel": "rl_engine._C.qwenimage_det_linear_forward",
+        "projection_tree": "warp_xor",
+        "backward": "compensated_64_column_partials_kahan_fold; ascending_batch_neumaier_dW_product_residual_db",
+        "parameter_gradient_kernel": "rl_engine._C.qwenimage_det_linear_backward_weight",
+        "parameter_gradient_backend": "cuda_compensated",
+        "backward_contract": "qwenimage-parameter-grad-neumaier-v2",
+        "activation": "aten.silu; fp32 analytic VJP",
+        "execution_dtype": "torch.float32",
+        "device": "cuda:0",
+        "capability": [
+          10,
+          0
+        ]
+      },
+      "correctness": {
+        "forward": {
+          "passed": true,
+          "max_abs": 9.5367431640625e-06,
+          "max_tolerance_ratio": 0.02884618379175663,
+          "violations": 0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "gradients": {
+          "temb": {
+            "passed": true,
+            "max_abs": 5.7220458984375e-06,
+            "max_tolerance_ratio": 0.019407829269766808,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight": {
+            "passed": true,
+            "max_abs": 1.430511474609375e-06,
+            "max_tolerance_ratio": 0.0019961625803261995,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias": {
+            "passed": true,
+            "max_abs": 0.0,
+            "max_tolerance_ratio": 0.0,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          }
+        },
+        "repeat_bitwise": true
+      },
+      "timing": {
+        "forward": {
+          "samples_ms": {
+            "candidate": [
+              0.1011200025677681,
+              0.058559998869895935,
+              0.058368001133203506,
+              0.05657599866390228,
+              0.05958399921655655,
+              0.05536000058054924,
+              0.05958399921655655,
+              0.05478399991989136,
+              0.06108799949288368,
+              0.05539200082421303
+            ],
+            "native": [
+              0.061792001128196716,
+              0.06444799900054932,
+              0.058368001133203506,
+              0.05673599988222122,
+              0.05689600110054016,
+              0.05961599946022034,
+              0.05660799890756607,
+              0.05782400071620941,
+              0.05814399942755699,
+              0.056095998734235764
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.05846400000154972,
+            "native": 0.0579840000718832
+          }
+        },
+        "backward": {
+          "samples_ms": {
+            "candidate": [
+              0.7157760262489319,
+              0.6892480254173279,
+              0.6561279892921448,
+              0.7092800140380859,
+              0.6532160043716431,
+              0.5166720151901245,
+              0.48982399702072144,
+              0.6762239933013916,
+              0.6557760238647461,
+              0.6729599833488464
+            ],
+            "native": [
+              0.4268159866333008,
+              0.5655040144920349,
+              0.5295680165290833,
+              0.6199039816856384,
+              0.6154879927635193,
+              0.5683839917182922,
+              0.39535999298095703,
+              0.5673919916152954,
+              0.5761280059814453,
+              0.5498239994049072
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.6645439863204956,
+            "native": 0.5664480030536652
+          }
+        },
+        "forward_backward": {
+          "samples_ms": {
+            "candidate": [
+              0.7623999714851379,
+              0.7771520018577576,
+              0.7094079852104187,
+              0.8145279884338379,
+              0.8210240006446838,
+              0.8274880051612854,
+              0.774944007396698,
+              0.8042880296707153,
+              0.7552000284194946,
+              0.7581440210342407
+            ],
+            "native": [
+              0.7180160284042358,
+              0.6722239851951599,
+              0.6028800010681152,
+              0.5117440223693848,
+              0.7099519968032837,
+              0.6850879788398743,
+              0.5381760001182556,
+              0.4981440007686615,
+              0.6250879764556885,
+              0.6313279867172241
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.7760480046272278,
+            "native": 0.6282079815864563
+          }
+        },
+        "peak_increment_bytes": {
+          "candidate": 230277120,
+          "native": 226738176
+        }
+      }
+    },
+    {
+      "stream": "image",
+      "dtype": "torch.float32",
+      "batch": 2,
+      "seq": 1,
+      "readback": {
+        "operator": "qwenimage_adaln_mod_projection",
+        "requested_backend": "cuda",
+        "actual_backend": "cuda",
+        "contract": "qwenimage-adaln-v2",
+        "fallback": false,
+        "accumulation_dtype": "float32",
+        "projection_kernel": "rl_engine._C.qwenimage_det_linear_forward",
+        "projection_tree": "warp_xor",
+        "backward": "compensated_64_column_partials_kahan_fold; ascending_batch_neumaier_dW_product_residual_db",
+        "parameter_gradient_kernel": "rl_engine._C.qwenimage_det_linear_backward_weight",
+        "parameter_gradient_backend": "cuda_compensated",
+        "backward_contract": "qwenimage-parameter-grad-neumaier-v2",
+        "activation": "aten.silu; fp32 analytic VJP",
+        "execution_dtype": "torch.float32",
+        "device": "cuda:0",
+        "capability": [
+          10,
+          0
+        ]
+      },
+      "correctness": {
+        "forward": {
+          "passed": true,
+          "max_abs": 7.62939453125e-06,
+          "max_tolerance_ratio": 0.022900909185409546,
+          "violations": 0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "gradients": {
+          "temb": {
+            "passed": true,
+            "max_abs": 9.059906005859375e-06,
+            "max_tolerance_ratio": 0.03493667393922806,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight": {
+            "passed": true,
+            "max_abs": 1.430511474609375e-06,
+            "max_tolerance_ratio": 0.005262251943349838,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias": {
+            "passed": true,
+            "max_abs": 0.0,
+            "max_tolerance_ratio": 0.0,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          }
+        },
+        "repeat_bitwise": true
+      },
+      "timing": {
+        "forward": {
+          "samples_ms": {
+            "candidate": [
+              0.08556800335645676,
+              0.06550399959087372,
+              0.063680000603199,
+              0.05990400165319443,
+              0.06300800293684006,
+              0.05718399956822395,
+              0.06345599889755249,
+              0.05651199817657471,
+              0.061664000153541565,
+              0.057440001517534256
+            ],
+            "native": [
+              0.06678400188684464,
+              0.06598400324583054,
+              0.06496000289916992,
+              0.06329599767923355,
+              0.06409599632024765,
+              0.06294400244951248,
+              0.0650240033864975,
+              0.06390400230884552,
+              0.06467200070619583,
+              0.06473600119352341
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.06233600154519081,
+            "native": 0.06470400094985962
+          }
+        },
+        "backward": {
+          "samples_ms": {
+            "candidate": [
+              0.6898880004882812,
+              0.6941760182380676,
+              0.7560319900512695,
+              0.6941120028495789,
+              0.6800640225410461,
+              0.7361279726028442,
+              0.7095999717712402,
+              0.715391993522644,
+              0.5248640179634094,
+              0.7362880110740662
+            ],
+            "native": [
+              0.4939520061016083,
+              0.615776002407074,
+              0.5742400288581848,
+              0.5752000212669373,
+              0.6138560175895691,
+              0.5275520086288452,
+              0.5771840214729309,
+              0.5741440057754517,
+              0.5968959927558899,
+              0.6351040005683899
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.7018879950046539,
+            "native": 0.5761920213699341
+          }
+        },
+        "forward_backward": {
+          "samples_ms": {
+            "candidate": [
+              0.757535994052887,
+              0.6555839776992798,
+              0.7898880243301392,
+              0.8135679960250854,
+              0.8368639945983887,
+              0.7959679961204529,
+              0.8387839794158936,
+              0.8495039939880371,
+              0.8458560109138489,
+              0.6403200030326843
+            ],
+            "native": [
+              0.6940479874610901,
+              0.6915519833564758,
+              0.6643199920654297,
+              0.6523839831352234,
+              0.5548480153083801,
+              0.5756800174713135,
+              0.7036799788475037,
+              0.6112319827079773,
+              0.44364801049232483,
+              0.5275200009346008
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.8047679960727692,
+            "native": 0.6318079829216003
+          }
+        },
+        "peak_increment_bytes": {
+          "candidate": 233988096,
+          "native": 226910208
+        }
+      }
+    },
+    {
+      "stream": "image",
+      "dtype": "torch.float32",
+      "batch": 4,
+      "seq": 1,
+      "readback": {
+        "operator": "qwenimage_adaln_mod_projection",
+        "requested_backend": "cuda",
+        "actual_backend": "cuda",
+        "contract": "qwenimage-adaln-v2",
+        "fallback": false,
+        "accumulation_dtype": "float32",
+        "projection_kernel": "rl_engine._C.qwenimage_det_linear_forward",
+        "projection_tree": "warp_xor",
+        "backward": "compensated_64_column_partials_kahan_fold; ascending_batch_neumaier_dW_product_residual_db",
+        "parameter_gradient_kernel": "rl_engine._C.qwenimage_det_linear_backward_weight",
+        "parameter_gradient_backend": "cuda_compensated",
+        "backward_contract": "qwenimage-parameter-grad-neumaier-v2",
+        "activation": "aten.silu; fp32 analytic VJP",
+        "execution_dtype": "torch.float32",
+        "device": "cuda:0",
+        "capability": [
+          10,
+          0
+        ]
+      },
+      "correctness": {
+        "forward": {
+          "passed": true,
+          "max_abs": 1.1444091796875e-05,
+          "max_tolerance_ratio": 0.026766398921608925,
+          "violations": 0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "gradients": {
+          "temb": {
+            "passed": true,
+            "max_abs": 7.62939453125e-06,
+            "max_tolerance_ratio": 0.030614053830504417,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight": {
+            "passed": true,
+            "max_abs": 1.9073486328125e-06,
+            "max_tolerance_ratio": 0.006406767293810844,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias": {
+            "passed": true,
+            "max_abs": 4.76837158203125e-07,
+            "max_tolerance_ratio": 0.0016246031736955047,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          }
+        },
+        "repeat_bitwise": true
+      },
+      "timing": {
+        "forward": {
+          "samples_ms": {
+            "candidate": [
+              0.10550399869680405,
+              0.07235199958086014,
+              0.0748480036854744,
+              0.06812799721956253,
+              0.07360000163316727,
+              0.06815999746322632,
+              0.07145600020885468,
+              0.06796800345182419,
+              0.06911999732255936,
+              0.0687360018491745
+            ],
+            "native": [
+              0.13327999413013458,
+              0.1302720010280609,
+              0.1319040060043335,
+              0.12937599420547485,
+              0.13289600610733032,
+              0.12851199507713318,
+              0.13062399625778198,
+              0.12892800569534302,
+              0.13635200262069702,
+              0.12876799702644348
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.07028799876570702,
+            "native": 0.13044799864292145
+          }
+        },
+        "backward": {
+          "samples_ms": {
+            "candidate": [
+              0.7975999712944031,
+              0.7931519746780396,
+              0.8086720108985901,
+              0.8697599768638611,
+              0.8026559948921204,
+              0.7783039808273315,
+              0.7680320143699646,
+              0.7785919904708862,
+              0.7966399788856506,
+              0.8591039776802063
+            ],
+            "native": [
+              0.5977920293807983,
+              0.6003519892692566,
+              0.4696959853172302,
+              0.5877119898796082,
+              0.4817279875278473,
+              0.5310080051422119,
+              0.4952639937400818,
+              0.5048959851264954,
+              0.6076160073280334,
+              0.5616000294685364
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.7971199750900269,
+            "native": 0.5463040173053741
+          }
+        },
+        "forward_backward": {
+          "samples_ms": {
+            "candidate": [
+              0.905888020992279,
+              0.9074559807777405,
+              0.9076480269432068,
+              0.924992024898529,
+              0.8377919793128967,
+              0.8139839768409729,
+              0.8679360151290894,
+              0.967136025428772,
+              0.9007359743118286,
+              0.9120000004768372
+            ],
+            "native": [
+              0.6944000124931335,
+              0.687936007976532,
+              0.6375359892845154,
+              0.5594879984855652,
+              0.5984320044517517,
+              0.40643200278282166,
+              0.6191040277481079,
+              0.6750720143318176,
+              0.7173439860343933,
+              0.7428159713745117
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.9066720008850098,
+            "native": 0.6563040018081665
+          }
+        },
+        "peak_increment_bytes": {
+          "candidate": 241410048,
+          "native": 227254272
+        }
+      }
+    },
+    {
+      "stream": "image",
+      "dtype": "torch.float32",
+      "batch": 9,
+      "seq": 1,
+      "readback": {
+        "operator": "qwenimage_adaln_mod_projection",
+        "requested_backend": "cuda",
+        "actual_backend": "cuda",
+        "contract": "qwenimage-adaln-v2",
+        "fallback": false,
+        "accumulation_dtype": "float32",
+        "projection_kernel": "rl_engine._C.qwenimage_det_linear_forward",
+        "projection_tree": "warp_xor",
+        "backward": "compensated_64_column_partials_kahan_fold; ascending_batch_neumaier_dW_product_residual_db",
+        "parameter_gradient_kernel": "rl_engine._C.qwenimage_det_linear_backward_weight",
+        "parameter_gradient_backend": "cuda_compensated",
+        "backward_contract": "qwenimage-parameter-grad-neumaier-v2",
+        "activation": "aten.silu; fp32 analytic VJP",
+        "execution_dtype": "torch.float32",
+        "device": "cuda:0",
+        "capability": [
+          10,
+          0
+        ]
+      },
+      "correctness": {
+        "forward": {
+          "passed": true,
+          "max_abs": 9.5367431640625e-06,
+          "max_tolerance_ratio": 0.028410425409674644,
+          "violations": 0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "gradients": {
+          "temb": {
+            "passed": true,
+            "max_abs": 9.5367431640625e-06,
+            "max_tolerance_ratio": 0.03972553834319115,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight": {
+            "passed": true,
+            "max_abs": 2.86102294921875e-06,
+            "max_tolerance_ratio": 0.014658763073384762,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias": {
+            "passed": true,
+            "max_abs": 1.9073486328125e-06,
+            "max_tolerance_ratio": 0.004605521447956562,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          }
+        },
+        "repeat_bitwise": true
+      },
+      "timing": {
+        "forward": {
+          "samples_ms": {
+            "candidate": [
+              0.14560000598430634,
+              0.14163200557231903,
+              0.13843199610710144,
+              0.1409280002117157,
+              0.13424000144004822,
+              0.14047999680042267,
+              0.13526399433612823,
+              0.13756799697875977,
+              0.13462400436401367,
+              0.13743999600410461
+            ],
+            "native": [
+              0.13158400356769562,
+              0.1295360028743744,
+              0.13238400220870972,
+              0.13023999333381653,
+              0.1295360028743744,
+              0.13052800297737122,
+              0.13104000687599182,
+              0.1297920048236847,
+              0.1305920034646988,
+              0.12838399410247803
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.1379999965429306,
+            "native": 0.13038399815559387
+          }
+        },
+        "backward": {
+          "samples_ms": {
+            "candidate": [
+              1.2884800434112549,
+              1.2726080417633057,
+              1.2894079685211182,
+              1.3572479486465454,
+              1.3059519529342651,
+              1.3621439933776855,
+              1.3336960077285767,
+              1.306272029876709,
+              1.32806396484375,
+              1.3127039670944214
+            ],
+            "native": [
+              0.4799039959907532,
+              0.4866879880428314,
+              0.6345919966697693,
+              0.5888000130653381,
+              0.4827840030193329,
+              0.6064959764480591,
+              0.5873919725418091,
+              0.6160640120506287,
+              0.610368013381958,
+              0.4585599899291992
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 1.3094879984855652,
+            "native": 0.5880959928035736
+          }
+        },
+        "forward_backward": {
+          "samples_ms": {
+            "candidate": [
+              1.40665602684021,
+              1.3874560594558716,
+              1.3658560514450073,
+              1.4801599979400635,
+              1.4444799423217773,
+              1.4426560401916504,
+              1.3952640295028687,
+              1.4727040529251099,
+              1.4532159566879272,
+              1.397536039352417
+            ],
+            "native": [
+              0.5713599920272827,
+              0.4952000081539154,
+              0.6323840022087097,
+              0.7037439942359924,
+              0.6187199950218201,
+              0.6369919776916504,
+              0.7444480061531067,
+              0.6939839720726013,
+              0.7298240065574646,
+              0.5789759755134583
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 1.4246560335159302,
+            "native": 0.63468798995018
+          }
+        },
+        "peak_increment_bytes": {
+          "candidate": 259964928,
+          "native": 228114432
+        }
+      }
+    },
+    {
+      "stream": "text",
+      "dtype": "torch.bfloat16",
+      "batch": 1,
+      "seq": 1,
+      "readback": {
+        "operator": "qwenimage_adaln_mod_projection",
+        "requested_backend": "cuda",
+        "actual_backend": "cuda",
+        "contract": "qwenimage-adaln-v2",
+        "fallback": false,
+        "accumulation_dtype": "float32",
+        "projection_kernel": "rl_engine._C.qwenimage_det_linear_forward",
+        "projection_tree": "mma_k16_ascending",
+        "backward": "compensated_64_column_partials_kahan_fold; ascending_batch_neumaier_dW_product_residual_db",
+        "parameter_gradient_kernel": "rl_engine._C.qwenimage_det_linear_backward_weight",
+        "parameter_gradient_backend": "cuda_compensated",
+        "backward_contract": "qwenimage-parameter-grad-neumaier-v2",
+        "activation": "aten.silu; fp32 analytic VJP",
+        "execution_dtype": "torch.bfloat16",
+        "device": "cuda:0",
+        "capability": [
+          10,
+          0
+        ]
+      },
+      "correctness": {
+        "forward": {
+          "passed": true,
+          "max_abs": 0.000244140625,
+          "max_tolerance_ratio": 0.004781486000865698,
+          "violations": 0,
+          "atol": 0.05,
+          "rtol": 0.02
+        },
+        "gradients": {
+          "temb": {
+            "passed": true,
+            "max_abs": 0.060848236083984375,
+            "max_tolerance_ratio": 0.14358346164226532,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight": {
+            "passed": true,
+            "max_abs": 0.03125,
+            "max_tolerance_ratio": 0.1193317398428917,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias": {
+            "passed": true,
+            "max_abs": 0.0,
+            "max_tolerance_ratio": 0.0,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          }
+        },
+        "repeat_bitwise": true
+      },
+      "timing": {
+        "forward": {
+          "samples_ms": {
+            "candidate": [
+              0.05056000128388405,
+              0.05260799825191498,
+              0.050464000552892685,
+              0.04886399954557419,
+              0.050175998359918594,
+              0.04684799909591675,
+              0.050624001771211624,
+              0.046112000942230225,
+              0.051072001457214355,
+              0.04620800167322159
+            ],
+            "native": [
+              0.040352001786231995,
+              0.03859199956059456,
+              0.04057599976658821,
+              0.04364800080657005,
+              0.0398080013692379,
+              0.03782400116324425,
+              0.040672000497579575,
+              0.03791999816894531,
+              0.039135999977588654,
+              0.03766399994492531
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.05031999945640564,
+            "native": 0.03947200067341328
+          }
+        },
+        "backward": {
+          "samples_ms": {
+            "candidate": [
+              0.7199040055274963,
+              0.7082880139350891,
+              0.6868159770965576,
+              0.7548159956932068,
+              0.6786879897117615,
+              0.7097280025482178,
+              0.5000640153884888,
+              0.7283200025558472,
+              0.7335039973258972,
+              0.6922240257263184
+            ],
+            "native": [
+              0.3413439989089966,
+              0.3792000114917755,
+              0.5517119765281677,
+              0.6281279921531677,
+              0.582207977771759,
+              0.5656639933586121,
+              0.43587198853492737,
+              0.573855996131897,
+              0.6052799820899963,
+              0.5839040279388428
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.7090080082416534,
+            "native": 0.5697599947452545
+          }
+        },
+        "forward_backward": {
+          "samples_ms": {
+            "candidate": [
+              0.8495680093765259,
+              0.8334720134735107,
+              0.8292160034179688,
+              0.5831680297851562,
+              0.7020159959793091,
+              0.8299520015716553,
+              0.6064320206642151,
+              0.7945280075073242,
+              0.8209599852561951,
+              0.6345279812812805
+            ],
+            "native": [
+              0.7020159959793091,
+              0.68367999792099,
+              0.7000319957733154,
+              0.5144960284233093,
+              0.5594239830970764,
+              0.6732159852981567,
+              0.529151976108551,
+              0.658847987651825,
+              0.6761279702186584,
+              0.4450559914112091
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.8077439963817596,
+            "native": 0.6660319864749908
+          }
+        },
+        "peak_increment_bytes": {
+          "candidate": 116987904,
+          "native": 113369088
+        }
+      }
+    },
+    {
+      "stream": "text",
+      "dtype": "torch.bfloat16",
+      "batch": 2,
+      "seq": 1,
+      "readback": {
+        "operator": "qwenimage_adaln_mod_projection",
+        "requested_backend": "cuda",
+        "actual_backend": "cuda",
+        "contract": "qwenimage-adaln-v2",
+        "fallback": false,
+        "accumulation_dtype": "float32",
+        "projection_kernel": "rl_engine._C.qwenimage_det_linear_forward",
+        "projection_tree": "mma_k16_ascending",
+        "backward": "compensated_64_column_partials_kahan_fold; ascending_batch_neumaier_dW_product_residual_db",
+        "parameter_gradient_kernel": "rl_engine._C.qwenimage_det_linear_backward_weight",
+        "parameter_gradient_backend": "cuda_compensated",
+        "backward_contract": "qwenimage-parameter-grad-neumaier-v2",
+        "activation": "aten.silu; fp32 analytic VJP",
+        "execution_dtype": "torch.bfloat16",
+        "device": "cuda:0",
+        "capability": [
+          10,
+          0
+        ]
+      },
+      "correctness": {
+        "forward": {
+          "passed": true,
+          "max_abs": 0.0078125,
+          "max_tolerance_ratio": 0.10309278219938278,
+          "violations": 0,
+          "atol": 0.05,
+          "rtol": 0.02
+        },
+        "gradients": {
+          "temb": {
+            "passed": true,
+            "max_abs": 0.06243133544921875,
+            "max_tolerance_ratio": 0.13985764980316162,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight": {
+            "passed": true,
+            "max_abs": 0.03125,
+            "max_tolerance_ratio": 0.1193317398428917,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias": {
+            "passed": true,
+            "max_abs": 0.015625,
+            "max_tolerance_ratio": 0.08665511012077332,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          }
+        },
+        "repeat_bitwise": true
+      },
+      "timing": {
+        "forward": {
+          "samples_ms": {
+            "candidate": [
+              0.05116799846291542,
+              0.04790399968624115,
+              0.05081599950790405,
+              0.04608000069856644,
+              0.05641600117087364,
+              0.04729599878191948,
+              0.0490880012512207,
+              0.046751998364925385,
+              0.04806400090456009,
+              0.045951999723911285
+            ],
+            "native": [
+              0.038047999143600464,
+              0.044895999133586884,
+              0.03929600119590759,
+              0.037408001720905304,
+              0.03859199956059456,
+              0.03654399886727333,
+              0.038495998829603195,
+              0.03868800029158592,
+              0.03907199949026108,
+              0.03836800158023834
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.04798400029540062,
+            "native": 0.03854399919509888
+          }
+        },
+        "backward": {
+          "samples_ms": {
+            "candidate": [
+              0.7409279942512512,
+              0.6982399821281433,
+              0.7428159713745117,
+              0.7595199942588806,
+              0.731007993221283,
+              0.727840006351471,
+              0.6984959840774536,
+              0.7128959894180298,
+              0.7491199970245361,
+              0.7933440208435059
+            ],
+            "native": [
+              0.34915199875831604,
+              0.34326401352882385,
+              0.39235201478004456,
+              0.3569920063018799,
+              0.3891200125217438,
+              0.43484801054000854,
+              0.5384320020675659,
+              0.5896639823913574,
+              0.5747519731521606,
+              0.6493759751319885
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.7359679937362671,
+            "native": 0.41360001266002655
+          }
+        },
+        "forward_backward": {
+          "samples_ms": {
+            "candidate": [
+              0.8373759984970093,
+              0.674560010433197,
+              0.8686079978942871,
+              0.8427839875221252,
+              0.7866880297660828,
+              0.6838719844818115,
+              0.6431999802589417,
+              0.871392011642456,
+              0.8463039994239807,
+              0.8715519905090332
+            ],
+            "native": [
+              0.670304000377655,
+              0.7675520181655884,
+              0.7188799977302551,
+              0.6514559984207153,
+              0.6840639710426331,
+              0.5449280142784119,
+              0.8275200128555298,
+              0.7130240201950073,
+              0.7493759989738464,
+              0.7157120108604431
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.8400799930095673,
+            "native": 0.7143680155277252
+          }
+        },
+        "peak_increment_bytes": {
+          "candidate": 120692736,
+          "native": 113455104
+        }
+      }
+    },
+    {
+      "stream": "text",
+      "dtype": "torch.bfloat16",
+      "batch": 4,
+      "seq": 1,
+      "readback": {
+        "operator": "qwenimage_adaln_mod_projection",
+        "requested_backend": "cuda",
+        "actual_backend": "cuda",
+        "contract": "qwenimage-adaln-v2",
+        "fallback": false,
+        "accumulation_dtype": "float32",
+        "projection_kernel": "rl_engine._C.qwenimage_det_linear_forward",
+        "projection_tree": "mma_k16_ascending",
+        "backward": "compensated_64_column_partials_kahan_fold; ascending_batch_neumaier_dW_product_residual_db",
+        "parameter_gradient_kernel": "rl_engine._C.qwenimage_det_linear_backward_weight",
+        "parameter_gradient_backend": "cuda_compensated",
+        "backward_contract": "qwenimage-parameter-grad-neumaier-v2",
+        "activation": "aten.silu; fp32 analytic VJP",
+        "execution_dtype": "torch.bfloat16",
+        "device": "cuda:0",
+        "capability": [
+          10,
+          0
+        ]
+      },
+      "correctness": {
+        "forward": {
+          "passed": true,
+          "max_abs": 0.015625,
+          "max_tolerance_ratio": 0.15060241520404816,
+          "violations": 0,
+          "atol": 0.05,
+          "rtol": 0.02
+        },
+        "gradients": {
+          "temb": {
+            "passed": true,
+            "max_abs": 0.06201744079589844,
+            "max_tolerance_ratio": 0.14428503811359406,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight": {
+            "passed": true,
+            "max_abs": 0.04979705810546875,
+            "max_tolerance_ratio": 0.1194368228316307,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias": {
+            "passed": true,
+            "max_abs": 0.015625,
+            "max_tolerance_ratio": 0.08665511012077332,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          }
+        },
+        "repeat_bitwise": true
+      },
+      "timing": {
+        "forward": {
+          "samples_ms": {
+            "candidate": [
+              0.04896000027656555,
+              0.04879999905824661,
+              0.053888000547885895,
+              0.04848000034689903,
+              0.05020799860358238,
+              0.04540799930691719,
+              0.050912000238895416,
+              0.046271998435258865,
+              0.050335999578237534,
+              0.04681599885225296
+            ],
+            "native": [
+              0.04227200150489807,
+              0.04521600157022476,
+              0.040832001715898514,
+              0.03888000175356865,
+              0.03968000039458275,
+              0.03843199834227562,
+              0.040863998234272,
+              0.039135999977588654,
+              0.04028800129890442,
+              0.03824000060558319
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.04887999966740608,
+            "native": 0.039984000846743584
+          }
+        },
+        "backward": {
+          "samples_ms": {
+            "candidate": [
+              0.8272960186004639,
+              0.8314239978790283,
+              0.8919039964675903,
+              0.8196160197257996,
+              0.8411840200424194,
+              0.8099200129508972,
+              0.8194239735603333,
+              0.8366400003433228,
+              0.7999039888381958,
+              0.8511040210723877
+            ],
+            "native": [
+              0.6213759779930115,
+              0.6076800227165222,
+              0.38758400082588196,
+              0.3838079869747162,
+              0.42793598771095276,
+              0.41119998693466187,
+              0.39664000272750854,
+              0.36924800276756287,
+              0.5903360247612,
+              0.6175360083580017
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.8293600082397461,
+            "native": 0.4195679873228073
+          }
+        },
+        "forward_backward": {
+          "samples_ms": {
+            "candidate": [
+              0.9687359929084778,
+              0.9330559968948364,
+              0.9290559887886047,
+              0.8887680172920227,
+              0.9630720019340515,
+              0.9872959852218628,
+              0.9896320104598999,
+              0.951200008392334,
+              0.8965759873390198,
+              0.8754559755325317
+            ],
+            "native": [
+              0.6732159852981567,
+              0.7041919827461243,
+              0.4861760139465332,
+              0.457504004240036,
+              0.6512640118598938,
+              0.7341439723968506,
+              0.7155200242996216,
+              0.683135986328125,
+              0.4468800127506256,
+              0.16697600483894348
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.9421280026435852,
+            "native": 0.6622399985790253
+          }
+        },
+        "peak_increment_bytes": {
+          "candidate": 128102400,
+          "native": 113627136
+        }
+      }
+    },
+    {
+      "stream": "text",
+      "dtype": "torch.bfloat16",
+      "batch": 9,
+      "seq": 1,
+      "readback": {
+        "operator": "qwenimage_adaln_mod_projection",
+        "requested_backend": "cuda",
+        "actual_backend": "cuda",
+        "contract": "qwenimage-adaln-v2",
+        "fallback": false,
+        "accumulation_dtype": "float32",
+        "projection_kernel": "rl_engine._C.qwenimage_det_linear_forward",
+        "projection_tree": "mma_k16_ascending",
+        "backward": "compensated_64_column_partials_kahan_fold; ascending_batch_neumaier_dW_product_residual_db",
+        "parameter_gradient_kernel": "rl_engine._C.qwenimage_det_linear_backward_weight",
+        "parameter_gradient_backend": "cuda_compensated",
+        "backward_contract": "qwenimage-parameter-grad-neumaier-v2",
+        "activation": "aten.silu; fp32 analytic VJP",
+        "execution_dtype": "torch.bfloat16",
+        "device": "cuda:0",
+        "capability": [
+          10,
+          0
+        ]
+      },
+      "correctness": {
+        "forward": {
+          "passed": true,
+          "max_abs": 0.015625,
+          "max_tolerance_ratio": 0.16129033267498016,
+          "violations": 0,
+          "atol": 0.05,
+          "rtol": 0.02
+        },
+        "gradients": {
+          "temb": {
+            "passed": true,
+            "max_abs": 0.110931396484375,
+            "max_tolerance_ratio": 0.14530818164348602,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "weight": {
+            "passed": true,
+            "max_abs": 0.060230255126953125,
+            "max_tolerance_ratio": 0.13687846064567566,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          },
+          "bias": {
+            "passed": true,
+            "max_abs": 0.03125,
+            "max_tolerance_ratio": 0.1193317398428917,
+            "violations": 0,
+            "atol": 0.1,
+            "rtol": 0.02
+          }
+        },
+        "repeat_bitwise": true
+      },
+      "timing": {
+        "forward": {
+          "samples_ms": {
+            "candidate": [
+              0.0751039981842041,
+              0.07155200093984604,
+              0.07916799932718277,
+              0.0697920024394989,
+              0.07555200159549713,
+              0.07036799937486649,
+              0.0740479975938797,
+              0.06892800331115723,
+              0.07519999891519547,
+              0.06892800331115723
+            ],
+            "native": [
+              0.040608000010252,
+              0.0398080013692379,
+              0.038656000047922134,
+              0.03836800158023834,
+              0.03759999945759773,
+              0.03827200084924698,
+              0.039423998445272446,
+              0.03903999924659729,
+              0.0387520007789135,
+              0.038975998759269714
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.07279999926686287,
+            "native": 0.038863999769091606
+          }
+        },
+        "backward": {
+          "samples_ms": {
+            "candidate": [
+              1.3075840473175049,
+              1.333184003829956,
+              1.3215359449386597,
+              1.3399039506912231,
+              1.4001920223236084,
+              1.3138879537582397,
+              1.3385920524597168,
+              1.316159963607788,
+              1.294975996017456,
+              1.3299520015716553
+            ],
+            "native": [
+              0.4944959878921509,
+              0.5256639719009399,
+              0.5719040036201477,
+              0.5754240155220032,
+              0.34617599844932556,
+              0.40483200550079346,
+              0.6214399933815002,
+              0.3604159951210022,
+              0.5711680054664612,
+              0.6146240234375
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 1.3257439732551575,
+            "native": 0.5484159886837006
+          }
+        },
+        "forward_backward": {
+          "samples_ms": {
+            "candidate": [
+              1.4046720266342163,
+              1.4492160081863403,
+              1.4816639423370361,
+              1.482367992401123,
+              1.426527976989746,
+              1.4454079866409302,
+              1.362272024154663,
+              1.4980800151824951,
+              1.428671956062317,
+              1.4582079648971558
+            ],
+            "native": [
+              0.4033919870853424,
+              0.589024007320404,
+              0.6126400232315063,
+              0.6311039924621582,
+              0.7474880218505859,
+              0.7429760098457336,
+              0.6107519865036011,
+              0.6949440240859985,
+              0.6366400122642517,
+              0.6817920207977295
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 1.4473119974136353,
+            "native": 0.633872002363205
+          }
+        },
+        "peak_increment_bytes": {
+          "candidate": 146626560,
+          "native": 114057216
+        }
+      }
+    },
+    {
+      "stream": "text",
+      "dtype": "torch.float32",
+      "batch": 1,
+      "seq": 1,
+      "readback": {
+        "operator": "qwenimage_adaln_mod_projection",
+        "requested_backend": "cuda",
+        "actual_backend": "cuda",
+        "contract": "qwenimage-adaln-v2",
+        "fallback": false,
+        "accumulation_dtype": "float32",
+        "projection_kernel": "rl_engine._C.qwenimage_det_linear_forward",
+        "projection_tree": "warp_xor",
+        "backward": "compensated_64_column_partials_kahan_fold; ascending_batch_neumaier_dW_product_residual_db",
+        "parameter_gradient_kernel": "rl_engine._C.qwenimage_det_linear_backward_weight",
+        "parameter_gradient_backend": "cuda_compensated",
+        "backward_contract": "qwenimage-parameter-grad-neumaier-v2",
+        "activation": "aten.silu; fp32 analytic VJP",
+        "execution_dtype": "torch.float32",
+        "device": "cuda:0",
+        "capability": [
+          10,
+          0
+        ]
+      },
+      "correctness": {
+        "forward": {
+          "passed": true,
+          "max_abs": 3.084540367126465e-06,
+          "max_tolerance_ratio": 0.03035988099873066,
+          "violations": 0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "gradients": {
+          "temb": {
+            "passed": true,
+            "max_abs": 4.76837158203125e-06,
+            "max_tolerance_ratio": 0.0219003614038229,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight": {
+            "passed": true,
+            "max_abs": 9.5367431640625e-07,
+            "max_tolerance_ratio": 0.001900327275507152,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias": {
+            "passed": true,
+            "max_abs": 0.0,
+            "max_tolerance_ratio": 0.0,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          }
+        },
+        "repeat_bitwise": true
+      },
+      "timing": {
+        "forward": {
+          "samples_ms": {
+            "candidate": [
+              0.06185600161552429,
+              0.05657599866390228,
+              0.05827200040221214,
+              0.05516799911856651,
+              0.06128000095486641,
+              0.05353600159287453,
+              0.05878400057554245,
+              0.055296000093221664,
+              0.05942400172352791,
+              0.05411199852824211
+            ],
+            "native": [
+              0.059328000992536545,
+              0.05660799890756607,
+              0.05820799991488457,
+              0.05648000165820122,
+              0.05641600117087364,
+              0.05555199831724167,
+              0.057440001517534256,
+              0.06358399987220764,
+              0.05724800005555153,
+              0.05612799897789955
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.05742399953305721,
+            "native": 0.0569279994815588
+          }
+        },
+        "backward": {
+          "samples_ms": {
+            "candidate": [
+              0.6968960165977478,
+              0.6554239988327026,
+              0.6461120247840881,
+              0.6359999775886536,
+              0.6317440271377563,
+              0.6800000071525574,
+              0.708512008190155,
+              0.718783974647522,
+              0.47062399983406067,
+              0.6586560010910034
+            ],
+            "native": [
+              0.361407995223999,
+              0.34329599142074585,
+              0.3431679904460907,
+              0.3651840090751648,
+              0.49244800209999084,
+              0.5735359787940979,
+              0.5766080021858215,
+              0.5552319884300232,
+              0.37990400195121765,
+              0.5214719772338867
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.657039999961853,
+            "native": 0.43617600202560425
+          }
+        },
+        "forward_backward": {
+          "samples_ms": {
+            "candidate": [
+              0.5670719742774963,
+              0.8008959889411926,
+              0.7730879783630371,
+              0.7566400170326233,
+              0.8181440234184265,
+              0.5668799877166748,
+              0.7224000096321106,
+              0.7888000011444092,
+              0.7958080172538757,
+              0.7900480031967163
+            ],
+            "native": [
+              0.39715200662612915,
+              0.6761919856071472,
+              0.6503360271453857,
+              0.7032639980316162,
+              0.650816023349762,
+              0.548799991607666,
+              0.4424000084400177,
+              0.6490240097045898,
+              0.6548799872398376,
+              0.6618880033493042
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.7809439897537231,
+            "native": 0.6505760252475739
+          }
+        },
+        "peak_increment_bytes": {
+          "candidate": 230277120,
+          "native": 226738176
+        }
+      }
+    },
+    {
+      "stream": "text",
+      "dtype": "torch.float32",
+      "batch": 2,
+      "seq": 1,
+      "readback": {
+        "operator": "qwenimage_adaln_mod_projection",
+        "requested_backend": "cuda",
+        "actual_backend": "cuda",
+        "contract": "qwenimage-adaln-v2",
+        "fallback": false,
+        "accumulation_dtype": "float32",
+        "projection_kernel": "rl_engine._C.qwenimage_det_linear_forward",
+        "projection_tree": "warp_xor",
+        "backward": "compensated_64_column_partials_kahan_fold; ascending_batch_neumaier_dW_product_residual_db",
+        "parameter_gradient_kernel": "rl_engine._C.qwenimage_det_linear_backward_weight",
+        "parameter_gradient_backend": "cuda_compensated",
+        "backward_contract": "qwenimage-parameter-grad-neumaier-v2",
+        "activation": "aten.silu; fp32 analytic VJP",
+        "execution_dtype": "torch.float32",
+        "device": "cuda:0",
+        "capability": [
+          10,
+          0
+        ]
+      },
+      "correctness": {
+        "forward": {
+          "passed": true,
+          "max_abs": 3.337860107421875e-06,
+          "max_tolerance_ratio": 0.018662450835108757,
+          "violations": 0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "gradients": {
+          "temb": {
+            "passed": true,
+            "max_abs": 7.62939453125e-06,
+            "max_tolerance_ratio": 0.03779896721243858,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight": {
+            "passed": true,
+            "max_abs": 1.430511474609375e-06,
+            "max_tolerance_ratio": 0.004774248693138361,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias": {
+            "passed": true,
+            "max_abs": 0.0,
+            "max_tolerance_ratio": 0.0,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          }
+        },
+        "repeat_bitwise": true
+      },
+      "timing": {
+        "forward": {
+          "samples_ms": {
+            "candidate": [
+              0.0695360004901886,
+              0.058848001062870026,
+              0.06505600363016129,
+              0.060095999389886856,
+              0.06163199990987778,
+              0.06080000102519989,
+              0.06207999959588051,
+              0.05718399956822395,
+              0.06419199705123901,
+              0.06022400036454201
+            ],
+            "native": [
+              0.0644799992442131,
+              0.06425599753856659,
+              0.06329599767923355,
+              0.06403200328350067,
+              0.06297600269317627,
+              0.06281600147485733,
+              0.062272001057863235,
+              0.06265600025653839,
+              0.06403200328350067,
+              0.0628800019621849
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.061216000467538834,
+            "native": 0.06313600018620491
+          }
+        },
+        "backward": {
+          "samples_ms": {
+            "candidate": [
+              0.6978560090065002,
+              0.6818559765815735,
+              0.6914560198783875,
+              0.7011520266532898,
+              0.6971840262413025,
+              0.5438079833984375,
+              0.6789439916610718,
+              0.5463680028915405,
+              0.5226240158081055,
+              0.5402560234069824
+            ],
+            "native": [
+              0.45206400752067566,
+              0.4490239918231964,
+              0.5325760245323181,
+              0.5734720230102539,
+              0.483487993478775,
+              0.5730879902839661,
+              0.5361279845237732,
+              0.6260799765586853,
+              0.5285760164260864,
+              0.6577600240707397
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.6803999841213226,
+            "native": 0.5343520045280457
+          }
+        },
+        "forward_backward": {
+          "samples_ms": {
+            "candidate": [
+              0.8003519773483276,
+              0.7354239821434021,
+              0.8093760013580322,
+              0.8552960157394409,
+              0.7885439991950989,
+              0.8026559948921204,
+              0.5516800284385681,
+              0.788703978061676,
+              0.7978240251541138,
+              0.8527680039405823
+            ],
+            "native": [
+              0.7008320093154907,
+              0.612608015537262,
+              0.6880000233650208,
+              0.7131519913673401,
+              0.612671971321106,
+              0.6928960084915161,
+              0.5173439979553223,
+              0.7240319848060608,
+              0.7352960109710693,
+              0.6218879818916321
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.7990880012512207,
+            "native": 0.6904480159282684
+          }
+        },
+        "peak_increment_bytes": {
+          "candidate": 233988096,
+          "native": 226910208
+        }
+      }
+    },
+    {
+      "stream": "text",
+      "dtype": "torch.float32",
+      "batch": 4,
+      "seq": 1,
+      "readback": {
+        "operator": "qwenimage_adaln_mod_projection",
+        "requested_backend": "cuda",
+        "actual_backend": "cuda",
+        "contract": "qwenimage-adaln-v2",
+        "fallback": false,
+        "accumulation_dtype": "float32",
+        "projection_kernel": "rl_engine._C.qwenimage_det_linear_forward",
+        "projection_tree": "warp_xor",
+        "backward": "compensated_64_column_partials_kahan_fold; ascending_batch_neumaier_dW_product_residual_db",
+        "parameter_gradient_kernel": "rl_engine._C.qwenimage_det_linear_backward_weight",
+        "parameter_gradient_backend": "cuda_compensated",
+        "backward_contract": "qwenimage-parameter-grad-neumaier-v2",
+        "activation": "aten.silu; fp32 analytic VJP",
+        "execution_dtype": "torch.float32",
+        "device": "cuda:0",
+        "capability": [
+          10,
+          0
+        ]
+      },
+      "correctness": {
+        "forward": {
+          "passed": true,
+          "max_abs": 4.291534423828125e-06,
+          "max_tolerance_ratio": 0.024691591039299965,
+          "violations": 0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "gradients": {
+          "temb": {
+            "passed": true,
+            "max_abs": 7.62939453125e-06,
+            "max_tolerance_ratio": 0.04250035807490349,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight": {
+            "passed": true,
+            "max_abs": 1.9073486328125e-06,
+            "max_tolerance_ratio": 0.008562184870243073,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias": {
+            "passed": true,
+            "max_abs": 4.76837158203125e-07,
+            "max_tolerance_ratio": 0.0016246031736955047,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          }
+        },
+        "repeat_bitwise": true
+      },
+      "timing": {
+        "forward": {
+          "samples_ms": {
+            "candidate": [
+              0.07446400076150894,
+              0.07078400254249573,
+              0.07132799923419952,
+              0.07126399874687195,
+              0.07433599978685379,
+              0.06864000111818314,
+              0.0703359991312027,
+              0.0674239993095398,
+              0.06915199756622314,
+              0.06960000097751617
+            ],
+            "native": [
+              0.1329919993877411,
+              0.13171200454235077,
+              0.13254399597644806,
+              0.13014400005340576,
+              0.13196800649166107,
+              0.13072000443935394,
+              0.130048006772995,
+              0.12863999605178833,
+              0.12940800189971924,
+              0.1279039978981018
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.07056000083684921,
+            "native": 0.13043200224637985
+          }
+        },
+        "backward": {
+          "samples_ms": {
+            "candidate": [
+              0.8063679933547974,
+              0.8030719757080078,
+              0.8021759986877441,
+              0.8357759714126587,
+              0.8177919983863831,
+              0.8460479974746704,
+              0.8424320220947266,
+              0.852832019329071,
+              0.7958080172538757,
+              0.8134080171585083
+            ],
+            "native": [
+              0.5163519978523254,
+              0.5162240266799927,
+              0.5067520141601562,
+              0.47254401445388794,
+              0.5075200200080872,
+              0.5136640071868896,
+              0.6162880063056946,
+              0.5792319774627686,
+              0.4867520034313202,
+              0.5219839811325073
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.8156000077724457,
+            "native": 0.5149440169334412
+          }
+        },
+        "forward_backward": {
+          "samples_ms": {
+            "candidate": [
+              0.8995839953422546,
+              0.8895040154457092,
+              0.6724479794502258,
+              0.9131519794464111,
+              0.7422720193862915,
+              0.9534720182418823,
+              0.9688320159912109,
+              0.9463679790496826,
+              0.9444800019264221,
+              0.770143985748291
+            ],
+            "native": [
+              0.6918399930000305,
+              0.6368319988250732,
+              0.47116801142692566,
+              0.8151999711990356,
+              0.5136640071868896,
+              0.49593600630760193,
+              0.722495973110199,
+              0.7449920177459717,
+              0.7309439778327942,
+              0.5394240021705627
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.9063679873943329,
+            "native": 0.6643359959125519
+          }
+        },
+        "peak_increment_bytes": {
+          "candidate": 241410048,
+          "native": 227254272
+        }
+      }
+    },
+    {
+      "stream": "text",
+      "dtype": "torch.float32",
+      "batch": 9,
+      "seq": 1,
+      "readback": {
+        "operator": "qwenimage_adaln_mod_projection",
+        "requested_backend": "cuda",
+        "actual_backend": "cuda",
+        "contract": "qwenimage-adaln-v2",
+        "fallback": false,
+        "accumulation_dtype": "float32",
+        "projection_kernel": "rl_engine._C.qwenimage_det_linear_forward",
+        "projection_tree": "warp_xor",
+        "backward": "compensated_64_column_partials_kahan_fold; ascending_batch_neumaier_dW_product_residual_db",
+        "parameter_gradient_kernel": "rl_engine._C.qwenimage_det_linear_backward_weight",
+        "parameter_gradient_backend": "cuda_compensated",
+        "backward_contract": "qwenimage-parameter-grad-neumaier-v2",
+        "activation": "aten.silu; fp32 analytic VJP",
+        "execution_dtype": "torch.float32",
+        "device": "cuda:0",
+        "capability": [
+          10,
+          0
+        ]
+      },
+      "correctness": {
+        "forward": {
+          "passed": true,
+          "max_abs": 4.5299530029296875e-06,
+          "max_tolerance_ratio": 0.023840103298425674,
+          "violations": 0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "gradients": {
+          "temb": {
+            "passed": true,
+            "max_abs": 7.62939453125e-06,
+            "max_tolerance_ratio": 0.05722330883145332,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "weight": {
+            "passed": true,
+            "max_abs": 2.86102294921875e-06,
+            "max_tolerance_ratio": 0.011162595823407173,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          },
+          "bias": {
+            "passed": true,
+            "max_abs": 1.9073486328125e-06,
+            "max_tolerance_ratio": 0.004605521447956562,
+            "violations": 0,
+            "atol": 0.0001,
+            "rtol": 0.0001
+          }
+        },
+        "repeat_bitwise": true
+      },
+      "timing": {
+        "forward": {
+          "samples_ms": {
+            "candidate": [
+              0.14505599439144135,
+              0.1424960047006607,
+              0.14127999544143677,
+              0.13990400731563568,
+              0.1361279934644699,
+              0.14044800400733948,
+              0.13865600526332855,
+              0.14166399836540222,
+              0.13449600338935852,
+              0.13939200341701508
+            ],
+            "native": [
+              0.1343040019273758,
+              0.12876799702644348,
+              0.13116799294948578,
+              0.13382400572299957,
+              0.13104000687599182,
+              0.13049599528312683,
+              0.13318400084972382,
+              0.1287360042333603,
+              0.13177600502967834,
+              0.1287039965391159
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 0.14017600566148758,
+            "native": 0.1311039999127388
+          }
+        },
+        "backward": {
+          "samples_ms": {
+            "candidate": [
+              1.292672038078308,
+              1.3125760555267334,
+              1.27401602268219,
+              1.3475840091705322,
+              1.344256043434143,
+              1.341439962387085,
+              1.3147519826889038,
+              1.3246400356292725,
+              1.3335360288619995,
+              1.3447359800338745
+            ],
+            "native": [
+              0.42790400981903076,
+              0.4639680087566376,
+              0.46108800172805786,
+              0.42399999499320984,
+              0.44259199500083923,
+              0.45923200249671936,
+              0.41791999340057373,
+              0.4282880127429962,
+              0.44016000628471375,
+              0.5618240237236023
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 1.329088032245636,
+            "native": 0.4413760006427765
+          }
+        },
+        "forward_backward": {
+          "samples_ms": {
+            "candidate": [
+              1.4383039474487305,
+              1.4954880475997925,
+              1.454751968383789,
+              1.4255679845809937,
+              1.3729599714279175,
+              1.4395519495010376,
+              1.4381760358810425,
+              1.4725760221481323,
+              1.4325439929962158,
+              1.4285119771957397
+            ],
+            "native": [
+              0.6811519861221313,
+              0.7481600046157837,
+              0.6913920044898987,
+              0.6829439997673035,
+              0.5017279982566833,
+              0.5825920104980469,
+              0.6251199841499329,
+              0.6541119813919067,
+              0.7104640007019043,
+              0.49852800369262695
+            ]
+          },
+          "order": [
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "native"
+            ],
+            [
+              "native",
+              "candidate"
+            ]
+          ],
+          "median_ms": {
+            "candidate": 1.4382399916648865,
+            "native": 0.667631983757019
+          }
+        },
+        "peak_increment_bytes": {
+          "candidate": 259964928,
+          "native": 228114432
+        }
+      }
+    }
+  ],
+  "passed": true
+}

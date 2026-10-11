@@ -1,0 +1,17 @@
+dtype,batch,implementation,passed,max_abs,max_tolerance_ratio,violations,atol,rtol
+torch.float32,255,fixed,True,0.0,0.0,0,0.0001,0.0001
+torch.float32,255,candidate,False,43.5,1143.2325439453125,14,0.0001,0.0001
+torch.float32,256,fixed,True,0.0,0.0,0,0.0001,0.0001
+torch.float32,256,candidate,False,45.0,1178.0103759765625,14,0.0001,0.0001
+torch.float32,257,fixed,True,0.0,0.0,0,0.0001,0.0001
+torch.float32,257,candidate,False,46.5,1212.5162353515625,14,0.0001,0.0001
+torch.float32,2048,fixed,True,0.0,0.0,0,0.0001,0.0001
+torch.float32,2048,candidate,False,45.0,146.57981872558594,14,0.0001,0.0001
+torch.bfloat16,255,fixed,True,0.5,0.06501951068639755,0,0.1,0.02
+torch.bfloat16,255,candidate,False,51.5,7.1705427169799805,14,0.1,0.02
+torch.bfloat16,256,fixed,True,1.0,0.12953367829322815,0,0.1,0.02
+torch.bfloat16,256,candidate,False,53.0,7.335907459259033,14,0.1,0.02
+torch.bfloat16,257,fixed,True,0.5,0.06451613456010818,0,0.1,0.02
+torch.bfloat16,257,candidate,False,46.5,6.000000476837158,14,0.1,0.02
+torch.bfloat16,2048,fixed,True,3.0,0.048796359449625015,0,0.1,0.02
+torch.bfloat16,2048,candidate,True,61.0,0.9921926259994507,0,0.1,0.02

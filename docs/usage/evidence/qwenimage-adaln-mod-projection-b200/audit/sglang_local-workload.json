@@ -1,0 +1,820 @@
+{
+  "mode": "sglang_local",
+  "phase": "workload",
+  "accuracy_seed": 0,
+  "source": {
+    "base_sha": "893642643f4095451987c326a1449524d3c15496",
+    "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked_source_sha256": {},
+    "workspace_source_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "qwenimage_source_sha256": {
+      "csrc/cuda/model_specific/qwenimage/det_linear.cu": "859da456b0c776f3492b3197c252866e33d9a7088508b701b7c4a179ee709afb",
+      "rl_engine/backends/cuda/model_specific/qwenimage/__init__.py": "95c46d40c4aed2d4c26a65bc0cc64331e42b237673293ea5ed45b79ebc11d4b4",
+      "rl_engine/backends/cuda/model_specific/qwenimage/adaln_mod_projection.py": "f8ad94517879c9135e0ed3bc24469c6fc9a24ea07179fd1c52d3235c5ef13dcc",
+      "rl_engine/reference/model_specific/qwenimage/__init__.py": "95c46d40c4aed2d4c26a65bc0cc64331e42b237673293ea5ed45b79ebc11d4b4",
+      "rl_engine/reference/model_specific/qwenimage/adaln_mod_projection.py": "1ebc740ddff575055ee66ed714a8c7cc5c6cee2701d582a665289e9ad1a4fe3d",
+      "benchmarks/models/qwenimage/__init__.py": "a63ebc79ed10d9ed98484565a353438bd13f5801a8f51d7505d0921bf6942742",
+      "benchmarks/models/qwenimage/adaln_evidence.py": "b212244aa016b406e441ba1648467dd97ed936c3ddca92db526ebcea666efbd8",
+      "benchmarks/models/qwenimage/adaln_parameter_screen.py": "05562ef30d09296c2ccd1cdeb44085568b8c877d01f5fb1df4b983e84945ec03",
+      "benchmarks/models/qwenimage/adaln_prior_art.py": "647aa9fc81e02bf3c7806ed6c2a3e578fb3e1a0b000b4388a12367ef86de3139",
+      "benchmarks/models/qwenimage/adaln_reuse_bi_audit.py": "7e20df2a16c4f31cc1cf82cfb10f031f3ff454f4a96585a20267cde8171cef71",
+      "benchmarks/models/qwenimage/adaln_reuse_candidate.py": "e636d6e4fee136e6c8716c973969f8074c77c18ed49d3cd11a246389a9fc4a16",
+      "benchmarks/models/qwenimage/plot_adaln_audit.py": "f362800e95c7a64c31a4d16b8e3ba02fd8783ea386a6773281f22e2f48d3248e",
+      "benchmarks/models/qwenimage/plot_adaln_evidence.py": "16d6bed0ee5b808814c5f7157145a730750d0b1aaf94762e6f72a256e942c1e2",
+      "benchmarks/models/qwenimage/streams.py": "86fd5d8e28fde856c50c704580a3df11c1d2af3e7774a50503ab7f7c1635b3ae",
+      "benchmarks/models/qwenimage/validate_adaln_repair.py": "e093f246042c02a850b8eee49893bcc54f92c13c5d7710924a73e49406724e1f"
+    },
+    "extension_sha256": "fe366383d6f8983c22cb9f4233d8e537f0d45f1600ad3c7c47fbdfb87094aaef",
+    "clean_commit": true
+  },
+  "cases": [
+    {
+      "stream": "image",
+      "dtype": "torch.bfloat16",
+      "weights": {
+        "transformer_blocks.0.img_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "22ef33e6865806f3e1d2bc137bd1a41510cf0619ed0c85fba35a626cd7bad018",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.img_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "f4d2241820fa1a1895d7136bd5653ae0984a50bf0a0961a312b45e0e393d8218",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 7,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 64,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 257,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 1024,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 2048,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 7,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 64,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 257,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 1024,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 2048,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 7,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 64,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 257,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 1024,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 2048,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        }
+      ]
+    },
+    {
+      "stream": "image",
+      "dtype": "torch.float32",
+      "weights": {
+        "transformer_blocks.0.img_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "22ef33e6865806f3e1d2bc137bd1a41510cf0619ed0c85fba35a626cd7bad018",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.img_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "f4d2241820fa1a1895d7136bd5653ae0984a50bf0a0961a312b45e0e393d8218",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 7,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 64,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 257,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 1024,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 2048,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 7,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 64,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 257,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 1024,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 2048,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 7,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 64,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 257,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 1024,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 2048,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        }
+      ]
+    },
+    {
+      "stream": "text",
+      "dtype": "torch.bfloat16",
+      "weights": {
+        "transformer_blocks.0.txt_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "7fc5615cea51f21640ae26b29e4595fe96295113b1fd31b117664c1b85d360c2",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.txt_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "537d4e06e6fe7428a331637871fcf8c9c4899b296b5419e12abb3a3972adfc72",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 7,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 64,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 257,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 1024,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 2048,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 7,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 64,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 257,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 1024,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 2048,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 7,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 64,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 257,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 1024,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 2048,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        }
+      ]
+    },
+    {
+      "stream": "text",
+      "dtype": "torch.float32",
+      "weights": {
+        "transformer_blocks.0.txt_mod.1.weight": {
+          "shape": [
+            18432,
+            3072
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "7fc5615cea51f21640ae26b29e4595fe96295113b1fd31b117664c1b85d360c2",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        },
+        "transformer_blocks.0.txt_mod.1.bias": {
+          "shape": [
+            18432
+          ],
+          "dtype": "torch.bfloat16",
+          "sha256": "537d4e06e6fe7428a331637871fcf8c9c4899b296b5419e12abb3a3972adfc72",
+          "shard": "diffusion_pytorch_model-00001-of-00009.safetensors",
+          "download_etag": "9f33a59093af3abcc2836d4cf4b7bd122c238ca70a26c70f34fdde64646b3bcd"
+        }
+      },
+      "checks": [
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 7,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 64,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 257,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 1024,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 0,
+          "batch": 4096,
+          "chunk": 2048,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 7,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 64,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 257,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 1024,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 127,
+          "batch": 4096,
+          "chunk": 2048,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 7,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 64,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 257,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 1024,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        },
+        {
+          "kind": "workload_4096",
+          "seed": 2026,
+          "batch": 4096,
+          "chunk": 2048,
+          "rows": 4096,
+          "mismatched_rows": {
+            "output": 0,
+            "temb": 0
+          }
+        }
+      ]
+    }
+  ],
+  "environment": {
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "gpu": "NVIDIA B200",
+    "workspace": {
+      "CUBLAS_WORKSPACE_CONFIG": null,
+      "CUBLASLT_WORKSPACE_SIZE": null
+    },
+    "tf32": false
+  },
+  "scope": "sample batch BI; shared parameter gradients: same ordered inputs, repeat only",
+  "packages": {
+    "torch": "2.13.0",
+    "triton": "3.7.1",
+    "diffusers": null,
+    "vllm": "0.30.0",
+    "sglang": "0.5.21",
+    "transformer_engine": null,
+    "megatron-core": null
+  }
+}
