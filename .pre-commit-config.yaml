@@ -4,10 +4,10 @@ repos:
     hooks:
       - id: trailing-whitespace
         # Unified diffs include significant context markers and pinned hashes.
-        # Published Qwen3-Next chain evidence is byte-exact (SHA256SUMS).
-        exclude: '(\.patch$|^reports/archive/|^docs/usage/evidence/qwen3-next-chain-b200/)'
+        # Published Qwen3-Next chain and batch-invariance evidence is byte-exact (SHA256SUMS).
+        exclude: '(\.patch$|^reports/archive/|^docs/usage/evidence/qwen3-next-(chain|batch-invariance)-b200/)'
       - id: end-of-file-fixer
-        exclude: '^(reports/archive/|docs/usage/evidence/qwen3-next-chain-b200/)'
+        exclude: '^(reports/archive/|docs/usage/evidence/qwen3-next-(chain|batch-invariance)-b200/)'
       - id: check-yaml
         exclude: 'mkdocs\.yaml$'
       - id: check-added-large-files
