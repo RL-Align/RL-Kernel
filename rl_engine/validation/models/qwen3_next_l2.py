@@ -20,6 +20,7 @@ from pathlib import Path
 import torch
 
 from rl_engine.models.qwen3_next.qwen3_next_subnode import SUBNODES, subnode_layout
+from rl_engine.validation.common.file_digest import file_sha256
 from rl_engine.validation.common.tensor_identity import tensor_bitwise_equal
 
 VOCAB_SIZE = 151936
@@ -896,8 +897,7 @@ def checked_artifact_path(record, *, artifact_root=None):
     path = path.resolve(strict=True)
     if artifact_root is not None and not path.is_relative_to(Path(artifact_root).resolve()):
         raise ValueError("Tensor artifact escaped its current attempt")
-    with path.open("rb") as stream:
-        digest = hashlib.file_digest(stream, "sha256").hexdigest()
+    digest = file_sha256(path)
     if digest != record["sha256"]:
         raise ValueError("Tensor artifact content digest changed")
     return path
