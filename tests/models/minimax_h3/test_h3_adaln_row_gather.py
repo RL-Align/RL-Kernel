@@ -149,7 +149,8 @@ class TestCudaForward:
         """Reject semantic index violations without poisoning pytest's CUDA context."""
 
         _cuda_op()
-        probe = textwrap.dedent("""
+        probe = textwrap.dedent(
+            """
             import sys
             import torch
             from rl_engine.backends.extension import _C
@@ -167,7 +168,8 @@ class TestCudaForward:
             else:
                 H3AdaLNRowGatherCudaOp().forward(rows, ti, tags, check_range=False)
             torch.cuda.synchronize()
-            """)
+            """
+        )
         completed = subprocess.run(
             [sys.executable, "-c", probe, entrypoint, str(timestep), str(tag), index_dtype],
             cwd=Path(__file__).resolve().parents[3],

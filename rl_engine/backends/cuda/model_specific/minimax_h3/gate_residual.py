@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import torch
 
-from rl_engine.ops.autograd.backward_runtime import record_backward
-from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 from rl_engine.backends.cuda.model_specific.minimax_h3.adaln_row_gather import _segment_tiles
+from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.reference.minimax_h3.gate_residual import validate_h3_gate_residual
 
 KERNEL_ID = "rl_engine._C.h3_gate_residual_forward"

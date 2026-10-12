@@ -26,13 +26,13 @@ from dataclasses import dataclass
 
 import torch
 
-from rl_engine.ops.autograd.backward_runtime import record_backward
-from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 from rl_engine.backends.cuda.model_specific.minimax_h3.adaln_row_gather import (
     BACKWARD_TILE,
     _segment_tiles,
 )
 from rl_engine.backends.cuda.model_specific.minimax_h3.ws2_comm import gather_rows
+from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.reference.minimax_h3.gate_residual import validate_h3_gate_residual
 from rl_engine.reference.minimax_h3.rmsnorm import (
     H3_NORM_EPS,
@@ -223,6 +223,8 @@ def sp_plan(
     families = [_dweight_tiles(layout.batch * layout.seq_len, device)]
     if index_full is None:
         return SPPlan(layout, _Plan(layout, families, device), None, None, None, None)
+    if num_rows is None:
+        raise ValueError("indexed SP plans require num_rows")
     *seg_tiles, seg_first_tile = _segment_tiles(index_full.repeat(layout.batch), num_rows)
     plan = _Plan(layout, [*families, tuple(seg_tiles)], device)
     local_index = index_full[layout.lo : layout.hi].clone(memory_format=torch.contiguous_format)
@@ -370,6 +372,8 @@ class H3SPNormAdaLNCudaOp:
                 f"index must be the full ({self.layout.seq_len},) row index, "
                 f"got {tuple(index.shape)}"
             )
+        if num_rows is None:
+            raise ValueError("indexed SP validation requires num_rows")
         if index.numel() and (int(index.min()) < 0 or int(index.max()) >= num_rows):
             raise IndexError(f"index must be in [0, {num_rows})")
 

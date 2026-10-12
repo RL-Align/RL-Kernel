@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import torch
 
-from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.reference.minimax_h3 import H3_FREQ_DIM, H3_MAX_PERIOD
 from rl_engine.reference.minimax_h3.fixed_order import tree_sum_lastdim_fp32
 from rl_engine.reference.minimax_h3.timestep_sinusoid import (

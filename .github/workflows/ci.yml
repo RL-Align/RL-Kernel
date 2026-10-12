@@ -71,6 +71,9 @@ jobs:
       - name: Check refactor packaging and compatibility
         run: python ci/run.py layout -q
 
+      - name: Run full H3 binding contracts
+        run: python -m pytest -q tests/models/minimax_h3/test_h3_full_model.py
+
       - name: Run Mocked Hardware Discovery Tests
         run: |
           python -m pytest tests/runtime/test_dispatch.py -v

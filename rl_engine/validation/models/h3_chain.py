@@ -307,10 +307,12 @@ def run_case(
         "seed": seed,
         "stages": [],
     }
-    chained = provider = golden = None
+    chained: Any = None
+    provider: Any = None
+    golden: Any = None
     first_drift = first_isolated = None
     # Each mode sees its own earlier outputs (a stage may read any earlier stage).
-    history = {"candidate": {}, "provider": {}, "golden": {}}
+    history: dict[str, dict[str, Any]] = {"candidate": {}, "provider": {}, "golden": {}}
     ctx_c = {**ctx, "history": history["candidate"]}
     ctx_p = {**ctx, "history": history["provider"]}
     ctx_g = {**ctx, "history": history["golden"]}
@@ -379,6 +381,8 @@ def chain_grads(mode: str, registry: KernelRegistry, ctx, upstream) -> list[torc
                 value = stage.candidate(op, run_ctx, value)
             else:
                 value = stage.golden(golden_op(registry, stage.op_type), run_ctx, value)
+    if value is None:
+        raise ValueError("conditioning chain produced no output")
     outputs = list(value)
     torch.autograd.backward(
         outputs, [g.to(out.dtype) for g, out in zip(upstream, outputs, strict=True)]

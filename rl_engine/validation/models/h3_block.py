@@ -306,7 +306,14 @@ def make_block_context(
     seeded inputs; row 0 is the same tensor at every ``batch``.
     """
 
-    packed = h3_fl2va_layout(**H3_BLOCK_LAYOUTS[layout])
+    spec = H3_BLOCK_LAYOUTS[layout]
+    packed = h3_fl2va_layout(
+        num_text_tokens=spec["num_text_tokens"],
+        num_latent_frames=spec["num_latent_frames"],
+        latent_height=spec["latent_height"],
+        latent_width=spec["latent_width"],
+        num_audio_latents=spec["num_audio_latents"],
+    )
     seq_len = packed["position_ids"].shape[0]
     timestep = h3_timesteps(NUM_TIMESTEPS, seed=seed)
     w = weights
@@ -484,12 +491,12 @@ def run_block_case(
         "backends": ops.backends(),
         "nodes": [],
     }
-    firsts = {"first_drift": None, "first_isolated_drift": None}
+    firsts: dict[str, str | None] = {"first_drift": None, "first_isolated_drift": None}
     firsts.update({"first_repeat_drift": None, "first_batch_drift": None})
     for node in NODES:
         name = node.name
         row0 = _batch_row(batched[name], 0, 2)
-        entry = {
+        entry: dict[str, Any] = {
             "node": name,
             "rfc_row": node.binding.rfc_row,
             "status": node.binding.status,
@@ -659,7 +666,7 @@ def run_block_backward(
     for node in reversed(NODES):
         name = node.name
         row0 = [_batch_row(g, 0, 2) for g in batched_nodes[name]]
-        entry = {
+        entry: dict[str, Any] = {
             "node": name,
             "grad_repeat_bitwise_equal": bitwise(first_nodes[name], second_nodes[name]),
             "grad_batch_row_bitwise_equal": (
