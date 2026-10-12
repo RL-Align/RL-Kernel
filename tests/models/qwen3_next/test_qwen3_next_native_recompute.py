@@ -11,6 +11,7 @@ from rl_engine.integrations.orchestrators.vime.experiments.qwen3_next.native_rec
 )
 from rl_engine.integrations.orchestrators.vime.providers.qwen3_next_vime_runtime import runtime_argv
 from rl_engine.models.qwen3_next.qwen3_next_subnode import SUBNODES, subnode_layout
+from rl_engine.validation.common.file_digest import file_sha256
 
 
 @pytest.mark.parametrize("batch", [1, 4])
@@ -52,7 +53,6 @@ def test_recompute_batch_loads_once_and_keeps_verifiable_original_rank_traces(
     tmp_path, monkeypatch
 ):
     import copy
-    import hashlib
 
     from rl_engine.integrations.orchestrators.vime.experiments.qwen3_next import (
         native_recompute as recompute,
@@ -204,8 +204,7 @@ def test_recompute_batch_loads_once_and_keeps_verifiable_original_rank_traces(
             trace["local_logits"] = trace["local_logits"].clone()
             trace["local_logits"][0, 0, 0] = -0.0
         save_tensor_artifact(record["path"], trace)
-        with open(record["path"], "rb") as stream:
-            record["sha256"] = hashlib.file_digest(stream, "sha256").hexdigest()
+        record["sha256"] = file_sha256(record["path"])
         with pytest.raises(ValueError, match=message):
             validate_native_worker_traces(artifact, request, artifact_root=tmp_path)
         if "complete " in message:
