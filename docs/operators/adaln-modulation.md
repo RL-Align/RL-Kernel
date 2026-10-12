@@ -62,7 +62,7 @@ with padding across all declared launch configurations. AdaLN gtest checks
 candidate output dtype and promotes gold leaves to FP32 before autograd;
 casting inside the gold function alone would return BF16 gradients to BF16 leaves.
 
-AdaLN is registered in `gtest/operator_specs.py` and `operator_inputs.py` as
+AdaLN is registered in `rl_engine/validation/operators/operator_specs.py` and `operator_inputs.py` as
 `op_class="reduction"`, with PyTorch, CUDA and Triton candidates. The independent
 gold uses FP32 CPU `torch.nn.functional.layer_norm` and autograd for normalization.
 Its independent affine VJP folds token contributions in ascending FP32 order;
@@ -73,10 +73,10 @@ for input gradients; no private AdaLN thresholds or SM90 override are added.
 Existing fixed-reference byte comparisons remain separate, unchanged gates.
 
 ```bash
-.venv/bin/python scripts/check_operator.py --op adaln_modulation \
+.venv/bin/python tools/validation/operators/check_operator.py --op adaln_modulation \
   --candidate pytorch --device cpu --dtype bf16 --batch 2 --seq 3 \
   --normalized-dim 3072 --check-grad --json
-.venv/bin/python -m pytest tests/test_adaln_gtest.py -q -rs
+.venv/bin/python -m pytest tests/validation/operators/test_adaln_gtest.py -q -rs
 ```
 
 Use CUDA/Triton candidates on the target GPU for native accuracy evidence.
@@ -87,9 +87,9 @@ CPU tests also cover gate-only gradients, distinct image/text modulation
 chunks, corrupted-output/VJP rejection and unavailable-backend routing.
 The CLI accuracy report alone is not a provenance-checked WS1 system gate.
 
-Run `python -m pytest tests/test_adaln_modulation.py -q` for focused tests.
+Run `python -m pytest tests/ops/norm/test_adaln_modulation.py -q` for focused tests.
 Set `RLK_ADALN_REAL_SHAPES=1` to include the three full image shapes.
-Run `python benchmarks/benchmark_adaln_modulation.py --real` for the three
+Run `python benchmarks/operators/norm/benchmark_adaln_modulation.py --real` for the three
 image shapes, with `--dtype fp32` for the second dtype. The benchmark prints
 median forward and forward+backward latency plus peak allocated memory;
 `--warmup` and `--repeat` control the sample count. It explicitly skips the
@@ -156,12 +156,68 @@ the same inputs and timing, but does not claim fixed-order replay.
 Run the new GPU cases explicitly on the target environment:
 
 ```bash
-.venv/bin/python -m pytest tests/test_adaln_dispatch.py -k gpu -q -rs
-.venv/bin/python benchmarks/benchmark_adaln_modulation.py \
+.venv/bin/python -m pytest tests/runtime/test_adaln_dispatch.py -k gpu -q -rs
+.venv/bin/python benchmarks/operators/norm/benchmark_adaln_modulation.py \
   --real --dtype bf16 --seed 386 --warmup 10 --repeat 50 --json
 ```
 
-Directory migration remains a separate integration step: the upstream refactor
-must first be integrated, then move the reference/backends, registry, gtest,
-bindings/build and tests/benchmark into its existing layout and rerun their
-relevant checks. This change does not copy or partially recreate that refactor.
+## Directory integration
+
+The implementation follows the upstream layout: reference in `rl_engine/reference/norm/`,
+CUDA in `rl_engine/backends/cuda/norm/`, Triton in `rl_engine/backends/shared/triton/norm/`,
+and dispatch policy in `rl_engine/runtime/adaln.py`. The shared Triton directory does
+not claim ROCm qualification; strict GPU execution requires NVIDIA CUDA.
+Legacy imports alias the canonical modules and retain class and dispatch state identity.
+Native bindings live in `csrc/bindings/ops.cpp`; `build_tools/extensions.py` selects
+`csrc/cuda/norm/adaln_modulation.cu` only for CUDA builds without fast math.
+This directory migration preserves the arithmetic profile and precision thresholds.
+GPU acceptance must be rerun against the migrated sources and a fresh extension.
+
+## Migrated-source H100 validation commands
+
+Run these commands yourself from the repository root on H100/SM90. They are not
+migration validation results. Keep the source revision, working-tree status, build
+log and test/sanitizer logs together; the benchmark JSON also records source and
+loaded extension hashes. A skip is not native CUDA acceptance.
+
+```bash
+git rev-parse HEAD
+git status --porcelain=v1 --untracked-files=all
+nvidia-smi
+.venv/bin/python -c 'import torch; print(torch.__version__, torch.version.cuda, torch.cuda.get_device_name(), torch.cuda.get_device_capability())'
+
+RL_KERNEL_REQUIRE_EXT=1 KERNEL_ALIGN_USE_FAST_MATH=0 TORCH_CUDA_ARCH_LIST=9.0 \
+  .venv/bin/python setup.py build_ext --inplace
+
+RL_KERNEL_REQUIRE_EXT=1 RLK_ADALN_REAL_SHAPES=1 \
+  .venv/bin/python -m pytest tests/ops/norm/test_adaln_modulation.py \
+  tests/validation/operators/test_adaln_gtest.py \
+  tests/backends/test_adaln_shared_bounds.py tests/runtime/test_adaln_dispatch.py -q -rs
+
+# Repeat each candidate for bf16 and fp32.
+.venv/bin/python tools/validation/operators/check_operator.py --op adaln_modulation \
+  --candidate cuda --device cuda --dtype bf16 --batch 2 --seq 3 \
+  --normalized-dim 3072 --check-grad --json
+.venv/bin/python tools/validation/operators/check_operator.py --op adaln_modulation \
+  --candidate triton --device cuda --dtype bf16 --batch 2 --seq 3 \
+  --normalized-dim 3072 --check-grad --json
+
+RL_KERNEL_REQUIRE_EXT=1 compute-sanitizer --error-exitcode=1 --tool memcheck \
+  .venv/bin/python -m pytest tests/ops/norm/test_adaln_modulation.py \
+  -k test_cuda_adaln_bit_equality_harness -q
+RL_KERNEL_REQUIRE_EXT=1 compute-sanitizer --error-exitcode=1 --tool racecheck \
+  .venv/bin/python -m pytest tests/ops/norm/test_adaln_modulation.py \
+  -k test_cuda_adaln_bit_equality_harness -q
+
+.venv/bin/python benchmarks/operators/norm/benchmark_adaln_modulation.py \
+  --real --dtype bf16 --seed 386 --warmup 10 --repeat 50 --json
+.venv/bin/python benchmarks/operators/norm/benchmark_adaln_modulation.py \
+  --real --dtype fp32 --seed 386 --warmup 10 --repeat 50 --json
+```
+
+The repository-wide suite is also left for manual execution because it includes
+hardware and integration scopes whose duration is not bounded by this migration:
+
+```bash
+.venv/bin/python -m pytest tests -q -rs
+```

@@ -276,7 +276,7 @@ def validate_backend_provenance(
     expected_backend = str(profile_contract["backend_family"])
     declared_fallback = False
     if provenance.fallback:
-        from rl_engine.kernels.adaln_contract import SHARED_PROFILE
+        from rl_engine.runtime.adaln import SHARED_PROFILE
 
         # Only AdaLN's observed same-arithmetic CUDA -> Triton route is declared.
         declared_fallback = (

@@ -1,52 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 RL-Kernel Contributors
-"""Autograd wrapper for the native CUDA AdaLN modulation kernels."""
+"""Compatibility import; the canonical module is loaded below."""
 
-from __future__ import annotations
+import importlib
+import sys
+from pathlib import Path
 
-import torch
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[5]))
 
-from rl_engine.kernels.ops.base import _C, _EXT_AVAILABLE
-from rl_engine.kernels.ops.pytorch.norm.adaln_modulation import _validate
+if __name__ == "__main__":
+    import runpy
 
-
-class _AdaLNCuda(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, x, modulation, eps, threads):
-        y, gate = _C.adaln_modulation_forward(x, modulation, eps, threads)
-        ctx.save_for_backward(x, modulation)
-        ctx.eps = eps
-        ctx.threads = threads
-        return y, gate
-
-    @staticmethod
-    def backward(ctx, grad_y, grad_gate):
-        x, modulation = ctx.saved_tensors
-        dx, dm = _C.adaln_modulation_backward(
-            grad_y.contiguous(), grad_gate.contiguous(), x, modulation, ctx.eps, ctx.threads
-        )
-        return dx, dm, None, None
-
-
-class CudaAdaLNModulationOp:
-    def __init__(self, *, threads=256):
-        if threads not in (128, 256, 512):
-            raise ValueError("AdaLN threads must be 128, 256, or 512")
-        self.threads = threads
-        if not _EXT_AVAILABLE or not all(
-            hasattr(_C, name) for name in ("adaln_modulation_forward", "adaln_modulation_backward")
-        ):
-            raise RuntimeError("CUDA AdaLN extension symbols are unavailable")
-
-    def __call__(self, x, modulation, *, eps=1e-6):
-        return self.forward(x, modulation, eps=eps)
-
-    def forward(self, x, modulation, *, eps=1e-6):
-        _validate(x, modulation, eps)
-        if x.shape[0] > 65535:
-            raise ValueError("CUDA AdaLN requires B <= 65535")
-        if max(x.numel(), modulation.numel()) > 2**31 - 1:
-            raise ValueError("CUDA AdaLN requires tensors to fit int32 indexing")
-        if not x.is_cuda or torch.version.hip is not None or x.shape[-1] > 4096:
-            raise RuntimeError("CUDA AdaLN requires NVIDIA CUDA tensors with H <= 4096")
-        return _AdaLNCuda.apply(x.contiguous(), modulation.contiguous(), float(eps), self.threads)
+    runpy.run_module("rl_engine.backends.cuda.norm.adaln_modulation", run_name="__main__")
+else:
+    sys.modules[__name__] = importlib.import_module("rl_engine.backends.cuda.norm.adaln_modulation")

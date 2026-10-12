@@ -75,7 +75,7 @@ jobs:
         env:
           CUDA_VISIBLE_DEVICES: ""
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
-        run: python -m pytest tests/test_adaln_gtest.py tests/test_adaln_shared_bounds.py -q -rs
+        run: python -m pytest tests/validation/operators/test_adaln_gtest.py tests/backends/test_adaln_shared_bounds.py -q -rs
 
       - name: Run Mocked Hardware Discovery Tests
         run: |

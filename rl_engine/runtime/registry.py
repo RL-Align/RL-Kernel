@@ -177,12 +177,12 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     TRITON_SILU = "rl_engine.backends.shared.triton.activation.swiglu.TritonSiLUOp"
     TRITON_SWIGLU = "rl_engine.backends.shared.triton.activation.swiglu.TritonSwiGLUOp"
     PYTORCH_ADALN_MODULATION = (
-        "rl_engine.kernels.ops.pytorch.norm.adaln_modulation.NativeAdaLNModulationOp"
+        "rl_engine.reference.norm.adaln_modulation.NativeAdaLNModulationOp"
     )
     TRITON_ADALN_MODULATION = (
-        "rl_engine.kernels.ops.triton.norm.adaln_modulation.TritonAdaLNModulationOp"
+        "rl_engine.backends.shared.triton.norm.adaln_modulation.TritonAdaLNModulationOp"
     )
-    CUDA_ADALN_MODULATION = "rl_engine.kernels.ops.cuda.norm.adaln_modulation.CudaAdaLNModulationOp"
+    CUDA_ADALN_MODULATION = "rl_engine.backends.cuda.norm.adaln_modulation.CudaAdaLNModulationOp"
 
     # WS1 pure-PyTorch ground-truth attention reference (hand-written fp32 softmax).
     # Distinct from PYTORCH_ATTN above, which is the production SDPA fallback.
@@ -1067,7 +1067,7 @@ class KernelRegistry:
         arithmetic_profile: str | None = None,
     ) -> tuple[Any, dict[str, Any]]:
         """Resolve AdaLN; strict permits only the shared declared replay profile."""
-        from rl_engine.kernels.adaln_contract import (
+        from rl_engine.runtime.adaln import (
             SELECT01_PROFILE,
             SHARED_PROFILE,
             AdaLNDispatch,

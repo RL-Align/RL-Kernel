@@ -116,7 +116,7 @@ otherwise describe Qwen3. Indexed select01 and strict byte invariance remain
 in the focused [AdaLN tests](../operators/adaln-modulation.md), not C3/C4 adapters.
 
 ```bash
-.venv/bin/python scripts/check_operator.py --op adaln_modulation \
+.venv/bin/python tools/validation/operators/check_operator.py --op adaln_modulation \
   --candidate pytorch --device cpu --dtype bf16 --batch 2 --seq 3 \
   --normalized-dim 3072 --check-grad --json
 ```

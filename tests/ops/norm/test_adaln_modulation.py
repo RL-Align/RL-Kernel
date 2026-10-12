@@ -3,10 +3,10 @@ import os
 import pytest
 import torch
 
-from rl_engine.kernels.gtest.operator_specs import GtestAdaLNReference
-from rl_engine.kernels.gtest.tolerance import load_contract, resolve_tolerance
-from rl_engine.kernels.ops.pytorch.norm.adaln_modulation import NativeAdaLNModulationOp
-from rl_engine.kernels.registry import OpBackend, kernel_registry
+from rl_engine.validation.operators.operator_specs import GtestAdaLNReference
+from rl_engine.contracts.numerical import load_contract, resolve_tolerance
+from rl_engine.reference.norm.adaln_modulation import NativeAdaLNModulationOp
+from rl_engine.runtime.registry import OpBackend, kernel_registry
 
 
 def _assert_bytes_equal(actual, expected):
@@ -188,7 +188,7 @@ def test_triton_adaln_modulation_forward_backward_and_batch_position(dtype):
         torch.cuda.init()
     except RuntimeError:
         pytest.skip("CUDA required")
-    from rl_engine.kernels.ops.triton.norm.adaln_modulation import TritonAdaLNModulationOp
+    from rl_engine.backends.shared.triton.norm.adaln_modulation import TritonAdaLNModulationOp
 
     torch.manual_seed(388)
     x = torch.randn(2, 3, 32, device="cuda", dtype=dtype, requires_grad=True)
@@ -228,7 +228,8 @@ def test_triton_irregular_hidden_and_bf16_tie_rounding():
         torch.cuda.init()
     except RuntimeError:
         pytest.skip("CUDA required")
-    from rl_engine.kernels.ops.triton.norm.adaln_modulation import TritonAdaLNModulationOp
+    from rl_engine.backends.shared.triton.norm.adaln_modulation import TritonAdaLNModulationOp
+
     for hidden, seq, dtype, seed in (
         (7, 3, torch.float32, 386),
         (3072, 64, torch.bfloat16, 391),
@@ -254,8 +255,9 @@ def test_adaln_gpu_padding_and_batch_size_do_not_change_valid_bytes(dtype):
         torch.cuda.init()
     except RuntimeError:
         pytest.skip("CUDA required")
-    from rl_engine.kernels.ops.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
-    from rl_engine.kernels.ops.triton.norm.adaln_modulation import TritonAdaLNModulationOp
+    from rl_engine.backends.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
+    from rl_engine.backends.shared.triton.norm.adaln_modulation import TritonAdaLNModulationOp
+
     torch.manual_seed(392)
     x = torch.randn(1, 3, 32, device="cuda", dtype=dtype)
     modulation = torch.randn(1, 96, device="cuda", dtype=dtype)
@@ -295,7 +297,7 @@ def test_adaln_gpu_padding_and_batch_size_do_not_change_valid_bytes(dtype):
 @pytest.mark.parametrize("hidden", [32, 64, 3072])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_cuda_adaln_bit_equality_harness(hidden, dtype):
-    from rl_engine.kernels.ops.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
+    from rl_engine.backends.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
 
     try:
         torch.cuda.init()
@@ -358,7 +360,7 @@ def test_adaln_real_image_shapes_forward_backward(seq, dtype):
     _assert_bytes_equal(x.grad.cpu(), cpu_x.grad)
     _assert_bytes_equal(modulation.grad.cpu(), cpu_modulation.grad)
 
-    from rl_engine.kernels.ops.triton.norm.adaln_modulation import TritonAdaLNModulationOp
+    from rl_engine.backends.shared.triton.norm.adaln_modulation import TritonAdaLNModulationOp
 
     triton_x = x.detach().clone().requires_grad_()
     triton_modulation = modulation.detach().clone().requires_grad_()
@@ -383,8 +385,8 @@ def test_adaln_byte_comparison_distinguishes_signed_zero():
 def test_adaln_launch_geometry_preserves_bytes(backend, dtype):
     if not torch.cuda.is_available():
         pytest.skip("CUDA required")
-    from rl_engine.kernels.ops.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
-    from rl_engine.kernels.ops.triton.norm.adaln_modulation import TritonAdaLNModulationOp
+    from rl_engine.backends.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
+    from rl_engine.backends.shared.triton.norm.adaln_modulation import TritonAdaLNModulationOp
 
     if backend == "cuda":
         try:
@@ -479,7 +481,7 @@ def test_adaln_shared_matches_independent_autograd(backend, hidden, dtype):
     if backend != "pytorch" and not torch.cuda.is_available():
         pytest.skip("CUDA required")
     if backend == "cuda":
-        from rl_engine.kernels.ops.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
+        from rl_engine.backends.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
 
         try:
             op = CudaAdaLNModulationOp()
@@ -488,7 +490,7 @@ def test_adaln_shared_matches_independent_autograd(backend, hidden, dtype):
                 raise
             pytest.skip("compiled CUDA AdaLN extension required")
     elif backend == "triton":
-        from rl_engine.kernels.ops.triton.norm.adaln_modulation import TritonAdaLNModulationOp
+        from rl_engine.backends.shared.triton.norm.adaln_modulation import TritonAdaLNModulationOp
 
         op = TritonAdaLNModulationOp()
     else:
