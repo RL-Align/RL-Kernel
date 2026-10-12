@@ -70,7 +70,7 @@ How many rows move depends on how the table rows interleave along the sequence:
 
 ## Evidence
 
-![sp_norm_adaln on 8 x B200: byte equality, time, naive SP](../../reports/experiments/h3-sp-norm-adaln-b200/figure.png)
+![sp_norm_adaln on 8 x B200: byte equality, time, naive SP](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/d41d82dc735d496479af7d128994fb1a016d75ef/reports/experiments/h3-sp-norm-adaln-b200/figure.png)
 
 The report is written by `tools/validation/models/h3_ws2_evidence.py` from a clean tree at commit `6c0d380`, with
 real NCCL processes on one 8 x B200 node, one GPU per rank. The region is

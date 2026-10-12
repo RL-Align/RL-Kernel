@@ -104,10 +104,10 @@ other rows. Text rows use AdaLN table row 0 and media rows use row 1.
 
 ## Evidence
 
-[`report.json`](../../reports/experiments/h3-one-block-b200/report.json) was generated from a clean tree
+[`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/d41d82dc735d496479af7d128994fb1a016d75ef/reports/experiments/h3-one-block-b200/report.json) was generated from a clean tree
 at `41e4293` on an otherwise idle B200 (torch 2.13.0+cu130):
 
-![one-block evidence](../../reports/experiments/h3-one-block-b200/figure.png)
+![one-block evidence](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/d41d82dc735d496479af7d128994fb1a016d75ef/reports/experiments/h3-one-block-b200/figure.png)
 
 | Layout | S | First drift / first isolated drift | Repeat / batch drift (fwd, grad) | Output err: RL-Kernel / diffusers | Fwd ms: RL-Kernel / diffusers | Fwd+bwd ms |
 |---|---|---|---|---|---|---|

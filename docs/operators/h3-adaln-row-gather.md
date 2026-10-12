@@ -122,13 +122,13 @@ alternates each iteration and is recorded in the report.
 
 ## Evidence
 
-![adaln_row_gather on B200: latency and whole-chain gradient accuracy](../../reports/experiments/h3-adaln-row-gather-b200/figure.png)
+![adaln_row_gather on B200: latency and whole-chain gradient accuracy](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/d41d82dc735d496479af7d128994fb1a016d75ef/reports/experiments/h3-adaln-row-gather-b200/figure.png)
 
 There are two data files:
 
-- [`report.json`](../../reports/experiments/h3-adaln-row-gather-b200/report.json): op timings, forward
+- [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/d41d82dc735d496479af7d128994fb1a016d75ef/reports/experiments/h3-adaln-row-gather-b200/report.json): op timings, forward
   bitwise checks, op-level backward, and the chain-backward cases plotted above.
-- [`chain_replay.json`](../../reports/experiments/h3-adaln-row-gather-b200/chain_replay.json): the full
+- [`chain_replay.json`](https://github.com/fusheng-ji/RL-Kernel/blob/d41d82dc735d496479af7d128994fb1a016d75ef/reports/experiments/h3-adaln-row-gather-b200/chain_replay.json): the full
   stage-wise forward replay and backward replay over T in {1, 2, 3, 4} × S in {3, 257, 4097, 32768}.
 
 `report.json` was regenerated from a clean tree at commit `80e4609` with backward-only
@@ -137,7 +137,7 @@ at commit `fa551c2`.
 
 ## Existing implementations (RFC #420 reuse rule)
 
-![adaln_row_gather vs existing implementations](../../reports/experiments/h3-prior-art-b200/adaln_row_gather.png)
+![adaln_row_gather vs existing implementations](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/d41d82dc735d496479af7d128994fb1a016d75ef/reports/experiments/h3-prior-art-b200/adaln_row_gather.png)
 
 | Implementation | Batch-invariant | size 4097: fwd err / worst grad err / fwd+bwd | size 32768: fwd err / worst grad err / fwd+bwd |
 |---|---|---|---|
@@ -148,7 +148,7 @@ Errors are max|err| / max|ref| against the same computation in FP64; latency is 
 forward + backward time on an otherwise idle B200. Batch invariance is bitwise and covers
 three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
 131072-row batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
-"no" means that at least one row, sub-batch or gradient differed. [`adaln_row_gather.json`](../../reports/experiments/h3-prior-art-b200/adaln_row_gather.json)
+"no" means that at least one row, sub-batch or gradient differed. [`adaln_row_gather.json`](https://github.com/fusheng-ji/RL-Kernel/blob/d41d82dc735d496479af7d128994fb1a016d75ef/reports/experiments/h3-prior-art-b200/adaln_row_gather.json)
 was written from a clean tree at `6c900ae` by
 
 ```bash

@@ -77,23 +77,23 @@ with their original commit and corrected scope.
 
 ## Evidence
 
-![final_adaln_out on B200: latency and backward accuracy](../../reports/experiments/h3-final-adaln-out-b200/figure.png)
+![final_adaln_out on B200: latency and backward accuracy](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/d41d82dc735d496479af7d128994fb1a016d75ef/reports/experiments/h3-final-adaln-out-b200/figure.png)
 
 There are two data files:
 
-- [`report.json`](../../reports/experiments/h3-final-adaln-out-b200/report.json): op timings, the
+- [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/d41d82dc735d496479af7d128994fb1a016d75ef/reports/experiments/h3-final-adaln-out-b200/report.json): op timings, the
   forward-equality fraction, row invariance and backward accuracy. Regenerated from a clean
   tree at `bde1d8d` on an otherwise idle B200, with FP64 leaves and upstream gradients. The
   backward reference keeps only the SiLU and table roundings, so the errors include the BF16
   rounding of `norm(x)` and `1 + scale`.
-- [`chain_replay.json`](../../reports/experiments/h3-final-adaln-out-b200/chain_replay.json): the
+- [`chain_replay.json`](https://github.com/fusheng-ji/RL-Kernel/blob/d41d82dc735d496479af7d128994fb1a016d75ef/reports/experiments/h3-final-adaln-out-b200/chain_replay.json): the
   whole conditioning chain (timestep → … → norm_out) replayed stage by stage over
   T in {1, 2, 3, 4} × S in {3, 257, 4097, 32768}, with the backward replay. Written from a clean
   tree at `001684d`.
 
 ## Existing implementations (RFC #420 reuse rule)
 
-![final_adaln_out vs existing implementations](../../reports/experiments/h3-prior-art-b200/final_adaln_out.png)
+![final_adaln_out vs existing implementations](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/d41d82dc735d496479af7d128994fb1a016d75ef/reports/experiments/h3-prior-art-b200/final_adaln_out.png)
 
 | Implementation | Batch-invariant | size 4097: fwd err / worst grad err / fwd+bwd | size 32768: fwd err / worst grad err / fwd+bwd |
 |---|---|---|---|
@@ -104,7 +104,7 @@ Errors are max|err| / max|ref| against the same computation in FP64; latency is 
 forward + backward time on an otherwise idle B200. Batch invariance is bitwise and covers
 three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
 131072-token batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
-"no" means that at least one row, sub-batch or gradient differed. [`final_adaln_out.json`](../../reports/experiments/h3-prior-art-b200/final_adaln_out.json)
+"no" means that at least one row, sub-batch or gradient differed. [`final_adaln_out.json`](https://github.com/fusheng-ji/RL-Kernel/blob/d41d82dc735d496479af7d128994fb1a016d75ef/reports/experiments/h3-prior-art-b200/final_adaln_out.json)
 was written from a clean tree at `03da729` by
 
 ```bash

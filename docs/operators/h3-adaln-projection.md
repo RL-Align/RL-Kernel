@@ -124,16 +124,16 @@ dependence on T.
 
 ## Evidence
 
-![adaln_projection_3mod on B200: latency and correctly rounded outputs](../../reports/experiments/h3-adaln-projection-b200/figure.png)
+![adaln_projection_3mod on B200: latency and correctly rounded outputs](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/d41d82dc735d496479af7d128994fb1a016d75ef/reports/experiments/h3-adaln-projection-b200/figure.png)
 
-The data is in [`report.json`](../../reports/experiments/h3-adaln-projection-b200/report.json),
+The data is in [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/d41d82dc735d496479af7d128994fb1a016d75ef/reports/experiments/h3-adaln-projection-b200/report.json),
 written by `tools/validation/models/h3_evidence.py` from a clean tree at commit `d06e120`. The report also
 records that a timestep's 18 modulation rows are bitwise identical whether it runs alone
 or in a batch of 9.
 
 ## Existing implementations (RFC #420 reuse rule)
 
-![adaln_projection vs existing implementations](../../reports/experiments/h3-prior-art-b200/adaln_projection.png)
+![adaln_projection vs existing implementations](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/d41d82dc735d496479af7d128994fb1a016d75ef/reports/experiments/h3-prior-art-b200/adaln_projection.png)
 
 The sizes below are timestep (input row) counts T. `H3AdaLNProjectionCudaOp`
 streams its 520 MB weight once per 8 rows; T = 256 and 2048 require additional
@@ -155,7 +155,7 @@ Errors are max|err| / max|ref| against the same computation in FP64; latency is 
 forward + backward time on an otherwise idle B200. Batch invariance is bitwise and covers
 three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
 4096-timestep batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
-"no" means that at least one row, sub-batch or gradient differed. [`adaln_projection.json`](../../reports/experiments/h3-prior-art-b200/adaln_projection.json)
+"no" means that at least one row, sub-batch or gradient differed. [`adaln_projection.json`](https://github.com/fusheng-ji/RL-Kernel/blob/d41d82dc735d496479af7d128994fb1a016d75ef/reports/experiments/h3-prior-art-b200/adaln_projection.json)
 was written from a clean tree at `c88691c` by
 
 ```bash

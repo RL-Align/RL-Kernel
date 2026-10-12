@@ -109,15 +109,15 @@ kernel time.
 
 ## Evidence
 
-![timestep_mlp_fp32 on B200: latency and per-draw error vs FP64](../../reports/experiments/h3-timestep-mlp-b200/figure.png)
+![timestep_mlp_fp32 on B200: latency and per-draw error vs FP64](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/d41d82dc735d496479af7d128994fb1a016d75ef/reports/experiments/h3-timestep-mlp-b200/figure.png)
 
-The data is in [`report.json`](../../reports/experiments/h3-timestep-mlp-b200/report.json), written
+The data is in [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/d41d82dc735d496479af7d128994fb1a016d75ef/reports/experiments/h3-timestep-mlp-b200/report.json), written
 by `tools/validation/models/h3_evidence.py` from a clean tree at commit `65ef7f6`. It also records that a
 timestep's row is bitwise identical whether it runs alone or in a batch of 9.
 
 ## Existing implementations (RFC #420 reuse rule)
 
-![timestep_mlp vs existing implementations](../../reports/experiments/h3-prior-art-b200/timestep_mlp.png)
+![timestep_mlp vs existing implementations](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/d41d82dc735d496479af7d128994fb1a016d75ef/reports/experiments/h3-prior-art-b200/timestep_mlp.png)
 
 | Implementation | Batch-invariant | size 3: fwd err / worst grad err / fwd+bwd | size 256: fwd err / worst grad err / fwd+bwd | size 2048: fwd err / worst grad err / fwd+bwd |
 |---|---|---|---|---|
@@ -134,7 +134,7 @@ Errors are max|err| / max|ref| against the same computation in FP64; latency is 
 forward + backward time on an otherwise idle B200. Batch invariance is bitwise and covers
 three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
 4096-timestep batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
-"no" means that at least one row, sub-batch or gradient differed. [`timestep_mlp.json`](../../reports/experiments/h3-prior-art-b200/timestep_mlp.json)
+"no" means that at least one row, sub-batch or gradient differed. [`timestep_mlp.json`](https://github.com/fusheng-ji/RL-Kernel/blob/d41d82dc735d496479af7d128994fb1a016d75ef/reports/experiments/h3-prior-art-b200/timestep_mlp.json)
 was written from a clean tree at `ffd958a` by
 
 ```bash
