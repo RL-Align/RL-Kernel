@@ -265,7 +265,9 @@ def load_manifest(path: str | Path | None = None) -> WS1Manifest:
     if not isinstance(raw, dict):
         raise WorkloadError("manifest root must be a JSON object")
     if raw.get("scope") == "qwen3_next_norm_operators":
-        from rl_engine.validation.models.qwen3_next_workload import validate_norm_manifest
+        from rl_engine.validation.models.qwen3_next.qwen3_next_workload import (
+            validate_norm_manifest,
+        )
 
         validate_norm_manifest(raw)
     else:

@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from rl_engine.validation.models.qwen3_next_l2 import (
+from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import (
     PROMPT_LENGTHS,
     RESPONSE_LENGTH,
     VOCAB_SIZE,
@@ -231,7 +231,7 @@ def test_first_divergence_tracks_state_even_when_final_logits_match(small_artifa
     "node", ["input_layernorm", "mixer", "post_attention_layernorm", "router", "mlp"]
 )
 def test_first_divergent_node_names_the_sub_node(small_artifact, node):
-    from rl_engine.validation.models.qwen3_next_l2 import first_divergent_node
+    from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import first_divergent_node
 
     _, artifact = small_artifact
     changed = copy.deepcopy(artifact["layer_digests"])
@@ -243,7 +243,7 @@ def test_first_divergent_node_names_the_sub_node(small_artifact, node):
 
 
 def test_first_divergent_node_starts_at_the_embedding(small_artifact):
-    from rl_engine.validation.models.qwen3_next_l2 import first_divergent_node
+    from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import first_divergent_node
 
     _, artifact = small_artifact
     changed = copy.deepcopy(artifact["layer_digests"])
@@ -257,7 +257,7 @@ def test_first_divergent_node_starts_at_the_embedding(small_artifact):
 
 
 def test_first_divergent_node_falls_back_to_layer_output_and_state(small_artifact):
-    from rl_engine.validation.models.qwen3_next_l2 import first_divergent_node
+    from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import first_divergent_node
 
     _, artifact = small_artifact
     assert first_divergent_node(artifact, artifact) is None
@@ -312,7 +312,9 @@ def test_only_initial_rollout_can_generate_fixture(frozen):
 
 
 def test_native_worker_absence_fails_readiness(monkeypatch):
-    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools/validation/models"))
+    sys.path.insert(
+        0, str(Path(__file__).resolve().parents[3] / "tools/validation/models/qwen3_next")
+    )
     import qwen3_next_l2 as runner
 
     def absent(name):
@@ -324,7 +326,9 @@ def test_native_worker_absence_fails_readiness(monkeypatch):
 
 
 def test_gpu_release_never_cancels_an_unrelated_process(monkeypatch):
-    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools/validation/models"))
+    sys.path.insert(
+        0, str(Path(__file__).resolve().parents[3] / "tools/validation/models/qwen3_next")
+    )
     import qwen3_next_l2 as runner
 
     commands = []
@@ -344,7 +348,9 @@ def test_batch_callback_loads_once_and_freezes_before_recompute_cases(tmp_path, 
     import json
     from types import SimpleNamespace
 
-    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools/validation/models"))
+    sys.path.insert(
+        0, str(Path(__file__).resolve().parents[3] / "tools/validation/models/qwen3_next")
+    )
     import qwen3_next_l2 as runner
 
     calls = []
@@ -424,7 +430,7 @@ def test_batch_callback_loads_once_and_freezes_before_recompute_cases(tmp_path, 
 
 
 def test_passed_flag_cannot_replace_full_matrix():
-    from rl_engine.validation.models.qwen3_next_l2 import validate_matrix_report
+    from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import validate_matrix_report
 
     with pytest.raises(ValueError, match="sixteen-case"):
         validate_matrix_report({"status": "passed", "raw_bit_comparison": True})
@@ -484,7 +490,7 @@ def test_updated_preload_binds_actual_export_to_baseline_source_and_version(tmp_
 
 
 def test_debug_capture_must_contain_matching_layer_state(small_artifact):
-    from rl_engine.validation.models.qwen3_next_l2 import validate_debug_capture
+    from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import validate_debug_capture
 
     request, artifact = small_artifact
     request = {**request, "trace_layers": [2]}
@@ -509,7 +515,7 @@ def test_debug_capture_must_contain_matching_layer_state(small_artifact):
 def test_model_artifact_hash_is_rechecked_before_deserialization(tmp_path):
     from qwen3_next_runtime import file_digest
 
-    from rl_engine.validation.models.qwen3_next_l2 import checked_artifact_path
+    from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import checked_artifact_path
 
     artifact = tmp_path / "output.pt"
     save_tensor_artifact(artifact, {"logits": torch.zeros(2, dtype=torch.bfloat16)})
@@ -562,7 +568,9 @@ def scheduler_request_and_audit(frozen):
 
 
 def test_actual_scheduler_must_follow_requested_chunks_and_offsets(frozen):
-    from rl_engine.validation.models.qwen3_next_l2 import validate_native_scheduler_execution
+    from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import (
+        validate_native_scheduler_execution,
+    )
 
     request, artifact = scheduler_request_and_audit(frozen)
     validate_native_scheduler_execution(artifact, request)
@@ -577,7 +585,9 @@ def test_actual_scheduler_must_follow_requested_chunks_and_offsets(frozen):
 
 
 def test_scheduler_cannot_shrink_cache_or_claim_certified_execution(frozen):
-    from rl_engine.validation.models.qwen3_next_l2 import validate_native_scheduler_execution
+    from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import (
+        validate_native_scheduler_execution,
+    )
 
     request, artifact = scheduler_request_and_audit(frozen)
     artifact["native_runtime_profile"]["kv_cache_memory_bytes_per_gpu"] //= 2
@@ -590,7 +600,7 @@ def test_scheduler_cannot_shrink_cache_or_claim_certified_execution(frozen):
 
 
 def test_layer_hashes_cannot_replace_four_original_worker_traces(frozen):
-    from rl_engine.validation.models.qwen3_next_l2 import validate_native_worker_traces
+    from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import validate_native_worker_traces
 
     request, artifact = scheduler_request_and_audit(frozen)
     with pytest.raises(ValueError, match="each TP rank"):
@@ -602,11 +612,14 @@ def test_matrix_recomputes_tensor_comparisons_even_after_reports_are_rehashed(tm
 
     from qwen3_next_runtime import file_digest
 
-    from rl_engine.validation.models.qwen3_next_binary import (
+    from rl_engine.validation.models.qwen3_next.qwen3_next_binary import (
         archive_provider_binary,
         validate_binary_record,
     )
-    from rl_engine.validation.models.qwen3_next_l2 import json_digest, validate_matrix_report
+    from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import (
+        json_digest,
+        validate_matrix_report,
+    )
 
     source = tmp_path / "source"
     (source / "rl_engine").mkdir(parents=True)
