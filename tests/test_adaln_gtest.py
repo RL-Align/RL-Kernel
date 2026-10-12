@@ -729,7 +729,7 @@ def test_adaln_declared_unavailable_fallbacks_and_exhaustion(monkeypatch):
     assert trace["fallback"] is True
     missing.add(OpBackend.TRITON_ADALN_MODULATION)
     op, trace = kernel_registry.get_adaln_modulation_op("cuda", hidden=7)
-    assert isinstance(op, NativeAdaLNModulationOp)
+    assert isinstance(op.implementation, NativeAdaLNModulationOp)
     assert trace["rejected_backends"] == [
         OpBackend.CUDA_ADALN_MODULATION.name,
         OpBackend.TRITON_ADALN_MODULATION.name,
