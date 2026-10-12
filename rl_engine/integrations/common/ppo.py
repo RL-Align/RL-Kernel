@@ -24,9 +24,13 @@ class PPOConfig:
     epochs: int = 4
     minibatch_size: int = 8
     max_grad_norm: float = 1.0
+    microbatch_size: int | None = None
 
     def __post_init__(self) -> None:
         import math
+
+        if self.microbatch_size is not None and self.microbatch_size < 1:
+            raise ValueError("microbatch_size must be positive")
 
         numeric = (
             self.gamma,
@@ -264,6 +268,21 @@ def ppo_value_loss(values: torch.Tensor, batch: PPOBatch, clip: float) -> torch.
     return 0.5 * torch.maximum((current - targets).square(), (clipped - targets).square()).mean()
 
 
+@dataclass(frozen=True)
+class PPOGradientState:
+    """Explicit model ownership and writable unscaled optimizer gradient buffers.
+
+    The adapter verifies ownership against its real optimizer, including FP32
+    master weights. Buffers follow ``parameters`` order and may be materialized
+    after backward; clipping must modify the very buffers consumed by step.
+    """
+
+    parameters: tuple[torch.nn.Parameter, ...]
+    gradients: Callable[[], list[torch.Tensor | None]]
+    zero_grad: Callable[[], None]
+    accumulate: Callable[[], None] | None = None
+
+
 class PPOTrainingWorker:
     """One role's optimizer; the adapter owns model-internal TP synchronization.
 
@@ -272,7 +291,7 @@ class PPOTrainingWorker:
     eval does not disable autograd. Every TP rank executes identical minibatches.
     parameter_layouts must describe every optimizer parameter explicitly.
     Frameworks may supply paired backward/step callbacks; clipping still acts
-    on ordinary unscaled parameter gradients between those calls.
+    on the explicitly supplied unscaled optimizer buffers between those calls.
     """
 
     def __init__(
@@ -287,13 +306,20 @@ class PPOTrainingWorker:
         config: PPOConfig,
         backward: Callable[[torch.Tensor], None] | None = None,
         step: Callable[[], None] | None = None,
+        gradient_state: PPOGradientState | None = None,
     ) -> None:
         if role not in ("actor", "critic"):
             raise ValueError("role must be actor or critic")
         if (backward is None) != (step is None):
             raise ValueError("framework backward and step callbacks must be provided together")
         named = dict(model.named_parameters())
-        optimized = [p for entry in optimizer.param_groups for p in entry["params"]]
+        optimized = (
+            list(gradient_state.parameters)
+            if gradient_state is not None
+            else [p for entry in optimizer.param_groups for p in entry["params"]]
+        )
+        if len({id(p) for p in optimized}) != len(optimized):
+            raise ValueError("optimizer model parameters must be unique")
         if set(parameter_layouts) != {n for n, p in named.items() if p.requires_grad}:
             raise ValueError("parameter_layouts must cover every trainable parameter")
         if {id(p) for p in optimized} != {id(p) for p in named.values() if p.requires_grad}:
@@ -302,6 +328,7 @@ class PPOTrainingWorker:
             raise ValueError("unknown parameter layout")
         self.role, self.model, self.forward = role, model, forward
         self.optimizer, self.group, self.config = optimizer, group, config
+        self.gradient_state = gradient_state
         self.backward = backward or torch.Tensor.backward
         self.step = step or optimizer.step
         self.parameters = [(named[name], layout) for name, layout in parameter_layouts.items()]
@@ -329,40 +356,78 @@ class PPOTrainingWorker:
                         device=batch.rollout.input_ids.device,
                     )
                     part = batch.select(indices)
-                    self.optimizer.zero_grad(set_to_none=True)
-                    output = self.forward(part.rollout.inputs)
-                    expected = (
-                        part.rollout.action_mask.shape
-                        if self.role == "actor"
-                        else part.rollout.input_ids.shape
-                    )
+                    if self.gradient_state is None:
+                        self.optimizer.zero_grad(set_to_none=True)
+                    else:
+                        self.gradient_state.zero_grad()
+                    micro_size = self.config.microbatch_size or indices.numel()
+                    token_count = part.rollout.action_mask.sum()
+                    loss_value = 0.0
+                    for offset in range(0, indices.numel(), micro_size):
+                        micro = part.select(
+                            torch.arange(
+                                offset,
+                                min(offset + micro_size, indices.numel()),
+                                device=indices.device,
+                            )
+                        )
+                        output = self.forward(micro.rollout.inputs)
+                        expected = (
+                            micro.rollout.action_mask.shape
+                            if self.role == "actor"
+                            else micro.rollout.input_ids.shape
+                        )
+                        error = None
+                        if (
+                            not isinstance(output, torch.Tensor)
+                            or output.shape != expected
+                            or not output.requires_grad
+                        ):
+                            error = (
+                                f"{self.role} adapter must return differentiable scores {expected}"
+                            )
+                        synchronize_validation(error, group=self.group, device=indices.device)
+                        loss = (
+                            ppo_policy_loss(output, micro, self.config.policy_clip)
+                            if self.role == "actor"
+                            else ppo_value_loss(output[:, :-1], micro, self.config.value_clip)
+                        )
+                        synchronize_validation(
+                            None if torch.isfinite(loss) else "non-finite PPO loss",
+                            group=self.group,
+                            device=indices.device,
+                        )
+                        weight = micro.rollout.action_mask.sum() / token_count
+                        loss_value += float(loss.detach() * weight)
+                        self.backward(loss * weight)
+                        if (
+                            self.gradient_state is not None
+                            and self.gradient_state.accumulate is not None
+                        ):
+                            self.gradient_state.accumulate()
+                    gradients = None
                     error = None
-                    if (
-                        not isinstance(output, torch.Tensor)
-                        or output.shape != expected
-                        or not output.requires_grad
-                    ):
-                        error = f"{self.role} adapter must return differentiable scores {expected}"
+                    try:
+                        if self.gradient_state is not None:
+                            buffers = self.gradient_state.gradients()
+                            if len(buffers) != len(self.gradient_state.parameters):
+                                raise ValueError("optimizer gradient buffer count changed")
+                            by_id = dict(
+                                zip((id(p) for p in self.gradient_state.parameters), buffers)
+                            )
+                            gradients = [by_id[id(p)] for p, _ in self.parameters]
+                    except (ValueError, RuntimeError, KeyError) as exc:
+                        error = str(exc)
                     synchronize_validation(error, group=self.group, device=indices.device)
-                    loss = (
-                        ppo_policy_loss(output, part, self.config.policy_clip)
-                        if self.role == "actor"
-                        else ppo_value_loss(output[:, :-1], part, self.config.value_clip)
-                    )
-                    synchronize_validation(
-                        None if torch.isfinite(loss) else "non-finite PPO loss",
-                        group=self.group,
-                        device=indices.device,
-                    )
-                    self.backward(loss)
                     norm = clip_tp_grad_norm_(
                         self.parameters,
+                        gradients=gradients,
                         group=self.group,
                         max_norm=self.config.max_grad_norm,
                         device=indices.device,
                     )
                     self.step()
-                    losses.append(float(loss.detach()))
+                    losses.append(loss_value)
                     norms.append(float(norm))
         finally:
             for module, training in modes:

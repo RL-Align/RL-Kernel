@@ -32,7 +32,12 @@ def install_weights(worker, filename: str, version: int):
         # vLLM pads the vocabulary internally; only real vocabulary rows matter.
         if name in ("transformer.wte.weight", "lm_head.weight"):
             actual = actual[: expected.shape[0]]
-        torch.testing.assert_close(actual, expected, atol=0, rtol=0)
+        torch.testing.assert_close(
+            actual,
+            expected,
+            atol=0,
+            rtol=0,
+        )
     torch.cuda.synchronize()
     worker.ppo_actor_version = version
     return {"version": version, "verified_tensors": len(weights)}
@@ -40,6 +45,12 @@ def install_weights(worker, filename: str, version: int):
 
 class PPOWeightLoader:
     def install_ppo_weights(self, filename: str, version: int):
+        if self.model_runner.model.config.model_type == "qwen3":
+            from rl_engine.integrations.engines.rollout.vllm.ppo_qwen3 import (
+                install_weights as qwen_install,
+            )
+
+            return qwen_install(self, filename, version)
         return install_weights(self, filename, version)
 
 
@@ -52,7 +63,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--response-fd", type=int, required=True)
+    parser.add_argument("--checkpoint", type=Path)
+    parser.add_argument("--cache-logprob-atol", type=float)
+    parser.add_argument("--tp", type=int, choices=[1, 2], default=1)
     args = parser.parse_args()
+    if args.checkpoint and (args.cache_logprob_atol is None or args.cache_logprob_atol < 0):
+        parser.error("Qwen3 cache replay needs a frozen calibration tolerance")
     responses = os.fdopen(args.response_fd, "w", buffering=1)
     args.directory.mkdir(parents=True, exist_ok=True)
     config = GPT2Config(
@@ -72,20 +88,23 @@ def main():
         eos_token_id=31,
     )
     config.architectures = ["GPT2LMHeadModel"]
-    config.save_pretrained(args.directory)
+    if not args.checkpoint:
+        config.save_pretrained(args.directory)
+    elif args.tp not in (1, 2):
+        raise ValueError("Qwen3 acceptance supports vLLM TP=1/2")
     started = time.perf_counter()
     llm = LLM(
-        model=str(args.directory),
+        model=str(args.checkpoint or args.directory),
         skip_tokenizer_init=True,
-        load_format="dummy",
-        dtype="float32",
-        tensor_parallel_size=1,
-        max_model_len=64,
+        load_format="safetensors" if args.checkpoint else "dummy",
+        dtype="bfloat16" if args.checkpoint else "float32",
+        tensor_parallel_size=args.tp,
+        max_model_len=256 if args.checkpoint else 64,
         enforce_eager=True,
         enable_prefix_caching=True,
         max_num_seqs=8,
         max_num_batched_tokens=128,
-        gpu_memory_utilization=0.1,
+        gpu_memory_utilization=0.7 if args.checkpoint else 0.1,
         kv_cache_memory_bytes=64 * 1024**2,
         attention_backend="TRITON_ATTN",
         worker_extension_cls="tests.distributed.tp.vllm_ppo_sidecar.PPOWeightLoader",
@@ -117,7 +136,15 @@ def main():
                 acknowledgments = llm.collective_rpc(
                     "install_ppo_weights", args=(request["filename"], request["version"])
                 )
-                assert all(ack["version"] == request["version"] for ack in acknowledgments)
+                if args.checkpoint:
+                    from rl_engine.integrations.engines.rollout.vllm.ppo_qwen3 import (
+                        verify_acknowledgments,
+                    )
+
+                    verify_acknowledgments(acknowledgments, version=request["version"], tp=args.tp)
+                else:
+                    assert len(acknowledgments) == args.tp
+                    assert all(ack["version"] == request["version"] for ack in acknowledgments)
                 reset = llm.reset_prefix_cache()
                 if reset is False:
                     raise RuntimeError("vLLM refused prefix-cache reset")
@@ -136,7 +163,7 @@ def main():
                     top_p=1.0,
                     top_k=-1,
                     max_tokens=4,
-                    stop_token_ids=[31],
+                    stop_token_ids=[151645] if args.checkpoint else [31],
                     logprobs=0,
                     detokenize=False,
                     seed=123 + active,
@@ -166,7 +193,10 @@ def main():
                         )
                     ]
                     torch.testing.assert_close(
-                        torch.tensor(cold_lp), torch.tensor(cached_lp), atol=2e-6, rtol=2e-6
+                        torch.tensor(cold_lp),
+                        torch.tensor(cached_lp),
+                        atol=args.cache_logprob_atol if args.checkpoint else 2e-6,
+                        rtol=0 if args.checkpoint else 2e-6,
                     )
                 probe_seconds = time.perf_counter() - probe_started
                 sequences = []

@@ -59,10 +59,35 @@ def gpt2_weights(weights):
 
 
 class VllmPPOClient:
-    def __init__(self, python: str, directory: Path, device):
+    def __init__(
+        self,
+        python: str,
+        directory: Path,
+        device,
+        *,
+        checkpoint=None,
+        tp=1,
+        cache_logprob_atol=None,
+    ):
         self.directory = directory.resolve()
         self.directory.mkdir(parents=True, exist_ok=True)
         self.device = device
+        self.checkpoint, self.tp = checkpoint, tp
+        if checkpoint:
+            from transformers import AutoTokenizer
+
+            tokenizer = AutoTokenizer.from_pretrained(str(checkpoint), local_files_only=True)
+            self.prompts = [
+                tokenizer.encode(text)
+                for text in (
+                    "Explain in a few sentences why water freezes at low temperatures and "
+                    "melts when heated.",
+                    "Describe the steps needed to add two fractions with different "
+                    "denominators, using an example.",
+                )
+            ]
+        else:
+            self.prompts = [[1, 2, 3, 4] * 5, [2, 3, 4, 5] * 4 + [2, 3]]
         self.installed, self.sampled, self.timings = [], [], []
         self.version = -1
         env = dict(os.environ)
@@ -77,7 +102,9 @@ class VllmPPOClient:
                 env.pop(key)
         visible = os.environ.get("CUDA_VISIBLE_DEVICES")
         env["CUDA_VISIBLE_DEVICES"] = (
-            visible.split(",")[device.index] if visible else str(device.index)
+            ",".join(visible.split(",")[device.index : device.index + tp])
+            if visible
+            else ",".join(str(device.index + i) for i in range(tp))
         )
         env["PYTHONPATH"] = str(Path(__file__).resolve().parents[3])
         env["VLLM_PLUGINS"] = ""
@@ -97,7 +124,19 @@ class VllmPPOClient:
                 str(self.directory / "model"),
                 "--response-fd",
                 str(write_fd),
-            ],
+            ]
+            + (
+                [
+                    "--checkpoint",
+                    str(checkpoint),
+                    "--tp",
+                    str(tp),
+                    "--cache-logprob-atol",
+                    str(cache_logprob_atol),
+                ]
+                if checkpoint
+                else []
+            ),
             stdin=subprocess.PIPE,
             stdout=self.log,
             stderr=subprocess.STDOUT,
@@ -134,7 +173,19 @@ class VllmPPOClient:
         if version != self.version + 1:
             raise ValueError("vLLM install versions must be consecutive")
         filename = self.directory / f"weights_v{version}.pt"
-        torch.save(gpt2_weights(weights), filename)
+        if self.checkpoint:
+            from rl_engine.integrations.engines.train.megatron.qwen3_checkpoint import (
+                megatron_to_hf,
+            )
+
+            config = json.loads((Path(self.checkpoint) / "config.json").read_text())
+            converted = megatron_to_hf([weights], config)
+        else:
+            converted = gpt2_weights(weights)
+        torch.save(
+            {"actor_version": version, "weights": converted} if self.checkpoint else converted,
+            filename,
+        )
         response = self._request({"op": "install", "filename": str(filename), "version": version})
         assert response["installed"] == version
         self.version = version
@@ -144,7 +195,7 @@ class VllmPPOClient:
 
     def sample(self, actor_version, critic_version):
         assert self.version == actor_version
-        prompts = [[1, 2, 3, 4] * 5, [2, 3, 4, 5] * 4 + [2, 3]]
+        prompts = self.prompts
         response = self._request({"op": "sample", "version": actor_version, "prompts": prompts})
         assert response["version"] == actor_version
         self.sampled.append(actor_version)

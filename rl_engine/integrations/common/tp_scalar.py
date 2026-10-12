@@ -161,6 +161,7 @@ def clip_tp_grad_norm_(
     group: dist.ProcessGroup,
     max_norm: float,
     device: torch.device,
+    gradients: list[torch.Tensor | None] | None = None,
 ) -> torch.Tensor:
     """Clip TP gradients; layouts are 'sharded' or already-synchronized 'replicated'.
 
@@ -170,26 +171,32 @@ def clip_tp_grad_norm_(
     if group is None or dist.get_rank(group) < 0:
         raise ValueError("an explicit TP group containing this rank is required")
     error = None
+    grads = [p.grad for p, _ in parameters] if gradients is None else gradients
+    if len(grads) != len(parameters):
+        error = "gradient buffers must cover every parameter"
+    elif any(g is not None and g.shape != p.shape for g, (p, _) in zip(grads, parameters)):
+        error = "gradient buffer shapes must match parameters"
     if max_norm <= 0:
         error = "max_norm must be positive"
     if any(layout not in ("sharded", "replicated") for _, layout in parameters):
         error = "parameter layout must be sharded or replicated"
     if any(
-        p.grad is not None and (p.grad.is_sparse or p.grad.device != device) for p, _ in parameters
+        g is not None and (g.is_sparse or g.device != device or not g.is_floating_point())
+        for g in grads
     ):
         error = "gradients must be dense and on the configured device"
     synchronize_validation(error, group=group, device=device)
     squared = torch.zeros((), dtype=torch.float64, device=device)
-    for parameter, layout in parameters:
-        if parameter.grad is not None and (layout == "sharded" or dist.get_rank(group) == 0):
-            squared += parameter.grad.detach().to(torch.float64).square().sum()
+    for grad, (_, layout) in zip(grads, parameters):
+        if grad is not None and (layout == "sharded" or dist.get_rank(group) == 0):
+            squared += grad.detach().to(torch.float64).square().sum()
     dist.all_reduce(squared, group=group)
     norm = squared.sqrt()
     if not torch.isfinite(norm):
         raise ValueError("non-finite TP gradient norm")
     scale = (max_norm / (norm + 1e-6)).clamp(max=1)
     with torch.no_grad():
-        for parameter, _ in parameters:
-            if parameter.grad is not None:
-                parameter.grad.mul_(scale.to(parameter.grad.dtype))
+        for grad in grads:
+            if grad is not None:
+                grad.mul_(scale.to(grad.dtype))
     return norm

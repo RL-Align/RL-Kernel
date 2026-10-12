@@ -92,7 +92,7 @@ class MegatronScalarAdapter(torch.nn.Module):
 class MegatronPolicyAdapter(torch.nn.Module):
     """Selected-token logprobs from GPTModel's vocabulary-parallel output."""
 
-    def __init__(self, model: torch.nn.Module) -> None:
+    def __init__(self, model: torch.nn.Module, *, real_vocab_size: int | None = None) -> None:
         from megatron.core import parallel_state
 
         super().__init__()
@@ -103,6 +103,7 @@ class MegatronPolicyAdapter(torch.nn.Module):
         if model.pg_collection.tp is not parallel_state.get_tensor_model_parallel_group():
             raise ValueError("policy CE and model must use the same Megatron TP group")
         self.model = model
+        self.real_vocab_size = real_vocab_size
 
     def forward(self, inputs: TPModelInputs) -> torch.Tensor:
         from megatron.core.tensor_parallel.cross_entropy import vocab_parallel_cross_entropy
@@ -112,6 +113,10 @@ class MegatronPolicyAdapter(torch.nn.Module):
             position_ids=inputs.position_ids,
             attention_mask=megatron_attention_mask(inputs.attention_mask),
         )
+        if self.real_vocab_size is not None:
+            start = dist.get_rank(self.model.pg_collection.tp) * logits.shape[-1]
+            padding = torch.arange(logits.shape[-1], device=logits.device) + start
+            logits = logits.masked_fill(padding >= self.real_vocab_size, float("-inf"))
         # Megatron CE owns the vocabulary collectives and their backward semantics.
         return -vocab_parallel_cross_entropy(
             logits[:, :-1].float().contiguous(), inputs.input_ids[:, 1:].contiguous()
