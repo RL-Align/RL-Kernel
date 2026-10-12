@@ -7,8 +7,8 @@ import os
 import pytest
 import torch
 
-from rl_engine.kernels.ops.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
-from rl_engine.kernels.registry import OpBackend, kernel_registry
+from rl_engine.backends.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
+from rl_engine.runtime.registry import OpBackend, kernel_registry
 
 
 @pytest.fixture
@@ -77,9 +77,7 @@ def test_cuda_shared_maximum_batch_forward_backward(cuda_op, dtype):
     dg = torch.tensor([2.0, -3.0], device="cuda", dtype=dtype).expand_as(gate)
     dx, dm = torch.autograd.grad((y, gate), (x, m), (dy, dg))
     # variance+eps=16, norm=[-3/4,3/4]; the VJP is [7/128,-7/128].
-    assert torch.equal(
-        y, torch.tensor([-0.75, 0.75], device="cuda", dtype=dtype).expand_as(y)
-    )
+    assert torch.equal(y, torch.tensor([-0.75, 0.75], device="cuda", dtype=dtype).expand_as(y))
     assert torch.equal(gate[:, 0], torch.stack((tag, -tag), dim=1))
     expected_dx = torch.tensor([7 / 128, -7 / 128], device="cuda", dtype=dtype)
     assert torch.equal(dx, expected_dx.expand_as(dx))

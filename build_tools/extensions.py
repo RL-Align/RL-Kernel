@@ -237,7 +237,7 @@ def get_extensions():
             # CUDA IPC and the fixed-tree collective implementation are not
             # part of the ROCm extension.
             if adaln_cuda_enabled:
-                cuda_sources.append("csrc/cuda/adaln_modulation.cu")
+                cuda_sources.append("csrc/cuda/norm/adaln_modulation.cu")
             cuda_sources.append("csrc/cuda/collectives/deterministic_collective.cu")
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.

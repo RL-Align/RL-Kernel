@@ -5,7 +5,7 @@
 import pytest
 import torch
 
-from benchmarks.benchmark_adaln_modulation import layer_norm_baseline, parse_args
+from benchmarks.operators.norm.benchmark_adaln_modulation import layer_norm_baseline, parse_args
 
 
 def test_benchmark_cli_records_seed_json_and_rejects_empty_measurements():

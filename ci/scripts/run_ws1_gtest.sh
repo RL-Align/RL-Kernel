@@ -23,9 +23,9 @@ echo "[ws1-gtest] interpreter=$PY out=$OUT"
   tests/validation/operators/test_four_judgment_matrix.py \
   tests/validation/operators/test_ws1_candidate_evidence.py \
   tests/validation/operators/test_op_checks.py \
-  tests/test_adaln_gtest.py \
-  tests/test_adaln_shared_bounds.py \
-  tests/test_adaln_modulation.py \
+  tests/validation/operators/test_adaln_gtest.py \
+  tests/backends/test_adaln_shared_bounds.py \
+  tests/ops/norm/test_adaln_modulation.py \
   tests/validation/operators/test_elementwise_inventory.py
 
 echo "[ws1-gtest] AdaLN shared outputs and gradients against independent CPU gold"

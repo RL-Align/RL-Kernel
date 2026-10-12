@@ -8,19 +8,19 @@ import torch
 from argparse import Namespace
 from dataclasses import replace
 
-from rl_engine.kernels.gtest import CandidateSpec, run_operator_suite
-from rl_engine.kernels.gtest.operator_specs import make_candidate, make_operator_case
-from rl_engine.kernels.gtest.operator_specs import GtestAdaLNReference
-from rl_engine.kernels.gtest.tolerance import (
+from rl_engine.validation.operators import CandidateSpec, run_operator_suite
+from rl_engine.validation.operators.operator_specs import make_candidate, make_operator_case
+from rl_engine.validation.operators.operator_specs import GtestAdaLNReference
+from rl_engine.contracts.numerical import (
     BackendProvenance,
     ContractResolveError,
     load_contract,
     resolve_tolerance,
     validate_backend_provenance,
 )
-from rl_engine.kernels.ops.pytorch.norm.adaln_modulation import NativeAdaLNModulationOp
-from rl_engine.kernels.registry import OpBackend
-from rl_engine.kernels.registry import KernelRegistry
+from rl_engine.reference.norm.adaln_modulation import NativeAdaLNModulationOp
+from rl_engine.runtime.registry import OpBackend
+from rl_engine.runtime.registry import KernelRegistry
 
 
 def test_strict_cpu_call_records_execution_without_claiming_hardware_qualification():

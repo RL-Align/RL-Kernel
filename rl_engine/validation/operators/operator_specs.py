@@ -44,10 +44,12 @@ OP_SPECS = {
         gold_method="forward_fp32",
         candidate_paths={
             "pytorch": (
-                "rl_engine.kernels.ops.pytorch.norm.adaln_modulation.NativeAdaLNModulationOp"
+                "rl_engine.reference.norm.adaln_modulation.NativeAdaLNModulationOp"
             ),
-            "triton": "rl_engine.kernels.ops.triton.norm.adaln_modulation.TritonAdaLNModulationOp",
-            "cuda": "rl_engine.kernels.ops.cuda.norm.adaln_modulation.CudaAdaLNModulationOp",
+            "triton": (
+                "rl_engine.backends.shared.triton.norm.adaln_modulation.TritonAdaLNModulationOp"
+            ),
+            "cuda": "rl_engine.backends.cuda.norm.adaln_modulation.CudaAdaLNModulationOp",
         },
         grad_input_names=("x", "modulation"),
         gold_input_dtype=torch.float32,
@@ -409,7 +411,7 @@ def make_candidate(args: argparse.Namespace, *, observe_backend: bool = False) -
     if candidate_name in spec.candidate_paths:
         candidate_op = _load_object(spec.candidate_paths[candidate_name])()
         if args.op == "adaln_modulation" and observe_backend:
-            from rl_engine.kernels.adaln_contract import SHARED_PROFILE, AdaLNDispatch
+            from rl_engine.runtime.adaln import SHARED_PROFILE, AdaLNDispatch
 
             candidate_op = AdaLNDispatch(
                 candidate_op,

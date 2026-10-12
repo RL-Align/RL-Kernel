@@ -219,7 +219,7 @@ def _observe_adaln_candidate(
     gold_outputs: list[torch.Tensor],
     contract: Mapping[str, Any],
 ) -> CandidateSpec:
-    from rl_engine.kernels.adaln_contract import AdaLNDispatch
+    from rl_engine.runtime.adaln import AdaLNDispatch
 
     if not isinstance(candidate.fn, AdaLNDispatch):
         return candidate

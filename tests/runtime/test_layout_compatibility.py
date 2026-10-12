@@ -24,6 +24,22 @@ ROOT = Path(__file__).resolve().parents[2]
     ("legacy", "canonical", "shared_object"),
     [
         ("rl_engine.kernels.registry", "rl_engine.runtime.registry", "kernel_registry"),
+        ("rl_engine.kernels.adaln_contract", "rl_engine.runtime.adaln", "AdaLNDispatch"),
+        (
+            "rl_engine.kernels.ops.pytorch.norm.adaln_modulation",
+            "rl_engine.reference.norm.adaln_modulation",
+            "NativeAdaLNModulationOp",
+        ),
+        (
+            "rl_engine.kernels.ops.cuda.norm.adaln_modulation",
+            "rl_engine.backends.cuda.norm.adaln_modulation",
+            "CudaAdaLNModulationOp",
+        ),
+        (
+            "rl_engine.kernels.ops.triton.norm.adaln_modulation",
+            "rl_engine.backends.shared.triton.norm.adaln_modulation",
+            "TritonAdaLNModulationOp",
+        ),
         ("rl_engine.runtime_mode", "rl_engine.runtime.policy", "strict_contract_enabled"),
         ("rl_engine.integrations.state", "rl_engine.integrations.common.state", "_ACTIVE"),
         ("rl_engine.kernels.ops.vjp_fp32", "rl_engine.ops.autograd.vjp_fp32", "reduce_rows_fp32"),
@@ -61,6 +77,14 @@ def test_ffn_compatibility_imports_share_platform_modules(legacy, canonical, sha
     new = importlib.import_module(canonical)
     assert old is new
     assert getattr(old, shared_object) is getattr(new, shared_object)
+
+
+def test_adaln_stable_operator_id_survives_directory_migration():
+    from rl_engine.reference.norm.adaln_modulation import NativeAdaLNModulationOp
+
+    assert stable_operator_path(NativeAdaLNModulationOp()) == (
+        "rl_engine.kernels.ops.pytorch.norm.adaln_modulation.NativeAdaLNModulationOp"
+    )
 
 
 def test_stable_operator_id_does_not_hide_an_unknown_implementation():
@@ -123,6 +147,10 @@ def test_packaged_contract_bytes_match_main(package, resource, digest):
     [
         "rl_engine/repro.py",
         "scripts/ws1_reference.py",
+        "scripts/check_operator.py",
+        "tools/validation/operators/check_operator.py",
+        "benchmarks/benchmark_adaln_modulation.py",
+        "benchmarks/operators/norm/benchmark_adaln_modulation.py",
         "rl_engine/testing/logprob_comparison.py",
         "examples/vime_rocm_attention_ablation/run.py",
     ],
