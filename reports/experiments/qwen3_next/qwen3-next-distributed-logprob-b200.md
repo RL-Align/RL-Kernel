@@ -45,3 +45,30 @@ python tools/validation/models/qwen3_next/qwen3_next_publish_parity_evidence.py 
 cd artifacts
 zip -r qwen3-next-distributed-logprob-b200.zip qwen3-next-distributed-logprob-b200
 ```
+
+## Post-review rerun (2026-10-12)
+
+The relocated runners were executed from clean commit `b10b6616a24314a0656c36ac31131a8f9c0ee5ba`
+on four B200 GPUs with torch 2.13.0+cu130, vLLM 0.30.0, Triton 3.7.1,
+FlashInfer 0.6.18.post1 and NCCL 2.29.7, using the checkpoint revision above.
+The commands above reproduce this run with the relocated paths.
+
+[Download new raw results, logs and provenance (ZIP)](https://github.com/fusheng-ji/RL-Kernel/releases/download/qwen3-next-pr549-evidence/qwen3-next-pr549-gpu-b10b6616.zip).
+ZIP SHA-256: `5fb49bc151fc0224dc92128c0279fb58998435cfa033b62565d9a62957be0e57`.
+All 153 internal checksums were verified. Source paths are redacted; measured
+values, source commits and the imported extension's SHA-256 are retained.
+
+- All 233 mandatory operator cases passed with no skips; all four norm
+  forward/gradient gates passed. The TP reduction guard also passed.
+- Vocabulary-parallel logprob tests: 31 passed; four ROCm-only cases skipped.
+  Two multiprocessing semaphore-cleanup warnings were recorded in the log.
+- Across all 13 NCCL settings, all 17 deterministic points had one digest per
+  rank. TP4 selected-token logprob and LSE equaled TP1, and full-vocabulary
+  logits equaled gathered shards. The raw-NCCL negative control produced five
+  distinct digests per rank. Entropy remains non-invariant across TP degrees.
+
+The archive also contains the separate benchmark PR's rerun at `67a45169`.
+This is operator and TP parity evidence; the full-model L2 and 97-cell batch
+invariance runs were not repeated. Later commit `3927fad7` changes artifact
+hashing for Python 3.10 compatibility and has CPU/CI coverage, not a separate
+GPU measurement.
