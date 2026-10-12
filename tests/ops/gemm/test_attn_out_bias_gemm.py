@@ -638,6 +638,26 @@ class TestEdgeShapes:
 
     @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
     @pytest.mark.parametrize("backend", ["triton", "cuda"])
+    def test_zero_rows_backward(self, dtype, backend):
+        # Empty batch: dx is empty and the parameter folds over zero terms
+        # are exact zeros -- defined behaviour, identical on every backend.
+        if backend == "triton":
+            op = TritonAttnOutBiasGemmOp()
+        else:
+            from rl_engine.backends.cuda.gemm.attn_out_bias_gemm import CudaAttnOutBiasGemmOp
+
+            op = CudaAttnOutBiasGemmOp()
+        x = torch.zeros(0, _DIM, dtype=dtype, device="cuda").requires_grad_(True)
+        w = torch.randn(_DIM, _DIM, dtype=dtype, device="cuda").requires_grad_(True)
+        b = torch.randn(_DIM, dtype=dtype, device="cuda").requires_grad_(True)
+        out = op(x, w, bias=b)
+        out.backward(torch.zeros_like(out))
+        assert x.grad is not None and x.grad.numel() == 0
+        assert torch.count_nonzero(w.grad).item() == 0
+        assert torch.count_nonzero(b.grad).item() == 0
+
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+    @pytest.mark.parametrize("backend", ["triton", "cuda"])
     def test_odd_dim_bitwise_vs_reference(self, dtype, backend):
         # R=33 exercises a short tail leaf (one 32-wide + one 1-wide) on the
         # device kernels; must stay bitwise vs the same-tree reference.
