@@ -167,7 +167,6 @@ The implementation follows the upstream layout: reference in `rl_engine/referenc
 CUDA in `rl_engine/backends/cuda/norm/`, Triton in `rl_engine/backends/shared/triton/norm/`,
 and dispatch policy in `rl_engine/runtime/adaln.py`. The shared Triton directory does
 not claim ROCm qualification; strict GPU execution requires NVIDIA CUDA.
-Legacy imports alias the canonical modules and retain class and dispatch state identity.
 Native bindings live in `csrc/bindings/ops.cpp`; `build_tools/extensions.py` selects
 `csrc/cuda/norm/adaln_modulation.cu` only for CUDA builds without fast math.
 This directory migration preserves the arithmetic profile and precision thresholds.
