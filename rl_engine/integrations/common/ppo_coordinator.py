@@ -155,7 +155,10 @@ class PPOCoordinator:
             if not torch.equal(row[38:].bool(), rows[:, 0] == row[0]):
                 raise ValueError("role groups must partition the control group")
         config = torch.tensor(
-            [getattr(self.config, f.name) for f in fields(self.config)],
+            [
+                -1 if value is None else value
+                for value in (getattr(self.config, f.name) for f in fields(self.config))
+            ],
             dtype=torch.float64,
             device=self.transport_device,
         )
