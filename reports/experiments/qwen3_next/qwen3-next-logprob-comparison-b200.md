@@ -56,3 +56,28 @@ The comparison runner requires the measured engine versions above. Plotting
 requires matplotlib and NumPy. The package contains comparison candidates,
 the measurement/merge runner and the figure renderer; TP correctness gates
 and their CI tests remain in the validation PR (#549).
+
+## Post-review rerun (2026-10-12)
+
+The relocated benchmark ran from clean commit
+`67a45169a64e85bea0333dba7c446d5f74564222`, at TP1 and TP4 under all 13 NCCL
+settings, with the same pinned environment, checkpoint and 1024-token shape
+listed above. The extension was freshly built from validation commit
+`b10b6616`; the benchmark snapshot's native source files were checked to be
+identical before reusing that binary.
+
+[Download new raw reports and execution logs (ZIP)](https://github.com/fusheng-ji/RL-Kernel/releases/download/qwen3-next-pr549-evidence/qwen3-next-pr549-gpu-b10b6616.zip).
+ZIP SHA-256: `5fb49bc151fc0224dc92128c0279fb58998435cfa033b62565d9a62957be0e57`.
+The current benchmark and merge commands above reproduce this run. Extract
+its `parity/` and `prior-art/` directories together to render the new figure.
+
+| Candidate | TP4 median latency | TP4 == TP1 | NCCL-setting invariant |
+| --- | --- | --- | --- |
+| RL-Kernel WS2 | 2.571 ms | yes | yes |
+| vLLM gather | 1.511 ms | yes | yes |
+| Megatron CE | 0.570 ms | no | no |
+| VIME default | 0.565 ms | no | no |
+
+All four candidates remained batch invariant and within 8.14e-7 of FP64;
+the maximum pairwise logprob difference was 9.54e-7. These fresh measurements
+confirm the historical comparison without changing its numerical conclusions.
