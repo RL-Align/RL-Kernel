@@ -26,15 +26,18 @@ import time
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from rl_engine.validation.common.file_digest import file_sha256
-
 # --------------------------------------------------------------------------- #
 # Environment identity
 # --------------------------------------------------------------------------- #
 
 
 def file_digest(path):
-    return file_sha256(Path(path))
+    # Keep this launcher/storage utility stdlib-only, including before torch is installed.
+    value = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+            value.update(block)
+    return value.hexdigest()
 
 
 def identity_digest(value):
@@ -309,7 +312,7 @@ def atomic_json(path, payload):
 
 
 def digest(path):
-    return file_sha256(path)
+    return file_digest(path)
 
 
 _MEMORY_SUFFIXES = {"K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4}
