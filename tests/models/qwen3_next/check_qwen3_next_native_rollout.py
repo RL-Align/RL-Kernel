@@ -9,7 +9,7 @@ import pytest
 import torch
 
 from rl_engine.integrations.engines.rollout.vllm import qwen3_next_native_rollout as rollout
-from rl_engine.validation.models.qwen3_next_l2 import L2Case, json_digest
+from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import L2Case, json_digest
 
 
 def request(batch=4, length=8, chunked=False, frozen=False):

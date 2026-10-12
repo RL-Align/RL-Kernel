@@ -127,7 +127,7 @@ def test_updated_export_cannot_be_labeled_as_baseline(updated_identity):
 
 
 def test_historical_export_identity_checks_do_not_open_deleted_shards(updated_identity):
-    from rl_engine.validation.models.qwen3_next_l2 import validate_weight_identity
+    from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import validate_weight_identity
 
     identity, _ = updated_identity
     validate_weight_identity(identity)
