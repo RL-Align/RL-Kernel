@@ -103,3 +103,65 @@ uses those defaults. These settings change scheduling, not the reduction order.
 
 Native acceptance requires a fresh extension build, source/binary identity records,
 and complete test and sanitizer logs.
+
+## Strict dispatch and execution observations
+
+```python
+op, trace = kernel_registry.get_adaln_modulation_op(
+    x.device, hidden=x.shape[-1], strict=True,
+    arithmetic_profile="adaln-shared-fp32-tree-v1",
+)
+y, gate = op(x, modulation)
+```
+
+Strict dispatch pins the shared FP32 hidden tree, ascending token fold and final
+cast. NVIDIA CUDA may fall back to Triton when the extension is unavailable or
+H exceeds 4096: both implement this same arithmetic profile, accept FP32/BF16,
+and retain the existing launch-configuration replay tests. Strict rejects unknown
+profiles/backends, the indexed/select01 framework backward and PyTorch execution
+on GPU, whose cross-backend replay is not qualified here. It checks the actual
+input device and hidden size again at execution. CPU Native is permitted for the
+fixed reference. This policy does not itself certify any hardware/runtime profile.
+Ordinary dispatch retains the prior CUDA/Triton/PyTorch and indexed fallbacks.
+
+The resolver still returns a callable and a trace; the callable is now a
+resolution-local `AdaLNDispatch`, exposing its backend as `implementation`.
+`selected_backend` is a resolution decision; `actual_backend`, execution dtype,
+device and output dtype are filled only after a successful forward call. A failed
+call clears the previous observation. `fallback_reason` and `arithmetic_profile`
+identify routing and arithmetic separately. The trace describes the last call;
+copy it when retaining an observation, and use separate resolutions for concurrent
+callers. `observation="successful_forward"` is evidence of the invoked operator
+path, not a profiler measurement or independent proof of backward execution.
+`profiler_observed=false` and `hardware_qualified=null` make that limit explicit.
+Semantic versions/fingerprints are not binary hashes.
+
+`check_operator.py` observes AdaLN candidates and includes per-case backend traces.
+Successful BF16 CUDA/Triton calls also populate the existing C1
+`BackendProvenance`; CPU and FP32 have no declared C1 backend profile and remain
+trace-only. The shared tolerance contract and independent reference are unchanged.
+Library callers can request this with `make_candidate(args, observe_backend=True)`.
+
+The benchmark accepts `--seed` (default 386) and `--json`. JSON includes raw event
+samples, median, absolute peak allocated memory and allocation before sampling,
+GPU/driver/runtime versions, working-tree status, source hashes and the loaded
+CUDA extension file hash when available. The binary hash identifies that file;
+it does not assert that it was built from the recorded working tree. Missing
+observations are null. Extension/Triton skips are explicit.
+Backend observations happen before timing; the original event interval still
+measures the bare operator, including newly allocated `ones_like` upstreams for
+forward+backward. The added ordinary `F.layer_norm` + FP32 affine baseline uses
+the same inputs and timing, but does not claim fixed-order replay.
+
+Run the new GPU cases explicitly on the target environment:
+
+```bash
+.venv/bin/python -m pytest tests/test_adaln_dispatch.py -k gpu -q -rs
+.venv/bin/python benchmarks/benchmark_adaln_modulation.py \
+  --real --dtype bf16 --seed 386 --warmup 10 --repeat 50 --json
+```
+
+Directory migration remains a separate integration step: the upstream refactor
+must first be integrated, then move the reference/backends, registry, gtest,
+bindings/build and tests/benchmark into its existing layout and rerun their
+relevant checks. This change does not copy or partially recreate that refactor.

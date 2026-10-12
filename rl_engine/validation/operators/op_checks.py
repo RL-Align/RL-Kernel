@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any
 
 import torch
@@ -73,6 +73,8 @@ class CaseCheck:
     op_class: str
     passed: bool
     outputs: list[OutputCheck]
+    backend_trace: dict[str, Any] | None = None
+    backend_provenance: BackendProvenance | None = None
 
 
 @dataclass(frozen=True)
@@ -185,6 +187,9 @@ def _run_candidate(
     total_outputs = sum(len(case.outputs) for case in case_checks)
     passed_outputs = sum(1 for case in case_checks for output in case.outputs if output.passed)
     pass_rate = float(passed_outputs / total_outputs) if total_outputs else 0.0
+    observed_provenance = case_checks[0].backend_provenance if case_checks else None
+    if any(case.backend_provenance != observed_provenance for case in case_checks):
+        observed_provenance = None
     return CandidateReport(
         candidate_name=candidate.name,
         backend=candidate.backend,
@@ -193,7 +198,7 @@ def _run_candidate(
         pass_rate=pass_rate,
         passed=passed_outputs == total_outputs,
         cases=case_checks,
-        backend_provenance=candidate.provenance,
+        backend_provenance=candidate.provenance or observed_provenance,
     )
 
 
@@ -204,7 +209,56 @@ def _run_case(
 ) -> CaseCheck:
     candidate_outputs = _flatten_tensors(_call_candidate(candidate.fn, case.inputs))
     gold_outputs = _flatten_tensors(case.gold_fn(**case.inputs))
+    candidate = _observe_adaln_candidate(candidate, case, gold_outputs, contract)
     return _compare_case_outputs(candidate, case, contract, candidate_outputs, gold_outputs)
+
+
+def _observe_adaln_candidate(
+    candidate: CandidateSpec,
+    case: OperatorCase,
+    gold_outputs: list[torch.Tensor],
+    contract: Mapping[str, Any],
+) -> CandidateSpec:
+    from rl_engine.kernels.adaln_contract import AdaLNDispatch
+
+    if not isinstance(candidate.fn, AdaLNDispatch):
+        return candidate
+    trace = candidate.fn.trace
+    actual = trace["actual_backend"]
+    if actual != candidate.backend:
+        raise ContractResolveError(
+            f"candidate backend {candidate.backend!r} differs from {actual!r}"
+        )
+    if normalize_dtype_name(case.dtype) != trace["execution_dtype"]:
+        raise ContractResolveError("case dtype differs from observed AdaLN execution dtype")
+    reference_dtypes = {normalize_dtype_name(output.dtype) for output in gold_outputs}
+    if reference_dtypes != {"float32"}:
+        raise ContractResolveError("AdaLN reference dtype must be observed FP32 for every output")
+    # C1 declares BF16 GPU profiles only; CPU/FP32 observations remain case traces.
+    if actual not in {"cuda", "triton"} or trace["execution_dtype"] != "bfloat16":
+        return candidate
+    provenance = BackendProvenance(
+        backend_profile="cuda_bf16" if actual == "cuda" else "triton_cuda_bf16",
+        requested_backend=trace["requested_backend"],
+        actual_backend=actual,
+        execution_dtype=trace["execution_dtype"],
+        accumulation_dtype="float32",
+        output_dtype=trace["output_dtype"],
+        reference_dtype=normalize_dtype_name(gold_outputs[0].dtype),
+        candidate_tf32_enabled=False,
+        reference_tf32_enabled=False,
+        arithmetic_profile=trace["arithmetic_profile"],
+        fallback=trace["fallback"],
+        fallback_reason=trace["fallback_reason"],
+        semantic_version=trace["semantic_version"],
+        binary_path=trace["binary_path"],
+        binary_sha256=trace["binary_sha256"],
+        observation=trace["observation"],
+    )
+    validate_backend_provenance(contract, provenance)
+    if candidate.provenance is not None and candidate.provenance != provenance:
+        raise ContractResolveError("declared AdaLN provenance differs from successful execution")
+    return replace(candidate, provenance=provenance)
 
 
 def _run_case_backward(
@@ -245,6 +299,7 @@ def _run_case_backward(
         case.grad_input_names,
         grad_outputs=_match_grad_outputs(shared_upstreams, gold_outputs),
     )
+    candidate = _observe_adaln_candidate(candidate, case, gold_outputs, contract)
     output_checks = _compare_case_outputs(
         candidate,
         case,
@@ -305,6 +360,8 @@ def _run_case_backward(
         op_class=case.op_class,
         passed=all(output.passed for output in checks),
         outputs=checks,
+        backend_trace=dict(candidate.fn.trace) if hasattr(candidate.fn, "trace") else None,
+        backend_provenance=candidate.provenance,
     )
 
 
@@ -386,6 +443,8 @@ def _compare_case_outputs(
         op_class=case.op_class,
         passed=all(output.passed for output in output_checks),
         outputs=output_checks,
+        backend_trace=dict(candidate.fn.trace) if hasattr(candidate.fn, "trace") else None,
+        backend_provenance=candidate.provenance,
     )
 
 
@@ -578,8 +637,9 @@ def _compare_output(
             message=f"shape mismatch: candidate={tuple(candidate.shape)} gold={tuple(gold.shape)}",
         )
 
-    candidate_fp32 = candidate.float()
-    gold_fp32 = gold.float()
+    # Independent references may live on CPU even when the candidate runs on GPU.
+    candidate_fp32 = candidate.detach().to(device="cpu", dtype=torch.float32)
+    gold_fp32 = gold.detach().to(device="cpu", dtype=torch.float32)
     abs_error = (candidate_fp32 - gold_fp32).abs()
     if abs_error.numel() == 0:
         max_abs_error = 0.0

@@ -1063,17 +1063,31 @@ class KernelRegistry:
         *,
         hidden: int,
         modulate_index: torch.Tensor | None = None,
+        strict: bool = False,
+        arithmetic_profile: str | None = None,
     ) -> tuple[Any, dict[str, Any]]:
-        """Resolve AdaLN with a trace that makes backend fallback visible."""
+        """Resolve AdaLN; strict permits only the shared declared replay profile."""
+        from rl_engine.kernels.adaln_contract import (
+            SELECT01_PROFILE,
+            SHARED_PROFILE,
+            AdaLNDispatch,
+            adaln_backend,
+        )
+
         if hidden <= 0:
             raise ValueError("hidden must be positive")
+        profile = SELECT01_PROFILE if modulate_index is not None else SHARED_PROFILE
+        if arithmetic_profile is not None and arithmetic_profile != profile:
+            raise ValueError(f"unsupported AdaLN arithmetic profile {arithmetic_profile!r}")
+        if strict and modulate_index is not None:
+            raise RuntimeError("strict AdaLN rejects select01 framework backward")
         platform = self._platform_for_device(device)
         if modulate_index is not None:
             backend = OpBackend.PYTORCH_ADALN_MODULATION
             op = self._get_or_create_backend(backend)
             if op is None:
                 raise RuntimeError("PyTorch select01 AdaLN fallback is unavailable")
-            return op, {
+            trace = {
                 "selected_backend": backend.name,
                 "fallback": True,
                 "fallback_reason": "modulate_index_requires_select01",
@@ -1084,7 +1098,10 @@ class KernelRegistry:
                 "stream_k": False,
                 "tf32": False,
                 "kernel_fingerprint": "adaln_modulation_select01_native_v1",
+                "requested_backend": "pytorch",
+                "arithmetic_profile": profile,
             }
+            return AdaLNDispatch(op, trace, hidden=hidden, strict=strict), trace
         candidates = self._priority_map[platform]["adaln_modulation"]
         rejected: list[str] = []
         for backend in candidates:
@@ -1094,6 +1111,10 @@ class KernelRegistry:
             op = self._get_or_create_backend(backend)
             if op is None:
                 rejected.append(backend.name)
+                continue
+            actual = adaln_backend(op)
+            if strict and (actual is None or (actual == "pytorch" and platform != "cpu")):
+                rejected.append(f"{backend.name}: no declared strict replay profile")
                 continue
             trace = {
                 "selected_backend": backend.name,
@@ -1105,8 +1126,11 @@ class KernelRegistry:
                 "stream_k": False,
                 "tf32": False,
                 "kernel_fingerprint": f"adaln_modulation_v1:{backend.name}",
+                "arithmetic_profile": profile,
+                "requested_backend": candidates[0].name.split("_")[0].lower(),
+                "fallback_reason": "; ".join(rejected) if rejected else None,
             }
-            return op, trace
+            return AdaLNDispatch(op, trace, hidden=hidden, strict=strict), trace
         raise RuntimeError(f"No functional adaln_modulation backend on {platform}: {rejected}")
 
     def _platform_for_device(self, device: torch.device | str | None) -> str:

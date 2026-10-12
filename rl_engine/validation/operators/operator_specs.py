@@ -402,12 +402,25 @@ def make_operator_case(
     )
 
 
-def make_candidate(args: argparse.Namespace) -> CandidateSpec:
+def make_candidate(args: argparse.Namespace, *, observe_backend: bool = False) -> CandidateSpec:
     spec = OP_SPECS[args.op]
     candidate_name = "pytorch" if args.candidate == "native" else args.candidate
 
     if candidate_name in spec.candidate_paths:
         candidate_op = _load_object(spec.candidate_paths[candidate_name])()
+        if args.op == "adaln_modulation" and observe_backend:
+            from rl_engine.kernels.adaln_contract import SHARED_PROFILE, AdaLNDispatch
+
+            candidate_op = AdaLNDispatch(
+                candidate_op,
+                {
+                    "requested_backend": candidate_name,
+                    "fallback": False,
+                    "fallback_reason": None,
+                    "arithmetic_profile": SHARED_PROFILE,
+                },
+                hidden=args.normalized_dim,
+            )
         if args.op == "logp" and candidate_name == "cuda-sm90":
             candidate_op = _LogpSM90CandidateAdapter(candidate_op)
         return CandidateSpec(

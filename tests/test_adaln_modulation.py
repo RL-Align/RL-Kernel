@@ -63,7 +63,7 @@ def test_adaln_modulation_rejects_wrong_modulation_shape():
 
 def test_adaln_registry_trace_reports_selected_backend():
     op, trace = kernel_registry.get_adaln_modulation_op(device="cpu", hidden=4)
-    assert isinstance(op, NativeAdaLNModulationOp)
+    assert isinstance(op.implementation, NativeAdaLNModulationOp)
     assert trace["selected_backend"] == OpBackend.PYTORCH_ADALN_MODULATION.name
     assert trace["fallback"] is False
     assert trace["accumulator_dtype"] == "fp32"
@@ -97,7 +97,7 @@ def test_adaln_modulate_index_uses_explicit_native_fallback():
         modulation.grad,
         torch.tensor([[1.0, 1.0, -1.0, 1.0, 1.0, 1.0]]).repeat(2, 1),
     )
-    assert isinstance(op, NativeAdaLNModulationOp)
+    assert isinstance(op.implementation, NativeAdaLNModulationOp)
     assert trace["selected_backend"] == OpBackend.PYTORCH_ADALN_MODULATION.name
     assert trace["fallback"] is True
     assert trace["fallback_reason"] == "modulate_index_requires_select01"
@@ -109,8 +109,8 @@ def test_adaln_cuda_registry_reports_real_fallback():
     except RuntimeError:
         pytest.skip("CUDA required")
     op, trace = kernel_registry.get_adaln_modulation_op(device="cuda", hidden=32)
-    assert type(op).__name__ in {"CudaAdaLNModulationOp", "TritonAdaLNModulationOp"}
-    if type(op).__name__ == "TritonAdaLNModulationOp":
+    assert type(op.implementation).__name__ in {"CudaAdaLNModulationOp", "TritonAdaLNModulationOp"}
+    if type(op.implementation).__name__ == "TritonAdaLNModulationOp":
         assert trace["fallback"] is True
         assert "CUDA_ADALN_MODULATION" in trace["rejected_backends"]
     else:
@@ -119,7 +119,7 @@ def test_adaln_cuda_registry_reports_real_fallback():
 
 def test_adaln_registry_skips_cuda_for_large_hidden():
     op, trace = kernel_registry.get_adaln_modulation_op(device="cuda", hidden=5000)
-    assert type(op).__name__ == "TritonAdaLNModulationOp"
+    assert type(op.implementation).__name__ == "TritonAdaLNModulationOp"
     assert trace["fallback"] is True
     assert "CUDA_ADALN_MODULATION: H > 4096" in trace["rejected_backends"]
 
