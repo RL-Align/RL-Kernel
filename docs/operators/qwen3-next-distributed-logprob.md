@@ -59,14 +59,15 @@ VIME module (an integer MAX of per-rank flags is the one documented exception).
 ## Reuse decision
 
 Measured with `tools/validation/models/qwen3_next_logprob_prior_art.py` on the
-same official-LM-head logits (TP4 slices of one full-vocabulary product):
+same official-LM-head logits (TP4 slices of one full-vocabulary product), at TP1
+and at TP4 under the same 13 NCCL settings as the parity run:
 
 | Implementation | TP4 == TP1 | NCCL-setting invariant | Batch invariant | Matches the others |
 | --- | --- | --- | --- | --- |
 | RL-Kernel WS2 (`shared_logprob`) | yes | yes | yes | — |
 | vLLM sampler (all-gather + `log_softmax`) | yes | yes | yes | no |
-| Megatron-core `vocab_parallel_cross_entropy` | no | see evidence | yes | no |
-| VIME default `calculate_log_probs_and_entropy` | no | see evidence | yes | Megatron only |
+| Megatron-core `vocab_parallel_cross_entropy` | no | no (2 results over 13 settings) | yes | no |
+| VIME default `calculate_log_probs_and_entropy` | no | no (2 results over 13 settings) | yes | Megatron only |
 
 vLLM's sampler path is exact on the rollout side, but VIME's training side has
 no counterpart that reproduces it: the Megatron/VIME paths reduce max and
@@ -74,6 +75,10 @@ sum-exp with NCCL all-reduce and differ from it. Using one provider for both
 engines is the only measured way to equal bits, so both engines keep the WS2
 provider. Its cost is latency (see Results); a faster tile-stats kernel is
 follow-up work and would keep the same merge order.
+
+All four agree with an FP64 log-softmax to within 8.1e-7 and the largest
+difference between any two of them is 9.5e-7: the defaults are close, but not
+equal, and only equal bits remove the replay/rollout difference the RFC targets.
 
 ## Results
 
@@ -85,6 +90,8 @@ Evidence: [`docs/usage/evidence/qwen3-next-distributed-logprob-b200/`](../usage/
   settings, and the TP4 selected logprob and LSE equal TP1. The negative
   control -- real attention `o_proj` partials summed with NCCL `all_reduce` --
   gives 5 different results over the same settings.
+- Latency at TP4 for 1024 tokens (median): RL-Kernel WS2 2.55 ms, vLLM
+  all-gather + log_softmax 1.51 ms, Megatron-core and VIME 0.57 ms.
 - The full-model chain (#543) shows the end-to-end consequence: selected
   logprobs of vLLM rollout and VIME recompute are bitwise equal for 16 cases at
   four weight versions.
