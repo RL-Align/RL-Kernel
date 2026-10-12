@@ -158,12 +158,12 @@ def validate_request(request):
     elif "companions" in request:
         raise ValueError("Only a version 2 request may run companions")
     identity = request["identity"]
-    if identity["architecture_layers"] != 48 or identity["topology"] != {
-        "tp": 4,
-        "pp": 1,
-        "cp": 1,
-        "ep": 1,
-    }:
+    topology = identity["topology"]
+    if (
+        identity["architecture_layers"] != 48
+        or {k: v for k, v in topology.items() if k != "ep"} != {"tp": 4, "pp": 1, "cp": 1}
+        or topology.get("ep") not in (1, 4)
+    ):
         raise ValueError("Rollout cannot change depth or topology")
     if not Path(identity["checkpoint"]).is_absolute():
         raise ValueError("Checkpoint identity must use an absolute shared path")
@@ -851,6 +851,9 @@ def engine_arguments(identity, architecture):
         additional_config={"qwen3_next_shared_identity": identity, "gdn_prefill_backend": "triton"},
         tensor_parallel_size=4,
         pipeline_parallel_size=1,
+        # EP4 places experts [128r, 128r+128) on rank r of the TP4 group.
+        enable_expert_parallel=identity["topology"]["ep"] == 4,
+        expert_placement_strategy="linear",
         distributed_executor_backend="mp",
         dtype="bfloat16",
         seed=1234,

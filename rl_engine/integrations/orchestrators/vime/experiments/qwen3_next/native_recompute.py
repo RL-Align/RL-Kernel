@@ -92,7 +92,7 @@ def _rank_main(rank, cases, staging):
 
         first = cases[0][0]
         args, model, optimizer, scheduler = create_actor(
-            first["identity"]["checkpoint"], training=False
+            first["identity"]["checkpoint"], training=False, ep=first["identity"]["topology"]["ep"]
         )
         if optimizer is not None or scheduler is not None or len(model) != 1:
             raise ValueError("L2 recompute requires one native actor without an optimizer")
