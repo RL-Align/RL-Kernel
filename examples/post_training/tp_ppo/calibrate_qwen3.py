@@ -71,16 +71,20 @@ def main():
         for name, dtype in [("fp32", torch.float32), ("bf16", torch.bfloat16)]:
             started = time.perf_counter()
             torch.cuda.reset_peak_memory_stats()
-            model = (
-                AutoModelForCausalLM.from_pretrained(
-                    args.checkpoint,
-                    local_files_only=True,
-                    torch_dtype=dtype,
-                    attn_implementation="eager",
-                )
-                .cuda()
-                .eval()
+            model, loading = AutoModelForCausalLM.from_pretrained(
+                args.checkpoint,
+                local_files_only=True,
+                torch_dtype=dtype,
+                attn_implementation="eager",
+                output_loading_info=True,
             )
+            report[name + "_checkpoint_loading"] = loading
+            if any(
+                loading.get(key)
+                for key in ("missing_keys", "unexpected_keys", "mismatched_keys", "error_msgs")
+            ):
+                raise ValueError("Qwen3 reference checkpoint has missing or unmatched tensors")
+            model = model.cuda().eval()
             model.gradient_checkpointing_enable()
             logits = model(**encoded, use_cache=False).logits[:, :-1].float()
             logps = logits.log_softmax(-1).gather(-1, encoded.input_ids[:, 1:, None]).squeeze(-1)
