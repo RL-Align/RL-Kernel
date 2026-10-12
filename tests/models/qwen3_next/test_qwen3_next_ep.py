@@ -59,3 +59,44 @@ def test_slots_partition_every_route_once_in_ascending_order():
         assert bool((expert_owner(indices.reshape(-1)[owned]) == rank).all())
     empty = _slots_by_owner(torch.randint(0, 384, (4, 10)))
     assert empty[3].numel() == 0
+
+
+def test_layer_gates_follow_expert_parallelism():
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools/validation/models"))
+    from qwen3_next_layer_contract import layer_requirements
+
+    root = Path(__file__).resolve().parents[3]
+    tp = layer_requirements(root, 1)["gates"]
+    ep = layer_requirements(root, 4)["gates"]
+    assert "moe" in tp and "moe_ep" not in tp
+    assert "moe_ep" in ep and "moe" not in ep
+    assert ep["moe_ep"]["scope"] == "ep4_moe_block_layer0"
+    assert set(tp) - {"moe"} == set(ep) - {"moe_ep"}
+    with pytest.raises(ValueError):
+        layer_requirements(root, 2)
+
+
+@pytest.mark.parametrize(
+    ("ep", "etp", "accepted"),
+    [(1, 4, True), (4, 1, True), (4, 4, False), (2, 2, False), (1, 1, False)],
+)
+def test_training_topology_accepts_only_ep1_etp4_or_ep4_etp1(ep, etp, accepted):
+    from types import SimpleNamespace
+
+    from rl_engine.models.qwen3_next.qwen3_next_engine_weights import validate_training_topology
+
+    config = SimpleNamespace(
+        tensor_model_parallel_size=4,
+        pipeline_model_parallel_size=1,
+        context_parallel_size=1,
+        expert_model_parallel_size=ep,
+        expert_tensor_parallel_size=etp,
+    )
+    if accepted:
+        validate_training_topology(config, config)
+    else:
+        with pytest.raises(ValueError):
+            validate_training_topology(config, config)
