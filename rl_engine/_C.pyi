@@ -225,6 +225,35 @@ def deterministic_attention_backward(
     scale: float,
     key_padding_mask: torch.Tensor | None,
 ) -> list[torch.Tensor]: ...
+def joint_attn_softmax_build_key_mapping(
+    key_padding_mask: torch.Tensor,
+) -> list[torch.Tensor]: ...
+def joint_attn_softmax_forward(
+    scores: torch.Tensor,
+    logical_to_physical: torch.Tensor | None = None,
+    valid_key_counts: torch.Tensor | None = None,
+    rows_per_batch: int = 1,
+) -> torch.Tensor: ...
+def joint_attn_softmax_forward_fp32(
+    scores: torch.Tensor,
+    logical_to_physical: torch.Tensor | None = None,
+    valid_key_counts: torch.Tensor | None = None,
+    rows_per_batch: int = 1,
+) -> torch.Tensor: ...
+def joint_attn_softmax_forward_with_state(
+    scores: torch.Tensor,
+    logical_to_physical: torch.Tensor | None = None,
+    valid_key_counts: torch.Tensor | None = None,
+    rows_per_batch: int = 1,
+) -> list[torch.Tensor]: ...
+def joint_attn_softmax_backward(
+    probabilities: torch.Tensor,
+    grad_probabilities: torch.Tensor,
+    output_bf16: bool,
+    logical_to_physical: torch.Tensor | None = None,
+    valid_key_counts: torch.Tensor | None = None,
+    rows_per_batch: int = 1,
+) -> torch.Tensor: ...
 def deterministic_rope_apply_rocm(
     x: torch.Tensor,
     cos: torch.Tensor,
