@@ -3,16 +3,16 @@
 
 """Bind each native model execution to its freshly built and archived CUDA binary."""
 
-import hashlib
 import json
 import os
 import shutil
 from pathlib import Path
 
+from rl_engine.validation.common.file_digest import file_sha256
+
 
 def _digest(path):
-    with Path(path).open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+    return file_sha256(path)
 
 
 def archive_provider_binary(source, output, *, source_tree):
