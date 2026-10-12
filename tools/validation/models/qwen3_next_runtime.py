@@ -26,14 +26,15 @@ import time
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+from rl_engine.validation.common.file_digest import file_sha256
+
 # --------------------------------------------------------------------------- #
 # Environment identity
 # --------------------------------------------------------------------------- #
 
 
 def file_digest(path):
-    with Path(path).open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+    return file_sha256(Path(path))
 
 
 def identity_digest(value):
@@ -308,8 +309,7 @@ def atomic_json(path, payload):
 
 
 def digest(path):
-    with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+    return file_sha256(path)
 
 
 _MEMORY_SUFFIXES = {"K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4}

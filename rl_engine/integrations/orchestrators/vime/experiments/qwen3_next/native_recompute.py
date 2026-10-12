@@ -3,7 +3,6 @@
 
 """Independent native VIME full-model recomputation from frozen tokens only."""
 
-import hashlib
 import os
 import sys
 import traceback
@@ -16,6 +15,7 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 
 from rl_engine.models.qwen3_next import qwen3_next_subnode as subnode
+from rl_engine.validation.common.file_digest import file_sha256
 from rl_engine.validation.common.tensor_identity import assert_tensor_bitwise_equal as exact
 from rl_engine.validation.models.qwen3_next_l2 import (
     embedding_digest,
@@ -299,8 +299,7 @@ def run_recompute_cases(cases):
         files = [staging / f"case-{index}-rank-{rank}.pt" for rank in range(4)]
         records = []
         for rank, path in enumerate(files):
-            with path.open("rb") as stream:
-                digest = hashlib.file_digest(stream, "sha256").hexdigest()
+            digest = file_sha256(path)
             records.append(
                 {
                     "rank": rank,
