@@ -968,18 +968,7 @@
     "tests/test_ws1_workload.py": "tests/validation/operators/test_ws1_workload.py",
     "tests/test_ws2_attention_gpu_acceptance.py": "tests/validation/distributed/test_ws2_attention_gpu_acceptance.py",
     "tests/test_ws2_cp_attention_drift_benchmark.py": "tests/validation/distributed/test_ws2_cp_attention_drift_benchmark.py",
-    "tests/test_ws2_megatron_te_cp_compare.py": "tests/validation/distributed/test_ws2_megatron_te_cp_compare.py",
-    "rl_engine/kernels/ops/pytorch/norm/adaln_modulation.py": "rl_engine/reference/norm/adaln_modulation.py",
-    "rl_engine/kernels/ops/cuda/norm/adaln_modulation.py": "rl_engine/backends/cuda/norm/adaln_modulation.py",
-    "rl_engine/kernels/ops/triton/norm/adaln_modulation.py": "rl_engine/backends/shared/triton/norm/adaln_modulation.py",
-    "rl_engine/kernels/adaln_contract.py": "rl_engine/runtime/adaln.py",
-    "csrc/cuda/adaln_modulation.cu": "csrc/cuda/norm/adaln_modulation.cu",
-    "benchmarks/benchmark_adaln_modulation.py": "benchmarks/operators/norm/benchmark_adaln_modulation.py",
-    "tests/test_adaln_modulation.py": "tests/ops/norm/test_adaln_modulation.py",
-    "tests/test_adaln_gtest.py": "tests/validation/operators/test_adaln_gtest.py",
-    "tests/test_adaln_shared_bounds.py": "tests/backends/test_adaln_shared_bounds.py",
-    "tests/test_adaln_dispatch.py": "tests/runtime/test_adaln_dispatch.py",
-    "tests/test_benchmark_adaln_modulation.py": "tests/benchmarks/test_benchmark_adaln_modulation.py"
+    "tests/test_ws2_megatron_te_cp_compare.py": "tests/validation/distributed/test_ws2_megatron_te_cp_compare.py"
   },
   "splits": {
     "rl_engine/integrations/framework_operators.py": [

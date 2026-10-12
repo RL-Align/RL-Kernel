@@ -26,7 +26,6 @@
   "rl_engine.backends.cuda.logprob.linear_logp": "rl_engine.kernels.ops.cuda.loss.linear_logp",
   "rl_engine.backends.cuda.logprob.logp": "rl_engine.kernels.ops.cuda.loss.logp",
   "rl_engine.backends.cuda.logprob.vocab_parallel_logp": "rl_engine.kernels.ops.cuda.loss.vocab_parallel_logp",
-  "rl_engine.backends.cuda.norm.adaln_modulation": "rl_engine.kernels.ops.cuda.norm.adaln_modulation",
   "rl_engine.backends.cuda.norm.rmsnorm": "rl_engine.kernels.ops.cuda.norm.rmsnorm",
   "rl_engine.backends.cuda.rope.rope": "rl_engine.kernels.ops.cuda.rotary_embedding.rope",
   "rl_engine.backends.extension": "rl_engine.kernels.ops.base",
@@ -59,7 +58,6 @@
   "rl_engine.backends.shared.triton.logprob.vocab_parallel_logp": "rl_engine.kernels.ops.triton.loss.vocab_parallel_logp",
   "rl_engine.backends.shared.triton.loss.grpo_loss": "rl_engine.kernels.ops.triton.loss.grpo_loss",
   "rl_engine.backends.shared.triton.loss.ratio_kl": "rl_engine.kernels.ops.triton.loss.ratio_kl",
-  "rl_engine.backends.shared.triton.norm.adaln_modulation": "rl_engine.kernels.ops.triton.norm.adaln_modulation",
   "rl_engine.backends.shared.triton.norm.rmsnorm": "rl_engine.kernels.ops.triton.rmsnorm_triton",
   "rl_engine.backends.shared.triton.rope.rope": "rl_engine.kernels.ops.triton.rotary_embedding.rope",
   "rl_engine.contracts.diagnostics.attention_axes": "rl_engine.kernels.ops.pytorch.attention.debug_taxonomy",
@@ -91,7 +89,6 @@
   "rl_engine.reference.loss.distributed_grpo_loss": "rl_engine.kernels.ops.pytorch.loss.distributed_grpo_loss",
   "rl_engine.reference.loss.grpo_loss": "rl_engine.kernels.ops.pytorch.loss.grpo_loss",
   "rl_engine.reference.loss.ratio_kl": "rl_engine.kernels.ops.pytorch.loss.ratio_kl",
-  "rl_engine.reference.norm.adaln_modulation": "rl_engine.kernels.ops.pytorch.norm.adaln_modulation",
   "rl_engine.reference.norm.rms_norm": "rl_engine.kernels.ops.pytorch.norm.rms_norm",
   "rl_engine.reference.packing.pack": "rl_engine.kernels.ops.pytorch.packing.pack",
   "rl_engine.reference.rope.rope": "rl_engine.kernels.ops.pytorch.rotary_embedding.rope"
