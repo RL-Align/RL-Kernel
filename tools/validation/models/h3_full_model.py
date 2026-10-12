@@ -135,16 +135,20 @@ def main():
         torch.backends.cudnn.allow_tf32 = False
         torch.manual_seed(420539)
         dtype = torch.float32 if args.mode == "fp32-reference" else torch.bfloat16
-        model = (
-            MiniMaxH3Transformer3DModel.from_pretrained(
-                str(args.checkpoint / "transformer"),
-                torch_dtype=dtype,
-                local_files_only=True,
-                low_cpu_mem_usage=True,
-            )
-            .to("cuda")
-            .eval()
+        model, loading = MiniMaxH3Transformer3DModel.from_pretrained(
+            str(args.checkpoint / "transformer"),
+            torch_dtype=dtype,
+            local_files_only=True,
+            low_cpu_mem_usage=True,
+            output_loading_info=True,
         )
+        report["checkpoint_loading"] = loading
+        if any(
+            loading.get(key)
+            for key in ("missing_keys", "unexpected_keys", "mismatched_keys", "error_msgs")
+        ):
+            raise ValueError("full H3 checkpoint did not load every tensor exactly")
+        model = model.to("cuda").eval()
         model.enable_gradient_checkpointing()
         inputs = packed_inputs("cuda")
         trace = FullModelTrace()
