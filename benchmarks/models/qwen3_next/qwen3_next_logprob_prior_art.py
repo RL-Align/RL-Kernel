@@ -27,15 +27,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 import torch  # noqa: E402
 import torch.distributed as dist  # noqa: E402
-from tools.validation.models.qwen3_next.qwen3_next_gate_common import (  # noqa: E402
-    CheckpointWeights,
-    provenance,
-)
 
 from benchmarks.models.qwen3_next.logprob_candidates import (  # noqa: E402
     VOCAB,
     candidate_report,
     digest,
+)
+from tools.validation.models.qwen3_next.qwen3_next_gate_common import (  # noqa: E402
+    CheckpointWeights,
+    provenance,
 )
 
 TOKENS = 1024
