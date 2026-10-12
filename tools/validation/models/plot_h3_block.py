@@ -7,7 +7,7 @@
 Needs only the report JSON and matplotlib:
 
     python tools/validation/models/plot_h3_block.py \
-        docs/usage/evidence/h3-one-block-b200/report.json
+        reports/experiments/h3-one-block-b200/report.json
 
 writes ``figure.png`` next to the report. Panels: the per-node invariance and
 provider checks over every layout; the per-node error against the FP32 golden
