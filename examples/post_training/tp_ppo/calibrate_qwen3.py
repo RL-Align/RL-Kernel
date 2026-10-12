@@ -74,7 +74,7 @@ def main():
             model, loading = AutoModelForCausalLM.from_pretrained(
                 args.checkpoint,
                 local_files_only=True,
-                torch_dtype=dtype,
+                dtype=dtype,
                 attn_implementation="eager",
                 output_loading_info=True,
             )
@@ -84,6 +84,10 @@ def main():
                 for key in ("missing_keys", "unexpected_keys", "mismatched_keys", "error_msgs")
             ):
                 raise ValueError("Qwen3 reference checkpoint has missing or unmatched tensors")
+            parameter_dtypes = {parameter.dtype for parameter in model.parameters()}
+            if parameter_dtypes != {dtype}:
+                raise ValueError(f"expected reference dtype {dtype}, got {parameter_dtypes}")
+            report[name + "_parameter_dtype"] = str(dtype)
             model = model.cuda().eval()
             model.gradient_checkpointing_enable()
             logits = model(**encoded, use_cache=False).logits[:, :-1].float()

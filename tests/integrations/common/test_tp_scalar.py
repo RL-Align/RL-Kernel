@@ -16,7 +16,7 @@ from rl_engine.integrations.common.tp_scalar import (
     TPScalarExecutor,
     clip_tp_grad_norm_,
 )
-from rl_engine.integrations.common.weights import TensorPacketBridge
+from rl_engine.integrations.common.weights import TensorPacketBridge, synchronize_validation
 
 
 class ShardedScalarModel(torch.nn.Module):
@@ -83,6 +83,32 @@ def _init(rank, size, rendezvous, backend):
         world_size=size,
         init_method=f"file://{rendezvous}",
         timeout=timedelta(seconds=60),
+    )
+
+
+def _validation_worker(rank, rendezvous):
+    """An empty exception message fails on both ranks, including the healthy peer."""
+    _init(rank, 2, rendezvous, "gloo")
+    try:
+        group = dist.group.WORLD
+        synchronize_validation(None, group=group, device=torch.device("cpu"))
+        for message in ("", "adapter gradient failure"):
+            with pytest.raises(ValueError) as raised:
+                synchronize_validation(
+                    message if rank == 1 else None, group=group, device=torch.device("cpu")
+                )
+            assert str(raised.value) == message
+    finally:
+        dist.destroy_process_group()
+
+
+def test_validation_propagates_empty_error_to_every_rank(tmp_path):
+    """None alone signals success; even str(RuntimeError()) must abort all ranks."""
+    mp.start_processes(
+        _validation_worker,
+        args=(str(tmp_path / "validation"),),
+        nprocs=2,
+        start_method="spawn",
     )
 
 

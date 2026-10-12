@@ -2,8 +2,9 @@
 # Copyright (c) 2026 RL-Kernel Contributors
 """Lossless HF Qwen3 dense <-> Megatron TP checkpoint mapping.
 
-Q/K/V are grouped by KV head before tensor-parallel slicing. SwiGLU gate/up
-weights use Megatron's partition stride two. No model layers are synthesized.
+Q/K/V are grouped by KV head before tensor-parallel slicing. Each SwiGLU FC1
+shard stores its local gate rows followed by its local up rows. No model
+layers are synthesized.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ def _dimensions(config: Mapping, tp: int):
 
 
 def hf_to_megatron(state: Mapping[str, torch.Tensor], config: Mapping, *, tp: int, rank: int):
+    """Map a dense HF checkpoint to one TP shard, padding vocabulary rows with zeros."""
     heads, kv, hidden, width = _dimensions(config, tp)
     if rank not in range(tp):
         raise ValueError("TP rank out of range")
@@ -68,6 +70,11 @@ def hf_to_megatron(state: Mapping[str, torch.Tensor], config: Mapping, *, tp: in
 
 
 def megatron_to_hf(shards: list[Mapping[str, torch.Tensor]], config: Mapping):
+    """Restore HF tensors from TP-ordered local shards with matching replicated norms.
+
+    Each FC1 shard must contain [gate_rank; up_rank]. A single full mapping must
+    group its FC1 rows as [all_gate; all_up].
+    """
     tp = len(shards)
     heads, kv, hidden, width = _dimensions(config, tp)
     out = {}
@@ -110,6 +117,7 @@ def megatron_to_hf(shards: list[Mapping[str, torch.Tensor]], config: Mapping):
 
 
 def transformer_config(config, *, tp: int, dtype: torch.dtype):
+    """Translate dense Qwen3 dimensions and precision to unfused Megatron settings."""
     from megatron.core.transformer.transformer_config import TransformerConfig
 
     _dimensions(config, tp)

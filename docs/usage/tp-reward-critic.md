@@ -3,8 +3,9 @@
 This page describes how rollout token IDs reach a tensor-parallel (TP) Reward or
 Critic model and how scalar rewards return to the rollout ranks (issue #44). The
 building blocks are in `rl_engine/integrations/common/weights.py` and
-`rl_engine/integrations/common/tp_scalar.py`. The old `rl_engine.executors.bridge`
-import path still works.
+`rl_engine/integrations/common/tp_scalar.py`. Import `TensorPacketBridge` from
+`integrations.common.weights` and `TPModelInputs` and `TPScalarExecutor` from
+`integrations.common.tp_scalar`, as shown below.
 
 ## Data path
 

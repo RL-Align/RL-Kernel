@@ -41,12 +41,14 @@ class FP32MasterWeights:
         )
 
     def zero_grad(self):
+        """Clear model/master gradients and start a new accumulation window."""
         self.optimizer.zero_grad(set_to_none=True)
         for parameter in self.parameters:
             parameter.grad = None
         self._prepared = False
 
     def accumulate(self):
+        """Add BF16 model gradients into FP32 masters and clear consumed model buffers."""
         if self._prepared:
             raise RuntimeError("cannot accumulate after clipping was prepared")
         for model, master in zip(self.parameters, self.masters):
@@ -61,6 +63,7 @@ class FP32MasterWeights:
                 model.grad = None
 
     def gradients(self):
+        """Prepare writable master gradients once for clipping before the next step."""
         if self._prepared:
             raise RuntimeError("master gradients may only be materialized once per update")
         self.accumulate()
@@ -69,6 +72,7 @@ class FP32MasterWeights:
 
     @torch.no_grad()
     def step(self):
+        """Update FP32 masters with prepared gradients, then copy weights back to BF16."""
         if not self._prepared:
             raise RuntimeError("materialize and clip FP32 gradients before step")
         self.optimizer.step()

@@ -351,8 +351,7 @@ def test_shared_memory_manifest_import_works_from_fresh_process():
     queue = context.Queue()
     process = context.Process(target=_shared_memory_manifest_child, args=(manifest, queue))
     process.start()
-    # A fresh PyTorch import and process teardown can exceed ten seconds.
-    process.join(timeout=30)
+    process.join(timeout=10)
 
     assert process.exitcode == 0
     try:

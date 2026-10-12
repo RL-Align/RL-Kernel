@@ -2664,6 +2664,7 @@ def synchronize_validation(
 ) -> None:
     """Raise the first rank's validation error on every member of an explicit group.
 
+    Only None signals success; an empty error message still denotes failure.
     Call before model collectives, in the same order on all members. Runtime
     failures *inside* a model collective still require a process-group timeout.
     """
@@ -2672,7 +2673,9 @@ def synchronize_validation(
         raise ValueError("an explicit process group containing this rank is required")
     rank = dist.get_rank()
     failed_rank = torch.tensor(
-        rank if error else torch.iinfo(torch.int64).max, device=device, dtype=torch.int64
+        rank if error is not None else torch.iinfo(torch.int64).max,
+        device=device,
+        dtype=torch.int64,
     )
     dist.all_reduce(failed_rank, op=dist.ReduceOp.MIN, group=group)
     source = int(failed_rank.item())

@@ -46,9 +46,11 @@ class PPOProcessGroups:
 
     @property
     def local_leader(self) -> int:
+        """Return this role's designated global leader rank."""
         return getattr(self, f"{self.role}_leader")
 
     def validate(self) -> None:
+        """Check group membership and leader identities without entering collectives."""
         if self.role not in ("rollout", "actor", "critic"):
             raise ValueError("role must be rollout, actor or critic")
         if self.control is None or self.local is None:

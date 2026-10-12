@@ -127,8 +127,9 @@ def rollout(device):
 
 @torch.no_grad()
 def snapshot(model, group, *, gradients=False):
-    """Reconstruct master tensors using Megatron's actual partition annotations."""
+    """Gather full tensors, grouping gated FC1 rows by gate/up before TP rank."""
     parameters = dict(model.named_parameters())
+    modules = dict(model.named_modules())
     result = {}
     size = dist.get_world_size(group)
     for name, value in model.state_dict().items():
@@ -150,6 +151,12 @@ def snapshot(model, group, *, gradients=False):
             dist.all_gather(shards, value, group=group)
             axis = parameter.partition_dim
             stride = parameter.partition_stride
+            if name.endswith(("mlp.linear_fc1.weight", "mlp.linear_fc1.bias")):
+                mlp = modules[name.rsplit(".", 2)[0]]
+                if mlp.config.gated_linear_unit:
+                    # Core 0.15.3 annotates FC1 with stride one, but the forward
+                    # splits each local output into separate gate/up halves.
+                    stride = 2
             pieces = [shard.chunk(stride, dim=axis) for shard in shards]
             value = torch.cat(
                 [pieces[rank][i] for i in range(stride) for rank in range(size)],

@@ -82,6 +82,8 @@ The same coordinator runs with a real vLLM 0.15.1 rollout worker on a dedicated
 GPU layout: Actor on GPUs 0–1, Critic on GPU 2, and the rollout callback with the
 vLLM subprocess on GPU 3. vLLM runs in FP32 with eager execution, the
 `TRITON_ATTN` backend, and untruncated sampling (temperature 1, no top-k/top-p).
+These runs use hidden size 128, 4 heads, FFN 256 and vocabulary 32; the
+hidden-size-32 configuration above applies to the shared-group checks.
 
 | | Megatron | DeepSpeed |
 | --- | --- | --- |
@@ -133,6 +135,10 @@ isolated child's module path.
 | Cross-framework final Actor / Critic parameter maximum error | 0 / 0 |
 | Installed / sampled versions | 0,1,2 / 0,1 |
 | Cached tokens after installation / on same-version replay, per request | 0 / 16 |
+
+The 111-pass result uses the post-rebase test selection shown below. The PR's
+104-pass, one-skip result comes from an earlier selection and targeted rerun;
+the counts describe separate runs.
 
 Both trainable models changed and both frozen models remained unchanged.
 These are correctness checks for the tiny FP32 model; no production performance

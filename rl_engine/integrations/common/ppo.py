@@ -74,12 +74,15 @@ class PPORollout:
 
     @property
     def inputs(self) -> TPModelInputs:
+        """Expose token, validity and position tensors without copying the rollout."""
         return TPModelInputs(self.input_ids, self.attention_mask, self.position_ids)
 
     def packet(self) -> dict[str, torch.Tensor]:
+        """Return the ordered transport fields, sharing the underlying tensors."""
         return {field.name: getattr(self, field.name) for field in fields(self)}
 
     def validate(self, *, actor_version: int, critic_version: int) -> None:
+        """Reject malformed action slots, invalid sampling or stale model versions."""
         self.inputs.validate()
         batch, sequence = self.input_ids.shape
         if sequence < 2:
@@ -148,6 +151,8 @@ TARGET_FIELDS = (
 
 @dataclass(frozen=True)
 class PPOBatch:
+    """Rollout and frozen targets, with [B, S-1] action slots and [B] rewards/bootstrap."""
+
     rollout: PPORollout
     old_values: torch.Tensor
     bootstrap_values: torch.Tensor
@@ -157,6 +162,7 @@ class PPOBatch:
     returns: torch.Tensor
 
     def validate(self) -> None:
+        """Require finite frozen targets on valid action slots and the rollout device."""
         if self.rollout.behavior_logps.requires_grad:
             raise ValueError("behavior logprobs must be frozen before PPO training")
         self.rollout.validate(
@@ -176,6 +182,7 @@ class PPOBatch:
                 raise ValueError(f"{name} must be finite on valid entries")
 
     def select(self, indices: torch.Tensor) -> PPOBatch:
+        """Select sequence rows while retaining shared version and sampling metadata."""
         packet = self.rollout.packet()
         for name in ROLLOUT_FIELDS:
             if name not in ("actor_version", "critic_version", "sampling"):
@@ -185,6 +192,7 @@ class PPOBatch:
         )
 
     def targets(self) -> dict[str, torch.Tensor]:
+        """Expose the frozen target fields without copying or detaching them."""
         return {name: getattr(self, name) for name in TARGET_FIELDS}
 
 
@@ -253,6 +261,7 @@ def build_ppo_batch(
 
 
 def ppo_policy_loss(logps: torch.Tensor, batch: PPOBatch, clip: float) -> torch.Tensor:
+    """Average the clipped surrogate over valid actions, using frozen behavior scores."""
     mask = batch.rollout.action_mask
     ratio = (logps[mask].float() - batch.rollout.behavior_logps[mask].float()).exp()
     advantages = batch.advantages[mask]
@@ -260,6 +269,7 @@ def ppo_policy_loss(logps: torch.Tensor, batch: PPOBatch, clip: float) -> torch.
 
 
 def ppo_value_loss(values: torch.Tensor, batch: PPOBatch, clip: float) -> torch.Tensor:
+    """Average the larger clipped/unclipped squared error over valid action states."""
     mask = batch.rollout.action_mask
     current = values[mask].float()
     previous = batch.old_values[mask]
@@ -334,6 +344,12 @@ class PPOTrainingWorker:
         self.parameters = [(named[name], layout) for name, layout in parameter_layouts.items()]
 
     def train(self, batch: PPOBatch) -> dict[str, float | int]:
+        """Update this role on identical TP minibatches with token-weighted accumulation.
+
+        Targets stay frozen; TP-global clipping modifies the optimizer's actual
+        gradient buffers. Empty batches perform no steps. Restore module modes
+        on exit and return update count, mean loss and mean pre-clip norm.
+        """
         error = None
         try:
             batch.validate()
