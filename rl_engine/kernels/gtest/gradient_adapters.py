@@ -113,6 +113,7 @@ GRADIENT_ADAPTERS: dict[str, GradientAdapterSpec] = {
         requirement="optional_fused",
         source_files=(
             "rl_engine/kernels/ops/cuda/mhc.py",
+            "rl_engine/kernels/ops/triton/mhc.py",
             "rl_engine/kernels/ops/pytorch/mhc.py",
             "csrc/cuda/mhc/mhc_pre_h_aggregate.cu",
             "csrc/cuda/mhc/mhc_pre_h_aggregate_kernel.cuh",
@@ -848,7 +849,8 @@ def _run_row_stream(
                 device=device,
                 dtype=out_rows.dtype,
             )
-            backward_fp32 = getattr(operator, "backward_fp32", None)
+            owner = getattr(operator, "__self__", operator)
+            backward_fp32 = getattr(owner, "backward_fp32", None)
             if not callable(backward_fp32):
                 raise MissingBackwardError(
                     adapter.op_name, "candidate has no explicit FP32 backward"

@@ -7,6 +7,7 @@ import torch
 
 MHC_PRE_HC_MULT = 4
 MHC_PRE_HIDDEN_SIZE = 4096
+MHC_PRE_SUPPORTED_HIDDEN_SIZES = (128, 4096)
 
 
 class NativeMHCPreHAggregateOp:
@@ -36,10 +37,10 @@ class NativeMHCPreHAggregateOp:
         """
 
         self._validate_inputs(residual, pre)
-        if grad_output.shape != (residual.shape[0], MHC_PRE_HIDDEN_SIZE):
-            raise ValueError("grad_output must have shape [num_tokens, 4096]")
-        if grad_output.dtype is not torch.bfloat16:
-            raise TypeError("grad_output must be bfloat16")
+        if grad_output.shape != (residual.shape[0], residual.shape[2]):
+            raise ValueError("grad_output must have shape [num_tokens, hidden_size]")
+        if grad_output.dtype not in (torch.bfloat16, torch.float32):
+            raise TypeError("grad_output must be bfloat16 or float32")
         if grad_output.device != residual.device:
             raise RuntimeError("grad_output, residual, and pre must be on the same device")
         if not grad_output.is_contiguous():
@@ -50,7 +51,7 @@ class NativeMHCPreHAggregateOp:
 
         products = grad_output_fp32[:, None, :] * residual.float()
         grad_pre = torch.zeros_like(products[:, :, 0])
-        for hidden in range(MHC_PRE_HIDDEN_SIZE):
+        for hidden in range(residual.shape[2]):
             grad_pre = grad_pre + products[:, :, hidden]
         return grad_residual, grad_pre
 
@@ -69,11 +70,10 @@ class NativeMHCPreHAggregateOp:
 
     @staticmethod
     def _validate_inputs(residual: torch.Tensor, pre: torch.Tensor) -> None:
-        if residual.dim() != 3 or residual.shape[1:] != (
-            MHC_PRE_HC_MULT,
-            MHC_PRE_HIDDEN_SIZE,
-        ):
-            raise ValueError("residual must have shape [num_tokens, 4, 4096]")
+        if residual.dim() != 3 or residual.shape[1] != MHC_PRE_HC_MULT:
+            raise ValueError("residual must have shape [num_tokens, 4, hidden_size]")
+        if residual.shape[2] not in MHC_PRE_SUPPORTED_HIDDEN_SIZES:
+            raise ValueError("hidden_size must be 128 or 4096")
         if pre.shape != (residual.shape[0], MHC_PRE_HC_MULT):
             raise ValueError("pre must have shape [num_tokens, 4]")
         if residual.dtype is not torch.bfloat16:

@@ -24,9 +24,11 @@ class MHCPreHAggregateCudaOp:
 
     op_class = "reduction"
     is_batch_invariant = True
-    backward_impl = "cuda_fixed_tree_mhc_pre_h_aggregate_backward"
+    backward_impl = "cuda_fixed_sum_mhc_pre_h_aggregate_backward"
 
     def __init__(self) -> None:
+        if torch.version.hip is not None or not torch.cuda.is_available():
+            raise RuntimeError("MHC H Aggregate requires NVIDIA CUDA")
         _require_mhc_extension()
 
     def __call__(self, residual: torch.Tensor, pre: torch.Tensor) -> torch.Tensor:

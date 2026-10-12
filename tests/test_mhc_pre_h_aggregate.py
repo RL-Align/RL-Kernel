@@ -64,6 +64,7 @@ def _make_inputs(
 
 
 def test_native_mhc_pre_h_aggregate_backward_is_explicit_fp32():
+    # Check FP32 gradient outputs against the analytic aggregate derivative.
     residual, pre, grad_output = _make_inputs(3, device="cpu", seed=7)
 
     grad_residual, grad_pre = NativeMHCPreHAggregateOp().backward_fp32(
@@ -81,6 +82,7 @@ def test_native_mhc_pre_h_aggregate_backward_is_explicit_fp32():
 
 
 def test_native_mhc_pre_h_aggregate_matches_p1_oracle_bytes():
+    # Check the native forward and backward against the P1 oracle byte-for-byte.
     """The operator oracle must be byte-equal to the P1 start-kit oracle."""
     from rl_engine.mhc import oracle
 
@@ -97,6 +99,7 @@ def test_native_mhc_pre_h_aggregate_matches_p1_oracle_bytes():
 
 @requires_mhc_kernel
 def test_mhc_pre_h_aggregate_forward_matches_fixed_tree_oracle_and_recomputes():
+    # Check the CUDA forward tree and repeatability against the native oracle.
     from rl_engine.kernels.ops.base import _C
 
     residual, pre, _grad_output = _make_inputs(129, device="cuda", seed=0)
@@ -112,6 +115,7 @@ def test_mhc_pre_h_aggregate_forward_matches_fixed_tree_oracle_and_recomputes():
 
 @requires_mhc_kernel
 def test_mhc_pre_h_aggregate_forward_is_batch_and_padding_invariant():
+    # Check CUDA forward bytes across padded, packed, and individual tokens.
     from rl_engine.kernels.ops.base import _C
 
     residual, pre, _grad_output = _make_inputs(127, device="cuda", seed=1)
@@ -135,7 +139,8 @@ def test_mhc_pre_h_aggregate_forward_is_batch_and_padding_invariant():
 
 
 @requires_mhc_kernel
-def test_mhc_pre_h_aggregate_backward_matches_explicit_fixed_tree_oracle():
+def test_mhc_pre_h_aggregate_backward_matches_explicit_fixed_sum_oracle():
+    # Check CUDA backward bytes and repeatability against ascending FP32 accumulation.
     from rl_engine.kernels.ops.base import _C
 
     residual, pre, grad_output = _make_inputs(129, device="cuda", seed=3)
@@ -157,6 +162,7 @@ def test_mhc_pre_h_aggregate_backward_matches_explicit_fixed_tree_oracle():
 
 @requires_mhc_kernel
 def test_mhc_pre_h_aggregate_cuda_wrapper_has_no_autograd_fallback():
+    # Reject standalone autograd requests instead of silently dropping gradients.
     from rl_engine.kernels.ops.cuda.mhc import MHCPreHAggregateCudaOp
 
     residual, pre, _grad_output = _make_inputs(2, device="cuda", seed=8)
@@ -169,6 +175,7 @@ def test_mhc_pre_h_aggregate_cuda_wrapper_has_no_autograd_fallback():
 
 @requires_mhc_kernel
 def test_mhc_pre_h_aggregate_backward_is_batch_and_padding_invariant():
+    # Check CUDA backward bytes across padded, packed, and individual tokens.
     from rl_engine.kernels.ops.base import _C
 
     residual, pre, grad_output = _make_inputs(127, device="cuda", seed=4)
@@ -202,6 +209,7 @@ def test_mhc_pre_h_aggregate_backward_is_batch_and_padding_invariant():
 
 @requires_mhc_kernel
 def test_mhc_pre_h_aggregate_fails_closed_for_unsupported_contracts():
+    # Reject unsupported CUDA shapes, dtypes, and noncontiguous tensors.
     from rl_engine.kernels.ops.base import _C
 
     residual, pre, grad_output = _make_inputs(2, device="cuda", seed=6)
@@ -213,7 +221,7 @@ def test_mhc_pre_h_aggregate_fails_closed_for_unsupported_contracts():
         2, HIDDEN_SIZE * 2, dtype=torch.bfloat16, device="cuda"
     )[:, ::2]
 
-    with pytest.raises(RuntimeError, match=r"\[num_tokens, 4, 4096\]"):
+    with pytest.raises(RuntimeError, match="hidden_size must be 128 or 4096"):
         _C.mhc_pre_h_aggregate(wrong_hidden, pre)
     with pytest.raises(RuntimeError, match="residual must be bfloat16"):
         _C.mhc_pre_h_aggregate(residual.float(), pre)
@@ -221,7 +229,159 @@ def test_mhc_pre_h_aggregate_fails_closed_for_unsupported_contracts():
         _C.mhc_pre_h_aggregate(residual, pre.to(torch.bfloat16))
     with pytest.raises(RuntimeError, match="must be contiguous"):
         _C.mhc_pre_h_aggregate(noncontiguous_residual, pre)
-    with pytest.raises(RuntimeError, match="grad_output and residual must be bfloat16"):
-        _C.mhc_pre_h_aggregate_backward(grad_output.float(), residual, pre)
+    with pytest.raises(RuntimeError, match="grad_output must be bfloat16 or float32"):
+        _C.mhc_pre_h_aggregate_backward(grad_output.half(), residual, pre)
     with pytest.raises(RuntimeError, match="must be contiguous"):
         _C.mhc_pre_h_aggregate_backward(noncontiguous_grad_output, residual, pre)
+
+
+@pytest.fixture(params=("pytorch", "cuda", "triton"))
+def aggregate_op(request):
+    if request.param == "pytorch":
+        return NativeMHCPreHAggregateOp(), "cpu"
+    if not torch.cuda.is_available() or torch.cuda.get_device_capability()[0] < 8:
+        pytest.skip("NVIDIA SM80 or newer is required")
+    if request.param == "cuda":
+        if not _kernel_available():
+            pytest.skip("Rebuild the CUDA extension")
+        from rl_engine.kernels.ops.cuda.mhc import MHCPreHAggregateCudaOp
+        return MHCPreHAggregateCudaOp(), "cuda"
+    pytest.importorskip("triton")
+    from rl_engine.kernels.ops.triton.mhc import MHCPreHAggregateTritonOp
+    return MHCPreHAggregateTritonOp(), "cuda"
+
+
+@pytest.mark.parametrize("hidden", (128, 4096))
+@pytest.mark.parametrize("grad_dtype", (torch.bfloat16, torch.float32))
+def test_aggregate_oracle_bytes(aggregate_op, hidden, grad_dtype):
+    # Check both input-gradient dtypes against the P1 oracle without rounding FP32 dH.
+    from rl_engine.mhc import oracle
+
+    op, device = aggregate_op
+    torch.manual_seed(366)
+    residual = torch.randn(7, 4, hidden, device=device, dtype=torch.bfloat16)
+    pre = torch.randn(7, 4, device=device)
+    dh = torch.randn(7, hidden, device=device, dtype=grad_dtype)
+    assert _same_bytes(op(residual, pre), oracle.h_aggregate_fwd(pre, residual))
+    actual = op.backward_fp32(dh, residual, pre)
+    expected = oracle.h_aggregate_bwd(dh, pre, residual)
+    for got, want in zip(actual, expected, strict=True):
+        assert got.dtype == torch.float32
+        assert _same_bytes(got, want)
+
+
+@pytest.mark.parametrize("hidden", (128, 4096))
+def test_aggregate_batch_invariance(aggregate_op, hidden):
+    # Check forward and backward bytes across batch sizes, padding, and repeated runs.
+    op, device = aggregate_op
+    residual = torch.randn(129, 4, hidden, device=device, dtype=torch.bfloat16)
+    pre = torch.randn(129, 4, device=device)
+    dh = torch.randn(129, hidden, device=device)
+    full = (op(residual, pre), *op.backward_fp32(dh, residual, pre))
+    for start, stop in ((0, 1), (1, 128), (0, 128), (0, 129)):
+        part = (op(residual[start:stop], pre[start:stop]),
+                *op.backward_fp32(dh[start:stop], residual[start:stop], pre[start:stop]))
+        for got, want in zip(part, full, strict=True):
+            assert _same_bytes(got, want[start:stop])
+
+
+def test_aggregate_ascending_sum(aggregate_op):
+    # Detect tree reductions that change cancellation in the ascending FP32 dPRE fold.
+    op, device = aggregate_op
+    residual = torch.zeros(1, 4, 128, device=device, dtype=torch.bfloat16)
+    residual[:, :, :4] = torch.tensor([1e8, 1, -1e8, 1], device=device)
+    dh = torch.ones(1, 128, device=device)
+    pre = torch.ones(1, 4, device=device)
+    _, grad_pre = op.backward_fp32(dh, residual, pre)
+    assert _same_bytes(grad_pre, torch.ones_like(pre))
+
+
+@pytest.mark.parametrize("hidden", (128, 4096))
+def test_aggregate_empty_batch(aggregate_op, hidden):
+    # Empty batches return correctly shaped tensors without launching a kernel.
+    op, device = aggregate_op
+    residual = torch.empty(0, 4, hidden, device=device, dtype=torch.bfloat16)
+    pre = torch.empty(0, 4, device=device)
+    dh = torch.empty(0, hidden, device=device)
+    assert op(residual, pre).shape == (0, hidden)
+    dr, dp = op.backward_fp32(dh, residual, pre)
+    assert dr.shape == residual.shape and dr.dtype == torch.float32
+    assert dp.shape == pre.shape and dp.dtype == torch.float32
+
+
+def test_aggregate_invalid_inputs(aggregate_op):
+    # All backends reject unsupported dimensions, dtypes, layouts, and gradient shapes.
+    op, device = aggregate_op
+    residual = torch.zeros(2, 4, 128, device=device, dtype=torch.bfloat16)
+    pre = torch.ones(2, 4, device=device)
+    dh = torch.ones(2, 128, device=device)
+    for bad_residual, bad_pre in (
+        (residual[:, :, :64].contiguous(), pre), (residual.float(), pre),
+        (residual, pre.half()), (residual[:, :, ::2], pre), (residual, pre[:1]),
+    ):
+        with pytest.raises((ValueError, TypeError, RuntimeError)):
+            op(bad_residual, bad_pre)
+    for bad_grad in (dh[:, :64], dh.half(), dh.t().contiguous().t()):
+        with pytest.raises((ValueError, TypeError, RuntimeError)):
+            op.backward_fp32(bad_grad, residual, pre)
+
+
+def test_aggregate_registry_order_and_fallback(monkeypatch):
+    # Registry selection follows CUDA, Triton, then PyTorch when imports are unavailable.
+    from rl_engine.kernels.registry import KernelRegistry, OpBackend
+
+    registry = KernelRegistry()
+    order = [OpBackend.CUDA_MHC_PRE_H_AGGREGATE, OpBackend.TRITON_MHC_PRE_H_AGGREGATE,
+             OpBackend.PYTORCH_MHC_PRE_H_AGGREGATE]
+    assert registry._priority_map["cuda"]["mhc_pre_h_aggregate"] == order
+    for chosen in order:
+        visited = []
+        instance = object()
+
+        def create(backend, chosen=chosen, instance=instance, visited=visited):
+            visited.append(backend)
+            if backend == chosen:
+                return instance
+            return None
+
+        monkeypatch.setattr(registry, "_get_or_create_backend", create)
+        assert registry.get_op("mhc_pre_h_aggregate", "cuda") is instance
+        assert visited == order[:order.index(chosen) + 1]
+    monkeypatch.undo()
+    assert isinstance(registry.get_op("mhc_pre_h_aggregate", "cpu"), NativeMHCPreHAggregateOp)
+
+
+@pytest.mark.parametrize("backend", ("Cuda", "Triton"))
+def test_aggregate_provider_uses_candidate(backend, monkeypatch):
+    # P1 composite execution reaches the candidate forward and FP32 backward methods.
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is required")
+    if backend == "Cuda" and not _kernel_available():
+        pytest.skip("Rebuild the CUDA extension")
+    if backend == "Triton":
+        pytest.importorskip("triton")
+    from rl_engine.mhc import fixtures, oracle
+    from rl_engine.mhc.provider import resolve_provider
+
+    provider = resolve_provider(f"rl_engine.mhc.h_aggregate_provider:{backend}HAggregateProvider")
+    calls = []
+    forward, backward = provider.op.forward, provider.op.backward_fp32
+
+    def record_forward(*args):
+        calls.append("forward")
+        return forward(*args)
+
+    def record_backward(*args):
+        calls.append("backward")
+        assert args[0].dtype == torch.float32
+        return backward(*args)
+
+    monkeypatch.setattr(provider.op, "forward", record_forward)
+    monkeypatch.setattr(provider.op, "backward_fp32", record_backward)
+    cpu_batch = fixtures.make_batch("one_row")
+    batch = cpu_batch.to("cuda")
+    grads = fixtures.make_grads("one_row", cpu_batch).to("cuda")
+    _, saved = oracle.mhc_block_forward(batch, ops=provider)
+    oracle.mhc_block_backward(batch, saved, grads, ops=provider)
+    assert calls == ["forward", "backward"]
+    assert provider.provenance()["actual_backend"] == f"{provider.name}+oracle-rest"

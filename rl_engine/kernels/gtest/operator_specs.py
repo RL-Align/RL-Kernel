@@ -40,6 +40,7 @@ OP_SPECS = {
         candidate_paths={
             "pytorch": ("rl_engine.kernels.ops.pytorch.mhc.NativeMHCPreHAggregateOp"),
             "cuda": "rl_engine.kernels.ops.cuda.mhc.MHCPreHAggregateCudaOp",
+            "triton": "rl_engine.kernels.ops.triton.mhc.MHCPreHAggregateTritonOp",
         },
         grad_input_names=("residual", "pre"),
     ),
@@ -281,6 +282,7 @@ def make_operator_case(
         inputs=make_operator_inputs(args.op, args, dtype, device),
         gold_fn=gold_fn,
         grad_input_names=spec.grad_input_names,
+        gold_backward_fn=getattr(gold_op, "backward_fp32", None),
     )
 
 

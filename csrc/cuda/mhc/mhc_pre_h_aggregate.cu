@@ -26,8 +26,9 @@ torch::Tensor mhc_pre_h_aggregate_cuda(torch::Tensor residual,
               "pre must be float32");
   TORCH_CHECK(residual.dim() == 3 &&
                   residual.size(1) == rl_kernel::mhc::kMhcPreHcMult &&
-                  residual.size(2) == rl_kernel::mhc::kMhcPreHiddenSize,
-              "residual must have shape [num_tokens, 4, 4096]");
+                  (residual.size(2) == 128 ||
+                   residual.size(2) == rl_kernel::mhc::kMhcPreHiddenSize),
+              "residual must have shape [num_tokens, 4, hidden_size], hidden_size must be 128 or 4096");
   TORCH_CHECK(pre.dim() == 2 &&
                   pre.size(1) == rl_kernel::mhc::kMhcPreHcMult,
               "pre must have shape [num_tokens, 4]");
@@ -75,21 +76,23 @@ std::vector<torch::Tensor> mhc_pre_h_aggregate_backward_cuda(
   TORCH_CHECK(grad_output.is_contiguous() && residual.is_contiguous() &&
                   pre.is_contiguous(),
               "grad_output, residual, and pre must be contiguous");
-  TORCH_CHECK(grad_output.scalar_type() == torch::kBFloat16 &&
-                  residual.scalar_type() == torch::kBFloat16,
-              "grad_output and residual must be bfloat16");
+  TORCH_CHECK(residual.scalar_type() == torch::kBFloat16, "residual must be bfloat16");
+  TORCH_CHECK(grad_output.scalar_type() == torch::kBFloat16 ||
+                  grad_output.scalar_type() == torch::kFloat32,
+              "grad_output must be bfloat16 or float32");
   TORCH_CHECK(pre.scalar_type() == torch::kFloat32, "pre must be float32");
   TORCH_CHECK(residual.dim() == 3 &&
                   residual.size(1) == rl_kernel::mhc::kMhcPreHcMult &&
-                  residual.size(2) == rl_kernel::mhc::kMhcPreHiddenSize,
-              "residual must have shape [num_tokens, 4, 4096]");
+                  (residual.size(2) == 128 ||
+                   residual.size(2) == rl_kernel::mhc::kMhcPreHiddenSize),
+              "residual must have shape [num_tokens, 4, hidden_size], hidden_size must be 128 or 4096");
   TORCH_CHECK(pre.dim() == 2 &&
                   pre.size(1) == rl_kernel::mhc::kMhcPreHcMult,
               "pre must have shape [num_tokens, 4]");
   TORCH_CHECK(grad_output.dim() == 2 &&
                   grad_output.size(0) == residual.size(0) &&
-                  grad_output.size(1) == rl_kernel::mhc::kMhcPreHiddenSize,
-              "grad_output must have shape [num_tokens, 4096]");
+                  grad_output.size(1) == residual.size(2),
+              "grad_output must have shape [num_tokens, hidden_size]");
   TORCH_CHECK(pre.size(0) == residual.size(0),
               "residual and pre must have the same num_tokens");
 
@@ -114,19 +117,24 @@ std::vector<torch::Tensor> mhc_pre_h_aggregate_backward_cuda(
   TORCH_CHECK(major >= 8,
               "mhc_pre_h_aggregate_backward requires SM80 or newer");
 
-  auto const* grad_output_ptr = reinterpret_cast<__nv_bfloat16 const*>(
-      grad_output.data_ptr<at::BFloat16>());
   auto const* residual_ptr = reinterpret_cast<__nv_bfloat16 const*>(
       residual.data_ptr<at::BFloat16>());
   auto const* pre_ptr = pre.data_ptr<float>();
   auto* grad_residual_ptr = grad_residual.data_ptr<float>();
   auto* grad_pre_ptr = grad_pre.data_ptr<float>();
 
-  cudaError_t const status =
-      rl_kernel::mhc::launch_mhc_pre_h_aggregate_backward(
-          grad_output_ptr, residual_ptr, pre_ptr, grad_residual_ptr,
-          grad_pre_ptr, num_tokens, hidden_size,
-          at::cuda::getCurrentCUDAStream(), major >= 9);
+  cudaError_t status;
+  if (grad_output.scalar_type() == torch::kFloat32) {
+    status = rl_kernel::mhc::launch_mhc_pre_h_aggregate_backward(
+        grad_output.data_ptr<float>(), residual_ptr, pre_ptr, grad_residual_ptr,
+        grad_pre_ptr, num_tokens, hidden_size, at::cuda::getCurrentCUDAStream(), major >= 9);
+  } else {
+    auto const* grad_output_ptr = reinterpret_cast<__nv_bfloat16 const*>(
+        grad_output.data_ptr<at::BFloat16>());
+    status = rl_kernel::mhc::launch_mhc_pre_h_aggregate_backward(
+        grad_output_ptr, residual_ptr, pre_ptr, grad_residual_ptr,
+        grad_pre_ptr, num_tokens, hidden_size, at::cuda::getCurrentCUDAStream(), major >= 9);
+  }
   C10_CUDA_CHECK(status);
   return {grad_residual, grad_pre};
 }

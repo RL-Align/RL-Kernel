@@ -90,8 +90,14 @@ __global__ void mhc_pre_h_aggregate_kernel(__nv_bfloat16 const* residual,
 #endif
 }
 
+__device__ __forceinline__ float grad_to_float(float value) { return value; }
+__device__ __forceinline__ float grad_to_float(__nv_bfloat16 value) {
+  return __bfloat162float(value);
+}
+
+template <typename Grad>
 __global__ void mhc_pre_h_aggregate_backward_kernel(
-    __nv_bfloat16 const* grad_output, __nv_bfloat16 const* residual,
+    Grad const* grad_output, __nv_bfloat16 const* residual,
     float const* pre, float* grad_residual, float* grad_pre,
     int64_t hidden_size) {
 #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900)
@@ -109,7 +115,7 @@ __global__ void mhc_pre_h_aggregate_backward_kernel(
   // dR[i, d] = dH[d] * PRE[i]: every element has one writer, no reduction.
   for (int64_t hidden = threadIdx.x; hidden < hidden_size;
        hidden += blockDim.x) {
-    float const dy = __bfloat162float(grad_output[output_offset + hidden]);
+    float const dy = grad_to_float(grad_output[output_offset + hidden]);
     grad_residual[residual_offset + hidden] = __fmul_rn(dy, weight_0);
     grad_residual[residual_offset + hidden_size + hidden] =
         __fmul_rn(dy, weight_1);
@@ -126,7 +132,7 @@ __global__ void mhc_pre_h_aggregate_backward_kernel(
     int64_t const stream_offset = residual_offset + threadIdx.x * hidden_size;
     float acc = 0.0f;
     for (int64_t hidden = 0; hidden < hidden_size; ++hidden) {
-      float const dy = __bfloat162float(grad_output[output_offset + hidden]);
+      float const dy = grad_to_float(grad_output[output_offset + hidden]);
       float const r = __bfloat162float(residual[stream_offset + hidden]);
       acc = __fadd_rn(acc, __fmul_rn(dy, r));
     }
@@ -160,8 +166,9 @@ inline cudaError_t launch_mhc_pre_h_aggregate(
                             output, hidden_size);
 }
 
+template <typename Grad>
 inline cudaError_t launch_mhc_pre_h_aggregate_backward(
-    __nv_bfloat16 const* grad_output, __nv_bfloat16 const* residual,
+    Grad const* grad_output, __nv_bfloat16 const* residual,
     float const* pre, float* grad_residual, float* grad_pre,
     int64_t num_tokens, int64_t hidden_size, cudaStream_t stream,
     bool enable_pdl) {
@@ -178,7 +185,7 @@ inline cudaError_t launch_mhc_pre_h_aggregate_backward(
     config.numAttrs = 1;
   }
 
-  return cudaLaunchKernelEx(&config, mhc_pre_h_aggregate_backward_kernel,
+  return cudaLaunchKernelEx(&config, mhc_pre_h_aggregate_backward_kernel<Grad>,
                             grad_output, residual, pre, grad_residual, grad_pre,
                             hidden_size);
 }
