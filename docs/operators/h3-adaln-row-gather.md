@@ -158,6 +158,25 @@ python tools/validation/models/plot_h3_prior_art.py reports/experiments/h3-prior
 
 Libraries that do not import are skipped and recorded as unavailable in the report.
 
+### Direct bitwise comparison
+
+Equal FP64 errors do not show equal bits, so the candidates are also compared byte for byte.
+`tools/validation/models/h3_bitwise_reuse.py` runs every candidate above on identical inputs
+(each global batch-invariant mode in its own process) and compares every output and leaf
+gradient with diffusers' path and with this kernel.
+
+![adaln_row_gather bitwise comparison](../../reports/experiments/h3-bitwise-reuse-b200/adaln_row_gather.png)
+
+There is no reuse candidate beyond diffusers' six index_select calls. The forward is bitwise identical to them at every S (1 to 32768). The table gradient matches at S = 1 and differs from S = 257 on: index_select accumulates it with BF16 atomics, this kernel in a fixed FP32 order.
+[`adaln_row_gather.json`](../../reports/experiments/h3-bitwise-reuse-b200/adaln_row_gather.json) was written from a clean tree at `46347118` by
+
+```bash
+python tools/validation/models/h3_bitwise_reuse.py --op adaln_row_gather \
+    --out reports/experiments/h3-bitwise-reuse-b200/adaln_row_gather.json
+python tools/validation/models/plot_h3_bitwise_reuse.py reports/experiments/h3-bitwise-reuse-b200/adaln_row_gather.json \
+    --out reports/experiments/h3-bitwise-reuse-b200/adaln_row_gather.png
+```
+
 ## Tests
 
 ```bash

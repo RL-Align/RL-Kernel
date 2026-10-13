@@ -129,6 +129,25 @@ python tools/validation/models/plot_h3_prior_art.py reports/experiments/h3-prior
 
 Libraries that do not import are skipped and recorded as unavailable in the report.
 
+### Direct bitwise comparison
+
+Equal FP64 errors do not show equal bits, so the candidates are also compared byte for byte.
+`tools/validation/models/h3_bitwise_reuse.py` runs every candidate above on identical inputs
+(each global batch-invariant mode in its own process) and compares every output and leaf
+gradient with diffusers' path and with this kernel.
+
+![norm_modulate bitwise comparison](../../reports/experiments/h3-bitwise-reuse-b200/norm_modulate.png)
+
+This kernel's modulated forward is bitwise identical to the diffusers composition at every S (1 to 32768). Liger 0.8.4 differs in 41.8-46.5% of the BF16 outputs, with either gather, and SGLang 0.5.21's fused_norm_scale_shift in 36.0-36.7%. torch F.rms_norm and Transformer Engine compute only the norm, not the modulation, so their rows are listed for completeness, not as parity candidates.
+[`norm_modulate.json`](../../reports/experiments/h3-bitwise-reuse-b200/norm_modulate.json) was written from a clean tree at `228e50b9` by
+
+```bash
+python tools/validation/models/h3_bitwise_reuse.py --op norm_modulate \
+    --out reports/experiments/h3-bitwise-reuse-b200/norm_modulate.json
+python tools/validation/models/plot_h3_bitwise_reuse.py reports/experiments/h3-bitwise-reuse-b200/norm_modulate.json \
+    --out reports/experiments/h3-bitwise-reuse-b200/norm_modulate.png
+```
+
 ## Tests
 
 ```bash
