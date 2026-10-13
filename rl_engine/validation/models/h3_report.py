@@ -490,6 +490,7 @@ def _norm_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
 def _norm_accuracy(registry: KernelRegistry) -> dict[str, Any]:
     op = registry.get_op("h3_rmsnorm", device="cuda")
     weights = load_h3_conditioning_weights("cuda")
+    gen = torch.Generator(device="cuda").manual_seed(0)
     plain = {}
     for name in (
         "transformer_blocks.0.norm1.weight",
@@ -497,7 +498,7 @@ def _norm_accuracy(registry: KernelRegistry) -> dict[str, Any]:
         "token_refiner.final_norm.weight",
         "norm_out.norm.weight",
     ):
-        x = torch.randn(2, 777, 5376, device="cuda").bfloat16()
+        x = torch.randn(2, 777, 5376, device="cuda", generator=gen).bfloat16()
         ref = torch.nn.functional.rms_norm(x, (5376,), weights[name], 1e-5)
         plain[name] = bool(torch.equal(op(x, weights[name]), ref))
     x, weight, shift, scale, index = _norm_inputs(4097, seed=1)
