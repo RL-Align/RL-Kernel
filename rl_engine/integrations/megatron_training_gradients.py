@@ -19,12 +19,21 @@ prove "no write". Markers:
   where a flag still set after zeroing makes the write source unknown).
 
 Bucket digests are optional extra evidence and never decide a single parameter.
+
+With ``observe_sync=True`` the observer also records, inside the step window,
+every gradient-sync collective Megatron issues on a DDP bucket (the
+reduce-scatter used with the distributed optimizer, or the all-reduce
+otherwise): which bucket, which group, which shard this rank received. The
+collective functions are wrapped by pass-through Python callables only, so no
+CUDA kernel is added. :func:`observe_optimizer_ownership` reads which
+parameter ranges this rank's distributed optimizer owns.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Optional
 
@@ -34,6 +43,7 @@ from rl_engine.alignment.cross_config.adapters.megatron_training import T05Contr
 
 GRADIENT_EVIDENCE_SCHEMA_VERSION = "rlkernel.p7.t05.gradient_step_evidence.v1-draft"
 _FLAG = "grad_added_to_main_grad"
+_MEGATRON_BUFFER_MODULE = "megatron.core.distributed.param_and_grad_buffer"
 
 
 @dataclass(frozen=True)
@@ -75,6 +85,7 @@ class GradientStepEvidence:
     step_index: int
     records: tuple[ParameterGradientRecord, ...]
     bucket_digests: Optional[tuple[tuple[int, int, str], ...]] = None
+    sync: Optional[dict[str, Any]] = None
     schema_version: str = GRADIENT_EVIDENCE_SCHEMA_VERSION
 
     def record(self, name: str) -> ParameterGradientRecord:
@@ -92,7 +103,7 @@ class GradientStepEvidence:
         return tuple(item.name for item in self.records if item.wrote is None)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "schema_version": self.schema_version,
             "step_index": self.step_index,
             "records": [item.to_dict() for item in self.records],
@@ -104,11 +115,28 @@ class GradientStepEvidence:
                 else [list(item) for item in self.bucket_digests]
             ),
         }
+        if self.sync is not None:
+            payload["sync"] = self.sync
+        return payload
 
     @property
     def fingerprint(self) -> str:
         encoded = json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _ddp_buffers(ddp: Any) -> list[Any]:
+    return list(getattr(ddp, "buffers", []) or []) + list(
+        getattr(ddp, "expert_parallel_buffers", []) or []
+    )
+
+
+def _group_ranks(group: Any) -> list[int]:
+    import torch.distributed as dist
+
+    if group is None:
+        return list(range(dist.get_world_size()))
+    return [int(rank) for rank in dist.get_process_group_ranks(group)]
 
 
 def _flag(param: torch.nn.Parameter) -> Optional[bool]:
@@ -139,7 +167,9 @@ def _decide(
 class GradientStepObserver:
     """Wrap one Megatron DDP instance read-only; one evidence record per step window."""
 
-    def __init__(self, ddp: Any, *, digest_buckets: bool = False) -> None:
+    def __init__(
+        self, ddp: Any, *, digest_buckets: bool = False, observe_sync: bool = False
+    ) -> None:
         for name in ("module", "zero_grad_buffer", "finish_grad_sync"):
             if not hasattr(ddp, name):
                 raise T05ContractError(
@@ -147,6 +177,11 @@ class GradientStepObserver:
                 )
         self._ddp = ddp
         self._digest = digest_buckets
+        self._observe_sync = observe_sync
+        self._collectives: list[tuple[Any, str, Any]] = []
+        self._sync_calls: list[dict[str, Any]] = []
+        self._unmatched_calls = 0
+        self._bucket_ptrs: dict[tuple[int, int], tuple[int, int, int]] = {}
         self._handles: list[Any] = []
         self._patched: dict[str, Any] = {}
         self._calls: dict[str, int] = {}
@@ -186,6 +221,8 @@ class GradientStepObserver:
                 self._handles.append(param.register_post_accumulate_grad_hook(self._counter(name)))
         self._wrap("zero_grad_buffer", self._after_zero)
         self._wrap("finish_grad_sync", self._after_sync)
+        if self._observe_sync:
+            self._wrap_collectives()
         self._installed = True
 
     def uninstall(self) -> None:
@@ -200,11 +237,102 @@ class GradientStepObserver:
             else:
                 delattr(self._ddp, method_name)
         self._patched.clear()
+        for owner, attribute, original in reversed(self._collectives):
+            setattr(owner, attribute, original)
+        self._collectives.clear()
         self._installed = False
+
+    def _wrap_collectives(self) -> None:
+        """Pass-through wrappers that note grad-sync calls on DDP buckets in the window."""
+
+        import torch.distributed as dist
+
+        targets: list[tuple[Any, str, str]] = [(dist, "all_reduce", "all_reduce")]
+        buffer_module = sys.modules.get(_MEGATRON_BUFFER_MODULE)
+        if buffer_module is not None and hasattr(buffer_module, "dist_reduce_scatter_func"):
+            targets.append((buffer_module, "dist_reduce_scatter_func", "reduce_scatter"))
+        for owner, attribute, kind in targets:
+            original = getattr(owner, attribute)
+            self._collectives.append((owner, attribute, original))
+            setattr(owner, attribute, self._spy(original, kind))
+
+    def _spy(self, original: Callable[..., Any], kind: str) -> Callable[..., Any]:
+        def spy(*args: Any, **kwargs: Any) -> Any:
+            if self._zero_seen and not self._sync_seen:
+                self._note_collective(kind, args, kwargs)
+            return original(*args, **kwargs)
+
+        return spy
+
+    def _note_collective(self, kind: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
+        if kind == "reduce_scatter":
+            output = args[0] if args else kwargs.get("output")
+            inputs = args[1] if len(args) > 1 else kwargs.get("input")
+            op = args[2] if len(args) > 2 else kwargs.get("op")
+            group = args[3] if len(args) > 3 else kwargs.get("group")
+        else:
+            inputs = output = args[0] if args else kwargs.get("tensor")
+            op = args[1] if len(args) > 1 else kwargs.get("op")
+            group = args[2] if len(args) > 2 else kwargs.get("group")
+        if not isinstance(inputs, torch.Tensor) or not isinstance(output, torch.Tensor):
+            self._unmatched_calls += 1
+            return
+        located = self._bucket_ptrs.get((inputs.data_ptr(), inputs.numel()))
+        if located is None:
+            self._unmatched_calls += 1
+            return
+        buffer_index, bucket_id, _ = located
+        self._sync_calls.append(
+            {
+                "kind": kind,
+                "buffer_index": buffer_index,
+                "bucket_id": bucket_id,
+                "group_ranks": _group_ranks(group),
+                "op": str(op),
+                "input_numel": int(inputs.numel()),
+                "output_offset": (output.data_ptr() - inputs.data_ptr()) // inputs.element_size(),
+                "output_numel": int(output.numel()),
+            }
+        )
+
+    def _bucket_layout(self) -> list[dict[str, Any]]:
+        names = {id(param): name for name, param in self._ddp.module.named_parameters()}
+        layout = []
+        for buffer_index, buffer in enumerate(_ddp_buffers(self._ddp)):
+            index_map = getattr(buffer, "param_index_map", {})
+            for bucket in getattr(buffer, "buckets", []) or []:
+                params = sorted(
+                    (names.get(id(param), "?"), int(index_map[param][0]), int(index_map[param][1]))
+                    for param in bucket.params_list
+                )
+                layout.append(
+                    {
+                        "buffer_index": buffer_index,
+                        "bucket_id": int(bucket.bucket_id),
+                        "offset": int(bucket.offset),
+                        "numel": int(bucket.grad_data.numel()),
+                        "numel_unpadded": int(bucket.numel_unpadded),
+                        "gradient_scaling_factor": float(bucket.gradient_scaling_factor),
+                        "params": [list(item) for item in params],
+                    }
+                )
+        return layout
 
     def _after_zero(self) -> None:
         self._step += 1
         self._calls = {}
+        self._sync_calls = []
+        self._unmatched_calls = 0
+        if self._observe_sync:
+            self._bucket_ptrs = {
+                (bucket.grad_data.data_ptr(), bucket.grad_data.numel()): (
+                    buffer_index,
+                    int(bucket.bucket_id),
+                    int(bucket.offset),
+                )
+                for buffer_index, buffer in enumerate(_ddp_buffers(self._ddp))
+                for bucket in getattr(buffer, "buckets", []) or []
+            }
         self._begin_flags = {
             name: _flag(param) for name, param in self._ddp.module.named_parameters()
         }
@@ -217,20 +345,14 @@ class GradientStepObserver:
 
     def _buffer_map(self) -> dict[int, tuple[int, int, tuple[int, int]]]:
         mapping: dict[int, tuple[int, int, tuple[int, int]]] = {}
-        buffers = list(getattr(self._ddp, "buffers", []) or []) + list(
-            getattr(self._ddp, "expert_parallel_buffers", []) or []
-        )
-        for index, buffer in enumerate(buffers):
+        for index, buffer in enumerate(_ddp_buffers(self._ddp)):
             for param, (start, end, bucket_id) in getattr(buffer, "param_index_map", {}).items():
                 mapping[id(param)] = (index, int(bucket_id), (int(start), int(end)))
         return mapping
 
     def _bucket_digests(self) -> tuple[tuple[int, int, str], ...]:
         digests: list[tuple[int, int, str]] = []
-        buffers = list(getattr(self._ddp, "buffers", []) or []) + list(
-            getattr(self._ddp, "expert_parallel_buffers", []) or []
-        )
-        for index, buffer in enumerate(buffers):
+        for index, buffer in enumerate(_ddp_buffers(self._ddp)):
             data = buffer.grad_data.detach()
             for bucket_id, (start, end) in enumerate(getattr(buffer, "bucket_indices", [])):
                 chunk = data[start:end].cpu().reshape(-1)
@@ -286,10 +408,69 @@ class GradientStepObserver:
             step_index=self._step,
             records=tuple(records),
             bucket_digests=self._bucket_digests() if self._digest else None,
+            sync=self._sync_evidence() if self._observe_sync else None,
         )
         self._zero_seen = False
         self._sync_seen = False
         return evidence
+
+    def _sync_evidence(self) -> dict[str, Any]:
+        ddp_config = getattr(self._ddp, "ddp_config", None)
+        configured = getattr(ddp_config, "use_distributed_optimizer", None)
+        return {
+            "source": "observed",
+            "use_distributed_optimizer": {
+                "source": "configured",
+                "value": None if configured is None else bool(configured),
+            },
+            "buckets": self._bucket_layout(),
+            "calls": list(self._sync_calls),
+            "unmatched_calls": self._unmatched_calls,
+        }
+
+
+def observe_optimizer_ownership(optimizer: Any, ddp: Any) -> dict[str, Any]:
+    """Parameter ranges this rank's Megatron distributed optimizer owns, in DDP buffer space."""
+
+    names = {id(param): name for name, param in ddp.module.named_parameters()}
+    buffers = _ddp_buffers(ddp)
+    members = list(getattr(optimizer, "chained_optimizers", None) or [optimizer])
+    ranges: list[dict[str, Any]] = []
+    kinds = []
+    for member in members:
+        gbuf_ranges = getattr(member, "gbuf_ranges", None)
+        if gbuf_ranges is None:
+            continue
+        kinds.append(type(member).__name__)
+        for gbuf_index, buffer in enumerate(member.buffers):
+            matches = [index for index, item in enumerate(buffers) if item is buffer]
+            if len(matches) != 1:
+                raise T05ContractError(
+                    "IDENTITY_DRIFT",
+                    "optimizer.buffers",
+                    f"optimizer buffer {gbuf_index} is not one of the DDP buffers",
+                )
+            for bucket_ranges in gbuf_ranges[gbuf_index].values():
+                for bucket_id, bucket_range in enumerate(bucket_ranges):
+                    for param, ranges_of in bucket_range["param_map"].items():
+                        world, local = ranges_of["gbuf_world"], ranges_of["param"]
+                        ranges.append(
+                            {
+                                "name": names.get(id(param), "?"),
+                                "buffer_index": matches[0],
+                                "bucket_id": bucket_id,
+                                "world_start": int(world.start),
+                                "world_end": int(world.end),
+                                "param_start": int(local.start),
+                                "param_end": int(local.end),
+                            }
+                        )
+    if not kinds:
+        raise T05ContractError(
+            "UNSUPPORTED_CAPABILITY", "optimizer", "no Megatron distributed optimizer found"
+        )
+    ranges.sort(key=lambda item: (item["buffer_index"], item["world_start"]))
+    return {"source": "observed", "optimizers": kinds, "ranges": ranges}
 
 
 def check_base_grad_absent(evidence: GradientStepEvidence, base_param_names: Iterable[str]) -> None:
@@ -344,4 +525,5 @@ __all__ = [
     "ParameterGradientRecord",
     "check_base_grad_absent",
     "check_emitted_against_producer",
+    "observe_optimizer_ownership",
 ]
