@@ -194,7 +194,11 @@ class TestCudaRealWeights:
 
         ref = [t.detach().double().requires_grad_(True) for t in (temb, weight, bias)]
         act = ref[0] * torch.sigmoid(ref[0])
-        act = act + (act.to(torch.bfloat16).double() - act).detach()  # declared cast, identity VJP
+        # The declared cast rounds the FP32 SiLU, as the kernel and diffusers do: an
+        # FP64 SiLU can round to the other BF16 neighbour near a tie, which shifts a
+        # whole dW column.
+        act_bf16 = F.silu(temb.float()).to(torch.bfloat16).double()
+        act = act + (act_bf16 - act).detach()  # declared cast, identity VJP
         table = F.linear(act, ref[1], ref[2]).view(-1, 6 * 5376).chunk(6, dim=-1)
         torch.autograd.backward(list(table), [gr.double() for gr in grads])
         # tolerance_contract.json gradient_accuracy / reduction: FP32 temb grad
