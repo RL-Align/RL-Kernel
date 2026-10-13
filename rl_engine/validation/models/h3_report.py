@@ -139,7 +139,8 @@ def _mlp_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
     weight_bytes = sum(p.numel() * p.element_size() for p in params)
     cases = []
     for num in (1, 2, 3, 4):
-        x = torch.rand(num, 256, device="cuda") * 2 - 1
+        gen = torch.Generator(device="cuda").manual_seed(num)
+        x = torch.rand(num, 256, device="cuda", generator=gen) * 2 - 1
         cases.append(
             {
                 "op": "timestep_mlp_fp32",
