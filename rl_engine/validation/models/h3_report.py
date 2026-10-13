@@ -317,12 +317,15 @@ GATHER_SEQ_LENS = (4097, 32768, 131072)
 def _gather_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
     op = registry.get_op("adaln_row_gather", device="cuda")
     num_timesteps, hidden = 3, 5376
-    rows = torch.randn(3 * num_timesteps, 6 * hidden, device="cuda").bfloat16()
+    gen = torch.Generator(device="cuda").manual_seed(0)
+    rows = torch.randn(3 * num_timesteps, 6 * hidden, device="cuda", generator=gen).bfloat16()
     chunks = rows.chunk(6, dim=-1)
     cases = []
     for seq in GATHER_SEQ_LENS:
         ti, tags = h3_packed_layout(seq, num_timesteps, seed=seq)
-        grads = [torch.randn(seq, hidden, device="cuda").bfloat16() for _ in range(6)]
+        grads = [
+            torch.randn(seq, hidden, device="cuda", generator=gen).bfloat16() for _ in range(6)
+        ]
 
         def backward(fn, ti=ti, tags=tags, grads=grads):
             leaf = rows.detach().requires_grad_(True)
