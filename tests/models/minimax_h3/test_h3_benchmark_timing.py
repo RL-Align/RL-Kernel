@@ -212,9 +212,17 @@ def test_backward_perf_cases_prepare_fresh_cpu_graphs_before_events(
         build = h3_report._final_perf
     else:
         randn = torch.randn
+        cpu_generators = {}
 
         def cpu_randn(*args, **kwargs):
             kwargs["device"] = "cpu"
+            # A seeded CUDA generator cannot draw a CPU tensor: continue the same seed on
+            # one CPU generator per CUDA generator.
+            gen = kwargs.get("generator")
+            if gen is not None and gen.device.type != "cpu":
+                if id(gen) not in cpu_generators:
+                    cpu_generators[id(gen)] = torch.Generator().manual_seed(gen.initial_seed())
+                kwargs["generator"] = cpu_generators[id(gen)]
             return randn(*args, **kwargs)
 
         provider = h3_report.provider_adaln_row_gather
