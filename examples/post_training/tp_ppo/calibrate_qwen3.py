@@ -21,6 +21,13 @@ import torch
 REVISION = "b968826d9c46dd6066d109eabc6255188de91218"
 
 
+def report_json_default(value):
+    """Transformers loading diagnostics can contain sets, including empty sets."""
+    if isinstance(value, (set, frozenset)):
+        return sorted(value)
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
 def sha(path):
     h = hashlib.sha256()
     with Path(path).open("rb") as f:
@@ -81,7 +88,12 @@ def main():
             report[name + "_checkpoint_loading"] = loading
             if any(
                 loading.get(key)
-                for key in ("missing_keys", "unexpected_keys", "mismatched_keys", "error_msgs")
+                for key in (
+                    "missing_keys",
+                    "unexpected_keys",
+                    "mismatched_keys",
+                    "error_msgs",
+                )
             ):
                 raise ValueError("Qwen3 reference checkpoint has missing or unmatched tensors")
             parameter_dtypes = {parameter.dtype for parameter in model.parameters()}
@@ -150,7 +162,9 @@ def main():
         report.update(status="failed", error=f"{type(exc).__name__}: {exc}")
         raise
     finally:
-        (args.output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
+        (args.output / "report.json").write_text(
+            json.dumps(report, indent=2, default=report_json_default) + "\n"
+        )
 
 
 if __name__ == "__main__":

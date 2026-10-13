@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -74,10 +75,12 @@ def test_gqa_group_layout_and_gate_up_stride_are_independently_correct():
     )
     assert torch.equal(s["decoder.layers.0.self_attention.linear_qkv.weight"], expect)
     assert torch.equal(
-        s["decoder.layers.0.mlp.linear_fc1.weight"][:6], state[prefix + "mlp.gate_proj.weight"][6:]
+        s["decoder.layers.0.mlp.linear_fc1.weight"][:6],
+        state[prefix + "mlp.gate_proj.weight"][6:],
     )
     assert torch.equal(
-        s["decoder.layers.0.mlp.linear_fc1.weight"][6:], state[prefix + "mlp.up_proj.weight"][6:]
+        s["decoder.layers.0.mlp.linear_fc1.weight"][6:],
+        state[prefix + "mlp.up_proj.weight"][6:],
     )
     assert torch.count_nonzero(s["output_layer.weight"][-1]) == 0
 
@@ -108,9 +111,10 @@ def _snapshot_worker(rank, size, rendezvous):
                     module = module._modules[part]
                 parameter = torch.nn.Parameter(value.clone())
                 axis = None
-                if name in ("embedding.word_embeddings.weight", "output_layer.weight") or (
-                    name.endswith(("linear_qkv.weight", "linear_fc1.weight"))
-                ):
+                if name in (
+                    "embedding.word_embeddings.weight",
+                    "output_layer.weight",
+                ) or (name.endswith(("linear_qkv.weight", "linear_fc1.weight"))):
                     axis = 0
                 elif name.endswith(("linear_proj.weight", "linear_fc2.weight")):
                     axis = 1
@@ -151,3 +155,19 @@ def test_actor_snapshot_preserves_gate_up_weights_and_gradients(tmp_path, tp):
         nprocs=tp,
         start_method="spawn",
     )
+
+
+def test_reference_report_preserves_loading_diagnostics():
+    from examples.post_training.tp_ppo.calibrate_qwen3 import report_json_default
+
+    report = {
+        "status": "failed",
+        "error": "incomplete checkpoint",
+        "loading": {"missing_keys": {"b", "a"}, "unexpected_keys": set()},
+    }
+    restored = json.loads(json.dumps(report, default=report_json_default))
+    assert restored["loading"] == {"missing_keys": ["a", "b"], "unexpected_keys": []}
+    assert restored["status"] == "failed"
+    assert restored["error"] == "incomplete checkpoint"
+    with pytest.raises(TypeError):
+        json.dumps({"invalid": object()}, default=report_json_default)
