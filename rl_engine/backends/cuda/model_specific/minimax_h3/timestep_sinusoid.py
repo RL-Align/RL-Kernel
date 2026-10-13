@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import torch
 
-from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.reference.minimax_h3 import H3_FREQ_DIM, H3_MAX_PERIOD
 from rl_engine.reference.minimax_h3.fixed_order import tree_sum_lastdim_fp32
 from rl_engine.reference.minimax_h3.timestep_sinusoid import (
@@ -81,7 +81,8 @@ class H3TimestepSinusoidCudaOp:
         if not h3_sinusoid_cuda_available():
             raise RuntimeError(
                 "rl_engine._C.h3_timestep_sinusoid_forward is unavailable; rebuild the "
-                "CUDA extension with csrc/cuda/h3/timestep_sinusoid.cu"
+                "CUDA extension with csrc/cuda/h3/timestep_sinusoid.cu (it is omitted "
+                "from KERNEL_ALIGN_USE_FAST_MATH=1 builds to keep bitwise parity)"
             )
 
     def __call__(self, timestep: torch.Tensor, *, num_channels: int = H3_FREQ_DIM):
