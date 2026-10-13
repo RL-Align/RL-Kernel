@@ -56,33 +56,9 @@ same shape and dtype, and supports only TP sizes 1, 2, 4 and 8. `tests/models/qw
 if a raw `torch.distributed` reduction appears in a Qwen3-Next model, engine or
 VIME module (an integer MAX of per-rank flags is the one documented exception).
 
-## Reuse decision
-
-Measured with `tools/validation/models/qwen3_next_logprob_prior_art.py` on the
-same official-LM-head logits (TP4 slices of one full-vocabulary product), at TP1
-and at TP4 under the same 13 NCCL settings as the parity run:
-
-| Implementation | TP4 == TP1 | NCCL-setting invariant | Batch invariant | Matches the others |
-| --- | --- | --- | --- | --- |
-| RL-Kernel WS2 (`shared_logprob`) | yes | yes | yes | — |
-| vLLM sampler (all-gather + `log_softmax`) | yes | yes | yes | no |
-| Megatron-core `vocab_parallel_cross_entropy` | no | no (2 results over 13 settings) | yes | no |
-| VIME default `calculate_log_probs_and_entropy` | no | no (2 results over 13 settings) | yes | Megatron only |
-
-vLLM's sampler path is exact on the rollout side, but VIME's training side has
-no counterpart that reproduces it: the Megatron/VIME paths reduce max and
-sum-exp with NCCL all-reduce and differ from it. Using one provider for both
-engines is the only measured way to equal bits, so both engines keep the WS2
-provider. Its cost is latency (see Results); a faster tile-stats kernel is
-follow-up work and would keep the same merge order.
-
-All four agree with an FP64 log-softmax to within 8.1e-7 and the largest
-difference between any two of them is 9.5e-7: the defaults are close, but not
-equal, and only equal bits remove the replay/rollout difference the RFC targets.
-
 ## Results
 
-Evidence: [`docs/usage/evidence/qwen3-next-distributed-logprob-b200/`](../usage/evidence/qwen3-next-distributed-logprob-b200/README.md).
+Evidence: [`reports/experiments/qwen3_next/qwen3-next-distributed-logprob-b200.md`](https://github.com/fusheng-ji/RL-Kernel/blob/feat/ws1-qwen3-next-distributed-logprob-tp/reports/experiments/qwen3_next/qwen3-next-distributed-logprob-b200.md).
 
 - 13 NCCL settings (defaults; Ring and all-reduce Tree × LL / LL128 / Simple ×
   1 channel / default channels), real Qwen3-Next weights, 1024 tokens, 4 × B200:
@@ -90,8 +66,6 @@ Evidence: [`docs/usage/evidence/qwen3-next-distributed-logprob-b200/`](../usage/
   settings, and the TP4 selected logprob and LSE equal TP1. The negative
   control -- real attention `o_proj` partials summed with NCCL `all_reduce` --
   gives 5 different results over the same settings.
-- Latency at TP4 for 1024 tokens (median): RL-Kernel WS2 2.55 ms, vLLM
-  all-gather + log_softmax 1.51 ms, Megatron-core and VIME 0.57 ms.
 - The full-model chain (#543) shows the end-to-end consequence: selected
   logprobs of vLLM rollout and VIME recompute are bitwise equal for 16 cases at
   four weight versions.
@@ -101,8 +75,7 @@ Evidence: [`docs/usage/evidence/qwen3-next-distributed-logprob-b200/`](../usage/
 | File | Device | Covers |
 | --- | --- | --- |
 | `tests/models/qwen3_next/test_qwen3_next_tp_reductions.py` | CPU | no raw NCCL reduction in Qwen3-Next forward paths; the TP reduction uses the fixed-order collective |
-| `tools/validation/models/qwen3_next_logprob_parity.py` + `..._compare.py` | 4 × CUDA | digests at every cross-rank point under each NCCL setting; TP4 == TP1 |
-| `tools/validation/models/qwen3_next_logprob_prior_art.py` | 4 × CUDA | prior art above |
+| `tools/validation/models/qwen3_next/qwen3_next_logprob_parity.py` + `..._compare.py` | 4 × CUDA | digests at every cross-rank point under each NCCL setting; TP4 == TP1 |
 | `tests/distributed/tp/test_vocab_parallel_logp.py` (existing) | CUDA | WS2 TP = n == TP = 1 on synthetic shapes |
 
 ## Known Limitations

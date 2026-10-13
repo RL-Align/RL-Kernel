@@ -78,7 +78,7 @@ print("[ws1-gtest] C8 gate passed")
 PY
 
 echo "[ws1-gtest] Qwen3-Next C3/C4 norms (operator scope)"
-QWEN3_NEXT_NORM_MANIFEST=rl_engine/validation/models/qwen3_next_norm_manifest.json
+QWEN3_NEXT_NORM_MANIFEST=rl_engine/validation/models/qwen3_next/qwen3_next_norm_manifest.json
 "$PY" tools/validation/operators/check_forward_invariance.py --manifest "$QWEN3_NEXT_NORM_MANIFEST" \
   --op qwen3_next_rms_norm --candidate cuda --backend-profile cuda_bf16 --hidden 2048 --head-dim 128
 "$PY" tools/validation/operators/check_gradient_invariance.py --manifest "$QWEN3_NEXT_NORM_MANIFEST" \
