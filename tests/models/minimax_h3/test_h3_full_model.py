@@ -92,3 +92,66 @@ def test_binding_restored_after_failure():
         with full_model_execution(model, candidate=True, trace=FullModelTrace(), ops=object()):
             raise RuntimeError("injected")
     assert model.transformer_blocks[12].forward == original
+
+
+def test_candidate_execution_requires_every_node():
+    trace = FullModelTrace()
+    trace.candidate = True
+    for name in [f"block.{i}" for i in range(50)] + [
+        "refiner.0",
+        "refiner.1",
+        "proj_in",
+        "audio_proj_in",
+        "context_embedder",
+        "token_refiner",
+        "time_embedder",
+        "norm_out",
+        "proj_out",
+        "audio_proj_out",
+    ]:
+        trace.calls[name] = 1
+    with pytest.raises(ValueError, match="candidate nodes did not execute"):
+        trace.validate()
+
+
+def test_drift_order_follows_execution_instead_of_lexical_names():
+    from tools.validation.models.h3_full_compare import drift_order
+
+    report = {
+        "trace": {
+            "calls": {"block.2": 1, "block.10": 1},
+            "backward_calls": {"block.10": 1, "block.2": 1},
+        }
+    }
+    names = [
+        "video",
+        "nodes.block.10",
+        "nodes.block.2",
+        "nodes.block.2.grad",
+        "nodes.block.10.grad",
+    ]
+    assert drift_order(report, names) == [
+        "nodes.block.2",
+        "nodes.block.10",
+        "nodes.block.10.grad",
+        "nodes.block.2.grad",
+        "video",
+    ]
+
+
+def test_reference_inventory_rejects_tampered_tensor(tmp_path):
+    import hashlib
+    import json
+
+    from tools.validation.models.h3_evidence_integrity import verify_inventory
+
+    tensor = tmp_path / "tensor.pt"
+    tensor.write_bytes(b"original")
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps({"files": {"tensor.pt": hashlib.sha256(b"original").hexdigest()}})
+    )
+    verify_inventory(tmp_path, manifest)
+    tensor.write_bytes(b"changed")
+    with pytest.raises(ValueError, match="changed"):
+        verify_inventory(tmp_path, manifest)

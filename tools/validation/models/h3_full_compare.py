@@ -13,6 +13,9 @@ from tools.validation.models.h3_full_model import digest
 
 
 def tensors(root):
+    report = json.loads((root / "report.json").read_text())
+    if digest(root / "tensors.pt") != report["tensors_sha256"]:
+        raise ValueError("full-model tensor evidence changed")
     payload = torch.load(root / "tensors.pt", map_location="cpu", weights_only=True)
     yield "video", payload["video"]
     yield "audio", payload["audio"]
@@ -48,15 +51,33 @@ def compare(left, right):
         )
 
 
+def drift_order(report, names):
+    trace = report["trace"]
+    forward = trace.get("forward_order", list(trace["calls"]))
+    backward = trace.get("backward_order", list(trace["backward_calls"]))
+    ordered = ["nodes." + name for name in forward]
+    ordered += ["nodes." + name + ".grad" for name in backward]
+    ordered += [name for name in names if name not in ordered]
+    return [name for name in ordered if name in names]
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--reference", type=Path, required=True)
     p.add_argument("--other", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--thresholds", type=Path)
+    p.add_argument("--reference-manifest", type=Path)
+    p.add_argument("--reference-root", type=Path)
     args = p.parse_args()
     if args.output.exists():
         raise ValueError("never overwrite calibration or failed evidence")
+    from tools.validation.models.h3_evidence_integrity import verify_inventory
+
+    if args.thresholds and not (args.reference_root and args.reference_manifest):
+        raise ValueError("candidate comparison requires pinned reference inventory")
+    if args.reference_manifest:
+        verify_inventory(args.reference_root, args.reference_manifest)
     ref = json.loads((args.reference / "report.json").read_text())
     other = json.loads((args.other / "report.json").read_text())
     if ref["mode"] != "fp32-reference" or ref["status"] != "execution_complete_acceptance_pending":
@@ -82,8 +103,8 @@ def main():
             raise ValueError("threshold tensor inventory differs")
         failures = [
             name
-            for name, row in rows.items()
-            if any(row[k] > contract["bounds"][name][k] for k in row)
+            for name in drift_order(ref, rows)
+            if any(rows[name][k] > contract["bounds"][name][k] for k in rows[name])
         ]
         report.update(
             status="failed" if failures else "passed",

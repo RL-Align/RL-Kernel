@@ -73,9 +73,15 @@ class FullModelTrace:
         self.snapshots = {}
         self.capture = False
         self.actual_backends = {}
+        self.candidate = False
+        self.candidate_calls = Counter()
+        self.forward_order = []
+        self.backward_order = []
 
     def observe(self, name, value):
         self.calls[name] += 1
+        if name not in self.forward_order:
+            self.forward_order.append(name)
         if not isinstance(value, torch.Tensor):
             return
         if self.capture:
@@ -84,6 +90,8 @@ class FullModelTrace:
 
             def record(grad):
                 self.backward_calls[name] += 1
+                if name not in self.backward_order:
+                    self.backward_order.append(name)
                 if self.capture:
                     self.snapshots[name + ".grad"] = grad.detach().cpu()
 
@@ -109,7 +117,19 @@ class FullModelTrace:
             missing += [name + ".backward" for name in required if not self.backward_calls[name]]
         if missing:
             raise ValueError(f"incomplete full-model execution: {missing}")
+        if self.candidate:
+            missing_nodes = [
+                f"block.{i}.{node.name}"
+                for i in range(50)
+                for node in h3_block.NODES
+                if not self.candidate_calls[f"block.{i}.{node.name}"]
+            ]
+            if missing_nodes:
+                raise ValueError(f"candidate nodes did not execute: {missing_nodes}")
         return dict(
+            candidate_calls=dict(self.candidate_calls),
+            forward_order=self.forward_order,
+            backward_order=self.backward_order,
             actual_backends=self.actual_backends,
             calls=dict(self.calls),
             backward_calls=dict(self.backward_calls),
@@ -130,6 +150,7 @@ def full_model_execution(model, *, candidate: bool, trace: FullModelTrace, ops=N
     """Temporarily bind each real block, preserving module parameters and restoring on error."""
     boundaries = validate_full_structure(model)
     originals, handles = [], []
+    trace.candidate = candidate
     if candidate:
         ops = ops or h3_block.CandidateOps()
         if hasattr(ops, "backends"):
@@ -144,7 +165,13 @@ def full_model_execution(model, *, candidate: bool, trace: FullModelTrace, ops=N
                 originals.append((block, original))
 
                 def forward(
-                    self, hidden_states, temb, adaln_indices, rotary_emb, attention_mask=None
+                    self,
+                    hidden_states,
+                    temb,
+                    adaln_indices,
+                    rotary_emb,
+                    attention_mask=None,
+                    _block_index=i,
                 ):
                     if attention_mask is not None:
                         raise ValueError(
@@ -157,6 +184,9 @@ def full_model_execution(model, *, candidate: bool, trace: FullModelTrace, ops=N
                         temb=temb,
                         index=adaln_indices,
                         rope=rotary_emb,
+                        node_observer=lambda name: trace.candidate_calls.update(
+                            [f"block.{_block_index}.{name}"]
+                        ),
                     )
                     return h3_block.run_graph("candidate", ctx, ops)[h3_block.OUTPUT]
 

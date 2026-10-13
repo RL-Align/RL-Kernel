@@ -374,6 +374,9 @@ def run_graph(mode: str, ctx: dict[str, Any], ops: CandidateOps | None = None) -
                 values[node.name] = node.provider(ctx, *args)
             else:
                 values[node.name] = node.golden(ctx, *args)
+            observer = ctx.get("node_observer")
+            if observer is not None:
+                observer(node.name)
     return values
 
 

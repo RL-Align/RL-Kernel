@@ -21,14 +21,22 @@ def main():
     p.add_argument("--contract", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--provider-repeat", action="store_true")
+    p.add_argument("--reference-manifest", type=Path)
+    p.add_argument("--reference-root", type=Path)
     a = p.parse_args()
     contract = json.loads(a.contract.read_text())
+    from tools.validation.models.h3_evidence_integrity import verify_generation, verify_inventory
+
+    if not a.provider_repeat and not (a.reference_root and a.reference_manifest):
+        raise ValueError("candidate comparison requires pinned reference inventory")
+    if a.reference_manifest:
+        verify_inventory(a.reference_root, a.reference_manifest)
     rows = []
     if a.output.exists():
         raise ValueError("never overwrite a prior comparison")
     for seed in contract["seeds"]:
         left, right = a.reference / str(seed), a.candidate / str(seed)
-        reports = [json.loads((root / "report.json").read_text()) for root in (left, right)]
+        reports = [verify_generation(root) for root in (left, right)]
         if any(
             r["preflight"] or r["seed"] != seed or r["contract_sha256"] != digest(a.contract)
             for r in reports
@@ -46,13 +54,20 @@ def main():
             raise ValueError("different initial noise/conditioning")
         x = np.load(left / "video.npy", mmap_mode="r")
         y = np.load(right / "video.npy", mmap_mode="r")
-        if x.shape != y.shape:
+        if x.shape != y.shape or x.shape != (
+            contract["num_frames"],
+            contract["height"],
+            contract["width"],
+            3,
+        ):
             raise ValueError("video geometry differs")
         mse = 0.0
         ssim = 0.0
         temporal = 0.0
         previous = None
         for frame in range(len(x)):
+            if not np.isfinite(x[frame]).all() or not np.isfinite(y[frame]).all():
+                raise ValueError("nonfinite video frame")
             delta = x[frame].astype("float64") - y[frame]
             mse += float(np.mean(delta**2))
             ssim += float(
@@ -63,6 +78,8 @@ def main():
             previous = delta
         audio = np.load(left / "audio.npy")
         other = np.load(right / "audio.npy")
+        if not np.isfinite(audio).all() or not np.isfinite(other).all():
+            raise ValueError("nonfinite audio")
         if audio.shape != other.shape:
             raise ValueError("audio dimensions differ")
         audio_error = float(
@@ -85,6 +102,13 @@ def main():
                 torch.load(root / f"step-{step:03}.pt", map_location="cpu", weights_only=True)
                 for root in (left, right)
             ]
+            if len(v) != 2 or len(w) != 2:
+                raise ValueError("missing video/audio prediction")
+            if any(
+                b.shape != c.shape or not torch.isfinite(b).all() or not torch.isfinite(c).all()
+                for b, c in zip(v, w, strict=True)
+            ):
+                raise ValueError("nonfinite or malformed step prediction")
             predictions.append(
                 [
                     dict(
@@ -94,7 +118,7 @@ def main():
                             / b.double().norm().clamp_min(1e-12)
                         ).item(),
                     )
-                    for b, c in zip(v, w)
+                    for b, c in zip(v, w, strict=True)
                 ]
             )
         bound = contract["quality_bounds"]
