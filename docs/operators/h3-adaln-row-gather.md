@@ -122,21 +122,22 @@ alternates each iteration and is recorded in the report.
 
 ## Evidence
 
-![adaln_row_gather on B200: latency and whole-chain gradient accuracy](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/216fd97c8fdba27527f438b7c9d33d83c56fe11c/reports/experiments/h3-adaln-row-gather-b200/figure.png)
+![adaln_row_gather on B200: latency and whole-chain gradient accuracy](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/00fd890ef3c8e0a2f5df8983f5c0668958a3340c/reports/experiments/h3-adaln-row-gather-b200/figure.png)
 
 There are two data files:
 
-- [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/216fd97c8fdba27527f438b7c9d33d83c56fe11c/reports/experiments/h3-adaln-row-gather-b200/report.json): op timings, forward
+- [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/00fd890ef3c8e0a2f5df8983f5c0668958a3340c/reports/experiments/h3-adaln-row-gather-b200/report.json): op timings, forward
   bitwise checks, op-level backward, and the chain-backward cases plotted above.
-- [`chain_replay.json`](https://github.com/fusheng-ji/RL-Kernel/blob/216fd97c8fdba27527f438b7c9d33d83c56fe11c/reports/experiments/h3-adaln-row-gather-b200/chain_replay.json): the full
+- [`chain_replay.json`](https://github.com/fusheng-ji/RL-Kernel/blob/00fd890ef3c8e0a2f5df8983f5c0668958a3340c/reports/experiments/h3-adaln-row-gather-b200/chain_replay.json): the full
   stage-wise forward replay and backward replay over T in {1, 2, 3, 4} × S in {3, 257, 4097, 32768}.
 
-`report.json` was regenerated from a clean tree at commit `14448146` with backward-only
-timings and alternating execution order. `chain_replay.json` was written from a clean tree
-at commit `d3b37fe1`. Both were regenerated after the AdaLN projection golden's declared
-cast was changed to round the FP32 SiLU, as the model does; every CUDA pass/fail flag is
-unchanged. The op-backward check draws unseeded rows and gradients, so its correctly
-rounded fraction moves slightly between runs (99.99965% in the previous report).
+`report.json` was regenerated from a clean tree at commit `f020f7d5` with backward-only
+timings and alternating execution order, and with the op-backward check's rows and gradients
+drawn from a seeded generator. Before, they came from the process's default CUDA generator,
+so the fraction depended on how many draws the runner made first (99.99965% at `80e4609`).
+`chain_replay.json` was written from a clean tree at commit `d3b37fe1`. Both were regenerated
+after the AdaLN projection golden's declared cast was changed to round the FP32 SiLU, as the
+model does; every CUDA pass/fail flag is unchanged.
 
 ## Existing implementations (RFC #420 reuse rule)
 
