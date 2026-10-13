@@ -14,6 +14,14 @@ from setuptools.command.build_py import build_py as _BuildPy
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
+# MiniMax-H3 (RFC #420) kernels promise bitwise parity with diffusers' eager
+# FP32 math. --use_fast_math swaps expf/sinf/cosf/rsqrtf and division for
+# approximations and flushes denormals, so these sources are left out of
+# KERNEL_ALIGN_USE_FAST_MATH=1 builds; their bindings are gated on
+# KERNEL_ALIGN_WITH_H3_KERNELS and dispatch falls back to the PyTorch reference.
+H3_BITWISE_SOURCES = ("csrc/cuda/h3/timestep_sinusoid.cu",)
+H3_KERNELS_DEFINE = "-DKERNEL_ALIGN_WITH_H3_KERNELS"
+
 
 def _resolve_package_data_source(
     filename: str | os.PathLike[str],
@@ -214,6 +222,7 @@ def get_extensions():
         )
 
     if is_rocm or torch.cuda.is_available():
+        use_fast_math = envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH)
         cuda_sources = [
             "csrc/bindings/ops.cpp",
             "csrc/cuda/logprob/fused_logp_kernel.cu",
@@ -236,12 +245,14 @@ def get_extensions():
             # CUDA IPC and the fixed-tree collective implementation are not
             # part of the ROCm extension.
             cuda_sources.append("csrc/cuda/collectives/deterministic_collective.cu")
+            if not use_fast_math:
+                cuda_sources.extend(H3_BITWISE_SOURCES)
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
             cuda_sources.append("csrc/cuda/attention/prefix_shared_attention.cu")
 
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
-        if envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH):
+        if use_fast_math:
             nvcc_flags.append("--use_fast_math")
         if not is_rocm:
             cc_major, cc_minor = torch.cuda.get_device_capability()
@@ -328,6 +339,9 @@ def get_extensions():
         if os.name != "nt" and not is_rocm:
             # CUDA IPC metadata queries use the driver API (cuPointerGetAttribute).
             extra_link_args.append("-lcuda")
+        if not is_rocm and not use_fast_math:
+            cxx_flags.append(H3_KERNELS_DEFINE)
+            nvcc_flags.append(H3_KERNELS_DEFINE)
 
         if not is_rocm:
             sm90_srcs = [
