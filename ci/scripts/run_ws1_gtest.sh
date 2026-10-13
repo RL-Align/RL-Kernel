@@ -25,6 +25,7 @@ echo "[ws1-gtest] interpreter=$PY out=$OUT"
   tests/validation/operators/test_op_checks.py \
   tests/validation/operators/test_adaln_gtest.py \
   tests/backends/test_adaln_shared_bounds.py \
+  tests/runtime/test_adaln_dispatch.py \
   tests/ops/norm/test_adaln_modulation.py \
   tests/validation/operators/test_elementwise_inventory.py
 
