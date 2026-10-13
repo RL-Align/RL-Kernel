@@ -242,7 +242,10 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -rs \
   tests/test_megatron_training_evidence.py \
   tests/test_megatron_training_upstream.py \
   tests/test_megatron_training_export.py \
-  tests/test_megatron_training_gradients.py
+  tests/test_megatron_training_gradients.py \
+  tests/test_megatron_training_ranks.py \
+  tests/test_megatron_training_gradient_ranks.py \
+  tests/test_megatron_training_pairing.py
 ```
 
 Synthetic fixtures live in `tests/p7_doubles/` (integer-formula values exactly
