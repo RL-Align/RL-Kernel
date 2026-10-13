@@ -1,0 +1,386 @@
+{
+  "kind": "h3_bitwise_reuse",
+  "rfc": "RL-Align/RL-Kernel#420",
+  "op": "final_adaln_out",
+  "rl_kernel_commit": "4430ef16ae779991cc0d7216352d0984fe23d9d3",
+  "tracked_tree_dirty": false,
+  "environment": {
+    "gpu": "NVIDIA B200",
+    "capability": [
+      10,
+      0
+    ],
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "python": "3.12.14",
+    "tf32": false,
+    "libraries": {
+      "torch": "2.13.0",
+      "triton": "3.7.1",
+      "diffusers": null,
+      "vllm": "0.30.0",
+      "flashinfer-python": "0.6.18.post1",
+      "sglang": "0.5.21",
+      "liger-kernel": "0.8.4",
+      "transformer_engine": "2.20.2",
+      "megatron-core": null
+    },
+    "mode_environment": {
+      "plain": {}
+    }
+  },
+  "cases": [
+    1,
+    257,
+    4097,
+    32768
+  ],
+  "results": {
+    "diffusers": {
+      "source": "diffusers MiniMaxH3AdaLayerNormOut (op-for-op replay)",
+      "vs rl_kernel": {
+        "1": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 4,
+              "numel": 5376,
+              "max_abs": 0.0078125
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 1400,
+              "numel": 5376,
+              "max_abs": 0.015625
+            },
+            "nw": {
+              "equal": false,
+              "differ": 1372,
+              "numel": 5376,
+              "max_abs": 0.03125
+            },
+            "temb": {
+              "equal": false,
+              "differ": 2688,
+              "numel": 8064,
+              "max_abs": 0.018772602081298828
+            },
+            "w": {
+              "equal": false,
+              "differ": 3695171,
+              "numel": 28901376,
+              "max_abs": 0.125
+            },
+            "b": {
+              "equal": true,
+              "differ": 0,
+              "numel": 10752,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "257": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 802,
+              "numel": 1381632,
+              "max_abs": 0.03125
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 368319,
+              "numel": 1381632,
+              "max_abs": 0.03125
+            },
+            "nw": {
+              "equal": false,
+              "differ": 2267,
+              "numel": 5376,
+              "max_abs": 0.5
+            },
+            "temb": {
+              "equal": false,
+              "differ": 8064,
+              "numel": 8064,
+              "max_abs": 0.7876119613647461
+            },
+            "w": {
+              "equal": false,
+              "differ": 24074124,
+              "numel": 28901376,
+              "max_abs": 5.0
+            },
+            "b": {
+              "equal": false,
+              "differ": 9017,
+              "numel": 10752,
+              "max_abs": 1.5
+            }
+          }
+        },
+        "32768": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 100092,
+              "numel": 176160768,
+              "max_abs": 0.0625
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 46962064,
+              "numel": 176160768,
+              "max_abs": 0.03125
+            },
+            "nw": {
+              "equal": false,
+              "differ": 2245,
+              "numel": 5376,
+              "max_abs": 4.0
+            },
+            "temb": {
+              "equal": false,
+              "differ": 8064,
+              "numel": 8064,
+              "max_abs": 102.37469482421875
+            },
+            "w": {
+              "equal": false,
+              "differ": 28439622,
+              "numel": 28901376,
+              "max_abs": 440.0
+            },
+            "b": {
+              "equal": false,
+              "differ": 10597,
+              "numel": 10752,
+              "max_abs": 160.0
+            }
+          }
+        },
+        "4097": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 12374,
+              "numel": 22025472,
+              "max_abs": 0.0625
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 5872876,
+              "numel": 22025472,
+              "max_abs": 0.03125
+            },
+            "nw": {
+              "equal": false,
+              "differ": 2240,
+              "numel": 5376,
+              "max_abs": 2.0
+            },
+            "temb": {
+              "equal": false,
+              "differ": 8064,
+              "numel": 8064,
+              "max_abs": 10.514238357543945
+            },
+            "w": {
+              "equal": false,
+              "differ": 27607864,
+              "numel": 28901376,
+              "max_abs": 44.0
+            },
+            "b": {
+              "equal": false,
+              "differ": 10289,
+              "numel": 10752,
+              "max_abs": 16.0
+            }
+          }
+        }
+      }
+    },
+    "rl_kernel": {
+      "source": "rl-kernel H3FinalAdaLNOutCudaOp",
+      "vs diffusers": {
+        "1": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 4,
+              "numel": 5376,
+              "max_abs": 0.0078125
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 1400,
+              "numel": 5376,
+              "max_abs": 0.015625
+            },
+            "nw": {
+              "equal": false,
+              "differ": 1372,
+              "numel": 5376,
+              "max_abs": 0.03125
+            },
+            "temb": {
+              "equal": false,
+              "differ": 2688,
+              "numel": 8064,
+              "max_abs": 0.018772602081298828
+            },
+            "w": {
+              "equal": false,
+              "differ": 3695171,
+              "numel": 28901376,
+              "max_abs": 0.125
+            },
+            "b": {
+              "equal": true,
+              "differ": 0,
+              "numel": 10752,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "257": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 802,
+              "numel": 1381632,
+              "max_abs": 0.03125
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 368319,
+              "numel": 1381632,
+              "max_abs": 0.03125
+            },
+            "nw": {
+              "equal": false,
+              "differ": 2267,
+              "numel": 5376,
+              "max_abs": 0.5
+            },
+            "temb": {
+              "equal": false,
+              "differ": 8064,
+              "numel": 8064,
+              "max_abs": 0.7876119613647461
+            },
+            "w": {
+              "equal": false,
+              "differ": 24074124,
+              "numel": 28901376,
+              "max_abs": 5.0
+            },
+            "b": {
+              "equal": false,
+              "differ": 9017,
+              "numel": 10752,
+              "max_abs": 1.5
+            }
+          }
+        },
+        "32768": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 100092,
+              "numel": 176160768,
+              "max_abs": 0.0625
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 46962064,
+              "numel": 176160768,
+              "max_abs": 0.03125
+            },
+            "nw": {
+              "equal": false,
+              "differ": 2245,
+              "numel": 5376,
+              "max_abs": 4.0
+            },
+            "temb": {
+              "equal": false,
+              "differ": 8064,
+              "numel": 8064,
+              "max_abs": 102.37469482421875
+            },
+            "w": {
+              "equal": false,
+              "differ": 28439622,
+              "numel": 28901376,
+              "max_abs": 440.0
+            },
+            "b": {
+              "equal": false,
+              "differ": 10597,
+              "numel": 10752,
+              "max_abs": 160.0
+            }
+          }
+        },
+        "4097": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 12374,
+              "numel": 22025472,
+              "max_abs": 0.0625
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 5872876,
+              "numel": 22025472,
+              "max_abs": 0.03125
+            },
+            "nw": {
+              "equal": false,
+              "differ": 2240,
+              "numel": 5376,
+              "max_abs": 2.0
+            },
+            "temb": {
+              "equal": false,
+              "differ": 8064,
+              "numel": 8064,
+              "max_abs": 10.514238357543945
+            },
+            "w": {
+              "equal": false,
+              "differ": 27607864,
+              "numel": 28901376,
+              "max_abs": 44.0
+            },
+            "b": {
+              "equal": false,
+              "differ": 10289,
+              "numel": 10752,
+              "max_abs": 16.0
+            }
+          }
+        }
+      }
+    }
+  }
+}

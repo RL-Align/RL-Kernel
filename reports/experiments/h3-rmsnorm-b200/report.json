@@ -1,0 +1,154 @@
+{
+  "kind": "h3_operator_report",
+  "op": "h3_rmsnorm",
+  "rfc": "RL-Align/RL-Kernel#420",
+  "model_revision": "42ed227ee7df40d41602854ae760620d6eb651fe",
+  "reference_commit": "f53d552036a0d1bd5570782a39cd40cfabf112bc",
+  "rl_kernel_commit": "80e46097302132c633dc6fc1a311097b616ac966",
+  "tracked_tree_dirty": false,
+  "environment": {
+    "gpu": "NVIDIA B200",
+    "capability": [
+      10,
+      0
+    ],
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "python": "3.12.14",
+    "tf32": false
+  },
+  "accuracy": {
+    "plain_bitwise_vs_nn_rmsnorm": {
+      "transformer_blocks.0.norm1.weight": true,
+      "transformer_blocks.0.norm2.weight": true,
+      "token_refiner.final_norm.weight": true,
+      "norm_out.norm.weight": true
+    },
+    "modulated_bitwise_vs_diffusers": true,
+    "rows_batch_invariant": true,
+    "backward": {
+      "cuda": {
+        "repeat_bitwise_equal": true,
+        "rel_error": {
+          "dx": 0.004190817029101904,
+          "dweight": 0.0037932313344362263,
+          "dshift": 0.00256468183980526,
+          "dscale": 0.0028309973965559895
+        }
+      },
+      "provider": {
+        "repeat_bitwise_equal": false,
+        "rel_error": {
+          "dx": 0.006362059284075666,
+          "dweight": 0.0037932313344362263,
+          "dshift": 0.055593107435841636,
+          "dscale": 0.046512377475823756
+        }
+      }
+    }
+  },
+  "perf": [
+    {
+      "op": "h3_rmsnorm",
+      "case": "S=4097",
+      "backend": "H3RMSNormCudaOp",
+      "bytes": 88101888,
+      "execution_order": {
+        "policy": "alternating",
+        "iteration_0": [
+          "candidate",
+          "provider",
+          "candidate_backward",
+          "provider_backward"
+        ],
+        "iteration_1": [
+          "provider_backward",
+          "candidate_backward",
+          "provider",
+          "candidate"
+        ]
+      },
+      "backward_timing_scope": "backward_only",
+      "candidate_us": 80.78400045633316,
+      "candidate_gbps": 1090.5858524253506,
+      "candidate_peak_mib": 42.0263671875,
+      "provider_us": 120.7519993185997,
+      "provider_gbps": 729.6101803461358,
+      "provider_peak_mib": 168.041015625,
+      "candidate_backward_us": 1229.6479940414429,
+      "candidate_backward_gbps": 71.64805572563778,
+      "candidate_backward_peak_mib": 43.54150390625,
+      "provider_backward_us": 849.2799997329712,
+      "provider_backward_gbps": 103.73715150209685,
+      "provider_backward_peak_mib": 126.123046875
+    },
+    {
+      "op": "h3_rmsnorm",
+      "case": "S=32768",
+      "backend": "H3RMSNormCudaOp",
+      "bytes": 704643072,
+      "execution_order": {
+        "policy": "alternating",
+        "iteration_0": [
+          "candidate",
+          "provider",
+          "candidate_backward",
+          "provider_backward"
+        ],
+        "iteration_1": [
+          "provider_backward",
+          "candidate_backward",
+          "provider",
+          "candidate"
+        ]
+      },
+      "backward_timing_scope": "backward_only",
+      "candidate_us": 345.71200609207153,
+      "candidate_gbps": 2038.2372020147207,
+      "candidate_peak_mib": 336.125,
+      "provider_us": 760.4160010814667,
+      "provider_gbps": 926.654713995831,
+      "provider_peak_mib": 1344.0,
+      "candidate_backward_us": 2180.527925491333,
+      "candidate_backward_gbps": 323.1525098864416,
+      "candidate_backward_peak_mib": 345.00390625,
+      "provider_backward_us": 4404.2558670043945,
+      "provider_backward_gbps": 159.9914022432287,
+      "provider_backward_peak_mib": 1008.09228515625
+    },
+    {
+      "op": "h3_rmsnorm",
+      "case": "S=131072",
+      "backend": "H3RMSNormCudaOp",
+      "bytes": 2818572288,
+      "execution_order": {
+        "policy": "alternating",
+        "iteration_0": [
+          "candidate",
+          "provider",
+          "candidate_backward",
+          "provider_backward"
+        ],
+        "iteration_1": [
+          "provider_backward",
+          "candidate_backward",
+          "provider",
+          "candidate"
+        ]
+      },
+      "backward_timing_scope": "backward_only",
+      "candidate_us": 1209.1839909553528,
+      "candidate_gbps": 2330.9705628612405,
+      "candidate_peak_mib": 1344.5,
+      "provider_us": 2901.5519618988037,
+      "provider_gbps": 971.4016240314024,
+      "provider_peak_mib": 5376.0,
+      "candidate_backward_us": 6172.671794891357,
+      "candidate_backward_gbps": 456.62111669904664,
+      "candidate_backward_peak_mib": 1377.970703125,
+      "provider_backward_us": 17553.45630645752,
+      "provider_backward_gbps": 160.57078667539176,
+      "provider_backward_peak_mib": 4032.09228515625
+    }
+  ]
+}
