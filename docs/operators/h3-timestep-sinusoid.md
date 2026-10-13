@@ -118,6 +118,29 @@ python tools/validation/models/plot_h3_prior_art.py reports/experiments/h3-prior
 
 Libraries that do not import are skipped and recorded as unavailable in the report.
 
+### Direct bitwise comparison
+
+Equal FP64 errors do not show equal bits, so the candidates are also compared byte for byte.
+`tools/validation/models/h3_bitwise_reuse.py` runs every candidate above on identical inputs:
+2^20 uniform timesteps, every 997th FP32 bit pattern in [0, 1], and a 100001-point grid. It
+compares each output with diffusers' path and with this kernel. `--fast-math-variant` adds this
+kernel compiled with `--use_fast_math`, which the build excludes (see Known Limitations).
+
+![timestep_sinusoid bitwise comparison](../../reports/experiments/h3-bitwise-reuse-b200/timestep_sinusoid.png)
+
+SGLang's `timestep_embedding`, diffusers' path and this kernel are bitwise identical on all
+2.22M timesteps (567.6M outputs). The fast-math build differs in 53.7–82.7% of outputs.
+[`timestep_sinusoid.json`](../../reports/experiments/h3-bitwise-reuse-b200/timestep_sinusoid.json)
+was written from a clean tree at `0eb5ddd5` by
+
+```bash
+python tools/validation/models/h3_bitwise_reuse.py --op timestep_sinusoid --fast-math-variant \
+    --out reports/experiments/h3-bitwise-reuse-b200/timestep_sinusoid.json
+python tools/validation/models/plot_h3_bitwise_reuse.py \
+    reports/experiments/h3-bitwise-reuse-b200/timestep_sinusoid.json \
+    --out reports/experiments/h3-bitwise-reuse-b200/timestep_sinusoid.png
+```
+
 ## Tests
 
 ```bash
@@ -135,3 +158,6 @@ python tools/validation/models/plot_h3_evidence.py reports/experiments/h3-timest
 
 - There is no ROCm kernel. ROCm dispatches the PyTorch reference.
 - `max_period` is fixed at 10000, the only value H3 uses.
+- `KERNEL_ALIGN_USE_FAST_MATH=1` builds leave out every H3 kernel (`H3_BITWISE_SOURCES` in
+  `build_tools/extensions.py`): fast math replaces `expf`/`sinf`/`cosf` with approximations and
+  breaks bitwise parity. Such builds dispatch the PyTorch reference.
