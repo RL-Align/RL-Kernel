@@ -742,7 +742,9 @@ def _final_accuracy(registry: KernelRegistry) -> dict[str, Any]:
     def golden_backward(x_, nw_, t_, w_, b_):
         # Keep the declared BF16 boundaries with FP64 leaves and identity VJPs.
         act = t_ * torch.sigmoid(t_)
-        act = act + (act.to(torch.bfloat16).double() - act).detach()
+        # The declared cast rounds the FP32 SiLU, as the model computes it.
+        declared = torch.nn.functional.silu(t_.detach().float()).to(torch.bfloat16).double()
+        act = act + (declared - act).detach()
         table = torch.nn.functional.linear(act, w_, b_)
         table = table + (table.to(torch.bfloat16).double() - table).detach()
         shift, scale = table.chunk(2, dim=-1)
