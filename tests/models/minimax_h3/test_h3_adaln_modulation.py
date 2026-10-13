@@ -70,7 +70,8 @@ class TestFusedModulation:
         fused, proj, gather = _ops()
         weight = h3_weights_cpu["transformer_blocks.0.adaln_proj.linear.weight"].cuda()
         bias = h3_weights_cpu["transformer_blocks.0.adaln_proj.linear.bias"].cuda()
-        temb = torch.randn(3, 2688, device="cuda") * 2
+        g = torch.Generator(device="cuda").manual_seed(0)
+        temb = torch.randn(3, 2688, device="cuda", generator=g) * 2
         ti, tags = h3_packed_layout(4097, 3, seed=1)
         grads = _grads(4097, 5376, seed=1)
         ours = _leaf_grads(lambda t, w, b: fused(t, w, b, ti, tags), temb, weight, bias, grads)
@@ -84,7 +85,11 @@ class TestFusedModulation:
 
         ref = [t.detach().double().requires_grad_(True) for t in (temb, weight, bias)]
         act = ref[0] * torch.sigmoid(ref[0])
-        act = act + (act.to(torch.bfloat16).double() - act).detach()  # identity-VJP cast
+        # The declared cast rounds the FP32 SiLU, as the kernel and diffusers do: an
+        # FP64 SiLU can round to the other BF16 neighbour near a tie, which shifts a
+        # whole dW column (about 1 temb draw in 30 dropped below 0.9999 that way).
+        act_bf16 = F.silu(temb.float()).to(torch.bfloat16).double()
+        act = act + (act_bf16 - act).detach()  # identity-VJP cast
         table = F.linear(act, ref[1], ref[2]).view(-1, 6 * 5376)
         index = ti * 3 + tags
         torch.autograd.backward(

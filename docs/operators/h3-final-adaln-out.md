@@ -109,6 +109,25 @@ python tools/validation/models/plot_h3_prior_art.py reports/experiments/h3-prior
 
 Libraries that do not import are skipped and recorded as unavailable in the report.
 
+### Direct bitwise comparison
+
+Equal FP64 errors do not show equal bits, so the candidates are also compared byte for byte.
+`tools/validation/models/h3_bitwise_reuse.py` runs every candidate above on identical inputs
+(each global batch-invariant mode in its own process) and compares every output and leaf
+gradient with diffusers' path and with this kernel.
+
+![final_adaln_out bitwise comparison](../../reports/experiments/h3-bitwise-reuse-b200/final_adaln_out.png)
+
+There is no reuse candidate beyond diffusers' MiniMaxH3AdaLayerNormOut. This op does not promise bitwise equality: its shift/scale projection uses #485's fixed-order linear, not cuBLAS. The output differs from diffusers in 0.05-0.07% of BF16 elements at every S (1 to 32768), and every gradient differs as expected for the deterministic FP32 reductions.
+[`final_adaln_out.json`](../../reports/experiments/h3-bitwise-reuse-b200/final_adaln_out.json) was written from a clean tree at `4430ef16` by
+
+```bash
+python tools/validation/models/h3_bitwise_reuse.py --op final_adaln_out \
+    --out reports/experiments/h3-bitwise-reuse-b200/final_adaln_out.json
+python tools/validation/models/plot_h3_bitwise_reuse.py reports/experiments/h3-bitwise-reuse-b200/final_adaln_out.json \
+    --out reports/experiments/h3-bitwise-reuse-b200/final_adaln_out.png
+```
+
 ## Tests
 
 ```bash

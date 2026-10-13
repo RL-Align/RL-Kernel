@@ -165,6 +165,25 @@ python tools/validation/models/plot_h3_prior_art.py reports/experiments/h3-prior
 
 Libraries that do not import are skipped and recorded as unavailable in the report.
 
+### Direct bitwise comparison
+
+Equal FP64 errors do not show equal bits, so the candidates are also compared byte for byte.
+`tools/validation/models/h3_bitwise_reuse.py` runs every candidate above on identical inputs
+(each global batch-invariant mode in its own process) and compares every output and leaf
+gradient with diffusers' path and with this kernel.
+
+![adaln_projection bitwise comparison](../../reports/experiments/h3-bitwise-reuse-b200/adaln_projection.png)
+
+This kernel's BF16 output differs from diffusers in 0.08-0.2% of elements (final-rounding flips of a different, fixed reduction order). Every mode (vLLM's settings, SGLang, Megatron) is bitwise equal to diffusers from T = 4 but not at T = 1 (0.1% differ), and differs from this kernel in 0.1-0.2%.
+[`adaln_projection.json`](../../reports/experiments/h3-bitwise-reuse-b200/adaln_projection.json) was written from a clean tree at `0e476483` by
+
+```bash
+python tools/validation/models/h3_bitwise_reuse.py --op adaln_projection --megatron-src <Megatron-LM source tree> \
+    --out reports/experiments/h3-bitwise-reuse-b200/adaln_projection.json
+python tools/validation/models/plot_h3_bitwise_reuse.py reports/experiments/h3-bitwise-reuse-b200/adaln_projection.json \
+    --out reports/experiments/h3-bitwise-reuse-b200/adaln_projection.png
+```
+
 ## Tests
 
 ```bash
