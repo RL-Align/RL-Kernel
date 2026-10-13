@@ -131,12 +131,13 @@ There are two data files:
 - [`chain_replay.json`](../../reports/experiments/h3-adaln-row-gather-b200/chain_replay.json): the full
   stage-wise forward replay and backward replay over T in {1, 2, 3, 4} × S in {3, 257, 4097, 32768}.
 
-`report.json` was regenerated from a clean tree at commit `14448146` with backward-only
-timings and alternating execution order. `chain_replay.json` was written from a clean tree
-at commit `d3b37fe1`. Both were regenerated after the AdaLN projection golden's declared
-cast was changed to round the FP32 SiLU, as the model does; every CUDA pass/fail flag is
-unchanged. The op-backward check draws unseeded rows and gradients, so its correctly
-rounded fraction moves slightly between runs (99.99965% in the previous report).
+`report.json` was regenerated from a clean tree at commit `f020f7d5` with backward-only
+timings and alternating execution order, and with the op-backward check's rows and gradients
+drawn from a seeded generator. Before, they came from the process's default CUDA generator,
+so the fraction depended on how many draws the runner made first (99.99965% at `80e4609`).
+`chain_replay.json` was written from a clean tree at commit `d3b37fe1`. Both were regenerated
+after the AdaLN projection golden's declared cast was changed to round the FP32 SiLU, as the
+model does; every CUDA pass/fail flag is unchanged.
 
 ## Existing implementations (RFC #420 reuse rule)
 
