@@ -20,7 +20,10 @@ import torch
 import torch.nn.functional as F
 
 from rl_engine.reference.minimax_h3 import H3_ADALN_CHUNKS, H3_MODALITY_NUM
-from rl_engine.reference.minimax_h3.adaln_projection import NativeH3AdaLNProjectionOp
+from rl_engine.reference.minimax_h3.adaln_projection import (
+    NativeH3AdaLNProjectionOp,
+    split_adaln_table,
+)
 from rl_engine.validation.models.h3_provider import provider_adaln_modulation
 
 requires_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA device")
@@ -62,6 +65,19 @@ def _flat(outputs):
     """Flatten and concatenate all modulation chunks for elementwise comparisons."""
 
     return torch.cat([out.reshape(-1) for out in outputs])
+
+
+def _declared_golden(temb, weight, bias):
+    """FP64 projection of the declared BF16 activation, rounded from the FP32 SiLU.
+
+    The kernel and diffusers round the FP32 SiLU; ``forward_fp32`` rounds an FP64
+    SiLU, which can pick the other BF16 neighbour near a tie and shift a whole
+    output column (one input in 300 then matched only 95.7% of the outputs).
+    """
+
+    act = F.silu(temb.float()).to(weight.dtype).double()
+    table = F.linear(act, weight.double(), bias.double())
+    return tuple(chunk.float() for chunk in split_adaln_table(table, weight.shape[0] // 18))
 
 
 class TestReference:
@@ -151,9 +167,12 @@ class TestCudaRealWeights:
             # tolerance_contract.json forward_accuracy / reduction / bfloat16.
             torch.testing.assert_close(out.float(), gold, atol=5e-2, rtol=2e-2)
         # Beyond the contract: almost every element is the correctly rounded
-        # golden value; the rest are 1-ULP ties of the FP32 accumulation.
-        match = (_flat(outputs) == _flat(golden).bfloat16()).float().mean().item()
-        assert match > 0.999
+        # golden value. The rest come from the FP32 tensor-core accumulation over
+        # K = 2688 (ties, and a few ULPs where near-zero sums cancel), so exact
+        # equality is not reachable: over 300 temb draws per T the worst match was
+        # 0.999618 (T = 1), 0.999690, 0.999728 and 0.999731 (T = 4).
+        declared = _flat(_declared_golden(temb, weight, bias)).bfloat16()
+        assert (_flat(outputs) == declared).float().mean().item() >= 0.9995
 
     def test_early_cast_is_numerically_detectable(self, block0):
         """Probe H7: a BF16 cast before the SiLU moves about half the outputs."""
@@ -162,9 +181,9 @@ class TestCudaRealWeights:
         temb = _temb(3, seed=7)
         op = NativeH3AdaLNProjectionOp()
         ours = _flat(_cuda_op()(temb, weight, bias))
-        declared = _flat(op.forward_fp32(temb, weight, bias)).bfloat16()
+        declared = _flat(_declared_golden(temb, weight, bias)).bfloat16()
         early = _flat(op.forward_fp32(temb.bfloat16().float(), weight, bias)).bfloat16()
-        assert (ours == declared).float().mean() > 0.999
+        assert (ours == declared).float().mean() >= 0.9995
         assert (ours == early).float().mean() < 0.8
 
     def test_rows_are_batch_and_position_invariant(self, block0):
