@@ -39,7 +39,7 @@ def registry():
 
 
 @pytest.mark.parametrize("num_timesteps, seq_len", CASES)
-def test_chain_forward(registry, chain_weights, num_timesteps, seq_len):
+def test_chain_forward(require_h3_kernels, registry, chain_weights, num_timesteps, seq_len):
     report = h3_chain.run_case(
         registry, chain_weights, num_timesteps=num_timesteps, seq_len=seq_len
     )
