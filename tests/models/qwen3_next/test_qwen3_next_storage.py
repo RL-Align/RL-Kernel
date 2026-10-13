@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools/validation/models"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools/validation/models/qwen3_next"))
 import qwen3_next_runtime as storage  # noqa: E402
 from qwen3_next_checkpoint import (  # noqa: E402
     newest_complete_checkpoint,

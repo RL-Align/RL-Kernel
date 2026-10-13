@@ -103,7 +103,8 @@ jobs:
             tests/models/qwen3_next/test_qwen3_next_evidence_redaction.py \
             tests/models/qwen3_next/test_qwen3_next_bi_cases.py \
             tests/models/qwen3_next/test_qwen3_next_tp_reductions.py \
-            tests/models/qwen3_next/test_qwen3_next_ep.py
+            tests/models/qwen3_next/test_qwen3_next_ep.py \
+            tests/validation/common/test_file_digest.py
 
       - name: Run Cross-Configuration Contract Tests (CPU-safe)
         run: |

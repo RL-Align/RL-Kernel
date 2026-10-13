@@ -13,7 +13,7 @@ import pytest
 import torch
 from safetensors.torch import save_file
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools/validation/models"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools/validation/models/qwen3_next"))
 import qwen3_next_training_export as export  # noqa: E402
 from qwen3_next_runtime import file_digest  # noqa: E402
 

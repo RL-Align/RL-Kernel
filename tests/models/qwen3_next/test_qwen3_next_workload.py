@@ -9,12 +9,12 @@ from pathlib import Path
 import pytest
 
 from rl_engine.config.workload import WorkloadError, load_manifest, manifest_identity_hash
-from rl_engine.validation.models.qwen3_next_workload import validate_norm_manifest
+from rl_engine.validation.models.qwen3_next.qwen3_next_workload import validate_norm_manifest
 from rl_engine.validation.operators.gradient_adapters import get_adapter, resolve_profile_candidate
 
 MANIFEST = (
     Path(__file__).resolve().parents[3]
-    / "rl_engine/validation/models/qwen3_next_norm_manifest.json"
+    / "rl_engine/validation/models/qwen3_next/qwen3_next_norm_manifest.json"
 )
 
 
@@ -58,7 +58,7 @@ def test_norm_manifest_rejects_false_evidence_even_with_regenerated_hash(fault):
 
 
 def test_norm_dimension_gate_rejects_shrunk_workload():
-    from rl_engine.validation.models.qwen3_next_workload import validate_norm_dimensions
+    from rl_engine.validation.models.qwen3_next.qwen3_next_workload import validate_norm_dimensions
 
     raw = load_manifest(MANIFEST).raw
     with pytest.raises(WorkloadError, match="hidden 2048"):

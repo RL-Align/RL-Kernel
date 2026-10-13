@@ -52,12 +52,12 @@ def test_recompute_batch_loads_once_and_keeps_verifiable_original_rank_traces(
     tmp_path, monkeypatch
 ):
     import copy
-    import hashlib
 
     from rl_engine.integrations.orchestrators.vime.experiments.qwen3_next import (
         native_recompute as recompute,
     )
-    from rl_engine.validation.models.qwen3_next_l2 import (
+    from rl_engine.validation.common.file_digest import file_sha256
+    from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import (
         load_tensor_artifact,
         save_tensor_artifact,
         validate_native_worker_traces,
@@ -204,8 +204,7 @@ def test_recompute_batch_loads_once_and_keeps_verifiable_original_rank_traces(
             trace["local_logits"] = trace["local_logits"].clone()
             trace["local_logits"][0, 0, 0] = -0.0
         save_tensor_artifact(record["path"], trace)
-        with open(record["path"], "rb") as stream:
-            record["sha256"] = hashlib.file_digest(stream, "sha256").hexdigest()
+        record["sha256"] = file_sha256(record["path"])
         with pytest.raises(ValueError, match=message):
             validate_native_worker_traces(artifact, request, artifact_root=tmp_path)
         if "complete " in message:
@@ -217,7 +216,7 @@ def test_recompute_batch_loads_once_and_keeps_verifiable_original_rank_traces(
 @pytest.mark.parametrize("batch", [1, 4])
 @pytest.mark.parametrize("prompt_length", [8, 64, 256, 1024])
 def test_complete_native_state_shapes_bind_every_consumed_token(batch, prompt_length):
-    from rl_engine.validation.models.qwen3_next_l2 import native_state_shapes
+    from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import native_state_shapes
 
     request = {
         "prompt_tokens": [[1] * prompt_length for _ in range(batch)],
