@@ -10,7 +10,12 @@ import setuptools
 import torch
 from torch.utils import cpp_extension
 
-from build_tools.extensions import _resolve_package_data_source, get_cmdclass
+from build_tools.extensions import (
+    H3_BITWISE_SOURCES,
+    H3_KERNELS_DEFINE,
+    _resolve_package_data_source,
+    get_cmdclass,
+)
 
 
 def _load_extension_config(monkeypatch, *, hip: str | None) -> dict[str, Any]:
@@ -83,3 +88,28 @@ def test_package_data_real_json_is_not_reinterpreted(tmp_path) -> None:
 
     assert _resolve_package_data_source(source, project_root=tmp_path) == source
     assert "build_py" in get_cmdclass()
+
+
+def test_cuda_build_compiles_h3_kernels_without_fast_math(monkeypatch) -> None:
+    monkeypatch.delenv("KERNEL_ALIGN_USE_FAST_MATH", raising=False)
+    extension = _load_extension_config(monkeypatch, hip=None)
+
+    assert set(H3_BITWISE_SOURCES) <= set(extension["sources"])
+    assert H3_KERNELS_DEFINE in extension["extra_compile_args"]["cxx"]
+    assert H3_KERNELS_DEFINE in extension["extra_compile_args"]["nvcc"]
+    assert "--use_fast_math" not in extension["extra_compile_args"]["nvcc"]
+
+
+def test_fast_math_build_excludes_bitwise_h3_kernels(monkeypatch) -> None:
+    # --use_fast_math swaps expf/sinf/cosf/rsqrtf and division for approximations
+    # and enables FTZ, which breaks the H3 kernels' bitwise parity promise; nvcc
+    # exposes no macro to reject it in-source, so the build drops the kernels
+    # and their bindings.
+    monkeypatch.setenv("KERNEL_ALIGN_USE_FAST_MATH", "1")
+    extension = _load_extension_config(monkeypatch, hip=None)
+
+    assert "--use_fast_math" in extension["extra_compile_args"]["nvcc"]
+    assert not set(H3_BITWISE_SOURCES) & set(extension["sources"])
+    assert not [s for s in extension["sources"] if s.startswith("csrc/cuda/h3/")]
+    assert H3_KERNELS_DEFINE not in extension["extra_compile_args"]["cxx"]
+    assert H3_KERNELS_DEFINE not in extension["extra_compile_args"]["nvcc"]

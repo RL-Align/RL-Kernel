@@ -1,0 +1,1347 @@
+{
+  "kind": "h3_prior_art",
+  "rfc": "RL-Align/RL-Kernel#420",
+  "op": "adaln_projection",
+  "rl_kernel_commit": "c88691c6a100c04b03cb961bd7c0ee9df113e854",
+  "tracked_tree_dirty": false,
+  "environment": {
+    "gpu": "NVIDIA B200",
+    "capability": [
+      10,
+      0
+    ],
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "python": "3.12.14",
+    "tf32": false,
+    "libraries": {
+      "torch": "2.13.0",
+      "triton": "3.7.1",
+      "diffusers": null,
+      "vllm": "0.30.0",
+      "flashinfer-python": "0.6.18.post1",
+      "sglang": "0.5.21",
+      "liger-kernel": "0.8.4",
+      "transformer_engine": "2.20.2",
+      "megatron-core": null
+    },
+    "megatron_source_commit": "52fbcbc",
+    "mode_environment": {
+      "plain": {},
+      "vllm": {
+        "CUBLAS_WORKSPACE_CONFIG": ":16:8",
+        "CUBLASLT_WORKSPACE_SIZE": "1"
+      },
+      "sglang": {},
+      "sglang_ieee": {
+        "TRITON_F32_DEFAULT": "ieee"
+      },
+      "megatron_te_native": {
+        "CUBLASLT_WORKSPACE_SIZE": "0"
+      },
+      "megatron_triton": {},
+      "megatron_triton_ieee": {
+        "TRITON_F32_DEFAULT": "ieee"
+      }
+    }
+  },
+  "quick": false,
+  "results": {
+    "plain": {
+      "diffusers[plain]": {
+        "source": "diffusers AdaLN projection, BF16 F.linear [plain]",
+        "has_backward": true,
+        "batch_invariance": {
+          "all_rows": {
+            "64": {
+              "rows": 192,
+              "fwd_differ": 192,
+              "rowgrad_differ": 192
+            },
+            "257": {
+              "rows": 771,
+              "fwd_differ": 771,
+              "rowgrad_differ": 771
+            },
+            "2048": {
+              "rows": 6144,
+              "fwd_differ": 6144,
+              "rowgrad_differ": 6144
+            }
+          },
+          "params_repeatable": true,
+          "full_vs_sub_batches": {
+            "full_batch": 4096,
+            "sub_batch_sizes": [
+              1,
+              7,
+              1024,
+              2048
+            ],
+            "sub_batches": 2060,
+            "fwd_differ": 1024,
+            "rowgrad_differ": 2056
+          },
+          "batch_size_sweep": {
+            "batch_sizes": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              15,
+              16,
+              17,
+              31,
+              32,
+              33,
+              63,
+              64,
+              65,
+              127,
+              128,
+              129,
+              255,
+              256,
+              257,
+              511,
+              512,
+              513,
+              1023,
+              1024,
+              1025,
+              2047,
+              2048
+            ],
+            "probe_rows": [
+              0,
+              259,
+              515,
+              771,
+              1027,
+              1283,
+              1539,
+              2047
+            ],
+            "comparisons": 2256,
+            "differ": 2232,
+            "first_failures": [
+              {
+                "seed": 3,
+                "batch": 2,
+                "position": 0,
+                "row": 0
+              },
+              {
+                "seed": 3,
+                "batch": 2,
+                "position": 1,
+                "row": 0
+              },
+              {
+                "seed": 3,
+                "batch": 2,
+                "position": 0,
+                "row": 259
+              },
+              {
+                "seed": 3,
+                "batch": 2,
+                "position": 1,
+                "row": 259
+              },
+              {
+                "seed": 3,
+                "batch": 2,
+                "position": 0,
+                "row": 515
+              },
+              {
+                "seed": 3,
+                "batch": 2,
+                "position": 1,
+                "row": 515
+              },
+              {
+                "seed": 3,
+                "batch": 2,
+                "position": 0,
+                "row": 771
+              },
+              {
+                "seed": 3,
+                "batch": 2,
+                "position": 1,
+                "row": 771
+              }
+            ]
+          },
+          "batch_invariant": false
+        },
+        "accuracy_latency": {
+          "1": {
+            "fwd_rel_err": 0.003856488128639106,
+            "grad_rel_err": {
+              "temb": 0.002906892643209935,
+              "w": 0.004108917853014856,
+              "b": 0.0
+            },
+            "fwd_us": 111.39199882745743,
+            "fwd_bwd_us": 768.0000066757202
+          },
+          "3": {
+            "fwd_rel_err": 0.0035999863805493103,
+            "grad_rel_err": {
+              "temb": 0.0025072553507904586,
+              "w": 0.0039446027143119735,
+              "b": 0.0019723865877712033
+            },
+            "fwd_us": 100.11200234293938,
+            "fwd_bwd_us": 716.3679897785187
+          },
+          "4": {
+            "fwd_rel_err": 0.0035999863805493103,
+            "grad_rel_err": {
+              "temb": 0.002560768077463324,
+              "w": 0.0030150633254733736,
+              "b": 0.0017331022530329288
+            },
+            "fwd_us": 99.50399771332741,
+            "fwd_bwd_us": 725.7280051708221
+          },
+          "64": {
+            "fwd_rel_err": 0.0031179071664915094,
+            "grad_rel_err": {
+              "temb": 0.0028456426244756147,
+              "w": 0.003786559211024591,
+              "b": 0.003089158155830867
+            },
+            "fwd_us": 110.73600128293037,
+            "fwd_bwd_us": 711.3760113716125
+          },
+          "256": {
+            "fwd_rel_err": 0.0034422315551847975,
+            "grad_rel_err": {
+              "temb": 0.0022159011369222194,
+              "w": 0.003184281504467339,
+              "b": 0.0025350368296686533
+            },
+            "fwd_us": 126.91199779510498,
+            "fwd_bwd_us": 728.3839881420135
+          },
+          "2048": {
+            "fwd_rel_err": 0.003219885589372577,
+            "grad_rel_err": {
+              "temb": 0.002307129848434764,
+              "w": 0.003537205254325983,
+              "b": 0.0020481905297133167
+            },
+            "fwd_us": 650.7999897003174,
+            "fwd_bwd_us": 2345.616102218628
+          }
+        }
+      },
+      "rl_kernel": {
+        "source": "rl-kernel H3AdaLNProjectionCudaOp",
+        "has_backward": true,
+        "batch_invariance": {
+          "all_rows": {
+            "64": {
+              "rows": 192,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            },
+            "257": {
+              "rows": 771,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            },
+            "2048": {
+              "rows": 6144,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            }
+          },
+          "params_repeatable": true,
+          "full_vs_sub_batches": {
+            "full_batch": 4096,
+            "sub_batch_sizes": [
+              1,
+              7,
+              1024,
+              2048
+            ],
+            "sub_batches": 2060,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          },
+          "batch_size_sweep": {
+            "batch_sizes": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              15,
+              16,
+              17,
+              31,
+              32,
+              33,
+              63,
+              64,
+              65,
+              127,
+              128,
+              129,
+              255,
+              256,
+              257,
+              511,
+              512,
+              513,
+              1023,
+              1024,
+              1025,
+              2047,
+              2048
+            ],
+            "probe_rows": [
+              0,
+              259,
+              515,
+              771,
+              1027,
+              1283,
+              1539,
+              2047
+            ],
+            "comparisons": 2256,
+            "differ": 0,
+            "first_failures": []
+          },
+          "batch_invariant": true
+        },
+        "accuracy_latency": {
+          "1": {
+            "fwd_rel_err": 0.003856488128639106,
+            "grad_rel_err": {
+              "temb": 1.1753830485451992e-06,
+              "w": 0.004108917853014856,
+              "b": 0.0
+            },
+            "fwd_us": 100.60799866914749,
+            "fwd_bwd_us": 1937.3120069503784
+          },
+          "3": {
+            "fwd_rel_err": 0.0035999863805493103,
+            "grad_rel_err": {
+              "temb": 1.4082949304861482e-06,
+              "w": 0.0039446027143119735,
+              "b": 0.0019723865877712033
+            },
+            "fwd_us": 100.63999891281128,
+            "fwd_bwd_us": 2276.2240171432495
+          },
+          "4": {
+            "fwd_rel_err": 0.0035999863805493103,
+            "grad_rel_err": {
+              "temb": 1.4082949304861482e-06,
+              "w": 0.0030150633254733736,
+              "b": 0.0017331022530329288
+            },
+            "fwd_us": 100.47999769449234,
+            "fwd_bwd_us": 2114.735960960388
+          },
+          "64": {
+            "fwd_rel_err": 0.0031179071664915094,
+            "grad_rel_err": {
+              "temb": 1.5823117650412027e-06,
+              "w": 0.003786559211024591,
+              "b": 0.003089158155830867
+            },
+            "fwd_us": 624.7680187225342,
+            "fwd_bwd_us": 19274.608612060547
+          },
+          "256": {
+            "fwd_rel_err": 0.0034422315551847975,
+            "grad_rel_err": {
+              "temb": 1.374057475644507e-06,
+              "w": 0.003184281504467339,
+              "b": 0.0025350368296686533
+            },
+            "fwd_us": 2569.6959495544434,
+            "fwd_bwd_us": 77446.19369506836
+          },
+          "2048": {
+            "fwd_rel_err": 0.003219885589372577,
+            "grad_rel_err": {
+              "temb": 1.6500752601653308e-06,
+              "w": 0.003537205254325983,
+              "b": 0.0020481905297133167
+            },
+            "fwd_us": 21261.792182922363,
+            "fwd_bwd_us": 626991.6076660156
+          }
+        }
+      }
+    },
+    "vllm": {
+      "diffusers[vllm]": {
+        "source": "diffusers AdaLN projection, BF16 F.linear [vllm]",
+        "has_backward": true,
+        "batch_invariance": {
+          "all_rows": {
+            "64": {
+              "rows": 192,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            },
+            "257": {
+              "rows": 771,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            },
+            "2048": {
+              "rows": 6144,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            }
+          },
+          "params_repeatable": true,
+          "full_vs_sub_batches": {
+            "full_batch": 4096,
+            "sub_batch_sizes": [
+              1,
+              7,
+              1024,
+              2048
+            ],
+            "sub_batches": 2060,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          },
+          "batch_size_sweep": {
+            "batch_sizes": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              15,
+              16,
+              17,
+              31,
+              32,
+              33,
+              63,
+              64,
+              65,
+              127,
+              128,
+              129,
+              255,
+              256,
+              257,
+              511,
+              512,
+              513,
+              1023,
+              1024,
+              1025,
+              2047,
+              2048
+            ],
+            "probe_rows": [
+              0,
+              259,
+              515,
+              771,
+              1027,
+              1283,
+              1539,
+              2047
+            ],
+            "comparisons": 2256,
+            "differ": 0,
+            "first_failures": []
+          },
+          "batch_invariant": true
+        },
+        "accuracy_latency": {
+          "1": {
+            "fwd_rel_err": 0.003856488128639106,
+            "grad_rel_err": {
+              "temb": 0.002906892643209935,
+              "w": 0.004108917853014856,
+              "b": 0.0
+            },
+            "fwd_us": 100.12800246477127,
+            "fwd_bwd_us": 825.0080049037933
+          },
+          "3": {
+            "fwd_rel_err": 0.0035999863805493103,
+            "grad_rel_err": {
+              "temb": 0.0025072553507904586,
+              "w": 0.0039446027143119735,
+              "b": 0.0019723865877712033
+            },
+            "fwd_us": 99.85600039362907,
+            "fwd_bwd_us": 681.0559928417206
+          },
+          "4": {
+            "fwd_rel_err": 0.0035999863805493103,
+            "grad_rel_err": {
+              "temb": 0.002560768077463324,
+              "w": 0.0030150633254733736,
+              "b": 0.0017331022530329288
+            },
+            "fwd_us": 100.25600343942642,
+            "fwd_bwd_us": 677.5520145893097
+          },
+          "64": {
+            "fwd_rel_err": 0.003117907166490413,
+            "grad_rel_err": {
+              "temb": 0.002934168727885534,
+              "w": 0.003786559211024591,
+              "b": 0.003089158155830867
+            },
+            "fwd_us": 110.96000298857689,
+            "fwd_bwd_us": 679.85600233078
+          },
+          "256": {
+            "fwd_rel_err": 0.0034422315551847975,
+            "grad_rel_err": {
+              "temb": 0.002284836389545336,
+              "w": 0.003184281504467339,
+              "b": 0.0025350368296686533
+            },
+            "fwd_us": 126.51199847459793,
+            "fwd_bwd_us": 722.4960029125214
+          },
+          "2048": {
+            "fwd_rel_err": 0.003219885589372577,
+            "grad_rel_err": {
+              "temb": 0.002307129848434764,
+              "w": 0.003537205254325983,
+              "b": 0.0020481905297133167
+            },
+            "fwd_us": 635.77601313591,
+            "fwd_bwd_us": 2329.7280073165894
+          }
+        }
+      }
+    },
+    "sglang": {
+      "diffusers[sglang]": {
+        "source": "diffusers AdaLN projection, BF16 F.linear [sglang]",
+        "has_backward": true,
+        "batch_invariance": {
+          "all_rows": {
+            "64": {
+              "rows": 192,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            },
+            "257": {
+              "rows": 771,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            },
+            "2048": {
+              "rows": 6144,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            }
+          },
+          "params_repeatable": true,
+          "full_vs_sub_batches": {
+            "full_batch": 4096,
+            "sub_batch_sizes": [
+              1,
+              7,
+              1024,
+              2048
+            ],
+            "sub_batches": 2060,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          },
+          "batch_size_sweep": {
+            "batch_sizes": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              15,
+              16,
+              17,
+              31,
+              32,
+              33,
+              63,
+              64,
+              65,
+              127,
+              128,
+              129,
+              255,
+              256,
+              257,
+              511,
+              512,
+              513,
+              1023,
+              1024,
+              1025,
+              2047,
+              2048
+            ],
+            "probe_rows": [
+              0,
+              259,
+              515,
+              771,
+              1027,
+              1283,
+              1539,
+              2047
+            ],
+            "comparisons": 2256,
+            "differ": 0,
+            "first_failures": []
+          },
+          "batch_invariant": true
+        },
+        "accuracy_latency": {
+          "1": {
+            "fwd_rel_err": 0.003856488128639106,
+            "grad_rel_err": {
+              "temb": 0.002906892643209935,
+              "w": 0.004108917853014856,
+              "b": 0.0
+            },
+            "fwd_us": 345.8240032196045,
+            "fwd_bwd_us": 2387.8400325775146
+          },
+          "3": {
+            "fwd_rel_err": 0.0035999863805493103,
+            "grad_rel_err": {
+              "temb": 0.0025072553507904586,
+              "w": 0.0039446027143119735,
+              "b": 0.0019723865877712033
+            },
+            "fwd_us": 329.76000010967255,
+            "fwd_bwd_us": 3095.7919359207153
+          },
+          "4": {
+            "fwd_rel_err": 0.0035999863805493103,
+            "grad_rel_err": {
+              "temb": 0.002560768077463324,
+              "w": 0.0030150633254733736,
+              "b": 0.0017331022530329288
+            },
+            "fwd_us": 331.2000036239624,
+            "fwd_bwd_us": 3088.063955307007
+          },
+          "64": {
+            "fwd_rel_err": 0.0031179071664915094,
+            "grad_rel_err": {
+              "temb": 0.002934168727885534,
+              "w": 0.003786559211024591,
+              "b": 0.003089158155830867
+            },
+            "fwd_us": 243.24800074100494,
+            "fwd_bwd_us": 3053.3759593963623
+          },
+          "256": {
+            "fwd_rel_err": 0.0034422315551847975,
+            "grad_rel_err": {
+              "temb": 0.002284836389545336,
+              "w": 0.003184281504467339,
+              "b": 0.0025350368296686533
+            },
+            "fwd_us": 311.16798520088196,
+            "fwd_bwd_us": 3689.5840167999268
+          },
+          "2048": {
+            "fwd_rel_err": 0.003219885589372577,
+            "grad_rel_err": {
+              "temb": 0.002307129848434764,
+              "w": 0.003537205254325983,
+              "b": 0.0020481905297133167
+            },
+            "fwd_us": 1802.2559881210327,
+            "fwd_bwd_us": 14296.223640441895
+          }
+        }
+      }
+    },
+    "sglang_ieee": {
+      "diffusers[sglang_ieee]": {
+        "source": "diffusers AdaLN projection, BF16 F.linear [sglang_ieee]",
+        "has_backward": true,
+        "batch_invariance": {
+          "all_rows": {
+            "64": {
+              "rows": 192,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            },
+            "257": {
+              "rows": 771,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            },
+            "2048": {
+              "rows": 6144,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            }
+          },
+          "params_repeatable": true,
+          "full_vs_sub_batches": {
+            "full_batch": 4096,
+            "sub_batch_sizes": [
+              1,
+              7,
+              1024,
+              2048
+            ],
+            "sub_batches": 2060,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          },
+          "batch_size_sweep": {
+            "batch_sizes": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              15,
+              16,
+              17,
+              31,
+              32,
+              33,
+              63,
+              64,
+              65,
+              127,
+              128,
+              129,
+              255,
+              256,
+              257,
+              511,
+              512,
+              513,
+              1023,
+              1024,
+              1025,
+              2047,
+              2048
+            ],
+            "probe_rows": [
+              0,
+              259,
+              515,
+              771,
+              1027,
+              1283,
+              1539,
+              2047
+            ],
+            "comparisons": 2256,
+            "differ": 0,
+            "first_failures": []
+          },
+          "batch_invariant": true
+        },
+        "accuracy_latency": {
+          "1": {
+            "fwd_rel_err": 0.003856488128639106,
+            "grad_rel_err": {
+              "temb": 0.002906892643209935,
+              "w": 0.004108917853014856,
+              "b": 0.0
+            },
+            "fwd_us": 347.6160019636154,
+            "fwd_bwd_us": 2428.431987762451
+          },
+          "3": {
+            "fwd_rel_err": 0.0035999863805493103,
+            "grad_rel_err": {
+              "temb": 0.0025072553507904586,
+              "w": 0.0039446027143119735,
+              "b": 0.0019723865877712033
+            },
+            "fwd_us": 332.0319950580597,
+            "fwd_bwd_us": 3137.839913368225
+          },
+          "4": {
+            "fwd_rel_err": 0.0035999863805493103,
+            "grad_rel_err": {
+              "temb": 0.002560768077463324,
+              "w": 0.0030150633254733736,
+              "b": 0.0017331022530329288
+            },
+            "fwd_us": 332.272008061409,
+            "fwd_bwd_us": 3133.8720321655273
+          },
+          "64": {
+            "fwd_rel_err": 0.0031179071664915094,
+            "grad_rel_err": {
+              "temb": 0.002934168727885534,
+              "w": 0.003786559211024591,
+              "b": 0.003089158155830867
+            },
+            "fwd_us": 241.7599931359291,
+            "fwd_bwd_us": 3196.015954017639
+          },
+          "256": {
+            "fwd_rel_err": 0.0034422315551847975,
+            "grad_rel_err": {
+              "temb": 0.002284836389545336,
+              "w": 0.003184281504467339,
+              "b": 0.0025350368296686533
+            },
+            "fwd_us": 311.3119900226593,
+            "fwd_bwd_us": 3740.447998046875
+          },
+          "2048": {
+            "fwd_rel_err": 0.003219885589372577,
+            "grad_rel_err": {
+              "temb": 0.002307129848434764,
+              "w": 0.003537205254325983,
+              "b": 0.0020481905297133167
+            },
+            "fwd_us": 1802.5919795036316,
+            "fwd_bwd_us": 14325.071811676025
+          }
+        }
+      }
+    },
+    "megatron_te_native": {
+      "diffusers[megatron_te_native]": {
+        "source": "diffusers AdaLN projection, BF16 F.linear [megatron_te_native]",
+        "has_backward": true,
+        "batch_invariance": {
+          "all_rows": {
+            "64": {
+              "rows": 192,
+              "fwd_differ": 0,
+              "rowgrad_differ": 192
+            },
+            "257": {
+              "rows": 771,
+              "fwd_differ": 0,
+              "rowgrad_differ": 771
+            },
+            "2048": {
+              "rows": 6144,
+              "fwd_differ": 0,
+              "rowgrad_differ": 6144
+            }
+          },
+          "params_repeatable": true,
+          "full_vs_sub_batches": {
+            "full_batch": 4096,
+            "sub_batch_sizes": [
+              1,
+              7,
+              1024,
+              2048
+            ],
+            "sub_batches": 2060,
+            "fwd_differ": 0,
+            "rowgrad_differ": 2056
+          },
+          "batch_size_sweep": {
+            "batch_sizes": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              15,
+              16,
+              17,
+              31,
+              32,
+              33,
+              63,
+              64,
+              65,
+              127,
+              128,
+              129,
+              255,
+              256,
+              257,
+              511,
+              512,
+              513,
+              1023,
+              1024,
+              1025,
+              2047,
+              2048
+            ],
+            "probe_rows": [
+              0,
+              259,
+              515,
+              771,
+              1027,
+              1283,
+              1539,
+              2047
+            ],
+            "comparisons": 2256,
+            "differ": 1104,
+            "first_failures": [
+              {
+                "seed": 3,
+                "batch": 64,
+                "position": 0,
+                "row": 0
+              },
+              {
+                "seed": 3,
+                "batch": 64,
+                "position": 31,
+                "row": 0
+              },
+              {
+                "seed": 3,
+                "batch": 64,
+                "position": 63,
+                "row": 0
+              },
+              {
+                "seed": 3,
+                "batch": 64,
+                "position": 0,
+                "row": 259
+              },
+              {
+                "seed": 3,
+                "batch": 64,
+                "position": 31,
+                "row": 259
+              },
+              {
+                "seed": 3,
+                "batch": 64,
+                "position": 63,
+                "row": 259
+              },
+              {
+                "seed": 3,
+                "batch": 64,
+                "position": 0,
+                "row": 515
+              },
+              {
+                "seed": 3,
+                "batch": 64,
+                "position": 31,
+                "row": 515
+              }
+            ]
+          },
+          "batch_invariant": false
+        },
+        "accuracy_latency": {
+          "1": {
+            "fwd_rel_err": 0.003856488128639106,
+            "grad_rel_err": {
+              "temb": 0.002906892643209935,
+              "w": 0.004108917853014856,
+              "b": 0.0
+            },
+            "fwd_us": 100.51199793815613,
+            "fwd_bwd_us": 759.440004825592
+          },
+          "3": {
+            "fwd_rel_err": 0.0035999863805493103,
+            "grad_rel_err": {
+              "temb": 0.0025072553507904586,
+              "w": 0.0039446027143119735,
+              "b": 0.0019723865877712033
+            },
+            "fwd_us": 100.0640019774437,
+            "fwd_bwd_us": 702.351987361908
+          },
+          "4": {
+            "fwd_rel_err": 0.0035999863805493103,
+            "grad_rel_err": {
+              "temb": 0.002560768077463324,
+              "w": 0.0030150633254733736,
+              "b": 0.0017331022530329288
+            },
+            "fwd_us": 99.45599734783173,
+            "fwd_bwd_us": 687.5999867916107
+          },
+          "64": {
+            "fwd_rel_err": 0.003117907166490413,
+            "grad_rel_err": {
+              "temb": 0.0028456426244756147,
+              "w": 0.003786559211024591,
+              "b": 0.003089158155830867
+            },
+            "fwd_us": 111.16799712181091,
+            "fwd_bwd_us": 697.8560090065002
+          },
+          "256": {
+            "fwd_rel_err": 0.0034422315551847975,
+            "grad_rel_err": {
+              "temb": 0.0022159011369222194,
+              "w": 0.003184281504467339,
+              "b": 0.0025350368296686533
+            },
+            "fwd_us": 127.00800597667694,
+            "fwd_bwd_us": 706.032007932663
+          },
+          "2048": {
+            "fwd_rel_err": 0.003219885589372577,
+            "grad_rel_err": {
+              "temb": 0.002307129848434764,
+              "w": 0.003537205254325983,
+              "b": 0.0020481905297133167
+            },
+            "fwd_us": 703.9839923381805,
+            "fwd_bwd_us": 2330.4959535598755
+          }
+        }
+      }
+    },
+    "megatron_triton": {
+      "diffusers[megatron_triton]": {
+        "source": "diffusers AdaLN projection, BF16 F.linear [megatron_triton]",
+        "has_backward": true,
+        "batch_invariance": {
+          "all_rows": {
+            "64": {
+              "rows": 192,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            },
+            "257": {
+              "rows": 771,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            },
+            "2048": {
+              "rows": 6144,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            }
+          },
+          "params_repeatable": true,
+          "full_vs_sub_batches": {
+            "full_batch": 4096,
+            "sub_batch_sizes": [
+              1,
+              7,
+              1024,
+              2048
+            ],
+            "sub_batches": 2060,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          },
+          "batch_size_sweep": {
+            "batch_sizes": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              15,
+              16,
+              17,
+              31,
+              32,
+              33,
+              63,
+              64,
+              65,
+              127,
+              128,
+              129,
+              255,
+              256,
+              257,
+              511,
+              512,
+              513,
+              1023,
+              1024,
+              1025,
+              2047,
+              2048
+            ],
+            "probe_rows": [
+              0,
+              259,
+              515,
+              771,
+              1027,
+              1283,
+              1539,
+              2047
+            ],
+            "comparisons": 2256,
+            "differ": 0,
+            "first_failures": []
+          },
+          "batch_invariant": true
+        },
+        "accuracy_latency": {
+          "1": {
+            "fwd_rel_err": 0.003856488128639106,
+            "grad_rel_err": {
+              "temb": 0.002906892643209935,
+              "w": 0.004108917853014856,
+              "b": 0.0
+            },
+            "fwd_us": 341.90399944782257,
+            "fwd_bwd_us": 2427.3279905319214
+          },
+          "3": {
+            "fwd_rel_err": 0.0035999863805493103,
+            "grad_rel_err": {
+              "temb": 0.0025072553507904586,
+              "w": 0.0039446027143119735,
+              "b": 0.0019723865877712033
+            },
+            "fwd_us": 330.3360044956207,
+            "fwd_bwd_us": 2532.096028327942
+          },
+          "4": {
+            "fwd_rel_err": 0.0035999863805493103,
+            "grad_rel_err": {
+              "temb": 0.002560768077463324,
+              "w": 0.0030150633254733736,
+              "b": 0.0017331022530329288
+            },
+            "fwd_us": 329.23200726509094,
+            "fwd_bwd_us": 2525.215983390808
+          },
+          "64": {
+            "fwd_rel_err": 0.0031179071664915094,
+            "grad_rel_err": {
+              "temb": 0.002934168727885534,
+              "w": 0.003786559211024591,
+              "b": 0.003089158155830867
+            },
+            "fwd_us": 236.40000075101852,
+            "fwd_bwd_us": 2594.655990600586
+          },
+          "256": {
+            "fwd_rel_err": 0.0034422315551847975,
+            "grad_rel_err": {
+              "temb": 0.002284836389545336,
+              "w": 0.003184281504467339,
+              "b": 0.0025350368296686533
+            },
+            "fwd_us": 305.00800907611847,
+            "fwd_bwd_us": 3204.032063484192
+          },
+          "2048": {
+            "fwd_rel_err": 0.003219885589372577,
+            "grad_rel_err": {
+              "temb": 0.002307129848434764,
+              "w": 0.003537205254325983,
+              "b": 0.0020481905297133167
+            },
+            "fwd_us": 1738.0319833755493,
+            "fwd_bwd_us": 13771.424293518066
+          }
+        }
+      }
+    },
+    "megatron_triton_ieee": {
+      "diffusers[megatron_triton_ieee]": {
+        "source": "diffusers AdaLN projection, BF16 F.linear [megatron_triton_ieee]",
+        "has_backward": true,
+        "batch_invariance": {
+          "all_rows": {
+            "64": {
+              "rows": 192,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            },
+            "257": {
+              "rows": 771,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            },
+            "2048": {
+              "rows": 6144,
+              "fwd_differ": 0,
+              "rowgrad_differ": 0
+            }
+          },
+          "params_repeatable": true,
+          "full_vs_sub_batches": {
+            "full_batch": 4096,
+            "sub_batch_sizes": [
+              1,
+              7,
+              1024,
+              2048
+            ],
+            "sub_batches": 2060,
+            "fwd_differ": 0,
+            "rowgrad_differ": 0
+          },
+          "batch_size_sweep": {
+            "batch_sizes": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              15,
+              16,
+              17,
+              31,
+              32,
+              33,
+              63,
+              64,
+              65,
+              127,
+              128,
+              129,
+              255,
+              256,
+              257,
+              511,
+              512,
+              513,
+              1023,
+              1024,
+              1025,
+              2047,
+              2048
+            ],
+            "probe_rows": [
+              0,
+              259,
+              515,
+              771,
+              1027,
+              1283,
+              1539,
+              2047
+            ],
+            "comparisons": 2256,
+            "differ": 0,
+            "first_failures": []
+          },
+          "batch_invariant": true
+        },
+        "accuracy_latency": {
+          "1": {
+            "fwd_rel_err": 0.003856488128639106,
+            "grad_rel_err": {
+              "temb": 0.002906892643209935,
+              "w": 0.004108917853014856,
+              "b": 0.0
+            },
+            "fwd_us": 345.12001276016235,
+            "fwd_bwd_us": 2428.8480281829834
+          },
+          "3": {
+            "fwd_rel_err": 0.0035999863805493103,
+            "grad_rel_err": {
+              "temb": 0.0025072553507904586,
+              "w": 0.0039446027143119735,
+              "b": 0.0019723865877712033
+            },
+            "fwd_us": 329.8879861831665,
+            "fwd_bwd_us": 2532.6719284057617
+          },
+          "4": {
+            "fwd_rel_err": 0.0035999863805493103,
+            "grad_rel_err": {
+              "temb": 0.002560768077463324,
+              "w": 0.0030150633254733736,
+              "b": 0.0017331022530329288
+            },
+            "fwd_us": 329.0559947490692,
+            "fwd_bwd_us": 2532.0639610290527
+          },
+          "64": {
+            "fwd_rel_err": 0.0031179071664915094,
+            "grad_rel_err": {
+              "temb": 0.002934168727885534,
+              "w": 0.003786559211024591,
+              "b": 0.003089158155830867
+            },
+            "fwd_us": 237.42400109767914,
+            "fwd_bwd_us": 2599.3279218673706
+          },
+          "256": {
+            "fwd_rel_err": 0.0034422315551847975,
+            "grad_rel_err": {
+              "temb": 0.002284836389545336,
+              "w": 0.003184281504467339,
+              "b": 0.0025350368296686533
+            },
+            "fwd_us": 305.7119995355606,
+            "fwd_bwd_us": 3206.480026245117
+          },
+          "2048": {
+            "fwd_rel_err": 0.003219885589372577,
+            "grad_rel_err": {
+              "temb": 0.002307129848434764,
+              "w": 0.003537205254325983,
+              "b": 0.0020481905297133167
+            },
+            "fwd_us": 1738.5759949684143,
+            "fwd_bwd_us": 13772.655963897705
+          }
+        }
+      }
+    }
+  }
+}
