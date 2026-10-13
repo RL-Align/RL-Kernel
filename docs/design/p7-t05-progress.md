@@ -23,6 +23,7 @@ WS1 is **not complete**. This push is a progress snapshot.
 | M10 export (draft) | `.../megatron_training_export.py` | `m10.json` plus FP32 active raw bytes, integrity checks, local bit self-test (no verdict authority) |
 | Failure batch and weight lock (draft) | `.../megatron_training.py` | Failure-batch manifest and filter, pre-update weight lock, status names |
 | Gradient write evidence | `rl_engine/integrations/megatron_training_gradients.py` | Per-step write markers on Megatron DDP (accumulate-hook calls and `grad_added_to_main_grad`), DDP buffer/bucket mapping, base-grad-absent and producer cross-checks |
+| Cross-rank gradient evidence (draft) | `rl_engine/integrations/megatron_training_gradients.py` (`observe_sync`, `observe_optimizer_ownership`), `.../megatron_training_gradient_ranks.py` | Records each gradient-sync collective Megatron issues on a DDP bucket inside the step window (pass-through wrappers, no added kernel) and the distributed optimizer's owned ranges; validates rank completeness, replica agreement, one sync per bucket on the DP group with the configured collective, shard offsets and exact ownership coverage |
 | Per-rank readback (draft) | `.../megatron_training_ranks.py` | Observed rank coordinates (TP/CP/DP/PP, device), rank readbacks exchanged over CPU gloo, rank-set integrity: missing or duplicate ranks, group membership, invariants, weight replicas, vocab coverage, row and target ownership, global-token mapping |
 
 Schemas are suffixed `-draft` and are replaced by the T01 publications once frozen.
@@ -47,6 +48,8 @@ Transformer Engine 2.18 is not installed.
 | GPU G3, same file | 2/2 passed: real Megatron DDP, two micro-batches; LM-head write markers, no write on the frozen embedding; `main_grad` bitwise unchanged under observation |
 | GPU G3 fused wgrad | skipped: `fused_weight_gradient_mlp_cuda` (apex/TE) not installed |
 | WS2 CPU tests (`tests/test_megatron_training_ranks.py`) | 31/31 passed, including a 4-process gloo exchange |
+| WS2 gradient CPU tests (`tests/test_megatron_training_gradient_ranks.py`) | 19 passed, 1 skipped (ownership does not apply to all-reduce); 2-process gloo double of Megatron's bucketed sync |
+| WS2 gradients on 4×H20, `tests/megatron_training_grad_ranks_dp.py` | Real Megatron DDP, strict LM-head route, two micro-batches with different data per DP rank: TP1×DP4 and TP2×DP2 with the distributed optimizer, TP1×DP4 all-reduce, TP1×DP4 distributed optimizer with overlapped reduction (4 buckets). Every bucket synchronised once per rank with the configured collective on the DP group, each rank received its own shard, owned ranges cover every trainable parameter exactly once; missing/duplicate rank, swapped collective (`SILENT_FALLBACK`) and a dropped owned range (`INCOMPLETE_ARTIFACT`) fail closed. Test-side: synchronised gradients bitwise unchanged under observation, parameters equal across DP replicas after the optimizer step. Complete, not certified (producer gradient set missing) |
 | WS2 on 4×H20, `tests/megatron_training_ranks_tp.py`, canonical TP4 | TP1 (size-1 TP group, as VIME passes it), TP2, TP4 and TP2×CP2 on the real strict TP route: FP32 bytes identical on all 77 active tokens; every rank set complete; dropping a rank reports `MISSING_RANK`, duplicating one reports `IDENTITY_DRIFT`. Rank sets are not certified: the same contract-delta and T01 items are missing |
 
 G1–G3 were single-GPU (TP=1, world size 1) correctness runs. Calling TP1 without
@@ -67,7 +70,7 @@ compared as one path.
 | Gradient evidence: autograd `main_grad` path, buffer/bucket mapping, write markers, base-grad-absent | Passed (single GPU) | G3 |
 | Gradient evidence: fused wgrad on GPU | Out of WS1 scope | The strict LM-head backward does not use fused wgrad and the reference configuration disables gradient-accumulation fusion; revisit in P4 if fusion is enabled |
 | Gradient evidence: producer gradient set forwarded | Blocked (P5) | Format not published; cross-check implemented |
-| Gradient evidence: cross-rank reduce-scatter and distributed-optimizer shard ownership | Not done | Four GPUs now available; in progress |
+| Gradient evidence: cross-rank reduce-scatter and distributed-optimizer shard ownership | Passed | WS2 gradients on 4×H20 (DP2/DP4, TP2×DP2, overlapped reduction) |
 | Sampling layers recorded, identity in consistency mode | Passed | Gate CPU tests, G1/G2 |
 | Entry point, temperature, TP coordinates, materialization range checked; unsupported branches fail | Passed | Gate CPU tests |
 | Failure-batch filter and pre-update weight lock stable across reruns | Passed (draft interface) | CPU tests; shared interface awaits T06 review |
@@ -102,6 +105,11 @@ available machine.
   fails when a CUDA build of torch sees no GPU: `torch.cuda.is_current_stream_capturing()`
   raises `cudaErrorNoDevice`. Reproduced on the unmodified base commit; it passes
   with a GPU visible.
+- **Gloo 4-rank test times out on slow storage.**
+  `tests/test_linear_logp.py::test_native_tensor_parallel_matches_full_reference_cpu_gloo_4_ranks`
+  waits 45 s for four spawned workers; with the environment on a network
+  filesystem their imports take about 54 s. The same worker with a longer wait
+  passes on all four ranks.
 - **Pre-existing collection error.** `tests/test_rocm_aiter_api_contract.py` fails
   to import `_AITER_FWD_REQUIRED_KEYWORDS` from
   `rl_engine.kernels.ops.rocm.attention.flash_attn`. T05 does not modify
@@ -121,9 +129,7 @@ None of these changes arithmetic or adds kernel launches.
 
 ## Next steps
 
-- T05 work still open: GPU L2 launch variants and canonical virtual-TP grouping;
-  cross-rank gradient evidence (DP 2/4, reduce-scatter, distributed-optimizer
-  shard ownership) on four GPUs.
+- T05 work still open: GPU L2 launch variants and canonical virtual-TP grouping.
 - After T01/T06/T09/P5 publish: swap the draft schemas, wire the M10 pairing and
   the producer gradient set, and close the blocked items.
 - P4: live pairing with the training-side `PairedScorer`.
