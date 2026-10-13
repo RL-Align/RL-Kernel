@@ -23,6 +23,7 @@ WS1 is **not complete**. This push is a progress snapshot.
 | M10 export (draft) | `.../megatron_training_export.py` | `m10.json` plus FP32 active raw bytes, integrity checks, local bit self-test (no verdict authority) |
 | Failure batch and weight lock (draft) | `.../megatron_training.py` | Failure-batch manifest and filter, pre-update weight lock, status names |
 | Gradient write evidence | `rl_engine/integrations/megatron_training_gradients.py` | Per-step write markers on Megatron DDP (accumulate-hook calls and `grad_added_to_main_grad`), DDP buffer/bucket mapping, base-grad-absent and producer cross-checks |
+| Per-rank readback (draft) | `.../megatron_training_ranks.py` | Observed rank coordinates (TP/CP/DP/PP, device), rank readbacks exchanged over CPU gloo, rank-set integrity: missing or duplicate ranks, group membership, invariants, weight replicas, vocab coverage, row and target ownership, global-token mapping |
 
 Schemas are suffixed `-draft` and are replaced by the T01 publications once frozen.
 Test doubles for unpublished T01/T02 artifacts live in `tests/p7_doubles/` and are
@@ -45,8 +46,13 @@ Transformer Engine 2.18 is not installed.
 | GPU G2, `tests/test_megatron_training_gpu_live.py` | 1/1 passed: tiny Megatron GPT with VIME's LM-head capture hook; live and recorded results byte-identical; observation adds or removes no CUDA kernel |
 | GPU G3, same file | 2/2 passed: real Megatron DDP, two micro-batches; LM-head write markers, no write on the frozen embedding; `main_grad` bitwise unchanged under observation |
 | GPU G3 fused wgrad | skipped: `fused_weight_gradient_mlp_cuda` (apex/TE) not installed |
+| WS2 CPU tests (`tests/test_megatron_training_ranks.py`) | 31/31 passed, including a 4-process gloo exchange |
+| WS2 on 4×H20, `tests/megatron_training_ranks_tp.py`, canonical TP4 | TP1 (size-1 TP group, as VIME passes it), TP2, TP4 and TP2×CP2 on the real strict TP route: FP32 bytes identical on all 77 active tokens; every rank set complete; dropping a rank reports `MISSING_RANK`, duplicating one reports `IDENTITY_DRIFT`. Rank sets are not certified: the same contract-delta and T01 items are missing |
 
-All GPU runs were single-GPU (TP=1, world size 1) correctness runs.
+G1–G3 were single-GPU (TP=1, world size 1) correctness runs. Calling TP1 without
+a TP group selects the single-GPU fused entry, whose bytes differ from the
+canonical TP entry; the evidence records the entry point, so the two are never
+compared as one path.
 
 ## WS1 definition-of-done status
 
@@ -59,9 +65,9 @@ All GPU runs were single-GPU (TP=1, world size 1) correctness runs.
 | LSE, global max/sum, padded mask, actual canonical split, redistribution collective, merge order observed | Blocked (contract delta) | No readback interface in the strict route; additive delta proposed |
 | Evidence bound to the call and tagged by source; configured/declared never certify | Passed | Readback and gate CPU tests, G1/G2 |
 | Gradient evidence: autograd `main_grad` path, buffer/bucket mapping, write markers, base-grad-absent | Passed (single GPU) | G3 |
-| Gradient evidence: fused wgrad on GPU | Not done | Needs apex or TE installed |
+| Gradient evidence: fused wgrad on GPU | Out of WS1 scope | The strict LM-head backward does not use fused wgrad and the reference configuration disables gradient-accumulation fusion; revisit in P4 if fusion is enabled |
 | Gradient evidence: producer gradient set forwarded | Blocked (P5) | Format not published; cross-check implemented |
-| Gradient evidence: cross-rank reduce-scatter and distributed-optimizer shard ownership | Blocked (multi-GPU) | One GPU available |
+| Gradient evidence: cross-rank reduce-scatter and distributed-optimizer shard ownership | Not done | Four GPUs now available; in progress |
 | Sampling layers recorded, identity in consistency mode | Passed | Gate CPU tests, G1/G2 |
 | Entry point, temperature, TP coordinates, materialization range checked; unsupported branches fail | Passed | Gate CPU tests |
 | Failure-batch filter and pre-update weight lock stable across reruns | Passed (draft interface) | CPU tests; shared interface awaits T06 review |
@@ -71,8 +77,10 @@ All GPU runs were single-GPU (TP=1, world size 1) correctness runs.
 | Live pairing with a model forward (`PairedScorer`) | Not done | Moved to P4 |
 | T06 review | Not done | |
 
-WS2 (cross physical TP with a shared canonical boundary) is blocked on multi-GPU
-resources.
+WS2 (cross physical TP with a shared canonical boundary): per-rank readback and
+cross physical TP bytes passed on four GPUs (see Verification); certification
+waits on the same contract-delta and T01 items. TP8 and larger are outside the
+available machine.
 
 ## Findings
 
@@ -81,7 +89,8 @@ resources.
   built without the flag fails closed with "built without
   KERNEL_ALIGN_DET_GEMM_SM90=1; refusing naive fallback"
   (`rl_engine/kernels/ops/cuda/matmul/det_gemm.py`). The flag is read in
-  `setup.py` but is not mentioned in the installation or usage docs. Build with:
+  `setup.py` and is now documented in
+  [qwen3-vime-consistency.md](../usage/qwen3-vime-consistency.md). Build with:
 
   ```bash
   KERNEL_ALIGN_FORCE_SM90=1 KERNEL_ALIGN_DET_GEMM_SM90=1 \
@@ -112,8 +121,9 @@ None of these changes arithmetic or adds kernel launches.
 
 ## Next steps
 
-- Single-GPU items T05 can still do: GPU L2 launch variants and canonical
-  virtual-TP grouping; the WS2 logic that runs on one GPU.
+- T05 work still open: GPU L2 launch variants and canonical virtual-TP grouping;
+  cross-rank gradient evidence (DP 2/4, reduce-scatter, distributed-optimizer
+  shard ownership) on four GPUs.
 - After T01/T06/T09/P5 publish: swap the draft schemas, wire the M10 pairing and
   the producer gradient set, and close the blocked items.
 - P4: live pairing with the training-side `PairedScorer`.
