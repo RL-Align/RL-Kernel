@@ -248,6 +248,20 @@ def test_h3_ops_prefer_cuda_and_fall_back_to_pytorch_reference(op_name):
         assert [backend.name for backend in chain] == [cuda_chain[-1].name]
 
 
+def test_h3_timestep_falls_back_when_fast_math_build_omits_kernel(monkeypatch):
+    # KERNEL_ALIGN_USE_FAST_MATH=1 builds leave out the bitwise timestep kernel
+    # and its binding; dispatch must then pick the PyTorch reference.
+    from rl_engine.backends.cuda.model_specific.minimax_h3 import timestep_sinusoid
+    from rl_engine.reference.minimax_h3.timestep_sinusoid import NativeH3TimestepSinusoidOp
+
+    monkeypatch.setattr(timestep_sinusoid, "h3_sinusoid_cuda_available", lambda: False)
+    monkeypatch.setattr(torch.version, "hip", None, raising=False)
+
+    op = KernelRegistry().get_op("timestep_sinusoid_h3", device="cuda:0")
+
+    assert isinstance(op, NativeH3TimestepSinusoidOp)
+
+
 def test_npu_available_handles_runtime_failure(monkeypatch):
     class BrokenNPU:
         @staticmethod
