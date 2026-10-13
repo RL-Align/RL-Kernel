@@ -442,6 +442,22 @@ def rel_err(value: Any, golden: Any) -> float:
     return num / max(den, 1e-30)
 
 
+def ulp_err(value: torch.Tensor, golden: torch.Tensor) -> float:
+    """``max|value - golden|`` in units of ``value.dtype``'s ulp at ``max|golden|``.
+
+    ``rel_err`` of a stored gradient moves in steps of this ulp: its worst
+    element is a single rounded number, so two equally valid reduction orders
+    can differ by whole ulps there while every other element agrees.
+    """
+
+    g32 = golden.float()
+    top = float(g32.abs().max())
+    if top == 0.0:
+        return 0.0
+    ulp = torch.finfo(value.dtype).eps * 2.0 ** torch.floor(torch.log2(torch.tensor(top))).item()
+    return float((value.float() - g32).abs().max()) / ulp
+
+
 def digest(value: Any) -> str:
     """sha256 over a node's tensors' bytes, for comparing runs across processes or hosts."""
 
@@ -661,6 +677,9 @@ def run_block_backward(
             "repeat_bitwise_equal": bool(torch.equal(first[name], second[name])),
             "candidate_rel_err_vs_golden": rel_err(first[name], golden[name]),
             "provider_rel_err_vs_golden": rel_err(provider[name], golden[name]),
+            "storage_dtype": str(first[name].dtype).removeprefix("torch."),
+            "candidate_ulps_vs_golden": ulp_err(first[name], golden[name]),
+            "provider_ulps_vs_golden": ulp_err(provider[name], golden[name]),
         }
     report["leaves"]["hidden"]["batch_row_bitwise_equal"] = bool(
         torch.equal(batched["hidden"][:1], first["hidden"])
