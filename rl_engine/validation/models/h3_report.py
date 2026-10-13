@@ -207,7 +207,8 @@ def _mlp_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
     weight_bytes = sum(p.numel() * p.element_size() for p in params)
     cases = []
     for num in (1, 2, 3, 4):
-        x = torch.rand(num, 256, device="cuda") * 2 - 1
+        gen = torch.Generator(device="cuda").manual_seed(num)
+        x = torch.rand(num, 256, device="cuda", generator=gen) * 2 - 1
         cases.append(
             {
                 "op": "timestep_mlp_fp32",
@@ -272,7 +273,8 @@ def _projection_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
     weight, bias = _adaln_params()
     cases = []
     for num in (1, 2, 3, 4):
-        temb = torch.randn(num, 2688, device="cuda")
+        gen = torch.Generator(device="cuda").manual_seed(num)
+        temb = torch.randn(num, 2688, device="cuda", generator=gen)
         cases.append(
             {
                 "op": "adaln_projection_3mod",
@@ -311,7 +313,8 @@ def _projection_accuracy(registry: KernelRegistry, draws: int = 20) -> dict[str,
         cuda_frac.append(float((ours == gold).float().mean()))
         provider_frac.append(float((theirs == gold).float().mean()))
         early_frac.append(float((ours == early).float().mean()))
-    temb = torch.randn(9, 2688, device="cuda")
+    gen = torch.Generator(device="cuda").manual_seed(draws)
+    temb = torch.randn(9, 2688, device="cuda", generator=gen)
     full = op(temb, weight, bias)
     invariant = all(
         all(
@@ -340,12 +343,15 @@ GATHER_SEQ_LENS = (4097, 32768, 131072)
 def _gather_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
     op = registry.get_op("adaln_row_gather", device="cuda")
     num_timesteps, hidden = 3, 5376
-    rows = torch.randn(3 * num_timesteps, 6 * hidden, device="cuda").bfloat16()
+    gen = torch.Generator(device="cuda").manual_seed(0)
+    rows = torch.randn(3 * num_timesteps, 6 * hidden, device="cuda", generator=gen).bfloat16()
     chunks = rows.chunk(6, dim=-1)
     cases = []
     for seq in GATHER_SEQ_LENS:
         ti, tags = h3_packed_layout(seq, num_timesteps, seed=seq)
-        grads = [torch.randn(seq, hidden, device="cuda").bfloat16() for _ in range(6)]
+        grads = [
+            torch.randn(seq, hidden, device="cuda", generator=gen).bfloat16() for _ in range(6)
+        ]
 
         def prepare_backward(fn, ti=ti, tags=tags):
             leaf = rows.detach().requires_grad_(True)
@@ -507,9 +513,10 @@ def _norm_accuracy(registry: KernelRegistry) -> dict[str, Any]:
         name: weight.bfloat16()
         for name, weight in zip(names, h3_params(names, [(5376,)] * len(names)), strict=True)
     }
+    gen = torch.Generator(device="cuda").manual_seed(0)
     plain = {}
     for name in names:
-        x = torch.randn(2, 777, 5376, device="cuda").bfloat16()
+        x = torch.randn(2, 777, 5376, device="cuda", generator=gen).bfloat16()
         ref = torch.nn.functional.rms_norm(x, (5376,), weights[name], 1e-5)
         plain[name] = bool(torch.equal(op(x, weights[name]), ref))
     x, weight, shift, scale, index = _norm_inputs(4097, seed=1)
