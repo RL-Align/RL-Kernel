@@ -480,12 +480,14 @@ __global__ void fused_linear_logp_logits_tile_bf16_mma_kernel(
                 float dz;
                 if constexpr (kStrictEpilogue) {
                     // z = logit * (1/T) exactly as the forward kernel scales it;
-                    // masked lanes had exp() -> 0 in the forward LSE.
+                    // masked lanes had exp() -> 0 in the forward LSE. __fmul_rn
+                    // keeps nvcc from contracting z * inv_t - lse into one FMA,
+                    // which would skip the product rounding the forward applies.
                     const float inv_t =
                         (temperature != nullptr) ? 1.0f / temperature[global_row] : 1.0f;
                     float z = logit;
                     if (temperature != nullptr)
-                        z *= inv_t;
+                        z = __fmul_rn(z, inv_t);
                     dz = (col < real_vocab_end) ? -expf(z - lse[global_row]) : 0.0f;
                     if (target[global_row] == global_col)
                         dz += 1.0f;
