@@ -65,6 +65,13 @@ def canonical(model, group, config, role, buffers=None):
             stride = 2 if name.endswith("mlp.linear_fc1.weight") else param.partition_stride
             parts = [v.chunk(stride, dim=axis) for v in shards]
             value = torch.cat([parts[r][i] for i in range(stride) for r in range(size)], dim=axis)
+        elif size > 1:
+            leader_value = value.clone()
+            dist.broadcast(leader_value, src=0, group=group)
+            mismatch = torch.tensor(int(not torch.equal(value, leader_value)), device=value.device)
+            dist.all_reduce(mismatch, op=dist.ReduceOp.MAX, group=group)
+            if mismatch.item():
+                raise ValueError(f"replicated TP tensor differs: {name}")
         result[name] = value.cpu().clone()
     prefix = "model." if role == "actor" else "backbone."
     backbone = {n.removeprefix(prefix): v for n, v in result.items() if n.startswith(prefix)}
@@ -250,6 +257,17 @@ def main():
                         a.output, f"{update}/clipped_norm", squared.sqrt()
                     )
             elif event == "after_step":
+                optimizer = worker.optimizer
+                while hasattr(optimizer, "optimizer"):
+                    optimizer = optimizer.optimizer
+                for state in optimizer.state.values():
+                    for tensor in state.values():
+                        if (
+                            isinstance(tensor, torch.Tensor)
+                            and tensor.is_floating_point()
+                            and tensor.dtype != torch.float32
+                        ):
+                            raise ValueError("optimizer state is not FP32")
                 after = canonical(model, group, config, a.role)
                 if rank == 0:
                     for n, v in after.items():
