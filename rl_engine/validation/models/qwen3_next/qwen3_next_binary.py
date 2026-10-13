@@ -12,7 +12,7 @@ from rl_engine.validation.common.file_digest import file_sha256
 
 
 def _digest(path):
-    return file_sha256(path)
+    return file_sha256(Path(path))
 
 
 def archive_provider_binary(source, output, *, source_tree):

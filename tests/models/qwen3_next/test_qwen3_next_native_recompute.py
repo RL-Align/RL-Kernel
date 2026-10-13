@@ -11,6 +11,7 @@ from rl_engine.integrations.orchestrators.vime.experiments.qwen3_next.native_rec
 )
 from rl_engine.integrations.orchestrators.vime.providers.qwen3_next_vime_runtime import runtime_argv
 from rl_engine.models.qwen3_next.qwen3_next_subnode import SUBNODES, subnode_layout
+from rl_engine.validation.common.file_digest import file_sha256
 
 
 @pytest.mark.parametrize("batch", [1, 4])
