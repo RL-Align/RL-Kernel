@@ -1,0 +1,2459 @@
+{
+  "kind": "h3_bitwise_reuse",
+  "rfc": "RL-Align/RL-Kernel#420",
+  "op": "timestep_mlp",
+  "rl_kernel_commit": "0df83a5a38b5e2063154e2c750ff10bd8b335f89",
+  "tracked_tree_dirty": false,
+  "environment": {
+    "gpu": "NVIDIA B200",
+    "capability": [
+      10,
+      0
+    ],
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "python": "3.12.14",
+    "tf32": false,
+    "libraries": {
+      "torch": "2.13.0",
+      "triton": "3.7.1",
+      "diffusers": null,
+      "vllm": "0.30.0",
+      "flashinfer-python": "0.6.18.post1",
+      "sglang": "0.5.21",
+      "liger-kernel": "0.8.4",
+      "transformer_engine": "2.20.2",
+      "megatron-core": null
+    },
+    "mode_environment": {
+      "plain": {},
+      "vllm": {
+        "CUBLAS_WORKSPACE_CONFIG": ":16:8",
+        "CUBLASLT_WORKSPACE_SIZE": "1"
+      },
+      "sglang": {},
+      "sglang_ieee": {
+        "TRITON_F32_DEFAULT": "ieee"
+      },
+      "megatron_te_native": {
+        "CUBLASLT_WORKSPACE_SIZE": "0"
+      },
+      "megatron_triton": {},
+      "megatron_triton_ieee": {
+        "TRITON_F32_DEFAULT": "ieee"
+      }
+    }
+  },
+  "cases": [
+    1,
+    4,
+    64,
+    2048
+  ],
+  "results": {
+    "diffusers[megatron_te_native]": {
+      "source": "diffusers TimestepEmbedding, FP32 F.linear [megatron_te_native]",
+      "vs diffusers[plain]": {
+        "1": {
+          "out": [
+            {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": true,
+              "differ": 0,
+              "numel": 256,
+              "max_abs": 0.0
+            },
+            "w1": {
+              "equal": true,
+              "differ": 0,
+              "numel": 1376256,
+              "max_abs": 0.0
+            },
+            "b1": {
+              "equal": true,
+              "differ": 0,
+              "numel": 5376,
+              "max_abs": 0.0
+            },
+            "w2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 14450688,
+              "max_abs": 0.0
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "2048": {
+          "out": [
+            {
+              "equal": true,
+              "differ": 0,
+              "numel": 5505024,
+              "max_abs": 0.0
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": true,
+              "differ": 0,
+              "numel": 524288,
+              "max_abs": 0.0
+            },
+            "w1": {
+              "equal": true,
+              "differ": 0,
+              "numel": 1376256,
+              "max_abs": 0.0
+            },
+            "b1": {
+              "equal": true,
+              "differ": 0,
+              "numel": 5376,
+              "max_abs": 0.0
+            },
+            "w2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 14450688,
+              "max_abs": 0.0
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "4": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 10099,
+              "numel": 10752,
+              "max_abs": 1.2069940567016602e-06
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": true,
+              "differ": 0,
+              "numel": 1024,
+              "max_abs": 0.0
+            },
+            "w1": {
+              "equal": true,
+              "differ": 0,
+              "numel": 1376256,
+              "max_abs": 0.0
+            },
+            "b1": {
+              "equal": true,
+              "differ": 0,
+              "numel": 5376,
+              "max_abs": 0.0
+            },
+            "w2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 14450688,
+              "max_abs": 0.0
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "64": {
+          "out": [
+            {
+              "equal": true,
+              "differ": 0,
+              "numel": 172032,
+              "max_abs": 0.0
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": true,
+              "differ": 0,
+              "numel": 16384,
+              "max_abs": 0.0
+            },
+            "w1": {
+              "equal": true,
+              "differ": 0,
+              "numel": 1376256,
+              "max_abs": 0.0
+            },
+            "b1": {
+              "equal": true,
+              "differ": 0,
+              "numel": 5376,
+              "max_abs": 0.0
+            },
+            "w2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 14450688,
+              "max_abs": 0.0
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        }
+      },
+      "vs rl_kernel": {
+        "1": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 2476,
+              "numel": 2688,
+              "max_abs": 9.238719940185547e-07
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 237,
+              "numel": 256,
+              "max_abs": 3.814697265625e-06
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1246485,
+              "numel": 1376256,
+              "max_abs": 3.814697265625e-06
+            },
+            "b1": {
+              "equal": false,
+              "differ": 4934,
+              "numel": 5376,
+              "max_abs": 9.5367431640625e-07
+            },
+            "w2": {
+              "equal": false,
+              "differ": 9663821,
+              "numel": 14450688,
+              "max_abs": 4.76837158203125e-06
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "2048": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 5384570,
+              "numel": 5505024,
+              "max_abs": 1.0967254638671875e-05
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 510834,
+              "numel": 524288,
+              "max_abs": 1.0013580322265625e-05
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1348953,
+              "numel": 1376256,
+              "max_abs": 0.00020599365234375
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5273,
+              "numel": 5376,
+              "max_abs": 0.00011444091796875
+            },
+            "w2": {
+              "equal": false,
+              "differ": 13799125,
+              "numel": 14450688,
+              "max_abs": 0.0001220703125
+            },
+            "b2": {
+              "equal": false,
+              "differ": 2600,
+              "numel": 2688,
+              "max_abs": 0.0004119873046875
+            }
+          }
+        },
+        "4": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 9745,
+              "numel": 10752,
+              "max_abs": 8.344650268554688e-07
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 949,
+              "numel": 1024,
+              "max_abs": 3.337860107421875e-06
+            },
+            "w1": {
+              "equal": false,
+              "differ": 981691,
+              "numel": 1376256,
+              "max_abs": 1.9073486328125e-06
+            },
+            "b1": {
+              "equal": false,
+              "differ": 3824,
+              "numel": 5376,
+              "max_abs": 7.152557373046875e-07
+            },
+            "w2": {
+              "equal": false,
+              "differ": 11533688,
+              "numel": 14450688,
+              "max_abs": 4.76837158203125e-06
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "64": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 168321,
+              "numel": 172032,
+              "max_abs": 9.775161743164062e-06
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 15510,
+              "numel": 16384,
+              "max_abs": 4.291534423828125e-06
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1275768,
+              "numel": 1376256,
+              "max_abs": 8.58306884765625e-06
+            },
+            "b1": {
+              "equal": false,
+              "differ": 4962,
+              "numel": 5376,
+              "max_abs": 6.198883056640625e-06
+            },
+            "w2": {
+              "equal": false,
+              "differ": 13386992,
+              "numel": 14450688,
+              "max_abs": 1.9073486328125e-05
+            },
+            "b2": {
+              "equal": false,
+              "differ": 2174,
+              "numel": 2688,
+              "max_abs": 1.33514404296875e-05
+            }
+          }
+        }
+      }
+    },
+    "diffusers[megatron_triton]": {
+      "source": "diffusers TimestepEmbedding, FP32 F.linear [megatron_triton]",
+      "vs diffusers[plain]": {
+        "1": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 2688,
+              "numel": 2688,
+              "max_abs": 0.00420069694519043
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 256,
+              "numel": 256,
+              "max_abs": 0.011759757995605469
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1376243,
+              "numel": 1376256,
+              "max_abs": 0.018283843994140625
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5376,
+              "numel": 5376,
+              "max_abs": 0.0029268264770507812
+            },
+            "w2": {
+              "equal": false,
+              "differ": 14450558,
+              "numel": 14450688,
+              "max_abs": 0.022307395935058594
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "2048": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 5504991,
+              "numel": 5505024,
+              "max_abs": 0.0053713321685791016
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 524284,
+              "numel": 524288,
+              "max_abs": 0.015465736389160156
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1376249,
+              "numel": 1376256,
+              "max_abs": 0.1584625244140625
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5375,
+              "numel": 5376,
+              "max_abs": 0.0703125
+            },
+            "w2": {
+              "equal": false,
+              "differ": 14450621,
+              "numel": 14450688,
+              "max_abs": 0.246246337890625
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "4": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 10752,
+              "numel": 10752,
+              "max_abs": 0.004200935363769531
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 1024,
+              "numel": 1024,
+              "max_abs": 0.011760234832763672
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1376251,
+              "numel": 1376256,
+              "max_abs": 0.017411231994628906
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5376,
+              "numel": 5376,
+              "max_abs": 0.0036115646362304688
+            },
+            "w2": {
+              "equal": false,
+              "differ": 14450593,
+              "numel": 14450688,
+              "max_abs": 0.02516937255859375
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "64": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 172030,
+              "numel": 172032,
+              "max_abs": 0.004467010498046875
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 16384,
+              "numel": 16384,
+              "max_abs": 0.01291799545288086
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1376246,
+              "numel": 1376256,
+              "max_abs": 0.03852081298828125
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5375,
+              "numel": 5376,
+              "max_abs": 0.012436866760253906
+            },
+            "w2": {
+              "equal": false,
+              "differ": 14450628,
+              "numel": 14450688,
+              "max_abs": 0.05309486389160156
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        }
+      },
+      "vs rl_kernel": {
+        "1": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 2688,
+              "numel": 2688,
+              "max_abs": 0.004200935363769531
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 256,
+              "numel": 256,
+              "max_abs": 0.011759281158447266
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1376242,
+              "numel": 1376256,
+              "max_abs": 0.018283843994140625
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5376,
+              "numel": 5376,
+              "max_abs": 0.0029268264770507812
+            },
+            "w2": {
+              "equal": false,
+              "differ": 14450579,
+              "numel": 14450688,
+              "max_abs": 0.022308349609375
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "2048": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 5504979,
+              "numel": 5505024,
+              "max_abs": 0.005367279052734375
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 524286,
+              "numel": 524288,
+              "max_abs": 0.015463829040527344
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1376252,
+              "numel": 1376256,
+              "max_abs": 0.15850067138671875
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5376,
+              "numel": 5376,
+              "max_abs": 0.07025146484375
+            },
+            "w2": {
+              "equal": false,
+              "differ": 14450624,
+              "numel": 14450688,
+              "max_abs": 0.246307373046875
+            },
+            "b2": {
+              "equal": false,
+              "differ": 2600,
+              "numel": 2688,
+              "max_abs": 0.0004119873046875
+            }
+          }
+        },
+        "4": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 10752,
+              "numel": 10752,
+              "max_abs": 0.004200935363769531
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 1024,
+              "numel": 1024,
+              "max_abs": 0.011759281158447266
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1376250,
+              "numel": 1376256,
+              "max_abs": 0.017411231994628906
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5376,
+              "numel": 5376,
+              "max_abs": 0.003612041473388672
+            },
+            "w2": {
+              "equal": false,
+              "differ": 14450580,
+              "numel": 14450688,
+              "max_abs": 0.025168418884277344
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "64": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 172030,
+              "numel": 172032,
+              "max_abs": 0.004472970962524414
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 16384,
+              "numel": 16384,
+              "max_abs": 0.012917518615722656
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1376249,
+              "numel": 1376256,
+              "max_abs": 0.03852653503417969
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5376,
+              "numel": 5376,
+              "max_abs": 0.012433052062988281
+            },
+            "w2": {
+              "equal": false,
+              "differ": 14450609,
+              "numel": 14450688,
+              "max_abs": 0.05309867858886719
+            },
+            "b2": {
+              "equal": false,
+              "differ": 2174,
+              "numel": 2688,
+              "max_abs": 1.33514404296875e-05
+            }
+          }
+        }
+      }
+    },
+    "diffusers[megatron_triton_ieee]": {
+      "source": "diffusers TimestepEmbedding, FP32 F.linear [megatron_triton_ieee]",
+      "vs diffusers[plain]": {
+        "1": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 2627,
+              "numel": 2688,
+              "max_abs": 4.291534423828125e-06
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 251,
+              "numel": 256,
+              "max_abs": 1.1920928955078125e-05
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1328916,
+              "numel": 1376256,
+              "max_abs": 1.0013580322265625e-05
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5216,
+              "numel": 5376,
+              "max_abs": 2.9802322387695312e-06
+            },
+            "w2": {
+              "equal": false,
+              "differ": 11709678,
+              "numel": 14450688,
+              "max_abs": 1.0967254638671875e-05
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "2048": {
+          "out": [
+            {
+              "equal": true,
+              "differ": 0,
+              "numel": 5505024,
+              "max_abs": 0.0
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 512979,
+              "numel": 524288,
+              "max_abs": 3.0517578125e-05
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1324122,
+              "numel": 1376256,
+              "max_abs": 0.000244140625
+            },
+            "b1": {
+              "equal": true,
+              "differ": 0,
+              "numel": 5376,
+              "max_abs": 0.0
+            },
+            "w2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 14450688,
+              "max_abs": 0.0
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "4": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 10501,
+              "numel": 10752,
+              "max_abs": 4.947185516357422e-06
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 1003,
+              "numel": 1024,
+              "max_abs": 1.7642974853515625e-05
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1335285,
+              "numel": 1376256,
+              "max_abs": 1.2874603271484375e-05
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5199,
+              "numel": 5376,
+              "max_abs": 4.76837158203125e-06
+            },
+            "w2": {
+              "equal": false,
+              "differ": 13080061,
+              "numel": 14450688,
+              "max_abs": 1.1444091796875e-05
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "64": {
+          "out": [
+            {
+              "equal": true,
+              "differ": 0,
+              "numel": 172032,
+              "max_abs": 0.0
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 16090,
+              "numel": 16384,
+              "max_abs": 2.09808349609375e-05
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1337548,
+              "numel": 1376256,
+              "max_abs": 2.288818359375e-05
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5177,
+              "numel": 5376,
+              "max_abs": 1.239776611328125e-05
+            },
+            "w2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 14450688,
+              "max_abs": 0.0
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        }
+      },
+      "vs rl_kernel": {
+        "1": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 2645,
+              "numel": 2688,
+              "max_abs": 4.410743713378906e-06
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 252,
+              "numel": 256,
+              "max_abs": 1.1920928955078125e-05
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1332548,
+              "numel": 1376256,
+              "max_abs": 1.0967254638671875e-05
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5229,
+              "numel": 5376,
+              "max_abs": 3.2186508178710938e-06
+            },
+            "w2": {
+              "equal": false,
+              "differ": 11687393,
+              "numel": 14450688,
+              "max_abs": 1.0967254638671875e-05
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "2048": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 5384570,
+              "numel": 5505024,
+              "max_abs": 1.0967254638671875e-05
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 515789,
+              "numel": 524288,
+              "max_abs": 3.2901763916015625e-05
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1346011,
+              "numel": 1376256,
+              "max_abs": 0.000156402587890625
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5273,
+              "numel": 5376,
+              "max_abs": 0.00011444091796875
+            },
+            "w2": {
+              "equal": false,
+              "differ": 13799125,
+              "numel": 14450688,
+              "max_abs": 0.0001220703125
+            },
+            "b2": {
+              "equal": false,
+              "differ": 2600,
+              "numel": 2688,
+              "max_abs": 0.0004119873046875
+            }
+          }
+        },
+        "4": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 10520,
+              "numel": 10752,
+              "max_abs": 4.887580871582031e-06
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 1006,
+              "numel": 1024,
+              "max_abs": 1.71661376953125e-05
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1335266,
+              "numel": 1376256,
+              "max_abs": 1.239776611328125e-05
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5207,
+              "numel": 5376,
+              "max_abs": 4.5299530029296875e-06
+            },
+            "w2": {
+              "equal": false,
+              "differ": 13019303,
+              "numel": 14450688,
+              "max_abs": 1.0967254638671875e-05
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "64": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 168321,
+              "numel": 172032,
+              "max_abs": 9.775161743164062e-06
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 16113,
+              "numel": 16384,
+              "max_abs": 2.0503997802734375e-05
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1337339,
+              "numel": 1376256,
+              "max_abs": 2.193450927734375e-05
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5224,
+              "numel": 5376,
+              "max_abs": 1.2576580047607422e-05
+            },
+            "w2": {
+              "equal": false,
+              "differ": 13386992,
+              "numel": 14450688,
+              "max_abs": 1.9073486328125e-05
+            },
+            "b2": {
+              "equal": false,
+              "differ": 2174,
+              "numel": 2688,
+              "max_abs": 1.33514404296875e-05
+            }
+          }
+        }
+      }
+    },
+    "diffusers[plain]": {
+      "source": "diffusers TimestepEmbedding, FP32 F.linear [plain]",
+      "vs rl_kernel": {
+        "1": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 2476,
+              "numel": 2688,
+              "max_abs": 9.238719940185547e-07
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 237,
+              "numel": 256,
+              "max_abs": 3.814697265625e-06
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1246485,
+              "numel": 1376256,
+              "max_abs": 3.814697265625e-06
+            },
+            "b1": {
+              "equal": false,
+              "differ": 4934,
+              "numel": 5376,
+              "max_abs": 9.5367431640625e-07
+            },
+            "w2": {
+              "equal": false,
+              "differ": 9663821,
+              "numel": 14450688,
+              "max_abs": 4.76837158203125e-06
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "2048": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 5384570,
+              "numel": 5505024,
+              "max_abs": 1.0967254638671875e-05
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 510834,
+              "numel": 524288,
+              "max_abs": 1.0013580322265625e-05
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1348953,
+              "numel": 1376256,
+              "max_abs": 0.00020599365234375
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5273,
+              "numel": 5376,
+              "max_abs": 0.00011444091796875
+            },
+            "w2": {
+              "equal": false,
+              "differ": 13799125,
+              "numel": 14450688,
+              "max_abs": 0.0001220703125
+            },
+            "b2": {
+              "equal": false,
+              "differ": 2600,
+              "numel": 2688,
+              "max_abs": 0.0004119873046875
+            }
+          }
+        },
+        "4": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 10159,
+              "numel": 10752,
+              "max_abs": 1.1920928955078125e-06
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 949,
+              "numel": 1024,
+              "max_abs": 3.337860107421875e-06
+            },
+            "w1": {
+              "equal": false,
+              "differ": 981691,
+              "numel": 1376256,
+              "max_abs": 1.9073486328125e-06
+            },
+            "b1": {
+              "equal": false,
+              "differ": 3824,
+              "numel": 5376,
+              "max_abs": 7.152557373046875e-07
+            },
+            "w2": {
+              "equal": false,
+              "differ": 11533688,
+              "numel": 14450688,
+              "max_abs": 4.76837158203125e-06
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "64": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 168321,
+              "numel": 172032,
+              "max_abs": 9.775161743164062e-06
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 15510,
+              "numel": 16384,
+              "max_abs": 4.291534423828125e-06
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1275768,
+              "numel": 1376256,
+              "max_abs": 8.58306884765625e-06
+            },
+            "b1": {
+              "equal": false,
+              "differ": 4962,
+              "numel": 5376,
+              "max_abs": 6.198883056640625e-06
+            },
+            "w2": {
+              "equal": false,
+              "differ": 13386992,
+              "numel": 14450688,
+              "max_abs": 1.9073486328125e-05
+            },
+            "b2": {
+              "equal": false,
+              "differ": 2174,
+              "numel": 2688,
+              "max_abs": 1.33514404296875e-05
+            }
+          }
+        }
+      }
+    },
+    "diffusers[sglang]": {
+      "source": "diffusers TimestepEmbedding, FP32 F.linear [sglang]",
+      "vs diffusers[plain]": {
+        "1": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 2688,
+              "numel": 2688,
+              "max_abs": 0.00420069694519043
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 256,
+              "numel": 256,
+              "max_abs": 0.011759757995605469
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1376243,
+              "numel": 1376256,
+              "max_abs": 0.018283843994140625
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5376,
+              "numel": 5376,
+              "max_abs": 0.0029268264770507812
+            },
+            "w2": {
+              "equal": false,
+              "differ": 14450558,
+              "numel": 14450688,
+              "max_abs": 0.022307395935058594
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "2048": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 5504991,
+              "numel": 5505024,
+              "max_abs": 0.0053713321685791016
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 524284,
+              "numel": 524288,
+              "max_abs": 0.015465736389160156
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1376249,
+              "numel": 1376256,
+              "max_abs": 0.1584625244140625
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5375,
+              "numel": 5376,
+              "max_abs": 0.0703125
+            },
+            "w2": {
+              "equal": false,
+              "differ": 14450621,
+              "numel": 14450688,
+              "max_abs": 0.246246337890625
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "4": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 10752,
+              "numel": 10752,
+              "max_abs": 0.004200935363769531
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 1024,
+              "numel": 1024,
+              "max_abs": 0.011760234832763672
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1376251,
+              "numel": 1376256,
+              "max_abs": 0.017411231994628906
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5376,
+              "numel": 5376,
+              "max_abs": 0.0036115646362304688
+            },
+            "w2": {
+              "equal": false,
+              "differ": 14450593,
+              "numel": 14450688,
+              "max_abs": 0.02516937255859375
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "64": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 172030,
+              "numel": 172032,
+              "max_abs": 0.004467010498046875
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 16384,
+              "numel": 16384,
+              "max_abs": 0.01291799545288086
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1376246,
+              "numel": 1376256,
+              "max_abs": 0.03852081298828125
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5375,
+              "numel": 5376,
+              "max_abs": 0.012436866760253906
+            },
+            "w2": {
+              "equal": false,
+              "differ": 14450628,
+              "numel": 14450688,
+              "max_abs": 0.05309486389160156
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        }
+      },
+      "vs rl_kernel": {
+        "1": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 2688,
+              "numel": 2688,
+              "max_abs": 0.004200935363769531
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 256,
+              "numel": 256,
+              "max_abs": 0.011759281158447266
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1376242,
+              "numel": 1376256,
+              "max_abs": 0.018283843994140625
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5376,
+              "numel": 5376,
+              "max_abs": 0.0029268264770507812
+            },
+            "w2": {
+              "equal": false,
+              "differ": 14450579,
+              "numel": 14450688,
+              "max_abs": 0.022308349609375
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "2048": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 5504979,
+              "numel": 5505024,
+              "max_abs": 0.005367279052734375
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 524286,
+              "numel": 524288,
+              "max_abs": 0.015463829040527344
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1376252,
+              "numel": 1376256,
+              "max_abs": 0.15850067138671875
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5376,
+              "numel": 5376,
+              "max_abs": 0.07025146484375
+            },
+            "w2": {
+              "equal": false,
+              "differ": 14450624,
+              "numel": 14450688,
+              "max_abs": 0.246307373046875
+            },
+            "b2": {
+              "equal": false,
+              "differ": 2600,
+              "numel": 2688,
+              "max_abs": 0.0004119873046875
+            }
+          }
+        },
+        "4": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 10752,
+              "numel": 10752,
+              "max_abs": 0.004200935363769531
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 1024,
+              "numel": 1024,
+              "max_abs": 0.011759281158447266
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1376250,
+              "numel": 1376256,
+              "max_abs": 0.017411231994628906
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5376,
+              "numel": 5376,
+              "max_abs": 0.003612041473388672
+            },
+            "w2": {
+              "equal": false,
+              "differ": 14450580,
+              "numel": 14450688,
+              "max_abs": 0.025168418884277344
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "64": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 172030,
+              "numel": 172032,
+              "max_abs": 0.004472970962524414
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 16384,
+              "numel": 16384,
+              "max_abs": 0.012917518615722656
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1376249,
+              "numel": 1376256,
+              "max_abs": 0.03852653503417969
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5376,
+              "numel": 5376,
+              "max_abs": 0.012433052062988281
+            },
+            "w2": {
+              "equal": false,
+              "differ": 14450609,
+              "numel": 14450688,
+              "max_abs": 0.05309867858886719
+            },
+            "b2": {
+              "equal": false,
+              "differ": 2174,
+              "numel": 2688,
+              "max_abs": 1.33514404296875e-05
+            }
+          }
+        }
+      }
+    },
+    "diffusers[sglang_ieee]": {
+      "source": "diffusers TimestepEmbedding, FP32 F.linear [sglang_ieee]",
+      "vs diffusers[plain]": {
+        "1": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 2627,
+              "numel": 2688,
+              "max_abs": 4.291534423828125e-06
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 251,
+              "numel": 256,
+              "max_abs": 1.1920928955078125e-05
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1328916,
+              "numel": 1376256,
+              "max_abs": 1.0013580322265625e-05
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5216,
+              "numel": 5376,
+              "max_abs": 2.9802322387695312e-06
+            },
+            "w2": {
+              "equal": false,
+              "differ": 11709678,
+              "numel": 14450688,
+              "max_abs": 1.0967254638671875e-05
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "2048": {
+          "out": [
+            {
+              "equal": true,
+              "differ": 0,
+              "numel": 5505024,
+              "max_abs": 0.0
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 512979,
+              "numel": 524288,
+              "max_abs": 3.0517578125e-05
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1324122,
+              "numel": 1376256,
+              "max_abs": 0.000244140625
+            },
+            "b1": {
+              "equal": true,
+              "differ": 0,
+              "numel": 5376,
+              "max_abs": 0.0
+            },
+            "w2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 14450688,
+              "max_abs": 0.0
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "4": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 10501,
+              "numel": 10752,
+              "max_abs": 4.947185516357422e-06
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 1003,
+              "numel": 1024,
+              "max_abs": 1.7642974853515625e-05
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1335285,
+              "numel": 1376256,
+              "max_abs": 1.2874603271484375e-05
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5199,
+              "numel": 5376,
+              "max_abs": 4.76837158203125e-06
+            },
+            "w2": {
+              "equal": false,
+              "differ": 13080061,
+              "numel": 14450688,
+              "max_abs": 1.1444091796875e-05
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "64": {
+          "out": [
+            {
+              "equal": true,
+              "differ": 0,
+              "numel": 172032,
+              "max_abs": 0.0
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 16090,
+              "numel": 16384,
+              "max_abs": 2.09808349609375e-05
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1337548,
+              "numel": 1376256,
+              "max_abs": 2.288818359375e-05
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5177,
+              "numel": 5376,
+              "max_abs": 1.239776611328125e-05
+            },
+            "w2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 14450688,
+              "max_abs": 0.0
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        }
+      },
+      "vs rl_kernel": {
+        "1": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 2645,
+              "numel": 2688,
+              "max_abs": 4.410743713378906e-06
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 252,
+              "numel": 256,
+              "max_abs": 1.1920928955078125e-05
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1332548,
+              "numel": 1376256,
+              "max_abs": 1.0967254638671875e-05
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5229,
+              "numel": 5376,
+              "max_abs": 3.2186508178710938e-06
+            },
+            "w2": {
+              "equal": false,
+              "differ": 11687393,
+              "numel": 14450688,
+              "max_abs": 1.0967254638671875e-05
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "2048": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 5384570,
+              "numel": 5505024,
+              "max_abs": 1.0967254638671875e-05
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 515789,
+              "numel": 524288,
+              "max_abs": 3.2901763916015625e-05
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1346011,
+              "numel": 1376256,
+              "max_abs": 0.000156402587890625
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5273,
+              "numel": 5376,
+              "max_abs": 0.00011444091796875
+            },
+            "w2": {
+              "equal": false,
+              "differ": 13799125,
+              "numel": 14450688,
+              "max_abs": 0.0001220703125
+            },
+            "b2": {
+              "equal": false,
+              "differ": 2600,
+              "numel": 2688,
+              "max_abs": 0.0004119873046875
+            }
+          }
+        },
+        "4": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 10520,
+              "numel": 10752,
+              "max_abs": 4.887580871582031e-06
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 1006,
+              "numel": 1024,
+              "max_abs": 1.71661376953125e-05
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1335266,
+              "numel": 1376256,
+              "max_abs": 1.239776611328125e-05
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5207,
+              "numel": 5376,
+              "max_abs": 4.5299530029296875e-06
+            },
+            "w2": {
+              "equal": false,
+              "differ": 13019303,
+              "numel": 14450688,
+              "max_abs": 1.0967254638671875e-05
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "64": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 168321,
+              "numel": 172032,
+              "max_abs": 9.775161743164062e-06
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 16113,
+              "numel": 16384,
+              "max_abs": 2.0503997802734375e-05
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1337339,
+              "numel": 1376256,
+              "max_abs": 2.193450927734375e-05
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5224,
+              "numel": 5376,
+              "max_abs": 1.2576580047607422e-05
+            },
+            "w2": {
+              "equal": false,
+              "differ": 13386992,
+              "numel": 14450688,
+              "max_abs": 1.9073486328125e-05
+            },
+            "b2": {
+              "equal": false,
+              "differ": 2174,
+              "numel": 2688,
+              "max_abs": 1.33514404296875e-05
+            }
+          }
+        }
+      }
+    },
+    "diffusers[vllm]": {
+      "source": "diffusers TimestepEmbedding, FP32 F.linear [vllm]",
+      "vs diffusers[plain]": {
+        "1": {
+          "out": [
+            {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 220,
+              "numel": 256,
+              "max_abs": 1.9073486328125e-06
+            },
+            "w1": {
+              "equal": true,
+              "differ": 0,
+              "numel": 1376256,
+              "max_abs": 0.0
+            },
+            "b1": {
+              "equal": true,
+              "differ": 0,
+              "numel": 5376,
+              "max_abs": 0.0
+            },
+            "w2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 14450688,
+              "max_abs": 0.0
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "2048": {
+          "out": [
+            {
+              "equal": true,
+              "differ": 0,
+              "numel": 5505024,
+              "max_abs": 0.0
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 512979,
+              "numel": 524288,
+              "max_abs": 3.0517578125e-05
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1324122,
+              "numel": 1376256,
+              "max_abs": 0.000244140625
+            },
+            "b1": {
+              "equal": true,
+              "differ": 0,
+              "numel": 5376,
+              "max_abs": 0.0
+            },
+            "w2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 14450688,
+              "max_abs": 0.0
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "4": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 10099,
+              "numel": 10752,
+              "max_abs": 1.2069940567016602e-06
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 968,
+              "numel": 1024,
+              "max_abs": 4.023313522338867e-06
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1256710,
+              "numel": 1376256,
+              "max_abs": 3.337860107421875e-06
+            },
+            "b1": {
+              "equal": false,
+              "differ": 4866,
+              "numel": 5376,
+              "max_abs": 1.430511474609375e-06
+            },
+            "w2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 14450688,
+              "max_abs": 0.0
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "64": {
+          "out": [
+            {
+              "equal": true,
+              "differ": 0,
+              "numel": 172032,
+              "max_abs": 0.0
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 16090,
+              "numel": 16384,
+              "max_abs": 2.09808349609375e-05
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1337548,
+              "numel": 1376256,
+              "max_abs": 2.288818359375e-05
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5177,
+              "numel": 5376,
+              "max_abs": 1.239776611328125e-05
+            },
+            "w2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 14450688,
+              "max_abs": 0.0
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        }
+      },
+      "vs rl_kernel": {
+        "1": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 2476,
+              "numel": 2688,
+              "max_abs": 9.238719940185547e-07
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 233,
+              "numel": 256,
+              "max_abs": 3.814697265625e-06
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1246485,
+              "numel": 1376256,
+              "max_abs": 3.814697265625e-06
+            },
+            "b1": {
+              "equal": false,
+              "differ": 4934,
+              "numel": 5376,
+              "max_abs": 9.5367431640625e-07
+            },
+            "w2": {
+              "equal": false,
+              "differ": 9663821,
+              "numel": 14450688,
+              "max_abs": 4.76837158203125e-06
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "2048": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 5384570,
+              "numel": 5505024,
+              "max_abs": 1.0967254638671875e-05
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 515789,
+              "numel": 524288,
+              "max_abs": 3.2901763916015625e-05
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1346011,
+              "numel": 1376256,
+              "max_abs": 0.000156402587890625
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5273,
+              "numel": 5376,
+              "max_abs": 0.00011444091796875
+            },
+            "w2": {
+              "equal": false,
+              "differ": 13799125,
+              "numel": 14450688,
+              "max_abs": 0.0001220703125
+            },
+            "b2": {
+              "equal": false,
+              "differ": 2600,
+              "numel": 2688,
+              "max_abs": 0.0004119873046875
+            }
+          }
+        },
+        "4": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 9745,
+              "numel": 10752,
+              "max_abs": 8.344650268554688e-07
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 958,
+              "numel": 1024,
+              "max_abs": 4.5979395508766174e-06
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1269233,
+              "numel": 1376256,
+              "max_abs": 3.814697265625e-06
+            },
+            "b1": {
+              "equal": false,
+              "differ": 4889,
+              "numel": 5376,
+              "max_abs": 1.9073486328125e-06
+            },
+            "w2": {
+              "equal": false,
+              "differ": 11533688,
+              "numel": 14450688,
+              "max_abs": 4.76837158203125e-06
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "64": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 168321,
+              "numel": 172032,
+              "max_abs": 9.775161743164062e-06
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 16113,
+              "numel": 16384,
+              "max_abs": 2.0503997802734375e-05
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1337339,
+              "numel": 1376256,
+              "max_abs": 2.193450927734375e-05
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5224,
+              "numel": 5376,
+              "max_abs": 1.2576580047607422e-05
+            },
+            "w2": {
+              "equal": false,
+              "differ": 13386992,
+              "numel": 14450688,
+              "max_abs": 1.9073486328125e-05
+            },
+            "b2": {
+              "equal": false,
+              "differ": 2174,
+              "numel": 2688,
+              "max_abs": 1.33514404296875e-05
+            }
+          }
+        }
+      }
+    },
+    "rl_kernel": {
+      "source": "rl-kernel H3TimestepMLPCudaOp",
+      "vs diffusers[plain]": {
+        "1": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 2476,
+              "numel": 2688,
+              "max_abs": 9.238719940185547e-07
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 237,
+              "numel": 256,
+              "max_abs": 3.814697265625e-06
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1246485,
+              "numel": 1376256,
+              "max_abs": 3.814697265625e-06
+            },
+            "b1": {
+              "equal": false,
+              "differ": 4934,
+              "numel": 5376,
+              "max_abs": 9.5367431640625e-07
+            },
+            "w2": {
+              "equal": false,
+              "differ": 9663821,
+              "numel": 14450688,
+              "max_abs": 4.76837158203125e-06
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "2048": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 5384570,
+              "numel": 5505024,
+              "max_abs": 1.0967254638671875e-05
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 510834,
+              "numel": 524288,
+              "max_abs": 1.0013580322265625e-05
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1348953,
+              "numel": 1376256,
+              "max_abs": 0.00020599365234375
+            },
+            "b1": {
+              "equal": false,
+              "differ": 5273,
+              "numel": 5376,
+              "max_abs": 0.00011444091796875
+            },
+            "w2": {
+              "equal": false,
+              "differ": 13799125,
+              "numel": 14450688,
+              "max_abs": 0.0001220703125
+            },
+            "b2": {
+              "equal": false,
+              "differ": 2600,
+              "numel": 2688,
+              "max_abs": 0.0004119873046875
+            }
+          }
+        },
+        "4": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 10159,
+              "numel": 10752,
+              "max_abs": 1.1920928955078125e-06
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 949,
+              "numel": 1024,
+              "max_abs": 3.337860107421875e-06
+            },
+            "w1": {
+              "equal": false,
+              "differ": 981691,
+              "numel": 1376256,
+              "max_abs": 1.9073486328125e-06
+            },
+            "b1": {
+              "equal": false,
+              "differ": 3824,
+              "numel": 5376,
+              "max_abs": 7.152557373046875e-07
+            },
+            "w2": {
+              "equal": false,
+              "differ": 11533688,
+              "numel": 14450688,
+              "max_abs": 4.76837158203125e-06
+            },
+            "b2": {
+              "equal": true,
+              "differ": 0,
+              "numel": 2688,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "64": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 168321,
+              "numel": 172032,
+              "max_abs": 9.775161743164062e-06
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 15510,
+              "numel": 16384,
+              "max_abs": 4.291534423828125e-06
+            },
+            "w1": {
+              "equal": false,
+              "differ": 1275768,
+              "numel": 1376256,
+              "max_abs": 8.58306884765625e-06
+            },
+            "b1": {
+              "equal": false,
+              "differ": 4962,
+              "numel": 5376,
+              "max_abs": 6.198883056640625e-06
+            },
+            "w2": {
+              "equal": false,
+              "differ": 13386992,
+              "numel": 14450688,
+              "max_abs": 1.9073486328125e-05
+            },
+            "b2": {
+              "equal": false,
+              "differ": 2174,
+              "numel": 2688,
+              "max_abs": 1.33514404296875e-05
+            }
+          }
+        }
+      }
+    }
+  }
+}
