@@ -25,9 +25,22 @@ checks identical initial noise, video/audio shape and quality gates and reports
 PSNR/SSIM, temporal RMSE and audio differences. Query chunking bounds candidate
 attention workspace while retaining all keys for each query; it is inference only.
 
-Outstanding: actual full-model GPU/reference calibration, candidate backward
-qualification, three-seed reference/candidate generation and quality acceptance.
-No passed full-model result is claimed by the new CPU binding tests.
+Independent reference job 1106656 completed the FP32/BF16 full-model passes
+(638 parameter gradients each), three-seed generation and repeat comparisons.
+`reference-1106656.json` anchors 1,635 evidence files; `full-model-thresholds.json`
+contains the unchanged 764 tensor bounds. These provider results do not establish
+candidate acceptance.
+
+`candidate.sbatch` builds its own H3 CUDA extension, records its identity, verifies
+all reference/checkpoint hashes, and runs block-0 golden tests without skips before
+full-model forward/backward. It requires calls to every candidate graph node in
+every block and rejects CUDA backend fallback. The comparator orders first drift
+by actual forward/backward execution. Only a passing numerical comparison permits
+preflight and full three-seed candidate generation. Jobs use one B200, 512 GB host
+memory, a 24-hour limit, partition `overflow` and name `test`.
+
+Outstanding: candidate backward qualification, three-seed candidate generation
+and quality acceptance. No passed candidate result is claimed by CPU tests.
 
 The generation environment must provide torchvision matching PyTorch (the B200
 reference environment uses torch 2.9.1+cu130 and torchvision 0.24.1+cu130).
