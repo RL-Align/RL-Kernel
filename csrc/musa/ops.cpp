@@ -8,6 +8,15 @@
 torch::Tensor fused_logp_forward_musa(torch::Tensor logits, torch::Tensor token_ids);
 torch::Tensor fused_logp_backward_musa(
     torch::Tensor logits, torch::Tensor token_ids, torch::Tensor grad_output);
+torch::Tensor det_gemm_fwd(torch::Tensor a, torch::Tensor b);
+torch::Tensor det_gemm_fwd_fp32(torch::Tensor a, torch::Tensor b);
+torch::Tensor det_gemm_accum_fwd_fp32(torch::Tensor a, torch::Tensor b);
+torch::Tensor det_gemm_fwd_rhs_transposed(torch::Tensor a, torch::Tensor bt);
+torch::Tensor det_gemm_da(torch::Tensor dc, torch::Tensor b);
+torch::Tensor det_gemm_db(torch::Tensor a, torch::Tensor dc);
+torch::Tensor det_gemm_db_transposed(torch::Tensor a, torch::Tensor dc);
+int64_t det_gemm_validate_launch(
+    int64_t m, int64_t n, int64_t k, int64_t max_grid_x);
 
 torch::Tensor fused_logp_forward(torch::Tensor logits, torch::Tensor token_ids) {
   TORCH_CHECK(logits.device().type() == c10::kPrivateUse1,
@@ -72,4 +81,12 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "MUSA fused selected-token log-probability");
   m.def("fused_logp_backward", &fused_logp_backward,
         "MUSA fused selected-token log-probability backward");
+  m.def("det_gemm_fwd", &det_gemm_fwd);
+  m.def("det_gemm_fwd_fp32", &det_gemm_fwd_fp32);
+  m.def("det_gemm_accum_fwd_fp32", &det_gemm_accum_fwd_fp32);
+  m.def("det_gemm_fwd_rhs_transposed", &det_gemm_fwd_rhs_transposed);
+  m.def("det_gemm_da", &det_gemm_da);
+  m.def("det_gemm_db", &det_gemm_db);
+  m.def("det_gemm_db_transposed", &det_gemm_db_transposed);
+  m.def("det_gemm_validate_launch", &det_gemm_validate_launch);
 }
