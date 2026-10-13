@@ -206,7 +206,10 @@ class TestCudaRealWeights:
         torch.testing.assert_close(leaves[0].grad.double(), ref[0].grad, atol=1e-4, rtol=1e-4)
         for leaf, r in zip(leaves[1:], ref[1:], strict=True):
             torch.testing.assert_close(leaf.grad.double(), r.grad, atol=1e-1, rtol=2e-2)
-            assert (leaf.grad == r.grad.to(torch.bfloat16)).float().mean() > 0.999
+            # With T = 2 each dW/db element sums two products, and the one BF16 cast
+            # of the FP32 sum is the correctly rounded value of every element
+            # (checked on 500 of 500 temb draws).
+            assert torch.equal(leaf.grad, r.grad.to(torch.bfloat16))
 
 
 @requires_cuda
