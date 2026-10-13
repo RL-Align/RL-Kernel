@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Shared fixtures for the Nemotron-H lm_head_logprob CUDA suites."""
+
 from __future__ import annotations
 
 import pytest
@@ -25,6 +26,26 @@ requires_nemotron_sm90 = pytest.mark.skipif(
     not nemotron_sm90_available(),
     reason="Nemotron-H strict lm_head_logprob needs a Hopper GPU and the extension built "
     "with KERNEL_ALIGN_FORCE_SM90=1",
+)
+
+
+def strict_det_gemm_available() -> bool:
+    """The backward GEMMs refuse to run unless a strict det-GEMM backend is ready."""
+
+    from rl_engine.backends.cuda.gemm.det_gemm import det_gemm_backend
+    from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+
+    if det_gemm_backend() == "cublaslt_nosplitk":
+        return True
+    marker = getattr(_C, "det_gemm_sm90_compiled", None) if _EXT_AVAILABLE else None
+    return callable(marker) and bool(marker())
+
+
+requires_strict_det_gemm = pytest.mark.skipif(
+    not (nemotron_sm90_available() and strict_det_gemm_available()),
+    reason="Nemotron-H lm_head_logprob backward needs a strict det-GEMM backend: build with "
+    "KERNEL_ALIGN_DET_GEMM_SM90=1, or export CUBLAS_WORKSPACE_CONFIG=:16:8 and "
+    "CUBLASLT_WORKSPACE_SIZE=1 before the process starts",
 )
 
 
