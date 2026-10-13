@@ -250,3 +250,27 @@ representable in BF16; digests pinned in `tests/p7_doubles/fixtures/manifest.jso
 `tests/p7_doubles/` also holds test doubles for T01 artifacts that are not yet
 published; they are not a public ABI. The VIME request-shape test runs only
 when VIME is importable and is skipped otherwise.
+
+GPU (SM90), skipped without a Hopper GPU, the extension, Megatron-LM and VIME:
+
+- `tests/test_megatron_training_gpu.py` (G1): the real strict route passes the
+  gate, the CPU double's provenance keys match `LinearLogpWrapper`, repeats are
+  bitwise identical and batch composition does not change the bytes.
+- `tests/test_megatron_training_gpu_live.py` (G2/G3): a tiny Megatron GPT
+  (wrapped in `Float16Module` as Megatron's `get_model` does) with VIME's
+  LM-head capture hook. G2: the live snapshot and `RecordedTrainingProvider`
+  agree bitwise, and observation adds or removes no CUDA kernel. G3: real
+  Megatron DDP over two micro-batches; write markers for the LM head, no write
+  on the frozen embedding, and observation leaves `main_grad` bitwise
+  unchanged. The fused-wgrad case is skipped when `fused_weight_gradient_mlp_cuda`
+  is not installed.
+
+The strict tensor-parallel entry points need the deterministic SM90 GEMM
+compiled in. Build the extension with both flags, otherwise the strict route
+fails closed ("built without KERNEL_ALIGN_DET_GEMM_SM90=1; refusing naive
+fallback"):
+
+```bash
+KERNEL_ALIGN_FORCE_SM90=1 KERNEL_ALIGN_DET_GEMM_SM90=1 \
+  pip install --no-build-isolation --no-deps -e .
+```
