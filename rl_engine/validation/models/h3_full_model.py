@@ -77,9 +77,17 @@ class FullModelTrace:
         self.candidate_calls = Counter()
         self.forward_order = []
         self.backward_order = []
+        self.execution_order = []
+        self._events = set()
+
+    def record_event(self, name):
+        if name not in self._events:
+            self._events.add(name)
+            self.execution_order.append(name)
 
     def observe(self, name, value):
         self.calls[name] += 1
+        self.record_event("nodes." + name)
         if name not in self.forward_order:
             self.forward_order.append(name)
         if not isinstance(value, torch.Tensor):
@@ -90,6 +98,7 @@ class FullModelTrace:
 
             def record(grad):
                 self.backward_calls[name] += 1
+                self.record_event("nodes." + name + ".grad")
                 if name not in self.backward_order:
                     self.backward_order.append(name)
                 if self.capture:
@@ -128,6 +137,7 @@ class FullModelTrace:
                 raise ValueError(f"candidate nodes did not execute: {missing_nodes}")
         return dict(
             candidate_calls=dict(self.candidate_calls),
+            execution_order=self.execution_order,
             forward_order=self.forward_order,
             backward_order=self.backward_order,
             actual_backends=self.actual_backends,

@@ -166,3 +166,22 @@ def test_cuda_guard_rejects_one_fallback_among_native_bindings():
     )
     with pytest.raises(ValueError, match="candidate norm fell back"):
         require_candidate_cuda(ops)
+
+
+def test_drift_order_interleaves_parameter_and_activation_backward_hooks():
+    from tools.validation.models.h3_full_compare import drift_order
+
+    trace = FullModelTrace()
+    for name in (
+        "nodes.block.2",
+        "nodes.block.10",
+        "nodes.block.10.grad",
+        "parameter.block.10.weight",
+        "nodes.block.2.grad",
+    ):
+        trace.record_event(name)
+    trace.record_event("nodes.block.2")  # checkpoint recomputation is not a new first event
+    names = list(reversed(trace.execution_order))
+    assert drift_order({"trace": {"execution_order": trace.execution_order}}, names) == (
+        trace.execution_order
+    )

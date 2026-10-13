@@ -53,6 +53,11 @@ def compare(left, right):
 
 def drift_order(report, names):
     trace = report["trace"]
+    if "execution_order" in trace:
+        observed = trace["execution_order"]
+        return [name for name in observed if name in names] + [
+            name for name in names if name not in observed
+        ]
     forward = trace.get("forward_order", list(trace["calls"]))
     backward = trace.get("backward_order", list(trace["backward_calls"]))
     ordered = ["nodes." + name for name in forward]
@@ -103,7 +108,7 @@ def main():
             raise ValueError("threshold tensor inventory differs")
         failures = [
             name
-            for name in drift_order(ref, rows)
+            for name in drift_order(other if "execution_order" in other["trace"] else ref, rows)
             if any(rows[name][k] > contract["bounds"][name][k] for k in rows[name])
         ]
         report.update(

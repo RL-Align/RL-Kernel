@@ -162,6 +162,7 @@ def main():
         for i, (name, parameter) in enumerate(model.named_parameters()):
 
             def save_grad(p, name=name, i=i):
+                trace.record_event("parameter." + name)
                 grad = p.grad.detach().cpu()
                 if not torch.isfinite(grad).all():
                     raise ValueError(f"non-finite parameter gradient: {name}")
@@ -176,6 +177,13 @@ def main():
                 p.grad = None
 
             handles.append(parameter.register_post_accumulate_grad_hook(save_grad))
+        for name in ("hidden_states", "audio_hidden_states", "encoder_hidden_states"):
+
+            def record_input(grad, name=name):
+                trace.record_event("input_gradients." + name)
+                return grad
+
+            handles.append(inputs[name].register_hook(record_input))
         torch.cuda.reset_peak_memory_stats()
         begin = time.perf_counter()
         with full_model_execution(model, candidate=args.mode == "candidate", trace=trace):
