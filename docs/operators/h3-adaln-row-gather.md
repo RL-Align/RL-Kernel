@@ -129,7 +129,10 @@ There are two data files:
 - [`chain_replay.json`](../../reports/experiments/h3-adaln-row-gather-b200/chain_replay.json): the full
   stage-wise forward replay and backward replay over T in {1, 2, 3, 4} × S in {3, 257, 4097, 32768}.
 
-Both were written from a clean tree at commit `fa551c2`.
+Both were written from a clean tree at commit `d3b37fe1` on an otherwise idle B200, regenerated
+after the AdaLN projection golden's declared cast was changed to round the FP32 SiLU (as the model
+does). Every CUDA field and every pass/fail flag is unchanged; only timings and the diffusers
+backward errors, which vary from run to run, moved.
 
 ## Existing implementations (RFC #420 reuse rule)
 
