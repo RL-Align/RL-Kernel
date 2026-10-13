@@ -47,6 +47,7 @@ Transformer Engine 2.18 is not installed.
 | GPU G2, `tests/test_megatron_training_gpu_live.py` | 1/1 passed: tiny Megatron GPT with VIME's LM-head capture hook; live and recorded results byte-identical; observation adds or removes no CUDA kernel |
 | GPU G3, same file | 2/2 passed: real Megatron DDP, two micro-batches; LM-head write markers, no write on the frozen embedding; `main_grad` bitwise unchanged under observation |
 | GPU G3 fused wgrad | skipped: `fused_weight_gradient_mlp_cuda` (apex/TE) not installed |
+| GPU L2 launch and canonical grouping, `tests/megatron_training_l2_launch.py` (one fresh process) | First call vs warm repeats identical; whole vs chunked (17/33/46, 3×32, single rows) identical on both the canonical TP entry and the single-GPU fused entry; reused LM-head logits (`sm90_deterministic_logp_from_local_logits_tp`) vs recompute (`sm90_deterministic_linear_logp_tp`) identical on a tiny Megatron GPT, with the two entries recorded separately; CUDA-graph replay identical to eager. Canonical vocab padding 512→520 matches a 520-row LM head on the same boundary; canonical TP 3/0 and canonical vocab 500/514 are refused. Different canonical TP (1/2/4/8) give different bytes (18–24 of 96 rows), so both sides must share one canonical setting |
 | WS2 CPU tests (`tests/test_megatron_training_ranks.py`) | 31/31 passed, including a 4-process gloo exchange |
 | WS2 gradient CPU tests (`tests/test_megatron_training_gradient_ranks.py`) | 19 passed, 1 skipped (ownership does not apply to all-reduce); 2-process gloo double of Megatron's bucketed sync |
 | WS2 gradients on 4×H20, `tests/megatron_training_grad_ranks_dp.py` | Real Megatron DDP, strict LM-head route, two micro-batches with different data per DP rank: TP1×DP4 and TP2×DP2 with the distributed optimizer, TP1×DP4 all-reduce, TP1×DP4 distributed optimizer with overlapped reduction (4 buckets). Every bucket synchronised once per rank with the configured collective on the DP group, each rank received its own shard, owned ranges cover every trainable parameter exactly once; missing/duplicate rank, swapped collective (`SILENT_FALLBACK`) and a dropped owned range (`INCOMPLETE_ARTIFACT`) fail closed. Test-side: synchronised gradients bitwise unchanged under observation, parameters equal across DP replicas after the optimizer step. Complete, not certified (producer gradient set missing) |
@@ -62,8 +63,8 @@ compared as one path.
 | Item | Status | Evidence or dependency |
 | --- | --- | --- |
 | Correct FP32 selected-token logprob; L1 and L2 batch bitwise | Passed | G1, G2 |
-| L2 launch variants on GPU (chunked vs whole call, reuse vs recompute, eager vs CUDA graph) | Not done | Reuse/recompute covered on CPU doubles only |
-| L2 canonical virtual-TP grouping on GPU | Not done | Configuration checks covered on CPU |
+| L2 launch variants on GPU (chunked vs whole call, reuse vs recompute, eager vs CUDA graph, first call vs warm) | Passed | GPU L2 launch run |
+| L2 canonical virtual-TP grouping on GPU | Passed | GPU L2 launch run (same-boundary bytes, padding, refused settings) |
 | Executed GEMM spec bound to the T01 harness fingerprint | Blocked (T01) | Harness and spec not published; ledger reports `gemm.executed_spec`, `gemm.harness_fingerprint` |
 | LSE, global max/sum, padded mask, actual canonical split, redistribution collective, merge order observed | Blocked (contract delta) | No readback interface in the strict route; additive delta proposed |
 | Evidence bound to the call and tagged by source; configured/declared never certify | Passed | Readback and gate CPU tests, G1/G2 |
@@ -129,7 +130,8 @@ None of these changes arithmetic or adds kernel launches.
 
 ## Next steps
 
-- T05 work still open: GPU L2 launch variants and canonical virtual-TP grouping.
+- T05 work that does not wait on others is done; the remaining items wait on
+  T01, the contract deltas, T06/T09 and P5.
 - After T01/T06/T09/P5 publish: swap the draft schemas, wire the M10 pairing and
   the producer gradient set, and close the blocked items.
 - P4: live pairing with the training-side `PairedScorer`.
