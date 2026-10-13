@@ -1,0 +1,102 @@
+{
+  "kind": "h3_operator_report",
+  "op": "adaln_gate_residual",
+  "rfc": "RL-Align/RL-Kernel#420",
+  "model_revision": "42ed227ee7df40d41602854ae760620d6eb651fe",
+  "reference_commit": "f53d552036a0d1bd5570782a39cd40cfabf112bc",
+  "rl_kernel_commit": "a26b41a31ed703635cee64fa5c812afe3171b950",
+  "tracked_tree_dirty": false,
+  "environment": {
+    "gpu": "NVIDIA B200",
+    "capability": [
+      10,
+      0
+    ],
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "python": "3.12.14",
+    "tf32": false
+  },
+  "accuracy": {
+    "forward_bitwise_vs_diffusers": {
+      "bfloat16": true,
+      "float16": true,
+      "float32": true
+    },
+    "rows_batch_invariant": true,
+    "backward": {
+      "cuda": {
+        "repeat_bitwise_equal": true,
+        "rel_error": {
+          "d_residual": 0.0,
+          "d_sublayer": 0.002054442732408834,
+          "d_gate": 0.003085325221208727
+        }
+      },
+      "provider": {
+        "repeat_bitwise_equal": false,
+        "rel_error": {
+          "d_residual": 0.0,
+          "d_sublayer": 0.002054442732408834,
+          "d_gate": 0.045062138760258025
+        }
+      }
+    }
+  },
+  "perf": [
+    {
+      "op": "adaln_gate_residual",
+      "case": "S=4097",
+      "backend": "H3GateResidualCudaOp",
+      "bytes": 132152832,
+      "candidate_us": 45.66400125622749,
+      "candidate_gbps": 2894.0265496768634,
+      "candidate_peak_mib": 42.01025390625,
+      "provider_us": 63.08800354599953,
+      "provider_gbps": 2094.737898999182,
+      "provider_peak_mib": 84.0205078125,
+      "candidate_backward_us": 1192.9919719696045,
+      "candidate_backward_gbps": 110.77428440848473,
+      "candidate_backward_peak_mib": 126.6767578125,
+      "provider_backward_us": 677.3119866847992,
+      "provider_backward_gbps": 195.11367670730445,
+      "provider_backward_peak_mib": 252.0615234375
+    },
+    {
+      "op": "adaln_gate_residual",
+      "case": "S=32768",
+      "backend": "H3GateResidualCudaOp",
+      "bytes": 1056964608,
+      "candidate_us": 242.71999299526215,
+      "candidate_gbps": 4354.666440768362,
+      "candidate_peak_mib": 336.0,
+      "provider_us": 408.5119962692261,
+      "provider_gbps": 2587.352679120388,
+      "provider_peak_mib": 672.0,
+      "candidate_backward_us": 1372.5280165672302,
+      "candidate_backward_gbps": 770.0859984217502,
+      "candidate_backward_peak_mib": 1008.64599609375,
+      "provider_backward_us": 2706.4000368118286,
+      "provider_backward_gbps": 390.5426373128183,
+      "provider_backward_peak_mib": 2016.0
+    },
+    {
+      "op": "adaln_gate_residual",
+      "case": "S=131072",
+      "backend": "H3GateResidualCudaOp",
+      "bytes": 4227858432,
+      "candidate_us": 922.512024641037,
+      "candidate_gbps": 4582.9846322546555,
+      "candidate_peak_mib": 1344.0,
+      "provider_us": 1591.7279720306396,
+      "provider_gbps": 2656.143830032923,
+      "provider_peak_mib": 2688.0,
+      "candidate_backward_us": 3290.6240224838257,
+      "candidate_backward_gbps": 1284.8196582509395,
+      "candidate_backward_peak_mib": 4032.64599609375,
+      "provider_backward_us": 10562.17622756958,
+      "provider_backward_gbps": 400.2828906569812,
+      "provider_backward_peak_mib": 8064.0
+    }
+  ]
+}
