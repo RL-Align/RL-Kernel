@@ -9,7 +9,7 @@
     }
   },
   "reference_commit": "f53d552036a0d1bd5570782a39cd40cfabf112bc",
-  "rl_kernel_commit": "001684df3351e5184aad97949ce46090c841f78c",
+  "rl_kernel_commit": "50e913fa7257a41fa48f54b5174eadedd5c620ee",
   "tracked_tree_dirty": false,
   "environment": {
     "gpu": "NVIDIA B200",
@@ -23,6 +23,15 @@
     "tf32": false
   },
   "stages": [
+    "timestep_sinusoid_h3",
+    "timestep_mlp_fp32",
+    "adaln_projection_3mod",
+    "adaln_row_gather",
+    "h3_rmsnorm",
+    "adaln_gate_residual",
+    "final_adaln_out"
+  ],
+  "executed_stages": [
     "timestep_sinusoid_h3",
     "timestep_mlp_fp32",
     "adaln_projection_3mod",
@@ -158,12 +167,12 @@
           },
           "chained_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.02018570899963379,
+            "max_abs": 0.01918506622314453,
             "within_tolerance": true
           },
           "provider_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.02018570899963379,
+            "max_abs": 0.01918506622314453,
             "within_tolerance": true
           }
         },
@@ -349,12 +358,12 @@
           },
           "chained_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.0301055908203125,
+            "max_abs": 0.033353567123413086,
             "within_tolerance": true
           },
           "provider_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.0301055908203125,
+            "max_abs": 0.033353567123413086,
             "within_tolerance": true
           }
         },
@@ -540,12 +549,12 @@
           },
           "chained_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.05122566223144531,
+            "max_abs": 0.048807621002197266,
             "within_tolerance": true
           },
           "provider_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.05122566223144531,
+            "max_abs": 0.048807621002197266,
             "within_tolerance": true
           }
         },
@@ -731,12 +740,12 @@
           },
           "chained_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.05544424057006836,
+            "max_abs": 0.054422855377197266,
             "within_tolerance": true
           },
           "provider_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.05544424057006836,
+            "max_abs": 0.054422855377197266,
             "within_tolerance": true
           }
         },
@@ -922,12 +931,12 @@
           },
           "chained_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.022160768508911133,
+            "max_abs": 0.01812112331390381,
             "within_tolerance": true
           },
           "provider_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.022160768508911133,
+            "max_abs": 0.01812112331390381,
             "within_tolerance": true
           }
         },
@@ -1113,12 +1122,12 @@
           },
           "chained_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.04535102844238281,
+            "max_abs": 0.043337345123291016,
             "within_tolerance": true
           },
           "provider_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.04535102844238281,
+            "max_abs": 0.043337345123291016,
             "within_tolerance": true
           }
         },
@@ -1304,12 +1313,12 @@
           },
           "chained_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.05122566223144531,
+            "max_abs": 0.048807621002197266,
             "within_tolerance": true
           },
           "provider_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.05122566223144531,
+            "max_abs": 0.048807621002197266,
             "within_tolerance": true
           }
         },
@@ -1495,12 +1504,12 @@
           },
           "chained_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.06358528137207031,
+            "max_abs": 0.054422855377197266,
             "within_tolerance": true
           },
           "provider_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.06358528137207031,
+            "max_abs": 0.054422855377197266,
             "within_tolerance": true
           }
         },
@@ -1686,12 +1695,12 @@
           },
           "chained_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.05389690399169922,
+            "max_abs": 0.02398371696472168,
             "within_tolerance": true
           },
           "provider_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.05389690399169922,
+            "max_abs": 0.02398371696472168,
             "within_tolerance": true
           }
         },
@@ -1877,12 +1886,12 @@
           },
           "chained_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.034628868103027344,
+            "max_abs": 0.033353567123413086,
             "within_tolerance": true
           },
           "provider_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.034628868103027344,
+            "max_abs": 0.033353567123413086,
             "within_tolerance": true
           }
         },
@@ -2068,12 +2077,12 @@
           },
           "chained_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.05389690399169922,
+            "max_abs": 0.049736976623535156,
             "within_tolerance": true
           },
           "provider_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.05389690399169922,
+            "max_abs": 0.049736976623535156,
             "within_tolerance": true
           }
         },
@@ -2259,12 +2268,12 @@
           },
           "chained_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.07086944580078125,
+            "max_abs": 0.06707763671875,
             "within_tolerance": true
           },
           "provider_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.07086944580078125,
+            "max_abs": 0.06707763671875,
             "within_tolerance": true
           }
         },
@@ -2450,12 +2459,12 @@
           },
           "chained_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.022160768508911133,
+            "max_abs": 0.01812112331390381,
             "within_tolerance": true
           },
           "provider_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.022160768508911133,
+            "max_abs": 0.01812112331390381,
             "within_tolerance": true
           }
         },
@@ -2641,12 +2650,12 @@
           },
           "chained_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.04535102844238281,
+            "max_abs": 0.043337345123291016,
             "within_tolerance": true
           },
           "provider_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.04535102844238281,
+            "max_abs": 0.043337345123291016,
             "within_tolerance": true
           }
         },
@@ -2832,12 +2841,12 @@
           },
           "chained_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.05122566223144531,
+            "max_abs": 0.04818916320800781,
             "within_tolerance": true
           },
           "provider_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.05122566223144531,
+            "max_abs": 0.04818916320800781,
             "within_tolerance": true
           }
         },
@@ -3023,12 +3032,12 @@
           },
           "chained_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.07958316802978516,
+            "max_abs": 0.06707763671875,
             "within_tolerance": true
           },
           "provider_vs_golden": {
             "bitwise_equal": false,
-            "max_abs": 0.07958316802978516,
+            "max_abs": 0.06707763671875,
             "within_tolerance": true
           }
         },
@@ -3242,8 +3251,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 0.5346245765686035,
-            "max_abs_vs_golden_over_absmax": 0.004658695310354233,
+            "max_abs_vs_golden": 1.1325373649597168,
+            "max_abs_vs_golden_over_absmax": 0.009868881665170193,
             "correctly_rounded_fraction": 0.5
           }
         },
@@ -3263,8 +3272,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 0.5346245765686035,
-            "max_abs_vs_golden_over_absmax": 0.004658695310354233,
+            "max_abs_vs_golden": 1.1325373649597168,
+            "max_abs_vs_golden_over_absmax": 0.009868881665170193,
             "correctly_rounded_fraction": 0.0
           }
         },
@@ -3286,7 +3295,7 @@
             "repeat_bitwise_equal": false,
             "max_abs_vs_golden": 2.0242090225219727,
             "max_abs_vs_golden_over_absmax": 0.011628481559455395,
-            "correctly_rounded_fraction": 6.228077040759672e-07
+            "correctly_rounded_fraction": 0.0
           }
         },
         "time_embedder.linear_2.bias": {
@@ -3326,9 +3335,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 0.28125,
-            "max_abs_vs_golden_over_absmax": 0.02459016442298889,
-            "correctly_rounded_fraction": 0.1703302264213562
+            "max_abs_vs_golden": 0.25,
+            "max_abs_vs_golden_over_absmax": 0.02185792289674282,
+            "correctly_rounded_fraction": 0.1709303855895996
           }
         },
         "transformer_blocks.0.adaln_proj.linear.bias": {
@@ -3347,9 +3356,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 1.125,
-            "max_abs_vs_golden_over_absmax": 0.025280898436903954,
-            "correctly_rounded_fraction": 0.17185433208942413
+            "max_abs_vs_golden": 1.0,
+            "max_abs_vs_golden_over_absmax": 0.02247191034257412,
+            "correctly_rounded_fraction": 0.172712042927742
           }
         }
       }
@@ -3374,8 +3383,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 17.811981201171875,
-            "max_abs_vs_golden_over_absmax": 0.033383384346961975,
+            "max_abs_vs_golden": 5.829803466796875,
+            "max_abs_vs_golden_over_absmax": 0.010926272720098495,
             "correctly_rounded_fraction": 0.5
           }
         },
@@ -3395,8 +3404,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 17.811981201171875,
-            "max_abs_vs_golden_over_absmax": 0.033383384346961975,
+            "max_abs_vs_golden": 5.829803466796875,
+            "max_abs_vs_golden_over_absmax": 0.010926272720098495,
             "correctly_rounded_fraction": 0.0
           }
         },
@@ -3416,9 +3425,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 22.429458618164062,
-            "max_abs_vs_golden_over_absmax": 0.03572387248277664,
-            "correctly_rounded_fraction": 0.0
+            "max_abs_vs_golden": 30.775146484375,
+            "max_abs_vs_golden_over_absmax": 0.04901622608304024,
+            "correctly_rounded_fraction": 4.844060299546982e-07
           }
         },
         "time_embedder.linear_2.bias": {
@@ -3437,8 +3446,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 80.56060791015625,
-            "max_abs_vs_golden_over_absmax": 0.03572387248277664,
+            "max_abs_vs_golden": 110.53607177734375,
+            "max_abs_vs_golden_over_absmax": 0.04901621863245964,
             "correctly_rounded_fraction": 0.0
           }
         },
@@ -3458,9 +3467,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 3.75,
-            "max_abs_vs_golden_over_absmax": 0.09554140269756317,
-            "correctly_rounded_fraction": 0.04575129225850105
+            "max_abs_vs_golden": 3.625,
+            "max_abs_vs_golden_over_absmax": 0.09235668927431107,
+            "correctly_rounded_fraction": 0.04550977051258087
           }
         },
         "transformer_blocks.0.adaln_proj.linear.bias": {
@@ -3479,9 +3488,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 14.5,
-            "max_abs_vs_golden_over_absmax": 0.09477124363183975,
-            "correctly_rounded_fraction": 0.0458829365670681
+            "max_abs_vs_golden": 14.0,
+            "max_abs_vs_golden_over_absmax": 0.09150326997041702,
+            "correctly_rounded_fraction": 0.045521244406700134
           }
         }
       }
@@ -3506,8 +3515,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 111.833740234375,
-            "max_abs_vs_golden_over_absmax": 0.1020093485713005,
+            "max_abs_vs_golden": 49.54254150390625,
+            "max_abs_vs_golden_over_absmax": 0.045190319418907166,
             "correctly_rounded_fraction": 0.5
           }
         },
@@ -3527,8 +3536,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 111.833740234375,
-            "max_abs_vs_golden_over_absmax": 0.1020093485713005,
+            "max_abs_vs_golden": 49.54254150390625,
+            "max_abs_vs_golden_over_absmax": 0.045190319418907166,
             "correctly_rounded_fraction": 0.0
           }
         },
@@ -3550,7 +3559,7 @@
             "repeat_bitwise_equal": false,
             "max_abs_vs_golden": 259.722412109375,
             "max_abs_vs_golden_over_absmax": 0.10558821260929108,
-            "correctly_rounded_fraction": 1.4532180330206756e-06
+            "correctly_rounded_fraction": 2.076025680253224e-07
           }
         },
         "time_embedder.linear_2.bias": {
@@ -3590,9 +3599,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 28.25,
-            "max_abs_vs_golden_over_absmax": 0.2325102835893631,
-            "correctly_rounded_fraction": 0.015966668725013733
+            "max_abs_vs_golden": 39.25,
+            "max_abs_vs_golden_over_absmax": 0.3230452537536621,
+            "correctly_rounded_fraction": 0.016081100329756737
           }
         },
         "transformer_blocks.0.adaln_proj.linear.bias": {
@@ -3611,9 +3620,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 110.0,
-            "max_abs_vs_golden_over_absmax": 0.2310924381017685,
-            "correctly_rounded_fraction": 0.015573329292237759
+            "max_abs_vs_golden": 154.0,
+            "max_abs_vs_golden_over_absmax": 0.3235294222831726,
+            "correctly_rounded_fraction": 0.0159040167927742
           }
         }
       }
@@ -3770,9 +3779,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 0.8007991313934326,
-            "max_abs_vs_golden_over_absmax": 0.008429241366684437,
-            "correctly_rounded_fraction": 7.2660900514165405e-06
+            "max_abs_vs_golden": 0.7829102277755737,
+            "max_abs_vs_golden_over_absmax": 0.008240942843258381,
+            "correctly_rounded_fraction": 0.0
           }
         },
         "time_embedder.linear_1.bias": {
@@ -3791,8 +3800,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 0.8007990717887878,
-            "max_abs_vs_golden_over_absmax": 0.008429241366684437,
+            "max_abs_vs_golden": 0.7828986048698425,
+            "max_abs_vs_golden_over_absmax": 0.008240819908678532,
             "correctly_rounded_fraction": 0.0
           }
         },
@@ -3812,9 +3821,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 1.3165359497070312,
-            "max_abs_vs_golden_over_absmax": 0.007574624847620726,
-            "correctly_rounded_fraction": 2.4912308163038688e-06
+            "max_abs_vs_golden": 1.175933837890625,
+            "max_abs_vs_golden_over_absmax": 0.006765677593648434,
+            "correctly_rounded_fraction": 3.736846338142641e-06
           }
         },
         "time_embedder.linear_2.bias": {
@@ -3833,8 +3842,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 4.7288360595703125,
-            "max_abs_vs_golden_over_absmax": 0.007574616465717554,
+            "max_abs_vs_golden": 4.223846435546875,
+            "max_abs_vs_golden_over_absmax": 0.006765727419406176,
             "correctly_rounded_fraction": 0.0
           }
         },
@@ -3854,9 +3863,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 0.5,
-            "max_abs_vs_golden_over_absmax": 0.019417475908994675,
-            "correctly_rounded_fraction": 0.22603164613246918
+            "max_abs_vs_golden": 0.375,
+            "max_abs_vs_golden_over_absmax": 0.014563106931746006,
+            "correctly_rounded_fraction": 0.2245345562696457
           }
         },
         "transformer_blocks.0.adaln_proj.linear.bias": {
@@ -3877,7 +3886,7 @@
             "repeat_bitwise_equal": false,
             "max_abs_vs_golden": 0.5,
             "max_abs_vs_golden_over_absmax": 0.01123595517128706,
-            "correctly_rounded_fraction": 0.2218191921710968
+            "correctly_rounded_fraction": 0.21879133582115173
           }
         }
       }
@@ -3902,8 +3911,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 9.172073364257812,
-            "max_abs_vs_golden_over_absmax": 0.01738234981894493,
+            "max_abs_vs_golden": 12.576629638671875,
+            "max_abs_vs_golden_over_absmax": 0.023834455758333206,
             "correctly_rounded_fraction": 0.0
           }
         },
@@ -3923,8 +3932,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 9.17205810546875,
-            "max_abs_vs_golden_over_absmax": 0.01738244853913784,
+            "max_abs_vs_golden": 12.576629638671875,
+            "max_abs_vs_golden_over_absmax": 0.023834628984332085,
             "correctly_rounded_fraction": 0.0
           }
         },
@@ -3944,9 +3953,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 21.645339965820312,
-            "max_abs_vs_golden_over_absmax": 0.03434319049119949,
-            "correctly_rounded_fraction": 8.304102721012896e-07
+            "max_abs_vs_golden": 24.191131591796875,
+            "max_abs_vs_golden_over_absmax": 0.03838242217898369,
+            "correctly_rounded_fraction": 5.536068670153327e-07
           }
         },
         "time_embedder.linear_2.bias": {
@@ -3965,8 +3974,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 77.7467041015625,
-            "max_abs_vs_golden_over_absmax": 0.0343431793153286,
+            "max_abs_vs_golden": 86.89019775390625,
+            "max_abs_vs_golden_over_absmax": 0.0383821502327919,
             "correctly_rounded_fraction": 0.0
           }
         },
@@ -3988,7 +3997,7 @@
             "repeat_bitwise_equal": false,
             "max_abs_vs_golden": 5.75,
             "max_abs_vs_golden_over_absmax": 0.05000000074505806,
-            "correctly_rounded_fraction": 0.0626961812376976
+            "correctly_rounded_fraction": 0.06273015588521957
           }
         },
         "transformer_blocks.0.adaln_proj.linear.bias": {
@@ -4007,9 +4016,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 9.0,
-            "max_abs_vs_golden_over_absmax": 0.05882352963089943,
-            "correctly_rounded_fraction": 0.06214864179491997
+            "max_abs_vs_golden": 8.5,
+            "max_abs_vs_golden_over_absmax": 0.0555555559694767,
+            "correctly_rounded_fraction": 0.06272734701633453
           }
         }
       }
@@ -4034,8 +4043,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 101.708251953125,
-            "max_abs_vs_golden_over_absmax": 0.13667580485343933,
+            "max_abs_vs_golden": 115.08192443847656,
+            "max_abs_vs_golden_over_absmax": 0.15464738011360168,
             "correctly_rounded_fraction": 0.0
           }
         },
@@ -4055,8 +4064,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 98.1940689086914,
-            "max_abs_vs_golden_over_absmax": 0.1319534331560135,
+            "max_abs_vs_golden": 115.08175659179688,
+            "max_abs_vs_golden_over_absmax": 0.15464715659618378,
             "correctly_rounded_fraction": 0.0
           }
         },
@@ -4076,9 +4085,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 200.07321166992188,
-            "max_abs_vs_golden_over_absmax": 0.08123967051506042,
-            "correctly_rounded_fraction": 3.460042989900103e-07
+            "max_abs_vs_golden": 206.15872192382812,
+            "max_abs_vs_golden_over_absmax": 0.0837106853723526,
+            "correctly_rounded_fraction": 6.228077040759672e-07
           }
         },
         "time_embedder.linear_2.bias": {
@@ -4097,8 +4106,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 718.626708984375,
-            "max_abs_vs_golden_over_absmax": 0.08123811334371567,
+            "max_abs_vs_golden": 740.48876953125,
+            "max_abs_vs_golden_over_absmax": 0.08370953798294067,
             "correctly_rounded_fraction": 0.0
           }
         },
@@ -4118,9 +4127,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 50.0,
-            "max_abs_vs_golden_over_absmax": 0.16778524219989777,
-            "correctly_rounded_fraction": 0.02199636586010456
+            "max_abs_vs_golden": 47.0,
+            "max_abs_vs_golden_over_absmax": 0.15771812200546265,
+            "correctly_rounded_fraction": 0.022228065878152847
           }
         },
         "transformer_blocks.0.adaln_proj.linear.bias": {
@@ -4139,9 +4148,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 60.75,
-            "max_abs_vs_golden_over_absmax": 0.12762604653835297,
-            "correctly_rounded_fraction": 0.020791996270418167
+            "max_abs_vs_golden": 64.0,
+            "max_abs_vs_golden_over_absmax": 0.13445378839969635,
+            "correctly_rounded_fraction": 0.021556712687015533
           }
         }
       }
@@ -4298,9 +4307,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 0.36901092529296875,
-            "max_abs_vs_golden_over_absmax": 0.0050542596727609634,
-            "correctly_rounded_fraction": 4.359654212748865e-06
+            "max_abs_vs_golden": 0.5587692260742188,
+            "max_abs_vs_golden_over_absmax": 0.007653336506336927,
+            "correctly_rounded_fraction": 1.0172526344831567e-05
           }
         },
         "time_embedder.linear_1.bias": {
@@ -4319,8 +4328,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 0.3690032958984375,
-            "max_abs_vs_golden_over_absmax": 0.005054154898971319,
+            "max_abs_vs_golden": 0.5587692260742188,
+            "max_abs_vs_golden_over_absmax": 0.007653336506336927,
             "correctly_rounded_fraction": 0.0
           }
         },
@@ -4340,9 +4349,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 1.1511993408203125,
-            "max_abs_vs_golden_over_absmax": 0.00662217615172267,
-            "correctly_rounded_fraction": 3.1140386909100926e-06
+            "max_abs_vs_golden": 1.072967767715454,
+            "max_abs_vs_golden_over_absmax": 0.006172155495733023,
+            "correctly_rounded_fraction": 4.152051587880123e-06
           }
         },
         "time_embedder.linear_2.bias": {
@@ -4361,8 +4370,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 4.1348876953125,
-            "max_abs_vs_golden_over_absmax": 0.006622161716222763,
+            "max_abs_vs_golden": 3.8539390563964844,
+            "max_abs_vs_golden_over_absmax": 0.006172213237732649,
             "correctly_rounded_fraction": 0.0
           }
         },
@@ -4384,7 +4393,7 @@
             "repeat_bitwise_equal": false,
             "max_abs_vs_golden": 0.3125,
             "max_abs_vs_golden_over_absmax": 0.01141552533954382,
-            "correctly_rounded_fraction": 0.2612820565700531
+            "correctly_rounded_fraction": 0.26173511147499084
           }
         },
         "transformer_blocks.0.adaln_proj.linear.bias": {
@@ -4405,7 +4414,7 @@
             "repeat_bitwise_equal": false,
             "max_abs_vs_golden": 0.5,
             "max_abs_vs_golden_over_absmax": 0.01123595517128706,
-            "correctly_rounded_fraction": 0.25729578733444214
+            "correctly_rounded_fraction": 0.2568514347076416
           }
         }
       }
@@ -4430,8 +4439,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 7.005500793457031,
-            "max_abs_vs_golden_over_absmax": 0.03231430798768997,
+            "max_abs_vs_golden": 5.137176513671875,
+            "max_abs_vs_golden_over_absmax": 0.023696279153227806,
             "correctly_rounded_fraction": 0.0
           }
         },
@@ -4451,8 +4460,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 6.1077117919921875,
-            "max_abs_vs_golden_over_absmax": 0.032236989587545395,
+            "max_abs_vs_golden": 5.1371612548828125,
+            "max_abs_vs_golden_over_absmax": 0.027114346623420715,
             "correctly_rounded_fraction": 0.0
           }
         },
@@ -4472,9 +4481,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 15.074493408203125,
-            "max_abs_vs_golden_over_absmax": 0.023838147521018982,
-            "correctly_rounded_fraction": 2.2144274680613307e-06
+            "max_abs_vs_golden": 16.611557006835938,
+            "max_abs_vs_golden_over_absmax": 0.026268793269991875,
+            "correctly_rounded_fraction": 1.799222332010686e-06
           }
         },
         "time_embedder.linear_2.bias": {
@@ -4493,8 +4502,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 54.1448974609375,
-            "max_abs_vs_golden_over_absmax": 0.023837469518184662,
+            "max_abs_vs_golden": 59.665496826171875,
+            "max_abs_vs_golden_over_absmax": 0.02626793086528778,
             "correctly_rounded_fraction": 0.0
           }
         },
@@ -4514,9 +4523,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 4.5,
-            "max_abs_vs_golden_over_absmax": 0.0476190485060215,
-            "correctly_rounded_fraction": 0.07537095248699188
+            "max_abs_vs_golden": 4.125,
+            "max_abs_vs_golden_over_absmax": 0.0436507947742939,
+            "correctly_rounded_fraction": 0.07522435486316681
           }
         },
         "transformer_blocks.0.adaln_proj.linear.bias": {
@@ -4535,9 +4544,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 6.375,
-            "max_abs_vs_golden_over_absmax": 0.0416666679084301,
-            "correctly_rounded_fraction": 0.0746527761220932
+            "max_abs_vs_golden": 6.5,
+            "max_abs_vs_golden_over_absmax": 0.04248366132378578,
+            "correctly_rounded_fraction": 0.07466311007738113
           }
         }
       }
@@ -4562,8 +4571,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 51.452091217041016,
-            "max_abs_vs_golden_over_absmax": 0.042123522609472275,
+            "max_abs_vs_golden": 55.218814849853516,
+            "max_abs_vs_golden_over_absmax": 0.04520731419324875,
             "correctly_rounded_fraction": 7.266090165103378e-07
           }
         },
@@ -4583,8 +4592,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 51.44636154174805,
-            "max_abs_vs_golden_over_absmax": 0.04211882874369621,
+            "max_abs_vs_golden": 55.21061325073242,
+            "max_abs_vs_golden_over_absmax": 0.04520060122013092,
             "correctly_rounded_fraction": 0.0
           }
         },
@@ -4604,9 +4613,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 141.7109375,
-            "max_abs_vs_golden_over_absmax": 0.05759672448039055,
-            "correctly_rounded_fraction": 2.7680343350766634e-07
+            "max_abs_vs_golden": 144.6588134765625,
+            "max_abs_vs_golden_over_absmax": 0.05879485607147217,
+            "correctly_rounded_fraction": 2.076025680253224e-07
           }
         },
         "time_embedder.linear_2.bias": {
@@ -4625,8 +4634,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 508.999755859375,
-            "max_abs_vs_golden_over_absmax": 0.057597119361162186,
+            "max_abs_vs_golden": 519.586181640625,
+            "max_abs_vs_golden_over_absmax": 0.058795053511857986,
             "correctly_rounded_fraction": 0.0
           }
         },
@@ -4648,7 +4657,7 @@
             "repeat_bitwise_equal": false,
             "max_abs_vs_golden": 36.0,
             "max_abs_vs_golden_over_absmax": 0.125,
-            "correctly_rounded_fraction": 0.02689298801124096
+            "correctly_rounded_fraction": 0.026877157390117645
           }
         },
         "transformer_blocks.0.adaln_proj.linear.bias": {
@@ -4667,9 +4676,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 59.0,
-            "max_abs_vs_golden_over_absmax": 0.1239495798945427,
-            "correctly_rounded_fraction": 0.02604166604578495
+            "max_abs_vs_golden": 58.0,
+            "max_abs_vs_golden_over_absmax": 0.12184873968362808,
+            "correctly_rounded_fraction": 0.026217343285679817
           }
         }
       }
@@ -4826,9 +4835,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 0.410614013671875,
-            "max_abs_vs_golden_over_absmax": 0.007539227604866028,
-            "correctly_rounded_fraction": 2.1798271063744323e-06
+            "max_abs_vs_golden": 0.383819580078125,
+            "max_abs_vs_golden_over_absmax": 0.0070472583174705505,
+            "correctly_rounded_fraction": 7.266090165103378e-07
           }
         },
         "time_embedder.linear_1.bias": {
@@ -4847,8 +4856,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 0.4106101989746094,
-            "max_abs_vs_golden_over_absmax": 0.007539157290011644,
+            "max_abs_vs_golden": 0.383819580078125,
+            "max_abs_vs_golden_over_absmax": 0.0070472583174705505,
             "correctly_rounded_fraction": 0.0
           }
         },
@@ -4868,9 +4877,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 1.0045738220214844,
-            "max_abs_vs_golden_over_absmax": 0.005779455415904522,
-            "correctly_rounded_fraction": 6.920085979800206e-06
+            "max_abs_vs_golden": 0.9643464088439941,
+            "max_abs_vs_golden_over_absmax": 0.0055480217561125755,
+            "correctly_rounded_fraction": 4.22125231125392e-06
           }
         },
         "time_embedder.linear_2.bias": {
@@ -4889,8 +4898,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 3.6082000732421875,
-            "max_abs_vs_golden_over_absmax": 0.005779429338872433,
+            "max_abs_vs_golden": 3.4637250900268555,
+            "max_abs_vs_golden_over_absmax": 0.0055480170994997025,
             "correctly_rounded_fraction": 0.0
           }
         },
@@ -4910,9 +4919,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 0.375,
-            "max_abs_vs_golden_over_absmax": 0.014705882407724857,
-            "correctly_rounded_fraction": 0.2856287956237793
+            "max_abs_vs_golden": 0.25,
+            "max_abs_vs_golden_over_absmax": 0.009803921915590763,
+            "correctly_rounded_fraction": 0.28653231263160706
           }
         },
         "transformer_blocks.0.adaln_proj.linear.bias": {
@@ -4931,9 +4940,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 0.5,
-            "max_abs_vs_golden_over_absmax": 0.01123595517128706,
-            "correctly_rounded_fraction": 0.28108465671539307
+            "max_abs_vs_golden": 0.375,
+            "max_abs_vs_golden_over_absmax": 0.008426966145634651,
+            "correctly_rounded_fraction": 0.28232473134994507
           }
         }
       }
@@ -4958,9 +4967,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 3.7530059814453125,
-            "max_abs_vs_golden_over_absmax": 0.011485446244478226,
-            "correctly_rounded_fraction": 0.0
+            "max_abs_vs_golden": 2.8944931030273438,
+            "max_abs_vs_golden_over_absmax": 0.008858111687004566,
+            "correctly_rounded_fraction": 7.266090165103378e-07
           }
         },
         "time_embedder.linear_1.bias": {
@@ -4979,8 +4988,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 3.7530059814453125,
-            "max_abs_vs_golden_over_absmax": 0.011485446244478226,
+            "max_abs_vs_golden": 2.2168426513671875,
+            "max_abs_vs_golden_over_absmax": 0.0067842756398022175,
             "correctly_rounded_fraction": 0.0
           }
         },
@@ -5000,9 +5009,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 14.008440971374512,
-            "max_abs_vs_golden_over_absmax": 0.02222866378724575,
-            "correctly_rounded_fraction": 2.4912308163038688e-06
+            "max_abs_vs_golden": 13.125343322753906,
+            "max_abs_vs_golden_over_absmax": 0.020827360451221466,
+            "correctly_rounded_fraction": 2.1452265173138585e-06
           }
         },
         "time_embedder.linear_2.bias": {
@@ -5021,8 +5030,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 50.315120697021484,
-            "max_abs_vs_golden_over_absmax": 0.022228464484214783,
+            "max_abs_vs_golden": 47.1435546875,
+            "max_abs_vs_golden_over_absmax": 0.020827313885092735,
             "correctly_rounded_fraction": 0.0
           }
         },
@@ -5044,7 +5053,7 @@
             "repeat_bitwise_equal": false,
             "max_abs_vs_golden": 3.0,
             "max_abs_vs_golden_over_absmax": 0.028846153989434242,
-            "correctly_rounded_fraction": 0.0858362540602684
+            "correctly_rounded_fraction": 0.08550228923559189
           }
         },
         "transformer_blocks.0.adaln_proj.linear.bias": {
@@ -5065,7 +5074,7 @@
             "repeat_bitwise_equal": false,
             "max_abs_vs_golden": 5.0,
             "max_abs_vs_golden_over_absmax": 0.03267974033951759,
-            "correctly_rounded_fraction": 0.08580315858125687
+            "correctly_rounded_fraction": 0.08459407836198807
           }
         }
       }
@@ -5090,9 +5099,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 35.3507080078125,
-            "max_abs_vs_golden_over_absmax": 0.04278850182890892,
-            "correctly_rounded_fraction": 7.266090165103378e-07
+            "max_abs_vs_golden": 52.115509033203125,
+            "max_abs_vs_golden_over_absmax": 0.06308061629533768,
+            "correctly_rounded_fraction": 0.0
           }
         },
         "time_embedder.linear_1.bias": {
@@ -5111,8 +5120,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 35.3507080078125,
-            "max_abs_vs_golden_over_absmax": 0.04278850182890892,
+            "max_abs_vs_golden": 52.11549377441406,
+            "max_abs_vs_golden_over_absmax": 0.06308060139417648,
             "correctly_rounded_fraction": 0.0
           }
         },
@@ -5132,9 +5141,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 129.7418212890625,
-            "max_abs_vs_golden_over_absmax": 0.052722759544849396,
-            "correctly_rounded_fraction": 2.7680343350766634e-07
+            "max_abs_vs_golden": 141.09814453125,
+            "max_abs_vs_golden_over_absmax": 0.05733759328722954,
+            "correctly_rounded_fraction": 1.3840171675383317e-07
           }
         },
         "time_embedder.linear_2.bias": {
@@ -5153,8 +5162,8 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 465.998046875,
-            "max_abs_vs_golden_over_absmax": 0.052721839398145676,
+            "max_abs_vs_golden": 506.794921875,
+            "max_abs_vs_golden_over_absmax": 0.05733749642968178,
             "correctly_rounded_fraction": 0.0
           }
         },
@@ -5174,9 +5183,9 @@
           },
           "provider": {
             "repeat_bitwise_equal": false,
-            "max_abs_vs_golden": 25.25,
-            "max_abs_vs_golden_over_absmax": 0.08953900635242462,
-            "correctly_rounded_fraction": 0.030449382960796356
+            "max_abs_vs_golden": 23.0,
+            "max_abs_vs_golden_over_absmax": 0.08156028389930725,
+            "correctly_rounded_fraction": 0.030541835352778435
           }
         },
         "transformer_blocks.0.adaln_proj.linear.bias": {
@@ -5197,7 +5206,7 @@
             "repeat_bitwise_equal": false,
             "max_abs_vs_golden": 40.0,
             "max_abs_vs_golden_over_absmax": 0.08403361588716507,
-            "correctly_rounded_fraction": 0.0304129458963871
+            "correctly_rounded_fraction": 0.030557621270418167
           }
         }
       }
