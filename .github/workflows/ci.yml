@@ -127,7 +127,8 @@ jobs:
             tests/test_megatron_training_recorded.py \
             tests/test_megatron_training_evidence.py \
             tests/test_megatron_training_upstream.py \
-            tests/test_megatron_training_export.py
+            tests/test_megatron_training_export.py \
+            tests/test_megatron_training_gradients.py
 
   docs:
     runs-on: ubuntu-latest

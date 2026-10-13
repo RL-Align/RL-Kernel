@@ -165,6 +165,35 @@ never by M number. T05 does not re-judge producer verdicts.
 The required field list (`DRAFT_REQUIRED_ENVELOPE_FIELDS`) is a T05 draft and
 is injectable until T01 freezes the public `TraceEnvelope` schema.
 
+## Gradient write evidence (P2c)
+
+`rl_engine/integrations/megatron_training_gradients.py` wraps one Megatron
+DDP instance read-only. The step window runs from the end of this step's
+`zero_grad_buffer` to the end of `finish_grad_sync`, i.e. after all
+accumulated micro-batches and the gradient sync, before the optimizer step and
+the next zeroing; `end_step()` outside a complete window is
+`MISSING_PROVENANCE`.
+
+A write is decided from markers, never from values (contributions can cancel
+across micro-batches, so a zero `main_grad` or an unchanged digest proves
+nothing):
+
+| Accumulate-hook calls | `grad_added_to_main_grad` | Decision |
+|---|---|---|
+| > 0 | `True` | written via fused wgrad into `main_grad` |
+| > 0 | `False` | written via autograd, moved into `main_grad` by DDP |
+| 0 | `False` | not written |
+| 0 | `True`, or still `True` right after zeroing (TE CUDA graphs) | unknown → `MISSING_PROVENANCE` |
+
+Each record keeps the parameter's DDP buffer index, bucket and range.
+Optional per-bucket digests are extra evidence and never decide a single
+parameter. `check_base_grad_absent` fails a written base parameter with
+`IDENTITY_DRIFT`; `check_emitted_against_producer` cross-checks the observed
+emitted set with the producer's declared set (absent →
+`UPSTREAM_EVIDENCE_MISSING`, different → `UPSTREAM_CONTRACT_MISMATCH`).
+Single-GPU runs verify the real DDP/fused paths; cross-rank reduce-scatter and
+distributed-optimizer shard ownership need multiple GPUs.
+
 ## M10 export for T06 pairing and the T09 byte verdict (draft)
 
 `rl_engine/alignment/cross_config/adapters/megatron_training_export.py`
@@ -212,7 +241,8 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -rs \
   tests/test_megatron_training_recorded.py \
   tests/test_megatron_training_evidence.py \
   tests/test_megatron_training_upstream.py \
-  tests/test_megatron_training_export.py
+  tests/test_megatron_training_export.py \
+  tests/test_megatron_training_gradients.py
 ```
 
 Synthetic fixtures live in `tests/p7_doubles/` (integer-formula values exactly
