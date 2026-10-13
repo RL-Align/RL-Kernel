@@ -362,7 +362,51 @@ OP_SPECS = {
         },
         grad_input_names=("x",),
     ),
+    "video_patch_pack_unpack": OperatorSpec(
+        name="video_patch_pack_unpack",
+        op_class="elementwise",
+        gold_path="rl_engine.validation.operators.operator_specs.GtestVideoPatchPackUnpackOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": (
+                "rl_engine.reference.packing.video_patch_pack_unpack.NativeVideoPatchPackUnpackOp"
+            ),
+        },
+        grad_input_names=("x",),
+    ),
 }
+
+
+class GtestVideoPatchPackUnpackOp:
+    """Adapt the two video permutation methods to the callable gtest interface."""
+
+    def __init__(self, candidate: Any = None) -> None:
+        if candidate is None:
+            from rl_engine.reference.packing.video_patch_pack_unpack import (
+                NativeVideoPatchPackUnpackOp,
+            )
+
+            candidate = NativeVideoPatchPackUnpackOp()
+        self._op = candidate
+
+    def __call__(
+        self, x: torch.Tensor, shape: tuple[int, int, int, int, int], unpack: bool
+    ) -> torch.Tensor:
+        return self._op.unpack(x, shape) if unpack else self._op.pack(x)
+
+    def forward_fp32(
+        self, x: torch.Tensor, shape: tuple[int, int, int, int, int], unpack: bool
+    ) -> torch.Tensor:
+        from rl_engine.reference.packing.video_patch_pack_unpack import (
+            pack_video_patch_reference,
+            unpack_video_patch_reference,
+        )
+
+        return (
+            unpack_video_patch_reference(x.float(), shape)
+            if unpack
+            else pack_video_patch_reference(x.float())
+        )
 
 
 class GtestPackOp:
@@ -446,6 +490,8 @@ def make_candidate(args: argparse.Namespace) -> CandidateSpec:
         candidate_op = _load_object(spec.candidate_paths[candidate_name])()
         if args.op == "logp" and candidate_name == "cuda-sm90":
             candidate_op = _LogpSM90CandidateAdapter(candidate_op)
+        elif args.op == "video_patch_pack_unpack":
+            candidate_op = GtestVideoPatchPackUnpackOp(candidate_op)
         return CandidateSpec(
             name=f"{candidate_name}-{args.op}",
             backend=candidate_name,
