@@ -181,7 +181,8 @@ def _mlp_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
     weight_bytes = sum(p.numel() * p.element_size() for p in params)
     cases = []
     for num in (1, 2, 3, 4):
-        x = torch.rand(num, 256, device="cuda") * 2 - 1
+        gen = torch.Generator(device="cuda").manual_seed(num)
+        x = torch.rand(num, 256, device="cuda", generator=gen) * 2 - 1
         cases.append(
             {
                 "op": "timestep_mlp_fp32",
@@ -246,7 +247,8 @@ def _projection_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
     weight, bias = _adaln_params()
     cases = []
     for num in (1, 2, 3, 4):
-        temb = torch.randn(num, 2688, device="cuda")
+        gen = torch.Generator(device="cuda").manual_seed(num)
+        temb = torch.randn(num, 2688, device="cuda", generator=gen)
         cases.append(
             {
                 "op": "adaln_projection_3mod",
@@ -285,7 +287,8 @@ def _projection_accuracy(registry: KernelRegistry, draws: int = 20) -> dict[str,
         cuda_frac.append(float((ours == gold).float().mean()))
         provider_frac.append(float((theirs == gold).float().mean()))
         early_frac.append(float((ours == early).float().mean()))
-    temb = torch.randn(9, 2688, device="cuda")
+    gen = torch.Generator(device="cuda").manual_seed(draws)
+    temb = torch.randn(9, 2688, device="cuda", generator=gen)
     full = op(temb, weight, bias)
     invariant = all(
         all(
