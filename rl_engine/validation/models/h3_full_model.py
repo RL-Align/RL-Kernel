@@ -145,6 +145,14 @@ class FullModelTrace:
         )
 
 
+def require_candidate_cuda(ops):
+    backends = ops.backends()
+    for name in ("projection", "norm", "gate"):
+        if ".cuda." not in backends[name]:
+            raise ValueError(f"candidate {name} fell back from its CUDA implementation")
+    return backends
+
+
 @contextmanager
 def full_model_execution(model, *, candidate: bool, trace: FullModelTrace, ops=None):
     """Temporarily bind each real block, preserving module parameters and restoring on error."""
@@ -154,10 +162,7 @@ def full_model_execution(model, *, candidate: bool, trace: FullModelTrace, ops=N
     if candidate:
         ops = ops or h3_block.CandidateOps()
         if hasattr(ops, "backends"):
-            trace.actual_backends = ops.backends()
-            for name in ("projection", "norm", "gate"):
-                if ".cuda." not in trace.actual_backends[name]:
-                    raise ValueError(f"candidate {name} fell back from its CUDA implementation")
+            trace.actual_backends = require_candidate_cuda(ops)
     try:
         for i, block in enumerate(model.transformer_blocks):
             if candidate:

@@ -155,3 +155,14 @@ def test_reference_inventory_rejects_tampered_tensor(tmp_path):
     tensor.write_bytes(b"changed")
     with pytest.raises(ValueError, match="changed"):
         verify_inventory(tmp_path, manifest)
+
+
+def test_cuda_guard_rejects_one_fallback_among_native_bindings():
+    from rl_engine.validation.models.h3_full_model import require_candidate_cuda
+
+    native = "rl_engine.backends.cuda.model_specific.minimax_h3.NativeOp"
+    ops = SimpleNamespace(
+        backends=lambda: {"projection": native, "norm": "torch.nn.RMSNorm", "gate": native}
+    )
+    with pytest.raises(ValueError, match="candidate norm fell back"):
+        require_candidate_cuda(ops)

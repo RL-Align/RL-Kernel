@@ -11,6 +11,7 @@ from safetensors.torch import save_file
 
 from rl_engine.backends.extension import _C
 from rl_engine.validation.models.h3_block import CandidateOps
+from rl_engine.validation.models.h3_full_model import require_candidate_cuda
 from rl_engine.validation.models.h3_weights import load_h3_manifest, sha256_tensor
 from tools.validation.models.h3_evidence_integrity import verify_inventory
 from tools.validation.models.h3_full_model import digest, verify_checkpoint
@@ -30,9 +31,23 @@ def main():
     )
     if _C is None or not hasattr(_C, "h3_timestep_sinusoid_forward"):
         raise ValueError("candidate extension lacks H3 kernels")
-    backends = CandidateOps().backends()
-    if any(".cuda." not in backends[name] for name in ("projection", "norm", "gate")):
-        raise ValueError("candidate extension fell back")
+    ops = CandidateOps()
+    backends = require_candidate_cuda(ops)
+    # Inject a real eager CUDA fallback and require the same guard used by the
+    # full-model path to reject it before it can count as candidate execution.
+    original = ops.norm
+    try:
+        ops.norm = torch.nn.RMSNorm(128).cuda()
+        try:
+            require_candidate_cuda(ops)
+        except ValueError as exc:
+            if "candidate norm fell back" not in str(exc):
+                raise
+        else:
+            raise AssertionError("eager CUDA norm fallback was accepted")
+    finally:
+        ops.norm = original
+    require_candidate_cuda(ops)
     extension = Path(_C.__file__).resolve()
     if not extension.is_relative_to(Path.cwd().resolve()):
         raise ValueError("candidate loaded an extension outside its clean source snapshot")
@@ -61,6 +76,7 @@ def main():
         extension_sha256=digest(extension),
         torch=torch.__version__,
         backends=backends,
+        negative_controls={"eager_cuda_norm_fallback_rejected": True},
         reference_manifest_sha256=digest(manifest),
         build={
             key: os.environ.get(key)
