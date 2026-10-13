@@ -107,6 +107,9 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
 
     # Variable-length packing (pack-and-pad), [B,S,...] -> [Total_Active,...]
     PYTORCH_PACK = "rl_engine.kernels.ops.pytorch.packing.pack.NativePackOp"
+    PYTORCH_VIDEO_PATCH_PACK_UNPACK = (
+        "rl_engine.reference.packing.video_patch_pack_unpack.NativeVideoPatchPackUnpackOp"
+    )
     # Batch-invariant deterministic GEMM (WS1 #146)
     CUDA_DET_GEMM = "rl_engine.kernels.ops.cuda.matmul.det_gemm.DetGemmOp"
     TRITON_DET_GEMM = "rl_engine.kernels.ops.triton.matmul.det_gemm.TritonDetGemmOp"
@@ -240,6 +243,36 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
 
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
     return (
+        OperatorBackendDescriptor(
+            semantic_op="video_patch_pack_unpack",
+            backend_id="pytorch-video-patch-pack-unpack-v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"cpu", "cuda"}),
+            supported_dtypes=frozenset({"float32", "float16", "bfloat16"}),
+            supported_topologies={
+                "rollout": {
+                    "world_size": (1,),
+                    "tensor_parallel_size": (1,),
+                    "context_parallel_size": (1,),
+                },
+                "training": {"world_size": (1,), "sharding": ("unsharded",)},
+            },
+            determinism_or_alignment_properties={
+                "algorithm": "vllm_omni.reshape_einsum_contiguous",
+                "channels": 24,
+                "patch_size": {"t": 1, "h": 2, "w": 2},
+                "batch_invariant": True,
+                "deterministic": True,
+                "bitwise": True,
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK.value,
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint=(
+                "vllm-omni-b1fc5fcfa3e1a4f76c6686eaf09242f0fc6464bc-h3-adapter-v1"
+            ),
+        ),
         OperatorBackendDescriptor(
             semantic_op="selected_logprob",
             backend_id="rlkernel.reference_logp",
@@ -622,6 +655,7 @@ class KernelRegistry:
                 ],
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
+                "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
                 "det_gemm": [OpBackend.CUDA_DET_GEMM, OpBackend.TRITON_DET_GEMM],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
@@ -701,6 +735,7 @@ class KernelRegistry:
                 ],
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
+                "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
                 "det_gemm": [OpBackend.TRITON_DET_GEMM],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
@@ -750,6 +785,7 @@ class KernelRegistry:
                 ],
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
+                "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
                 "det_gemm": [OpBackend.TRITON_DET_GEMM],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
@@ -792,6 +828,7 @@ class KernelRegistry:
                 "linear_logp": [OpBackend.PYTORCH_LINEAR_LOGP],
                 "ratio_kl": [OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
+                "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
                 "batch_invariant_logp": [OpBackend.PYTORCH_BATCH_INVARIANT_LOGP],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
