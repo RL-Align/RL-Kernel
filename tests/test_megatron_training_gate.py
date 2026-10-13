@@ -207,15 +207,54 @@ def test_row_layout_disagreeing_with_call_is_identity_drift(observer):
     expect("IDENTITY_DRIFT", run(observer, vime_request(fixture)), context, "row_layout")
 
 
-def test_allgather_layout_is_unsupported(observer):
+def test_unknown_layout_is_unsupported(observer):
     request = vime_request(FIXTURES["normal"])
-    request.token_layout = SimpleNamespace(world_size=2, rank=0, layout="allgather")
+    request.token_layout = SimpleNamespace(world_size=2, rank=0, layout="ring")
     expect(
         "UNSUPPORTED_CAPABILITY",
         run(observer, request),
         make_context(FIXTURES["normal"]),
         "token_layout.layout",
     )
+
+
+def _allgather_request(rank, rows):
+    base = vime_request(FIXTURES["normal"])
+    request = vime_request(FIXTURES["normal"])
+    request.logits, request.target_ids = base.logits[rows], base.target_ids[rows]
+    request.context.hidden = base.context.hidden[rows]
+    request.token_layout = SimpleNamespace(world_size=2, rank=rank, layout="allgather")
+    return request
+
+
+@pytest.mark.parametrize("rank", [0, 1])
+def test_allgather_layout_follows_vime_contiguous_split(observer, rank):
+    rows = slice(4 * rank, 4 * rank + 4)  # one sample of 8 tokens over CP=2 -> 4 rows each
+    mask = FIXTURES["normal"].active_mask[rows].clone()
+    context = make_context(FIXTURES["normal"], active_token_mask=mask)
+    evidence = gate.validate_training_call(run(observer, _allgather_request(rank, rows)), context)
+    assert evidence.row_keys == tuple(
+        ("s0", position) for position in range(4 * rank, 4 * rank + 4)
+    )
+
+
+def test_allgather_tail_rows_are_padding(observer):
+    rows = slice(0, 4)  # rank 1 of 6 tokens over CP=2 with 4 local rows: tokens 4,5 + 2 padding
+    layout = gate.RowLayout(("s0",), (6,))
+    request = _allgather_request(1, rows)
+    snapshot = run(observer, request)
+    ok = make_context(
+        FIXTURES["normal"],
+        row_layout=layout,
+        active_token_mask=torch.tensor([1, 1, 0, 0], dtype=torch.bool),
+    )
+    assert gate.validate_training_call(snapshot, ok).row_keys == (("s0", 4), ("s0", 5), None, None)
+    bad = make_context(
+        FIXTURES["normal"],
+        row_layout=layout,
+        active_token_mask=torch.tensor([1, 1, 1, 0], dtype=torch.bool),
+    )
+    expect("IDENTITY_DRIFT", snapshot, bad, "active_token_mask")
 
 
 def test_active_padding_row_is_identity_drift(observer):

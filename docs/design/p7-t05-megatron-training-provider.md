@@ -85,8 +85,11 @@ reads live objects and never recomputes numerics. Order, identity first:
 1. Snapshot complete (no capture/operator error, selected logprob captured).
 2. Input schema: BF16 `[N, H]` hidden, BF16 `[V_local, H]` shard, INT64 `[N]`
    targets, logits `[N, V_local]` → `SCHEMA_MISMATCH`.
-3. Row identity via `canonical_cp.packed_gather_indices` (padding rows are
-   `None`); unknown layouts → `UNSUPPORTED_CAPABILITY`.
+3. Row identity: each local row is the logits row `(sample_id, position)`;
+   its target is the token at `position + 1` (VIME owns the shift). `single`,
+   `zigzag` (via `canonical_cp.packed_gather_indices`) and `allgather` (VIME's
+   contiguous per-rank split of the concatenated samples) are supported;
+   padding rows are `None`; other layouts → `UNSUPPORTED_CAPABILITY`.
 4. TP coordinates from the actual group; configured metadata that disagrees →
    `IDENTITY_DRIFT`; vocab ownership must equal the rank's equal shard.
 5. Weight lock on the observed shard digest → `PRE_UPDATE_WEIGHT_DRIFT`; an

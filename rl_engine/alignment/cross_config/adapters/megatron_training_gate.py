@@ -78,12 +78,15 @@ class RowLayout:
             raise ValueError("row layout sample lengths must be positive")
 
     def local_row_keys(
-        self, *, layout: str, cp_rank: int, cp_world: int
+        self, *, layout: str, cp_rank: int, cp_world: int, local_rows: Optional[int] = None
     ) -> tuple[Optional[tuple[str, int]], ...]:
-        """(sample_id, position) for each local row; ``None`` marks a padding row.
+        """(sample_id, position) of the logits row behind each local row; ``None`` is padding.
 
-        Reuses ``canonical_cp.packed_gather_indices`` (the mapping used by the
-        canonical CP gradient path) instead of re-deriving the zigzag layout.
+        The target of a row is the token at ``position + 1``; VIME owns that shift.
+        Zigzag reuses ``canonical_cp.packed_gather_indices`` (the mapping of the
+        canonical CP gradient path). Allgather follows VIME's
+        ``_build_shifted_tokens``: rank ``r`` holds rows ``[r*T, (r+1)*T)`` of the
+        concatenated samples, and rows past the end are padding.
         """
 
         from rl_engine.integrations.canonical_cp import packed_gather_indices
@@ -99,6 +102,25 @@ class RowLayout:
                 for sample, length in zip(self.sample_ids, lengths, strict=True)
                 for position in range(length)
             )
+        if layout == "allgather":
+            if local_rows is None or local_rows <= 0:
+                raise T05ContractError(
+                    "MISSING_PROVENANCE", "token_layout", "allgather needs the local row count"
+                )
+            canonical_rows: list[Optional[tuple[str, int]]] = [
+                (sample, position)
+                for sample, length in zip(self.sample_ids, lengths, strict=True)
+                for position in range(length)
+            ]
+            if local_rows * cp_world < len(canonical_rows):
+                raise T05ContractError(
+                    "IDENTITY_DRIFT",
+                    "row_layout",
+                    f"{cp_world} x {local_rows} rows cannot hold {len(canonical_rows)} tokens",
+                )
+            start = cp_rank * local_rows
+            window = canonical_rows[start : start + local_rows]
+            return tuple(window) + (None,) * (local_rows - len(window))
         if layout != "zigzag":
             raise T05ContractError(
                 "UNSUPPORTED_CAPABILITY",
@@ -514,7 +536,9 @@ def validate_training_call(
     layout = _require(snapshot, "token_layout.layout")
     cp_rank = _int(snapshot, "token_layout.rank")
     cp_world = _int(snapshot, "token_layout.world_size")
-    row_keys = context.row_layout.local_row_keys(layout=layout, cp_rank=cp_rank, cp_world=cp_world)
+    row_keys = context.row_layout.local_row_keys(
+        layout=layout, cp_rank=cp_rank, cp_world=cp_world, local_rows=rows
+    )
     if len(row_keys) != rows:
         raise _fail(
             "IDENTITY_DRIFT", "row_layout", f"layout gives {len(row_keys)} rows, call has {rows}"
