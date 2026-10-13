@@ -1,0 +1,1373 @@
+{
+  "kind": "h3_bitwise_reuse",
+  "rfc": "RL-Align/RL-Kernel#420",
+  "op": "norm_modulate",
+  "rl_kernel_commit": "228e50b9b0b499440535cd84b17cb18723840173",
+  "tracked_tree_dirty": false,
+  "environment": {
+    "gpu": "NVIDIA B200",
+    "capability": [
+      10,
+      0
+    ],
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "python": "3.12.14",
+    "tf32": false,
+    "libraries": {
+      "torch": "2.13.0",
+      "triton": "3.7.1",
+      "diffusers": null,
+      "vllm": "0.30.0",
+      "flashinfer-python": "0.6.18.post1",
+      "sglang": "0.5.21",
+      "liger-kernel": "0.8.4",
+      "transformer_engine": "2.20.2",
+      "megatron-core": null
+    },
+    "mode_environment": {
+      "plain": {}
+    }
+  },
+  "cases": [
+    1,
+    257,
+    4097,
+    32768
+  ],
+  "results": {
+    "diffusers": {
+      "source": "diffusers composition (F.rms_norm + index_select modulation)",
+      "vs rl_kernel": {
+        "1": {
+          "out": [
+            {
+              "equal": true,
+              "differ": 0,
+              "numel": 5376,
+              "max_abs": 0.0
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 1333,
+              "numel": 5376,
+              "max_abs": 0.015625
+            },
+            "w": {
+              "equal": false,
+              "differ": 1325,
+              "numel": 5376,
+              "max_abs": 0.03125
+            },
+            "sh": {
+              "equal": true,
+              "differ": 0,
+              "numel": 48384,
+              "max_abs": 0.0
+            },
+            "sc": {
+              "equal": true,
+              "differ": 0,
+              "numel": 48384,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "257": {
+          "out": [
+            {
+              "equal": true,
+              "differ": 0,
+              "numel": 1381632,
+              "max_abs": 0.0
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 358870,
+              "numel": 1381632,
+              "max_abs": 0.015625
+            },
+            "w": {
+              "equal": false,
+              "differ": 2253,
+              "numel": 5376,
+              "max_abs": 0.25
+            },
+            "sh": {
+              "equal": false,
+              "differ": 34637,
+              "numel": 48384,
+              "max_abs": 0.25
+            },
+            "sc": {
+              "equal": false,
+              "differ": 35142,
+              "numel": 48384,
+              "max_abs": 0.375
+            }
+          }
+        },
+        "32768": {
+          "out": [
+            {
+              "equal": true,
+              "differ": 0,
+              "numel": 176160768,
+              "max_abs": 0.0
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 45733312,
+              "numel": 176160768,
+              "max_abs": 0.015625
+            },
+            "w": {
+              "equal": false,
+              "differ": 2320,
+              "numel": 5376,
+              "max_abs": 4.0
+            },
+            "sh": {
+              "equal": false,
+              "differ": 47033,
+              "numel": 48384,
+              "max_abs": 34.0
+            },
+            "sc": {
+              "equal": false,
+              "differ": 47067,
+              "numel": 48384,
+              "max_abs": 37.0
+            }
+          }
+        },
+        "4097": {
+          "out": [
+            {
+              "equal": true,
+              "differ": 0,
+              "numel": 22025472,
+              "max_abs": 0.0
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 5717663,
+              "numel": 22025472,
+              "max_abs": 0.015625
+            },
+            "w": {
+              "equal": false,
+              "differ": 2290,
+              "numel": 5376,
+              "max_abs": 1.0
+            },
+            "sh": {
+              "equal": false,
+              "differ": 44563,
+              "numel": 48384,
+              "max_abs": 6.0
+            },
+            "sc": {
+              "equal": false,
+              "differ": 44462,
+              "numel": 48384,
+              "max_abs": 6.5
+            }
+          }
+        }
+      }
+    },
+    "liger": {
+      "source": "Liger 0.8.4 modulated RMSNorm + index_select",
+      "vs diffusers": {
+        "1": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 2500,
+              "numel": 5376,
+              "max_abs": 0.03125
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 1344,
+              "numel": 5376,
+              "max_abs": 0.0078125
+            },
+            "w": {
+              "equal": false,
+              "differ": 2079,
+              "numel": 5376,
+              "max_abs": 0.03125
+            },
+            "sh": {
+              "equal": true,
+              "differ": 0,
+              "numel": 48384,
+              "max_abs": 0.0
+            },
+            "sc": {
+              "equal": false,
+              "differ": 1828,
+              "numel": 48384,
+              "max_abs": 0.03125
+            }
+          }
+        },
+        "257": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 578757,
+              "numel": 1381632,
+              "max_abs": 0.0625
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 353689,
+              "numel": 1381632,
+              "max_abs": 0.015625
+            },
+            "w": {
+              "equal": false,
+              "differ": 2726,
+              "numel": 5376,
+              "max_abs": 0.25
+            },
+            "sh": {
+              "equal": false,
+              "differ": 29843,
+              "numel": 48384,
+              "max_abs": 0.25
+            },
+            "sc": {
+              "equal": false,
+              "differ": 33672,
+              "numel": 48384,
+              "max_abs": 0.4375
+            }
+          }
+        },
+        "32768": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 73755964,
+              "numel": 176160768,
+              "max_abs": 0.0625
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 44803209,
+              "numel": 176160768,
+              "max_abs": 0.03125
+            },
+            "w": {
+              "equal": false,
+              "differ": 2718,
+              "numel": 5376,
+              "max_abs": 4.0
+            },
+            "sh": {
+              "equal": false,
+              "differ": 46320,
+              "numel": 48384,
+              "max_abs": 25.0
+            },
+            "sc": {
+              "equal": false,
+              "differ": 46090,
+              "numel": 48384,
+              "max_abs": 40.0
+            }
+          }
+        },
+        "4097": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 9217451,
+              "numel": 22025472,
+              "max_abs": 0.0625
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 5604657,
+              "numel": 22025472,
+              "max_abs": 0.015625
+            },
+            "w": {
+              "equal": false,
+              "differ": 2728,
+              "numel": 5376,
+              "max_abs": 1.0
+            },
+            "sh": {
+              "equal": false,
+              "differ": 43823,
+              "numel": 48384,
+              "max_abs": 3.25
+            },
+            "sc": {
+              "equal": false,
+              "differ": 43977,
+              "numel": 48384,
+              "max_abs": 4.5
+            }
+          }
+        }
+      },
+      "vs rl_kernel": {
+        "1": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 2500,
+              "numel": 5376,
+              "max_abs": 0.03125
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 1799,
+              "numel": 5376,
+              "max_abs": 0.015625
+            },
+            "w": {
+              "equal": false,
+              "differ": 2138,
+              "numel": 5376,
+              "max_abs": 0.03125
+            },
+            "sh": {
+              "equal": true,
+              "differ": 0,
+              "numel": 48384,
+              "max_abs": 0.0
+            },
+            "sc": {
+              "equal": false,
+              "differ": 1828,
+              "numel": 48384,
+              "max_abs": 0.03125
+            }
+          }
+        },
+        "257": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 578757,
+              "numel": 1381632,
+              "max_abs": 0.0625
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 482721,
+              "numel": 1381632,
+              "max_abs": 0.03125
+            },
+            "w": {
+              "equal": false,
+              "differ": 2981,
+              "numel": 5376,
+              "max_abs": 0.25
+            },
+            "sh": {
+              "equal": false,
+              "differ": 34711,
+              "numel": 48384,
+              "max_abs": 0.3125
+            },
+            "sc": {
+              "equal": false,
+              "differ": 36645,
+              "numel": 48384,
+              "max_abs": 0.375
+            }
+          }
+        },
+        "32768": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 73755964,
+              "numel": 176160768,
+              "max_abs": 0.0625
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 61419641,
+              "numel": 176160768,
+              "max_abs": 0.03125
+            },
+            "w": {
+              "equal": false,
+              "differ": 3033,
+              "numel": 5376,
+              "max_abs": 4.0
+            },
+            "sh": {
+              "equal": false,
+              "differ": 47060,
+              "numel": 48384,
+              "max_abs": 55.0
+            },
+            "sc": {
+              "equal": false,
+              "differ": 46994,
+              "numel": 48384,
+              "max_abs": 39.25
+            }
+          }
+        },
+        "4097": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 9217451,
+              "numel": 22025472,
+              "max_abs": 0.0625
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 7683178,
+              "numel": 22025472,
+              "max_abs": 0.03125
+            },
+            "w": {
+              "equal": false,
+              "differ": 3051,
+              "numel": 5376,
+              "max_abs": 1.0
+            },
+            "sh": {
+              "equal": false,
+              "differ": 44553,
+              "numel": 48384,
+              "max_abs": 5.0
+            },
+            "sc": {
+              "equal": false,
+              "differ": 44671,
+              "numel": 48384,
+              "max_abs": 6.25
+            }
+          }
+        }
+      }
+    },
+    "liger_rlk_gather": {
+      "source": "Liger 0.8.4 modulated RMSNorm + rl-kernel row gather",
+      "vs diffusers": {
+        "1": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 2500,
+              "numel": 5376,
+              "max_abs": 0.03125
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 1344,
+              "numel": 5376,
+              "max_abs": 0.0078125
+            },
+            "w": {
+              "equal": false,
+              "differ": 2079,
+              "numel": 5376,
+              "max_abs": 0.03125
+            },
+            "sh": {
+              "equal": true,
+              "differ": 0,
+              "numel": 48384,
+              "max_abs": 0.0
+            },
+            "sc": {
+              "equal": false,
+              "differ": 1828,
+              "numel": 48384,
+              "max_abs": 0.03125
+            }
+          }
+        },
+        "257": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 578757,
+              "numel": 1381632,
+              "max_abs": 0.0625
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 353689,
+              "numel": 1381632,
+              "max_abs": 0.015625
+            },
+            "w": {
+              "equal": false,
+              "differ": 2726,
+              "numel": 5376,
+              "max_abs": 0.25
+            },
+            "sh": {
+              "equal": false,
+              "differ": 34637,
+              "numel": 48384,
+              "max_abs": 0.25
+            },
+            "sc": {
+              "equal": false,
+              "differ": 36379,
+              "numel": 48384,
+              "max_abs": 0.375
+            }
+          }
+        },
+        "32768": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 73755964,
+              "numel": 176160768,
+              "max_abs": 0.0625
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 44803209,
+              "numel": 176160768,
+              "max_abs": 0.03125
+            },
+            "w": {
+              "equal": false,
+              "differ": 2718,
+              "numel": 5376,
+              "max_abs": 4.0
+            },
+            "sh": {
+              "equal": false,
+              "differ": 47033,
+              "numel": 48384,
+              "max_abs": 34.0
+            },
+            "sc": {
+              "equal": false,
+              "differ": 47026,
+              "numel": 48384,
+              "max_abs": 37.0
+            }
+          }
+        },
+        "4097": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 9217451,
+              "numel": 22025472,
+              "max_abs": 0.0625
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 5604657,
+              "numel": 22025472,
+              "max_abs": 0.015625
+            },
+            "w": {
+              "equal": false,
+              "differ": 2728,
+              "numel": 5376,
+              "max_abs": 1.0
+            },
+            "sh": {
+              "equal": false,
+              "differ": 44563,
+              "numel": 48384,
+              "max_abs": 6.0
+            },
+            "sc": {
+              "equal": false,
+              "differ": 44557,
+              "numel": 48384,
+              "max_abs": 6.5
+            }
+          }
+        }
+      },
+      "vs rl_kernel": {
+        "1": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 2500,
+              "numel": 5376,
+              "max_abs": 0.03125
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 1799,
+              "numel": 5376,
+              "max_abs": 0.015625
+            },
+            "w": {
+              "equal": false,
+              "differ": 2138,
+              "numel": 5376,
+              "max_abs": 0.03125
+            },
+            "sh": {
+              "equal": true,
+              "differ": 0,
+              "numel": 48384,
+              "max_abs": 0.0
+            },
+            "sc": {
+              "equal": false,
+              "differ": 1828,
+              "numel": 48384,
+              "max_abs": 0.03125
+            }
+          }
+        },
+        "257": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 578757,
+              "numel": 1381632,
+              "max_abs": 0.0625
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 482721,
+              "numel": 1381632,
+              "max_abs": 0.03125
+            },
+            "w": {
+              "equal": false,
+              "differ": 2981,
+              "numel": 5376,
+              "max_abs": 0.25
+            },
+            "sh": {
+              "equal": true,
+              "differ": 0,
+              "numel": 48384,
+              "max_abs": 0.0
+            },
+            "sc": {
+              "equal": false,
+              "differ": 27944,
+              "numel": 48384,
+              "max_abs": 0.125
+            }
+          }
+        },
+        "32768": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 73755964,
+              "numel": 176160768,
+              "max_abs": 0.0625
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 61419641,
+              "numel": 176160768,
+              "max_abs": 0.03125
+            },
+            "w": {
+              "equal": false,
+              "differ": 3033,
+              "numel": 5376,
+              "max_abs": 4.0
+            },
+            "sh": {
+              "equal": true,
+              "differ": 0,
+              "numel": 48384,
+              "max_abs": 0.0
+            },
+            "sc": {
+              "equal": false,
+              "differ": 28742,
+              "numel": 48384,
+              "max_abs": 2.0
+            }
+          }
+        },
+        "4097": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 9217451,
+              "numel": 22025472,
+              "max_abs": 0.0625
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 7683178,
+              "numel": 22025472,
+              "max_abs": 0.03125
+            },
+            "w": {
+              "equal": false,
+              "differ": 3051,
+              "numel": 5376,
+              "max_abs": 1.0
+            },
+            "sh": {
+              "equal": true,
+              "differ": 0,
+              "numel": 48384,
+              "max_abs": 0.0
+            },
+            "sc": {
+              "equal": false,
+              "differ": 28487,
+              "numel": 48384,
+              "max_abs": 0.5
+            }
+          }
+        }
+      }
+    },
+    "rl_kernel": {
+      "source": "rl-kernel H3RMSNormCudaOp.forward_modulated",
+      "vs diffusers": {
+        "1": {
+          "out": [
+            {
+              "equal": true,
+              "differ": 0,
+              "numel": 5376,
+              "max_abs": 0.0
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 1333,
+              "numel": 5376,
+              "max_abs": 0.015625
+            },
+            "w": {
+              "equal": false,
+              "differ": 1325,
+              "numel": 5376,
+              "max_abs": 0.03125
+            },
+            "sh": {
+              "equal": true,
+              "differ": 0,
+              "numel": 48384,
+              "max_abs": 0.0
+            },
+            "sc": {
+              "equal": true,
+              "differ": 0,
+              "numel": 48384,
+              "max_abs": 0.0
+            }
+          }
+        },
+        "257": {
+          "out": [
+            {
+              "equal": true,
+              "differ": 0,
+              "numel": 1381632,
+              "max_abs": 0.0
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 358870,
+              "numel": 1381632,
+              "max_abs": 0.015625
+            },
+            "w": {
+              "equal": false,
+              "differ": 2253,
+              "numel": 5376,
+              "max_abs": 0.25
+            },
+            "sh": {
+              "equal": false,
+              "differ": 34637,
+              "numel": 48384,
+              "max_abs": 0.25
+            },
+            "sc": {
+              "equal": false,
+              "differ": 35142,
+              "numel": 48384,
+              "max_abs": 0.375
+            }
+          }
+        },
+        "32768": {
+          "out": [
+            {
+              "equal": true,
+              "differ": 0,
+              "numel": 176160768,
+              "max_abs": 0.0
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 45733312,
+              "numel": 176160768,
+              "max_abs": 0.015625
+            },
+            "w": {
+              "equal": false,
+              "differ": 2320,
+              "numel": 5376,
+              "max_abs": 4.0
+            },
+            "sh": {
+              "equal": false,
+              "differ": 47033,
+              "numel": 48384,
+              "max_abs": 34.0
+            },
+            "sc": {
+              "equal": false,
+              "differ": 47067,
+              "numel": 48384,
+              "max_abs": 37.0
+            }
+          }
+        },
+        "4097": {
+          "out": [
+            {
+              "equal": true,
+              "differ": 0,
+              "numel": 22025472,
+              "max_abs": 0.0
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 5717663,
+              "numel": 22025472,
+              "max_abs": 0.015625
+            },
+            "w": {
+              "equal": false,
+              "differ": 2290,
+              "numel": 5376,
+              "max_abs": 1.0
+            },
+            "sh": {
+              "equal": false,
+              "differ": 44563,
+              "numel": 48384,
+              "max_abs": 6.0
+            },
+            "sc": {
+              "equal": false,
+              "differ": 44462,
+              "numel": 48384,
+              "max_abs": 6.5
+            }
+          }
+        }
+      }
+    },
+    "sglang": {
+      "source": "SGLang 0.5.21 fused_norm_scale_shift (forward only)",
+      "vs diffusers": {
+        "1": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 1936,
+              "numel": 5376,
+              "max_abs": 0.03125
+            }
+          ],
+          "grads": {}
+        },
+        "257": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 507479,
+              "numel": 1381632,
+              "max_abs": 0.0625
+            }
+          ],
+          "grads": {}
+        },
+        "32768": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 64687264,
+              "numel": 176160768,
+              "max_abs": 0.0625
+            }
+          ],
+          "grads": {}
+        },
+        "4097": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 8090534,
+              "numel": 22025472,
+              "max_abs": 0.0625
+            }
+          ],
+          "grads": {}
+        }
+      },
+      "vs rl_kernel": {
+        "1": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 1936,
+              "numel": 5376,
+              "max_abs": 0.03125
+            }
+          ],
+          "grads": {}
+        },
+        "257": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 507479,
+              "numel": 1381632,
+              "max_abs": 0.0625
+            }
+          ],
+          "grads": {}
+        },
+        "32768": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 64687264,
+              "numel": 176160768,
+              "max_abs": 0.0625
+            }
+          ],
+          "grads": {}
+        },
+        "4097": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 8090534,
+              "numel": 22025472,
+              "max_abs": 0.0625
+            }
+          ],
+          "grads": {}
+        }
+      }
+    },
+    "torch_rms_norm": {
+      "source": "torch F.rms_norm (no modulation)",
+      "vs diffusers": {
+        "1": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 5317,
+              "numel": 5376,
+              "max_abs": 0.921875
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 5219,
+              "numel": 5376,
+              "max_abs": 0.421875
+            },
+            "w": {
+              "equal": false,
+              "differ": 5230,
+              "numel": 5376,
+              "max_abs": 1.5
+            }
+          }
+        },
+        "257": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 1365497,
+              "numel": 1381632,
+              "max_abs": 1.4375
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 1350041,
+              "numel": 1381632,
+              "max_abs": 0.796875
+            },
+            "w": {
+              "equal": false,
+              "differ": 5290,
+              "numel": 5376,
+              "max_abs": 7.125
+            }
+          }
+        },
+        "32768": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 174121341,
+              "numel": 176160768,
+              "max_abs": 2.125
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 172159463,
+              "numel": 176160768,
+              "max_abs": 0.9609375
+            },
+            "w": {
+              "equal": false,
+              "differ": 5273,
+              "numel": 5376,
+              "max_abs": 79.0
+            }
+          }
+        },
+        "4097": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 21769776,
+              "numel": 22025472,
+              "max_abs": 1.875
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 21526277,
+              "numel": 22025472,
+              "max_abs": 0.96875
+            },
+            "w": {
+              "equal": false,
+              "differ": 5257,
+              "numel": 5376,
+              "max_abs": 29.5
+            }
+          }
+        }
+      },
+      "vs rl_kernel": {
+        "1": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 5317,
+              "numel": 5376,
+              "max_abs": 0.921875
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 5208,
+              "numel": 5376,
+              "max_abs": 0.421875
+            },
+            "w": {
+              "equal": false,
+              "differ": 5219,
+              "numel": 5376,
+              "max_abs": 1.5
+            }
+          }
+        },
+        "257": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 1365497,
+              "numel": 1381632,
+              "max_abs": 1.4375
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 1348331,
+              "numel": 1381632,
+              "max_abs": 0.796875
+            },
+            "w": {
+              "equal": false,
+              "differ": 5286,
+              "numel": 5376,
+              "max_abs": 7.125
+            }
+          }
+        },
+        "32768": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 174121341,
+              "numel": 176160768,
+              "max_abs": 2.125
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 171942308,
+              "numel": 176160768,
+              "max_abs": 0.9609375
+            },
+            "w": {
+              "equal": false,
+              "differ": 5273,
+              "numel": 5376,
+              "max_abs": 79.0
+            }
+          }
+        },
+        "4097": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 21769776,
+              "numel": 22025472,
+              "max_abs": 1.875
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 21499504,
+              "numel": 22025472,
+              "max_abs": 0.96875
+            },
+            "w": {
+              "equal": false,
+              "differ": 5266,
+              "numel": 5376,
+              "max_abs": 29.5
+            }
+          }
+        }
+      }
+    },
+    "transformer_engine": {
+      "source": "TE 2.20.2 RMSNorm (no modulation)",
+      "vs diffusers": {
+        "1": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 5317,
+              "numel": 5376,
+              "max_abs": 0.921875
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 5219,
+              "numel": 5376,
+              "max_abs": 0.421875
+            }
+          }
+        },
+        "257": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 1365497,
+              "numel": 1381632,
+              "max_abs": 1.4375
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 1350041,
+              "numel": 1381632,
+              "max_abs": 0.796875
+            }
+          }
+        },
+        "32768": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 174121344,
+              "numel": 176160768,
+              "max_abs": 2.125
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 172159459,
+              "numel": 176160768,
+              "max_abs": 0.9609375
+            }
+          }
+        },
+        "4097": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 21769776,
+              "numel": 22025472,
+              "max_abs": 1.875
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 21526277,
+              "numel": 22025472,
+              "max_abs": 0.96875
+            }
+          }
+        }
+      },
+      "vs rl_kernel": {
+        "1": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 5317,
+              "numel": 5376,
+              "max_abs": 0.921875
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 5208,
+              "numel": 5376,
+              "max_abs": 0.421875
+            }
+          }
+        },
+        "257": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 1365497,
+              "numel": 1381632,
+              "max_abs": 1.4375
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 1348331,
+              "numel": 1381632,
+              "max_abs": 0.796875
+            }
+          }
+        },
+        "32768": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 174121344,
+              "numel": 176160768,
+              "max_abs": 2.125
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 171942294,
+              "numel": 176160768,
+              "max_abs": 0.9609375
+            }
+          }
+        },
+        "4097": {
+          "out": [
+            {
+              "equal": false,
+              "differ": 21769776,
+              "numel": 22025472,
+              "max_abs": 1.875
+            }
+          ],
+          "grads": {
+            "x": {
+              "equal": false,
+              "differ": 21499507,
+              "numel": 22025472,
+              "max_abs": 0.96875
+            }
+          }
+        }
+      }
+    }
+  }
+}
