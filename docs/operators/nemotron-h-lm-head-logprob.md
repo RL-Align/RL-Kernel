@@ -100,7 +100,10 @@ python tools/validation/operators/check_operator.py --op nemotron_h_lm_head_logp
 ```
 
 The geometry-gate and dispatch tests run on CPU. The forward and backward suites need a
-Hopper GPU and an extension built with `KERNEL_ALIGN_FORCE_SM90=1`.
+Hopper GPU and an extension built with `KERNEL_ALIGN_FORCE_SM90=1`. The backward GEMMs
+also need a strict det-GEMM backend: build with `KERNEL_ALIGN_DET_GEMM_SM90=1`, or export
+`CUBLAS_WORKSPACE_CONFIG=:16:8 CUBLASLT_WORKSPACE_SIZE=1` before the process starts for
+cuBLASLt no-split-K. Without either, the backward tests skip and the op raises at backward.
 
 ## Benchmark
 
