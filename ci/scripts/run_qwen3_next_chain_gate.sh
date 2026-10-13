@@ -3,7 +3,7 @@
 # Qwen3-Next chain-report adapter checks; with a report path, also validate that report.
 #   bash ci/scripts/run_qwen3_next_chain_gate.sh [chain-report.json]
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 PY="${PY:-python3}"
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
