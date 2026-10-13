@@ -140,6 +140,28 @@ Each validated call also carries:
 | `reduction.redistribution_collective` (TP) | `MISSING_PROVENANCE` | Whether and how logits were all-gathered for redistribution | Strict kernel owner |
 | `reduction.merge_order_actual` (TP) | `MISSING_PROVENANCE` | Rank order actually used to merge summaries | Strict kernel owner |
 
+## Upstream correlation (P2b)
+
+`rl_engine/alignment/cross_config/adapters/megatron_training_upstream.py`
+binds exactly one recorded P1–P6 `TraceEnvelope` payload to each declared
+`UpstreamRequirement` (producer, upstream contract, boundary, pinned schema
+version, absolute layer, pass, sublayer site) for an
+`UpstreamCorrelationKey` (case, run, rank, the call's active global tokens).
+Payloads are forwarded verbatim (deep copy plus digest) and ordered by the
+producer's runtime order `(absolute_layer, sublayer_site, pass, event_index)`,
+never by M number. T05 does not re-judge producer verdicts.
+
+| Condition | Status |
+|---|---|
+| No envelope for a required boundary, or a required field absent | `UPSTREAM_EVIDENCE_MISSING` |
+| No producer verdict | `UPSTREAM_VERDICT_MISSING` |
+| Schema version differs from the pin, unknown comparison mode, or two envelopes claim one boundary | `UPSTREAM_CONTRACT_MISMATCH` |
+| Wrong run or case | `STALE_RUN_METADATA` |
+| Wrong rank, or the call's active tokens not covered | `IDENTITY_DRIFT` |
+
+The required field list (`DRAFT_REQUIRED_ENVELOPE_FIELDS`) is a T05 draft and
+is injectable until T01 freezes the public `TraceEnvelope` schema.
+
 ## Failure batch and pre-update weight lock (shared with T06)
 
 `rl_engine/alignment/cross_config/adapters/megatron_training.py` defines the
@@ -166,7 +188,8 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -rs \
   tests/test_megatron_training_readonly.py \
   tests/test_megatron_training_gate.py \
   tests/test_megatron_training_recorded.py \
-  tests/test_megatron_training_evidence.py
+  tests/test_megatron_training_evidence.py \
+  tests/test_megatron_training_upstream.py
 ```
 
 Synthetic fixtures live in `tests/p7_doubles/` (integer-formula values exactly
