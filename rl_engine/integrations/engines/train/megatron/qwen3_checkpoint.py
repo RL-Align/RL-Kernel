@@ -69,7 +69,9 @@ def hf_to_megatron(state: Mapping[str, torch.Tensor], config: Mapping, *, tp: in
     return out
 
 
-def megatron_to_hf(shards: list[Mapping[str, torch.Tensor]], config: Mapping):
+def megatron_to_hf(
+    shards: list[Mapping[str, torch.Tensor]], config: Mapping, *, policy: bool = True
+):
     """Restore HF tensors from TP-ordered local shards with matching replicated norms.
 
     Each FC1 shard must contain [gate_rank; up_rank]. A single full mapping must
@@ -89,6 +91,8 @@ def megatron_to_hf(shards: list[Mapping[str, torch.Tensor]], config: Mapping):
         ("embedding.word_embeddings.weight", "model.embed_tokens.weight"),
         ("output_layer.weight", "lm_head.weight"),
     ]:
+        if src == "output_layer.weight" and not policy:
+            continue
         out[dst] = torch.cat([s[src] for s in shards], dim=0)[: config["vocab_size"]].contiguous()
     out["model.norm.weight"] = replicated("decoder.final_layernorm.weight")
     for layer in range(config["num_hidden_layers"]):

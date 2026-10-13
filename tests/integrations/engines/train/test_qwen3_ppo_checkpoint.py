@@ -171,3 +171,58 @@ def test_reference_report_preserves_loading_diagnostics():
     assert restored["error"] == "incomplete checkpoint"
     with pytest.raises(TypeError):
         json.dumps({"invalid": object()}, default=report_json_default)
+
+
+def test_independent_hf_targets_and_losses_match_handled_termination():
+    from examples.post_training.tp_ppo.fixed_contract import CONFIG
+    from examples.post_training.tp_ppo.hf_ppo_reference import independent_loss, independent_targets
+    from rl_engine.integrations.common.ppo import build_ppo_batch, ppo_policy_loss, ppo_value_loss
+    from tests.integrations.common.test_ppo import rollout_fixture
+
+    rollout = rollout_fixture()
+    values = (
+        torch.arange(rollout.input_ids.numel(), dtype=torch.float32).reshape_as(rollout.input_ids)
+        * 0.03
+    )
+    reference = torch.full_like(rollout.behavior_logps, -0.4)
+    actual = independent_targets(rollout.packet(), values, reference)
+    expected = build_ppo_batch(
+        rollout,
+        state_values=values,
+        rewards=actual["rewards"],
+        reference_logps=reference,
+        config=CONFIG,
+    )
+    for name, value in expected.targets().items():
+        torch.testing.assert_close(actual[name], value)
+    torch.testing.assert_close(
+        independent_loss("actor", reference, rollout.packet(), actual),
+        ppo_policy_loss(reference, expected, CONFIG.policy_clip),
+    )
+    torch.testing.assert_close(
+        independent_loss("critic", values, rollout.packet(), actual),
+        ppo_value_loss(values[:, :-1], expected, CONFIG.value_clip),
+    )
+
+
+def test_fixed_evidence_rejects_corruption_and_inventory_shape(tmp_path):
+    from examples.post_training.tp_ppo.fixed_contract import read_tensor, write_tensor
+
+    row = write_tensor(tmp_path, "gradient", torch.arange(4.0))
+    torch.testing.assert_close(read_tensor(tmp_path, row), torch.arange(4.0))
+    row["shape"] = [2, 2]
+    with pytest.raises(ValueError, match="invalid tensor"):
+        read_tensor(tmp_path, row)
+    (tmp_path / row["path"]).write_bytes(b"corrupt")
+    with pytest.raises(ValueError, match="identity changed"):
+        read_tensor(tmp_path, row)
+
+
+def test_scalar_checkpoint_mapping_never_requires_an_lm_head():
+    config, state = fixture()
+    shard = hf_to_megatron(state, config, tp=1, rank=0)
+    del shard["output_layer.weight"]
+    restored = megatron_to_hf([shard], config, policy=False)
+    assert "lm_head.weight" not in restored
+    for name, value in restored.items():
+        torch.testing.assert_close(value, state[name], rtol=0, atol=0)

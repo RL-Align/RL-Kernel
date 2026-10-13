@@ -20,7 +20,7 @@ from pathlib import Path
 import torch
 import torch.distributed as dist
 
-from rl_engine.integrations.common.ppo import PPOConfig, PPOTrainingWorker
+from rl_engine.integrations.common.ppo import PPOTrainingWorker
 from rl_engine.integrations.common.ppo_coordinator import (
     PPOCoordinator,
     PPOProcessGroups,
@@ -87,7 +87,9 @@ def run(args):
         intra_dist_opt=singleton,
     )
     device = torch.device("cuda", torch.cuda.current_device())
-    config = PPOConfig(epochs=2, minibatch_size=2, microbatch_size=1)
+    from examples.post_training.tp_ppo.fixed_contract import CONFIG, OPTIMIZER
+
+    config = CONFIG
     services = PPOServices()
     installed, sampled, rounds = [], [], []
     behavior_errors = []
@@ -128,7 +130,15 @@ def run(args):
         initial = snapshot(trainable, local)
         frozen_initial = snapshot(frozen, local)
         engine = (
-            initialize_engine(trainable, tp_group=local, dp_group=singleton, bf16=True)
+            initialize_engine(
+                trainable,
+                tp_group=local,
+                dp_group=singleton,
+                bf16=True,
+                optimizer=torch.optim.AdamW(
+                    trainable.parameters(), **OPTIMIZER, foreach=False, fused=False
+                ),
+            )
             if args.framework == "deepspeed"
             else None
         )
@@ -155,7 +165,8 @@ def run(args):
             )
 
             master = FP32MasterWeights(
-                trainable.parameters(), lambda params: torch.optim.AdamW(params, lr=1e-5)
+                trainable.parameters(),
+                lambda params: torch.optim.AdamW(params, **OPTIMIZER, foreach=False, fused=False),
             )
             services.worker = PPOTrainingWorker(
                 role=role,
@@ -246,6 +257,7 @@ def run(args):
         "model_revision": "b968826d9c46dd6066d109eabc6255188de91218",
         "job_id": os.environ.get("SLURM_JOB_ID"),
         "thresholds": args.thresholds,
+        "thresholds_sha256": args.thresholds_sha256,
         "rollout_backend": "vllm" if args.vllm_python else "megatron",
         "gpu_layout": args.gpu_layout,
         "cuda_device": device.index,
@@ -264,7 +276,8 @@ def run(args):
         assert installed == [0, 1, 2]
         if rank == rollout_ranks[0]:
             assert sampled == [0, 1]
-        report.update(installed=installed, sampled=sampled)
+        negative_controls = vllm_client._request({"op": "negative_controls"})
+        report.update(installed=installed, sampled=sampled, negative_controls=negative_controls)
     else:
         final = snapshot(trainable, local)
         delta = max((final[k] - v).abs().max().item() for k, v in initial.items())
@@ -321,6 +334,7 @@ def main():
         artifact = args.checkpoint / record["path"]
         if artifact.stat().st_size != record["size"] or sha(artifact) != record["sha256"]:
             raise ValueError(f"pretrained checkpoint identity changed: {artifact}")
+    args.thresholds_sha256 = sha(args.thresholds)
     args.thresholds = json.loads(args.thresholds.read_text())
     if args.thresholds.get("model_revision") != "b968826d9c46dd6066d109eabc6255188de91218":
         raise ValueError("thresholds are not for the pinned Qwen3 checkpoint")

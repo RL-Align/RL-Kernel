@@ -63,6 +63,21 @@ def install_weights(worker, filename, version):
     parameters = dict(model.named_parameters())
     if loaded != set(parameters):
         raise ValueError("vLLM did not load every Qwen3 parameter")
+    digest = verify_parameters(model, weights, rank=rank, tp=tp)
+    torch.cuda.synchronize()
+    worker.ppo_actor_version = version
+    return dict(
+        rank=rank,
+        tp=tp,
+        version=version,
+        verified_tensors=len(parameters),
+        installed_sha256=digest,
+        peak_allocated_bytes=torch.cuda.max_memory_allocated(),
+    )
+
+
+def verify_parameters(model, weights, *, rank, tp):
+    parameters = dict(model.named_parameters())
     digest = hashlib.sha256()
     for name, parameter in parameters.items():
         expected = expected_shard(name, weights, rank=rank, tp=tp, shape=parameter.shape)
@@ -75,13 +90,4 @@ def install_weights(worker, filename, version):
             raise ValueError(f"incorrect vLLM rank {rank} weight shard: {name}")
         digest.update(name.encode())
         digest.update(actual.contiguous().view(torch.uint8).numpy().tobytes())
-    torch.cuda.synchronize()
-    worker.ppo_actor_version = version
-    return dict(
-        rank=rank,
-        tp=tp,
-        version=version,
-        verified_tensors=len(parameters),
-        installed_sha256=digest.hexdigest(),
-        peak_allocated_bytes=torch.cuda.max_memory_allocated(),
-    )
+    return digest.hexdigest()

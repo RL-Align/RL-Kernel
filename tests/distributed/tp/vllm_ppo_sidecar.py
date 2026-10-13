@@ -53,6 +53,41 @@ class PPOWeightLoader:
             return qwen_install(self, filename, version)
         return install_weights(self, filename, version)
 
+    def probe_ppo_rejections(self, filename: str, version: int):
+        from vllm.distributed import (
+            get_tensor_model_parallel_rank,
+            get_tensor_model_parallel_world_size,
+        )
+
+        from rl_engine.integrations.engines.rollout.vllm.ppo_qwen3 import (
+            install_weights as qwen_install,
+        )
+        from rl_engine.integrations.engines.rollout.vllm.ppo_qwen3 import verify_parameters
+
+        try:
+            qwen_install(self, filename, version)
+        except ValueError:
+            stale_rejected = True
+        else:
+            raise AssertionError("stale installation unexpectedly succeeded")
+        weights = torch.load(filename, map_location="cpu", weights_only=True)["weights"]
+        model = self.model_runner.model
+        rank, tp = get_tensor_model_parallel_rank(), get_tensor_model_parallel_world_size()
+        name, parameter = next((n, p) for n, p in model.named_parameters() if ".qkv_proj." in n)
+        original = parameter.data.flatten()[0].clone()
+        try:
+            parameter.data.flatten()[0] = original + 1
+            try:
+                verify_parameters(model, weights, rank=rank, tp=tp)
+            except ValueError:
+                shard_rejected = True
+            else:
+                raise AssertionError("corrupt GPU QKV shard unexpectedly accepted")
+        finally:
+            parameter.data.flatten()[0] = original
+        verify_parameters(model, weights, rank=rank, tp=tp)
+        return dict(rank=rank, stale_rejected=stale_rejected, corrupt_shard_rejected=shard_rejected)
+
 
 def main():
     from importlib.metadata import version
@@ -124,6 +159,7 @@ def main():
         }
     )
     active = -1
+    last_prompts = None
     for line in sys.stdin:
         request = json.loads(line)
         started = time.perf_counter()
@@ -149,6 +185,8 @@ def main():
                 if reset is False:
                     raise RuntimeError("vLLM refused prefix-cache reset")
                 active = request["version"]
+                last_install_file = request["filename"]
+                last_acks = acknowledgments
                 emit(
                     {
                         "installed": active,
@@ -156,7 +194,46 @@ def main():
                         "seconds": time.perf_counter() - started,
                     }
                 )
+            elif request["op"] == "negative_controls":
+                from rl_engine.integrations.engines.rollout.vllm.ppo_qwen3 import (
+                    verify_acknowledgments,
+                )
+
+                checks = llm.collective_rpc(
+                    "probe_ppo_rejections", args=(last_install_file, active)
+                )
+                for invalid in (last_acks[:-1], last_acks + [last_acks[0]]):
+                    try:
+                        verify_acknowledgments(invalid, version=active, tp=args.tp)
+                    except ValueError:
+                        pass
+                    else:
+                        raise AssertionError("invalid rank acknowledgment accepted")
+                # Actual warm-cache requests supply the deliberately invalid cold-cache evidence.
+                probe = SamplingParams(temperature=1.0, top_k=-1, top_p=1.0, max_tokens=1, seed=44)
+                llm.generate([{"prompt_token_ids": p} for p in last_prompts], probe, use_tqdm=False)
+                warm = llm.generate(
+                    [{"prompt_token_ids": p} for p in last_prompts], probe, use_tqdm=False
+                )
+                if not any(o.num_cached_tokens > 0 for o in warm):
+                    raise AssertionError("cache negative control did not exercise cache reuse")
+                try:
+                    assert all(o.num_cached_tokens == 0 for o in warm), "stale cache"
+                except AssertionError:
+                    cache_rejected = True
+                else:
+                    raise AssertionError("warm evidence accepted as cold")
+                if llm.reset_prefix_cache() is False:
+                    raise RuntimeError("cache reset failed after negative control")
+                emit(
+                    dict(
+                        workers=checks,
+                        missing_duplicate_rank_rejected=True,
+                        stale_cache_rejected=cache_rejected,
+                    )
+                )
             elif request["op"] == "sample":
+                last_prompts = request["prompts"]
                 assert request["version"] == active
                 params = SamplingParams(
                     temperature=1.0,

@@ -317,6 +317,7 @@ class PPOTrainingWorker:
         backward: Callable[[torch.Tensor], None] | None = None,
         step: Callable[[], None] | None = None,
         gradient_state: PPOGradientState | None = None,
+        update_observer: Callable | None = None,
     ) -> None:
         if role not in ("actor", "critic"):
             raise ValueError("role must be actor or critic")
@@ -339,9 +340,20 @@ class PPOTrainingWorker:
         self.role, self.model, self.forward = role, model, forward
         self.optimizer, self.group, self.config = optimizer, group, config
         self.gradient_state = gradient_state
+        self.update_observer = update_observer
         self.backward = backward or torch.Tensor.backward
         self.step = step or optimizer.step
         self.parameters = [(named[name], layout) for name, layout in parameter_layouts.items()]
+
+    def _observe(self, event, update, gradients, value, device):
+        if self.update_observer is None:
+            return
+        error = None
+        try:
+            self.update_observer(event, update, gradients, value)
+        except Exception as exc:
+            error = f"PPO evidence observer failed: {type(exc).__name__}: {exc}"
+        synchronize_validation(error, group=self.group, device=device)
 
     def train(self, batch: PPOBatch) -> dict[str, float | int]:
         """Update this role on identical TP minibatches with token-weighted accumulation.
@@ -361,7 +373,8 @@ class PPOTrainingWorker:
             return {"updates": 0, "loss": 0.0, "grad_norm": 0.0}
         modes = [(module, module.training) for module in self.model.modules()]
         self.model.eval()
-        losses, norms = [], []
+        losses: list[float] = []
+        norms: list[float] = []
         try:
             for _ in range(self.config.epochs):
                 # Stable order is shared across independent TP groups without RNG coupling.
@@ -435,6 +448,7 @@ class PPOTrainingWorker:
                     except (ValueError, RuntimeError, KeyError) as exc:
                         error = str(exc)
                     synchronize_validation(error, group=self.group, device=indices.device)
+                    self._observe("before_clip", len(losses), gradients, loss_value, indices.device)
                     norm = clip_tp_grad_norm_(
                         self.parameters,
                         gradients=gradients,
@@ -442,7 +456,9 @@ class PPOTrainingWorker:
                         max_norm=self.config.max_grad_norm,
                         device=indices.device,
                     )
+                    self._observe("after_clip", len(losses), gradients, float(norm), indices.device)
                     self.step()
+                    self._observe("after_step", len(losses), None, loss_value, indices.device)
                     losses.append(loss_value)
                     norms.append(float(norm))
         finally:

@@ -166,14 +166,18 @@ def snapshot(model, group, *, gradients=False):
     return result
 
 
-def initialize_engine(model, *, tp_group=None, dp_group=None, bf16=False):
+def initialize_engine(model, *, tp_group=None, dp_group=None, bf16=False, optimizer=None):
     import deepspeed
     from megatron.core import parallel_state
 
     optimizer = (
-        torch.optim.AdamW(model.parameters(), lr=1e-5)
-        if bf16
-        else torch.optim.SGD(model.parameters(), lr=0.01)
+        optimizer
+        if optimizer is not None
+        else (
+            torch.optim.AdamW(model.parameters(), lr=1e-5)
+            if bf16
+            else torch.optim.SGD(model.parameters(), lr=0.01)
+        )
     )
     engine, _, _, _ = deepspeed.initialize(
         model=model,

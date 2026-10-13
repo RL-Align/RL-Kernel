@@ -44,3 +44,22 @@ FP32/BF16 TP1/TP2 fixed-rollout loss/gradient/update comparison; actual two-roun
 Megatron/DeepSpeed/vLLM TP2 and TP1 runs; GPU negative controls; immutable raw
 artifacts and final threshold/acceptance report. CPU mapping and buffer tests
 alone do not resolve PR #548's experiment gap.
+
+The fixed-rollout qualification now has two separate jobs. `qualify_reference.sbatch`
+uses actual vLLM TP2 sampling and independent HF scoring/GAE/PPO updates. Both HF
+precisions repeat on the same immutable rollout and targets. `freeze_fixed_reference`
+produces an acceptance manifest and per-tensor error bounds, which must be committed
+before submitting `qualify_candidate.sbatch`. The candidate job checks all eight
+engine/precision/TP combinations for both roles, then runs both four-GPU topologies
+and the tiny-GPT regression. AdamW settings match in every precision. Evidence uses
+actual FP32 optimizer gradients, measured clipping norms and parameter deltas.
+
+The rule for max-absolute errors is four times the independent control difference
+plus 1e-5 for scores, 1e-6 for losses/gradients/norms, or 1e-7 for parameter updates.
+Relative L2 errors are also reported. Same-precision TP comparisons use independent
+same-precision repeat bounds. No candidate result may establish or widen a bound.
+Large per-parameter evidence stays outside Git; the committed manifests anchor its
+hashes. Missing inputs, tampering, invalid tensor inventories and skipped GPU stages
+are failures, not completed qualification. All jobs use `overflow`, `test`, 4 B200,
+512 GB host memory and a 24-hour limit. Threshold publication is a stage boundary;
+no formal PPO GPU acceptance is claimed until that candidate job actually passes.
