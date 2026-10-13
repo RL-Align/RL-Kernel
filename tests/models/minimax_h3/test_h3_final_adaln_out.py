@@ -53,7 +53,9 @@ def _inputs(seq, num_timesteps=3, seed=0, batch=1):
 
 def _golden(x, norm_weight, temb, weight, bias, timestep_indices):
     act = temb * torch.sigmoid(temb)
-    act = act + (act.to(torch.bfloat16).double() - act).detach()
+    # Declared cast of the FP32 SiLU, as the model computes it; identity VJP.
+    declared = F.silu(temb.detach().float()).to(torch.bfloat16).double()
+    act = act + (declared - act).detach()
     table = F.linear(act, weight, bias)
     table = table + (table.to(torch.bfloat16).double() - table).detach()
     shift, scale = table.chunk(2, dim=-1)
