@@ -26,6 +26,7 @@ nav:
       - operators/lm_head.md
       - operators/ratio-kl.md
       - operators/pack-and-pad.md
+      - operators/video-patch-pack-unpack.md
       - operators/sampling.md
       - operators/det-gemm.md
       - operators/embedding.md

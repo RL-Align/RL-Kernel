@@ -40,6 +40,12 @@ def _cuda_op():
     return H3TimestepSinusoidCudaOp()
 
 
+def _dense_unit_sweep() -> torch.Tensor:
+    bits = torch.arange(0, 0x3F800001, 997, dtype=torch.int32, device="cuda")
+    edges = torch.tensor([0x00000001, 0x007FFFFF, 0x00800000, 0x3F800000], dtype=torch.int32)
+    return torch.cat([bits, edges.cuda()]).view(torch.float32)
+
+
 class TestReference:
     def test_layout_is_cos_then_sin(self):
         """Check FP32 cosine-then-sine layout and the unit-frequency boundary values."""
@@ -102,6 +108,21 @@ class TestCuda:
         assert out.dtype == torch.float32 and out.shape == (num, 256)
         assert torch.equal(out, provider_time_proj(t, 256))
         assert torch.equal(out, NativeH3TimestepSinusoidOp().forward(t))
+
+    def test_bitwise_over_dense_fp32_sweep_of_unit_interval(self):
+        # Every 997th FP32 bit pattern in [0, 1] plus the subnormals' edge: a
+        # fast-math build (approximate __expf/__sinf/__cosf, FTZ) fails here.
+        t = _dense_unit_sweep()
+        assert torch.equal(_cuda_op().forward(t, check_range=False), provider_time_proj(t, 256))
+
+    def test_sglang_timestep_embedding_is_bitwise_equal(self):
+        # RFC #420 reuse rule: parity with SGLang is checked bit for bit, not
+        # through matching FP64 error summaries.
+        jit = pytest.importorskip("sglang.kernels.ops.diffusion.modulate.timestep_embedding_jit")
+        t = torch.cat([_dense_unit_sweep(), h3_timesteps(4097, seed=3)])
+        theirs = jit.timestep_embedding(t, 256, flip_sin_to_cos=True, downscale_freq_shift=0.0)
+        assert torch.equal(theirs, provider_time_proj(t, 256))
+        assert torch.equal(theirs, _cuda_op().forward(t, check_range=False))
 
     @pytest.mark.parametrize("num_channels", [2, 8, 96, 256, 320])
     def test_other_channel_counts_match_reference(self, num_channels):
