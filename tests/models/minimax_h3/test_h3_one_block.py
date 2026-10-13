@@ -85,7 +85,7 @@ def ops():
 
 
 @needs_gpu
-def test_stack_rows_dispatch_to_cuda(ops):
+def test_stack_rows_dispatch_to_cuda(require_h3_kernels, ops):
     backends = ops.backends()
     for name in ("projection", "norm", "gate"):
         assert backends[name].endswith("CudaOp"), backends
