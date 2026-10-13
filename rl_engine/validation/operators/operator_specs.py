@@ -262,6 +262,82 @@ OP_SPECS = {
         },
         grad_input_names=("logits",),
     ),
+    # MiniMax-H3 (RFC #420) conditioning path. The op is FP32 end to end, so
+    # its FP32 rows are the declared contract; other dtypes only change the
+    # timestep input's storage dtype.
+    "timestep_sinusoid_h3": OperatorSpec(
+        name="timestep_sinusoid_h3",
+        op_class="elementwise",
+        gold_path="rl_engine.reference.minimax_h3.timestep_sinusoid.NativeH3TimestepSinusoidOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": (
+                "rl_engine.reference.minimax_h3.timestep_sinusoid.NativeH3TimestepSinusoidOp"
+            ),
+            "cuda": (
+                "rl_engine.backends.cuda.model_specific.minimax_h3."
+                "timestep_sinusoid.H3TimestepSinusoidCudaOp"
+            ),
+        },
+        grad_input_names=("timestep",),
+    ),
+    "timestep_mlp_fp32": OperatorSpec(
+        name="timestep_mlp_fp32",
+        op_class="reduction",
+        gold_path="rl_engine.reference.minimax_h3.timestep_mlp.NativeH3TimestepMLPOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.minimax_h3.timestep_mlp.NativeH3TimestepMLPOp",
+            "cuda": (
+                "rl_engine.backends.cuda.model_specific.minimax_h3."
+                "timestep_mlp.H3TimestepMLPCudaOp"
+            ),
+        },
+        grad_input_names=("x", "w1", "b1", "w2", "b2"),
+    ),
+    "adaln_projection_3mod": OperatorSpec(
+        name="adaln_projection_3mod",
+        op_class="reduction",
+        gold_path=("rl_engine.reference.minimax_h3.adaln_projection.NativeH3AdaLNProjectionOp"),
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": (
+                "rl_engine.reference.minimax_h3.adaln_projection.NativeH3AdaLNProjectionOp"
+            ),
+            "cuda": (
+                "rl_engine.backends.cuda.model_specific.minimax_h3."
+                "adaln_projection.H3AdaLNProjectionCudaOp"
+            ),
+        },
+        grad_input_names=("temb", "weight", "bias"),
+    ),
+    # The gather's forward is a copy (asserted bitwise in tests/models/minimax_h3), but its VJP
+    # sums every packed position of a table row, so it is judged as a reduction.
+    "adaln_row_gather": OperatorSpec(
+        name="adaln_row_gather",
+        op_class="reduction",
+        gold_path="rl_engine.reference.minimax_h3.adaln_row_gather.NativeH3AdaLNRowGatherOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": ("rl_engine.reference.minimax_h3.adaln_row_gather.NativeH3AdaLNRowGatherOp"),
+            "cuda": (
+                "rl_engine.backends.cuda.model_specific.minimax_h3."
+                "adaln_row_gather.H3AdaLNRowGatherCudaOp"
+            ),
+        },
+        grad_input_names=("rows",),
+    ),
+    "h3_rmsnorm": OperatorSpec(
+        name="h3_rmsnorm",
+        op_class="reduction",
+        gold_path="rl_engine.reference.minimax_h3.rmsnorm.NativeH3RMSNormOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.minimax_h3.rmsnorm.NativeH3RMSNormOp",
+            "cuda": "rl_engine.backends.cuda.model_specific.minimax_h3.rmsnorm.H3RMSNormCudaOp",
+        },
+        grad_input_names=("x", "weight"),
+    ),
     "pack": OperatorSpec(
         name="pack",
         op_class="elementwise",
