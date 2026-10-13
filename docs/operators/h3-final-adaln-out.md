@@ -62,9 +62,9 @@ B200, B = 1, T = 3, pinned `norm_out` weights:
 
 | S | CUDA fwd | diffusers fwd | CUDA bwd | diffusers bwd |
 | --- | --- | --- | --- | --- |
-| 4097 | 0.13 ms | 0.15 ms | 1.57 ms | 1.07 ms |
-| 32768 | 0.38 ms | 0.78 ms | 2.80 ms | 5.34 ms |
-| 131072 | 1.24 ms | 2.94 ms | 7.75 ms | 20.6 ms |
+| 4097 | 0.18 ms | 0.19 ms | 1.50 ms | 1.07 ms |
+| 32768 | 0.44 ms | 0.84 ms | 2.75 ms | 5.34 ms |
+| 131072 | 1.29 ms | 2.99 ms | 7.76 ms | 20.8 ms |
 
 At small S the backward is dominated by fixed setup: the stable sort for the segment sums and the
 projection backward.
@@ -77,13 +77,16 @@ There are two data files:
 
 - [`report.json`](../../reports/experiments/h3-final-adaln-out-b200/report.json): op timings, the
   forward-equality fraction, row invariance and backward accuracy. Regenerated from a clean
-  tree at `001684d` on an otherwise idle B200, with FP64 leaves and upstream gradients. The
+  tree at `50e913fa` on an otherwise idle B200, with FP64 leaves and upstream gradients, after
+  the golden's declared cast was changed to round the FP32 SiLU as the model does. The
   backward reference keeps only the SiLU and table roundings, so the errors include the BF16
   rounding of `norm(x)` and `1 + scale`.
 - [`chain_replay.json`](../../reports/experiments/h3-final-adaln-out-b200/chain_replay.json): the
   whole conditioning chain (timestep → … → norm_out) replayed stage by stage over
   T in {1, 2, 3, 4} × S in {3, 257, 4097, 32768}, with the backward replay. Written from a clean
-  tree at `001684d`.
+  tree at `50e913fa`. Every CUDA pass/fail flag matches the previous replay; the `h3_rmsnorm`
+  stage's chained error against the golden is lower in all 16 cases (worst 0.0796 before,
+  0.0671 now).
 
 ## Existing implementations (RFC #420 reuse rule)
 
