@@ -39,5 +39,5 @@ shutil.copy2(source, Path("rl_engine") / source.name)
 (output / "native-origin.json").write_text(json.dumps(identity, indent=2) + "\n")
 (output / "retry-of.txt").write_text(str(failed) + "\n")
 PY
-"$python_bin" -m tools.validation.models.h3_block_diagnostic --failed-job "$failed_result" \
+"$python_bin" -m tools.validation.models.h3_block_diagnostic --failed-job "$failed_result" --causal-sweep \
   --output "$result_dir/diagnostic" > "$result_dir/diagnostic.log" 2>&1

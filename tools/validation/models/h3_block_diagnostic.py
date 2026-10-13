@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import torch
@@ -18,6 +19,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--failed-job", required=True)
+    parser.add_argument("--causal-sweep", action="store_true")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
     if subprocess.check_output(["git", "status", "--porcelain"], text=True).strip():
@@ -103,6 +105,43 @@ def main():
         )
     report["isolated_norm_weight_gradients"] = isolated
     (args.output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
+    if args.causal_sweep:
+        # These hybrids intentionally use provider nodes for localization only.
+        # They cannot be submitted to the candidate acceptance comparator.
+        report["causal_sweep"] = []
+        original_nodes = block.NODES
+        try:
+            for node in original_nodes:
+                for baseline in ("candidate", "provider"):
+                    mixed = []
+                    for item in original_nodes:
+                        use_provider = (item.name == node.name) == (baseline == "candidate")
+                        mixed.append(
+                            replace(
+                                item,
+                                candidate=lambda ops, ctx, *xs, item=item: item.provider(ctx, *xs),
+                            )
+                            if use_provider
+                            else item
+                        )
+                    block.NODES = tuple(mixed)
+                    with block.strict_fp32_matmul():
+                        leaves, _ = block._backward("candidate", ctx, ops, upstream)
+                    report["causal_sweep"].append(
+                        dict(
+                            baseline=baseline,
+                            replaced_node=node.name,
+                            errors={
+                                name: block.rel_err(leaves[name], golden[name]) for name in golden
+                            },
+                        )
+                    )
+                    del leaves
+                    (args.output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
+        finally:
+            block.NODES = original_nodes
+        report["causal_sweep_complete"] = True
+        (args.output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
 
 
 if __name__ == "__main__":

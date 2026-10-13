@@ -172,10 +172,10 @@ Equal FP64 errors do not show equal bits, so the candidates are also compared by
 (each global batch-invariant mode in its own process) and compares every output and leaf
 gradient with diffusers' path and with this kernel.
 
-![adaln_projection bitwise comparison](../../reports/experiments/h3-bitwise-reuse-b200/adaln_projection.png)
+![adaln_projection bitwise comparison](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/68e472b778e13f3c31aaf5fb949959493f40644c/reports/experiments/h3-bitwise-reuse-b200/adaln_projection.png)
 
 This kernel's BF16 output differs from diffusers in 0.08-0.2% of elements (final-rounding flips of a different, fixed reduction order). Every mode (vLLM's settings, SGLang, Megatron) is bitwise equal to diffusers from T = 4 but not at T = 1 (0.1% differ), and differs from this kernel in 0.1-0.2%.
-[`adaln_projection.json`](../../reports/experiments/h3-bitwise-reuse-b200/adaln_projection.json) was written from a clean tree at `0e476483` by
+[`adaln_projection.json`](https://github.com/fusheng-ji/RL-Kernel/blob/68e472b778e13f3c31aaf5fb949959493f40644c/reports/experiments/h3-bitwise-reuse-b200/adaln_projection.json) was written from a clean tree at `0e476483` by
 
 ```bash
 python tools/validation/models/h3_bitwise_reuse.py --op adaln_projection --megatron-src <Megatron-LM source tree> \

@@ -165,10 +165,10 @@ Equal FP64 errors do not show equal bits, so the candidates are also compared by
 (each global batch-invariant mode in its own process) and compares every output and leaf
 gradient with diffusers' path and with this kernel.
 
-![adaln_row_gather bitwise comparison](../../reports/experiments/h3-bitwise-reuse-b200/adaln_row_gather.png)
+![adaln_row_gather bitwise comparison](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/68e472b778e13f3c31aaf5fb949959493f40644c/reports/experiments/h3-bitwise-reuse-b200/adaln_row_gather.png)
 
 There is no reuse candidate beyond diffusers' six index_select calls. The forward is bitwise identical to them at every S (1 to 32768). The table gradient matches at S = 1 and differs from S = 257 on: index_select accumulates it with BF16 atomics, this kernel in a fixed FP32 order.
-[`adaln_row_gather.json`](../../reports/experiments/h3-bitwise-reuse-b200/adaln_row_gather.json) was written from a clean tree at `46347118` by
+[`adaln_row_gather.json`](https://github.com/fusheng-ji/RL-Kernel/blob/68e472b778e13f3c31aaf5fb949959493f40644c/reports/experiments/h3-bitwise-reuse-b200/adaln_row_gather.json) was written from a clean tree at `46347118` by
 
 ```bash
 python tools/validation/models/h3_bitwise_reuse.py --op adaln_row_gather \

@@ -136,10 +136,10 @@ Equal FP64 errors do not show equal bits, so the candidates are also compared by
 (each global batch-invariant mode in its own process) and compares every output and leaf
 gradient with diffusers' path and with this kernel.
 
-![norm_modulate bitwise comparison](../../reports/experiments/h3-bitwise-reuse-b200/norm_modulate.png)
+![norm_modulate bitwise comparison](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/68e472b778e13f3c31aaf5fb949959493f40644c/reports/experiments/h3-bitwise-reuse-b200/norm_modulate.png)
 
 This kernel's modulated forward is bitwise identical to the diffusers composition at every S (1 to 32768). Liger 0.8.4 differs in 41.8-46.5% of the BF16 outputs, with either gather, and SGLang 0.5.21's fused_norm_scale_shift in 36.0-36.7%. torch F.rms_norm and Transformer Engine compute only the norm, not the modulation, so their rows are listed for completeness, not as parity candidates.
-[`norm_modulate.json`](../../reports/experiments/h3-bitwise-reuse-b200/norm_modulate.json) was written from a clean tree at `228e50b9` by
+[`norm_modulate.json`](https://github.com/fusheng-ji/RL-Kernel/blob/68e472b778e13f3c31aaf5fb949959493f40644c/reports/experiments/h3-bitwise-reuse-b200/norm_modulate.json) was written from a clean tree at `228e50b9` by
 
 ```bash
 python tools/validation/models/h3_bitwise_reuse.py --op norm_modulate \

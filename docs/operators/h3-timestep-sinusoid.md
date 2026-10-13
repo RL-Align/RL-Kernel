@@ -126,11 +126,11 @@ Equal FP64 errors do not show equal bits, so the candidates are also compared by
 compares each output with diffusers' path and with this kernel. `--fast-math-variant` adds this
 kernel compiled with `--use_fast_math`, which the build excludes (see Known Limitations).
 
-![timestep_sinusoid bitwise comparison](../../reports/experiments/h3-bitwise-reuse-b200/timestep_sinusoid.png)
+![timestep_sinusoid bitwise comparison](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/68e472b778e13f3c31aaf5fb949959493f40644c/reports/experiments/h3-bitwise-reuse-b200/timestep_sinusoid.png)
 
 SGLang's `timestep_embedding`, diffusers' path and this kernel are bitwise identical on all
 2.22M timesteps (567.6M outputs). The fast-math build differs in 53.7–82.7% of outputs.
-[`timestep_sinusoid.json`](../../reports/experiments/h3-bitwise-reuse-b200/timestep_sinusoid.json)
+[`timestep_sinusoid.json`](https://github.com/fusheng-ji/RL-Kernel/blob/68e472b778e13f3c31aaf5fb949959493f40644c/reports/experiments/h3-bitwise-reuse-b200/timestep_sinusoid.json)
 was written from a clean tree at `0eb5ddd5` by
 
 ```bash

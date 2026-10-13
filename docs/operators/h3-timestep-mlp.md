@@ -151,10 +151,10 @@ Equal FP64 errors do not show equal bits, so the candidates are also compared by
 (each global batch-invariant mode in its own process) and compares every output and leaf
 gradient with diffusers' path and with this kernel.
 
-![timestep_mlp bitwise comparison](../../reports/experiments/h3-bitwise-reuse-b200/timestep_mlp.png)
+![timestep_mlp bitwise comparison](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/68e472b778e13f3c31aaf5fb949959493f40644c/reports/experiments/h3-bitwise-reuse-b200/timestep_mlp.png)
 
 No candidate reproduces this kernel's bits at any T (90.6-100% of the FP32 outputs differ). None is a bitwise drop-in for diffusers at H3's T = 1-4 either: vLLM's settings and Megatron te_native match diffusers at T = 1, 64 and 2048 but not at T = 4; SGLang/Megatron Triton with ieee match only from T = 64; the TF32 Triton modes never match.
-[`timestep_mlp.json`](../../reports/experiments/h3-bitwise-reuse-b200/timestep_mlp.json) was written from a clean tree at `0df83a5a` by
+[`timestep_mlp.json`](https://github.com/fusheng-ji/RL-Kernel/blob/68e472b778e13f3c31aaf5fb949959493f40644c/reports/experiments/h3-bitwise-reuse-b200/timestep_mlp.json) was written from a clean tree at `0df83a5a` by
 
 ```bash
 python tools/validation/models/h3_bitwise_reuse.py --op timestep_mlp --megatron-src <Megatron-LM source tree> \

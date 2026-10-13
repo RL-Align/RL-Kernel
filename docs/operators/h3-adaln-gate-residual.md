@@ -111,10 +111,10 @@ Equal FP64 errors do not show equal bits, so the candidates are also compared by
 (each global batch-invariant mode in its own process) and compares every output and leaf
 gradient with diffusers' path and with this kernel.
 
-![gate_residual bitwise comparison](../../reports/experiments/h3-bitwise-reuse-b200/gate_residual.png)
+![gate_residual bitwise comparison](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/68e472b778e13f3c31aaf5fb949959493f40644c/reports/experiments/h3-bitwise-reuse-b200/gate_residual.png)
 
 There is no reuse candidate beyond diffusers' residual + gate.index_select(...) * y. The forward, d_residual and d_sublayer are bitwise identical to it at every S (1 to 32768). The gate-table gradient matches at S = 1 and differs from S = 257 on, where index_select accumulates with atomics and this kernel in a fixed FP32 order.
-[`gate_residual.json`](../../reports/experiments/h3-bitwise-reuse-b200/gate_residual.json) was written from a clean tree at `910d614a` by
+[`gate_residual.json`](https://github.com/fusheng-ji/RL-Kernel/blob/68e472b778e13f3c31aaf5fb949959493f40644c/reports/experiments/h3-bitwise-reuse-b200/gate_residual.json) was written from a clean tree at `910d614a` by
 
 ```bash
 python tools/validation/models/h3_bitwise_reuse.py --op gate_residual \
