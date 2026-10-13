@@ -162,6 +162,25 @@ never by M number. T05 does not re-judge producer verdicts.
 The required field list (`DRAFT_REQUIRED_ENVELOPE_FIELDS`) is a T05 draft and
 is injectable until T01 freezes the public `TraceEnvelope` schema.
 
+## M10 export for T06 pairing and the T09 byte verdict (draft)
+
+`rl_engine/alignment/cross_config/adapters/megatron_training_export.py`
+writes one directory per validated call (schema
+`rlkernel.p7.t05.m10_export.v1-draft`, replaced by the T01 schema once frozen):
+
+| File | Content |
+|---|---|
+| `m10.json` | Canonical JSON: schema, side, `row_keys` in local row order (`[sample_id, position]`, `null` for padding), BOOL `active_token_mask`, `byte_encoding`, `active_bytes_sha256`, evidence identity and fingerprint, optional upstream evidence |
+| `m10_active.bin` | FP32 selected logprob of active rows only, local row order, little-endian bytes of each value's `int32` view |
+
+Files are created exclusively and never overwritten. `load_m10` rejects a
+missing file (`INCOMPLETE_ARTIFACT`), a digest or length mismatch or an
+active padding row (`CORRUPT_ARTIFACT`), and an unknown schema or byte
+encoding (`SCHEMA_MISMATCH`). `self_test_compare` compares two exports token
+by token on raw bits (it sees `+0`/`-0` and 1-ULP differences); it is a
+format self-test only and carries no verdict authority. The M10 pairing with
+T06 and the byte verdict by T09 remain WS1 acceptance items.
+
 ## Failure batch and pre-update weight lock (shared with T06)
 
 `rl_engine/alignment/cross_config/adapters/megatron_training.py` defines the
@@ -189,7 +208,8 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -rs \
   tests/test_megatron_training_gate.py \
   tests/test_megatron_training_recorded.py \
   tests/test_megatron_training_evidence.py \
-  tests/test_megatron_training_upstream.py
+  tests/test_megatron_training_upstream.py \
+  tests/test_megatron_training_export.py
 ```
 
 Synthetic fixtures live in `tests/p7_doubles/` (integer-formula values exactly
