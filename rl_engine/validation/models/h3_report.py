@@ -351,7 +351,9 @@ def _gather_accuracy(registry: KernelRegistry) -> dict[str, Any]:
 
     op = registry.get_op("adaln_row_gather", device="cuda")
     golden = registry._get_or_create_backend(registry._priority_map["cpu"]["adaln_row_gather"][-1])
-    rows = torch.randn(9, 6 * 5376, device="cuda").bfloat16()
+    # Seeded so the op-backward fractions below are reproducible from this commit.
+    gen = torch.Generator(device="cuda").manual_seed(0)
+    rows = torch.randn(9, 6 * 5376, device="cuda", generator=gen).bfloat16()
     forward_bitwise = {}
     for seq in (1, 257, 4097, 32768):
         ti, tags = h3_packed_layout(seq, 3, seed=seq)
@@ -361,7 +363,7 @@ def _gather_accuracy(registry: KernelRegistry) -> dict[str, Any]:
 
     # Op-level backward: correctly rounded FP32 segment sums vs the atomic BF16 scatter-add.
     ti, tags = h3_packed_layout(4097, 3, seed=1)
-    grads = [torch.randn(4097, 5376, device="cuda").bfloat16() for _ in range(6)]
+    grads = [torch.randn(4097, 5376, device="cuda", generator=gen).bfloat16() for _ in range(6)]
 
     def grad_of(fn):
         leaf = rows.detach().clone().requires_grad_(True)
