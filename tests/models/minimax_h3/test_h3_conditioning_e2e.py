@@ -65,7 +65,7 @@ def test_chain_forward(require_h3_kernels, registry, chain_weights, num_timestep
 
 
 @pytest.mark.parametrize("num_timesteps, seq_len", [(1, 257), (3, 4097)])
-def test_chain_backward(registry, chain_weights, num_timesteps, seq_len):
+def test_chain_backward(require_h3_kernels, registry, chain_weights, num_timesteps, seq_len):
     """Parameter gradients of the whole chain: deterministic, and FP32-accurate when fused."""
 
     report = h3_chain.run_backward_case(
