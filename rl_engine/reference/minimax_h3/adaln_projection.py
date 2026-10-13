@@ -112,9 +112,12 @@ class NativeH3AdaLNProjectionOp:
         hidden = validate_h3_adaln_projection(temb, weight, bias)
         t64 = temb.double()
         act = t64 * torch.sigmoid(t64)
-        # The declared cast rounds the value; its VJP is the identity. Written
-        # straight-through so autograd does not round the FP64 gradient to the
-        # weight dtype on its way back (``.to(bf16)`` would).
-        act = act + (act.to(weight.dtype).double() - act).detach()
+        # The declared cast rounds the FP32 SiLU, as the model (and the kernel)
+        # computes it: an FP64 SiLU can round to the other weight-dtype neighbour
+        # near a tie and shift a whole output column. Its VJP is the identity,
+        # written straight-through so autograd does not round the FP64 gradient
+        # to the weight dtype on its way back (``.to(bf16)`` would).
+        declared = F.silu(temb.float()).to(weight.dtype).double()
+        act = act + (declared - act).detach()
         table = F.linear(act, weight.double(), bias.double())
         return tuple(chunk.float() for chunk in split_adaln_table(table, hidden))
