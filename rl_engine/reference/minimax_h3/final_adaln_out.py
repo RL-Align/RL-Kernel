@@ -81,7 +81,10 @@ class NativeH3FinalAdaLNOutOp:
         )
         t64 = temb.double()
         act = t64 * torch.sigmoid(t64)
-        act = act + (act.to(weight.dtype).double() - act).detach()  # declared cast, identity VJP
+        # Declared cast of the FP32 SiLU, as the model computes it (an FP64 SiLU can
+        # round to the other neighbour near a tie); identity VJP.
+        declared = F.silu(temb.float()).to(weight.dtype).double()
+        act = act + (declared - act).detach()
         table = F.linear(act, weight.double(), bias.double())
         # norm_out.linear is a BF16 module: its (T, 2H) output is rounded to the
         # weight dtype, and every position of a timestep shares that row, so the
