@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=test
-#SBATCH --partition=overflow
-#SBATCH --account=wrd
+# Site options (partition, account, job name) are given at submission; see README.md.
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:b200:1
@@ -46,7 +44,7 @@ export RL_KERNEL_H3_WEIGHTS="$result_dir/preflight/weights"
   --output "$result_dir/candidate" > "$result_dir/candidate.log" 2>&1
 "$python_bin" -m tools.validation.models.h3_full_compare --reference "$reference_root/fp32-reference" \
   --other "$result_dir/candidate" --thresholds examples/models/minimax_h3/full-model-thresholds.json \
-  --reference-root "$reference_root" --reference-manifest examples/models/minimax_h3/reference-1106656.json \
+  --reference-root "$reference_root" --reference-manifest examples/models/minimax_h3/reference-manifest.json \
   --output "$result_dir/full-model-comparison.json" > "$result_dir/comparison.log" 2>&1
 "$python_bin" -m tools.validation.models.h3_full_generation --checkpoint "$checkpoint" \
   --reference-image "$reference_image" --candidate --preflight --output "$result_dir/generation-preflight" \
@@ -56,5 +54,5 @@ export RL_KERNEL_H3_WEIGHTS="$result_dir/preflight/weights"
   > "$result_dir/generation-candidate.log" 2>&1
 "$python_bin" -m tools.validation.models.h3_generation_compare --reference "$reference_root/generation-reference" \
   --candidate "$result_dir/generation-candidate" --contract examples/models/minimax_h3/generation-contract.json \
-  --reference-root "$reference_root" --reference-manifest examples/models/minimax_h3/reference-1106656.json \
+  --reference-root "$reference_root" --reference-manifest examples/models/minimax_h3/reference-manifest.json \
   --output "$result_dir/generation-comparison.json" > "$result_dir/generation-comparison.log" 2>&1

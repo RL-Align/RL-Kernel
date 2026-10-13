@@ -24,7 +24,7 @@ def main():
     p.add_argument("--output", type=Path, required=True)
     a = p.parse_args()
     a.output.mkdir()
-    manifest = Path("examples/models/minimax_h3/reference-1106656.json")
+    manifest = Path("examples/models/minimax_h3/reference-manifest.json")
     verify_inventory(a.reference_root, manifest)
     verify_checkpoint(
         a.checkpoint, Path("rl_engine/validation/models/h3_full_manifest.json"), all_files=True

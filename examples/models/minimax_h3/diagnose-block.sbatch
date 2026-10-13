@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=test
-#SBATCH --partition=overflow
-#SBATCH --account=wrd
+# Site options (partition, account, job name) are given at submission; see README.md.
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:b200:1

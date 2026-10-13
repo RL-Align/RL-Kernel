@@ -4,5 +4,5 @@
   "prompt_reused_verbatim": true,
   "prompt_sha256": "fba3868d31e9911a81d60c191261ec2192c827bcaa25c937660bf35aeb0b1673",
   "source_revision": "bbee488da3baf65817f4f8826b1f6e89cc28fda7",
-  "source_suite": "/data/wrd/projects/students/wenbo.ji/egocentric_video_generation/h3-validation-artifacts/sources/baseline/tests/e2e/accuracy/minimax_h3/test_minimax_h3_i2va_ref2va_similarity.py"
+  "source_suite": "tests/e2e/accuracy/minimax_h3/test_minimax_h3_i2va_ref2va_similarity.py"
 }

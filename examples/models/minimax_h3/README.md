@@ -10,8 +10,11 @@ reference labels are retained; boundary components stay provider/reference.
 The runner checks every parameter/input gradient, checkpoints activations,
 offloads saved tensors and persists/reclaims completed parameter gradients.
 
-`reference.sbatch` is restricted to `overflow`, with job name `test`. It first
-runs independent FP32 and BF16 provider passes, then freezes per-tensor error
+The `.sbatch` scripts request one GPU node and leave the partition, account and
+job name to the submitting site, for example
+`sbatch --partition=<partition> --account=<account> reference.sbatch ...`.
+
+`reference.sbatch` first runs independent FP32 and BF16 provider passes, then freezes per-tensor error
 bounds using the committed formula. It does not run a candidate. Candidate
 acceptance compares immutable reference artifacts and records the first failing
 tensor without changing bounds. Existing block-0 golden tolerances are unchanged.
@@ -25,9 +28,9 @@ checks identical initial noise, video/audio shape and quality gates and reports
 PSNR/SSIM, temporal RMSE and audio differences. Query chunking bounds candidate
 attention workspace while retaining all keys for each query; it is inference only.
 
-Independent reference job 1106656 completed the FP32/BF16 full-model passes
-(638 parameter gradients each), three-seed generation and repeat comparisons.
-`reference-1106656.json` anchors 1,635 evidence files; `full-model-thresholds.json`
+An independent reference run from `2681cadb` completed the FP32/BF16 full-model
+passes (638 parameter gradients each), three-seed generation and repeat comparisons.
+`reference-manifest.json` anchors its 1,635 evidence files; `full-model-thresholds.json`
 contains the unchanged 764 tensor bounds. These provider results do not establish
 candidate acceptance.
 
@@ -36,8 +39,8 @@ all reference/checkpoint hashes, and runs block-0 golden tests without skips bef
 full-model forward/backward. It requires calls to every candidate graph node in
 every block and rejects CUDA backend fallback. The comparator orders first drift
 by actual forward/backward execution. Only a passing numerical comparison permits
-preflight and full three-seed candidate generation. Jobs use one B200, 512 GB host
-memory, a 24-hour limit, partition `overflow` and name `test`.
+preflight and full three-seed candidate generation. Each job uses one B200 and
+about 512 GB of host memory.
 
 Outstanding: candidate backward qualification, three-seed candidate generation
 and quality acceptance. No passed candidate result is claimed by CPU tests.
