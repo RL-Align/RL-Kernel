@@ -16,18 +16,17 @@ uses its BF16 optimizer's FP32 accumulation views. DP=1 and ZeRO=0 are required;
 FP16 loss scaling remains rejected. Microbatch loss weights count valid action
 tokens, so unequal completion lengths do not bias gradient accumulation.
 
-The independent HF reference runs first, using teacher-forced calibration tokens
-(not sampler evidence). The committed rule is four times HF BF16-vs-FP32 error
-plus a fixed floor. Reference artifacts and thresholds must be published before
-formal candidate execution; they cannot be widened after observing candidates.
-`qwen3_reference.sbatch` schedules only this reference stage in `overflow` with
-job name `test`.
+The historical teacher-forced HF calibration completed in job 1106655. It is
+not sampler or PPO evidence. The formal fixed-rollout reference below collects
+real vLLM output and independently computes HF PPO targets and updates. Its
+artifacts and thresholds must be published before formal candidate execution;
+they cannot be widened after observing candidates.
 
 Formal matrix, still awaiting hardware qualification:
 
 | Engine | Training precision | Training TP | Rollout |
 |---|---|---|---|
-| Megatron and DeepSpeed | FP32/BF16 | 1/2 | Fixed identical calibration rollout |
+| Megatron and DeepSpeed | FP32/BF16 | 1/2 | Same frozen vLLM TP2 rollout |
 | Megatron and DeepSpeed | BF16 | Actor 1, Critic 1 | Actual vLLM TP2, two PPO rounds |
 | Megatron and DeepSpeed | BF16 | Actor 2, Critic 1 | Actual vLLM TP1, two PPO rounds |
 | Megatron and DeepSpeed | FP32 tiny GPT | Actor 2, Critic 1 | Existing vLLM TP1 regression |
@@ -39,7 +38,7 @@ vLLM checks each rank's loaded QKV/gate-up/vocabulary shard against the actor
 weights, rejects stale versions/missing rank confirmations, resets prefix cache
 and checks cold/replay cache behavior. Rank memory and round timing are recorded.
 
-Remaining: actual native checkpoint load validation; independent calibration;
+Remaining: actual native checkpoint load validation; fixed-rollout HF controls;
 FP32/BF16 TP1/TP2 fixed-rollout loss/gradient/update comparison; actual two-round
 Megatron/DeepSpeed/vLLM TP2 and TP1 runs; GPU negative controls; immutable raw
 artifacts and final threshold/acceptance report. CPU mapping and buffer tests
