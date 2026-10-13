@@ -102,3 +102,20 @@ def test_training_topology_accepts_only_ep1_etp4_or_ep4_etp1(ep, etp, accepted):
     else:
         with pytest.raises(ValueError):
             validate_training_topology(config, config)
+
+
+@pytest.mark.parametrize(
+    ("topology", "supported"),
+    [
+        ({"tp": 4, "pp": 1, "cp": 1, "ep": 1}, True),
+        ({"tp": 4, "pp": 1, "cp": 1, "ep": 4}, True),
+        ({"tp": 4, "pp": 1, "cp": 1, "ep": 2}, False),
+        ({"tp": 2, "pp": 1, "cp": 1, "ep": 4}, False),
+        ({"tp": 4, "pp": 1, "cp": 1}, False),
+        (None, False),
+    ],
+)
+def test_supported_topology(topology, supported):
+    from rl_engine.models.qwen3_next.qwen3_next_ep import supported_topology
+
+    assert supported_topology(topology) is supported

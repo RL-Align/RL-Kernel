@@ -214,7 +214,15 @@ def build_report(
         backend_profile=PROFILE,
         workload_id="qwen3-next-l2-matrix-16",
         fixture_hash=matrices[next(iter(matrices))]["fixture"]["content_sha256"],
-        config_fingerprint={"model": "Qwen3-Next-80B-A3B-Instruct", "tp": 4, "ep": 1, "pp": 1},
+        config_fingerprint={
+            "model": "Qwen3-Next-80B-A3B-Instruct",
+            "tp": 4,
+            "ep": matrices[next(iter(matrices))]
+            .get("identity", {})
+            .get("topology", {})
+            .get("ep", 1),
+            "pp": 1,
+        },
         weight_source=weight_source,
         weight_hash=weight_hash,
         seed=1234,

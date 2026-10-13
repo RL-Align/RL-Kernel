@@ -57,6 +57,15 @@ HIDDEN, INTERMEDIATE = 2048, 512
 EP_PROFILE_ID = "qwen3-next-moe-ep4-v1"
 
 
+def supported_topology(topology) -> bool:
+    """TP4/PP1/CP1 with expert parallelism 1 (ETP4) or 4 (ETP1) over the TP group."""
+    return (
+        isinstance(topology, dict)
+        and {k: v for k, v in topology.items() if k != "ep"} == {"tp": 4, "pp": 1, "cp": 1}
+        and topology.get("ep") in (1, 4)
+    )
+
+
 def expert_owner(indices: torch.Tensor) -> torch.Tensor:
     return torch.div(indices, LOCAL_EXPERTS, rounding_mode="floor")
 
