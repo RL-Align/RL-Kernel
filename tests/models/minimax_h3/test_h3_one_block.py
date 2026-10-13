@@ -46,6 +46,14 @@ PINNED_LAYOUTS = {
 # factor plus an absolute floor (relative to the golden's max magnitude).
 FORWARD_FACTOR, FORWARD_FLOOR = 1.25, 1e-3
 BACKWARD_FACTOR, BACKWARD_FLOOR = 1.5, 5e-3
+# A BF16 leaf gradient may instead exceed diffusers' error by this many ulps of its largest
+# golden element. Its max|err| / max|golden| is set by one rounded element, so it moves in
+# whole ulps (0.004 relative for attn.norm_q.weight), and the relative rule alone failed on
+# seed 2 with torch 2.13 and on seed 0 with torch 2.9.1. Sized from
+# tools/validation/models/h3_block_ulp_sweep.py over tiny/small x seeds 0-9 on both torch
+# versions (max excess +4.15 ulp) and 34 single-node candidate/provider swaps (max +5.15 ulp);
+# reports in reports/experiments/h3-one-block-b200/ulp-sweep-torch*.json.
+BACKWARD_BF16_EXCESS_ULPS = 6.0
 
 
 @pytest.mark.parametrize("layout", sorted(PINNED_LAYOUTS))
@@ -120,7 +128,12 @@ def test_block_backward(h3_block_weights_cuda, ops):
     for name, entry in report["leaves"].items():
         assert entry["repeat_bitwise_equal"], name
         bound = BACKWARD_FACTOR * entry["provider_rel_err_vs_golden"] + BACKWARD_FLOOR
-        assert entry["candidate_rel_err_vs_golden"] <= bound, (name, entry)
+        within_rel = entry["candidate_rel_err_vs_golden"] <= bound
+        within_ulps = entry["storage_dtype"] == "bfloat16" and (
+            entry["candidate_ulps_vs_golden"]
+            <= entry["provider_ulps_vs_golden"] + BACKWARD_BF16_EXCESS_ULPS
+        )
+        assert within_rel or within_ulps, (name, entry)
     assert report["leaves"]["hidden"]["batch_row_bitwise_equal"]
     assert report["first_grad_repeat_drift"] is None
     assert report["first_grad_batch_drift"] is None

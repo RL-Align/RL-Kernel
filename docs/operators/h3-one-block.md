@@ -159,7 +159,12 @@ at `41e4293` on an otherwise idle B200 (torch 2.13.0+cu130):
   - every leaf repeats;
   - dX is batch-row bitwise;
   - no gradient drift;
-  - leaf errors are at most 1.5 × diffusers' + 5e-3.
+  - leaf errors are at most 1.5 × diffusers' + 5e-3, or, for a BF16 leaf, at most 6 ulps
+    (of its largest golden element) above diffusers'. A stored gradient's worst element moves
+    in whole ulps, so the relative rule alone is seed- and torch-version-sensitive;
+    `tools/validation/models/h3_block_ulp_sweep.py` measured at most +4.15 ulps over
+    tiny/small × 10 seeds on torch 2.13 and 2.9.1, and +5.15 ulps over 34 single-node
+    candidate/provider swaps (reports: `reports/experiments/h3-one-block-b200/ulp-sweep-torch*.json`).
 
 ```bash
 RL_KERNEL_H3_WEIGHTS=<dir> CUDA_VISIBLE_DEVICES=0,1 python -m pytest tests/models/minimax_h3 -q
