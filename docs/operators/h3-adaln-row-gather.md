@@ -70,7 +70,7 @@ Measured on a B200 (torch 2.13.0+cu130):
 | --- | --- | --- |
 | Forward vs `index_select` | bitwise equal | |
 | `d_rows` repeat-bitwise | yes | no |
-| `d_rows` correctly rounded from the FP64 sum | 99.99999% | 7.8% |
+| `d_rows` correctly rounded from the FP64 sum | 99.99931% | 7.8% |
 | `d_rows` max abs error vs FP64 | 0.25 (1 ULP) | 4.99 |
 
 ### Fused modulation: `H3AdaLNModulationCudaOp`
@@ -129,10 +129,14 @@ There are two data files:
 - [`chain_replay.json`](../../reports/experiments/h3-adaln-row-gather-b200/chain_replay.json): the full
   stage-wise forward replay and backward replay over T in {1, 2, 3, 4} × S in {3, 257, 4097, 32768}.
 
-Both were written from a clean tree at commit `d3b37fe1` on an otherwise idle B200, regenerated
+`report.json` was rewritten from a clean tree at commit `40f4400c`, after the op-backward check
+was seeded (it previously took its rows and gradients from the process's default CUDA
+generator, so its fraction depended on how many draws the runner made before it; 99.99999% in
+the previous report). `chain_replay.json` was written from a clean tree at commit `d3b37fe1`.
+Both ran on an otherwise idle B200 and were regenerated
 after the AdaLN projection golden's declared cast was changed to round the FP32 SiLU (as the model
-does). Every CUDA field and every pass/fail flag is unchanged; only timings and the diffusers
-backward errors, which vary from run to run, moved.
+does). Apart from the seeded op-backward fraction, every CUDA field and every pass/fail flag
+is unchanged; only timings and the diffusers backward errors, which vary from run to run, moved.
 
 ## Existing implementations (RFC #420 reuse rule)
 
