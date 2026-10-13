@@ -26,7 +26,7 @@ scontrol show job "$SLURM_JOB_ID" > "$result_dir/slurm.txt"
 nvidia-smi -q > "$result_dir/device.txt"
 git rev-parse HEAD > "$result_dir/commit.txt"
 "$python_bin" -m pip freeze > "$result_dir/dependencies.txt"
-"$vllm_python" -m pip freeze > "$result_dir/vllm-dependencies.txt"
+"$vllm_python" -c 'from importlib.metadata import distributions; print("\n".join(sorted("{}=={}".format(d.metadata["Name"], d.version) for d in distributions())))' > "$result_dir/vllm-dependencies.txt"
 "$python_bin" -m examples.post_training.tp_ppo.capture_qwen3 --checkpoint "$checkpoint" \
   --vllm-python "$vllm_python" --calibration "$calibration" --output "$result_dir/rollout" \
   > "$result_dir/capture.log" 2>&1
