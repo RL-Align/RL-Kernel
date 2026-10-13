@@ -76,17 +76,36 @@ def main():
     from diffusers import ComponentsManager, ModularPipeline
     from diffusers.utils.export_utils import encode_video
     from PIL import Image
+    from transformers import Qwen3VLProcessor
 
+    # Load before the large models: ModularPipeline otherwise catches processor
+    # dependency failures and leaves None, failing much later in conditioning.
+    processor = Qwen3VLProcessor.from_pretrained(
+        str(args.checkpoint / "processor"), local_files_only=True
+    )
     manager = ComponentsManager()
     manager.enable_auto_cpu_offload(device="cuda", memory_reserve_margin="20GB")
     pipe = ModularPipeline.from_pretrained(
         str(args.checkpoint), workflow="fl2va", components_manager=manager
     )
+    pipe.update_components(processor=processor)
     pipe.load_components(
         dtype=torch.bfloat16,
         pretrained_model_name_or_path=str(args.checkpoint),
         local_files_only=True,
     )
+    for name in (
+        "processor",
+        "tokenizer",
+        "text_encoder",
+        "transformer",
+        "vae",
+        "audio_vae",
+        "scheduler",
+        "audio_scheduler",
+    ):
+        if getattr(pipe, name, None) is None:
+            raise RuntimeError(f"Required FL2VA component failed to load: {name}")
     ops = None
     if args.candidate:
         ops = CandidateOps()
@@ -110,7 +129,10 @@ def main():
                 )
                 torch.save(initial, directory / "initial.pt")
             values = (output.sample, output.audio_sample) if hasattr(output, "sample") else output
-            torch.save(tuple(v.detach().cpu() for v in values), directory / f"step-{step:03}.pt")
+            torch.save(
+                tuple(v.detach().cpu() for v in values),
+                directory / f"step-{step:03}.pt",
+            )
             step += 1
 
         handle = pipe.transformer.register_forward_hook(capture, with_kwargs=True)
@@ -137,7 +159,12 @@ def main():
             handle.remove()
         video = np.asarray(result["videos"][0])
         audio = result["audio"][0].detach().cpu().numpy()
-        if video.shape != (settings["num_frames"], settings["height"], settings["width"], 3):
+        if video.shape != (
+            settings["num_frames"],
+            settings["height"],
+            settings["width"],
+            3,
+        ):
             raise ValueError(f"wrong video dimensions {video.shape}")
         if not np.isfinite(video).all() or not np.isfinite(audio).all():
             raise ValueError("non-finite generated media")

@@ -28,3 +28,9 @@ attention workspace while retaining all keys for each query; it is inference onl
 Outstanding: actual full-model GPU/reference calibration, candidate backward
 qualification, three-seed reference/candidate generation and quality acceptance.
 No passed full-model result is claimed by the new CPU binding tests.
+
+The generation environment must provide torchvision matching PyTorch (the B200
+reference environment uses torch 2.9.1+cu130 and torchvision 0.24.1+cu130).
+Qwen3VLProcessor needs its video processor even for the fixed image conditioning.
+The runner loads this processor locally before model weights and rejects missing
+required pipeline components instead of proceeding with a partially loaded pipeline.
