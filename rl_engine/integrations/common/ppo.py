@@ -302,6 +302,7 @@ class PPOTrainingWorker:
     parameter_layouts must describe every optimizer parameter explicitly.
     Frameworks may supply paired backward/step callbacks; clipping still acts
     on the explicitly supplied unscaled optimizer buffers between those calls.
+    update_observer, when used, must be set on every TP rank of the group.
     """
 
     def __init__(
@@ -345,12 +346,12 @@ class PPOTrainingWorker:
         self.step = step or optimizer.step
         self.parameters = [(named[name], layout) for name, layout in parameter_layouts.items()]
 
-    def _observe(self, event, update, gradients, value, device):
-        if self.update_observer is None:
+    def _observe(self, observer, event, update, gradients, value, device):
+        if observer is None:
             return
         error = None
         try:
-            self.update_observer(event, update, gradients, value)
+            observer(event, update, gradients, value)
         except Exception as exc:
             error = f"PPO evidence observer failed: {type(exc).__name__}: {exc}"
         synchronize_validation(error, group=self.group, device=device)
@@ -367,7 +368,15 @@ class PPOTrainingWorker:
             batch.validate()
         except ValueError as exc:
             error = str(exc)
-        synchronize_validation(error, group=self.group, device=batch.rollout.input_ids.device)
+        device = batch.rollout.input_ids.device
+        synchronize_validation(error, group=self.group, device=device)
+        # Observer callbacks add synchronizations, so TP ranks must all have one or none.
+        observer = self.update_observer
+        present = int(observer is not None)
+        flags = torch.tensor([present, -present], dtype=torch.int64, device=device)
+        dist.all_reduce(flags, op=dist.ReduceOp.MIN, group=self.group)
+        if int(flags[0]) != -int(flags[1]):
+            raise ValueError("update_observer must be set on every TP rank or on none")
         count = batch.rollout.input_ids.shape[0]
         if count == 0:
             return {"updates": 0, "loss": 0.0, "grad_norm": 0.0}
@@ -448,7 +457,9 @@ class PPOTrainingWorker:
                     except (ValueError, RuntimeError, KeyError) as exc:
                         error = str(exc)
                     synchronize_validation(error, group=self.group, device=indices.device)
-                    self._observe("before_clip", len(losses), gradients, loss_value, indices.device)
+                    self._observe(
+                        observer, "before_clip", len(losses), gradients, loss_value, indices.device
+                    )
                     norm = clip_tp_grad_norm_(
                         self.parameters,
                         gradients=gradients,
@@ -456,9 +467,13 @@ class PPOTrainingWorker:
                         max_norm=self.config.max_grad_norm,
                         device=indices.device,
                     )
-                    self._observe("after_clip", len(losses), gradients, float(norm), indices.device)
+                    self._observe(
+                        observer, "after_clip", len(losses), gradients, float(norm), indices.device
+                    )
                     self.step()
-                    self._observe("after_step", len(losses), None, loss_value, indices.device)
+                    self._observe(
+                        observer, "after_step", len(losses), None, loss_value, indices.device
+                    )
                     losses.append(loss_value)
                     norms.append(float(norm))
         finally:

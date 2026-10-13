@@ -15,6 +15,7 @@ from rl_engine.integrations.common.ppo import (
     PPOBatch,
     PPOConfig,
     PPORollout,
+    PPOTrainingWorker,
     build_ppo_batch,
     ppo_policy_loss,
     ppo_value_loss,
@@ -265,4 +266,44 @@ def test_two_round_ppo_separate_tp_groups(tmp_path, actor_tp, critic_tp):
         args=(size, str(tmp_path / "ppo"), actor_tp, critic_tp),
         nprocs=size,
         start_method="spawn",
+    )
+
+
+def _observer_worker(rank, size, rendezvous):
+    """Observer presence must match across TP ranks before any observer collective."""
+    _init(rank, size, rendezvous, "gloo")
+    try:
+        group = dist.new_group(list(range(size)))
+        old = torch.zeros(2, 4)
+        batch = PPOBatch(rollout_fixture(), old, torch.zeros(2), torch.zeros(2), old, old, old)
+        model = torch.nn.Linear(1, 1, bias=False)
+
+        def forward(inputs):
+            return -1 + model(inputs.input_ids[:, :-1].float().unsqueeze(-1)).squeeze(-1)
+
+        events = []
+        worker = PPOTrainingWorker(
+            role="actor",
+            model=model,
+            forward=forward,
+            optimizer=torch.optim.SGD(model.parameters(), lr=0.1),
+            parameter_layouts={"weight": "replicated"},
+            group=group,
+            config=PPOConfig(epochs=1, minibatch_size=2),
+            update_observer=(lambda event, *_: events.append(event)) if rank == 0 else None,
+        )
+        with pytest.raises(ValueError, match="every TP rank or on none"):
+            worker.train(batch)
+        assert events == []
+        worker.update_observer = lambda event, *_: events.append(event)
+        assert worker.train(batch)["updates"] == 1
+        assert events == ["before_clip", "after_clip", "after_step"]
+    finally:
+        dist.destroy_process_group()
+
+
+def test_update_observer_must_match_across_tp_ranks(tmp_path):
+    """A leader-only observer fails on every rank instead of desynchronizing collectives."""
+    mp.start_processes(
+        _observer_worker, args=(2, str(tmp_path / "observer")), nprocs=2, start_method="spawn"
     )
