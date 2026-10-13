@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 import torch
 
+from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 from rl_engine.validation.models.h3_weights import (
     WEIGHTS_ENV,
     h3_weights_dir,
@@ -29,3 +30,14 @@ def h3_weights_cpu() -> dict[str, torch.Tensor]:
         return load_h3_conditioning_weights("cpu")
     except FileNotFoundError as exc:
         pytest.skip(str(exc))
+
+
+def h3_kernels_built() -> bool:
+    """False for KERNEL_ALIGN_USE_FAST_MATH=1 builds, which omit every H3 kernel."""
+    return bool(_EXT_AVAILABLE and hasattr(_C, "h3_timestep_sinusoid_forward"))
+
+
+@pytest.fixture
+def require_h3_kernels() -> None:
+    if not h3_kernels_built():
+        pytest.skip("rl_engine._C has no H3 kernels (not built, or a fast-math build)")
