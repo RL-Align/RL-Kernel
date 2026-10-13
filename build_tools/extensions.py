@@ -214,6 +214,7 @@ def get_extensions():
         )
 
     if is_rocm or torch.cuda.is_available():
+        use_fast_math = envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH)
         cuda_sources = [
             "csrc/bindings/ops.cpp",
             "csrc/cuda/logprob/fused_logp_kernel.cu",
@@ -236,13 +237,18 @@ def get_extensions():
             # CUDA IPC and the fixed-tree collective implementation are not
             # part of the ROCm extension.
             cuda_sources.append("csrc/cuda/collectives/deterministic_collective.cu")
-            cuda_sources.append("csrc/cuda/h3/timestep_sinusoid.cu")
+            # The H3 timestep kernel promises bitwise parity with the precise
+            # libdevice expf/sinf/cosf; --use_fast_math swaps in the __expf/
+            # __sinf/__cosf approximations and flushes denormals. Leave it out
+            # of fast-math builds so the registry falls back to the reference.
+            if not use_fast_math:
+                cuda_sources.append("csrc/cuda/h3/timestep_sinusoid.cu")
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
             cuda_sources.append("csrc/cuda/attention/prefix_shared_attention.cu")
 
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
-        if envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH):
+        if use_fast_math:
             nvcc_flags.append("--use_fast_math")
         if not is_rocm:
             cc_major, cc_minor = torch.cuda.get_device_capability()
@@ -329,6 +335,9 @@ def get_extensions():
         if os.name != "nt" and not is_rocm:
             # CUDA IPC metadata queries use the driver API (cuPointerGetAttribute).
             extra_link_args.append("-lcuda")
+        if "csrc/cuda/h3/timestep_sinusoid.cu" in cuda_sources:
+            cxx_flags.append("-DKERNEL_ALIGN_WITH_H3_TIMESTEP")
+            nvcc_flags.append("-DKERNEL_ALIGN_WITH_H3_TIMESTEP")
 
         if not is_rocm:
             sm90_srcs = [

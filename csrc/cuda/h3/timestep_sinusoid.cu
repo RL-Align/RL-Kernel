@@ -13,6 +13,9 @@
 // to be bitwise equal to that path. Each element depends only on (t, k):
 // batch-, position- and repeat-invariant by construction. Build without
 // --use_fast_math: expf/sinf/cosf must stay the precise libdevice functions.
+// nvcc defines no macro for fast math, so build_tools/extensions.py leaves this
+// file out of KERNEL_ALIGN_USE_FAST_MATH=1 builds and the op falls back to the
+// PyTorch reference (tests/build/test_build_platform_collectives.py).
 
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
