@@ -7,7 +7,7 @@
     "kind": "Reviewed derivative; raw originals preserved separately",
     "raw_manifest_sha256": "9a6872d9f93305d9236a300bc9b7ab8404d40b1695e1601c4d8ac416e2aafe30",
     "raw_files_verified": 261,
-    "handling": "All decoded report fields and measurements preserved. Text extraction is identified per artifact. Operational connection, image, allocation and payment metadata are excluded. Historical bundle contents and original hash are retained.",
+    "handling": "GPU report fields and measurements preserved. Text extraction and scope reduction are identified per artifact. Private execution metadata is excluded. Historical bundle contents and original hash are retained.",
     "test_commands": [
       "python -m pip install -r requirements/h3-projections.txt",
       "export H3_EVIDENCE_DIR=\"${PWD}/artifacts/h3-projections\"",
@@ -18,7 +18,11 @@
       "CUBLAS_WORKSPACE_CONFIG=:16:8 CUBLASLT_WORKSPACE_SIZE=1 python -m pytest -q tests/backends/cuda/test_canonical_backward_fusion.py",
       "python -m pytest -q tests/ops/gemm/test_det_gemm.py -k triton",
       "PYTHONPATH=. python <EVIDENCE_ROOT>/check_shared_fp32.py"
-    ]
+    ],
+    "scope_revision": {
+      "prior_derivative_sha256": "3dcf0a2b40ae9e0f3135ef43d96278e73be4ae832a796e23324bc80f509d144a",
+      "reason": "Retain the additional native-extension/TP regression outcome and error types, but omit its per-parameter failed test IDs from this WS1/TP1 operator submission. Preserve the prior derivative and raw log unchanged outside the PR. Shared Triton regression skips remain because shared code is changed. All GPU measurements and historical evidence remain unchanged."
+    }
   },
   "reviewed_counts": {
     "smoke.json": {
@@ -45,7 +49,7 @@
     "The optional global _C extension is absent. Explicit traces show these operators using Triton with fallback=false.",
     "CPU affinity is visible logical CPU count, not an allocation or performance guarantee.",
     "No full model, TP, multiple devices, double backward or production qualification is claimed.",
-    "Extended canonical backward regression: 27 failures from missing optional _C attributes; all failed test IDs and errors retained. This suite did not pass.",
+    "Additional native-extension/TP regression could not complete because _C attributes were unavailable; the summary is retained, with full logs outside the submission.",
     "Generic Triton selection: 14 skipped and 57 deselected; this is not a passing regression. The shared FP32 default path instead has three separately recorded direct GPU checks."
   ],
   "artifacts": {
@@ -75102,8 +75106,8 @@
     "canonical-backward-regression": {
       "original_sha256": "a52868caf9533f86e106493604b2d30c5fd7a10835a9de80049ecdb7a1123838",
       "format": "text",
-      "derivation": "Pytest summary extracted from the preserved raw log; repeated progress, import warnings and execution paths omitted. No failing results omitted.",
-      "content": "27 failed in 3.03s\nE           AttributeError: 'NoneType' object has no attribute 'det_gemm_db_transposed'\nE           AttributeError: 'NoneType' object has no attribute 'det_gemm_fwd'\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_down_input_gradient_preserves_independent_columns[2-1]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_down_input_gradient_preserves_independent_columns[2-4096]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_down_input_gradient_preserves_independent_columns[2-513]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_down_input_gradient_preserves_independent_columns[4-1]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_down_input_gradient_preserves_independent_columns[4-4096]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_down_input_gradient_preserves_independent_columns[4-513]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_down_input_gradient_preserves_independent_columns[8-1]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_down_input_gradient_preserves_independent_columns[8-4096]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_down_input_gradient_preserves_independent_columns[8-513]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_weight_gradient_matches_canonical_leaves[False-2-1]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_weight_gradient_matches_canonical_leaves[False-2-4096]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_weight_gradient_matches_canonical_leaves[False-2-513]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_weight_gradient_matches_canonical_leaves[False-4-1]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_weight_gradient_matches_canonical_leaves[False-4-4096]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_weight_gradient_matches_canonical_leaves[False-4-513]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_weight_gradient_matches_canonical_leaves[False-8-1]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_weight_gradient_matches_canonical_leaves[False-8-4096]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_weight_gradient_matches_canonical_leaves[False-8-513]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_weight_gradient_matches_canonical_leaves[True-2-1]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_weight_gradient_matches_canonical_leaves[True-2-4096]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_weight_gradient_matches_canonical_leaves[True-2-513]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_weight_gradient_matches_canonical_leaves[True-4-1]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_weight_gradient_matches_canonical_leaves[True-4-4096]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_weight_gradient_matches_canonical_leaves[True-4-513]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_weight_gradient_matches_canonical_leaves[True-8-1]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_weight_gradient_matches_canonical_leaves[True-8-4096]\nFAILED tests/backends/cuda/test_canonical_backward_fusion.py::test_weight_gradient_matches_canonical_leaves[True-8-513]"
+      "derivation": "Summary of an additional native-extension/TP regression outside the two operators' WS1/TP1 acceptance scope. Detailed test IDs remain in the unchanged raw log outside the submission. Counts and error types are preserved; this suite did not complete validation.",
+      "content": "27 failed in 3.03s\nE           AttributeError: 'NoneType' object has no attribute 'det_gemm_db_transposed'\nE           AttributeError: 'NoneType' object has no attribute 'det_gemm_fwd'"
     },
     "shared-triton-regression": {
       "original_sha256": "1478dca6e3a883481b02e22f42246ca50e836a31e480b2b815f2aa72ccb08d7b",

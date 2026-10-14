@@ -62,13 +62,14 @@ passed, and explicit execution traces recorded 64-bit addressing, the requested
 Triton kernel and no fallback. The retained cubin files match the launch hashes.
 The 131072-row boundary and all three task-shaped row counts passed on both operators.
 
-Additional regression results are not all green: 27 existing canonical-backward
-fusion tests failed because `_C` was unavailable (`det_gemm_db_transposed` and
-`det_gemm_fwd` attributes). The generic Triton selection skipped 14 tests and
-deselected 57; these results are not approvals. All failing test IDs, error types
-and summaries are retained. Separately, three direct GPU checks of the shared
-FP32 default-index path passed FP32 accuracy, repeat and permutation checks.
-These direct checks do not replace the missing-extension regression suite.
+Additional native-extension/TP regression could not complete because `_C` was
+unavailable. This is outside the two operators' WS1/TP1 acceptance scope;
+the evidence bundle retains the outcome and error types, with detailed logs
+preserved separately. The generic Triton regression selection did not execute;
+its skip summary is retained because this change touches shared code. Neither
+suite is counted as passed. Three direct GPU checks of the shared FP32
+default-index path passed accuracy, repeat and permutation checks, but do not
+replace the uncompleted regression suites.
 
 The machine used one H100 80GB (SM90) and an Intel Xeon Platinum 8470 CPU.
 Software was Python 3.10.12, PyTorch 2.6.0+cu124, Triton 3.2.0 and driver
@@ -239,8 +240,8 @@ reported limitation. Registry entries remain test-only.
 To reproduce the additional checks, run the commands below. The standalone
 shared FP32 reproducer is preserved verbatim in the JSON bundle and is extracted
 into the ignored evidence directory. The first command requires a compatible
-built `_C` extension to avoid the recorded 27 failures; the second command's
-selection skipped all 14 selected tests in the recorded environment.
+built `_C` extension; the second command did not execute tests in the recorded
+environment. Neither command is included in the passing acceptance counts.
 
 ```bash
 CUBLAS_WORKSPACE_CONFIG=:16:8 CUBLASLT_WORKSPACE_SIZE=1 \
