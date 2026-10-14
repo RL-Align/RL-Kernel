@@ -139,6 +139,7 @@ def main():
             status="frozen_reference_bounds",
             rule="1.5 * independent BF16 provider error + fixed floor",
             bounds=bounds,
+            errors=rows,
         )
     args.output.write_text(json.dumps(report, indent=2) + "\n")
     if args.thresholds and failures:
