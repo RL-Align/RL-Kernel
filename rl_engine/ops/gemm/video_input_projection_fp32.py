@@ -12,7 +12,6 @@ from rl_engine.ops.gemm.canonical_linear import _gemm_fp32, canonical_linear_fp3
 
 VIDEO_PATCH_WIDTH = 96
 VIDEO_HIDDEN_WIDTH = 5376
-FP32_REDUCTION_LEAF_SIZE = 128
 
 
 def validate_projection_inputs(x, weight, bias):
@@ -97,13 +96,12 @@ class VideoInputProjectionFP32Op:
                 family=self.family,
                 bias=bias,
                 bias_parameter_id=f"{parameter_id}.bias",
-                reduction_leaf_size=FP32_REDUCTION_LEAF_SIZE,
             )
         else:
             rhs = weight.t()
             if self.family != "cutlass":
                 rhs = rhs.contiguous()
-            output = _gemm_fp32(rows, rhs, self.family, FP32_REDUCTION_LEAF_SIZE)
+            output = _gemm_fp32(rows, rhs, self.family)
             if bias is not None:
                 output = output + bias
         return output.reshape(*x.shape[:-1], VIDEO_HIDDEN_WIDTH)

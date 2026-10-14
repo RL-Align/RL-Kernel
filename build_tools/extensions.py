@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-import importlib.util
 import hashlib
+import importlib.util
 import os
 import sysconfig
 import warnings

@@ -11,7 +11,8 @@ a separately versioned arithmetic contract because its internal accumulation
 does not match the scalar reference at every BF16 rounding boundary.
 
 Autotuning and split-K are intentionally disabled.  FP32-output calls preserve
-the earlier fixed-order, no-split-K contract and do not use BF16 tree nodes.
+the earlier fixed-order, no-split-K contract. The optional CUDA FP32 tree reuses
+the canonical plan, leaf kernel, and level reductions with FP32 nodes.
 """
 
 from __future__ import annotations
@@ -773,6 +774,8 @@ def _triton_tree_gemm(
     out: torch.Tensor | None = None,
     preserve_a_strides: bool = False,
     inference_schedule: bool = False,
+    output_dtype: torch.dtype = torch.bfloat16,
+    fp32_leaf_launcher=None,
 ) -> torch.Tensor:
     if not _TRITON_AVAILABLE:
         raise RuntimeError("Triton is unavailable")
@@ -780,8 +783,16 @@ def _triton_tree_gemm(
         raise ValueError("Triton deterministic GEMM expects two 2-D tensors")
     if a.size(1) != b.size(0):
         raise ValueError(f"Triton deterministic GEMM K mismatch: {a.size(1)} and {b.size(0)}")
-    if a.dtype != torch.bfloat16 or b.dtype != torch.bfloat16:
-        raise TypeError("Triton tree GEMM requires BF16 inputs")
+    if output_dtype not in (torch.bfloat16, torch.float32):
+        raise TypeError("Triton tree GEMM output must be BF16 or FP32")
+    fp32_tree = output_dtype == torch.float32
+    input_dtype = torch.float32 if fp32_tree else torch.bfloat16
+    if a.dtype != input_dtype or b.dtype != input_dtype:
+        raise TypeError(f"Triton tree GEMM requires {input_dtype} inputs")
+    if fp32_tree and torch.version.hip is not None:
+        raise RuntimeError("FP32 tree GEMM is qualified on CUDA only")
+    if fp32_leaf_launcher is not None and not fp32_tree:
+        raise ValueError("a custom leaf launcher requires the FP32 tree")
     if not a.is_cuda or not b.is_cuda or a.device != b.device:
         raise RuntimeError("Triton tree GEMM inputs must share one CUDA/ROCm device")
 
@@ -796,6 +807,25 @@ def _triton_tree_gemm(
     plan = _device_tree_plan(k_size, a.device)
     workspace_elements = plan.host.node_count * m_size * n_size
     if workspace_elements > _MAX_TREE_WORKSPACE_ELEMENTS and out is None:
+        if fp32_tree and plan.host.node_count * n_size > _MAX_TREE_WORKSPACE_ELEMENTS:
+            columns_per_chunk = _MAX_TREE_WORKSPACE_ELEMENTS // plan.host.node_count
+            if columns_per_chunk < 1:
+                raise RuntimeError("FP32 tree plan exceeds the workspace budget for one element")
+            # A one-row bias VJP cannot be split further over M. Splitting
+            # independent output columns retains the same logical K tree.
+            chunks = [
+                _triton_tree_gemm(
+                    a,
+                    b[:, start : start + columns_per_chunk],
+                    transpose_output=transpose_output,
+                    preserve_a_strides=preserve_a_strides,
+                    inference_schedule=inference_schedule,
+                    output_dtype=output_dtype,
+                    fp32_leaf_launcher=fp32_leaf_launcher,
+                )
+                for start in range(0, n_size, columns_per_chunk)
+            ]
+            return torch.cat(chunks, dim=0 if transpose_output else 1)
         rows_per_chunk = max(
             1,
             _MAX_TREE_WORKSPACE_ELEMENTS // (plan.host.node_count * n_size),
@@ -809,20 +839,22 @@ def _triton_tree_gemm(
                 transpose_output=transpose_output,
                 preserve_a_strides=preserve_a_strides,
                 inference_schedule=inference_schedule,
+                output_dtype=output_dtype,
+                fp32_leaf_launcher=fp32_leaf_launcher,
             )
             chunks.append(chunk)
         return torch.cat(chunks, dim=1 if transpose_output else 0)
     result_shape = (n_size, m_size) if transpose_output else (m_size, n_size)
     if out is None:
-        result = torch.empty(result_shape, dtype=torch.bfloat16, device=a.device)
+        result = torch.empty(result_shape, dtype=output_dtype, device=a.device)
     else:
         if tuple(out.shape) != result_shape:
             raise ValueError(
                 f"Triton tree GEMM output must have shape {result_shape}, "
                 f"got {tuple(out.shape)}"
             )
-        if out.dtype != torch.bfloat16:
-            raise TypeError(f"Triton tree GEMM output must be BF16, got {out.dtype}")
+        if out.dtype != output_dtype:
+            raise TypeError(f"Triton tree GEMM output must be {output_dtype}, got {out.dtype}")
         if out.device != a.device:
             raise RuntimeError(f"Triton tree GEMM output must be on {a.device}, got {out.device}")
         if not out.is_contiguous():
@@ -832,7 +864,7 @@ def _triton_tree_gemm(
         result = out
     workspace = torch.empty(
         (plan.host.node_count, m_size, n_size),
-        dtype=torch.bfloat16,
+        dtype=output_dtype,
         device=a.device,
     )
     device_index = a.device.index if a.device.index is not None else torch.cuda.current_device()
@@ -861,7 +893,7 @@ def _triton_tree_gemm(
         if leaf_config.n_fastest
         else (len(plan.host.leaf_nodes), tiles_m, tiles_n)
     )
-    direct_root_output = not transpose_output and is_gfx942
+    direct_root_output = not transpose_output and (is_gfx942 or fp32_tree)
     fuse_leaf_reduction = (
         _ROCM_FUSE_LEAF_REDUCTION
         and direct_root_output
@@ -869,7 +901,9 @@ def _triton_tree_gemm(
         and k_size >= 1536
         and plan.rocm_leaf_reduction is not None
     )
-    if fuse_leaf_reduction:
+    if fp32_leaf_launcher is not None:
+        fp32_leaf_launcher(a, b, workspace, plan)
+    elif fuse_leaf_reduction:
         assert plan.rocm_leaf_reduction is not None
         operation_count = len(plan.host.reduction_levels[0])
         fused_leaf_grid = (
@@ -895,6 +929,7 @@ def _triton_tree_gemm(
             N_FASTEST=leaf_config.n_fastest,
             WRITE_OUTPUT=len(plan.host.reduction_levels) == 1,
             num_warps=leaf_config.num_warps,
+            **({"enable_fp_fusion": False} if fp32_tree else {}),
         )
     else:
         _det_gemm_kernel[leaf_grid](
@@ -916,6 +951,7 @@ def _triton_tree_gemm(
             BLOCK_K=_BLOCK_K,
             N_FASTEST=leaf_config.n_fastest,
             num_warps=leaf_config.num_warps,
+            **({"enable_fp_fusion": False} if fp32_tree else {}),
         )
     reduction_block = 256
     if fuse_leaf_reduction:
@@ -945,7 +981,7 @@ def _triton_tree_gemm(
                 N=n_size,
                 BLOCK=reduction_block,
             )
-    elif direct_root_output and use_inference_schedule:
+    elif direct_root_output and use_inference_schedule and is_gfx942:
         blocks = triton.cdiv(m_size * n_size, reduction_block)
         for pair_index, nodes in enumerate(plan.rocm_fused_reduction_pairs):
             second_level = pair_index * 2 + 1
@@ -986,8 +1022,8 @@ def _triton_tree_gemm(
                 raise RuntimeError("the final deterministic GEMM tree level must contain one root")
             if write_final_output:
                 grid = (triton.cdiv(m_size * n_size, reduction_block),)
-                # direct_root_output is true only for gfx942; CUDA retains its
-                # established reduction and root-copy path.
+                # FP32 CUDA also writes the final level directly to output.
+                # Existing BF16 CUDA keeps its reduction and root-copy path.
                 _det_gemm_tree_reduce_to_output_rocm_kernel[grid](
                     workspace,
                     result,

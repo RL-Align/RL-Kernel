@@ -289,6 +289,7 @@ def test_real_weights_patch_path(backend):
         pytest.skip("set H3_PROJECTION_WEIGHTS to pinned H3 safetensors fixture")
     from safetensors import safe_open
     from safetensors.torch import load_file
+
     from rl_engine.reference.packing.video_patch_pack_unpack import NativeVideoPatchPackUnpackOp
 
     with safe_open(path, framework="pt") as fixture:
@@ -324,7 +325,7 @@ def test_default_cuda_dispatch():
     from rl_engine.runtime.registry import KernelRegistry
 
     op = KernelRegistry().get_op("video_input_projection_fp32", device="cuda")
-    assert op.backend_info()["backend_id"] == "triton-video-input-projection-fp32-v1"
+    assert op.backend_info()["backend_id"] == "triton-video-input-projection-fp32-v2"
     x, weight, bias, _ = _data(3)
     with torch.no_grad():
         _assert_bytes(op(x, weight, bias), _op("triton")(x, weight, bias))
@@ -337,6 +338,60 @@ def test_reused_fp32_gemm():
     x, weight, _, _ = _data(17)
     output = _triton_gemm_fp32(x, weight.t().contiguous())
     _assert_accuracy(output, x.cpu() @ weight.cpu().t(), "forward_accuracy")
+
+
+def _fp32_tree_reference(a, b):
+    # Evaluate the existing plan with independent CPU FP32 scalar arithmetic.
+    from rl_engine.backends.shared.triton.gemm.det_gemm import _build_tree_plan
+
+    a, b = a.cpu(), b.cpu()
+    plan = _build_tree_plan(a.shape[1])
+    nodes = {}
+    for start, length, node in zip(
+        plan.leaf_starts, plan.leaf_lengths, plan.leaf_nodes, strict=True
+    ):
+        value = torch.zeros(a.shape[0], b.shape[1])
+        for k in range(start, start + length):
+            value = value + a[:, k, None] * b[k, None, :]
+        nodes[node] = value
+    for level in plan.reduction_levels:
+        for lower, upper, output in level:
+            nodes[output] = nodes[lower] + nodes[upper]
+    return nodes[plan.root]
+
+
+@pytest.mark.skipif(not H20, reason="requires CUDA SM90")
+@pytest.mark.parametrize("k", [31, 33, 129, 5376])
+def test_fp32_tree_preserves_fp32_nodes(k):
+    from rl_engine.backends.shared.triton.gemm.det_gemm import _triton_tree_gemm
+
+    torch.manual_seed(420)
+    a, b = torch.randn(3, k, device="cuda"), torch.randn(k, 5, device="cuda")
+    output = _triton_tree_gemm(a, b, output_dtype=torch.float32)
+    assert output.dtype == torch.float32
+    _assert_bytes(output.cpu(), _fp32_tree_reference(a, b))
+    with torch.inference_mode():
+        inference = _triton_tree_gemm(a, b, output_dtype=torch.float32)
+    _assert_bytes(inference, output)
+
+
+@pytest.mark.skipif(not H20, reason="requires CUDA SM90")
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_fp32_tree_workspace_chunking(backend, monkeypatch):
+    from rl_engine.backends.shared.triton.gemm import det_gemm
+    from rl_engine.ops.gemm.canonical_linear import _gemm_fp32
+
+    _op(backend)  # Apply the same optional-extension eligibility as other tests.
+    family = "triton_tree" if backend == "triton" else "cutlass"
+    a, b = torch.randn(7, 129, device="cuda"), torch.randn(129, 5, device="cuda")
+    expected = _gemm_fp32(a, b, family)
+    plan = det_gemm._build_tree_plan(129)
+    monkeypatch.setattr(det_gemm, "_MAX_TREE_WORKSPACE_ELEMENTS", plan.node_count * 5 * 2)
+    actual = _gemm_fp32(a, b, family)
+    _assert_bytes(actual, expected)
+    monkeypatch.setattr(det_gemm, "_MAX_TREE_WORKSPACE_ELEMENTS", plan.node_count * 2)
+    # Exercise output-column chunking when even one whole row exceeds budget.
+    _assert_bytes(_gemm_fp32(a, b, family), expected)
 
 
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")

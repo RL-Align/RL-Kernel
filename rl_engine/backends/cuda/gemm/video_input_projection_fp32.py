@@ -35,7 +35,15 @@ from importlib import import_module
 
 import torch
 
-from rl_engine.ops.gemm.video_input_projection_fp32 import VideoInputProjectionFP32Op
+from rl_engine.backends.shared.triton.gemm.det_gemm import (
+    _BLOCK_K,
+    _TRITON_AVAILABLE,
+    _triton_tree_gemm,
+)
+from rl_engine.ops.gemm.video_input_projection_fp32 import (
+    VIDEO_PATCH_WIDTH,
+    VideoInputProjectionFP32Op,
+)
 
 CUTLASS_REVISION = "56ca28adb32ffadd097566545b8f7d83b652e998"
 CUTLASS_HEADERS_SHA256 = "7b5321860c269f8e44eab02e59c32c2d4d0e2fa7a3ef72e0a161de9f58b361fa"
@@ -56,21 +64,38 @@ def _load_extension():
         or info["fmad"]
         or info["ftz"]
         or info["split_k"] != 1
+        or info.get("tree_leaf_size") != _BLOCK_K
     ):
         raise RuntimeError("CUTLASS extension does not match the strict FP32 build contract")
     return extension
 
 
+def _cutlass_tree_leaves(a, b, workspace, plan):
+    _load_extension().gemm_fp32_tree_leaves_tn(
+        a, b.t(), workspace, plan.leaf_starts, plan.leaf_lengths, plan.leaf_nodes
+    )
+
+
 def cutlass_gemm_fp32(a, b):
     # The native TN interface represents mathematical B[K,N] as [N,K] storage.
-    return _load_extension().gemm_fp32_tn(a.contiguous(), b.t().contiguous())
+    if a.shape[1] <= VIDEO_PATCH_WIDTH:
+        return _load_extension().gemm_fp32_tn(a.contiguous(), b.t().contiguous())
+    return _triton_tree_gemm(
+        a,
+        b,
+        output_dtype=torch.float32,
+        preserve_a_strides=True,
+        fp32_leaf_launcher=_cutlass_tree_leaves,
+    )
 
 
 class CUDAVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
     family = "cutlass"
-    backend_id = "cuda-cutlass-video-input-projection-fp32-v1"
+    backend_id = "cuda-cutlass-video-input-projection-fp32-v2"
 
     def __init__(self):
+        if not _TRITON_AVAILABLE:
+            raise RuntimeError("CUTLASS projection requires Triton for shared FP32 tree reductions")
         _load_extension()
 
     def _check_backend(self, x):
@@ -80,11 +105,16 @@ class CUDAVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
             raise ValueError("CUTLASS video input projection requires CUDA SM90")
 
     def backend_info(self):
+        import triton
+
         return {
             "backend_id": self.backend_id,
             "family": "cuda",
-            "kernel": "gemm_fp32_tn",
+            "kernel": "gemm_fp32_tn / gemm_fp32_tree_leaves_tn",
             "reduction": "fixed_midpoint_tree",
-            "reduction_leaf_size": 128,
+            "reduction_leaf_size": _BLOCK_K,
+            "reduction_backend": "triton",
+            "triton_version": triton.__version__,
+            "leaf_launch": "cutlass_device_gemm_array",
             **_load_extension().build_info(),
         }

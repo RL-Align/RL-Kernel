@@ -8,7 +8,9 @@ reference. The model adapter owns the subsequent cast into the BF16 packed strea
 
 The primary implementation reuses RL-Kernel's Triton FP32 GEMM and canonical
 parameter-gradient session. A pinned CUTLASS FP32 SIMT GEMM is an explicit CUDA
-candidate. Both use the same semantic adapter and autograd implementation.
+candidate. Both use the same semantic adapter, autograd implementation, and
+existing Triton tree plan and GPU level reductions. CUTLASS substitutes the
+batched leaf GEMM; its reported execution identity includes the Triton reduction.
 
 ## Entry Point
 
@@ -31,8 +33,8 @@ physical placement. The same parameter keeps the same `parameter_id` across uses
 
 | Backend | Wrapper | Native symbol | Status |
 | --- | --- | --- | --- |
-| Triton on CUDA | `TritonVideoInputProjectionFP32Op` | `_det_gemm_fp32_kernel` | Default CUDA path; SM90 qualification |
-| CUDA / CUTLASS | `CUDAVideoInputProjectionFP32Op` | `_C_cutlass.gemm_fp32_tn` | Explicit candidate; optional build; SM90 |
+| Triton on CUDA | `TritonVideoInputProjectionFP32Op` | `_det_gemm_fp32_kernel`, existing tree leaf/reduce kernels | Default CUDA path; SM90 qualification |
+| CUDA / CUTLASS + Triton reductions | `CUDAVideoInputProjectionFP32Op` | `_C_cutlass.gemm_fp32_tn`, `_C_cutlass.gemm_fp32_tree_leaves_tn`, shared tree reductions | Explicit candidate; optional build; SM90 |
 | PyTorch reference | `NativeVideoInputProjectionFP32Op` | CPU `F.linear` | Accuracy reference |
 
 CUTLASS revision: `56ca28adb32ffadd097566545b8f7d83b652e998`. The build verifies
@@ -87,15 +89,23 @@ The existing canonical session collects all contributions, removes padding, and
 sorts keys before the final parameter reduction. It returns each parameter VJP
 once. Ordinary chunk-by-chunk accumulation is a different arithmetic contract.
 
-Long K reductions use a fixed midpoint tree with at most 128 terms per leaf.
-Each leaf reuses the selected GEMM and every tree node adds in FP32. This bounds
-rounding depth for the 5376-term input VJP and long parameter reductions. The
-tree depends on logical K and retains its topology across physical row changes.
-Existing canonical linear callers keep their original reduction by default.
+Short reductions up to the 96-wide video input use the existing direct FP32
+GEMM. Long reductions reuse the existing midpoint plan with at most 32 terms per
+leaf. Workspace, merge nodes, and output stay FP32. The Triton backend launches
+all leaves in one grid. CUTLASS packs the same leaf ranges into 32-wide buffers,
+pads inactive slots with zero, and uses one `device::GemmArray` launch to write
+the plan's leaf nodes. Both then reuse the existing GPU level reductions.
+
+The tree depends on logical K and retains its topology across physical row
+changes. Output-row chunking keeps tree workspace below the existing element
+limit (512 MiB for FP32). If one output row exceeds that limit, independent
+output columns are chunked with the same K tree. CUTLASS also allocates packed
+operands and pointer arrays. Parameter sorting and public validation are included in complete-call
+measurements. Existing BF16 tree callers retain their default dtype and schedule.
 
 Triton fixes the 64x64x32 leaf schedule and disables TF32 and FP fusion. CUTLASS
 fixes 64x64x8 FP32 SIMT tiles and a single output owner per leaf, without parallel
-split-K. Their leaf arithmetic has separate backend identities.
+split-K. Both leaf algorithms have separately versioned backend identities.
 
 The shared WS1 `reduction` FP32 accuracy policy uses `atol=rtol=1e-4` for forward
 and gradients. Invariance uses byte equality. Parameter invariance compares the
@@ -116,8 +126,9 @@ forward CUDA Graph. Timings include layout copies, bias, and the canonical
 parameter-gradient machinery. Raw samples, environment, source hashes, and
 actual backend metadata are written to the explicitly selected local output.
 PyTorch is a production performance baseline with separately reported BI results.
-The fixed tree adds kernel launches and layout copies to backward; compare full
-operator timings before drawing a speedup conclusion.
+The shared GPU tree avoids Python recursion per leaf and merge node. Its
+workspace traffic, output-row chunking, and CUTLASS operand packing still add
+backward work; compare complete operator timings before drawing a speedup claim.
 
 ## Tests
 

@@ -32,8 +32,9 @@ def test_optional_cutlass_build_has_independent_strict_flags(monkeypatch, tmp_pa
 
 
 def test_cutlass_build_rejects_unpinned_headers(monkeypatch, tmp_path):
-    from build_tools import extensions
     import pytest
+
+    from build_tools import extensions
 
     monkeypatch.setattr(torch.version, "hip", None)
     monkeypatch.setattr(torch.version, "cuda", "12.9")

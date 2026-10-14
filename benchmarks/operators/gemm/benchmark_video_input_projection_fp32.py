@@ -9,10 +9,10 @@ import argparse
 import hashlib
 import json
 import platform
-import statistics
 import shutil
-from functools import partial
+import statistics
 import subprocess
+from functools import partial
 from pathlib import Path
 
 import torch

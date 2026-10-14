@@ -5,13 +5,27 @@
 
 import torch
 
-from rl_engine.backends.shared.triton.gemm.det_gemm import _TRITON_AVAILABLE
-from rl_engine.ops.gemm.video_input_projection_fp32 import VideoInputProjectionFP32Op
+from rl_engine.backends.shared.triton.gemm.det_gemm import (
+    _BLOCK_K,
+    _TRITON_AVAILABLE,
+    _triton_gemm_fp32,
+    _triton_tree_gemm,
+)
+from rl_engine.ops.gemm.video_input_projection_fp32 import (
+    VIDEO_PATCH_WIDTH,
+    VideoInputProjectionFP32Op,
+)
+
+
+def projection_gemm_fp32(a, b):
+    if a.shape[1] <= VIDEO_PATCH_WIDTH:
+        return _triton_gemm_fp32(a, b)
+    return _triton_tree_gemm(a, b, output_dtype=torch.float32, preserve_a_strides=True)
 
 
 class TritonVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
-    family = "triton"
-    backend_id = "triton-video-input-projection-fp32-v1"
+    family = "triton_tree"
+    backend_id = "triton-video-input-projection-fp32-v2"
 
     def __init__(self):
         if not _TRITON_AVAILABLE:
@@ -28,13 +42,15 @@ class TritonVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
 
         return {
             "backend_id": self.backend_id,
-            "family": self.family,
-            "kernel": "_det_gemm_fp32_kernel",
+            "family": "triton",
+            "kernel": "_det_gemm_fp32_kernel / _det_gemm_tree_leaf_kernel",
             "triton_version": triton.__version__,
             "tile": [64, 64, 32],
             "tf32": False,
             "fp_fusion": False,
             "split_k": 1,
             "reduction": "fixed_midpoint_tree",
-            "reduction_leaf_size": 128,
+            "reduction_leaf_size": _BLOCK_K,
+            "reduction_backend": "triton",
+            "leaf_launch": "all_leaves_in_one_grid",
         }

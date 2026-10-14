@@ -5,10 +5,15 @@
 
 torch::Tensor cutlass_gemm_fp32_tn(torch::Tensor a, torch::Tensor b_transposed);
 int cutlass_cuda_version();
+void cutlass_gemm_fp32_tree_leaves_tn(
+    torch::Tensor a, torch::Tensor bt, torch::Tensor workspace,
+    torch::Tensor starts, torch::Tensor lengths, torch::Tensor nodes);
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("gemm_fp32_tn", &cutlass_gemm_fp32_tn,
         "Fixed FP32 SIMT GEMM: [M,K] times transposed [N,K]");
+  m.def("gemm_fp32_tree_leaves_tn", &cutlass_gemm_fp32_tree_leaves_tn,
+        "Batch all FP32 leaves into a validated canonical tree workspace");
   m.def("build_info", []() {
     pybind11::dict info;
     info["cutlass_revision"] = "56ca28adb32ffadd097566545b8f7d83b652e998";
@@ -20,6 +25,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     info["split_k"] = 1;
     info["fmad"] = false;
     info["ftz"] = false;
+    info["tree_leaf_size"] = 32;
+    info["tree_leaf_launcher"] = "cutlass_device_gemm_array";
     return info;
   });
 }

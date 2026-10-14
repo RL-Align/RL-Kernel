@@ -28,7 +28,11 @@ try:
         _copy_tree_root_kernel,
         _det_gemm_tree_leaf_kernel,
         _det_gemm_tree_reduce_kernel,
-        _det_gemm_tree_reduce_to_output_kernel,
+    )
+    from rl_engine.backends.shared.triton.gemm.det_gemm import (
+        _det_gemm_tree_reduce_to_output_rocm_kernel as _det_gemm_tree_reduce_to_output_kernel,
+    )
+    from rl_engine.backends.shared.triton.gemm.det_gemm import (
         _device_tree_plan,
         _gfx942_qwen_tree_leaf_config,
         _triton_tree_gemm,
@@ -147,7 +151,9 @@ def _special_bf16(shape: tuple[int, ...], *, offset: int = 0) -> torch.Tensor:
     for size in shape:
         elements *= size
     indices = (torch.arange(elements, dtype=torch.int64) + offset) % bits.numel()
-    return bits[indices].view(torch.bfloat16).reshape(shape).to(DEV)
+    # UInt16 advanced indexing is unavailable on some supported PyTorch builds.
+    # A signed view keeps every BF16 bit pattern unchanged while indexing.
+    return bits.view(torch.int16)[indices].view(torch.bfloat16).reshape(shape).to(DEV)
 
 
 _K_TREE_LEAF = 32

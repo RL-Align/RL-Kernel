@@ -46,7 +46,9 @@ OP_SPECS = {
     "video_input_projection_fp32": OperatorSpec(
         name="video_input_projection_fp32",
         op_class="reduction",
-        gold_path="rl_engine.reference.gemm.video_input_projection_fp32.NativeVideoInputProjectionFP32Op",
+        gold_path=(
+            "rl_engine.reference.gemm.video_input_projection_fp32.NativeVideoInputProjectionFP32Op"
+        ),
         gold_method="forward_fp32",
         candidate_paths={
             "pytorch": (
