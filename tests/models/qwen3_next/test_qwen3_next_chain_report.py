@@ -83,6 +83,21 @@ def test_report_is_a_chain_gate_report_superset_and_passes_when_bitwise():
     ]
 
 
+@pytest.mark.parametrize("ep", [None, 1, 4])
+def test_report_names_the_measured_expert_parallel_size(ep):
+    matrices, artifacts = inputs()
+    if ep is not None:
+        for matrix in matrices.values():
+            matrix["identity"] = {"topology": {"tp": 4, "pp": 1, "cp": 1, "ep": ep}}
+    report = build(matrices, artifacts)
+    expected = 1 if ep is None else ep
+    assert report["config_fingerprint"]["ep"] == expected
+    assert f"TP4 x EP{expected}," in report["disclaimer"]
+    profile = chain.EP4_PROFILE if expected == 4 else chain.PROFILE
+    assert report["backend_profile"] == profile
+    assert report["backend_provenance"]["actual_backend"] == profile
+
+
 def test_a_single_bit_in_the_replay_fails_the_report():
     matrices, artifacts = inputs()
     replay = artifacts["update1"]["p0008-b1-full"]["recompute"]
