@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""Copy a finished Qwen3-Next chain's evidence into the repository, without site details.
+"""Copy a finished Qwen3-Next chain's evidence into a directory to attach, without site details.
 
     python tools/validation/models/qwen3_next/qwen3_next_publish_evidence.py \\
         --last <train run dir> \\
-        --chain-report chain-report.json --out docs/usage/evidence/qwen3-next-chain-<date>
+        --chain-report chain-report.json --out artifacts/qwen3-next-chain-<date>
 
 For every stage run on the chain (preflight -> ... -> the given run) this copies
 ``run.json``, ``result.json`` and every evidence file the result names (JSON
