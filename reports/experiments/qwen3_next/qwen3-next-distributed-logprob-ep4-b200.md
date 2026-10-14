@@ -1,6 +1,6 @@
 # Qwen3-Next distributed logprob parity, EP4 (B200)
 
-[Download raw results (ZIP)](https://github.com/fusheng-ji/RL-Kernel/releases/download/qwen3-next-ep4-evidence/qwen3-next-distributed-logprob-ep4-b200.zip).
+[Download raw results (ZIP)](https://github.com/fusheng-ji/RL-Kernel/releases/download/qwen3-next-rfc428-evidence/qwen3-next-distributed-logprob-ep4-b200.zip).
 
 ZIP SHA-256: `c7530d29f2495d19d43b5424215af960795f62d9676b223fe41c27aa2616ba53`.
 
