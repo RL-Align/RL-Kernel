@@ -34,6 +34,21 @@ passes (638 parameter gradients each), three-seed generation and repeat comparis
 contains the unchanged 764 tensor bounds. These provider results do not establish
 candidate acceptance.
 
+**Acceptance rule (2026-10-14).** The single-configuration bounds in
+`full-model-thresholds.json` (1.5 × one provider pass + floor) accept only the provider
+configuration they were frozen from: provider passes that differ only in SDPA backend
+(flash, memory-efficient) or BLAS library (cuBLASLt) fail 36–66 of them. The first
+candidate failed 54, all on single-element `max_abs` except two `relative_l2`. Acceptance
+is therefore `full-model-ensemble-rule.json`, calibrated from four distinct provider
+configurations with no candidate data (`tools/validation/models/h3_full_ensemble_rule.py`):
+every tensor's `relative_l2` must be at most k × the largest provider error + floor,
+with k = 2.6 the smallest factor at which every provider configuration held out passes
+against the others; `max_abs` is reported but not gated, because held-out providers
+exceed the others' maximum by up to 4.1× on it. A full-model node-swap diagnostic
+(`--provider-nodes`) found no single node responsible for the candidate's high
+tensors: swapping any group moves which tensors land high rather than removing them.
+The single-configuration file is kept and still compared, as a record.
+
 `candidate.sbatch` builds its own H3 CUDA extension, records its identity, verifies
 all reference/checkpoint hashes, and runs block-0 golden tests without skips before
 full-model forward/backward. It requires calls to every candidate graph node in

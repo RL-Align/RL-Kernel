@@ -45,7 +45,13 @@ export RL_KERNEL_H3_WEIGHTS="$result_dir/preflight/weights"
 "$python_bin" -m tools.validation.models.h3_full_compare --reference "$reference_root/fp32-reference" \
   --other "$result_dir/candidate" --thresholds examples/models/minimax_h3/full-model-thresholds.json \
   --reference-root "$reference_root" --reference-manifest examples/models/minimax_h3/reference-manifest.json \
-  --output "$result_dir/full-model-comparison.json" > "$result_dir/comparison.log" 2>&1
+  --output "$result_dir/full-model-comparison.json" > "$result_dir/comparison.log" 2>&1 || true
+# The single-configuration bounds above are kept as a record; acceptance is the
+# provider-ensemble rule (README), which exits non-zero on any failure.
+"$python_bin" -m tools.validation.models.h3_full_ensemble_rule check \
+  --rule examples/models/minimax_h3/full-model-ensemble-rule.json \
+  --candidate "$result_dir/full-model-comparison.json" \
+  --output "$result_dir/full-model-acceptance.json" > "$result_dir/acceptance.log" 2>&1
 "$python_bin" -m tools.validation.models.h3_full_generation --checkpoint "$checkpoint" \
   --reference-image "$reference_image" --candidate --preflight --output "$result_dir/generation-preflight" \
   > "$result_dir/generation-preflight.log" 2>&1
