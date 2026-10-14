@@ -26,6 +26,10 @@ Candidates:
   with ``SequentialMLP`` experts, FP32 router (softmax over the top-10 logits,
   which equals renormalised top-10 probabilities), TP4 x EP4 x ETP1 without
   sequence parallelism, and the ``alltoall`` or ``allgather`` token dispatcher.
+* ``megatron_alltoall_det`` / ``megatron_allgather_det`` -- the same under
+  ``torch.use_deterministic_algorithms(True)``, which makes Megatron's token
+  unpermute use ``index_add_`` instead of ``scatter_add_`` (the runner sets
+  ``CUBLAS_WORKSPACE_CONFIG`` for every candidate, as that mode requires).
 
 For each candidate a launch records the output digest, whether the first rows
 computed alone equal the same rows inside the full batch, whether a second
@@ -53,6 +57,8 @@ CANDIDATES = (
     "vllm_fused_ep_bi",
     "megatron_alltoall",
     "megatron_allgather",
+    "megatron_alltoall_det",
+    "megatron_allgather_det",
 )
 
 
@@ -134,7 +140,7 @@ def _vllm(router, gate_up, down, ep, group, batch_invariant=False):
     return run
 
 
-def _megatron(router, gate_up, down, ep, group, dispatcher):
+def _megatron(router, gate_up, down, ep, group, dispatcher, deterministic=False):
     from megatron.core.models.gpt.moe_module_specs import get_moe_module_spec
     from megatron.core.transformer.moe.moe_layer import MoELayer
     from megatron.core.transformer.transformer_config import TransformerConfig
@@ -179,7 +185,12 @@ def _megatron(router, gate_up, down, ep, group, dispatcher):
             expert.linear_fc2.weight.copy_(down[local])
 
     def run(x):
-        out, _ = layer(x[:, None, :])
+        previous = torch.are_deterministic_algorithms_enabled()
+        torch.use_deterministic_algorithms(deterministic)
+        try:
+            out, _ = layer(x[:, None, :])
+        finally:
+            torch.use_deterministic_algorithms(previous)
         return out[:, 0, :]
 
     return run
@@ -196,6 +207,10 @@ def build(name: str, router, gate_up, down, *, ep: int, group) -> Callable:
         return _megatron(router, gate_up, down, ep, group, "alltoall")
     if name == "megatron_allgather":
         return _megatron(router, gate_up, down, ep, group, "allgather")
+    if name == "megatron_alltoall_det":
+        return _megatron(router, gate_up, down, ep, group, "alltoall", deterministic=True)
+    if name == "megatron_allgather_det":
+        return _megatron(router, gate_up, down, ep, group, "allgather", deterministic=True)
     raise KeyError(name)
 
 
