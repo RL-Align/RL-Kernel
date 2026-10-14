@@ -54,7 +54,7 @@ def _json_digest(value):
 
 def _reference():
     path = (
-        Path(__file__).resolve().parents[3]
+        Path(__file__).resolve().parents[4]
         / "rl_engine/validation/models/qwen3_next_norm_manifest.json"
     )
     return json.loads(path.read_text())["model_identity"]
@@ -62,8 +62,8 @@ def _reference():
 
 def _schema_reference():
     path = (
-        Path(__file__).resolve().parents[3]
-        / "rl_engine/validation/models/qwen3_next_export_schema.json"
+        Path(__file__).resolve().parents[4]
+        / "rl_engine/validation/models/qwen3_next/qwen3_next_export_schema.json"
     )
     record = json.loads(path.read_text())
     if (

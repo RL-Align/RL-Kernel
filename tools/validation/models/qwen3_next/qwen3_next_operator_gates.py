@@ -12,10 +12,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-from rl_engine.validation.models.qwen3_next_cases import case_digest, execution_verdict, load_cases
+from rl_engine.validation.models.qwen3_next.qwen3_next_cases import (
+    case_digest,
+    execution_verdict,
+    load_cases,
+)
 
-ROOT = Path(__file__).resolve().parents[3]
-MANIFEST = ROOT / "rl_engine/validation/models/qwen3_next_operator_cases.json"
+ROOT = Path(__file__).resolve().parents[4]
+MANIFEST = ROOT / "rl_engine/validation/models/qwen3_next/qwen3_next_operator_cases.json"
 
 
 def run_suite(out: Path, suite: str) -> dict:

@@ -12,7 +12,7 @@ import shutil
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT))
 
 from qwen3_next_contract import (  # noqa: E402
@@ -43,11 +43,11 @@ from qwen3_next_runtime import (  # noqa: E402
     verify_environment,
 )
 
-from rl_engine.validation.models.qwen3_next_binary import (  # noqa: E402
+from rl_engine.validation.models.qwen3_next.qwen3_next_binary import (  # noqa: E402
     archive_provider_binary,
     validate_binary_record,
 )
-from rl_engine.validation.models.qwen3_next_l2 import (  # noqa: E402
+from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import (  # noqa: E402
     L2Case,
     case_matrix,
     compare_batch_prefill,
@@ -192,7 +192,7 @@ def run_layers(manifest_path, output):
     run_process(
         [
             manifest["python"],
-            str(ROOT / "tools/validation/models/qwen3_next_l2.py"),
+            str(ROOT / "tools/validation/models/qwen3_next/qwen3_next_l2.py"),
             "--gpu-probe",
             "--output",
             str(probe),

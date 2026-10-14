@@ -179,7 +179,7 @@ def main():
                     "torch.distributed.run",
                     "--standalone",
                     "--nproc_per_node=4",
-                    "tools/validation/models/qwen3_next_tp_probe.py",
+                    "tools/validation/models/qwen3_next/qwen3_next_tp_probe.py",
                     "--output",
                     str(output / "tp4"),
                 ],
@@ -206,7 +206,7 @@ def main():
                 "rollout-smoke",
                 [
                     sys.executable,
-                    "tools/validation/models/qwen3_next_rollout_smoke.py",
+                    "tools/validation/models/qwen3_next/qwen3_next_rollout_smoke.py",
                     "--model",
                     manifest["checkpoint"],
                     "--output",

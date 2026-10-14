@@ -4,13 +4,13 @@
 
 """Write the WS1 chain-gate report for a finished Qwen3-Next chain.
 
-    python tools/validation/models/qwen3_next_chain_report.py \
+    python tools/validation/models/qwen3_next/qwen3_next_chain_report.py \
         --last <train run dir> --out chain-report.json
 
 Follows ``previous`` from the given run back to the ``l2`` stage, reads every
 passed stage's L2 matrix (``baseline`` from ``l2``, ``update1``/``update2``
 from ``train1``/``train2``, ``reload`` from ``train``) and the hash-checked case
-artifacts it names, and writes ``rl_engine.validation.models.qwen3_next_chain_report``'s
+artifacts it names, and writes ``rl_engine.validation.models.qwen3_next.qwen3_next_chain_report``'s
 report. Exits 1 when the chain did not pass.
 """
 
@@ -19,12 +19,14 @@ import json
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT))
 
 from rl_engine.contracts.numerical import load_contract  # noqa: E402
-from rl_engine.validation.models.qwen3_next_chain_report import build_report  # noqa: E402
-from rl_engine.validation.models.qwen3_next_l2 import (  # noqa: E402
+from rl_engine.validation.models.qwen3_next.qwen3_next_chain_report import (  # noqa: E402
+    build_report,
+)
+from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import (  # noqa: E402
     checked_artifact_path,
     load_tensor_artifact,
 )

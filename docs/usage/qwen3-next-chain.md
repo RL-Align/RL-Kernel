@@ -27,13 +27,13 @@ layer family.
 Inside an allocation with four GPUs, from a clean checkout of the commit to measure:
 
 ```bash
-python tools/validation/models/qwen3_next_run.py --stage all \
+python tools/validation/models/qwen3_next/qwen3_next_run.py --stage all \
     --runs-root <runs> --checkpoint <checkpoint> --cuda-home <cuda-13.0> \
     --python <venv>/bin/python --until l2
-python tools/validation/models/qwen3_next_run.py --stage all --from train1 --until train2 \
+python tools/validation/models/qwen3_next/qwen3_next_run.py --stage all --from train1 --until train2 \
     --previous <runs>/<...-l2-...> \
     --runs-root <runs> --checkpoint <checkpoint> --cuda-home <cuda-13.0> --python <venv>/bin/python
-python tools/validation/models/qwen3_next_run.py --stage train --previous <runs>/<...-train2-...> \
+python tools/validation/models/qwen3_next/qwen3_next_run.py --stage train --previous <runs>/<...-train2-...> \
     --runs-root <runs> --checkpoint <checkpoint> --cuda-home <cuda-13.0> --python <venv>/bin/python
 ```
 
@@ -45,7 +45,7 @@ provider or topology identity.
 
 | Stage | What it checks | Typical time |
 | --- | --- | --- |
-| `preflight` | environment and versions, the mandatory operator cases (`rl_engine/validation/models/qwen3_next_operator_cases.json`) and norm C3/C4 gates, multi-GPU device guards, a four-rank TP probe, checkpoint hashes, a vLLM rollout smoke | 15 min |
+| `preflight` | environment and versions, the mandatory operator cases (`rl_engine/validation/models/qwen3_next/qwen3_next_operator_cases.json`) and norm C3/C4 gates, multi-GPU device guards, a four-rank TP probe, checkpoint hashes, a vLLM rollout smoke | 15 min |
 | `layers` | the real-weight TP4 gates (GDN, attention, MoE, GDN engine adapters, embedding/LM head) and the native scheduler on 16 cases; certifies the shared provider profile | 25 min |
 | `l2` | 16 cases (prompt 8/64/256/1024 x batch 1/4 x full/chunked prefill, 16 response tokens): rollout vs replay, raw bits, plus every layer and sub-node digest | 30 min |
 | `train1`, `train2` | one optimizer update each, checkpoint, HF export, L2 on the exported weights | 3-4 h each |
@@ -54,11 +54,15 @@ provider or topology identity.
 ## Reports
 
 ```bash
-python tools/validation/models/qwen3_next_chain_report.py --last <runs>/<...-train-...> --out chain-report.json
+python tools/validation/models/qwen3_next/qwen3_next_chain_report.py --last <runs>/<...-train-...> --out chain-report.json
 bash ci/scripts/run_qwen3_next_chain_gate.sh chain-report.json
-python tools/validation/models/qwen3_next_publish_evidence.py --last <runs>/<...-train-...> \
-    --chain-report chain-report.json --out docs/usage/evidence/qwen3-next-chain-<date>
+python tools/validation/models/qwen3_next/qwen3_next_publish_evidence.py --last <runs>/<...-train-...> \
+    --chain-report chain-report.json --out artifacts/qwen3-next-chain-<date>
 ```
+
+The published copy is attached to a release as a ZIP rather than committed; the
+B200 results, tested commit and download link are in
+[`reports/experiments/qwen3_next/qwen3-next-chain-b200.md`](https://github.com/fusheng-ji/RL-Kernel/blob/feat/ws1-qwen3-next-full-model-chain/reports/experiments/qwen3_next/qwen3-next-chain-b200.md).
 
 `chain-report.json` has every field of the Qwen3-8B chain gate's report
 (`rl_engine.validation.models.chain_gate.ChainGateReport`, schema `ws1-c10-c11-v5`)
@@ -74,7 +78,7 @@ both engines (`rl_engine/models/qwen3_next/qwen3_next_subnode.py`): the normed
 mixer input, the mixer output, the normed MLP input, the ten selected expert
 ids and the MoE output, plus the embedding once per model.
 
-`tools/validation/models/qwen3_next_publish_evidence.py` copies the stage records and the
+`tools/validation/models/qwen3_next/qwen3_next_publish_evidence.py` copies the stage records and the
 report, replaces site paths, host and user names with placeholders, refuses to
 publish if any survive, and writes `SHA256SUMS`.
 

@@ -9,8 +9,8 @@ import pytest
 import torch
 
 from rl_engine.contracts.numerical import load_contract
-from rl_engine.validation.models import qwen3_next_chain_report as chain
 from rl_engine.validation.models.chain_gate import ChainGateReport
+from rl_engine.validation.models.qwen3_next import qwen3_next_chain_report as chain
 
 CASES = ("p0008-b1-full", "p0008-b1-chunked")
 

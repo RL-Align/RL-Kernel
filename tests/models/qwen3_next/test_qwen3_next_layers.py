@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(ROOT / "tools/validation/models"))
+sys.path.insert(0, str(ROOT / "tools/validation/models/qwen3_next"))
 
 from qwen3_next_layer_contract import (  # noqa: E402
     checked_record,
@@ -86,7 +86,7 @@ def test_artifact_hash_and_attempt_escape_are_rejected(tmp_path):
 
 
 def test_complete_component_flags_cannot_replace_native_scheduler(tmp_path):
-    from rl_engine.validation.models.qwen3_next_binary import (
+    from rl_engine.validation.models.qwen3_next.qwen3_next_binary import (
         archive_provider_binary,
         validate_binary_record,
     )

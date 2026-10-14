@@ -6,7 +6,7 @@
 Environment identity, failure classification, memory preconditions, owned child
 processes, checkpoint verification, stage ordering and crash-recoverable
 training storage. Nothing here talks to a batch scheduler: a run is identified
-by the ``execution_id`` that ``tools/validation/models/qwen3_next_run.py`` writes into
+by the ``execution_id`` that ``tools/validation/models/qwen3_next/qwen3_next_run.py`` writes into
 ``run.json``, and any allocation that provides four GPUs can host it.
 """
 
@@ -437,15 +437,40 @@ def wait_owned_child(child, interrupted, *, grace_seconds=10):
 # --------------------------------------------------------------------------- #
 
 STAGES = {
-    "preflight": ("256G", "01:00:00", None, "tools/validation/models/qwen3_next_preflight.py"),
-    "layers": ("512G", "04:00:00", "preflight", "tools/validation/models/qwen3_next_layers.py"),
-    "l2": ("512G", "04:00:00", "layers", "tools/validation/models/qwen3_next_l2.py"),
+    "preflight": (
+        "256G",
+        "01:00:00",
+        None,
+        "tools/validation/models/qwen3_next/qwen3_next_preflight.py",
+    ),
+    "layers": (
+        "512G",
+        "04:00:00",
+        "preflight",
+        "tools/validation/models/qwen3_next/qwen3_next_layers.py",
+    ),
+    "l2": ("512G", "04:00:00", "layers", "tools/validation/models/qwen3_next/qwen3_next_l2.py"),
     # The training acceptance is split so no single job holds a node for a day:
     # train1 = update1 + export + L2, train2 = update2 + export + L2 (continues
     # train1's durable state), train = reload + L2 + continuous/resumed controls.
-    "train1": ("1280G", "06:00:00", "l2", "tools/validation/models/qwen3_next_training.py"),
-    "train2": ("1280G", "07:00:00", "train1", "tools/validation/models/qwen3_next_training.py"),
-    "train": ("1280G", "09:00:00", "train2", "tools/validation/models/qwen3_next_training.py"),
+    "train1": (
+        "1280G",
+        "06:00:00",
+        "l2",
+        "tools/validation/models/qwen3_next/qwen3_next_training.py",
+    ),
+    "train2": (
+        "1280G",
+        "07:00:00",
+        "train1",
+        "tools/validation/models/qwen3_next/qwen3_next_training.py",
+    ),
+    "train": (
+        "1280G",
+        "09:00:00",
+        "train2",
+        "tools/validation/models/qwen3_next/qwen3_next_training.py",
+    ),
 }
 
 

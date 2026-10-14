@@ -46,7 +46,7 @@ def checkpoint_identity(checkpoint):
     index = json.loads((checkpoint / "model.safetensors.index.json").read_text())
     reference = json.loads(
         (
-            Path(__file__).resolve().parents[3]
+            Path(__file__).resolve().parents[4]
             / "rl_engine/validation/models/qwen3_next_norm_manifest.json"
         ).read_text()
     )["model_identity"]
@@ -81,7 +81,9 @@ def checkpoint_identity(checkpoint):
 
 def operator_requirements(root, suite):
     registry = json.loads(
-        (Path(root) / "rl_engine/validation/models/qwen3_next_operator_cases.json").read_text()
+        (
+            Path(root) / "rl_engine/validation/models/qwen3_next/qwen3_next_operator_cases.json"
+        ).read_text()
     )
     if registry.get("schema_version") != 1:
         raise ValueError("Unsupported mandatory operator case registry")
@@ -154,7 +156,7 @@ def validate_partial_training_evidence(manifest, root, evidence, *, attempt_root
     from qwen3_next_l2 import model_identity
     from qwen3_next_training import STAGE_LAST_PHASE, read_record, stage_phases
 
-    from rl_engine.validation.models.qwen3_next_l2 import validate_matrix_report
+    from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import validate_matrix_report
 
     stage = manifest["stage"]
     progress = json.loads((root / evidence["updates"]["path"]).read_text())
@@ -310,7 +312,9 @@ def validate_result(manifest, result, *, run_dir=None, attempt=None):
                     root=attempt_root,
                 )
             else:
-                from rl_engine.validation.models.qwen3_next_l2 import validate_matrix_report
+                from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import (
+                    validate_matrix_report,
+                )
 
                 certificate = manifest.get("scheduler_profile_certificate", {})
                 certificate_path = Path(certificate.get("path", ""))

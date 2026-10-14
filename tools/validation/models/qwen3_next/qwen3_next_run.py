@@ -4,7 +4,7 @@
 
 """Run the Qwen3-Next full-model chain inside any allocation with four B200 GPUs.
 
-    python tools/validation/models/qwen3_next_run.py --stage all \\
+    python tools/validation/models/qwen3_next/qwen3_next_run.py --stage all \\
         --runs-root <dir> --checkpoint <Qwen3-Next-80B-A3B-Instruct> --cuda-home <cuda-13.0>
 
 Stages run in order, each in its own run directory and its own clean clone of
@@ -52,7 +52,7 @@ from qwen3_next_runtime import (
     wait_owned_child,
 )
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 ORDER = ("preflight", "layers", "l2", "train1", "train2", "train")
 PROVIDER_SOURCES = (
     "rl_engine/integrations/engines/train/vllm/qwen3_next_provider.py",
