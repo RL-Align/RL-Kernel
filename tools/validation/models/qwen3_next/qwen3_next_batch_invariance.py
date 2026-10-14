@@ -5,7 +5,8 @@
 """Stage ``bi``: the Qwen3-Next batch-invariance matrix (RFC #428 ``batch_invariance_ci``).
 
 Runs after a passed ``l2`` stage, under the same certified provider profile
-(``VLLM_BATCH_INVARIANT=1``). The cells are ``rl_engine/validation/models/qwen3_next_bi_cases.py``
+(``VLLM_BATCH_INVARIANT=1``). The cells are
+``rl_engine/validation/models/qwen3_next/qwen3_next_bi_cases.py``
 (pinned by ``qwen3_next_bi_manifest.json``); ``bi_suite: quick`` in the manifest
 runs the CI subset. Two independent worker processes, as in ``l2``:
 
@@ -28,9 +29,9 @@ import shutil
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "tools/validation/models"))
+sys.path.insert(0, str(ROOT / "tools/validation/models/qwen3_next"))
 
 from qwen3_next_contract import evidence_record, result_envelope, validate_result  # noqa: E402
 from qwen3_next_l2 import (  # noqa: E402
@@ -50,14 +51,14 @@ from qwen3_next_runtime import (  # noqa: E402
     verify_environment,
 )
 
-from rl_engine.validation.models import qwen3_next_bi_cases as bi  # noqa: E402
-from rl_engine.validation.models.qwen3_next_binary import (  # noqa: E402
+from rl_engine.validation.models.qwen3_next import qwen3_next_bi_cases as bi  # noqa: E402
+from rl_engine.validation.models.qwen3_next.qwen3_next_binary import (  # noqa: E402
     archive_provider_binary,
     validate_binary_record,
     verify_imported_provider,
 )
-from rl_engine.validation.models.qwen3_next_chain_report import family_of  # noqa: E402
-from rl_engine.validation.models.qwen3_next_l2 import (  # noqa: E402
+from rl_engine.validation.models.qwen3_next.qwen3_next_chain_report import family_of  # noqa: E402
+from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import (  # noqa: E402
     FROZEN_TEXTS,
     compare_artifacts,
     compare_batch_prefill,
@@ -232,7 +233,7 @@ def execute(manifest_path, output):
     run_process(
         [
             manifest["python"],
-            str(ROOT / "tools/validation/models/qwen3_next_l2.py"),
+            str(ROOT / "tools/validation/models/qwen3_next/qwen3_next_l2.py"),
             "--gpu-probe",
             "--output",
             str(probe),

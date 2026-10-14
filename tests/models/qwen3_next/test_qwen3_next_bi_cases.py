@@ -10,7 +10,7 @@ import pytest
 from rl_engine.integrations.orchestrators.vime.experiments.qwen3_next.native_recompute import (
     packed_layout,
 )
-from rl_engine.validation.models import qwen3_next_bi_cases as bi
+from rl_engine.validation.models.qwen3_next import qwen3_next_bi_cases as bi
 
 TEXTS = [list(range(1000 + 50 * i, 1000 + 50 * i + 17 + i)) for i in range(4)]
 IDENTITY = {
