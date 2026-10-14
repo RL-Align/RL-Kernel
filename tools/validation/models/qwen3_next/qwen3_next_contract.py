@@ -292,7 +292,7 @@ def validate_result(manifest, result, *, run_dir=None, attempt=None):
         if manifest["stage"] == "bi":
             from qwen3_next_l2 import model_identity
 
-            from rl_engine.validation.models import qwen3_next_bi_cases as bi
+            from rl_engine.validation.models.qwen3_next import qwen3_next_bi_cases as bi
 
             matrix = json.loads((root / evidence["bi_matrix"]["path"]).read_text())
             suite = bi.quick_cells() if manifest.get("bi_suite") == "quick" else bi.cells()

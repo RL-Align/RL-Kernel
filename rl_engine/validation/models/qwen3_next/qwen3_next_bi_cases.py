@@ -34,7 +34,7 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from rl_engine.validation.models.qwen3_next_l2 import json_digest
+from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import json_digest
 
 MANIFEST = Path(__file__).with_name("qwen3_next_bi_manifest.json")
 MAX_MODEL_LEN = 1040
@@ -243,7 +243,7 @@ def manifest_payload():
     return {
         "schema_version": 1,
         "description": "Qwen3-Next batch-invariance cells; regenerate with "
-        "python -m rl_engine.validation.models.qwen3_next_bi_cases --write",
+        "python -m rl_engine.validation.models.qwen3_next.qwen3_next_bi_cases --write",
         "cells": entries,
         "cells_sha256": hashlib.sha256(
             json.dumps(entries, sort_keys=True, separators=(",", ":")).encode()

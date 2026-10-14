@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "description": "Qwen3-Next batch-invariance cells; regenerate with python -m rl_engine.validation.models.qwen3_next_bi_cases --write",
+  "description": "Qwen3-Next batch-invariance cells; regenerate with python -m rl_engine.validation.models.qwen3_next.qwen3_next_bi_cases --write",
   "cells": [
     {
       "cell_id": "concurrency-n01-first",
