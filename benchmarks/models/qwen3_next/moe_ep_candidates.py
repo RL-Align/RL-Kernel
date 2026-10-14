@@ -94,21 +94,20 @@ def _rl_kernel(router, gate_up, down, ep, group):
 
 @contextlib.contextmanager
 def _vllm_batch_invariant(enabled: bool):
-    """Set ``VLLM_BATCH_INVARIANT`` for one call; vLLM reads it per call but caches
-    the tuned tile configs, so the cache is cleared on both sides of the switch."""
+    """Run with ``VLLM_BATCH_INVARIANT`` set to ``enabled``.
+
+    vLLM reads the variable on every call but caches the tile config per
+    shape, so the cache is cleared only when the setting actually changes;
+    clearing it on every call would add a config-file lookup (and its log
+    line) to each timed call.
+    """
     from vllm.model_executor.layers.fused_moe.fused_moe import get_moe_configs
 
-    previous = os.environ.get("VLLM_BATCH_INVARIANT")
-    os.environ["VLLM_BATCH_INVARIANT"] = "1" if enabled else "0"
-    get_moe_configs.cache_clear()
-    try:
-        yield
-    finally:
-        if previous is None:
-            os.environ.pop("VLLM_BATCH_INVARIANT")
-        else:
-            os.environ["VLLM_BATCH_INVARIANT"] = previous
+    value = "1" if enabled else "0"
+    if os.environ.get("VLLM_BATCH_INVARIANT", "0") != value:
+        os.environ["VLLM_BATCH_INVARIANT"] = value
         get_moe_configs.cache_clear()
+    yield
 
 
 def _vllm(router, gate_up, down, ep, group, batch_invariant=False):
