@@ -50,8 +50,8 @@ import torch
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-import rl_engine.kernels.ops.cuda.loss.logp as logp_mod  # noqa: E402
-from rl_engine.kernels.ops.base import _C  # noqa: E402
+import rl_engine.backends.cuda.logprob.logp as logp_mod  # noqa: E402
+from rl_engine.backends.extension import _C  # noqa: E402
 
 VOCAB = 151936
 TIMED_ROWS = (8192, 16384, 32768)
