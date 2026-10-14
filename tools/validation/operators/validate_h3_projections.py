@@ -228,8 +228,9 @@ def make_inputs(rows, family, seed, kind):
     x = torch.randn(rows, input_dim, device="cuda", generator=generator)
     w = torch.randn(output_dim, input_dim, device="cuda", generator=generator) / input_dim**0.5
     if family == "cancellation":
-        x[:, 1::2] = -x[:, ::2]
-        w[:, 1::2] = w[:, ::2] + 1e-5
+        even_columns, odd_columns = slice(0, None, 2), slice(1, None, 2)
+        x[:, odd_columns] = -x[:, even_columns]
+        w[:, odd_columns] = w[:, even_columns] + 1e-5
     elif family == "normalized":
         x = x / x.square().mean(-1, keepdim=True).add(1e-5).sqrt()
     dy = torch.randn(rows, output_dim, device="cuda", generator=generator) * 0.1
