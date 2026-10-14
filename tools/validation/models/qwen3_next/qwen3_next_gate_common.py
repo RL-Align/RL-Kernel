@@ -20,7 +20,7 @@ import torch
 import torch.distributed as dist
 from safetensors import safe_open
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 
 
 class CheckpointWeights(Mapping):
