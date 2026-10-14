@@ -44,6 +44,7 @@ class FixedFP32Backend:
             BLOCK_N=64,
             BLOCK_K=32,
             PROMOTE_INPUTS=False,
+            INDEX_64=True,
             num_warps=4,
             num_stages=2,
             enable_fp_fusion=False,

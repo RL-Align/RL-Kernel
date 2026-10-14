@@ -12,7 +12,7 @@ Checkpoint: `MiniMaxAI/MiniMax-H3@42ed227ee7df40d41602854ae760620d6eb651fe`.
 Both accept BF16 `[M,K]` or `[B,S,K]`, native `[N,K]` weights and no bias.
 Gate/up returns the packed projection in checkpoint row order without a SwiGLU
 activation or row permutation. Attention output consumes flattened 56 x 128
-head channels in their original order. Input rows range from 1 to 32768.
+head channels in their original order. The candidate input range is now 1 to 131072 rows; the expansion is not yet GPU-qualified.
 One NVIDIA SM90 device, eager execution and TF32 disabled are required.
 
 The shared adapter reuses `_det_gemm_fp32_kernel` with fixed 64x64x32 tiles,
@@ -85,7 +85,7 @@ random, normalized and cancellation inputs: 78 synthetic cases plus two real
 checkpoint-weight cases. Fixture activations are explicitly synthetic. The
 range downloader retrieves only the two required tensors and records revision,
 weight key and weight/index/header digests. It rejects ignored or malformed
-HTTP ranges. Captured model inputs remain a separate qualification requirement.
+HTTP ranges. Captured model inputs remain an additional integration qualification target.
 
 Each case checks independent FP32 y/dX/dW accuracy from identical BF16 inputs,
 repeat, row permutation, chunk size 31, non-contiguous layout, inactive padding,
@@ -126,10 +126,97 @@ The bundle is a reviewed derivative with original artifact hashes. Its JSON
 report contents are unchanged; the pytest summary is explicitly extracted
 from the smoke log. Raw originals, weights and compiled artifacts remain
 outside the submission; all 170 retrieved files passed integrity checks.
-The documentation/evidence-only commit following the tested revision changes
-no fingerprinted implementation or validation source.
+The historical evidence commit changed no implementation. Subsequent local changes
+expand the row limit, enable 64-bit addressing and extend validation; the historical
+results do not qualify those changes. New GPU evidence is required before publication.
 
 Real weights were tested with synthetic activations. Captured model inputs,
 independent-environment replay, full-model integration and TP remain untested.
 The report's `acceptance_complete` stays false. These operator results do not
 establish production readiness or a performance improvement.
+
+
+## Reuse assessment
+
+Reviewed on 2026-10-14. This is a source/API assessment, not an external-backend
+GPU benchmark or proof that alternative kernels fail batch invariance.
+
+| Candidate and source | Assessment and decision |
+| --- | --- |
+| RL-Kernel `_det_gemm_fp32_kernel` | Reused directly. Fixed tiles and ordered K accumulation already match the arithmetic policy. The adapter supplies native weight layout, backward and canonical logical-row reduction. The large-row extension selects 64-bit offsets; default callers retain their existing index policy. |
+| [CUTLASS GEMM 3.x](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/gemm_api_3x.html) | Provides configurable GEMM collectives and schedules. A fixed schedule is a plausible alternative, but does not itself supply this operator's canonical cross-call dW/session contract. No replacement is qualified here. |
+| [FlashInfer GEMM](https://docs.flashinfer.ai/api/gemm.html) | BF16 GEMM is a relevant comparator. Its API availability alone does not establish the required forward/dX/dW invariance under row permutations and chunked training. No external comparison was run. |
+| [SGLang persistent GEMM](https://github.com/sgl-project/sglang/blob/bab9c81fea62c2d20b646736c918c88fea54b7a2/python/sglang/srt/batch_invariant_ops/batch_invariant_ops.py) | The inspected BF16 configuration uses 128x128x64 tiles and a persistent schedule. It is a credible BI reuse candidate, with a different reduction policy from this 64x64x32 profile; canonical training reduction still needs an adapter and qualification. Keep as a future performance comparator rather than claiming it is unsuitable. |
+| [vLLM batch invariance](https://docs.vllm.ai/en/latest/features/batch_invariance/) | Inference batch invariance is relevant prior art. This training operator additionally needs stable logical keys and canonical dW across calls. Inference qualification is not evidence for that contract. |
+| [FlashAttention](https://github.com/Dao-AILab/flash-attention) | Attention is adjacent to the output projection; it is not a replacement for these dense linear maps. |
+| [Miles](https://github.com/radixark/miles), [Verl](https://github.com/verl-project/verl), [Vime reproducibility](https://github.com/vllm-project/vime/blob/main/docs/en/advanced/reproducibility.md) | Framework integration and reproducibility guidance inform system testing. No standalone H3 training projection implementation was established by this review; backend-level candidates above remain the relevant comparison points. |
+
+Reuse of the existing repository kernel avoids adding another device kernel or
+an unqualified dependency. This decision makes no speed advantage claim over
+CUTLASS, FlashInfer, SGLang or vLLM.
+
+## Historical accuracy and performance charts
+
+![Historical H100 accuracy and performance](evidence/h3-projections/h100.svg)
+
+The chart is derived solely from the unchanged JSON bundle: worst error divided
+by tolerance for y/dX/dW over all families at each synthetic row count, and
+median forward/forward-backward wall times for random inputs. It does not cover
+the expanded row range or the current 64-bit index variant. Reproduce with:
+
+```bash
+python -m pip install matplotlib==3.10.9
+python benchmarks/operators/gemm/plot_h3_projections.py \
+  --evidence docs/operators/evidence/h3-projections/h100.json \
+  --output docs/operators/evidence/h3-projections/h100.svg
+```
+
+## Task-shaped acceptance still to run
+
+The earlier 32768-row ceiling was below a realistic 768p task. Geometry follows
+pinned diffusers v0.40.0
+[frame conversion](https://github.com/huggingface/diffusers/blob/v0.40.0/src/diffusers/modular_pipelines/minimax_h3/modular_pipeline.py)
+and [packed sequence construction](https://github.com/huggingface/diffusers/blob/v0.40.0/src/diffusers/modular_pipelines/minimax_h3/before_denoise.py):
+`T = ((F - 5) // 17) * 5 + 2`, video rows `T * 24 * 42`, stereo audio rows
+`2 * round(F / 24 * 40)`. The fixture explicitly selects 256 text rows and two
+keyframes (2016 conditioning rows). These are task-shaped synthetic inputs,
+not captured model activations. No full model is required to exercise these
+row-local GEMMs and their canonical weight gradients.
+
+| Frames | Latent frames | Video rows | Audio rows | Total packed rows |
+| ---: | ---: | ---: | ---: | ---: |
+| 124 | 37 | 37296 | 414 | 39982 |
+| 243 | 72 | 72576 | 810 | 75658 |
+| 345 | 102 | 102816 | 1150 | 106238 |
+
+The largest declared task fixture is 345 frames, B=1, 1344x768; the 131072-row
+boundary is also tested separately. This is not a claim to cover every aspect
+ratio, prompt length, reference count or larger batch. Device fit and correctness
+are pending GPU measurement. OOM or numerical failures must remain in evidence.
+Long cases use non-divisible chunks of 4093 rows; historical-sized cases retain
+31-row chunks. Byte mismatch counts are accumulated in bounded chunks to avoid
+an unnecessarily large temporary during long-case verification.
+
+```bash
+bash ci/scripts/run_h3_projections.sh smoke
+bash ci/scripts/run_h3_projections.sh full
+bash ci/scripts/run_h3_projections.sh tasks
+bash ci/scripts/run_h3_projections.sh tasks-replay
+```
+
+Both task runs exercise 32768, 131072 and all three packed row counts for both
+operators, plus checkpoint fixtures; replay uses a fresh process/cache and
+compares all output digests. Run the full historical matrix again because the
+index specialization changed. The new task runs currently use random inputs;
+normalized/cancellation coverage remains in the full regression matrix.
+
+Negative tests now explicitly cover mixed-device inputs/keys, malformed key
+shape/dtype/count, duplicates, session row overflow and unsupported registry
+WS/TP combinations. Direct eager calls are local operators and do not negotiate
+distributed topology; distributed callers must use the strict registry. Existing
+coverage includes empty/wrong-dtype inputs, unsupported devices/backends,
+non-contiguous inputs, padding gradients and stale autograd versions.
+
+Publication is blocked pending new GPU results for the changed source. The
+personal pre-push profile retains the historical source/evidence hashes until
+new evidence has been reviewed; it must not be repinned merely to pass the gate.

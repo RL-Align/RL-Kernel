@@ -28,7 +28,7 @@ def test_contract_and_rejections(kind):
     assert (k, n) == ((5376, 28672) if kind == "h3_ffn_gate_up_gemm" else (7168, 5376))
     op = down.H3ProjectionOp(kind)
     w = torch.empty((n, k), dtype=torch.bfloat16, device="meta")
-    for shape in [(k,), (2, 7), (1, 1, 1, k), (0, k), (32769, k)]:
+    for shape in [(k,), (2, 7), (1, 1, 1, k), (0, k), (down.H3_MAX_ROWS + 1, k)]:
         with pytest.raises(ValueError):
             op(torch.empty(shape, dtype=torch.bfloat16, device="meta"), w)
     x = torch.empty((1, k), dtype=torch.bfloat16, device="meta")
@@ -208,7 +208,9 @@ def test_candidate_registration_cannot_enter_default_strict_resolution(kind):
         requested_backend=down.H3ProjectionOp(kind).backend,
         target="training",
         requirements=OperatorRequirements(
-            device="cuda", dtype="bfloat16", topology={"world_size": 1, "tensor_parallel_size": 1}
+            device="cuda",
+            dtype="bfloat16",
+            topology={"world_size": 1, "tensor_parallel_size": 1},
         ),
     )
     with pytest.raises(OperatorResolutionError):
@@ -284,3 +286,88 @@ def test_partial_gradients_and_native_output_order(cpu_orchestration, kind, trai
         assert raw_equal(w.grad, x.detach().expand(3, 4))
     else:
         assert w.grad is None
+
+
+@pytest.mark.parametrize("operand", ["x", "weight"])
+def test_mixed_device_inputs_fail_before_launch(kind, operand):
+    k, n = down.SPECS[kind]
+    x = torch.empty((1, k), dtype=torch.bfloat16, device="meta")
+    w = torch.empty((n, k), dtype=torch.bfloat16, device="meta")
+    # Expanded CPU storage avoids allocating the full weight for a rejection test.
+    if operand == "x":
+        x = torch.zeros((), dtype=torch.bfloat16).expand(1, k)
+    else:
+        w = torch.zeros((), dtype=torch.bfloat16).expand(n, k)
+    with pytest.raises(ValueError, match="share one device"):
+        down.H3ProjectionOp(kind)(x, w)
+
+
+@pytest.mark.parametrize("invalid", ["dtype", "rank", "count", "width", "device", "duplicate"])
+def test_invalid_logical_keys(cpu_orchestration, kind, invalid):
+    x = torch.ones(2, 4).bfloat16()
+    w = torch.ones(3, 4).bfloat16().requires_grad_(True)
+    keys = logical_keys(2, "cpu")
+    variants = {
+        "dtype": keys.int(),
+        "rank": keys.flatten(),
+        "count": keys[:1],
+        "width": keys[:, :1],
+        "device": keys.to("meta"),
+        "duplicate": keys[:1].expand(2, 2),
+    }
+    with canonical_backward_session():
+        with pytest.raises((TypeError, ValueError)):
+            down.H3ProjectionOp(kind)(x, w, logical_keys=variants[invalid])
+
+
+@pytest.mark.parametrize(
+    "topology",
+    [
+        {"world_size": 2, "tensor_parallel_size": 1},
+        {"world_size": 2, "tensor_parallel_size": 2},
+        {"world_size": 1, "tensor_parallel_size": 2},
+    ],
+)
+def test_unsupported_topology_is_rejected_by_registry(kind, topology):
+    from rl_engine.runtime.registry import _default_semantic_descriptors
+    from rl_engine.runtime.semantic_registry import (
+        OperatorRequirements,
+        OperatorResolutionError,
+        OperatorResolutionPolicy,
+        SemanticOperatorCatalog,
+    )
+
+    session = SemanticOperatorCatalog(_default_semantic_descriptors()).session(
+        OperatorResolutionPolicy(allow_test_backends=True)
+    )
+    with pytest.raises(OperatorResolutionError):
+        session.resolve(
+            semantic_op=kind,
+            requested_backend=down.H3ProjectionOp(kind).backend,
+            target="training",
+            requirements=OperatorRequirements(device="cuda", dtype="bfloat16", topology=topology),
+        )
+
+
+def test_expanded_row_boundary_and_session_limit(monkeypatch, kind):
+    k, n = down.SPECS[kind]
+    w = torch.empty((n, k), dtype=torch.bfloat16, device="meta")
+    for rows in (37296, 106238, down.H3_MAX_ROWS):
+        with pytest.raises(RuntimeError, match="NVIDIA CUDA"):
+            down._validate_inputs(
+                torch.empty((rows, k), dtype=torch.bfloat16, device="meta"), w, kind
+            )
+    monkeypatch.setattr(down, "H3_MAX_ROWS", 3)
+    with canonical_backward_session() as session:
+        weight = torch.ones(1)
+        down._register_rows(session, weight, logical_keys(2, "cpu"), 2, "weight")
+        with pytest.raises(ValueError, match="row limit"):
+            down._register_rows(session, weight, logical_keys(2, "cpu") + 10, 2, "weight")
+
+
+def test_byte_mismatch_count_crosses_comparison_chunk_boundary():
+    lhs = torch.zeros((1 << 19) + 2, dtype=torch.bfloat16)
+    rhs = lhs.clone()
+    rhs[-1] = -0.0
+    result = comparison(lhs, rhs, "forward_invariance")
+    assert not result["passed"] and result["mismatched_bytes"] == 1

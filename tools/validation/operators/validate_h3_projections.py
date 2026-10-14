@@ -80,6 +80,7 @@ def provenance(args):
         "families": args.families,
         "repeats": args.repeats,
         "operators": args.operators,
+        "task_layouts_requested": args.task_layouts,
     }
 
 
@@ -149,8 +150,9 @@ def run_case(x, w, dy, label, repeats, *, kind):
         "permuted_logical_rows",
     )
     del permuted
-    chunked, _ = training_projection(op, x, w, dy, keys, chunk_size=31)
-    add_checks(case, chunked, canonical, "chunk31_single_backward")
+    chunk_size = 31 if rows <= 32768 else 4093
+    chunked, _ = training_projection(op, x, w, dy, keys, chunk_size=chunk_size)
+    add_checks(case, chunked, canonical, f"chunk{chunk_size}_single_backward")
     del chunked
     # Force non-contiguous activations AND native-shaped non-contiguous weights.
     layout_x, layout_w = x.t().contiguous().t(), w.t().contiguous().t()
@@ -164,17 +166,28 @@ def run_case(x, w, dy, label, repeats, *, kind):
     if rows + pad <= H3_MAX_ROWS:
         padded, _ = training_projection(op, padded_x, w, padded_dy, padded_keys)
         add_checks(
-            case, (padded[0][:rows], padded[1][:rows], padded[2]), canonical, "inactive_padding"
+            case,
+            (padded[0][:rows], padded[1][:rows], padded[2]),
+            canonical,
+            "inactive_padding",
         )
         del padded
     del padded_x, padded_dy, padded_keys
     if rows % 2 == 0:
         batched, _ = training_projection(
-            op, x.reshape(2, rows // 2, input_dim), w, dy.reshape(2, rows // 2, output_dim), keys
+            op,
+            x.reshape(2, rows // 2, input_dim),
+            w,
+            dy.reshape(2, rows // 2, output_dim),
+            keys,
         )
         add_checks(
             case,
-            (batched[0].reshape(rows, output_dim), batched[1].reshape(rows, input_dim), batched[2]),
+            (
+                batched[0].reshape(rows, output_dim),
+                batched[1].reshape(rows, input_dim),
+                batched[2],
+            ),
             canonical,
             "batch2_reshape",
         )
@@ -237,16 +250,54 @@ def make_inputs(rows, family, seed, kind):
     return x.bfloat16(), w.bfloat16(), dy.bfloat16()
 
 
+def task_layouts():
+    """Pinned diffusers v0.40.0 FL2VA geometry; synthetic activations, B=1.
+
+    modular_pipeline.video_latent_num_frames/audio_latent_num_frames and
+    before_denoise.MiniMaxH3BuildPackedSequence.build_packed_sequence define
+    the frame alignment and packed-row sum. Text length is an explicit fixture
+    choice, not a captured prompt. Two keyframes and stereo audio are included.
+    """
+    result = []
+    for frames in (124, 243, 345):
+        latent_frames = (frames - 5) // 17 * 5 + 2
+        video_rows = latent_frames * (768 // 32) * (1344 // 32)
+        audio_rows = 2 * round(frames / 24 * 40)
+        conditions, text_rows = 2 * 24 * 42, 256
+        result.append(
+            {
+                "name": f"fl2va_768p_{frames}f",
+                "source": "diffusers@v0.40.0",
+                "frames": frames,
+                "height": 768,
+                "width": 1344,
+                "batch_size": 1,
+                "latent_frames": latent_frames,
+                "video_rows": video_rows,
+                "audio_rows": audio_rows,
+                "condition_rows": conditions,
+                "text_rows": text_rows,
+                "rows": video_rows + audio_rows + conditions + text_rows,
+                "activation_kind": "synthetic",
+            }
+        )
+    return result
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True)
     parser.add_argument("--operators", default=",".join(SPECS))
     parser.add_argument("--rows", default="1,31,32,33,127,128,129,256,513,1024,4096,8192,32768")
     parser.add_argument("--families", default="random,normalized,cancellation")
+    parser.add_argument("--task-layouts", action="store_true", help="Add pinned 768p FL2VA layouts")
     parser.add_argument("--seed", type=int, default=420)
     parser.add_argument("--repeats", type=int, default=5)
     parser.add_argument(
-        "--fixture", action="append", default=[], help="Repeat for each weights_only fixture"
+        "--fixture",
+        action="append",
+        default=[],
+        help="Repeat for each weights_only fixture",
     )
     args = parser.parse_args(argv)
     output = Path(args.output)
@@ -265,12 +316,19 @@ def main(argv=None):
     try:
         kinds = args.operators.split(",")
         rows = [int(n) for n in args.rows.split(",")]
+        layouts = task_layouts() if args.task_layouts else []
+        report["task_layouts"] = layouts
+        rows = list(dict.fromkeys(rows + [layout["rows"] for layout in layouts]))
         families = args.families.split(",")
         if not kinds or not set(kinds) <= SPECS.keys():
             raise ValueError("invalid operator selection")
         if not rows or any(not 1 <= n <= H3_MAX_ROWS for n in rows):
-            raise ValueError("rows must be in [1,32768]")
-        if args.repeats < 1 or not set(families) <= {"random", "normalized", "cancellation"}:
+            raise ValueError(f"rows must be in [1,{H3_MAX_ROWS}]")
+        if args.repeats < 1 or not set(families) <= {
+            "random",
+            "normalized",
+            "cancellation",
+        }:
             raise ValueError("invalid repeats or families")
         report["provenance"] = provenance(args)
         if not torch.cuda.is_available() or torch.version.hip is not None:
@@ -292,6 +350,7 @@ def main(argv=None):
                     values = make_inputs(count, family, args.seed, kind)
                     case = run_case(*values, family, args.repeats, kind=kind)
                     case["semantic_op"] = kind
+                    case["task_layouts"] = [layout for layout in layouts if layout["rows"] == count]
                     report["cases"].append(case)
                     save()
                     print(f"{kind} {family} M={count}: {case['passed']}", flush=True)
@@ -339,7 +398,7 @@ def main(argv=None):
         report["status"] = "passed" if passed else "failed"
         report["limitations"] = [
             "No full-model acceptance or production promotion",
-            "Captured model activations and independent environment replay remain required",
+            "Captured model activations and independent environment replay were not performed",
             "PyTorch timings do not establish a byte-invariant baseline",
         ]
         return 0 if passed else 1

@@ -14,7 +14,7 @@ SPECS = {
     "h3_ffn_gate_up_gemm": (5376, 28672),
     "h3_attention_o_gemm": (7168, 5376),
 }
-H3_MAX_ROWS = 32768
+H3_MAX_ROWS = 131072
 H3_BACKEND_SUFFIX = ".triton.fp32_tiles.v1"
 H3_CHECKPOINT_REVISION = "42ed227ee7df40d41602854ae760620d6eb651fe"
 
@@ -48,7 +48,9 @@ def _require_backend(device, backend):
         raise RuntimeError("H3 projections currently support SM90 only")
     if torch.backends.cuda.matmul.allow_tf32:
         raise RuntimeError("disable TF32 before executing the H3 numerical profile")
-    from rl_engine.backends.shared.triton.gemm.h3_projection_fp32 import FixedFP32Backend
+    from rl_engine.backends.shared.triton.gemm.h3_projection_fp32 import (
+        FixedFP32Backend,
+    )
 
     return FixedFP32Backend()
 
@@ -147,7 +149,9 @@ class _H3ProjectionFn(torch.autograd.Function):
                     value = _weight_gradient(ctx.extension, rows, grads)
                     executed.append(
                         getattr(
-                            ctx.extension, "h3_kernel_id", "rl_engine._C.det_gemm_db_transposed"
+                            ctx.extension,
+                            "h3_kernel_id",
+                            "rl_engine._C.det_gemm_db_transposed",
                         )
                     )
                     ctx.trace["weight_gradient_executed"] = True
@@ -209,6 +213,7 @@ class H3ProjectionOp:
             "num_stages": 2,
             "fp_fusion": False,
             "split_k": False,
+            "index_bits": 64,
             "accumulator_dtype": "float32",
             "schedule_id": "fixed-64x64x32-w4-s2-fusion0",
             "topology": {"world_size": 1, "tensor_parallel_size": 1},

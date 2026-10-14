@@ -18,7 +18,10 @@ def fp32_math():
     try:
         torch.set_float32_matmul_precision("highest")
         torch.backends.cuda.matmul.allow_tf32 = False
-        with torch.autocast("cuda", enabled=False), torch.autocast("cpu", enabled=False):
+        with (
+            torch.autocast("cuda", enabled=False),
+            torch.autocast("cpu", enabled=False),
+        ):
             yield
     finally:
         torch.set_float32_matmul_precision(old_precision)
@@ -67,7 +70,10 @@ def comparison(lhs, rhs, judgment, *, contract=None):
         if lhs.dtype == rhs.dtype:
             bits_l = lhs.contiguous().reshape(-1).view(torch.uint8)
             bits_r = rhs.contiguous().reshape(-1).view(torch.uint8)
-            result["mismatched_bytes"] = int((bits_l != bits_r).sum().item())
+            result["mismatched_bytes"] = sum(
+                int((bits_l[lo : lo + (1 << 20)] != bits_r[lo : lo + (1 << 20)]).sum().item())
+                for lo in range(0, bits_l.numel(), 1 << 20)
+            )
         else:
             result["error"] = "dtype mismatch"
         return result
@@ -111,7 +117,11 @@ def training_projection(op, x, weight, grad, keys, *, chunk_size=None):
             parts = []
             for lo in range(0, x.shape[0], chunk_size):
                 parts.append(
-                    op(x[lo : lo + chunk_size], weight, logical_keys=keys[lo : lo + chunk_size])
+                    op(
+                        x[lo : lo + chunk_size],
+                        weight,
+                        logical_keys=keys[lo : lo + chunk_size],
+                    )
                 )
                 traces.append(op.last_execution)
             output = torch.cat(parts)

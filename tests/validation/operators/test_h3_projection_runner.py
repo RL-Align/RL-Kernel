@@ -68,7 +68,8 @@ def test_replay_rejects_failed_sources_and_detects_drift():
     import copy
 
     replay_spec = importlib.util.spec_from_file_location(
-        "h3_replay", ROOT / "tools/validation/operators/compare_h3_projection_replays.py"
+        "h3_replay",
+        ROOT / "tools/validation/operators/compare_h3_projection_replays.py",
     )
     replay = importlib.util.module_from_spec(replay_spec)
     replay_spec.loader.exec_module(replay)
@@ -103,3 +104,11 @@ def test_replay_rejects_failed_sources_and_detects_drift():
     changed["status"] = "failed"
     with pytest.raises(ValueError, match="both reports"):
         replay.compare(report, changed)
+
+
+def test_pinned_task_geometry():
+    layouts = runner.task_layouts()
+    assert [row["latent_frames"] for row in layouts] == [37, 72, 102]
+    assert [row["rows"] for row in layouts] == [39982, 75658, 106238]
+    assert all(row["activation_kind"] == "synthetic" for row in layouts)
+    assert all(row["rows"] <= ops.H3_MAX_ROWS for row in layouts)
