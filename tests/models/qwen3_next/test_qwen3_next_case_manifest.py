@@ -10,7 +10,11 @@ from pathlib import Path
 
 import pytest
 
-from rl_engine.validation.models.qwen3_next_cases import case_digest, execution_verdict, load_cases
+from rl_engine.validation.models.qwen3_next.qwen3_next_cases import (
+    case_digest,
+    execution_verdict,
+    load_cases,
+)
 
 CASE = "tests/example.py::test_required"
 SUCCESS = {"setup": "passed", "call": "passed", "teardown": "passed"}

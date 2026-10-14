@@ -39,7 +39,7 @@ def test_requeue_repeats_final_reload_without_reusing_stale_attempt(monkeypatch)
     assert not runner.repeat_reload_in_current_attempt(journal, "1")
 
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools/validation/models"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools/validation/models/qwen3_next"))
 import qwen3_next_training as runner  # noqa: E402
 
 from rl_engine.integrations.orchestrators.vime.experiments.qwen3_next import (  # noqa: E402
@@ -376,7 +376,7 @@ def test_partial_training_evidence_uses_the_phase_export_identity(tmp_path, monk
     import qwen3_next_contract as contract
     import qwen3_next_l2
 
-    from rl_engine.validation.models import qwen3_next_l2 as l2_testing
+    from rl_engine.validation.models.qwen3_next import qwen3_next_l2 as l2_testing
 
     manifest = {"stage": "train1", "checkpoint": "/official"}
     export = {"checkpoint": "/export", "weight_version": "update-1", "base_checkpoint": "/official"}

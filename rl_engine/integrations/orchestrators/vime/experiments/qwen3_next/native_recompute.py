@@ -17,7 +17,7 @@ import torch.multiprocessing as mp
 from rl_engine.models.qwen3_next import qwen3_next_subnode as subnode
 from rl_engine.validation.common.file_digest import file_sha256
 from rl_engine.validation.common.tensor_identity import assert_tensor_bitwise_equal as exact
-from rl_engine.validation.models.qwen3_next_l2 import (
+from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import (
     embedding_digest,
     layer_digest,
     load_tensor_artifact,
