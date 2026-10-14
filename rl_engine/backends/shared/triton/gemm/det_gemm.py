@@ -745,6 +745,7 @@ def _triton_gemm_fp32(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
         BLOCK_N=_BLOCK_N,
         BLOCK_K=_BLOCK_K,
         PROMOTE_INPUTS=True,
+        **({"enable_fp_fusion": False} if torch.version.hip is None else {}),
     )
     return c
 
