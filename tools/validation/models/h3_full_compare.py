@@ -111,8 +111,10 @@ def main():
             for name in drift_order(other if "execution_order" in other["trace"] else ref, rows)
             if any(rows[name][k] > contract["bounds"][name][k] for k in rows[name])
         ]
+        hybrid = other.get("diagnostic_provider_nodes") or []
         report.update(
-            status="failed" if failures else "passed",
+            status="diagnostic_only" if hybrid else ("failed" if failures else "passed"),
+            diagnostic_provider_nodes=hybrid,
             errors=rows,
             failures=failures,
             first_drift=failures[0] if failures else None,
@@ -142,7 +144,7 @@ def main():
             errors=rows,
         )
     args.output.write_text(json.dumps(report, indent=2) + "\n")
-    if args.thresholds and failures:
+    if args.thresholds and failures and not report.get("diagnostic_provider_nodes"):
         raise SystemExit(1)
 
 

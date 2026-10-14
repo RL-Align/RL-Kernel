@@ -365,10 +365,14 @@ def run_graph(mode: str, ctx: dict[str, Any], ops: CandidateOps | None = None) -
     """Every node's output for one mode ("candidate", "provider" or "golden")."""
 
     values: dict[str, Any] = {"hidden": ctx["hidden"], "temb": ctx["temb"]}
+    # Diagnostic hybrids only: these candidate nodes run their provider replay instead.
+    provider_nodes = ctx.get("provider_nodes", ())
     with strict_fp32_matmul():
         for node in NODES:
             args = [values[name] for name in node.inputs]
-            if mode == "candidate":
+            if mode == "candidate" and node.name in provider_nodes:
+                values[node.name] = node.provider(ctx, *args)
+            elif mode == "candidate":
                 values[node.name] = node.candidate(ops, ctx, *args)
             elif mode == "provider":
                 values[node.name] = node.provider(ctx, *args)

@@ -115,7 +115,16 @@ def main():
         default="default",
         help="bf16-provider only: force one SDPA backend or cuBLASLt (variability study)",
     )
+    parser.add_argument(
+        "--provider-nodes",
+        default="",
+        help="candidate only, diagnostic: comma list of block nodes that run the provider "
+        "replay in every block (the result is labelled diagnostic, never acceptance)",
+    )
     args = parser.parse_args()
+    provider_nodes = tuple(n for n in args.provider_nodes.split(",") if n)
+    if provider_nodes and args.mode != "candidate":
+        parser.error("--provider-nodes applies to --mode candidate only")
     if args.mode == "candidate" and not args.thresholds:
         parser.error("candidate execution requires previously frozen calibration thresholds")
     if args.provider_variant != "default" and args.mode != "bf16-provider":
@@ -131,6 +140,7 @@ def main():
         status="running",
         mode=args.mode,
         provider_variant=args.provider_variant,
+        diagnostic_provider_nodes=list(provider_nodes),
         job_id=os.environ.get("SLURM_JOB_ID"),
         model_revision=MODEL_REVISION,
         command=list(os.sys.argv),
@@ -220,7 +230,12 @@ def main():
         begin = time.perf_counter()
         report["preferred_blas_library"] = None
         with (
-            full_model_execution(model, candidate=args.mode == "candidate", trace=trace),
+            full_model_execution(
+                model,
+                candidate=args.mode == "candidate",
+                trace=trace,
+                provider_nodes=provider_nodes,
+            ),
             provider_variant_context(args.provider_variant),
         ):
             report["preferred_blas_library"] = str(torch.backends.cuda.preferred_blas_library())

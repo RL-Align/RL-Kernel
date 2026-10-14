@@ -164,8 +164,18 @@ def require_candidate_cuda(ops):
 
 
 @contextmanager
-def full_model_execution(model, *, candidate: bool, trace: FullModelTrace, ops=None):
-    """Temporarily bind each real block, preserving module parameters and restoring on error."""
+def full_model_execution(
+    model, *, candidate: bool, trace: FullModelTrace, ops=None, provider_nodes=()
+):
+    """Temporarily bind each real block, preserving module parameters and restoring on error.
+
+    ``provider_nodes`` (diagnostic hybrids only) names candidate graph nodes that run
+    their provider replay in every block; such a run localises drift and is never a
+    candidate result.
+    """
+    unknown = set(provider_nodes) - {n.name for n in h3_block.NODES}
+    if unknown:
+        raise ValueError(f"unknown block nodes: {sorted(unknown)}")
     boundaries = validate_full_structure(model)
     originals, handles = [], []
     trace.candidate = candidate
@@ -199,6 +209,7 @@ def full_model_execution(model, *, candidate: bool, trace: FullModelTrace, ops=N
                         temb=temb,
                         index=adaln_indices,
                         rope=rotary_emb,
+                        provider_nodes=frozenset(provider_nodes),
                         node_observer=lambda name: trace.candidate_calls.update(
                             [f"block.{_block_index}.{name}"]
                         ),
