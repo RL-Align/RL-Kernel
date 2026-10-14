@@ -84,12 +84,15 @@ with no change in bits.
 
 ## Results
 
-Measured on B200 with `tools/validation/models/qwen3_next_moe_prior_art.py` and the TP4 gate
-`tools/validation/models/qwen3_next_tp_moe_check.py`; the reports, the figure and the exact
-commands are in
-[`docs/usage/evidence/qwen3-next-moe-route-b200/`](../usage/evidence/qwen3-next-moe-route-b200/README.md).
+Measured on B200 with the prior-art runner of the Qwen3-Next benchmark PR
+(`benchmarks/models/qwen3_next/qwen3_next_moe_prior_art.py`) and this PR's TP4 gate
+`tools/validation/models/qwen3_next/qwen3_next_tp_moe_check.py`. The summary, tested
+commits and commands are in
+[`reports/experiments/qwen3_next/qwen3-next-moe-route-b200.md`](https://github.com/fusheng-ji/RL-Kernel/blob/feat/ws1-qwen3-next-moe-route-combine/reports/experiments/qwen3_next/qwen3-next-moe-route-b200.md);
+the raw reports and the figure are a
+[ZIP release attachment](https://github.com/fusheng-ji/RL-Kernel/releases/download/qwen3-next-rfc428-evidence/qwen3-next-moe-route-b200.zip).
 
-![Qwen3-Next routed MoE prior art](../usage/evidence/qwen3-next-moe-route-b200/figure.png)
+![Qwen3-Next routed MoE prior art](https://github.com/fusheng-ji/RL-Kernel/releases/download/qwen3-next-rfc428-evidence/qwen3-next-moe-route-b200.png)
 
 TP1 shape (H=2048, 512 experts, top-10, width 512), random weights, BF16:
 
@@ -134,7 +137,7 @@ shared expert + all-reduce) takes 1.9-2.4 ms at 8-1024 tokens.
 | `tests/models/qwen3_next/test_qwen3_next_tp_blocks.py` | CPU | HF shard/assemble round trips, replica drift rejection, TP4 parameter ownership |
 | `tests/validation/common/test_tensor_identity.py` | CPU | raw-bit identity (signed zero, NaN/Inf, dtype) |
 | `tests/models/qwen3_next/check_qwen3_next_forward.py` | CUDA + vLLM | GEMM batch/chunk/reorder, route ties, combine order, MoE VJP vs FP64, route and output batch invariance, grouped == per-expert bitwise, fail-closed TD path |
-| `tools/validation/models/qwen3_next_tp_moe_check.py` | 4 x CUDA | real layer-0 weights: HF round trip, replicated routes, chunk/reorder, training forward, gradients |
+| `tools/validation/models/qwen3_next/qwen3_next_tp_moe_check.py` | 4 x CUDA | real layer-0 weights: HF round trip, replicated routes, chunk/reorder, training forward, gradients |
 
 The `check_` file imports vLLM, so it runs in the `Qwen3-Next-provider-GPU`
 workflow rather than the default collection.
