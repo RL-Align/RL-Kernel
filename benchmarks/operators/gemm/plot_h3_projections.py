@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Render historical measurements without changing the evidence bundle."""
+"""Render retained measurements without changing the evidence bundle."""
 import argparse
 import hashlib
 import json
@@ -20,7 +20,13 @@ def main():
     matplotlib.rcParams.update({"svg.fonttype": "none", "svg.hashsalt": "h3-projections"})
     raw = args.evidence.read_bytes()
     bundle = json.loads(raw)
-    report = bundle["artifacts"]["full.json"]["content"]
+    unique_cases = {}
+    for name in ("full.json", "tasks.json"):
+        if name in bundle["artifacts"]:
+            for case in bundle["artifacts"][name]["content"]["cases"]:
+                key = (case["semantic_op"], case["input_family"], case["rows"])
+                unique_cases.setdefault(key, case)
+    report = {"cases": list(unique_cases.values())}
     fig, axes = plt.subplots(2, 3, figsize=(15, 8), constrained_layout=True)
     for row, (kind, title) in enumerate(
         [
@@ -72,8 +78,9 @@ def main():
             ax.grid(alpha=0.2)
             ax.legend(fontsize=8)
     fig.suptitle(
-        "Historical H100 / SM90 measurements at 6a50c80\n"
-        "Accuracy: all input families; timing: random BF16, seed 420, 2 warmups / 5 samples\n"
+        f"H100 / SM90 measurements at {bundle['tested_source_revision'][:7]}\n"
+        "Accuracy: available families/fixtures; timing: random BF16, seed 420, "
+        "2 warmups / 5 samples\n"
         "Candidate includes validation/copies; PyTorch baseline is not BI-qualified",
         fontsize=12,
     )
@@ -84,9 +91,13 @@ def main():
             "Date": None,
             "Description": "Derived from h100.json SHA256 "
             + hashlib.sha256(raw).hexdigest()
-            + "; no measurements modified; expanded row range is not validated by this figure.",
+            + "; no measurements modified; full report preferred for duplicate rows.",
         },
     )
+    if args.output.suffix.lower() == ".svg":
+        args.output.write_text(
+            "\n".join(line.rstrip() for line in args.output.read_text().splitlines()) + "\n"
+        )
     plt.close(fig)
 
 

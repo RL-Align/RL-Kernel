@@ -12,7 +12,8 @@ Checkpoint: `MiniMaxAI/MiniMax-H3@42ed227ee7df40d41602854ae760620d6eb651fe`.
 Both accept BF16 `[M,K]` or `[B,S,K]`, native `[N,K]` weights and no bias.
 Gate/up returns the packed projection in checkpoint row order without a SwiGLU
 activation or row permutation. Attention output consumes flattened 56 x 128
-head channels in their original order. The candidate input range is now 1 to 131072 rows; the expansion is not yet GPU-qualified.
+head channels in their original order. Inputs support 1 to 131072 rows.
+The expanded range passed the H100 operator tests below.
 One NVIDIA SM90 device, eager execution and TF32 disabled are required.
 
 The shared adapter reuses `_det_gemm_fp32_kernel` with fixed 64x64x32 tiles,
@@ -52,13 +53,22 @@ partial gradients, non-contiguous version counters, fail-closed registry
 resolution, reference math, fixture byte ranges and runner orchestration.
 CPU surrogates exercise control flow only; they do not emulate GPU arithmetic.
 The H100 run at source revision
-`6a50c80d3d226188281c9acb166b6f6e9c55b077` passed 45 tests, all 8 smoke
-cases, all 80 full-matrix cases (1,868 checks), and all 12 replay cases.
-The 36 y/dX/dW digests matched across separate processes and compilation caches.
-Both operators passed 40 full cases and 934 checks each. The maximum error
-normalized by the applicable tolerance was 0.182174; all invariance checks
-passed with zero differing elements. Explicit execution traces recorded the
-requested Triton backend with no fallback.
+`b58e276d5702c6ca70fb229f1cebb8318016aba0` passed 71 focused tests,
+8 smoke cases (176 checks), 80 full-matrix cases (1,886 checks), and 12
+task/boundary cases (288 checks). All 12 task replay cases passed; all 36
+y/dX/dW digests matched across separate processes and compilation caches.
+The worst error divided by tolerance was 0.194678. Every invariance check
+passed, and explicit execution traces recorded 64-bit addressing, the requested
+Triton kernel and no fallback. The retained cubin files match the launch hashes.
+The 131072-row boundary and all three task-shaped row counts passed on both operators.
+
+Additional regression results are not all green: 27 existing canonical-backward
+fusion tests failed because `_C` was unavailable (`det_gemm_db_transposed` and
+`det_gemm_fwd` attributes). The generic Triton selection skipped 14 tests and
+deselected 57; these results are not approvals. All failing test IDs, error types
+and summaries are retained. Separately, three direct GPU checks of the shared
+FP32 default-index path passed FP32 accuracy, repeat and permutation checks.
+These direct checks do not replace the missing-extension regression suite.
 
 The machine used one H100 80GB (SM90) and an Intel Xeon Platinum 8470 CPU.
 Software was Python 3.10.12, PyTorch 2.6.0+cu124, Triton 3.2.0 and driver
@@ -77,7 +87,8 @@ python -m pip install -r requirements/h3-projections.txt
 export H3_EVIDENCE_DIR="${PWD}/artifacts/h3-projections"
 bash ci/scripts/run_h3_projections.sh smoke
 bash ci/scripts/run_h3_projections.sh full
-bash ci/scripts/run_h3_projections.sh replay
+bash ci/scripts/run_h3_projections.sh tasks
+bash ci/scripts/run_h3_projections.sh tasks-replay
 ```
 
 The full matrix covers both operators, 13 row counts from 1 through 32768 and
@@ -88,7 +99,7 @@ weight key and weight/index/header digests. It rejects ignored or malformed
 HTTP ranges. Captured model inputs remain an additional integration qualification target.
 
 Each case checks independent FP32 y/dX/dW accuracy from identical BF16 inputs,
-repeat, row permutation, chunk size 31, non-contiguous layout, inactive padding,
+repeat, row permutation, non-divisible chunks, non-contiguous layout, inactive padding,
 batch reshaping, singleton rows and mutation of unrelated rows. Published shared
 tolerances are used unchanged; NaN/Inf and signed-zero differences fail invariance.
 Synchronized wall timings include host checks, copies and canonical preparation;
@@ -107,12 +118,12 @@ preparation as GPU acceptance, performance improvement or production readiness.
 ## Measured performance and evidence
 
 Median synchronized wall times in milliseconds, random BF16 inputs with seed
-420 and 32,768 rows; two warmups and five measured repetitions:
+420 and 32,768 rows at `b58e276`; two warmups and five measured repetitions:
 
 | Operator | Candidate forward | PyTorch BF16 forward | Candidate forward/backward | PyTorch BF16 forward/backward |
 | --- | ---: | ---: | ---: | ---: |
-| Gate/up | 83.1829 | 16.4246 | 234.6838 | 45.3069 |
-| Attention output | 20.6235 | 3.4305 | 49.5236 | 12.7178 |
+| Gate/up | 83.2183 | 14.6619 | 236.8656 | 41.9501 |
+| Attention output | 20.5741 | 3.6446 | 51.7265 | 10.4624 |
 
 The candidate is slower than ordinary PyTorch BF16 in these measurements.
 The baseline has no byte-invariance qualification, and the candidate timing
@@ -122,13 +133,14 @@ fixture provenance, output hashes and kernel traces are retained in
 [`evidence/h3-projections/h100.json`](evidence/h3-projections/h100.json).
 Verify the bundle with `sha256sum -c SHA256SUMS` from its directory.
 
-The bundle is a reviewed derivative with original artifact hashes. Its JSON
-report contents are unchanged; the pytest summary is explicitly extracted
-from the smoke log. Raw originals, weights and compiled artifacts remain
-outside the submission; all 170 retrieved files passed integrity checks.
-The historical evidence commit changed no implementation. Subsequent local changes
-expand the row limit, enable 64-bit addressing and extend validation; the historical
-results do not qualify those changes. New GPU evidence is required before publication.
+The bundle is a reviewed derivative with original artifact hashes. All decoded
+JSON report contents are unchanged. Log-derived summaries explicitly retain
+failures and skips. The historical `6a50c80` bundle is retained unchanged under
+`historical_runs`, with its original SHA-256. Raw originals, weights and compiled
+artifacts remain outside the submission; all 261 files from the new run passed
+integrity checks. The historical run's 170 files remain preserved separately.
+The new results validate the expanded row limit and 64-bit addressing at `b58e276`;
+subsequent evidence/documentation/chart changes do not modify the tested implementation.
 
 Real weights were tested with synthetic activations. Captured model inputs,
 independent-environment replay, full-model integration and TP remain untested.
@@ -155,14 +167,15 @@ Reuse of the existing repository kernel avoids adding another device kernel or
 an unqualified dependency. This decision makes no speed advantage claim over
 CUTLASS, FlashInfer, SGLang or vLLM.
 
-## Historical accuracy and performance charts
+## Accuracy and performance charts
 
-![Historical H100 accuracy and performance](evidence/h3-projections/h100.svg)
+![H100 accuracy and performance](evidence/h3-projections/h100.svg)
 
-The chart is derived solely from the unchanged JSON bundle: worst error divided
-by tolerance for y/dX/dW over all families at each synthetic row count, and
-median forward/forward-backward wall times for random inputs. It does not cover
-the expanded row range or the current 64-bit index variant. Reproduce with:
+The chart is derived solely from the current full and task reports: worst error
+divided by tolerance for y/dX/dW over the available families and checkpoint
+fixtures at each row count, and median forward/forward-backward wall times for
+random inputs. Duplicate rows prefer the full report; larger rows use the task
+report. The underlying samples remain unchanged. Reproduce with:
 
 ```bash
 python -m pip install matplotlib==3.10.9
@@ -171,7 +184,7 @@ python benchmarks/operators/gemm/plot_h3_projections.py \
   --output docs/operators/evidence/h3-projections/h100.svg
 ```
 
-## Task-shaped acceptance still to run
+## Task-shaped operator acceptance
 
 The earlier 32768-row ceiling was below a realistic 768p task. Geometry follows
 pinned diffusers v0.40.0
@@ -191,8 +204,8 @@ row-local GEMMs and their canonical weight gradients.
 
 The largest declared task fixture is 345 frames, B=1, 1344x768; the 131072-row
 boundary is also tested separately. This is not a claim to cover every aspect
-ratio, prompt length, reference count or larger batch. Device fit and correctness
-are pending GPU measurement. OOM or numerical failures must remain in evidence.
+ratio, prompt length, reference count or larger batch. Device fit and correctness passed on the tested H100 80GB. This does not
+establish fit for full-model training or a different device/software profile.
 Long cases use non-divisible chunks of 4093 rows; historical-sized cases retain
 31-row chunks. Byte mismatch counts are accumulated in bounded chunks to avoid
 an unnecessarily large temporary during long-case verification.
@@ -206,7 +219,7 @@ bash ci/scripts/run_h3_projections.sh tasks-replay
 
 Both task runs exercise 32768, 131072 and all three packed row counts for both
 operators, plus checkpoint fixtures; replay uses a fresh process/cache and
-compares all output digests. Run the full historical matrix again because the
+compares all output digests. The full historical matrix was rerun because the
 index specialization changed. The new task runs currently use random inputs;
 normalized/cancellation coverage remains in the full regression matrix.
 
@@ -217,6 +230,29 @@ distributed topology; distributed callers must use the strict registry. Existing
 coverage includes empty/wrong-dtype inputs, unsupported devices/backends,
 non-contiguous inputs, padding gradients and stale autograd versions.
 
-Publication is blocked pending new GPU results for the changed source. The
-personal pre-push profile retains the historical source/evidence hashes until
-new evidence has been reviewed; it must not be repinned merely to pass the gate.
+The personal submission profile was updated only after reviewing the new raw
+hashes, source fingerprints, all cases, actual launch/cubin hashes and replay
+checks. A passing submission check does not establish full CI, maintainer
+approval or merge readiness; the missing-extension regression remains a
+reported limitation. Registry entries remain test-only.
+
+To reproduce the additional checks, run the commands below. The standalone
+shared FP32 reproducer is preserved verbatim in the JSON bundle and is extracted
+into the ignored evidence directory. The first command requires a compatible
+built `_C` extension to avoid the recorded 27 failures; the second command's
+selection skipped all 14 selected tests in the recorded environment.
+
+```bash
+CUBLAS_WORKSPACE_CONFIG=:16:8 CUBLASLT_WORKSPACE_SIZE=1 \
+  python -m pytest -q tests/backends/cuda/test_canonical_backward_fusion.py
+python -m pytest -q tests/ops/gemm/test_det_gemm.py -k triton
+python - <<'PYCODE'
+import json, os
+from pathlib import Path
+bundle = json.loads(Path("docs/operators/evidence/h3-projections/h100.json").read_text())
+target = Path(os.environ["H3_EVIDENCE_DIR"]) / "check_shared_fp32.py"
+target.parent.mkdir(parents=True, exist_ok=True)
+target.write_text(bundle["artifacts"]["shared-fp32-reproducer"]["content"])
+PYCODE
+PYTHONPATH=. python "$H3_EVIDENCE_DIR/check_shared_fp32.py"
+```
