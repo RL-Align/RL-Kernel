@@ -54,5 +54,5 @@ layer and sub-node, and its layer family (`embedding`, `norm`, `gdn`,
 `batch_invariance` section summarises it per family; a failing cell fails
 the chain report.
 
-The [B200 result summary](https://github.com/fusheng-ji/RL-Kernel/blob/feat/ws1-qwen3-next-distributed-logprob-tp/reports/experiments/qwen3_next/qwen3-next-batch-invariance-b200.md)
+The [B200 result summary](https://github.com/fusheng-ji/RL-Kernel/blob/feat/ws1-qwen3-next-batch-invariance-ci/reports/experiments/qwen3_next/qwen3-next-batch-invariance-b200.md)
 links the raw evidence ZIP, tested commit and reproduction commands.
