@@ -4,7 +4,8 @@
 
 """TP4 full-attention gate on the official checkpoint's layer-3 weights; four GPUs, torchrun.
 
-    torchrun --nproc-per-node 4 tools/validation/models/qwen3_next_tp_attention_check.py \\
+    torchrun --nproc-per-node 4 \\
+        tools/validation/models/qwen3_next/qwen3_next_tp_attention_check.py \\
         --checkpoint <Qwen3-Next-80B-A3B-Instruct> --output <dir>
 
 Requires, bitwise: the HF load/export round trip with the KV head replicated on
@@ -18,7 +19,7 @@ import sys
 from contextlib import ExitStack
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
 import torch  # noqa: E402
 import torch.distributed as dist  # noqa: E402
@@ -31,7 +32,7 @@ from rl_engine.models.qwen3_next.qwen3_next_tp_blocks import (  # noqa: E402
 from rl_engine.validation.common.tensor_identity import (  # noqa: E402
     assert_tensor_bitwise_equal as exact,
 )
-from tools.validation.models.qwen3_next_gate_common import (  # noqa: E402
+from tools.validation.models.qwen3_next.qwen3_next_gate_common import (  # noqa: E402
     CheckpointWeights,
     check_gradients,
     gather,
