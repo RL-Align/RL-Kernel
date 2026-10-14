@@ -7,7 +7,7 @@ This page documents the PyTorch baseline version.
 ## Entry Point
 
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 matmul = kernel_registry.get_op("matmul")
 output = matmul.forward(a, b)
@@ -17,7 +17,7 @@ reference = matmul.forward_fp32(a, b)
 The operator can also be imported directly:
 
 ```python
-from rl_engine.kernels.ops.pytorch.linear import NativeMatmulOp
+from rl_engine.reference.embedding import NativeMatmulOp
 
 matmul = NativeMatmulOp()
 ```
@@ -82,7 +82,7 @@ batch and then slicing a row should match applying matmul to that row alone.
 ## Tests
 
 ```bash
-python -m pytest tests/test_matmul.py -q
+python -m pytest tests/ops/gemm/test_matmul.py -q
 ```
 
 The test covers shape, dtype behavior, fp32 reference equivalence, batch
@@ -90,7 +90,7 @@ invariance, Qwen3 projection dimensions, and registry dispatch.
 
 ## Implementation Files
 
-- `rl_engine/kernels/ops/pytorch/linear/matmul.py`
-- `rl_engine/kernels/ops/pytorch/linear/__init__.py`
-- `rl_engine/kernels/registry.py`
-- `tests/test_matmul.py`
+- `rl_engine/reference/embedding/matmul.py`
+- `rl_engine/reference/embedding/__init__.py`
+- `rl_engine/runtime/registry.py`
+- `tests/ops/gemm/test_matmul.py`
