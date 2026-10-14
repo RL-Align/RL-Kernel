@@ -47,6 +47,8 @@ NCCL_SETTINGS = ("NCCL_ALGO", "NCCL_PROTO", "NCCL_MAX_NCHANNELS")
 
 
 def measure(checkpoint: Path, output: Path) -> None:
+    # Required by torch.use_deterministic_algorithms; set for every candidate alike.
+    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     ep = int(os.environ["WORLD_SIZE"])
     rank = int(os.environ["LOCAL_RANK"])
     if ep not in (1, 4):
@@ -85,6 +87,7 @@ def measure(checkpoint: Path, output: Path) -> None:
             "rank": rank,
             "tokens": TOKENS,
             "nccl_settings": {name: os.environ.get(name) for name in NCCL_SETTINGS},
+            "cublas_workspace_config": os.environ["CUBLAS_WORKSPACE_CONFIG"],
             "input_sha256": digest(x),
             **provenance(),
             "candidates": candidate_report(
