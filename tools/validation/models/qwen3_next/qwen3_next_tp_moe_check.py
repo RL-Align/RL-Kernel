@@ -5,7 +5,7 @@
 """TP4 MoE gate on the official checkpoint's layer-0 weights; four GPUs, torchrun.
 
     TRITON_F32_DEFAULT=ieee torchrun --nproc-per-node 4 \\
-        tools/validation/models/qwen3_next_tp_moe_check.py \\
+        tools/validation/models/qwen3_next/qwen3_next_tp_moe_check.py \\
         --checkpoint <Qwen3-Next-80B-A3B-Instruct> --output <dir>
 
 Each rank writes ``rank-<r>.json``. The gate requires, bitwise:
@@ -30,7 +30,7 @@ from datetime import timedelta
 from importlib.metadata import version
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
 import torch  # noqa: E402
 import torch.distributed as dist  # noqa: E402
@@ -50,7 +50,7 @@ from rl_engine.validation.common.tensor_identity import (  # noqa: E402
     assert_tensor_bitwise_equal as exact,
 )
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 TOKEN_COUNTS = (8, 64, 256, 1024)
 
 
