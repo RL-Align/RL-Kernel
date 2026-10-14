@@ -16,9 +16,10 @@ python tools/validation/models/qwen3_next/qwen3_next_run.py --stage bi --bi-suit
 python tools/validation/models/qwen3_next/qwen3_next_chain_report.py --last <...-l2-...> --bi <...-bi-...> --out chain-report.json
 python tools/validation/models/qwen3_next/qwen3_next_publish_evidence.py --last <...-l2-...> --also <...-bi-...> \
     --chain-report chain-report.json --out artifacts/qwen3-next-batch-invariance-b200
+python benchmarks/models/qwen3_next/plot_qwen3_next_batch_invariance.py artifacts/qwen3-next-batch-invariance-b200
 ```
 
-Commands use the current layout; at `759755e` the runners lived in `scripts/`.
+Commands use the current layout; at `759755e` the runners lived in `scripts/`, and the plot script is now in the Qwen3-Next benchmark PR.
 The archive preserves the original evidence bytes and `SHA256SUMS`; the publisher
 at `3025497` only added site redactions. Extract the ZIP before inspecting its JSON.
 
