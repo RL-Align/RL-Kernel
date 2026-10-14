@@ -8,8 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from rl_engine.validation.models.qwen3_next_cases import execution_verdict
-from tools.validation.models import qwen3_next_operator_gates as gates
+from rl_engine.validation.models.qwen3_next.qwen3_next_cases import execution_verdict
+from tools.validation.models.qwen3_next import qwen3_next_operator_gates as gates
 
 CASE = "tests/example.py::test_required"
 

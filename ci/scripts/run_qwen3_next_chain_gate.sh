@@ -13,7 +13,7 @@ if [ "$#" -ge 1 ]; then
 import dataclasses, json, sys
 
 from rl_engine.validation.models.chain_gate import ChainGateReport
-from rl_engine.validation.models.qwen3_next_chain_report import COMPATIBLE_SCHEMA, SCHEMA_VERSION
+from rl_engine.validation.models.qwen3_next.qwen3_next_chain_report import COMPATIBLE_SCHEMA, SCHEMA_VERSION
 
 report = json.load(open(sys.argv[1]))
 missing = {f.name for f in dataclasses.fields(ChainGateReport)} - set(report)

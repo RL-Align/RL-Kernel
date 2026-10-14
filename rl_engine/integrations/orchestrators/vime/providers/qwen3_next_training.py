@@ -16,7 +16,9 @@ from contextlib import contextmanager
 import numpy as np
 import torch
 
-from rl_engine.validation.models.qwen3_next_rl_fixture import require_policy_configuration
+from rl_engine.validation.models.qwen3_next.qwen3_next_rl_fixture import (
+    require_policy_configuration,
+)
 
 
 def tensor_digest(value, *, chunk_bytes=64 * 1024 * 1024):

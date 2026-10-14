@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(ROOT / "tools/validation/models"))
+sys.path.insert(0, str(ROOT / "tools/validation/models/qwen3_next"))
 
 import qwen3_next_publish_evidence as publisher  # noqa: E402
 
@@ -33,6 +33,7 @@ PATTERNS = (
 def published_files():
     roots = [
         *ROOT.glob("docs/usage/evidence/qwen3-next-*"),
+        ROOT / "reports/experiments/qwen3_next",
         *ROOT.glob("docs/operators/qwen3-next-*.md"),
         *ROOT.glob("docs/usage/qwen3-next-*.md"),
     ]

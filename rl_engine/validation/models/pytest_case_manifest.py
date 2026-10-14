@@ -7,7 +7,7 @@ import json
 import time
 from pathlib import Path
 
-from rl_engine.validation.models.qwen3_next_cases import execution_verdict, load_cases
+from rl_engine.validation.models.qwen3_next.qwen3_next_cases import execution_verdict, load_cases
 
 
 def pytest_addoption(parser):

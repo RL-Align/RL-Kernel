@@ -24,7 +24,7 @@ def profile_is_certified():
 
 def validate_certified_weights(identity, certified):
     """The base certificate is not a certificate for newly updated weight bytes."""
-    from rl_engine.validation.models.qwen3_next_l2 import validate_weight_identity
+    from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import validate_weight_identity
 
     validate_weight_identity(identity)
     if identity.get("weight_version", "baseline") == "baseline":
@@ -71,7 +71,7 @@ def activate_for_identity(identity):
         return "qualification"
     if mode != "1":
         raise ValueError("A certified shared profile must execute strict BI=1")
-    sys.path.insert(0, str(ROOT / "tools/validation/models"))
+    sys.path.insert(0, str(ROOT / "tools/validation/models/qwen3_next"))
     from qwen3_next_contract import validate_result
     from qwen3_next_l2 import model_identity
     from qwen3_next_runtime import file_digest, identity_digest, verify_environment
