@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -18,6 +19,7 @@ WeightReducer = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 @dataclass
 class _Use:
     keys: torch.Tensor
+    contribution: object | None = None
     rows: torch.Tensor | None = None
     grads: torch.Tensor | None = None
 
@@ -29,15 +31,58 @@ class CanonicalBackwardSession:
     uses: dict[str, list[_Use]] = field(default_factory=dict)
     received: dict[str, int] = field(default_factory=dict)
     backward_started: bool = False
+    _normalized: dict[tuple[object, ...], tuple[torch.Tensor, torch.Tensor]] = field(
+        default_factory=dict, repr=False
+    )
+    _shareable: set[tuple[object, ...]] | None = field(default=None, repr=False)
 
-    def register(self, parameter_id: str, keys: torch.Tensor) -> int:
+    def register(
+        self, parameter_id: str, keys: torch.Tensor, *, contribution: object | None = None
+    ) -> int:
         if self.backward_started:
             raise RuntimeError("cannot register canonical rows after backward started")
         if keys.dim() != 2 or keys.shape[1] not in (2, 3):
             raise ValueError("logical keys must have shape [rows, 2] or [rows, 3]")
         slot = len(self.uses.setdefault(parameter_id, []))
-        self.uses[parameter_id].append(_Use(keys=keys.detach()))
+        self.uses[parameter_id].append(_Use(keys=keys.detach(), contribution=contribution))
         return slot
+
+    @staticmethod
+    def _concatenate(values: list[torch.Tensor]) -> torch.Tensor:
+        return values[0] if len(values) == 1 else torch.cat(values, dim=0)
+
+    def _normalize(
+        self, parameter_id: str, values: list[torch.Tensor]
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        entries = self.uses[parameter_id]
+        # A token names one forward's shared weight/bias contribution. Matching
+        # complete token sequences prove that both parameters receive the same
+        # keys and upstream gradients, without a device equality check.
+        signature = tuple(item.contribution for item in entries)
+        if self._shareable is None:
+            # Forward registration is complete before backward. Build this once
+            # so a model's parameters do not each scan the complete session.
+            signatures = Counter(
+                tuple(item.contribution for item in other)
+                for other in self.uses.values()
+                if all(item.contribution is not None for item in other)
+            )
+            self._shareable = {key for key, count in signatures.items() if count == 2}
+        shared = signature in self._shareable
+        if shared and signature in self._normalized:
+            return self._normalized.pop(signature)
+        keys = self._concatenate([item.keys for item in entries])
+        valid = torch.nonzero(keys[:, 0] >= 0, as_tuple=True)[0]
+        active_keys = keys.index_select(0, valid)
+        order = torch.arange(valid.numel(), device=keys.device)
+        for column in range(keys.shape[1] - 1, -1, -1):
+            column_values = active_keys.index_select(0, order)[:, column]
+            order = order.index_select(0, torch.argsort(column_values, stable=True))
+        order = valid.index_select(0, order)
+        normalized = order, self._concatenate(values).index_select(0, order)
+        if shared:
+            self._normalized[signature] = normalized
+        return normalized
 
     def submit_linear(
         self,
@@ -60,20 +105,13 @@ class CanonicalBackwardSession:
         self.received[parameter_id] = count
         if count != len(entries):
             return None
-        all_keys = torch.cat([item.keys for item in entries], dim=0)
-        all_rows = torch.cat([item.rows for item in entries if item.rows is not None], dim=0)
-        all_grads = torch.cat([item.grads for item in entries if item.grads is not None], dim=0)
-        valid = all_keys[:, 0] >= 0
-        all_keys = all_keys[valid]
-        all_rows = all_rows[valid]
-        all_grads = all_grads[valid]
-        if all_keys.shape[0] == 0:
+        order, grads = self._normalize(
+            parameter_id, [item.grads for item in entries if item.grads is not None]
+        )
+        if order.numel() == 0:
             raise RuntimeError(f"no active logical rows for {parameter_id}")
-        order = torch.arange(all_keys.shape[0], device=all_keys.device)
-        for column in range(all_keys.shape[1] - 1, -1, -1):
-            values = all_keys.index_select(0, order)[:, column]
-            order = order.index_select(0, torch.argsort(values, stable=True))
-        return reducer(all_rows.index_select(0, order), all_grads.index_select(0, order))
+        rows = self._concatenate([item.rows for item in entries if item.rows is not None])
+        return reducer(rows.index_select(0, order), grads)
 
     def submit_rows(
         self,
@@ -94,15 +132,10 @@ class CanonicalBackwardSession:
         self.received[parameter_id] = count
         if count != len(entries):
             return None
-        all_keys = torch.cat([item.keys for item in entries], dim=0)
-        all_rows = torch.cat([item.rows for item in entries if item.rows is not None], dim=0)
-        valid = all_keys[:, 0] >= 0
-        all_keys, all_rows = all_keys[valid], all_rows[valid]
-        order = torch.arange(all_keys.shape[0], device=all_keys.device)
-        for column in range(all_keys.shape[1] - 1, -1, -1):
-            values = all_keys.index_select(0, order)[:, column]
-            order = order.index_select(0, torch.argsort(values, stable=True))
-        return reducer(all_rows.index_select(0, order))
+        _, rows = self._normalize(
+            parameter_id, [item.rows for item in entries if item.rows is not None]
+        )
+        return reducer(rows)
 
     def validate_complete(self) -> None:
         missing = {

@@ -25,7 +25,7 @@ def projection_gemm_fp32(a, b):
 
 class TritonVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
     family = "triton_tree"
-    backend_id = "triton-video-input-projection-fp32-v2"
+    backend_id = "triton-video-input-projection-fp32-v3"
 
     def __init__(self):
         if not _TRITON_AVAILABLE:
@@ -43,7 +43,8 @@ class TritonVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
         return {
             "backend_id": self.backend_id,
             "family": "triton",
-            "kernel": "_det_gemm_fp32_kernel / _det_gemm_tree_leaf_kernel",
+            "kernel": "_det_gemm_fp32_kernel / _det_gemm_tree_leaf_kernel / "
+            "_det_gemm_tree_leaf_reduce_rocm_kernel",
             "triton_version": triton.__version__,
             "tile": [64, 64, 32],
             "tf32": False,
@@ -52,5 +53,8 @@ class TritonVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
             "reduction": "fixed_midpoint_tree",
             "reduction_leaf_size": _BLOCK_K,
             "reduction_backend": "triton",
-            "leaf_launch": "all_leaves_in_one_grid",
+            "leaf_launch": "paired_leaves_for_one_row_complete_trees",
+            "tree_tile": [64, 32, 32],
+            "bias_tree_tile": [1, 128, 32],
+            "tree_schedule": "paired_levels_compact_workspace",
         }

@@ -87,23 +87,34 @@ stays FP32, including normalization of non-contiguous autograd inputs:
 
 The existing canonical session collects all contributions, removes padding, and
 sorts keys before the final parameter reduction. It returns each parameter VJP
-once. Ordinary chunk-by-chunk accumulation is a different arithmetic contract.
+once. Weight and bias share sorting and the sorted upstream gradient when their
+complete contribution sequences match. Calls with different contribution sets
+normalize each parameter independently.
 
 Short reductions up to the 96-wide video input use the existing direct FP32
 GEMM. Long reductions reuse the existing midpoint plan with at most 32 terms per
-leaf. Workspace, merge nodes, and output stay FP32. The Triton backend launches
-all leaves in one grid. CUTLASS packs the same leaf ranges into 32-wide buffers,
+leaf. Workspace, merge nodes, and output stay FP32. One-row complete trees fuse each
+Triton leaf pair with its first merge. Other complete trees compute leaves in
+one grid. Subsequent
+merges use the existing two-level kernel and alternating compact workspace
+buffers. Ragged trees retain the original per-level schedule. CUTLASS packs
+the same leaf ranges into 32-wide buffers,
 pads inactive slots with zero, and uses one `device::GemmArray` launch to write
-the plan's leaf nodes. Both then reuse the existing GPU level reductions.
+the plan's leaf nodes. Its transpose-view packer reads adjacent rows together
+and transposes a 32x32 tile in shared memory. It uses the same paired level
+reductions and compact buffers for complete trees.
 
 The tree depends on logical K and retains its topology across physical row
 changes. Output-row chunking keeps tree workspace below the existing element
 limit (512 MiB for FP32). If one output row exceeds that limit, independent
 output columns are chunked with the same K tree. CUTLASS also allocates packed
-operands and pointer arrays. Parameter sorting and public validation are included in complete-call
-measurements. Existing BF16 tree callers retain their default dtype and schedule.
+operands and pointer arrays. Parameter sorting and public validation are included
+in complete-call measurements. Existing BF16 tree callers retain their default
+dtype and schedule.
 
-Triton fixes the 64x64x32 leaf schedule and disables TF32 and FP fusion. CUTLASS
+Triton uses fixed 64x32x32 leaves and 1x128x32 leaves for one-row tree calls,
+including bias VJPs. The short forward GEMM retains 64x64x32 tiles. TF32 and FP multiply-add fusion are disabled. Schedule
+fusion preserves every FP32 leaf and tree addition boundary. CUTLASS
 fixes 64x64x8 FP32 SIMT tiles and a single output owner per leaf, without parallel
 split-K. Both leaf algorithms have separately versioned backend identities.
 

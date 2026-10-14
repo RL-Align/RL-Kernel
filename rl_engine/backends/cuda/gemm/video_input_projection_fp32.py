@@ -65,6 +65,7 @@ def _load_extension():
         or info["ftz"]
         or info["split_k"] != 1
         or info.get("tree_leaf_size") != _BLOCK_K
+        or info.get("tree_operand_packing") != "coalesced_transpose32"
     ):
         raise RuntimeError("CUTLASS extension does not match the strict FP32 build contract")
     return extension
@@ -91,7 +92,7 @@ def cutlass_gemm_fp32(a, b):
 
 class CUDAVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
     family = "cutlass"
-    backend_id = "cuda-cutlass-video-input-projection-fp32-v2"
+    backend_id = "cuda-cutlass-video-input-projection-fp32-v3"
 
     def __init__(self):
         if not _TRITON_AVAILABLE:
@@ -116,5 +117,6 @@ class CUDAVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
             "reduction_backend": "triton",
             "triton_version": triton.__version__,
             "leaf_launch": "cutlass_device_gemm_array",
+            "tree_schedule": "paired_levels_compact_workspace",
             **_load_extension().build_info(),
         }

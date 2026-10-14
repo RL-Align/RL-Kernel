@@ -39,7 +39,9 @@ def _candidate(name):
 
 def _tool_version(command):
     try:
-        return subprocess.check_output(command, text=True, timeout=10).strip()
+        return subprocess.check_output(
+            command, text=True, stderr=subprocess.DEVNULL, timeout=10
+        ).strip()
     except (OSError, subprocess.SubprocessError):
         return None
 
@@ -166,6 +168,13 @@ def main():
         "csrc/cuda/gemm/video_input_projection_fp32_cutlass.cu",
         "build_tools/extensions.py",
     ]
+    # Devbox worker sync excludes .git; source hashes also identify exported workspaces.
+    git_commit = _tool_version(["git", "-C", str(root), "rev-parse", "HEAD"])
+    git_status = (
+        _tool_version(["git", "-C", str(root), "status", "--porcelain"])
+        if git_commit is not None
+        else None
+    )
     report = {
         "scope": "single H3 FP32 input projection; eager training and no-grad forward graph",
         "environment": {
@@ -181,10 +190,8 @@ def main():
                 [shutil.which("nvcc") or "/usr/local/cuda/bin/nvcc", "--version"]
             ),
         },
-        "git_commit": subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=root, text=True
-        ).strip(),
-        "git_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=root)),
+        "git_commit": git_commit,
+        "git_dirty": bool(git_status) if git_status is not None else None,
         "source_sha256": {p: hashlib.sha256((root / p).read_bytes()).hexdigest() for p in sources},
         "weight_fixture_sha256": fixture_hash,
         "weight_fixture_metadata": fixture_metadata,

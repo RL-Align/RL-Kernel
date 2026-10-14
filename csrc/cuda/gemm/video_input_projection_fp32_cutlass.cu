@@ -66,6 +66,66 @@ __global__ void pack_tree_operand(
   }
 }
 
+// The transposed G/X views have contiguous rows and strided K. Read adjacent
+// rows together, then transpose in shared memory for the packed row-major leaf.
+template <bool WriteOutputPointers>
+__global__ void pack_tree_operand_transposed(
+    const float* input, float* packed, int64_t* pointers,
+    const int32_t* starts, const int32_t* lengths, const int32_t* nodes,
+    int64_t rows, int64_t stride_k, float* workspace,
+    int64_t* output_pointers, int64_t output_elements) {
+  __shared__ float tile[kTreeLeaf][kTreeLeaf + 1];
+  const int leaf = blockIdx.y;
+  const int64_t row_start = static_cast<int64_t>(blockIdx.x) * kTreeLeaf;
+  const int x = threadIdx.x, y = threadIdx.y;
+  const int length = lengths[leaf];
+  const int64_t start = starts[leaf];
+  for (int offset = 0; offset < kTreeLeaf; offset += 8) {
+    const int k = y + offset;
+    tile[k][x] = row_start + x < rows && k < length
+        ? input[row_start + x + (start + k) * stride_k] : 0.0f;
+  }
+  __syncthreads();
+  for (int offset = 0; offset < kTreeLeaf; offset += 8) {
+    const int64_t row = row_start + y + offset;
+    if (row < rows) {
+      packed[(static_cast<int64_t>(leaf) * rows + row) * kTreeLeaf + x]
+          = tile[x][y + offset];
+    }
+  }
+  if (blockIdx.x == 0 && x == 0 && y == 0) {
+    pointers[leaf] = reinterpret_cast<int64_t>(
+        packed + static_cast<int64_t>(leaf) * rows * kTreeLeaf);
+    if constexpr (WriteOutputPointers) {
+      output_pointers[leaf] = reinterpret_cast<int64_t>(
+          workspace + static_cast<int64_t>(nodes[leaf]) * output_elements);
+    }
+  }
+}
+
+template <bool WriteOutputPointers>
+void launch_tree_packing(
+    const at::Tensor& input, const at::Tensor& packed, int64_t* pointers,
+    const at::Tensor& starts, const at::Tensor& lengths, const at::Tensor& nodes,
+    float* workspace, int64_t* output_pointers, int64_t output_elements,
+    cudaStream_t stream) {
+  if (input.stride(0) == 1 && input.stride(1) > 1) {
+    const dim3 grid((input.size(0) + kTreeLeaf - 1) / kTreeLeaf, starts.numel());
+    pack_tree_operand_transposed<WriteOutputPointers><<<grid, dim3(32, 8), 0, stream>>>(
+        input.data_ptr<float>(), packed.data_ptr<float>(), pointers,
+        starts.data_ptr<int32_t>(), lengths.data_ptr<int32_t>(), nodes.data_ptr<int32_t>(),
+        input.size(0), input.stride(1), workspace, output_pointers, output_elements);
+  } else {
+    constexpr int threads = 256;
+    pack_tree_operand<WriteOutputPointers>
+        <<<(packed.numel() + threads - 1) / threads, threads, 0, stream>>>(
+        input.data_ptr<float>(), packed.data_ptr<float>(), pointers,
+        starts.data_ptr<int32_t>(), lengths.data_ptr<int32_t>(), nodes.data_ptr<int32_t>(),
+        input.size(0), input.stride(0), input.stride(1), packed.numel(),
+        workspace, output_pointers, output_elements);
+  }
+}
+
 void cutlass_gemm_fp32_tree_leaves_tn(
     at::Tensor a, at::Tensor bt, at::Tensor workspace,
     at::Tensor starts, at::Tensor lengths, at::Tensor nodes) {
@@ -101,16 +161,10 @@ void cutlass_gemm_fp32_tree_leaves_tn(
   auto* ptr_b = ptr_a + leaves;
   auto* ptr_output = ptr_b + leaves;
   const auto stream = c10::cuda::getCurrentCUDAStream(a.get_device()).stream();
-  constexpr int threads = 256;
-  pack_tree_operand<false><<<(packed_a.numel() + threads - 1) / threads, threads, 0, stream>>>(
-      a.data_ptr<float>(), packed_a.data_ptr<float>(), ptr_a,
-      starts.data_ptr<int32_t>(), lengths.data_ptr<int32_t>(), nodes.data_ptr<int32_t>(),
-      m, a.stride(0), a.stride(1), packed_a.numel(), nullptr, nullptr, m * n);
-  pack_tree_operand<true><<<(packed_b.numel() + threads - 1) / threads, threads, 0, stream>>>(
-      bt.data_ptr<float>(), packed_b.data_ptr<float>(), ptr_b,
-      starts.data_ptr<int32_t>(), lengths.data_ptr<int32_t>(), nodes.data_ptr<int32_t>(),
-      n, bt.stride(0), bt.stride(1), packed_b.numel(), workspace.data_ptr<float>(),
-      ptr_output, m * n);
+  launch_tree_packing<false>(a, packed_a, ptr_a, starts, lengths, nodes,
+                             nullptr, nullptr, m * n, stream);
+  launch_tree_packing<true>(bt, packed_b, ptr_b, starts, lengths, nodes,
+                            workspace.data_ptr<float>(), ptr_output, m * n, stream);
   LeafGemm::Arguments args(
       {static_cast<int>(m), static_cast<int>(n), kTreeLeaf},
       reinterpret_cast<const float* const*>(ptr_a), cutlass::layout::RowMajor(kTreeLeaf),

@@ -325,7 +325,7 @@ def test_default_cuda_dispatch():
     from rl_engine.runtime.registry import KernelRegistry
 
     op = KernelRegistry().get_op("video_input_projection_fp32", device="cuda")
-    assert op.backend_info()["backend_id"] == "triton-video-input-projection-fp32-v2"
+    assert op.backend_info()["backend_id"] == "triton-video-input-projection-fp32-v3"
     x, weight, bias, _ = _data(3)
     with torch.no_grad():
         _assert_bytes(op(x, weight, bias), _op("triton")(x, weight, bias))
@@ -406,3 +406,109 @@ def test_standard_normal_long_reduction(backend):
     gold.backward(data[3].cpu())
     for i, (a, b) in enumerate(zip(actual, (gold, cx.grad, cw.grad, cb.grad), strict=True)):
         _assert_accuracy(a, b, "forward_accuracy" if i == 0 else "gradient_accuracy")
+
+
+@pytest.mark.parametrize("bias_uses", ["all", "partial", "distinct"])
+def test_canonical_bias_sharing_requires_matching_contributions(bias_uses, monkeypatch):
+    from rl_engine.ops.autograd.canonical_backward import CanonicalBackwardSession
+
+    torch.manual_seed(421)
+    x = torch.randn(7, 3, requires_grad=True)
+    weight = torch.randn(5, 3, requires_grad=True)
+    biases = [torch.randn(5, requires_grad=True) for _ in range(2)]
+    grad = torch.randn(7, 5)
+    indices = [torch.tensor([4, 1, 6]), torch.tensor([0, 5, 2, 3])]
+    keys = _keys(7, "cpu")
+    keys[2, 0] = -1
+    normalized = []
+    original = CanonicalBackwardSession._normalize
+
+    def observe(self, parameter_id, values):
+        result = original(self, parameter_id, values)
+        normalized.append((parameter_id, result[1]))
+        return result
+
+    monkeypatch.setattr(CanonicalBackwardSession, "_normalize", observe)
+    with canonical_backward_session() as session:
+        outputs = []
+        for use, ix in enumerate(indices):
+            bias = (
+                None
+                if bias_uses == "partial" and use == 1
+                else biases[use if bias_uses == "distinct" else 0]
+            )
+            outputs.append(
+                canonical_linear_fp32(
+                    x[ix],
+                    weight,
+                    keys[ix],
+                    parameter_id="weight",
+                    family="pytorch",
+                    bias=bias,
+                    bias_parameter_id=f"bias.{use if bias_uses == 'distinct' else 0}",
+                )
+            )
+        torch.autograd.backward(outputs, [grad[ix] for ix in indices])
+        session.validate_complete()
+        assert not session._normalized
+    active = keys[:, 0] >= 0
+    torch.testing.assert_close(weight.grad, grad[active].t() @ x.detach()[active])
+    torch.testing.assert_close(x.grad, grad @ weight.detach())
+    for use, bias in enumerate(biases):
+        if use == 1 and bias_uses != "distinct":
+            assert bias.grad is None
+            continue
+        ix = torch.arange(7) if bias_uses == "all" else indices[use]
+        ix = ix[active[ix]]
+        torch.testing.assert_close(bias.grad, grad[ix].sum(0))
+    if bias_uses == "all":
+        assert len(normalized) == 2
+        assert normalized[0][1] is normalized[1][1]
+    else:
+        assert all(a[1] is not b[1] for i, a in enumerate(normalized) for b in normalized[i + 1 :])
+
+
+@pytest.mark.skipif(not H20, reason="requires CUDA SM90")
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("k", [64, 65, 128, 1024, 13104])
+def test_fp32_fused_tree_and_transposed_packing_match_scalar_reference(backend, k):
+    from rl_engine.backends.cuda.gemm.video_input_projection_fp32 import _cutlass_tree_leaves
+    from rl_engine.backends.shared.triton.gemm.det_gemm import _triton_tree_gemm
+
+    _op(backend)
+    torch.manual_seed(422)
+    # Both operands exercise the strided transpose packing, including tail rows.
+    a = torch.randn(k, 3, device="cuda").t()
+    b = torch.randn(k, 5, device="cuda")
+
+    def gemm(a, b):
+        return _triton_tree_gemm(
+            a,
+            b,
+            output_dtype=torch.float32,
+            preserve_a_strides=True,
+            fp32_leaf_launcher=_cutlass_tree_leaves if backend == "cuda" else None,
+        )
+
+    result = gemm(a, b)
+    _assert_bytes(result.cpu(), _fp32_tree_reference(a, b))
+    _assert_bytes(gemm(a[:1], b), result[:1])
+
+
+@pytest.mark.skipif(not H20, reason="requires CUDA SM90")
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_compact_fp32_tree_workspace_preserves_chunked_outputs(backend, monkeypatch):
+    from rl_engine.backends.shared.triton.gemm import det_gemm
+    from rl_engine.ops.gemm.canonical_linear import _gemm_fp32
+
+    _op(backend)
+    family = "triton_tree" if backend == "triton" else "cutlass"
+    a, b = torch.randn(7, 1024, device="cuda"), torch.randn(1024, 5, device="cuda")
+    expected = _gemm_fp32(a, b, family)
+    plan = det_gemm._device_tree_plan(1024, a.device, fp32_fuse_leaves=False)
+    assert plan.fp32_fused
+    assert plan.workspace_node_count < plan.host.node_count
+    monkeypatch.setattr(det_gemm, "_MAX_TREE_WORKSPACE_ELEMENTS", plan.workspace_node_count * 10)
+    _assert_bytes(_gemm_fp32(a, b, family), expected)
+    monkeypatch.setattr(det_gemm, "_MAX_TREE_WORKSPACE_ELEMENTS", plan.workspace_node_count * 2)
+    _assert_bytes(_gemm_fp32(a, b, family), expected)

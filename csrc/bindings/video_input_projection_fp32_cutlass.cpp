@@ -27,6 +27,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     info["ftz"] = false;
     info["tree_leaf_size"] = 32;
     info["tree_leaf_launcher"] = "cutlass_device_gemm_array";
+    info["tree_operand_packing"] = "coalesced_transpose32";
     return info;
   });
 }
