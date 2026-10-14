@@ -51,8 +51,20 @@ CPU tests cover contracts, session ordering, chunks, permutations, padding,
 partial gradients, non-contiguous version counters, fail-closed registry
 resolution, reference math, fixture byte ranges and runner orchestration.
 CPU surrogates exercise control flow only; they do not emulate GPU arithmetic.
-GPU tests and reports are pending. The empty `evidence/h3-projections/SHA256SUMS`
-manifest intentionally records that no GPU evidence is submitted at this stage.
+The H100 run at source revision
+`6a50c80d3d226188281c9acb166b6f6e9c55b077` passed 45 tests, all 8 smoke
+cases, all 80 full-matrix cases (1,868 checks), and all 12 replay cases.
+The 36 y/dX/dW digests matched across separate processes and compilation caches.
+Both operators passed 40 full cases and 934 checks each. The maximum error
+normalized by the applicable tolerance was 0.182174; all invariance checks
+passed with zero differing elements. Explicit execution traces recorded the
+requested Triton backend with no fallback.
+
+The machine used one H100 80GB (SM90) and an Intel Xeon Platinum 8470 CPU.
+Software was Python 3.10.12, PyTorch 2.6.0+cu124, Triton 3.2.0 and driver
+580.126.09. The optional global core extension was unavailable; its import-time
+warning does not describe these operators, whose actual kernel/cubin traces
+are retained. Registry entries remain test-only pending broader qualification.
 
 Use one non-MIG H100 80GB, at least 16 CPU cores, 64GB host RAM and 100GB free
 storage. A CUDA 12.4 environment with Python 3.10 is the primary test profile:
@@ -91,3 +103,33 @@ submission. Before publication, review and consolidate measured results into
 one essential JSON bundle per device/run, preserving all failures and recording
 original hashes and any sanitization. Never label skipped tests or this local
 preparation as GPU acceptance, performance improvement or production readiness.
+
+## Measured performance and evidence
+
+Median synchronized wall times in milliseconds, random BF16 inputs with seed
+420 and 32,768 rows; two warmups and five measured repetitions:
+
+| Operator | Candidate forward | PyTorch BF16 forward | Candidate forward/backward | PyTorch BF16 forward/backward |
+| --- | ---: | ---: | ---: | ---: |
+| Gate/up | 83.1829 | 16.4246 | 234.6838 | 45.3069 |
+| Attention output | 20.6235 | 3.4305 | 49.5236 | 12.7178 |
+
+The candidate is slower than ordinary PyTorch BF16 in these measurements.
+The baseline has no byte-invariance qualification, and the candidate timing
+includes validation, copies and canonical gradient preparation. All row counts,
+raw timing samples, memory measurements, tolerances, correctness metrics,
+fixture provenance, output hashes and kernel traces are retained in
+[`evidence/h3-projections/h100.json`](evidence/h3-projections/h100.json).
+Verify the bundle with `sha256sum -c SHA256SUMS` from its directory.
+
+The bundle is a reviewed derivative with original artifact hashes. Its JSON
+report contents are unchanged; the pytest summary is explicitly extracted
+from the smoke log. Raw originals, weights and compiled artifacts remain
+outside the submission; all 170 retrieved files passed integrity checks.
+The documentation/evidence-only commit following the tested revision changes
+no fingerprinted implementation or validation source.
+
+Real weights were tested with synthetic activations. Captured model inputs,
+independent-environment replay, full-model integration and TP remain untested.
+The report's `acceptance_complete` stays false. These operator results do not
+establish production readiness or a performance improvement.
