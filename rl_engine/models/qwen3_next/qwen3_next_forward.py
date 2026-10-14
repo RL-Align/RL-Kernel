@@ -56,13 +56,16 @@ def _vllm_grouped():
     return _prepare_expert_assignment, dispatch_fused_moe_kernel, resolve_moe_use_td
 
 
-def grouped_route_linear(rows, weight, route_indices):
+def grouped_route_linear(rows, weight, route_indices, expert_map=None):
     """Per-route ``rows @ weight[expert].T`` through vLLM's fused MoE Triton kernel.
 
     ``rows`` is [T, K] (one row per token, shared by its ten routes) or
     [T*10, K] (one row per route); the result is [T, 10, N] in route order.
     No routed weight is applied and nothing is summed: every output row has
     exactly one writer, and its K loop has the fixed order of the fixed tile.
+
+    With ``expert_map`` (int32 [512], local index or -1), ``weight`` holds only
+    this rank's experts and rows routed elsewhere are left unwritten.
     """
     prepare, dispatch, use_td = _vllm_grouped()
     if use_td():
@@ -74,8 +77,9 @@ def grouped_route_linear(rows, weight, route_indices):
     if tokens == 0:
         return out
     indices = route_indices.to(torch.int32).contiguous()
+    experts = weight.shape[0] if expert_map is None else expert_map.shape[0]
     sorted_ids, expert_ids, padded = prepare(
-        indices, _GROUPED_CONFIG, tokens, top_k, weight.shape[0], None, ignore_invalid_experts=True
+        indices, _GROUPED_CONFIG, tokens, top_k, experts, expert_map, ignore_invalid_experts=True
     )
     dispatch(
         rows.contiguous(),

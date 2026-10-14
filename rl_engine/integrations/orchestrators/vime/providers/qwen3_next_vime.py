@@ -36,6 +36,7 @@ from rl_engine.models.qwen3_next.qwen3_next_engine_weights import (
     set_gdn_tp_metadata,
     validate_training_topology,
 )
+from rl_engine.models.qwen3_next.qwen3_next_ep import INTERMEDIATE, LOCAL_EXPERTS, EP4MoE
 from rl_engine.models.qwen3_next.qwen3_next_tp import _CopyToTP
 from rl_engine.models.qwen3_next.qwen3_next_tp_blocks import TP4FullAttention, TP4MoE
 from rl_engine.models.qwen3_next.qwen3_next_tp_gdn import TP4GDN
@@ -218,6 +219,33 @@ class SharedVIMEMoE(TP4MoE):
         return value.reshape_as(hidden_states), None
 
 
+class SharedVIMEEPMoE(EP4MoE):
+    """EP4 routed experts (128 full-width per rank) with the TP4 shared expert."""
+
+    def __init__(self, config, submodules=None):
+        validate_training_topology(config, config)
+        if (config.expert_model_parallel_size, config.expert_tensor_parallel_size) != (4, 1):
+            raise ValueError("Shared EP MoE requires expert parallel 4 and expert TP 1")
+        if mpu.get_expert_model_parallel_rank() != mpu.get_tensor_model_parallel_rank():
+            raise ValueError("Megatron's EP rank must equal the TP rank for the shared EP layout")
+        super().__init__(
+            group=mpu.get_tensor_model_parallel_group(),
+            device=torch.device("cuda", torch.cuda.current_device()),
+        )
+        for name, parameter in self.named_parameters():
+            if not name.startswith("experts."):
+                set_defaults_if_not_set_tensor_model_parallel_attributes(parameter)
+            parameter.sequence_parallel = False
+
+    def forward(self, hidden_states, padding_mask=None):
+        if padding_mask is not None and bool(padding_mask.any()):
+            raise ValueError("Shared VIME MoE requires packed tokens without padding")
+        value = super().forward(hidden_states.reshape(-1, 2048))
+        if self.subnode_hook is not None:
+            self.subnode_hook("mlp", value)
+        return value.reshape_as(hidden_states), None
+
+
 class SharedDecoderNorm(SharedInputNorm):
     def __init__(self, config, hidden_size, eps):
         if hidden_size != 2048 or config.params_dtype != torch.bfloat16:
@@ -260,7 +288,7 @@ def install_vime_model_providers(model):
     for layer in model.decoder.layers:
         if not isinstance(layer.self_attention, (SharedVIMEGDN, SharedVIMEFullAttention)):
             raise ValueError("Construct the model with get_qwen3_next_shared_spec first")
-        if not isinstance(layer.mlp, SharedVIMEMoE):
+        if not isinstance(layer.mlp, (SharedVIMEMoE, SharedVIMEEPMoE)):
             raise ValueError("Shared decoder MoE provider is missing")
     model.embedding.word_embeddings = SharedVIMEEmbedding(
         model.embedding.word_embeddings.weight, group
@@ -300,6 +328,26 @@ def install_vime_gdn_weight_hooks():
     def load(name, reader, config):
         layer, rest = layer_parts(name)
         prefix = f"model.layers.{layer}"
+        ep = mpu.get_expert_model_parallel_world_size()
+        if ep == 4 and rest in ("mlp.experts.gate_up", "mlp.experts.down"):
+            # EP4: only this rank's 128 experts, full width, gate rows then up rows.
+            first = mpu.get_expert_model_parallel_rank() * LOCAL_EXPERTS
+            if rest == "mlp.experts.gate_up":
+                value = torch.empty((LOCAL_EXPERTS, 2 * INTERMEDIATE, 2048), dtype=torch.bfloat16)
+                for local in range(LOCAL_EXPERTS):
+                    for offset, part in ((0, "gate"), (INTERMEDIATE, "up")):
+                        value[local, offset : offset + INTERMEDIATE].copy_(
+                            reader.get_tensor(
+                                f"{prefix}.mlp.experts.{first + local}.{part}_proj.weight"
+                            )
+                        )
+                return value
+            value = torch.empty((LOCAL_EXPERTS, 2048, INTERMEDIATE), dtype=torch.bfloat16)
+            for local in range(LOCAL_EXPERTS):
+                value[local].copy_(
+                    reader.get_tensor(f"{prefix}.mlp.experts.{first + local}.down_proj.weight")
+                )
+            return value
         if rest == "mlp.experts.gate_up":
             value = torch.empty((512, 1024, 2048), dtype=torch.bfloat16)
             for expert in range(512):
@@ -334,6 +382,8 @@ def install_vime_gdn_weight_hooks():
     def export(args, name, value):
         layer, rest = layer_parts(name)
         prefix = f"model.layers.{layer}"
+        if mpu.get_expert_model_parallel_world_size() == 4:
+            raise ValueError("Exporting EP4 weights is not supported yet (training stays EP1)")
         if rest == "mlp.experts.gate_up":
             if value.shape != (512, 1024, 2048):
                 raise ValueError("Gathered routed gate/up shape is not the complete TP4 tensor")
@@ -372,8 +422,7 @@ def get_qwen3_next_shared_spec(args, config, vp_stage=None):
     from vime_plugins.models.qwen3_next import Attention, get_qwen3_next_spec
 
     validate_training_topology(config, args)
-    if config.expert_tensor_parallel_size != 4:
-        raise ValueError("Shared model requires expert tensor parallel size 4")
+    moe = SharedVIMEEPMoE if config.expert_model_parallel_size == 4 else SharedVIMEMoE
     if vp_stage is not None:
         raise ValueError("The shared GDN profile does not use virtual pipeline stages")
     spec = get_qwen3_next_spec(args, config, vp_stage)
@@ -390,7 +439,7 @@ def get_qwen3_next_shared_spec(args, config, vp_stage=None):
             )
         layer.submodules.input_layernorm = IdentityOp
         layer.submodules.pre_mlp_layernorm = SharedDecoderNorm
-        layer.submodules.mlp = ModuleSpec(module=SharedVIMEMoE)
+        layer.submodules.mlp = ModuleSpec(module=moe)
         # The native TE sharded-state map refers to fused norm/projection names.
         # Shared adapters retain explicit HF-compatible norm parameter names.
         layer.submodules.sharded_state_dict_keys_map = {}

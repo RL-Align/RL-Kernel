@@ -57,8 +57,12 @@ provider or topology identity.
 python tools/validation/models/qwen3_next/qwen3_next_chain_report.py --last <runs>/<...-train-...> --out chain-report.json
 bash ci/scripts/run_qwen3_next_chain_gate.sh chain-report.json
 python tools/validation/models/qwen3_next/qwen3_next_publish_evidence.py --last <runs>/<...-train-...> \
-    --chain-report chain-report.json --out docs/usage/evidence/qwen3-next-chain-<date>
+    --chain-report chain-report.json --out artifacts/qwen3-next-chain-<date>
 ```
+
+The published copy is attached to a release as a ZIP rather than committed; the
+B200 results, tested commit and download link are in
+[`reports/experiments/qwen3_next/qwen3-next-chain-b200.md`](https://github.com/fusheng-ji/RL-Kernel/blob/feat/ws1-qwen3-next-full-model-chain/reports/experiments/qwen3_next/qwen3-next-chain-b200.md).
 
 `chain-report.json` has every field of the Qwen3-8B chain gate's report
 (`rl_engine.validation.models.chain_gate.ChainGateReport`, schema `ws1-c10-c11-v5`)

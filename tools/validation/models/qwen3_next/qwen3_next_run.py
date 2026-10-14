@@ -64,6 +64,7 @@ PROVIDER_SOURCES = (
     "rl_engine/models/qwen3_next/qwen3_next_tp.py",
     "rl_engine/models/qwen3_next/qwen3_next_tp_gdn.py",
     "rl_engine/models/qwen3_next/qwen3_next_tp_blocks.py",
+    "rl_engine/models/qwen3_next/qwen3_next_ep.py",
     "rl_engine/models/qwen3_next/qwen3_next_forward.py",
     "rl_engine/models/qwen3_next/qwen3_next_embedding.py",
     "rl_engine/models/qwen3_next/qwen3_next_logprob.py",
@@ -80,7 +81,9 @@ def _git(*args, cwd=ROOT):
     return subprocess.check_output(["git", *args], cwd=cwd, text=True).strip()
 
 
-def provider_config():
+def provider_config(ep=1):
+    if ep not in (1, 4):
+        raise ValueError("Qwen3-Next runs at EP 1 or EP 4 (over the TP4 group)")
     return {
         "profile": "qwen3_next_tp4_shared_eager_v1",
         "scope": "shared_full_forward_implementation",
@@ -97,7 +100,8 @@ def provider_config():
         "fp32_residual_connection": False,
         "vocab_size": 151936,
         "padded_vocab_size": 151936,
-        "expert_tensor_parallel_size": 4,
+        "expert_model_parallel_size": ep,
+        "expert_tensor_parallel_size": 4 // ep,
         # Large enough that the batch-invariance matrix (up to 64 concurrent
         # requests) runs under the same certified provider identity.
         "native_rollout_kv_cache_memory_bytes": 4 << 30,
@@ -152,10 +156,10 @@ def prepare(stage, previous, args):
         "nvcc_sha256": file_digest(Path(manifest["cuda_home"]) / "bin/nvcc"),
     }
     manifest["checkpoint_identity"] = checkpoint_identity(checkpoint)
-    manifest["provider_config"] = provider_config()
+    manifest["provider_config"] = provider_config(args.ep)
     manifest["operator_requirements"] = operator_requirements(ROOT, "all")
-    manifest["layer_requirements"] = layer_requirements(ROOT)
-    manifest["topology"] = {"tp": 4, "pp": 1, "cp": 1, "ep": 1}
+    manifest["layer_requirements"] = layer_requirements(ROOT, args.ep)
+    manifest["topology"] = {"tp": 4, "pp": 1, "cp": 1, "ep": args.ep}
     require_predecessor(stage, previous, checkpoint, manifest)
     if stage == "l2":
         certificate = previous / "result.json"
@@ -306,6 +310,13 @@ def main():
     )
     parser.add_argument(
         "--until", choices=ORDER, default="train", help="with --stage all: last stage to run"
+    )
+    parser.add_argument(
+        "--ep",
+        type=int,
+        choices=(1, 4),
+        default=1,
+        help="expert parallelism over the TP4 group (4: 128 full-width experts per rank)",
     )
     parser.add_argument(
         "--memory",
