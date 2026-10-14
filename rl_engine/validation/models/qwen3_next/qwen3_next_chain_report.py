@@ -40,11 +40,12 @@ from rl_engine.validation.operators.forward_invariance import TensorComparisonDe
 SCHEMA_VERSION = "qwen3-next-chain-v1"
 COMPATIBLE_SCHEMA = "ws1-c10-c11-v5"
 PROFILE = "qwen3_next_tp4_shared_eager_v1"
+EP4_PROFILE = "qwen3_next_tp4_ep4_shared_eager_v1"
 WEIGHT_VERSIONS = ("baseline", "update1", "update2", "reload")
 FAMILIES = ("embedding", "norm", "gdn", "full_attention", "moe", "lm_head_logprob")
 _TRAIN_INFER_KIND = "train_infer_logprob_parity"
 DISCLAIMER = (
-    "Qwen3-Next-80B-A3B-Instruct, TP4 x EP1, BF16, strict shared providers. Cells are the "
+    "Qwen3-Next-80B-A3B-Instruct, TP4 x EP{ep}, BF16, strict shared providers. Cells are the "
     "16-case raw-bit L2 matrix (prompt 8/64/256/1024 x batch 1/4 x full/chunked prefill, 16 "
     "response tokens) at each weight version; rollout is native vLLM prefill and decode, "
     "replay is VIME recompute. Gradients are judged by the training stages (two updates, "
@@ -210,17 +211,16 @@ def build_report(
         and all(item.passed for item in invariance)
         and (bi_matrix is None or bi_matrix["status"] == "passed")
     )
+    ep = matrices[next(iter(matrices))].get("identity", {}).get("topology", {}).get("ep", 1)
+    profile = EP4_PROFILE if ep == 4 else PROFILE
     report = ChainGateReport(
-        backend_profile=PROFILE,
+        backend_profile=profile,
         workload_id="qwen3-next-l2-matrix-16",
         fixture_hash=matrices[next(iter(matrices))]["fixture"]["content_sha256"],
         config_fingerprint={
             "model": "Qwen3-Next-80B-A3B-Instruct",
             "tp": 4,
-            "ep": matrices[next(iter(matrices))]
-            .get("identity", {})
-            .get("topology", {})
-            .get("ep", 1),
+            "ep": ep,
             "pp": 1,
         },
         weight_source=weight_source,
@@ -231,9 +231,9 @@ def build_report(
         gpu_name=gpu_name,
         compute_capability=compute_capability,
         backend_provenance=BackendProvenance(
-            backend_profile=PROFILE,
-            requested_backend=PROFILE,
-            actual_backend=PROFILE,
+            backend_profile=profile,
+            requested_backend=profile,
+            actual_backend=profile,
             execution_dtype="bf16",
             accumulation_dtype="fp32",
             output_dtype="bf16",
@@ -266,7 +266,7 @@ def build_report(
         train_infer_executed=True,
         accuracy_executed=False,
         gradient_accuracy_executed=False,
-        disclaimer=DISCLAIMER,
+        disclaimer=DISCLAIMER.format(ep=ep),
     )
     payload = report.to_dict()
     payload.update(
