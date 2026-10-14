@@ -10,7 +10,8 @@ from pathlib import Path
 from qwen3_next_runtime import file_digest, identity_digest
 
 
-def layer_requirements(root):
+def layer_requirements(root, ep=1):
+    """Mandatory layer gates; the MoE gate follows the expert parallelism (1 or 4)."""
     root = Path(root)
     path = root / "rl_engine/validation/models/qwen3_next/qwen3_next_layer_cases.json"
     registry = json.loads(path.read_text())
@@ -18,10 +19,14 @@ def layer_requirements(root):
         "gdn",
         "attention",
         "moe",
+        "moe_ep",
         "adapters",
         "heads",
     }:
         raise ValueError("Incomplete layer gate registry")
+    if ep not in (1, 4):
+        raise ValueError("Layer gates exist for EP 1 and EP 4 only")
+    registry["gates"].pop("moe_ep" if ep == 1 else "moe")
     for gate in registry["gates"].values():
         gate["script_sha256"] = file_digest(root / gate["script"])
         for cases in gate["groups"].values():

@@ -152,7 +152,7 @@ def run_layers(manifest_path, output):
     previous = Path(manifest["previous"])
     require_predecessor("layers", previous, Path(manifest["checkpoint"]), manifest)
     verify_environment(manifest["environment"], require_venv=True)
-    requirement = layer_requirements(ROOT)
+    requirement = layer_requirements(ROOT, manifest["topology"]["ep"])
     if requirement != manifest["layer_requirements"]:
         raise ValueError("Layer registry differs from the submitted source snapshot")
     memory = memory_limits()

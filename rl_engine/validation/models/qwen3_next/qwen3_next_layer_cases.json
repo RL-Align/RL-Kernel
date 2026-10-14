@@ -57,6 +57,21 @@
         ]
       }
     },
+    "moe_ep": {
+      "script": "tools/validation/models/qwen3_next/qwen3_next_ep_moe_check.py",
+      "output_option": "--output",
+      "scope": "ep4_moe_block_layer0",
+      "groups": {
+        "ep.cases": [
+          "hf-load-export-each-expert-once",
+          "ep4-vs-ep1-chunk-reorder-train-8",
+          "ep4-vs-ep1-chunk-reorder-train-64",
+          "ep4-vs-ep1-chunk-reorder-train-256",
+          "ep4-vs-ep1-chunk-reorder-train-1024",
+          "empty-rank-participation"
+        ]
+      }
+    },
     "adapters": {
       "script": "tools/validation/models/qwen3_next/qwen3_next_adapter_check.py",
       "output_option": "--out",
