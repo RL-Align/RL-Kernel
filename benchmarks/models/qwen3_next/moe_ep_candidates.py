@@ -10,31 +10,36 @@ GPU holds all 512. The shared expert is the same TP4 path for every candidate
 and is left out, so only routing, expert compute and the cross-rank combine
 differ.
 
-Candidates:
+Candidates (``CANDIDATES``):
 
 * ``rl_kernel_ep`` -- RL-Kernel's EP4 path (``qwen3_next_ep``): replicated FP32
   router and stable top-10, local dispatch, byte-only all-gather of route rows,
   FP32 combine in route order on every rank. EP1 is ``shared_moe``.
-* ``vllm_fused_ep`` -- vLLM 0.30's expert-parallel ``FusedMoE`` path without
-  data parallelism: BF16 gate, ``fused_topk`` (softmax, renormalised top-10),
-  ``fused_experts`` with the rank's ``expert_map``, then the all-reduce that
-  vLLM applies over the TP/EP group (here ``torch.distributed.all_reduce`` on
-  NCCL). EP1 is the same kernel with all experts and no all-reduce.
-* ``vllm_fused_ep_bi`` -- the same with ``VLLM_BATCH_INVARIANT=1`` (fixed
-  ``fused_moe`` tile config, ``SPLIT_K`` 1), vLLM's batch-invariant mode.
+* ``vllm_ep`` -- vLLM 0.30's expert-parallel ``FusedMoE`` path without data
+  parallelism: BF16 gate, ``fused_topk`` (softmax, renormalised top-10),
+  ``fused_experts`` with the rank's ``expert_map``, then
+  ``tensor_model_parallel_all_reduce`` -- vLLM's own all-reduce dispatch
+  (FlashInfer, custom, symmetric-memory or PyNCCL, chosen per message).
+* ``vllm_ep_bi`` -- the same with ``VLLM_BATCH_INVARIANT=1``.
+* ``vllm_ep_nccl`` -- the same expert kernel, combined with
+  ``torch.distributed.all_reduce`` on NCCL.
+* ``flashinfer_cutlass_ep`` -- FlashInfer's ``cutlass_fused_moe`` (CUTLASS
+  grouped GEMM) with ``ep_size``/``ep_rank`` on vLLM's routes, combined with
+  vLLM's all-reduce, as vLLM and SGLang integrate it.
 * ``megatron_alltoall`` / ``megatron_allgather`` -- Megatron-core ``MoELayer``
   with ``SequentialMLP`` experts, FP32 router (softmax over the top-10 logits,
   which equals renormalised top-10 probabilities), TP4 x EP4 x ETP1 without
   sequence parallelism, and the ``alltoall`` or ``allgather`` token dispatcher.
 * ``megatron_alltoall_det`` / ``megatron_allgather_det`` -- the same under
   ``torch.use_deterministic_algorithms(True)``, which makes Megatron's token
-  unpermute use ``index_add_`` instead of ``scatter_add_`` (the runner sets
-  ``CUBLAS_WORKSPACE_CONFIG`` for every candidate, as that mode requires).
+  unpermute use ``index_add_`` instead of ``scatter_add_``.
 
-For each candidate a launch records the output digest, whether the first rows
-computed alone equal the same rows inside the full batch, whether a second
-call repeats the bits, the largest error against an FP64 evaluation of the same
-routes and a median latency.
+Forward: output digest, repeat, a batch-invariance grid (probe rows inside
+batches of several sizes at the first, middle and last position), error
+against an FP64 evaluation, latency over several token counts. Backward, for
+the candidates that train (RL-Kernel and Megatron): input and owned-expert
+weight gradient digests, repeat, the same batch grid on the input gradient and
+latency.
 """
 
 from __future__ import annotations
@@ -43,6 +48,7 @@ import contextlib
 import hashlib
 import os
 import statistics
+from dataclasses import dataclass
 from typing import Any, Callable
 
 import torch
@@ -50,11 +56,15 @@ import torch.distributed as dist
 import torch.nn.functional as F
 
 EXPERTS, LOCAL, HIDDEN, INTERMEDIATE, TOP_K = 512, 128, 2048, 512, 10
-ALONE_ROWS = 16
+PROBE = 8
+BATCHES = (8, 64, 256, 1024)
+LATENCY_TOKENS = (64, 256, 1024, 4096)
 CANDIDATES = (
     "rl_kernel_ep",
-    "vllm_fused_ep",
-    "vllm_fused_ep_bi",
+    "vllm_ep",
+    "vllm_ep_bi",
+    "vllm_ep_nccl",
+    "flashinfer_cutlass_ep",
     "megatron_alltoall",
     "megatron_allgather",
     "megatron_alltoall_det",
@@ -77,6 +87,13 @@ def expert_weights(weights, experts) -> tuple[torch.Tensor, torch.Tensor]:
     return gate_up, down
 
 
+@dataclass
+class Candidate:
+    forward: Callable[[torch.Tensor], torch.Tensor]
+    # (x, dy) -> (dx, d_gate_up_owned, d_down_owned); None for inference-only stacks
+    backward: Callable[[torch.Tensor, torch.Tensor], tuple] | None = None
+
+
 def _rl_kernel(router, gate_up, down, ep, group):
     from rl_engine.models.qwen3_next.qwen3_next_ep import _EPRoutedExperts
     from rl_engine.models.qwen3_next.qwen3_next_forward import (
@@ -86,16 +103,23 @@ def _rl_kernel(router, gate_up, down, ep, group):
         stable_top10_routes,
     )
 
-    if ep == 1:
-        return lambda x: shared_moe(x, router, gate_up, down)[0]
-    rank = dist.get_rank(group)
+    rank = dist.get_rank(group) if ep > 1 else 0
 
-    def run(x):
+    def run(x, w13, w2):
+        if ep == 1:
+            return shared_moe(x, router, w13, w2)[0]
         routes = stable_top10_routes(shared_router(x, router))
-        rows = _EPRoutedExperts.apply(x, gate_up, down, routes.indices, rank, group)
+        rows = _EPRoutedExperts.apply(x, w13, w2, routes.indices, rank, group)
         return combine_routes(rows, routes.weights)
 
-    return run
+    def backward(x, dy):
+        x = x.detach().requires_grad_(True)
+        w13 = gate_up.detach().requires_grad_(True)
+        w2 = down.detach().requires_grad_(True)
+        dx, dw13, dw2 = torch.autograd.grad(run(x, w13, w2), (x, w13, w2), dy)
+        return dx, dw13, dw2
+
+    return Candidate(lambda x: run(x, gate_up, down), backward)
 
 
 @contextlib.contextmanager
@@ -104,8 +128,7 @@ def _vllm_batch_invariant(enabled: bool):
 
     vLLM reads the variable on every call but caches the tile config per
     shape, so the cache is cleared only when the setting actually changes;
-    clearing it on every call would add a config-file lookup (and its log
-    line) to each timed call.
+    clearing it on every call would add a config-file lookup to each timed call.
     """
     from vllm.model_executor.layers.fused_moe.fused_moe import get_moe_configs
 
@@ -116,9 +139,26 @@ def _vllm_batch_invariant(enabled: bool):
     yield
 
 
-def _vllm(router, gate_up, down, ep, group, batch_invariant=False):
-    from vllm.model_executor.layers.fused_moe import fused_experts
+def _vllm_routes(x, router):
     from vllm.model_executor.layers.fused_moe.router.fused_topk_router import fused_topk
+
+    weights, ids, _ = fused_topk(x, F.linear(x, router), TOP_K, renormalize=True)
+    return weights, ids
+
+
+def _combine(out, ep, group, backend):
+    if ep == 1:
+        return out
+    if backend == "nccl":
+        dist.all_reduce(out, group=group)
+        return out
+    from vllm.distributed import tensor_model_parallel_all_reduce
+
+    return tensor_model_parallel_all_reduce(out)
+
+
+def _vllm(router, gate_up, down, ep, group, *, batch_invariant=False, backend="vllm"):
+    from vllm.model_executor.layers.fused_moe import fused_experts
 
     mapping = None
     if ep > 1:
@@ -127,20 +167,45 @@ def _vllm(router, gate_up, down, ep, group, batch_invariant=False):
         mapping = expert_map(dist.get_rank(group), gate_up.device)
 
     def run(x):
-        logits = F.linear(x, router)
         with _vllm_batch_invariant(batch_invariant):
-            weights, ids, _ = fused_topk(x, logits, TOP_K, renormalize=True)
+            weights, ids = _vllm_routes(x, router)
             out = fused_experts(
                 x, gate_up, down, weights, ids, global_num_experts=EXPERTS, expert_map=mapping
             )
-        if ep > 1:
-            dist.all_reduce(out, group=group)
-        return out
+        return _combine(out, ep, group, backend)
 
-    return run
+    return Candidate(run)
 
 
-def _megatron(router, gate_up, down, ep, group, dispatcher, deterministic=False):
+def _flashinfer(router, gate_up, down, ep, group):
+    from flashinfer.fused_moe import cutlass_fused_moe
+
+    rank = dist.get_rank(group) if ep > 1 else 0
+    # FlashInfer's SwiGLU expects [up; gate] in fc1.
+    fc1 = torch.cat((gate_up[:, INTERMEDIATE:], gate_up[:, :INTERMEDIATE]), dim=1).contiguous()
+    fc2 = down.contiguous()
+
+    def run(x):
+        with _vllm_batch_invariant(False):
+            weights, ids = _vllm_routes(x, router)
+        out = cutlass_fused_moe(
+            x,
+            ids.int(),
+            weights.float(),
+            fc1,
+            fc2,
+            torch.bfloat16,
+            quant_scales=[],
+            ep_size=ep,
+            ep_rank=rank,
+        )
+        out = out[0] if isinstance(out, (list, tuple)) else out
+        return _combine(out, ep, group, "vllm")
+
+    return Candidate(run)
+
+
+def _megatron(router, gate_up, down, ep, dispatcher, deterministic=False):
     from megatron.core.models.gpt.moe_module_specs import get_moe_module_spec
     from megatron.core.transformer.moe.moe_layer import MoELayer
     from megatron.core.transformer.transformer_config import TransformerConfig
@@ -175,42 +240,56 @@ def _megatron(router, gate_up, down, ep, group, dispatcher, deterministic=False)
     )
     spec = get_moe_module_spec(use_te=False, num_experts=EXPERTS, moe_grouped_gemm=False)
     layer = MoELayer(config, submodules=spec.submodules).cuda().eval()
+    experts = layer.experts.local_experts
+    if len(experts) != gate_up.shape[0]:
+        raise RuntimeError("Megatron built an unexpected number of local experts")
     with torch.no_grad():
         layer.router.weight.copy_(router)
-        experts = layer.experts.local_experts
-        if len(experts) != gate_up.shape[0]:
-            raise RuntimeError("Megatron built an unexpected number of local experts")
         for local, expert in enumerate(experts):
             expert.linear_fc1.weight.copy_(gate_up[local])
             expert.linear_fc2.weight.copy_(down[local])
 
-    def run(x):
+    @contextlib.contextmanager
+    def mode():
         previous = torch.are_deterministic_algorithms_enabled()
         torch.use_deterministic_algorithms(deterministic)
         try:
-            out, _ = layer(x[:, None, :])
+            yield
         finally:
             torch.use_deterministic_algorithms(previous)
+
+    def run(x):
+        with mode():
+            out, _ = layer(x[:, None, :])
         return out[:, 0, :]
 
-    return run
+    def backward(x, dy):
+        layer.zero_grad(set_to_none=True)
+        x = x.detach().requires_grad_(True)
+        with mode():
+            out, _ = layer(x[:, None, :])
+            out[:, 0, :].backward(dy)
+        dw13 = torch.stack([e.linear_fc1.weight.grad for e in experts])
+        dw2 = torch.stack([e.linear_fc2.weight.grad for e in experts])
+        return x.grad, dw13, dw2
+
+    return Candidate(run, backward)
 
 
-def build(name: str, router, gate_up, down, *, ep: int, group) -> Callable:
+def build(name: str, router, gate_up, down, *, ep: int, group) -> Candidate:
     if name == "rl_kernel_ep":
         return _rl_kernel(router, gate_up, down, ep, group)
-    if name == "vllm_fused_ep":
+    if name == "vllm_ep":
         return _vllm(router, gate_up, down, ep, group)
-    if name == "vllm_fused_ep_bi":
+    if name == "vllm_ep_bi":
         return _vllm(router, gate_up, down, ep, group, batch_invariant=True)
-    if name == "megatron_alltoall":
-        return _megatron(router, gate_up, down, ep, group, "alltoall")
-    if name == "megatron_allgather":
-        return _megatron(router, gate_up, down, ep, group, "allgather")
-    if name == "megatron_alltoall_det":
-        return _megatron(router, gate_up, down, ep, group, "alltoall", deterministic=True)
-    if name == "megatron_allgather_det":
-        return _megatron(router, gate_up, down, ep, group, "allgather", deterministic=True)
+    if name == "vllm_ep_nccl":
+        return _vllm(router, gate_up, down, ep, group, backend="nccl")
+    if name == "flashinfer_cutlass_ep":
+        return _flashinfer(router, gate_up, down, ep, group)
+    if name.startswith("megatron_"):
+        dispatcher = name.split("_")[1]
+        return _megatron(router, gate_up, down, ep, dispatcher, name.endswith("_det"))
     raise KeyError(name)
 
 
@@ -231,42 +310,105 @@ def fp64_reference(x, router, all_gate_up, all_down) -> torch.Tensor:
     return out
 
 
-def _latency_us(fn, x, repeats=20) -> float:
+def _median_us(fn, repeats=20) -> float:
+    fn()
+    torch.cuda.synchronize()
     times = []
     for _ in range(repeats):
         start, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
         start.record()
-        fn(x)
+        fn()
         end.record()
         torch.cuda.synchronize()
         times.append(start.elapsed_time(end) * 1000.0)
     return statistics.median(times)
 
 
-def candidate_report(x, router, gate_up, down, *, ep: int, group, reference=None) -> dict[str, Any]:
-    """Run every candidate on the same inputs; ``reference`` is FP64 [T, H] or None."""
+def _batch_grid(fn, probe, filler) -> dict[str, bool]:
+    """Probe rows alone vs inside batches of each size, first / middle / last."""
+    alone = fn(probe)
+    grid = {}
+    for size in BATCHES:
+        for position in sorted({0, (size - PROBE) // 2, size - PROBE}):
+            rows = torch.cat((filler[:position], probe, filler[position : size - PROBE]))
+            grid[f"{size}@{position}"] = torch.equal(fn(rows)[position : position + PROBE], alone)
+    return grid
+
+
+def candidate_report(
+    x_all, dy_all, router, gate_up, down, *, ep: int, group, reference
+) -> dict[str, Any]:
+    """Run every candidate; ``x_all``/``dy_all`` hold ``max(LATENCY_TOKENS)`` rows.
+
+    The first 1024 rows are the measured batch; rows 1024.. are fillers for
+    the batch grid; the probe is ``x_all[:PROBE]``.
+    """
+    names = os.environ.get("MOE_EP_CANDIDATES")
+    names = names.split(",") if names else CANDIDATES
+    x, dy = x_all[:1024], dy_all[:1024]
+    probe, filler = x_all[:PROBE], x_all[1024:]
+    dprobe, dfiller = dy_all[:PROBE], dy_all[1024:]
     report: dict[str, Any] = {}
     outputs = {}
-    for name in CANDIDATES:
+    for name in names:
         try:
-            fn = build(name, router, gate_up, down, ep=ep, group=group)
+            cand = build(name, router, gate_up, down, ep=ep, group=group)
+            with torch.no_grad():
+                out = cand.forward(x)
         except Exception as error:  # an unavailable stack is recorded, not fatal
             report[name] = {"unavailable": f"{type(error).__name__}: {error}"}
             continue
         with torch.no_grad():
-            out = fn(x)
-            again = fn(x)
-            alone = fn(x[:ALONE_ROWS].clone())
-            latency = _latency_us(fn, x)
+            again = cand.forward(x)
+            grid = _batch_grid(cand.forward, probe, filler)
+            latency = {
+                str(n): _median_us(lambda n=n: cand.forward(x_all[:n])) for n in LATENCY_TOKENS
+            }
         outputs[name] = out
+        error = (out.double() - reference).abs()
         row = {
             "output_sha256": digest(out),
             "repeat_bitwise": torch.equal(out, again),
-            "batch_bitwise": torch.equal(alone, out[:ALONE_ROWS]),
+            "batch_grid": grid,
+            "batch_bitwise": all(grid.values()),
+            "max_abs_vs_fp64": float(error.max()),
+            "mean_abs_vs_fp64": float(error.mean()),
             "latency_us": latency,
         }
-        if reference is not None:
-            row["max_abs_vs_fp64"] = float((out.double() - reference).abs().max())
+        if cand.backward is not None:
+            dx, dw13, dw2 = cand.backward(x, dy)
+            dx2, dw13b, dw2b = cand.backward(x, dy)
+            alone = cand.backward(probe, dprobe)[0]
+            bgrid = {}
+            for size in BATCHES:
+                for position in sorted({0, (size - PROBE) // 2, size - PROBE}):
+                    rows = torch.cat((filler[:position], probe, filler[position : size - PROBE]))
+                    grads = torch.cat(
+                        (dfiller[:position], dprobe, dfiller[position : size - PROBE])
+                    )
+                    got = cand.backward(rows, grads)[0][position : position + PROBE]
+                    bgrid[f"{size}@{position}"] = torch.equal(got, alone)
+            row["backward"] = {
+                "dx_sha256": digest(dx),
+                "d_gate_up_sha256": digest(dw13),
+                "d_down_sha256": digest(dw2),
+                "d_gate_up_slice_sha256": (
+                    [digest(dw13[r * LOCAL : (r + 1) * LOCAL]) for r in range(4)]
+                    if ep == 1
+                    else None
+                ),
+                "d_down_slice_sha256": (
+                    [digest(dw2[r * LOCAL : (r + 1) * LOCAL]) for r in range(4)]
+                    if ep == 1
+                    else None
+                ),
+                "repeat_bitwise": torch.equal(dx, dx2)
+                and torch.equal(dw13, dw13b)
+                and torch.equal(dw2, dw2b),
+                "batch_grid": bgrid,
+                "batch_bitwise": all(bgrid.values()),
+                "latency_us": _median_us(lambda: cand.backward(x, dy), repeats=5),
+            }
         report[name] = row
     for name, out in outputs.items():
         report[name]["max_abs_vs"] = {
