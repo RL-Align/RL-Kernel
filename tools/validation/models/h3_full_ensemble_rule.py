@@ -17,8 +17,10 @@ data:
 * ``max_abs``, set by one element, is reported but not gated: held-out configurations
   exceed the others' maximum by several times on it.
 
-    calibrate: h3_full_ensemble_rule.py calibrate --provider NAME=comparison.json ... --output rule.json
-    check:     h3_full_ensemble_rule.py check --rule rule.json --candidate comparison.json --output out.json
+    h3_full_ensemble_rule.py calibrate --provider NAME=comparison.json ... \\
+        --output rule.json
+    h3_full_ensemble_rule.py check --rule rule.json --candidate comparison.json \\
+        --output out.json
 """
 
 from __future__ import annotations
@@ -91,7 +93,8 @@ def calibrate(args) -> None:
     }
     args.output.write_text(json.dumps(rule, indent=2) + "\n")
     print(
-        f"k = {factor} from leave-one-out {loo}; {len(distinct)} configurations, {len(names)} tensors"
+        f"k = {factor} from leave-one-out {loo}; "
+        f"{len(distinct)} configurations, {len(names)} tensors"
     )
 
 
