@@ -77,6 +77,29 @@ def packed_inputs(device):
     )
 
 
+# Provider passes that change only which kernels compute the same diffusers graph, to
+# measure how much an independent BF16 provider's errors move on their own. Each forces
+# one choice; an unavailable kernel raises instead of falling back.
+PROVIDER_VARIANTS = ("default", "sdpa-flash", "sdpa-efficient", "sdpa-cudnn", "blas-cublaslt")
+
+
+def provider_variant_context(variant: str):
+    """Context manager forcing one SDPA backend, or a no-op (BLAS choice is set globally)."""
+
+    from contextlib import nullcontext
+
+    from torch.nn.attention import SDPBackend, sdpa_kernel
+
+    backends = {
+        "sdpa-flash": SDPBackend.FLASH_ATTENTION,
+        "sdpa-efficient": SDPBackend.EFFICIENT_ATTENTION,
+        "sdpa-cudnn": SDPBackend.CUDNN_ATTENTION,
+    }
+    if variant == "blas-cublaslt":
+        torch.backends.cuda.preferred_blas_library("cublaslt")
+    return sdpa_kernel([backends[variant]]) if variant in backends else nullcontext()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", type=Path, required=True)
@@ -86,9 +109,17 @@ def main():
         "--mode", choices=["fp32-reference", "bf16-provider", "candidate"], required=True
     )
     parser.add_argument("--thresholds", type=Path)
+    parser.add_argument(
+        "--provider-variant",
+        choices=PROVIDER_VARIANTS,
+        default="default",
+        help="bf16-provider only: force one SDPA backend or cuBLASLt (variability study)",
+    )
     args = parser.parse_args()
     if args.mode == "candidate" and not args.thresholds:
         parser.error("candidate execution requires previously frozen calibration thresholds")
+    if args.provider_variant != "default" and args.mode != "bf16-provider":
+        parser.error("--provider-variant applies to --mode bf16-provider only")
     if args.thresholds:
         thresholds = json.loads(args.thresholds.read_text())
         if thresholds.get("status") != "frozen_reference_bounds" or not thresholds.get(
@@ -99,6 +130,7 @@ def main():
     report = dict(
         status="running",
         mode=args.mode,
+        provider_variant=args.provider_variant,
         job_id=os.environ.get("SLURM_JOB_ID"),
         model_revision=MODEL_REVISION,
         command=list(os.sys.argv),
@@ -186,7 +218,12 @@ def main():
             handles.append(inputs[name].register_hook(record_input))
         torch.cuda.reset_peak_memory_stats()
         begin = time.perf_counter()
-        with full_model_execution(model, candidate=args.mode == "candidate", trace=trace):
+        report["preferred_blas_library"] = None
+        with (
+            full_model_execution(model, candidate=args.mode == "candidate", trace=trace),
+            provider_variant_context(args.provider_variant),
+        ):
+            report["preferred_blas_library"] = str(torch.backends.cuda.preferred_blas_library())
             with torch.autograd.graph.save_on_cpu(pin_memory=True):
                 video, audio = model(**inputs)
                 if not torch.isfinite(video).all() or not torch.isfinite(audio).all():
