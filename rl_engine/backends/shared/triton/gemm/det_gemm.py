@@ -694,6 +694,7 @@ if _TRITON_AVAILABLE:
         BLOCK_N: tl.constexpr,
         BLOCK_K: tl.constexpr,
         PROMOTE_INPUTS: tl.constexpr,
+        INDEX_64: tl.constexpr = False,
     ):
         # One program = one output tile, walks the whole K in fixed order.
         # No split-K -> K-accumulation order independent of M -> batch-invariant.
@@ -701,6 +702,11 @@ if _TRITON_AVAILABLE:
         offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
         offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
         offs_k = tl.arange(0, BLOCK_K)
+        if INDEX_64:
+            # Large H3 token matrices can exceed signed 32-bit element offsets.
+            offs_m = offs_m.to(tl.int64)
+            offs_n = offs_n.to(tl.int64)
+            offs_k = offs_k.to(tl.int64)
         a_ptrs = a_ptr + (offs_m[:, None] * stride_am + offs_k[None, :] * stride_ak)
         b_ptrs = b_ptr + (offs_k[:, None] * stride_bk + offs_n[None, :] * stride_bn)
         acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
