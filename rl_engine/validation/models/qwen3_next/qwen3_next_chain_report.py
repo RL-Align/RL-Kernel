@@ -3,7 +3,8 @@
 
 """Qwen3-Next full-model chain as a WS1 chain-gate report.
 
-The Qwen3-Next chain runs as stages (``tools/validation/models/qwen3_next_run.py``): L2 on the
+The Qwen3-Next chain runs as stages
+(``tools/validation/models/qwen3_next/qwen3_next_run.py``): L2 on the
 pinned weights, then L2 again after each of two optimizer updates and after a
 reload. Each L2 stage writes a 16-case raw-bit matrix comparing rollout
 (native vLLM prefill + decode) with replay (VIME recompute). This module turns

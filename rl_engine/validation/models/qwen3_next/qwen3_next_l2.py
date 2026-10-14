@@ -909,7 +909,7 @@ def _validate_report_artifacts(report, *, roles, expected_identity, artifact_roo
     identity = report["identity"]
     if expected_identity is not None and identity != expected_identity:
         raise ValueError("Model matrix source/environment/provider identity mismatch")
-    from rl_engine.validation.models.qwen3_next_binary import validate_binary_record
+    from rl_engine.validation.models.qwen3_next.qwen3_next_binary import validate_binary_record
 
     binary = validate_binary_record(
         report.get("provider_binary"),

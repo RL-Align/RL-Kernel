@@ -14,7 +14,7 @@ import sys
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT))
 
 from qwen3_next_contract import (  # noqa: E402
@@ -34,12 +34,12 @@ from qwen3_next_runtime import (  # noqa: E402
     verify_environment,
 )
 
-from rl_engine.validation.models.qwen3_next_binary import (  # noqa: E402
+from rl_engine.validation.models.qwen3_next.qwen3_next_binary import (  # noqa: E402
     archive_provider_binary,
     validate_binary_record,
     verify_imported_provider,
 )
-from rl_engine.validation.models.qwen3_next_l2 import (  # noqa: E402
+from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import (  # noqa: E402
     NATIVE_WORKER_MODULE,
     PROMPT_LENGTHS,
     L2Case,
@@ -113,7 +113,7 @@ def model_identity(manifest):
             base_checkpoint=manifest["base_checkpoint"],
             base_checkpoint_identity=manifest["base_checkpoint_identity"],
         )
-    from rl_engine.validation.models.qwen3_next_l2 import validate_weight_identity
+    from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import validate_weight_identity
 
     validate_weight_identity(identity)
     return identity
@@ -213,7 +213,7 @@ def worker_batch(
         if fixture is None:
             from transformers import AutoTokenizer
 
-            from rl_engine.validation.models.qwen3_next_l2 import freeze_responses
+            from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import freeze_responses
 
             tokenizer = AutoTokenizer.from_pretrained(
                 manifest["checkpoint"], local_files_only=True, trust_remote_code=False

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "gates": {
     "gdn": {
-      "script": "tools/validation/models/qwen3_next_tp_gdn_check.py",
+      "script": "tools/validation/models/qwen3_next/qwen3_next_tp_gdn_check.py",
       "output_option": "--output",
       "scope": "tp4_gdn_layer0",
       "groups": {
@@ -18,7 +18,7 @@
       }
     },
     "attention": {
-      "script": "tools/validation/models/qwen3_next_tp_attention_check.py",
+      "script": "tools/validation/models/qwen3_next/qwen3_next_tp_attention_check.py",
       "output_option": "--output",
       "scope": "tp4_full_attention_layer3",
       "groups": {
@@ -37,7 +37,7 @@
       }
     },
     "moe": {
-      "script": "tools/validation/models/qwen3_next_tp_moe_check.py",
+      "script": "tools/validation/models/qwen3_next/qwen3_next_tp_moe_check.py",
       "output_option": "--output",
       "scope": "tp4_moe_block_layer0",
       "groups": {
@@ -58,7 +58,7 @@
       }
     },
     "adapters": {
-      "script": "tools/validation/models/qwen3_next_adapter_check.py",
+      "script": "tools/validation/models/qwen3_next/qwen3_next_adapter_check.py",
       "output_option": "--out",
       "scope": "gdn_engine_adapter_component",
       "groups": {
@@ -81,7 +81,7 @@
       }
     },
     "heads": {
-      "script": "tools/validation/models/qwen3_next_tp_head_check.py",
+      "script": "tools/validation/models/qwen3_next/qwen3_next_tp_head_check.py",
       "output_option": "--output",
       "scope": "tp4_embedding_lm_head_only",
       "groups": {

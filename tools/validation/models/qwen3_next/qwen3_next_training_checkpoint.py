@@ -44,7 +44,7 @@ from rl_engine.integrations.orchestrators.vime.providers.qwen3_next_training imp
     restore_rng_state,
     state_digest,
 )
-from rl_engine.validation.models.qwen3_next_rl_fixture import (
+from rl_engine.validation.models.qwen3_next.qwen3_next_rl_fixture import (
     PolicyFixture,
     require_policy_configuration,
 )

@@ -9,14 +9,14 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools/validation/models"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools/validation/models/qwen3_next"))
 
 import qwen3_next_run as run  # noqa: E402
 
 
 def manifest(tmp_path, stage="layers", script=None):
     source = tmp_path / "source"
-    (source / "tools/validation/models").mkdir(parents=True, exist_ok=True)
+    (source / "tools/validation/models/qwen3_next").mkdir(parents=True, exist_ok=True)
     if script is not None:
         (source / run.STAGES[stage][3]).write_text(script)
     return {
@@ -44,7 +44,9 @@ def frozen(monkeypatch):
 
 def test_prepare_refuses_a_dirty_tree(monkeypatch, tmp_path):
     monkeypatch.setattr(
-        run, "_git", lambda *args, cwd=None: " M tools/validation/models/qwen3_next_run.py"
+        run,
+        "_git",
+        lambda *args, cwd=None: " M tools/validation/models/qwen3_next/qwen3_next_run.py",
     )
     with pytest.raises(SystemExit, match="Commit the source"):
         run.prepare("preflight", None, None)

@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT))
 
 from qwen3_next_checkpoint import (  # noqa: E402
@@ -60,11 +60,11 @@ from rl_engine.integrations.orchestrators.vime.experiments.qwen3_next.native_tra
 from rl_engine.integrations.orchestrators.vime.providers.qwen3_next_training import (  # noqa: E402
     state_digest,
 )
-from rl_engine.validation.models.qwen3_next_binary import (  # noqa: E402
+from rl_engine.validation.models.qwen3_next.qwen3_next_binary import (  # noqa: E402
     archive_provider_binary,
     validate_binary_record,
 )
-from rl_engine.validation.models.qwen3_next_l2 import (  # noqa: E402
+from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import (  # noqa: E402
     case_matrix,
     checked_artifact_path,
     compare_artifacts,
@@ -823,7 +823,7 @@ def execute(manifest_path, output):
     run_process(
         [
             manifest["python"],
-            str(ROOT / "tools/validation/models/qwen3_next_l2.py"),
+            str(ROOT / "tools/validation/models/qwen3_next/qwen3_next_l2.py"),
             "--gpu-probe",
             "--output",
             str(probe),

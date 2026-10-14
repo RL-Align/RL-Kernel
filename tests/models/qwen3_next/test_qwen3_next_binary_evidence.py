@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from rl_engine.validation.models.qwen3_next_binary import (
+from rl_engine.validation.models.qwen3_next.qwen3_next_binary import (
     archive_provider_binary,
     validate_binary_record,
     verify_imported_provider,

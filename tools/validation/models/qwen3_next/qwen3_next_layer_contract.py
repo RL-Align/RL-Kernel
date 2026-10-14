@@ -12,7 +12,7 @@ from qwen3_next_runtime import file_digest, identity_digest
 
 def layer_requirements(root):
     root = Path(root)
-    path = root / "rl_engine/validation/models/qwen3_next_layer_cases.json"
+    path = root / "rl_engine/validation/models/qwen3_next/qwen3_next_layer_cases.json"
     registry = json.loads(path.read_text())
     if registry.get("schema_version") != 1 or set(registry.get("gates", {})) != {
         "gdn",
@@ -95,7 +95,7 @@ def validate_layer_report(report, requirement, identity, *, root):
         raise ValueError("Layer acceptance identity or completeness mismatch")
     if set(report.get("gates", {})) != set(requirement["gates"]):
         raise ValueError("Layer acceptance omitted a mandatory gate")
-    from rl_engine.validation.models.qwen3_next_binary import validate_binary_record
+    from rl_engine.validation.models.qwen3_next.qwen3_next_binary import validate_binary_record
 
     binary = validate_binary_record(
         report.get("provider_binary"), source_tree=identity["source_tree"], artifact_root=root
@@ -114,7 +114,7 @@ def validate_layer_report(report, requirement, identity, *, root):
                 raise ValueError("Layer ranks did not import the archived CUDA provider")
     scheduler_path = checked_record(report.get("scheduler"), root=root)
     scheduler = json.loads(scheduler_path.read_text())
-    from rl_engine.validation.models.qwen3_next_l2 import validate_scheduler_report
+    from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import validate_scheduler_report
 
     validate_scheduler_report(scheduler, expected_identity=identity, artifact_root=root)
     if scheduler.get("provider_binary") != report["provider_binary"]:

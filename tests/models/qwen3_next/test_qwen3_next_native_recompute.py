@@ -57,7 +57,7 @@ def test_recompute_batch_loads_once_and_keeps_verifiable_original_rank_traces(
     from rl_engine.integrations.orchestrators.vime.experiments.qwen3_next import (
         native_recompute as recompute,
     )
-    from rl_engine.validation.models.qwen3_next_l2 import (
+    from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import (
         load_tensor_artifact,
         save_tensor_artifact,
         validate_native_worker_traces,
@@ -216,7 +216,7 @@ def test_recompute_batch_loads_once_and_keeps_verifiable_original_rank_traces(
 @pytest.mark.parametrize("batch", [1, 4])
 @pytest.mark.parametrize("prompt_length", [8, 64, 256, 1024])
 def test_complete_native_state_shapes_bind_every_consumed_token(batch, prompt_length):
-    from rl_engine.validation.models.qwen3_next_l2 import native_state_shapes
+    from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import native_state_shapes
 
     request = {
         "prompt_tokens": [[1] * prompt_length for _ in range(batch)],

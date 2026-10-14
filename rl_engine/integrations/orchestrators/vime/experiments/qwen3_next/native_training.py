@@ -16,8 +16,11 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 
-from rl_engine.validation.models.qwen3_next_l2 import load_tensor_artifact, validate_fixture
-from rl_engine.validation.models.qwen3_next_rl_fixture import PolicyFixture
+from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import (
+    load_tensor_artifact,
+    validate_fixture,
+)
+from rl_engine.validation.models.qwen3_next.qwen3_next_rl_fixture import PolicyFixture
 
 
 def policy_fixture(path):
@@ -168,7 +171,9 @@ def _rank_main(rank, request, staging):
         from rl_engine.integrations.orchestrators.vime.providers.qwen3_next_vime_runtime import (
             create_actor,
         )
-        from rl_engine.validation.models.qwen3_next_binary import verify_imported_provider
+        from rl_engine.validation.models.qwen3_next.qwen3_next_binary import (
+            verify_imported_provider,
+        )
 
         fixture = policy_fixture(request["fixture"])
         manifest = request["manifest"]

@@ -16,7 +16,7 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools/validation/models"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools/validation/models/qwen3_next"))
 import qwen3_next_optimizer_checkpoint as optimizer_checkpoint  # noqa: E402
 import qwen3_next_training_checkpoint as checkpoint  # noqa: E402
 from qwen3_next_checkpoint import publish_checkpoint  # noqa: E402
@@ -25,7 +25,7 @@ from rl_engine.integrations.orchestrators.vime.providers.qwen3_next_training imp
     capture_rng_state,
     state_digest,
 )
-from rl_engine.validation.models.qwen3_next_rl_fixture import PolicyFixture  # noqa: E402
+from rl_engine.validation.models.qwen3_next.qwen3_next_rl_fixture import PolicyFixture  # noqa: E402
 
 IDENTITY = {"source": "pinned", "provider": "strict", "checkpoint": "official", "tp": 4}
 
