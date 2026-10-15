@@ -77,8 +77,8 @@ def plot(root: Path, out: Path) -> None:
     top.set_xticks(range(len(runs)), [_setting(r.name) for r in runs], fontsize=7, color=INK)
     top.axvline(len(runs) - 1.5, color=SURFACE, linewidth=4)
     top.set_title(
-        "Selected-token logprob, real LM head, 1024 tokens: output under each NCCL setting (and TP1) "
-        "equals TP4 / NCCL defaults (green) or not (red)",
+        "Selected-token logprob, real LM head, 1024 tokens: output under each NCCL setting "
+        "(and TP1) equals TP4 / NCCL defaults (green) or not (red)",
         fontsize=10,
         color=INK,
     )
