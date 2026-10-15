@@ -87,7 +87,10 @@ Consequences:
 The correctness oracle is `rl_engine/models/nemotron_h/reference.py`, an independent FP64
 evaluation that shares no code with the CUDA path. Forward and gradients are compared with
 the WS1 `logprob` rows of `rl_engine/contracts/profiles/precision/ws1.json`
-(`forward_accuracy` / `gradient_accuracy`, bf16). Bitwise properties are always asserted
+(`forward_accuracy` / `gradient_accuracy`, bf16), except `grad_weight`, which is a GEMM
+reduction with O(10) entries and is judged with the `reduction` gradient row: at that
+magnitude BF16 output rounding alone (up to 0.049 on the test inputs) nearly exhausts the
+absolute-only `logprob` budget of 0.05. Bitwise properties are always asserted
 between two strict runs, never against the oracle.
 
 ## Tests

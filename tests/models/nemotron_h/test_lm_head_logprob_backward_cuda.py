@@ -38,6 +38,12 @@ pytestmark = requires_nemotron_sm90
 _TOL = resolve_tolerance(
     load_contract(), judgment="gradient_accuracy", op_class="logprob", dtype=torch.bfloat16
 )
+# grad_weight is a GEMM reduction over tokens whose entries reach O(10); at that
+# magnitude BF16 output rounding alone (half-ulp 0.031 in [8, 16)) nearly exhausts
+# the logprob cell's absolute-only budget, so it is judged with the reduction cell.
+_WEIGHT_TOL = resolve_tolerance(
+    load_contract(), judgment="gradient_accuracy", op_class="reduction", dtype=torch.bfloat16
+)
 _EMBED_TOL = resolve_tolerance(
     load_contract(), judgment="gradient_accuracy", op_class="elementwise", dtype=torch.bfloat16
 )
@@ -77,7 +83,9 @@ def test_gradients_match_fp64_vjp(strict_op, lm_head_weight, use_temperature):
 
     assert grad_hidden.dtype == torch.bfloat16 and grad_weight.dtype == torch.bfloat16
     torch.testing.assert_close(grad_hidden.double(), ref_hidden, atol=_TOL.atol, rtol=_TOL.rtol)
-    torch.testing.assert_close(grad_weight.double(), ref_weight, atol=_TOL.atol, rtol=_TOL.rtol)
+    torch.testing.assert_close(
+        grad_weight.double(), ref_weight, atol=_WEIGHT_TOL.atol, rtol=_WEIGHT_TOL.rtol
+    )
     event = snapshot_backward_runtime()["nemotron_h_lm_head_logprob"]
     assert event["impl"] == "cuda_strict_dlogits_det_gemm"
 
