@@ -263,14 +263,36 @@ void rmsnorm_forward_cuda(
   torch::Tensor weight,
   torch::Tensor y,
   torch::Tensor rstd,
-  double eps);
+  double eps,
+  double weight_offset);
 
 void rmsnorm_backward_dx_cuda(
   torch::Tensor dy,
   torch::Tensor x,
   torch::Tensor weight,
   torch::Tensor rstd,
-  torch::Tensor dx);
+  torch::Tensor dx,
+  double weight_offset);
+
+void rmsnorm_gated_forward_cuda(
+  torch::Tensor x,
+  torch::Tensor weight,
+  torch::Tensor gate,
+  torch::Tensor y,
+  torch::Tensor rstd,
+  double eps,
+  double weight_offset,
+  int64_t activation);
+
+void rmsnorm_gated_backward_dx_cuda(
+  torch::Tensor dy,
+  torch::Tensor x,
+  torch::Tensor weight,
+  torch::Tensor gate,
+  torch::Tensor rstd,
+  torch::Tensor dx,
+  double weight_offset,
+  int64_t activation);
 
 void rmsnorm_backward_partial_dw_cuda(
   torch::Tensor dy,
@@ -296,23 +318,39 @@ static void rmsnorm_check_input(const torch::Tensor& x, const char* name) {
   TORCH_CHECK(x.is_contiguous(), name, " must be contiguous");
 }
 
+static void rmsnorm_check_weight(const torch::Tensor& x, const torch::Tensor& weight) {
+  TORCH_CHECK(x.dim() == 2 && x.size(1) > 0, "x must be 2D with positive hidden size");
+  TORCH_CHECK(x.scalar_type() == torch::kFloat32 || x.scalar_type() == torch::kFloat16 ||
+              x.scalar_type() == torch::kBFloat16, "x must be float32, float16 or bfloat16");
+  TORCH_CHECK(weight.dim() == 1 && weight.size(0) == x.size(1), "weight must be [H]");
+  TORCH_CHECK(weight.device() == x.device(), "weight must be on the same device as x");
+  TORCH_CHECK(weight.scalar_type() == x.scalar_type() || weight.scalar_type() == torch::kFloat32,
+              "weight must have x dtype or float32");
+}
+
+static void rmsnorm_check_backward(const torch::Tensor& dy, const torch::Tensor& x,
+                                   const torch::Tensor& rstd) {
+  TORCH_CHECK(dy.device() == x.device() && rstd.device() == x.device(),
+              "dy and rstd must be on the same device as x");
+  TORCH_CHECK(dy.scalar_type() == x.scalar_type(), "dy must have the same dtype as x");
+  TORCH_CHECK(rstd.scalar_type() == torch::kFloat32, "rstd must be float32");
+}
+
 std::vector<torch::Tensor> rmsnorm_forward(
   torch::Tensor x,
   torch::Tensor weight,
-  double eps)
+  double eps,
+  double weight_offset)
 {
   rmsnorm_check_input(x, "x");
   rmsnorm_check_input(weight, "weight");
-
-  TORCH_CHECK(x.dim() == 2, "x must be 2D [T, H]");
-  TORCH_CHECK(weight.dim() == 1, "weight must be 1D [H]");
-  TORCH_CHECK(x.size(1) == weight.size(0), "x.size(1) must equal weight.size(0)");
+  rmsnorm_check_weight(x, weight);
 
   auto T = x.size(0);
   auto y = torch::empty_like(x);
   auto rstd = torch::empty({T}, x.options().dtype(torch::kFloat32));
 
-  rmsnorm_forward_cuda(x, weight, y, rstd, eps);
+  rmsnorm_forward_cuda(x, weight, y, rstd, eps, weight_offset);
 
   return {y, rstd};
 }
@@ -321,22 +359,89 @@ torch::Tensor rmsnorm_backward_dx(
   torch::Tensor dy,
   torch::Tensor x,
   torch::Tensor weight,
-  torch::Tensor rstd)
+  torch::Tensor rstd,
+  double weight_offset)
 {
   rmsnorm_check_input(dy, "dy");
   rmsnorm_check_input(x, "x");
   rmsnorm_check_input(weight, "weight");
+  rmsnorm_check_weight(x, weight);
   rmsnorm_check_input(rstd, "rstd");
+  rmsnorm_check_backward(dy, x, rstd);
 
   TORCH_CHECK(dy.sizes() == x.sizes(), "dy and x must have same shape");
-  TORCH_CHECK(x.dim() == 2, "x must be 2D [T, H]");
-  TORCH_CHECK(weight.dim() == 1, "weight must be 1D [H]");
   TORCH_CHECK(rstd.dim() == 1, "rstd must be 1D [T]");
   TORCH_CHECK(rstd.size(0) == x.size(0), "rstd.size(0) must equal x.size(0)");
 
   auto dx = torch::empty_like(x);
 
-  rmsnorm_backward_dx_cuda(dy, x, weight, rstd, dx);
+  rmsnorm_backward_dx_cuda(dy, x, weight, rstd, dx, weight_offset);
+
+  return dx;
+}
+
+static void rmsnorm_gated_check(
+  const torch::Tensor& x,
+  const torch::Tensor& weight,
+  const torch::Tensor& gate,
+  int64_t activation)
+{
+  rmsnorm_check_input(x, "x");
+  rmsnorm_check_input(weight, "weight");
+  rmsnorm_check_weight(x, weight);
+  rmsnorm_check_input(gate, "gate");
+  TORCH_CHECK(gate.device() == x.device(), "gate must be on the same device as x");
+  TORCH_CHECK(gate.sizes() == x.sizes(), "gate must have the same shape as x");
+  TORCH_CHECK(
+    gate.scalar_type() == x.scalar_type(),
+    "gate must have the same dtype as x");
+  // 0 = silu/swish, 1 = sigmoid. Anything else fails closed rather than
+  // silently computing a different activation (RFC #428 section 6, item 7).
+  TORCH_CHECK(
+    activation == 0 || activation == 1,
+    "activation must be 0 (silu) or 1 (sigmoid), got ", activation);
+}
+
+std::vector<torch::Tensor> rmsnorm_gated_forward(
+  torch::Tensor x,
+  torch::Tensor weight,
+  torch::Tensor gate,
+  double eps,
+  double weight_offset,
+  int64_t activation)
+{
+  rmsnorm_gated_check(x, weight, gate, activation);
+
+  auto T = x.size(0);
+  auto y = torch::empty_like(x);
+  auto rstd = torch::empty({T}, x.options().dtype(torch::kFloat32));
+
+  rmsnorm_gated_forward_cuda(x, weight, gate, y, rstd, eps, weight_offset, activation);
+
+  return {y, rstd};
+}
+
+torch::Tensor rmsnorm_gated_backward_dx(
+  torch::Tensor dy,
+  torch::Tensor x,
+  torch::Tensor weight,
+  torch::Tensor gate,
+  torch::Tensor rstd,
+  double weight_offset,
+  int64_t activation)
+{
+  rmsnorm_gated_check(x, weight, gate, activation);
+  rmsnorm_check_input(dy, "dy");
+  rmsnorm_check_input(rstd, "rstd");
+  rmsnorm_check_backward(dy, x, rstd);
+
+  TORCH_CHECK(dy.sizes() == x.sizes(), "dy must have the same shape as x");
+  TORCH_CHECK(rstd.dim() == 1 && rstd.size(0) == x.size(0), "rstd must be [T]");
+
+  auto dx = torch::empty_like(x);
+
+  rmsnorm_gated_backward_dx_cuda(
+    dy, x, weight, gate, rstd, dx, weight_offset, activation);
 
   return dx;
 }
@@ -350,6 +455,7 @@ torch::Tensor rmsnorm_backward_dw(
   rmsnorm_check_input(dy, "dy");
   rmsnorm_check_input(x, "x");
   rmsnorm_check_input(rstd, "rstd");
+  rmsnorm_check_backward(dy, x, rstd);
   rmsnorm_check_input(mask, "mask");
 
   TORCH_CHECK(dy.sizes() == x.sizes(), "dy and x must have same shape");
@@ -357,6 +463,8 @@ torch::Tensor rmsnorm_backward_dw(
   TORCH_CHECK(rstd.dim() == 1, "rstd must be 1D [T]");
   TORCH_CHECK(mask.dim() == 1, "mask must be 1D [T]");
   TORCH_CHECK(mask.scalar_type() == torch::kBool, "mask must be bool");
+  TORCH_CHECK(mask.device() == x.device(), "mask must be on the same device as x");
+  TORCH_CHECK(x.size(1) > 0, "hidden size must be positive");
   TORCH_CHECK(rstd.size(0) == x.size(0), "rstd.size(0) must equal x.size(0)");
   TORCH_CHECK(mask.size(0) == x.size(0), "mask.size(0) must equal x.size(0)");
 
@@ -718,9 +826,24 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         &det_gemm_db_transposed,
         "Batch-invariant deterministic GEMM backward in canonical [N,K] layout");
     // registry RMSNorm
-    m.def("rmsnorm_forward", &rmsnorm_forward, "Batch-invariant RMSNorm forward CUDA");
-    m.def("rmsnorm_backward_dx", &rmsnorm_backward_dx, "Batch-invariant RMSNorm backward dx CUDA");
+    // API version 2 includes weight_offset in both entry points.
+    m.attr("rmsnorm_api_version") = 2;
+    m.def("rmsnorm_forward", &rmsnorm_forward, "Batch-invariant RMSNorm forward CUDA",
+          py::arg("x"), py::arg("weight"), py::arg("eps"),
+          py::arg("weight_offset") = 0.0);
+    m.def("rmsnorm_backward_dx", &rmsnorm_backward_dx, "Batch-invariant RMSNorm backward dx CUDA",
+          py::arg("dy"), py::arg("x"), py::arg("weight"), py::arg("rstd"),
+          py::arg("weight_offset") = 0.0);
     m.def("rmsnorm_backward_dw", &rmsnorm_backward_dw, "Deterministic RMSNorm backward dweight CUDA");
+    m.def("rmsnorm_gated_forward", &rmsnorm_gated_forward,
+          "Batch-invariant gated RMSNorm forward CUDA",
+          py::arg("x"), py::arg("weight"), py::arg("gate"), py::arg("eps"),
+          py::arg("weight_offset") = 0.0, py::arg("activation") = 0);
+    m.def("rmsnorm_gated_backward_dx", &rmsnorm_gated_backward_dx,
+          "Batch-invariant gated RMSNorm backward dx CUDA",
+          py::arg("dy"), py::arg("x"), py::arg("weight"), py::arg("gate"),
+          py::arg("rstd"), py::arg("weight_offset") = 0.0,
+          py::arg("activation") = 0);
 #if !defined(USE_ROCM)
     m.def(
         "reduce_rows_fp32_left_fold",

@@ -4,6 +4,7 @@
 import sys
 from types import ModuleType
 
+import pytest
 import torch
 
 import rl_engine.platforms.device as device_module
@@ -258,3 +259,67 @@ if __name__ == "__main__":
         print("\n All infrastructure tests passed!")
     except Exception as e:
         print(f"\n Test failed with error: {e}")
+
+
+_QWEN3_NEXT_NORMS = [
+    pytest.param(
+        "rms_norm_gated",
+        OpBackend.CUDA_RMS_NORM_GATED,
+        OpBackend.PYTORCH_NATIVE_RMS_NORM_GATED,
+        "Qwen3NextRMSNormGatedCudaOp",
+        "Qwen3NextRMSNormGatedOp",
+        id="rms_norm_gated",
+    ),
+    pytest.param(
+        "qwen3_next_rms_norm",
+        OpBackend.CUDA_QWEN3_NEXT_RMS_NORM,
+        OpBackend.PYTORCH_NATIVE_QWEN3_NEXT_RMS_NORM,
+        "Qwen3NextRMSNormCudaOp",
+        "Qwen3NextRMSNormOp",
+        id="qwen3_next_rms_norm",
+    ),
+]
+
+
+@pytest.mark.parametrize("op_type, cuda_backend, ref_backend, cuda_cls, ref_cls", _QWEN3_NEXT_NORMS)
+def test_qwen3_next_norm_priority_is_cuda_first_with_pytorch_fallback(
+    op_type, cuda_backend, ref_backend, cuda_cls, ref_cls
+):
+    """Both Qwen3-Next norms have a CUDA kernel; every other platform falls back.
+
+    No Triton, ROCm or Ascend kernel exists yet, so those platforms must resolve
+    to the PyTorch reference rather than to nothing -- an operator missing from a
+    priority map falls through to ``OpBackend.PYTORCH_NATIVE``, which is the
+    logprob op, not a norm.
+    """
+    registry = KernelRegistry()
+
+    assert registry._priority_map["cuda"][op_type] == [cuda_backend, ref_backend]
+    for platform in ("rocm", "musa", "cpu", "npu"):
+        assert registry._priority_map[platform][op_type] == [ref_backend], platform
+
+
+@pytest.mark.skipif(torch.version.hip is not None, reason="a cuda device maps to rocm on HIP")
+@pytest.mark.parametrize("op_type, cuda_backend, ref_backend, cuda_cls, ref_cls", _QWEN3_NEXT_NORMS)
+def test_qwen3_next_norm_cuda_backend_absence_falls_through_to_reference(
+    monkeypatch, op_type, cuda_backend, ref_backend, cuda_cls, ref_cls
+):
+    """Without the compiled symbols the CUDA backend must be skipped, not returned.
+
+    The zero-centred op inherits its check from ``RMSNormCudaOp.__init__``. The
+    lookup names a CUDA device so the CUDA-first list is walked even on a
+    CPU-only host; resolving for the host's own platform would reach the
+    reference through the CPU list without ever trying the CUDA backend.
+    """
+    from rl_engine.backends.cuda.norm import rmsnorm as cuda_rmsnorm
+    from rl_engine.reference.norm import qwen3_next_rms_norm as reference
+
+    monkeypatch.setattr(cuda_rmsnorm, "_EXT_AVAILABLE", False)
+    monkeypatch.setattr(cuda_rmsnorm, "_C", None)
+    with pytest.raises(RuntimeError, match="requires the compiled rl_engine._C extension"):
+        getattr(cuda_rmsnorm, cuda_cls)()
+
+    registry = KernelRegistry()
+    resolved = registry.get_op(op_type, device="cuda")
+    assert type(resolved) is getattr(reference, ref_cls)
+    assert cuda_backend.name in registry._failed_backends
