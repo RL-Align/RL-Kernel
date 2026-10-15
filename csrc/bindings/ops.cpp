@@ -6,6 +6,7 @@
 
 // Fused LogP Declarations
 torch::Tensor fused_logp_forward(torch::Tensor logits, torch::Tensor token_ids);
+torch::Tensor fused_logp_backward(torch::Tensor logits, torch::Tensor token_ids, torch::Tensor grad_output);
 #if !defined(USE_ROCM) && !defined(KERNEL_ALIGN_WITH_ROCM)
 std::vector<torch::Tensor> ordered_logp_merge(torch::Tensor lse, torch::Tensor target);
 #endif
@@ -505,6 +506,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.doc() = "RL-Kernel High-Performance Operator Extension Library";
 
     m.def("fused_logp", &fused_logp_forward, "Fused logp forward fallback");
+    m.def("fused_logp_backward", &fused_logp_backward,
+          "Fused logp dlogits = grad * (one_hot - softmax), consistent with fused_logp");
 #if !defined(USE_ROCM) && !defined(KERNEL_ALIGN_WITH_ROCM)
     m.def("ordered_logp_merge", &ordered_logp_merge, "Rank-ordered FP32 logp merge");
 #endif
