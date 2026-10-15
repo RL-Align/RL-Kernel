@@ -17,12 +17,14 @@ from rl_engine.ops.gemm.video_input_projection_fp32 import (
     VideoInputProjectionFP32Op,
 )
 
+_VJP_TILE = (128, 32, 4)
+
 
 def projection_gemm_fp32(a, b, *, bias=None):
     if a.shape[1] <= VIDEO_PATCH_WIDTH:
         return _triton_gemm_fp32(a, b, bias=bias)
     if b.shape[1] == VIDEO_PATCH_WIDTH:
-        output = _triton_chunked_gemm_fp32(a, b)
+        output = _triton_chunked_gemm_fp32(a, b, tile=_VJP_TILE)
     else:
         output = _triton_tree_gemm(a, b, output_dtype=torch.float32, preserve_a_strides=True)
     return output if bias is None else output + bias
@@ -30,7 +32,7 @@ def projection_gemm_fp32(a, b, *, bias=None):
 
 class TritonVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
     family = "triton_tree"
-    backend_id = "triton-video-input-projection-fp32-v5"
+    backend_id = "triton-video-input-projection-fp32-v6"
 
     def __init__(self):
         if not _TRITON_AVAILABLE:
@@ -53,6 +55,8 @@ class TritonVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
             "_det_gemm_tree_leaf_reduce_rocm_kernel",
             "triton_version": triton.__version__,
             "tile": [64, 64, 32],
+            "vjp_tile": [_VJP_TILE[0], _VJP_TILE[1], _BLOCK_K],
+            "vjp_num_warps": _VJP_TILE[2],
             "tf32": False,
             "fp_fusion": False,
             "dot_arithmetic": "ieee_fp32_simt_fma",

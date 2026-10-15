@@ -202,7 +202,7 @@ def test_forward_and_actual_gradients(backend, rows, with_bias):
 
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")
 @pytest.mark.parametrize("backend", BACKENDS)
-@pytest.mark.parametrize("rows", [9, 65, 129])
+@pytest.mark.parametrize("rows", [9, 65, 127, 128, 129, 257])
 def test_parameter_bi_permutation_chunk_padding(backend, rows):
     op, data, keys = _op(backend), _data(rows), _keys(rows, "cuda")
     baseline = _run(op, data, keys)
@@ -326,7 +326,7 @@ def test_default_cuda_dispatch():
     from rl_engine.runtime.registry import KernelRegistry
 
     op = KernelRegistry().get_op("video_input_projection_fp32", device="cuda")
-    assert op.backend_info()["backend_id"] == "triton-video-input-projection-fp32-v5"
+    assert op.backend_info()["backend_id"] == "triton-video-input-projection-fp32-v6"
     x, weight, bias, _ = _data(3)
     with torch.no_grad():
         _assert_bytes(op(x, weight, bias), _op("triton")(x, weight, bias))
@@ -423,21 +423,25 @@ def test_cpu_fp32_reference_long_dot_accuracy():
 
 
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")
-@pytest.mark.parametrize("k", [129, 5376, 13104])
-def test_fp32_chunked_gemm_strides_and_workspace(k, monkeypatch):
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("k", [127, 128, 129, 5376, 13104])
+def test_fp32_chunked_gemm_strides_and_workspace(backend, k, monkeypatch):
     from rl_engine.backends.shared.triton.gemm import det_gemm
+    from rl_engine.ops.gemm.canonical_linear import _gemm_fp32
     from rl_engine.reference.gemm.video_input_projection_fp32 import _reference_matmul_fp32
 
     torch.manual_seed(420)
+    _op(backend)
+    family = "triton_tree" if backend == "triton" else "cutlass"
     a = torch.randn(k, 7, device="cuda").t()
     b = torch.randn(k, 96, device="cuda")
-    expected = det_gemm._triton_chunked_gemm_fp32(a.contiguous(), b)
-    actual = det_gemm._triton_chunked_gemm_fp32(a, b)
+    expected = _gemm_fp32(a.contiguous(), b, family)
+    actual = _gemm_fp32(a, b, family)
     _assert_bytes(actual, expected)
     _assert_accuracy(actual, _reference_matmul_fp32(a, b), "gradient_accuracy")
     chunks = (k + 127) // 128
     monkeypatch.setattr(det_gemm, "_MAX_TREE_WORKSPACE_ELEMENTS", chunks * 96 * 2)
-    _assert_bytes(det_gemm._triton_chunked_gemm_fp32(a, b), expected)
+    _assert_bytes(_gemm_fp32(a, b, family), expected)
 
 
 @pytest.mark.parametrize("bias_uses", ["all", "partial", "distinct"])

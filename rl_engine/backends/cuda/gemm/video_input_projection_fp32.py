@@ -37,7 +37,9 @@ import torch
 
 from rl_engine.backends.shared.triton.gemm.det_gemm import (
     _BLOCK_K,
+    _FP32_CHUNK_K,
     _TRITON_AVAILABLE,
+    _triton_chunked_gemm_fp32,
     _triton_tree_gemm,
 )
 from rl_engine.ops.gemm.video_input_projection_fp32 import (
@@ -65,7 +67,8 @@ def _load_extension():
         or info["ftz"]
         or info["split_k"] != 1
         or info.get("tree_leaf_size") != _BLOCK_K
-        or info.get("tree_operand_packing") != "direct_strides_grouped_actual_k"
+        or info.get("vjp_chunk_k") != _FP32_CHUNK_K
+        or info.get("partial_operand_layout") != "direct_strides_grouped_actual_k"
     ):
         raise RuntimeError("CUTLASS extension does not match the strict FP32 build contract")
     return extension
@@ -73,7 +76,7 @@ def _load_extension():
 
 def _cutlass_tree_leaves(a, b, workspace, plan):
     for length, leaf_ids in _leaf_groups(plan.host.leaf_lengths, a.device):
-        _load_extension().gemm_fp32_tree_leaves_strided(
+        _load_extension().gemm_fp32_partials_strided(
             a, b.t(), workspace, plan.leaf_starts, plan.leaf_nodes, leaf_ids, length
         )
 
@@ -93,10 +96,26 @@ def _leaf_groups(lengths, device):
     )
 
 
+@lru_cache(maxsize=None)
+def _chunk_metadata(k_size, device):
+    full, tail = divmod(k_size, _FP32_CHUNK_K)
+    lengths = (_FP32_CHUNK_K,) * full + ((tail,) if tail else ())
+    nodes = torch.arange(len(lengths), device=device, dtype=torch.int32)
+    return nodes * _FP32_CHUNK_K, nodes, _leaf_groups(lengths, device)
+
+
+def _cutlass_chunks(a, b, partial):
+    starts, nodes, groups = _chunk_metadata(a.shape[1], a.device)
+    for length, ids in groups:
+        _load_extension().gemm_fp32_partials_strided(a, b.t(), partial, starts, nodes, ids, length)
+
+
 def cutlass_gemm_fp32(a, b):
     # The native TN interface represents mathematical B[K,N] as [N,K] storage.
     if a.shape[1] <= VIDEO_PATCH_WIDTH:
         return _load_extension().gemm_fp32_tn(a.contiguous(), b.t().contiguous())
+    if b.shape[1] == VIDEO_PATCH_WIDTH:
+        return _triton_chunked_gemm_fp32(a, b, fp32_chunk_launcher=_cutlass_chunks)
     return _triton_tree_gemm(
         a,
         b,
@@ -108,7 +127,7 @@ def cutlass_gemm_fp32(a, b):
 
 class CUDAVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
     family = "cutlass"
-    backend_id = "cuda-cutlass-video-input-projection-fp32-v5"
+    backend_id = "cuda-cutlass-video-input-projection-fp32-v6"
 
     def __init__(self):
         if not _TRITON_AVAILABLE:
@@ -127,14 +146,17 @@ class CUDAVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
         return {
             "backend_id": self.backend_id,
             "family": "cuda",
-            "kernel": "gemm_fp32_tn / gemm_fp32_tree_leaves_strided / "
+            "kernel": "gemm_fp32_tn / gemm_fp32_partials_strided / "
+            "_det_gemm_fp32_chunk_merge_kernel / "
             "_det_gemm_kernel / _det_gemm_tree_leaf_reduce_rocm_kernel",
-            "reduction": "fixed_midpoint_tree",
+            "reduction": "fixed_128_chunks_balanced_fp32_merge",
+            "vjp_chunk_k": _FP32_CHUNK_K,
+            "vjp_merge_tile": 16,
+            "bias_reduction": "fixed_midpoint_tree",
             "reduction_leaf_size": _BLOCK_K,
             "reduction_backend": "triton",
             "bias_reduction_backend": "triton_for_k_gt_96",
             "triton_version": triton.__version__,
-            "leaf_launch": "cutlass_device_gemm_array",
-            "tree_schedule": "paired_levels_compact_workspace",
+            "bias_tree_schedule": "paired_levels_compact_workspace",
             **_load_extension().build_info(),
         }

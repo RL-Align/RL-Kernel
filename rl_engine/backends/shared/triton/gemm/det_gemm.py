@@ -804,7 +804,13 @@ if _TRITON_AVAILABLE:
         tl.store(output_ptr + offsets, total, mask=offsets < ELEMENTS)
 
 
-def _triton_chunked_gemm_fp32(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def _triton_chunked_gemm_fp32(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    *,
+    tile: tuple[int, int, int] = (_BLOCK_M, _BLOCK_N, 4),
+    fp32_chunk_launcher=None,
+) -> torch.Tensor:
     """Reuse the FP32 GEMM in fixed K chunks and merge partials in one grid."""
     m_size, k_size = a.shape
     n_size = b.shape[1]
@@ -815,35 +821,44 @@ def _triton_chunked_gemm_fp32(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     if m_size > rows_per_chunk:
         return torch.cat(
             [
-                _triton_chunked_gemm_fp32(a[start : start + rows_per_chunk], b)
+                _triton_chunked_gemm_fp32(
+                    a[start : start + rows_per_chunk],
+                    b,
+                    tile=tile,
+                    fp32_chunk_launcher=fp32_chunk_launcher,
+                )
                 for start in range(0, m_size, rows_per_chunk)
             ],
             dim=0,
         )
     partial = torch.empty((chunks, m_size, n_size), device=a.device, dtype=torch.float32)
     output = torch.empty((m_size, n_size), device=a.device, dtype=torch.float32)
-    grid = (triton.cdiv(m_size, _BLOCK_M), triton.cdiv(n_size, _BLOCK_N), chunks)
-    _det_gemm_fp32_kernel[grid](
-        a,
-        b,
-        partial,
-        None,
-        m_size,
-        n_size,
-        k_size,
-        *a.stride(),
-        *b.stride(),
-        n_size,
-        1,
-        BLOCK_M=_BLOCK_M,
-        BLOCK_N=_BLOCK_N,
-        BLOCK_K=_BLOCK_K,
-        PROMOTE_INPUTS=True,
-        HAS_BIAS=False,
-        CHUNK_K=_FP32_CHUNK_K,
-        enable_fp_fusion=False,
-        num_warps=4,
-    )
+    if fp32_chunk_launcher is None:
+        block_m, block_n, num_warps = tile
+        grid = (triton.cdiv(m_size, block_m), triton.cdiv(n_size, block_n), chunks)
+        _det_gemm_fp32_kernel[grid](
+            a,
+            b,
+            partial,
+            None,
+            m_size,
+            n_size,
+            k_size,
+            *a.stride(),
+            *b.stride(),
+            n_size,
+            1,
+            BLOCK_M=block_m,
+            BLOCK_N=block_n,
+            BLOCK_K=_BLOCK_K,
+            PROMOTE_INPUTS=True,
+            HAS_BIAS=False,
+            CHUNK_K=_FP32_CHUNK_K,
+            enable_fp_fusion=False,
+            num_warps=num_warps,
+        )
+    else:
+        fp32_chunk_launcher(a, b, partial)
     _det_gemm_fp32_chunk_merge_kernel[(triton.cdiv(m_size * n_size, 16),)](
         partial,
         output,

@@ -149,10 +149,10 @@ class _CanonicalLinearFn(torch.autograd.Function):
             record_backward(
                 "video_input_projection_fp32",
                 kernel_id=(
-                    "rl_engine._C_cutlass.gemm_fp32_tree_leaves_strided / "
-                    "rl_engine.backends.shared.triton.gemm.det_gemm._triton_tree_gemm"
+                    "rl_engine._C_cutlass.gemm_fp32_partials_strided / "
+                    "rl_engine.backends.shared.triton.gemm.det_gemm._triton_chunked_gemm_fp32"
                 ),
-                impl="cutlass_fp32_simt_triton_tree_bias_canonical_rowfold",
+                impl="cutlass_fp32_simt_chunk128_triton_merge_bias_canonical_rowfold",
                 family="cuda",
             )
         return da, dweight, None, None, None, dbias, None
