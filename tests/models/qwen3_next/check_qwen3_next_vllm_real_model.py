@@ -4,20 +4,20 @@
 """The shared vLLM model on four real ranks: real config, real model, real expert placement.
 
 Each test launches four processes (``torch.distributed.run``) that initialise
-vLLM's own tensor-parallel state and build vLLM's actual ``Qwen3NextForCausalLM``
-(``native-bind``) or RL-Kernel's ``RLKernelQwen3NextForCausalLM`` (``wrapper``) from a
-real ``VllmConfig``, at expert parallel size 1 (all 512 experts at expert-TP4
-width on every rank) and 4 (experts ``[128r, 128r + 128)`` at full width on rank
-r, vLLM's linear placement). The weights are allocated but not loaded
-(about 40 GB per rank); nothing is mocked.
+vLLM's own tensor-parallel state and build RL-Kernel's
+``RLKernelQwen3NextForCausalLM`` -- vLLM's actual ``Qwen3NextForCausalLM`` with the
+shared providers bound in -- from a real ``VllmConfig``, at expert parallel size 1
+(all 512 experts at expert-TP4 width on every rank) and 4 (experts
+``[128r, 128r + 128)`` at full width on rank r, vLLM's linear placement). The
+weights are allocated but not loaded (about 40 GB per rank); nothing is mocked.
 
-* ``native-bind``: the real binding function replaces no parameter and no HF
-  weight loader; every one of the 48 layers has the shared classes, the local
-  expert count, the shapes, and -- at EP4 -- vLLM's own ``expert_map`` equals
+* Real configuration drift (an expert-parallel flag that does not match the
+  identity, another placement, a wrong dtype) is rejected before any model
+  memory is allocated.
+* The certified configuration constructs; all 48 layers hold the shared classes,
+  the local expert count and the shapes; the routed-expert parameters keep vLLM's
+  native weight loaders; and -- at EP4 -- vLLM's own ``expert_map`` equals
   ``[128r, 128r + 128)`` with every expert held by exactly one rank.
-* ``wrapper``: real configuration drift (an expert-parallel flag that does not
-  match the identity, another placement, a wrong dtype) is rejected before any
-  model memory is allocated; the certified configuration constructs.
 """
 
 from __future__ import annotations
@@ -33,9 +33,8 @@ import torch
 ROOT = Path(__file__).resolve().parents[3]
 
 
-@pytest.mark.parametrize("mode", ["native-bind", "wrapper"])
 @pytest.mark.parametrize("ep", [1, 4])
-def test_real_vllm_model_on_four_ranks(ep, mode):
+def test_real_vllm_model_on_four_ranks(ep):
     if torch.cuda.device_count() < 4:
         raise AssertionError("Four allocated GPUs are required")
     result = subprocess.run(
@@ -49,7 +48,6 @@ def test_real_vllm_model_on_four_ranks(ep, mode):
             str(Path(__file__).resolve()),
             "--worker",
             str(ep),
-            mode,
         ],
         cwd=ROOT,
         env={**os.environ, "PYTHONPATH": str(ROOT), "TRITON_F32_DEFAULT": "ieee"},
@@ -61,16 +59,13 @@ def test_real_vllm_model_on_four_ranks(ep, mode):
     assert result.stdout.count("REAL-MODEL OK") == 4, result.stdout[-2000:]
 
 
-def _worker(ep: int, mode: str) -> None:
+def _worker(ep: int) -> None:
     import torch.distributed as dist
     from vllm.config import set_current_vllm_config
     from vllm.distributed import parallel_state
     from vllm.utils.torch_utils import set_default_torch_dtype
 
     from rl_engine.integrations.engines.rollout.vllm import qwen3_next_vllm_model as adapter
-    from rl_engine.integrations.engines.rollout.vllm.qwen3_next_vllm_attention import (
-        register_shared_attention_backend,
-    )
     from rl_engine.models.qwen3_next.qwen3_next_ep import expert_map
     from tests.models.qwen3_next.vllm_real import real_vllm_config
 
@@ -90,6 +85,9 @@ def _worker(ep: int, mode: str) -> None:
             assert type(moe) is adapter.SharedVLLMMoE, index
             assert moe.shared_ep == ep, index
             routed = moe.experts.routed_experts
+            for parameter in (routed.w13_weight, routed.w2_weight):
+                loader = getattr(parameter, "weight_loader", None)
+                assert callable(loader) and getattr(loader, "__self__", None) is routed, index
             if ep == 1:
                 assert routed.expert_map is None and routed.local_num_experts == 512, index
                 assert tuple(routed.w13_weight.shape) == (512, 256, 2048), index
@@ -113,47 +111,27 @@ def _worker(ep: int, mode: str) -> None:
         set_default_torch_dtype(config.model_config.dtype),
         torch.device("cuda"),
     ):
-        if mode == "native-bind":
-            from vllm.model_executor.models.qwen3_next import Qwen3NextForCausalLM
-
-            # vLLM's attention refuses the CUSTOM backend until it is registered;
-            # the wrapper does this itself before it constructs the native model.
-            register_shared_attention_backend()
-            model = Qwen3NextForCausalLM(vllm_config=config, prefix="")
-            before = {
-                name: (id(value), id(getattr(value, "weight_loader", None)))
-                for name, value in model.named_parameters()
-            }
-            adapter._bind_native_model(model.model, group, ep)
-            after = {
-                name: (id(value), id(getattr(value, "weight_loader", None)))
-                for name, value in model.named_parameters()
-            }
-            assert after == before, "binding replaced a parameter or a weight loader"
-            assert isinstance(model.model, adapter.SharedVLLMModel)
-            check_layers(model.model)
-        else:
-            allocated = torch.cuda.memory_allocated()
-            drifts = [
-                ("parallel_config", "enable_expert_parallel", ep != 4),
-                ("parallel_config", "expert_placement_strategy", "round_robin"),
-                ("model_config", "dtype", torch.float32),
-            ]
-            for scope, name, value in drifts:
-                drifted = real_vllm_config(ep)
-                setattr(getattr(drifted, scope), name, value)
-                with pytest.raises(ValueError):
-                    adapter.RLKernelQwen3NextForCausalLM(vllm_config=drifted, prefix="")
-                assert torch.cuda.memory_allocated() == allocated, "drift allocated a model"
-            model = adapter.RLKernelQwen3NextForCausalLM(vllm_config=config, prefix="")
-            check_layers(model.model)
+        allocated = torch.cuda.memory_allocated()
+        drifts = [
+            ("parallel_config", "enable_expert_parallel", ep != 4),
+            ("parallel_config", "expert_placement_strategy", "round_robin"),
+            ("model_config", "dtype", torch.float32),
+        ]
+        for scope, name, value in drifts:
+            drifted = real_vllm_config(ep)
+            setattr(getattr(drifted, scope), name, value)
+            with pytest.raises(ValueError):
+                adapter.RLKernelQwen3NextForCausalLM(vllm_config=drifted, prefix="")
+            assert torch.cuda.memory_allocated() == allocated, "drift allocated a model"
+        model = adapter.RLKernelQwen3NextForCausalLM(vllm_config=config, prefix="")
+        check_layers(model.model)
     dist.barrier()
-    print(f"REAL-MODEL OK rank {rank} ep {ep} {mode}", flush=True)
+    print(f"REAL-MODEL OK rank {rank} ep {ep}", flush=True)
     dist.destroy_process_group()
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 4 and sys.argv[1] == "--worker":
-        _worker(int(sys.argv[2]), sys.argv[3])
+    if len(sys.argv) == 3 and sys.argv[1] == "--worker":
+        _worker(int(sys.argv[2]))
     else:
         raise SystemExit(pytest.main([__file__, "-q"]))
