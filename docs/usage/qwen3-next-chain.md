@@ -45,7 +45,7 @@ provider or topology identity.
 
 | Stage | What it checks | Typical time |
 | --- | --- | --- |
-| `preflight` | environment and versions, the mandatory operator cases (`rl_engine/validation/models/qwen3_next/qwen3_next_operator_cases.json`) and norm C3/C4 gates, multi-GPU device guards, a four-rank TP probe, checkpoint hashes, a vLLM rollout smoke | 15 min |
+| `preflight` | environment and versions, the mandatory operator cases (`rl_engine/validation/models/qwen3_next/qwen3_next_operator_cases.json`) and norm C3/C4 gates, multi-GPU device guards (including the real vLLM config and the real four-rank model at EP1 and EP4), a four-rank TP probe, checkpoint hashes, a vLLM rollout smoke | 20 min |
 | `layers` | the real-weight TP4 gates (GDN, attention, MoE, GDN engine adapters, embedding/LM head) and the native scheduler on 16 cases; certifies the shared provider profile | 25 min |
 | `l2` | 16 cases (prompt 8/64/256/1024 x batch 1/4 x full/chunked prefill, 16 response tokens): rollout vs replay, raw bits, plus every layer and sub-node digest | 30 min |
 | `train1`, `train2` | one optimizer update each, checkpoint, HF export, L2 on the exported weights | 3-4 h each |
