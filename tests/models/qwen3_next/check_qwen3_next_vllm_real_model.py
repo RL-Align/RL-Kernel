@@ -107,6 +107,9 @@ def _worker(ep: int, mode: str) -> None:
         if mode == "native-bind":
             from vllm.model_executor.models.qwen3_next import Qwen3NextForCausalLM
 
+            # vLLM's attention refuses the CUSTOM backend until it is registered;
+            # the wrapper does this itself before it constructs the native model.
+            adapter.register_shared_attention_backend()
             model = Qwen3NextForCausalLM(vllm_config=config, prefix="")
             before = {
                 name: (id(value), id(getattr(value, "weight_loader", None)))
