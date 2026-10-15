@@ -67,6 +67,9 @@ def _worker(ep: int, mode: str) -> None:
     from vllm.distributed import parallel_state
 
     from rl_engine.integrations.engines.rollout.vllm import qwen3_next_vllm_model as adapter
+    from rl_engine.integrations.engines.rollout.vllm.qwen3_next_vllm_attention import (
+        register_shared_attention_backend,
+    )
     from rl_engine.models.qwen3_next.qwen3_next_ep import expert_map
     from tests.models.qwen3_next.vllm_real import real_vllm_config
 
@@ -109,7 +112,7 @@ def _worker(ep: int, mode: str) -> None:
 
             # vLLM's attention refuses the CUSTOM backend until it is registered;
             # the wrapper does this itself before it constructs the native model.
-            adapter.register_shared_attention_backend()
+            register_shared_attention_backend()
             model = Qwen3NextForCausalLM(vllm_config=config, prefix="")
             before = {
                 name: (id(value), id(getattr(value, "weight_loader", None)))
