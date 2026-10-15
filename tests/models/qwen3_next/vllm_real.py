@@ -71,6 +71,7 @@ def real_vllm_config(ep: int = 1) -> VllmConfig:
         # The cache dtypes of the certified engine arguments (qwen3_next_native_rollout).
         cache_config=CacheConfig(
             enable_prefix_caching=False,
+            cache_dtype="bfloat16",
             mamba_cache_dtype="bfloat16",
             mamba_ssm_cache_dtype="float32",
             mamba_cache_mode="none",
