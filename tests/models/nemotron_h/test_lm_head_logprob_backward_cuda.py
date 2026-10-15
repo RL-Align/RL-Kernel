@@ -121,6 +121,27 @@ def test_grad_weight_is_bitwise_reproducible(strict_op, lm_head_weight):
 
 
 @requires_strict_det_gemm
+def test_grad_weight_token_reduction_beyond_det_gemm_tree():
+    from rl_engine.backends.cuda.logprob.nemotron_h_lm_head_logp import (
+        SM90_DET_GEMM_MAX_K,
+        _grad_weight,
+    )
+
+    # More tokens than one SM90 det-GEMM tree covers; a 64-wide vocab slice keeps it cheap.
+    rows = SM90_DET_GEMM_MAX_K + 96
+    hidden = make_hidden(rows, seed=100)
+    gen = torch.Generator(device="cuda").manual_seed(101)
+    dlogits = (torch.randn(rows, 64, generator=gen, device="cuda") * 0.01).to(torch.bfloat16)
+
+    first = _grad_weight(hidden, dlogits)
+    second = _grad_weight(hidden, dlogits)
+
+    assert torch.equal(first, second)
+    ref = dlogits.double().t() @ hidden.double()
+    torch.testing.assert_close(first.double(), ref, atol=_WEIGHT_TOL.atol, rtol=_WEIGHT_TOL.rtol)
+
+
+@requires_strict_det_gemm
 def test_chunk_policy_is_bit_neutral(strict_op, lm_head_weight):
     from rl_engine.backends.cuda.logprob.nemotron_h_lm_head_logp import strict_lm_head_logp_backward
 

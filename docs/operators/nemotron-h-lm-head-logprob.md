@@ -72,6 +72,13 @@ Backward (new in this contract):
    chunks (multiples of 256) over the full vocab, and `grad_weight` in vocab chunks
    (multiples of 64) over all tokens. Neither output is ever summed across chunks, so the
    chunk policy is bit-neutral. A test checks that the single-pass and chunked paths match.
+4. The SM90 det-GEMM tree covers at most 32768 reduction elements (`BK << TREE_DEPTH`);
+   longer reductions would leave the tile path for the scalar fallback. On that backend
+   `grad_hidden` is therefore reduced over vocab in four 32768-wide segments, and
+   `grad_weight` over tokens in 32768-token segments once `N` exceeds 32768. Segment
+   boundaries are fixed absolute offsets, independent of the memory chunks above; the
+   BF16 partials are added in ascending order in FP32 and cast once. The cuBLASLt
+   no-split-K backend has no such limit and runs each GEMM in one pass.
 
 Consequences:
 

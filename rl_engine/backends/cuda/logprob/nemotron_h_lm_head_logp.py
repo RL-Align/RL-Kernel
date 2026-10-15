@@ -14,6 +14,12 @@ N_SPLIT=64, IEEE expf). The backward contract added here is:
 * ``grad_hidden`` is chunked only along rows and ``grad_weight`` only along
   vocab, so neither output is ever summed across chunks. Chunk sizes are
   therefore bit-neutral and only bound the peak dlogits memory.
+* the SM90 det-GEMM tree covers at most ``SM90_DET_GEMM_MAX_K`` reduction
+  elements, so on that backend each GEMM is split along its reduction axis
+  (vocab for ``grad_hidden``, tokens for ``grad_weight``) at fixed absolute
+  boundaries; the BF16 partials are added in ascending order in FP32 and cast
+  once. The boundaries do not depend on the memory chunks, so chunking stays
+  bit-neutral and ``grad_hidden`` rows stay batch invariant.
 """
 from __future__ import annotations
 
@@ -23,6 +29,7 @@ import torch
 
 from rl_engine.backends.cuda.embedding.embedding import SM90EmbeddingOp
 from rl_engine.backends.cuda.gemm.det_gemm import (
+    det_gemm_backend,
     det_gemm_backend_id,
     det_gemm_fallback_reason,
     det_gemm_linear_input_gradient,
@@ -51,6 +58,10 @@ SM90_ROW_TILE = 256
 SM90_VOCAB_TILE = 64
 # Peak number of BF16 dlogits elements materialized at once (512 MiB).
 DLOGITS_BUDGET_ELEMS = 1 << 28
+# Mirror of ``BK << TREE_DEPTH`` in csrc/cuda/gemm/det_gemm_kernel.cu. Longer
+# reductions leave the SM90 tile path for the scalar fallback, which faults on
+# the 131072-wide vocab reduction of ``grad_hidden``.
+SM90_DET_GEMM_MAX_K = 32 << 10
 
 _STRICT_SYMBOLS = ("fused_linear_logp_sm90", "fused_linear_logp_sm90_strict_dlogits")
 _DLOGITS_KERNEL_ID = "rl_engine._C.fused_linear_logp_sm90_strict_dlogits"
@@ -98,6 +109,42 @@ def _strict_dlogits(
     )
 
 
+def _reduction_segments(extent: int) -> list[tuple[int, int]]:
+    if det_gemm_backend() != "sm90" or extent <= SM90_DET_GEMM_MAX_K:
+        return [(0, extent)]
+    return [
+        (start, min(start + SM90_DET_GEMM_MAX_K, extent))
+        for start in range(0, extent, SM90_DET_GEMM_MAX_K)
+    ]
+
+
+def _sum_partials(partials: list[torch.Tensor]) -> torch.Tensor:
+    if len(partials) == 1:
+        return partials[0]
+    total = partials[0].float()
+    for partial in partials[1:]:
+        total.add_(partial.float())
+    return total.to(partials[0].dtype)
+
+
+def _grad_hidden(dlogits: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
+    return _sum_partials(
+        [
+            det_gemm_linear_input_gradient(dlogits[:, start:end], weight[start:end])
+            for start, end in _reduction_segments(weight.size(0))
+        ]
+    )
+
+
+def _grad_weight(hidden_2d: torch.Tensor, dlogits: torch.Tensor) -> torch.Tensor:
+    return _sum_partials(
+        [
+            det_gemm_linear_weight_gradient(hidden_2d[start:end], dlogits[start:end])
+            for start, end in _reduction_segments(hidden_2d.size(0))
+        ]
+    )
+
+
 def strict_lm_head_logp_backward(
     grad_logp: torch.Tensor,
     hidden_2d: torch.Tensor,
@@ -120,12 +167,8 @@ def strict_lm_head_logp_backward(
         dlogits = _strict_dlogits(
             hidden_2d, weight, target_1d, grad_1d, lse_1d, temperature, 0, real_vocab_size
         )
-        grad_hidden = (
-            det_gemm_linear_input_gradient(dlogits, weight) if compute_grad_hidden else None
-        )
-        grad_weight = (
-            det_gemm_linear_weight_gradient(hidden_2d, dlogits) if compute_grad_weight else None
-        )
+        grad_hidden = _grad_hidden(dlogits, weight) if compute_grad_hidden else None
+        grad_weight = _grad_weight(hidden_2d, dlogits) if compute_grad_weight else None
         return grad_hidden, grad_weight
 
     grad_hidden = None
@@ -145,7 +188,7 @@ def strict_lm_head_logp_backward(
                 0,
                 real_vocab_size,
             )
-            grad_hidden[start:end] = det_gemm_linear_input_gradient(dlogits, weight)
+            grad_hidden[start:end] = _grad_hidden(dlogits, weight)
 
     grad_weight = None
     if compute_grad_weight:
@@ -163,7 +206,7 @@ def strict_lm_head_logp_backward(
                 start,
                 real_vocab_size,
             )
-            grad_weight[start:end] = det_gemm_linear_weight_gradient(hidden_2d, dlogits)
+            grad_weight[start:end] = _grad_weight(hidden_2d, dlogits)
     return grad_hidden, grad_weight
 
 
