@@ -7,11 +7,11 @@ space. This operator preserves the FP32 projection boundary of the pinned H3
 reference. The model adapter owns the subsequent cast into the BF16 packed stream.
 
 The primary implementation reuses RL-Kernel's Triton FP32 GEMM and canonical
-parameter-gradient session. A pinned CUTLASS FP32 SIMT GEMM is an explicit CUDA
-candidate. Both use the same semantic adapter, autograd implementation, and
-existing Triton tree plan and GPU level reductions. CUTLASS substitutes the
-batched leaf GEMM for dX/dW. Long bias VJPs reuse the one-row Triton leaves;
-the reported execution identity includes both paths.
+parameter-gradient session. Input and weight VJPs use fixed 128-term K chunks
+and one balanced FP32 merge. A pinned CUTLASS FP32 SIMT GEMM is an explicit
+CUDA candidate. It retains the midpoint tree and reads each leaf directly
+from matrix views. Both paths share the semantic adapter and canonical session.
+Long bias VJPs retain the one-row Triton tree.
 
 ## Entry Point
 
@@ -34,9 +34,9 @@ physical placement. The same parameter keeps the same `parameter_id` across uses
 
 | Backend | Wrapper | Native symbol | Status |
 | --- | --- | --- | --- |
-| Triton on CUDA | `TritonVideoInputProjectionFP32Op` | `_det_gemm_fp32_kernel`, existing tree leaf/reduce kernels | Default CUDA path; SM90 qualification |
-| CUDA / CUTLASS + Triton reductions | `CUDAVideoInputProjectionFP32Op` | `_C_cutlass.gemm_fp32_tn`, `_C_cutlass.gemm_fp32_tree_leaves_tn`, shared tree reductions | Explicit candidate; optional build; SM90 |
-| PyTorch reference | `NativeVideoInputProjectionFP32Op` | CPU `F.linear` | Accuracy reference |
+| Triton on CUDA | `TritonVideoInputProjectionFP32Op` | `_det_gemm_fp32_kernel`, `_det_gemm_fp32_chunk_merge_kernel`, bias tree kernels | Default CUDA path; SM90 qualification |
+| CUDA / CUTLASS + Triton reductions | `CUDAVideoInputProjectionFP32Op` | `_C_cutlass.gemm_fp32_tn`, `_C_cutlass.gemm_fp32_tree_leaves_strided`, shared tree reductions | Explicit candidate; optional build; SM90 |
+| PyTorch reference | `NativeVideoInputProjectionFP32Op` | CPU `F.linear`; FP32 product/sum VJPs | Accuracy reference |
 
 CUTLASS revision: `56ca28adb32ffadd097566545b8f7d83b652e998`. The build verifies
 the complete include-tree fingerprint. The BSD-3-Clause dependency notice is
@@ -97,33 +97,47 @@ complete contribution sequences match. Calls with different contribution sets
 normalize each parameter independently.
 
 Short reductions up to the 96-wide video input use the existing direct FP32
-GEMM. Long reductions reuse the existing midpoint plan with at most 32 terms per
-leaf. The Triton scalar loop stops at the largest logical leaf length
-(21 for K=5376; 26 for K=13104), preserving the midpoint tree and ascending
-products. Workspace, merge nodes, and output stay FP32. One-row complete trees fuse each
-Triton leaf pair with its first merge. Other complete trees compute leaves in
-one grid. Subsequent
-merges use the existing two-level kernel and alternating compact workspace
-buffers. Ragged trees retain the original per-level schedule. CUTLASS packs
-the same leaf ranges into 32-wide buffers,
-pads inactive slots with zero, and uses one `device::GemmArray` launch to write
-the plan's leaf nodes. Its transpose-view packer reads adjacent rows together
-and transposes a 32x32 tile in shared memory. It uses the same paired level
-reductions and compact buffers for complete trees.
+GEMM. The Triton input and weight VJPs reuse that kernel with fixed 128-term
+chunks. Each chunk computes four ascending 32-term FP32 dots from zero. Chunk
+partials remain FP32. A second grid uses a fixed balanced reduction over the
+next power-of-two chunk count, with zero padding. The merge uses 16 output
+elements per program and four warps. These settings define the v5 arithmetic
+contract. The K partition does not depend on M, row placement, or occupancy.
+The VJP kernels consume positive-stride views directly, including `G.T`.
 
-The tree depends on logical K and retains its topology across physical row
-changes. Output-row chunking keeps tree workspace below the existing element
-limit (512 MiB for FP32). If one output row exceeds that limit, independent
-output columns are chunked with the same K tree. CUTLASS also allocates packed
-operands and pointer arrays. Parameter sorting and public validation are included
-in complete-call measurements. Existing BF16 tree callers retain their default
-dtype and schedule.
+The fixed-chunk design follows the scheduling separation in merged PR #396.
+Its AMD BF16 MFMA instructions are not used by this CUDA FP32 implementation.
+The FP32 GEMM body is reused from the helper present in merged PR #325.
+The short forward path and long bias tree retain their earlier arithmetic.
 
-Triton uses fixed 64x32x32 leaves and 1x128x32 leaves for one-row tree calls,
-including bias VJPs. The short forward GEMM retains 64x64x32 tiles. TF32 and FP multiply-add fusion are disabled. Schedule
-fusion preserves every FP32 leaf and tree addition boundary. CUTLASS
-fixes 64x64x8 FP32 SIMT tiles and a single output owner per leaf, without parallel
-split-K. Both leaf algorithms have separately versioned backend identities.
+CUTLASS retains the existing midpoint plan with at most 32 terms per leaf.
+Leaves are grouped by actual K length. A pointer kernel selects each leaf's
+original operand range, and a fixed `device::GemmArray` reads row-major or
+column-major views directly. This applies the layout approach from merged
+PR #343. It avoids packed operand buffers while retaining the FP32 midpoint
+merge. The actual-K grouping and layouts are recorded in `backend_info()`.
+CUTLASS still uses Triton for tree merging and long bias VJPs.
+
+Both schedules cap their FP32 partial workspace at 512 MiB by chunking output
+rows. The midpoint implementation also supports output-column chunking when
+one complete row exceeds its budget. CUTLASS allocates pointer arrays for each
+leaf group. Parameter sorting and public validation are included in complete
+operator measurements. Existing BF16 callers retain their dtype and schedule.
+TF32 and compiler multiply-add fusion remain disabled.
+The reused Triton `tl.dot` lowers its IEEE FP32 inner products to fixed SIMT
+`fma.rn.f32` instructions. The compiler fusion flag controls surrounding
+expressions; it does not remove the intrinsic dot's FMA instructions. This
+arithmetic is included in the Triton contract and runtime metadata. The pinned
+CUTLASS SIMT build uses separate FP32 multiply and add instructions.
+
+The independent reference keeps the forward definition as CPU FP32 `F.linear`.
+Its analytic VJPs form FP32 products and use CPU PyTorch `sum` over the complete
+K dimension. Only output rows and columns are tiled to bound temporary memory.
+It does not reuse candidate K partitions or GPU kernels. This avoids long CPU
+GEMM accumulation errors observed in the 13104-row unscaled regression.
+The reference identity is `cpu-fp32-linear-products-sum-v2`. FP64 is used only
+in a small reference-validation test and diagnostic evidence, not by the
+reference implementation or candidate kernels.
 
 The shared WS1 `reduction` FP32 accuracy policy uses `atol=rtol=1e-4` for forward
 and gradients. Invariance uses byte equality. Parameter invariance compares the
@@ -144,9 +158,10 @@ forward CUDA Graph. Timings include layout copies, bias, and the canonical
 parameter-gradient machinery. Raw samples, environment, source hashes, and
 actual backend metadata are written to the explicitly selected local output.
 PyTorch is a production performance baseline with separately reported BI results.
-The shared GPU tree avoids Python recursion per leaf and merge node. Its
-workspace traffic, output-row chunking, and CUTLASS operand packing still add
-backward work; compare complete operator timings before drawing a speedup claim.
+The Triton VJPs use one partial-GEMM launch and one merge launch when the
+workspace fits. CUTLASS retains tree merge launches but removes operand packing.
+Compare complete operator timings, including sorting, before drawing a speedup
+claim. The benchmark records the reference identity and its source hash.
 
 ## Tests
 

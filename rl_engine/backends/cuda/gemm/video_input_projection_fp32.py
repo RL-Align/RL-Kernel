@@ -65,15 +65,31 @@ def _load_extension():
         or info["ftz"]
         or info["split_k"] != 1
         or info.get("tree_leaf_size") != _BLOCK_K
-        or info.get("tree_operand_packing") != "coalesced_transpose32"
+        or info.get("tree_operand_packing") != "direct_strides_grouped_actual_k"
     ):
         raise RuntimeError("CUTLASS extension does not match the strict FP32 build contract")
     return extension
 
 
 def _cutlass_tree_leaves(a, b, workspace, plan):
-    _load_extension().gemm_fp32_tree_leaves_tn(
-        a, b.t(), workspace, plan.leaf_starts, plan.leaf_lengths, plan.leaf_nodes
+    for length, leaf_ids in _leaf_groups(plan.host.leaf_lengths, a.device):
+        _load_extension().gemm_fp32_tree_leaves_strided(
+            a, b.t(), workspace, plan.leaf_starts, plan.leaf_nodes, leaf_ids, length
+        )
+
+
+@lru_cache(maxsize=None)
+def _leaf_groups(lengths, device):
+    return tuple(
+        (
+            length,
+            torch.tensor(
+                [index for index, actual in enumerate(lengths) if actual == length],
+                device=device,
+                dtype=torch.int32,
+            ),
+        )
+        for length in sorted(set(lengths))
     )
 
 
@@ -92,7 +108,7 @@ def cutlass_gemm_fp32(a, b):
 
 class CUDAVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
     family = "cutlass"
-    backend_id = "cuda-cutlass-video-input-projection-fp32-v4"
+    backend_id = "cuda-cutlass-video-input-projection-fp32-v5"
 
     def __init__(self):
         if not _TRITON_AVAILABLE:
@@ -111,8 +127,8 @@ class CUDAVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
         return {
             "backend_id": self.backend_id,
             "family": "cuda",
-            "kernel": "gemm_fp32_tn / gemm_fp32_tree_leaves_tn / "
-            "_det_gemm_tree_leaf_kernel / _det_gemm_tree_leaf_reduce_rocm_kernel",
+            "kernel": "gemm_fp32_tn / gemm_fp32_tree_leaves_strided / "
+            "_det_gemm_kernel / _det_gemm_tree_leaf_reduce_rocm_kernel",
             "reduction": "fixed_midpoint_tree",
             "reduction_leaf_size": _BLOCK_K,
             "reduction_backend": "triton",

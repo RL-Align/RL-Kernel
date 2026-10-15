@@ -8,6 +8,7 @@ import torch
 from rl_engine.backends.shared.triton.gemm.det_gemm import (
     _BLOCK_K,
     _TRITON_AVAILABLE,
+    _triton_chunked_gemm_fp32,
     _triton_gemm_fp32,
     _triton_tree_gemm,
 )
@@ -20,13 +21,16 @@ from rl_engine.ops.gemm.video_input_projection_fp32 import (
 def projection_gemm_fp32(a, b, *, bias=None):
     if a.shape[1] <= VIDEO_PATCH_WIDTH:
         return _triton_gemm_fp32(a, b, bias=bias)
-    output = _triton_tree_gemm(a, b, output_dtype=torch.float32, preserve_a_strides=True)
+    if b.shape[1] == VIDEO_PATCH_WIDTH:
+        output = _triton_chunked_gemm_fp32(a, b)
+    else:
+        output = _triton_tree_gemm(a, b, output_dtype=torch.float32, preserve_a_strides=True)
     return output if bias is None else output + bias
 
 
 class TritonVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
     family = "triton_tree"
-    backend_id = "triton-video-input-projection-fp32-v4"
+    backend_id = "triton-video-input-projection-fp32-v5"
 
     def __init__(self):
         if not _TRITON_AVAILABLE:
@@ -44,16 +48,21 @@ class TritonVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
         return {
             "backend_id": self.backend_id,
             "family": "triton",
-            "kernel": "_det_gemm_fp32_kernel / _det_gemm_tree_leaf_kernel / "
+            "kernel": "_det_gemm_fp32_kernel / _det_gemm_fp32_chunk_merge_kernel / "
+            "_det_gemm_kernel / "
             "_det_gemm_tree_leaf_reduce_rocm_kernel",
             "triton_version": triton.__version__,
             "tile": [64, 64, 32],
             "tf32": False,
             "fp_fusion": False,
+            "dot_arithmetic": "ieee_fp32_simt_fma",
             "forward_bias": "fp32_epilogue",
             "leaf_loop_bound": "max_logical_leaf_length",
-            "split_k": 1,
-            "reduction": "fixed_midpoint_tree",
+            "split_k": "fixed_128_term_vjp_chunks",
+            "reduction": "fixed_128_chunks_balanced_fp32_merge",
+            "vjp_chunk_k": 128,
+            "vjp_merge_tile": 16,
+            "bias_reduction": "fixed_midpoint_tree",
             "reduction_leaf_size": _BLOCK_K,
             "reduction_backend": "triton",
             "leaf_launch": "paired_leaves_for_one_row_complete_trees",

@@ -19,6 +19,7 @@ import torch
 
 from rl_engine.contracts.numerical import load_contract
 from rl_engine.ops.autograd.canonical_backward import canonical_backward_session
+from rl_engine.reference.gemm.video_input_projection_fp32 import NativeVideoInputProjectionFP32Op
 
 
 def _candidate(name):
@@ -164,6 +165,7 @@ def main():
         "rl_engine/backends/shared/triton/gemm/det_gemm.py",
         "rl_engine/backends/shared/triton/gemm/video_input_projection_fp32.py",
         "rl_engine/backends/cuda/gemm/video_input_projection_fp32.py",
+        "rl_engine/reference/gemm/video_input_projection_fp32.py",
         "csrc/bindings/video_input_projection_fp32_cutlass.cpp",
         "csrc/cuda/gemm/video_input_projection_fp32_cutlass.cu",
         "build_tools/extensions.py",
@@ -177,6 +179,7 @@ def main():
     )
     report = {
         "scope": "single H3 FP32 input projection; eager training and no-grad forward graph",
+        "reference_id": NativeVideoInputProjectionFP32Op.reference_id,
         "environment": {
             "gpu": torch.cuda.get_device_name(),
             "torch": torch.__version__,
@@ -209,7 +212,7 @@ def main():
             dim=1,
         )
         cx, cw, cb = [t.detach().cpu().requires_grad_() for t in (x, weight, bias)]
-        cy = torch.nn.functional.linear(cx, cw, cb)
+        cy = NativeVideoInputProjectionFP32Op()(cx, cw, cb)
         cy.backward(grad.cpu())
         gold = (cy, cx.grad, cw.grad, cb.grad)
         for name in args.backends:

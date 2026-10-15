@@ -13,6 +13,7 @@ from rl_engine.contracts.numerical import load_contract
 from rl_engine.ops.autograd.canonical_backward import canonical_backward_session
 from rl_engine.ops.gemm.canonical_linear import canonical_linear_fp32
 from rl_engine.ops.gemm.video_input_projection_fp32 import VideoInputProjectionFP32Op
+from rl_engine.reference.gemm.video_input_projection_fp32 import NativeVideoInputProjectionFP32Op
 
 H20 = (
     torch.cuda.is_available()
@@ -192,7 +193,7 @@ def test_forward_and_actual_gradients(backend, rows, with_bias):
         actual = _run(_op(backend), data, _keys(rows, "cuda"))
     cx, cw = data[0].detach().cpu().requires_grad_(), data[1].detach().cpu().requires_grad_()
     cb = None if not with_bias else data[2].detach().cpu().requires_grad_()
-    gold = torch.nn.functional.linear(cx, cw, cb)
+    gold = NativeVideoInputProjectionFP32Op()(cx, cw, cb)
     gold.backward(data[3].cpu())
     expected = (gold, cx.grad, cw.grad) if cb is None else (gold, cx.grad, cw.grad, cb.grad)
     for i, (a, b) in enumerate(zip(actual, expected, strict=True)):
@@ -305,7 +306,7 @@ def test_real_weights_patch_path(backend):
     grad = torch.randn(x.shape[0], 5376, device="cuda") * 0.0625
     actual = _run(_op(backend), (x, weight, bias, grad), _keys(x.shape[0], "cuda"))
     cx, cw, cb = [t.detach().cpu().requires_grad_() for t in (x, weight, bias)]
-    gold = torch.nn.functional.linear(cx, cw, cb)
+    gold = NativeVideoInputProjectionFP32Op()(cx, cw, cb)
     gold.backward(grad.cpu())
     for i, (a, b) in enumerate(zip(actual, (gold, cx.grad, cw.grad, cb.grad), strict=True)):
         _assert_accuracy(a, b, "forward_accuracy" if i == 0 else "gradient_accuracy")
@@ -325,7 +326,7 @@ def test_default_cuda_dispatch():
     from rl_engine.runtime.registry import KernelRegistry
 
     op = KernelRegistry().get_op("video_input_projection_fp32", device="cuda")
-    assert op.backend_info()["backend_id"] == "triton-video-input-projection-fp32-v4"
+    assert op.backend_info()["backend_id"] == "triton-video-input-projection-fp32-v5"
     x, weight, bias, _ = _data(3)
     with torch.no_grad():
         _assert_bytes(op(x, weight, bias), _op("triton")(x, weight, bias))
@@ -396,16 +397,47 @@ def test_fp32_tree_workspace_chunking(backend, monkeypatch):
 
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")
 @pytest.mark.parametrize("backend", BACKENDS)
-def test_standard_normal_long_reduction(backend):
+@pytest.mark.parametrize("rows", [129, 13104])
+def test_standard_normal_long_reduction(backend, rows):
     # Unscaled inputs expose cancellation error in the 5376-term input VJP.
-    data = _data(129)
+    data = _data(rows)
     data = tuple(t / scale for t, scale in zip(data, (0.125, 0.0625, 0.125, 0.0625), strict=True))
-    actual = _run(_op(backend), data, _keys(129, "cuda"))
+    actual = _run(_op(backend), data, _keys(rows, "cuda"))
     cx, cw, cb = [t.detach().cpu().requires_grad_() for t in data[:3]]
-    gold = torch.nn.functional.linear(cx, cw, cb)
+    gold = NativeVideoInputProjectionFP32Op()(cx, cw, cb)
     gold.backward(data[3].cpu())
     for i, (a, b) in enumerate(zip(actual, (gold, cx.grad, cw.grad, cb.grad), strict=True)):
         _assert_accuracy(a, b, "forward_accuracy" if i == 0 else "gradient_accuracy")
+
+
+def test_cpu_fp32_reference_long_dot_accuracy():
+    from rl_engine.reference.gemm.video_input_projection_fp32 import _reference_matmul_fp32
+
+    generator = torch.Generator().manual_seed(420)
+    a = torch.randn(3, 13104, generator=generator)
+    b = torch.randn(13104, 5, generator=generator)
+    expected = (a.double() @ b.double()).float()
+    actual = _reference_matmul_fp32(a, b)
+    assert actual.dtype == torch.float32
+    _assert_accuracy(actual, expected, "gradient_accuracy")
+
+
+@pytest.mark.skipif(not H20, reason="requires CUDA SM90")
+@pytest.mark.parametrize("k", [129, 5376, 13104])
+def test_fp32_chunked_gemm_strides_and_workspace(k, monkeypatch):
+    from rl_engine.backends.shared.triton.gemm import det_gemm
+    from rl_engine.reference.gemm.video_input_projection_fp32 import _reference_matmul_fp32
+
+    torch.manual_seed(420)
+    a = torch.randn(k, 7, device="cuda").t()
+    b = torch.randn(k, 96, device="cuda")
+    expected = det_gemm._triton_chunked_gemm_fp32(a.contiguous(), b)
+    actual = det_gemm._triton_chunked_gemm_fp32(a, b)
+    _assert_bytes(actual, expected)
+    _assert_accuracy(actual, _reference_matmul_fp32(a, b), "gradient_accuracy")
+    chunks = (k + 127) // 128
+    monkeypatch.setattr(det_gemm, "_MAX_TREE_WORKSPACE_ELEMENTS", chunks * 96 * 2)
+    _assert_bytes(det_gemm._triton_chunked_gemm_fp32(a, b), expected)
 
 
 @pytest.mark.parametrize("bias_uses", ["all", "partial", "distinct"])

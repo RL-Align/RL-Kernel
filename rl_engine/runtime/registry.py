@@ -244,7 +244,7 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
         ),
         OperatorBackendDescriptor(
             semantic_op="video_input_projection_fp32",
-            backend_id="cuda-cutlass-video-input-projection-fp32-v4",
+            backend_id="cuda-cutlass-video-input-projection-fp32-v5",
             supported_targets=frozenset({"rollout", "training"}),
             supported_devices=frozenset({"cuda"}),
             supported_dtypes=frozenset({"float32"}),
@@ -275,12 +275,12 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             fallback_policy=OperatorFallbackPolicy.ERROR,
             version_or_build_fingerprint=(
                 "cutlass-56ca28a-fp32-simt-64x64x8-triton-fused-tree32-"
-                "coalesced-pack-triton-bias-h3-v4"
+                "strided-actual-k-triton-bias-h3-v5"
             ),
         ),
         OperatorBackendDescriptor(
             semantic_op="video_input_projection_fp32",
-            backend_id="triton-video-input-projection-fp32-v4",
+            backend_id="triton-video-input-projection-fp32-v5",
             supported_targets=frozenset({"rollout", "training"}),
             supported_devices=frozenset({"cuda"}),
             supported_dtypes=frozenset({"float32"}),
@@ -304,13 +304,13 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
                 "strict_observable": True,
                 "training_mode": "eager",
                 "parameter_gradient_order": "logical_key",
-                "reduction": "fixed_midpoint_tree_32",
+                "reduction": "fixed_128_chunks_balanced_fp32_merge",
             },
             lifecycle=OperatorLifecycle.REQUEST,
             implementation_class_or_factory=OpBackend.TRITON_VIDEO_INPUT_PROJECTION_FP32.value,
             fallback_policy=OperatorFallbackPolicy.ERROR,
             version_or_build_fingerprint=(
-                "rlkernel-triton-fp32-no-fma-paired-tree32-leaf64x32-short-loop-bias-epilogue-h3-v4"
+                "rlkernel-triton-ieee-fp32-dot-chunk128-merge16-strided-bias-epilogue-h3-v5"
             ),
         ),
         OperatorBackendDescriptor(

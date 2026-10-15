@@ -26,159 +26,7 @@ using Gemm = cutlass::gemm::device::Gemm<
     cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>,
     2, 1, 1, false, cutlass::arch::OpMultiplyAdd>;
 
-// Match the shared tree plan's 32-term leaves. One batched launch writes all
-// leaves into their existing workspace nodes; Triton then merges each level.
 constexpr int kTreeLeaf = 32;
-using LeafGemm = cutlass::gemm::device::GemmArray<
-    float, cutlass::layout::RowMajor,
-    float, cutlass::layout::ColumnMajor,
-    float, cutlass::layout::RowMajor,
-    float, cutlass::arch::OpClassSimt, cutlass::arch::Sm50,
-    cutlass::gemm::GemmShape<64, 64, 8>,
-    cutlass::gemm::GemmShape<32, 32, 8>,
-    cutlass::gemm::GemmShape<1, 1, 1>,
-    cutlass::epilogue::thread::LinearCombination<float, 1, float, float>,
-    cutlass::gemm::threadblock::GemmBatchedIdentityThreadblockSwizzle,
-    2, 1, 1, cutlass::arch::OpMultiplyAdd>;
-
-template <bool WriteOutputPointers>
-__global__ void pack_tree_operand(
-    const float* input, float* packed, int64_t* pointers,
-    const int32_t* starts, const int32_t* lengths, const int32_t* nodes,
-    int64_t rows, int64_t stride_row, int64_t stride_k, int64_t total,
-    float* workspace, int64_t* output_pointers, int64_t output_elements) {
-  const int64_t index = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
-  if (index >= total) return;
-  const int64_t leaf_elements = rows * kTreeLeaf;
-  const int leaf = static_cast<int>(index / leaf_elements);
-  const int64_t local = index % leaf_elements;
-  const int64_t row = local / kTreeLeaf;
-  const int k = static_cast<int>(local % kTreeLeaf);
-  packed[index] = k < lengths[leaf]
-      ? input[row * stride_row + (static_cast<int64_t>(starts[leaf]) + k) * stride_k]
-      : 0.0f;
-  if (local == 0) {
-    pointers[leaf] = reinterpret_cast<int64_t>(packed + leaf * leaf_elements);
-    if constexpr (WriteOutputPointers) {
-      output_pointers[leaf] = reinterpret_cast<int64_t>(
-          workspace + static_cast<int64_t>(nodes[leaf]) * output_elements);
-    }
-  }
-}
-
-// The transposed G/X views have contiguous rows and strided K. Read adjacent
-// rows together, then transpose in shared memory for the packed row-major leaf.
-template <bool WriteOutputPointers>
-__global__ void pack_tree_operand_transposed(
-    const float* input, float* packed, int64_t* pointers,
-    const int32_t* starts, const int32_t* lengths, const int32_t* nodes,
-    int64_t rows, int64_t stride_k, float* workspace,
-    int64_t* output_pointers, int64_t output_elements) {
-  __shared__ float tile[kTreeLeaf][kTreeLeaf + 1];
-  const int leaf = blockIdx.y;
-  const int64_t row_start = static_cast<int64_t>(blockIdx.x) * kTreeLeaf;
-  const int x = threadIdx.x, y = threadIdx.y;
-  const int length = lengths[leaf];
-  const int64_t start = starts[leaf];
-  for (int offset = 0; offset < kTreeLeaf; offset += 8) {
-    const int k = y + offset;
-    tile[k][x] = row_start + x < rows && k < length
-        ? input[row_start + x + (start + k) * stride_k] : 0.0f;
-  }
-  __syncthreads();
-  for (int offset = 0; offset < kTreeLeaf; offset += 8) {
-    const int64_t row = row_start + y + offset;
-    if (row < rows) {
-      packed[(static_cast<int64_t>(leaf) * rows + row) * kTreeLeaf + x]
-          = tile[x][y + offset];
-    }
-  }
-  if (blockIdx.x == 0 && x == 0 && y == 0) {
-    pointers[leaf] = reinterpret_cast<int64_t>(
-        packed + static_cast<int64_t>(leaf) * rows * kTreeLeaf);
-    if constexpr (WriteOutputPointers) {
-      output_pointers[leaf] = reinterpret_cast<int64_t>(
-          workspace + static_cast<int64_t>(nodes[leaf]) * output_elements);
-    }
-  }
-}
-
-template <bool WriteOutputPointers>
-void launch_tree_packing(
-    const at::Tensor& input, const at::Tensor& packed, int64_t* pointers,
-    const at::Tensor& starts, const at::Tensor& lengths, const at::Tensor& nodes,
-    float* workspace, int64_t* output_pointers, int64_t output_elements,
-    cudaStream_t stream) {
-  if (input.stride(0) == 1 && input.stride(1) > 1) {
-    const dim3 grid((input.size(0) + kTreeLeaf - 1) / kTreeLeaf, starts.numel());
-    pack_tree_operand_transposed<WriteOutputPointers><<<grid, dim3(32, 8), 0, stream>>>(
-        input.data_ptr<float>(), packed.data_ptr<float>(), pointers,
-        starts.data_ptr<int32_t>(), lengths.data_ptr<int32_t>(), nodes.data_ptr<int32_t>(),
-        input.size(0), input.stride(1), workspace, output_pointers, output_elements);
-  } else {
-    constexpr int threads = 256;
-    pack_tree_operand<WriteOutputPointers>
-        <<<(packed.numel() + threads - 1) / threads, threads, 0, stream>>>(
-        input.data_ptr<float>(), packed.data_ptr<float>(), pointers,
-        starts.data_ptr<int32_t>(), lengths.data_ptr<int32_t>(), nodes.data_ptr<int32_t>(),
-        input.size(0), input.stride(0), input.stride(1), packed.numel(),
-        workspace, output_pointers, output_elements);
-  }
-}
-
-void cutlass_gemm_fp32_tree_leaves_tn(
-    at::Tensor a, at::Tensor bt, at::Tensor workspace,
-    at::Tensor starts, at::Tensor lengths, at::Tensor nodes) {
-  TORCH_CHECK(a.is_cuda() && a.scalar_type() == at::kFloat && a.dim() == 2,
-              "CUTLASS leaves require rank-two CUDA FP32 A");
-  const c10::cuda::CUDAGuard guard(a.device());
-  const auto* properties = at::cuda::getDeviceProperties(a.get_device());
-  TORCH_CHECK(properties->major == 9 && properties->minor == 0,
-              "CUTLASS video projection requires CUDA SM90");
-  TORCH_CHECK(bt.device() == a.device() && bt.scalar_type() == at::kFloat && bt.dim() == 2,
-              "CUTLASS leaves require rank-two FP32 Bt on the same device");
-  TORCH_CHECK(a.size(1) == bt.size(1) && a.size(0) > 0 && bt.size(0) > 0,
-              "CUTLASS leaf dimensions must match and be non-empty");
-  TORCH_CHECK(a.stride(0) > 0 && a.stride(1) > 0 && bt.stride(0) > 0 && bt.stride(1) > 0,
-              "CUTLASS leaf operands require positive strides");
-  TORCH_CHECK(workspace.device() == a.device() && workspace.scalar_type() == at::kFloat &&
-              workspace.dim() == 3 && workspace.is_contiguous() &&
-              workspace.size(1) == a.size(0) && workspace.size(2) == bt.size(0),
-              "CUTLASS leaves require contiguous FP32 tree workspace");
-  for (const auto& metadata : {starts, lengths, nodes}) {
-    TORCH_CHECK(metadata.device() == a.device() && metadata.scalar_type() == at::kInt &&
-                metadata.dim() == 1 && metadata.is_contiguous() &&
-                metadata.numel() == starts.numel(),
-                "CUTLASS tree metadata must be matching contiguous CUDA int32 vectors");
-  }
-  const int64_t leaves = starts.numel(), m = a.size(0), n = bt.size(0);
-  TORCH_CHECK(leaves > 0 && leaves <= 65535 && m <= INT_MAX && n <= INT_MAX,
-              "CUTLASS batched leaf grid exceeds its supported dimensions");
-  auto packed_a = at::empty({leaves, m, kTreeLeaf}, a.options());
-  auto packed_b = at::empty({leaves, n, kTreeLeaf}, a.options());
-  auto pointers = at::empty({3, leaves}, a.options().dtype(at::kLong));
-  auto* ptr_a = pointers.data_ptr<int64_t>();
-  auto* ptr_b = ptr_a + leaves;
-  auto* ptr_output = ptr_b + leaves;
-  const auto stream = c10::cuda::getCurrentCUDAStream(a.get_device()).stream();
-  launch_tree_packing<false>(a, packed_a, ptr_a, starts, lengths, nodes,
-                             nullptr, nullptr, m * n, stream);
-  launch_tree_packing<true>(bt, packed_b, ptr_b, starts, lengths, nodes,
-                            workspace.data_ptr<float>(), ptr_output, m * n, stream);
-  LeafGemm::Arguments args(
-      {static_cast<int>(m), static_cast<int>(n), kTreeLeaf},
-      reinterpret_cast<const float* const*>(ptr_a), cutlass::layout::RowMajor(kTreeLeaf),
-      reinterpret_cast<const float* const*>(ptr_b), cutlass::layout::ColumnMajor(kTreeLeaf),
-      reinterpret_cast<const float* const*>(ptr_output), cutlass::layout::RowMajor(n),
-      reinterpret_cast<float* const*>(ptr_output), cutlass::layout::RowMajor(n),
-      {1.0f, 0.0f}, static_cast<int>(leaves));
-  LeafGemm gemm;
-  auto status = gemm.can_implement(args);
-  TORCH_CHECK(status == cutlass::Status::kSuccess, cutlassGetStatusString(status));
-  status = gemm(args, nullptr, stream);
-  TORCH_CHECK(status == cutlass::Status::kSuccess, cutlassGetStatusString(status));
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-}
 
 at::Tensor cutlass_gemm_fp32_tn(at::Tensor a, at::Tensor b_transposed) {
   TORCH_CHECK(a.is_cuda() && b_transposed.is_cuda(), "CUTLASS GEMM requires CUDA tensors");
@@ -214,3 +62,109 @@ at::Tensor cutlass_gemm_fp32_tn(at::Tensor a, at::Tensor b_transposed) {
 }
 
 int cutlass_cuda_version() { return CUDART_VERSION; }
+
+template <typename LayoutA, typename LayoutB>
+using StridedLeafGemm = cutlass::gemm::device::GemmArray<
+    float, LayoutA, float, LayoutB, float, cutlass::layout::RowMajor,
+    float, cutlass::arch::OpClassSimt, cutlass::arch::Sm50,
+    cutlass::gemm::GemmShape<64, 64, 8>,
+    cutlass::gemm::GemmShape<32, 32, 8>,
+    cutlass::gemm::GemmShape<1, 1, 1>,
+    cutlass::epilogue::thread::LinearCombination<float, 1, float, float>,
+    cutlass::gemm::threadblock::GemmBatchedIdentityThreadblockSwizzle,
+    2, 1, 1, cutlass::arch::OpMultiplyAdd>;
+
+__global__ void tree_leaf_pointers(
+    const float* a, const float* bt, float* workspace, int64_t* pointers,
+    const int32_t* starts, const int32_t* nodes, const int32_t* leaf_ids,
+    int64_t count, int64_t stride_ak, int64_t stride_btk, int64_t elements) {
+  const int index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index >= count) return;
+  const int leaf = leaf_ids[index];
+  const int64_t start = starts[leaf];
+  pointers[index] = reinterpret_cast<int64_t>(a + start * stride_ak);
+  pointers[count + index] = reinterpret_cast<int64_t>(bt + start * stride_btk);
+  pointers[2 * count + index] = reinterpret_cast<int64_t>(
+      workspace + static_cast<int64_t>(nodes[leaf]) * elements);
+}
+
+template <typename LayoutA, typename LayoutB>
+void launch_strided_leaves(
+    const at::Tensor& a, const at::Tensor& bt, const at::Tensor& pointers,
+    int64_t count, int length, int64_t lda, int64_t ldb, cudaStream_t stream) {
+  using Leaf = StridedLeafGemm<LayoutA, LayoutB>;
+  const auto* addresses = pointers.data_ptr<int64_t>();
+  typename Leaf::Arguments args(
+      {static_cast<int>(a.size(0)), static_cast<int>(bt.size(0)), length},
+      reinterpret_cast<const float* const*>(addresses), LayoutA(lda),
+      reinterpret_cast<const float* const*>(addresses + count), LayoutB(ldb),
+      reinterpret_cast<const float* const*>(addresses + 2 * count),
+      cutlass::layout::RowMajor(bt.size(0)),
+      reinterpret_cast<float* const*>(addresses + 2 * count),
+      cutlass::layout::RowMajor(bt.size(0)), {1.0f, 0.0f}, static_cast<int>(count));
+  Leaf gemm;
+  auto status = gemm.can_implement(args);
+  TORCH_CHECK(status == cutlass::Status::kSuccess, cutlassGetStatusString(status));
+  status = gemm(args, nullptr, stream);
+  TORCH_CHECK(status == cutlass::Status::kSuccess, cutlassGetStatusString(status));
+}
+
+void cutlass_gemm_fp32_tree_leaves_strided(
+    at::Tensor a, at::Tensor bt, at::Tensor workspace, at::Tensor starts,
+    at::Tensor nodes, at::Tensor leaf_ids, int64_t length) {
+  TORCH_CHECK(a.is_cuda() && a.scalar_type() == at::kFloat && a.dim() == 2,
+              "CUTLASS leaves require rank-two CUDA FP32 A");
+  const c10::cuda::CUDAGuard guard(a.device());
+  const auto* properties = at::cuda::getDeviceProperties(a.get_device());
+  TORCH_CHECK(properties->major == 9 && properties->minor == 0,
+              "CUTLASS video projection requires CUDA SM90");
+  TORCH_CHECK(bt.device() == a.device() && bt.scalar_type() == at::kFloat &&
+              bt.dim() == 2 && a.size(1) == bt.size(1),
+              "CUTLASS leaf dimensions, dtypes and devices must match");
+  TORCH_CHECK(a.size(0) > 0 && bt.size(0) > 0 && length > 0 && length <= kTreeLeaf &&
+              a.size(0) <= INT_MAX && bt.size(0) <= INT_MAX,
+              "CUTLASS leaf sizes exceed the supported dimensions");
+  TORCH_CHECK(workspace.device() == a.device() && workspace.scalar_type() == at::kFloat &&
+              workspace.dim() == 3 && workspace.is_contiguous() &&
+              workspace.size(1) == a.size(0) && workspace.size(2) == bt.size(0),
+              "CUTLASS leaves require contiguous FP32 tree workspace");
+  for (const auto& metadata : {starts, nodes, leaf_ids}) {
+    TORCH_CHECK(metadata.device() == a.device() && metadata.scalar_type() == at::kInt &&
+                metadata.dim() == 1 && metadata.is_contiguous(),
+                "CUTLASS leaf metadata must be contiguous CUDA int32 vectors");
+  }
+  TORCH_CHECK(starts.numel() == nodes.numel() && leaf_ids.numel() > 0 &&
+              leaf_ids.numel() <= 65535,
+              "CUTLASS leaf metadata sizes are inconsistent");
+  const bool a_row = a.stride(1) == 1;
+  const bool b_column = bt.stride(1) == 1;
+  TORCH_CHECK((a_row || a.stride(0) == 1) &&
+              (b_column || bt.stride(0) == 1) &&
+              a.stride(0) > 0 && a.stride(1) > 0 &&
+              bt.stride(0) > 0 && bt.stride(1) > 0,
+              "CUTLASS leaves require a row-major or column-major view");
+  const int64_t lda = a_row ? a.stride(0) : a.stride(1);
+  const int64_t ldb = b_column ? bt.stride(0) : bt.stride(1);
+  TORCH_CHECK(lda <= INT_MAX && ldb <= INT_MAX,
+              "CUTLASS leaf leading dimensions exceed int32");
+  const int64_t count = leaf_ids.numel();
+  auto pointers = at::empty({3, count}, a.options().dtype(at::kLong));
+  const auto stream = c10::cuda::getCurrentCUDAStream(a.get_device()).stream();
+  tree_leaf_pointers<<<(count + 255) / 256, 256, 0, stream>>>(
+      a.data_ptr<float>(), bt.data_ptr<float>(), workspace.data_ptr<float>(),
+      pointers.data_ptr<int64_t>(), starts.data_ptr<int32_t>(), nodes.data_ptr<int32_t>(),
+      leaf_ids.data_ptr<int32_t>(), count, a.stride(1), bt.stride(1),
+      a.size(0) * bt.size(0));
+  using Row = cutlass::layout::RowMajor;
+  using Column = cutlass::layout::ColumnMajor;
+  if (a_row && b_column) {
+    launch_strided_leaves<Row, Column>(a, bt, pointers, count, length, lda, ldb, stream);
+  } else if (a_row) {
+    launch_strided_leaves<Row, Row>(a, bt, pointers, count, length, lda, ldb, stream);
+  } else if (b_column) {
+    launch_strided_leaves<Column, Column>(a, bt, pointers, count, length, lda, ldb, stream);
+  } else {
+    launch_strided_leaves<Column, Row>(a, bt, pointers, count, length, lda, ldb, stream);
+  }
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+}

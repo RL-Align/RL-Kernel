@@ -36,6 +36,7 @@ from rl_engine.utils.logger import logger
 
 # Pinned. NOT autotuned (autotune picks per-shape configs -> breaks invariance).
 _BLOCK_M, _BLOCK_N, _BLOCK_K = 64, 64, 32
+_FP32_CHUNK_K = 128
 # Keep the intermediate tree workspace bounded.  A VLLM warmup can present a
 # very large flattened token dimension; allocating ``node_count * M * N`` in
 # one shot would otherwise create a multi-terabyte virtual tensor on ROCm.
@@ -748,17 +749,21 @@ if _TRITON_AVAILABLE:
         BLOCK_K: tl.constexpr,
         PROMOTE_INPUTS: tl.constexpr,
         HAS_BIAS: tl.constexpr,
+        CHUNK_K: tl.constexpr = 0,
     ):
-        # One program = one output tile, walks the whole K in fixed order.
-        # No split-K -> K-accumulation order independent of M -> batch-invariant.
+        # One program walks the whole K or one declared fixed-width chunk.
+        # The K order does not depend on output rows or their placement.
         pid_m, pid_n = tl.program_id(0), tl.program_id(1)
         offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
         offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
-        offs_k = tl.arange(0, BLOCK_K)
+        chunk = tl.program_id(2) if CHUNK_K else 0
+        start_k = chunk * CHUNK_K
+        offs_k = start_k + tl.arange(0, BLOCK_K)
         a_ptrs = a_ptr + (offs_m[:, None] * stride_am + offs_k[None, :] * stride_ak)
         b_ptrs = b_ptr + (offs_k[:, None] * stride_bk + offs_n[None, :] * stride_bn)
         acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
-        for k in range(0, tl.cdiv(K, BLOCK_K)):
+        reduction_size = CHUNK_K if CHUNK_K else K
+        for k in range(0, tl.cdiv(reduction_size, BLOCK_K)):
             k_rem = K - k * BLOCK_K
             a_mask = (offs_m[:, None] < M) & (offs_k[None, :] < k_rem)
             a = tl.load(a_ptrs, mask=a_mask, other=0.0)
@@ -774,9 +779,82 @@ if _TRITON_AVAILABLE:
             bias = tl.load(bias_ptr + offs_n, mask=offs_n < N, other=0.0).to(tl.float32)
             acc = acc + bias[None, :]
         c = acc.to(c_ptr.dtype.element_ty)
-        c_ptrs = c_ptr + offs_m[:, None] * stride_cm + offs_n[None, :] * stride_cn
+        c_ptrs = c_ptr + chunk * M * N + offs_m[:, None] * stride_cm + offs_n[None, :] * stride_cn
         mask = (offs_m[:, None] < M) & (offs_n[None, :] < N)
         tl.store(c_ptrs, c, mask=mask)
+
+    @triton.jit
+    def _det_gemm_fp32_chunk_merge_kernel(
+        partial_ptr,
+        output_ptr,
+        ELEMENTS,
+        CHUNKS: tl.constexpr,
+        PADDED_CHUNKS: tl.constexpr,
+        BLOCK_C: tl.constexpr,
+    ):
+        offsets = tl.program_id(0) * BLOCK_C + tl.arange(0, BLOCK_C)
+        chunks = tl.arange(0, PADDED_CHUNKS)
+        values = tl.load(
+            partial_ptr + chunks[:, None] * ELEMENTS + offsets[None, :],
+            mask=(chunks[:, None] < CHUNKS) & (offsets[None, :] < ELEMENTS),
+            other=0.0,
+        )
+        # Pinned padded width and launch configuration define this FP32 tree.
+        total = tl.sum(values, axis=0)
+        tl.store(output_ptr + offsets, total, mask=offsets < ELEMENTS)
+
+
+def _triton_chunked_gemm_fp32(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Reuse the FP32 GEMM in fixed K chunks and merge partials in one grid."""
+    m_size, k_size = a.shape
+    n_size = b.shape[1]
+    chunks = triton.cdiv(k_size, _FP32_CHUNK_K)
+    rows_per_chunk = _MAX_TREE_WORKSPACE_ELEMENTS // (chunks * n_size)
+    if rows_per_chunk < 1:
+        raise RuntimeError("FP32 chunk GEMM exceeds the workspace budget for one row")
+    if m_size > rows_per_chunk:
+        return torch.cat(
+            [
+                _triton_chunked_gemm_fp32(a[start : start + rows_per_chunk], b)
+                for start in range(0, m_size, rows_per_chunk)
+            ],
+            dim=0,
+        )
+    partial = torch.empty((chunks, m_size, n_size), device=a.device, dtype=torch.float32)
+    output = torch.empty((m_size, n_size), device=a.device, dtype=torch.float32)
+    grid = (triton.cdiv(m_size, _BLOCK_M), triton.cdiv(n_size, _BLOCK_N), chunks)
+    _det_gemm_fp32_kernel[grid](
+        a,
+        b,
+        partial,
+        None,
+        m_size,
+        n_size,
+        k_size,
+        *a.stride(),
+        *b.stride(),
+        n_size,
+        1,
+        BLOCK_M=_BLOCK_M,
+        BLOCK_N=_BLOCK_N,
+        BLOCK_K=_BLOCK_K,
+        PROMOTE_INPUTS=True,
+        HAS_BIAS=False,
+        CHUNK_K=_FP32_CHUNK_K,
+        enable_fp_fusion=False,
+        num_warps=4,
+    )
+    _det_gemm_fp32_chunk_merge_kernel[(triton.cdiv(m_size * n_size, 16),)](
+        partial,
+        output,
+        m_size * n_size,
+        CHUNKS=chunks,
+        PADDED_CHUNKS=triton.next_power_of_2(chunks),
+        BLOCK_C=16,
+        enable_fp_fusion=False,
+        num_warps=4,
+    )
+    return output
 
 
 def _triton_gemm_fp32(

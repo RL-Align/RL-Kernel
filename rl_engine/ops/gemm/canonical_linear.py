@@ -130,7 +130,8 @@ class _CanonicalLinearFn(torch.autograd.Function):
             record_backward(
                 "det_gemm",
                 kernel_id=(
-                    "rl_engine.backends.shared.triton.gemm.det_gemm._triton_tree_gemm"
+                    "rl_engine.backends.shared.triton.gemm.det_gemm."
+                    "_triton_chunked_gemm_fp32 / _triton_tree_gemm"
                     if ctx.family == "triton_tree"
                     else "rl_engine.backends.shared.triton.gemm.det_gemm._triton_gemm"
                 ),
@@ -148,7 +149,7 @@ class _CanonicalLinearFn(torch.autograd.Function):
             record_backward(
                 "video_input_projection_fp32",
                 kernel_id=(
-                    "rl_engine._C_cutlass.gemm_fp32_tree_leaves_tn / "
+                    "rl_engine._C_cutlass.gemm_fp32_tree_leaves_strided / "
                     "rl_engine.backends.shared.triton.gemm.det_gemm._triton_tree_gemm"
                 ),
                 impl="cutlass_fp32_simt_triton_tree_bias_canonical_rowfold",
