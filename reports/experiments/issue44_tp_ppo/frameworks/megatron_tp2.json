@@ -1,0 +1,33 @@
+{
+  "framework": "megatron",
+  "megatron_core": "0.15.3",
+  "deepspeed": null,
+  "numpy": "1.26.4",
+  "tp": 2,
+  "torch": "2.9.1+cu130",
+  "gpu": "NVIDIA B200",
+  "max_abs_errors": {
+    "initial": 0.0,
+    "values": 9.313225746154785e-10,
+    "rewards": 9.313225746154785e-10,
+    "gradients": 1.1641532182693481e-10,
+    "updated": 4.656612873077393e-10,
+    "actor_logps": 0.0,
+    "actor_after": 3.725290298461914e-09,
+    "actor_gradients": 1.1920928955078125e-07,
+    "critic_after": 4.656612873077393e-10,
+    "grad_norm": 1.6489223181315182e-11
+  },
+  "metrics": {
+    "actor": {
+      "updates": 2,
+      "loss": -0.028265715266267755,
+      "grad_norm": 5.67893916424373
+    },
+    "critic": {
+      "updates": 2,
+      "loss": 0.0001711096629151143,
+      "grad_norm": 0.0184692993965942
+    }
+  }
+}

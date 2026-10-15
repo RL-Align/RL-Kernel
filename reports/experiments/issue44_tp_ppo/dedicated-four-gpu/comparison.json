@@ -1,0 +1,180 @@
+{
+  "megatron": {
+    "max_behavior_logprob_error": 4.76837158203125e-07,
+    "round_seconds": [
+      6.327320238575339,
+      0.24984454922378063
+    ],
+    "engine_steps": null,
+    "runtime": {
+      "runtime": {
+        "ready": true,
+        "vllm": "0.15.1",
+        "torch": "2.9.1+cu128",
+        "startup_seconds": 9.846372671425343
+      },
+      "installed": [
+        0,
+        1,
+        2
+      ],
+      "sampled": [
+        0,
+        1
+      ],
+      "timings": [
+        {
+          "op": "install",
+          "installed": 0,
+          "workers": [
+            {
+              "version": 0,
+              "verified_tensors": 29
+            }
+          ],
+          "seconds": 0.11484190076589584
+        },
+        {
+          "op": "sample",
+          "version": 0,
+          "seconds": 3.0312151685357094,
+          "cache_probe_seconds": 1.3991843573749065,
+          "cached_tokens_after_install": [
+            0,
+            0
+          ],
+          "cached_tokens_on_replay": [
+            16,
+            16
+          ]
+        },
+        {
+          "op": "install",
+          "installed": 1,
+          "workers": [
+            {
+              "version": 1,
+              "verified_tensors": 29
+            }
+          ],
+          "seconds": 0.11181365698575974
+        },
+        {
+          "op": "sample",
+          "version": 1,
+          "seconds": 0.012716708704829216,
+          "cache_probe_seconds": 0.010321617126464844,
+          "cached_tokens_after_install": [
+            0,
+            0
+          ],
+          "cached_tokens_on_replay": [
+            16,
+            16
+          ]
+        },
+        {
+          "op": "install",
+          "installed": 2,
+          "workers": [
+            {
+              "version": 2,
+              "verified_tensors": 29
+            }
+          ],
+          "seconds": 0.11108156852424145
+        }
+      ]
+    }
+  },
+  "deepspeed": {
+    "max_behavior_logprob_error": 4.76837158203125e-07,
+    "round_seconds": [
+      3.5250937826931477,
+      0.2734329402446747
+    ],
+    "engine_steps": 4,
+    "runtime": {
+      "runtime": {
+        "ready": true,
+        "vllm": "0.15.1",
+        "torch": "2.9.1+cu128",
+        "startup_seconds": 8.134053291752934
+      },
+      "installed": [
+        0,
+        1,
+        2
+      ],
+      "sampled": [
+        0,
+        1
+      ],
+      "timings": [
+        {
+          "op": "install",
+          "installed": 0,
+          "workers": [
+            {
+              "version": 0,
+              "verified_tensors": 29
+            }
+          ],
+          "seconds": 0.1136957686394453
+        },
+        {
+          "op": "sample",
+          "version": 0,
+          "seconds": 1.2387511972337961,
+          "cache_probe_seconds": 0.43746957182884216,
+          "cached_tokens_after_install": [
+            0,
+            0
+          ],
+          "cached_tokens_on_replay": [
+            16,
+            16
+          ]
+        },
+        {
+          "op": "install",
+          "installed": 1,
+          "workers": [
+            {
+              "version": 1,
+              "verified_tensors": 29
+            }
+          ],
+          "seconds": 0.1120983436703682
+        },
+        {
+          "op": "sample",
+          "version": 1,
+          "seconds": 0.013082006946206093,
+          "cache_probe_seconds": 0.013089748099446297,
+          "cached_tokens_after_install": [
+            0,
+            0
+          ],
+          "cached_tokens_on_replay": [
+            16,
+            16
+          ]
+        },
+        {
+          "op": "install",
+          "installed": 2,
+          "workers": [
+            {
+              "version": 2,
+              "verified_tensors": 29
+            }
+          ],
+          "seconds": 0.11189558543264866
+        }
+      ]
+    }
+  },
+  "actor_max_difference": 0.0,
+  "critic_max_difference": 0.0
+}
