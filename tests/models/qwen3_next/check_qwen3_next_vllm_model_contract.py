@@ -11,6 +11,7 @@ from vllm.model_executor import parameter
 from vllm.model_executor.layers import linear
 
 from rl_engine.integrations.engines.rollout.vllm import qwen3_next_vllm_model as adapter
+from rl_engine.models.qwen3_next.qwen3_next_ep import expert_map
 from rl_engine.models.qwen3_next.qwen3_next_tp_blocks import shard_attention_weights
 from rl_engine.validation.common.tensor_identity import assert_tensor_bitwise_equal as exact
 
@@ -44,6 +45,7 @@ def profile():
             tensor_parallel_size=4,
             pipeline_parallel_size=1,
             enable_expert_parallel=False,
+            expert_placement_strategy="linear",
             enable_eplb=False,
             use_sequence_parallel_moe=False,
             enable_dbo=False,
@@ -54,13 +56,39 @@ def profile():
         cache_config=Namespace(enable_prefix_caching=False),
         kernel_config=Namespace(moe_backend="triton"),
         attention_config=Namespace(backend=adapter.AttentionBackendEnum.CUSTOM),
+        additional_config={},
     )
+
+
+def ep4_profile():
+    config = profile()
+    config.parallel_config.enable_expert_parallel = True
+    config.additional_config = {
+        "qwen3_next_shared_identity": {"topology": {"tp": 4, "pp": 1, "cp": 1, "ep": 4}}
+    }
+    return config
 
 
 def test_profile_keeps_engine_and_model_acceptance_closed():
     adapter.validate_profile(profile())
+    adapter.validate_profile(ep4_profile())
     assert adapter.profile_capabilities()["scheduler_batch_invariance_verified"] is False
     assert adapter.profile_capabilities()["full_model_l2_verified"] is False
+
+
+def test_ep4_profile_requires_expert_parallel_and_linear_placement():
+    config = ep4_profile()
+    config.parallel_config.enable_expert_parallel = False
+    with pytest.raises(ValueError):
+        adapter.validate_profile(config)
+    config = ep4_profile()
+    config.parallel_config.expert_placement_strategy = "round_robin"
+    with pytest.raises(ValueError):
+        adapter.validate_profile(config)
+    config = ep4_profile()
+    config.additional_config["qwen3_next_shared_identity"]["topology"]["ep"] = 2
+    with pytest.raises(ValueError):
+        adapter.validate_profile(config)
 
 
 @pytest.mark.parametrize(
@@ -121,14 +149,21 @@ def test_actual_native_qkv_loader_preserves_gate_layout_and_kv_replication(monke
         exact(actual, expected[key], name=f"native rank{rank} {key}")
 
 
-def test_shared_moe_postload_preserves_parameter_identity_and_loader(monkeypatch):
-    # Meta tensors verify 512-expert allocation shapes without allocating an
-    # unnecessary CPU model. Real data movement is covered by the TP4 GPU gate.
-    gate = torch.nn.Parameter(torch.empty(512, 256, 2048, device="meta", dtype=torch.bfloat16))
-    down = torch.nn.Parameter(torch.empty(512, 2048, 128, device="meta", dtype=torch.bfloat16))
+@pytest.mark.parametrize("ep", [1, 4])
+def test_shared_moe_postload_preserves_parameter_identity_and_loader(monkeypatch, ep):
+    # Meta tensors verify the expert allocation shapes (all 512 experts at
+    # expert-TP4 width, or 128 local experts at full width for EP4) without
+    # allocating a CPU model. Real data movement is covered by the GPU gates.
+    shapes = (
+        ((512, 256, 2048), (512, 2048, 128)) if ep == 1 else ((128, 1024, 2048), (128, 2048, 512))
+    )
+    gate = torch.nn.Parameter(torch.empty(shapes[0], device="meta", dtype=torch.bfloat16))
+    down = torch.nn.Parameter(torch.empty(shapes[1], device="meta", dtype=torch.bfloat16))
     loader = object()
     gate.weight_loader = down.weight_loader = loader
-    layer = Namespace(w13_weight=gate, w2_weight=down)
+    layer = Namespace(
+        w13_weight=gate, w2_weight=down, expert_map=None if ep == 1 else expert_map(1, "cpu")
+    )
     method = object.__new__(adapter.SharedPlainBF16MoEMethod)
     monkeypatch.setattr(
         adapter.SharedPlainBF16MoEMethod,
@@ -195,7 +230,12 @@ def test_real_decoder_invokes_gdn_with_single_input_and_consumes_returned_tensor
     exact(residual, torch.full_like(hidden, 4), name="decoder residual")
 
 
-def test_binding_all48_layers_preserves_parameter_identity_and_native_loaders():
+# EP4 binds only when vLLM placed experts [128r, 128r + 128) on rank r: the
+# experts below are rank 2's, so binding on rank 3 must fail closed.
+@pytest.mark.parametrize("ep,rank", [(1, 2), (4, 2), (4, 3)])
+def test_binding_all48_layers_preserves_parameter_identity_and_native_loaders(
+    monkeypatch, ep, rank
+):
     from rl_engine.integrations.engines.rollout.vllm.qwen3_next_vllm import SharedQwenGDN
     from rl_engine.integrations.engines.rollout.vllm.qwen3_next_vllm_attention import (
         SharedAttentionBackend,
@@ -239,19 +279,32 @@ def test_binding_all48_layers_preserves_parameter_identity_and_native_loaders():
         layer.mlp.shared_expert.down_proj = weight_module((2048, 128))
         routed = torch.nn.Module()
         routed.quant_method = instance(adapter.UnquantizedFusedMoEMethod)
-        routed.w13_weight = weight_module((512, 256, 2048)).weight
-        routed.w2_weight = weight_module((512, 2048, 128)).weight
+        if ep == 1:
+            routed.w13_weight = weight_module((512, 256, 2048)).weight
+            routed.w2_weight = weight_module((512, 2048, 128)).weight
+            routed.expert_map = None
+        else:
+            routed.w13_weight = weight_module((128, 1024, 2048)).weight
+            routed.w2_weight = weight_module((128, 2048, 512)).weight
+            routed.global_num_experts, routed.local_num_experts = 512, 128
+            routed.expert_map = expert_map(2, "cpu")
         layer.mlp.experts = torch.nn.Module()
         layer.mlp.experts.routed_experts = routed
         layers.append(layer)
     model.layers = torch.nn.ModuleList(layers)
     before = {name: id(value) for name, value in model.named_parameters()}
-    adapter._bind_native_model(model, object())
+    monkeypatch.setattr(adapter.torch.distributed, "get_rank", lambda group=None: rank)
+    if ep == 4 and rank != 2:
+        with pytest.raises(ValueError, match="experts"):
+            adapter._bind_native_model(model, object(), ep)
+        return
+    adapter._bind_native_model(model, object(), ep)
     assert isinstance(model, adapter.SharedVLLMModel)
     assert {name: id(value) for name, value in model.named_parameters()} == before
     assert all(value.weight_loader is loader for value in model.parameters())
     assert all(isinstance(layer, adapter.SharedVLLMDecoderLayer) for layer in model.layers)
     assert all(isinstance(layer.mlp, adapter.SharedVLLMMoE) for layer in model.layers)
+    assert all(layer.mlp.shared_ep == ep for layer in model.layers)
 
 
 def test_spawn_worker_registers_model_before_native_worker_initialization(monkeypatch):
