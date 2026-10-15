@@ -73,8 +73,9 @@ def _worker(ep: int, mode: str) -> None:
     rank = int(os.environ["RANK"])
     torch.cuda.set_device(rank)
     config = real_vllm_config(ep)
-    parallel_state.init_distributed_environment(4, rank, "env://", rank, "nccl")
-    parallel_state.initialize_model_parallel(tensor_model_parallel_size=4)
+    with set_current_vllm_config(config):
+        parallel_state.init_distributed_environment(4, rank, "env://", rank, "nccl")
+        parallel_state.initialize_model_parallel(tensor_model_parallel_size=4)
     group = parallel_state.get_tp_group().device_group
     torch.set_default_device("cuda")
 
