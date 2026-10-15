@@ -65,6 +65,7 @@ def _worker(ep: int, mode: str) -> None:
     import torch.distributed as dist
     from vllm.config import set_current_vllm_config
     from vllm.distributed import parallel_state
+    from vllm.utils.torch_utils import set_default_torch_dtype
 
     from rl_engine.integrations.engines.rollout.vllm import qwen3_next_vllm_model as adapter
     from rl_engine.integrations.engines.rollout.vllm.qwen3_next_vllm_attention import (
@@ -80,7 +81,6 @@ def _worker(ep: int, mode: str) -> None:
         parallel_state.init_distributed_environment(4, rank, "env://", rank, "nccl")
         parallel_state.initialize_model_parallel(tensor_model_parallel_size=4)
     group = parallel_state.get_tp_group().device_group
-    torch.set_default_device("cuda")
 
     def check_layers(model):
         assert len(model.layers) == 48
@@ -106,7 +106,13 @@ def _worker(ep: int, mode: str) -> None:
             total = torch.stack(peers).sum(dim=0)
             assert torch.equal(total, torch.full_like(total, 48)), "an expert is not held once"
 
-    with set_current_vllm_config(config):
+    # What vLLM's model loader does around construction: the model dtype is the
+    # default dtype (the attention layers read it) and the device is the GPU.
+    with (
+        set_current_vllm_config(config),
+        set_default_torch_dtype(config.model_config.dtype),
+        torch.device("cuda"),
+    ):
         if mode == "native-bind":
             from vllm.model_executor.models.qwen3_next import Qwen3NextForCausalLM
 
