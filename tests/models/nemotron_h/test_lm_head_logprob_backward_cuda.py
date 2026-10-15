@@ -121,14 +121,27 @@ def test_grad_weight_is_bitwise_reproducible(strict_op, lm_head_weight):
 
 
 @requires_strict_det_gemm
-def test_grad_weight_token_reduction_beyond_det_gemm_tree():
+@pytest.mark.parametrize(
+    "extra_rows, segments",
+    [
+        (0, 1),  # exactly one full SM90 det-GEMM tree
+        (1, 2),  # one token past the tree: a K=1 tail segment
+        (32768 + 64, 3),  # two full trees plus a tail
+    ],
+)
+def test_grad_weight_token_reduction_beyond_det_gemm_tree(extra_rows, segments):
+    from rl_engine.backends.cuda.gemm.det_gemm import det_gemm_backend
     from rl_engine.backends.cuda.logprob.nemotron_h_lm_head_logp import (
         SM90_DET_GEMM_MAX_K,
         _grad_weight,
+        _reduction_segments,
     )
 
-    # More tokens than one SM90 det-GEMM tree covers; a 64-wide vocab slice keeps it cheap.
-    rows = SM90_DET_GEMM_MAX_K + 96
+    if det_gemm_backend() != "sm90":
+        pytest.skip("the token-reduction split only applies to the SM90 det-GEMM backend")
+    # A 64-wide vocab slice keeps the token reductions cheap.
+    rows = SM90_DET_GEMM_MAX_K + extra_rows
+    assert len(_reduction_segments(rows)) == segments
     hidden = make_hidden(rows, seed=100)
     gen = torch.Generator(device="cuda").manual_seed(101)
     dlogits = (torch.randn(rows, 64, generator=gen, device="cuda") * 0.01).to(torch.bfloat16)
