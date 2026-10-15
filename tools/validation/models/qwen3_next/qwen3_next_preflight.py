@@ -157,6 +157,9 @@ def main():
                     "pytest",
                     "-q",
                     "tests/models/qwen3_next/check_qwen3_next_multigpu.py",
+                    # Real vLLM config and real four-rank model at EP1 and EP4.
+                    "tests/models/qwen3_next/check_qwen3_next_vllm_model_contract.py",
+                    "tests/models/qwen3_next/check_qwen3_next_vllm_real_model.py",
                     f"--junitxml={output}/device-guards.xml",
                 ],
             )
