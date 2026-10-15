@@ -27,7 +27,10 @@ def test_runtime_digest_does_not_import_torch(tmp_path):
     import sys
     from pathlib import Path
 
-    runtime = Path(__file__).resolve().parents[3] / "tools/validation/models/qwen3_next/qwen3_next_runtime.py"
+    runtime = (
+        Path(__file__).resolve().parents[3]
+        / "tools/validation/models/qwen3_next/qwen3_next_runtime.py"
+    )
     artifact = tmp_path / "artifact.bin"
     artifact.write_bytes(b"standalone evidence runtime")
     program = """
