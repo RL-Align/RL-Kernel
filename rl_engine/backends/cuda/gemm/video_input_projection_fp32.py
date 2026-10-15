@@ -92,7 +92,7 @@ def cutlass_gemm_fp32(a, b):
 
 class CUDAVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
     family = "cutlass"
-    backend_id = "cuda-cutlass-video-input-projection-fp32-v3"
+    backend_id = "cuda-cutlass-video-input-projection-fp32-v4"
 
     def __init__(self):
         if not _TRITON_AVAILABLE:
@@ -111,10 +111,12 @@ class CUDAVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
         return {
             "backend_id": self.backend_id,
             "family": "cuda",
-            "kernel": "gemm_fp32_tn / gemm_fp32_tree_leaves_tn",
+            "kernel": "gemm_fp32_tn / gemm_fp32_tree_leaves_tn / "
+            "_det_gemm_tree_leaf_kernel / _det_gemm_tree_leaf_reduce_rocm_kernel",
             "reduction": "fixed_midpoint_tree",
             "reduction_leaf_size": _BLOCK_K,
             "reduction_backend": "triton",
+            "bias_reduction_backend": "triton_for_k_gt_96",
             "triton_version": triton.__version__,
             "leaf_launch": "cutlass_device_gemm_array",
             "tree_schedule": "paired_levels_compact_workspace",

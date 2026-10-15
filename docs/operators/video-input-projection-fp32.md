@@ -10,7 +10,8 @@ The primary implementation reuses RL-Kernel's Triton FP32 GEMM and canonical
 parameter-gradient session. A pinned CUTLASS FP32 SIMT GEMM is an explicit CUDA
 candidate. Both use the same semantic adapter, autograd implementation, and
 existing Triton tree plan and GPU level reductions. CUTLASS substitutes the
-batched leaf GEMM; its reported execution identity includes the Triton reduction.
+batched leaf GEMM for dX/dW. Long bias VJPs reuse the one-row Triton leaves;
+the reported execution identity includes both paths.
 
 ## Entry Point
 
@@ -78,12 +79,16 @@ outside this contribution's strict support scope.
 
 ## Accuracy
 
-Forward computes `Y = X @ W.T`, then adds bias in FP32. The upstream gradient `G`
+Forward computes `Y = X @ W.T + bias` in FP32. The Triton forward adds bias
+in the existing GEMM epilogue, preserving the rounded FP32 GEMM result before
+the bias addition. The upstream gradient `G`
 stays FP32, including normalization of non-contiguous autograd inputs:
 
 - `dX = G @ W` is row-local.
 - `dW = G_sorted.T @ X_sorted` follows canonical logical-row order.
-- `dbias = ones[1,R] @ G_sorted` uses the same fixed FP32 GEMM bottom layer.
+- `dbias = ones[1,R] @ G_sorted` uses the fixed FP32 GEMM bottom layer.
+  Both backends reuse the one-row Triton tree for reductions longer than 96;
+  the CUTLASS candidate retains its direct GEMM for shorter reductions.
 
 The existing canonical session collects all contributions, removes padding, and
 sorts keys before the final parameter reduction. It returns each parameter VJP
@@ -93,7 +98,9 @@ normalize each parameter independently.
 
 Short reductions up to the 96-wide video input use the existing direct FP32
 GEMM. Long reductions reuse the existing midpoint plan with at most 32 terms per
-leaf. Workspace, merge nodes, and output stay FP32. One-row complete trees fuse each
+leaf. The Triton scalar loop stops at the largest logical leaf length
+(21 for K=5376; 26 for K=13104), preserving the midpoint tree and ascending
+products. Workspace, merge nodes, and output stay FP32. One-row complete trees fuse each
 Triton leaf pair with its first merge. Other complete trees compute leaves in
 one grid. Subsequent
 merges use the existing two-level kernel and alternating compact workspace

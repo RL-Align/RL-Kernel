@@ -325,7 +325,7 @@ def test_default_cuda_dispatch():
     from rl_engine.runtime.registry import KernelRegistry
 
     op = KernelRegistry().get_op("video_input_projection_fp32", device="cuda")
-    assert op.backend_info()["backend_id"] == "triton-video-input-projection-fp32-v3"
+    assert op.backend_info()["backend_id"] == "triton-video-input-projection-fp32-v4"
     x, weight, bias, _ = _data(3)
     with torch.no_grad():
         _assert_bytes(op(x, weight, bias), _op("triton")(x, weight, bias))
@@ -512,3 +512,75 @@ def test_compact_fp32_tree_workspace_preserves_chunked_outputs(backend, monkeypa
     _assert_bytes(_gemm_fp32(a, b, family), expected)
     monkeypatch.setattr(det_gemm, "_MAX_TREE_WORKSPACE_ELEMENTS", plan.workspace_node_count * 2)
     _assert_bytes(_gemm_fp32(a, b, family), expected)
+
+
+@pytest.mark.skipif(not H20, reason="requires CUDA SM90")
+@pytest.mark.parametrize("rows", [1, 3])
+@pytest.mark.parametrize("k", [129, 5376, 13104])
+def test_shortened_fp32_leaves_preserve_padded_arithmetic(rows, k, monkeypatch):
+    from rl_engine.backends.shared.triton.gemm import det_gemm
+
+    class PaddedLeaves:
+        def __init__(self, kernel):
+            self.kernel = kernel
+
+        def __getitem__(self, grid):
+            def launch(*args, **kwargs):
+                kwargs["LEAF_LOOP_BOUND"] = det_gemm._BLOCK_K
+                return self.kernel[grid](*args, **kwargs)
+
+            return launch
+
+    torch.manual_seed(423)
+    a = torch.randn(k, rows, device="cuda").t()
+    b = torch.randn(k, 5, device="cuda")
+    inputs = [(a, b)]
+    # Include signed zero, gradual underflow, and non-finite propagation.
+    for value in (-0.0, torch.finfo(torch.float32).tiny / 8, float("inf"), float("nan")):
+        inputs.append((torch.full_like(a, value), b))
+    actual = [
+        det_gemm._triton_tree_gemm(a, b, output_dtype=torch.float32, preserve_a_strides=True)
+        for a, b in inputs
+    ]
+    for name in ("_det_gemm_kernel", "_det_gemm_tree_leaf_reduce_rocm_kernel"):
+        monkeypatch.setattr(det_gemm, name, PaddedLeaves(getattr(det_gemm, name)))
+    for (a, b), output in zip(inputs, actual, strict=True):
+        padded = det_gemm._triton_tree_gemm(
+            a, b, output_dtype=torch.float32, preserve_a_strides=True
+        )
+        _assert_bytes(output, padded)
+
+
+@pytest.mark.skipif(not H20, reason="requires CUDA SM90")
+@pytest.mark.parametrize("rows", [1, 17, 129])
+def test_triton_forward_bias_fusion_preserves_fp32_rounding(rows):
+    from rl_engine.backends.shared.triton.gemm.det_gemm import _triton_gemm_fp32
+
+    x, weight, bias, _ = _data(rows)
+    rhs = weight.t().contiguous()
+    expected = _triton_gemm_fp32(x, rhs) + bias
+    actual = _triton_gemm_fp32(x, rhs, bias=bias)
+    _assert_bytes(actual, expected)
+    with torch.no_grad():
+        _assert_bytes(_op("triton")(x, weight, bias), expected)
+
+
+@pytest.mark.skipif(not H20, reason="requires CUDA SM90")
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("frozen", ["weight", "bias", "both"])
+def test_backend_frozen_parameters_preserve_trainable_gradients(backend, frozen):
+    op = _op(backend)
+    data, keys = _data(129), _keys(129, "cuda")
+    expected = _run(op, data, keys)
+    actual = _run(
+        op,
+        data,
+        keys,
+        train_weight=frozen not in ("weight", "both"),
+        train_bias=frozen not in ("bias", "both"),
+    )
+    for i, (value, gold) in enumerate(zip(actual, expected, strict=True)):
+        if i == 2 and frozen in ("weight", "both") or i == 3 and frozen in ("bias", "both"):
+            assert value is None
+        else:
+            _assert_bytes(value, gold)

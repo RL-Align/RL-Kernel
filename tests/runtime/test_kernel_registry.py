@@ -13,7 +13,7 @@ def test_video_input_projection_default_and_strict_scope():
         OpBackend.TRITON_VIDEO_INPUT_PROJECTION_FP32
     ]
     desc = registry.semantic.backend_descriptor(
-        "video_input_projection_fp32", "triton-video-input-projection-fp32-v3"
+        "video_input_projection_fp32", "triton-video-input-projection-fp32-v4"
     )
     assert desc.supported_devices == frozenset({"cuda"})
     assert desc.supported_dtypes == frozenset({"float32"})

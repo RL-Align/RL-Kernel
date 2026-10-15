@@ -17,15 +17,16 @@ from rl_engine.ops.gemm.video_input_projection_fp32 import (
 )
 
 
-def projection_gemm_fp32(a, b):
+def projection_gemm_fp32(a, b, *, bias=None):
     if a.shape[1] <= VIDEO_PATCH_WIDTH:
-        return _triton_gemm_fp32(a, b)
-    return _triton_tree_gemm(a, b, output_dtype=torch.float32, preserve_a_strides=True)
+        return _triton_gemm_fp32(a, b, bias=bias)
+    output = _triton_tree_gemm(a, b, output_dtype=torch.float32, preserve_a_strides=True)
+    return output if bias is None else output + bias
 
 
 class TritonVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
     family = "triton_tree"
-    backend_id = "triton-video-input-projection-fp32-v3"
+    backend_id = "triton-video-input-projection-fp32-v4"
 
     def __init__(self):
         if not _TRITON_AVAILABLE:
@@ -49,6 +50,8 @@ class TritonVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
             "tile": [64, 64, 32],
             "tf32": False,
             "fp_fusion": False,
+            "forward_bias": "fp32_epilogue",
+            "leaf_loop_bound": "max_logical_leaf_length",
             "split_k": 1,
             "reduction": "fixed_midpoint_tree",
             "reduction_leaf_size": _BLOCK_K,

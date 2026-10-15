@@ -420,6 +420,7 @@ if _TRITON_AVAILABLE:
         BLOCK_N: tl.constexpr,
         BLOCK_K: tl.constexpr,
         N_FASTEST: tl.constexpr,
+        LEAF_LOOP_BOUND: tl.constexpr = _BLOCK_K,
     ):
         if N_FASTEST:
             pid_n = tl.program_id(0)
@@ -439,9 +440,10 @@ if _TRITON_AVAILABLE:
         leaf_node = tl.load(leaf_nodes_ptr + leaf).to(tl.int64)
         acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
         # Keep the leaf's ascending scalar FMA order identical to the native
-        # gfx942 correctness kernel.  A tl.dot/MFMA leaf is topology-stable but
+        # gfx942 correctness kernel. FP32 launches trim only the masked tail.
+        # A tl.dot/MFMA leaf is topology-stable but
         # differs from the scalar reference at rare BF16 rounding boundaries.
-        for offset in tl.static_range(0, BLOCK_K):
+        for offset in tl.static_range(0, LEAF_LOOP_BOUND):
             k_offset = leaf_start + offset
             active = offset < leaf_length
             a = tl.load(
@@ -491,6 +493,7 @@ if _TRITON_AVAILABLE:
         BLOCK_K: tl.constexpr,
         N_FASTEST: tl.constexpr,
         WRITE_OUTPUT: tl.constexpr,
+        LEAF_LOOP_BOUND: tl.constexpr = _BLOCK_K,
     ):
         if N_FASTEST:
             pid_n = tl.program_id(0)
@@ -508,7 +511,7 @@ if _TRITON_AVAILABLE:
         upper_length = tl.load(upper_lengths_ptr + pair).to(tl.int64)
 
         lower_acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
-        for offset in tl.static_range(0, BLOCK_K):
+        for offset in tl.static_range(0, LEAF_LOOP_BOUND):
             k_offset = lower_start + offset
             active = offset < lower_length
             a = tl.load(
@@ -526,7 +529,7 @@ if _TRITON_AVAILABLE:
         lower = lower_acc.to(workspace_ptr.dtype.element_ty)
 
         upper_acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
-        for offset in tl.static_range(0, BLOCK_K):
+        for offset in tl.static_range(0, LEAF_LOOP_BOUND):
             k_offset = upper_start + offset
             active = offset < upper_length
             a = tl.load(
@@ -730,6 +733,7 @@ if _TRITON_AVAILABLE:
         a_ptr,
         b_ptr,
         c_ptr,
+        bias_ptr,
         M,
         N,
         K,
@@ -743,6 +747,7 @@ if _TRITON_AVAILABLE:
         BLOCK_N: tl.constexpr,
         BLOCK_K: tl.constexpr,
         PROMOTE_INPUTS: tl.constexpr,
+        HAS_BIAS: tl.constexpr,
     ):
         # One program = one output tile, walks the whole K in fixed order.
         # No split-K -> K-accumulation order independent of M -> batch-invariant.
@@ -765,13 +770,18 @@ if _TRITON_AVAILABLE:
             acc += tl.dot(a, b, allow_tf32=False)
             a_ptrs += BLOCK_K * stride_ak
             b_ptrs += BLOCK_K * stride_bk
+        if HAS_BIAS:
+            bias = tl.load(bias_ptr + offs_n, mask=offs_n < N, other=0.0).to(tl.float32)
+            acc = acc + bias[None, :]
         c = acc.to(c_ptr.dtype.element_ty)
         c_ptrs = c_ptr + offs_m[:, None] * stride_cm + offs_n[None, :] * stride_cn
         mask = (offs_m[:, None] < M) & (offs_n[None, :] < N)
         tl.store(c_ptrs, c, mask=mask)
 
 
-def _triton_gemm_fp32(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def _triton_gemm_fp32(
+    a: torch.Tensor, b: torch.Tensor, *, bias: torch.Tensor | None = None
+) -> torch.Tensor:
     a, b = a.contiguous(), b.contiguous()
     M, K = a.shape
     _, N = b.shape
@@ -781,6 +791,7 @@ def _triton_gemm_fp32(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
         a,
         b,
         c,
+        bias,
         M,
         N,
         K,
@@ -794,6 +805,7 @@ def _triton_gemm_fp32(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
         BLOCK_N=_BLOCK_N,
         BLOCK_K=_BLOCK_K,
         PROMOTE_INPUTS=True,
+        HAS_BIAS=bias is not None,
         **({"enable_fp_fusion": False} if torch.version.hip is None else {}),
     )
     return c
@@ -992,7 +1004,11 @@ def _triton_tree_gemm(
             N_FASTEST=leaf_config.n_fastest,
             WRITE_OUTPUT=len(plan.host.reduction_levels) == 1,
             num_warps=leaf_config.num_warps,
-            **({"enable_fp_fusion": False} if fp32_tree else {}),
+            **(
+                {"enable_fp_fusion": False, "LEAF_LOOP_BOUND": max(plan.host.leaf_lengths)}
+                if fp32_tree
+                else {}
+            ),
         )
     else:
         _det_gemm_kernel[leaf_grid](
@@ -1014,7 +1030,11 @@ def _triton_tree_gemm(
             BLOCK_K=_BLOCK_K,
             N_FASTEST=leaf_config.n_fastest,
             num_warps=leaf_config.num_warps,
-            **({"enable_fp_fusion": False} if fp32_tree else {}),
+            **(
+                {"enable_fp_fusion": False, "LEAF_LOOP_BOUND": max(plan.host.leaf_lengths)}
+                if fp32_tree
+                else {}
+            ),
         )
     reduction_block = 256
     if fuse_leaf_reduction:

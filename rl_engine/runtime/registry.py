@@ -244,7 +244,7 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
         ),
         OperatorBackendDescriptor(
             semantic_op="video_input_projection_fp32",
-            backend_id="cuda-cutlass-video-input-projection-fp32-v3",
+            backend_id="cuda-cutlass-video-input-projection-fp32-v4",
             supported_targets=frozenset({"rollout", "training"}),
             supported_devices=frozenset({"cuda"}),
             supported_dtypes=frozenset({"float32"}),
@@ -257,8 +257,9 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
                 "training": {"world_size": (1,), "sharding": ("unsharded",)},
             },
             determinism_or_alignment_properties={
-                "algorithm": "cutlass_simt_fp32_triton_tree_canonical_parameter_vjp",
+                "algorithm": "cutlass_simt_fp32_triton_tree_bias_canonical_parameter_vjp",
                 "reduction_backend": "triton",
+                "bias_reduction_backend": "triton_for_k_gt_96",
                 "input_width": 96,
                 "output_width": 5376,
                 "cuda_sm": 90,
@@ -273,12 +274,13 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             implementation_class_or_factory=OpBackend.CUDA_VIDEO_INPUT_PROJECTION_FP32.value,
             fallback_policy=OperatorFallbackPolicy.ERROR,
             version_or_build_fingerprint=(
-                "cutlass-56ca28a-fp32-simt-64x64x8-triton-fused-tree32-coalesced-pack-h3-v3"
+                "cutlass-56ca28a-fp32-simt-64x64x8-triton-fused-tree32-"
+                "coalesced-pack-triton-bias-h3-v4"
             ),
         ),
         OperatorBackendDescriptor(
             semantic_op="video_input_projection_fp32",
-            backend_id="triton-video-input-projection-fp32-v3",
+            backend_id="triton-video-input-projection-fp32-v4",
             supported_targets=frozenset({"rollout", "training"}),
             supported_devices=frozenset({"cuda"}),
             supported_dtypes=frozenset({"float32"}),
@@ -292,6 +294,8 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             },
             determinism_or_alignment_properties={
                 "algorithm": "fixed_fp32_gemm_canonical_parameter_vjp",
+                "forward_bias": "fp32_epilogue",
+                "leaf_loop_bound": "max_logical_leaf_length",
                 "input_width": 96,
                 "output_width": 5376,
                 "cuda_sm": 90,
@@ -306,7 +310,7 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             implementation_class_or_factory=OpBackend.TRITON_VIDEO_INPUT_PROJECTION_FP32.value,
             fallback_policy=OperatorFallbackPolicy.ERROR,
             version_or_build_fingerprint=(
-                "rlkernel-triton-fp32-no-fma-paired-tree32-leaf64x32-bias1x128-h3-v3"
+                "rlkernel-triton-fp32-no-fma-paired-tree32-leaf64x32-short-loop-bias-epilogue-h3-v4"
             ),
         ),
         OperatorBackendDescriptor(
