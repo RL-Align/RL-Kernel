@@ -36,6 +36,8 @@ def test_all_ws1_single_ops_are_registered():
     names = set(operator_names())
     assert {
         "rms_norm",
+        "rms_norm_gated",
+        "qwen3_next_rms_norm",
         "qk_norm",
         "det_gemm",
         "attention",
