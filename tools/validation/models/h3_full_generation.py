@@ -21,7 +21,7 @@ import torch
 
 from rl_engine.validation.models.h3_block import CandidateOps
 from rl_engine.validation.models.h3_full_model import FullModelTrace, full_model_execution
-from rl_engine.validation.models.h3_generation_resume import ResumableRun, StepStore
+from rl_engine.validation.models.h3_generation_resume import ResumableRun, StepStore, model_trees
 from tools.validation.models.h3_full_model import digest, verify_checkpoint
 
 
@@ -54,6 +54,12 @@ def main():
         "--resume",
         action="store_true",
         help="continue a preempted run in --output: skip finished seeds, replay saved steps",
+    )
+    p.add_argument(
+        "--verify-last-step",
+        action="store_true",
+        help="on resume, recompute the last saved step and require it to match bitwise "
+        "(costs one step per restart)",
     )
     p.add_argument("--preflight-steps", type=int, help="test only: preflight num_inference_steps")
     p.add_argument(
@@ -156,18 +162,21 @@ def main():
         if args.resume and (directory / "report.json").exists():
             print(f"seed {seed} already complete; skipping", flush=True)
             continue
-        identity = dict(
-            commit=subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
-            contract_sha256=digest(config_root / "generation-contract.json"),
-            image_sha256=identity_inputs["image_sha256"],
-            prompt_sha256=identity_inputs["prompt_sha256"],
+        identity = run_identity(
+            config_root,
+            contract,
+            identity_inputs,
             candidate=args.candidate,
             preflight=args.preflight,
             seed=seed,
-            settings={k: settings[k] for k in ("num_frames", "height", "width")}
-            | {"num_inference_steps": settings["num_inference_steps"]},
+            settings=settings,
         )
-        run = ResumableRun(StepStore(directory), identity, resume=args.resume)
+        run = ResumableRun(
+            StepStore(directory),
+            identity,
+            resume=args.resume,
+            verify_last_step=args.verify_last_step,
+        )
         trace = FullModelTrace()
         initial = {}
 
@@ -183,6 +192,10 @@ def main():
                 torch.save(initial, tmp)
                 os.replace(tmp, directory / "initial.pt")
             run.record(positional, kwargs, tuple(values))
+            if run.real_calls == 1:
+                # One real forward pass has run every block and boundary: keep that trace, so a
+                # later attempt that only replays and decodes still reports a complete one.
+                run.store.save_trace(trace.validate())
             if args.stop_after_step is not None and run.recorded >= args.stop_after_step:
                 raise KeyboardInterrupt(f"simulated preemption after {run.recorded} calls")
 
@@ -243,6 +256,9 @@ def main():
             Image.fromarray(np.round(video[index] * 255).clip(0, 255).astype("uint8")).save(
                 directory / f"frame-{index:03}.png"
             )
+        final_trace = trace.validate() if run.real_calls else run.store.load_trace()
+        if final_trace is None:
+            raise ValueError("no execution trace: this seed never ran a real forward pass")
         report = dict(
             commit=subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
             model_revision=contract["model_revision"],
@@ -251,7 +267,7 @@ def main():
             candidate=args.candidate,
             seed=seed,
             preflight=args.preflight,
-            trace=trace.validate(),
+            trace=final_trace,
             steps=run.recorded,
             resume=run.summary(),
             seconds=time.perf_counter() - started,
@@ -262,6 +278,22 @@ def main():
             path.name: digest(path) for path in sorted(directory.iterdir()) if path.is_file()
         }
         (directory / "report.json").write_text(json.dumps(report, indent=2) + "\n")
+
+
+def run_identity(config_root, contract, inputs, *, candidate, preflight, seed, settings):
+    """What a saved run is tied to: the numerics (model-path git trees), inputs and settings."""
+
+    return dict(
+        model_trees=model_trees(),
+        contract_sha256=digest(config_root / "generation-contract.json"),
+        image_sha256=inputs["image_sha256"],
+        prompt_sha256=inputs["prompt_sha256"],
+        candidate=candidate,
+        preflight=preflight,
+        seed=seed,
+        settings={k: settings[k] for k in ("num_frames", "height", "width")}
+        | {"num_inference_steps": settings["num_inference_steps"]},
+    )
 
 
 def failure_name(seeds):

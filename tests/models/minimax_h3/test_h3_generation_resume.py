@@ -11,16 +11,20 @@ does), so any wrong replay would change every later step.
 from __future__ import annotations
 
 import inspect
+import subprocess
 import types
 
 import pytest
 import torch
 
+from rl_engine.validation.models import h3_generation_resume as resume_module
 from rl_engine.validation.models.h3_generation_resume import (
     ResumableRun,
     ResumeError,
     StepStore,
+    adopt_identity,
     inputs_digest,
+    model_trees,
 )
 
 STEPS = 6
@@ -50,12 +54,14 @@ def _initial(seed=0):
     return torch.randn(8, 4, generator=generator), torch.randn(3, 5, generator=generator)
 
 
-def denoise(directory, *, resume, stop_after=None, initial=None, identity=IDENTITY):
+def denoise(
+    directory, *, resume, stop_after=None, initial=None, identity=IDENTITY, verify_last_step=False
+):
     """Run the fake loop through a ResumableRun; return (latents, transformer, run)."""
 
     video, audio = initial if initial is not None else _initial()
     store = StepStore(directory)
-    run = ResumableRun(store, identity, resume=resume)
+    run = ResumableRun(store, identity, resume=resume, verify_last_step=verify_last_step)
     if not (directory / "initial.pt").exists():
         torch.save({"hidden_states": video, "audio_hidden_states": audio}, directory / "initial.pt")
     module = FakeTransformer()
@@ -92,11 +98,11 @@ def test_uninterrupted_run_saves_every_step(tmp_path):
     assert run.summary()["replayed_steps"] == 0
 
 
-def test_resumed_run_matches_an_uninterrupted_one(tmp_path):
+def test_resumed_run_with_verification_matches_an_uninterrupted_one(tmp_path):
     whole, _, _ = denoise(tmp_path / "whole", resume=False)
     with pytest.raises(KeyboardInterrupt):
         denoise(tmp_path / "cut", resume=False, stop_after=4)
-    resumed, module, run = denoise(tmp_path / "cut", resume=True)
+    resumed, module, run = denoise(tmp_path / "cut", resume=True, verify_last_step=True)
     assert all(torch.equal(a, b) for a, b in zip(whole, resumed, strict=True))
     assert _step_bytes(tmp_path / "whole").keys() == _step_bytes(tmp_path / "cut").keys()
     for name, data in _step_bytes(tmp_path / "whole").items():
@@ -121,9 +127,9 @@ def test_repeated_preemptions_still_converge(tmp_path):
     assert len(run.summary()["attempts"]) == 4
 
 
-def test_a_complete_run_resumes_by_recomputing_only_its_last_step(tmp_path):
+def test_with_verification_a_complete_run_recomputes_only_its_last_step(tmp_path):
     whole, _, _ = denoise(tmp_path / "a", resume=False)
-    again, module, run = denoise(tmp_path / "a", resume=True)
+    again, module, run = denoise(tmp_path / "a", resume=True, verify_last_step=True)
     assert all(torch.equal(x, y) for x, y in zip(whole, again, strict=True))
     assert module.computed == 1
     assert run.summary()["recomputed_and_verified_step"] == STEPS - 1
@@ -137,7 +143,7 @@ def test_different_inputs_are_rejected_during_replay(tmp_path):
         denoise(tmp_path / "a", resume=True, initial=_initial(seed=1))
 
 
-def test_a_nondeterministic_recompute_is_rejected(tmp_path, monkeypatch):
+def test_a_nondeterministic_recompute_is_rejected_when_verifying(tmp_path, monkeypatch):
     with pytest.raises(KeyboardInterrupt):
         denoise(tmp_path / "a", resume=False, stop_after=3)
 
@@ -149,7 +155,11 @@ def test_a_nondeterministic_recompute_is_rejected(tmp_path, monkeypatch):
 
     monkeypatch.setattr(FakeTransformer, "forward", noisy)
     with pytest.raises(ResumeError, match="differs from the saved output"):
-        denoise(tmp_path / "a", resume=True)
+        denoise(tmp_path / "a", resume=True, verify_last_step=True)
+    # Without verification nothing recomputes the saved steps, so the drift goes unnoticed.
+    with pytest.raises(KeyboardInterrupt):
+        denoise(tmp_path / "b", resume=False, stop_after=3)
+    denoise(tmp_path / "b", resume=True)
 
 
 def test_a_different_identity_cannot_be_continued(tmp_path):
@@ -232,3 +242,143 @@ def test_replay_wrapper_keeps_a_wrapped_forward_signature(tmp_path):
     run = ResumableRun(StepStore(tmp_path / "b"), IDENTITY, resume=False)
     run.install(module, _output)
     assert list(inspect.signature(module.forward).parameters) == before
+
+
+# --- default resume: replay everything saved, recompute nothing --------------------------
+
+
+def test_default_resume_replays_every_saved_step_and_computes_only_the_rest(tmp_path):
+    whole, _, _ = denoise(tmp_path / "whole", resume=False)
+    with pytest.raises(KeyboardInterrupt):
+        denoise(tmp_path / "cut", resume=False, stop_after=4)
+    resumed, module, run = denoise(tmp_path / "cut", resume=True)
+    assert all(torch.equal(a, b) for a, b in zip(whole, resumed, strict=True))
+    summary = run.summary()
+    assert (summary["saved_steps_at_start"], summary["replayed_steps"]) == (4, 4)
+    assert summary["recomputed_and_verified_step"] is None
+    assert summary["real_forward_calls"] == STEPS - 4 == module.computed
+    for name, data in _step_bytes(tmp_path / "whole").items():
+        if name.endswith(".pt"):
+            assert data == _step_bytes(tmp_path / "cut")[name], name
+
+
+def test_a_complete_run_resumes_with_no_forward_pass_at_all(tmp_path):
+    whole, _, _ = denoise(tmp_path / "a", resume=False)
+    again, module, run = denoise(tmp_path / "a", resume=True)
+    assert all(torch.equal(x, y) for x, y in zip(whole, again, strict=True))
+    assert module.computed == 0
+    assert run.real_calls == 0
+
+
+def test_each_attempt_only_needs_a_few_steps_to_make_progress(tmp_path):
+    """Attempts that each finish one new step still add up to the whole run."""
+
+    whole, _, _ = denoise(tmp_path / "whole", resume=False)
+    saved = 0
+    result = run = None
+    for attempt in range(STEPS):
+        stop = saved + 1 if saved + 1 < STEPS else None  # the last attempt is left to finish
+        try:
+            result, _, run = denoise(tmp_path / "cut", resume=attempt > 0, stop_after=stop)
+        except KeyboardInterrupt:
+            saved += 1
+            continue
+        break
+    assert result is not None and saved == STEPS - 1
+    assert all(torch.equal(a, b) for a, b in zip(whole, result, strict=True))
+    assert run.real_calls == 1 and len(run.summary()["attempts"]) == STEPS
+
+
+def test_the_validated_trace_survives_for_a_later_replay_only_attempt(tmp_path):
+    store = StepStore(tmp_path / "a")
+    assert store.load_trace() is None
+    (tmp_path / "a").mkdir()
+    trace = {"calls": {"block.0": 3}, "execution_order": ["block.0", "block.1"]}
+    store.save_trace(trace)
+    assert StepStore(tmp_path / "a").load_trace() == trace
+    assert not list((tmp_path / "a").glob("*.tmp"))
+
+
+# --- identity tied to the model paths, and adopting a commit-based run -------------------
+
+
+def _git(repo, *args):
+    return subprocess.check_output(["git", *args], cwd=repo, text=True).strip()
+
+
+@pytest.fixture
+def repo(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+    (root / "model").mkdir(parents=True)
+    (root / "orchestration").mkdir()
+    (root / "model" / "kernel.py").write_text("v1\n")
+    (root / "orchestration" / "resume.py").write_text("v1\n")
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "t@example.com")
+    _git(root, "config", "user.name", "t")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "a")
+    monkeypatch.setattr(resume_module, "MODEL_PATHS", ("model",))
+    return root
+
+
+def _commit(repo, path, text):
+    (repo / path).write_text(text)
+    _git(repo, "commit", "-q", "-am", f"change {path}")
+    return _git(repo, "rev-parse", "HEAD")
+
+
+def _old_run(directory, commit, trees):
+    base = {k: v for k, v in IDENTITY.items() if k != "commit"}
+    store = StepStore(directory)
+    store.open({"commit": commit, **base}, resume=False)
+    return {**base, "model_trees": trees}
+
+
+def test_model_trees_ignore_orchestration_changes_but_not_model_changes(repo):
+    first = model_trees("HEAD", cwd=repo)
+    _commit(repo, "orchestration/resume.py", "v2\n")
+    assert model_trees("HEAD", cwd=repo) == first
+    _commit(repo, "model/kernel.py", "v2\n")
+    assert model_trees("HEAD", cwd=repo) != first
+
+
+def test_adopting_a_commit_based_run_lets_a_later_commit_continue_it(repo, tmp_path):
+    old = _git(repo, "rev-parse", "HEAD")
+    new_identity = _old_run(tmp_path / "run", old, model_trees("HEAD", cwd=repo))
+    _commit(repo, "orchestration/resume.py", "v2\n")
+    new_identity["model_trees"] = model_trees("HEAD", cwd=repo)
+    adopt_identity(tmp_path / "run", new_identity, old[:8], cwd=repo)
+    assert StepStore(tmp_path / "run").open(new_identity, resume=True) == 0
+    attempts = StepStore(tmp_path / "run").attempts()
+    assert attempts[-2]["adopted"]["from_commit"] == old
+    assert attempts[-2]["adopted"]["model_paths_identical"] is True
+
+
+def test_adoption_is_refused_when_a_model_path_changed(repo, tmp_path):
+    old = _git(repo, "rev-parse", "HEAD")
+    _old_run(tmp_path / "run", old, model_trees("HEAD", cwd=repo))
+    _commit(repo, "model/kernel.py", "v2\n")
+    new_identity = {
+        **{k: v for k, v in IDENTITY.items() if k != "commit"},
+        "model_trees": model_trees("HEAD", cwd=repo),
+    }
+    before = (tmp_path / "run" / "run.json").read_text()
+    with pytest.raises(ResumeError, match="model paths changed"):
+        adopt_identity(tmp_path / "run", new_identity, old[:8], cwd=repo)
+    assert (tmp_path / "run" / "run.json").read_text() == before
+
+
+def test_adoption_refuses_other_differences_and_dry_run_writes_nothing(repo, tmp_path):
+    old = _git(repo, "rev-parse", "HEAD")
+    identity = _old_run(tmp_path / "run", old, model_trees("HEAD", cwd=repo))
+    before = (tmp_path / "run" / "run.json").read_text()
+    with pytest.raises(ResumeError, match="more than the commit"):
+        adopt_identity(tmp_path / "run", {**identity, "seed": 7}, old[:8], cwd=repo)
+    with pytest.raises(ResumeError, match="not abc"):
+        adopt_identity(tmp_path / "run", identity, "abc", cwd=repo)
+    adopt_identity(tmp_path / "run", identity, old[:8], cwd=repo, dry_run=True)
+    assert (tmp_path / "run" / "run.json").read_text() == before
+    adopt_identity(tmp_path / "run", identity, old[:8], cwd=repo)
+    with pytest.raises(ResumeError, match="already"):
+        adopt_identity(tmp_path / "run", identity, old[:8], cwd=repo)

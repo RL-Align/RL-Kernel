@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Site options (partition, account, job name) are given at submission; see README.md.
-# Resume check on the real pipeline at preflight size (128x128, 6 sampling steps): one run
-# without interruption, one preempted twice (after 2 and after 4 transformer calls) and
-# resumed. Every step file, the initial inputs and the decoded media must be byte-equal.
+# Resume check on the real pipeline at preflight size (128x128, 6 sampling steps, 5 transformer
+# calls): one run without interruption, and two preempted runs that are resumed -- "cut"
+# after 2, 4 and 5 calls (the last one after the final step, before decoding, so the final
+# attempt has nothing left to compute) and "cutverify" after 2 calls with --verify-last-step.
+# Every step file, the initial inputs and the decoded media must be byte-equal to "whole".
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:b200:1
@@ -33,31 +35,43 @@ gen() {
 gen --output "$out/whole" > "$out/whole.log" 2>&1
 gen --output "$out/cut" --stop-after-step 2 > "$out/cut-1.log" 2>&1 || true
 gen --output "$out/cut" --resume --stop-after-step 4 > "$out/cut-2.log" 2>&1 || true
-gen --output "$out/cut" --resume > "$out/cut-3.log" 2>&1
+gen --output "$out/cut" --resume --stop-after-step 5 > "$out/cut-3.log" 2>&1 || true
+gen --output "$out/cut" --resume > "$out/cut-4.log" 2>&1
+gen --output "$out/cutverify" --stop-after-step 2 > "$out/cutverify-1.log" 2>&1 || true
+gen --output "$out/cutverify" --resume --verify-last-step > "$out/cutverify-2.log" 2>&1
 "$python_bin" - "$out" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 root = Path(sys.argv[1])
-whole, cut = root / "whole" / "42", root / "cut" / "42"
+whole = root / "whole" / "42"
+whole_report = json.loads((whole / "report.json").read_text())
 names = sorted(
     p.name
     for p in whole.iterdir()
     if p.name.startswith("step-") and p.suffix == ".pt"
     or p.name in ("initial.pt", "video.npy", "audio.npy")
 )
-differing = [n for n in names if (whole / n).read_bytes() != (cut / n).read_bytes()]
-resume = json.loads((cut / "report.json").read_text())["resume"]
-result = {
-    "compared_files": len(names),
-    "steps": json.loads((whole / "report.json").read_text())["steps"],
-    "differing": differing,
-    "resume": resume,
-    "failure_markers": sorted(p.name for p in (root / "cut").glob("failure*.json")),
-}
+result = {"compared_files": len(names), "steps": whole_report["steps"], "runs": {}}
+for name in ("cut", "cutverify"):
+    directory = root / name / "42"
+    report = json.loads((directory / "report.json").read_text())
+    result["runs"][name] = {
+        "differing": [n for n in names if (whole / n).read_bytes() != (directory / n).read_bytes()],
+        "resume": {k: v for k, v in report["resume"].items() if k != "attempts"},
+        "attempts": len(report["resume"]["attempts"]),
+        "trace_calls_match": report["trace"]["calls"].keys() == whole_report["trace"]["calls"].keys()
+        and report["trace"]["candidate_calls"].keys()
+        == whole_report["trace"]["candidate_calls"].keys(),
+        "failure_markers": sorted(p.name for p in (root / name).glob("failure*.json")),
+    }
 (root / "resume-check.json").write_text(json.dumps(result, indent=2) + "\n")
 print(json.dumps(result, indent=2))
-assert not differing, differing
-assert resume["replayed_steps"] > 0 and resume["recomputed_and_verified_step"] is not None
+cut, verify = result["runs"]["cut"], result["runs"]["cutverify"]
+assert not cut["differing"] and not verify["differing"], result
+assert cut["resume"]["real_forward_calls"] == 0, "the final cut attempt should replay everything"
+assert cut["resume"]["recomputed_and_verified_step"] is None
+assert verify["resume"]["recomputed_and_verified_step"] is not None
+assert cut["trace_calls_match"] and verify["trace_calls_match"]
 PY

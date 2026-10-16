@@ -10,14 +10,20 @@ generation already keeps every step's predicted velocities (``step-NNN.pt``);
 inputs for that step and the digest of the saved file, both written atomically
 (the sidecar last, so a step counts only when both exist).
 
-On resume the first ``saved - 1`` transformer calls are *replayed*: the saved
-velocities are returned instead of recomputed, and the pipeline's own scheduler
-update turns them into the next latents exactly as before. The input digest of
-every replayed call is checked against the one saved, so the replay is proven to
-have rebuilt the trajectory the earlier attempt had. The last saved step is
-always recomputed, and must reproduce its stored output bitwise: that checks the
-resumed run is equivalent to an uninterrupted one, and guarantees a real forward
-pass, so the execution trace stays complete.
+On resume every saved transformer call is *replayed*: the saved velocities are
+returned instead of recomputed, and the pipeline's own scheduler update turns them
+into the next latents exactly as before. The input digest of every replayed call is
+checked against the one saved, so the replay is proven to have rebuilt the trajectory
+the earlier attempt had. Recomputing the last saved step (``verify_last_step``)
+additionally checks that the forward pass reproduces its stored output bitwise; it
+costs one full step per restart, which on a heavily preempted partition is most of an
+attempt, so it is opt-in. The execution trace is saved after the first real step of
+an attempt, so a run whose remaining work is only decoding keeps a complete trace.
+
+A run is tied to the numerics it started with (``model_trees``: the git tree of every
+path in ``MODEL_PATHS``), not to a commit, so a commit that changes only orchestration
+code can continue it. ``adopt_identity`` moves a run started under a commit-based
+identity onto this one and refuses unless those paths are byte-identical.
 """
 
 from __future__ import annotations
@@ -33,6 +39,28 @@ from typing import Any, Callable
 import torch
 
 RUN_FILE = "run.json"
+TRACE_FILE = "trace.json"
+
+# Everything that determines the generated numbers. The resume and orchestration code is
+# deliberately absent: changing it must not invalidate saved steps.
+MODEL_PATHS = (
+    "rl_engine/backends",
+    "rl_engine/contracts",
+    "rl_engine/ops",
+    "rl_engine/reference",
+    "rl_engine/runtime",
+    "rl_engine/validation/models/h3_block.py",
+    "rl_engine/validation/models/h3_cases.py",
+    "rl_engine/validation/models/h3_full_manifest.json",
+    "rl_engine/validation/models/h3_full_model.py",
+    "rl_engine/validation/models/h3_provider.py",
+    "rl_engine/validation/models/h3_weights.py",
+    "csrc",
+    "build_tools",
+    "examples/models/minimax_h3/generation-contract.json",
+    "examples/models/minimax_h3/generation-inputs.json",
+    "examples/models/minimax_h3/generation-prompt.txt",
+)
 
 
 class ResumeError(ValueError):
@@ -57,6 +85,19 @@ def inputs_digest(args: tuple, kwargs: dict[str, Any]) -> str:
     named = {f"arg{i}": v for i, v in enumerate(args) if isinstance(v, torch.Tensor)}
     named.update({k: v for k, v in kwargs.items() if isinstance(v, torch.Tensor)})
     return tensor_digest(named)
+
+
+def model_trees(revision: str = "HEAD", cwd: Path | None = None) -> dict[str, str]:
+    """The git tree (or blob) id of every model path at ``revision``."""
+
+    import subprocess
+
+    trees = {}
+    for path in MODEL_PATHS:
+        trees[path] = subprocess.check_output(
+            ["git", "rev-parse", f"{revision}:{path}"], text=True, cwd=cwd
+        ).strip()
+    return trees
 
 
 def _file_sha256(path: Path) -> str:
@@ -132,6 +173,17 @@ class StepStore:
             self._sidecar(step), lambda p: p.write_text(json.dumps(sidecar, indent=2) + "\n")
         )
 
+    def save_trace(self, trace: dict[str, Any]) -> None:
+        """Keep the validated execution trace of this seed's real forward passes."""
+
+        _atomic_write(
+            self.directory / TRACE_FILE, lambda p: p.write_text(json.dumps(trace, indent=2) + "\n")
+        )
+
+    def load_trace(self) -> dict[str, Any] | None:
+        path = self.directory / TRACE_FILE
+        return json.loads(path.read_text()) if path.exists() else None
+
     def saved_digest(self, step: int) -> str:
         return json.loads(self._sidecar(step).read_text())["inputs_sha256"]
 
@@ -145,13 +197,22 @@ class StepStore:
 class ResumableRun:
     """Replays saved steps and records new ones for one seed's transformer calls."""
 
-    def __init__(self, store: StepStore, identity: dict[str, Any], *, resume: bool):
+    def __init__(
+        self,
+        store: StepStore,
+        identity: dict[str, Any],
+        *,
+        resume: bool,
+        verify_last_step: bool = False,
+    ):
         self.store = store
         self.saved = store.open(identity, resume=resume)
-        self.replay = max(self.saved - 1, 0)
+        self.verify_last_step = verify_last_step
+        self.replay = self.saved - 1 if verify_last_step and self.saved else self.saved
         self.verified_step: int | None = None
         self._forward_calls = 0
         self.recorded = 0
+        self.real_calls = 0
 
     def install(self, module: torch.nn.Module, make_output: Callable[[tuple, dict], Any]):
         """Serve the first ``replay`` calls of ``module`` from disk; return an uninstaller."""
@@ -188,6 +249,7 @@ class ResumableRun:
         self.recorded += 1
         if index < self.replay:
             return
+        self.real_calls += 1
         digest = inputs_digest(args, kwargs)
         values = tuple(v.detach().cpu() for v in values)
         if index < self.saved:
@@ -206,6 +268,53 @@ class ResumableRun:
         return dict(
             saved_steps_at_start=self.saved,
             replayed_steps=self.replay,
+            verify_last_step=self.verify_last_step,
             recomputed_and_verified_step=self.verified_step,
+            real_forward_calls=self.real_calls,
             attempts=self.store.attempts(),
         )
+
+
+def adopt_identity(
+    directory: Path,
+    new_identity: dict[str, Any],
+    from_commit: str,
+    cwd: Path | None = None,
+    *,
+    dry_run: bool = False,
+) -> None:
+    """Move a run started under a commit-based identity onto a ``model_trees`` identity.
+
+    Refuses unless everything but the commit matches and the model paths at
+    ``from_commit`` are byte-identical to the ones in ``new_identity``; records the
+    adoption in the run's attempt list. ``dry_run`` performs every check and writes nothing.
+    """
+
+    run_file = directory / RUN_FILE
+    stored = json.loads(run_file.read_text())
+    old = stored["identity"]
+    if "model_trees" in old:
+        raise ResumeError("run already has a model-tree identity")
+    if old.get("commit", "").startswith(from_commit) is False:
+        raise ResumeError(f"run was started at {old.get('commit')}, not {from_commit}")
+    rest_old = {k: v for k, v in old.items() if k != "commit"}
+    rest_new = {k: v for k, v in new_identity.items() if k != "model_trees"}
+    if rest_old != rest_new:
+        raise ResumeError("run differs from the new identity in more than the commit")
+    then = model_trees(old["commit"], cwd=cwd)
+    if then != new_identity["model_trees"]:
+        changed = sorted(k for k in then if then[k] != new_identity["model_trees"][k])
+        raise ResumeError(f"model paths changed since {from_commit}: {changed}")
+    if dry_run:
+        return
+    stored["identity"] = new_identity
+    stored["attempts"].append(
+        {
+            "adopted": {
+                "from_commit": old["commit"],
+                "model_paths_identical": True,
+                "when": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            }
+        }
+    )
+    _atomic_write(run_file, lambda p: p.write_text(json.dumps(stored, indent=2) + "\n"))
