@@ -67,7 +67,7 @@ def _file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _atomic_write(path: Path, write: Callable[[Path], None]) -> None:
+def _atomic_write(path: Path, write: Callable[[Path], object]) -> None:
     temporary = path.with_name(path.name + ".tmp")
     write(temporary)
     os.replace(temporary, path)
