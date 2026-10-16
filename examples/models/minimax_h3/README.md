@@ -67,8 +67,8 @@ and requiring a bitwise match (`--verify-last-step`) costs a full step per resta
 on a heavily preempted partition is most of an attempt, so it is opt-in. A run is tied to
 the git trees of the model paths, not to a commit (`h3_generation_adopt.py` moves an older
 commit-based run over, only if those paths are identical). The task refuses
-to start unless the gates of `candidate.sbatch` passed for the same commit
-(`<gate job id>` argument). After all seeds finish, `generation-compare.sbatch`
+to start unless the gates of `candidate.sbatch` passed (`<gate job id>` argument) at a commit whose
+model paths are byte-identical to this checkout's. After all seeds finish, `generation-compare.sbatch`
 runs the quality comparison. Each GPU job uses one B200 and about 512 GB of host
 memory.
 

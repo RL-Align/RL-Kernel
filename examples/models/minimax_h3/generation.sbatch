@@ -21,16 +21,27 @@ extra_dependencies=$8
 cd "$source_dir"
 [[ -z $(git status --porcelain) ]]
 commit=$(git rev-parse HEAD)
-# Only a passing numerical comparison of the same commit permits full generation.
+# Only a passing numerical comparison of the same model code permits full generation: the gates
+# passed at a commit whose model paths (h3_generation_resume.MODEL_PATHS) are byte-identical to
+# this checkout's. The same commit qualifies trivially.
 gate_dir=
 for attempt in "$result_root"/job-"$gate_job"-attempt-*; do
-  if [[ -f $attempt/commit.txt && $(cat "$attempt/commit.txt") == "$commit" ]] &&
-    "$python_bin" -c 'import json, sys; sys.exit(0 if json.load(open(sys.argv[1]))["status"] == "passed" else 1)' \
-      "$attempt/full-model-acceptance.json" 2> /dev/null; then
+  if [[ -f $attempt/commit.txt ]] && "$python_bin" - "$attempt/commit.txt" "$attempt/full-model-acceptance.json" \
+    2> /dev/null <<'PY'
+import json
+import sys
+
+from rl_engine.validation.models.h3_generation_resume import model_trees
+
+gate_commit = open(sys.argv[1]).read().strip()
+assert json.load(open(sys.argv[2]))["status"] == "passed"
+assert model_trees(gate_commit) == model_trees("HEAD")
+PY
+  then
     gate_dir=$attempt
   fi
 done
-[[ -n $gate_dir ]] || { echo "no passing numerical gate for $commit in job $gate_job" >&2; exit 1; }
+[[ -n $gate_dir ]] || { echo "no passing numerical gate for these model paths in job $gate_job" >&2; exit 1; }
 seeds=($("$python_bin" -c 'import json; print(*json.load(open("examples/models/minimax_h3/generation-contract.json"))["seeds"])'))
 seed=${seeds[$SLURM_ARRAY_TASK_ID]}
 export PYTHONPATH="$source_dir:$provider_source/src:$extra_dependencies"
