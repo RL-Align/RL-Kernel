@@ -1,0 +1,364 @@
+{
+  "version": "museglimmer-arch-fingerprint-v1",
+  "workload_id": "museglimmer-30b-dense-text-v1",
+  "model_identity": {
+    "model_id": "meta-models/Muse-Glimmer-30B",
+    "hf_repo": "meta-models/Muse-Glimmer-30B",
+    "revision": "a4e59da52a7bc87ae7251dd5545c0dd437c44b68",
+    "architecture": "MuseGlimmerForConditionalGeneration",
+    "model_type": "muse_glimmer",
+    "density": "dense",
+    "dtype": "bfloat16",
+    "exit_forbids_architecture_shrink": true,
+    "semantics_source": {
+      "package": "transformers",
+      "version": "5.17.0",
+      "git_commit": "856157a2f3e9594954310df18fdccc31ffddebe9",
+      "modeling_file": "src/transformers/models/muse_glimmer/modeling_muse_glimmer.py",
+      "modeling_file_sha256": "e69eb21d6efd815a48499d4d0e4180afda2f443beb441a734d50efc2cf83f975",
+      "checkpoint_transformers_version": "5.15.0.dev0"
+    },
+    "config_sha256": "5a9df2d8a385b3d361ab6ae68d73586f4e775033933bd0cd863fb7f3820e6a14",
+    "config_fingerprint": {
+      "text_config": {
+        "attention_bias": false,
+        "attention_dropout": 0.0,
+        "bos_token_id": 200000,
+        "eos_token_id": 200001,
+        "final_logit_softcapping": 20.0,
+        "head_dim": 128,
+        "hidden_activation": "silu",
+        "hidden_size": 6656,
+        "initializer_range": 0.02,
+        "intermediate_size": 19968,
+        "layer_rope_theta": [
+          500000.0,
+          500000.0,
+          500000.0,
+          0,
+          500000.0,
+          500000.0,
+          500000.0,
+          0,
+          500000.0,
+          500000.0,
+          500000.0,
+          0,
+          500000.0,
+          500000.0,
+          500000.0,
+          0,
+          500000.0,
+          500000.0,
+          500000.0,
+          0,
+          500000.0,
+          500000.0,
+          500000.0,
+          0,
+          500000.0,
+          500000.0,
+          500000.0,
+          0,
+          500000.0,
+          500000.0,
+          500000.0,
+          0,
+          500000.0,
+          500000.0,
+          500000.0,
+          0,
+          500000.0,
+          500000.0,
+          500000.0,
+          0,
+          500000.0,
+          500000.0,
+          500000.0,
+          0,
+          500000.0,
+          500000.0,
+          500000.0,
+          0,
+          500000.0,
+          500000.0,
+          500000.0,
+          0
+        ],
+        "layer_types": [
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "full_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "full_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "full_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "full_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "full_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "full_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "full_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "full_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "full_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "full_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "full_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "full_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "sliding_attention",
+          "full_attention"
+        ],
+        "max_position_embeddings": 131072,
+        "model_type": "muse_glimmer_text",
+        "num_attention_heads": 32,
+        "num_hidden_layers": 52,
+        "num_key_value_heads": 2,
+        "output_multiplier": 0.19611613513818404,
+        "pad_token_id": null,
+        "post_norm_eps": 1e-08,
+        "qk_scale_factor": 3.87,
+        "rms_norm_eps": 1e-05,
+        "rope_parameters": {
+          "rope_theta": 500000.0,
+          "rope_type": "default"
+        },
+        "sliding_window": 2048,
+        "tie_word_embeddings": false,
+        "use_cache": true,
+        "vocab_size": 202048
+      },
+      "multimodal": {
+        "image_token_id": 200092,
+        "video_token_id": 200091,
+        "out_hidden_size": 6144,
+        "projector_hidden_act": "gelu",
+        "projector_hidden_size": 4096
+      },
+      "vision_config_phase_b": {
+        "model_type": "muse_glimmer_vision",
+        "hidden_size": 1536,
+        "intermediate_size": 8960,
+        "num_hidden_layers": 50,
+        "num_attention_heads": 16,
+        "patch_size": 14,
+        "patch_temporal": 2,
+        "merge_size": 2,
+        "hidden_act": "gelu"
+      }
+    },
+    "weight_snapshot": {
+      "pin_method": "hf_revision_plus_index_sha256_plus_all_lfs_shard_sha256",
+      "index_file": "model.safetensors.index.json",
+      "index_sha256": "7d817b4dccb1b123fc6c1939356c65cee3a0ad462a5b821ac88280990a27d1ba",
+      "total_parameters": 29776626688,
+      "tensor_total_size_bytes": 59553253376,
+      "weight_files_total_size_bytes": 59553435272,
+      "text_tensor_count": 627,
+      "text_tensor_dtype": "BF16",
+      "content_hash_algorithm": "sha256-of-sorted-shard-records-v1",
+      "content_hash": "4de1c5615f95740282d2bce99056ea7353f36c66f778ba65fd6c87830e12517e",
+      "shards": [
+        {
+          "filename": "model-00001-of-00002.safetensors",
+          "sha256": "8eef61530e1283642c77ce2e6721feb5c6f348fa055c00e90f2844a136372694",
+          "size_bytes": 49950112952
+        },
+        {
+          "filename": "model-00002-of-00002.safetensors",
+          "sha256": "b58cc2144ba1ba1af4420f67f4ca3ced7f09298510b80464cc75018a0be14381",
+          "size_bytes": 9603322320
+        }
+      ],
+      "source": "HF paths-info LFS oid at the pinned revision; each value is the shard content SHA-256"
+    }
+  },
+  "frozen_semantics": {
+    "embedding": {
+      "form": "weightless_rmsnorm_after_lookup",
+      "lookup_dtype": "bfloat16",
+      "norm_compute_dtype": "float32",
+      "norm_eps_source": "rms_norm_eps",
+      "rsqrt_form": "pow_neg_half",
+      "scale_by_sqrt_hidden": false,
+      "output_dtype": "bfloat16"
+    },
+    "decoder_norm": {
+      "form": "centered_rmsnorm_one_plus_weight",
+      "compute_dtype": "float32",
+      "rsqrt_form": "rsqrt",
+      "weight_applied_before_cast": true,
+      "eps": {
+        "input_layernorm": "rms_norm_eps",
+        "post_attention_layernorm": "post_norm_eps",
+        "pre_feedforward_layernorm": "rms_norm_eps",
+        "post_feedforward_layernorm": "post_norm_eps"
+      }
+    },
+    "final_norm": {
+      "form": "rmsnorm_times_weight",
+      "compute_dtype": "float32",
+      "rsqrt_form": "pow_neg_half",
+      "eps_source": "rms_norm_eps"
+    },
+    "post_norm_eps_governs": [
+      "post_attention_layernorm",
+      "post_feedforward_layernorm"
+    ],
+    "norm_residual_order": [
+      "input_layernorm",
+      "self_attn",
+      "post_attention_layernorm",
+      "residual_add",
+      "pre_feedforward_layernorm",
+      "mlp",
+      "post_feedforward_layernorm",
+      "residual_add"
+    ],
+    "qk_norm": {
+      "form": "weightless_rmsnorm_per_head",
+      "applies_to": [
+        "q",
+        "k"
+      ],
+      "compute_dtype": "float32",
+      "rsqrt_form": "pow_neg_half",
+      "eps_source": "rms_norm_eps",
+      "q_scale": "qk_scale_factor",
+      "q_scale_applied_after_cast": true,
+      "k_scale": null,
+      "order": [
+        "proj",
+        "qk_norm",
+        "q_scale",
+        "rope",
+        "kv_cache_write"
+      ]
+    },
+    "attention": {
+      "softmax_scale": "head_dim**-0.5",
+      "effective_q_scale": "qk_scale_factor * head_dim**-0.5",
+      "gqa_group_size": 16
+    },
+    "rope": {
+      "layers": "sliding_attention",
+      "layer_rope_theta_zero_means": "nope",
+      "type": "default",
+      "rotated_channels": 128,
+      "layout": "rotate_half",
+      "cos_sin_compute_dtype": "float32",
+      "cos_sin_cast_dtype": "bfloat16"
+    },
+    "output_gate": {
+      "form": "sigmoid",
+      "granularity": "elementwise",
+      "width": 4096,
+      "input": "input_layernorm_output",
+      "applied_to": "flattened_attention_output_before_o_proj",
+      "bias": false
+    },
+    "local_window": {
+      "mask": "attend iff 0 <= q_pos - k_pos < sliding_window",
+      "positions": "absolute",
+      "keys_visible_including_self": 2048,
+      "past_tokens_retained": 2047,
+      "eviction": "drop_oldest_beyond_window"
+    },
+    "global_layers": {
+      "mask": "causal",
+      "positional_encoding": "none"
+    },
+    "ffn": {
+      "form": "swiglu",
+      "activation": "silu",
+      "order": "down(silu(gate(x)) * up(x))"
+    },
+    "logits": {
+      "formula": "T * tanh(z * output_multiplier / T)",
+      "T": "final_logit_softcapping",
+      "order": [
+        "lm_head",
+        "mul_output_multiplier",
+        "div_T",
+        "tanh",
+        "mul_T"
+      ],
+      "reference_dtype": "bfloat16"
+    }
+  },
+  "projection_grouping": {
+    "attention": [
+      [
+        "q_proj"
+      ],
+      [
+        "k_proj"
+      ],
+      [
+        "v_proj"
+      ],
+      [
+        "gate_proj"
+      ]
+    ],
+    "mlp": [
+      [
+        "gate_proj"
+      ],
+      [
+        "up_proj"
+      ]
+    ],
+    "fail_closed": [
+      "qkv_proj",
+      "qkvg_proj",
+      "linear_qkv",
+      "gate_up_proj",
+      "linear_fc1"
+    ]
+  },
+  "parallel_layout": {
+    "canonical_tp": 8,
+    "vocab_tile": 128,
+    "vocab_alignment": 1024,
+    "padded_vocab_size": 202752,
+    "padded_logits": "excluded_from_logsumexp",
+    "softcap_before_vocab_partials": true,
+    "row_parallel_shards": {
+      "o_proj": 512,
+      "down_proj": 2496
+    },
+    "kv_heads_per_canonical_rank": "replicated"
+  },
+  "fixture_identity_sha256": "fdd998aafecd88bddc42dc83435c5dfd99e292ecae1c59a3f9d0df3a98c8e86f"
+}
