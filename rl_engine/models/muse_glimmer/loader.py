@@ -60,14 +60,29 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+_MAX_HEADER_BYTES = (
+    100 << 20
+)  # far above any real header; a corrupt length prefix must not allocate
+
+
 def read_safetensors_header(path: str | Path) -> dict[str, Any]:
-    """Read only the JSON header of a safetensors file."""
+    """Read only the JSON header of a safetensors file (fails closed on a damaged header)."""
     with Path(path).open("rb") as fh:
         prefix = fh.read(8)
         if len(prefix) != 8:
             raise MuseGlimmerWorkloadError(f"{path}: not a safetensors file")
         (length,) = struct.unpack("<Q", prefix)
-        header = json.loads(fh.read(length))
+        if length > _MAX_HEADER_BYTES:
+            raise MuseGlimmerWorkloadError(f"{path}: safetensors header length {length} is invalid")
+        blob = fh.read(length)
+    if len(blob) != length:
+        raise MuseGlimmerWorkloadError(f"{path}: truncated safetensors header")
+    try:
+        header = json.loads(blob)
+    except ValueError as exc:
+        raise MuseGlimmerWorkloadError(f"{path}: invalid safetensors header") from exc
+    if not isinstance(header, dict):
+        raise MuseGlimmerWorkloadError(f"{path}: safetensors header must be a JSON object")
     header.pop("__metadata__", None)
     return header
 

@@ -17,6 +17,7 @@ import pytest
 from rl_engine.models.muse_glimmer import workload as w
 from rl_engine.models.muse_glimmer.loader import (
     check_runtime_binding,
+    read_safetensors_header,
     verify_checkpoint,
     verify_config,
     verify_weight_map,
@@ -195,13 +196,34 @@ def test_loader_requires_pinned_bytes(fake_checkpoint):
 
 
 def test_loader_rejects_wrong_tensor_shape(fake_checkpoint):
-    m = w.load_manifest()
-    shard = fake_checkpoint / m.model_identity["weight_snapshot"]["shards"][0]["filename"]
-    _write_header_only_shard(
-        shard, {"model.language_model.layers.0.self_attn.k_proj.weight": (1024, 6656)}
-    )
-    with pytest.raises(w.MuseGlimmerWorkloadError):
+    # Keep every other tensor of the shard so verify_checkpoint reaches the shape check.
+    target = "model.language_model.layers.0.self_attn.k_proj.weight"
+    index = json.loads((fake_checkpoint / "model.safetensors.index.json").read_text())
+    shard_name = index["weight_map"][target]
+    schema = w.text_weight_schema()
+    tensors = {
+        n: schema[n] for n, f in index["weight_map"].items() if f == shard_name and n in schema
+    }
+    tensors[target] = (1024, 6656)
+    _write_header_only_shard(fake_checkpoint / shard_name, tensors)
+    with pytest.raises(w.MuseGlimmerWorkloadError, match="!= pinned"):
         verify_checkpoint(fake_checkpoint, require_pinned_bytes=False)
+
+
+@pytest.mark.parametrize(
+    "payload, match",
+    [
+        (struct.pack("<Q", 1 << 40), "header length"),
+        (struct.pack("<Q", 64) + b"{}", "truncated"),
+        (struct.pack("<Q", 3) + b"{x}", "invalid safetensors header"),
+        (struct.pack("<Q", 2) + b"[]", "JSON object"),
+    ],
+)
+def test_read_safetensors_header_fails_closed(tmp_path, payload, match):
+    path = tmp_path / "bad.safetensors"
+    path.write_bytes(payload)
+    with pytest.raises(w.MuseGlimmerWorkloadError, match=match):
+        read_safetensors_header(path)
 
 
 def test_loader_rejects_config_drift():
