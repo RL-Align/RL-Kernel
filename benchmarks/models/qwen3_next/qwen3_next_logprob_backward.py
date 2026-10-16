@@ -16,6 +16,9 @@
 Seeded hidden states, targets and output gradient on the real 151936-row LM head,
 whole on one GPU (TP1) or split over four ranks (TP4). Candidates:
 
+The logits of the logits-based candidates come from RL-Kernel's batch-invariant GEMM;
+verl fuses its own GEMM into the kernel and is measured as it is.
+
 * ``verl_fused`` -- verl's ``linear_cross_entropy``: its backward accumulates
   ``d_hidden`` and ``d_weight`` with ``tl.atomic_add`` over vocabulary blocks.
 * ``miles_fused`` -- Miles' ``fused_log_probs_and_entropy``: store-only Triton
@@ -78,6 +81,8 @@ def make_runners(head, miles, verl, tp, group):
 
     ``head`` is this rank's shard of the LM head (the whole head at TP1).
     """
+    from rl_engine.models.qwen3_next.qwen3_next_forward import shared_linear
+
     runners = {}
     tp_group = group if tp > 1 else None
 
@@ -92,7 +97,10 @@ def make_runners(head, miles, verl, tp, group):
 
     def logits_runner(factory):
         def run(hidden, targets, dlp):
-            logits = (hidden @ head.t()).detach().requires_grad_(True)
+            # A plain matmul picks a different cuBLAS algorithm per row count, which
+            # would make a probe row's logits depend on the batch; the batch-invariant
+            # GEMM keeps the comparison about the logprob kernels.
+            logits = shared_linear(hidden, head).detach().requires_grad_(True)
             logprob = factory(logits, targets)
             logprob.backward(dlp)
             return {"d_logits": logits.grad}
