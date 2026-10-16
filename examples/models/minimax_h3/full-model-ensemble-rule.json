@@ -20,31 +20,31 @@
   ],
   "sources": {
     "blas-cublaslt": {
-      "sha256": "b3d491943e882c16ff4a23c0c0b86bc071c7df9fadd212d035e468af354cda7a",
-      "reference": "4fd74feb00ad4182a76d8c338f6595afe58c190bf2dad46e06c5e897d6dc708f"
+      "sha256": "8aa7346ef2a6f9774513ecbafedb2974bad9ad62599490334a3d250024fce379",
+      "reference": "c82f94617e01fd97920cd890bca0225d476a92543afdd5634e08f40b337b1b8d"
     },
     "default": {
-      "sha256": "4e6e22f3e1d6d18c965b83855d8a816359c0d148b1d7d540ccdf40f38eb4d7da",
-      "reference": "4fd74feb00ad4182a76d8c338f6595afe58c190bf2dad46e06c5e897d6dc708f"
+      "sha256": "0e66bc8f799ddcf4a61acbf265fb3ef024131d2cbfd0c8ef6946d5441eeba4e1",
+      "reference": "c82f94617e01fd97920cd890bca0225d476a92543afdd5634e08f40b337b1b8d"
     },
     "reference-run": {
-      "sha256": "f0aef51b5ad91464ec46463bda89a0868c28c79d401d3e22149e61fa50734e02",
-      "reference": "4fd74feb00ad4182a76d8c338f6595afe58c190bf2dad46e06c5e897d6dc708f"
+      "sha256": "19f2e39b8280755ddf7f4a553f147f0216b756d50ba690e84a9ca09684ab21fe",
+      "reference": "c82f94617e01fd97920cd890bca0225d476a92543afdd5634e08f40b337b1b8d"
     },
     "sdpa-cudnn": {
-      "sha256": "dfbdcb1190e8859d7e89193ff51de7eccac91e253a6014ed34dfdc068be42e3f",
-      "reference": "4fd74feb00ad4182a76d8c338f6595afe58c190bf2dad46e06c5e897d6dc708f"
+      "sha256": "adc1509415f6f21aee49ec9d1b3899de62671e087f859f23ffed9db318afdda9",
+      "reference": "c82f94617e01fd97920cd890bca0225d476a92543afdd5634e08f40b337b1b8d"
     },
     "sdpa-efficient": {
-      "sha256": "44e6e85ab4209e5bc588241f88fd62b7f74343f3d4f4aa209e8dda6c78a268f6",
-      "reference": "4fd74feb00ad4182a76d8c338f6595afe58c190bf2dad46e06c5e897d6dc708f"
+      "sha256": "f16950d3ef7913bce1a2461f777c76f57ff82a52dd3023e1a40ae15c73c98280",
+      "reference": "c82f94617e01fd97920cd890bca0225d476a92543afdd5634e08f40b337b1b8d"
     },
     "sdpa-flash": {
-      "sha256": "031a23bb8008bcae64f5e2231736e6b1459ba1a0f52b3c4d6adad4c70cccff79",
-      "reference": "4fd74feb00ad4182a76d8c338f6595afe58c190bf2dad46e06c5e897d6dc708f"
+      "sha256": "42a975d807dfe6ecec7ce81e8e4b5caadb04c9bf9f74e0aa397c76e11070531a",
+      "reference": "c82f94617e01fd97920cd890bca0225d476a92543afdd5634e08f40b337b1b8d"
     }
   },
-  "reference_report_sha256": "4fd74feb00ad4182a76d8c338f6595afe58c190bf2dad46e06c5e897d6dc708f",
+  "reference_report_sha256": "c82f94617e01fd97920cd890bca0225d476a92543afdd5634e08f40b337b1b8d",
   "ensemble_relative_l2": {
     "audio": 0.02110560096918055,
     "input_gradients.audio_hidden_states": 0.20277222521992394,

@@ -49,6 +49,21 @@ exceed the others' maximum by up to 4.1× on it. A full-model node-swap diagnost
 tensors: swapping any group moves which tensors land high rather than removing them.
 The single-configuration file is kept and still compared, as a record.
 
+**Regenerated reference (2026-10-16).** The artifacts of the first reference run (about 200 GB)
+were deleted to save disk space, so the reference was regenerated with the original commands at
+the same source commit (`2681cadb`). 1,614 of the 1,635 pinned files are byte-identical to the
+first run's: every parameter gradient, both `tensors.pt` and `gradients.json`, every initial
+input, every per-step velocity file and the `video.npy` / `audio.npy` that the comparison
+reads. The 21 that differ are the eight `report.json` files (timings, job metadata), the
+thresholds file that embeds their hashes, and the twelve `video.mp4` / `audio.wav` containers,
+which also differ between two runs of one job (the two WAVs differ in two header bytes).
+The calibrated bounds are identical to the first run's, and the ensemble rule re-derived from
+the regenerated reference (six provider runs compared with it) is identical in every numeric
+field. `reference-manifest.json`, `full-model-thresholds.json` and `full-model-ensemble-rule.json`
+are re-pinned to the regenerated run; the first run's SHA-256 were: manifest `1640d5c7fccb`,
+thresholds `3064c7eb8924`, rule `2e2a4ac58471` and `fp32-reference/report.json` `4fd74feb00ad`
+(first 12 hex digits).
+
 `candidate.sbatch` builds its own H3 CUDA extension, records its identity, verifies
 all reference/checkpoint hashes, and runs block-0 golden tests without skips before
 full-model forward/backward. It requires calls to every candidate graph node in

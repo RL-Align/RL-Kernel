@@ -1,6 +1,6 @@
 {
-  "reference_report_sha256": "4fd74feb00ad4182a76d8c338f6595afe58c190bf2dad46e06c5e897d6dc708f",
-  "other_report_sha256": "61fdba29cb8b311287637f360c2edd95d54bc78df98cc254e2c277bce497e66a",
+  "reference_report_sha256": "c82f94617e01fd97920cd890bca0225d476a92543afdd5634e08f40b337b1b8d",
+  "other_report_sha256": "d49a80d6e438eb1f7d91193ad3f3ef5b5b3692b2c86a7532b86f23359ad33d79",
   "status": "frozen_reference_bounds",
   "rule": "1.5 * independent BF16 provider error + fixed floor",
   "bounds": {
