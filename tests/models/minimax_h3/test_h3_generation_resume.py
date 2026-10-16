@@ -10,6 +10,7 @@ does), so any wrong replay would change every later step.
 
 from __future__ import annotations
 
+import inspect
 import types
 
 import pytest
@@ -197,3 +198,37 @@ def test_inputs_digest_tracks_value_dtype_and_shape_and_ignores_non_tensors():
     assert base != inputs_digest((), {"b": x})
     assert inputs_digest((x,), {}) != inputs_digest((), {"a": x})
     assert inputs_digest((), {"s": torch.tensor(3.0)})  # zero-dim tensors hash
+
+
+def test_replay_wrapper_keeps_the_forward_signature(tmp_path):
+    """The pipeline selects the transformer's layout inputs from inspect.signature(forward)."""
+
+    module = FakeTransformer()
+    before = list(inspect.signature(module.forward).parameters)
+    (tmp_path / "a").mkdir()
+    run = ResumableRun(StepStore(tmp_path / "a" / "x"), IDENTITY, resume=False)
+    uninstall = run.install(module, _output)
+    assert list(inspect.signature(module.forward).parameters) == before
+    assert before == ["hidden_states", "audio_hidden_states", "return_dict"]
+    uninstall()
+    assert list(inspect.signature(module.forward).parameters) == before
+
+
+def test_replay_wrapper_keeps_a_wrapped_forward_signature(tmp_path):
+    """Same through an accelerate-style partial that itself carries __wrapped__."""
+
+    import functools
+
+    module = FakeTransformer()
+    plain = module.forward
+
+    def new_forward(m, *args, **kwargs):
+        return plain(*args, **kwargs)
+
+    hooked = functools.update_wrapper(functools.partial(new_forward, module), plain)
+    module.forward = hooked
+    before = list(inspect.signature(module.forward).parameters)
+    assert before == ["hidden_states", "audio_hidden_states", "return_dict"]
+    run = ResumableRun(StepStore(tmp_path / "b"), IDENTITY, resume=False)
+    run.install(module, _output)
+    assert list(inspect.signature(module.forward).parameters) == before

@@ -23,6 +23,7 @@ pass, so the execution trace stays complete.
 from __future__ import annotations
 
 import datetime
+import functools
 import hashlib
 import json
 import os
@@ -157,6 +158,9 @@ class ResumableRun:
 
         original = module.forward
 
+        # The pipeline picks the transformer's layout inputs from inspect.signature(forward),
+        # so the wrapper must keep the original signature (functools.wraps sets __wrapped__).
+        @functools.wraps(original)
         def forward(*args, **kwargs):
             index = self._forward_calls
             self._forward_calls += 1
