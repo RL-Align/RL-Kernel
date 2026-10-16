@@ -200,6 +200,14 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     CUDA_SM90_LM_HEAD = "rl_engine.kernels.ops.cuda.linear.lm_head.SM90LMHeadOp"
     CUDA_SM90_EMBEDDING = "rl_engine.kernels.ops.cuda.linear.embedding.SM90EmbeddingOp"
 
+    # Qwen-Image joint attention QK GEMM (issue #386)
+    CUDA_JOINT_ATTN_QK_GEMM = (
+        "rl_engine.backends.cuda.attention.joint_attn_qk_gemm.JointAttnQkGemmCudaOp"
+    )
+    PYTORCH_JOINT_ATTN_QK_GEMM = (
+        "rl_engine.reference.attention.joint_attn_qk_gemm.NativeJointAttnQkGemmOp"
+    )
+
 
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
     return (
@@ -570,6 +578,10 @@ class KernelRegistry:
                     OpBackend.CUDA_DETERMINISTIC_ATTENTION,
                     OpBackend.PYTORCH_NATIVE_ATTENTION,
                 ],
+                "joint_attn_qk_gemm": [
+                    OpBackend.CUDA_JOINT_ATTN_QK_GEMM,
+                    OpBackend.PYTORCH_JOINT_ATTN_QK_GEMM,
+                ],
                 "cp_attention": [OpBackend.PYTORCH_CP_ATTENTION],
                 "ws2_attention": [
                     OpBackend.PYTORCH_CP_ATTENTION,
@@ -624,6 +636,7 @@ class KernelRegistry:
                     OpBackend.TRITON_GENERIC,
                 ],
                 "attention": [OpBackend.PYTORCH_NATIVE_ATTENTION],
+                "joint_attn_qk_gemm": [OpBackend.PYTORCH_JOINT_ATTN_QK_GEMM],
                 "cp_attention": [OpBackend.PYTORCH_CP_ATTENTION],
                 "ws2_attention": [
                     OpBackend.PYTORCH_CP_ATTENTION,
@@ -663,6 +676,7 @@ class KernelRegistry:
                 "logp_deterministic_indexed": [OpBackend.PYTORCH_NATIVE],
                 "attn": [OpBackend.PYTORCH_ATTN],
                 "attention": [OpBackend.PYTORCH_NATIVE_ATTENTION],
+                "joint_attn_qk_gemm": [OpBackend.PYTORCH_JOINT_ATTN_QK_GEMM],
                 "cp_attention": [OpBackend.PYTORCH_CP_ATTENTION],
                 "ws2_attention": [
                     OpBackend.PYTORCH_CP_ATTENTION,
@@ -704,6 +718,7 @@ class KernelRegistry:
                 "logp_deterministic_indexed": [OpBackend.PYTORCH_NATIVE],
                 "attn": [OpBackend.PYTORCH_ATTN],
                 "attention": [OpBackend.PYTORCH_NATIVE_ATTENTION],
+                "joint_attn_qk_gemm": [OpBackend.PYTORCH_JOINT_ATTN_QK_GEMM],
                 "cp_attention": [OpBackend.PYTORCH_CP_ATTENTION],
                 "ws2_attention": [
                     OpBackend.PYTORCH_CP_ATTENTION,

@@ -437,6 +437,28 @@ std::vector<torch::Tensor> deterministic_attention_backward(
     double scale,
     torch::optional<torch::Tensor> key_padding_mask);
 
+// Qwen-Image joint attention QK GEMM (issue #386, contract
+// joint-attn-qk-gemm-tree-v1). Forward closes the head-dim tree in-kernel; the
+// backward emits one 32-wide sequence-leaf partial per call and the host merges
+// them with the reference's own mid-split tree.
+torch::Tensor joint_attn_qk_gemm_forward_cuda(
+    torch::Tensor q,
+    torch::Tensor k,
+    double scale,
+    bool fp32_out);
+
+torch::Tensor joint_attn_qk_gemm_dq_leaf_cuda(
+    torch::Tensor grad_scores_fp32,
+    torch::Tensor k,
+    int64_t j0,
+    int64_t j1);
+
+torch::Tensor joint_attn_qk_gemm_dk_leaf_cuda(
+    torch::Tensor grad_scores_fp32,
+    torch::Tensor q,
+    int64_t i0,
+    int64_t i1);
+
 #if defined(KERNEL_ALIGN_WITH_ROCM)
 torch::Tensor deterministic_rope_apply_rocm(
     torch::Tensor x,
@@ -747,6 +769,18 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "deterministic_attention_backward",
         &deterministic_attention_backward,
         "Deterministic standard softmax attention backward (dQ, dK, dV)");
+
+    // Qwen-Image joint attention QK GEMM (issue #386)
+    m.def("joint_attn_qk_gemm_forward", &joint_attn_qk_gemm_forward_cuda,
+          "Qwen-Image joint QK GEMM forward: scores = single_cast((Q K^T) * scale) under a "
+          "fixed 32-wide-leaf mid-split head-dim tree with explicit fma_rn",
+          py::arg("q"), py::arg("k"), py::arg("scale"), py::arg("fp32_out") = false);
+    m.def("joint_attn_qk_gemm_dq_leaf", &joint_attn_qk_gemm_dq_leaf_cuda,
+          "One fp32 dQ leaf partial of the joint QK GEMM backward over keys [j0, j1)",
+          py::arg("grad_scores_fp32"), py::arg("k"), py::arg("j0"), py::arg("j1"));
+    m.def("joint_attn_qk_gemm_dk_leaf", &joint_attn_qk_gemm_dk_leaf_cuda,
+          "One fp32 dK leaf partial of the joint QK GEMM backward over queries [i0, i1)",
+          py::arg("grad_scores_fp32"), py::arg("q"), py::arg("i0"), py::arg("i1"));
 #if defined(KERNEL_ALIGN_WITH_ROCM)
     m.def(
         "deterministic_rope_apply_rocm",

@@ -113,6 +113,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--normalized-dim", type=int, default=4096)
     parser.add_argument("--n-heads", type=int, default=32)
     parser.add_argument("--head-dim", type=int, default=128)
+    parser.add_argument(
+        "--skv",
+        type=int,
+        default=None,
+        help="Key/value sequence length for attention operators (default: --seq).",
+    )
+    parser.add_argument(
+        "--use-padding",
+        type=int,
+        default=0,
+        help="1 generates explicit padding masks for attention operators.",
+    )
     parser.add_argument("--k-dim", type=int, default=4096)
     parser.add_argument("--n-dim", type=int, default=4096)
     parser.add_argument("--theta", type=float, default=1.0e6)

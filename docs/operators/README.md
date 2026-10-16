@@ -20,6 +20,7 @@ Every operator page should include:
 
 - [SiLU / SwiGLU Activation](activation.md)
 - [Standard Attention](attention.md)
+- [Joint Attention QK GEMM](joint-attn-qk-gemm.md)
 - [Fused LogP](fused-logp.md)
 - [Fused Linear LogP](linear-logp.md)
 - [Batch-Invariant LogP](batch-invariant-logp.md)
