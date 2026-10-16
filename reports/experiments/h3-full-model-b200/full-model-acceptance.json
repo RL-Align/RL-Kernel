@@ -1,0 +1,100 @@
+{
+  "status": "passed",
+  "rule_sha256": "2e2a4ac584718cb31338d41e95b535ab34f723efd87521a5e66495a8fbd1749e",
+  "candidate_comparison_sha256": "cbcb7e78627e5a63b3325d5f85206a6d7658eb46922da871ba70b3acc44674fd",
+  "failures": [],
+  "worst_relative_l2_over_bound": [
+    [
+      "parameter.transformer_blocks.39.adaln_proj.linear.weight",
+      0.5487821780437574
+    ],
+    [
+      "parameter.norm_out.norm.weight",
+      0.5450175358736745
+    ],
+    [
+      "parameter.transformer_blocks.42.adaln_proj.linear.weight",
+      0.5180880640708866
+    ],
+    [
+      "parameter.transformer_blocks.41.adaln_proj.linear.weight",
+      0.5127050191273556
+    ],
+    [
+      "parameter.transformer_blocks.45.ff.net.2.weight",
+      0.4933715394911747
+    ],
+    [
+      "parameter.transformer_blocks.45.adaln_proj.linear.weight",
+      0.48802401544431834
+    ],
+    [
+      "parameter.transformer_blocks.41.ff.net.2.weight",
+      0.4841063007832746
+    ],
+    [
+      "parameter.transformer_blocks.49.norm2.weight",
+      0.4813864085668443
+    ],
+    [
+      "parameter.transformer_blocks.40.norm2.weight",
+      0.47831606154983614
+    ],
+    [
+      "parameter.transformer_blocks.42.ff.net.0.proj.weight",
+      0.4773538331279979
+    ]
+  ],
+  "outputs": {
+    "video": {
+      "max_abs": 0.7410469055175781,
+      "relative_l2": 0.0063059293696816985
+    },
+    "audio": {
+      "max_abs": 25.2242431640625,
+      "relative_l2": 0.02175612170875792
+    }
+  },
+  "max_abs_over_ensemble_max_reported": [
+    [
+      "parameter.transformer_blocks.2.norm2.weight",
+      2.714732518483483
+    ],
+    [
+      "parameter.transformer_blocks.27.ff.net.2.weight",
+      2.2861177963505885
+    ],
+    [
+      "parameter.transformer_blocks.17.ff.net.2.weight",
+      1.9374614667929932
+    ],
+    [
+      "parameter.transformer_blocks.48.ff.net.2.weight",
+      1.8645146336621374
+    ],
+    [
+      "parameter.transformer_blocks.35.ff.net.2.weight",
+      1.82012342988197
+    ],
+    [
+      "parameter.transformer_blocks.27.adaln_proj.linear.weight",
+      1.7566176813181544
+    ],
+    [
+      "parameter.transformer_blocks.42.adaln_proj.linear.bias",
+      1.7297009895318352
+    ],
+    [
+      "parameter.transformer_blocks.41.adaln_proj.linear.weight",
+      1.682962875062732
+    ],
+    [
+      "parameter.transformer_blocks.33.ff.net.2.weight",
+      1.674399014930602
+    ],
+    [
+      "parameter.transformer_blocks.46.ff.net.0.proj.weight",
+      1.6684025629260246
+    ]
+  ]
+}
