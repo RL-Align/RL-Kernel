@@ -433,3 +433,21 @@ def qwenimage_det_linear_backward_bias(grad: torch.Tensor, dtype: torch.dtype) -
 def latent_pack_unpack(
     x: torch.Tensor, B: int, C: int, H: int, W: int, unpack: bool
 ) -> torch.Tensor: ...
+def joint_attn_qk_gemm_forward(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    scale: float,
+    fp32_out: bool = False,
+) -> torch.Tensor: ...
+def joint_attn_qk_gemm_dq_leaf(
+    grad_scores_fp32: torch.Tensor,
+    k: torch.Tensor,
+    j0: int,
+    j1: int,
+) -> torch.Tensor: ...
+def joint_attn_qk_gemm_dk_leaf(
+    grad_scores_fp32: torch.Tensor,
+    q: torch.Tensor,
+    i0: int,
+    i1: int,
+) -> torch.Tensor: ...

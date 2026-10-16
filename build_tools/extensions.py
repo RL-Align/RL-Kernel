@@ -313,6 +313,7 @@ def get_extensions():
             "csrc/cuda/norm/rmsnorm.cu",
             "csrc/cuda/activation/activation.cu",
             "csrc/cuda/attention/deterministic_attention.cu",
+            "csrc/cuda/attention/joint_attn_qk_gemm.cu",
         ]
         adaln_cuda_enabled = not is_rocm and not envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH)
         joint_attn_softmax_enabled = False
