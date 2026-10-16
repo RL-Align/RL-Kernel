@@ -32,4 +32,5 @@ Every operator page should include:
 - [Matmul](matmul.md)
 - [Sampling](sampling.md)
 - [Token Embedding](embedding.md)
+- [Nemotron-H Embedding + LM-Head Logprob](nemotron-h-lm-head-logprob.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)
