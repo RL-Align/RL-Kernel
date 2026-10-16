@@ -12,6 +12,7 @@ DEFAULT_HIDDEN = 4096
 DEFAULT_N_HEADS = 32
 DEFAULT_N_KV_HEADS = 8
 DEFAULT_HEAD_DIM = 128
+QWENIMAGE_N_HEADS = 24  # Qwen-Image MMDiT: 24 heads x 128 (issue #386)
 DEFAULT_INTERMEDIATE = 12288
 DEFAULT_VOCAB = 151936
 DEFAULT_ROPE_THETA = 1.0e6
@@ -31,6 +32,7 @@ def make_operator_inputs(
         "matmul": _make_matmul_inputs,
         "det_gemm": _make_det_gemm_inputs,
         "attention": _make_attention_inputs,
+        "joint_attn_qk_gemm": _make_joint_attn_qk_gemm_inputs,
         "prefix_shared_attention": _make_prefix_shared_attention_inputs,
         "cp_attention": _make_cp_attention_inputs,
         "logp": _make_logp_inputs,
@@ -60,6 +62,8 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "matmul": f"{batch}x{seq}x{_matmul_k(args)}x{_matmul_n(args)}",
         "det_gemm": f"{batch}x{seq}x{_matmul_k(args)}x{_matmul_n(args)}",
         "attention": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}",
+        "joint_attn_qk_gemm": f"{batch}x{_arg_int(args, 'n_heads', QWENIMAGE_N_HEADS)}"
+        f"x{seq}x{_arg_int(args, 'skv', seq)}x{DEFAULT_HEAD_DIM}",
         "prefix_shared_attention": f"{batch}x{_arg_int(args, 'n_heads', DEFAULT_N_HEADS)}"
         f"x{seq}x{DEFAULT_HEAD_DIM}",
         "cp_attention": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}xcp2",
@@ -145,6 +149,35 @@ def _make_det_gemm_inputs(
         "a": _floating_tensor((m_dim, k_dim), args, dtype, device, offset=0),
         "b": _floating_tensor((k_dim, n_dim), args, dtype, device, offset=1),
     }
+
+
+def _make_joint_attn_qk_gemm_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    """Qwen-Image joint QK GEMM inputs: one head set per stream, no GQA, non-causal.
+
+    ``--seq`` is the joint ``[text, image]`` query length and ``--skv`` the key
+    length (equal by default, since joint attention is self-attention over the
+    concatenated streams). ``--use-padding 1`` adds the explicit masks that make
+    the backward sequence reductions padding-invariant.
+    """
+    batch, seq = _batch_seq(args)
+    skv = _arg_int(args, "skv", seq)
+    n_heads = _arg_int(args, "n_heads", QWENIMAGE_N_HEADS)
+    head_dim = _arg_int(args, "head_dim", DEFAULT_HEAD_DIM)
+    inputs: dict[str, Any] = {
+        "q": _floating_tensor((batch, n_heads, seq, head_dim), args, dtype, device, 0),
+        "k": _floating_tensor((batch, n_heads, skv, head_dim), args, dtype, device, 1),
+    }
+    if bool(_arg_int(args, "use_padding", 0)):
+        generator = _generator(args, device, offset=42)
+        key_padding_mask = torch.rand((batch, skv), generator=generator, device=device) > 0.3
+        key_padding_mask[:, 0] = True
+        query_padding_mask = torch.rand((batch, seq), generator=generator, device=device) > 0.3
+        query_padding_mask[:, 0] = True
+        inputs["query_padding_mask"] = query_padding_mask
+        inputs["key_padding_mask"] = key_padding_mask
+    return inputs
 
 
 def _make_attention_inputs(
@@ -390,7 +423,9 @@ def _arg_float(args: argparse.Namespace, name: str, default: float) -> float:
 
 
 def _arg_int(args: argparse.Namespace, name: str, default: int) -> int:
-    return int(getattr(args, name, default))
+    """CLI integer with a fallback; an argument present but unset (None) counts as missing."""
+    value = getattr(args, name, default)
+    return int(default if value is None else value)
 
 
 def _arg_str(args: argparse.Namespace, name: str, default: str) -> str:

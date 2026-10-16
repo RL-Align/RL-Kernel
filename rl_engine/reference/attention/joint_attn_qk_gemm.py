@@ -153,6 +153,8 @@ class JointAttnQkGemmPlan:
     causal: bool = False
     batch_invariant: bool = True
     padding_invariant_backward: str = "requires_explicit_masks"
+    fallback: bool = False
+    fallback_reason: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.accumulation_dtype != "torch.float32":
@@ -248,50 +250,60 @@ def qk_scores_tree_fp32(q_f: torch.Tensor, k_f: torch.Tensor) -> torch.Tensor:
 # --------------------------------------------------------------------------- #
 # Backward: reductions over the sequence dimensions
 # --------------------------------------------------------------------------- #
-def _dq_leaf_fp32(g_f: torch.Tensor, k_f: torch.Tensor, leaf_index: int) -> torch.Tensor:
-    """One ``Sk``-leaf of ``dQ = dS @ K``: ascending-``j`` FMA chain.
+# A "leaf evaluator" computes one 32-wide leaf partial in fp32. The host tree
+# and the padding compaction below are shared by every backend: a device backend
+# supplies only its own leaf evaluator, so the merge order is identical by
+# construction instead of being reimplemented per backend.
+LeafEvaluator = Callable[[torch.Tensor, torch.Tensor, int, int], torch.Tensor]
+
+
+def _dq_leaf_range_fp32(g_f: torch.Tensor, k_f: torch.Tensor, lo: int, hi: int) -> torch.Tensor:
+    """One ``Sk``-leaf of ``dQ = dS @ K`` over keys ``[lo, hi)``: ascending-``j`` FMA chain.
 
     ``g_f`` is ``[..., Sq, Sk]`` and ``k_f`` is ``[..., Sk, D]``, both fp32;
     returns ``[..., Sq, D]``.
     """
-    key_len = k_f.size(-2)
-    j0 = leaf_index * LEAF_WIDTH
-    j1 = min(j0 + LEAF_WIDTH, key_len)
     acc = torch.zeros((*g_f.shape[:-1], k_f.size(-1)), device=g_f.device, dtype=torch.float32)
-    for j in range(j0, j1):
+    for j in range(lo, hi):
         acc = torch.addcmul(acc, g_f[..., j].unsqueeze(-1), k_f[..., j, :].unsqueeze(-2))
     return acc
 
 
-def _dk_leaf_fp32(g_f: torch.Tensor, q_f: torch.Tensor, leaf_index: int) -> torch.Tensor:
-    """One ``Sq``-leaf of ``dK = dSᵀ @ Q``: ascending-``i`` FMA chain.
+def _dk_leaf_range_fp32(g_f: torch.Tensor, q_f: torch.Tensor, lo: int, hi: int) -> torch.Tensor:
+    """One ``Sq``-leaf of ``dK = dSᵀ @ Q`` over queries ``[lo, hi)``: ascending-``i`` FMA chain.
 
     ``g_f`` is ``[..., Sq, Sk]`` and ``q_f`` is ``[..., Sq, D]``, both fp32;
     returns ``[..., Sk, D]``.
     """
-    query_len = q_f.size(-2)
-    i0 = leaf_index * LEAF_WIDTH
-    i1 = min(i0 + LEAF_WIDTH, query_len)
     acc = torch.zeros(
         (*g_f.shape[:-2], g_f.size(-1), q_f.size(-1)), device=g_f.device, dtype=torch.float32
     )
-    for i in range(i0, i1):
+    for i in range(lo, hi):
         acc = torch.addcmul(acc, g_f[..., i, :].unsqueeze(-1), q_f[..., i, :].unsqueeze(-2))
     return acc
 
 
-def dq_tree_fp32(g_f: torch.Tensor, k_f: torch.Tensor) -> torch.Tensor:
+def dq_tree_fp32(
+    g_f: torch.Tensor, k_f: torch.Tensor, leaf_fn: Optional[LeafEvaluator] = None
+) -> torch.Tensor:
     """``dS @ K`` in fp32 under the frozen mid-split tree over ``Sk``."""
+    evaluate = leaf_fn if leaf_fn is not None else _dq_leaf_range_fp32
     key_len = k_f.size(-2)
     if key_len == 0:
         return torch.zeros((*g_f.shape[:-1], k_f.size(-1)), device=g_f.device, dtype=torch.float32)
     return tree_from_leaf_evaluator(
-        lambda index: _dq_leaf_fp32(g_f, k_f, index), num_leaves(key_len)
+        lambda index: evaluate(
+            g_f, k_f, index * LEAF_WIDTH, min((index + 1) * LEAF_WIDTH, key_len)
+        ),
+        num_leaves(key_len),
     )
 
 
-def dk_tree_fp32(g_f: torch.Tensor, q_f: torch.Tensor) -> torch.Tensor:
+def dk_tree_fp32(
+    g_f: torch.Tensor, q_f: torch.Tensor, leaf_fn: Optional[LeafEvaluator] = None
+) -> torch.Tensor:
     """``dSᵀ @ Q`` in fp32 under the frozen mid-split tree over ``Sq``."""
+    evaluate = leaf_fn if leaf_fn is not None else _dk_leaf_range_fp32
     query_len = q_f.size(-2)
     if query_len == 0:
         return torch.zeros(
@@ -300,7 +312,10 @@ def dk_tree_fp32(g_f: torch.Tensor, q_f: torch.Tensor) -> torch.Tensor:
             dtype=torch.float32,
         )
     return tree_from_leaf_evaluator(
-        lambda index: _dk_leaf_fp32(g_f, q_f, index), num_leaves(query_len)
+        lambda index: evaluate(
+            g_f, q_f, index * LEAF_WIDTH, min((index + 1) * LEAF_WIDTH, query_len)
+        ),
+        num_leaves(query_len),
     )
 
 
@@ -309,7 +324,7 @@ def _valid_indices(mask_row: torch.Tensor) -> torch.Tensor:
     return torch.nonzero(mask_row, as_tuple=False).flatten()
 
 
-def joint_attn_qk_gemm_reference_backward(
+def joint_attn_qk_gemm_backward_with_leaves(
     q: torch.Tensor,
     k: torch.Tensor,
     grad_scores: torch.Tensor,
@@ -317,18 +332,20 @@ def joint_attn_qk_gemm_reference_backward(
     scale: Optional[float] = None,
     query_padding_mask: Optional[torch.Tensor] = None,
     key_padding_mask: Optional[torch.Tensor] = None,
+    dq_leaf_fn: Optional[LeafEvaluator] = None,
+    dk_leaf_fn: Optional[LeafEvaluator] = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Reference ``dQ`` and ``dK`` for ``scores = (Q Kᵀ) * scale``.
+    """Shared host backward: padding compaction, mid-split tree, scale and cast.
 
     ``dQ = (dS @ K) * scale`` reduces over ``Sk``; ``dK = (dSᵀ @ Q) * scale``
-    reduces over ``Sq``. Both use the 32-wide-leaf mid-split tree.
+    reduces over ``Sq``. Both use the 32-wide-leaf mid-split tree. Backends pass
+    their own leaf evaluators and inherit this merge order unchanged.
 
-    When a padding mask is supplied the corresponding reduction is taken over
-    the **compacted** valid positions in ascending logical order, so inserting
-    prompt padding cannot regroup the surviving terms; padded output rows are
-    defined as exactly zero. Without masks the reduction follows physical
-    positions, which is correct but only padding-invariant if the caller keeps
-    the layout fixed.
+    When a padding mask is supplied the corresponding reduction is taken over the
+    **compacted** valid positions in ascending logical order, so inserting prompt
+    padding cannot regroup the surviving terms; padded output rows are defined as
+    exactly zero. Without masks the reduction follows physical positions, which is
+    correct but only padding-invariant if the caller keeps the layout fixed.
     """
     head_dim = q.size(-1)
     scale = scale if scale is not None else (1.0 / math.sqrt(head_dim))
@@ -337,8 +354,8 @@ def joint_attn_qk_gemm_reference_backward(
     g_f = grad_scores.float()
 
     if query_padding_mask is None and key_padding_mask is None:
-        dq_sum = dq_tree_fp32(g_f, k_f)
-        dk_sum = dk_tree_fp32(g_f, q_f)
+        dq_sum = dq_tree_fp32(g_f, k_f, dq_leaf_fn)
+        dk_sum = dk_tree_fp32(g_f, q_f, dk_leaf_fn)
     else:
         dq_sum = torch.zeros_like(q_f)
         dk_sum = torch.zeros_like(k_f)
@@ -355,25 +372,45 @@ def joint_attn_qk_gemm_reference_backward(
             )
             # dQ: rows are independent, so only the j-reduction is compacted.
             if keep_j.numel() > 0:
-                dq_b = dq_tree_fp32(
-                    g_f[b : b + 1].index_select(-1, keep_j),
-                    k_f[b : b + 1].index_select(-2, keep_j),
+                dq_sum[b : b + 1] = dq_tree_fp32(
+                    g_f[b : b + 1].index_select(-1, keep_j).contiguous(),
+                    k_f[b : b + 1].index_select(-2, keep_j).contiguous(),
+                    dq_leaf_fn,
                 )
-                dq_sum[b : b + 1] = dq_b
             # dK: columns are independent, so only the i-reduction is compacted,
             # and the result lands back on the valid key rows.
             if keep_i.numel() > 0:
-                dk_b = dk_tree_fp32(
-                    g_f[b : b + 1].index_select(-2, keep_i),
-                    q_f[b : b + 1].index_select(-2, keep_i),
+                dk_sum[b : b + 1] = dk_tree_fp32(
+                    g_f[b : b + 1].index_select(-2, keep_i).contiguous(),
+                    q_f[b : b + 1].index_select(-2, keep_i).contiguous(),
+                    dk_leaf_fn,
                 )
-                dk_sum[b : b + 1] = dk_b
         if query_padding_mask is not None:
             dq_sum = torch.where(query_padding_mask[:, None, :, None], dq_sum, 0.0)
         if key_padding_mask is not None:
             dk_sum = torch.where(key_padding_mask[:, None, :, None], dk_sum, 0.0)
 
     return (dq_sum * scale).to(q.dtype), (dk_sum * scale).to(k.dtype)
+
+
+def joint_attn_qk_gemm_reference_backward(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    grad_scores: torch.Tensor,
+    *,
+    scale: Optional[float] = None,
+    query_padding_mask: Optional[torch.Tensor] = None,
+    key_padding_mask: Optional[torch.Tensor] = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Reference ``dQ``/``dK``: the shared host backward with the torch leaf chains."""
+    return joint_attn_qk_gemm_backward_with_leaves(
+        q,
+        k,
+        grad_scores,
+        scale=scale,
+        query_padding_mask=query_padding_mask,
+        key_padding_mask=key_padding_mask,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -584,6 +621,7 @@ __all__ = [
     "NativeJointAttnQkGemmOp",
     "SUPPORTED_DTYPES",
     "dk_tree_fp32",
+    "joint_attn_qk_gemm_backward_with_leaves",
     "fma_is_single_rounding",
     "dq_tree_fp32",
     "finalize_scaled_output",

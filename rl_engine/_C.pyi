@@ -325,3 +325,21 @@ def deterministic_collective_rocm_ipc_all_gather_input(
     input: torch.Tensor,
     output: torch.Tensor,
 ) -> None: ...
+def joint_attn_qk_gemm_forward(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    scale: float,
+    fp32_out: bool = False,
+) -> torch.Tensor: ...
+def joint_attn_qk_gemm_dq_leaf(
+    grad_scores_fp32: torch.Tensor,
+    k: torch.Tensor,
+    j0: int,
+    j1: int,
+) -> torch.Tensor: ...
+def joint_attn_qk_gemm_dk_leaf(
+    grad_scores_fp32: torch.Tensor,
+    q: torch.Tensor,
+    i0: int,
+    i1: int,
+) -> torch.Tensor: ...
