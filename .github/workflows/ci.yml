@@ -129,6 +129,22 @@ jobs:
             tests/backends/rocm/test_rocm_paged_workspace.py \
             tests/distributed/collectives/test_collective_ipc_errors.py
 
+      - name: Run P7 T05 Megatron Training Readback Tests (CPU-safe)
+        run: |
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -rs \
+            tests/test_megatron_training_provider.py \
+            tests/test_megatron_training_readback.py \
+            tests/test_megatron_training_readonly.py \
+            tests/test_megatron_training_gate.py \
+            tests/test_megatron_training_recorded.py \
+            tests/test_megatron_training_evidence.py \
+            tests/test_megatron_training_upstream.py \
+            tests/test_megatron_training_export.py \
+            tests/test_megatron_training_gradients.py \
+            tests/test_megatron_training_ranks.py \
+            tests/test_megatron_training_gradient_ranks.py \
+            tests/test_megatron_training_pairing.py
+
   docs:
     runs-on: ubuntu-latest
     steps:
