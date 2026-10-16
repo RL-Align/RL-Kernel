@@ -757,8 +757,11 @@ def test_autograd_wrapper_contiguity_and_gradient_routing(monkeypatch, needs_gra
     result = getattr(ascend.SwiGLUAscendOp(), method)(gate, up)
     result.backward(grad_out.to(result.dtype))
 
-    ref_gate = gate.detach().clone().requires_grad_(needs_grad[0])
-    ref_up = up.detach().clone().requires_grad_(needs_grad[1])
+    # The wrapper hands the kernel contiguous copies, so the reference must see the
+    # same memory layout: CPU sigmoid's SIMD body and scalar tail differ by 1 ulp,
+    # and a transposed view routes different elements through the tail.
+    ref_gate = gate.detach().contiguous().requires_grad_(needs_grad[0])
+    ref_up = up.detach().contiguous().requires_grad_(needs_grad[1])
     ref = getattr(NativeSwiGLUOp(), method)(ref_gate, ref_up)
     ref.backward(grad_out.to(ref.dtype))
     torch.testing.assert_close(result, ref, rtol=0, atol=0)
