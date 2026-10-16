@@ -112,6 +112,23 @@ def test_logp_native_candidate_suite_passes():
     assert all(case.passed for case in report.candidates[0].cases)
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_gpu_candidate_compares_with_cpu_gold_for_outputs_and_gradients(dtype):
+    x = torch.tensor([1.0, -2.0], device="cuda", dtype=dtype)
+    case = OperatorCase(
+        name="gpu-candidate-cpu-gold", op_class="elementwise", dtype=dtype,
+        inputs={"x": x}, gold_fn=lambda x: x.cpu().float() * 2,
+        grad_input_names=("x",), gold_input_dtype=torch.float32,
+    )
+    report = run_operator_suite(
+        "cross-device", candidates=[CandidateSpec(name="double", fn=lambda x: x * 2)],
+        cases=[case], check_grad=True,
+    )
+    assert report.passed
+    assert all(output.max_abs_error == 0 for output in report.candidates[0].cases[0].outputs)
+
+
 def test_embedding_native_candidate_suite_passes_issue_108_helper():
     report = run_operator_suite(
         "embedding",

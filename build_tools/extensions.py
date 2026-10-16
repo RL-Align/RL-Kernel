@@ -223,6 +223,7 @@ def get_extensions():
             "csrc/cuda/activation/activation.cu",
             "csrc/cuda/attention/deterministic_attention.cu",
         ]
+        adaln_cuda_enabled = not is_rocm and not envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH)
         if is_rocm:
             # ROCm-tuned WS2 vocab-parallel logprob kernels; the shared
             # deterministic_logp_kernel.cu keeps the SM90-tuned CUDA path.
@@ -235,6 +236,8 @@ def get_extensions():
         else:
             # CUDA IPC and the fixed-tree collective implementation are not
             # part of the ROCm extension.
+            if adaln_cuda_enabled:
+                cuda_sources.append("csrc/cuda/norm/adaln_modulation.cu")
             cuda_sources.append("csrc/cuda/collectives/deterministic_collective.cu")
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
@@ -324,6 +327,8 @@ def get_extensions():
 
         platform_define = "-DKERNEL_ALIGN_WITH_ROCM" if is_rocm else "-DKERNEL_ALIGN_WITH_CUDA"
         cxx_flags = ["-O3", "-std=c++17", platform_define]
+        if adaln_cuda_enabled:
+            cxx_flags.append("-DRLK_ADALN_CUDA_ENABLED")
         extra_link_args = list(torch_rpath)
         if os.name != "nt" and not is_rocm:
             # CUDA IPC metadata queries use the driver API (cuPointerGetAttribute).
