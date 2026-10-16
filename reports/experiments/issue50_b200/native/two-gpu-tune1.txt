@@ -1,0 +1,4 @@
+...s.                                                                    [100%]
+=========================== short test summary info ============================
+SKIPPED [1] tests/ops/logprob/test_linear_logp.py:1665: 4 GPUs
+4 passed, 1 skipped in 15.86s

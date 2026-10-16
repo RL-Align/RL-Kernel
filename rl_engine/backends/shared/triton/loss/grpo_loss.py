@@ -8,6 +8,7 @@ import torch
 import triton
 import triton.language as tl
 
+from rl_engine.backends.shared.triton.autotuning import TunableKernel
 from rl_engine.backends.shared.triton.loss.ratio_kl import TritonRatioKLOp
 
 
@@ -248,3 +249,6 @@ class TritonGRPOLossOp:
             clip_eps=clip_eps,
             beta=beta,
         )
+
+
+_group_norm_kernel = TunableKernel(_group_norm_kernel, outputs=(2,))

@@ -1,0 +1,54 @@
+{
+  "command": "RL_KERNEL_MODE=auto RL_KERNEL_AUTOTUNE={0|1} python -m pytest -q -rs tests/ops --ignore=tests/ops/test_autotuning_candidates.py --ignore=tests/ops/test_autotuning_gpu.py",
+  "baseline": "upstream main 16b81175, same environment and the same _C build (no csrc changes)",
+  "autotune_off": {
+    "this_change": {
+      "passed": 1577,
+      "skipped": 377,
+      "failure": 2
+    },
+    "baseline": {
+      "passed": 1527,
+      "skipped": 417,
+      "failure": 1
+    },
+    "failures_this_change": {
+      "tests.ops.activation.test_swiglu::test_autograd_wrapper_contiguity_and_gradient_routing[True-needs_grad2]": "AssertionError: Tensor-likes are not equal!",
+      "tests.ops.norm.test_rms_norm::test_registry_dispatches_rms_norm": "assert False"
+    },
+    "failures_baseline": {
+      "tests.ops.norm.test_rms_norm::test_registry_dispatches_rms_norm": "assert False"
+    },
+    "passed_in_baseline_not_here": [
+      "tests.ops.activation.test_swiglu::test_autograd_wrapper_contiguity_and_gradient_routing[True-needs_grad2]"
+    ],
+    "skipped_in_baseline_passed_here": [
+      "tests.ops.gemm.test_det_gemm"
+    ],
+    "skipped_in_baseline_passed_here_count": 40
+  },
+  "autotune_on": {
+    "this_change": {
+      "passed": 1578,
+      "skipped": 377,
+      "failure": 1
+    },
+    "baseline": {
+      "passed": 1526,
+      "skipped": 417,
+      "failure": 2
+    },
+    "failures_this_change": {
+      "tests.ops.norm.test_rms_norm::test_registry_dispatches_rms_norm": "assert False"
+    },
+    "failures_baseline": {
+      "tests.ops.activation.test_swiglu::test_autograd_wrapper_contiguity_and_gradient_routing[True-needs_grad1]": "AssertionError: Tensor-likes are not equal!",
+      "tests.ops.norm.test_rms_norm::test_registry_dispatches_rms_norm": "assert False"
+    },
+    "passed_in_baseline_not_here": [],
+    "skipped_in_baseline_passed_here": [
+      "tests.ops.gemm.test_det_gemm"
+    ],
+    "skipped_in_baseline_passed_here_count": 40
+  }
+}

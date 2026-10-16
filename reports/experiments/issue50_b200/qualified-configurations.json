@@ -1,0 +1,348 @@
+{
+  "rl_engine.backends.shared.triton.activation.swiglu._silu_bwd_kernel": [
+    {
+      "BLOCK": 2048,
+      "num_warps": 4
+    },
+    {
+      "BLOCK": 256,
+      "num_warps": 4
+    },
+    {
+      "BLOCK": 512,
+      "num_warps": 4
+    },
+    {
+      "num_stages": 1,
+      "num_warps": 4
+    },
+    {
+      "num_stages": 1,
+      "num_warps": 8
+    },
+    {
+      "num_stages": 2,
+      "num_warps": 4
+    },
+    {
+      "num_stages": 2,
+      "num_warps": 8
+    },
+    {}
+  ],
+  "rl_engine.backends.shared.triton.activation.swiglu._silu_fwd_kernel": [
+    {
+      "BLOCK": 2048,
+      "num_warps": 4
+    },
+    {
+      "BLOCK": 256,
+      "num_warps": 4
+    },
+    {
+      "BLOCK": 512,
+      "num_warps": 4
+    },
+    {
+      "num_stages": 1,
+      "num_warps": 4
+    },
+    {
+      "num_stages": 1,
+      "num_warps": 8
+    },
+    {
+      "num_stages": 2,
+      "num_warps": 4
+    },
+    {
+      "num_stages": 2,
+      "num_warps": 8
+    },
+    {}
+  ],
+  "rl_engine.backends.shared.triton.activation.swiglu._swiglu_bwd_kernel": [
+    {
+      "BLOCK": 2048,
+      "num_warps": 4
+    },
+    {
+      "BLOCK": 256,
+      "num_warps": 4
+    },
+    {
+      "BLOCK": 512,
+      "num_warps": 4
+    },
+    {
+      "num_stages": 1,
+      "num_warps": 4
+    },
+    {
+      "num_stages": 1,
+      "num_warps": 8
+    },
+    {
+      "num_stages": 2,
+      "num_warps": 4
+    },
+    {
+      "num_stages": 2,
+      "num_warps": 8
+    },
+    {}
+  ],
+  "rl_engine.backends.shared.triton.activation.swiglu._swiglu_dgate_kernel": [
+    {
+      "BLOCK": 2048,
+      "num_warps": 4
+    },
+    {
+      "BLOCK": 256,
+      "num_warps": 4
+    },
+    {
+      "BLOCK": 512,
+      "num_warps": 4
+    },
+    {
+      "num_stages": 1,
+      "num_warps": 4
+    },
+    {
+      "num_stages": 1,
+      "num_warps": 8
+    },
+    {
+      "num_stages": 2,
+      "num_warps": 4
+    },
+    {
+      "num_stages": 2,
+      "num_warps": 8
+    },
+    {}
+  ],
+  "rl_engine.backends.shared.triton.activation.swiglu._swiglu_fwd_kernel": [
+    {
+      "BLOCK": 2048,
+      "num_warps": 4
+    },
+    {
+      "BLOCK": 256,
+      "num_warps": 4
+    },
+    {
+      "BLOCK": 512,
+      "num_warps": 4
+    },
+    {
+      "num_stages": 1,
+      "num_warps": 4
+    },
+    {
+      "num_stages": 1,
+      "num_warps": 8
+    },
+    {
+      "num_stages": 2,
+      "num_warps": 4
+    },
+    {
+      "num_stages": 2,
+      "num_warps": 8
+    },
+    {}
+  ],
+  "rl_engine.backends.shared.triton.attention.deterministic_attn._dk_kernel": [
+    {
+      "num_stages": 1
+    },
+    {
+      "num_stages": 2
+    },
+    {}
+  ],
+  "rl_engine.backends.shared.triton.attention.deterministic_attn._dp_kernel": [
+    {
+      "num_stages": 1
+    },
+    {
+      "num_stages": 2
+    },
+    {}
+  ],
+  "rl_engine.backends.shared.triton.attention.deterministic_attn._dq_kernel": [
+    {
+      "num_stages": 1
+    },
+    {
+      "num_stages": 2
+    },
+    {}
+  ],
+  "rl_engine.backends.shared.triton.attention.deterministic_attn._dv_kernel": [
+    {
+      "num_stages": 1
+    },
+    {
+      "num_stages": 2
+    },
+    {}
+  ],
+  "rl_engine.backends.shared.triton.attention.deterministic_attn._masked_softmax_lse_kernel": [
+    {
+      "num_stages": 1
+    },
+    {
+      "num_stages": 2
+    },
+    {}
+  ],
+  "rl_engine.backends.shared.triton.attention.deterministic_attn._pv_kernel": [
+    {
+      "num_stages": 1
+    },
+    {
+      "num_stages": 2
+    },
+    {}
+  ],
+  "rl_engine.backends.shared.triton.attention.deterministic_attn._qk_kernel": [
+    {
+      "num_stages": 1
+    },
+    {
+      "num_stages": 2
+    },
+    {}
+  ],
+  "rl_engine.backends.shared.triton.attention.deterministic_attn._softmax_backward_kernel": [
+    {
+      "num_stages": 1
+    },
+    {
+      "num_stages": 2
+    },
+    {}
+  ],
+  "rl_engine.backends.shared.triton.embedding.embedding._embedding_fwd": [
+    {
+      "num_stages": 1,
+      "num_warps": 4
+    },
+    {
+      "num_stages": 1,
+      "num_warps": 8
+    },
+    {
+      "num_stages": 2,
+      "num_warps": 4
+    },
+    {
+      "num_stages": 2,
+      "num_warps": 8
+    },
+    {}
+  ],
+  "rl_engine.backends.shared.triton.gemm.det_gemm._det_gemm_fp32_kernel": [
+    {
+      "num_stages": 1
+    },
+    {
+      "num_stages": 2
+    },
+    {}
+  ],
+  "rl_engine.backends.shared.triton.gemm.det_gemm._det_gemm_tree_leaf_kernel": [
+    {
+      "num_stages": 1
+    },
+    {
+      "num_stages": 2
+    },
+    {}
+  ],
+  "rl_engine.backends.shared.triton.logprob.batch_invariant_logp._batch_invariant_logp_bwd_kernel": [
+    {
+      "num_stages": 1
+    },
+    {
+      "num_stages": 2
+    },
+    {}
+  ],
+  "rl_engine.backends.shared.triton.logprob.batch_invariant_logp._batch_invariant_logp_kernel": [
+    {
+      "num_stages": 1
+    },
+    {
+      "num_stages": 2
+    },
+    {}
+  ],
+  "rl_engine.backends.shared.triton.loss.grpo_loss._group_norm_kernel": [
+    {
+      "num_stages": 1
+    },
+    {
+      "num_stages": 2
+    },
+    {}
+  ],
+  "rl_engine.backends.shared.triton.loss.ratio_kl._ratio_kl_bwd_kernel": [
+    {
+      "num_stages": 1
+    },
+    {
+      "num_stages": 2
+    },
+    {}
+  ],
+  "rl_engine.backends.shared.triton.loss.ratio_kl._ratio_kl_fwd_kernel": [
+    {
+      "num_stages": 1
+    },
+    {
+      "num_stages": 2
+    },
+    {}
+  ],
+  "rl_engine.backends.shared.triton.norm.rmsnorm._rmsnorm_bwd_dx_kernel": [
+    {
+      "num_stages": 1
+    },
+    {
+      "num_stages": 2
+    },
+    {}
+  ],
+  "rl_engine.backends.shared.triton.norm.rmsnorm._rmsnorm_fwd_kernel": [
+    {
+      "num_stages": 1
+    },
+    {
+      "num_stages": 2
+    },
+    {}
+  ],
+  "rl_engine.backends.shared.triton.rope.rope._rope_kernel": [
+    {
+      "num_stages": 1,
+      "num_warps": 4
+    },
+    {
+      "num_stages": 1,
+      "num_warps": 8
+    },
+    {
+      "num_stages": 2,
+      "num_warps": 4
+    },
+    {
+      "num_stages": 2,
+      "num_warps": 8
+    },
+    {}
+  ]
+}

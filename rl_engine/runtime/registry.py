@@ -66,6 +66,12 @@ class _KernelEnumMeta(EnumMeta):
 
 
 class OpBackend(Enum, metaclass=_KernelEnumMeta):
+    """Operator backend import paths; an unknown name raises ``ValueError`` listing members."""
+
+    TRITON_TUNED_GEMM = "rl_engine.backends.shared.triton.tuned.TunedGemmOp"
+    TRITON_TUNED_ATTENTION = "rl_engine.backends.shared.triton.tuned.TunedAttentionOp"
+    TRITON_TUNED_LOGP = "rl_engine.backends.shared.triton.tuned.TunedLogpOp"
+
     # NVIDIA optimized stack
     FLASH_ATTN = "rl_engine.kernels.ops.cuda.attention.flash_attn.FlashAttentionOp"
     FLASHINFER = "rl_engine.kernels.ops.cuda.flashinfer.FlashInferOp"
@@ -1035,14 +1041,38 @@ class KernelRegistry:
         except Exception as exc:
             logger.warning(f"Failed to probe device capability: {exc}")
 
-    def get_op(self, op_type: str, device: torch.device | str | None = None) -> Any:
-        """Select the best legacy operator for the requested device."""
+    def get_op(
+        self,
+        op_type: str,
+        device: torch.device | str | None = None,
+        *,
+        backend: str | None = None,
+    ) -> Any:
+        """Select a legacy operator, or explicitly request a tuned backend ID.
+
+        Tuned backends are never added to strict contract priority lists.
+        An unavailable explicit request raises rather than silently falling back.
+        """
 
         platform = self._platform_for_device(device)
+        if backend is not None:
+            tuned = {
+                "rlkernel.triton.tuned_gemm": ("det_gemm", OpBackend.TRITON_TUNED_GEMM),
+                "rlkernel.triton.tuned_attention": ("attn", OpBackend.TRITON_TUNED_ATTENTION),
+                "rlkernel.triton.tuned_logp": ("logp", OpBackend.TRITON_TUNED_LOGP),
+            }
+            if backend not in tuned or tuned[backend][0] != op_type:
+                raise ValueError(f"Unsupported explicit backend {backend!r} for {op_type!r}")
+            if platform not in {"cuda", "rocm"}:
+                raise ValueError("Tuned backends require CUDA or ROCm")
+            selected = self._get_or_create_backend(tuned[backend][1])
+            if selected is None:
+                raise RuntimeError(f"Requested backend {backend!r} is unavailable")
+            return selected
         candidates = self._priority_map.get(platform, {}).get(op_type, [OpBackend.PYTORCH_NATIVE])
 
-        for backend in candidates:
-            op_instance = self._get_or_create_backend(backend)
+        for candidate_backend in candidates:
+            op_instance = self._get_or_create_backend(candidate_backend)
             if op_instance is not None:
                 return op_instance
 
