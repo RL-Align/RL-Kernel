@@ -23,6 +23,113 @@ H20 = (
 BACKENDS = ["triton", "cuda"]
 
 
+@pytest.mark.parametrize(
+    "device",
+    ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(not H20, reason="requires CUDA SM90"))],
+)
+@pytest.mark.parametrize(
+    "key_rows",
+    [
+        [],
+        [[0, 0]],
+        [[0, 0], [0, 1], [1, 0]],
+        [[0, 1], [0, 0], [1, 0]],
+        [[0, 0], [-1, 0], [1, 0]],
+        [[0, 0], [0, 0]],
+        [[0, 2**63 - 1], [1, -(2**63)]],
+        [[0, 0, 1], [0, 1, -1], [1, 0, 0]],
+        [[0, 0, 1], [0, 0, 0], [1, 0, 0]],
+        [[0, 0, 1], [0, 0, 1]],
+    ],
+)
+def test_canonical_order_proof_preserves_stable_normalization(key_rows, device, monkeypatch):
+    from rl_engine.ops.autograd.canonical_backward import (
+        CanonicalBackwardSession,
+        _keys_are_canonical,
+    )
+
+    monkeypatch.setattr(
+        "rl_engine.ops.autograd.canonical_backward._CANONICAL_ORDER_REUSE_MIN_ROWS", 0
+    )
+    columns = len(key_rows[0]) if key_rows else 2
+    keys = torch.tensor(key_rows, dtype=torch.int64, device=device).reshape(-1, columns)
+    values = torch.arange(4 * len(key_rows), device=device).reshape(4, len(key_rows)).t()
+    expected_order = sorted(
+        (i for i, key in enumerate(key_rows) if key[0] >= 0), key=lambda i: key_rows[i]
+    )
+    ordered = expected_order == list(range(len(key_rows)))
+    # Equal keys still require the stable fallback, even in physical order.
+    strict = ordered and len({tuple(key) for key in key_rows}) == len(key_rows)
+    assert _keys_are_canonical(keys) == strict
+    if not strict:
+        assert not _keys_are_canonical(keys)
+    else:
+
+        def unexpected_sort(*args, **kwargs):
+            raise AssertionError("canonical keys must reuse their physical order")
+
+        monkeypatch.setattr(torch, "argsort", unexpected_sort)
+    session = CanonicalBackwardSession()
+    session.register("weight", keys, reuse_canonical_order=True)
+    order, actual = session._normalize("weight", [values])
+    expected = values.index_select(
+        0, torch.tensor(expected_order, dtype=torch.int64, device=device)
+    )
+    assert order.tolist() == expected_order
+    assert torch.equal(actual, expected)
+    assert actual.is_contiguous()
+
+
+def test_canonical_order_proof_is_recomputed_after_key_changes(monkeypatch):
+    from rl_engine.ops.autograd.canonical_backward import CanonicalBackwardSession
+
+    monkeypatch.setattr(
+        "rl_engine.ops.autograd.canonical_backward._CANONICAL_ORDER_REUSE_MIN_ROWS", 0
+    )
+    keys = torch.tensor([[0, 0], [0, 1]], dtype=torch.int64)
+    values = torch.tensor([[1.0], [2.0]])
+    session = CanonicalBackwardSession()
+    session.register("weight", keys, reuse_canonical_order=True)
+    _, first = session._normalize("weight", [values])
+    keys.copy_(keys.flip(0))
+    _, second = session._normalize("weight", [values])
+    assert torch.equal(first, values)
+    assert torch.equal(second, values.flip(0))
+
+
+def test_canonical_order_reuse_requires_explicit_registration(monkeypatch):
+    from rl_engine.ops.autograd import canonical_backward as canonical
+
+    def unexpected_proof(keys):
+        raise AssertionError("existing callers must retain stable normalization")
+
+    monkeypatch.setattr(canonical, "_keys_are_canonical", unexpected_proof)
+    monkeypatch.setattr(canonical, "_CANONICAL_ORDER_REUSE_MIN_ROWS", 0)
+    session = canonical.CanonicalBackwardSession()
+    keys = torch.tensor([[0, 0], [0, 1]], dtype=torch.int64)
+    values = torch.tensor([[1.0], [2.0]])
+    session.register("weight", keys)
+    order, actual = session._normalize("weight", [values])
+    assert order.tolist() == [0, 1]
+    assert torch.equal(actual, values)
+
+
+def test_small_canonical_uses_retain_stable_normalization(monkeypatch):
+    from rl_engine.ops.autograd import canonical_backward as canonical
+
+    def unexpected_proof(keys):
+        raise AssertionError("small inputs must avoid the order proof overhead")
+
+    monkeypatch.setattr(canonical, "_keys_are_canonical", unexpected_proof)
+    session = canonical.CanonicalBackwardSession()
+    keys = torch.tensor([[0, 0], [0, 1]], dtype=torch.int64)
+    values = torch.tensor([[1.0], [2.0]])
+    session.register("weight", keys, reuse_canonical_order=True)
+    order, actual = session._normalize("weight", [values])
+    assert order.tolist() == [0, 1]
+    assert torch.equal(actual, values)
+
+
 def _op(backend):
     if backend == "triton":
         from rl_engine.backends.shared.triton.gemm.video_input_projection_fp32 import (
@@ -326,7 +433,7 @@ def test_default_cuda_dispatch():
     from rl_engine.runtime.registry import KernelRegistry
 
     op = KernelRegistry().get_op("video_input_projection_fp32", device="cuda")
-    assert op.backend_info()["backend_id"] == "triton-video-input-projection-fp32-v7"
+    assert op.backend_info()["backend_id"] == "triton-video-input-projection-fp32-v8"
     x, weight, bias, _ = _data(3)
     with torch.no_grad():
         _assert_bytes(op(x, weight, bias), _op("triton")(x, weight, bias))

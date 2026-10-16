@@ -730,6 +730,36 @@ if _TRITON_AVAILABLE:
         )
 
     @triton.jit
+    def _canonical_key_order_kernel(
+        keys_ptr,
+        flags_ptr,
+        ROWS,
+        stride_row,
+        stride_col,
+        COLUMNS: tl.constexpr,
+        BLOCK: tl.constexpr,
+    ):
+        rows = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+        first = tl.load(keys_ptr + rows * stride_row, mask=rows < ROWS, other=-1)
+        greater = tl.full((BLOCK,), False, tl.int1)
+        equal = tl.full((BLOCK,), True, tl.int1)
+        for column in tl.static_range(COLUMNS):
+            current = tl.load(
+                keys_ptr + rows * stride_row + column * stride_col,
+                mask=rows < ROWS,
+                other=0,
+            )
+            previous = tl.load(
+                keys_ptr + (rows - 1) * stride_row + column * stride_col,
+                mask=(rows > 0) & (rows < ROWS),
+                other=0,
+            )
+            greater = greater | (equal & (current > previous))
+            equal = equal & (current == previous)
+        valid = (rows >= ROWS) | ((first >= 0) & ((rows == 0) | greater))
+        tl.store(flags_ptr + tl.program_id(0), tl.min(valid.to(tl.int32), axis=0))
+
+    @triton.jit
     def _det_gemm_fp32_kernel(
         a_ptr,
         b_ptr,
@@ -750,6 +780,8 @@ if _TRITON_AVAILABLE:
         PROMOTE_INPUTS: tl.constexpr,
         HAS_BIAS: tl.constexpr,
         CHUNK_K: tl.constexpr = 0,
+        EVEN_K: tl.constexpr = False,
+        EVEN_N: tl.constexpr = False,
     ):
         # One program walks the whole K or one declared fixed-width chunk.
         # The K order does not depend on output rows or their placement.
@@ -765,9 +797,15 @@ if _TRITON_AVAILABLE:
         reduction_size = CHUNK_K if CHUNK_K else K
         for k in range(0, tl.cdiv(reduction_size, BLOCK_K)):
             k_rem = K - k * BLOCK_K
-            a_mask = (offs_m[:, None] < M) & (offs_k[None, :] < k_rem)
+            a_mask = offs_m[:, None] < M
+            if not EVEN_K:
+                a_mask = a_mask & (offs_k[None, :] < k_rem)
             a = tl.load(a_ptrs, mask=a_mask, other=0.0)
-            b_mask = (offs_k[:, None] < k_rem) & (offs_n[None, :] < N)
+            b_mask = tl.full((BLOCK_K, BLOCK_N), True, tl.int1)
+            if not EVEN_K:
+                b_mask = b_mask & (offs_k[:, None] < k_rem)
+            if not EVEN_N:
+                b_mask = b_mask & (offs_n[None, :] < N)
             b = tl.load(b_ptrs, mask=b_mask, other=0.0)
             if PROMOTE_INPUTS:
                 a = a.to(tl.float32)
@@ -804,11 +842,30 @@ if _TRITON_AVAILABLE:
         tl.store(output_ptr + offsets, total, mask=offsets < ELEMENTS)
 
 
+def _triton_keys_are_canonical(keys: torch.Tensor) -> bool:
+    """Check the current key contents before reusing physical row order."""
+    if keys.shape[0] == 0:
+        return True
+    blocks = triton.cdiv(keys.shape[0], 256)
+    flags = torch.empty((blocks,), device=keys.device, dtype=torch.int32)
+    _canonical_key_order_kernel[(blocks,)](
+        keys,
+        flags,
+        keys.shape[0],
+        *keys.stride(),
+        COLUMNS=keys.shape[1],
+        BLOCK=256,
+        num_warps=4,
+    )
+    return bool(torch.all(flags))
+
+
 def _triton_chunked_gemm_fp32(
     a: torch.Tensor,
     b: torch.Tensor,
     *,
     tile: tuple[int, int, int] = (_BLOCK_M, _BLOCK_N, 4),
+    maxnreg: int | None = None,
     fp32_chunk_launcher=None,
 ) -> torch.Tensor:
     """Reuse the FP32 GEMM in fixed K chunks and merge partials in one grid."""
@@ -825,6 +882,7 @@ def _triton_chunked_gemm_fp32(
                     a[start : start + rows_per_chunk],
                     b,
                     tile=tile,
+                    maxnreg=maxnreg,
                     fp32_chunk_launcher=fp32_chunk_launcher,
                 )
                 for start in range(0, m_size, rows_per_chunk)
@@ -856,6 +914,7 @@ def _triton_chunked_gemm_fp32(
             CHUNK_K=_FP32_CHUNK_K,
             enable_fp_fusion=False,
             num_warps=num_warps,
+            **({"maxnreg": maxnreg} if maxnreg is not None else {}),
         )
     else:
         fp32_chunk_launcher(a, b, partial)
@@ -873,7 +932,11 @@ def _triton_chunked_gemm_fp32(
 
 
 def _triton_gemm_fp32(
-    a: torch.Tensor, b: torch.Tensor, *, bias: torch.Tensor | None = None
+    a: torch.Tensor,
+    b: torch.Tensor,
+    *,
+    bias: torch.Tensor | None = None,
+    aligned_tiles: bool = False,
 ) -> torch.Tensor:
     a, b = a.contiguous(), b.contiguous()
     M, K = a.shape
@@ -899,6 +962,8 @@ def _triton_gemm_fp32(
         BLOCK_K=_BLOCK_K,
         PROMOTE_INPUTS=True,
         HAS_BIAS=bias is not None,
+        EVEN_K=aligned_tiles and K % _BLOCK_K == 0,
+        EVEN_N=aligned_tiles and N % _BLOCK_N == 0,
         **({"enable_fp_fusion": False} if torch.version.hip is None else {}),
     )
     return c

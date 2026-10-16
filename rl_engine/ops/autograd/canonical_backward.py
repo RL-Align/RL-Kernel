@@ -14,6 +14,26 @@ from typing import Callable, Iterator
 import torch
 
 WeightReducer = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
+_CANONICAL_ORDER_REUSE_MIN_ROWS = 4096
+
+
+def _keys_are_canonical(keys: torch.Tensor) -> bool:
+    """Prove that physical rows already have the unpadded logical order."""
+    if keys.device.type == "cuda" and torch.version.hip is None:
+        from rl_engine.backends.shared.triton.gemm.det_gemm import (
+            _TRITON_AVAILABLE,
+            _triton_keys_are_canonical,
+        )
+
+        if _TRITON_AVAILABLE:
+            return _triton_keys_are_canonical(keys)
+    before, after = keys[:-1], keys[1:]
+    greater = after[:, 0] > before[:, 0]
+    equal = after[:, 0] == before[:, 0]
+    for column in range(1, keys.shape[1]):
+        greater = greater | (equal & (after[:, column] > before[:, column]))
+        equal = equal & (after[:, column] == before[:, column])
+    return bool(torch.all(keys[:, 0] >= 0) & torch.all(greater))
 
 
 @dataclass
@@ -22,6 +42,7 @@ class _Use:
     contribution: object | None = None
     rows: torch.Tensor | None = None
     grads: torch.Tensor | None = None
+    reuse_canonical_order: bool = False
 
 
 @dataclass
@@ -37,14 +58,25 @@ class CanonicalBackwardSession:
     _shareable: set[tuple[object, ...]] | None = field(default=None, repr=False)
 
     def register(
-        self, parameter_id: str, keys: torch.Tensor, *, contribution: object | None = None
+        self,
+        parameter_id: str,
+        keys: torch.Tensor,
+        *,
+        contribution: object | None = None,
+        reuse_canonical_order: bool = False,
     ) -> int:
         if self.backward_started:
             raise RuntimeError("cannot register canonical rows after backward started")
         if keys.dim() != 2 or keys.shape[1] not in (2, 3):
             raise ValueError("logical keys must have shape [rows, 2] or [rows, 3]")
         slot = len(self.uses.setdefault(parameter_id, []))
-        self.uses[parameter_id].append(_Use(keys=keys.detach(), contribution=contribution))
+        self.uses[parameter_id].append(
+            _Use(
+                keys=keys.detach(),
+                contribution=contribution,
+                reuse_canonical_order=reuse_canonical_order,
+            )
+        )
         return slot
 
     @staticmethod
@@ -72,14 +104,23 @@ class CanonicalBackwardSession:
         if shared and signature in self._normalized:
             return self._normalized.pop(signature)
         keys = self._concatenate([item.keys for item in entries])
-        valid = torch.nonzero(keys[:, 0] >= 0, as_tuple=True)[0]
-        active_keys = keys.index_select(0, valid)
-        order = torch.arange(valid.numel(), device=keys.device)
-        for column in range(keys.shape[1] - 1, -1, -1):
-            column_values = active_keys.index_select(0, order)[:, column]
-            order = order.index_select(0, torch.argsort(column_values, stable=True))
-        order = valid.index_select(0, order)
-        normalized = order, self._concatenate(values).index_select(0, order)
+        reuse_order = (
+            keys.shape[0] >= _CANONICAL_ORDER_REUSE_MIN_ROWS
+            and all(item.reuse_canonical_order for item in entries)
+            and _keys_are_canonical(keys)
+        )
+        if reuse_order:
+            order = torch.arange(keys.shape[0], device=keys.device)
+            normalized = order, self._concatenate(values).contiguous()
+        else:
+            valid = torch.nonzero(keys[:, 0] >= 0, as_tuple=True)[0]
+            active_keys = keys.index_select(0, valid)
+            order = torch.arange(valid.numel(), device=keys.device)
+            for column in range(keys.shape[1] - 1, -1, -1):
+                column_values = active_keys.index_select(0, order)[:, column]
+                order = order.index_select(0, torch.argsort(column_values, stable=True))
+            order = valid.index_select(0, order)
+            normalized = order, self._concatenate(values).index_select(0, order)
         if shared:
             self._normalized[signature] = normalized
         return normalized

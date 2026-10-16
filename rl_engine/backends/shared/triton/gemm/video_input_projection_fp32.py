@@ -18,13 +18,17 @@ from rl_engine.ops.gemm.video_input_projection_fp32 import (
 )
 
 _VJP_TILE = (128, 32, 4)
+_VJP_MAXNREG = 96
 
 
 def projection_gemm_fp32(a, b, *, bias=None):
     if a.shape[1] <= VIDEO_PATCH_WIDTH:
-        return _triton_gemm_fp32(a, b, bias=bias)
+        return _triton_gemm_fp32(a, b, bias=bias, aligned_tiles=True)
     if b.shape[1] == VIDEO_PATCH_WIDTH:
-        output = _triton_chunked_gemm_fp32(a, b, tile=_VJP_TILE)
+        # Pin register allocation for column-major A without changing dot order.
+        output = _triton_chunked_gemm_fp32(
+            a, b, tile=_VJP_TILE, maxnreg=_VJP_MAXNREG if a.stride(0) == 1 else None
+        )
     else:
         output = _triton_tree_gemm(a, b, output_dtype=torch.float32, preserve_a_strides=True)
     return output if bias is None else output + bias
@@ -32,7 +36,7 @@ def projection_gemm_fp32(a, b, *, bias=None):
 
 class TritonVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
     family = "triton_tree"
-    backend_id = "triton-video-input-projection-fp32-v7"
+    backend_id = "triton-video-input-projection-fp32-v8"
 
     def __init__(self):
         if not _TRITON_AVAILABLE:
@@ -57,6 +61,9 @@ class TritonVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
             "tile": [64, 64, 32],
             "vjp_tile": [_VJP_TILE[0], _VJP_TILE[1], _BLOCK_K],
             "vjp_num_warps": _VJP_TILE[2],
+            "vjp_maxnreg_unit_row_stride": _VJP_MAXNREG,
+            "forward_aligned_tiles": True,
+            "canonical_rows": "live_strict_order_proof_or_stable_sort",
             "tf32": False,
             "fp_fusion": False,
             "dot_arithmetic": "ieee_fp32_simt_fma",

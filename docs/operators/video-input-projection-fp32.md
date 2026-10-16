@@ -97,6 +97,15 @@ once. Weight and bias share sorting and the sorted upstream gradient when their
 complete contribution sequences match. Calls with different contribution sets
 normalize each parameter independently.
 
+The H3 Triton path explicitly enables verified canonical-order reuse for at least
+4096 submitted rows. Smaller inputs retain stable normalization to avoid the
+proof overhead. At each eligible normalization, a small GPU check proves that every row is active and adjacent
+keys strictly increase in lexicographic order. This includes block boundaries.
+When the proof succeeds, the session reuses contiguous gradients without sorting
+or gathering the large matrix. Otherwise it runs the original stable sort.
+The proof reads the current keys and does not cache a caller's ordering claim.
+Other canonical-session callers retain stable normalization by default.
+
 Short reductions up to the 96-wide video input use the existing direct FP32
 GEMM. The Triton input and weight VJPs reuse that kernel with fixed 128-term
 chunks. Each chunk computes four ascending 32-term FP32 dots from zero. Chunk
@@ -104,17 +113,21 @@ partials remain FP32. A second grid uses a fixed balanced reduction over the
 next power-of-two chunk count, with zero padding. The merge uses 64 output
 elements per program and four warps. VJP GEMMs use fixed 128-by-32 output tiles,
 32-term dot tiles, and four warps. The forward retains its 64-by-64 output tile.
-These settings define the v7 implementation identity. The K partition and VJP
+These settings define the v8 Triton implementation identity. The K partition and VJP
 tile do not depend on M, row placement, or occupancy.
 The VJP kernels consume positive-stride views directly, including `G.T`.
+The Triton v8 forward omits K or N load predicates only when the corresponding
+32-term or 64-column tiles are complete. It retains M predicates for every row.
+Column-major A views with unit row stride use a fixed `maxnreg=96` VJP allocation.
+Other VJP layouts retain the default allocation. These choices preserve the dot
+tile and K accumulation order. No configuration depends on physical row count.
 
 The fixed-chunk design follows the scheduling separation in merged PR #396.
 Its AMD BF16 MFMA instructions are not used by this CUDA FP32 implementation.
 The FP32 GEMM body is reused from the helper present in merged PR #325.
 The short forward path and long bias tree retain their earlier arithmetic.
-The wider merge changes the reduction instruction schedule. Both backends pin
-64 output elements and four warps for the v7 identity. Accuracy and logical-row
-invariance must be checked independently of bitwise agreement with older versions.
+The merge layout defines its reduction instruction schedule. Both backends pin
+64 output elements and four warps as part of their implementation identities.
 
 CUTLASS also uses fixed 128-term chunks for input and weight VJPs. Partials
 are grouped by actual K length: 128 for complete chunks, and the remaining

@@ -71,12 +71,22 @@ class _CanonicalLinearFn(torch.autograd.Function):
         ctx.bias_dtype = bias.dtype if bias is not None else None
         contribution = object() if ctx.needs_input_grad[1] and ctx.needs_input_grad[5] else None
         ctx.slot = (
-            session.register(ctx.parameter_id, logical_keys, contribution=contribution)
+            session.register(
+                ctx.parameter_id,
+                logical_keys,
+                contribution=contribution,
+                reuse_canonical_order=ctx.family == "triton_tree",
+            )
             if ctx.needs_input_grad[1]
             else None
         )
         ctx.bias_slot = (
-            session.register(ctx.bias_parameter_id, logical_keys, contribution=contribution)
+            session.register(
+                ctx.bias_parameter_id,
+                logical_keys,
+                contribution=contribution,
+                reuse_canonical_order=ctx.family == "triton_tree",
+            )
             if ctx.needs_input_grad[5]
             else None
         )
