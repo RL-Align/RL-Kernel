@@ -244,7 +244,7 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
         ),
         OperatorBackendDescriptor(
             semantic_op="video_input_projection_fp32",
-            backend_id="cuda-cutlass-video-input-projection-fp32-v6",
+            backend_id="cuda-cutlass-video-input-projection-fp32-v7",
             supported_targets=frozenset({"rollout", "training"}),
             supported_devices=frozenset({"cuda"}),
             supported_dtypes=frozenset({"float32"}),
@@ -258,6 +258,7 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             },
             determinism_or_alignment_properties={
                 "algorithm": "cutlass_simt_fp32_chunk128_triton_merge_bias_canonical_parameter_vjp",
+                "forward_bias": "linear_combination_broadcast_source",
                 "reduction_backend": "triton",
                 "bias_reduction_backend": "triton_for_k_gt_96",
                 "input_width": 96,
@@ -276,13 +277,13 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             implementation_class_or_factory=OpBackend.CUDA_VIDEO_INPUT_PROJECTION_FP32.value,
             fallback_policy=OperatorFallbackPolicy.ERROR,
             version_or_build_fingerprint=(
-                "cutlass-56ca28a-fp32-simt-64x64x8-chunk128-merge16-"
-                "strided-actual-k-triton-bias-h3-v6"
+                "cutlass-56ca28a-fp32-simt-64x64x8-chunk128-merge64-"
+                "strided-actual-k-bias-epilogue-triton-bias-h3-v7"
             ),
         ),
         OperatorBackendDescriptor(
             semantic_op="video_input_projection_fp32",
-            backend_id="triton-video-input-projection-fp32-v6",
+            backend_id="triton-video-input-projection-fp32-v7",
             supported_targets=frozenset({"rollout", "training"}),
             supported_devices=frozenset({"cuda"}),
             supported_dtypes=frozenset({"float32"}),
@@ -314,8 +315,8 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             implementation_class_or_factory=OpBackend.TRITON_VIDEO_INPUT_PROJECTION_FP32.value,
             fallback_policy=OperatorFallbackPolicy.ERROR,
             version_or_build_fingerprint=(
-                "rlkernel-triton-ieee-fp32-dot-chunk128-tile128x32-merge16-"
-                "strided-bias-epilogue-h3-v6"
+                "rlkernel-triton-ieee-fp32-dot-chunk128-tile128x32-merge64-"
+                "strided-bias-epilogue-h3-v7"
             ),
         ),
         OperatorBackendDescriptor(

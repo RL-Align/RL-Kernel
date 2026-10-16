@@ -859,13 +859,13 @@ def _triton_chunked_gemm_fp32(
         )
     else:
         fp32_chunk_launcher(a, b, partial)
-    _det_gemm_fp32_chunk_merge_kernel[(triton.cdiv(m_size * n_size, 16),)](
+    _det_gemm_fp32_chunk_merge_kernel[(triton.cdiv(m_size * n_size, 64),)](
         partial,
         output,
         m_size * n_size,
         CHUNKS=chunks,
         PADDED_CHUNKS=triton.next_power_of_2(chunks),
-        BLOCK_C=16,
+        BLOCK_C=64,
         enable_fp_fusion=False,
         num_warps=4,
     )

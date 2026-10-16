@@ -101,10 +101,10 @@ Short reductions up to the 96-wide video input use the existing direct FP32
 GEMM. The Triton input and weight VJPs reuse that kernel with fixed 128-term
 chunks. Each chunk computes four ascending 32-term FP32 dots from zero. Chunk
 partials remain FP32. A second grid uses a fixed balanced reduction over the
-next power-of-two chunk count, with zero padding. The merge uses 16 output
+next power-of-two chunk count, with zero padding. The merge uses 64 output
 elements per program and four warps. VJP GEMMs use fixed 128-by-32 output tiles,
 32-term dot tiles, and four warps. The forward retains its 64-by-64 output tile.
-These settings define the v6 implementation identity. The K partition and VJP
+These settings define the v7 implementation identity. The K partition and VJP
 tile do not depend on M, row placement, or occupancy.
 The VJP kernels consume positive-stride views directly, including `G.T`.
 
@@ -112,6 +112,9 @@ The fixed-chunk design follows the scheduling separation in merged PR #396.
 Its AMD BF16 MFMA instructions are not used by this CUDA FP32 implementation.
 The FP32 GEMM body is reused from the helper present in merged PR #325.
 The short forward path and long bias tree retain their earlier arithmetic.
+The wider merge changes the reduction instruction schedule. Both backends pin
+64 output elements and four warps for the v7 identity. Accuracy and logical-row
+invariance must be checked independently of bitwise agreement with older versions.
 
 CUTLASS also uses fixed 128-term chunks for input and weight VJPs. Partials
 are grouped by actual K length: 128 for complete chunks, and the remaining
@@ -120,8 +123,12 @@ range, and the pinned `device::GemmArray` reads row-major or column-major views
 directly. This applies the layout approach from merged PR #343. The shared
 chunk scheduler calls this SDK launcher and then the same balanced Triton merge.
 The SDK retains its separate FP32 multiply/add arithmetic inside each partial.
-This schedule defines the CUTLASS v6 identity. Its actual-K grouping and layouts
+This schedule defines the CUTLASS v7 identity. Its actual-K grouping and layouts
 are recorded in `backend_info()`. Long bias VJPs retain the original Triton tree.
+The forward reuses CUTLASS `LinearCombination` with source row stride zero to
+broadcast bias. It adds bias after the FP32 accumulator in the same epilogue.
+The build keeps `--fmad=false`. Tests compare this output bitwise with a separate
+GEMM followed by FP32 bias addition.
 
 Both VJP schedules cap their FP32 partial workspace at 512 MiB by chunking
 output rows. The retained midpoint helper also supports output-column chunking

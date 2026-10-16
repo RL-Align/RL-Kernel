@@ -10,6 +10,7 @@
 #include <c10/cuda/CUDAStream.h>
 #include <cuda_runtime.h>
 #include <climits>
+#include <optional>
 
 #include <cutlass/gemm/device/gemm.h>
 #include <cutlass/gemm/device/gemm_array.h>
@@ -28,7 +29,8 @@ using Gemm = cutlass::gemm::device::Gemm<
 
 constexpr int kMaxPartialK = 128;
 
-at::Tensor cutlass_gemm_fp32_tn(at::Tensor a, at::Tensor b_transposed) {
+at::Tensor cutlass_gemm_fp32_tn(
+    at::Tensor a, at::Tensor b_transposed, std::optional<at::Tensor> bias) {
   TORCH_CHECK(a.is_cuda() && b_transposed.is_cuda(), "CUTLASS GEMM requires CUDA tensors");
   TORCH_CHECK(a.device() == b_transposed.device(), "CUTLASS GEMM devices must match");
   TORCH_CHECK(a.scalar_type() == at::kFloat && b_transposed.scalar_type() == at::kFloat,
@@ -47,11 +49,19 @@ at::Tensor cutlass_gemm_fp32_tn(at::Tensor a, at::Tensor b_transposed) {
               m64 <= INT_MAX && n64 <= INT_MAX && k64 <= INT_MAX,
               "CUTLASS GEMM dimensions must be positive int32 values");
   const int m = static_cast<int>(m64), n = static_cast<int>(n64), k = static_cast<int>(k64);
+  if (bias.has_value()) {
+    TORCH_CHECK(bias->device() == a.device() && bias->scalar_type() == at::kFloat &&
+                bias->dim() == 1 && bias->size(0) == n && bias->is_contiguous(),
+                "CUTLASS GEMM bias must be a contiguous FP32 vector on the input device");
+  }
   auto output = at::empty({m, n}, a.options());
+  // A zero source row stride broadcasts bias through the SDK epilogue.
+  // --fmad=false retains the rounded FP32 GEMM followed by FP32 addition.
+  const float* source = bias.has_value() ? bias->data_ptr<float>() : output.data_ptr<float>();
   Gemm::Arguments args({m, n, k}, {a.data_ptr<float>(), k},
                        {b_transposed.data_ptr<float>(), k},
-                       {output.data_ptr<float>(), n}, {output.data_ptr<float>(), n},
-                       {1.0f, 0.0f}, 1);
+                       {source, bias.has_value() ? 0 : n}, {output.data_ptr<float>(), n},
+                       {1.0f, bias.has_value() ? 1.0f : 0.0f}, 1);
   Gemm gemm;
   auto status = gemm.can_implement(args);
   TORCH_CHECK(status == cutlass::Status::kSuccess, cutlassGetStatusString(status));

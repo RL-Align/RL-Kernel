@@ -2,8 +2,10 @@
 // Copyright (c) 2026 RL-Kernel Contributors
 
 #include <torch/extension.h>
+#include <optional>
 
-torch::Tensor cutlass_gemm_fp32_tn(torch::Tensor a, torch::Tensor b_transposed);
+torch::Tensor cutlass_gemm_fp32_tn(
+    torch::Tensor a, torch::Tensor b_transposed, std::optional<torch::Tensor> bias);
 int cutlass_cuda_version();
 void cutlass_gemm_fp32_partials_strided(
     torch::Tensor a, torch::Tensor bt, torch::Tensor workspace,
@@ -11,6 +13,7 @@ void cutlass_gemm_fp32_partials_strided(
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("gemm_fp32_tn", &cutlass_gemm_fp32_tn,
+        pybind11::arg("a"), pybind11::arg("b_transposed"), pybind11::arg("bias") = pybind11::none(),
         "Fixed FP32 SIMT GEMM: [M,K] times transposed [N,K]");
   m.def("gemm_fp32_partials_strided", &cutlass_gemm_fp32_partials_strided,
         "Evaluate one actual-K partial group directly from matrix views");
@@ -29,6 +32,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     info["vjp_chunk_k"] = 128;
     info["partial_launch"] = "cutlass_device_gemm_array";
     info["partial_operand_layout"] = "direct_strides_grouped_actual_k";
+    info["forward_bias"] = "linear_combination_broadcast_source";
     return info;
   });
 }

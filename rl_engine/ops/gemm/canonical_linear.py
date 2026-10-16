@@ -22,12 +22,12 @@ def _gemm_fp32(
         )
 
         return projection_gemm_fp32(a, b, bias=bias)
-    if bias is not None:
-        return _gemm_fp32(a, b, family) + bias
     if family == "cutlass":
         from rl_engine.backends.cuda.gemm.video_input_projection_fp32 import cutlass_gemm_fp32
 
-        return cutlass_gemm_fp32(a, b)
+        return cutlass_gemm_fp32(a, b, bias=bias)
+    if bias is not None:
+        return _gemm_fp32(a, b, family) + bias
     if family == "cuda":
         return _C.det_gemm_rowwise_fwd_fp32(a.contiguous(), b.contiguous())
     if family == "triton":

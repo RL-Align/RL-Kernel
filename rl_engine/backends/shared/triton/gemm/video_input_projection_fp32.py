@@ -32,7 +32,7 @@ def projection_gemm_fp32(a, b, *, bias=None):
 
 class TritonVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
     family = "triton_tree"
-    backend_id = "triton-video-input-projection-fp32-v6"
+    backend_id = "triton-video-input-projection-fp32-v7"
 
     def __init__(self):
         if not _TRITON_AVAILABLE:
@@ -65,7 +65,7 @@ class TritonVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
             "split_k": "fixed_128_term_vjp_chunks",
             "reduction": "fixed_128_chunks_balanced_fp32_merge",
             "vjp_chunk_k": 128,
-            "vjp_merge_tile": 16,
+            "vjp_merge_tile": 64,
             "bias_reduction": "fixed_midpoint_tree",
             "reduction_leaf_size": _BLOCK_K,
             "reduction_backend": "triton",

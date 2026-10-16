@@ -69,6 +69,7 @@ def _load_extension():
         or info.get("tree_leaf_size") != _BLOCK_K
         or info.get("vjp_chunk_k") != _FP32_CHUNK_K
         or info.get("partial_operand_layout") != "direct_strides_grouped_actual_k"
+        or info.get("forward_bias") != "linear_combination_broadcast_source"
     ):
         raise RuntimeError("CUTLASS extension does not match the strict FP32 build contract")
     return extension
@@ -110,10 +111,12 @@ def _cutlass_chunks(a, b, partial):
         _load_extension().gemm_fp32_partials_strided(a, b.t(), partial, starts, nodes, ids, length)
 
 
-def cutlass_gemm_fp32(a, b):
+def cutlass_gemm_fp32(a, b, *, bias=None):
     # The native TN interface represents mathematical B[K,N] as [N,K] storage.
     if a.shape[1] <= VIDEO_PATCH_WIDTH:
-        return _load_extension().gemm_fp32_tn(a.contiguous(), b.t().contiguous())
+        return _load_extension().gemm_fp32_tn(a.contiguous(), b.t().contiguous(), bias)
+    if bias is not None:
+        return cutlass_gemm_fp32(a, b) + bias
     if b.shape[1] == VIDEO_PATCH_WIDTH:
         return _triton_chunked_gemm_fp32(a, b, fp32_chunk_launcher=_cutlass_chunks)
     return _triton_tree_gemm(
@@ -127,7 +130,7 @@ def cutlass_gemm_fp32(a, b):
 
 class CUDAVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
     family = "cutlass"
-    backend_id = "cuda-cutlass-video-input-projection-fp32-v6"
+    backend_id = "cuda-cutlass-video-input-projection-fp32-v7"
 
     def __init__(self):
         if not _TRITON_AVAILABLE:
@@ -151,7 +154,7 @@ class CUDAVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
             "_det_gemm_kernel / _det_gemm_tree_leaf_reduce_rocm_kernel",
             "reduction": "fixed_128_chunks_balanced_fp32_merge",
             "vjp_chunk_k": _FP32_CHUNK_K,
-            "vjp_merge_tile": 16,
+            "vjp_merge_tile": 64,
             "bias_reduction": "fixed_midpoint_tree",
             "reduction_leaf_size": _BLOCK_K,
             "reduction_backend": "triton",

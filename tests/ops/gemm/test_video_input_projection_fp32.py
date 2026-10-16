@@ -326,7 +326,7 @@ def test_default_cuda_dispatch():
     from rl_engine.runtime.registry import KernelRegistry
 
     op = KernelRegistry().get_op("video_input_projection_fp32", device="cuda")
-    assert op.backend_info()["backend_id"] == "triton-video-input-projection-fp32-v6"
+    assert op.backend_info()["backend_id"] == "triton-video-input-projection-fp32-v7"
     x, weight, bias, _ = _data(3)
     with torch.no_grad():
         _assert_bytes(op(x, weight, bias), _op("triton")(x, weight, bias))
@@ -588,17 +588,25 @@ def test_shortened_fp32_leaves_preserve_padded_arithmetic(rows, k, monkeypatch):
 
 
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")
+@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("rows", [1, 17, 129])
-def test_triton_forward_bias_fusion_preserves_fp32_rounding(rows):
+def test_forward_bias_fusion_preserves_fp32_rounding(backend, rows):
     from rl_engine.backends.shared.triton.gemm.det_gemm import _triton_gemm_fp32
 
     x, weight, bias, _ = _data(rows)
-    rhs = weight.t().contiguous()
-    expected = _triton_gemm_fp32(x, rhs) + bias
-    actual = _triton_gemm_fp32(x, rhs, bias=bias)
+    if backend == "cuda":
+        from rl_engine.backends.cuda.gemm.video_input_projection_fp32 import cutlass_gemm_fp32
+
+        gemm = cutlass_gemm_fp32
+        rhs = weight.t()
+    else:
+        gemm = _triton_gemm_fp32
+        rhs = weight.t().contiguous()
+    expected = gemm(x, rhs) + bias
+    actual = gemm(x, rhs, bias=bias)
     _assert_bytes(actual, expected)
     with torch.no_grad():
-        _assert_bytes(_op("triton")(x, weight, bias), expected)
+        _assert_bytes(_op(backend)(x, weight, bias), expected)
 
 
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")

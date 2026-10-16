@@ -5,7 +5,9 @@ from typing import Any
 
 import torch
 
-def gemm_fp32_tn(a: torch.Tensor, b_transposed: torch.Tensor) -> torch.Tensor: ...
+def gemm_fp32_tn(
+    a: torch.Tensor, b_transposed: torch.Tensor, bias: torch.Tensor | None = None
+) -> torch.Tensor: ...
 def gemm_fp32_partials_strided(
     a: torch.Tensor,
     b_transposed: torch.Tensor,
