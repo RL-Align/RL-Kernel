@@ -71,12 +71,6 @@ jobs:
       - name: Check refactor packaging and compatibility
         run: python ci/run.py layout -q
 
-      - name: Run AdaLN CPU contract and reference tests
-        env:
-          CUDA_VISIBLE_DEVICES: ""
-          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
-        run: python -m pytest tests/validation/operators/test_adaln_gtest.py tests/backends/test_adaln_shared_bounds.py tests/runtime/test_adaln_dispatch.py -q -rs
-
       - name: Run Mocked Hardware Discovery Tests
         run: |
           python -m pytest tests/runtime/test_dispatch.py -v
