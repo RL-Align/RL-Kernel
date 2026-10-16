@@ -54,8 +54,20 @@ all reference/checkpoint hashes, and runs block-0 golden tests without skips bef
 full-model forward/backward. It requires calls to every candidate graph node in
 every block and rejects CUDA backend fallback. The comparator orders first drift
 by actual forward/backward execution. Only a passing numerical comparison permits
-preflight and full three-seed candidate generation. Each job uses one B200 and
-about 512 GB of host memory.
+the generation preflight (the end of `candidate.sbatch`) and full generation.
+
+Full candidate generation is its own job. With the candidate attention it takes
+about 20 hours per seed (about 1500 s per sampling step), longer than the three
+seeds fit in one 24-hour job, and a preemptible partition can evict a job every few
+hours. `generation.sbatch` therefore runs one seed per array task (`--array=0-2`)
+and `h3_full_generation --resume` continues after an eviction: the saved step
+velocities are replayed instead of recomputed, every replayed call's inputs are
+checked against their saved digest, and the last saved step is recomputed and must
+reproduce its stored output bitwise (`h3_generation_resume.py`). The task refuses
+to start unless the gates of `candidate.sbatch` passed for the same commit
+(`<gate job id>` argument). After all seeds finish, `generation-compare.sbatch`
+runs the quality comparison. Each GPU job uses one B200 and about 512 GB of host
+memory.
 
 Outstanding: candidate backward qualification, three-seed candidate generation
 and quality acceptance. No passed candidate result is claimed by CPU tests.

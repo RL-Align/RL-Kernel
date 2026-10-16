@@ -1,10 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""Pinned three-seed FL2VA generation evidence for the full H3 candidate stack."""
+"""Pinned three-seed FL2VA generation evidence for the full H3 candidate stack.
+
+A candidate seed takes about 20 hours and its partition preempts jobs, so a seed can be
+run on its own (``--seeds``) and continued after a preemption (``--resume``): saved steps
+are replayed from disk and verified (see ``h3_generation_resume``), never recomputed.
+"""
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -14,6 +21,7 @@ import torch
 
 from rl_engine.validation.models.h3_block import CandidateOps
 from rl_engine.validation.models.h3_full_model import FullModelTrace, full_model_execution
+from rl_engine.validation.models.h3_generation_resume import ResumableRun, StepStore
 from tools.validation.models.h3_full_model import digest, verify_checkpoint
 
 
@@ -39,16 +47,34 @@ def main():
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--candidate", action="store_true")
     p.add_argument("--preflight", action="store_true")
+    p.add_argument(
+        "--seeds", help="comma list of contract seeds to run (default: all; preflight: first)"
+    )
+    p.add_argument(
+        "--resume",
+        action="store_true",
+        help="continue a preempted run in --output: skip finished seeds, replay saved steps",
+    )
+    p.add_argument("--preflight-steps", type=int, help="test only: preflight num_inference_steps")
+    p.add_argument(
+        "--stop-after-step", type=int, help="test only: raise after N calls (preemption)"
+    )
     args = p.parse_args()
-    args.output.mkdir(parents=True, exist_ok=False)
+    if args.preflight_steps is not None and not args.preflight:
+        p.error("--preflight-steps applies to --preflight only")
+    args.output.mkdir(parents=True, exist_ok=args.resume)
+    stale = args.output / failure_name(args.seeds)
+    if args.resume and stale.exists():
+        # A failure of an earlier attempt is kept, not overwritten or hidden.
+        stale.rename(args.output / f"{stale.stem}-{int(time.time())}.json")
     source = Path(__file__).resolve().parents[3]
     config_root = source / "examples/models/minimax_h3"
     contract = json.loads((config_root / "generation-contract.json").read_text())
-    identity = json.loads((config_root / "generation-inputs.json").read_text())
+    identity_inputs = json.loads((config_root / "generation-inputs.json").read_text())
     prompt = config_root / "generation-prompt.txt"
     if (
-        digest(prompt) != identity["prompt_sha256"]
-        or digest(args.reference_image) != identity["image_sha256"]
+        digest(prompt) != identity_inputs["prompt_sha256"]
+        or digest(args.reference_image) != identity_inputs["image_sha256"]
     ):
         raise ValueError("fixed prompt/reference input identity changed")
     if subprocess.check_output(["git", "status", "--porcelain"], text=True).strip():
@@ -111,30 +137,56 @@ def main():
         ops = CandidateOps()
         ops.attention = QueryChunkAttention(ops.attention, contract["attention_query_chunk"])
     settings = contract["preflight"] if args.preflight else contract
+    if args.preflight_steps is not None:
+        settings = dict(settings, num_inference_steps=args.preflight_steps)
     seeds = contract["seeds"][:1] if args.preflight else contract["seeds"]
+    if args.seeds:
+        seeds = [int(s) for s in args.seeds.split(",")]
+        if not set(seeds) <= set(contract["seeds"]):
+            raise ValueError(f"seeds {seeds} are not all in the contract {contract['seeds']}")
+    from diffusers.models.transformers.transformer_minimax_h3 import MiniMaxH3TransformerOutput
+
+    def make_output(values, kwargs):
+        if kwargs.get("return_dict", True):
+            return MiniMaxH3TransformerOutput(sample=values[0], audio_sample=values[1])
+        return values
+
     for seed in seeds:
         directory = args.output / str(seed)
-        directory.mkdir()
+        if args.resume and (directory / "report.json").exists():
+            print(f"seed {seed} already complete; skipping", flush=True)
+            continue
+        identity = dict(
+            commit=subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+            contract_sha256=digest(config_root / "generation-contract.json"),
+            image_sha256=identity_inputs["image_sha256"],
+            prompt_sha256=identity_inputs["prompt_sha256"],
+            candidate=args.candidate,
+            preflight=args.preflight,
+            seed=seed,
+            settings={k: settings[k] for k in ("num_frames", "height", "width")}
+            | {"num_inference_steps": settings["num_inference_steps"]},
+        )
+        run = ResumableRun(StepStore(directory), identity, resume=args.resume)
         trace = FullModelTrace()
-        step = 0
         initial = {}
 
-        def capture(module, positional, kwargs, output):
-            nonlocal step
+        def capture(module, positional, kwargs, output, run=run, directory=directory):
             # Preserve the complete first packed denoiser input to prove identical
             # noise and conditioning, then retain every step's predicted velocities.
-            if step == 0:
+            values = (output.sample, output.audio_sample) if hasattr(output, "sample") else output
+            if run.saved == 0 and run.recorded == 0:
                 initial.update(
                     {k: v.detach().cpu() for k, v in kwargs.items() if isinstance(v, torch.Tensor)}
                 )
-                torch.save(initial, directory / "initial.pt")
-            values = (output.sample, output.audio_sample) if hasattr(output, "sample") else output
-            torch.save(
-                tuple(v.detach().cpu() for v in values),
-                directory / f"step-{step:03}.pt",
-            )
-            step += 1
+                tmp = directory / "initial.pt.tmp"
+                torch.save(initial, tmp)
+                os.replace(tmp, directory / "initial.pt")
+            run.record(positional, kwargs, tuple(values))
+            if args.stop_after_step is not None and run.recorded >= args.stop_after_step:
+                raise KeyboardInterrupt(f"simulated preemption after {run.recorded} calls")
 
+        uninstall = run.install(pipe.transformer, make_output)
         handle = pipe.transformer.register_forward_hook(capture, with_kwargs=True)
         started = time.perf_counter()
         try:
@@ -157,6 +209,7 @@ def main():
                 )
         finally:
             handle.remove()
+            uninstall()
         video = np.asarray(result["videos"][0])
         audio = result["audio"][0].detach().cpu().numpy()
         if video.shape != (
@@ -199,7 +252,8 @@ def main():
             seed=seed,
             preflight=args.preflight,
             trace=trace.validate(),
-            steps=step,
+            steps=run.recorded,
+            resume=run.summary(),
             seconds=time.perf_counter() - started,
             peak_allocated_bytes=torch.cuda.max_memory_allocated(),
             contract_sha256=digest(config_root / "generation-contract.json"),
@@ -210,6 +264,12 @@ def main():
         (directory / "report.json").write_text(json.dumps(report, indent=2) + "\n")
 
 
+def failure_name(seeds):
+    """Failure marker name: per seed selection, so parallel seed tasks do not collide."""
+
+    return "failure.json" if not seeds else f"failure-seeds-{seeds.replace(',', '-')}.json"
+
+
 if __name__ == "__main__":
     try:
         main()
@@ -218,8 +278,16 @@ if __name__ == "__main__":
 
         if "--output" in sys.argv:
             directory = Path(sys.argv[sys.argv.index("--output") + 1])
-            if directory.exists() and not (directory / "failure.json").exists():
-                (directory / "failure.json").write_text(
-                    json.dumps({"status": "failed", "error": f"{type(exc).__name__}: {exc}"})
+            seeds = sys.argv[sys.argv.index("--seeds") + 1] if "--seeds" in sys.argv else None
+            marker = directory / failure_name(seeds)
+            if directory.exists() and not marker.exists():
+                marker.write_text(
+                    json.dumps(
+                        {
+                            "status": "failed",
+                            "error": f"{type(exc).__name__}: {exc}",
+                            "when": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        }
+                    )
                 )
         raise
