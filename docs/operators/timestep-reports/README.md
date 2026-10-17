@@ -34,11 +34,15 @@ microbatch gradients are outside that guarantee.
 - [SHA256SUMS](evidence/SHA256SUMS): checksums of these consolidated JSON files.
 
 Each bundle has an `artifacts` map keyed by the original artifact filename.
-For `format: json`, `content` is the original parsed JSON; for `format: text`,
-it is the unmodified text. `original_sha256` identifies the original file bytes,
-not the reserialized JSON. Paths within results and logs describe the original
-run and are not links to files in this reduced checkout. Values, error metrics,
-timing samples, traces and source hashes have not been recomputed or changed.
+For `format: json`, `content` contains parsed JSON; for `format: text`, it
+contains text. The A100 bundle is a sanitized derivative: private execution
+roots in ten strings were replaced with `${EVIDENCE_ROOT}` and `${REPO_ROOT}`.
+Its `provenance` records the original bundle SHA256, source commit and path.
+The original bundle is preserved separately outside the submission. Per-artifact
+`original_sha256` values still identify the original file bytes, not sanitized
+or reserialized content. The H100 bundle is byte-for-byte unchanged.
+All other original values, error metrics, timing samples, failures, traces,
+artifact names and source hashes are unchanged. No GPU computation was rerun.
 Redundant development reports, local diagnostics and intermediate GPU matrices
 were removed. Full pre-consolidation artifacts remain in Git commit
 `7f5b0c33c5f29683909e47017383036eec162f2f`.
@@ -160,6 +164,7 @@ The acceptance script and reproduction commands use the relocated test paths.
 
 Local integration validation passed 94 tests, including reference finite
 differences, input registration, build configuration, layout compatibility,
-and GPU edge cases on a GeForce GTX 1650 Ti (sm75). The CUDA/Triton operator
-sources and the A100/H100 evidence bundles are unchanged. This integration
+and GPU edge cases on a GeForce GTX 1650 Ti (sm75). At that integration revision,
+the CUDA/Triton operator sources and the A100/H100 evidence bundles were unchanged. The subsequent
+path sanitization described above changes only the A100 derivative. This integration
 check is not a new A100 or H100 production acceptance run.

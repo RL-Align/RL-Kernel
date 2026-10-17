@@ -31,7 +31,7 @@ frequency-fingerprint gates.
 
 ## Accuracy and deterministic layouts
 
-The operator is registered in `gtest/operator_specs.py` with `op_class="reduction"`
+The operator is registered in `rl_engine/validation/operators/operator_specs.py` with `op_class="reduction"`
 and all five differentiable inputs. The unchanged shared contract resolves forward
 and gradient accuracy independently. The independent gold uses pure PyTorch FP32
 compensated product sums and explicit linear VJPs, plus torch sigmoid autograd.
