@@ -16,7 +16,7 @@ export RL_KERNEL_REQUIRE_EXT=1
 export RL_KERNEL_DET_GEMM_BACKEND=sm90
 export MAX_JOBS="${MAX_JOBS:-8}"
 export PYTHONUNBUFFERED=1
-# SSH non-login shells in Runpod's development images may omit the toolkit PATH.
+# Non-login development shells may omit the CUDA toolkit from PATH.
 if ! command -v nvcc >/dev/null 2>&1 && [[ -x "${CUDA_HOME:-/usr/local/cuda}/bin/nvcc" ]]; then
     export CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
     export PATH="$CUDA_HOME/bin:$PATH"
