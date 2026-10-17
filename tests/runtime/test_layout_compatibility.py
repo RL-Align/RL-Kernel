@@ -93,7 +93,7 @@ def test_unimplemented_models_do_not_register_backends():
     from rl_engine.runtime.registry import kernel_registry
 
     before = dict(vars(kernel_registry))
-    for name in ("deepseek_v4", "gemma", "minimax_h3"):
+    for name in ("deepseek_v4", "minimax_h3"):
         module = importlib.import_module(f"rl_engine.models.{name}")
         assert not any(not key.startswith("_") for key in vars(module))
     assert vars(kernel_registry) == before

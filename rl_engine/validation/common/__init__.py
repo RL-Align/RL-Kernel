@@ -18,6 +18,12 @@ from rl_engine.config.workload import (
     restore_logical_order,
     restore_logical_order_from_padded,
 )
+from rl_engine.models.gemma.gemma4_operator_trace import NO_BACKEND_KINDS as GEMMA4_NO_BACKEND_KINDS
+from rl_engine.models.gemma.gemma4_operator_trace import NODE_KINDS as GEMMA4_NODE_KINDS
+from rl_engine.models.gemma.gemma4_operator_trace import Gemma4Spec
+from rl_engine.models.gemma.gemma4_workload import Gemma4Manifest, Gemma4WorkloadError
+from rl_engine.models.gemma.gemma4_workload import load_manifest as load_gemma4_manifest
+from rl_engine.models.gemma.gemma4_workload import reference_payload as gemma4_reference_payload
 from rl_engine.reference.definitions import (
     active_token_count,
     compute_policy_ratio,
@@ -61,6 +67,13 @@ from rl_engine.validation.common.rl_batch import (
 )
 
 __all__ = [
+    "GEMMA4_NODE_KINDS",
+    "GEMMA4_NO_BACKEND_KINDS",
+    "Gemma4Manifest",
+    "Gemma4Spec",
+    "Gemma4WorkloadError",
+    "gemma4_reference_payload",
+    "load_gemma4_manifest",
     "AttentionComparisonInputs",
     "AttentionComparisonReport",
     "AttentionPathDrift",

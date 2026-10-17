@@ -61,6 +61,9 @@ follow_imports = "silent"
 testpaths = ["tests"]
 norecursedirs = [".git", ".venv", "site", "dist", "artifacts", "*.egg-info"]
 markers = [
+    "softcap_accuracy: independent FP32/autograd accuracy and softcapped operator API checks",
+    "softcap_consistency: fixed arithmetic, raw-bit strategy and train/inference consistency",
+    "softcap_math: independent FP64 softcapped mathematical diagnostics",
     "smoke_operator: temporary smoke-only operator plumbing tests",
     "unit: CPU-safe unit tests",
     "ws1: single-device operator and model-chain acceptance",
