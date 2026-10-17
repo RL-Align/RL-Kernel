@@ -42,7 +42,6 @@ class _Use:
     contribution: object | None = None
     rows: torch.Tensor | None = None
     grads: torch.Tensor | None = None
-    reuse_canonical_order: bool = False
 
 
 @dataclass
@@ -63,7 +62,6 @@ class CanonicalBackwardSession:
         keys: torch.Tensor,
         *,
         contribution: object | None = None,
-        reuse_canonical_order: bool = False,
     ) -> int:
         if self.backward_started:
             raise RuntimeError("cannot register canonical rows after backward started")
@@ -74,7 +72,6 @@ class CanonicalBackwardSession:
             _Use(
                 keys=keys.detach(),
                 contribution=contribution,
-                reuse_canonical_order=reuse_canonical_order,
             )
         )
         return slot
@@ -106,7 +103,8 @@ class CanonicalBackwardSession:
         keys = self._concatenate([item.keys for item in entries])
         reuse_order = (
             keys.shape[0] >= _CANONICAL_ORDER_REUSE_MIN_ROWS
-            and all(item.reuse_canonical_order for item in entries)
+            and keys.device.type == "cuda"
+            and torch.version.hip is None
             and _keys_are_canonical(keys)
         )
         if reuse_order:

@@ -13,11 +13,15 @@ def test_video_input_projection_default_and_strict_scope():
         OpBackend.TRITON_VIDEO_INPUT_PROJECTION_FP32
     ]
     desc = registry.semantic.backend_descriptor(
-        "video_input_projection_fp32", "triton-video-input-projection-fp32-v8"
+        "video_input_projection_fp32", "triton-video-input-projection-fp32-v9"
     )
     assert desc.supported_devices == frozenset({"cuda"})
     assert desc.supported_dtypes == frozenset({"float32"})
     assert desc.determinism_or_alignment_properties["vjp_tile"] == (128, 32, 32)
+    assert (
+        desc.determinism_or_alignment_properties["canonical_rows"]
+        == "live_strict_order_proof_or_stable_sort"
+    )
     with pytest.raises(RuntimeError, match="SM90"):
         registry.get_op("video_input_projection_fp32", device="cpu")
 

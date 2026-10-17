@@ -54,7 +54,6 @@ class _CanonicalLinearFn(torch.autograd.Function):
         bias,
         bias_parameter_id,
         matmul_op,
-        reuse_canonical_order,
     ):
         session = active_session()
         parameter_grad = ctx.needs_input_grad[1] or ctx.needs_input_grad[5]
@@ -73,22 +72,12 @@ class _CanonicalLinearFn(torch.autograd.Function):
         ctx.bias_dtype = bias.dtype if bias is not None else None
         contribution = object() if ctx.needs_input_grad[1] and ctx.needs_input_grad[5] else None
         ctx.slot = (
-            session.register(
-                ctx.parameter_id,
-                logical_keys,
-                contribution=contribution,
-                reuse_canonical_order=reuse_canonical_order,
-            )
+            session.register(ctx.parameter_id, logical_keys, contribution=contribution)
             if ctx.needs_input_grad[1]
             else None
         )
         ctx.bias_slot = (
-            session.register(
-                ctx.bias_parameter_id,
-                logical_keys,
-                contribution=contribution,
-                reuse_canonical_order=reuse_canonical_order,
-            )
+            session.register(ctx.bias_parameter_id, logical_keys, contribution=contribution)
             if ctx.needs_input_grad[5]
             else None
         )
@@ -159,7 +148,7 @@ class _CanonicalLinearFn(torch.autograd.Function):
                 impl="ascend_det_gemm_canonical_rowfold",
                 family="ascend",
             )
-        return da, dweight, None, None, None, dbias, None, None, None
+        return da, dweight, None, None, None, dbias, None, None
 
 
 def canonical_linear_fp32(
@@ -172,13 +161,12 @@ def canonical_linear_fp32(
     bias: torch.Tensor | None = None,
     bias_parameter_id: str | None = None,
     matmul_op: Callable[..., torch.Tensor] | None = None,
-    reuse_canonical_order: bool = False,
 ) -> torch.Tensor:
     """Apply a canonical linear using the default backend or an FP32 matmul callable.
 
     A custom matmul handles input strides and accepts ``bias=`` when bias is
-    supplied. The same callable computes forward, dX, dW, and dbias. Canonical
-    order reuse requests a runtime proof before skipping stable sorting.
+    supplied. The same callable computes forward, dX, dW, and dbias. Parameter
+    gradients reuse the canonical session's stable logical-row sorting.
     """
     return _CanonicalLinearFn.apply(
         a,
@@ -189,7 +177,6 @@ def canonical_linear_fp32(
         bias,
         bias_parameter_id if bias_parameter_id is not None else f"{parameter_id}.bias",
         matmul_op,
-        reuse_canonical_order,
     )
 
 

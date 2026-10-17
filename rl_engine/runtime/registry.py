@@ -241,7 +241,7 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
         ),
         OperatorBackendDescriptor(
             semantic_op="video_input_projection_fp32",
-            backend_id="triton-video-input-projection-fp32-v8",
+            backend_id="triton-video-input-projection-fp32-v9",
             supported_targets=frozenset({"rollout", "training"}),
             supported_devices=frozenset({"cuda"}),
             supported_dtypes=frozenset({"float32"}),
@@ -277,7 +277,7 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             fallback_policy=OperatorFallbackPolicy.ERROR,
             version_or_build_fingerprint=(
                 "rlkernel-triton-ieee-fp32-dot-chunk128-tile128x32-merge64-"
-                "strided-aligned-forward-reg96-canonical-proof-h3-v8"
+                "strided-aligned-forward-reg96-auto-canonical-proof-h3-v9"
             ),
         ),
         OperatorBackendDescriptor(

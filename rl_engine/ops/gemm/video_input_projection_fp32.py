@@ -75,7 +75,6 @@ class VideoInputProjectionFP32Op:
     family: str
     backend_id: str
     matmul_op: Callable[..., torch.Tensor] | None = None
-    reuse_canonical_order: bool = False
 
     def _check_backend(self, x):
         raise NotImplementedError
@@ -107,7 +106,6 @@ class VideoInputProjectionFP32Op:
                 bias=bias,
                 bias_parameter_id=f"{parameter_id}.bias",
                 matmul_op=self.matmul_op,
-                reuse_canonical_order=self.reuse_canonical_order,
             )
         else:
             output = _gemm_fp32(

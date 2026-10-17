@@ -61,14 +61,14 @@ def test_canonical_order_proof_preserves_stable_normalization(key_rows, device, 
     assert _keys_are_canonical(keys) == strict
     if not strict:
         assert not _keys_are_canonical(keys)
-    else:
+    elif device == "cuda":
 
         def unexpected_sort(*args, **kwargs):
             raise AssertionError("canonical keys must reuse their physical order")
 
         monkeypatch.setattr(torch, "argsort", unexpected_sort)
     session = CanonicalBackwardSession()
-    session.register("weight", keys, reuse_canonical_order=True)
+    session.register("weight", keys)
     order, actual = session._normalize("weight", [values])
     expected = values.index_select(
         0, torch.tensor(expected_order, dtype=torch.int64, device=device)
@@ -78,7 +78,7 @@ def test_canonical_order_proof_preserves_stable_normalization(key_rows, device, 
     assert actual.is_contiguous()
 
 
-def test_canonical_order_proof_is_recomputed_after_key_changes(monkeypatch):
+def test_canonical_normalization_reads_changed_keys(monkeypatch):
     from rl_engine.ops.autograd.canonical_backward import CanonicalBackwardSession
 
     monkeypatch.setattr(
@@ -87,7 +87,7 @@ def test_canonical_order_proof_is_recomputed_after_key_changes(monkeypatch):
     keys = torch.tensor([[0, 0], [0, 1]], dtype=torch.int64)
     values = torch.tensor([[1.0], [2.0]])
     session = CanonicalBackwardSession()
-    session.register("weight", keys, reuse_canonical_order=True)
+    session.register("weight", keys)
     _, first = session._normalize("weight", [values])
     keys.copy_(keys.flip(0))
     _, second = session._normalize("weight", [values])
@@ -95,7 +95,7 @@ def test_canonical_order_proof_is_recomputed_after_key_changes(monkeypatch):
     assert torch.equal(second, values.flip(0))
 
 
-def test_canonical_order_reuse_requires_explicit_registration(monkeypatch):
+def test_cpu_callers_retain_stable_normalization(monkeypatch):
     from rl_engine.ops.autograd import canonical_backward as canonical
 
     def unexpected_proof(keys):
@@ -122,7 +122,7 @@ def test_small_canonical_uses_retain_stable_normalization(monkeypatch):
     session = canonical.CanonicalBackwardSession()
     keys = torch.tensor([[0, 0], [0, 1]], dtype=torch.int64)
     values = torch.tensor([[1.0], [2.0]])
-    session.register("weight", keys, reuse_canonical_order=True)
+    session.register("weight", keys)
     order, actual = session._normalize("weight", [values])
     assert order.tolist() == [0, 1]
     assert torch.equal(actual, values)
@@ -214,8 +214,7 @@ def test_canonical_linear_bias_and_legacy_call(with_bias):
 
 
 @pytest.mark.parametrize("with_bias", [False, True])
-@pytest.mark.parametrize("reuse_order", [False, True])
-def test_canonical_linear_custom_matmul_covers_all_vjps(with_bias, reuse_order, monkeypatch):
+def test_canonical_linear_custom_matmul_covers_all_vjps(with_bias, monkeypatch):
     from rl_engine.ops.autograd.backward_runtime import (
         reset_backward_runtime,
         snapshot_backward_runtime,
@@ -231,7 +230,7 @@ def test_canonical_linear_custom_matmul_covers_all_vjps(with_bias, reuse_order, 
     original_register = CanonicalBackwardSession.register
 
     def register(self, parameter_id, keys, **kwargs):
-        registrations.append(kwargs["reuse_canonical_order"])
+        registrations.append(parameter_id)
         return original_register(self, parameter_id, keys, **kwargs)
 
     def gemm(a, b, *, bias=None):
@@ -255,7 +254,6 @@ def test_canonical_linear_custom_matmul_covers_all_vjps(with_bias, reuse_order, 
                 family="pytorch",
                 bias=bias,
                 matmul_op=matmul_op,
-                reuse_canonical_order=reuse_order,
             )
             y.backward(grad)
             session.validate_complete()
@@ -270,7 +268,7 @@ def test_canonical_linear_custom_matmul_covers_all_vjps(with_bias, reuse_order, 
         assert calls[0][3] == with_bias
         assert all(not call[3] for call in calls[1:])
         assert calls[2][2] == 1
-        assert registrations == [reuse_order] * (2 if with_bias else 1)
+        assert registrations == (["weight", "weight.bias"] if with_bias else ["weight"])
         provenance = snapshot_backward_runtime()["det_gemm"]
         assert provenance["kernel_id"] == f"{matmul_op.__module__}.{matmul_op.__qualname__}"
         assert provenance["family"] == "pytorch"
@@ -323,7 +321,6 @@ def test_video_projection_declares_backend_and_matmul_separately():
 
     assert TritonVideoInputProjectionFP32Op.family == "triton"
     assert TritonVideoInputProjectionFP32Op.matmul_op is projection_gemm_fp32
-    assert TritonVideoInputProjectionFP32Op.reuse_canonical_order
 
 
 def test_input_gradient_without_parameter_session():
@@ -531,7 +528,7 @@ def test_default_cuda_dispatch():
     from rl_engine.runtime.registry import KernelRegistry
 
     op = KernelRegistry().get_op("video_input_projection_fp32", device="cuda")
-    assert op.backend_info()["backend_id"] == "triton-video-input-projection-fp32-v8"
+    assert op.backend_info()["backend_id"] == "triton-video-input-projection-fp32-v9"
     x, weight, bias, _ = _data(3)
     with torch.no_grad():
         _assert_bytes(op(x, weight, bias), _op()(x, weight, bias))

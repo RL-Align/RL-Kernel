@@ -37,8 +37,7 @@ def projection_gemm_fp32(a, b, *, bias=None):
 class TritonVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
     family = "triton"
     matmul_op = staticmethod(projection_gemm_fp32)
-    reuse_canonical_order = True
-    backend_id = "triton-video-input-projection-fp32-v8"
+    backend_id = "triton-video-input-projection-fp32-v9"
 
     def __init__(self):
         if not _TRITON_AVAILABLE:
