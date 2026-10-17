@@ -32,6 +32,18 @@ def _load_object(path: str) -> Any:
 
 
 OP_SPECS = {
+    "timestep_embed_mlp": OperatorSpec(
+        name="timestep_embed_mlp",
+        op_class="reduction",
+        gold_path="rl_engine.kernels.ops.pytorch.timestep_embed_mlp.NativeTimestepEmbedMLPOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.kernels.ops.pytorch.timestep_embed_mlp.NativeTimestepEmbedMLPOp",
+            "cuda": "rl_engine.kernels.ops.cuda.timestep_embed_mlp.CudaTimestepEmbedMLPOp",
+            "triton": "rl_engine.kernels.ops.triton.timestep_embed_mlp.TritonTimestepEmbedMLPOp",
+        },
+        grad_input_names=("timestep", "weight1", "bias1", "weight2", "bias2"),
+    ),
     "rms_norm": OperatorSpec(
         name="rms_norm",
         op_class="reduction",
