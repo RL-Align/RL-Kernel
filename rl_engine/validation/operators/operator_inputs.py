@@ -28,6 +28,7 @@ def make_operator_inputs(
         "rms_norm": _make_rms_norm_inputs,
         "qk_norm": _make_qk_norm_inputs,
         "pack": _make_pack_inputs,
+        "video_patch_pack_unpack": _make_video_patch_pack_unpack_inputs,
         "matmul": _make_matmul_inputs,
         "det_gemm": _make_det_gemm_inputs,
         "attention": _make_attention_inputs,
@@ -50,6 +51,9 @@ def make_operator_inputs(
 
 
 def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
+    if op_name == "video_patch_pack_unpack":
+        shape = "x".join(str(dim) for dim in _video_patch_shape(args))
+        return f"{_arg_str(args, 'patch_direction', 'pack')}-{shape}"
     batch, seq = _batch_seq(args)
     vocab = _arg_int(args, "vocab", DEFAULT_VOCAB)
     names = {
@@ -120,6 +124,39 @@ def _make_pack_inputs(
         mask = torch.randint(0, 2, (batch, seq), generator=generator, device=device) > 0
         mask[:, 0] = True
     return {"x": x, "mask": mask}
+
+
+def _video_patch_shape(args: argparse.Namespace) -> tuple[int, int, int, int, int]:
+    return (
+        _arg_int(args, "batch", 2),
+        24,
+        _arg_int(args, "frames", 3),
+        _arg_int(args, "height", 6),
+        _arg_int(args, "width", 10),
+    )
+
+
+def _make_video_patch_pack_unpack_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    shape = _video_patch_shape(args)
+    batch, channels, frames, height, width = shape
+    if min(batch, frames, height, width) < 1 or height % 2 or width % 2:
+        raise ValueError("video patch inputs require positive dimensions and even H/W")
+    direction = _arg_str(args, "patch_direction", "pack")
+    if direction not in ("pack", "unpack"):
+        raise ValueError(f"unsupported video patch direction: {direction}")
+    # Generate tokens independently; a pack/unpack round trip can hide order bugs.
+    input_shape = (
+        (batch, frames * (height // 2) * (width // 2), channels * 4)
+        if direction == "unpack"
+        else shape
+    )
+    return {
+        "x": _floating_tensor(input_shape, args, dtype, device, offset=0),
+        "shape": shape,
+        "unpack": direction == "unpack",
+    }
 
 
 def _make_matmul_inputs(

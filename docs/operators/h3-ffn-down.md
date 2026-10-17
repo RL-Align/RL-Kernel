@@ -117,7 +117,7 @@ canonical autograd session or full dW invariance matrix. It remains prior art.
 
 ## Core JSON evidence
 
-Only the following measured JSON files accompany this document:
+The following sanitized historical JSON bundles accompany this document:
 
 - [Summary, fixture, tests and rejected native candidate](evidence/h3-down-h100-20261010/h100-summary.json).
 - Full matrix: [random](evidence/h3-down-h100-20261010/h100-random.json),
@@ -125,13 +125,13 @@ Only the following measured JSON files accompany this document:
   [cancellation](evidence/h3-down-h100-20261010/h100-cancellation.json).
 - [Cold-cache/compiler replay and vLLM comparison](evidence/h3-down-h100-20261010/h100-replays.json).
 
-The split matrix is lossless: combine the three `cases` arrays with the summary's
+Read each report from `artifacts[filename].content`. The split matrix is lossless: combine the three `cases` arrays with the summary's
 `fixture_cases`, sort by their `case_indexes` / `fixture_case_indexes`, and attach
-`full_report_header`. That reproduces the original measured report exactly.
+`full_report_header`. That reproduces the measured report with portable execution paths.
 Every file is below the repository's 500 KiB pre-commit limit. JSON retains all
 checks, tolerances, timing samples, peak memory, output hashes, compiled-kernel
 identities and source fingerprints. Original logs, PNG/CSV, source snapshots,
-archives and rental details remain local and are excluded from the PR.
+archives and original execution metadata remain local and are excluded from the PR.
 
 GPU reports identify the measured source. Subsequent Black/isort formatting
 is recorded separately with original/current hashes, unchanged non-import AST
@@ -142,11 +142,32 @@ packages and registers the test-only descriptor in `rl_engine.runtime.registry`.
 New reports hash the actual canonical device kernel, autograd runtime and registry;
 compatibility shims are not used as implementation fingerprints. The device
 function and operator/session non-import AST are unchanged from the submitted
-candidate. All five measured JSON files remain byte-for-byte unchanged. Local
+candidate. The original five measured JSON files were preserved unchanged outside the submission.
+Each submitted bundle records its original SHA256 and source commit; only concrete
+execution paths were replaced with portable placeholders. All measurements, failures
+and limitations are retained. `SHA256SUMS` pins the sanitized bundles. Local
 post-merge regression passed **101 tests**, with **3 SM90-only tests skipped**;
 the upstream layout/build suite additionally passed **32 tests** with **1 skipped**.
 No GPU rerun after the directory merge is claimed. GitHub Actions CPU/GPU workflows
 do not target `test-h3`; local checks and archived H100 runs are separate evidence.
+
+The subsequent merge of `test-h3@0e8a18a` retains both the H3 down projection
+and upstream video packing registry descriptors. H3 operator, adapter, device
+kernel and autograd implementations are unchanged from the previous PR head.
+Local regression after this conflict resolution passed **156 tests**, with
+**3 SM90-only tests skipped** on a machine without a usable GPU. The plotting
+check passed after installing its missing local dependencies. Reproduce the suite:
+
+```bash
+python -m pytest -q tests/ops/gemm/test_h3_ffn_down.py \
+  tests/validation/operators/test_h3_down_fixture.py \
+  tests/validation/operators/test_h3_down_tooling.py \
+  tests/runtime/test_kernel_registry.py tests/runtime/test_layout_compatibility.py \
+  tests/build/test_build_platform_collectives.py \
+  tests/ops/packing/test_video_patch_pack_unpack.py
+```
+
+No new GPU validation is claimed for this registry conflict resolution.
 
 ## Reproduction and remaining qualification
 
@@ -157,12 +178,12 @@ python3.10 -m venv .venv
 source .venv/bin/activate
 python -m pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124
 python -m pip install -r scripts/requirements-h3-down.txt
-python scripts/prepare_h3_down_fixture.py --rows 129 --output /workspace/h3-down-fixture.pt
-H3_FIXTURE=/workspace/h3-down-fixture.pt bash scripts/run_h3_down_h100.sh smoke
+python scripts/prepare_h3_down_fixture.py --rows 129 --output ${FIXTURE_ROOT}/h3-down-fixture.pt
+H3_FIXTURE=${FIXTURE_ROOT}/h3-down-fixture.pt bash scripts/run_h3_down_h100.sh smoke
 python scripts/validate_h3_ffn_down.py --seed 420 --repeats 5 \
   --rows 1,31,32,33,127,128,129,256,513,1024,2048,4096,8192,16385,24577,32768 \
   --families random,swiglu_like,cancellation \
-  --fixture /workspace/h3-down-fixture.pt --output /tmp/h3-down-full.json
+  --fixture ${FIXTURE_ROOT}/h3-down-fixture.pt --output /tmp/h3-down-full.json
 ```
 
 The default needs Triton, not the native extension. `H3_BUILD_NATIVE=1` optionally
