@@ -78,9 +78,11 @@ temperature/top-p `0.7/0.95`, `1/1`, `1.3/0.8`. Top-k was disabled, response cap
 evidence JSON. Runs used evolving development revisions with frozen before/after
 fingerprints, so passes do not all refer to one identical final source tree.
 
-See the CUDA records (`evidence/pr432-20260919/cuda-existing.json`),
-ROCm records (`evidence/pr432-20260919/rocm-existing.json`), and the
-cross-configuration comparison (`evidence/pr432-20260919/cross-configuration.json`).
+The audit originally referenced `cuda-existing.json`, `rocm-existing.json`,
+and `cross-configuration.json` under `evidence/pr432-20260919/`. These files are
+not included in this repository, so the numerical summary above cannot currently
+be independently checked against those records. The original evidence must be
+restored before treating this summary as a reproducible validation report.
 The selected logprobs are compared as uint8 bytes, including the distinction
 between positive and negative zero. Neither route copies rollout logprob values
 into the training score; ROCm replays support membership, then recomputes scores.
