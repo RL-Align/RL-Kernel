@@ -158,6 +158,12 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     # RMSNorm(pre-norm / QK-Norm) - pure Pytorch reference(ws1 ground-truth)
     TRITON_RMS_NORM = "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp"
     PYTORCH_NATIVE_RMS_NORM = "rl_engine.kernels.ops.pytorch.norm.rms_norm.NativeRMSNormOp"
+    TRITON_FUSED_ADD_RMSNORM = (
+        "rl_engine.backends.shared.triton.norm.fused_add_rmsnorm.TritonFusedAddRMSNormOp"
+    )
+    PYTORCH_NATIVE_FUSED_ADD_RMSNORM = (
+        "rl_engine.reference.norm.fused_add_rmsnorm.NativeFusedAddRMSNormOp"
+    )
 
     # Generic fallback
     TRITON_GENERIC = "rl_engine.kernels.ops.triton.generic.TritonOp"
@@ -590,6 +596,10 @@ class KernelRegistry:
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
                 ],
+                "fused_add_rmsnorm": [
+                    OpBackend.TRITON_FUSED_ADD_RMSNORM,
+                    OpBackend.PYTORCH_NATIVE_FUSED_ADD_RMSNORM,
+                ],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
@@ -645,6 +655,10 @@ class KernelRegistry:
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
                 ],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
+                "fused_add_rmsnorm": [
+                    OpBackend.TRITON_FUSED_ADD_RMSNORM,
+                    OpBackend.PYTORCH_NATIVE_FUSED_ADD_RMSNORM,
+                ],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
@@ -687,6 +701,9 @@ class KernelRegistry:
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
                 ],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
+                "fused_add_rmsnorm": [
+                    OpBackend.PYTORCH_NATIVE_FUSED_ADD_RMSNORM,
+                ],
                 "rms_norm": [
                     OpBackend.TRITON_RMS_NORM,
                     OpBackend.PYTORCH_NATIVE_RMS_NORM,
@@ -718,6 +735,9 @@ class KernelRegistry:
                 "pack": [OpBackend.PYTORCH_PACK],
                 "batch_invariant_logp": [OpBackend.PYTORCH_BATCH_INVARIANT_LOGP],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
+                "fused_add_rmsnorm": [
+                    OpBackend.PYTORCH_NATIVE_FUSED_ADD_RMSNORM,
+                ],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
