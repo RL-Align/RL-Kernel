@@ -213,6 +213,119 @@ def test_canonical_linear_bias_and_legacy_call(with_bias):
         torch.testing.assert_close(bias.grad, grad.sum(0))
 
 
+@pytest.mark.parametrize("with_bias", [False, True])
+@pytest.mark.parametrize("reuse_order", [False, True])
+def test_canonical_linear_custom_matmul_covers_all_vjps(with_bias, reuse_order, monkeypatch):
+    from rl_engine.ops.autograd.backward_runtime import (
+        reset_backward_runtime,
+        snapshot_backward_runtime,
+    )
+    from rl_engine.ops.autograd.canonical_backward import CanonicalBackwardSession
+
+    torch.manual_seed(424)
+    x = torch.randn(7, 3, requires_grad=True)
+    weight = torch.randn(5, 3, requires_grad=True)
+    bias = torch.randn(5, requires_grad=True) if with_bias else None
+    grad = torch.randn(7, 5)
+    calls, registrations = [], []
+    original_register = CanonicalBackwardSession.register
+
+    def register(self, parameter_id, keys, **kwargs):
+        registrations.append(kwargs["reuse_canonical_order"])
+        return original_register(self, parameter_id, keys, **kwargs)
+
+    def gemm(a, b, *, bias=None):
+        calls.append((a.shape, b.shape, a.stride(0), bias is not None))
+        value = a @ b
+        return value if bias is None else value + bias
+
+    def two_argument_gemm(a, b):
+        return gemm(a, b)
+
+    matmul_op = gemm if with_bias else two_argument_gemm
+    monkeypatch.setattr(CanonicalBackwardSession, "register", register)
+    reset_backward_runtime()
+    try:
+        with canonical_backward_session() as session:
+            y = canonical_linear_fp32(
+                x,
+                weight,
+                _keys(7, "cpu"),
+                parameter_id="weight",
+                family="pytorch",
+                bias=bias,
+                matmul_op=matmul_op,
+                reuse_canonical_order=reuse_order,
+            )
+            y.backward(grad)
+            session.validate_complete()
+        torch.testing.assert_close(y, torch.nn.functional.linear(x, weight, bias))
+        torch.testing.assert_close(x.grad, grad @ weight.detach())
+        torch.testing.assert_close(weight.grad, grad.t() @ x.detach())
+        expected_shapes = [((7, 3), (3, 5)), ((7, 5), (5, 3)), ((5, 7), (7, 3))]
+        if with_bias:
+            torch.testing.assert_close(bias.grad, grad.sum(0))
+            expected_shapes.append(((1, 7), (7, 5)))
+        assert [(a, b) for a, b, _, _ in calls] == expected_shapes
+        assert calls[0][3] == with_bias
+        assert all(not call[3] for call in calls[1:])
+        assert calls[2][2] == 1
+        assert registrations == [reuse_order] * (2 if with_bias else 1)
+        provenance = snapshot_backward_runtime()["det_gemm"]
+        assert provenance["kernel_id"] == f"{matmul_op.__module__}.{matmul_op.__qualname__}"
+        assert provenance["family"] == "pytorch"
+    finally:
+        reset_backward_runtime()
+
+
+def test_canonical_linear_default_triton_retains_existing_dispatch(monkeypatch):
+    from rl_engine.ops.autograd.backward_runtime import (
+        reset_backward_runtime,
+        snapshot_backward_runtime,
+    )
+    from rl_engine.ops.gemm import canonical_linear
+
+    calls = []
+
+    def existing_gemm(a, b, *, output_dtype):
+        assert output_dtype == torch.float32
+        calls.append((a.shape, b.shape))
+        return a @ b
+
+    monkeypatch.setattr(canonical_linear, "_triton_gemm", existing_gemm)
+    x = torch.randn(7, 3, requires_grad=True)
+    weight = torch.randn(5, 3, requires_grad=True)
+    grad = torch.randn(7, 5)
+    reset_backward_runtime()
+    try:
+        with canonical_backward_session() as session:
+            output = canonical_linear_fp32(
+                x, weight, _keys(7, "cpu"), parameter_id="weight", family="triton"
+            )
+            output.backward(grad)
+            session.validate_complete()
+        torch.testing.assert_close(output, x @ weight.t())
+        torch.testing.assert_close(x.grad, grad @ weight.detach())
+        torch.testing.assert_close(weight.grad, grad.t() @ x.detach())
+        assert calls == [((7, 3), (3, 5)), ((7, 5), (5, 3)), ((5, 7), (7, 3))]
+        assert snapshot_backward_runtime()["det_gemm"]["kernel_id"] == (
+            "rl_engine.backends.shared.triton.gemm.det_gemm._triton_gemm"
+        )
+    finally:
+        reset_backward_runtime()
+
+
+def test_video_projection_declares_backend_and_matmul_separately():
+    from rl_engine.backends.shared.triton.gemm.video_input_projection_fp32 import (
+        TritonVideoInputProjectionFP32Op,
+        projection_gemm_fp32,
+    )
+
+    assert TritonVideoInputProjectionFP32Op.family == "triton"
+    assert TritonVideoInputProjectionFP32Op.matmul_op is projection_gemm_fp32
+    assert TritonVideoInputProjectionFP32Op.reuse_canonical_order
+
+
 def test_input_gradient_without_parameter_session():
     x = torch.ones(3, 2, requires_grad=True)
     weight = torch.ones(4, 2)
@@ -471,18 +584,19 @@ def test_fp32_tree_preserves_fp32_nodes(k):
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")
 def test_fp32_tree_workspace_chunking(monkeypatch):
     from rl_engine.backends.shared.triton.gemm import det_gemm
-    from rl_engine.ops.gemm.canonical_linear import _gemm_fp32
+    from rl_engine.backends.shared.triton.gemm.video_input_projection_fp32 import (
+        projection_gemm_fp32,
+    )
 
-    family = "triton_tree"
     a, b = torch.randn(7, 129, device="cuda"), torch.randn(129, 5, device="cuda")
-    expected = _gemm_fp32(a, b, family)
+    expected = projection_gemm_fp32(a, b)
     plan = det_gemm._build_tree_plan(129)
     monkeypatch.setattr(det_gemm, "_MAX_TREE_WORKSPACE_ELEMENTS", plan.node_count * 5 * 2)
-    actual = _gemm_fp32(a, b, family)
+    actual = projection_gemm_fp32(a, b)
     _assert_bytes(actual, expected)
     monkeypatch.setattr(det_gemm, "_MAX_TREE_WORKSPACE_ELEMENTS", plan.node_count * 2)
     # Exercise output-column chunking when even one whole row exceeds budget.
-    _assert_bytes(_gemm_fp32(a, b, family), expected)
+    _assert_bytes(projection_gemm_fp32(a, b), expected)
 
 
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")
@@ -515,20 +629,21 @@ def test_cpu_fp32_reference_long_dot_accuracy():
 @pytest.mark.parametrize("k", [127, 128, 129, 5376, 13104])
 def test_fp32_chunked_gemm_strides_and_workspace(k, monkeypatch):
     from rl_engine.backends.shared.triton.gemm import det_gemm
-    from rl_engine.ops.gemm.canonical_linear import _gemm_fp32
+    from rl_engine.backends.shared.triton.gemm.video_input_projection_fp32 import (
+        projection_gemm_fp32,
+    )
     from rl_engine.reference.gemm.video_input_projection_fp32 import _reference_matmul_fp32
 
     torch.manual_seed(420)
-    family = "triton_tree"
     a = torch.randn(k, 7, device="cuda").t()
     b = torch.randn(k, 96, device="cuda")
-    expected = _gemm_fp32(a.contiguous(), b, family)
-    actual = _gemm_fp32(a, b, family)
+    expected = projection_gemm_fp32(a.contiguous(), b)
+    actual = projection_gemm_fp32(a, b)
     _assert_bytes(actual, expected)
     _assert_accuracy(actual, _reference_matmul_fp32(a, b), "gradient_accuracy")
     chunks = (k + 127) // 128
     monkeypatch.setattr(det_gemm, "_MAX_TREE_WORKSPACE_ELEMENTS", chunks * 96 * 2)
-    _assert_bytes(_gemm_fp32(a, b, family), expected)
+    _assert_bytes(projection_gemm_fp32(a, b), expected)
 
 
 @pytest.mark.parametrize("bias_uses", ["all", "partial", "distinct"])
@@ -617,18 +732,19 @@ def test_fp32_fused_tree_and_strided_inputs_match_scalar_reference(k):
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")
 def test_compact_fp32_tree_workspace_preserves_chunked_outputs(monkeypatch):
     from rl_engine.backends.shared.triton.gemm import det_gemm
-    from rl_engine.ops.gemm.canonical_linear import _gemm_fp32
+    from rl_engine.backends.shared.triton.gemm.video_input_projection_fp32 import (
+        projection_gemm_fp32,
+    )
 
-    family = "triton_tree"
     a, b = torch.randn(7, 1024, device="cuda"), torch.randn(1024, 5, device="cuda")
-    expected = _gemm_fp32(a, b, family)
+    expected = projection_gemm_fp32(a, b)
     plan = det_gemm._device_tree_plan(1024, a.device, fp32_fuse_leaves=False)
     assert plan.fp32_fused
     assert plan.workspace_node_count < plan.host.node_count
     monkeypatch.setattr(det_gemm, "_MAX_TREE_WORKSPACE_ELEMENTS", plan.workspace_node_count * 10)
-    _assert_bytes(_gemm_fp32(a, b, family), expected)
+    _assert_bytes(projection_gemm_fp32(a, b), expected)
     monkeypatch.setattr(det_gemm, "_MAX_TREE_WORKSPACE_ELEMENTS", plan.workspace_node_count * 2)
-    _assert_bytes(_gemm_fp32(a, b, family), expected)
+    _assert_bytes(projection_gemm_fp32(a, b), expected)
 
 
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")

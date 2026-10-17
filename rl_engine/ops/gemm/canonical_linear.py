@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import torch
 
 from rl_engine.backends.extension import _C
@@ -14,14 +16,15 @@ from rl_engine.ops.autograd.canonical_backward import active_session
 
 
 def _gemm_fp32(
-    a: torch.Tensor, b: torch.Tensor, family: str, *, bias: torch.Tensor | None = None
+    a: torch.Tensor,
+    b: torch.Tensor,
+    family: str,
+    *,
+    bias: torch.Tensor | None = None,
+    matmul_op: Callable[..., torch.Tensor] | None = None,
 ) -> torch.Tensor:
-    if family == "triton_tree":
-        from rl_engine.backends.shared.triton.gemm.video_input_projection_fp32 import (
-            projection_gemm_fp32,
-        )
-
-        return projection_gemm_fp32(a, b, bias=bias)
+    if matmul_op is not None:
+        return matmul_op(a, b) if bias is None else matmul_op(a, b, bias=bias)
     if bias is not None:
         return _gemm_fp32(a, b, family) + bias
     if family == "cuda":
@@ -50,6 +53,8 @@ class _CanonicalLinearFn(torch.autograd.Function):
         family,
         bias,
         bias_parameter_id,
+        matmul_op,
+        reuse_canonical_order,
     ):
         session = active_session()
         parameter_grad = ctx.needs_input_grad[1] or ctx.needs_input_grad[5]
@@ -63,6 +68,7 @@ class _CanonicalLinearFn(torch.autograd.Function):
         ctx.session = session
         ctx.parameter_id = str(parameter_id)
         ctx.family = str(family)
+        ctx.matmul_op = matmul_op
         ctx.bias_parameter_id = str(bias_parameter_id)
         ctx.bias_dtype = bias.dtype if bias is not None else None
         contribution = object() if ctx.needs_input_grad[1] and ctx.needs_input_grad[5] else None
@@ -71,7 +77,7 @@ class _CanonicalLinearFn(torch.autograd.Function):
                 ctx.parameter_id,
                 logical_keys,
                 contribution=contribution,
-                reuse_canonical_order=ctx.family == "triton_tree",
+                reuse_canonical_order=reuse_canonical_order,
             )
             if ctx.needs_input_grad[1]
             else None
@@ -81,15 +87,17 @@ class _CanonicalLinearFn(torch.autograd.Function):
                 ctx.bias_parameter_id,
                 logical_keys,
                 contribution=contribution,
-                reuse_canonical_order=ctx.family == "triton_tree",
+                reuse_canonical_order=reuse_canonical_order,
             )
             if ctx.needs_input_grad[5]
             else None
         )
-        rhs = weight.float().t()
-        rhs = rhs.contiguous()
         return _gemm_fp32(
-            a.float(), rhs, ctx.family, bias=bias.float() if bias is not None else None
+            a.float(),
+            weight.float().t().contiguous(),
+            ctx.family,
+            bias=bias.float() if bias is not None else None,
+            matmul_op=ctx.matmul_op,
         )
 
     @staticmethod
@@ -98,16 +106,18 @@ class _CanonicalLinearFn(torch.autograd.Function):
         grad32 = grad_out.contiguous().float()
         da = None
         if ctx.needs_input_grad[0]:
-            da = _gemm_fp32(grad32, weight.float(), ctx.family).to(a.dtype)
+            da = _gemm_fp32(grad32, weight.float(), ctx.family, matmul_op=ctx.matmul_op).to(a.dtype)
 
         dweight = None
         if ctx.needs_input_grad[1]:
 
             def reducer(rows, grads):
                 lhs = grads.float().t()
-                if ctx.family != "triton_tree":
+                if ctx.matmul_op is None:
                     lhs = lhs.contiguous()
-                return _gemm_fp32(lhs, rows.float(), ctx.family).to(weight.dtype)
+                return _gemm_fp32(lhs, rows.float(), ctx.family, matmul_op=ctx.matmul_op).to(
+                    weight.dtype
+                )
 
             dweight = ctx.session.submit_linear(ctx.parameter_id, ctx.slot, a, grad32, reducer)
         dbias = None
@@ -117,21 +127,28 @@ class _CanonicalLinearFn(torch.autograd.Function):
                 if grads.shape[0] == 0:
                     raise RuntimeError(f"no active logical rows for {ctx.bias_parameter_id}")
                 ones = torch.ones((1, grads.shape[0]), device=grads.device, dtype=torch.float32)
-                # Reuse the existing one-row Triton leaves for long bias VJPs.
-                return _gemm_fp32(ones, grads.float(), ctx.family).squeeze(0).to(ctx.bias_dtype)
+                return (
+                    _gemm_fp32(ones, grads.float(), ctx.family, matmul_op=ctx.matmul_op)
+                    .squeeze(0)
+                    .to(ctx.bias_dtype)
+                )
 
             dbias = ctx.session.submit_rows(
                 ctx.bias_parameter_id, ctx.bias_slot, grad32, bias_reducer
             )
-        if ctx.family in ("triton", "triton_tree"):
+        if ctx.matmul_op is not None:
+            module = getattr(ctx.matmul_op, "__module__", type(ctx.matmul_op).__module__)
+            qualname = getattr(ctx.matmul_op, "__qualname__", type(ctx.matmul_op).__qualname__)
             record_backward(
                 "det_gemm",
-                kernel_id=(
-                    "rl_engine.backends.shared.triton.gemm.det_gemm."
-                    "_triton_chunked_gemm_fp32 / _triton_tree_gemm"
-                    if ctx.family == "triton_tree"
-                    else "rl_engine.backends.shared.triton.gemm.det_gemm._triton_gemm"
-                ),
+                kernel_id=f"{module}.{qualname}",
+                impl=f"{ctx.family}_det_gemm_canonical_rowfold",
+                family=ctx.family,
+            )
+        elif ctx.family == "triton":
+            record_backward(
+                "det_gemm",
+                kernel_id="rl_engine.backends.shared.triton.gemm.det_gemm._triton_gemm",
                 impl="triton_det_gemm_canonical_rowfold",
                 family="triton",
             )
@@ -142,7 +159,7 @@ class _CanonicalLinearFn(torch.autograd.Function):
                 impl="ascend_det_gemm_canonical_rowfold",
                 family="ascend",
             )
-        return da, dweight, None, None, None, dbias, None
+        return da, dweight, None, None, None, dbias, None, None, None
 
 
 def canonical_linear_fp32(
@@ -154,7 +171,15 @@ def canonical_linear_fp32(
     family: str,
     bias: torch.Tensor | None = None,
     bias_parameter_id: str | None = None,
+    matmul_op: Callable[..., torch.Tensor] | None = None,
+    reuse_canonical_order: bool = False,
 ) -> torch.Tensor:
+    """Apply a canonical linear using the default backend or an FP32 matmul callable.
+
+    A custom matmul handles input strides and accepts ``bias=`` when bias is
+    supplied. The same callable computes forward, dX, dW, and dbias. Canonical
+    order reuse requests a runtime proof before skipping stable sorting.
+    """
     return _CanonicalLinearFn.apply(
         a,
         weight,
@@ -163,6 +188,8 @@ def canonical_linear_fp32(
         family,
         bias,
         bias_parameter_id if bias_parameter_id is not None else f"{parameter_id}.bias",
+        matmul_op,
+        reuse_canonical_order,
     )
 
 

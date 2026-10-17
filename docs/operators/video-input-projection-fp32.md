@@ -59,6 +59,15 @@ single-device, unsharded support and exact implementation identities. An
 unavailable explicit candidate raises an error. CPU/ROCm/MUSA/NPU execution is
 outside this contribution's strict support scope.
 
+The wrapper reuses `canonical_linear_fp32` with `family="triton"` and
+`matmul_op=projection_gemm_fp32`. The family identifies the backend. The callable
+selects the existing forward and VJP GEMM schedules and handles their input
+strides. Forward, dX, dW, and dbias use the same callable. Existing canonical
+linear callers omit `matmul_op` and retain their original backend dispatch.
+The H3 wrapper separately enables `reuse_canonical_order`; the session verifies
+the keys before it skips sorting. Backward provenance records the actual
+matmul entry point.
+
 ## Accuracy
 
 Forward computes `Y = X @ W.T + bias` in FP32. The Triton forward adds bias

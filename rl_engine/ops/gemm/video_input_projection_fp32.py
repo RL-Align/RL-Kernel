@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import torch
 
 from rl_engine.ops.autograd.canonical_backward import active_session
@@ -72,6 +74,8 @@ class VideoInputProjectionFP32Op:
 
     family: str
     backend_id: str
+    matmul_op: Callable[..., torch.Tensor] | None = None
+    reuse_canonical_order: bool = False
 
     def _check_backend(self, x):
         raise NotImplementedError
@@ -102,10 +106,17 @@ class VideoInputProjectionFP32Op:
                 family=self.family,
                 bias=bias,
                 bias_parameter_id=f"{parameter_id}.bias",
+                matmul_op=self.matmul_op,
+                reuse_canonical_order=self.reuse_canonical_order,
             )
         else:
-            rhs = weight.t().contiguous()
-            output = _gemm_fp32(rows, rhs, self.family, bias=bias)
+            output = _gemm_fp32(
+                rows,
+                weight.t().contiguous(),
+                self.family,
+                bias=bias,
+                matmul_op=self.matmul_op,
+            )
         return output.reshape(*x.shape[:-1], VIDEO_HIDDEN_WIDTH)
 
     forward = __call__
