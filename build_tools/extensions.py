@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-import hashlib
 import importlib.util
 import os
 import sysconfig
@@ -107,7 +106,6 @@ def _native_extension_required() -> bool:
     return (
         envs.env_flag(envs.RL_KERNEL_REQUIRE_EXT)
         or envs.env_flag(envs.RL_KERNEL_H3_STRICT)
-        or envs.env_flag("RL_KERNEL_BUILD_CUTLASS")
         or bool(os.environ.get("PYTORCH_ROCM_ARCH", "").strip())
         or bool(os.environ.get("TORCH_CUDA_ARCH_LIST", "").strip())
         or envs.env_flag("FORCE_CUDA")
@@ -160,52 +158,6 @@ def _filter_rocm_incompatible_nvcc_flags(flags: list[str]) -> list[str]:
     return filtered_flags
 
 
-_CUTLASS_REVISION = "56ca28adb32ffadd097566545b8f7d83b652e998"
-_CUTLASS_HEADERS_SHA256 = "7b5321860c269f8e44eab02e59c32c2d4d0e2fa7a3ef72e0a161de9f58b361fa"
-
-
-def _cutlass_headers_fingerprint(include_root: Path) -> str:
-    digest = hashlib.sha256()
-    for path in sorted(include_root.rglob("*")):
-        if path.is_file() and not path.name.startswith("._"):
-            digest.update(path.relative_to(include_root).as_posix().encode() + b"\0")
-            digest.update(path.read_bytes() + b"\0")
-    return digest.hexdigest()
-
-
-def _cutlass_extension(torch, gpu_extension, link_args):
-    if torch.version.hip is not None or torch.version.cuda is None:
-        raise RuntimeError("CUTLASS projection requires a CUDA PyTorch build")
-    root = os.environ.get("CUTLASS_ROOT", "").strip()
-    if not root:
-        raise RuntimeError(f"CUTLASS_ROOT must point to CUTLASS {_CUTLASS_REVISION}")
-    include = Path(root).resolve() / "include"
-    if _cutlass_headers_fingerprint(include) != _CUTLASS_HEADERS_SHA256:
-        raise RuntimeError("CUTLASS include tree does not match the pinned source fingerprint")
-    return gpu_extension(
-        name="rl_engine._C_cutlass",
-        sources=[
-            "csrc/bindings/video_input_projection_fp32_cutlass.cpp",
-            "csrc/cuda/gemm/video_input_projection_fp32_cutlass.cu",
-        ],
-        include_dirs=[str(include)],
-        extra_compile_args={
-            "cxx": ["-O3", "-std=c++17", "-fno-fast-math", "-ffp-contract=off"],
-            "nvcc": [
-                "-O3",
-                "-std=c++17",
-                "--fmad=false",
-                "--ftz=false",
-                "--prec-div=true",
-                "--prec-sqrt=true",
-                "--expt-relaxed-constexpr",
-                "-gencode=arch=compute_90,code=sm_90",
-            ],
-        },
-        extra_link_args=list(link_args),
-    )
-
-
 def get_extensions():
     h3_flags = envs.h3_strict_cuda_flags()
     torch, _, GpuExtension = _load_torch_extension_tools()
@@ -231,8 +183,6 @@ def get_extensions():
     if os.environ.get("KERNEL_ALIGN_DEV_RPATH") == "1":
         torch_rpath.append(f"-Wl,-rpath,{torch_lib_dir}")
     is_rocm = getattr(torch.version, "hip", None) is not None
-    if envs.env_flag("RL_KERNEL_BUILD_CUTLASS"):
-        extensions.append(_cutlass_extension(torch, GpuExtension, torch_rpath))
 
     if h3_flags and (is_rocm or _musa_build_available(torch)):
         raise RuntimeError("RL_KERNEL_H3_STRICT currently qualifies NVIDIA CUDA only")

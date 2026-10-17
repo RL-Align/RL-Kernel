@@ -18,11 +18,6 @@ def test_video_input_projection_default_and_strict_scope():
     assert desc.supported_devices == frozenset({"cuda"})
     assert desc.supported_dtypes == frozenset({"float32"})
     assert desc.determinism_or_alignment_properties["vjp_tile"] == (128, 32, 32)
-    cutlass = registry.semantic.backend_descriptor(
-        "video_input_projection_fp32", "cuda-cutlass-video-input-projection-fp32-v7"
-    )
-    assert cutlass.determinism_or_alignment_properties["vjp_chunk_k"] == 128
-    assert cutlass.determinism_or_alignment_properties["bias_reduction"] == "fixed_midpoint_tree_32"
     with pytest.raises(RuntimeError, match="SM90"):
         registry.get_op("video_input_projection_fp32", device="cpu")
 

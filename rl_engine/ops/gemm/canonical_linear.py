@@ -22,10 +22,6 @@ def _gemm_fp32(
         )
 
         return projection_gemm_fp32(a, b, bias=bias)
-    if family == "cutlass":
-        from rl_engine.backends.cuda.gemm.video_input_projection_fp32 import cutlass_gemm_fp32
-
-        return cutlass_gemm_fp32(a, b, bias=bias)
     if bias is not None:
         return _gemm_fp32(a, b, family) + bias
     if family == "cuda":
@@ -91,9 +87,7 @@ class _CanonicalLinearFn(torch.autograd.Function):
             else None
         )
         rhs = weight.float().t()
-        # CUTLASS consumes column-major B directly from contiguous [N,K] weight.
-        if ctx.family != "cutlass":
-            rhs = rhs.contiguous()
+        rhs = rhs.contiguous()
         return _gemm_fp32(
             a.float(), rhs, ctx.family, bias=bias.float() if bias is not None else None
         )
@@ -111,7 +105,7 @@ class _CanonicalLinearFn(torch.autograd.Function):
 
             def reducer(rows, grads):
                 lhs = grads.float().t()
-                if ctx.family not in ("triton_tree", "cutlass"):
+                if ctx.family != "triton_tree":
                     lhs = lhs.contiguous()
                 return _gemm_fp32(lhs, rows.float(), ctx.family).to(weight.dtype)
 
@@ -124,14 +118,7 @@ class _CanonicalLinearFn(torch.autograd.Function):
                     raise RuntimeError(f"no active logical rows for {ctx.bias_parameter_id}")
                 ones = torch.ones((1, grads.shape[0]), device=grads.device, dtype=torch.float32)
                 # Reuse the existing one-row Triton leaves for long bias VJPs.
-                # CUTLASS retains its direct GEMM for short reductions.
-                family = ctx.family
-                if family == "cutlass":
-                    from rl_engine.ops.gemm.video_input_projection_fp32 import VIDEO_PATCH_WIDTH
-
-                    if grads.shape[0] > VIDEO_PATCH_WIDTH:
-                        family = "triton_tree"
-                return _gemm_fp32(ones, grads.float(), family).squeeze(0).to(ctx.bias_dtype)
+                return _gemm_fp32(ones, grads.float(), ctx.family).squeeze(0).to(ctx.bias_dtype)
 
             dbias = ctx.session.submit_rows(
                 ctx.bias_parameter_id, ctx.bias_slot, grad32, bias_reducer
@@ -154,16 +141,6 @@ class _CanonicalLinearFn(torch.autograd.Function):
                 kernel_id="rl_engine._C_npu.det_gemm_rowwise_ascend_fwd_fp32",
                 impl="ascend_det_gemm_canonical_rowfold",
                 family="ascend",
-            )
-        elif ctx.family == "cutlass":
-            record_backward(
-                "video_input_projection_fp32",
-                kernel_id=(
-                    "rl_engine._C_cutlass.gemm_fp32_partials_strided / "
-                    "rl_engine.backends.shared.triton.gemm.det_gemm._triton_chunked_gemm_fp32"
-                ),
-                impl="cutlass_fp32_simt_chunk128_triton_merge_bias_canonical_rowfold",
-                family="cuda",
             )
         return da, dweight, None, None, None, dbias, None
 

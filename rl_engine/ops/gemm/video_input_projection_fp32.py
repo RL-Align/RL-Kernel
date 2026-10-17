@@ -104,9 +104,7 @@ class VideoInputProjectionFP32Op:
                 bias_parameter_id=f"{parameter_id}.bias",
             )
         else:
-            rhs = weight.t()
-            if self.family != "cutlass":
-                rhs = rhs.contiguous()
+            rhs = weight.t().contiguous()
             output = _gemm_fp32(rows, rhs, self.family, bias=bias)
         return output.reshape(*x.shape[:-1], VIDEO_HIDDEN_WIDTH)
 

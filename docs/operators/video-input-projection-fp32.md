@@ -6,12 +6,9 @@ MiniMax-H3 maps each 96-element video patch to the 5376-wide Transformer residua
 space. This operator preserves the FP32 projection boundary of the pinned H3
 reference. The model adapter owns the subsequent cast into the BF16 packed stream.
 
-The primary implementation reuses RL-Kernel's Triton FP32 GEMM and canonical
+The implementation reuses RL-Kernel's Triton FP32 GEMM and canonical
 parameter-gradient session. Input and weight VJPs use fixed 128-term K chunks
-and one balanced FP32 merge. A pinned CUTLASS FP32 SIMT GEMM is an explicit
-CUDA candidate. It uses the same fixed-chunk scheduler and balanced merge,
-and reads each partial directly from matrix views. Both paths share the
-semantic adapter and canonical session.
+and one balanced FP32 merge.
 Long bias VJPs retain the one-row Triton tree.
 
 ## Entry Point
@@ -36,23 +33,7 @@ physical placement. The same parameter keeps the same `parameter_id` across uses
 | Backend | Wrapper | Native symbol | Status |
 | --- | --- | --- | --- |
 | Triton on CUDA | `TritonVideoInputProjectionFP32Op` | `_det_gemm_fp32_kernel`, `_det_gemm_fp32_chunk_merge_kernel`, bias tree kernels | Default CUDA path; SM90 qualification |
-| CUDA / CUTLASS + Triton reductions | `CUDAVideoInputProjectionFP32Op` | `_C_cutlass.gemm_fp32_tn`, `_C_cutlass.gemm_fp32_partials_strided`, shared chunk merge and bias tree | Explicit candidate; optional build; SM90 |
 | PyTorch reference | `NativeVideoInputProjectionFP32Op` | CPU `F.linear`; FP32 product/sum VJPs | Accuracy reference |
-
-CUTLASS revision: `56ca28adb32ffadd097566545b8f7d83b652e998`. The build verifies
-the complete include-tree fingerprint. The BSD-3-Clause dependency notice is
-preserved in the installed CUDA Python wrapper.
-
-```bash
-git clone https://github.com/NVIDIA/cutlass.git /tmp/h3-cutlass
-git -C /tmp/h3-cutlass checkout 56ca28adb32ffadd097566545b8f7d83b652e998
-CUTLASS_ROOT=/tmp/h3-cutlass RL_KERNEL_BUILD_CUTLASS=1 \
-  MAX_JOBS=2 python -m pip install --no-build-isolation --no-deps -e .
-```
-
-The separate `_C_cutlass` extension fixes `--fmad=false`, `--ftz=false`, precise
-division/square root, and SM90 code generation. Common `_C` compiler options are
-independent. `backend_info()` reads back the candidate's revision and schedule.
 
 ## Tensor Contract
 
@@ -72,8 +53,8 @@ fresh sessions. Parameter freezing registers only the parameters that need VJPs.
 
 ## Dispatch Behavior
 
-`get_op` selects Triton on CUDA. CUTLASS is selected explicitly through the
-semantic catalog or `OP_SPECS` candidate `cuda`. The semantic catalog records
+`get_op` selects Triton on CUDA. `OP_SPECS` exposes candidate `triton` and the
+independent PyTorch accuracy reference. The semantic catalog records
 single-device, unsharded support and exact implementation identities. An
 unavailable explicit candidate raises an error. CPU/ROCm/MUSA/NPU execution is
 outside this contribution's strict support scope.
@@ -87,9 +68,8 @@ stays FP32, including normalization of non-contiguous autograd inputs:
 
 - `dX = G @ W` is row-local.
 - `dW = G_sorted.T @ X_sorted` follows canonical logical-row order.
-- `dbias = ones[1,R] @ G_sorted` uses the fixed FP32 GEMM bottom layer.
-  Both backends reuse the one-row Triton tree for reductions longer than 96;
-  the CUTLASS candidate retains its direct GEMM for shorter reductions.
+- `dbias = ones[1,R] @ G_sorted` uses the fixed FP32 GEMM for reductions up to 96
+  and the one-row Triton tree for longer reductions.
 
 The existing canonical session collects all contributions, removes padding, and
 sorts keys before the final parameter reduction. It returns each parameter VJP
@@ -126,34 +106,18 @@ The fixed-chunk design follows the scheduling separation in merged PR #396.
 Its AMD BF16 MFMA instructions are not used by this CUDA FP32 implementation.
 The FP32 GEMM body is reused from the helper present in merged PR #325.
 The short forward path and long bias tree retain their earlier arithmetic.
-The merge layout defines its reduction instruction schedule. Both backends pin
-64 output elements and four warps as part of their implementation identities.
+The merge layout defines its reduction instruction schedule. The implementation
+pins 64 output elements and four warps as part of its implementation identity.
 
-CUTLASS also uses fixed 128-term chunks for input and weight VJPs. Partials
-are grouped by actual K length: 128 for complete chunks, and the remaining
-length for the tail. A pointer kernel selects each partial's original operand
-range, and the pinned `device::GemmArray` reads row-major or column-major views
-directly. This applies the layout approach from merged PR #343. The shared
-chunk scheduler calls this SDK launcher and then the same balanced Triton merge.
-The SDK retains its separate FP32 multiply/add arithmetic inside each partial.
-This schedule defines the CUTLASS v7 identity. Its actual-K grouping and layouts
-are recorded in `backend_info()`. Long bias VJPs retain the original Triton tree.
-The forward reuses CUTLASS `LinearCombination` with source row stride zero to
-broadcast bias. It adds bias after the FP32 accumulator in the same epilogue.
-The build keeps `--fmad=false`. Tests compare this output bitwise with a separate
-GEMM followed by FP32 bias addition.
-
-Both VJP schedules cap their FP32 partial workspace at 512 MiB by chunking
+The VJP schedule caps its FP32 partial workspace at 512 MiB by chunking
 output rows. The retained midpoint helper also supports output-column chunking
-when one complete row exceeds its budget. CUTLASS allocates pointer arrays for
-each partial group. Parameter sorting and public validation are included in complete
+when one complete row exceeds its budget. Parameter sorting and public validation are included in complete
 operator measurements. Existing BF16 callers retain their dtype and schedule.
 TF32 and compiler multiply-add fusion remain disabled.
 The reused Triton `tl.dot` lowers its IEEE FP32 inner products to fixed SIMT
 `fma.rn.f32` instructions. The compiler fusion flag controls surrounding
 expressions; it does not remove the intrinsic dot's FMA instructions. This
-arithmetic is included in the Triton contract and runtime metadata. The pinned
-CUTLASS SIMT build uses separate FP32 multiply and add instructions.
+arithmetic is included in the Triton contract and runtime metadata.
 
 The independent reference keeps the forward definition as CPU FP32 `F.linear`.
 Its analytic VJPs form FP32 products and use CPU PyTorch `sum` over the complete
@@ -173,7 +137,7 @@ Adding a genuine training sample changes the expected parameter gradient.
 
 ```bash
 PYTHONPATH=. python benchmarks/operators/gemm/benchmark_video_input_projection_fp32.py \
-  --backends pytorch triton cuda --rows 1 128 1024 4096 13104 \
+  --backends pytorch triton --rows 1 128 1024 4096 13104 \
   --output /tmp/h3-input-projection.json
 ```
 
@@ -184,8 +148,7 @@ parameter-gradient machinery. Raw samples, environment, source hashes, and
 actual backend metadata are written to the explicitly selected local output.
 PyTorch is a production performance baseline with separately reported BI results.
 The Triton VJPs use one partial-GEMM launch and one merge launch when the
-workspace fits. CUTLASS launches the SDK partial groups, their pointer metadata,
-and one balanced merge. A tail can require a separate SDK launch.
+workspace fits.
 Compare complete operator timings, including sorting, before drawing a speedup
 claim. The benchmark records the reference identity and its source hash.
 
@@ -195,9 +158,6 @@ claim. The benchmark records the reference identity and its source hash.
 python -m pytest tests/ops/gemm/test_video_input_projection_fp32.py -v
 python tools/validation/operators/check_operator.py \
   --op video_input_projection_fp32 --candidate triton --device cuda --dtype fp32 \
-  --batch 1 --seq 129 --check-grad --grad-mode random
-python tools/validation/operators/check_operator.py \
-  --op video_input_projection_fp32 --candidate cuda --device cuda --dtype fp32 \
   --batch 1 --seq 129 --check-grad --grad-mode random
 ```
 

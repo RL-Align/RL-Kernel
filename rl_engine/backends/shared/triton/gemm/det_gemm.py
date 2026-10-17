@@ -866,7 +866,6 @@ def _triton_chunked_gemm_fp32(
     *,
     tile: tuple[int, int, int] = (_BLOCK_M, _BLOCK_N, 4),
     maxnreg: int | None = None,
-    fp32_chunk_launcher=None,
 ) -> torch.Tensor:
     """Reuse the FP32 GEMM in fixed K chunks and merge partials in one grid."""
     m_size, k_size = a.shape
@@ -883,7 +882,6 @@ def _triton_chunked_gemm_fp32(
                     b,
                     tile=tile,
                     maxnreg=maxnreg,
-                    fp32_chunk_launcher=fp32_chunk_launcher,
                 )
                 for start in range(0, m_size, rows_per_chunk)
             ],
@@ -891,33 +889,30 @@ def _triton_chunked_gemm_fp32(
         )
     partial = torch.empty((chunks, m_size, n_size), device=a.device, dtype=torch.float32)
     output = torch.empty((m_size, n_size), device=a.device, dtype=torch.float32)
-    if fp32_chunk_launcher is None:
-        block_m, block_n, num_warps = tile
-        grid = (triton.cdiv(m_size, block_m), triton.cdiv(n_size, block_n), chunks)
-        _det_gemm_fp32_kernel[grid](
-            a,
-            b,
-            partial,
-            None,
-            m_size,
-            n_size,
-            k_size,
-            *a.stride(),
-            *b.stride(),
-            n_size,
-            1,
-            BLOCK_M=block_m,
-            BLOCK_N=block_n,
-            BLOCK_K=_BLOCK_K,
-            PROMOTE_INPUTS=True,
-            HAS_BIAS=False,
-            CHUNK_K=_FP32_CHUNK_K,
-            enable_fp_fusion=False,
-            num_warps=num_warps,
-            **({"maxnreg": maxnreg} if maxnreg is not None else {}),
-        )
-    else:
-        fp32_chunk_launcher(a, b, partial)
+    block_m, block_n, num_warps = tile
+    grid = (triton.cdiv(m_size, block_m), triton.cdiv(n_size, block_n), chunks)
+    _det_gemm_fp32_kernel[grid](
+        a,
+        b,
+        partial,
+        None,
+        m_size,
+        n_size,
+        k_size,
+        *a.stride(),
+        *b.stride(),
+        n_size,
+        1,
+        BLOCK_M=block_m,
+        BLOCK_N=block_n,
+        BLOCK_K=_BLOCK_K,
+        PROMOTE_INPUTS=True,
+        HAS_BIAS=False,
+        CHUNK_K=_FP32_CHUNK_K,
+        enable_fp_fusion=False,
+        num_warps=num_warps,
+        **({"maxnreg": maxnreg} if maxnreg is not None else {}),
+    )
     _det_gemm_fp32_chunk_merge_kernel[(triton.cdiv(m_size * n_size, 64),)](
         partial,
         output,
@@ -993,7 +988,6 @@ def _triton_tree_gemm(
     preserve_a_strides: bool = False,
     inference_schedule: bool = False,
     output_dtype: torch.dtype = torch.bfloat16,
-    fp32_leaf_launcher=None,
 ) -> torch.Tensor:
     if not _TRITON_AVAILABLE:
         raise RuntimeError("Triton is unavailable")
@@ -1009,8 +1003,6 @@ def _triton_tree_gemm(
         raise TypeError(f"Triton tree GEMM requires {input_dtype} inputs")
     if fp32_tree and torch.version.hip is not None:
         raise RuntimeError("FP32 tree GEMM is qualified on CUDA only")
-    if fp32_leaf_launcher is not None and not fp32_tree:
-        raise ValueError("a custom leaf launcher requires the FP32 tree")
     if not a.is_cuda or not b.is_cuda or a.device != b.device:
         raise RuntimeError("Triton tree GEMM inputs must share one CUDA/ROCm device")
 
@@ -1025,11 +1017,7 @@ def _triton_tree_gemm(
     plan = _device_tree_plan(
         k_size,
         a.device,
-        fp32_fuse_leaves=(
-            (fp32_leaf_launcher is None and m_size == 1)
-            if fp32_tree and not transpose_output
-            else None
-        ),
+        fp32_fuse_leaves=(m_size == 1) if fp32_tree and not transpose_output else None,
     )
     workspace_elements = plan.workspace_node_count * m_size * n_size
     if workspace_elements > _MAX_TREE_WORKSPACE_ELEMENTS and out is None:
@@ -1047,7 +1035,6 @@ def _triton_tree_gemm(
                     preserve_a_strides=preserve_a_strides,
                     inference_schedule=inference_schedule,
                     output_dtype=output_dtype,
-                    fp32_leaf_launcher=fp32_leaf_launcher,
                 )
                 for start in range(0, n_size, columns_per_chunk)
             ]
@@ -1066,7 +1053,6 @@ def _triton_tree_gemm(
                 preserve_a_strides=preserve_a_strides,
                 inference_schedule=inference_schedule,
                 output_dtype=output_dtype,
-                fp32_leaf_launcher=fp32_leaf_launcher,
             )
             chunks.append(chunk)
         return torch.cat(chunks, dim=1 if transpose_output else 0)
@@ -1104,7 +1090,7 @@ def _triton_tree_gemm(
         transpose_output=transpose_output,
         preserve_a_strides=preserve_a_strides,
     )
-    if fp32_tree and fp32_leaf_launcher is None:
+    if fp32_tree:
         # Offline H20 sweep: 64x32 avoids both masked N=96 columns and the
         # register spills of paired 64x64 leaves. One-row calls retain fusion.
         leaf_config = (
@@ -1131,12 +1117,9 @@ def _triton_tree_gemm(
         and direct_root_output
         and (use_inference_schedule or plan.fp32_fused)
         and (k_size >= 1536 or plan.fp32_fused)
-        and (fp32_leaf_launcher is None)
         and plan.rocm_leaf_reduction is not None
     )
-    if fp32_leaf_launcher is not None:
-        fp32_leaf_launcher(a, b, workspace, plan)
-    elif fuse_leaf_reduction:
+    if fuse_leaf_reduction:
         assert plan.rocm_leaf_reduction is not None
         operation_count = len(plan.host.reduction_levels[0])
         fused_leaf_grid = (

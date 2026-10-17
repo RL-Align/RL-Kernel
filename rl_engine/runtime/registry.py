@@ -118,9 +118,6 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
         "rl_engine.backends.shared.triton.gemm.video_input_projection_fp32."
         "TritonVideoInputProjectionFP32Op"
     )
-    CUDA_VIDEO_INPUT_PROJECTION_FP32 = (
-        "rl_engine.backends.cuda.gemm.video_input_projection_fp32.CUDAVideoInputProjectionFP32Op"
-    )
     ASCEND_DET_GEMM = "rl_engine.kernels.ops.ascend.matmul.det_gemm.DetGemmAscendOp"
     # NON-deterministic reference (torch.matmul); reference/benchmark ONLY,
     # intentionally excluded from det_gemm dispatch (cuBLAS breaks invariance).
@@ -241,45 +238,6 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             ),
             fallback_policy=OperatorFallbackPolicy.ERROR,
             version_or_build_fingerprint="h3-query-chunk-v1; binary profile checked at invocation",
-        ),
-        OperatorBackendDescriptor(
-            semantic_op="video_input_projection_fp32",
-            backend_id="cuda-cutlass-video-input-projection-fp32-v7",
-            supported_targets=frozenset({"rollout", "training"}),
-            supported_devices=frozenset({"cuda"}),
-            supported_dtypes=frozenset({"float32"}),
-            supported_topologies={
-                "rollout": {
-                    "world_size": (1,),
-                    "tensor_parallel_size": (1,),
-                    "context_parallel_size": (1,),
-                },
-                "training": {"world_size": (1,), "sharding": ("unsharded",)},
-            },
-            determinism_or_alignment_properties={
-                "algorithm": "cutlass_simt_fp32_chunk128_triton_merge_bias_canonical_parameter_vjp",
-                "forward_bias": "linear_combination_broadcast_source",
-                "reduction_backend": "triton",
-                "bias_reduction_backend": "triton_for_k_gt_96",
-                "input_width": 96,
-                "output_width": 5376,
-                "cuda_sm": 90,
-                "batch_invariant": True,
-                "deterministic": True,
-                "strict_observable": True,
-                "training_mode": "eager",
-                "parameter_gradient_order": "logical_key",
-                "reduction": "fixed_128_chunks_balanced_fp32_merge",
-                "vjp_chunk_k": 128,
-                "bias_reduction": "fixed_midpoint_tree_32",
-            },
-            lifecycle=OperatorLifecycle.REQUEST,
-            implementation_class_or_factory=OpBackend.CUDA_VIDEO_INPUT_PROJECTION_FP32.value,
-            fallback_policy=OperatorFallbackPolicy.ERROR,
-            version_or_build_fingerprint=(
-                "cutlass-56ca28a-fp32-simt-64x64x8-chunk128-merge64-"
-                "strided-actual-k-bias-epilogue-triton-bias-h3-v7"
-            ),
         ),
         OperatorBackendDescriptor(
             semantic_op="video_input_projection_fp32",

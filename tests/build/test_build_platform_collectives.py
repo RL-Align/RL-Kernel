@@ -13,39 +13,8 @@ from torch.utils import cpp_extension
 from build_tools.extensions import _resolve_package_data_source, get_cmdclass
 
 
-def test_optional_cutlass_build_has_independent_strict_flags(monkeypatch, tmp_path):
-    from build_tools import extensions
-
-    monkeypatch.setattr(torch.version, "hip", None)
-    monkeypatch.setattr(torch.version, "cuda", "12.9")
-    monkeypatch.setenv("CUTLASS_ROOT", str(tmp_path))
-    monkeypatch.setenv("KERNEL_ALIGN_USE_FAST_MATH", "1")
-    monkeypatch.setattr(
-        extensions, "_cutlass_headers_fingerprint", lambda _: extensions._CUTLASS_HEADERS_SHA256
-    )
-    candidate = extensions._cutlass_extension(torch, lambda **kw: kw, [])
-    assert candidate["name"] == "rl_engine._C_cutlass"
-    flags = candidate["extra_compile_args"]["nvcc"]
-    assert "--fmad=false" in flags and "--ftz=false" in flags
-    assert "--use_fast_math" not in flags
-    assert "csrc/bindings/ops.cpp" not in candidate["sources"]
-
-
-def test_cutlass_build_rejects_unpinned_headers(monkeypatch, tmp_path):
-    import pytest
-
-    from build_tools import extensions
-
-    monkeypatch.setattr(torch.version, "hip", None)
-    monkeypatch.setattr(torch.version, "cuda", "12.9")
-    monkeypatch.setenv("CUTLASS_ROOT", str(tmp_path))
-    with pytest.raises(RuntimeError, match="fingerprint"):
-        extensions._cutlass_extension(torch, lambda **kw: kw, [])
-
-
 def _load_extension_config(monkeypatch, *, hip: str | None) -> dict[str, Any]:
     captured: dict[str, Any] = {}
-    monkeypatch.delenv("RL_KERNEL_BUILD_CUTLASS", raising=False)
 
     def fake_setup(**kwargs: Any) -> None:
         captured.update(kwargs)

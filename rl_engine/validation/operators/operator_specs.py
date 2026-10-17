@@ -59,10 +59,6 @@ OP_SPECS = {
                 "rl_engine.backends.shared.triton.gemm.video_input_projection_fp32."
                 "TritonVideoInputProjectionFP32Op"
             ),
-            "cuda": (
-                "rl_engine.backends.cuda.gemm.video_input_projection_fp32."
-                "CUDAVideoInputProjectionFP32Op"
-            ),
         },
         grad_input_names=("x", "weight", "bias"),
     ),

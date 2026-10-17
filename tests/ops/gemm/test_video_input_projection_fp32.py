@@ -4,7 +4,6 @@
 """H3 FP32 projection accuracy, actual autograd, and logical-row invariance."""
 
 import os
-from importlib.util import find_spec
 
 import pytest
 import torch
@@ -20,7 +19,6 @@ H20 = (
     and torch.version.hip is None
     and torch.cuda.get_device_capability() == (9, 0)
 )
-BACKENDS = ["triton", "cuda"]
 
 
 @pytest.mark.parametrize(
@@ -130,20 +128,12 @@ def test_small_canonical_uses_retain_stable_normalization(monkeypatch):
     assert torch.equal(actual, values)
 
 
-def _op(backend):
-    if backend == "triton":
-        from rl_engine.backends.shared.triton.gemm.video_input_projection_fp32 import (
-            TritonVideoInputProjectionFP32Op,
-        )
-
-        return TritonVideoInputProjectionFP32Op()
-    from rl_engine.backends.cuda.gemm.video_input_projection_fp32 import (
-        CUDAVideoInputProjectionFP32Op,
+def _op():
+    from rl_engine.backends.shared.triton.gemm.video_input_projection_fp32 import (
+        TritonVideoInputProjectionFP32Op,
     )
 
-    if find_spec("rl_engine._C_cutlass") is None:
-        pytest.skip("requires the optional CUTLASS extension")
-    return CUDAVideoInputProjectionFP32Op()
+    return TritonVideoInputProjectionFP32Op()
 
 
 def _keys(rows, device):
@@ -280,10 +270,9 @@ def test_invalid_inputs(invalid):
 
 
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")
-@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("rows", [1, 9, 17, 65, 129, 257])
 @pytest.mark.parametrize("with_bias", [False, True])
-def test_forward_and_actual_gradients(backend, rows, with_bias):
+def test_forward_and_actual_gradients(rows, with_bias):
     data = list(_data(rows))
     if not with_bias:
         data[2] = None
@@ -292,12 +281,12 @@ def test_forward_and_actual_gradients(backend, rows, with_bias):
         x, weight, _, grad = data
         x, weight = x.requires_grad_(), weight.requires_grad_()
         with canonical_backward_session() as session:
-            y = _op(backend)(x, weight, logical_keys=_keys(rows, "cuda"), parameter_id="p")
+            y = _op()(x, weight, logical_keys=_keys(rows, "cuda"), parameter_id="p")
             y.backward(grad)
             session.validate_complete()
         actual = (y, x.grad, weight.grad)
     else:
-        actual = _run(_op(backend), data, _keys(rows, "cuda"))
+        actual = _run(_op(), data, _keys(rows, "cuda"))
     cx, cw = data[0].detach().cpu().requires_grad_(), data[1].detach().cpu().requires_grad_()
     cb = None if not with_bias else data[2].detach().cpu().requires_grad_()
     gold = NativeVideoInputProjectionFP32Op()(cx, cw, cb)
@@ -308,10 +297,9 @@ def test_forward_and_actual_gradients(backend, rows, with_bias):
 
 
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")
-@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("rows", [9, 65, 127, 128, 129, 257])
-def test_parameter_bi_permutation_chunk_padding(backend, rows):
-    op, data, keys = _op(backend), _data(rows), _keys(rows, "cuda")
+def test_parameter_bi_permutation_chunk_padding(rows):
+    op, data, keys = _op(), _data(rows), _keys(rows, "cuda")
     baseline = _run(op, data, keys)
     order = torch.randperm(rows, device="cuda")
     permuted = _run(
@@ -342,9 +330,8 @@ def test_parameter_bi_permutation_chunk_padding(backend, rows):
 
 
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")
-@pytest.mark.parametrize("backend", BACKENDS)
-def test_row_placement_and_unrelated_rows(backend):
-    op, data = _op(backend), _data(65)
+def test_row_placement_and_unrelated_rows():
+    op, data = _op(), _data(65)
     single = _run(op, [data[0][:1], data[1], data[2], data[3][:1]], _keys(1, "cuda"))
     data[0][37] = data[0][0]
     data[3][37] = data[3][0]
@@ -360,9 +347,8 @@ def test_row_placement_and_unrelated_rows(backend):
 
 
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")
-@pytest.mark.parametrize("backend", BACKENDS)
-def test_noncontiguous_upstream_and_forward_graph(backend):
-    op = _op(backend)
+def test_noncontiguous_upstream_and_forward_graph():
+    op = _op()
     x, weight, bias, grad = _data(17)
     with canonical_backward_session() as session:
         y = op(
@@ -390,8 +376,7 @@ def test_noncontiguous_upstream_and_forward_graph(backend):
 
 
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")
-@pytest.mark.parametrize("backend", BACKENDS)
-def test_real_weights_patch_path(backend):
+def test_real_weights_patch_path():
     path = os.environ.get("H3_PROJECTION_WEIGHTS")
     if not path:
         pytest.skip("set H3_PROJECTION_WEIGHTS to pinned H3 safetensors fixture")
@@ -411,7 +396,7 @@ def test_real_weights_patch_path(backend):
     latent = torch.randn(1, 24, 13, 48, 84, device="cuda", dtype=torch.bfloat16)
     x = NativeVideoPatchPackUnpackOp().pack(latent).reshape(-1, 96).float()
     grad = torch.randn(x.shape[0], 5376, device="cuda") * 0.0625
-    actual = _run(_op(backend), (x, weight, bias, grad), _keys(x.shape[0], "cuda"))
+    actual = _run(_op(), (x, weight, bias, grad), _keys(x.shape[0], "cuda"))
     cx, cw, cb = [t.detach().cpu().requires_grad_() for t in (x, weight, bias)]
     gold = NativeVideoInputProjectionFP32Op()(cx, cw, cb)
     gold.backward(grad.cpu())
@@ -419,7 +404,7 @@ def test_real_weights_patch_path(backend):
         _assert_accuracy(a, b, "forward_accuracy" if i == 0 else "gradient_accuracy")
     order = torch.arange(x.shape[0] - 1, -1, -1, device="cuda")
     chunked = _run(
-        _op(backend),
+        _op(),
         (x, weight, bias, grad),
         _keys(x.shape[0], "cuda"),
         list(torch.tensor_split(order, 3)),
@@ -436,7 +421,7 @@ def test_default_cuda_dispatch():
     assert op.backend_info()["backend_id"] == "triton-video-input-projection-fp32-v8"
     x, weight, bias, _ = _data(3)
     with torch.no_grad():
-        _assert_bytes(op(x, weight, bias), _op("triton")(x, weight, bias))
+        _assert_bytes(op(x, weight, bias), _op()(x, weight, bias))
 
 
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")
@@ -484,13 +469,11 @@ def test_fp32_tree_preserves_fp32_nodes(k):
 
 
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")
-@pytest.mark.parametrize("backend", BACKENDS)
-def test_fp32_tree_workspace_chunking(backend, monkeypatch):
+def test_fp32_tree_workspace_chunking(monkeypatch):
     from rl_engine.backends.shared.triton.gemm import det_gemm
     from rl_engine.ops.gemm.canonical_linear import _gemm_fp32
 
-    _op(backend)  # Apply the same optional-extension eligibility as other tests.
-    family = "triton_tree" if backend == "triton" else "cutlass"
+    family = "triton_tree"
     a, b = torch.randn(7, 129, device="cuda"), torch.randn(129, 5, device="cuda")
     expected = _gemm_fp32(a, b, family)
     plan = det_gemm._build_tree_plan(129)
@@ -503,13 +486,12 @@ def test_fp32_tree_workspace_chunking(backend, monkeypatch):
 
 
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")
-@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("rows", [129, 13104])
-def test_standard_normal_long_reduction(backend, rows):
+def test_standard_normal_long_reduction(rows):
     # Unscaled inputs expose cancellation error in the 5376-term input VJP.
     data = _data(rows)
     data = tuple(t / scale for t, scale in zip(data, (0.125, 0.0625, 0.125, 0.0625), strict=True))
-    actual = _run(_op(backend), data, _keys(rows, "cuda"))
+    actual = _run(_op(), data, _keys(rows, "cuda"))
     cx, cw, cb = [t.detach().cpu().requires_grad_() for t in data[:3]]
     gold = NativeVideoInputProjectionFP32Op()(cx, cw, cb)
     gold.backward(data[3].cpu())
@@ -530,16 +512,14 @@ def test_cpu_fp32_reference_long_dot_accuracy():
 
 
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")
-@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("k", [127, 128, 129, 5376, 13104])
-def test_fp32_chunked_gemm_strides_and_workspace(backend, k, monkeypatch):
+def test_fp32_chunked_gemm_strides_and_workspace(k, monkeypatch):
     from rl_engine.backends.shared.triton.gemm import det_gemm
     from rl_engine.ops.gemm.canonical_linear import _gemm_fp32
     from rl_engine.reference.gemm.video_input_projection_fp32 import _reference_matmul_fp32
 
     torch.manual_seed(420)
-    _op(backend)
-    family = "triton_tree" if backend == "triton" else "cutlass"
+    family = "triton_tree"
     a = torch.randn(k, 7, device="cuda").t()
     b = torch.randn(k, 96, device="cuda")
     expected = _gemm_fp32(a.contiguous(), b, family)
@@ -612,15 +592,12 @@ def test_canonical_bias_sharing_requires_matching_contributions(bias_uses, monke
 
 
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")
-@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("k", [64, 65, 128, 1024, 13104])
-def test_fp32_fused_tree_and_transposed_packing_match_scalar_reference(backend, k):
-    from rl_engine.backends.cuda.gemm.video_input_projection_fp32 import _cutlass_tree_leaves
+def test_fp32_fused_tree_and_strided_inputs_match_scalar_reference(k):
     from rl_engine.backends.shared.triton.gemm.det_gemm import _triton_tree_gemm
 
-    _op(backend)
     torch.manual_seed(422)
-    # Both operands exercise the strided transpose packing, including tail rows.
+    # Exercise a transposed A view and tail rows.
     a = torch.randn(k, 3, device="cuda").t()
     b = torch.randn(k, 5, device="cuda")
 
@@ -630,7 +607,6 @@ def test_fp32_fused_tree_and_transposed_packing_match_scalar_reference(backend, 
             b,
             output_dtype=torch.float32,
             preserve_a_strides=True,
-            fp32_leaf_launcher=_cutlass_tree_leaves if backend == "cuda" else None,
         )
 
     result = gemm(a, b)
@@ -639,13 +615,11 @@ def test_fp32_fused_tree_and_transposed_packing_match_scalar_reference(backend, 
 
 
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")
-@pytest.mark.parametrize("backend", BACKENDS)
-def test_compact_fp32_tree_workspace_preserves_chunked_outputs(backend, monkeypatch):
+def test_compact_fp32_tree_workspace_preserves_chunked_outputs(monkeypatch):
     from rl_engine.backends.shared.triton.gemm import det_gemm
     from rl_engine.ops.gemm.canonical_linear import _gemm_fp32
 
-    _op(backend)
-    family = "triton_tree" if backend == "triton" else "cutlass"
+    family = "triton_tree"
     a, b = torch.randn(7, 1024, device="cuda"), torch.randn(1024, 5, device="cuda")
     expected = _gemm_fp32(a, b, family)
     plan = det_gemm._device_tree_plan(1024, a.device, fp32_fuse_leaves=False)
@@ -695,32 +669,24 @@ def test_shortened_fp32_leaves_preserve_padded_arithmetic(rows, k, monkeypatch):
 
 
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")
-@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("rows", [1, 17, 129])
-def test_forward_bias_fusion_preserves_fp32_rounding(backend, rows):
+def test_forward_bias_fusion_preserves_fp32_rounding(rows):
     from rl_engine.backends.shared.triton.gemm.det_gemm import _triton_gemm_fp32
 
     x, weight, bias, _ = _data(rows)
-    if backend == "cuda":
-        from rl_engine.backends.cuda.gemm.video_input_projection_fp32 import cutlass_gemm_fp32
-
-        gemm = cutlass_gemm_fp32
-        rhs = weight.t()
-    else:
-        gemm = _triton_gemm_fp32
-        rhs = weight.t().contiguous()
+    gemm = _triton_gemm_fp32
+    rhs = weight.t().contiguous()
     expected = gemm(x, rhs) + bias
     actual = gemm(x, rhs, bias=bias)
     _assert_bytes(actual, expected)
     with torch.no_grad():
-        _assert_bytes(_op(backend)(x, weight, bias), expected)
+        _assert_bytes(_op()(x, weight, bias), expected)
 
 
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")
-@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("frozen", ["weight", "bias", "both"])
-def test_backend_frozen_parameters_preserve_trainable_gradients(backend, frozen):
-    op = _op(backend)
+def test_backend_frozen_parameters_preserve_trainable_gradients(frozen):
+    op = _op()
     data, keys = _data(129), _keys(129, "cuda")
     expected = _run(op, data, keys)
     actual = _run(

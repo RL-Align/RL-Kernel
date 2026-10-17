@@ -29,12 +29,6 @@ def _candidate(name):
         )
 
         return TritonVideoInputProjectionFP32Op()
-    if name == "cuda":
-        from rl_engine.backends.cuda.gemm.video_input_projection_fp32 import (
-            CUDAVideoInputProjectionFP32Op,
-        )
-
-        return CUDAVideoInputProjectionFP32Op()
     return None
 
 
@@ -123,8 +117,8 @@ def main():
     parser.add_argument(
         "--backends",
         nargs="+",
-        choices=("pytorch", "triton", "cuda"),
-        default=["pytorch", "triton", "cuda"],
+        choices=("pytorch", "triton"),
+        default=["pytorch", "triton"],
     )
     parser.add_argument("--rows", nargs="+", type=int, default=[1, 128, 1024, 4096, 13104])
     parser.add_argument("--samples", type=int, default=20)
@@ -164,11 +158,7 @@ def main():
         "rl_engine/ops/gemm/video_input_projection_fp32.py",
         "rl_engine/backends/shared/triton/gemm/det_gemm.py",
         "rl_engine/backends/shared/triton/gemm/video_input_projection_fp32.py",
-        "rl_engine/backends/cuda/gemm/video_input_projection_fp32.py",
         "rl_engine/reference/gemm/video_input_projection_fp32.py",
-        "csrc/bindings/video_input_projection_fp32_cutlass.cpp",
-        "csrc/cuda/gemm/video_input_projection_fp32_cutlass.cu",
-        "build_tools/extensions.py",
     ]
     # Devbox worker sync excludes .git; source hashes also identify exported workspaces.
     git_commit = _tool_version(["git", "-C", str(root), "rev-parse", "HEAD"])
