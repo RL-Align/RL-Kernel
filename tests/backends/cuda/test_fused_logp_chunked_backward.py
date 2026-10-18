@@ -8,6 +8,7 @@ from __future__ import annotations
 import pytest
 import torch
 
+import rl_engine.backends.cuda.logprob.logp as logp_module
 from rl_engine.backends.cuda.logprob.logp import (
     FusedLogpGenericOp,
     _FusedLogpAutograd,
@@ -22,7 +23,12 @@ requires_fused_logp = pytest.mark.skipif(
     reason="compiled _C.fused_logp is required",
 )
 requires_fused_backward = pytest.mark.skipif(
-    not (torch.cuda.is_available() and _EXT_AVAILABLE and hasattr(_C, "fused_logp_backward")),
+    not (
+        torch.cuda.is_available()
+        and torch.version.hip is None
+        and _EXT_AVAILABLE
+        and hasattr(_C, "fused_logp_backward")
+    ),
     reason="compiled _C.fused_logp_backward is required",
 )
 
@@ -109,6 +115,39 @@ class _ForwardOnlyBackend:
     fused_logp = staticmethod(lambda logits, labels: _C.fused_logp(logits, labels))
 
 
+@pytest.mark.parametrize("hip_version", [None, "6.4.0"])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_autograd_backward_dispatch_uses_chunked_on_hip(monkeypatch, hip_version, dtype):
+    """A stale HIP extension exposing the CUDA symbol must still use the fallback."""
+    calls = []
+
+    class Backend:
+        @staticmethod
+        def fused_logp(logits, labels):
+            return torch.log_softmax(logits.float(), -1).gather(1, labels[:, None]).squeeze(1)
+
+        @staticmethod
+        def fused_logp_backward(logits, labels, grad):
+            calls.append("fused")
+            assert hip_version is None, "the CUDA backward must not be dispatched on HIP"
+            return fused_logp_backward_chunked(logits, labels, grad, logits.dtype)
+
+    def chunked(*args, **kwargs):
+        calls.append("chunked")
+        return fused_logp_backward_chunked(*args, **kwargs)
+
+    monkeypatch.setattr(torch.version, "hip", hip_version)
+    monkeypatch.setattr(logp_module, "fused_logp_backward_chunked", chunked)
+    logits, labels, grad = _make_inputs(6, 17, dtype, "cpu", seed=19)
+    leaf = logits.reshape(2, 3, 17).requires_grad_(True)
+    out = _FusedLogpAutograd.apply(leaf, labels.reshape(2, 3), Backend())
+    out.backward(grad.reshape(2, 3))
+
+    assert calls == (["fused"] if hip_version is None else ["chunked"])
+    expected = fused_logp_backward_chunked(logits, labels, grad, dtype)
+    assert torch.equal(leaf.grad.reshape_as(logits), expected)
+
+
 @requires_fused_backward
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_generic_op_backward_uses_fused_kernel(dtype):
@@ -188,6 +227,36 @@ def test_fused_backward_rejects_bad_inputs():
     with pytest.raises(RuntimeError, match="grad_output length"):
         _C.fused_logp_backward(logits, labels, grad[:3])
     assert _C.fused_logp_backward(logits[:0], labels[:0], grad[:0]).shape == (0, 17)
+
+
+@requires_fused_backward
+@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="two CUDA devices are required")
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_fused_backward_guards_tensor_device_and_uses_its_current_stream(dtype):
+    caller_device = torch.cuda.current_device()
+    tensor_device = 1 if caller_device == 0 else 0
+    previous_stream = torch.cuda.current_stream(tensor_device)
+    stream = torch.cuda.Stream(device=tensor_device)
+    try:
+        # Leave this stream current on the input device, then restore the caller's
+        # device before entering C++. The binding must select both independently.
+        with torch.cuda.device(tensor_device):
+            torch.cuda.set_stream(stream)
+            logits, labels, grad = _make_inputs(13, 1031, dtype, f"cuda:{tensor_device}", seed=20)
+        assert torch.cuda.current_device() == caller_device
+        assert torch.cuda.current_stream(tensor_device) == stream
+
+        actual = _C.fused_logp_backward(logits, labels, grad)
+        assert torch.cuda.current_device() == caller_device
+        assert actual.device == logits.device
+        stream.synchronize()
+
+        expected = _reference_grad(logits.cpu(), labels.cpu(), grad.cpu()).to(dtype)
+        torch.testing.assert_close(actual.cpu(), expected, atol=1e-5, rtol=1.6e-2)
+    finally:
+        with torch.cuda.device(tensor_device):
+            torch.cuda.set_stream(previous_stream)
+        torch.cuda.set_device(caller_device)
 
 
 @requires_cuda

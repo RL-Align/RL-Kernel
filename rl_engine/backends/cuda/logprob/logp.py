@@ -62,9 +62,10 @@ class _FusedLogpAutograd(torch.autograd.Function):
     It runs in FP32 on CUDA and casts only the final input VJP to the BF16
     execution dtype.  There is no cross-token reduction or borrowed Triton
     candidate, so Batch/Chunk layout cannot change the result.  Builds with
-    ``_C.fused_logp_backward`` compute it in one kernel that reuses the
-    forward's max / sum-exp reductions and needs no workspace; older builds
-    fall back to the bounded row-chunked FP32 path.
+    ``_C.fused_logp_backward`` on CUDA compute it in one kernel that reuses the
+    forward's max / sum-exp reductions and needs no workspace. Older builds
+    and ROCm use the bounded row-chunked FP32 path until the fused backward
+    has been validated on ROCm.
     """
 
     @staticmethod
@@ -89,7 +90,7 @@ class _FusedLogpAutograd(torch.autograd.Function):
             )
             return grad.reshape(ctx.input_shape), None, None
 
-        if hasattr(ctx.backend, "fused_logp_backward"):
+        if torch.version.hip is None and hasattr(ctx.backend, "fused_logp_backward"):
             grad_1d = grad_output.reshape(-1).float().contiguous()
             grad = ctx.backend.fused_logp_backward(logits, labels, grad_1d)
         else:

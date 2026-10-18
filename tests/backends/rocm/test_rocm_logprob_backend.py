@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+import torch
 
 from rl_engine.backends.rocm.logprob.vocab_parallel_logp import RocmVocabParallelLogprobOp
 from rl_engine.contracts.operators.logprob import (
@@ -63,6 +64,16 @@ def test_rocm_backend_import_does_not_require_native_extension():
     # loading, not module import, decides whether the native fast path exists.
     op = RocmVocabParallelLogprobOp()
     assert isinstance(op, VocabParallelLogprobOp)
+
+
+@pytest.mark.skipif(torch.version.hip is None, reason="requires an actual HIP extension build")
+def test_hip_extension_does_not_export_unvalidated_cuda_fused_logp_backward():
+    from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+
+    if not _EXT_AVAILABLE:
+        pytest.skip("compiled HIP extension is required")
+    assert hasattr(_C, "fused_logp"), "the existing HIP forward must remain available"
+    assert not hasattr(_C, "fused_logp_backward")
 
 
 def test_explicit_native_backend_fails_closed_when_extension_is_missing(monkeypatch):

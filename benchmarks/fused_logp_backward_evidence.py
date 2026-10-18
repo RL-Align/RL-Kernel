@@ -29,12 +29,19 @@ Writes one JSON report:
     python benchmarks/fused_logp_backward_evidence.py --out report.json \
         [--flash-attn-src /path/to/flash-attention]
     python benchmarks/plot_fused_logp_backward_evidence.py report.json
+
+For a correctness-only rerun on a shared GPU, omit timing and memory measurements:
+
+    python benchmarks/fused_logp_backward_evidence.py --out correctness.json \\
+        --checks accuracy row-invariance batch-size-sweep train-rollout-invariance
 """
 
 from __future__ import annotations
 
 import argparse
 import contextlib
+import datetime
+import hashlib
 import importlib.metadata
 import importlib.util
 import json
@@ -61,7 +68,9 @@ CHUNKED = logp_mod.fused_logp_backward_chunked
 class _ForwardOnly:
     """A ``_C`` stand-in without ``fused_logp_backward``: selects the Python VJP."""
 
-    fused_logp = staticmethod(_C.fused_logp)
+    @staticmethod
+    def fused_logp(logits, labels):
+        return _C.fused_logp(logits, labels)
 
 
 def _previous_vjp(logits, labels, grad_output, out_dtype, **_):
@@ -144,7 +153,13 @@ def _add_external_candidates(flash_attn_src: Path | None) -> None:
             capture_output=True,
             text=True,
         ).stdout.strip()
-        EXTERNAL_SOURCES[name] = f"flash-attention source {commit or 'unknown'}"
+        manifest = flash_attn_src / "SOURCE.json"
+        if not commit and manifest.exists():
+            commit = json.loads(manifest.read_text())["commit"]
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        EXTERNAL_SOURCES[name] = (
+            f"flash-attention source {commit or 'unknown'}, cross_entropy.py sha256 {digest}"
+        )
 
 
 def _leaf(name: str, logits: torch.Tensor) -> torch.Tensor:
@@ -152,11 +167,23 @@ def _leaf(name: str, logits: torch.Tensor) -> torch.Tensor:
     return x.requires_grad_(True)
 
 
+def _effective_upstream_gradient(
+    grad: torch.Tensor, dtype: torch.dtype = torch.bfloat16
+) -> torch.Tensor:
+    """One upstream gradient representable by every candidate output dtype.
+
+    Quantize once at the BF16 execution boundary, then promote losslessly to FP32.
+    Rounding separately by each output dtype would compare different VJPs.
+    """
+
+    return grad.to(dtype).float()
+
+
 def _inputs(rows: int, seed: int, dtype=torch.bfloat16):
     g = torch.Generator(device="cuda").manual_seed(seed)
     logits = (torch.randn(rows, VOCAB, device="cuda", generator=g) * 2).to(dtype)
     labels = torch.randint(0, VOCAB, (rows,), device="cuda", generator=g)
-    grad = torch.randn(rows, device="cuda", generator=g)
+    grad = _effective_upstream_gradient(torch.randn(rows, device="cuda", generator=g), dtype)
     return logits, labels, grad
 
 
@@ -175,18 +202,86 @@ def accuracy(rows: int = 257, seed: int = 1) -> dict[str, Any]:
     probs = torch.softmax(x64, dim=-1)
     ref_out = torch.log_softmax(x64, dim=-1).gather(-1, labels[:, None]).squeeze(-1)
     one_hot = torch.zeros_like(probs).scatter_(1, labels[:, None], 1.0)
+    # A single reference for all candidates, including BF16- and FP32-output paths.
+    ref_grad = grad.double()[:, None] * (one_hot - probs)
+    ref_absmax = ref_grad.abs().max().item()
     result = {}
     for name in CANDIDATES:
         out, g = _step(name, logits, labels, grad)
-        # The upstream gradient reaches the VJP in the forward output's dtype.
-        ref_grad = grad.to(out.dtype).double()[:, None] * (one_hot - probs)
+        if not torch.equal(grad.to(out.dtype).float(), grad):
+            raise AssertionError(f"{name}: output dtype changes the common upstream gradient")
         err = (g.double() - ref_grad).abs()
         result[name] = {
+            "output_dtype": str(out.dtype),
             "logp_max_abs": (out.double() - ref_out).abs().max().item(),
             "grad_max_abs": err.max().item(),
-            "grad_max_abs_over_absmax": err.max().item() / ref_grad.abs().max().item(),
-            "grad_correctly_rounded_fraction": (g == ref_grad.to(g.dtype)).float().mean().item(),
+            "grad_max_abs_over_absmax": err.max().item() / ref_absmax,
+            "grad_correctly_rounded_fraction": (g == ref_grad.to(g.dtype)).sum().item() / g.numel(),
         }
+    return result
+
+
+def train_rollout_invariance(rows: int = 257, seeds=(3, 4, 5)) -> dict[str, Any]:
+    """Compare training providers with existing generic CUDA rollout entrypoints.
+
+    Test BF16 inputs and the FP32-upcast inputs used by selected_logprobs_with_operator.
+    Cross-provider agreement and candidate-local batch invariance are separate gates.
+    This check does not exercise the separate vLLM WS2 rollout provider.
+    """
+
+    result = {}
+    for dtype in (torch.bfloat16, torch.float32):
+        by_name = {
+            name: {
+                "rows_checked": 0,
+                "same_provider_no_grad_rows_differing": 0,
+                "project_rollout_fp32_rows_differing": 0,
+                "project_rollout_fp32_out_rows_differing": 0,
+                "project_rollout_bf16_rows_differing": 0,
+                "project_rollout_fp32_max_abs": 0.0,
+                "project_rollout_fp32_out_max_abs": 0.0,
+                "project_rollout_bf16_max_abs": 0.0,
+                "batch_rows": rows,
+                "seeds": list(seeds),
+            }
+            for name in CANDIDATES
+        }
+        for seed in seeds:
+            logits, labels, _ = _inputs(rows, seed)
+            logits = logits.to(dtype)
+            with torch.no_grad():
+                rollout_bf16 = _C.fused_logp(logits, labels).to(torch.bfloat16)
+                rollout_fp32 = _C.fused_logp_forward_fp32(logits, labels)
+                rollout_fp32_out = _C.fused_logp_forward_out(
+                    logits, labels, torch.empty_like(rollout_fp32)
+                )
+            for name, (fn, vjp) in CANDIDATES.items():
+                with _vjp(vjp):
+                    train = fn(_leaf(name, logits), labels).detach()
+                    # Liger overwrites its input, so modes need separate copies.
+                    x = logits.detach().clone() if name in IN_PLACE else logits.detach()
+                    with torch.no_grad():
+                        rollout_same_provider = fn(x, labels)
+                entry = by_name[name]
+                entry["rows_checked"] += rows
+                for key, candidate, reference in (
+                    ("same_provider_no_grad", train, rollout_same_provider),
+                    ("project_rollout_fp32", train.float(), rollout_fp32),
+                    ("project_rollout_fp32_out", train.float(), rollout_fp32_out),
+                    ("project_rollout_bf16", train.to(torch.bfloat16), rollout_bf16),
+                ):
+                    different_bytes = candidate.contiguous().view(
+                        torch.uint8
+                    ) != reference.contiguous().view(torch.uint8)
+                    entry[f"{key}_rows_differing"] += (
+                        different_bytes.reshape(rows, -1).any(dim=-1).sum().item()
+                    )
+                    if key != "same_provider_no_grad":
+                        entry[f"{key}_max_abs"] = max(
+                            entry[f"{key}_max_abs"],
+                            (candidate.float() - reference.float()).abs().max().item(),
+                        )
+        result[str(dtype)] = by_name
     return result
 
 
@@ -363,9 +458,47 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument(
-        "--flash-attn-src", type=Path, default=None, help="flash-attention source tree (optional)"
+        "--flash-attn-src",
+        type=Path,
+        default=None,
+        help="flash-attention source tree (optional)",
     )
+    parser.add_argument(
+        "--checks",
+        nargs="+",
+        choices=(
+            "accuracy",
+            "row-invariance",
+            "batch-size-sweep",
+            "train-rollout-invariance",
+            "performance",
+        ),
+        default=(
+            "accuracy",
+            "row-invariance",
+            "batch-size-sweep",
+            "train-rollout-invariance",
+            "performance",
+        ),
+        help="checks to rerun; omit performance when the GPU is shared",
+    )
+    parser.add_argument("--accuracy-rows", type=int, default=257)
+    parser.add_argument("--row-invariance-rows", type=int, default=4096)
+    parser.add_argument("--sweep-rows", type=int, default=2048)
+    parser.add_argument("--contract-rows", type=int, default=257)
+    parser.add_argument("--seeds", type=int, nargs="+", default=(3, 4, 5))
+    parser.add_argument("--build-note", default=None, help="optional extension build provenance")
     args = parser.parse_args()
+    if (
+        min(
+            args.accuracy_rows,
+            args.row_invariance_rows,
+            args.sweep_rows,
+            args.contract_rows,
+        )
+        < 16
+    ):
+        parser.error("row counts must be at least 16")
     _add_external_candidates(args.flash_attn_src)
     if not torch.cuda.is_available() or not hasattr(_C, "fused_logp_backward"):
         raise SystemExit("needs a CUDA device and a _C build with fused_logp_backward")
@@ -374,6 +507,9 @@ def main() -> None:
         "issue": "RL-Align/RL-Kernel#174",
         "git_commit": _git("rev-parse", "HEAD") or "unknown",
         "git_dirty": bool(_git("status", "--porcelain")),
+        "runner_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "run_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "command": [sys.executable, *sys.argv],
         "environment": {
             "gpu": torch.cuda.get_device_name(),
             "capability": list(torch.cuda.get_device_capability()),
@@ -382,16 +518,47 @@ def main() -> None:
             "python": platform.python_version(),
             "triton": _version("triton"),
             "external": EXTERNAL_SOURCES,
+            "extension_build_note": args.build_note,
+            "extension_sha256": hashlib.sha256(Path(_C.__file__).read_bytes()).hexdigest(),
         },
         "vocab": VOCAB,
         "dtype": "bfloat16",
-        "accuracy": accuracy(),
-        "row_invariance": row_invariance(),
-        "batch_size_sweep": batch_size_sweep(),
-        "performance": performance(),
+        "accuracy_contract": {
+            "rows": args.accuracy_rows,
+            "seed": 1,
+            "upstream": "one shared random gradient quantized to BF16, promoted losslessly to FP32",
+            "reference": (
+                "one FP64 VJP from BF16 logits and the shared upstream, for every candidate"
+            ),
+            "identical_effective_upstream_asserted": True,
+        },
+        "train_rollout_contract": {
+            "rollout_provider": (
+                "existing _C.fused_logp, _C.fused_logp_forward_fp32 and "
+                "_C.fused_logp_forward_out; separate vLLM WS2 provider not exercised"
+            ),
+            "input_regimes": "BF16 logits and the same logits losslessly upcast to FP32",
+            "fp32_boundary": "training output promoted to FP32 vs existing FP32 rollout",
+            "bf16_boundary": "training output quantized to BF16 vs existing BF16 rollout",
+            "same_provider_no_grad": "training vs torch.no_grad() using the same candidate",
+        },
     }
-    for name, entry in report["row_invariance"].items():
-        print(f"BI {name}: {entry}", flush=True)
+    checks = {
+        "accuracy": lambda: accuracy(rows=args.accuracy_rows),
+        "row-invariance": lambda: row_invariance(rows=args.row_invariance_rows, seeds=args.seeds),
+        "batch-size-sweep": lambda: batch_size_sweep(rows=args.sweep_rows, seeds=args.seeds),
+        "train-rollout-invariance": lambda: train_rollout_invariance(
+            rows=args.contract_rows, seeds=args.seeds
+        ),
+        "performance": performance,
+    }
+    for name in dict.fromkeys(args.checks):
+        print(f"running {name}", flush=True)
+        report[name.replace("-", "_")] = checks[name]()
+        # Save completed checks even if a later optional check is interrupted.
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(json.dumps(report, indent=2) + "\n")
+        print(f"completed {name}", flush=True)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2) + "\n")
     print(f"wrote {args.out} (commit {report['git_commit'][:7]}, dirty={report['git_dirty']})")

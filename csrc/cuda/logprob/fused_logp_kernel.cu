@@ -139,7 +139,7 @@ __global__ void fused_logp_forward_kernel(
     const scalar_t* row_logits = logits + row * vocab_size;
 
     float local_max = -1e20f;
-    for (int i = threadIdx.x; i < vocab_size; i += blockDim.x) {
+    for (int64_t i = threadIdx.x; i < vocab_size; i += blockDim.x) {
         local_max = max(local_max, static_cast<float>(row_logits[i]));
     }
     float max_val = blockReduceMax<float>(local_max);
@@ -149,7 +149,7 @@ __global__ void fused_logp_forward_kernel(
     __syncthreads();
 
     float local_sum = 0.0f;
-    for (int i = threadIdx.x; i < vocab_size; i += blockDim.x) {
+    for (int64_t i = threadIdx.x; i < vocab_size; i += blockDim.x) {
         local_sum += expf(static_cast<float>(row_logits[i]) - res_max);
     }
     float sum_val = blockReduceSum<float>(local_sum);
@@ -169,6 +169,8 @@ __global__ void fused_logp_forward_kernel(
     }
 }
 
+#if !defined(__HIPCC__) && !defined(__HIP_PLATFORM_AMD__)
+// Enable this backward only on CUDA until the HIP implementation is validated.
 // dlogits = grad * (one_hot(target) - softmax(logits)) for one row per block.
 // The max / sum-exp passes visit each thread's elements in the same order as
 // fused_logp_forward_kernel (same block size and reductions), so the softmax is
@@ -187,23 +189,25 @@ __global__ void fused_logp_backward_kernel(
     int64_t row = blockIdx.x;
     const scalar_t* row_logits = logits + row * vocab_size;
     scalar_t* row_grad = grad_logits + row * vocab_size;
-    const int stride = blockDim.x;
-    const int tile = stride * kUnroll;
+    // The last tile and its unrolled lanes can exceed INT_MAX even when the
+    // accepted vocabulary size fits int32. Keep all loop arithmetic in int64.
+    const int64_t stride = blockDim.x;
+    const int64_t tile = stride * kUnroll;
 
     int64_t target_id = token_ids[row];
     if (target_id < 0 || target_id >= vocab_size) {
-        for (int i = threadIdx.x; i < vocab_size; i += stride) {
+        for (int64_t i = threadIdx.x; i < vocab_size; i += stride) {
             row_grad[i] = static_cast<scalar_t>(0.0f);
         }
         return;
     }
 
     float local_max = -1e20f;
-    for (int base = threadIdx.x; base < vocab_size; base += tile) {
+    for (int64_t base = threadIdx.x; base < vocab_size; base += tile) {
         float values[kUnroll];
 #pragma unroll
         for (int u = 0; u < kUnroll; ++u) {
-            int i = base + u * stride;
+            int64_t i = base + u * stride;
             values[u] = i < vocab_size ? static_cast<float>(row_logits[i]) : -1e20f;
         }
 #pragma unroll
@@ -218,11 +222,11 @@ __global__ void fused_logp_backward_kernel(
     __syncthreads();
 
     float local_sum = 0.0f;
-    for (int base = threadIdx.x; base < vocab_size; base += tile) {
+    for (int64_t base = threadIdx.x; base < vocab_size; base += tile) {
         float values[kUnroll];
 #pragma unroll
         for (int u = 0; u < kUnroll; ++u) {
-            int i = base + u * stride;
+            int64_t i = base + u * stride;
             values[u] = i < vocab_size ? static_cast<float>(row_logits[i]) : 0.0f;
         }
 #pragma unroll
@@ -239,16 +243,16 @@ __global__ void fused_logp_backward_kernel(
     __syncthreads();
 
     float g = grad_output[row];
-    for (int base = threadIdx.x; base < vocab_size; base += tile) {
+    for (int64_t base = threadIdx.x; base < vocab_size; base += tile) {
         float values[kUnroll];
 #pragma unroll
         for (int u = 0; u < kUnroll; ++u) {
-            int i = base + u * stride;
+            int64_t i = base + u * stride;
             values[u] = i < vocab_size ? static_cast<float>(row_logits[i]) : 0.0f;
         }
 #pragma unroll
         for (int u = 0; u < kUnroll; ++u) {
-            int i = base + u * stride;
+            int64_t i = base + u * stride;
             if (i < vocab_size) {
                 float prob = expf(values[u] - res_max) / res_sum;
                 float one_hot = i == target_id ? 1.0f : 0.0f;
@@ -257,6 +261,7 @@ __global__ void fused_logp_backward_kernel(
         }
     }
 }
+#endif
 
 template <typename scalar_t, typename output_t, int BlockSize>
 __global__ void __launch_bounds__(BlockSize) fused_logp_forward_online_kernel(
@@ -275,7 +280,7 @@ __global__ void __launch_bounds__(BlockSize) fused_logp_forward_online_kernel(
     const scalar_t* row_logits = logits + row * vocab_size;
 
     LogSumExpState local_state{-1e20f, 0.0f};
-    for (int i = threadIdx.x; i < vocab_size; i += BlockSize) {
+    for (int64_t i = threadIdx.x; i < vocab_size; i += BlockSize) {
         float value = static_cast<float>(row_logits[i]);
         if (local_state.sum_exp == 0.0f) {
             local_state = {value, 1.0f};
@@ -691,6 +696,7 @@ torch::Tensor fused_logp_forward_online_indexed_fp32(
     return fused_logp_forward_online_indexed_out(logits, token_ids, row_indices, output);
 }
 
+#if !defined(__HIPCC__) && !defined(__HIP_PLATFORM_AMD__)
 torch::Tensor fused_logp_backward(
     torch::Tensor logits,
     torch::Tensor token_ids,
@@ -715,6 +721,9 @@ torch::Tensor fused_logp_backward(
         logits.size(0) <= std::numeric_limits<int>::max(),
         "logits rows exceed the CUDA grid limit");
 
+    // Copies, allocations and the launch must use the input device's current
+    // stream even when the caller has another CUDA device selected.
+    const c10::cuda::CUDAGuard device_guard(logits.device());
     auto logits_contig = logits.contiguous();
     auto token_ids_contig = token_ids.contiguous();
     auto grad_output_contig = grad_output.contiguous();
@@ -734,7 +743,7 @@ torch::Tensor fused_logp_backward(
                 static_cast<int>(total_tokens),
                 kFusedLogpTwoPassBlockSize,
                 0,
-                at::cuda::getCurrentCUDAStream()>>>(
+                at::cuda::getCurrentCUDAStream(logits.get_device())>>>(
                 logits_contig.data_ptr<scalar_t>(),
                 token_ids_contig.data_ptr<int64_t>(),
                 grad_output_contig.data_ptr<float>(),
@@ -745,6 +754,7 @@ torch::Tensor fused_logp_backward(
     C10_CUDA_KERNEL_LAUNCH_CHECK();
     return grad_logits;
 }
+#endif
 
 #if !defined(__HIPCC__) && !defined(__HIP_PLATFORM_AMD__)
 // Keep each PyTorch FP32 operation and its ascending-rank order explicit.
