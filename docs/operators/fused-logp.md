@@ -104,11 +104,19 @@ BF16-output and FP32-output candidates and is superseded by the review rerun bel
   for each candidate. See the [review rerun](../usage/evidence/fused-logp-backward-b200/README.md)
   for corrected accuracy, train/rollout comparisons, and the reuse decision.
 
+The [actual provider follow-up](../usage/evidence/fused-logp-backward-b200/provider-validation/README.md)
+also compares the Vime training provider with the real vLLM sampler/WS2 adapter at
+physical TP=1/2. A coordinated flash-attn CE scorer agrees at TP=1 but changes logp
+and LSE at TP=2. The report separately records an existing chunk-invariance failure
+in the WS2 PyTorch reference provider; same-batch training/rollout agreement does
+not establish invariance under a change of chunking.
+
 ## Tests
 
 ```bash
 python -m pytest tests/ops/logprob/test_logp.py -q
 python -m pytest tests/backends/cuda/test_fused_logp_chunked_backward.py -q
+python -m pytest tests/benchmarks/test_fused_logp_provider_evidence.py -q
 python -m pytest tests/ops/test_op_accuracy.py -q
 ```
 

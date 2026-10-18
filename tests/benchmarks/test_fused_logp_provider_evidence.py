@@ -9,7 +9,6 @@ import pytest
 import torch
 
 from benchmarks import fused_logp_provider_evidence as evidence
-from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 
 
 @pytest.mark.unit
@@ -88,9 +87,7 @@ def passing_provider_case():
 
 @pytest.mark.unit
 @pytest.mark.parametrize("nonfinite", [float("nan"), float("inf"), -float("inf")])
-def test_same_bit_nonfinite_results_fail_summary_verdict(
-    nonfinite, passing_provider_case
-):
+def test_same_bit_nonfinite_results_fail_summary_verdict(nonfinite, passing_provider_case):
     values = torch.tensor([-2.0, nonfinite])
     metric = evidence._comparison(values.clone(), values)
 
@@ -101,16 +98,11 @@ def test_same_bit_nonfinite_results_fail_summary_verdict(
     assert summary["nonfinite_elements"] == 1
     assert summary["passes"] is False
     passing_provider_case["comparisons"]["vime_vs_vllm_logp"] = metric
-    passing_provider_case["flash_attn"]["coordinated_train_vs_rollout"][
-        "flash_logp"
-    ] = metric
+    passing_provider_case["flash_attn"]["coordinated_train_vs_rollout"]["flash_logp"] = metric
     verdict = evidence._summary([passing_provider_case])
     assert verdict["existing_ws2_provider_baseline"]["passes"] is False
     assert (
-        verdict["flash_attn_candidate"][
-            "coordinated_replacement_passes_sampled_contract"
-        ]
-        is False
+        verdict["flash_attn_candidate"]["coordinated_replacement_passes_sampled_contract"] is False
     )
 
 
@@ -118,17 +110,15 @@ def test_same_bit_nonfinite_results_fail_summary_verdict(
 def test_changed_implementation_drift_is_diagnostic_for_coordinated_replacement(
     passing_provider_case,
 ):
-    passing_provider_case["flash_attn"]["changed_implementation_vs_ws2"][
-        "flash_vs_ws2_logp"
-    ] = evidence._comparison(torch.tensor([-2.0, -3.25]), torch.tensor([-2.0, -3.0]))
+    passing_provider_case["flash_attn"]["changed_implementation_vs_ws2"]["flash_vs_ws2_logp"] = (
+        evidence._comparison(torch.tensor([-2.0, -3.25]), torch.tensor([-2.0, -3.0]))
+    )
 
     verdict = evidence._summary([passing_provider_case])
     candidate = verdict["flash_attn_candidate"]
 
     assert verdict["existing_ws2_provider_baseline"]["passes"] is True
-    assert (
-        candidate["changed_implementation_vs_ws2_diagnostic"]["elements_differing"] == 1
-    )
+    assert candidate["changed_implementation_vs_ws2_diagnostic"]["elements_differing"] == 1
     assert candidate["changed_implementation_vs_ws2_diagnostic"]["passes"] is False
     for gate in (
         "same_provider_train_vs_no_grad",
@@ -144,9 +134,9 @@ def test_changed_implementation_drift_is_diagnostic_for_coordinated_replacement(
 def test_coordinated_tp_train_rollout_drift_fails_even_when_layouts_pass(
     passing_provider_case,
 ):
-    passing_provider_case["flash_attn"]["coordinated_train_vs_rollout"][
-        "flash_logp"
-    ] = evidence._comparison(torch.tensor([-2.0, -3.25]), torch.tensor([-2.0, -3.0]))
+    passing_provider_case["flash_attn"]["coordinated_train_vs_rollout"]["flash_logp"] = (
+        evidence._comparison(torch.tensor([-2.0, -3.25]), torch.tensor([-2.0, -3.0]))
+    )
 
     verdict = evidence._summary([passing_provider_case])
     candidate = verdict["flash_attn_candidate"]
@@ -162,13 +152,8 @@ def test_coordinated_tp_train_rollout_drift_fails_even_when_layouts_pass(
 
 @pytest.mark.cuda_only
 @pytest.mark.skipif(
-    not (
-        torch.cuda.is_available()
-        and torch.version.hip is None
-        and _EXT_AVAILABLE
-        and hasattr(_C, "fused_logp_backward")
-    ),
-    reason="compiled CUDA fused-logp extension is required",
+    not (torch.cuda.is_available() and torch.version.hip is None),
+    reason="a CUDA GPU is required",
 )
 @pytest.mark.parametrize(
     ("dtype", "real_vocab", "temperature", "vocab_mask"),
@@ -181,9 +166,7 @@ def test_real_vime_and_vllm_providers_compare_the_same_logit_boundary(
     monkeypatch, dtype, real_vocab, temperature, vocab_mask
 ):
     monkeypatch.setenv("VLLM_USE_FLASHINFER_SAMPLER", "0")
-    pytest.importorskip(
-        "vllm.v1.sample.sampler", reason="installed vLLM sampler is required"
-    )
+    pytest.importorskip("vllm.v1.sample.sampler", reason="installed vLLM sampler is required")
     previous_profiler = sys.getprofile()
 
     result = evidence.run_case(
