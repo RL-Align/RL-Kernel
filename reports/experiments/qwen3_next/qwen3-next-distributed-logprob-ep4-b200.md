@@ -66,3 +66,16 @@ mixer, where the MoE block runs.
 
 Site paths, host names and the scheduler are replaced by placeholders
 (`<CHECKPOINT>`, `<RUN>`, `<PYTHON>`, `<SITE>`, `<HOME>`).
+
+## Batch invariance at EP4 (stack top `90c09164`)
+
+Beyond the `l2` acceptance above, the full batch-invariance suite of the
+full-model chain (97 cells, see #544) was run at TP4 x EP4 x ETP1 from a clean
+clone of `90c09164`, after a passed EP4 `preflight`, `layers` and `l2` at that
+commit (the quick suite, 5 cells, passed first). Result: **97 / 97 cells
+bitwise** (concurrency 13 / 13, interference 10 / 10, chunk 66 / 66, packing
+8 / 8), `first_failure: null`, with the same cell definitions as the EP1 run
+(`cells_sha256` equal). [Raw results (ZIP)](https://github.com/fusheng-ji/RL-Kernel/releases/download/qwen3-next-rfc428-evidence/qwen3-next-batch-invariance-ep4-b200.zip),
+SHA-256 `b3012ab60e42fe372a843b02c2aebbf1dcf3320e54c1cacb57df58d40782fe4d`
+(`bi/bi_matrix.json`, `figure.png`). EP4 training and weight export stay
+fail-closed (follow-up), so no EP4 training stage is claimed.
