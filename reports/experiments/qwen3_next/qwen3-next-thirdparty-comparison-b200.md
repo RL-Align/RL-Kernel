@@ -2,9 +2,10 @@
 
 [Download raw results (ZIP)](https://github.com/fusheng-ji/RL-Kernel/releases/download/qwen3-next-rfc428-evidence/qwen3-next-thirdparty-comparison-b200.zip).
 
-ZIP SHA-256: `6ae9cddf9037ef2cc600630e56da859c92ec716c8a36fcf6229ae34322575f92`.
+ZIP SHA-256: `d0eaa32625691c2dcc8df6fb0fe42ed0ffe07e050473cb2d5f518cf6a227f2ff`.
 
-Measured at commit `350ea66d` (`measured-commit.txt`; every report has
+Measured at commit `350ea66d` (MoE backward and logprob forward) and `1571c094`
+(logprob backward, TP1 and TP4; both in `measured-commit.txt`; every report has
 `tracked_tree_dirty: false`) on one node with four B200 GPUs, torch 2.13.0+cu130,
 vLLM 0.30.0, Megatron-core 0.16.0rc0, SGLang 0.5.21, NCCL 2.29.7, the official
 `Qwen/Qwen3-Next-80B-A3B-Instruct` revision
@@ -25,9 +26,13 @@ temporary package with empty `__init__` files links verl's real `utils/device.py
 # Miles' routed-MoE backward (its own autograd functions) -- SGLang environment
 python benchmarks/models/qwen3_next/qwen3_next_miles_moe_backward.py \
     --checkpoint <ckpt> --miles-src <miles> --output miles-moe-backward --repeats 20
-# logprob backward of verl, Miles and RL-Kernel -- one GPU
+# logprob backward of verl, Miles and RL-Kernel -- one GPU, then TP4 under 13 NCCL settings (as below)
 python benchmarks/models/qwen3_next/qwen3_next_logprob_backward.py \
-    --checkpoint <ckpt> --miles-src <miles> --verl-src <verl> --output logprob-backward --repeats 20
+    --checkpoint <ckpt> --miles-src <miles> --verl-src <verl> --output logprob-backward --repeats 10
+torchrun --nproc-per-node 4 benchmarks/models/qwen3_next/qwen3_next_logprob_backward.py \
+    --checkpoint <ckpt> --miles-src <miles> --verl-src <verl> --output logprob-backward-tp4/tp4-default --repeats 10
+python benchmarks/models/qwen3_next/qwen3_next_logprob_backward.py --merge logprob-backward-tp4/tp4-* \
+    logprob-backward --out logprob-backward-tp4/report.json
 # logprob forward at TP4 under 13 NCCL settings and TP1 -- training environment (as in #549)
 torchrun --nproc-per-node 4 benchmarks/models/qwen3_next/qwen3_next_logprob_prior_art.py \
     --checkpoint <ckpt> --miles-src <miles> --verl-src <verl> --output logprob/tp4-default
@@ -80,18 +85,34 @@ and VIME: the TP4 result depends on the NCCL algorithm and differs from TP1. The
 forward is repeatable at a fixed setting. verl's forward `tl.atomic_add` only runs
 for `reduction` sum / mean (not the `"none"` used here).
 
-Backward (TP1, the whole 151936-row head, 20 launches):
+Backward at TP1 (the whole 151936-row head, 10 launches; the logits of Miles and
+RL-Kernel come from RL-Kernel's batch-invariant GEMM, because a plain cuBLAS
+matmul picks an algorithm per row count and would make the probe rows differ for
+a reason unrelated to the logprob kernels; verl fuses its own GEMM and is measured
+as it is):
 
 | Implementation | Gradient | Equal to the first launch | 8 probe rows alone == inside batches (10 cells) |
 | --- | --- | --- | --- |
-| verl | `d_hidden` | 20 / 20 | **1 / 10** |
-| verl | `d_weight` | 20 / 20 | – |
-| Miles | `d_logits` (store-only kernels, no atomics) | 20 / 20 | 10 / 10 |
-| RL-Kernel WS2 | `d_logits` | 20 / 20 | 10 / 10 |
+| verl | `d_hidden` | 10 / 10 | **1 / 10** |
+| verl | `d_weight` | 10 / 10 | – |
+| Miles | `d_logits` (store-only kernels, no atomics) | 10 / 10 | 10 / 10 |
+| RL-Kernel WS2 | `d_logits` | 10 / 10 | 10 / 10 |
+
+Backward at TP4 (vocabulary-parallel, same inputs, 13 NCCL settings, 10 launches
+per setting; the gradient shards are compared with the TP1 gradient by slice):
+
+| Implementation | Gradient | TP4 == TP1 | Distinct TP4 results over 13 settings | Repeat (all launches) | Batch invariant |
+| --- | --- | --- | --- | --- | --- |
+| verl | `d_hidden`, `d_weight` | no | **2** | same | **no** |
+| Miles | `d_logits` | no | **2** | same | yes |
+| RL-Kernel WS2 | `d_logits` | **yes** | **1** | same | yes |
 
 verl's backward accumulates `d_hidden` and `d_weight` with `tl.atomic_add`, yet
 repeated launches gave the same bits here; its row gradient changes with the
-batch.
+batch. Miles' and verl's backward consume the TP-sharded forward statistics that
+NCCL all-reduces, so their gradients move with the NCCL algorithm and differ from
+TP1, like their forward; RL-Kernel's fixed-order collective keeps one result.
+An earlier TP1-only run (20 launches, `350ea66d`) gave the same counts.
 
 Every result file is JSON with the commit, environment and third-party
 provenance; `figure.png` renders them; `SHA256SUMS` covers every file. Site paths,

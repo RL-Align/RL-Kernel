@@ -56,9 +56,16 @@ def plot(root: Path, out: Path) -> None:
     backward = json.loads((root / "logprob-backward" / "report.json").read_text())["candidates"]
     moe = json.loads((root / "miles-moe-backward" / "report.json").read_text())["candidates"]
     env = report["environment"]
+    tp4_path = root / "logprob-backward-tp4" / "report.json"
+    backward_tp4 = json.loads(tp4_path.read_text())["candidates"] if tp4_path.exists() else None
 
-    fig = plt.figure(figsize=(19, 15), facecolor=SURFACE)
-    spec = fig.add_gridspec(3, 2, height_ratios=[1, 1, 1], width_ratios=[1.25, 1])
+    fig = plt.figure(figsize=(19, 15 if backward_tp4 is None else 19), facecolor=SURFACE)
+    spec = fig.add_gridspec(
+        3 if backward_tp4 is None else 4,
+        2,
+        height_ratios=[1, 1, 1, 0.8][: 3 if backward_tp4 is None else 4],
+        width_ratios=[1.25, 1],
+    )
 
     top = fig.add_subplot(spec[0, :])
     grid = np.array(
@@ -108,11 +115,12 @@ def plot(root: Path, out: Path) -> None:
     lat.set_title("Forward latency", fontsize=10, color=INK)
 
     bwd = fig.add_subplot(spec[2, 0])
-    rows, labels, colors = [], [], []
+    rows, labels, colors, counts = [], [], [], []
     for name, label in (("miles_moe", "Miles MoE backward"), ("rl_moe", "RL-Kernel MoE backward")):
         source = moe["miles" if name == "miles_moe" else "rl_kernel"]["repeat"]
         for tensor, short in (("dx", "dx"), ("dw_gate_up", "dW gate_up"), ("dw_down", "dW down")):
             rows.append(source[tensor]["repeats_equal_to_first"] / source[tensor]["repeats"])
+            counts.append(f"{source[tensor]['repeats_equal_to_first']}/{source[tensor]['repeats']}")
             labels.append(f"{label}: {short}")
             colors.append(OTHER if name == "miles_moe" else RL_KERNEL)
     for name, label in (
@@ -122,6 +130,7 @@ def plot(root: Path, out: Path) -> None:
     ):
         for tensor, source in backward[name]["gradients"].items():
             rows.append(source["repeats_equal_to_first"] / source["repeats"])
+            counts.append(f"{source['repeats_equal_to_first']}/{source['repeats']}")
             labels.append(f"{label}: {tensor}")
             colors.append(RL_KERNEL if name == "rl_kernel_ws2" else OTHER)
     bwd.barh(range(len(rows)), rows, color=colors)
@@ -129,13 +138,13 @@ def plot(root: Path, out: Path) -> None:
     bwd.invert_yaxis()
     bwd.set_xlim(0, 1.05)
     for i, v in enumerate(rows):
-        bwd.text(v, i, f" {v * 20:.0f}/20", va="center", fontsize=7, color=MUTED)
+        bwd.text(v, i, f" {counts[i]}", va="center", fontsize=7, color=MUTED)
     bwd.set_xlabel(
-        "share of 20 identical launches equal to the first, bit for bit", fontsize=9, color=MUTED
+        "share of identical launches equal to the first, bit for bit (MoE 20, logprob 10)",
+        fontsize=9,
+        color=MUTED,
     )
-    bwd.set_title(
-        "Backward reproducibility (identical inputs, 20 launches)", fontsize=10, color=INK
-    )
+    bwd.set_title("Backward reproducibility (identical inputs)", fontsize=10, color=INK)
 
     inv = fig.add_subplot(spec[2, 1])
     names = [
@@ -158,6 +167,43 @@ def plot(root: Path, out: Path) -> None:
         fontsize=10,
         color=INK,
     )
+
+    if backward_tp4 is not None:
+        tp4 = fig.add_subplot(spec[3, :])
+        entries = []
+        for name, label in (
+            ("verl_fused", "verl"),
+            ("miles_fused", "Miles"),
+            ("rl_kernel_ws2", "RL-Kernel"),
+        ):
+            entry = backward_tp4[name]
+            for tensor, g in entry["gradients"].items():
+                entries.append(
+                    (
+                        f"{label} {tensor}",
+                        (
+                            g["tp4_equals_tp1"],
+                            g["distinct_results_over_settings"] == 1,
+                            g["repeat_bitwise_all_launches"],
+                            entry["batch_invariant"],
+                        ),
+                    )
+                )
+        columns = ("TP4 == TP1", "NCCL setting\ninvariant", "repeat\nbitwise", "batch\ninvariant")
+        tp4.imshow(
+            np.array([[float(bool(v)) for v in row] for _, row in entries]),
+            cmap=STATUS,
+            vmin=0,
+            vmax=2,
+            aspect="auto",
+        )
+        tp4.set_yticks(range(len(entries)), [n for n, _ in entries], fontsize=8, color=INK)
+        tp4.set_xticks(range(len(columns)), columns, fontsize=8, color=INK)
+        tp4.set_title(
+            "Logprob backward at TP4 (vocabulary-parallel, 13 NCCL settings, 10 launches each)",
+            fontsize=10,
+            color=INK,
+        )
 
     for axis in fig.axes:
         for spine in axis.spines.values():
