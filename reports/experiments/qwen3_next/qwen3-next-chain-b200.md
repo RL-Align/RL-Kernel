@@ -46,3 +46,29 @@ itself (see the known issue in the PR).
 Site paths, host names, users and the scheduler are replaced by placeholders
 (`<CHECKPOINT>`, `<RUN>`, `<PYTHON>`, `<SITE>`, `<HOME>`); `redaction.json`
 counts them.
+
+## Rerun on the stack top (`90c09164`)
+
+After the stack was aligned with the reviewed layout (runners under
+`tools/validation/models/qwen3_next/`, code under `rl_engine/models/qwen3_next/`),
+the whole TP4 x EP1 chain was run again from clean clones of `90c09164`
+(commit and tree in `measured-commit.txt` and every `run.json`), same environment
+and checkpoint as above: [raw results (ZIP)](https://github.com/fusheng-ji/RL-Kernel/releases/download/qwen3-next-rfc428-evidence/qwen3-next-chain-stacktop-b200.zip),
+SHA-256 `bde7e27c5db8d92d1171f08d7858231e4f8dee4e4831f60c3103c95505245f09`
+(`figure.png` is the chain figure, `figure-bi.png` the batch-invariance matrix
+of the same commit).
+
+| Stage | Result |
+| --- | --- |
+| `preflight`, `layers` | passed |
+| `l2` | 16 / 16 raw-bit; every artifact bitwise identical to the `c67ec14` run |
+| `train1`, `train2` | passed, 16 / 16 raw-bit on the updated weights each |
+| `train` | passed: checkpoint reload, reload == update 2, continuous == resumed step 3, checkpoint fault injection; 16 / 16 raw-bit |
+| chain-gate report | `qwen3-next-chain-v1`, 64 cells, `passed: true`, `first_drift: null` |
+
+`train1` and `train2` were preempted and restarted several times; each stage is
+published only as a complete, passed attempt, and before `train` the training
+journal was checked to hold exactly the events of the two updates (the known
+resume issue, see the PR). `train` ran in one attempt without a restart. The
+published chain is a copy of the stage outputs made by the committed publisher
+(`redaction.json` counts the placeholders; the ZIP contains no site detail).
