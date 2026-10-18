@@ -46,3 +46,15 @@ section.
 
 Site paths, host names and the scheduler are replaced by placeholders
 (`<CHECKPOINT>`, `<RUN>`, `<PYTHON>`, `<SITE>`, `<PATH>/name`, `<CGROUP>/file`).
+
+## Rerun of the full suite on the stack top (`90c09164`)
+
+The full 97-cell suite was run again from a clean clone of `90c09164` (TP4 x EP1,
+the same checkpoint and environment; `preflight`, `layers` and `l2` passed first
+and `l2` is bitwise identical to the `c67ec14` run). Result: **97 / 97 cells
+bitwise** (concurrency 13 / 13, interference 10 / 10, chunk 66 / 66, packing 8 / 8),
+no failed cell, `first_failure: null`. The published copy is inside the chain
+archive of the full-model chain,
+[`qwen3-next-chain-stacktop-b200.zip`](https://github.com/fusheng-ji/RL-Kernel/releases/download/qwen3-next-rfc428-evidence/qwen3-next-chain-stacktop-b200.zip)
+(SHA-256 `bde7e27c5db8d92d1171f08d7858231e4f8dee4e4831f60c3103c95505245f09`,
+`bi/bi_matrix.json`, `figure-bi.png`).
