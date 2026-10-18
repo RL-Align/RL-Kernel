@@ -204,6 +204,14 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     CUDA_SM90_LM_HEAD = "rl_engine.kernels.ops.cuda.linear.lm_head.SM90LMHeadOp"
     CUDA_SM90_EMBEDDING = "rl_engine.kernels.ops.cuda.linear.embedding.SM90EmbeddingOp"
 
+    # MiniMax-H3 (RFC #420) scheduler grid
+    PYTORCH_H3_SIGMA_SCHEDULE = (
+        "rl_engine.reference.minimax_h3.sigma_schedule.NativeH3SigmaScheduleOp"
+    )
+    CUDA_H3_SIGMA_SCHEDULE = (
+        "rl_engine.backends.cuda.model_specific.minimax_h3." "sigma_schedule.H3SigmaScheduleCudaOp"
+    )
+
 
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
     return (
@@ -411,6 +419,51 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             implementation_class_or_factory=None,
             fallback_policy=OperatorFallbackPolicy.RUNTIME_MANAGED,
             version_or_build_fingerprint="runtime-native-ffn-unresolved-v1",
+        ),
+        # MiniMax-H3 sigma grid (RFC #420). Byte-frozen against the pinned
+        # upstream construction; see rl_engine/reference/minimax_h3/.
+        OperatorBackendDescriptor(
+            semantic_op="sigma_schedule_h3",
+            backend_id="rlkernel.h3_sigma_schedule.reference",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"cpu", "cuda", "rocm"}),
+            supported_dtypes=frozenset({"float32"}),
+            supported_topologies={"*": "*"},
+            determinism_or_alignment_properties={
+                "algorithm": "upstream MiniMaxH3Scheduler.set_timesteps, fp32 pinned",
+                "batch_invariant": True,
+                "deterministic": True,
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.ENGINE_CONSTRUCTION,
+            implementation_class_or_factory=(
+                "rl_engine.reference.minimax_h3.sigma_schedule.NativeH3SigmaScheduleOp"
+            ),
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="NativeH3SigmaScheduleOp-v1",
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="sigma_schedule_h3",
+            backend_id="rlkernel.h3_sigma_schedule.triton",
+            supported_targets=frozenset({"rollout", "training"}),
+            # NVIDIA-only backend (inline PTX div.rn.f32); HIP/ROCm stays
+            # on the reference — the kernels cannot run on AMD.
+            supported_devices=frozenset({"cuda"}),
+            supported_dtypes=frozenset({"float32"}),
+            supported_topologies={"*": "*"},
+            determinism_or_alignment_properties={
+                "algorithm": "device-side pinned law; ieee division, no FMA fusion",
+                "batch_invariant": True,
+                "deterministic": True,
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.ENGINE_CONSTRUCTION,
+            implementation_class_or_factory=(
+                "rl_engine.backends.cuda.model_specific.minimax_h3."
+                "sigma_schedule.H3SigmaScheduleCudaOp"
+            ),
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="H3SigmaScheduleTritonOp-v1",
         ),
     )
 
@@ -673,6 +726,10 @@ class KernelRegistry:
                     OpBackend.TRITON_ROPE,
                     OpBackend.PYTORCH_NATIVE_ROPE,
                 ],
+                "sigma_schedule_h3": [
+                    OpBackend.CUDA_H3_SIGMA_SCHEDULE,
+                    OpBackend.PYTORCH_H3_SIGMA_SCHEDULE,
+                ],
             },
             "rocm": {
                 "logp": [
@@ -696,6 +753,7 @@ class KernelRegistry:
                 "kv_cache_attention": [OpBackend.PYTORCH_NATIVE_KV_CACHE_ATTN],
                 "grpo_loss": [OpBackend.TRITON_GRPO_LOSS, OpBackend.PYTORCH_GRPO_LOSS],
                 "rope": [OpBackend.TRITON_ROPE, OpBackend.PYTORCH_NATIVE_ROPE],
+                "sigma_schedule_h3": [OpBackend.PYTORCH_H3_SIGMA_SCHEDULE],
                 "linear_logp": [
                     OpBackend.TRITON_LINEAR_LOGP,
                     OpBackend.PYTORCH_LINEAR_LOGP,
@@ -739,6 +797,7 @@ class KernelRegistry:
                     OpBackend.PYTORCH_GRPO_LOSS,
                 ],
                 "rope": [OpBackend.TRITON_ROPE, OpBackend.PYTORCH_NATIVE_ROPE],
+                "sigma_schedule_h3": [OpBackend.PYTORCH_H3_SIGMA_SCHEDULE],
                 "linear_logp": [
                     OpBackend.TRITON_LINEAR_LOGP,
                     OpBackend.PYTORCH_LINEAR_LOGP,
@@ -778,6 +837,7 @@ class KernelRegistry:
                 "kv_cache_attention": [OpBackend.PYTORCH_NATIVE_KV_CACHE_ATTN],
                 "grpo_loss": [OpBackend.PYTORCH_GRPO_LOSS],
                 "rope": [OpBackend.PYTORCH_NATIVE_ROPE],
+                "sigma_schedule_h3": [OpBackend.PYTORCH_H3_SIGMA_SCHEDULE],
                 "linear_logp": [OpBackend.PYTORCH_LINEAR_LOGP],
                 "ratio_kl": [OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
