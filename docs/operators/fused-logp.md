@@ -93,7 +93,8 @@ BF16-output and FP32-output candidates and is superseded by the review rerun bel
   alone. FLA's is not batch-invariant: a few percent of rows change by one FP32 ulp with the
   batch size.
 - The fused kernel requires no Triton or flash-attn dependency. The generic op's forward
-  (`_C.fused_logp`, unchanged here) returns BF16 logp, while the CE kernels return FP32.
+  (`_C.fused_logp`) returns BF16 logp for BF16 logits, as does Liger CE; FLA and
+  flash-attn CE return FP32.
 - The batch-size sweep compares eight rows alone with the same rows at the front, middle and
   back of batches of every size 1..9 and 2^k-1 / 2^k / 2^k+1 up to 2048, over three seeds;
   `row_invariance` in the report (256 rows of a 4096-row batch) agrees.
