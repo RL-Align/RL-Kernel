@@ -1,6 +1,6 @@
 # Qwen-Image final AdaLN output (CUDA)
 
-> Status: validated on B200 (SM100). Accuracy, batch-invariance, reuse-survey and timing evidence, with reproduction commands, is in [B200 evidence](../usage/evidence/qwenimage-final-adaln-out-b200/README.md).
+> Status: validated on B200 (SM100). Accuracy, batch-invariance, reuse-survey and timing evidence, with reproduction commands, is in [B200 evidence](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr538/docs/usage/evidence/qwenimage-final-adaln-out-b200/README.md).
 
 RFC #386 `final_adaln_out`, registered as `qwenimage_final_adaln_out`. This covers
 `norm_out` only; the subsequent 3072→64 `proj_out` belongs to `latent_proj_gemm`.
@@ -61,4 +61,4 @@ noncontiguous inputs, forward/backward accuracy, sample batching, repeatability,
 parameter contribution ordering, and device isolation. Reports retain existing
 tolerances and include FP64 diagnostics of the CPU FP32 reference.
 
-See [B200 evidence and reproduction](../usage/evidence/qwenimage-final-adaln-out-b200/README.md).
+See [B200 evidence and reproduction](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr538/docs/usage/evidence/qwenimage-final-adaln-out-b200/README.md).

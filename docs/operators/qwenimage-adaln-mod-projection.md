@@ -1,6 +1,6 @@
 # Qwen-Image AdaLN modulation projection (CUDA)
 
-> Status: validated on B200 (SM100). Accuracy, batch-invariance, reuse-survey and timing evidence, with reproduction commands, is in [B200 evidence](../usage/evidence/qwenimage-adaln-mod-projection-b200/README.md).
+> Status: validated on B200 (SM100). Accuracy, batch-invariance, reuse-survey and timing evidence, with reproduction commands, is in [B200 evidence](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr537/docs/usage/evidence/qwenimage-adaln-mod-projection-b200/README.md).
 
 RFC #386 `adaln_mod_projection`, registered as `qwenimage_adaln_mod_projection`
 to keep the H3 and Qwen-Image contracts separate. This is a Phase A single-GPU
@@ -68,7 +68,7 @@ This reference does not call the candidate CUDA kernel.
 
 ## Validation and reproduction
 
-See the [B200 evidence and review notes](../usage/evidence/qwenimage-adaln-mod-projection-b200/README.md).
+See the [B200 evidence and review notes](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr537/docs/usage/evidence/qwenimage-adaln-mod-projection-b200/README.md).
 Reports use the existing `reduction` forward/gradient tolerance rows, without
 private overrides. Strict replay and batch invariance are checked with
 `torch.equal` on contiguous raw-byte views, separately from agreement with the CPU reference.
