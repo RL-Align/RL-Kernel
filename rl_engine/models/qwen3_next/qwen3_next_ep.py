@@ -96,6 +96,8 @@ def _exchange(local_rows: torch.Tensor, slots, total: int, group) -> torch.Tenso
     """
     from rl_engine.distributed.algorithms.collectives import collective_for_group
 
+    if group is None:
+        raise RuntimeError("EP route exchange needs a process group")
     width = local_rows.shape[-1]
     counts = [int(s.numel()) for s in slots]
     if sum(counts) != total:
@@ -105,6 +107,8 @@ def _exchange(local_rows: torch.Tensor, slots, total: int, group) -> torch.Tenso
     send = local_rows.new_zeros((padded, width))
     send[: counts[rank]] = local_rows
     collective = collective_for_group(group, min_size_bytes=send.numel() * send.element_size() * EP)
+    if collective is None:
+        raise RuntimeError("no collective is available for the EP group")
     gathered = collective.all_gather(send).reshape(EP, padded, width)
     out = local_rows.new_empty((total, width))
     for owner, owned in enumerate(slots):

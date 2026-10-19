@@ -9,6 +9,7 @@ import torch
 from rl_engine.models.qwen3_next.qwen3_next_ep import (
     EP,
     LOCAL_EXPERTS,
+    _exchange,
     _slots_by_owner,
     ep_local_hf_names,
     expert_map,
@@ -119,3 +120,11 @@ def test_supported_topology(topology, supported):
     from rl_engine.models.qwen3_next.qwen3_next_ep import supported_topology
 
     assert supported_topology(topology) is supported
+
+
+def test_route_exchange_requires_a_process_group():
+    routes = torch.arange(24).reshape(3, 8) % 512
+    slots = _slots_by_owner(routes)
+    rows = torch.zeros((int(slots[0].numel()), 4))
+    with pytest.raises(RuntimeError, match="needs a process group"):
+        _exchange(rows, slots, routes.numel(), None)
