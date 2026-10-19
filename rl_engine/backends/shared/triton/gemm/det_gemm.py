@@ -957,7 +957,6 @@ def _triton_gemm_fp32(
         HAS_BIAS=bias is not None,
         EVEN_K=aligned_tiles and K % _BLOCK_K == 0,
         EVEN_N=aligned_tiles and N % _BLOCK_N == 0,
-        **({"enable_fp_fusion": False} if torch.version.hip is None else {}),
     )
     return c
 

@@ -38,7 +38,7 @@ def projection_gemm_fp32(a, b, *, bias=None):
 class TritonVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
     family = "triton"
     matmul_op = staticmethod(projection_gemm_fp32)
-    backend_id = "triton-video-input-projection-fp32-v10"
+    backend_id = "triton-video-input-projection-fp32-v11"
 
     def __init__(self):
         if not _TRITON_AVAILABLE:
@@ -67,7 +67,9 @@ class TritonVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
             "forward_aligned_tiles": True,
             "canonical_rows": "live_strict_order_proof_or_stable_sort",
             "tf32": False,
-            "fp_fusion": False,
+            "direct_gemm_fp_fusion": "compiler_default",
+            "chunked_gemm_fp_fusion": False,
+            "tree_gemm_fp_fusion": False,
             "dot_arithmetic": "ieee_fp32_simt_fma",
             "forward_bias": "fp32_epilogue",
             "leaf_loop_bound": "max_logical_leaf_length",

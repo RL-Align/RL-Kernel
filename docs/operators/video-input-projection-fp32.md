@@ -112,7 +112,7 @@ partials remain FP32. A second grid uses a fixed balanced reduction over the
 next power-of-two chunk count, with zero padding. The merge uses 64 output
 elements per program and four warps. VJP GEMMs use fixed 128-by-32 output tiles,
 32-term dot tiles, and four warps. The forward retains its 64-by-64 output tile.
-These settings define the v10 Triton implementation identity. The K partition
+These settings define the v11 Triton implementation identity. The K partition
 and VJP tile do not depend on M, row placement, or occupancy.
 The VJP kernels consume positive-stride views directly, including `G.T`.
 The Triton forward omits K or N load predicates only when the corresponding
@@ -131,7 +131,9 @@ The VJP schedule caps its FP32 partial workspace at 512 MiB by chunking
 output rows. The retained midpoint helper also supports output-column chunking
 when one complete row exceeds its budget. Existing BF16 callers retain their
 dtype and schedule.
-TF32 and compiler multiply-add fusion remain disabled.
+TF32 remains disabled. The shared direct FP32 GEMM, including the H3 forward,
+uses the compiler's default multiply-add fusion setting. The chunked VJP and
+midpoint reduction kernels explicitly disable compiler multiply-add fusion.
 The reused Triton `tl.dot` lowers its IEEE FP32 inner products to fixed SIMT
 `fma.rn.f32` instructions. The compiler fusion flag controls surrounding
 expressions; it does not remove the intrinsic dot's FMA instructions. This

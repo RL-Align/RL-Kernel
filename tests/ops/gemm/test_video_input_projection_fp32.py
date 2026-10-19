@@ -570,7 +570,7 @@ def test_default_cuda_dispatch():
     from rl_engine.runtime.registry import KernelRegistry
 
     op = KernelRegistry().get_op("video_input_projection_fp32", device="cuda")
-    assert op.backend_info()["backend_id"] == "triton-video-input-projection-fp32-v10"
+    assert op.backend_info()["backend_id"] == "triton-video-input-projection-fp32-v11"
     x, weight, bias, _ = _data(3)
     with torch.no_grad():
         _assert_bytes(op(x, weight, bias), _op()(x, weight, bias))

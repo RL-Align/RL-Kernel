@@ -241,7 +241,7 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
         ),
         OperatorBackendDescriptor(
             semantic_op="video_input_projection_fp32",
-            backend_id="triton-video-input-projection-fp32-v10",
+            backend_id="triton-video-input-projection-fp32-v11",
             supported_targets=frozenset({"rollout", "training"}),
             supported_devices=frozenset({"cuda"}),
             supported_dtypes=frozenset({"float32"}),
@@ -256,6 +256,9 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             determinism_or_alignment_properties={
                 "algorithm": "fixed_fp32_gemm_canonical_parameter_vjp",
                 "forward_bias": "fp32_epilogue",
+                "direct_gemm_fp_fusion": "compiler_default",
+                "chunked_gemm_fp_fusion": False,
+                "tree_gemm_fp_fusion": False,
                 "leaf_loop_bound": "max_logical_leaf_length",
                 "input_width": 96,
                 "output_width": 5376,
@@ -278,7 +281,7 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             fallback_policy=OperatorFallbackPolicy.ERROR,
             version_or_build_fingerprint=(
                 "rlkernel-triton-ieee-fp32-dot-chunk128-halves64-tile128x32-merge64-"
-                "strided-aligned-forward-auto-canonical-proof-h3-v10"
+                "strided-aligned-forward-default-fusion-auto-canonical-proof-h3-v11"
             ),
         ),
         OperatorBackendDescriptor(
