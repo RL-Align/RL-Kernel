@@ -120,13 +120,13 @@ six output gradients and the per-tile FP32 partials are materialised.
 
 ## Evidence
 
-![adaln_row_gather on B200: latency and whole-chain gradient accuracy](../../reports/experiments/h3-adaln-row-gather-b200/figure.png)
+![adaln_row_gather on B200: latency and whole-chain gradient accuracy](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr486/reports/experiments/h3-adaln-row-gather-b200/figure.png)
 
 There are two data files:
 
-- [`report.json`](../../reports/experiments/h3-adaln-row-gather-b200/report.json): op timings, forward
+- [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr486/reports/experiments/h3-adaln-row-gather-b200/report.json): op timings, forward
   bitwise checks, op-level backward, and the chain-backward cases plotted above.
-- [`chain_replay.json`](../../reports/experiments/h3-adaln-row-gather-b200/chain_replay.json): the full
+- [`chain_replay.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr486/reports/experiments/h3-adaln-row-gather-b200/chain_replay.json): the full
   stage-wise forward replay and backward replay over T in {1, 2, 3, 4} × S in {3, 257, 4097, 32768}.
 
 `report.json` was rewritten from a clean tree at commit `40f4400c`, after the op-backward check
@@ -140,7 +140,7 @@ is unchanged; only timings and the diffusers backward errors, which vary from ru
 
 ## Existing implementations (RFC #420 reuse rule)
 
-![adaln_row_gather vs existing implementations](../../reports/experiments/h3-prior-art-b200/adaln_row_gather.png)
+![adaln_row_gather vs existing implementations](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr486/reports/experiments/h3-prior-art-b200/adaln_row_gather.png)
 
 | Implementation | Batch-invariant | size 4097: fwd err / worst grad err / fwd+bwd | size 32768: fwd err / worst grad err / fwd+bwd |
 |---|---|---|---|
@@ -151,7 +151,7 @@ Errors are max|err| / max|ref| against the same computation in FP64; latency is 
 forward + backward time on an otherwise idle B200. Batch invariance is bitwise and covers
 three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
 131072-row batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
-"no" means that at least one row, sub-batch or gradient differed. [`adaln_row_gather.json`](../../reports/experiments/h3-prior-art-b200/adaln_row_gather.json)
+"no" means that at least one row, sub-batch or gradient differed. [`adaln_row_gather.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr486/reports/experiments/h3-prior-art-b200/adaln_row_gather.json)
 was written from a clean tree at `6c900ae` by
 
 ```bash
@@ -168,10 +168,10 @@ Equal FP64 errors do not show equal bits, so the candidates are also compared by
 (each global batch-invariant mode in its own process) and compares every output and leaf
 gradient with diffusers' path and with this kernel.
 
-![adaln_row_gather bitwise comparison](../../reports/experiments/h3-bitwise-reuse-b200/adaln_row_gather.png)
+![adaln_row_gather bitwise comparison](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr486/reports/experiments/h3-bitwise-reuse-b200/adaln_row_gather.png)
 
 There is no reuse candidate beyond diffusers' six index_select calls. The forward is bitwise identical to them at every S (1 to 32768). The table gradient matches at S = 1 and differs from S = 257 on: index_select accumulates it with BF16 atomics, this kernel in a fixed FP32 order.
-[`adaln_row_gather.json`](../../reports/experiments/h3-bitwise-reuse-b200/adaln_row_gather.json) was written from a clean tree at `46347118` by
+[`adaln_row_gather.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr486/reports/experiments/h3-bitwise-reuse-b200/adaln_row_gather.json) was written from a clean tree at `46347118` by
 
 ```bash
 python tools/validation/models/h3_bitwise_reuse.py --op adaln_row_gather \

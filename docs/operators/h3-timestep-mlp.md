@@ -109,15 +109,15 @@ kernel time.
 
 ## Evidence
 
-![timestep_mlp_fp32 on B200: latency and per-draw error vs FP64](../../reports/experiments/h3-timestep-mlp-b200/figure.png)
+![timestep_mlp_fp32 on B200: latency and per-draw error vs FP64](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr484/reports/experiments/h3-timestep-mlp-b200/figure.png)
 
-The data is in [`report.json`](../../reports/experiments/h3-timestep-mlp-b200/report.json), written
+The data is in [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr484/reports/experiments/h3-timestep-mlp-b200/report.json), written
 by `tools/validation/models/h3_evidence.py` from a clean tree at commit `65ef7f6`. It also records that a
 timestep's row is bitwise identical whether it runs alone or in a batch of 9.
 
 ## Existing implementations (RFC #420 reuse rule)
 
-![timestep_mlp vs existing implementations](../../reports/experiments/h3-prior-art-b200/timestep_mlp.png)
+![timestep_mlp vs existing implementations](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr484/reports/experiments/h3-prior-art-b200/timestep_mlp.png)
 
 | Implementation | Batch-invariant | size 3: fwd err / worst grad err / fwd+bwd | size 256: fwd err / worst grad err / fwd+bwd | size 2048: fwd err / worst grad err / fwd+bwd |
 |---|---|---|---|---|
@@ -134,7 +134,7 @@ Errors are max|err| / max|ref| against the same computation in FP64; latency is 
 forward + backward time on an otherwise idle B200. Batch invariance is bitwise and covers
 three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
 4096-timestep batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
-"no" means that at least one row, sub-batch or gradient differed. [`timestep_mlp.json`](../../reports/experiments/h3-prior-art-b200/timestep_mlp.json)
+"no" means that at least one row, sub-batch or gradient differed. [`timestep_mlp.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr484/reports/experiments/h3-prior-art-b200/timestep_mlp.json)
 was written from a clean tree at `ffd958a` by
 
 ```bash
@@ -151,10 +151,10 @@ Equal FP64 errors do not show equal bits, so the candidates are also compared by
 (each global batch-invariant mode in its own process) and compares every output and leaf
 gradient with diffusers' path and with this kernel.
 
-![timestep_mlp bitwise comparison](../../reports/experiments/h3-bitwise-reuse-b200/timestep_mlp.png)
+![timestep_mlp bitwise comparison](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr484/reports/experiments/h3-bitwise-reuse-b200/timestep_mlp.png)
 
 No candidate reproduces this kernel's bits at any T (90.6-100% of the FP32 outputs differ). None is a bitwise drop-in for diffusers at H3's T = 1-4 either: vLLM's settings and Megatron te_native match diffusers at T = 1, 64 and 2048 but not at T = 4; SGLang/Megatron Triton with ieee match only from T = 64; the TF32 Triton modes never match.
-[`timestep_mlp.json`](../../reports/experiments/h3-bitwise-reuse-b200/timestep_mlp.json) was written from a clean tree at `0df83a5a` by
+[`timestep_mlp.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr484/reports/experiments/h3-bitwise-reuse-b200/timestep_mlp.json) was written from a clean tree at `0df83a5a` by
 
 ```bash
 python tools/validation/models/h3_bitwise_reuse.py --op timestep_mlp --megatron-src <Megatron-LM source tree> \
