@@ -87,7 +87,9 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         raise ValueError(f"unsupported operator shape: {op_name}") from exc
 
 
-def _make_video_input_projection_fp32_inputs(args, dtype, device):
+def _make_video_input_projection_fp32_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
     if dtype != torch.float32:
         raise TypeError("video input projection validation requires FP32")
     batch, seq = _batch_seq(args)

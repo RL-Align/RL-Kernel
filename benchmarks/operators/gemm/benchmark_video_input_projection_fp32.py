@@ -162,7 +162,7 @@ def main():
         "rl_engine/backends/shared/triton/gemm/video_input_projection_fp32.py",
         "rl_engine/reference/gemm/video_input_projection_fp32.py",
     ]
-    # Devbox worker sync excludes .git; source hashes also identify exported workspaces.
+    # Source hashes also identify exported workspaces without Git metadata.
     git_commit = _tool_version(["git", "-C", str(root), "rev-parse", "HEAD"])
     git_status = (
         _tool_version(["git", "-C", str(root), "status", "--porcelain"])

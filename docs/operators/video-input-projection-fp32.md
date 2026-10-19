@@ -8,16 +8,15 @@ reference. The model adapter owns the subsequent cast into the BF16 packed strea
 
 The implementation reuses RL-Kernel's Triton FP32 GEMM and canonical
 parameter-gradient session. Input and weight VJPs use fixed 128-term K chunks
-and one balanced FP32 merge.
-Long bias VJPs retain the one-row Triton tree.
-Only this one-row FP32 tree uses compact paired-leaf scheduling. Other FP32 tree
-shapes reuse the existing default tile and per-level schedule.
+and one balanced FP32 merge. Long bias VJPs retain the one-row Triton tree.
+Only this one-row FP32 tree uses compact paired-leaf scheduling. Other FP32
+tree shapes reuse the existing default tile and per-level schedule.
 
 ## Entry Point
 
 ```python
-from rl_engine.runtime.registry import kernel_registry
 from rl_engine.ops.autograd.canonical_backward import canonical_backward_session
+from rl_engine.runtime.registry import kernel_registry
 
 op = kernel_registry.get_op("video_input_projection_fp32", device=x.device)
 with canonical_backward_session() as session:
@@ -74,15 +73,19 @@ Backward provenance records the actual matmul entry point.
 
 ## Accuracy
 
+### Forward and Gradients
+
 Forward computes `Y = X @ W.T + bias` in FP32. The Triton forward adds bias
 in the existing GEMM epilogue, preserving the rounded FP32 GEMM result before
-the bias addition. The upstream gradient `G`
-stays FP32, including normalization of non-contiguous autograd inputs:
+the bias addition. The upstream gradient `G` stays FP32, including normalization
+of non-contiguous autograd inputs:
 
 - `dX = G @ W` is row-local.
 - `dW = G_sorted.T @ X_sorted` follows canonical logical-row order.
 - `dbias = ones[1,R] @ G_sorted` uses the fixed FP32 GEMM for reductions up to 96
   and the one-row Triton tree for longer reductions.
+
+### Canonical Parameter Gradients
 
 The existing canonical session collects all contributions, removes padding, and
 sorts keys before the final parameter reduction. It returns each parameter VJP
@@ -98,17 +101,19 @@ existing stable sort. The check reads the current keys on each normalization.
 Callers supply logical keys and do not select this optimization. Smaller inputs,
 CPU, and other device paths retain stable sorting.
 
+### Fixed FP32 Accumulation
+
 Short reductions up to the 96-wide video input use the existing direct FP32
 GEMM. The Triton input and weight VJPs reuse that kernel with fixed 128-term
-chunks. Each chunk computes four ascending 32-term FP32 dots from zero. It adds the
-first pair and the second pair independently, then combines both 64-term halves.
+chunks. Each chunk computes four ascending 32-term FP32 dots from zero. It adds
+the first pair and the second pair independently, then combines both 64-term halves.
 This balanced sum reduces cancellation error in the long weight VJP. Chunk
 partials remain FP32. A second grid uses a fixed balanced reduction over the
 next power-of-two chunk count, with zero padding. The merge uses 64 output
 elements per program and four warps. VJP GEMMs use fixed 128-by-32 output tiles,
 32-term dot tiles, and four warps. The forward retains its 64-by-64 output tile.
-These settings define the v10 Triton implementation identity. The K partition and VJP
-tile do not depend on M, row placement, or occupancy.
+These settings define the v10 Triton implementation identity. The K partition
+and VJP tile do not depend on M, row placement, or occupancy.
 The VJP kernels consume positive-stride views directly, including `G.T`.
 The Triton forward omits K or N load predicates only when the corresponding
 32-term or 64-column tiles are complete. It retains M predicates for every row.
@@ -124,13 +129,15 @@ pins 64 output elements and four warps as part of its implementation identity.
 
 The VJP schedule caps its FP32 partial workspace at 512 MiB by chunking
 output rows. The retained midpoint helper also supports output-column chunking
-when one complete row exceeds its budget. Parameter sorting and public validation are included in complete
-operator measurements. Existing BF16 callers retain their dtype and schedule.
+when one complete row exceeds its budget. Existing BF16 callers retain their
+dtype and schedule.
 TF32 and compiler multiply-add fusion remain disabled.
 The reused Triton `tl.dot` lowers its IEEE FP32 inner products to fixed SIMT
 `fma.rn.f32` instructions. The compiler fusion flag controls surrounding
 expressions; it does not remove the intrinsic dot's FMA instructions. This
 arithmetic is included in the Triton contract and runtime metadata.
+
+### Independent Reference
 
 The independent reference keeps the forward definition as CPU FP32 `F.linear`.
 Its analytic VJPs form FP32 products and use CPU PyTorch `sum` over the complete
@@ -140,6 +147,8 @@ GEMM accumulation errors observed in the 13104-row unscaled regression.
 The reference identity is `cpu-fp32-linear-products-sum-v2`. FP64 is used only
 in a small reference-validation test and diagnostic evidence, not by the
 reference implementation or candidate kernels.
+
+### Acceptance Criteria
 
 The shared WS1 `reduction` FP32 accuracy policy uses `atol=rtol=1e-4` for forward
 and gradients. Invariance uses byte equality. Parameter invariance compares the

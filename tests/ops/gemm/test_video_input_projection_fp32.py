@@ -15,7 +15,7 @@ from rl_engine.ops.gemm.canonical_linear import canonical_linear_fp32
 from rl_engine.ops.gemm.video_input_projection_fp32 import VideoInputProjectionFP32Op
 from rl_engine.reference.gemm.video_input_projection_fp32 import NativeVideoInputProjectionFP32Op
 
-H20 = (
+HAS_SM90 = (
     torch.cuda.is_available()
     and torch.version.hip is None
     and torch.cuda.get_device_capability() == (9, 0)
@@ -24,7 +24,10 @@ H20 = (
 
 @pytest.mark.parametrize(
     "device",
-    ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(not H20, reason="requires CUDA SM90"))],
+    [
+        "cpu",
+        pytest.param("cuda", marks=pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")),
+    ],
 )
 @pytest.mark.parametrize(
     "key_rows",
@@ -413,7 +416,7 @@ def test_invalid_inputs(invalid):
                 _CPUAdapter()(x, weight, bias, logical_keys=keys, parameter_id="p")
 
 
-@pytest.mark.skipif(not H20, reason="requires CUDA SM90")
+@pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
 @pytest.mark.parametrize("rows", [1, 9, 17, 65, 129, 257])
 @pytest.mark.parametrize("with_bias", [False, True])
 def test_forward_and_actual_gradients(rows, with_bias):
@@ -440,7 +443,7 @@ def test_forward_and_actual_gradients(rows, with_bias):
         _assert_accuracy(a, b, "forward_accuracy" if i == 0 else "gradient_accuracy")
 
 
-@pytest.mark.skipif(not H20, reason="requires CUDA SM90")
+@pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
 @pytest.mark.parametrize("rows", [9, 65, 127, 128, 129, 257])
 def test_parameter_bi_permutation_chunk_padding(rows):
     op, data, keys = _op(), _data(rows), _keys(rows, "cuda")
@@ -478,7 +481,7 @@ def _check_parameter_bi(op, data, keys):
         _assert_bytes(a, b)
 
 
-@pytest.mark.skipif(not H20, reason="requires CUDA SM90")
+@pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
 def test_row_placement_and_unrelated_rows():
     op, data = _op(), _data(65)
     single = _run(op, [data[0][:1], data[1], data[2], data[3][:1]], _keys(1, "cuda"))
@@ -495,7 +498,7 @@ def test_row_placement_and_unrelated_rows():
     _assert_bytes(batch[1][37], result[1][37])
 
 
-@pytest.mark.skipif(not H20, reason="requires CUDA SM90")
+@pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
 def test_noncontiguous_upstream_and_forward_graph():
     op = _op()
     x, weight, bias, grad = _data(17)
@@ -524,7 +527,7 @@ def test_noncontiguous_upstream_and_forward_graph():
         _assert_bytes(output, expected)
 
 
-@pytest.mark.skipif(not H20, reason="requires CUDA SM90")
+@pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
 def test_real_weights_patch_path():
     path = os.environ.get("H3_PROJECTION_WEIGHTS")
     if not path:
@@ -562,7 +565,7 @@ def test_real_weights_patch_path():
         _assert_bytes(a, b)
 
 
-@pytest.mark.skipif(not H20, reason="requires CUDA SM90")
+@pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
 def test_default_cuda_dispatch():
     from rl_engine.runtime.registry import KernelRegistry
 
@@ -573,7 +576,7 @@ def test_default_cuda_dispatch():
         _assert_bytes(op(x, weight, bias), _op()(x, weight, bias))
 
 
-@pytest.mark.skipif(not H20, reason="requires CUDA SM90")
+@pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
 def test_reused_fp32_gemm():
     from rl_engine.backends.shared.triton.gemm.det_gemm import _triton_gemm_fp32
 
@@ -602,7 +605,7 @@ def _fp32_tree_reference(a, b):
     return nodes[plan.root]
 
 
-@pytest.mark.skipif(not H20, reason="requires CUDA SM90")
+@pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
 @pytest.mark.parametrize("k", [31, 33, 129, 5376])
 def test_fp32_tree_preserves_fp32_nodes(k):
     from rl_engine.backends.shared.triton.gemm.det_gemm import _triton_tree_gemm
@@ -617,7 +620,7 @@ def test_fp32_tree_preserves_fp32_nodes(k):
     _assert_bytes(inference, output)
 
 
-@pytest.mark.skipif(not H20, reason="requires CUDA SM90")
+@pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
 def test_fp32_tree_workspace_chunking(monkeypatch):
     from rl_engine.backends.shared.triton.gemm import det_gemm
     from rl_engine.backends.shared.triton.gemm.video_input_projection_fp32 import (
@@ -635,7 +638,7 @@ def test_fp32_tree_workspace_chunking(monkeypatch):
     _assert_bytes(projection_gemm_fp32(a, b), expected)
 
 
-@pytest.mark.skipif(not H20, reason="requires CUDA SM90")
+@pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
 @pytest.mark.parametrize("rows", [129, 13104])
 @pytest.mark.parametrize("seed", [420, 421, 422, 423])
 def test_standard_normal_long_reduction(rows, seed):
@@ -663,7 +666,7 @@ def test_cpu_fp32_reference_long_dot_accuracy():
     _assert_accuracy(actual, expected, "gradient_accuracy")
 
 
-@pytest.mark.skipif(not H20, reason="requires CUDA SM90")
+@pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
 @pytest.mark.parametrize("k", [127, 128, 129, 5376, 13104])
 def test_fp32_chunked_gemm_strides_and_workspace(k, monkeypatch):
     from rl_engine.backends.shared.triton.gemm import det_gemm
@@ -744,7 +747,7 @@ def test_canonical_bias_sharing_requires_matching_contributions(bias_uses, monke
         assert all(a[1] is not b[1] for i, a in enumerate(normalized) for b in normalized[i + 1 :])
 
 
-@pytest.mark.skipif(not H20, reason="requires CUDA SM90")
+@pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
 @pytest.mark.parametrize("k", [64, 65, 128, 1024, 13104])
 def test_fp32_tree_default_schedule_and_bias_match_scalar_reference(k):
     from rl_engine.backends.shared.triton.gemm.det_gemm import _triton_tree_gemm
@@ -767,7 +770,7 @@ def test_fp32_tree_default_schedule_and_bias_match_scalar_reference(k):
     _assert_bytes(gemm(a[:1], b), result[:1])
 
 
-@pytest.mark.skipif(not H20, reason="requires CUDA SM90")
+@pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
 @pytest.mark.parametrize("k", [128, 1024, 13104])
 def test_compact_bias_tree_workspace_preserves_chunked_outputs(k, monkeypatch):
     from rl_engine.backends.shared.triton.gemm import det_gemm
@@ -793,7 +796,7 @@ def test_compact_bias_tree_workspace_preserves_chunked_outputs(k, monkeypatch):
     _assert_bytes(projection_gemm_fp32(a, b), expected)
 
 
-@pytest.mark.skipif(not H20, reason="requires CUDA SM90")
+@pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
 @pytest.mark.parametrize("rows", [1, 3])
 @pytest.mark.parametrize("k", [129, 5376, 13104])
 def test_shortened_fp32_leaves_preserve_padded_arithmetic(rows, k, monkeypatch):
@@ -830,7 +833,7 @@ def test_shortened_fp32_leaves_preserve_padded_arithmetic(rows, k, monkeypatch):
         _assert_bytes(output, padded)
 
 
-@pytest.mark.skipif(not H20, reason="requires CUDA SM90")
+@pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
 @pytest.mark.parametrize("rows", [1, 17, 129])
 def test_forward_bias_fusion_preserves_fp32_rounding(rows):
     from rl_engine.backends.shared.triton.gemm.det_gemm import _triton_gemm_fp32
@@ -845,7 +848,7 @@ def test_forward_bias_fusion_preserves_fp32_rounding(rows):
         _assert_bytes(_op()(x, weight, bias), expected)
 
 
-@pytest.mark.skipif(not H20, reason="requires CUDA SM90")
+@pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
 @pytest.mark.parametrize("frozen", ["weight", "bias", "both"])
 def test_backend_frozen_parameters_preserve_trainable_gradients(frozen):
     op = _op()
