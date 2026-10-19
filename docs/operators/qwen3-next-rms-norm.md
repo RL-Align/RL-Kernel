@@ -100,9 +100,9 @@ element and no extra memory traffic.
 
 ## Evidence
 
-![zero-centred RMSNorm vs existing implementations on B200](../usage/evidence/qwen3-next-rms-norm-b200/figure.png)
+![zero-centred RMSNorm vs existing implementations on B200](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr467/docs/usage/evidence/qwen3-next-rms-norm-b200/figure.png)
 
-[`report.json`](../usage/evidence/qwen3-next-rms-norm-b200/report.json) was written by
+[`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr467/docs/usage/evidence/qwen3-next-rms-norm-b200/report.json) was written by
 `tools/validation/models/qwen3_next/qwen3_next_norm_evidence.py` from a clean tree at `3d0bae7`, on an otherwise idle
 B200 (torch 2.13.0+cu130, transformers 5.17.0, vLLM 0.30.0, FlashInfer 0.6.18). Hidden 2048,
 BF16.
