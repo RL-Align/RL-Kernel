@@ -17,7 +17,8 @@ def test_video_input_projection_default_and_strict_scope():
     )
     assert desc.supported_devices == frozenset({"cuda"})
     assert desc.supported_dtypes == frozenset({"float32"})
-    assert desc.determinism_or_alignment_properties["vjp_tile"] == (128, 32, 32)
+    assert desc.determinism_or_alignment_properties["dx_dw_tile"] == (128, 32, 32)
+    assert desc.determinism_or_alignment_properties["dx_dw_num_warps"] == 4
     assert (
         desc.determinism_or_alignment_properties["canonical_rows"]
         == "live_strict_order_proof_or_stable_sort"

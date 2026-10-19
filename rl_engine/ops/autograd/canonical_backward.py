@@ -14,6 +14,9 @@ from typing import Callable, Iterator
 import torch
 
 WeightReducer = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
+# H20/H3 row-count heuristic for attempting the CUDA order check.
+# Small inputs retain stable sorting to avoid the extra check and synchronization.
+# Larger, already ordered inputs can skip sorting and gradient gathering.
 _CANONICAL_ORDER_REUSE_MIN_ROWS = 4096
 
 

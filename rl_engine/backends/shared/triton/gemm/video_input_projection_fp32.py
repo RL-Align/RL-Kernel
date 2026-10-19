@@ -17,14 +17,19 @@ from rl_engine.ops.gemm.video_input_projection_fp32 import (
     VideoInputProjectionFP32Op,
 )
 
-_VJP_TILE = (128, 32, 4)
+# H20-tuned output blocks and warp count for chunked dX/dW GEMM.
+_DX_DW_BLOCK_M = 128
+_DX_DW_BLOCK_N = 32
+_DX_DW_NUM_WARPS = 4
 
 
 def projection_gemm_fp32(a, b, *, bias=None):
     if a.shape[1] <= VIDEO_PATCH_WIDTH:
         return _triton_gemm_fp32(a, b, bias=bias, aligned_tiles=True)
     if b.shape[1] == VIDEO_PATCH_WIDTH:
-        output = _triton_chunked_gemm_fp32(a, b, tile=_VJP_TILE)
+        output = _triton_chunked_gemm_fp32(
+            a, b, tile=(_DX_DW_BLOCK_M, _DX_DW_BLOCK_N, _DX_DW_NUM_WARPS)
+        )
     else:
         output = _triton_tree_gemm(a, b, output_dtype=torch.float32, preserve_a_strides=True)
     return output if bias is None else output + bias
@@ -56,9 +61,9 @@ class TritonVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
             "_det_gemm_tree_leaf_reduce_rocm_kernel",
             "triton_version": triton.__version__,
             "tile": [64, 64, 32],
-            "vjp_tile": [_VJP_TILE[0], _VJP_TILE[1], _BLOCK_K],
-            "vjp_num_warps": _VJP_TILE[2],
-            "vjp_register_allocation": "compiler_default",
+            "dx_dw_tile": [_DX_DW_BLOCK_M, _DX_DW_BLOCK_N, _BLOCK_K],
+            "dx_dw_num_warps": _DX_DW_NUM_WARPS,
+            "dx_dw_register_allocation": "compiler_default",
             "forward_aligned_tiles": True,
             "canonical_rows": "live_strict_order_proof_or_stable_sort",
             "tf32": False,
@@ -66,11 +71,11 @@ class TritonVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
             "dot_arithmetic": "ieee_fp32_simt_fma",
             "forward_bias": "fp32_epilogue",
             "leaf_loop_bound": "max_logical_leaf_length",
-            "split_k": "fixed_128_term_vjp_chunks",
+            "split_k": "fixed_128_term_dx_dw_chunks",
             "reduction": "fixed_128_chunks_balanced_fp32_merge",
-            "vjp_chunk_k": 128,
-            "vjp_chunk_accumulation": "two_64_term_halves",
-            "vjp_merge_tile": 64,
+            "dx_dw_chunk_k": 128,
+            "dx_dw_chunk_accumulation": "two_64_term_halves",
+            "dx_dw_merge_tile": 64,
             "bias_reduction": "fixed_midpoint_tree",
             "reduction_leaf_size": _BLOCK_K,
             "reduction_backend": "triton",
