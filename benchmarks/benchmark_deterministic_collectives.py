@@ -60,31 +60,40 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _median_us(
-    fn: Callable[[], object],
+def _paired_median_us(
+    deterministic: Callable[[], object],
+    nccl: Callable[[], object],
     warmup: int,
     iterations: int,
     *,
-    prepare: Callable[[], object] | None = None,
-) -> float:
-    """Return median CUDA-event time, excluding preparation before each call."""
-    for _ in range(warmup):
-        if prepare is not None:
-            prepare()
-        fn()
+    prepare_nccl: Callable[[], object] | None = None,
+) -> tuple[float, float]:
+    """Time both implementations in alternating order, excluding input resets."""
+    functions = (deterministic, nccl)
+    preparations = (None, prepare_nccl)
+    for sample in range(warmup):
+        order = (0, 1) if sample % 2 == 0 else (1, 0)
+        for index in order:
+            prepare = preparations[index]
+            if prepare is not None:
+                prepare()
+            functions[index]()
     torch.cuda.synchronize()
-    samples = []
-    for _ in range(iterations):
-        start = torch.cuda.Event(enable_timing=True)
-        end = torch.cuda.Event(enable_timing=True)
-        if prepare is not None:
-            prepare()
-        start.record()
-        fn()
-        end.record()
-        end.synchronize()
-        samples.append(start.elapsed_time(end) * 1e3)
-    return statistics.median(samples)
+    samples: tuple[list[float], list[float]] = ([], [])
+    for sample in range(iterations):
+        order = (0, 1) if sample % 2 == 0 else (1, 0)
+        for index in order:
+            start = torch.cuda.Event(enable_timing=True)
+            end = torch.cuda.Event(enable_timing=True)
+            prepare = preparations[index]
+            if prepare is not None:
+                prepare()
+            start.record()
+            functions[index]()
+            end.record()
+            end.synchronize()
+            samples[index].append(start.elapsed_time(end) * 1e3)
+    return statistics.median(samples[0]), statistics.median(samples[1])
 
 
 def _slowest(value: float) -> float:
@@ -112,6 +121,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             x = torch.randn(numel, device="cuda").to(dtype)
             gathered = torch.empty(numel * world, device="cuda", dtype=dtype)
             reduce_in = torch.randn(numel * world, device="cuda").to(dtype)
+            deterministic_scattered = torch.empty_like(x)
+            deterministic_reduced = torch.empty_like(x)
             nccl_scattered = torch.empty_like(x)
             nccl_reduced = torch.empty_like(x)
             cases: dict[str, tuple[Callable[[], object], Callable[[], object]]] = {
@@ -124,26 +135,25 @@ def main(argv: Sequence[str] | None = None) -> None:
                     partial(dist.all_gather_into_tensor, gathered, x),
                 ),
                 "reduce_scatter": (
-                    partial(collective.reduce_scatter, reduce_in),
+                    partial(collective.reduce_scatter, reduce_in, out=deterministic_scattered),
                     partial(dist.reduce_scatter_tensor, nccl_scattered, reduce_in),
                 ),
                 "all_reduce": (
-                    partial(collective.all_reduce, x),
+                    partial(collective.all_reduce, x, out=deterministic_reduced),
                     partial(dist.all_reduce, nccl_reduced),
                 ),
             }
             for op in args.operations:
                 deterministic, nccl = cases[op]
                 prepare = partial(nccl_reduced.copy_, x) if op == "all_reduce" else None
+                deterministic_us, nccl_us = _paired_median_us(
+                    deterministic, nccl, args.warmup, args.iterations, prepare_nccl=prepare
+                )
                 row = {
                     "operation": op,
                     "input_bytes_per_rank": numel * element,
-                    "deterministic_us": _slowest(
-                        _median_us(deterministic, args.warmup, args.iterations)
-                    ),
-                    "nccl_us": _slowest(
-                        _median_us(nccl, args.warmup, args.iterations, prepare=prepare)
-                    ),
+                    "deterministic_us": _slowest(deterministic_us),
+                    "nccl_us": _slowest(nccl_us),
                 }
                 rows.append(row)
                 if rank == 0:
