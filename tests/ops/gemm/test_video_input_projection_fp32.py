@@ -746,11 +746,11 @@ def test_canonical_bias_sharing_requires_matching_contributions(bias_uses, monke
 
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")
 @pytest.mark.parametrize("k", [64, 65, 128, 1024, 13104])
-def test_fp32_fused_tree_and_strided_inputs_match_scalar_reference(k):
+def test_fp32_tree_default_schedule_and_bias_match_scalar_reference(k):
     from rl_engine.backends.shared.triton.gemm.det_gemm import _triton_tree_gemm
 
     torch.manual_seed(422)
-    # Exercise a transposed A view and tail rows.
+    # Multirow FP32 calls use the original schedule; bias retains one-row fusion.
     a = torch.randn(k, 3, device="cuda").t()
     b = torch.randn(k, 5, device="cuda")
 
@@ -768,19 +768,27 @@ def test_fp32_fused_tree_and_strided_inputs_match_scalar_reference(k):
 
 
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")
-def test_compact_fp32_tree_workspace_preserves_chunked_outputs(monkeypatch):
+@pytest.mark.parametrize("k", [128, 1024, 13104])
+def test_compact_bias_tree_workspace_preserves_chunked_outputs(k, monkeypatch):
     from rl_engine.backends.shared.triton.gemm import det_gemm
     from rl_engine.backends.shared.triton.gemm.video_input_projection_fp32 import (
         projection_gemm_fp32,
     )
 
-    a, b = torch.randn(7, 1024, device="cuda"), torch.randn(1024, 5, device="cuda")
-    expected = projection_gemm_fp32(a, b)
-    plan = det_gemm._device_tree_plan(1024, a.device, fp32_fuse_leaves=False)
+    a, b = torch.ones(1, k, device="cuda"), torch.randn(k, 5, device="cuda")
+    original_plan = det_gemm._device_tree_plan(k, a.device)
+    assert not original_plan.fp32_fused
+    assert original_plan.workspace_node_count == original_plan.host.node_count
+    plan = det_gemm._device_tree_plan(k, a.device, fp32_fuse_leaves=True)
     assert plan.fp32_fused
     assert plan.workspace_node_count < plan.host.node_count
-    monkeypatch.setattr(det_gemm, "_MAX_TREE_WORKSPACE_ELEMENTS", plan.workspace_node_count * 10)
-    _assert_bytes(projection_gemm_fp32(a, b), expected)
+    node_arrays = [plan.rocm_leaf_reduction[-1]]
+    node_arrays.extend(
+        nodes for pair in plan.rocm_fused_reduction_pairs_after_leaf for nodes in pair
+    )
+    for nodes in node_arrays:
+        assert bool(torch.all((nodes >= 0) & (nodes < plan.workspace_node_count)))
+    expected = projection_gemm_fp32(a, b)
     monkeypatch.setattr(det_gemm, "_MAX_TREE_WORKSPACE_ELEMENTS", plan.workspace_node_count * 2)
     _assert_bytes(projection_gemm_fp32(a, b), expected)
 

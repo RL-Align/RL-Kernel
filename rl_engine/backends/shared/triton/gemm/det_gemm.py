@@ -10,9 +10,10 @@ order so both implementations have zero mismatch; a future MFMA leaf requires
 a separately versioned arithmetic contract because its internal accumulation
 does not match the scalar reference at every BF16 rounding boundary.
 
-Autotuning and split-K are intentionally disabled.  FP32-output calls preserve
-the earlier fixed-order, no-split-K contract. The optional CUDA FP32 tree reuses
-the canonical plan, leaf kernel, and level reductions with FP32 nodes.
+Autotuning and adaptive split-K are intentionally disabled. Default FP32-output
+calls preserve the earlier fixed-order, no-split-K contract. Explicit FP32 VJP
+calls use fixed 128-term chunks. The optional CUDA FP32 tree reuses the canonical
+plan, leaf kernel, and level reductions with FP32 nodes.
 """
 
 from __future__ import annotations
@@ -42,7 +43,7 @@ _FP32_CHUNK_K = 128
 # one shot would otherwise create a multi-terabyte virtual tensor on ROCm.
 # Chunking over M preserves the exact K-tree and BF16 rounding contract.
 _MAX_TREE_WORKSPACE_ELEMENTS = 128 * 1024 * 1024
-_TREE_PLANS: dict[tuple[int, int, bool | None], "_DeviceTreePlan"] = {}
+_TREE_PLANS: dict[tuple[int, int, bool], "_DeviceTreePlan"] = {}
 _TREE_PLAN_LOCK = threading.Lock()
 _ROCM_TUNE_DECODE_LEAF = True
 _ROCM_FUSE_LEAF_REDUCTION = True
@@ -263,7 +264,7 @@ def _build_tree_plan(k_size: int) -> _TreePlan:
 
 
 def _device_tree_plan(
-    k_size: int, device: torch.device, *, fp32_fuse_leaves: bool | None = None
+    k_size: int, device: torch.device, *, fp32_fuse_leaves: bool = False
 ) -> _DeviceTreePlan:
     device_index = device.index if device.index is not None else torch.cuda.current_device()
     key = (device_index, k_size, fp32_fuse_leaves)
@@ -288,25 +289,18 @@ def _device_tree_plan(
             len(level) * (1 << (height + 1)) == leaf_count
             for height, level in enumerate(host.reduction_levels)
         )
-        fp32_fused = fp32_fuse_leaves is not None and complete
+        fp32_fused = fp32_fuse_leaves and complete
         node_map = {node: node for node in range(host.node_count)}
         workspace_node_count = host.node_count
         if fp32_fused:
             # Alternate disjoint buffers for the retained levels. Each launch
             # reads its previous buffer completely before the next launch.
-            first_height = 0 if fp32_fuse_leaves else -1
-            first_nodes = (
-                tuple(op[2] for op in host.reduction_levels[0])
-                if fp32_fuse_leaves
-                else host.leaf_nodes
-            )
+            first_nodes = tuple(op[2] for op in host.reduction_levels[0])
             next_count = max(1, len(first_nodes) // 4)
             workspace_node_count = len(first_nodes) + next_count
             for i, node in enumerate(first_nodes):
                 node_map[node] = i
-            for step, height in enumerate(
-                range(first_height + 2, len(host.reduction_levels), 2), start=1
-            ):
+            for step, height in enumerate(range(2, len(host.reduction_levels), 2), start=1):
                 base = len(first_nodes) if step % 2 else 0
                 for i, (_, _, node) in enumerate(host.reduction_levels[height]):
                     node_map[node] = base + i
@@ -343,14 +337,13 @@ def _device_tree_plan(
                     )
                 return result
 
-            if not fp32_fused or not fp32_fuse_leaves:
+            if not fp32_fused:
                 fused_pairs = build_fused_pairs(0)
-            if not fp32_fused or fp32_fuse_leaves:
-                fused_pairs_after_leaf = build_fused_pairs(1)
+            fused_pairs_after_leaf = build_fused_pairs(1)
             if host.reduction_levels:
                 first_level = host.reduction_levels[0]
                 paired_nodes = {node for op in first_level for node in op[:2]}
-                if paired_nodes == set(host.leaf_nodes) and (not fp32_fused or fp32_fuse_leaves):
+                if paired_nodes == set(host.leaf_nodes):
                     leaf_metadata = {
                         node: (start, length)
                         for start, length, node in zip(
@@ -1022,7 +1015,7 @@ def _triton_tree_gemm(
     plan = _device_tree_plan(
         k_size,
         a.device,
-        fp32_fuse_leaves=(m_size == 1) if fp32_tree and not transpose_output else None,
+        fp32_fuse_leaves=fp32_tree and m_size == 1 and not transpose_output,
     )
     workspace_elements = plan.workspace_node_count * m_size * n_size
     if workspace_elements > _MAX_TREE_WORKSPACE_ELEMENTS and out is None:
@@ -1095,12 +1088,9 @@ def _triton_tree_gemm(
         transpose_output=transpose_output,
         preserve_a_strides=preserve_a_strides,
     )
-    if fp32_tree:
-        # Offline H20 sweep: 64x32 avoids both masked N=96 columns and the
-        # register spills of paired 64x64 leaves. One-row calls retain fusion.
-        leaf_config = (
-            _TreeLeafConfig(1, 128, 4, True) if m_size == 1 else _TreeLeafConfig(64, 32, 4, False)
-        )
+    if fp32_tree and m_size == 1:
+        # The H3 bias VJP has one output row. Other shapes use the existing tile.
+        leaf_config = _TreeLeafConfig(1, 128, 4, True)
     if (
         _ROCM_TUNE_DECODE_LEAF
         and is_gfx942
@@ -1210,7 +1200,7 @@ def _triton_tree_gemm(
                 N=n_size,
                 BLOCK=reduction_block,
             )
-    elif direct_root_output and ((use_inference_schedule and is_gfx942) or plan.fp32_fused):
+    elif direct_root_output and use_inference_schedule and is_gfx942:
         blocks = triton.cdiv(m_size * n_size, reduction_block)
         for pair_index, nodes in enumerate(plan.rocm_fused_reduction_pairs):
             second_level = pair_index * 2 + 1

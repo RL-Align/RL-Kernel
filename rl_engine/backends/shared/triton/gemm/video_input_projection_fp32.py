@@ -75,7 +75,6 @@ class TritonVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
             "reduction_leaf_size": _BLOCK_K,
             "reduction_backend": "triton",
             "leaf_launch": "paired_leaves_for_one_row_complete_trees",
-            "tree_tile": [64, 32, 32],
             "bias_tree_tile": [1, 128, 32],
             "tree_schedule": "paired_levels_compact_workspace",
         }
