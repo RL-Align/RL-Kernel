@@ -241,7 +241,7 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
         ),
         OperatorBackendDescriptor(
             semantic_op="video_input_projection_fp32",
-            backend_id="triton-video-input-projection-fp32-v11",
+            backend_id="triton-video-input-projection-fp32-v12",
             supported_targets=frozenset({"rollout", "training"}),
             supported_devices=frozenset({"cuda"}),
             supported_dtypes=frozenset({"float32"}),

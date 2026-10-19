@@ -9,8 +9,9 @@ reference. The model adapter owns the subsequent cast into the BF16 packed strea
 The implementation reuses RL-Kernel's Triton FP32 GEMM and canonical
 parameter-gradient session. Input and weight VJPs use fixed 128-term K chunks
 and one balanced FP32 merge. Long bias VJPs retain the one-row Triton tree.
-Only this one-row FP32 tree uses compact paired-leaf scheduling. Other FP32
-tree shapes reuse the existing default tile and per-level schedule.
+Only this one-row FP32 tree uses paired-leaf scheduling. Each tree node retains
+its original workspace slot. Other FP32 tree shapes reuse the existing default
+tile and per-level schedule.
 
 ## Entry Point
 

@@ -43,7 +43,7 @@ _FP32_CHUNK_K = 128
 # one shot would otherwise create a multi-terabyte virtual tensor on ROCm.
 # Chunking over M preserves the exact K-tree and BF16 rounding contract.
 _MAX_TREE_WORKSPACE_ELEMENTS = 128 * 1024 * 1024
-_TREE_PLANS: dict[tuple[int, int, bool], "_DeviceTreePlan"] = {}
+_TREE_PLANS: dict[tuple[int, int], "_DeviceTreePlan"] = {}
 _TREE_PLAN_LOCK = threading.Lock()
 _ROCM_TUNE_DECODE_LEAF = True
 _ROCM_FUSE_LEAF_REDUCTION = True
@@ -196,7 +196,6 @@ class _TreePlan:
 @dataclass(frozen=True)
 class _DeviceTreePlan:
     host: _TreePlan
-    workspace_node_count: int
     leaf_starts: torch.Tensor
     leaf_lengths: torch.Tensor
     leaf_nodes: torch.Tensor
@@ -262,11 +261,9 @@ def _build_tree_plan(k_size: int) -> _TreePlan:
     )
 
 
-def _device_tree_plan(
-    k_size: int, device: torch.device, *, compact_workspace: bool = False
-) -> _DeviceTreePlan:
+def _device_tree_plan(k_size: int, device: torch.device) -> _DeviceTreePlan:
     device_index = device.index if device.index is not None else torch.cuda.current_device()
-    key = (device_index, k_size, compact_workspace)
+    key = (device_index, k_size)
     with _TREE_PLAN_LOCK:
         cached = _TREE_PLANS.get(key)
         if cached is not None:
@@ -277,47 +274,21 @@ def _device_tree_plan(
         def indices(values: tuple[int, ...]) -> torch.Tensor:
             return torch.tensor(values, dtype=torch.int32, device=device)
 
-        # The paired kernels require complete subtrees. Ragged midpoint trees
-        # retain the original per-level schedule and workspace indices.
+        levels = []
+        for operations in host.reduction_levels:
+            lower_nodes, upper_nodes, output_nodes = zip(*operations, strict=True)
+            levels.append((indices(lower_nodes), indices(upper_nodes), indices(output_nodes)))
+        fused_pairs = []
+        leaf_reduction = None
+        fused_pairs_after_leaf = []
+        # Complete trees can use the existing paired kernels on CUDA too.
+        # The execution path decides whether to use these optional descriptors.
         leaf_count = len(host.leaf_nodes)
         complete = bool(host.reduction_levels) and all(
             len(level) * (1 << (height + 1)) == leaf_count
             for height, level in enumerate(host.reduction_levels)
         )
-        use_compact_plan = compact_workspace and complete
-        node_map = {node: node for node in range(host.node_count)}
-        workspace_node_count = host.node_count
-        if use_compact_plan:
-            # Alternate disjoint buffers for the retained levels. Each launch
-            # reads its previous buffer completely before the next launch.
-            first_nodes = tuple(op[2] for op in host.reduction_levels[0])
-            next_count = max(1, len(first_nodes) // 4)
-            workspace_node_count = len(first_nodes) + next_count
-            for i, node in enumerate(first_nodes):
-                node_map[node] = i
-            for step, height in enumerate(range(2, len(host.reduction_levels), 2), start=1):
-                base = len(first_nodes) if step % 2 else 0
-                for i, (_, _, node) in enumerate(host.reduction_levels[height]):
-                    node_map[node] = base + i
-
-        def mapped_indices(values):
-            return indices(tuple(node_map[node] for node in values))
-
-        levels = []
-        for operations in host.reduction_levels:
-            lower_nodes, upper_nodes, output_nodes = zip(*operations, strict=True)
-            levels.append(
-                (
-                    mapped_indices(lower_nodes),
-                    mapped_indices(upper_nodes),
-                    mapped_indices(output_nodes),
-                )
-            )
-
-        fused_pairs = []
-        leaf_reduction = None
-        fused_pairs_after_leaf = []
-        if _device_arch(device_index) == "gfx942" or use_compact_plan:
+        if _device_arch(device_index) == "gfx942" or (torch.version.hip is None and complete):
 
             def build_fused_pairs(start_level: int):
                 result = []
@@ -334,17 +305,16 @@ def _device_tree_plan(
                     node0, node1, node2, node3 = zip(*grandchildren, strict=True)
                     result.append(
                         (
-                            mapped_indices(node0),
-                            mapped_indices(node1),
-                            mapped_indices(node2),
-                            mapped_indices(node3),
-                            mapped_indices(tuple(outputs)),
+                            indices(node0),
+                            indices(node1),
+                            indices(node2),
+                            indices(node3),
+                            indices(tuple(outputs)),
                         )
                     )
                 return result
 
-            if not use_compact_plan:
-                fused_pairs = build_fused_pairs(0)
+            fused_pairs = build_fused_pairs(0)
             fused_pairs_after_leaf = build_fused_pairs(1)
             if host.reduction_levels:
                 first_level = host.reduction_levels[0]
@@ -374,14 +344,13 @@ def _device_tree_plan(
                         indices(tuple(lower_lengths)),
                         indices(tuple(upper_starts)),
                         indices(tuple(upper_lengths)),
-                        mapped_indices(tuple(outputs)),
+                        indices(tuple(outputs)),
                     )
         result = _DeviceTreePlan(
             host=host,
-            workspace_node_count=workspace_node_count,
             leaf_starts=indices(host.leaf_starts),
             leaf_lengths=indices(host.leaf_lengths),
-            leaf_nodes=mapped_indices(host.leaf_nodes),
+            leaf_nodes=indices(host.leaf_nodes),
             reduction_levels=tuple(levels),
             rocm_fused_reduction_pairs=tuple(fused_pairs),
             rocm_leaf_reduction=leaf_reduction,
@@ -1009,15 +978,11 @@ def _triton_tree_gemm(
     b = b.contiguous()
     m_size, k_size = a.shape
     n_size = b.size(1)
-    plan = _device_tree_plan(
-        k_size,
-        a.device,
-        compact_workspace=fp32_tree and m_size == 1 and not transpose_output,
-    )
-    workspace_elements = plan.workspace_node_count * m_size * n_size
+    plan = _device_tree_plan(k_size, a.device)
+    workspace_elements = plan.host.node_count * m_size * n_size
     if workspace_elements > _MAX_TREE_WORKSPACE_ELEMENTS and out is None:
-        if fp32_tree and plan.workspace_node_count * n_size > _MAX_TREE_WORKSPACE_ELEMENTS:
-            columns_per_chunk = _MAX_TREE_WORKSPACE_ELEMENTS // plan.workspace_node_count
+        if fp32_tree and plan.host.node_count * n_size > _MAX_TREE_WORKSPACE_ELEMENTS:
+            columns_per_chunk = _MAX_TREE_WORKSPACE_ELEMENTS // plan.host.node_count
             if columns_per_chunk < 1:
                 raise RuntimeError("FP32 tree plan exceeds the workspace budget for one element")
             # A one-row bias VJP cannot be split further over M. Splitting
@@ -1036,7 +1001,7 @@ def _triton_tree_gemm(
             return torch.cat(chunks, dim=0 if transpose_output else 1)
         rows_per_chunk = max(
             1,
-            _MAX_TREE_WORKSPACE_ELEMENTS // (plan.workspace_node_count * n_size),
+            _MAX_TREE_WORKSPACE_ELEMENTS // (plan.host.node_count * n_size),
         )
         chunks = []
         for start in range(0, m_size, rows_per_chunk):
@@ -1070,7 +1035,7 @@ def _triton_tree_gemm(
             raise ValueError("Triton tree GEMM output buffer must not require gradients")
         result = out
     workspace = torch.empty(
-        (plan.workspace_node_count, m_size, n_size),
+        (plan.host.node_count, m_size, n_size),
         dtype=output_dtype,
         device=a.device,
     )
@@ -1104,13 +1069,11 @@ def _triton_tree_gemm(
         else (len(plan.host.leaf_nodes), tiles_m, tiles_n)
     )
     direct_root_output = not transpose_output and (is_gfx942 or fp32_tree)
-    # Compact slots are shared across levels and require the paired schedule.
-    use_compact_plan = plan.workspace_node_count < plan.host.node_count
     fuse_leaf_reduction = (
         direct_root_output
         and plan.rocm_leaf_reduction is not None
         and (
-            use_compact_plan
+            (fp32_tree and m_size == 1)
             or (
                 _ROCM_FUSE_LEAF_REDUCTION
                 and is_gfx942
