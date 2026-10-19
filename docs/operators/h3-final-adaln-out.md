@@ -71,17 +71,17 @@ projection backward.
 
 ## Evidence
 
-![final_adaln_out on B200: latency and backward accuracy](../../reports/experiments/h3-final-adaln-out-b200/figure.png)
+![final_adaln_out on B200: latency and backward accuracy](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr489/reports/experiments/h3-final-adaln-out-b200/figure.png)
 
 There are two data files:
 
-- [`report.json`](../../reports/experiments/h3-final-adaln-out-b200/report.json): op timings, the
+- [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr489/reports/experiments/h3-final-adaln-out-b200/report.json): op timings, the
   forward-equality fraction, row invariance and backward accuracy. Regenerated from a clean
   tree at `50e913fa` on an otherwise idle B200, with FP64 leaves and upstream gradients, after
   the golden's declared cast was changed to round the FP32 SiLU as the model does. The
   backward reference keeps only the SiLU and table roundings, so the errors include the BF16
   rounding of `norm(x)` and `1 + scale`.
-- [`chain_replay.json`](../../reports/experiments/h3-final-adaln-out-b200/chain_replay.json): the
+- [`chain_replay.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr489/reports/experiments/h3-final-adaln-out-b200/chain_replay.json): the
   whole conditioning chain (timestep → … → norm_out) replayed stage by stage over
   T in {1, 2, 3, 4} × S in {3, 257, 4097, 32768}, with the backward replay. Written from a clean
   tree at `50e913fa`. Every CUDA pass/fail flag matches the previous replay; the `h3_rmsnorm`
@@ -90,7 +90,7 @@ There are two data files:
 
 ## Existing implementations (RFC #420 reuse rule)
 
-![final_adaln_out vs existing implementations](../../reports/experiments/h3-prior-art-b200/final_adaln_out.png)
+![final_adaln_out vs existing implementations](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr489/reports/experiments/h3-prior-art-b200/final_adaln_out.png)
 
 | Implementation | Batch-invariant | size 4097: fwd err / worst grad err / fwd+bwd | size 32768: fwd err / worst grad err / fwd+bwd |
 |---|---|---|---|
@@ -101,7 +101,7 @@ Errors are max|err| / max|ref| against the same computation in FP64; latency is 
 forward + backward time on an otherwise idle B200. Batch invariance is bitwise and covers
 three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
 131072-token batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
-"no" means that at least one row, sub-batch or gradient differed. [`final_adaln_out.json`](../../reports/experiments/h3-prior-art-b200/final_adaln_out.json)
+"no" means that at least one row, sub-batch or gradient differed. [`final_adaln_out.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr489/reports/experiments/h3-prior-art-b200/final_adaln_out.json)
 was written from a clean tree at `03da729` by
 
 ```bash
@@ -118,10 +118,10 @@ Equal FP64 errors do not show equal bits, so the candidates are also compared by
 (each global batch-invariant mode in its own process) and compares every output and leaf
 gradient with diffusers' path and with this kernel.
 
-![final_adaln_out bitwise comparison](../../reports/experiments/h3-bitwise-reuse-b200/final_adaln_out.png)
+![final_adaln_out bitwise comparison](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr489/reports/experiments/h3-bitwise-reuse-b200/final_adaln_out.png)
 
 There is no reuse candidate beyond diffusers' MiniMaxH3AdaLayerNormOut. This op does not promise bitwise equality: its shift/scale projection uses #485's fixed-order linear, not cuBLAS. The output differs from diffusers in 0.05-0.07% of BF16 elements at every S (1 to 32768), and every gradient differs as expected for the deterministic FP32 reductions.
-[`final_adaln_out.json`](../../reports/experiments/h3-bitwise-reuse-b200/final_adaln_out.json) was written from a clean tree at `4430ef16` by
+[`final_adaln_out.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr489/reports/experiments/h3-bitwise-reuse-b200/final_adaln_out.json) was written from a clean tree at `4430ef16` by
 
 ```bash
 python tools/validation/models/h3_bitwise_reuse.py --op final_adaln_out \
