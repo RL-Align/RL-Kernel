@@ -57,8 +57,18 @@ def main() -> None:
                 f"{before_path} and {after_path} have different world sizes: "
                 f"{before_report['world_size']} != {after_report['world_size']}"
             )
+        for field in ("gpu", "dtype"):
+            if before_report[field] != after_report[field]:
+                raise SystemExit(
+                    f"{before_path} and {after_path} have different {field} values: "
+                    f"{before_report[field]!r} != {after_report[field]!r}"
+                )
         before_sizes = [row["input_bytes_per_rank"] for row in before]
         after_sizes = [row["input_bytes_per_rank"] for row in after]
+        if not before_sizes or not after_sizes:
+            raise SystemExit(
+                f"{before_path} and {after_path} need rows for {args.operation} in both reports"
+            )
         if before_sizes != after_sizes:
             raise SystemExit(
                 f"{before_path} and {after_path} have different input sizes for "

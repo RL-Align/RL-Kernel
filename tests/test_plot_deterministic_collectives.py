@@ -36,21 +36,26 @@ def _write_report(path: Path, world_size: int, sizes: list[int], latency: float)
 
 
 @pytest.mark.parametrize(
-    ("after_world_size", "after_sizes", "message"),
+    ("after_world_size", "after_sizes", "after_metadata", "message"),
     [
-        (4, [1024, 2048], "different world sizes"),
-        (2, [1024, 4096], "different input sizes for all_gather"),
-        (2, [1024], "different input sizes for all_gather"),
+        (4, [1024, 2048], {}, "different world sizes"),
+        (2, [1024, 4096], {}, "different input sizes for all_gather"),
+        (2, [1024], {}, "different input sizes for all_gather"),
+        (2, [1024, 2048], {"gpu": "different GPU"}, "different gpu values"),
+        (2, [1024, 2048], {"dtype": "bf16"}, "different dtype values"),
     ],
 )
 def test_mismatched_reports_fail_before_plotting(
-    tmp_path, monkeypatch, after_world_size, after_sizes, message
+    tmp_path, monkeypatch, after_world_size, after_sizes, after_metadata, message
 ):
-    """Reject differing rank counts or input sweeps before creating a figure."""
+    """Reject differing workloads or input sweeps before creating a figure."""
     before_path = tmp_path / "before.json"
     after_path = tmp_path / "after.json"
     _write_report(before_path, 2, [1024, 2048], 10)
     _write_report(after_path, after_world_size, after_sizes, 5)
+    report = json.loads(after_path.read_text())
+    report.update(after_metadata)
+    after_path.write_text(json.dumps(report))
     monkeypatch.setattr(
         sys,
         "argv",
@@ -71,6 +76,49 @@ def test_mismatched_reports_fail_before_plotting(
 
     monkeypatch.setattr(plotter.plt, "subplots", unexpected_subplots)
     with pytest.raises(SystemExit, match=message):
+        plotter.main()
+
+
+@pytest.mark.parametrize(
+    ("before_operation", "after_operation"),
+    [
+        ("all_reduce", "all_gather"),
+        ("all_gather", "all_reduce"),
+        ("all_reduce", "all_reduce"),
+    ],
+)
+def test_missing_operation_fails_before_plotting(
+    tmp_path, monkeypatch, before_operation, after_operation
+):
+    """Reject a selected operation absent from either or both reports."""
+    before_path = tmp_path / "before.json"
+    after_path = tmp_path / "after.json"
+    for path, operation in ((before_path, before_operation), (after_path, after_operation)):
+        _write_report(path, 2, [1024, 2048], 10)
+        report = json.loads(path.read_text())
+        for row in report["rows"]:
+            row["operation"] = operation
+        path.write_text(json.dumps(report))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "plot_deterministic_collectives.py",
+            "--before",
+            str(before_path),
+            "--after",
+            str(after_path),
+            "--output",
+            str(tmp_path / "figure.png"),
+        ],
+    )
+
+    def unexpected_subplots(*args, **kwargs):
+        """Fail if an empty selected series reaches the plotting stage."""
+        pytest.fail("reports missing the selected operation must fail before plotting")
+
+    monkeypatch.setattr(plotter.plt, "subplots", unexpected_subplots)
+    with pytest.raises(SystemExit, match="need rows for all_gather in both reports"):
         plotter.main()
 
 
