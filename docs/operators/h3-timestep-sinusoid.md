@@ -88,15 +88,15 @@ about 1 KB per timestep.
 
 ## Evidence
 
-![timestep_sinusoid_h3 on B200: latency and error vs FP64](../../reports/experiments/h3-timestep-sinusoid-b200/figure.png)
+![timestep_sinusoid_h3 on B200: latency and error vs FP64](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr483/reports/experiments/h3-timestep-sinusoid-b200/figure.png)
 
-The data is in [`report.json`](../../reports/experiments/h3-timestep-sinusoid-b200/report.json).
+The data is in [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr483/reports/experiments/h3-timestep-sinusoid-b200/report.json).
 `tools/validation/models/h3_evidence.py` wrote it from a clean tree at commit `0522865`, and the report
 records that commit and the environment.
 
 ## Existing implementations (RFC #420 reuse rule)
 
-![timestep_sinusoid vs existing implementations](../../reports/experiments/h3-prior-art-b200/timestep_sinusoid.png)
+![timestep_sinusoid vs existing implementations](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr483/reports/experiments/h3-prior-art-b200/timestep_sinusoid.png)
 
 | Implementation | Batch-invariant | size 3: fwd err / worst grad err / fwd+bwd | size 256: fwd err / worst grad err / fwd+bwd | size 2048: fwd err / worst grad err / fwd+bwd |
 |---|---|---|---|---|
@@ -108,7 +108,7 @@ Errors are max|err| / max|ref| against the same computation in FP64; latency is 
 forward + backward time on an otherwise idle B200. Batch invariance is bitwise and covers
 three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
 8192-timestep batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
-"no" means that at least one row, sub-batch or gradient differed. [`timestep_sinusoid.json`](../../reports/experiments/h3-prior-art-b200/timestep_sinusoid.json)
+"no" means that at least one row, sub-batch or gradient differed. [`timestep_sinusoid.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr483/reports/experiments/h3-prior-art-b200/timestep_sinusoid.json)
 was written from a clean tree at `7a82917` by
 
 ```bash
@@ -126,11 +126,11 @@ Equal FP64 errors do not show equal bits, so the candidates are also compared by
 compares each output with diffusers' path and with this kernel. `--fast-math-variant` adds this
 kernel compiled with `--use_fast_math`, which the build excludes (see Known Limitations).
 
-![timestep_sinusoid bitwise comparison](../../reports/experiments/h3-bitwise-reuse-b200/timestep_sinusoid.png)
+![timestep_sinusoid bitwise comparison](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr483/reports/experiments/h3-bitwise-reuse-b200/timestep_sinusoid.png)
 
 SGLang's `timestep_embedding`, diffusers' path and this kernel are bitwise identical on all
 2.22M timesteps (567.6M outputs). The fast-math build differs in 53.7–82.7% of outputs.
-[`timestep_sinusoid.json`](../../reports/experiments/h3-bitwise-reuse-b200/timestep_sinusoid.json)
+[`timestep_sinusoid.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr483/reports/experiments/h3-bitwise-reuse-b200/timestep_sinusoid.json)
 was written from a clean tree at `0eb5ddd5` by
 
 ```bash
