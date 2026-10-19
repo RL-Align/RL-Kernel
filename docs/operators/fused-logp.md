@@ -70,7 +70,7 @@ fused-backward build or runtime validation is claimed.
 
 ## Backward evidence (generic CUDA op)
 
-[`report.json`](../usage/evidence/fused-logp-backward-b200/report.json) was written by
+[`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr495/docs/usage/evidence/fused-logp-backward-b200/report.json) was written by
 `benchmarks/fused_logp_backward_evidence.py --flash-attn-src <flash-attention checkout>` from a
 clean tree at `f6d3a24`, on an otherwise idle B200 (torch 2.13.0+cu130, triton 3.7.1,
 liger-kernel 0.8.4, fla-core 0.5.2, flash-attention `94e22c9`). V = 151936, BF16 logits.
@@ -101,10 +101,10 @@ BF16-output and FP32-output candidates and is superseded by the review rerun bel
 - The corrected runner quantizes the upstream gradient to BF16 once, promotes it losslessly
   to FP32, and passes those same effective values to every candidate and one FP64 reference.
   It checks the effective gradient at each output boundary rather than changing the reference
-  for each candidate. See the [review rerun](../usage/evidence/fused-logp-backward-b200/README.md)
+  for each candidate. See the [review rerun](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr495/docs/usage/evidence/fused-logp-backward-b200/README.md)
   for corrected accuracy, train/rollout comparisons, and the reuse decision.
 
-The [actual provider follow-up](../usage/evidence/fused-logp-backward-b200/provider-validation/README.md)
+The [actual provider follow-up](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr495/docs/usage/evidence/fused-logp-backward-b200/provider-validation/README.md)
 also compares the Vime training provider with the real vLLM sampler/WS2 adapter at
 physical TP=1/2. A coordinated flash-attn CE scorer agrees at TP=1 but changes logp
 and LSE at TP=2. The report separately records an existing chunk-invariance failure
