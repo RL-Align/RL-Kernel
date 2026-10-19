@@ -771,29 +771,46 @@ def test_fp32_tree_default_schedule_and_bias_match_scalar_reference(k):
 
 
 @pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
-@pytest.mark.parametrize("k", [128, 1024, 13104])
-def test_compact_bias_tree_workspace_preserves_chunked_outputs(k, monkeypatch):
+@pytest.mark.parametrize(
+    "k,compact",
+    [
+        (1, False),
+        (32, False),
+        (64, True),
+        (65, False),
+        (128, True),
+        (129, False),
+        (256, True),
+        (1024, True),
+        (13104, True),
+    ],
+)
+def test_compact_bias_tree_workspace_preserves_chunked_outputs(k, compact, monkeypatch):
     from rl_engine.backends.shared.triton.gemm import det_gemm
-    from rl_engine.backends.shared.triton.gemm.video_input_projection_fp32 import (
-        projection_gemm_fp32,
-    )
 
     a, b = torch.ones(1, k, device="cuda"), torch.randn(k, 5, device="cuda")
     original_plan = det_gemm._device_tree_plan(k, a.device)
-    assert not original_plan.fp32_fused
     assert original_plan.workspace_node_count == original_plan.host.node_count
-    plan = det_gemm._device_tree_plan(k, a.device, fp32_fuse_leaves=True)
-    assert plan.fp32_fused
-    assert plan.workspace_node_count < plan.host.node_count
-    node_arrays = [plan.rocm_leaf_reduction[-1]]
-    node_arrays.extend(
-        nodes for pair in plan.rocm_fused_reduction_pairs_after_leaf for nodes in pair
-    )
+    plan = det_gemm._device_tree_plan(k, a.device, compact_workspace=True)
+    assert (plan.workspace_node_count < plan.host.node_count) == compact
+    if compact:
+        assert plan.rocm_leaf_reduction is not None
+        node_arrays = [plan.rocm_leaf_reduction[-1]]
+        node_arrays.extend(
+            nodes for pair in plan.rocm_fused_reduction_pairs_after_leaf for nodes in pair
+        )
+        if (len(plan.host.reduction_levels) - 1) % 2:
+            node_arrays.extend(plan.reduction_levels[-1][:2])
+    else:
+        assert plan.workspace_node_count == plan.host.node_count
+        node_arrays = [plan.leaf_nodes]
+        node_arrays.extend(nodes for level in plan.reduction_levels for nodes in level)
     for nodes in node_arrays:
         assert bool(torch.all((nodes >= 0) & (nodes < plan.workspace_node_count)))
-    expected = projection_gemm_fp32(a, b)
+    expected = det_gemm._triton_tree_gemm(a, b, output_dtype=torch.float32)
+    _assert_bytes(expected.cpu(), _fp32_tree_reference(a, b))
     monkeypatch.setattr(det_gemm, "_MAX_TREE_WORKSPACE_ELEMENTS", plan.workspace_node_count * 2)
-    _assert_bytes(projection_gemm_fp32(a, b), expected)
+    _assert_bytes(det_gemm._triton_tree_gemm(a, b, output_dtype=torch.float32), expected)
 
 
 @pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
