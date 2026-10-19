@@ -29,6 +29,7 @@ from qwen3_next_runtime import (  # noqa: E402
     file_digest,
     memory_limits,
     parse_memory_request,
+    require_four_supported_gpus,
     subprocess_failure,
     verify_checkpoint,
     verify_environment,
@@ -332,10 +333,7 @@ def run_process(command, *, log_path, timeout=4 * 3600, cleanup_grace_seconds=10
 def gpu_probe(output):
     import torch
 
-    if torch.cuda.device_count() != 4 or any(
-        "B200" not in torch.cuda.get_device_name(index) for index in range(4)
-    ):
-        raise RuntimeError("topology_mismatch: four allocated B200 GPUs required")
+    require_four_supported_gpus()
     atomic_json(
         output, {"uuids": [str(torch.cuda.get_device_properties(index).uuid) for index in range(4)]}
     )
