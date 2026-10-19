@@ -75,15 +75,15 @@ tile setup.
 
 ## Evidence
 
-![adaln_gate_residual on B200: latency and backward accuracy](../../reports/experiments/h3-adaln-gate-residual-b200/figure.png)
+![adaln_gate_residual on B200: latency and backward accuracy](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr493/reports/experiments/h3-adaln-gate-residual-b200/figure.png)
 
-The data is in [`report.json`](../../reports/experiments/h3-adaln-gate-residual-b200/report.json),
+The data is in [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr493/reports/experiments/h3-adaln-gate-residual-b200/report.json),
 written by `tools/validation/models/h3_evidence.py` from a clean tree at commit `bde1d8d`. It also records
 forward bitwise equality with diffusers in bf16, fp16 and fp32, and row invariance.
 
 ## Existing implementations (RFC #420 reuse rule)
 
-![gate_residual vs existing implementations](../../reports/experiments/h3-prior-art-b200/gate_residual.png)
+![gate_residual vs existing implementations](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr488/reports/experiments/h3-prior-art-b200/gate_residual.png)
 
 | Implementation | Batch-invariant | size 4097: fwd err / worst grad err / fwd+bwd | size 32768: fwd err / worst grad err / fwd+bwd |
 |---|---|---|---|
@@ -94,7 +94,7 @@ Errors are max|err| / max|ref| against the same computation in FP64; latency is 
 forward + backward time on an otherwise idle B200. Batch invariance is bitwise and covers
 three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
 131072-row batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
-"no" means that at least one row, sub-batch or gradient differed. [`gate_residual.json`](../../reports/experiments/h3-prior-art-b200/gate_residual.json)
+"no" means that at least one row, sub-batch or gradient differed. [`gate_residual.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr488/reports/experiments/h3-prior-art-b200/gate_residual.json)
 was written from a clean tree at `4010854` by
 
 ```bash
@@ -111,10 +111,10 @@ Equal FP64 errors do not show equal bits, so the candidates are also compared by
 (each global batch-invariant mode in its own process) and compares every output and leaf
 gradient with diffusers' path and with this kernel.
 
-![gate_residual bitwise comparison](../../reports/experiments/h3-bitwise-reuse-b200/gate_residual.png)
+![gate_residual bitwise comparison](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr488/reports/experiments/h3-bitwise-reuse-b200/gate_residual.png)
 
 There is no reuse candidate beyond diffusers' residual + gate.index_select(...) * y. The forward, d_residual and d_sublayer are bitwise identical to it at every S (1 to 32768). The gate-table gradient matches at S = 1 and differs from S = 257 on, where index_select accumulates with atomics and this kernel in a fixed FP32 order.
-[`gate_residual.json`](../../reports/experiments/h3-bitwise-reuse-b200/gate_residual.json) was written from a clean tree at `910d614a` by
+[`gate_residual.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr488/reports/experiments/h3-bitwise-reuse-b200/gate_residual.json) was written from a clean tree at `910d614a` by
 
 ```bash
 python tools/validation/models/h3_bitwise_reuse.py --op gate_residual \

@@ -124,9 +124,9 @@ dependence on T.
 
 ## Evidence
 
-![adaln_projection_3mod on B200: latency and correctly rounded outputs](../../reports/experiments/h3-adaln-projection-b200/figure.png)
+![adaln_projection_3mod on B200: latency and correctly rounded outputs](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr485/reports/experiments/h3-adaln-projection-b200/figure.png)
 
-The data is in [`report.json`](../../reports/experiments/h3-adaln-projection-b200/report.json),
+The data is in [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr485/reports/experiments/h3-adaln-projection-b200/report.json),
 written by `tools/validation/models/h3_evidence.py` from a clean tree at commit `a0834552` on an
 otherwise idle B200 (regenerated after the golden's declared cast was changed to round the FP32
 SiLU, as the model does; the accuracy fields are unchanged on the report's 20 draws). The report also
@@ -135,7 +135,7 @@ or in a batch of 9.
 
 ## Existing implementations (RFC #420 reuse rule)
 
-![adaln_projection vs existing implementations](../../reports/experiments/h3-prior-art-b200/adaln_projection.png)
+![adaln_projection vs existing implementations](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr485/reports/experiments/h3-prior-art-b200/adaln_projection.png)
 
 The sizes below are timestep (input row) counts T. `H3AdaLNProjectionCudaOp`
 streams its 520 MB weight once per 8 rows; T = 256 and 2048 require additional
@@ -157,7 +157,7 @@ Errors are max|err| / max|ref| against the same computation in FP64; latency is 
 forward + backward time on an otherwise idle B200. Batch invariance is bitwise and covers
 three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
 4096-timestep batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
-"no" means that at least one row, sub-batch or gradient differed. [`adaln_projection.json`](../../reports/experiments/h3-prior-art-b200/adaln_projection.json)
+"no" means that at least one row, sub-batch or gradient differed. [`adaln_projection.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr485/reports/experiments/h3-prior-art-b200/adaln_projection.json)
 was written from a clean tree at `c88691c` by
 
 ```bash
@@ -174,10 +174,10 @@ Equal FP64 errors do not show equal bits, so the candidates are also compared by
 (each global batch-invariant mode in its own process) and compares every output and leaf
 gradient with diffusers' path and with this kernel.
 
-![adaln_projection bitwise comparison](../../reports/experiments/h3-bitwise-reuse-b200/adaln_projection.png)
+![adaln_projection bitwise comparison](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr485/reports/experiments/h3-bitwise-reuse-b200/adaln_projection.png)
 
 This kernel's BF16 output differs from diffusers in 0.08-0.2% of elements (final-rounding flips of a different, fixed reduction order). Every mode (vLLM's settings, SGLang, Megatron) is bitwise equal to diffusers from T = 4 but not at T = 1 (0.1% differ), and differs from this kernel in 0.1-0.2%.
-[`adaln_projection.json`](../../reports/experiments/h3-bitwise-reuse-b200/adaln_projection.json) was written from a clean tree at `0e476483` by
+[`adaln_projection.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr485/reports/experiments/h3-bitwise-reuse-b200/adaln_projection.json) was written from a clean tree at `0e476483` by
 
 ```bash
 python tools/validation/models/h3_bitwise_reuse.py --op adaln_projection --megatron-src <Megatron-LM source tree> \

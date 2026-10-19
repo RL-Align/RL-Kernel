@@ -70,7 +70,7 @@ size, where the multi-block path takes about 45 µs. This matters for the forwar
 
 ## Evidence
 
-![tp_adaln_3mod on 8 x B200: byte equality and time](../../reports/experiments/h3-tp-adaln-3mod-b200/figure.png)
+![tp_adaln_3mod on 8 x B200: byte equality and time](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr493/reports/experiments/h3-tp-adaln-3mod-b200/figure.png)
 
 The report is written by `tools/validation/models/h3_ws2_evidence.py` from a clean tree at commit `4947996`, with
 real NCCL processes on one 8 x B200 node, one GPU per rank, on the pinned block-0 weights. For
