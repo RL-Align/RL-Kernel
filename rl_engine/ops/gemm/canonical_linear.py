@@ -164,6 +164,9 @@ def canonical_linear_fp32(
 ) -> torch.Tensor:
     """Apply a canonical linear using the default backend or an FP32 matmul callable.
 
+    Without ``matmul_op``, ``family`` selects the existing backend dispatch.
+    With a callable, ``family`` identifies its backend for provenance, as in
+    ``canonical_row_lm_head``.
     A custom matmul handles input strides and accepts ``bias=`` when bias is
     supplied. The same callable computes forward, dX, dW, and dbias. Parameter
     gradients reuse the canonical session's stable logical-row sorting.

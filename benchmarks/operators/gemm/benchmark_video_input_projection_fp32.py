@@ -66,9 +66,11 @@ def _accuracy(actual, gold):
         a, b = a.detach().cpu(), b.detach().cpu()
         error = (a - b).abs()
         limit = policy["atol"] + policy["rtol"] * b.abs()
+        finite = torch.isfinite(a) & torch.isfinite(b)
         result[name] = {
-            "max_abs_error": error.max().item(),
-            "out_of_tolerance": int((error > limit).sum()),
+            "max_abs_error": error.max().item() if torch.isfinite(error).all() else None,
+            "out_of_tolerance": int(((error > limit) | ~finite).sum()),
+            "non_finite_elements": int((~finite).sum()),
             **policy,
         }
     return result

@@ -64,8 +64,11 @@ The wrapper reuses `canonical_linear_fp32` with `family="triton"` and
 selects the existing forward and VJP GEMM schedules and handles their input
 strides. Forward, dX, dW, and dbias use the same callable. Existing canonical
 linear callers omit `matmul_op` and retain their original backend dispatch.
-On CUDA, the session internally checks eligible keys before skipping sorting. Backward provenance records the actual
-matmul entry point.
+The existing `canonical_row_lm_head` uses the same separation: `family` records
+the backend, and `matmul_op` supplies the GEMM implementation. Qwen3 passes its
+selected `det_gemm.forward_accum_fp32` to that function.
+On CUDA, the session internally checks eligible keys before skipping sorting.
+Backward provenance records the actual matmul entry point.
 
 ## Accuracy
 
@@ -95,19 +98,20 @@ CPU, and other device paths retain stable sorting.
 
 Short reductions up to the 96-wide video input use the existing direct FP32
 GEMM. The Triton input and weight VJPs reuse that kernel with fixed 128-term
-chunks. Each chunk computes four ascending 32-term FP32 dots from zero. Chunk
+chunks. Each chunk computes four ascending 32-term FP32 dots from zero. It adds the
+first pair and the second pair independently, then combines both 64-term halves.
+This balanced sum reduces cancellation error in the long weight VJP. Chunk
 partials remain FP32. A second grid uses a fixed balanced reduction over the
 next power-of-two chunk count, with zero padding. The merge uses 64 output
 elements per program and four warps. VJP GEMMs use fixed 128-by-32 output tiles,
 32-term dot tiles, and four warps. The forward retains its 64-by-64 output tile.
-These settings define the v9 Triton implementation identity. The K partition and VJP
+These settings define the v10 Triton implementation identity. The K partition and VJP
 tile do not depend on M, row placement, or occupancy.
 The VJP kernels consume positive-stride views directly, including `G.T`.
 The Triton forward omits K or N load predicates only when the corresponding
 32-term or 64-column tiles are complete. It retains M predicates for every row.
-Column-major A views with unit row stride use a fixed `maxnreg=96` VJP allocation.
-Other VJP layouts retain the default allocation. These choices preserve the dot
-tile and K accumulation order. No configuration depends on physical row count.
+VJP kernels use the compiler's default register allocation for every input layout.
+The K accumulation order is fixed. No configuration depends on physical row count.
 
 The fixed-chunk design follows the scheduling separation in merged PR #396.
 Its AMD BF16 MFMA instructions are not used by this CUDA FP32 implementation.
@@ -167,6 +171,11 @@ python tools/validation/operators/check_operator.py \
   --op video_input_projection_fp32 --candidate triton --device cuda --dtype fp32 \
   --batch 1 --seq 129 --check-grad --grad-mode random
 ```
+
+The standard-normal regression covers seeds 420 through 423 at 129 and 13104
+rows. It checks CPU FP32 accuracy and byte equality across permutations,
+microbatches, padding, and repeated calls. The benchmark rejects NaN or Inf in
+either the candidate or reference, including gradients.
 
 Set `H3_PROJECTION_WEIGHTS` to a safetensors fixture containing `proj_in.weight`
 and `proj_in.bias` from `MiniMaxAI/MiniMax-H3` at revision

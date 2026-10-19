@@ -3,6 +3,7 @@
 
 """H3 FP32 projection accuracy, actual autograd, and logical-row invariance."""
 
+import json
 import os
 
 import pytest
@@ -143,8 +144,8 @@ def _keys(rows, device):
     )
 
 
-def _data(rows, device="cuda"):
-    generator = torch.Generator(device=device).manual_seed(420)
+def _data(rows, device="cuda", *, seed=420):
+    generator = torch.Generator(device=device).manual_seed(seed)
     return (
         torch.randn(rows, 96, generator=generator, device=device) * 0.125,
         torch.randn(5376, 96, generator=generator, device=device) * 0.0625,
@@ -191,6 +192,39 @@ def _assert_bytes(a, b):
     assert torch.equal(
         a.detach().contiguous().view(torch.int32), b.detach().contiguous().view(torch.int32)
     )
+
+
+@pytest.mark.parametrize("output", ["y", "dx", "dw", "dbias"])
+@pytest.mark.parametrize(
+    "candidate,reference,violations,non_finite",
+    [
+        (1.0, 1.0, 0, 0),
+        (2.0, 1.0, 1, 0),
+        (float("nan"), 1.0, 1, 1),
+        (1.0, float("nan"), 1, 1),
+        (float("inf"), 1.0, 1, 1),
+        (1.0, float("inf"), 1, 1),
+        (float("inf"), float("inf"), 1, 1),
+        (-float("inf"), 1.0, 1, 1),
+    ],
+)
+def test_benchmark_accuracy_rejects_non_finite(
+    output, candidate, reference, violations, non_finite
+):
+    from benchmarks.operators.gemm.benchmark_video_input_projection_fp32 import _accuracy
+
+    names = ("y", "dx", "dw", "dbias")
+    actual = [torch.ones(2) for _ in names]
+    gold = [torch.ones(2) for _ in names]
+    actual[names.index(output)][0] = candidate
+    gold[names.index(output)][0] = reference
+    report = _accuracy(actual, gold)
+    for name in names:
+        assert report[name]["out_of_tolerance"] == (violations if name == output else 0)
+        assert report[name]["non_finite_elements"] == (non_finite if name == output else 0)
+    if non_finite:
+        assert report[output]["max_abs_error"] is None
+    json.dumps(report, allow_nan=False)
 
 
 @pytest.mark.parametrize("with_bias", [False, True])
@@ -410,6 +444,11 @@ def test_forward_and_actual_gradients(rows, with_bias):
 @pytest.mark.parametrize("rows", [9, 65, 127, 128, 129, 257])
 def test_parameter_bi_permutation_chunk_padding(rows):
     op, data, keys = _op(), _data(rows), _keys(rows, "cuda")
+    _check_parameter_bi(op, data, keys)
+
+
+def _check_parameter_bi(op, data, keys):
+    rows = data[0].shape[0]
     baseline = _run(op, data, keys)
     order = torch.randperm(rows, device="cuda")
     permuted = _run(
@@ -528,7 +567,7 @@ def test_default_cuda_dispatch():
     from rl_engine.runtime.registry import KernelRegistry
 
     op = KernelRegistry().get_op("video_input_projection_fp32", device="cuda")
-    assert op.backend_info()["backend_id"] == "triton-video-input-projection-fp32-v9"
+    assert op.backend_info()["backend_id"] == "triton-video-input-projection-fp32-v10"
     x, weight, bias, _ = _data(3)
     with torch.no_grad():
         _assert_bytes(op(x, weight, bias), _op()(x, weight, bias))
@@ -598,9 +637,10 @@ def test_fp32_tree_workspace_chunking(monkeypatch):
 
 @pytest.mark.skipif(not H20, reason="requires CUDA SM90")
 @pytest.mark.parametrize("rows", [129, 13104])
-def test_standard_normal_long_reduction(rows):
+@pytest.mark.parametrize("seed", [420, 421, 422, 423])
+def test_standard_normal_long_reduction(rows, seed):
     # Unscaled inputs expose cancellation error in the 5376-term input VJP.
-    data = _data(rows)
+    data = _data(rows, seed=seed)
     data = tuple(t / scale for t, scale in zip(data, (0.125, 0.0625, 0.125, 0.0625), strict=True))
     actual = _run(_op(), data, _keys(rows, "cuda"))
     cx, cw, cb = [t.detach().cpu().requires_grad_() for t in data[:3]]
@@ -608,6 +648,7 @@ def test_standard_normal_long_reduction(rows):
     gold.backward(data[3].cpu())
     for i, (a, b) in enumerate(zip(actual, (gold, cx.grad, cw.grad, cb.grad), strict=True)):
         _assert_accuracy(a, b, "forward_accuracy" if i == 0 else "gradient_accuracy")
+    _check_parameter_bi(_op(), data, _keys(rows, "cuda"))
 
 
 def test_cpu_fp32_reference_long_dot_accuracy():
