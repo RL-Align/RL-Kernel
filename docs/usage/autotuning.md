@@ -131,7 +131,7 @@ hardware numerical acceptance.
 
 For test results, skips, measured eager versus graph results and remaining
 hardware gaps, see the
-[B200 issue #50 evidence](https://github.com/RL-Align/RL-Kernel/tree/main/reports/experiments/issue50_b200/README.md).
+[B200 issue #50 evidence](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr536/reports/experiments/issue50_b200/README.md).
 Full CUDA/ROCm acceptance remains incomplete.
 
 ## Candidate qualification and expanded experiments
