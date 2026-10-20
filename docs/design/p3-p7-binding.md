@@ -5,7 +5,7 @@
 | Document status | Delivered |
 | Document date | 2026-10-15 |
 | Work package | T08 (CP/DP/PP/EP ownership, placement, P7 `cross_config`) |
-| Test baseline | 24 passed (binding); 117 passed / 2 skipped across placement + ownership + binding |
+| Test baseline | 28 passed (binding); 166 passed / 2 skipped across the T08 modules |
 | Scope | A `RuntimeMaterializer` and consumer hooks; no planner, runner, tolerance or collective |
 | Depends on | #498, plus `rl_engine/alignment/cross_config` already on the branch |
 
@@ -171,10 +171,17 @@ rather than being silently normalized away. It fails closed with
 | rank asked for a layer it does not own | `MISSING_RANK` |
 | over-provisioned DP rank | `ZERO_ACTIVE_TOKENS` |
 | `layout_from_case` | active tokens only, no padding sentinel |
+| DP>1 with no collective record | `UNOBSERVABLE`, not strictly executable |
+| DP=1 | no collective record required |
+| supplied collective record | fingerprint reaches `side_configs` |
+| malformed collective record | `ERROR`, not a gap |
 
 ## 6. Boundary
 
-- No collective is implemented or wrapped.
+- No collective is implemented or wrapped. The gate parameter-gradient
+  all-reduce is *recorded* as provenance and carried in `side_configs`; see
+  `p3-gate-grad-collective.md`. A DP case supplying no such record is not
+  strictly executable, because its reduction order is unobserved.
 - No second planner, runner, tolerance or ResultCube.
 - The materializer builds the router's *view* of a configuration. Engine
   construction stays with the Megatron and vLLM adapters; a case needing both

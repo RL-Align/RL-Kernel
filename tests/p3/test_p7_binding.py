@@ -21,6 +21,7 @@ from rl_engine.alignment.cross_config.schema import (
     MaterializationStatus,
     SemanticIdentitySpec,
 )
+from rl_engine.p3.collective_provenance import CollectiveProvenance, GradientBucket
 from rl_engine.p3.contract import P3Error, P3Verdict
 from rl_engine.p3.fixtures import catalog
 from rl_engine.p3.ownership import ParallelConfig, TokenLayout, expected_decisions
@@ -83,9 +84,27 @@ def _case(training=None, router=None, extra=None):
     )
 
 
+def _collective(dp_size=2, **overrides):
+    """A complete gate-gradient collective record for a DP configuration."""
+    fields = {
+        "dp_size": dp_size,
+        "dp_ranks": tuple(range(dp_size)),
+        "algorithm": "ring",
+        "configured_algorithm": "ring",
+        "reduce_op": "avg",
+        "accumulate_dtype": "fp32",
+        "process_group": f"dp:0-{dp_size - 1}",
+        "source": "torch.distributed readback",
+        "buckets": (GradientBucket(0, ("gate.weight",), 4096 * 256, "fp32"),),
+        **overrides,
+    }
+    return CollectiveProvenance(**fields)
+
+
 def _materialize(case=None, **kwargs):
     tools = RuntimeTools(P3_ROUTER_KNOBS)
     kwargs.setdefault("num_experts", 8)
+    kwargs.setdefault("collective", _collective())
     return tools.materialize(case or _case(), P3RouterMaterializer(**kwargs))
 
 
@@ -329,3 +348,50 @@ def test_layout_from_case_uses_active_tokens_only():
 
 def case_fully_active(case):
     return bool(case.row_active.all())
+
+
+# --- gate-gradient collective provenance -------------------------------------
+
+
+def test_dp_without_collective_evidence_is_unobservable():
+    """DP runs an all-reduce; its reduction order cannot simply go unrecorded."""
+    tools = RuntimeTools(P3_ROUTER_KNOBS)
+    materialization = tools.materialize(_case(), P3RouterMaterializer(num_experts=8))
+    assert materialization.materialized_case.status is MaterializationStatus.UNOBSERVABLE
+    assert not materialization.executable_in_strict_mode
+    gaps = {
+        a.path: a.evidence["reason"]
+        for a in materialization.applications
+        if a.status is MaterializationStatus.UNOBSERVABLE
+    }
+    assert "training.data_parallel_size" in gaps
+    assert "all-reduce" in gaps["training.data_parallel_size"]
+
+
+def test_dp1_needs_no_collective_record():
+    """No all-reduce runs at DP=1, so demanding evidence of one is theatre."""
+    tools = RuntimeTools(P3_ROUTER_KNOBS)
+    case = _case(training={"data_parallel_size": 1})
+    materialization = tools.materialize(case, P3RouterMaterializer(num_experts=8))
+    assert materialization.materialized_case.status is MaterializationStatus.APPLIED
+    side = materialization.binding.side_configs["training"]
+    assert side["gate_grad_collective"]["source"] == "no_collective"
+
+
+def test_binding_carries_the_collective_fingerprint():
+    side = _materialize().binding.side_configs["training"]
+    assert side["gate_grad_collective"]["algorithm"] == "ring"
+    assert side["gate_grad_collective_fingerprint"] == _collective().fingerprint()
+
+
+def test_a_malformed_collective_record_is_an_error_not_a_gap():
+    """Evidence was handed over and does not hold together: that is a defect."""
+    broken = _collective(dp_ranks=(0, 0))  # two ranks, one of them twice
+    materialization = _materialize(collective=broken)
+    assert materialization.materialized_case.status is MaterializationStatus.ERROR
+    reasons = [
+        a.evidence["reason"]
+        for a in materialization.applications
+        if a.status is MaterializationStatus.ERROR
+    ]
+    assert reasons and "distinct ranks" in reasons[0]

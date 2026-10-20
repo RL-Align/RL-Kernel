@@ -50,6 +50,11 @@ from rl_engine.alignment.cross_config.schema import (
     MaterializationStatus,
 )
 
+from .collective_provenance import (
+    CollectiveProvenance,
+    collective_evidence,
+    collective_problems,
+)
 from .contract import P3Error, P3Verdict
 from .mocks import materialize_tokens
 from .ownership import ParallelConfig, TokenLayout, expected_decisions
@@ -177,11 +182,18 @@ class P3RouterMaterializer:
     runtime_kind = RUNTIME_KIND
 
     def __init__(
-        self, *, layout=None, num_experts=None, rank_order=None, backend_id="rl_engine.p3"
+        self,
+        *,
+        layout=None,
+        num_experts=None,
+        rank_order=None,
+        collective=None,
+        backend_id="rl_engine.p3",
     ):
         self.layout = layout
         self.num_experts = num_experts
         self.rank_order = rank_order
+        self.collective = collective
         self.backend_id = backend_id
 
     @property
@@ -221,8 +233,10 @@ class P3RouterMaterializer:
     def materialize(self, normalized, descriptors):
         flat = flatten(normalized)
         config, placement, problems = self.router_view(flat)
+        collective, collective_gap, collective_defects = self._collective_for(config)
+        problems = problems + collective_defects
         applications = [
-            self._application(descriptors, path, value, config, placement, problems)
+            self._application(descriptors, path, value, config, placement, problems, collective_gap)
             for path, value in sorted(flat.items())
         ]
 
@@ -239,6 +253,8 @@ class P3RouterMaterializer:
             "placement": placement.plan_fragment() if placement is not None else None,
             "problems": problems,
         }
+        if collective is not None:
+            side.update(collective_evidence(collective))
         if self.layout is not None:
             side["decisions"] = len(self.layout.decisions())
         return AdapterMaterialization(
@@ -264,7 +280,33 @@ class P3RouterMaterializer:
             ),
         )
 
-    def _application(self, descriptors, path, value, config, placement, problems):
+    def _collective_for(self, config):
+        """Resolve the gate-gradient collective record for a configuration.
+
+        Returns ``(record, gap, defects)``. A *missing* record under DP is a
+        gap, not a defect: the router materializer did not fail to build
+        something, it was handed no observation of a reduction that P1 and the
+        training framework own. A *malformed* record is a defect, because
+        someone did hand over evidence and it does not hold together.
+
+        At DP=1 no all-reduce runs, so the record is legitimately empty.
+        """
+        if config is None:
+            return None, None, []
+        if config.dp == 1:
+            return CollectiveProvenance.none(dp_size=1), None, []
+        if self.collective is None:
+            return (
+                None,
+                f"dp={config.dp} runs a gate-gradient all-reduce but no collective "
+                "provenance was supplied; its reduction order is unobserved",
+                [],
+            )
+        return self.collective, None, collective_problems(self.collective)
+
+    def _application(
+        self, descriptors, path, value, config, placement, problems, collective_gap=None
+    ):
         descriptor = descriptors.get(path)
         if descriptor is None:
             raise P3Error(
@@ -288,6 +330,17 @@ class P3RouterMaterializer:
                 None,
                 MaterializationStatus.ERROR,
                 "; ".join(problems),
+            )
+        if collective_gap is not None and path == _PARALLEL_PATHS["dp"]:
+            # The DP size is the knob whose numeric effect the missing record
+            # hides, so it is the knob that reports the hole.
+            return application(
+                descriptor,
+                value,
+                value,
+                None,
+                MaterializationStatus.UNOBSERVABLE,
+                collective_gap,
             )
         return application(
             descriptor,
