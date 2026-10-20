@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""FP32 MiniMax-H3 video input projection with logical-row parameter VJPs."""
+"""FP32 MiniMax-H3 video input projection with logical-row parameter gradients."""
 
 from __future__ import annotations
 
@@ -17,7 +17,8 @@ VIDEO_HIDDEN_WIDTH = 5376
 
 
 def validate_projection_inputs(x, weight, bias):
-    """Validate the public FP32 tensor boundary before backend dispatch."""
+    """Check contiguous FP32 projection tensors and fixed H3 dimensions."""
+
     tensors = {"x": x, "weight": weight}
     if bias is not None:
         tensors["bias"] = bias
@@ -39,6 +40,12 @@ def validate_projection_inputs(x, weight, bias):
 
 
 def _validate_keys(keys, rows, device, parameter_id, session, weight, bias):
+    """Require unique active logical keys across each parameter's registered uses.
+
+    Each input row has a two- or three-column key. A negative first component
+    marks padding, which is excluded from the uniqueness check.
+    """
+
     if not isinstance(keys, torch.Tensor):
         raise TypeError("parameter gradients require logical_keys")
     if keys.dtype != torch.int64 or keys.device != device or not keys.is_contiguous():
@@ -57,6 +64,7 @@ def _validate_keys(keys, rows, device, parameter_id, session, weight, bias):
             continue
         previous = session.uses.get(f"{parameter_id}.{name}", [])
         signature = tuple(use.contribution for use in previous)
+        # Matching weight/bias contribution groups allow one key check per group.
         if all(token is not None for token in signature):
             if signature in checked:
                 continue
@@ -77,11 +85,21 @@ class VideoInputProjectionFP32Op:
     matmul_op: Callable[..., torch.Tensor] | None = None
 
     def _check_backend(self, x):
+        """Require subclasses to check device and architecture eligibility."""
+
         raise NotImplementedError
 
     def __call__(self, x, weight, bias=None, *, logical_keys=None, parameter_id=None):
+        """Project [M, 96] or [B, S, 96] to FP32 hidden width 5376.
+
+        When gradients are enabled, trainable weight or bias requires an active
+        canonical backward session, logical_keys, and parameter_id. Calls that
+        need only input gradients do not require parameter-gradient registration.
+        """
+
         validate_projection_inputs(x, weight, bias)
         self._check_backend(x)
+        # Flatten batch and sequence axes without changing logical row order.
         rows = x.reshape(-1, VIDEO_PATCH_WIDTH)
         needs_grad = torch.is_grad_enabled() and any(
             tensor is not None and tensor.requires_grad for tensor in (x, weight, bias)
@@ -96,6 +114,7 @@ class VideoInputProjectionFP32Op:
                 _validate_keys(
                     logical_keys, rows.shape[0], x.device, parameter_id, session, weight, bias
                 )
+                # Preserve registered row identities if the caller later edits its keys.
                 logical_keys = logical_keys.detach().clone()
             output = canonical_linear_fp32(
                 rows,
@@ -108,6 +127,7 @@ class VideoInputProjectionFP32Op:
                 matmul_op=self.matmul_op,
             )
         else:
+            # Calls without gradients bypass the backward session.
             output = _gemm_fp32(
                 rows,
                 weight.t().contiguous(),

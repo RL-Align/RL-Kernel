@@ -23,6 +23,8 @@ def _gemm_fp32(
     bias: torch.Tensor | None = None,
     matmul_op: Callable[..., torch.Tensor] | None = None,
 ) -> torch.Tensor:
+    """Dispatch FP32 GEMM through a custom callable or the selected backend."""
+
     if matmul_op is not None:
         return matmul_op(a, b) if bias is None else matmul_op(a, b, bias=bias)
     if bias is not None:
@@ -43,6 +45,8 @@ def _gemm_fp32(
 
 
 class _CanonicalLinearFn(torch.autograd.Function):
+    """Compute linear gradients with canonical parameter-row collection."""
+
     @staticmethod
     def forward(
         ctx,
@@ -55,6 +59,8 @@ class _CanonicalLinearFn(torch.autograd.Function):
         bias_parameter_id,
         matmul_op,
     ):
+        """Register trainable parameters and compute the FP32 linear output."""
+
         session = active_session()
         parameter_grad = ctx.needs_input_grad[1] or ctx.needs_input_grad[5]
         if parameter_grad and session is None:
@@ -91,6 +97,8 @@ class _CanonicalLinearFn(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_out):
+        """Compute input gradients and collect rows for parameter gradients."""
+
         a, weight = ctx.saved_tensors
         grad32 = grad_out.contiguous().float()
         da = None
@@ -101,6 +109,8 @@ class _CanonicalLinearFn(torch.autograd.Function):
         if ctx.needs_input_grad[1]:
 
             def reducer(rows, grads):
+                """Compute dW from the session's ordered input and gradient rows."""
+
                 lhs = grads.float().t()
                 if ctx.matmul_op is None:
                     lhs = lhs.contiguous()
@@ -113,6 +123,8 @@ class _CanonicalLinearFn(torch.autograd.Function):
         if ctx.needs_input_grad[5]:
 
             def bias_reducer(grads):
+                """Sum the session's ordered gradient rows through FP32 GEMM."""
+
                 if grads.shape[0] == 0:
                     raise RuntimeError(f"no active logical rows for {ctx.bias_parameter_id}")
                 ones = torch.ones((1, grads.shape[0]), device=grads.device, dtype=torch.float32)
