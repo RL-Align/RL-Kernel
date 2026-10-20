@@ -11,9 +11,9 @@ a separately versioned arithmetic contract because its internal accumulation
 does not match the scalar reference at every BF16 rounding boundary.
 
 Autotuning and adaptive split-K are intentionally disabled. Default FP32-output
-calls preserve the earlier fixed-order, no-split-K contract. Explicit FP32 VJP
-calls use fixed 128-term chunks. The optional CUDA FP32 tree reuses the canonical
-plan, leaf kernel, and level reductions with FP32 nodes.
+calls preserve the earlier fixed-order, no-split-K contract. Explicit long-K FP32
+input and weight gradients use fixed 128-term chunks. The optional CUDA FP32 tree
+reuses the canonical plan, leaf kernel, and level reductions for bias gradients.
 """
 
 from __future__ import annotations
@@ -51,6 +51,8 @@ _ROCM_FUSE_LEAF_REDUCTION = True
 
 @dataclass(frozen=True)
 class _TreeLeafConfig:
+    """Store leaf tile sizes, warp count, and program-grid ordering."""
+
     block_m: int
     block_n: int
     num_warps: int
@@ -125,6 +127,8 @@ def _gfx942_qwen_tree_leaf_config(
     transpose_output: bool,
     preserve_a_strides: bool,
 ) -> _TreeLeafConfig:
+    """Select a measured gfx942 Qwen tile, or return the default leaf tile."""
+
     logical_shape = (m_size, k_size, n_size)
     if (
         not transpose_output
@@ -155,6 +159,8 @@ def _gfx942_qwen_tree_leaf_config(
 
 @functools.lru_cache(maxsize=None)
 def _device_arch(device_index: int) -> str:
+    """Return the ROCm architecture name, or an empty string on CUDA."""
+
     if getattr(torch.version, "hip", None) is None:
         return ""
     properties = torch.cuda.get_device_properties(device_index)
@@ -171,6 +177,8 @@ def _tree_leaf_config(
     transpose_output: bool,
     preserve_a_strides: bool,
 ) -> _TreeLeafConfig:
+    """Select the leaf tile for the device, matrix shape, and stride mode."""
+
     device_index = device.index if device.index is not None else torch.cuda.current_device()
     if _device_arch(device_index) != "gfx942":
         return _DEFAULT_TREE_LEAF_CONFIG
@@ -185,6 +193,8 @@ def _tree_leaf_config(
 
 @dataclass(frozen=True)
 class _TreePlan:
+    """Describe midpoint-tree leaves, ordered reductions, and original node IDs."""
+
     leaf_starts: tuple[int, ...]
     leaf_lengths: tuple[int, ...]
     leaf_nodes: tuple[int, ...]
@@ -195,6 +205,8 @@ class _TreePlan:
 
 @dataclass(frozen=True)
 class _DeviceTreePlan:
+    """Store tree indices on the device, including optional fused schedules."""
+
     host: _TreePlan
     leaf_starts: torch.Tensor
     leaf_lengths: torch.Tensor
@@ -219,6 +231,8 @@ class _DeviceTreePlan:
 
 
 def _build_tree_plan(k_size: int) -> _TreePlan:
+    """Split K at each midpoint until every leaf contains at most _BLOCK_K terms."""
+
     if k_size <= 0:
         raise ValueError(f"deterministic GEMM K must be positive, got {k_size}")
 
@@ -229,6 +243,8 @@ def _build_tree_plan(k_size: int) -> _TreePlan:
     next_node = 0
 
     def visit(begin: int, end: int) -> tuple[int, int]:
+        """Record one subtree and return its root node ID and height."""
+
         nonlocal next_node
         if end - begin <= _BLOCK_K:
             node = next_node
@@ -262,6 +278,8 @@ def _build_tree_plan(k_size: int) -> _TreePlan:
 
 
 def _device_tree_plan(k_size: int, device: torch.device) -> _DeviceTreePlan:
+    """Cache device indices for the tree and supported paired-level schedules."""
+
     device_index = device.index if device.index is not None else torch.cuda.current_device()
     key = (device_index, k_size)
     with _TREE_PLAN_LOCK:
@@ -272,6 +290,8 @@ def _device_tree_plan(k_size: int, device: torch.device) -> _DeviceTreePlan:
         host = _build_tree_plan(k_size)
 
         def indices(values: tuple[int, ...]) -> torch.Tensor:
+            """Copy node IDs or leaf bounds to a device index tensor."""
+
             return torch.tensor(values, dtype=torch.int32, device=device)
 
         levels = []
@@ -291,6 +311,8 @@ def _device_tree_plan(k_size: int, device: torch.device) -> _DeviceTreePlan:
         if _device_arch(device_index) == "gfx942" or (torch.version.hip is None and complete):
 
             def build_fused_pairs(start_level: int):
+                """Map adjacent reduction levels to four inputs and one output."""
+
                 result = []
                 for level_index in range(start_level, len(host.reduction_levels) - 1, 2):
                     first = {
@@ -383,6 +405,8 @@ if _TRITON_AVAILABLE:
         N_FASTEST: tl.constexpr,
         LEAF_LOOP_BOUND: tl.constexpr = _BLOCK_K,
     ):
+        """Accumulate each leaf in scalar K order and store one tree node."""
+
         if N_FASTEST:
             pid_n = tl.program_id(0)
             pid_m = tl.program_id(1)
@@ -400,10 +424,9 @@ if _TRITON_AVAILABLE:
         leaf_length = tl.load(leaf_lengths_ptr + leaf).to(tl.int64)
         leaf_node = tl.load(leaf_nodes_ptr + leaf).to(tl.int64)
         acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
-        # Keep the leaf's ascending scalar FMA order identical to the native
-        # gfx942 correctness kernel. FP32 launches trim only the masked tail.
-        # A tl.dot/MFMA leaf is topology-stable but
-        # differs from the scalar reference at rare BF16 rounding boundaries.
+        # Keep each leaf's ascending scalar order. FP32 launches trim only the
+        # masked tail; BF16 launches retain the native gfx942 FMA behavior.
+        # A tl.dot/MFMA leaf can change rounding relative to this scalar path.
         for offset in tl.static_range(0, LEAF_LOOP_BOUND):
             k_offset = leaf_start + offset
             active = offset < leaf_length
@@ -456,6 +479,8 @@ if _TRITON_AVAILABLE:
         WRITE_OUTPUT: tl.constexpr,
         LEAF_LOOP_BOUND: tl.constexpr = _BLOCK_K,
     ):
+        """Compute paired leaves and their first reduction in one kernel call."""
+
         if N_FASTEST:
             pid_n = tl.program_id(0)
             pid_m = tl.program_id(1)
@@ -486,7 +511,7 @@ if _TRITON_AVAILABLE:
                 other=0.0,
             ).to(tl.float32)
             lower_acc += a[:, None] * b[None, :]
-        # This conversion is the original lower-leaf workspace store boundary.
+        # Preserve the original lower-leaf rounding to the workspace dtype.
         lower = lower_acc.to(workspace_ptr.dtype.element_ty)
 
         upper_acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
@@ -504,8 +529,8 @@ if _TRITON_AVAILABLE:
                 other=0.0,
             ).to(tl.float32)
             upper_acc += a[:, None] * b[None, :]
-        # Match both leaf BF16 stores followed by the original first-level FP32
-        # add and BF16 store. Only the intermediate global-memory trip is gone.
+        # Round both leaves to the workspace dtype before the first-level add.
+        # Fusing removes the intermediate global-memory writes and reads.
         result = lower.to(tl.float32) + upper_acc.to(workspace_ptr.dtype.element_ty).to(tl.float32)
         output_mask = (offs_m[:, None] < M) & (offs_n[None, :] < N)
         offsets = offs_m[:, None].to(tl.int64) * N + offs_n[None, :].to(tl.int64)
@@ -533,6 +558,8 @@ if _TRITON_AVAILABLE:
         N: tl.constexpr,
         BLOCK: tl.constexpr,
     ):
+        """Add each pair in one tree level and round to the workspace dtype."""
+
         operation = tl.program_id(0)
         block = tl.program_id(1)
         offsets = (block * BLOCK + tl.arange(0, BLOCK)).to(tl.int64)
@@ -564,13 +591,13 @@ if _TRITON_AVAILABLE:
         output_ptr,
         lower_nodes_ptr,
         upper_nodes_ptr,
-        # M is runtime-sized so decode batch changes reuse one compiled
-        # reduction kernel instead of triggering a Triton JIT per batch size.
-        # The reduction order and BF16 store boundary are unchanged.
         M,
         N: tl.constexpr,
         BLOCK: tl.constexpr,
     ):
+        """Write the final tree addition directly to the output buffer."""
+
+        # Runtime-sized M lets different decode batches reuse this compiled kernel.
         offsets = (tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)).to(tl.int64)
         elements = M * N
         mask = offsets < elements
@@ -587,8 +614,7 @@ if _TRITON_AVAILABLE:
             other=0.0,
         ).to(tl.float32)
         result = lower + upper
-        # Preserve the canonical root's FP32 add and BF16 store boundary; only
-        # its destination changes, avoiding a device-to-device copy launch.
+        # Preserve the root's FP32 add and output rounding while avoiding a copy.
         tl.store(
             output_ptr + offsets,
             result.to(output_ptr.dtype.element_ty),
@@ -609,6 +635,8 @@ if _TRITON_AVAILABLE:
         BLOCK: tl.constexpr,
         WRITE_OUTPUT: tl.constexpr,
     ):
+        """Combine two tree levels while preserving intermediate rounding."""
+
         operation = tl.program_id(0)
         block = tl.program_id(1)
         offsets = (block * BLOCK + tl.arange(0, BLOCK)).to(tl.int64)
@@ -630,8 +658,8 @@ if _TRITON_AVAILABLE:
         value3 = tl.load(workspace_ptr + node3 * elements + offsets, mask=mask, other=0.0).to(
             tl.float32
         )
-        # Match the two original kernel boundaries exactly: each first-level
-        # FP32 add is rounded to BF16 before the second-level FP32 add.
+        # Round each first-level add to the workspace dtype before the second
+        # level, matching the original two kernel boundaries.
         lower = (value0 + value1).to(workspace_ptr.dtype.element_ty).to(tl.float32)
         upper = (value2 + value3).to(workspace_ptr.dtype.element_ty).to(tl.float32)
         result = lower + upper
@@ -657,6 +685,8 @@ if _TRITON_AVAILABLE:
         elements,
         BLOCK: tl.constexpr,
     ):
+        """Copy the completed root node to a contiguous output buffer."""
+
         offsets = (tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)).to(tl.int64)
         mask = offsets < elements
         values = tl.load(workspace_ptr + root * elements + offsets, mask=mask)
@@ -672,6 +702,8 @@ if _TRITON_AVAILABLE:
         BLOCK_M: tl.constexpr,
         BLOCK_N: tl.constexpr,
     ):
+        """Copy the completed root from [M, N] to an [N, M] output buffer."""
+
         offsets_m = (tl.program_id(0) * BLOCK_M + tl.arange(0, BLOCK_M)).to(tl.int64)
         offsets_n = (tl.program_id(1) * BLOCK_N + tl.arange(0, BLOCK_N)).to(tl.int64)
         elements = M * N
@@ -680,7 +712,7 @@ if _TRITON_AVAILABLE:
             workspace_ptr + root * elements + offsets_m[:, None] * N + offsets_n[None, :],
             mask=mask,
         )
-        # Store the already-rounded BF16 root directly in [N, M] layout.
+        # Store the already-rounded root directly in [N, M] layout.
         # This is a pure address permutation: the canonical GEMM leaves, tree,
         # operand order, and every rounding boundary remain unchanged.
         tl.store(
@@ -699,6 +731,8 @@ if _TRITON_AVAILABLE:
         COLUMNS: tl.constexpr,
         BLOCK: tl.constexpr,
     ):
+        """Write one flag per block for strictly ordered keys without padding."""
+
         rows = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
         first = tl.load(keys_ptr + rows * stride_row, mask=rows < ROWS, other=-1)
         greater = tl.full((BLOCK,), False, tl.int1)
@@ -743,6 +777,13 @@ if _TRITON_AVAILABLE:
         EVEN_K: tl.constexpr = False,
         EVEN_N: tl.constexpr = False,
     ):
+        """Compute a full FP32 GEMM tile or one fixed K chunk.
+
+        HAS_BIAS adds one column bias before storing the tile. EVEN_K and
+        EVEN_N omit load masks only when the caller proves tile divisibility.
+        Chunked calls store [chunk, M, N] partials and leave HAS_BIAS disabled.
+        """
+
         # One program walks the whole K or one declared fixed-width chunk.
         # The K order does not depend on output rows or their placement.
         pid_m, pid_n = tl.program_id(0), tl.program_id(1)
@@ -798,6 +839,8 @@ if _TRITON_AVAILABLE:
         PADDED_CHUNKS: tl.constexpr,
         BLOCK_C: tl.constexpr,
     ):
+        """Sum [chunk, element] partials with a fixed padded reduction width."""
+
         offsets = tl.program_id(0) * BLOCK_C + tl.arange(0, BLOCK_C)
         chunks = tl.arange(0, PADDED_CHUNKS)
         values = tl.load(
@@ -811,7 +854,8 @@ if _TRITON_AVAILABLE:
 
 
 def _triton_keys_are_canonical(keys: torch.Tensor) -> bool:
-    """Check the current key contents before reusing physical row order."""
+    """Check live key order and synchronize the block flags to a Python bool."""
+
     if keys.shape[0] == 0:
         return True
     blocks = triton.cdiv(keys.shape[0], 256)
@@ -834,7 +878,12 @@ def _triton_chunked_gemm_fp32(
     *,
     tile: tuple[int, int, int] = (_BLOCK_M, _BLOCK_N, 4),
 ) -> torch.Tensor:
-    """Reuse the FP32 GEMM in fixed K chunks and merge partials in one grid."""
+    """Compute FP32 input or weight gradients with fixed 128-term K chunks.
+
+    Merge the partials in one grid. Split independent output rows when needed
+    to keep the partial-result workspace within its element budget.
+    """
+
     m_size, k_size = a.shape
     n_size = b.shape[1]
     chunks = triton.cdiv(k_size, _FP32_CHUNK_K)
@@ -898,6 +947,12 @@ def _triton_gemm_fp32(
     bias: torch.Tensor | None = None,
     aligned_tiles: bool = False,
 ) -> torch.Tensor:
+    """Compute a full-K FP32 GEMM with optional column bias.
+
+    aligned_tiles permits omitting K/N load masks after divisibility checks.
+    The default keeps the existing masked loads and compiler options.
+    """
+
     a, b = a.contiguous(), b.contiguous()
     M, K = a.shape
     _, N = b.shape
@@ -953,6 +1008,13 @@ def _triton_tree_gemm(
     inference_schedule: bool = False,
     output_dtype: torch.dtype = torch.bfloat16,
 ) -> torch.Tensor:
+    """Evaluate the canonical midpoint tree with BF16 or CUDA FP32 nodes.
+
+    Reuse the original node storage and split independent output dimensions
+    when the workspace exceeds its budget. Eligible schedules fuse adjacent
+    steps while preserving the tree's operand order and node rounding.
+    """
+
     if not _TRITON_AVAILABLE:
         raise RuntimeError("Triton is unavailable")
     if a.dim() != 2 or b.dim() != 2:
@@ -985,7 +1047,7 @@ def _triton_tree_gemm(
             columns_per_chunk = _MAX_TREE_WORKSPACE_ELEMENTS // plan.host.node_count
             if columns_per_chunk < 1:
                 raise RuntimeError("FP32 tree plan exceeds the workspace budget for one element")
-            # A one-row bias VJP cannot be split further over M. Splitting
+            # A one-row bias gradient cannot be split further over M. Splitting
             # independent output columns retains the same logical K tree.
             chunks = [
                 _triton_tree_gemm(
@@ -1051,7 +1113,7 @@ def _triton_tree_gemm(
         preserve_a_strides=preserve_a_strides,
     )
     if fp32_tree and m_size == 1:
-        # The H3 bias VJP has one output row. Other shapes use the existing tile.
+        # The H3 bias gradient has one output row. Other shapes use the existing tile.
         leaf_config = _TreeLeafConfig(1, 128, 4, True)
     if (
         _ROCM_TUNE_DECODE_LEAF
@@ -1264,14 +1326,20 @@ def _triton_tree_gemm(
 
 
 class _TritonDetGemmFn(torch.autograd.Function):
+    """Wrap the existing deterministic GEMM forward and operand gradients."""
+
     @staticmethod
     def forward(ctx, a, b, output_fp32=False):
+        """Save operands and dispatch the requested output precision."""
+
         ctx.save_for_backward(a, b)
         ctx.output_fp32 = bool(output_fp32)
         return _triton_gemm_fp32(a, b) if output_fp32 else _triton_tree_gemm(a, b)
 
     @staticmethod
     def backward(ctx, grad_out):
+        """Compute requested operand gradients through the BF16 tree path."""
+
         a, b = ctx.saved_tensors
         grad_out = grad_out.contiguous()
         da = (
@@ -1297,11 +1365,15 @@ class TritonDetGemmOp:
     """Batch-invariant deterministic GEMM, Triton path."""
 
     def __init__(self):
+        """Require Triton before exposing the deterministic GEMM backend."""
+
         if not _TRITON_AVAILABLE:
             raise RuntimeError("Triton not available for TritonDetGemmOp")
         logger.info("TritonDetGemmOp ready (deterministic, autotune disabled).")
 
     def __call__(self, a, b):
+        """Apply the autograd-enabled BF16 deterministic GEMM."""
+
         assert a.dtype == torch.bfloat16 and b.dtype == torch.bfloat16, "BF16 only"
         assert a.device.type in ("cuda", "musa")
         assert b.device.type in ("cuda", "musa")
@@ -1309,6 +1381,8 @@ class TritonDetGemmOp:
         return _TritonDetGemmFn.apply(a, b, False)
 
     def forward_fp32(self, a, b):
+        """Apply the existing GEMM wrapper with FP32 forward output."""
+
         if a.dtype not in (torch.bfloat16, torch.float32) or b.dtype not in (
             torch.bfloat16,
             torch.float32,
@@ -1322,6 +1396,8 @@ class TritonDetGemmOp:
     forward_accum_fp32 = forward_fp32
 
     def parameter_vjp_contributions_fp32(self, *, a, b, grad_output):
+        """Return row-local FP32 contributions to the right operand's gradient."""
+
         del b
         rows_a = a.float()
         rows_g = grad_output.float()
@@ -1329,4 +1405,6 @@ class TritonDetGemmOp:
 
 
 def deterministic_gemm_triton(a, b):
+    """Apply the autograd-enabled BF16 deterministic GEMM entry point."""
+
     return _TritonDetGemmFn.apply(a, b, False)
