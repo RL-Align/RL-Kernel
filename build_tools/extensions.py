@@ -105,6 +105,7 @@ def _native_extension_required() -> bool:
     """Whether the caller explicitly requested a native extension build."""
     return (
         envs.env_flag(envs.RL_KERNEL_REQUIRE_EXT)
+        or envs.env_flag(envs.RL_KERNEL_H3_STRICT)
         or bool(os.environ.get("PYTORCH_ROCM_ARCH", "").strip())
         or bool(os.environ.get("TORCH_CUDA_ARCH_LIST", "").strip())
         or envs.env_flag("FORCE_CUDA")
@@ -158,6 +159,7 @@ def _filter_rocm_incompatible_nvcc_flags(flags: list[str]) -> list[str]:
 
 
 def get_extensions():
+    h3_flags = envs.h3_strict_cuda_flags()
     torch, _, GpuExtension = _load_torch_extension_tools()
     if torch is None:
         message = (
@@ -181,6 +183,9 @@ def get_extensions():
     if os.environ.get("KERNEL_ALIGN_DEV_RPATH") == "1":
         torch_rpath.append(f"-Wl,-rpath,{torch_lib_dir}")
     is_rocm = getattr(torch.version, "hip", None) is not None
+
+    if h3_flags and (is_rocm or _musa_build_available(torch)):
+        raise RuntimeError("RL_KERNEL_H3_STRICT currently qualifies NVIDIA CUDA only")
 
     if _musa_build_available(torch):
         extensions.append(
@@ -377,6 +382,28 @@ def get_extensions():
                 extra_link_args=extra_link_args,
             )
         )
+
+        if h3_flags:
+            # Separate DSO: strict arithmetic never changes other operators.
+            extensions.append(
+                GpuExtension(
+                    name="rl_engine._H3_C",
+                    sources=[
+                        "csrc/bindings/h3_ops.cpp",
+                        "csrc/cuda/attention/deterministic_attention.cu",
+                    ],
+                    extra_compile_args={
+                        "cxx": ["-O3"],
+                        "nvcc": [
+                            "-O3",
+                            *h3_flags,
+                            "--expt-relaxed-constexpr",
+                            "--expt-extended-lambda",
+                        ],
+                    },
+                    extra_link_args=torch_rpath,
+                )
+            )
 
     extensions.extend(_ascend_extensions())
 
