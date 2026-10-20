@@ -110,12 +110,6 @@ Fresh-process replay uses a separate compilation cache and compares all three
 output digests. Reports retain actual JIT/cubin identity, source hashes and
 software versions. Hardware identity is limited to necessary device facts.
 
-Raw reports, fixture tensors, caches and operational details remain outside the
-submission. Before publication, review and consolidate measured results into
-one essential JSON bundle per device/run, preserving all failures and recording
-original hashes and any sanitization. Never label skipped tests or this local
-preparation as GPU acceptance, performance improvement or production readiness.
-
 ## Measured performance and evidence
 
 Median synchronized wall times in milliseconds, random BF16 inputs with seed
@@ -128,62 +122,42 @@ Median synchronized wall times in milliseconds, random BF16 inputs with seed
 
 The candidate is slower than ordinary PyTorch BF16 in these measurements.
 The baseline has no byte-invariance qualification, and the candidate timing
-includes validation, copies and canonical gradient preparation. All row counts,
-raw timing samples, memory measurements, tolerances, correctness metrics,
-fixture provenance, output hashes and kernel traces are retained in
-[`evidence/h3-projections/h100.json`](evidence/h3-projections/h100.json).
-Verify the bundle with `sha256sum -c SHA256SUMS` from its directory.
+includes validation, copies and canonical gradient preparation. [Compact historical results](h3-projections-results.json) contain per-operator
+accuracy and invariance summaries for every suite, case coverage, complete replay
+comparisons, representative timing samples, regression failures/skips and original
+hashes. Verify with `sha256sum -c h3-projections-results.sha256` in this directory.
 
-The bundle is a reviewed derivative with original artifact hashes. All decoded
-JSON report contents are unchanged. Log-derived summaries explicitly retain
-failures and skips. The historical `6a50c80` bundle is retained unchanged under
-`historical_runs`, with its original SHA-256. Raw originals, weights and compiled
-artifacts remain outside the submission; all 261 files from the new run passed
-integrity checks. The historical run's 170 files remain preserved separately.
-The new results validate the expanded row limit and 64-bit addressing at `b58e276`;
-subsequent evidence/documentation/chart changes do not modify the tested implementation.
+Full reports, historical runs, raw logs and compiled artifacts remain privately
+preserved and hash-verified (261 current-run and 170 earlier-run files). The compact
+JSON is a selected derivative, not a lossless export or new execution. Previously
+published reports remain in Git history. Private archives do not establish public
+reproducibility. Numerical implementation fingerprints are unchanged.
 
-Real weights were tested with synthetic activations. Captured model inputs,
-independent-environment replay, full-model integration and TP remain untested.
-The report's `acceptance_complete` stays false. These operator results do not
-establish production readiness or a performance improvement.
+Historical local checks at `3537a0b` passed 91 tests with 16 GPU-dependent skips
+(registry, full-attention and projection selections). No runtime tests or GPU runs
+were repeated for this documentation/evidence reduction.
 
+Real weights use synthetic activations. Captured inputs, independent-environment
+replay, full-model integration and TP remain untested. `acceptance_complete=false`;
+these results do not establish production readiness or a performance improvement.
 
-## Reuse assessment
+## Implementation and reuse
 
-Reviewed on 2026-10-14. This is a source/API assessment, not an external-backend
-GPU benchmark or proof that alternative kernels fail batch invariance.
+- Operator/session integration: `rl_engine/ops/gemm/h3_projections.py` and
+  `rl_engine/ops/autograd/canonical_backward.py`.
+- Adapter: `rl_engine/backends/shared/triton/gemm/h3_projection_fp32.py`.
+- Device computation: existing `_det_gemm_fp32_kernel` in the shared `det_gemm.py`.
+  These operators select 64-bit indexing; default callers retain their index policy.
+  No new native CUDA kernel or silent native fallback is introduced.
+- Tests: `tests/ops/gemm/test_h3_projections.py` and fixture/runner tests in
+  `tests/validation/operators/`.
 
-| Candidate and source | Assessment and decision |
-| --- | --- |
-| RL-Kernel `_det_gemm_fp32_kernel` | Reused directly. Fixed tiles and ordered K accumulation already match the arithmetic policy. The adapter supplies native weight layout, backward and canonical logical-row reduction. The large-row extension selects 64-bit offsets; default callers retain their existing index policy. |
-| [CUTLASS GEMM 3.x](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/gemm_api_3x.html) | Provides configurable GEMM collectives and schedules. A fixed schedule is a plausible alternative, but does not itself supply this operator's canonical cross-call dW/session contract. No replacement is qualified here. |
-| [FlashInfer GEMM](https://docs.flashinfer.ai/api/gemm.html) | BF16 GEMM is a relevant comparator. Its API availability alone does not establish the required forward/dX/dW invariance under row permutations and chunked training. No external comparison was run. |
-| [SGLang persistent GEMM](https://github.com/sgl-project/sglang/blob/bab9c81fea62c2d20b646736c918c88fea54b7a2/python/sglang/srt/batch_invariant_ops/batch_invariant_ops.py) | The inspected BF16 configuration uses 128x128x64 tiles and a persistent schedule. It is a credible BI reuse candidate, with a different reduction policy from this 64x64x32 profile; canonical training reduction still needs an adapter and qualification. Keep as a future performance comparator rather than claiming it is unsuitable. |
-| [vLLM batch invariance](https://docs.vllm.ai/en/latest/features/batch_invariance/) | Inference batch invariance is relevant prior art. This training operator additionally needs stable logical keys and canonical dW across calls. Inference qualification is not evidence for that contract. |
-| [FlashAttention](https://github.com/Dao-AILab/flash-attention) | Attention is adjacent to the output projection; it is not a replacement for these dense linear maps. |
-| [Miles](https://github.com/radixark/miles), [Verl](https://github.com/verl-project/verl), [Vime reproducibility](https://github.com/vllm-project/vime/blob/main/docs/en/advanced/reproducibility.md) | Framework integration and reproducibility guidance inform system testing. No standalone H3 training projection implementation was established by this review; backend-level candidates above remain the relevant comparison points. |
-
-Reuse of the existing repository kernel avoids adding another device kernel or
-an unqualified dependency. This decision makes no speed advantage claim over
-CUTLASS, FlashInfer, SGLang or vLLM.
-
-## Accuracy and performance charts
-
-![H100 accuracy and performance](evidence/h3-projections/h100.svg)
-
-The chart is derived solely from the current full and task reports: worst error
-divided by tolerance for y/dX/dW over the available families and checkpoint
-fixtures at each row count, and median forward/forward-backward wall times for
-random inputs. Duplicate rows prefer the full report; larger rows use the task
-report. The underlying samples remain unchanged. Reproduce with:
-
-```bash
-python -m pip install matplotlib==3.10.9
-python benchmarks/operators/gemm/plot_h3_projections.py \
-  --evidence docs/operators/evidence/h3-projections/h100.json \
-  --output docs/operators/evidence/h3-projections/h100.svg
-```
+Fixed ordered tiles match the declared arithmetic policy; the adapter supplies
+weight layout and canonical cross-call dW. CUTLASS, FlashInfer, SGLang and vLLM
+remain possible performance comparators, not qualified replacements for this
+training/session contract. No external-backend benchmark or speed advantage is
+claimed. The maintained plotting tool accepts full raw report bundles, not this
+compact summary; charts and their source reports remain private.
 
 ## Task-shaped operator acceptance
 
@@ -231,29 +205,15 @@ distributed topology; distributed callers must use the strict registry. Existing
 coverage includes empty/wrong-dtype inputs, unsupported devices/backends,
 non-contiguous inputs, padding gradients and stale autograd versions.
 
-The personal submission profile was updated only after reviewing the new raw
-hashes, source fingerprints, all cases, actual launch/cubin hashes and replay
-checks. A passing submission check does not establish full CI, maintainer
-approval or merge readiness; the missing-extension regression remains a
-reported limitation. Registry entries remain test-only.
-
-To reproduce the additional checks, run the commands below. The standalone
-shared FP32 reproducer is preserved verbatim in the JSON bundle and is extracted
-into the ignored evidence directory. The first command requires a compatible
-built `_C` extension; the second command did not execute tests in the recorded
-environment. Neither command is included in the passing acceptance counts.
+Additional regression commands (neither is included in passing operator counts):
 
 ```bash
 CUBLAS_WORKSPACE_CONFIG=:16:8 CUBLASLT_WORKSPACE_SIZE=1 \
   python -m pytest -q tests/backends/cuda/test_canonical_backward_fusion.py
 python -m pytest -q tests/ops/gemm/test_det_gemm.py -k triton
-python - <<'PYCODE'
-import json, os
-from pathlib import Path
-bundle = json.loads(Path("docs/operators/evidence/h3-projections/h100.json").read_text())
-target = Path(os.environ["H3_EVIDENCE_DIR"]) / "check_shared_fp32.py"
-target.parent.mkdir(parents=True, exist_ok=True)
-target.write_text(bundle["artifacts"]["shared-fp32-reproducer"]["content"])
-PYCODE
-PYTHONPATH=. python "$H3_EVIDENCE_DIR/check_shared_fp32.py"
 ```
+
+The first recorded 27 failures due to unavailable `_C` attributes; the second
+recorded 14 skips and 57 deselections. Three shared FP32 checks passed separately,
+but do not replace these missing regression suites. Full logs and the standalone
+shared-path reproducer remain privately preserved.
