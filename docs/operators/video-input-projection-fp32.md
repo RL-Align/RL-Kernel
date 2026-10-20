@@ -163,9 +163,13 @@ Adding a genuine training sample changes the expected parameter gradient.
 ```bash
 PYTHONPATH=. python benchmarks/operators/gemm/benchmark_video_input_projection_fp32.py \
   --backends pytorch triton --rows 1 128 1024 4096 13104 \
+  --seed 420 --warmup 5 --samples 40 \
   --output /tmp/h3-input-projection.json
 ```
 
+The benchmark generates inputs, weights, bias, and gradients with seed 420 by
+default. The JSON records the seed. Use the same row list and dependency versions
+to reproduce the generated data.
 The benchmark first checks independent CPU FP32 forward/backward accuracy and
 row-permutation VJPs. It measures eager forward, backward, F+B, and no-grad
 forward CUDA Graph. Timings include layout copies, bias, and the canonical
@@ -191,12 +195,13 @@ rows. It checks CPU FP32 accuracy and byte equality across permutations,
 microbatches, padding, and repeated calls. The benchmark rejects NaN or Inf in
 either the candidate or reference, including gradients.
 
-Set `H3_PROJECTION_WEIGHTS` to a safetensors fixture containing `proj_in.weight`
-and `proj_in.bias` from `MiniMaxAI/MiniMax-H3` at revision
-`42ed227ee7df40d41602854ae760620d6eb651fe` to run the latent-pack-projection check.
+The latent-pack-projection test uses a synthetic `[1,24,13,48,84]` latent and
+random projection weights with seed 420. It runs without a checkpoint.
+To use real weights instead, set `H3_PROJECTION_WEIGHTS` to a safetensors fixture
+containing `proj_in.weight` and `proj_in.bias` from `MiniMaxAI/MiniMax-H3` at revision
+`42ed227ee7df40d41602854ae760620d6eb651fe`.
 The fixture metadata must include `repository` and `checkpoint_revision` with
-these values. The check uses a synthetic `[1,24,13,48,84]` latent with real input
-projection weights; it does not load the complete Transformer.
+these values.
 Keep the weights and generated evidence outside tracked source files.
 
 ## Known Limitations

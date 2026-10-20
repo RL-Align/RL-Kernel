@@ -125,6 +125,7 @@ def main():
     parser.add_argument("--rows", nargs="+", type=int, default=[1, 128, 1024, 4096, 13104])
     parser.add_argument("--samples", type=int, default=20)
     parser.add_argument("--warmup", type=int, default=5)
+    parser.add_argument("--seed", type=int, default=420)
     parser.add_argument("--weights", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -137,7 +138,7 @@ def main():
     if args.samples < 1 or args.warmup < 0 or min(args.rows) < 1:
         raise ValueError("rows/samples must be positive and warmup must be non-negative")
     torch.backends.cuda.matmul.allow_tf32 = False
-    torch.manual_seed(420)
+    torch.manual_seed(args.seed)
     weight = torch.randn(5376, 96, device="cuda") * 0.0625
     bias = torch.randn(5376, device="cuda") * 0.125
     fixture_hash = None
@@ -172,6 +173,7 @@ def main():
     report = {
         "scope": "single H3 FP32 input projection; eager training and no-grad forward graph",
         "reference_id": NativeVideoInputProjectionFP32Op.reference_id,
+        "seed": args.seed,
         "environment": {
             "gpu": torch.cuda.get_device_name(),
             "torch": torch.__version__,
