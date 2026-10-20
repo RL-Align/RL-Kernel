@@ -117,15 +117,15 @@ __global__ void backward_reduce_kernel(
   const int col = blockIdx.x * blockDim.x + threadIdx.x;
   const int batch = blockIdx.y;
   if (col >= hidden) return;
-  float shift = 0.0f, scale = 0.0f;
+  float dshift = 0.0f, dscale = 0.0f;
 #pragma unroll 1
   for (int token = 0; token < seq; ++token) {
     const int offset = (batch * seq + token) * hidden + col;
-    shift = __fadd_rn(shift, partial_shift[offset]);
-    scale = __fadd_rn(scale, partial_scale[offset]);
+    dshift = __fadd_rn(dshift, partial_shift[offset]);
+    dscale = __fadd_rn(dscale, partial_scale[offset]);
   }
-  dm[batch * 3 * hidden + col] = static_cast<scalar_t>(shift);
-  dm[batch * 3 * hidden + hidden + col] = static_cast<scalar_t>(scale);
+  dm[batch * 3 * hidden + col] = static_cast<scalar_t>(dshift);
+  dm[batch * 3 * hidden + hidden + col] = static_cast<scalar_t>(dscale);
   dm[batch * 3 * hidden + 2 * hidden + col] = dg[batch * hidden + col];
 }
 
