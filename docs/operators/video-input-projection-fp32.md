@@ -175,6 +175,11 @@ row-permutation VJPs. It measures eager forward, backward, F+B, and no-grad
 forward CUDA Graph. Timings include layout copies, bias, and the canonical
 parameter-gradient machinery. Raw samples, environment, source hashes, and
 actual backend metadata are written to the explicitly selected local output.
+After timing, a separate eager F+B call measures incremental peak allocated GPU
+memory. The measurement subtracts the warmed pre-call allocation after clearing
+parameter and input gradients. It includes outputs, gradients and temporary
+tensors. Preallocated inputs, persistent caches and allocator reservations are
+excluded.
 PyTorch is a production performance baseline with separately reported BI results.
 The Triton VJPs use one partial-GEMM launch and one merge launch when the
 workspace fits.

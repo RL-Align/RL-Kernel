@@ -114,6 +114,23 @@ def _forward_backward(op, x, weight, bias, grad, keys):
     _backward_call(op, x, weight, bias, grad, keys)()
 
 
+def _forward_backward_memory(op, x, weight, bias, grad, keys):
+    """Measure peak allocated bytes above the warmed, gradient-free baseline."""
+    x.grad = weight.grad = bias.grad = None
+    torch.cuda.synchronize()
+    baseline = torch.cuda.memory_allocated()
+    torch.cuda.reset_peak_memory_stats()
+    _forward_backward(op, x, weight, bias, grad, keys)
+    torch.cuda.synchronize()
+    peak = torch.cuda.max_memory_allocated()
+    x.grad = weight.grad = bias.grad = None
+    return {
+        "baseline_allocated_bytes": baseline,
+        "peak_allocated_bytes": peak,
+        "incremental_peak_allocated_bytes": peak - baseline,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -193,6 +210,10 @@ def main():
         "weight_fixture_sha256": fixture_hash,
         "weight_fixture_metadata": fixture_metadata,
         "timing": "CUDA event interval for complete operator calls, including host launch gaps",
+        "memory": (
+            "Warmed eager F+B peak allocated bytes minus the pre-call baseline, "
+            "excluding preallocated inputs, persistent caches and allocator reservations"
+        ),
         "results": [],
     }
     for rows in args.rows:
@@ -264,6 +285,7 @@ def main():
                 args.samples,
                 args.warmup,
             )
+            memory = _forward_backward_memory(op, tx, tw, tb, grad, keys)
             item = {
                 "backend": name,
                 "rows": rows,
@@ -282,12 +304,14 @@ def main():
                 "forward_graph": graph_time,
                 "backward_eager": backward,
                 "forward_backward_eager": combined,
+                "forward_backward_memory": memory,
             }
             report["results"].append(item)
             print(
                 f"{name} M={rows}: F={forward['median_us']:.1f} us, "
                 f"B={backward['median_us']:.1f} us, "
-                f"F+B={combined['median_us']:.1f} us"
+                f"F+B={combined['median_us']:.1f} us, "
+                f"peak delta={memory['incremental_peak_allocated_bytes'] / 2**20:.2f} MiB"
             )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
