@@ -453,6 +453,8 @@ def make_candidate(args: argparse.Namespace) -> CandidateSpec:
 
 @contextmanager
 def _canonical_validation_context():
+    """Keep the session active for forward/backward and check contributions on exit."""
+
     from rl_engine.ops.autograd.canonical_backward import canonical_backward_session
 
     with canonical_backward_session() as session:

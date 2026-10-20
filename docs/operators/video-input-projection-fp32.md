@@ -113,7 +113,7 @@ partials remain FP32. A second grid uses a fixed balanced reduction over the
 next power-of-two chunk count, with zero padding. The merge uses 64 output
 elements per program and four warps. VJP GEMMs use fixed 128-by-32 output tiles,
 32-term dot tiles, and four warps. The forward retains its 64-by-64 output tile.
-These settings define the v11 Triton implementation identity. The K partition
+These settings define the Triton implementation identity. The K partition
 and VJP tile do not depend on M, row placement, or occupancy.
 The VJP kernels consume positive-stride views directly, including `G.T`.
 The Triton forward omits K or N load predicates only when the corresponding

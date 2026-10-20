@@ -90,6 +90,12 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
 def _make_video_input_projection_fp32_inputs(
     args: argparse.Namespace, dtype: torch.dtype, device: torch.device
 ) -> dict[str, Any]:
+    """Build FP32 H3 projection inputs with fixed widths 96 and 5376.
+
+    Logical keys are unique [batch_index, token_index] pairs in the same order
+    as the flattened input rows, with every row active.
+    """
+
     if dtype != torch.float32:
         raise TypeError("video input projection validation requires FP32")
     batch, seq = _batch_seq(args)

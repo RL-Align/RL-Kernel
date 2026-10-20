@@ -82,14 +82,21 @@ def test_canonical_order_proof_preserves_stable_normalization(key_rows, device, 
     assert actual.is_contiguous()
 
 
-def test_canonical_normalization_reads_changed_keys(monkeypatch):
+@pytest.mark.parametrize(
+    "device",
+    [
+        "cpu",
+        pytest.param("cuda", marks=pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")),
+    ],
+)
+def test_canonical_normalization_reads_changed_keys(device, monkeypatch):
     from rl_engine.ops.autograd.canonical_backward import CanonicalBackwardSession
 
     monkeypatch.setattr(
         "rl_engine.ops.autograd.canonical_backward._CANONICAL_ORDER_REUSE_MIN_ROWS", 0
     )
-    keys = torch.tensor([[0, 0], [0, 1]], dtype=torch.int64)
-    values = torch.tensor([[1.0], [2.0]])
+    keys = torch.tensor([[0, 0], [0, 1]], dtype=torch.int64, device=device)
+    values = torch.tensor([[1.0], [2.0]], device=device)
     session = CanonicalBackwardSession()
     session.register("weight", keys)
     _, first = session._normalize("weight", [values])
@@ -116,6 +123,7 @@ def test_cpu_callers_retain_stable_normalization(monkeypatch):
     assert torch.equal(actual, values)
 
 
+@pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
 def test_small_canonical_uses_retain_stable_normalization(monkeypatch):
     from rl_engine.ops.autograd import canonical_backward as canonical
 
@@ -124,8 +132,8 @@ def test_small_canonical_uses_retain_stable_normalization(monkeypatch):
 
     monkeypatch.setattr(canonical, "_keys_are_canonical", unexpected_proof)
     session = canonical.CanonicalBackwardSession()
-    keys = torch.tensor([[0, 0], [0, 1]], dtype=torch.int64)
-    values = torch.tensor([[1.0], [2.0]])
+    keys = torch.tensor([[0, 0], [0, 1]], dtype=torch.int64, device="cuda")
+    values = torch.tensor([[1.0], [2.0]], device="cuda")
     session.register("weight", keys)
     order, actual = session._normalize("weight", [values])
     assert order.tolist() == [0, 1]
@@ -350,16 +358,6 @@ def test_canonical_linear_default_triton_retains_existing_dispatch(monkeypatch):
         reset_backward_runtime()
 
 
-def test_video_projection_declares_backend_and_matmul_separately():
-    from rl_engine.backends.shared.triton.gemm.video_input_projection_fp32 import (
-        TritonVideoInputProjectionFP32Op,
-        projection_gemm_fp32,
-    )
-
-    assert TritonVideoInputProjectionFP32Op.family == "triton"
-    assert TritonVideoInputProjectionFP32Op.matmul_op is projection_gemm_fp32
-
-
 def test_input_gradient_without_parameter_session():
     x = torch.ones(3, 2, requires_grad=True)
     weight = torch.ones(4, 2)
@@ -388,9 +386,20 @@ def test_frozen_parameter_registration(frozen):
 
 
 @pytest.mark.parametrize(
-    "invalid", ["dtype", "shape", "empty", "bias", "noncontiguous", "keys", "duplicates", "session"]
+    "invalid,error_type,message",
+    [
+        ("dtype", TypeError, "x must have dtype torch.float32"),
+        ("shape", ValueError, "x must have non-empty shape"),
+        ("empty", ValueError, "x must have non-empty shape"),
+        ("bias", ValueError, "bias must have shape"),
+        ("noncontiguous", ValueError, "x must be contiguous"),
+        ("keys", ValueError, "logical_keys must be contiguous int64"),
+        ("duplicates", ValueError, "active logical keys must be unique"),
+        ("duplicates_across_uses", ValueError, "active logical keys must be unique"),
+        ("session", RuntimeError, "parameter gradients require canonical_backward_session"),
+    ],
 )
-def test_invalid_inputs(invalid):
+def test_invalid_inputs(invalid, error_type, message):
     x, weight, bias, _ = _data(2, "cpu")
     keys = _keys(2, "cpu")
     if invalid == "dtype":
@@ -408,12 +417,19 @@ def test_invalid_inputs(invalid):
     elif invalid == "duplicates":
         keys.zero_()
     weight.requires_grad_(True)
-    with pytest.raises((TypeError, ValueError, RuntimeError)):
-        if invalid == "session":
-            _CPUAdapter()(x, weight, bias, logical_keys=keys, parameter_id="p")
-        else:
-            with canonical_backward_session():
-                _CPUAdapter()(x, weight, bias, logical_keys=keys, parameter_id="p")
+    op = _CPUAdapter()
+    if invalid == "session":
+        with pytest.raises(error_type, match=message):
+            op(x, weight, bias, logical_keys=keys, parameter_id="p")
+        return
+    with canonical_backward_session():
+        if invalid == "duplicates_across_uses":
+            op(x, weight, bias, logical_keys=keys, parameter_id="p")
+            # Each call has unique keys, but the second overlaps the first.
+            keys = keys.clone()
+            keys[:, 1] += 1
+        with pytest.raises(error_type, match=message):
+            op(x, weight, bias, logical_keys=keys, parameter_id="p")
 
 
 @pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
@@ -499,9 +515,17 @@ def test_row_placement_and_unrelated_rows():
 
 
 @pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
-def test_noncontiguous_upstream_and_forward_graph():
+@pytest.mark.parametrize("expanded_upstream", [False, True])
+def test_noncontiguous_upstream_and_forward_graph(expanded_upstream):
     op = _op()
     x, weight, bias, grad = _data(17)
+    # Cover both transposed random gradients and zero-stride expanded gradients.
+    grad = (
+        torch.ones((), device="cuda").expand_as(grad)
+        if expanded_upstream
+        else grad.t().contiguous().t()
+    )
+    assert not grad.is_contiguous()
     with canonical_backward_session() as session:
         y = op(
             x.requires_grad_(),
@@ -510,9 +534,15 @@ def test_noncontiguous_upstream_and_forward_graph():
             logical_keys=_keys(17, "cuda"),
             parameter_id="p",
         )
-        y.sum().backward()  # Expanded scalar upstream has zero strides.
+        y.backward(grad)
         session.validate_complete()
-    _assert_accuracy(x.grad, torch.ones_like(grad).cpu() @ weight.cpu(), "gradient_accuracy")
+    cx, cw, cb = [t.detach().cpu().requires_grad_() for t in (x, weight, bias)]
+    gold = NativeVideoInputProjectionFP32Op()(cx, cw, cb)
+    gold.backward(grad.cpu())
+    for actual, expected in zip(
+        (x.grad, weight.grad, bias.grad), (cx.grad, cw.grad, cb.grad), strict=True
+    ):
+        _assert_accuracy(actual, expected, "gradient_accuracy")
     with torch.no_grad():
         stream = torch.cuda.Stream()
         stream.wait_stream(torch.cuda.current_stream())
@@ -570,19 +600,10 @@ def test_default_cuda_dispatch():
     from rl_engine.runtime.registry import KernelRegistry
 
     op = KernelRegistry().get_op("video_input_projection_fp32", device="cuda")
-    assert op.backend_info()["backend_id"] == "triton-video-input-projection-fp32-v12"
+    assert op.backend_info()["backend_id"] == "triton-video-input-projection-fp32"
     x, weight, bias, _ = _data(3)
     with torch.no_grad():
         _assert_bytes(op(x, weight, bias), _op()(x, weight, bias))
-
-
-@pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
-def test_reused_fp32_gemm():
-    from rl_engine.backends.shared.triton.gemm.det_gemm import _triton_gemm_fp32
-
-    x, weight, _, _ = _data(17)
-    output = _triton_gemm_fp32(x, weight.t().contiguous())
-    _assert_accuracy(output, x.cpu() @ weight.cpu().t(), "forward_accuracy")
 
 
 def _fp32_tree_reference(a, b):

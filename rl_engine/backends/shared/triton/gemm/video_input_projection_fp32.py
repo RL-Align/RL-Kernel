@@ -50,7 +50,7 @@ class TritonVideoInputProjectionFP32Op(VideoInputProjectionFP32Op):
 
     family = "triton"
     matmul_op = staticmethod(projection_gemm_fp32)
-    backend_id = "triton-video-input-projection-fp32-v12"
+    backend_id = "triton-video-input-projection-fp32"
 
     def __init__(self):
         """Require Triton before constructing this backend."""
