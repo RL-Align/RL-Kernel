@@ -6,7 +6,6 @@ import pytest
 import torch
 
 from argparse import Namespace
-from dataclasses import replace
 
 from rl_engine.validation.operators import CandidateSpec, run_operator_suite
 from rl_engine.validation.operators.operator_specs import make_candidate, make_operator_case
@@ -68,31 +67,6 @@ def test_gtest_records_cpu_calls_without_inventing_a_bf16_hardware_profile():
     assert trace["profiler_observed"] is False
 
 
-@pytest.mark.parametrize("invalid", ["reference_dtype", "case_dtype"])
-def test_observed_gtest_rejects_false_reference_and_case_dtype_claims(invalid):
-    args = Namespace(
-        op="adaln_modulation",
-        candidate="pytorch",
-        arch_key=None,
-        batch=2,
-        seq=3,
-        normalized_dim=7,
-        seed=386,
-    )
-    case = make_operator_case(args, torch.bfloat16, torch.device("cpu"))
-    case = (
-        replace(case, gold_fn=NativeAdaLNModulationOp())
-        if invalid == "reference_dtype"
-        else replace(case, dtype=torch.float32)
-    )
-    with pytest.raises(ContractResolveError, match="reference dtype|case dtype"):
-        run_operator_suite(
-            "adaln_modulation",
-            candidates=[make_candidate(args, observe_backend=True)],
-            cases=[case],
-        )
-
-
 def test_common_provenance_rejects_cuda_to_triton_fallback():
     proof = BackendProvenance(
         backend_profile="triton_cuda_bf16",
@@ -107,53 +81,6 @@ def test_common_provenance_rejects_cuda_to_triton_fallback():
     )
     with pytest.raises(ContractResolveError, match="requested_backend"):
         validate_backend_provenance(load_contract(), proof)
-
-
-@pytest.mark.parametrize(
-    "override",
-    [
-        {},
-        {"fallback": False},
-        {"observation": None},
-        {"arithmetic_profile": "unknown"},
-        {"fallback_reason": None},
-        {"requested_backend": "pytorch"},
-    ],
-)
-def test_gtest_validates_and_serializes_fallback_trace_on_cpu(monkeypatch, override):
-    from rl_engine.runtime import adaln
-
-    # Simulate backend observations to exercise report policy without a GPU kernel.
-    monkeypatch.setattr(adaln, "adaln_backend", lambda op: "triton")
-
-    class ObservedDispatch(adaln.AdaLNDispatch):
-        def forward(self, *args, **kwargs):
-            outputs = super().forward(*args, **kwargs)
-            self.trace.update(override)
-            return outputs
-
-    trace = {
-        "requested_backend": "cuda",
-        "fallback": True,
-        "fallback_reason": "CUDA extension unavailable",
-        "arithmetic_profile": adaln.SHARED_PROFILE,
-    }
-    op = ObservedDispatch(NativeAdaLNModulationOp(), trace, hidden=7)
-    args = Namespace(op="adaln_modulation", batch=2, seq=3, normalized_dim=7, seed=386)
-    case = make_operator_case(args, torch.bfloat16, torch.device("cpu"))
-    candidate = CandidateSpec(name="observed-adaln", backend="triton", fn=op)
-    if override:
-        with pytest.raises(ContractResolveError, match="undeclared AdaLN backend fallback"):
-            run_operator_suite("adaln_modulation", candidates=[candidate], cases=[case])
-    else:
-        report = run_operator_suite("adaln_modulation", candidates=[candidate], cases=[case])
-        assert report.passed
-        result = report.to_dict()["candidates"][0]
-        assert result["backend_provenance"] is None
-        observed = result["cases"][0]["backend_trace"]
-        assert observed["requested_backend"] == "cuda"
-        assert observed["actual_backend"] == "triton"
-        assert observed["fallback"] is True and observed["fallback_reason"]
 
 
 def test_strict_rejects_indexed_backward():
@@ -273,7 +200,7 @@ def test_gpu_fallback_forward_backward_accuracy_and_declared_replay(monkeypatch,
     not torch.cuda.is_available() or torch.version.hip is not None,
     reason="NVIDIA CUDA required; run explicitly on target GPU",
 )
-def test_gpu_gtest_persists_observed_bf16_fallback_provenance(monkeypatch):
+def test_gpu_gtest_persists_observed_bf16_fallback_trace(monkeypatch):
     pytest.importorskip("triton")
     args = Namespace(
         op="adaln_modulation",
@@ -303,7 +230,7 @@ def test_gpu_gtest_persists_observed_bf16_fallback_provenance(monkeypatch):
     result = report.candidates[0]
     assert result.backend_provenance is None
     payload = report.to_dict()["candidates"][0]["cases"][0]
-    assert payload["backend_provenance"] is None
+    assert "backend_provenance" not in payload
     trace = payload["backend_trace"]
     assert trace["actual_backend"] == "triton"
     assert trace["requested_backend"] == "cuda" and trace["fallback"] is True

@@ -529,13 +529,16 @@ def test_adaln_gtest_detects_wrong_output_and_backward(broken):
 
 
 @pytest.mark.parametrize("check_grad", [False, True])
-def test_adaln_gtest_rejects_fp32_outputs_for_bf16_inputs(check_grad):
+@pytest.mark.parametrize("wrong_output", [0, 1])
+def test_adaln_gtest_rejects_fp32_outputs_for_bf16_inputs(check_grad, wrong_output):
     args = _args()
     case = make_operator_case(args, torch.bfloat16, torch.device("cpu"))
     good = make_candidate(args)
 
     def wrong_dtype(**inputs):
-        return tuple(output.float() for output in good.fn(**inputs))
+        outputs = list(good.fn(**inputs))
+        outputs[wrong_output] = outputs[wrong_output].float()
+        return tuple(outputs)
 
     report = run_operator_suite(
         args.op,
@@ -545,7 +548,9 @@ def test_adaln_gtest_rejects_fp32_outputs_for_bf16_inputs(check_grad):
     )
     assert not report.passed, report.to_dict()
     checks = report.candidates[0].cases[0].outputs[:2]
-    assert all(not check.passed and "dtype mismatch" in check.message for check in checks)
+    assert not checks[wrong_output].passed
+    assert "dtype mismatch" in checks[wrong_output].message
+    assert checks[1 - wrong_output].passed
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])

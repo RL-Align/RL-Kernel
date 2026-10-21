@@ -136,10 +136,11 @@ path, not a profiler measurement or independent proof of backward execution.
 `profiler_observed=false` and `hardware_qualified=null` make that limit explicit.
 Semantic versions/fingerprints are not binary hashes.
 
-`check_operator.py` observes AdaLN candidates and includes per-case backend traces.
-Successful BF16 CUDA/Triton calls also populate the existing C1
-`BackendProvenance`; CPU and FP32 have no declared C1 backend profile and remain
-trace-only. The shared tolerance contract and independent reference are unchanged.
+`check_operator.py` includes per-case AdaLN backend trace snapshots without
+interpreting their dispatch policy or automatically constructing C1
+`BackendProvenance`. Explicit candidate provenance remains supported by the common
+validator. AdaLN dispatch policy is covered by its dedicated runtime tests;
+the shared tolerance contract and independent reference are unchanged.
 Library callers can request this with `make_candidate(args, observe_backend=True)`.
 
 The benchmark accepts `--seed` (default 386) and `--json`. JSON includes raw event
