@@ -1,0 +1,61 @@
+{
+  "evidence_kind": "Historical hardware results; source binding rechecked 2026-10-21; no new GPU run",
+  "candidate_commit": "374488bb3abc856b356b79fbfbcc0e15bbb968c4",
+  "historical_snapshot_base_commit": "0e8a18aff441895082aee603959cd25cb66d7e4b",
+  "environment": {
+    "python": "3.12.3",
+    "python_impl": "CPython",
+    "platform": "Linux-5.15.0-94-generic-x86_64-with-glibc2.35",
+    "torch": "2.5.1+cu121",
+    "torch_cuda_runtime": "12.1",
+    "torch_hip": null,
+    "cuda_available": true,
+    "cuda_device_count": 1,
+    "triton": "3.1.0",
+    "cuda_device_name": "NVIDIA GeForce RTX 4090 D",
+    "cuda_capability": "8.9"
+  },
+  "nvidia_driver": "580.76.05",
+  "cuda_validation": {
+    "run": "run-20261017-002253-9749",
+    "passed": 34,
+    "skipped": 1,
+    "failures": 0,
+    "errors": 0,
+    "skip_reason": "multi-GPU device guard requires two GPUs; host had one",
+    "snapshot_sha256": "5d7ef73a86d8b1ab2086c6b09e45ce0799484fcac6a0d5964ed6372b02592fe5",
+    "source_files_sha256": {
+      "rl_engine/reference/minimax_h3/sigma_schedule.py": "18b36cdbac9e95d4b52782aa17a7228fdf35bc7e3397508a651c1fb07cb36509",
+      "rl_engine/backends/cuda/model_specific/minimax_h3/sigma_schedule.py": "784fb85f2e3dbce450fd5564c99584eb75a83c8b01374d938f036c7036494262",
+      "tests/reference/minimax_h3/test_h3_sigma_schedule.py": "1304b4738196250bd09c5532f39dd15b14e1ff46910ef4a807067c5a8b1faeee",
+      "tests/reference/minimax_h3/h3_sigma_schedule_upstream_fixture.json": "97a929a39eb781ce00bd351d8c30c85d9bfd054e7ca5405dc3a3b8ed794956c1",
+      "tests/runtime/test_h3_sigma_schedule_dispatch.py": "1750573eb6f609490e637d4088ca7f7ab6dfe01c6077d68cf1428b2a239c8e0e",
+      "tests/backends/cuda/test_h3_sigma_schedule_cuda.py": "c9ce44388a4fb31e0415026836c74c2818514ec995229d94315462c2894ae72a",
+      "benchmarks/models/benchmark_h3_sigma_schedule.py": "04975954e863050d602479d737b5218b88e03f4cc87aca7ca90cb47ebf0f3486"
+    },
+    "junit_original_sha256": "9e2d476cdaf24043e66f239e9f5d5acbb58a2949bb474b4662ca09b8a96e7240",
+    "junit_redaction": "Removed testsuite hostname attribute; XML reserialized. All test outcomes preserved."
+  },
+  "benchmark": {
+    "run": "run-20261016-235221-8055",
+    "snapshot_sha256": "0b7c25c6a9bf4e109fe0e053a90fed1a977831d859f2bf99575cfcfe08da9b34",
+    "binding": "Benchmark and reference byte-identical. CUDA kernels and scalar helper ASTs identical. Forward AST identical after normalizing only the non-CUDA device error text; final constructor adds HIP rejection.",
+    "cuda_function_asts_identical": [
+      "_shift_scalars",
+      "_shifted_grid_kernel",
+      "_unique_consecutive_kernel",
+      "_timesteps_kernel",
+      "__call__"
+    ],
+    "forward_ast_equal_after_normalizing_non_cuda_error": true
+  },
+  "included_files_sha256": {
+    "benchmark-4090d.json": "84ba715d03e6ada96c122f7cff3992d81e569acb4c56b810bb191fc84f64e6e9",
+    "cuda-4090d.xml": "c5377af475a7020c02f0c1784bd87df6412ca4f8cfc42f4687dd8f8fac1900e2"
+  },
+  "limits": [
+    "One x86_64 NVIDIA RTX 4090D; no ROCm device backend.",
+    "No fresh GPU measurement, multi-GPU test, or full-model run.",
+    "Historical broad dispatch suite had two attention failures also present in the recorded baseline A/B comparison; not an all-green pipeline claim."
+  ]
+}
