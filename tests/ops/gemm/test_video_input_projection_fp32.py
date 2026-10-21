@@ -193,9 +193,10 @@ def _run(op, data, keys, chunks=None, *, train_weight=True, train_bias=True):
 
 def _assert_accuracy(actual, expected, kind):
     threshold = load_contract()["judgments"][kind]["by_op_class"]["reduction"]["float32"]
-    torch.testing.assert_close(
-        actual.cpu(), expected.cpu(), atol=threshold["atol"], rtol=threshold["rtol"]
-    )
+    assert actual.shape == expected.shape
+    # Bound comparison temporaries for full Ref2VA outputs; compare every element.
+    for a, b in zip(actual.split(4096), expected.split(4096), strict=True):
+        torch.testing.assert_close(a.cpu(), b.cpu(), atol=threshold["atol"], rtol=threshold["rtol"])
 
 
 def _assert_bytes(a, b):
@@ -234,6 +235,30 @@ def test_benchmark_accuracy_rejects_non_finite(
         assert report[name]["non_finite_elements"] == (non_finite if name == output else 0)
     if non_finite:
         assert report[output]["max_abs_error"] is None
+    json.dumps(report, allow_nan=False)
+
+
+def test_benchmark_accuracy_checks_all_comparison_chunks():
+    from benchmarks.operators.gemm.benchmark_video_input_projection_fp32 import _accuracy
+
+    actual = [torch.ones(4097, 2) for _ in range(4)]
+    gold = [torch.ones_like(t) for t in actual]
+    actual[0][0, 0] = 2.0
+    actual[0][-1, 1] = 4.0
+    actual[1][-1, 0] = float("nan")
+    gold[2][-1, 0] = float("inf")
+    actual[3][-1, 1] += 1e-5
+    report = _accuracy(actual, gold)
+    for name, a, b in zip(("y", "dx", "dw", "dbias"), actual, gold, strict=True):
+        error = (a - b).abs()
+        finite = torch.isfinite(a) & torch.isfinite(b)
+        policy = report[name]
+        limit = policy["atol"] + policy["rtol"] * b.abs()
+        assert policy["out_of_tolerance"] == int(((error > limit) | ~finite).sum())
+        assert policy["non_finite_elements"] == int((~finite).sum())
+        assert policy["max_abs_error"] == (
+            error.max().item() if torch.isfinite(error).all() else None
+        )
     json.dumps(report, allow_nan=False)
 
 
@@ -477,10 +502,12 @@ def _check_parameter_bi(op, data, keys):
     inverse = order.argsort()
     for i in range(4):
         _assert_bytes(baseline[i], permuted[i].index_select(0, inverse) if i < 2 else permuted[i])
+    del permuted
     chunks = list(torch.tensor_split(order, 3))
     chunked = _run(op, data, keys, chunks)
     for a, b in zip(baseline, chunked, strict=True):
         _assert_bytes(a, b)
+    del chunked
     padded = [
         torch.cat((data[0], torch.randn(7, 96, device="cuda"))),
         data[1],
@@ -491,6 +518,7 @@ def _check_parameter_bi(op, data, keys):
     result = _run(op, padded, padded_keys)
     for i, (a, b) in enumerate(zip(baseline, result, strict=True)):
         _assert_bytes(a, b[:rows] if i < 2 else b)
+    del result, padded
     repeated = _run(op, data, keys)
     for a, b in zip(baseline, repeated, strict=True):
         _assert_bytes(a, b)
@@ -557,30 +585,87 @@ def test_noncontiguous_upstream_and_forward_graph(expanded_upstream):
 
 
 @pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
-def test_patch_path():
+@pytest.mark.parametrize(
+    "num_frames,latent_height,latent_width,expected_rows",
+    [
+        pytest.param(None, 48, 84, 13104, id="synthetic-t13"),
+        pytest.param(124, 48, 84, 37296, id="124f-1344x768"),
+        pytest.param(243, 84, 48, 72576, id="243f-768x1344"),
+        pytest.param(345, 48, 84, 102816, id="345f-1344x768"),
+    ],
+)
+def test_patch_path(num_frames, latent_height, latent_width, expected_rows):
     from rl_engine.reference.packing.video_patch_pack_unpack import NativeVideoPatchPackUnpackOp
 
+    # Diffusers 0.40.0 maps F=17n+5 pixel frames to T=5n+2 latent frames.
+    # T=13 retains the original synthetic case; the other cases use valid frame counts.
+    latent_frames = 13
+    if num_frames is not None:
+        assert num_frames % 17 == 5 and num_frames <= 15 * 24
+        latent_frames = (num_frames - 5) // 17 * 5 + 2
     torch.manual_seed(420)
     weight = torch.randn(5376, 96, device="cuda") * 0.0625
     bias = torch.randn(5376, device="cuda") * 0.125
-    latent = torch.randn(1, 24, 13, 48, 84, device="cuda", dtype=torch.bfloat16)
+    latent = torch.randn(
+        1, 24, latent_frames, latent_height, latent_width, device="cuda", dtype=torch.bfloat16
+    )
     x = NativeVideoPatchPackUnpackOp().pack(latent).reshape(-1, 96).float()
+    assert x.shape == (expected_rows, 96)
     grad = torch.randn(x.shape[0], 5376, device="cuda") * 0.0625
-    actual = _run(_op(), (x, weight, bias, grad), _keys(x.shape[0], "cuda"))
+    data, keys = (x, weight, bias, grad), _keys(x.shape[0], "cuda")
+    _check_projection_accuracy_and_bi(data, keys)
+
+
+@pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
+@pytest.mark.parametrize("variant,expected_rows", [("fl2va", 108576), ("ref2va", 364608)])
+def test_conditioned_patch_path(variant, expected_rows):
+    from rl_engine.reference.packing.video_patch_pack_unpack import NativeVideoPatchPackUnpackOp
+
+    # Diffusers 0.40.0: the default canvas rule reaches 1856x576 at aspect 23:7.
+    # Both generated and reference videos use this rule; reference images use a
+    # 2048-pixel short edge and allow 4:1, giving a maximum image of 8192x2048.
+    # Latents use spatial /16 and each packed row covers a 2x2 latent patch.
+    if variant == "fl2va":
+        condition_shapes = [(1, 36, 116)] * 2
+    else:
+        # Nine images plus three videos reach the 12-file limit. The aligned
+        # video lengths 56+56+243=355 frames fit the 15-second total at 24 FPS.
+        reference_frames = (56, 56, 243)
+        assert all(2 * 24 <= f <= 15 * 24 and f % 17 == 5 for f in reference_frames)
+        assert sum(reference_frames) <= 15 * 24
+        condition_shapes = [(1, 128, 512)] * 9 + [
+            ((f - 5) // 17 * 5 + 2, 36, 116) for f in reference_frames
+        ]
+    target_shape = ((345 - 5) // 17 * 5 + 2, 36, 116)
+    torch.manual_seed(420)
+    pack = NativeVideoPatchPackUnpackOp().pack
+    # Upstream concatenates all visual conditions before the generated video.
+    x = torch.cat(
+        [
+            pack(torch.randn(1, 24, *shape, device="cuda", dtype=torch.bfloat16))
+            .reshape(-1, 96)
+            .float()
+            for shape in condition_shapes + [target_shape]
+        ]
+    )
+    assert x.shape == (expected_rows, 96)
+    weight = torch.randn(5376, 96, device="cuda") * 0.0625
+    bias = torch.randn(5376, device="cuda") * 0.125
+    grad = torch.randn(expected_rows, 5376, device="cuda") * 0.0625
+    _check_projection_accuracy_and_bi((x, weight, bias, grad), _keys(expected_rows, "cuda"))
+
+
+def _check_projection_accuracy_and_bi(data, keys):
+    x, weight, bias, grad = data
+    actual = _run(_op(), data, keys)
     cx, cw, cb = [t.detach().cpu().requires_grad_() for t in (x, weight, bias)]
     gold = NativeVideoInputProjectionFP32Op()(cx, cw, cb)
     gold.backward(grad.cpu())
     for i, (a, b) in enumerate(zip(actual, (gold, cx.grad, cw.grad, cb.grad), strict=True)):
         _assert_accuracy(a, b, "forward_accuracy" if i == 0 else "gradient_accuracy")
-    order = torch.arange(x.shape[0] - 1, -1, -1, device="cuda")
-    chunked = _run(
-        _op(),
-        (x, weight, bias, grad),
-        _keys(x.shape[0], "cuda"),
-        list(torch.tensor_split(order, 3)),
-    )
-    for a, b in zip(actual, chunked, strict=True):
-        _assert_bytes(a, b)
+    # Release the accuracy outputs before the separate permutation/chunk/padding checks.
+    del actual, gold, cx, cw, cb
+    _check_parameter_bi(_op(), data, keys)
 
 
 @pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
@@ -676,7 +761,7 @@ def test_cpu_fp32_reference_long_dot_accuracy():
 
 
 @pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
-@pytest.mark.parametrize("k", [127, 128, 129, 5376, 13104])
+@pytest.mark.parametrize("k", [127, 128, 129, 5376, 13104, 32768, 32769, 102816])
 def test_fp32_chunked_gemm_strides_and_workspace(k, monkeypatch):
     from rl_engine.backends.shared.triton.gemm import det_gemm
     from rl_engine.backends.shared.triton.gemm.video_input_projection_fp32 import (
@@ -684,6 +769,7 @@ def test_fp32_chunked_gemm_strides_and_workspace(k, monkeypatch):
     )
     from rl_engine.reference.gemm.video_input_projection_fp32 import _reference_matmul_fp32
 
+    # K=32769 adds the 257th partial; K=102816 covers the longest landscape layout.
     torch.manual_seed(420)
     a = torch.randn(k, 7, device="cuda").t()
     b = torch.randn(k, 96, device="cuda")

@@ -162,7 +162,8 @@ Adding a genuine training sample changes the expected parameter gradient.
 
 ```bash
 OMP_NUM_THREADS=4 python3.11 -m benchmarks.operators.gemm.benchmark_video_input_projection_fp32 \
-  --backends pytorch triton --rows 1 128 1024 4096 13104 \
+  --backends pytorch triton \
+  --rows 1 128 1024 4096 13104 37296 72576 102816 108576 364608 \
   --seed 420 --warmup 5 --samples 40 \
   --output /tmp/h3-input-projection.json
 ```
@@ -228,8 +229,79 @@ rows. It checks CPU FP32 accuracy and byte equality across permutations,
 microbatches, padding, and repeated calls. The benchmark rejects NaN or Inf in
 either the candidate or reference, including gradients.
 
-The latent-pack-projection test uses a synthetic `[1,24,13,48,84]` latent and
-random projection weights with seed 420. It runs without a checkpoint.
+The chunked-GEMM test also covers `K=32768/32769`, where the partial count
+crosses 256, and `K=102816`, the weight-gradient reduction length of the longest
+tested landscape video. It uses unscaled standard-normal inputs, compares with
+the independent CPU FP32 reference, and requires byte equality for strided
+inputs and a reduced workspace budget.
+
+The latent-pack-projection test uses random latents, weights, and gradients with
+seed 420. The video layouts follow the pinned
+[Diffusers 0.40.0 frame mapping](https://github.com/huggingface/diffusers/blob/v0.40.0/src/diffusers/modular_pipelines/minimax_h3/modular_pipeline.py#L97):
+`F=17n+5` pixel frames map to `T=5n+2` latent frames. At 24 FPS, 345 frames is
+the largest aligned frame count within the 15-second duration limit.
+
+| Case | Pixel frames | Latent shape `[B,C,T,H,W]` | Projection rows |
+| --- | --- | --- | ---: |
+| Synthetic temporal length, 768p spatial dimensions | N/A | `[1,24,13,48,84]` | 13,104 |
+| Default landscape video layout | 124 | `[1,24,37,48,84]` | 37,296 |
+| Longer portrait video layout | 243 | `[1,24,72,84,48]` | 72,576 |
+| 15-second-limit landscape video layout | 345 | `[1,24,102,48,84]` | 102,816 |
+
+Each case checks `Y`, `dX`, `dW`, and `dbias` against the independent CPU FP32
+reference, then checks byte equality across row permutations, microbatches,
+padding, and repeated calls. Values are synthetic; only the video geometry is
+taken from the released pipeline. These cases run without a checkpoint.
+Run the single-video and conditioned-layout cases with:
+
+```bash
+OMP_NUM_THREADS=4 python3.11 -m pytest tests/ops/gemm/test_video_input_projection_fp32.py \
+  -v -k 'test_patch_path or test_conditioned_patch_path'
+```
+
+### Maximum Conditioned Task Layouts
+
+`test_conditioned_patch_path` covers one request (`B=1`) with the released
+H3-Base preprocessing defaults. The
+[model card](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/42ed227ee7df40d41602854ae760620d6eb651fe/README.md)
+allows two keyframes for FL2VA, or nine images and three video references for
+Ref2VA. Reference videos must each last 2-15 seconds and total at most 15 seconds;
+all reference types together are limited to 12 files.
+
+The pinned
+[canvas rule](https://github.com/huggingface/diffusers/blob/v0.40.0/src/diffusers/modular_pipelines/minimax_h3/modular_pipeline.py#L42)
+caps area before rounding both dimensions to multiples of 32. Across the
+supported aspect ratios, its largest rounded canvas is `1856x576` (or its
+transpose), reached at aspect `23:7`. This produces `58*18=1044` rows per
+latent time step. Reference images use a separate 2048-pixel short edge and
+aspect ratios up to 4:1, giving `8192x2048` and `256*64=16384` rows per image.
+These image and video rules come from
+[Ref2VA preprocessing](https://github.com/huggingface/diffusers/blob/v0.40.0/src/diffusers/modular_pipelines/minimax_h3/before_encoder.py).
+
+| Component | Pixel frames / size | Latent time steps | Projection rows |
+| --- | --- | ---: | ---: |
+| Target video, both variants | 345 frames, `1856x576` | 102 | 106,488 |
+| FL2VA first and last keyframes | Two images, each `1856x576` | 2 | 2,088 |
+| Ref2VA image references | Nine images, each `8192x2048` | 9 | 147,456 |
+| Ref2VA video references | 56, 56, 243 frames, each `1856x576` | 17+17+72 | 110,664 |
+| **FL2VA total** | Target plus two keyframes | | **108,576** |
+| **Ref2VA total** | Target plus nine images and three videos | | **364,608** |
+
+The three reference videos total 355 frames (14.79 seconds). They maximize
+the combined latent length: for three aligned videos, `17*sum(n)+15 <= 360`,
+so `sum(n) <= 20` and the total latent length is at most `5*20+6=106`.
+The test packs each component and concatenates all visual conditions before
+the target video, matching
+[upstream assembly](https://github.com/huggingface/diffusers/blob/v0.40.0/src/diffusers/modular_pipelines/minimax_h3/before_denoise.py#L1089).
+Audio and text use their own projections.
+
+Both cases check the complete `Y`, `dX`, `dW`, and `dbias` against the existing
+CPU FP32 reference, followed by permutation, microbatch, padding, and repeated-call
+BI checks. Accuracy comparisons process all output rows in bounded slices;
+reference arithmetic and candidate calls still consume the complete input.
+Custom canvas settings, larger batches, and the separate 2K regeneration path
+have different layout bounds.
+
 Keep generated evidence outside tracked source files.
 
 ## Known Limitations

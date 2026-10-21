@@ -63,14 +63,25 @@ def _accuracy(actual, gold):
         policy = judgments["forward_accuracy" if i == 0 else "gradient_accuracy"]["by_op_class"][
             "reduction"
         ]["float32"]
-        a, b = a.detach().cpu(), b.detach().cpu()
-        error = (a - b).abs()
-        limit = policy["atol"] + policy["rtol"] * b.abs()
-        finite = torch.isfinite(a) & torch.isfinite(b)
+        max_error, violations, non_finite = 0.0, 0, 0
+        finite_errors = True
+        # Bound comparison temporaries for long layouts; check every element.
+        for start in range(0, a.shape[0], 4096):
+            ac = a[start : start + 4096].detach().cpu()
+            bc = b[start : start + 4096].detach().cpu()
+            error = (ac - bc).abs()
+            limit = policy["atol"] + policy["rtol"] * bc.abs()
+            finite = torch.isfinite(ac) & torch.isfinite(bc)
+            if torch.isfinite(error).all():
+                max_error = max(max_error, error.max().item())
+            else:
+                finite_errors = False
+            violations += int(((error > limit) | ~finite).sum())
+            non_finite += int((~finite).sum())
         result[name] = {
-            "max_abs_error": error.max().item() if torch.isfinite(error).all() else None,
-            "out_of_tolerance": int(((error > limit) | ~finite).sum()),
-            "non_finite_elements": int((~finite).sum()),
+            "max_abs_error": max_error if finite_errors else None,
+            "out_of_tolerance": violations,
+            "non_finite_elements": non_finite,
             **policy,
         }
     return result
@@ -242,6 +253,7 @@ def main():
             }
             if op is not None and any(mismatches.values()):
                 raise RuntimeError(f"{name} failed row permutation BI: {mismatches}")
+            del actual, permuted
             with torch.no_grad():
                 forward = _sample(
                     partial(_forward, op, x, weight, bias, keys), None, args.samples, args.warmup
@@ -259,6 +271,7 @@ def main():
                 if not torch.equal(output.view(torch.int32), expected.view(torch.int32)):
                     raise RuntimeError("forward graph changed output bytes")
                 graph_time = _sample(graph.replay, None, args.samples, args.warmup)
+                del graph, output, expected
             tx, tw, tb = [t.detach().clone().requires_grad_() for t in (x, weight, bias)]
             backward = _sample(
                 None, partial(_backward_call, op, tx, tw, tb, grad, keys), args.samples, args.warmup
@@ -270,6 +283,7 @@ def main():
                 args.warmup,
             )
             memory = _forward_backward_memory(op, tx, tw, tb, grad, keys)
+            del tx, tw, tb
             item = {
                 "backend": name,
                 "rows": rows,
@@ -297,6 +311,7 @@ def main():
                 f"F+B={combined['median_us']:.1f} us, "
                 f"peak delta={memory['incremental_peak_allocated_bytes'] / 2**20:.2f} MiB"
             )
+        del gold, cy, cx, cw, cb
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
