@@ -60,6 +60,26 @@ def test_consistency_command_does_not_enable_rollout_logprob_reuse(tmp_path: Pat
     assert command[command.index("--cp-size") + 1] == "2"
     assert command[command.index("--rollout-tp-size") + 1] == "4"
     assert command[command.index("--rollout-cp-size") + 1] == "1"
+    assert "--pd" not in command
+
+
+def test_pd_command_is_explicit_and_keeps_regular_default(tmp_path: Path):
+    args = _args(tmp_path, "consistency")
+    args.pd = True
+    command = _runner_command(_resolved_paths(_profile(), args), _profile(), args)
+    assert "--pd" in command
+    assert "--rollout-layout" not in command
+    assert command[command.index("--vllm-gpu-memory-utilization") + 1] == "0.25"
+
+
+def test_1p1d_rejects_unvalidated_topology(tmp_path: Path):
+    import pytest
+
+    args = _args(tmp_path, "consistency")
+    args.pd = True
+    args.rollout_tp_size = 2
+    with pytest.raises(repro.ReproError, match="1p1d requires"):
+        _runner_command(_resolved_paths(_profile(), args), _profile(), args)
 
 
 def test_native_command_uses_production_operator_route(tmp_path: Path):
@@ -88,6 +108,18 @@ def test_explicit_microbatch_budget_is_preserved(tmp_path: Path):
     command = _runner_command(_resolved_paths(_profile(), args), _profile(), args)
     offset = len(command) - 1 - command[::-1].index("--max-tokens-per-gpu")
     assert command[offset + 1] == "777"
+    assert command.count("--max-tokens-per-gpu") == 1
+
+
+def test_explicit_response_cap_and_vllm_memory_have_one_effective_value(tmp_path: Path):
+    args = _args(tmp_path, "consistency")
+    args.max_response_len = 128
+    args.vllm_gpu_memory_utilization = 0.31
+    command = _runner_command(_resolved_paths(_profile(), args), _profile(), args)
+    assert command.count("--max-response-len") == 1
+    assert command[command.index("--max-response-len") + 1] == "128"
+    assert command.count("--vllm-gpu-memory-utilization") == 1
+    assert command[command.index("--vllm-gpu-memory-utilization") + 1] == "0.31"
 
 
 def test_launcher_defaults_to_active_checkout_and_runtime(tmp_path: Path):
@@ -287,3 +319,48 @@ def test_doctor_enforces_frozen_runtime_and_ray(tmp_path: Path, monkeypatch):
     mismatched = dict(expected_versions, vllm="0.15.0")
     monkeypatch.setattr(repro, "_python_versions", lambda _python: mismatched)
     assert doctor(paths, profile, ray_address="http://127.0.0.1:8265") == 1
+
+    monkeypatch.setattr(repro, "_python_versions", lambda _python: expected_versions)
+    probes = []
+
+    def run_probe(command, **kwargs):
+        probes.append((command, kwargs))
+        if command[1] == "-c" and "from nixl._api" in command[-1]:
+            return SimpleNamespace(returncode=1, stdout="", stderr="No module named nixl")
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(repro.subprocess, "run", run_probe)
+    assert (
+        doctor(
+            paths,
+            profile,
+            ray_address="http://127.0.0.1:8274",
+            rollout_layout="1p1d",
+            mode="consistency",
+        )
+        == 1
+    )
+    assert any("linear_logp_local_bf16_forward" in cmd[-1] for cmd, _ in probes)
+    assert any(
+        kwargs["env"]["PYTHONPATH"].split(repro.os.pathsep)[0] == str(paths.rl_kernel_root)
+        for cmd, kwargs in probes
+        if cmd[1] == "-c"
+    )
+    assert probes[-1][1]["env"]["RAY_API_SERVER_ADDRESS"] == "http://127.0.0.1:8274"
+
+    def missing_extension(command, **kwargs):
+        if command[1] == "-c" and "linear_logp_local_bf16_forward" in command[-1]:
+            return SimpleNamespace(returncode=1, stdout="", stderr="missing SM90 symbols")
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(repro.subprocess, "run", missing_extension)
+    assert (
+        doctor(
+            paths,
+            profile,
+            ray_address="http://127.0.0.1:8274",
+            rollout_layout="1p1d",
+            mode="consistency",
+        )
+        == 1
+    )
