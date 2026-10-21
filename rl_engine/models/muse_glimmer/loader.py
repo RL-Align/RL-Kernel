@@ -158,8 +158,9 @@ def verify_checkpoint(
     """Verify a local checkpoint directory against the fingerprint.
 
     ``require_pinned_bytes`` also compares config.json and the index file byte-for-byte
-    (SHA-256) with the pinned revision. ``verify_shard_sha256`` hashes every shard
-    (about 60 GB); without it, shard identity rests on the pinned index and headers.
+    (SHA-256) and every shard's size with the pinned revision, so a truncated shard with an
+    intact header fails closed without hashing. ``verify_shard_sha256`` hashes every shard
+    (about 60 GB); without it, shard identity rests on the pinned index, headers and sizes.
     """
     m = manifest if manifest is not None else load_manifest()
     root = Path(path)
@@ -199,9 +200,9 @@ def verify_checkpoint(
             raise MuseGlimmerWorkloadError(f"checkpoint is missing shard {shard['filename']}")
         headers.update(read_safetensors_header(shard_path))
         checked.append(shard["filename"])
+        if require_pinned_bytes and shard_path.stat().st_size != int(shard["size_bytes"]):
+            raise MuseGlimmerWorkloadError(f"{shard['filename']}: size differs from the pin")
         if verify_shard_sha256:
-            if shard_path.stat().st_size != int(shard["size_bytes"]):
-                raise MuseGlimmerWorkloadError(f"{shard['filename']}: size differs from the pin")
             if _sha256_file(shard_path) != shard["sha256"]:
                 raise MuseGlimmerWorkloadError(f"{shard['filename']}: sha256 differs from the pin")
             hashed.append(shard["filename"])

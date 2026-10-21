@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
 import struct
@@ -154,13 +155,15 @@ def test_weight_snapshot_tamper_rejected(raw):
 # --- strict loader --------------------------------------------------------------------
 
 
-def _write_header_only_shard(path: Path, tensors: dict[str, tuple[int, ...]], dtype: str = "BF16"):
+def _write_header_only_shard(
+    path: Path, tensors: dict[str, tuple[int, ...]], dtype: str = "BF16", data: bytes = b""
+):
     header = {
-        name: {"dtype": dtype, "shape": list(shape), "data_offsets": [0, 0]}
+        name: {"dtype": dtype, "shape": list(shape), "data_offsets": [0, len(data)]}
         for name, shape in tensors.items()
     }
     blob = json.dumps(header).encode()
-    path.write_bytes(struct.pack("<Q", len(blob)) + blob)
+    path.write_bytes(struct.pack("<Q", len(blob)) + blob + data)
 
 
 @pytest.fixture()
@@ -208,6 +211,36 @@ def test_loader_rejects_wrong_tensor_shape(fake_checkpoint):
     _write_header_only_shard(fake_checkpoint / shard_name, tensors)
     with pytest.raises(w.MuseGlimmerWorkloadError, match="!= pinned"):
         verify_checkpoint(fake_checkpoint, require_pinned_bytes=False)
+
+
+def test_loader_rejects_truncated_shard_without_sha256(fake_checkpoint, raw):
+    # Regression: a shard cut short behind an intact header must fail closed by default,
+    # without opting into SHA-256. Pin the fake files' hashes and sizes, then truncate.
+    index = json.loads((fake_checkpoint / "model.safetensors.index.json").read_text())
+    schema = w.text_weight_schema()
+    snapshot = raw["model_identity"]["weight_snapshot"]
+    shard = fake_checkpoint / snapshot["shards"][0]["filename"]
+    tensors = {
+        n: schema[n] for n, f in index["weight_map"].items() if f == shard.name and n in schema
+    }
+    _write_header_only_shard(shard, tensors, data=b"\0" * 64)
+    raw["model_identity"]["config_sha256"] = hashlib.sha256(
+        (fake_checkpoint / "config.json").read_bytes()
+    ).hexdigest()
+    snapshot["index_sha256"] = hashlib.sha256(
+        (fake_checkpoint / "model.safetensors.index.json").read_bytes()
+    ).hexdigest()
+    for record in snapshot["shards"]:
+        record["size_bytes"] = (fake_checkpoint / record["filename"]).stat().st_size
+    snapshot["weight_files_total_size_bytes"] = sum(r["size_bytes"] for r in snapshot["shards"])
+    snapshot["content_hash"] = w.weight_snapshot_hash(snapshot["shards"])
+    w.validate_manifest(_resealed(raw))
+    m = w.MuseGlimmerManifest(raw=raw)
+    verify_checkpoint(fake_checkpoint, m)
+    shard.write_bytes(shard.read_bytes()[:-16])
+    assert read_safetensors_header(shard)  # the header itself still parses
+    with pytest.raises(w.MuseGlimmerWorkloadError, match="size differs from the pin"):
+        verify_checkpoint(fake_checkpoint, m, verify_shard_sha256=False)
 
 
 @pytest.mark.parametrize(
