@@ -1,0 +1,651 @@
+{
+  "fixture_version": "p3-fixtures.v2",
+  "miles_anchor_status": "anchor_pending",
+  "source": "synthetic-only; not recorded Megatron/Miles",
+  "cases": [
+    {
+      "case_id": "random.fp32_direct",
+      "checksum": "3a55e2f0ae856b644fd1e69b1b9d658ffa048e0b8475e8345236138e811decf2",
+      "identity": {
+        "case_id": "random.fp32_direct",
+        "checkpoint_id": "synthetic-checkpoint.v1",
+        "weight_id": "synthetic-pre-update.v1",
+        "weight_fingerprint": "56c8f9a61bfe6904a09d94f2d782ff19e1660fa1df6578539f705861dc22b652",
+        "tokens": [
+          [
+            101,
+            1
+          ],
+          [
+            203,
+            2
+          ],
+          [
+            305,
+            1
+          ]
+        ],
+        "layer": 3,
+        "mode": "learned",
+        "round_policy": "fp32_direct",
+        "table": null,
+        "bias": "7cb7efb1ab77bce9ca853743cc7ddd07f70362b3e553f85ad54ffd355b6f2171"
+      }
+    },
+    {
+      "case_id": "exact-tie.fp32_direct",
+      "checksum": "9258c3e57da5735c7294994100832e6eca338edfed79c0b320e09c91459b22b6",
+      "identity": {
+        "case_id": "exact-tie.fp32_direct",
+        "checkpoint_id": "synthetic-checkpoint.v1",
+        "weight_id": "synthetic-pre-update.v1",
+        "weight_fingerprint": "56c8f9a61bfe6904a09d94f2d782ff19e1660fa1df6578539f705861dc22b652",
+        "tokens": [
+          [
+            101,
+            1
+          ],
+          [
+            203,
+            2
+          ],
+          [
+            305,
+            1
+          ]
+        ],
+        "layer": 3,
+        "mode": "learned",
+        "round_policy": "fp32_direct",
+        "table": null,
+        "bias": "f3e5200d148e6f41f65cb1b7cc6509a2f1798d485208689f1d315bb2d4d25697"
+      }
+    },
+    {
+      "case_id": "near-tie.fp32_direct",
+      "checksum": "1b9b1202f957fda9848523cab0d5d2ce3454fe6bd1518fc58b3f06e928412412",
+      "identity": {
+        "case_id": "near-tie.fp32_direct",
+        "checkpoint_id": "synthetic-checkpoint.v1",
+        "weight_id": "synthetic-pre-update.v1",
+        "weight_fingerprint": "56c8f9a61bfe6904a09d94f2d782ff19e1660fa1df6578539f705861dc22b652",
+        "tokens": [
+          [
+            101,
+            1
+          ],
+          [
+            203,
+            2
+          ],
+          [
+            305,
+            1
+          ]
+        ],
+        "layer": 3,
+        "mode": "learned",
+        "round_policy": "fp32_direct",
+        "table": null,
+        "bias": "f3e5200d148e6f41f65cb1b7cc6509a2f1798d485208689f1d315bb2d4d25697"
+      }
+    },
+    {
+      "case_id": "threshold-extremes.fp32_direct",
+      "checksum": "d0f924fd02f25c6c9797938523dc00a2a88a6f6b397408f7d3d25354fed22fcf",
+      "identity": {
+        "case_id": "threshold-extremes.fp32_direct",
+        "checkpoint_id": "synthetic-checkpoint.v1",
+        "weight_id": "synthetic-pre-update.v1",
+        "weight_fingerprint": "56c8f9a61bfe6904a09d94f2d782ff19e1660fa1df6578539f705861dc22b652",
+        "tokens": [
+          [
+            101,
+            1
+          ],
+          [
+            203,
+            2
+          ],
+          [
+            305,
+            1
+          ]
+        ],
+        "layer": 3,
+        "mode": "learned",
+        "round_policy": "fp32_direct",
+        "table": null,
+        "bias": "7cb7efb1ab77bce9ca853743cc7ddd07f70362b3e553f85ad54ffd355b6f2171"
+      }
+    },
+    {
+      "case_id": "hash-slots.fp32_direct",
+      "checksum": "478cfdf7498deb8754328f4336fa20d4794121a74530107385521dc3c55b1fb8",
+      "identity": {
+        "case_id": "hash-slots.fp32_direct",
+        "checkpoint_id": "synthetic-checkpoint.v1",
+        "weight_id": "synthetic-pre-update.v1",
+        "weight_fingerprint": "56c8f9a61bfe6904a09d94f2d782ff19e1660fa1df6578539f705861dc22b652",
+        "tokens": [
+          [
+            101,
+            1
+          ],
+          [
+            203,
+            2
+          ],
+          [
+            305,
+            1
+          ]
+        ],
+        "layer": 0,
+        "mode": "hash",
+        "round_policy": "fp32_direct",
+        "table": "97dd4b553bc1d12e2e7eb9a057f16e95dee931ba30e83393c1ef4265dd4f167c",
+        "bias": null
+      }
+    },
+    {
+      "case_id": "hash-duplicates.fp32_direct",
+      "checksum": "d445b36d0b20a0c07f21d9a4dc8a590055ad5a19edb7d5a8648c32955e0b2b6e",
+      "identity": {
+        "case_id": "hash-duplicates.fp32_direct",
+        "checkpoint_id": "synthetic-checkpoint.v1",
+        "weight_id": "synthetic-pre-update.v1",
+        "weight_fingerprint": "56c8f9a61bfe6904a09d94f2d782ff19e1660fa1df6578539f705861dc22b652",
+        "tokens": [
+          [
+            101,
+            0
+          ],
+          [
+            203,
+            0
+          ],
+          [
+            305,
+            2
+          ]
+        ],
+        "layer": 2,
+        "mode": "hash",
+        "round_policy": "fp32_direct",
+        "table": "97dd4b553bc1d12e2e7eb9a057f16e95dee931ba30e83393c1ef4265dd4f167c",
+        "bias": null
+      }
+    },
+    {
+      "case_id": "zero-active.fp32_direct",
+      "checksum": "c7a93601ffbb166fad43baba878fd517c2d65cb6a43078a3dc28cc9e804fe220",
+      "identity": {
+        "case_id": "zero-active.fp32_direct",
+        "checkpoint_id": "synthetic-checkpoint.v1",
+        "weight_id": "synthetic-pre-update.v1",
+        "weight_fingerprint": "56c8f9a61bfe6904a09d94f2d782ff19e1660fa1df6578539f705861dc22b652",
+        "tokens": [],
+        "layer": 3,
+        "mode": "learned",
+        "round_policy": "fp32_direct",
+        "table": null,
+        "bias": "7cb7efb1ab77bce9ca853743cc7ddd07f70362b3e553f85ad54ffd355b6f2171"
+      }
+    },
+    {
+      "case_id": "empty.fp32_direct",
+      "checksum": "5c19e0cbc0ece17bbb86e280e68da2471d014d792b9feef0bc9961b194f671bc",
+      "identity": {
+        "case_id": "empty.fp32_direct",
+        "checkpoint_id": "synthetic-checkpoint.v1",
+        "weight_id": "synthetic-pre-update.v1",
+        "weight_fingerprint": "56c8f9a61bfe6904a09d94f2d782ff19e1660fa1df6578539f705861dc22b652",
+        "tokens": [],
+        "layer": 3,
+        "mode": "learned",
+        "round_policy": "fp32_direct",
+        "table": null,
+        "bias": "7cb7efb1ab77bce9ca853743cc7ddd07f70362b3e553f85ad54ffd355b6f2171"
+      }
+    },
+    {
+      "case_id": "random.bf16_round_then_widen",
+      "checksum": "d2f785040ea85f784464f279816603adadd7e60776bcf9673af581e5646b2f01",
+      "identity": {
+        "case_id": "random.bf16_round_then_widen",
+        "checkpoint_id": "synthetic-checkpoint.v1",
+        "weight_id": "synthetic-pre-update.v1",
+        "weight_fingerprint": "56c8f9a61bfe6904a09d94f2d782ff19e1660fa1df6578539f705861dc22b652",
+        "tokens": [
+          [
+            101,
+            1
+          ],
+          [
+            203,
+            2
+          ],
+          [
+            305,
+            1
+          ]
+        ],
+        "layer": 3,
+        "mode": "learned",
+        "round_policy": "bf16_round_then_widen",
+        "table": null,
+        "bias": "7cb7efb1ab77bce9ca853743cc7ddd07f70362b3e553f85ad54ffd355b6f2171"
+      }
+    },
+    {
+      "case_id": "exact-tie.bf16_round_then_widen",
+      "checksum": "c569ab9eb730ad867dcd87570b37e41c395743c51be61d70faa4dbc129e6d0b9",
+      "identity": {
+        "case_id": "exact-tie.bf16_round_then_widen",
+        "checkpoint_id": "synthetic-checkpoint.v1",
+        "weight_id": "synthetic-pre-update.v1",
+        "weight_fingerprint": "56c8f9a61bfe6904a09d94f2d782ff19e1660fa1df6578539f705861dc22b652",
+        "tokens": [
+          [
+            101,
+            1
+          ],
+          [
+            203,
+            2
+          ],
+          [
+            305,
+            1
+          ]
+        ],
+        "layer": 3,
+        "mode": "learned",
+        "round_policy": "bf16_round_then_widen",
+        "table": null,
+        "bias": "f3e5200d148e6f41f65cb1b7cc6509a2f1798d485208689f1d315bb2d4d25697"
+      }
+    },
+    {
+      "case_id": "near-tie.bf16_round_then_widen",
+      "checksum": "2b0d067ab87b6eea37fb491942a86051ecb2abe1b381814af8bcb7d5926b6e59",
+      "identity": {
+        "case_id": "near-tie.bf16_round_then_widen",
+        "checkpoint_id": "synthetic-checkpoint.v1",
+        "weight_id": "synthetic-pre-update.v1",
+        "weight_fingerprint": "56c8f9a61bfe6904a09d94f2d782ff19e1660fa1df6578539f705861dc22b652",
+        "tokens": [
+          [
+            101,
+            1
+          ],
+          [
+            203,
+            2
+          ],
+          [
+            305,
+            1
+          ]
+        ],
+        "layer": 3,
+        "mode": "learned",
+        "round_policy": "bf16_round_then_widen",
+        "table": null,
+        "bias": "f3e5200d148e6f41f65cb1b7cc6509a2f1798d485208689f1d315bb2d4d25697"
+      }
+    },
+    {
+      "case_id": "threshold-extremes.bf16_round_then_widen",
+      "checksum": "a2ad3b60518151442e0301233f578fd19feb806a9834d2e3e6225a7e17db7814",
+      "identity": {
+        "case_id": "threshold-extremes.bf16_round_then_widen",
+        "checkpoint_id": "synthetic-checkpoint.v1",
+        "weight_id": "synthetic-pre-update.v1",
+        "weight_fingerprint": "56c8f9a61bfe6904a09d94f2d782ff19e1660fa1df6578539f705861dc22b652",
+        "tokens": [
+          [
+            101,
+            1
+          ],
+          [
+            203,
+            2
+          ],
+          [
+            305,
+            1
+          ]
+        ],
+        "layer": 3,
+        "mode": "learned",
+        "round_policy": "bf16_round_then_widen",
+        "table": null,
+        "bias": "7cb7efb1ab77bce9ca853743cc7ddd07f70362b3e553f85ad54ffd355b6f2171"
+      }
+    },
+    {
+      "case_id": "hash-slots.bf16_round_then_widen",
+      "checksum": "d67534ebce8d5e7a998736c73ac41228b90815d4e172dcf8ea18ea87b73fb60c",
+      "identity": {
+        "case_id": "hash-slots.bf16_round_then_widen",
+        "checkpoint_id": "synthetic-checkpoint.v1",
+        "weight_id": "synthetic-pre-update.v1",
+        "weight_fingerprint": "56c8f9a61bfe6904a09d94f2d782ff19e1660fa1df6578539f705861dc22b652",
+        "tokens": [
+          [
+            101,
+            1
+          ],
+          [
+            203,
+            2
+          ],
+          [
+            305,
+            1
+          ]
+        ],
+        "layer": 0,
+        "mode": "hash",
+        "round_policy": "bf16_round_then_widen",
+        "table": "97dd4b553bc1d12e2e7eb9a057f16e95dee931ba30e83393c1ef4265dd4f167c",
+        "bias": null
+      }
+    },
+    {
+      "case_id": "hash-duplicates.bf16_round_then_widen",
+      "checksum": "6457ec315e3d6abc8a51947f73239ddb106793874a7b2ce121f92b08e0310d34",
+      "identity": {
+        "case_id": "hash-duplicates.bf16_round_then_widen",
+        "checkpoint_id": "synthetic-checkpoint.v1",
+        "weight_id": "synthetic-pre-update.v1",
+        "weight_fingerprint": "56c8f9a61bfe6904a09d94f2d782ff19e1660fa1df6578539f705861dc22b652",
+        "tokens": [
+          [
+            101,
+            0
+          ],
+          [
+            203,
+            0
+          ],
+          [
+            305,
+            2
+          ]
+        ],
+        "layer": 2,
+        "mode": "hash",
+        "round_policy": "bf16_round_then_widen",
+        "table": "97dd4b553bc1d12e2e7eb9a057f16e95dee931ba30e83393c1ef4265dd4f167c",
+        "bias": null
+      }
+    },
+    {
+      "case_id": "zero-active.bf16_round_then_widen",
+      "checksum": "5bb12581d697a28771881056095405c0872ef638fec76cea1595386f51557fd8",
+      "identity": {
+        "case_id": "zero-active.bf16_round_then_widen",
+        "checkpoint_id": "synthetic-checkpoint.v1",
+        "weight_id": "synthetic-pre-update.v1",
+        "weight_fingerprint": "56c8f9a61bfe6904a09d94f2d782ff19e1660fa1df6578539f705861dc22b652",
+        "tokens": [],
+        "layer": 3,
+        "mode": "learned",
+        "round_policy": "bf16_round_then_widen",
+        "table": null,
+        "bias": "7cb7efb1ab77bce9ca853743cc7ddd07f70362b3e553f85ad54ffd355b6f2171"
+      }
+    },
+    {
+      "case_id": "empty.bf16_round_then_widen",
+      "checksum": "f3e92721669c470e77eec585a0fab9dcd7f283c2ef9e5c733f0cbb8192838ee0",
+      "identity": {
+        "case_id": "empty.bf16_round_then_widen",
+        "checkpoint_id": "synthetic-checkpoint.v1",
+        "weight_id": "synthetic-pre-update.v1",
+        "weight_fingerprint": "56c8f9a61bfe6904a09d94f2d782ff19e1660fa1df6578539f705861dc22b652",
+        "tokens": [],
+        "layer": 3,
+        "mode": "learned",
+        "round_policy": "bf16_round_then_widen",
+        "table": null,
+        "bias": "7cb7efb1ab77bce9ca853743cc7ddd07f70362b3e553f85ad54ffd355b6f2171"
+      }
+    },
+    {
+      "case_id": "cutoff-6-7-bias-ulp.fp32_direct",
+      "checksum": "867794d308f38b6e47c109e204f255712e1816737c8dec9d6bb0a1db72717843",
+      "identity": {
+        "case_id": "cutoff-6-7-bias-ulp.fp32_direct",
+        "checkpoint_id": "synthetic-checkpoint.v1",
+        "weight_id": "synthetic-pre-update.v1",
+        "weight_fingerprint": "56c8f9a61bfe6904a09d94f2d782ff19e1660fa1df6578539f705861dc22b652",
+        "tokens": [
+          [
+            101,
+            1
+          ],
+          [
+            203,
+            2
+          ],
+          [
+            305,
+            1
+          ]
+        ],
+        "layer": 3,
+        "mode": "learned",
+        "round_policy": "fp32_direct",
+        "table": null,
+        "bias": "1c4f66cf021b42a4fda38bd810686076c55801fd01c943739ad08a8f66d70d19"
+      }
+    },
+    {
+      "case_id": "bias-precision-8-9.fp32_direct",
+      "checksum": "d46a84ec37f489509f58b54d6439cd98bc0a4688fdaa096c19b08b3dd6522aaa",
+      "identity": {
+        "case_id": "bias-precision-8-9.fp32_direct",
+        "checkpoint_id": "synthetic-checkpoint.v1",
+        "weight_id": "synthetic-pre-update.v1",
+        "weight_fingerprint": "56c8f9a61bfe6904a09d94f2d782ff19e1660fa1df6578539f705861dc22b652",
+        "tokens": [
+          [
+            101,
+            1
+          ],
+          [
+            203,
+            2
+          ],
+          [
+            305,
+            1
+          ]
+        ],
+        "layer": 3,
+        "mode": "learned",
+        "round_policy": "fp32_direct",
+        "table": null,
+        "bias": "5a107d8a13cc05086e12c8ffb7749e703c3100a9e9adceaf7dfd8fb5bce9736a"
+      }
+    },
+    {
+      "case_id": "pre-bias-weight.fp32_direct",
+      "checksum": "5db3b0c1591c17f070aa7bcaad64060e660373aa1c6627d67816bd7167b92057",
+      "identity": {
+        "case_id": "pre-bias-weight.fp32_direct",
+        "checkpoint_id": "synthetic-checkpoint.v1",
+        "weight_id": "synthetic-pre-update.v1",
+        "weight_fingerprint": "56c8f9a61bfe6904a09d94f2d782ff19e1660fa1df6578539f705861dc22b652",
+        "tokens": [
+          [
+            101,
+            1
+          ],
+          [
+            203,
+            2
+          ],
+          [
+            305,
+            1
+          ]
+        ],
+        "layer": 3,
+        "mode": "learned",
+        "round_policy": "fp32_direct",
+        "table": null,
+        "bias": "41dbaed649575879f40a76400c31abbb91195cb0d722bf9d8451cebfd6c683d7"
+      }
+    },
+    {
+      "case_id": "dropless-hotspot-padding.fp32_direct",
+      "checksum": "9a5253576193e9a9be1f170e6f91f22c6a67883a05f356b9c45132c62d6fa5ba",
+      "identity": {
+        "case_id": "dropless-hotspot-padding.fp32_direct",
+        "checkpoint_id": "synthetic-checkpoint.v1",
+        "weight_id": "synthetic-pre-update.v1",
+        "weight_fingerprint": "56c8f9a61bfe6904a09d94f2d782ff19e1660fa1df6578539f705861dc22b652",
+        "tokens": [
+          [
+            101,
+            0
+          ],
+          [
+            203,
+            0
+          ],
+          [
+            305,
+            0
+          ]
+        ],
+        "layer": 1,
+        "mode": "hash",
+        "round_policy": "fp32_direct",
+        "table": "10c0784a498b8994e62f6265a04eb0f94267146f6f855e79015e95d2b185c041",
+        "bias": null
+      }
+    },
+    {
+      "case_id": "cutoff-6-7-bias-ulp.bf16_round_then_widen",
+      "checksum": "162b71d0ad98a5b33f004796a30bf80f45f837e4cfcd9dedf0b9f4d0470dafb5",
+      "identity": {
+        "case_id": "cutoff-6-7-bias-ulp.bf16_round_then_widen",
+        "checkpoint_id": "synthetic-checkpoint.v1",
+        "weight_id": "synthetic-pre-update.v1",
+        "weight_fingerprint": "56c8f9a61bfe6904a09d94f2d782ff19e1660fa1df6578539f705861dc22b652",
+        "tokens": [
+          [
+            101,
+            1
+          ],
+          [
+            203,
+            2
+          ],
+          [
+            305,
+            1
+          ]
+        ],
+        "layer": 3,
+        "mode": "learned",
+        "round_policy": "bf16_round_then_widen",
+        "table": null,
+        "bias": "1c4f66cf021b42a4fda38bd810686076c55801fd01c943739ad08a8f66d70d19"
+      }
+    },
+    {
+      "case_id": "bias-precision-8-9.bf16_round_then_widen",
+      "checksum": "e4c32f463963c0f4444608af480e725b79e49201b8458994e749dc4cb2e768b1",
+      "identity": {
+        "case_id": "bias-precision-8-9.bf16_round_then_widen",
+        "checkpoint_id": "synthetic-checkpoint.v1",
+        "weight_id": "synthetic-pre-update.v1",
+        "weight_fingerprint": "56c8f9a61bfe6904a09d94f2d782ff19e1660fa1df6578539f705861dc22b652",
+        "tokens": [
+          [
+            101,
+            1
+          ],
+          [
+            203,
+            2
+          ],
+          [
+            305,
+            1
+          ]
+        ],
+        "layer": 3,
+        "mode": "learned",
+        "round_policy": "bf16_round_then_widen",
+        "table": null,
+        "bias": "5a107d8a13cc05086e12c8ffb7749e703c3100a9e9adceaf7dfd8fb5bce9736a"
+      }
+    },
+    {
+      "case_id": "pre-bias-weight.bf16_round_then_widen",
+      "checksum": "87e22e6afc9571b68fd869f09299e9eda9855123cc9ba54688980ef77db5cfd2",
+      "identity": {
+        "case_id": "pre-bias-weight.bf16_round_then_widen",
+        "checkpoint_id": "synthetic-checkpoint.v1",
+        "weight_id": "synthetic-pre-update.v1",
+        "weight_fingerprint": "56c8f9a61bfe6904a09d94f2d782ff19e1660fa1df6578539f705861dc22b652",
+        "tokens": [
+          [
+            101,
+            1
+          ],
+          [
+            203,
+            2
+          ],
+          [
+            305,
+            1
+          ]
+        ],
+        "layer": 3,
+        "mode": "learned",
+        "round_policy": "bf16_round_then_widen",
+        "table": null,
+        "bias": "41dbaed649575879f40a76400c31abbb91195cb0d722bf9d8451cebfd6c683d7"
+      }
+    },
+    {
+      "case_id": "dropless-hotspot-padding.bf16_round_then_widen",
+      "checksum": "9ecf8f6f6c11dae21303c693786a3e2a1307a31b58cc2e6f712b687de7edac13",
+      "identity": {
+        "case_id": "dropless-hotspot-padding.bf16_round_then_widen",
+        "checkpoint_id": "synthetic-checkpoint.v1",
+        "weight_id": "synthetic-pre-update.v1",
+        "weight_fingerprint": "56c8f9a61bfe6904a09d94f2d782ff19e1660fa1df6578539f705861dc22b652",
+        "tokens": [
+          [
+            101,
+            0
+          ],
+          [
+            203,
+            0
+          ],
+          [
+            305,
+            0
+          ]
+        ],
+        "layer": 1,
+        "mode": "hash",
+        "round_policy": "bf16_round_then_widen",
+        "table": "10c0784a498b8994e62f6265a04eb0f94267146f6f855e79015e95d2b185c041",
+        "bias": null
+      }
+    }
+  ]
+}
