@@ -30,13 +30,14 @@ __device__ float fixed_sum(float* shared, int width) {
   return result;
 }
 
+struct RowStats {
+  float mean;
+  float rstd;
+};
+
 template <typename scalar_t>
-__global__ void forward_kernel(
-    const scalar_t* x, const scalar_t* modulation, scalar_t* y, scalar_t* gate,
-    int seq, int hidden, int width, float eps) {
-  extern __shared__ float shared[];
-  const int row = blockIdx.x;
-  const int batch = row / seq;
+__device__ __forceinline__ RowStats row_stats(
+    const scalar_t* x, float* shared, int row, int hidden, int width, float eps) {
   for (int col = threadIdx.x; col < width; col += blockDim.x) {
     shared[col] = col < hidden ? static_cast<float>(x[row * hidden + col]) : 0.0f;
   }
@@ -48,6 +49,19 @@ __global__ void forward_kernel(
   }
   const float variance = __fdiv_rn(fixed_sum(shared, width), hidden);
   const float rstd = __fdiv_rn(1.0f, __fsqrt_rn(__fadd_rn(variance, eps)));
+  return {mean, rstd};
+}
+
+template <typename scalar_t>
+__global__ void forward_kernel(
+    const scalar_t* x, const scalar_t* modulation, scalar_t* y, scalar_t* gate,
+    int seq, int hidden, int width, float eps) {
+  extern __shared__ float shared[];
+  const int row = blockIdx.x;
+  const int batch = row / seq;
+  const auto stats = row_stats(x, shared, row, hidden, width, eps);
+  const float mean = stats.mean;
+  const float rstd = stats.rstd;
   for (int col = threadIdx.x; col < hidden; col += blockDim.x) {
     const float centered = __fsub_rn(static_cast<float>(x[row * hidden + col]), mean);
     const float norm = __fmul_rn(centered, rstd);
@@ -67,17 +81,9 @@ __global__ void backward_rows_kernel(
   extern __shared__ float shared[];
   const int row = blockIdx.x;
   const int batch = row / seq;
-  for (int col = threadIdx.x; col < width; col += blockDim.x) {
-    shared[col] = col < hidden ? static_cast<float>(x[row * hidden + col]) : 0.0f;
-  }
-  const float mean = __fdiv_rn(fixed_sum(shared, width), hidden);
-  for (int col = threadIdx.x; col < width; col += blockDim.x) {
-    const float centered = col < hidden
-        ? __fsub_rn(static_cast<float>(x[row * hidden + col]), mean) : 0.0f;
-    shared[col] = __fmul_rn(centered, centered);
-  }
-  const float variance = __fdiv_rn(fixed_sum(shared, width), hidden);
-  const float rstd = __fdiv_rn(1.0f, __fsqrt_rn(__fadd_rn(variance, eps)));
+  const auto stats = row_stats(x, shared, row, hidden, width, eps);
+  const float mean = stats.mean;
+  const float rstd = stats.rstd;
   for (int col = threadIdx.x; col < width; col += blockDim.x) {
     if (col < hidden) {
       const float grad = static_cast<float>(dy[row * hidden + col]);

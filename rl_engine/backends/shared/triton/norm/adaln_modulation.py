@@ -24,6 +24,16 @@ def _sum_hidden(values, BLOCK: tl.constexpr, LOG: tl.constexpr):
 
 
 @triton.jit
+def _center_and_rstd(x, H: tl.constexpr, EPS: tl.constexpr, BLOCK: tl.constexpr, LOG: tl.constexpr):
+    col = tl.arange(0, BLOCK)
+    mean = tl.div_rn(_sum_hidden(x, BLOCK, LOG), H)
+    centered = tl.where(col < H, x - mean, 0.0)
+    variance = tl.div_rn(_sum_hidden(centered * centered, BLOCK, LOG), H)
+    rstd = tl.div_rn(1.0, libdevice.sqrt_rn(variance + EPS))
+    return centered, rstd
+
+
+@triton.jit
 def _fwd(
     X,
     M,
@@ -39,10 +49,7 @@ def _fwd(
     batch = row // S
     col = tl.arange(0, BLOCK)
     x = tl.load(X + row * H + col, col < H, other=0).to(tl.float32)
-    mean = tl.div_rn(_sum_hidden(x, BLOCK, LOG), H)
-    centered = tl.where(col < H, x - mean, 0.0)
-    variance = tl.div_rn(_sum_hidden(centered * centered, BLOCK, LOG), H)
-    rstd = tl.div_rn(1.0, libdevice.sqrt_rn(variance + EPS))
+    centered, rstd = _center_and_rstd(x, H, EPS, BLOCK, LOG)
     shift = tl.load(M + batch * 3 * H + col, col < H, other=0).to(tl.float32)
     scale = tl.load(M + batch * 3 * H + H + col, col < H, other=0).to(tl.float32)
     y = (centered * rstd) * (1.0 + scale) + shift
@@ -71,10 +78,7 @@ def _bwd_rows(
     col = tl.arange(0, BLOCK)
     x = tl.load(X + row * H + col, col < H, other=0).to(tl.float32)
     dy = tl.load(DY + row * H + col, col < H, other=0).to(tl.float32)
-    mean = tl.div_rn(_sum_hidden(x, BLOCK, LOG), H)
-    centered = tl.where(col < H, x - mean, 0.0)
-    variance = tl.div_rn(_sum_hidden(centered * centered, BLOCK, LOG), H)
-    rstd = tl.div_rn(1.0, libdevice.sqrt_rn(variance + EPS))
+    centered, rstd = _center_and_rstd(x, H, EPS, BLOCK, LOG)
     norm = centered * rstd
     scale = tl.load(M + batch * 3 * H + H + col, col < H, other=0).to(tl.float32)
     dnorm = dy * (1.0 + scale)
