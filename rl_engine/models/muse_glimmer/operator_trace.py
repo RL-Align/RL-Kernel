@@ -22,18 +22,33 @@ from rl_engine.models.muse_glimmer.workload import (
     load_manifest,
 )
 
+# WS1 work-item rows, spelled as in the RFC #501 table (revision of 2026-10-16, which renamed
+# fused_add_rmsnorm and merged local_gated_attention_train/rollout). Keep this the only copy.
+RFC_WS1_ROWS: frozenset[str] = frozenset(
+    {
+        "normalized_embedding",
+        "fused_post_norm_residual_pre_norm",
+        "dense_gemm_qualification",
+        "qknorm_scaled_rope",
+        "global_gated_attention",
+        "local_gated_attention",
+        "swiglu_ffn",
+        "lm_head_softcap_logprob",
+    }
+)
+
 # Node kind -> RFC #501 work-item row.
 NODE_KIND_ROWS: dict[str, str] = {
     "normalized_embedding": "normalized_embedding",
-    "centered_rms_norm": "fused_add_rmsnorm",
-    "final_rms_norm": "fused_add_rmsnorm",
-    "residual_add": "fused_add_rmsnorm",
+    "centered_rms_norm": "fused_post_norm_residual_pre_norm",
+    "final_rms_norm": "fused_post_norm_residual_pre_norm",
+    "residual_add": "fused_post_norm_residual_pre_norm",
     "det_gemm": "dense_gemm_qualification",
     "qk_norm": "qknorm_scaled_rope",
     "rope_local": "qknorm_scaled_rope",
-    "attention_local": "local_gated_attention_train",
+    "attention_local": "local_gated_attention",
     "attention_global": "global_gated_attention",
-    "output_gate_local": "local_gated_attention_train",
+    "output_gate_local": "local_gated_attention",
     "output_gate_global": "global_gated_attention",
     "swiglu": "swiglu_ffn",
     "lm_head": "lm_head_softcap_logprob",
@@ -219,9 +234,7 @@ class MuseGlimmerSpec:
     def row_layers(self) -> dict[str, Any]:
         """Which layers each attention row covers."""
         return {
-            "local_gated_attention_train": [
-                i for i in range(self.num_hidden_layers) if self.is_local(i)
-            ],
+            "local_gated_attention": [i for i in range(self.num_hidden_layers) if self.is_local(i)],
             "global_gated_attention": [
                 i for i in range(self.num_hidden_layers) if not self.is_local(i)
             ],
@@ -263,6 +276,7 @@ __all__ = [
     "MuseGlimmerSpec",
     "NODE_KINDS",
     "NODE_KIND_ROWS",
+    "RFC_WS1_ROWS",
     "SLIDING_ATTENTION",
     "TraceNode",
 ]

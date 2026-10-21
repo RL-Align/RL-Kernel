@@ -23,20 +23,13 @@ from rl_engine.models.muse_glimmer.loader import (
     verify_config,
     verify_weight_map,
 )
-from rl_engine.models.muse_glimmer.operator_trace import NODE_KIND_ROWS, MuseGlimmerSpec
+from rl_engine.models.muse_glimmer.operator_trace import (
+    NODE_KIND_ROWS,
+    RFC_WS1_ROWS,
+    MuseGlimmerSpec,
+)
 
 REPO = Path(__file__).resolve().parents[3]
-
-RFC_WS1_ROWS = {
-    "normalized_embedding",
-    "fused_add_rmsnorm",
-    "dense_gemm_qualification",
-    "qknorm_scaled_rope",
-    "global_gated_attention",
-    "local_gated_attention_train",
-    "swiglu_ffn",
-    "lm_head_softcap_logprob",
-}
 
 
 @pytest.fixture()
@@ -331,6 +324,8 @@ def test_loader_on_real_checkpoint():
 def test_trace_covers_every_ws1_row():
     spec = MuseGlimmerSpec.from_manifest()
     assert set(NODE_KIND_ROWS.values()) == RFC_WS1_ROWS
+    assert "fused_add_rmsnorm" not in RFC_WS1_ROWS  # renamed in the RFC revision
+    assert "local_gated_attention_train" not in RFC_WS1_ROWS  # merged with the rollout row
     assert {node.row for node in spec.trace()} == RFC_WS1_ROWS
 
 
