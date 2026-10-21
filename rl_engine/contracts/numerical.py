@@ -865,7 +865,7 @@ def _validate_chain_aggregates(root: Mapping[str, Any]) -> None:
     sole = list(root["sole_chain_level_logprob_metrics"])
     if set(sole) != set(CHAIN_AGGREGATE_METRICS) or len(sole) != 3:
         raise ContractSchemaError(
-            f"sole_chain_level_logprob_metrics must be exactly {list(CHAIN_AGGREGATE_METRICS)}"
+            "sole_chain_level_logprob_metrics must be exactly " f"{list(CHAIN_AGGREGATE_METRICS)}"
         )
     interval = root["default_clip_interval"]
     if len(interval) != 2 or float(interval[0]) >= float(interval[1]):
@@ -918,7 +918,7 @@ def _validate_compat_views(contract: Mapping[str, Any]) -> None:
                 cell["rtol"]
             ):
                 raise ContractSchemaError(
-                    f"compat accuracy mismatch vs forward_accuracy for {op_class}/{dtype_name}"
+                    f"compat accuracy mismatch vs forward_accuracy for " f"{op_class}/{dtype_name}"
                 )
 
 
