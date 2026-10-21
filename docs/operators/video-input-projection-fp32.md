@@ -161,7 +161,7 @@ Adding a genuine training sample changes the expected parameter gradient.
 ## Performance Notes
 
 ```bash
-PYTHONPATH=. python3.11 benchmarks/operators/gemm/benchmark_video_input_projection_fp32.py \
+OMP_NUM_THREADS=4 python3.11 -m benchmarks.operators.gemm.benchmark_video_input_projection_fp32 \
   --backends pytorch triton --rows 1 128 1024 4096 13104 \
   --seed 420 --warmup 5 --samples 40 \
   --output /tmp/h3-input-projection.json
@@ -170,6 +170,7 @@ PYTHONPATH=. python3.11 benchmarks/operators/gemm/benchmark_video_input_projecti
 The benchmark generates inputs, weights, bias, and gradients with seed 420 by
 default. The JSON records the seed. Use the same row list and dependency versions
 to reproduce the generated data.
+`OMP_NUM_THREADS=4` limits CPU reference computations to four threads.
 The benchmark first checks independent CPU FP32 forward/backward accuracy and
 row-permutation VJPs. It measures eager forward, backward, F+B, and no-grad
 forward CUDA Graph. Timings include layout copies, bias, and the canonical
@@ -197,28 +198,27 @@ The CI installation selects PyTorch 2.4.1+cu124 and Triton 3.0.0.
 Run the following commands inside that image, from the repository root on SM90:
 
 ```bash
-export FORCE_CUDA=1 MAX_JOBS=8 KERNEL_ALIGN_FORCE_SM90=1
-export TORCH_CUDA_ARCH_LIST="9.0+PTX"
-export PYTHONPATH=. OMP_NUM_THREADS=4 MKL_NUM_THREADS=4
-
 python3.11 -m pip install --no-cache-dir torch==2.4.1 \
   --index-url https://download.pytorch.org/whl/cu124
-python3.11 -m pip install --no-build-isolation --no-deps -e .
+FORCE_CUDA=1 MAX_JOBS=8 TORCH_CUDA_ARCH_LIST=9.0+PTX \
+  python3.11 -m pip install --no-build-isolation --no-deps -e .
 python3.11 -m pip install --no-cache-dir numpy tabulate accelerate \
   "transformers==5.13.1" pytest triton "flashinfer-python>=0.6.0,<0.7"
-python3.11 tools/checks/ci_smoke.py
-export RL_KERNEL_REQUIRE_EXT=1
+python3.11 -m tools.checks.ci_smoke
 ```
 
 Keep the image digest and `python3.11 -m pip freeze` output with the test and
 benchmark results. Run the performance command above in the same environment.
+The build variables apply only to extension installation, following the CI build
+requirements. Run module commands from the repository root.
 
 ### Operator and Shared GEMM Checks
 
 ```bash
+export OMP_NUM_THREADS=4
 python3.11 -m pytest tests/ops/gemm/test_video_input_projection_fp32.py -v
 python3.11 -m pytest tests/ops/gemm/test_det_gemm.py -v
-python3.11 tools/validation/operators/check_operator.py \
+python3.11 -m tools.validation.operators.check_operator \
   --op video_input_projection_fp32 --candidate triton --device cuda --dtype fp32 \
   --batch 1 --seq 129 --check-grad --grad-mode random
 ```
@@ -230,12 +230,7 @@ either the candidate or reference, including gradients.
 
 The latent-pack-projection test uses a synthetic `[1,24,13,48,84]` latent and
 random projection weights with seed 420. It runs without a checkpoint.
-To use real weights instead, set `H3_PROJECTION_WEIGHTS` to a safetensors fixture
-containing `proj_in.weight` and `proj_in.bias` from `MiniMaxAI/MiniMax-H3` at revision
-`42ed227ee7df40d41602854ae760620d6eb651fe`.
-The fixture metadata must include `repository` and `checkpoint_revision` with
-these values.
-Keep the weights and generated evidence outside tracked source files.
+Keep generated evidence outside tracked source files.
 
 ## Known Limitations
 

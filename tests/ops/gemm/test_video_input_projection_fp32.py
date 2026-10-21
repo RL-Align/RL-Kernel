@@ -4,7 +4,6 @@
 """H3 FP32 projection accuracy, actual autograd, and logical-row invariance."""
 
 import json
-import os
 
 import pytest
 import torch
@@ -562,21 +561,8 @@ def test_patch_path():
     from rl_engine.reference.packing.video_patch_pack_unpack import NativeVideoPatchPackUnpackOp
 
     torch.manual_seed(420)
-    path = os.environ.get("H3_PROJECTION_WEIGHTS")
-    if path:
-        from safetensors import safe_open
-        from safetensors.torch import load_file
-
-        with safe_open(path, framework="pt") as fixture:
-            metadata = fixture.metadata()
-            assert metadata["repository"] == "MiniMaxAI/MiniMax-H3"
-            assert metadata["checkpoint_revision"] == "42ed227ee7df40d41602854ae760620d6eb651fe"
-        tensors = load_file(path)
-        weight = tensors["proj_in.weight"].cuda().float().contiguous()
-        bias = tensors["proj_in.bias"].cuda().float().contiguous()
-    else:
-        weight = torch.randn(5376, 96, device="cuda") * 0.0625
-        bias = torch.randn(5376, device="cuda") * 0.125
+    weight = torch.randn(5376, 96, device="cuda") * 0.0625
+    bias = torch.randn(5376, device="cuda") * 0.125
     latent = torch.randn(1, 24, 13, 48, 84, device="cuda", dtype=torch.bfloat16)
     x = NativeVideoPatchPackUnpackOp().pack(latent).reshape(-1, 96).float()
     grad = torch.randn(x.shape[0], 5376, device="cuda") * 0.0625

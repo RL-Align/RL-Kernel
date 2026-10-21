@@ -143,7 +143,6 @@ def main():
     parser.add_argument("--samples", type=int, default=20)
     parser.add_argument("--warmup", type=int, default=5)
     parser.add_argument("--seed", type=int, default=420)
-    parser.add_argument("--weights", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if (
@@ -158,19 +157,6 @@ def main():
     torch.manual_seed(args.seed)
     weight = torch.randn(5376, 96, device="cuda") * 0.0625
     bias = torch.randn(5376, device="cuda") * 0.125
-    fixture_hash = None
-    fixture_metadata = None
-    if args.weights:
-        from safetensors import safe_open
-        from safetensors.torch import load_file
-
-        with safe_open(str(args.weights), framework="pt") as fixture:
-            fixture_metadata = fixture.metadata()
-        tensors = load_file(str(args.weights))
-        weight, bias = [
-            tensors[f"proj_in.{name}"].cuda().float().contiguous() for name in ("weight", "bias")
-        ]
-        fixture_hash = hashlib.sha256(args.weights.read_bytes()).hexdigest()
     root = Path(__file__).resolve().parents[3]
     sources = [
         "rl_engine/ops/gemm/canonical_linear.py",
@@ -207,8 +193,6 @@ def main():
         "git_commit": git_commit,
         "git_dirty": bool(git_status) if git_status is not None else None,
         "source_sha256": {p: hashlib.sha256((root / p).read_bytes()).hexdigest() for p in sources},
-        "weight_fixture_sha256": fixture_hash,
-        "weight_fixture_metadata": fixture_metadata,
         "timing": "CUDA event interval for complete operator calls, including host launch gaps",
         "memory": (
             "Warmed eager F+B peak allocated bytes minus the pre-call baseline, "
