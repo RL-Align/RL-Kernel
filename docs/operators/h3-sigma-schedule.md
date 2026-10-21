@@ -127,7 +127,7 @@ within dispersion, so it is not claimed. The N=1e6 CPU medians are noisy
 (B stdev ≈ 44 ms at shift=12), so the 51.98x ratio passes the dispersion
 check only by a small margin. See Known Limitations and the raw JSON, CUDA
 test results, source hashes, and reproduction commands in the
-[4090D evidence report](../../reports/experiments/h3-sigma-schedule/).
+[4090D evidence report](https://github.com/RL-Align/RL-Kernel/tree/test-h3/reports/experiments/h3-sigma-schedule).
 
 ## Tests
 
