@@ -219,7 +219,7 @@ def _observe_adaln_candidate(
     gold_outputs: list[torch.Tensor],
     contract: Mapping[str, Any],
 ) -> CandidateSpec:
-    from rl_engine.runtime.adaln import AdaLNDispatch
+    from rl_engine.runtime.adaln import SHARED_PROFILE, AdaLNDispatch
 
     if not isinstance(candidate.fn, AdaLNDispatch):
         return candidate
@@ -237,9 +237,20 @@ def _observe_adaln_candidate(
     # C1 declares BF16 GPU profiles only; CPU/FP32 observations remain case traces.
     if actual not in {"cuda", "triton"} or trace["execution_dtype"] != "bfloat16":
         return candidate
+    fallback = trace["requested_backend"] != actual
+    if fallback and not (
+        trace["fallback"]
+        and trace["requested_backend"] == "cuda"
+        and actual == "triton"
+        and trace["arithmetic_profile"] == SHARED_PROFILE
+        and trace["observation"] == "successful_forward"
+        and trace["fallback_reason"]
+    ):
+        raise ContractResolveError("undeclared AdaLN backend fallback")
+    # Validate the executed backend's profile; request history stays in backend_trace.
     provenance = BackendProvenance(
         backend_profile="cuda_bf16" if actual == "cuda" else "triton_cuda_bf16",
-        requested_backend=trace["requested_backend"],
+        requested_backend=actual,
         actual_backend=actual,
         execution_dtype=trace["execution_dtype"],
         accumulation_dtype="float32",
@@ -247,15 +258,12 @@ def _observe_adaln_candidate(
         reference_dtype=normalize_dtype_name(gold_outputs[0].dtype),
         candidate_tf32_enabled=False,
         reference_tf32_enabled=False,
-        arithmetic_profile=trace["arithmetic_profile"],
-        fallback=trace["fallback"],
-        fallback_reason=trace["fallback_reason"],
-        semantic_version=trace["semantic_version"],
-        binary_path=trace["binary_path"],
-        binary_sha256=trace["binary_sha256"],
-        observation=trace["observation"],
     )
     validate_backend_provenance(contract, provenance)
+    if fallback:
+        if candidate.provenance is not None:
+            raise ContractResolveError("AdaLN fallback must be reported through backend_trace")
+        return candidate
     if candidate.provenance is not None and candidate.provenance != provenance:
         raise ContractResolveError("declared AdaLN provenance differs from successful execution")
     return replace(candidate, provenance=provenance)

@@ -90,13 +90,6 @@ class BackendProvenance:
     reference_dtype: str
     candidate_tf32_enabled: bool
     reference_tf32_enabled: bool
-    arithmetic_profile: str | None = None
-    fallback: bool = False
-    fallback_reason: str | None = None
-    semantic_version: str | None = None
-    binary_path: str | None = None
-    binary_sha256: str | None = None
-    observation: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -274,25 +267,11 @@ def validate_backend_provenance(
         )
     profile_contract = profile_contracts[provenance.backend_profile]
     expected_backend = str(profile_contract["backend_family"])
-    declared_fallback = False
-    if provenance.fallback:
-        from rl_engine.runtime.adaln import SHARED_PROFILE
-
-        # Only AdaLN's observed same-arithmetic CUDA -> Triton route is declared.
-        declared_fallback = (
-            provenance.requested_backend == "cuda"
-            and provenance.actual_backend == "triton"
-            and provenance.arithmetic_profile == SHARED_PROFILE
-            and provenance.observation == "successful_forward"
-            and bool(provenance.fallback_reason)
-        )
     for field_name, actual in (
         ("requested_backend", provenance.requested_backend),
         ("actual_backend", provenance.actual_backend),
     ):
-        if actual != expected_backend and not (
-            field_name == "requested_backend" and declared_fallback
-        ):
+        if actual != expected_backend:
             raise ContractResolveError(
                 f"backend provenance mismatch for {field_name}: expected "
                 f"{expected_backend!r}, got {actual!r}"
