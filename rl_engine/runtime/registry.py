@@ -67,115 +67,116 @@ class _KernelEnumMeta(EnumMeta):
 
 class OpBackend(Enum, metaclass=_KernelEnumMeta):
     # NVIDIA optimized stack
-    FLASH_ATTN = "rl_engine.backends.cuda.attention.flash_attn.FlashAttentionOp"
+    FLASH_ATTN = "rl_engine.kernels.ops.cuda.attention.flash_attn.FlashAttentionOp"
     FLASHINFER = "rl_engine.kernels.ops.cuda.flashinfer.FlashInferOp"
 
     # TMA-accelerated LogP for SM90+ (Warp Specialization)
-    CUDA_FUSED_LOGP_SM90 = "rl_engine.backends.cuda.logprob.logp.FusedLogpSM90Op"
-    CUDA_FUSED_LOGP_GENERIC = "rl_engine.backends.cuda.logprob.logp.FusedLogpGenericOp"
+    CUDA_FUSED_LOGP_SM90 = "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpSM90Op"
+    CUDA_FUSED_LOGP_GENERIC = "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpGenericOp"
     MUSA_FUSED_LOGP_GENERIC = "rl_engine.backends.musa.logprob.logp.MusaFusedLogpOp"
-    CUDA_DETERMINISTIC_LOGP = "rl_engine.backends.cuda.logprob.logp.DeterministicLogpCUDAOp"
+    CUDA_DETERMINISTIC_LOGP = "rl_engine.kernels.ops.cuda.loss.logp.DeterministicLogpCUDAOp"
     # Deterministic standard-softmax attention (issue #147); not FlashAttention.
     CUDA_DETERMINISTIC_ATTENTION = (
-        "rl_engine.backends.cuda.attention.deterministic_attn.DeterministicAttentionOp"
+        "rl_engine.kernels.ops.cuda.attention.deterministic_attn.DeterministicAttentionOp"
     )
 
     # AMD ROCm optimized stack
     ROCM_AITER = "rl_engine.kernels.ops.rocm.aiter.AiterOp"
     ROCM_CK = "rl_engine.kernels.ops.rocm.composable_kernel.CKOp"
-    ROCM_FLASH_ATTN = "rl_engine.backends.rocm.attention.flash_attn.RocmFlashAttentionOp"
+    ROCM_FLASH_ATTN = "rl_engine.kernels.ops.rocm.attention.flash_attn.RocmFlashAttentionOp"
     # WS2 strict ROCm attention core (AITER/CK dense MHA, Split-KV disabled).
     # Reachable only through ``get_attention_op``: it is not a drop-in for the
     # SDPA-shaped ``attn`` wrappers and must never be a silent fallback.
     ROCM_STRICT_ATTENTION = (
-        "rl_engine.backends.rocm.attention.flash_attn.StrictRocmAiterCKAttentionCore"
+        "rl_engine.kernels.ops.rocm.attention.flash_attn.StrictRocmAiterCKAttentionCore"
     )
 
     # GRPO loss (group reward normalization + clipped surrogate + KL)
-    TRITON_GRPO_LOSS = "rl_engine.backends.shared.triton.loss.grpo_loss.TritonGRPOLossOp"
-    PYTORCH_GRPO_LOSS = "rl_engine.reference.loss.grpo_loss.NativeGRPOLossOp"
+    TRITON_GRPO_LOSS = "rl_engine.kernels.ops.triton.loss.grpo_loss.TritonGRPOLossOp"
+    PYTORCH_GRPO_LOSS = "rl_engine.kernels.ops.pytorch.loss.grpo_loss.NativeGRPOLossOp"
 
     # Fused linear log-prob (hidden @ W^T -> selected-token logp, no [N, V] logits)
     CUDA_FUSED_LINEAR_LOGP_SM90 = (
-        "rl_engine.backends.cuda.logprob.linear_logp.FusedLinearLogpSM90Op"
+        "rl_engine.kernels.ops.cuda.loss.linear_logp.FusedLinearLogpSM90Op"
     )
-    TRITON_LINEAR_LOGP = "rl_engine.backends.shared.triton.logprob.linear_logp.TritonLinearLogpOp"
-    PYTORCH_LINEAR_LOGP = "rl_engine.reference.logprob.linear_logp.NativeLinearLogpOp"
+    TRITON_LINEAR_LOGP = "rl_engine.kernels.ops.triton.loss.linear_logp.TritonLinearLogpOp"
+    PYTORCH_LINEAR_LOGP = "rl_engine.kernels.ops.pytorch.loss.linear_logp.NativeLinearLogpOp"
     # Fused policy-ratio + KL-penalty front-end (PPO/GRPO), logits -> (ratio, kl)
-    TRITON_RATIO_KL = "rl_engine.backends.shared.triton.loss.ratio_kl.TritonRatioKLOp"
-    PYTORCH_RATIO_KL = "rl_engine.reference.loss.ratio_kl.NativeRatioKLOp"
+    TRITON_RATIO_KL = "rl_engine.kernels.ops.triton.loss.ratio_kl.TritonRatioKLOp"
+    PYTORCH_RATIO_KL = "rl_engine.kernels.ops.pytorch.loss.ratio_kl.NativeRatioKLOp"
 
     # Variable-length packing (pack-and-pad), [B,S,...] -> [Total_Active,...]
-    PYTORCH_PACK = "rl_engine.reference.packing.pack.NativePackOp"
+    PYTORCH_PACK = "rl_engine.kernels.ops.pytorch.packing.pack.NativePackOp"
     # Batch-invariant deterministic GEMM (WS1 #146)
-    CUDA_DET_GEMM = "rl_engine.backends.cuda.gemm.det_gemm.DetGemmOp"
-    TRITON_DET_GEMM = "rl_engine.backends.shared.triton.gemm.det_gemm.TritonDetGemmOp"
-    ASCEND_DET_GEMM = "rl_engine.backends.ascend.gemm.det_gemm.DetGemmAscendOp"
+    CUDA_DET_GEMM = "rl_engine.kernels.ops.cuda.matmul.det_gemm.DetGemmOp"
+    TRITON_DET_GEMM = "rl_engine.kernels.ops.triton.matmul.det_gemm.TritonDetGemmOp"
+    ASCEND_DET_GEMM = "rl_engine.kernels.ops.ascend.matmul.det_gemm.DetGemmAscendOp"
     # NON-deterministic reference (torch.matmul); reference/benchmark ONLY,
     # intentionally excluded from det_gemm dispatch (cuBLAS breaks invariance).
-    PYTORCH_GEMM = "rl_engine.reference.gemm.det_gemm.NativeGemmOp"
+    PYTORCH_GEMM = "rl_engine.kernels.ops.pytorch.matmul.det_gemm.NativeGemmOp"
     # Batch-invariant selected-logprob (WS1 #148: locked reduction order)
     TRITON_BATCH_INVARIANT_LOGP = (
-        "rl_engine.backends.shared.triton.logprob.batch_invariant_logp.TritonBatchInvariantLogpOp"
+        "rl_engine.kernels.ops.triton.loss.batch_invariant_logp.TritonBatchInvariantLogpOp"
     )
     PYTORCH_BATCH_INVARIANT_LOGP = (
-        "rl_engine.reference.logprob.batch_invariant_logp.NativeBatchInvariantLogpOp"
+        "rl_engine.kernels.ops.pytorch.loss.batch_invariant_logp.NativeBatchInvariantLogpOp"
     )
     CUDA_BATCH_INVARIANT_LOGP_SM90 = (
-        "rl_engine.backends.cuda.logprob.batch_invariant_logp.BatchInvariantLogpSM90Op"
+        "rl_engine.kernels.ops.cuda.loss.batch_invariant_logp.BatchInvariantLogpSM90Op"
     )
     ASCEND_BATCH_INVARIANT_LOGP = (
-        "rl_engine.backends.ascend.logprob.batch_invariant_logp.BatchInvariantLogpAscendOp"
+        "rl_engine.kernels.ops.ascend.loss.batch_invariant_logp.BatchInvariantLogpAscendOp"
     )
-    ASCEND_RMS_NORM = "rl_engine.backends.ascend.norm.rmsnorm.RMSNormAscendOp"
-    ASCEND_EMBEDDING = "rl_engine.backends.ascend.embedding.embedding.AscendEmbeddingOp"
-    ASCEND_FUSED_LOGP = "rl_engine.backends.ascend.logprob.logp.FusedLogpAscendOp"
-    ASCEND_LM_HEAD = "rl_engine.backends.ascend.embedding.lm_head.AscendLMHeadOp"
+    ASCEND_RMS_NORM = "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp"
+    ASCEND_EMBEDDING = "rl_engine.kernels.ops.ascend.linear.embedding.AscendEmbeddingOp"
+    ASCEND_FUSED_LOGP = "rl_engine.kernels.ops.ascend.loss.logp.FusedLogpAscendOp"
+    ASCEND_LM_HEAD = "rl_engine.kernels.ops.ascend.linear.lm_head.AscendLMHeadOp"
     ASCEND_FUSED_LINEAR_LOGP = (
-        "rl_engine.backends.ascend.logprob.linear_logp.FusedLinearLogpAscendOp"
+        "rl_engine.kernels.ops.ascend.loss.linear_logp.FusedLinearLogpAscendOp"
     )
     # Deterministic vocab-parallel TP logprob reference (WS2 #241 PR3)
     PYTORCH_VOCAB_PARALLEL_LOGP = (
-        "rl_engine.reference.logprob.vocab_parallel_logp.VocabParallelLogprobOp"
+        "rl_engine.kernels.ops.pytorch.loss.vocab_parallel_logp.VocabParallelLogprobOp"
     )
     ROCM_VOCAB_PARALLEL_LOGP = (
-        "rl_engine.backends.rocm.logprob.vocab_parallel_logp.RocmVocabParallelLogprobOp"
+        "rl_engine.kernels.ops.rocm.loss.vocab_parallel_logp.RocmVocabParallelLogprobOp"
     )
     TRITON_VOCAB_PARALLEL_LOGP = (
-        "rl_engine.backends.shared.triton.logprob.vocab_parallel_logp.TritonVocabParallelLogprobOp"
+        "rl_engine.kernels.ops.triton.loss.vocab_parallel_logp.TritonVocabParallelLogprobOp"
     )
     # Deterministic GRPO loss on the TP-aware logprob path (WS2 #241 PR5)
     PYTORCH_DISTRIBUTED_GRPO_LOSS = (
-        "rl_engine.reference.loss.distributed_grpo_loss.DistributedGRPOLossOp"
+        "rl_engine.kernels.ops.pytorch.loss.distributed_grpo_loss.DistributedGRPOLossOp"
     )
     # Ascend NPU deterministic (batch-invariant, no split-K) standard-softmax
     # attention (issue #147); Ascend C forward + reference backward.
     ASCEND_DETERMINISTIC_ATTENTION = (
-        "rl_engine.backends.ascend.attention.deterministic_attn.DeterministicAttentionAscendOp"
+        "rl_engine.kernels.ops.ascend.attention.deterministic_attn.DeterministicAttentionAscendOp"
     )
 
     # RMSNorm(pre-norm / QK-Norm) - pure Pytorch reference(ws1 ground-truth)
-    TRITON_RMS_NORM = "rl_engine.backends.shared.triton.norm.rmsnorm.RMSNormTritonOp"
-    PYTORCH_NATIVE_RMS_NORM = "rl_engine.reference.norm.rms_norm.NativeRMSNormOp"
+    TRITON_RMS_NORM = "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp"
+    PYTORCH_NATIVE_RMS_NORM = "rl_engine.kernels.ops.pytorch.norm.rms_norm.NativeRMSNormOp"
 
     # Generic fallback
     TRITON_GENERIC = "rl_engine.kernels.ops.triton.generic.TritonOp"
     PYTORCH_ATTN = "rl_engine.kernels.ops.pytorch.attention.NativeAttentionOp"
-    TRITON_LOGP = "rl_engine.backends.shared.triton.logprob.logp.TritonLogpOp"
-    PYTORCH_NATIVE = "rl_engine.reference.logprob.logp.NativeLogpOp"
-    PYTORCH_NATIVE_MATMUL = "rl_engine.reference.embedding.matmul.NativeMatmulOp"
-    PYTORCH_NATIVE_ROPE = "rl_engine.reference.rope.rope.NativeRoPEOp"
-    TRITON_ROPE = "rl_engine.backends.shared.triton.rope.rope.TritonRoPEOp"
-    CUDA_ROPE_SM90 = "rl_engine.backends.cuda.rope.rope.RoPESM90Op"
-    ASCEND_ROPE = "rl_engine.backends.ascend.rope.rope.RoPEAscendOp"
-    PYTORCH_NATIVE_SILU = "rl_engine.reference.activation.swiglu.NativeSiLUOp"
-    PYTORCH_NATIVE_SWIGLU = "rl_engine.reference.activation.swiglu.NativeSwiGLUOp"
-    CUDA_SILU = "rl_engine.backends.cuda.activation.swiglu.SiLUCudaOp"
-    CUDA_SWIGLU = "rl_engine.backends.cuda.activation.swiglu.SwiGLUCudaOp"
-    ASCEND_SWIGLU = "rl_engine.backends.ascend.activation.swiglu.SwiGLUAscendOp"
-    ASCEND_SILU = "rl_engine.backends.ascend.activation.silu.SiLUAscendOp"
-    TRITON_SILU = "rl_engine.backends.shared.triton.activation.swiglu.TritonSiLUOp"
-    TRITON_SWIGLU = "rl_engine.backends.shared.triton.activation.swiglu.TritonSwiGLUOp"
+    TRITON_LOGP = "rl_engine.kernels.ops.triton.loss.logp.TritonLogpOp"
+    PYTORCH_NATIVE = "rl_engine.kernels.ops.pytorch.loss.logp.NativeLogpOp"
+    PYTORCH_NATIVE_MATMUL = "rl_engine.kernels.ops.pytorch.linear.matmul.NativeMatmulOp"
+    PYTORCH_NATIVE_ROPE = "rl_engine.kernels.ops.pytorch.rotary_embedding.rope.NativeRoPEOp"
+    TRITON_ROPE = "rl_engine.kernels.ops.triton.rotary_embedding.rope.TritonRoPEOp"
+    CUDA_ROPE_SM90 = "rl_engine.kernels.ops.cuda.rotary_embedding.rope.RoPESM90Op"
+    ASCEND_ROPE = "rl_engine.kernels.ops.ascend.rotary_embedding.rope.RoPEAscendOp"
+    PYTORCH_NATIVE_SILU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSiLUOp"
+    PYTORCH_NATIVE_SWIGLU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSwiGLUOp"
+    CUDA_SILU = "rl_engine.kernels.ops.cuda.activation.swiglu.SiLUCudaOp"
+    CUDA_SWIGLU = "rl_engine.kernels.ops.cuda.activation.swiglu.SwiGLUCudaOp"
+    ASCEND_SWIGLU = "rl_engine.kernels.ops.ascend.activation.swiglu.SwiGLUAscendOp"
+    ASCEND_SILU = "rl_engine.kernels.ops.ascend.activation.silu.SiLUAscendOp"
+    TRITON_SILU = "rl_engine.kernels.ops.triton.activation.swiglu.TritonSiLUOp"
+    TRITON_SWIGLU = "rl_engine.kernels.ops.triton.activation.swiglu.TritonSwiGLUOp"
+
     PYTORCH_ADALN_MODULATION = (
         "rl_engine.reference.norm.adaln_modulation.NativeAdaLNModulationOp"
     )
@@ -186,22 +187,26 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
 
     # WS1 pure-PyTorch ground-truth attention reference (hand-written fp32 softmax).
     # Distinct from PYTORCH_ATTN above, which is the production SDPA fallback.
-    PYTORCH_NATIVE_ATTENTION = "rl_engine.reference.attention.standard_attn.NativeAttentionOp"
+    PYTORCH_NATIVE_ATTENTION = (
+        "rl_engine.kernels.ops.pytorch.attention.standard_attn.NativeAttentionOp"
+    )
     # WS1 pure-PyTorch ground-truth KV-cache (decode/incremental) attention
     # reference; concats cache+new then reuses the standard attention reduction.
-    PYTORCH_NATIVE_KV_CACHE_ATTN = "rl_engine.reference.attention.kv_cache.NativeKVCacheAttnOp"
+    PYTORCH_NATIVE_KV_CACHE_ATTN = (
+        "rl_engine.kernels.ops.pytorch.attention.kv_cache.NativeKVCacheAttnOp"
+    )
     # WS2 correctness-first context-parallel attention reference. It emulates
     # CP prefill/chunked-prefill with fp32 attention-domain LSE merges.
     PYTORCH_CP_ATTENTION = (
-        "rl_engine.reference.attention.cp_attention.DeterministicCPAttentionReferenceOp"
+        "rl_engine.kernels.ops.pytorch.attention.cp_attention.DeterministicCPAttentionReferenceOp"
     )
     # WS1 pure-PyTorch ground-truth linear ops
-    PYTORCH_NATIVE_LM_HEAD = "rl_engine.reference.embedding.lm_head.NativeLMHeadOp"
+    PYTORCH_NATIVE_LM_HEAD = "rl_engine.kernels.ops.pytorch.linear.lm_head.NativeLMHeadOp"
     # WS1 pure-PyTorch ground-truth embedding ops
-    TRITON_EMBEDDING = "rl_engine.backends.shared.triton.embedding.embedding.TritonEmbeddingOp"
-    PYTORCH_NATIVE_EMBEDDING = "rl_engine.reference.embedding.embedding.NativeEmbeddingOp"
-    CUDA_SM90_LM_HEAD = "rl_engine.backends.cuda.embedding.lm_head.SM90LMHeadOp"
-    CUDA_SM90_EMBEDDING = "rl_engine.backends.cuda.embedding.embedding.SM90EmbeddingOp"
+    TRITON_EMBEDDING = "rl_engine.kernels.ops.triton.linear.embedding.TritonEmbeddingOp"
+    PYTORCH_NATIVE_EMBEDDING = "rl_engine.kernels.ops.pytorch.linear.embedding.NativeEmbeddingOp"
+    CUDA_SM90_LM_HEAD = "rl_engine.kernels.ops.cuda.linear.lm_head.SM90LMHeadOp"
+    CUDA_SM90_EMBEDDING = "rl_engine.kernels.ops.cuda.linear.embedding.SM90EmbeddingOp"
 
 
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
@@ -230,7 +235,9 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
                 "strict_observable": True,
             },
             lifecycle=OperatorLifecycle.ENGINE_CONSTRUCTION,
-            implementation_class_or_factory=("rl_engine.reference.logprob.logp.NativeLogpOp"),
+            implementation_class_or_factory=(
+                "rl_engine.kernels.ops.pytorch.loss.logp.NativeLogpOp"
+            ),
             fallback_policy=OperatorFallbackPolicy.ERROR,
             version_or_build_fingerprint="NativeLogpOp-selected-logprob-v1",
         ),
@@ -1064,7 +1071,6 @@ class KernelRegistry:
         hidden: int,
         modulate_index: torch.Tensor | None = None,
         strict: bool = False,
-        arithmetic_profile: str | None = None,
     ) -> tuple[Any, dict[str, Any]]:
         """Resolve AdaLN; strict permits only the shared declared replay profile."""
         from rl_engine.runtime.adaln import (
@@ -1077,8 +1083,6 @@ class KernelRegistry:
         if hidden <= 0:
             raise ValueError("hidden must be positive")
         profile = SELECT01_PROFILE if modulate_index is not None else SHARED_PROFILE
-        if arithmetic_profile is not None and arithmetic_profile != profile:
-            raise ValueError(f"unsupported AdaLN arithmetic profile {arithmetic_profile!r}")
         if strict and modulate_index is not None:
             raise RuntimeError("strict AdaLN rejects select01 framework backward")
         platform = self._platform_for_device(device)

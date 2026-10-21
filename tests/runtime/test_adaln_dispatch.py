@@ -156,10 +156,8 @@ def test_gtest_validates_and_serializes_fallback_trace_on_cpu(monkeypatch, overr
         assert observed["fallback"] is True and observed["fallback_reason"]
 
 
-def test_strict_rejects_unknown_profile_and_indexed_backward():
+def test_strict_rejects_indexed_backward():
     registry = KernelRegistry()
-    with pytest.raises(ValueError, match="arithmetic profile"):
-        registry.get_adaln_modulation_op("cpu", hidden=2, strict=True, arithmetic_profile="unknown")
     with pytest.raises(RuntimeError, match="select01"):
         registry.get_adaln_modulation_op(
             "cpu", hidden=2, strict=True, modulate_index=torch.tensor([[0]])

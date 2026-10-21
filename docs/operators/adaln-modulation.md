@@ -109,7 +109,6 @@ and complete test and sanitizer logs.
 ```python
 op, trace = kernel_registry.get_adaln_modulation_op(
     x.device, hidden=x.shape[-1], strict=True,
-    arithmetic_profile="adaln-shared-fp32-tree-v1",
 )
 y, gate = op(x, modulation)
 ```
@@ -117,8 +116,9 @@ y, gate = op(x, modulation)
 Strict dispatch pins the shared FP32 hidden tree, ascending token fold and final
 cast. NVIDIA CUDA may fall back to Triton when the extension is unavailable or
 H exceeds 4096: both implement this same arithmetic profile, accept FP32/BF16,
-and retain the existing launch-configuration replay tests. Strict rejects unknown
-profiles/backends, the indexed/select01 framework backward and PyTorch execution
+and retain the existing launch-configuration replay tests. The arithmetic profile
+is inferred from the requested operation and recorded in the trace. Strict rejects
+unknown backends, the indexed/select01 framework backward and PyTorch execution
 on GPU, whose cross-backend replay is not qualified here. It checks the actual
 input device and hidden size again at execution. CPU Native is permitted for the
 fixed reference. This policy does not itself certify any hardware/runtime profile.
