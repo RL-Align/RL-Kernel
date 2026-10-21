@@ -1,7 +1,7 @@
 # H3 sigma schedule: RTX 4090D evidence
 
 These are historical operator measurements from October 16–17, 2026,
-rechecked against candidate commit `73e1aac` on October 21. No new GPU run
+rechecked against candidate commit `374488b` on October 21. No new GPU run
 was performed during the source-binding check.
 
 ## Correctness and source identity
@@ -14,7 +14,7 @@ all outcomes; its hostname attribute was removed and the XML reserialized.
 [Source provenance](source-provenance.json) records SHA256 hashes for the
 tested archive, selected source files, and included results. The reference,
 CUDA backend, fixture, CPU/GPU/dispatch tests, and benchmark in the final
-closing snapshot are byte-identical to those files in `73e1aac`.
+closing snapshot are byte-identical to those files in `374488b`.
 
 The performance run (`run-20261016-235221-8055`) predates the final HIP
 rejection guard. Its reference and benchmark are byte-identical to the

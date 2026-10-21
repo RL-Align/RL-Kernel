@@ -1,6 +1,6 @@
 {
   "evidence_kind": "Historical hardware results; source binding rechecked 2026-10-21; no new GPU run",
-  "candidate_commit": "73e1aac95a6c3e0745792b83733ba79432c12b3b",
+  "candidate_commit": "374488bb3abc856b356b79fbfbcc0e15bbb968c4",
   "historical_snapshot_base_commit": "0e8a18aff441895082aee603959cd25cb66d7e4b",
   "environment": {
     "python": "3.12.3",

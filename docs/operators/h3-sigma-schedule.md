@@ -41,7 +41,7 @@ provenance = session.instance_provenance(resolution, op)
 | Backend | Wrapper | Native symbol | Status |
 | --- | --- | --- | --- |
 | CUDA (Triton) | `rl_engine.backends.cuda.model_specific.minimax_h3.sigma_schedule.H3SigmaScheduleCudaOp` | 3 Triton kernels (grid / dedup scan / timesteps) | Validated on RTX 4090D (torch 2.5.1+cu121, Triton 3.1.0): bitwise-identical to the pinned upstream oracle across the full device suite |
-| ROCm | — | — | Not supported: the inline PTX `div.rn.f32` is NVIDIA-only and the backend refuses construction on HIP. The registry serves the reference on ROCm. |
+| ROCm | — | — | **CUDA only.** The ROCm column stays open. The inline PTX `div.rn.f32` is NVIDIA-only, so the backend refuses construction on HIP; ROCm dispatches the PyTorch reference. |
 | PyTorch reference | `rl_engine.reference.minimax_h3.sigma_schedule.NativeH3SigmaScheduleOp` | `torch.linspace` + `unique_consecutive` | Active (byte-frozen oracle; fixture generated on Linux CPU under torch 2.14.1, reproduced on 2.4.1 and 2.5.1) |
 
 ## Tensor Contract
@@ -152,9 +152,9 @@ itself bit-identical to the executed upstream method on those inputs.
   fp32-overflowing, or underflowing shifts. Bitwise parity for those edge cases
   is not portable across host architectures; the released shifts (3 and 12)
   do not take these paths. NVIDIA GPUs on ARM hosts have not been validated.
-- ROCm is not supported: the Triton backend refuses construction on HIP
-  because its division is emitted as inline NVIDIA PTX. The registry serves the
-  PyTorch reference on ROCm.
+- **CUDA only.** The ROCm column stays open: the Triton backend refuses
+  construction on HIP because its division is emitted as inline NVIDIA PTX;
+  ROCm dispatches the PyTorch reference.
 - Measured end-to-end latency on the 4090D: for the typical H3 sizes
   (N = 25/50/1000) the device-side Triton build is 2.5–3.2x SLOWER than
   building on CPU and copying to the GPU (B/C median 0.315–0.403, all separated
