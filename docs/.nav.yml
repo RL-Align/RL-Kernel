@@ -27,6 +27,7 @@ nav:
       - operators/ratio-kl.md
       - operators/pack-and-pad.md
       - operators/video-patch-pack-unpack.md
+      - operators/video-input-projection-fp32.md
       - operators/sampling.md
       - operators/det-gemm.md
       - operators/embedding.md
