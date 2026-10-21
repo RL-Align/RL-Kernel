@@ -161,7 +161,7 @@ Adding a genuine training sample changes the expected parameter gradient.
 ## Performance Notes
 
 ```bash
-PYTHONPATH=. python benchmarks/operators/gemm/benchmark_video_input_projection_fp32.py \
+PYTHONPATH=. python3.11 benchmarks/operators/gemm/benchmark_video_input_projection_fp32.py \
   --backends pytorch triton --rows 1 128 1024 4096 13104 \
   --seed 420 --warmup 5 --samples 40 \
   --output /tmp/h3-input-projection.json
@@ -188,9 +188,37 @@ claim. The benchmark records the reference identity and its source hash.
 
 ## Tests
 
+### CI Environment
+
+Use the image and installation order in `ci/scripts/run_gpu_ci.sh` for development
+and acceptance tests. The current CI image is
+`runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04`.
+The CI installation selects PyTorch 2.4.1+cu124 and Triton 3.0.0.
+Run the following commands inside that image, from the repository root on SM90:
+
 ```bash
-python -m pytest tests/ops/gemm/test_video_input_projection_fp32.py -v
-python tools/validation/operators/check_operator.py \
+export FORCE_CUDA=1 MAX_JOBS=8 KERNEL_ALIGN_FORCE_SM90=1
+export TORCH_CUDA_ARCH_LIST="9.0+PTX"
+export PYTHONPATH=. OMP_NUM_THREADS=4 MKL_NUM_THREADS=4
+
+python3.11 -m pip install --no-cache-dir torch==2.4.1 \
+  --index-url https://download.pytorch.org/whl/cu124
+python3.11 -m pip install --no-build-isolation --no-deps -e .
+python3.11 -m pip install --no-cache-dir numpy tabulate accelerate \
+  "transformers==5.13.1" pytest triton "flashinfer-python>=0.6.0,<0.7"
+python3.11 tools/checks/ci_smoke.py
+export RL_KERNEL_REQUIRE_EXT=1
+```
+
+Keep the image digest and `python3.11 -m pip freeze` output with the test and
+benchmark results. Run the performance command above in the same environment.
+
+### Operator and Shared GEMM Checks
+
+```bash
+python3.11 -m pytest tests/ops/gemm/test_video_input_projection_fp32.py -v
+python3.11 -m pytest tests/ops/gemm/test_det_gemm.py -v
+python3.11 tools/validation/operators/check_operator.py \
   --op video_input_projection_fp32 --candidate triton --device cuda --dtype fp32 \
   --batch 1 --seq 129 --check-grad --grad-mode random
 ```

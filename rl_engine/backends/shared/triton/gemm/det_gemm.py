@@ -814,7 +814,7 @@ if _TRITON_AVAILABLE:
                 b = b.to(tl.float32)
             dot = tl.dot(a, b, allow_tf32=False)
             # Shorten the FP32 accumulation chain inside each fixed chunk.
-            if CHUNK_K and k >= tl.cdiv(CHUNK_K, 2 * BLOCK_K):
+            if CHUNK_K != 0 and k >= tl.cdiv(CHUNK_K, 2 * BLOCK_K):
                 second_half += dot
             else:
                 acc += dot
