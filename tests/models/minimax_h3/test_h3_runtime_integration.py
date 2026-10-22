@@ -6,9 +6,10 @@ provider, LoRA gradient gate and the CPS transition contract."""
 
 from __future__ import annotations
 
+import importlib.util
 import math
 import os
-import sys
+from pathlib import Path
 
 import pytest
 import torch
@@ -166,8 +167,13 @@ class TestTransition:
         root = os.environ.get("VERL_OMNI_PATH")
         if not root:
             pytest.skip("set VERL_OMNI_PATH to a verl-omni checkout")
-        sys.path.insert(0, root)
-        sched_mod = pytest.importorskip("verl_omni.pipelines.schedulers.flow_match_sde")
+        # load by path: putting the checkout on sys.path would shadow our own `tests` package
+        path = Path(root) / "verl_omni/pipelines/schedulers/flow_match_sde.py"
+        if not path.exists():
+            pytest.skip(f"no scheduler at {path}")
+        spec = importlib.util.spec_from_file_location("flow_match_sde_under_test", path)
+        sched_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sched_mod)
         pytest.importorskip("triton")
         tr, x, v, noise = self._case(batch=2, shape=(64, 96))
         scheduler = sched_mod.FlowMatchSDEDiscreteScheduler(num_train_timesteps=1000, shift=1.0)
