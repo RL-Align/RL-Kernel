@@ -5,7 +5,7 @@
 Four RFC #420 rows share one contract: `audio_input_projection_fp32`,
 `audio_output_projection_fp32`, `text_context_projection` and `h3_qkv_gemm`. Each is a linear
 projection pinned to checkpoint tensors (`MiniMaxAI/MiniMax-H3@42ed227`, see
-[the architecture fingerprint](h3-arch-fingerprint.md)):
+the architecture fingerprint (`h3-arch-fingerprint`, #567)):
 
 | Row | in -> out | dtype | bias | tensors |
 | --- | --- | --- | --- | --- |
