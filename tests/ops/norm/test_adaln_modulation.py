@@ -118,6 +118,7 @@ def test_adaln_cuda_registry_reports_real_fallback():
 
 
 def test_adaln_registry_skips_cuda_for_large_hidden():
+    pytest.importorskip("triton")
     op, trace = kernel_registry.get_adaln_modulation_op(device="cuda", hidden=5000)
     assert type(op.implementation).__name__ == "TritonAdaLNModulationOp"
     assert trace["fallback"] is True
