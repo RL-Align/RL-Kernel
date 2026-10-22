@@ -56,3 +56,12 @@ without weights). On H100 (Hopper) 15 passed. Tokens 1, 64 and 257 per block, bo
 Attention, the O/gate_up/down GEMMs and SwiGLU are `interim` until their rows land, so a
 refiner trace is not yet strict-clean (`assert_strict` reports exactly those nodes).
 Fail-closed strict mode is therefore enforced per node by the trace, not by the block.
+
+## Hopper evidence (H100)
+
+These outputs and figures are not part of this diff; they are on the fork's `pr_assets` branch (links in the PR description).
+`reports/experiments/h3-token-refiner-h100/report.json` (from `tools/validation/models/h3_refiner_report.py`, real block-0 weights) records per-node agreement,
+batch/repeat invariance, relative error vs FP64 and block time at 12, 257 and 925 tokens.
+Time: 3.7 ms vs 0.54 ms (12 tokens), 8.5 vs 0.62 ms (257), 32.3 vs 1.42 ms (925) for RL-Kernel vs provider. Almost all of it is the nodes
+that still run interim bindings owned by other rows (full attention, O/gate_up/down GEMMs); the rows this PR adds (QKV, norms, residual) are
+within about 2x of the provider. Replacing the interim bindings is tracked by those rows, not by this PR.

@@ -126,7 +126,9 @@ def h3_shard_root() -> Path | None:
     return None
 
 
-def load_h3_tensors(names: list[str], device: torch.device | str = "cpu") -> dict[str, torch.Tensor]:
+def load_h3_tensors(
+    names: list[str], device: torch.device | str = "cpu"
+) -> dict[str, torch.Tensor]:
     """Load named tensors from whichever released shards are present.
 
     Resolves each name through the shard index and reads only that tensor

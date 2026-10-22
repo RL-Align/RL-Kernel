@@ -210,7 +210,9 @@ def run_graph(mode: str, ctx: dict[str, Any], ops: hb.CandidateOps | None = None
     return values
 
 
-def run_isolated(ctx: dict[str, Any], ops: hb.CandidateOps, provider: dict[str, Any]) -> dict[str, Any]:
+def run_isolated(
+    ctx: dict[str, Any], ops: hb.CandidateOps, provider: dict[str, Any]
+) -> dict[str, Any]:
     """Each candidate node fed the provider's inputs to that node."""
 
     return {
@@ -245,10 +247,14 @@ def run_refiner(
 
 
 def run_refiner_case(
-    weights: dict[str, torch.Tensor], *, block: int = 0, tokens: int = 257, seed: int = 0,
+    weights: dict[str, torch.Tensor],
+    *,
+    block: int = 0,
+    tokens: int = 257,
+    seed: int = 0,
     ops: hb.CandidateOps | None = None,
 ) -> dict[str, Any]:
-    """Forward replay of one refiner block: per-node agreement, invariance, accuracy, first drift."""
+    """Forward replay of one refiner block: per-node agreement, invariance, accuracy, drift."""
 
     ops = ops or hb.CandidateOps()
     ctx = make_refiner_context(weights, block=block, tokens=tokens, seed=seed, batch=1)

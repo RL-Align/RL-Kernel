@@ -21,9 +21,7 @@ import torch
 
 from rl_engine.models.minimax_h3 import fingerprint as fp
 from rl_engine.models.minimax_h3 import operator_trace as ot
-from rl_engine.reference.minimax_h3 import block as gold
 from rl_engine.validation.models import h3_block as hb
-from rl_engine.validation.models import h3_provider as prov
 from rl_engine.validation.models import h3_refiner as hr
 from rl_engine.validation.models.h3_weights import load_h3_tensors
 
@@ -141,7 +139,9 @@ def test_backward_against_fp32_golden(refiner_weights):
     grad_out = torch.randn(1, 33, hr.HIDDEN, generator=gen).bfloat16().cuda()
 
     def grads(mode, dtype):
-        weights = {n: refiner_weights[n].detach().to(dtype).clone().requires_grad_() for n in leaves}
+        weights = {
+            n: refiner_weights[n].detach().to(dtype).clone().requires_grad_() for n in leaves
+        }
         hidden = hidden0.detach().to(dtype).clone().requires_grad_()
         ctx = {"weights": weights, "prefix": f"{hr.PREFIX}.{block}", "hidden": hidden}
         out = hr.run_graph(mode, ctx, ops)[hr.OUTPUT]
