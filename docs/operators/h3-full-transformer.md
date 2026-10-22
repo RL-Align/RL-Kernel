@@ -40,3 +40,16 @@ to another contributor, so the diagnostic binding is labelled in the artifact me
   operator trace); `time_embedder` and `norm_out` use the provider in this harness.
 - Parameter-gradient fingerprints are GPU-side position-weighted checksums, not SHA-256.
 - Sampler is the deterministic Euler ODE; the stochastic `cps` transition is a separate row.
+
+## Hopper evidence chart
+
+These outputs and figures are not part of this diff; they are on the fork's `pr_assets` branch (links in the PR description).
+Three seeds of the single-vs-batched Euler control (`reports/experiments/h3-full-transformer-h100/dual_trajectory_seed{11,22,33}[_diag].json`, plus the original
+`dual_trajectory.json`) and the strict-vs-provider comparison of the 33B forward/backward
+(`full_transformer.json`).
+
+* provider: the two paths differ at every step (max abs 0.25-0.54 on step 0).
+* RL-Kernel strict: the first difference is 4.3e-6 to 4.8e-6 and comes from the video `proj_in`/`proj_out`, which are another contributor's rows and
+  are not bound here; the difference then grows through the sampler on some seeds.
+* strict with the video projections bound only as a diagnostic (`--diag-video-projections`): bitwise equal at every step on all three seeds.
+* the wall-time panel includes warm-up; steady-state step times are a follow-up.

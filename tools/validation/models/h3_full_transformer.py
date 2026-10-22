@@ -31,7 +31,7 @@ from tools.validation.models.h3_full_model import packed_inputs, provider_varian
 
 
 def tensor_sha(t: torch.Tensor) -> str:
-    """Bit-level fingerprint computed on the GPU: two position-weighted sums of the raw 16-bit words.
+    """Bit-level GPU fingerprint: two position-weighted sums of the raw 16-bit words.
 
     Not cryptographic; equality of two fingerprints means the bytes agree for any realistic
     difference (any single changed word changes the plain sum or the weighted sum).
@@ -50,8 +50,16 @@ def rel(a: torch.Tensor, b: torch.Tensor) -> float:
     return float((a - b).norm() / b.norm().clamp_min(1e-30))
 
 
-def run_once(model, inputs, *, candidate, strict_boundaries, reference_grads=None, keep_grads=False,
-             variant="default"):
+def run_once(
+    model,
+    inputs,
+    *,
+    candidate,
+    strict_boundaries,
+    reference_grads=None,
+    keep_grads=False,
+    variant="default",
+):
     """One forward+backward. Returns outputs, input grads, per-parameter (sha, rel-to-reference)."""
 
     trace = FullModelTrace()
@@ -72,12 +80,18 @@ def run_once(model, inputs, *, candidate, strict_boundaries, reference_grads=Non
 
         handles.append(parameter.register_post_accumulate_grad_hook(hook))
     grad_inputs = ("hidden_states", "audio_hidden_states", "encoder_hidden_states")
-    fresh = {k: (v.detach().clone().requires_grad_() if k in grad_inputs else v) for k, v in inputs.items()}
+    fresh = {
+        k: (v.detach().clone().requires_grad_() if k in grad_inputs else v)
+        for k, v in inputs.items()
+    }
     torch.cuda.synchronize()
     begin = time.perf_counter()
-    with full_model_execution(
-        model, candidate=candidate, trace=trace, strict_boundaries=strict_boundaries
-    ), provider_variant_context(variant):
+    with (
+        full_model_execution(
+            model, candidate=candidate, trace=trace, strict_boundaries=strict_boundaries
+        ),
+        provider_variant_context(variant),
+    ):
         with torch.autograd.graph.save_on_cpu(pin_memory=True):
             video, audio = model(**fresh)
             torch.cuda.synchronize()
@@ -88,10 +102,19 @@ def run_once(model, inputs, *, candidate, strict_boundaries, reference_grads=Non
     total_s = time.perf_counter() - begin
     for h in handles:
         h.remove()
-    in_grads = {k: fresh[k].grad.detach().cpu() for k in ("hidden_states", "audio_hidden_states", "encoder_hidden_states")}
+    in_grads = {
+        k: fresh[k].grad.detach().cpu()
+        for k in ("hidden_states", "audio_hidden_states", "encoder_hidden_states")
+    }
     return dict(
-        video=video.detach().cpu(), audio=audio.detach().cpu(), in_grads=in_grads, stats=stats,
-        kept=kept, trace=trace.validate(backward=True), forward_s=forward_s, total_s=total_s,
+        video=video.detach().cpu(),
+        audio=audio.detach().cpu(),
+        in_grads=in_grads,
+        stats=stats,
+        kept=kept,
+        trace=trace.validate(backward=True),
+        forward_s=forward_s,
+        total_s=total_s,
         loss=float(loss),
     )
 
@@ -120,10 +143,15 @@ def main() -> None:
     torch.backends.cudnn.allow_tf32 = False
     started = time.perf_counter()
     model, loading = MiniMaxH3Transformer3DModel.from_pretrained(
-        str(args.checkpoint / "transformer"), torch_dtype=torch.bfloat16, local_files_only=True,
-        low_cpu_mem_usage=True, output_loading_info=True,
+        str(args.checkpoint / "transformer"),
+        torch_dtype=torch.bfloat16,
+        local_files_only=True,
+        low_cpu_mem_usage=True,
+        output_loading_info=True,
     )
-    if any(loading.get(k) for k in ("missing_keys", "unexpected_keys", "mismatched_keys", "error_msgs")):
+    if any(
+        loading.get(k) for k in ("missing_keys", "unexpected_keys", "mismatched_keys", "error_msgs")
+    ):
         raise ValueError("checkpoint did not load every tensor exactly")
     model = model.to("cuda").eval()
     model.enable_gradient_checkpointing()
@@ -133,14 +161,22 @@ def main() -> None:
 
     provider = run_once(model, inputs, candidate=False, strict_boundaries=False, keep_grads=True)
     provider_again = run_once(model, inputs, candidate=False, strict_boundaries=False)
-    cand = run_once(model, inputs, candidate=True, strict_boundaries=strict, reference_grads=provider["kept"])
+    cand = run_once(
+        model, inputs, candidate=True, strict_boundaries=strict, reference_grads=provider["kept"]
+    )
     cand2 = run_once(model, inputs, candidate=True, strict_boundaries=strict)
     # How far an independent provider kernel choice moves the same numbers (calibration).
     variants = {}
     for name in ("sdpa-efficient", "blas-cublaslt"):
         try:
-            other = run_once(model, inputs, candidate=False, strict_boundaries=False,
-                             reference_grads=provider["kept"], variant=name)
+            other = run_once(
+                model,
+                inputs,
+                candidate=False,
+                strict_boundaries=False,
+                reference_grads=provider["kept"],
+                variant=name,
+            )
             variants[name] = summarise(other, provider)
         except Exception as exc:  # a forced kernel may be unavailable; record, do not fail
             variants[name] = {"error": f"{type(exc).__name__}: {exc}"}
@@ -149,26 +185,36 @@ def main() -> None:
 
     def same(a, b):
         return (
-            torch.equal(a["video"], b["video"]) and torch.equal(a["audio"], b["audio"])
+            torch.equal(a["video"], b["video"])
+            and torch.equal(a["audio"], b["audio"])
             and all(torch.equal(a["in_grads"][k], b["in_grads"][k]) for k in a["in_grads"])
             and all(a["stats"][k]["sha"] == b["stats"][k]["sha"] for k in a["stats"])
         )
 
     report = dict(
         status="execution_complete",
-        device=torch.cuda.get_device_name(), torch=torch.__version__,
+        device=torch.cuda.get_device_name(),
+        torch=torch.__version__,
         parameters=sum(p.numel() for p in model.parameters()),
-        load_seconds=load_s, strict_boundaries=strict,
+        load_seconds=load_s,
+        strict_boundaries=strict,
         candidate_vs_provider=summarise(cand, provider),
         provider_repeat_vs_provider=summarise(provider_again, provider),
         provider_variants_vs_provider=variants,
         provider_bitwise_repeatable=same(provider, provider_again),
         candidate_bitwise_repeatable=same(cand, cand2),
-        seconds=dict(provider=provider["total_s"], candidate=cand["total_s"],
-                     provider_forward=provider["forward_s"], candidate_forward=cand["forward_s"]),
+        seconds=dict(
+            provider=provider["total_s"],
+            candidate=cand["total_s"],
+            provider_forward=provider["forward_s"],
+            candidate_forward=cand["forward_s"],
+        ),
         peak_allocated_bytes=torch.cuda.max_memory_allocated(),
-        trace=dict(bindings=cand["trace"]["bindings"], boundary_bindings=cand["trace"]["boundary_bindings"],
-                   candidate_calls=len(cand["trace"]["candidate_calls"])),
+        trace=dict(
+            bindings=cand["trace"]["bindings"],
+            boundary_bindings=cand["trace"]["boundary_bindings"],
+            candidate_calls=len(cand["trace"]["candidate_calls"]),
+        ),
         loss=dict(provider=provider["loss"], candidate=cand["loss"]),
     )
     args.output.mkdir(parents=True, exist_ok=True)

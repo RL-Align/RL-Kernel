@@ -188,10 +188,7 @@ def test_drift_order_interleaves_parameter_and_activation_backward_hooks():
 
 
 def test_strict_boundaries_apply_to_candidate_execution_only():
-    from rl_engine.validation.models.h3_full_model import (
-        PROVIDER_BOUNDARIES,
-        STRICT_BOUNDARY_ROWS,
-    )
+    from rl_engine.validation.models.h3_full_model import PROVIDER_BOUNDARIES, STRICT_BOUNDARY_ROWS
 
     with pytest.raises(ValueError, match="candidate execution only"):
         with full_model_execution(
@@ -200,6 +197,12 @@ def test_strict_boundaries_apply_to_candidate_execution_only():
             pass
     # every boundary module is either bound to a row or explicitly left on the provider
     assert set(STRICT_BOUNDARY_ROWS) | set(PROVIDER_BOUNDARIES) == {
-        "proj_in", "audio_proj_in", "context_embedder", "token_refiner",
-        "time_embedder", "norm_out", "proj_out", "audio_proj_out",
+        "proj_in",
+        "audio_proj_in",
+        "context_embedder",
+        "token_refiner",
+        "time_embedder",
+        "norm_out",
+        "proj_out",
+        "audio_proj_out",
     }

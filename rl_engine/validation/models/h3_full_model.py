@@ -150,7 +150,9 @@ class FullModelTrace:
                 )
                 for n in h3_block.NODES
             },
-            boundary_binding="strict rows + provider" if self.boundary_bindings else "provider/reference",
+            boundary_binding=(
+                "strict rows + provider" if self.boundary_bindings else "provider/reference"
+            ),
             boundary_bindings=self.boundary_bindings,
             full_transformer_blocks=50,
             refiner_layers=2,
