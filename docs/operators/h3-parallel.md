@@ -90,4 +90,4 @@ Timing of the forward per rank (ms): TP2 80, TP4 102, TP8 110, TP4xCP2 113, TP4x
 
 These outputs and figures are not part of this diff; they are on the fork's `pr_assets` branch (links in the PR description).
 Per-layout results of the 2 nodes x 4 H100 runs (`reports/experiments/h3-ws2-parallel-h100/*.json`): every layout is bitwise equal to the single-GPU reference
-(forward and input gradient); mean per-rank forward time of block 0 shown below.
+(forward and input gradient); mean per-rank forward time of block 0 is in the figure.
