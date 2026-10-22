@@ -113,6 +113,15 @@ MUSA kernel. Docker images and CI jobs are added only when executable support ex
 - `backends/shared/triton` owns a single implementation when the same source and
   contract are valid across devices. Register it for each supported platform;
   do not copy it into each platform directory.
+- Device-local reusable Triton reductions live in
+  `backends/shared/triton/reduction/`. The package exports `sum_tile`, `product_tile`,
+  `sum_vector`, `product_vector`, `sum_partials` and `product_partials`. The last
+  pair merges stored tile results without exposing generic reducer parameters.
+  They are in-kernel building blocks, not
+  standalone semantic operators or cross-device collectives. Calling operators
+  own allocation and kernel launches. Their eager arithmetic references live in `reference/reduction/`,
+  with shared defaults in `contracts/operators/ordered_reduction.py`; see
+  [ordered reductions](ordered-reduction.md).
 - A future truly model-specific fusion belongs under
   `backends/<platform>/model_specific/<model>/`, with its semantic requirements
   declared by that model. Create it when there is an implementation to own.
