@@ -144,19 +144,16 @@ def check_cancellation(op, device, order):
     m = torch.zeros(4, 6, device=device, requires_grad=True)
     index = torch.tensor([[0, 1] * 4] * 2, dtype=torch.int32, device=device)
     y, gate = op(x, m, modulate_index=index, eps=7.0)
-    # Selected bank0: FP32 fold (2**26 + 1) - 2**26 = 0.
-    # Reordering to cancel the large terms first leaves 1 (scale: +/-3/4).
+    # Lost-unit bank0: (((2**26 + 1) - 2**26) + 1) = 1 in FP32.
+    # Adjacent pairs instead give (2**26 + 1) + (-2**26 + 1) = 0.
     middle, last = (1.0, -(2**26)) if order == "lost_unit" else (-(2**26), 1.0)
-    u = torch.tensor([2**26, 4.0, middle, 5.0, last, 6.0, 0.0, 7.0], device=device)
+    tail = 1.0 if order == "lost_unit" else 0.0
+    u = torch.tensor([2**26, 4.0, middle, 5.0, last, 6.0, tail, 7.0], device=device)
     u = u[:, None].expand(8, 2)
     _, dm = torch.autograd.grad(
         (y, gate), (x, m), (torch.stack((u, 2 * u)), torch.stack((u, 3 * u)))
     )
-    bank0 = (
-        [[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]] * 2
-        if order == "lost_unit"
-        else [[1.0, 1.0, -0.75, 0.75, 1.0, 1.0], [2.0, 2.0, -1.5, 1.5, 3.0, 3.0]]
-    )
+    bank0 = [[1.0, 1.0, -0.75, 0.75, 1.0, 1.0], [2.0, 2.0, -1.5, 1.5, 3.0, 3.0]]
     assert_bytes(
         dm,
         torch.tensor(
@@ -282,5 +279,14 @@ def check_shared_bank0(indexed_op, shared_op, device):
     rm = m.detach().cpu().requires_grad_()
     ry, rg = GtestAdaLNReference().forward_fp32(rx, rm, modulate_index=index.cpu(), eps=7.0)
     rdx, rdm = torch.autograd.grad((ry, rg), (rx, rm), (dy.cpu(), dg.cpu()))
-    for actual, expected in ((y, ry), (dx, rdx), (dm, rdm)):
-        torch.testing.assert_close(actual.cpu(), expected, rtol=1e-5, atol=1e-6)
+    for actual, expected, judgment in (
+        (y, ry, "forward_accuracy"),
+        (dx, rdx, "gradient_accuracy"),
+        (dm, rdm, "gradient_accuracy"),
+    ):
+        tolerance = resolve_tolerance(
+            load_contract(), judgment=judgment, op_class="reduction", dtype=actual.dtype
+        )
+        torch.testing.assert_close(
+            actual.cpu(), expected, atol=tolerance.atol, rtol=tolerance.rtol
+        )

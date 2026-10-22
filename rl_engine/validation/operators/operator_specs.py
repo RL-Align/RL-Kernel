@@ -362,10 +362,9 @@ class GtestAdaLNReference:
     def forward_fp32(self, x, modulation, *, eps=1e-6, modulate_index=None):
         x32 = x.to(device="cpu", dtype=torch.float32)
         mod32 = modulation.to(device="cpu", dtype=torch.float32)
-        if modulate_index is None:
-            norm = torch.nn.functional.layer_norm(x32, (x.shape[-1],), eps=eps)
-            return _GtestSharedAdaLNAffine.apply(norm, mod32)
         norm = torch.nn.functional.layer_norm(x32, (x.shape[-1],), eps=eps)
+        if modulate_index is None:
+            return _GtestSharedAdaLNAffine.apply(norm, mod32)
         return _GtestIndexedAdaLNAffine.apply(norm, mod32, modulate_index.cpu())
 
 

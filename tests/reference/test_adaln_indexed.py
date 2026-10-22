@@ -11,6 +11,14 @@ from rl_engine.validation.operators.operator_specs import GtestAdaLNReference
 from tests.helpers.adaln_indexed import assert_bytes, check_small_case
 
 
+@pytest.fixture(
+    params=[IndexedAdaLNFixedReference(), GtestAdaLNReference().forward_fp32],
+    ids=["fixed", "gold"],
+)
+def reference(request):
+    return request.param
+
+
 def test_indexed_references_match_hand_calculated_nonzero_vjp():
     # Mean=1, variance+eps=16, norm=[-3/4, 3/4]. No H2 zero-dx degeneration.
     for op in (IndexedAdaLNFixedReference(), GtestAdaLNReference().forward_fp32):
@@ -80,9 +88,6 @@ def test_indexed_byte_reference_preserves_selected_token_fold_and_sample_routing
     )
 
 @pytest.mark.parametrize("route", ["all0", "all1", "alternating"])
-@pytest.mark.parametrize(
-    "reference", [IndexedAdaLNFixedReference(), GtestAdaLNReference().forward_fp32]
-)
 def test_indexed_route_identity_literal(reference, route):
     from tests.helpers.adaln_indexed import check_route_identity
 
@@ -90,18 +95,12 @@ def test_indexed_route_identity_literal(reference, route):
 
 
 @pytest.mark.parametrize("explicit_zero", [False, True])
-@pytest.mark.parametrize(
-    "reference", [IndexedAdaLNFixedReference(), GtestAdaLNReference().forward_fp32]
-)
 def test_indexed_absent_vs_zero_dy_nonfinite_literal(reference, explicit_zero):
     from tests.helpers.adaln_indexed import check_absent_vs_zero_dy
 
     check_absent_vs_zero_dy(reference, "cpu", explicit_zero)
 
 
-@pytest.mark.parametrize(
-    "reference", [IndexedAdaLNFixedReference(), GtestAdaLNReference().forward_fp32]
-)
 @pytest.mark.parametrize("order", ["lost_unit", "retained_unit"])
 def test_indexed_selected_token_cancellation_literal(reference, order):
     from tests.helpers.adaln_indexed import check_cancellation
@@ -109,9 +108,6 @@ def test_indexed_selected_token_cancellation_literal(reference, order):
     check_cancellation(reference, "cpu", order)
 
 
-@pytest.mark.parametrize(
-    "reference", [IndexedAdaLNFixedReference(), GtestAdaLNReference().forward_fp32]
-)
 def test_indexed_dscale_product_rounds_before_add_literal(reference):
     from tests.helpers.adaln_indexed import check_product_rounding
 
@@ -120,9 +116,6 @@ def test_indexed_dscale_product_rounds_before_add_literal(reference):
 
 @pytest.mark.parametrize("bank", [0, 1])
 @pytest.mark.parametrize("nonfinite", [float("nan"), float("inf")], ids=["nan", "inf"])
-@pytest.mark.parametrize(
-    "reference", [IndexedAdaLNFixedReference(), GtestAdaLNReference().forward_fp32]
-)
 def test_indexed_nonfinite_selected_bank_isolation_literal(reference, bank, nonfinite):
     from tests.helpers.adaln_indexed import check_nonfinite_isolation
 
@@ -142,18 +135,12 @@ def test_indexed_nonfinite_selected_bank_isolation_literal(reference, bank, nonf
         ("modulation", "both"),
     ],
 )
-@pytest.mark.parametrize(
-    "reference", [IndexedAdaLNFixedReference(), GtestAdaLNReference().forward_fp32]
-)
 def test_indexed_whole_leaf_participation_literal(reference, frozen, outputs):
     from tests.helpers.adaln_indexed import check_leaf_participation
 
     check_leaf_participation(reference, "cpu", frozen, outputs)
 
 
-@pytest.mark.parametrize(
-    "reference", [IndexedAdaLNFixedReference(), GtestAdaLNReference().forward_fp32]
-)
 def test_indexed_gate_copies_original_fp32_payload_literal(reference):
     from tests.helpers.adaln_indexed import check_gate_payload
 
@@ -161,9 +148,6 @@ def test_indexed_gate_copies_original_fp32_payload_literal(reference):
 
 
 @pytest.mark.parametrize("contribution", ["negative_zero", "subnormal"])
-@pytest.mark.parametrize(
-    "reference", [IndexedAdaLNFixedReference(), GtestAdaLNReference().forward_fp32]
-)
 def test_indexed_signed_zero_and_subnormal_fold_literal(reference, contribution):
     from tests.helpers.adaln_indexed import check_tiny_contributions
 
