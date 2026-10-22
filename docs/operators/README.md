@@ -44,3 +44,4 @@ Every operator page should include:
 - [MiniMax-H3 One Block, Forward and Backward](h3-one-block.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)
 - [MiniMax-H3 Projection Rows](h3-projection-rows.md)
+- [MiniMax-H3 Tensor/Sequence/Context Parallel Rows](h3-parallel.md)
