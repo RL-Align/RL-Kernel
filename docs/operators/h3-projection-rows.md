@@ -102,3 +102,12 @@ dtype/bias/shape rejection; forward and backward against FP64 on synthetic and p
 weights; batch, position, permutation and padding invariance; TP shards; repeat and backward
 determinism; fused vs separate QKV forward and backward bitwise; registry dispatch.
 `h3_block` now binds Q/K/V to this row (`status="row"`).
+
+## Hopper evidence (H100)
+
+These outputs and figures are not part of this diff; they are on the fork's `pr_assets` branch (links in the PR description).
+`reports/experiments/h3-projection-rows-h100/bench.json` (from `tools/validation/models/h3_projection_bench.py`) and the chart below record
+forward time and relative error vs an FP64 `F.linear`, per row and token count, for the RL-Kernel operator and the cuBLAS provider.
+The fixed-order kernels are 1.3x to 4.3x slower than cuBLAS on the BF16 rows; `audio_output_projection_fp32` (FP32, K=5376, ieee
+precision, 64x64x32 tile) is the slowest (3.5x to 12x) and is the first candidate for a per-row tile sweep. Strict mode forbids
+split-K, so this is the cost of the fixed reduction order.

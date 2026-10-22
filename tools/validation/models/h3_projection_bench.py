@@ -75,6 +75,14 @@ def main() -> None:
                 cand = lambda: op.forward(x, ws[0], b)  # noqa: E731
                 prov = lambda: F.linear(x, ws[0], b)  # noqa: E731
             c, p = _time(cand, args.repeats), _time(prov, args.repeats)
+            gold = F.linear(x.double(), ws[0].double(), None if b is None else b.double())
+            got_c, got_p = cand(), prov()
+            got_c = got_c[0] if isinstance(got_c, (list, tuple)) else got_c
+            got_p = got_p[0] if isinstance(got_p, (list, tuple)) else got_p
+
+            def rel(a):
+                return ((a.double() - gold).norm() / gold.norm()).item()
+
             report["rows"].append(
                 {
                     "row": row,
@@ -84,9 +92,13 @@ def main() -> None:
                     "candidate_ms": c,
                     "provider_ms": p,
                     "ratio": c / p,
+                    "rel_err_candidate": rel(got_c),
+                    "rel_err_provider": rel(got_p),
                 }
             )
-            print(f"{row:32s} T={tokens:5d} candidate {c:8.3f} ms  provider {p:8.3f} ms  x{c / p:.2f}")
+            print(
+                f"{row:32s} T={tokens:5d} candidate {c:8.3f} ms  provider {p:8.3f} ms  x{c / p:.2f}"
+            )
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(report, indent=1) + "\n")

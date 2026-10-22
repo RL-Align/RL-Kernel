@@ -41,6 +41,7 @@ REFERENCE = {
 
 def _cuda_ops():
     from rl_engine.backends.cuda.model_specific.minimax_h3 import projection as cu
+
     if not cu.gemm.available():
         pytest.skip("needs triton and a CUDA device")
     return cu
@@ -184,9 +185,11 @@ def test_forward_against_fp64_golden(row, tokens):
     out = op.forward(x, w, b)
     golden = native.forward_fp32(x, w, b)
     assert out.dtype == spec.dtype and out.shape == golden.shape
-    with torch.backends.cuda.matmul.flags(allow_tf32=False) if hasattr(
-        torch.backends.cuda.matmul, "flags"
-    ) else _noop():
+    with (
+        torch.backends.cuda.matmul.flags(allow_tf32=False)
+        if hasattr(torch.backends.cuda.matmul, "flags")
+        else _noop()
+    ):
         provider = native.forward(x, w, b)
     floor = _floor(spec)
     assert _rel(out, golden) <= 1.25 * _rel(provider, golden) + floor
@@ -236,9 +239,9 @@ def test_backward_against_fp64_golden(row):
     w.requires_grad_(), b.requires_grad_()
     x = _x(spec, 129).requires_grad_()
     out = op.forward(x, w, b)
-    grad = torch.randn(out.shape, generator=torch.Generator("cpu").manual_seed(3)).to(
-        out.dtype
-    ).cuda()
+    grad = (
+        torch.randn(out.shape, generator=torch.Generator("cpu").manual_seed(3)).to(out.dtype).cuda()
+    )
     out.backward(grad)
     dx, dw, db = _golden_grads(x.detach(), w.detach(), grad)
     floor = 1e-5 if spec.dtype == torch.float32 else 2e-2
@@ -308,9 +311,11 @@ def test_dx_rows_are_batch_invariant():
     spec = ref.TEXT_CONTEXT
     op = _cuda_op("text_context_projection")
     w, b = _params(spec)
-    g = torch.randn(40, spec.out_features, generator=torch.Generator("cpu").manual_seed(7)).to(
-        spec.dtype
-    ).cuda()
+    g = (
+        torch.randn(40, spec.out_features, generator=torch.Generator("cpu").manual_seed(7))
+        .to(spec.dtype)
+        .cuda()
+    )
 
     def dx(rows):
         x = _x(spec, 40)[rows].requires_grad_()
@@ -382,7 +387,7 @@ def test_qkv_tp_head_shards_equal_full_columns_and_backward_matches_golden():
     xg = x.clone().requires_grad_()
     q, k, v = op.forward(xg, wq, ws[1], ws[2])
     q.sum().backward()
-    gold_dx = (torch.ones(33, 7168, device="cuda", dtype=torch.float64) @ ws[0].double())
+    gold_dx = torch.ones(33, 7168, device="cuda", dtype=torch.float64) @ ws[0].double()
     assert _rel(xg.grad, gold_dx) < 2e-2
     assert wq.grad.shape == ws[0].shape
 

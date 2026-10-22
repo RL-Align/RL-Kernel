@@ -167,7 +167,9 @@ def gemm(
     return c
 
 
-def linear_forward(x: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor | None) -> torch.Tensor:
+def linear_forward(
+    x: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor | None
+) -> torch.Tensor:
     """``y = x @ W^T (+ bias)`` for ``x (T, K)`` and ``W (N, K)``."""
 
     return gemm(x, weight, bias=bias, b_t=True)

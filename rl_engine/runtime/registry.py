@@ -216,15 +216,21 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     CUDA_H3_TIMESTEP_MLP = (
         "rl_engine.backends.cuda.model_specific.minimax_h3.timestep_mlp.H3TimestepMLPCudaOp"
     )
-    PYTORCH_H3_AUDIO_INPUT_PROJECTION = "rl_engine.reference.minimax_h3.projection.NativeH3AudioInputProjectionOp"
+    PYTORCH_H3_AUDIO_INPUT_PROJECTION = (
+        "rl_engine.reference.minimax_h3.projection.NativeH3AudioInputProjectionOp"
+    )
     CUDA_H3_AUDIO_INPUT_PROJECTION = (
         "rl_engine.backends.cuda.model_specific.minimax_h3.projection.H3AudioInputProjectionCudaOp"
     )
-    PYTORCH_H3_AUDIO_OUTPUT_PROJECTION = "rl_engine.reference.minimax_h3.projection.NativeH3AudioOutputProjectionOp"
+    PYTORCH_H3_AUDIO_OUTPUT_PROJECTION = (
+        "rl_engine.reference.minimax_h3.projection.NativeH3AudioOutputProjectionOp"
+    )
     CUDA_H3_AUDIO_OUTPUT_PROJECTION = (
         "rl_engine.backends.cuda.model_specific.minimax_h3.projection.H3AudioOutputProjectionCudaOp"
     )
-    PYTORCH_H3_TEXT_CONTEXT_PROJECTION = "rl_engine.reference.minimax_h3.projection.NativeH3TextContextProjectionOp"
+    PYTORCH_H3_TEXT_CONTEXT_PROJECTION = (
+        "rl_engine.reference.minimax_h3.projection.NativeH3TextContextProjectionOp"
+    )
     CUDA_H3_TEXT_CONTEXT_PROJECTION = (
         "rl_engine.backends.cuda.model_specific.minimax_h3.projection.H3TextContextProjectionCudaOp"
     )

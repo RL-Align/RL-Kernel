@@ -106,7 +106,7 @@ def validate_h3_projection(
 
 
 class _NativeProjection:
-    """PyTorch reference: ``forward`` is the provider (``F.linear``), ``forward_fp32`` the golden."""
+    """PyTorch reference: ``forward`` is the provider (``F.linear``); ``forward_fp32`` is golden."""
 
     spec: ProjectionSpec
     op_class = "reduction"
@@ -152,9 +152,7 @@ class NativeH3QKVGemmOp:
     def forward(self, x, weight_q, weight_k, weight_v):
         """``(q, k, v)`` from three separate ``F.linear`` calls (the Diffusers layout)."""
 
-        widths = {
-            validate_h3_projection(QKV, x, w, None) for w in (weight_q, weight_k, weight_v)
-        }
+        widths = {validate_h3_projection(QKV, x, w, None) for w in (weight_q, weight_k, weight_v)}
         if len(widths) != 1:
             raise ValueError(f"h3_qkv_gemm: Q/K/V widths differ: {sorted(widths)}")
         return F.linear(x, weight_q), F.linear(x, weight_k), F.linear(x, weight_v)

@@ -181,7 +181,11 @@ class H3QKVGemmCudaOp:
     def forward_fused(self, x, weight_qkv) -> torch.Tensor:
         """``(T, 3 * N)`` product of the concatenated ``[Q; K; V]`` weight."""
 
-        n = weight_qkv.shape[0] // 3 if weight_qkv.dim() == 2 and weight_qkv.shape[0] % 3 == 0 else 0
+        n = (
+            weight_qkv.shape[0] // 3
+            if weight_qkv.dim() == 2 and weight_qkv.shape[0] % 3 == 0
+            else 0
+        )
         if n == 0:
             raise ValueError("h3_qkv_gemm: fused weight must be (3 * N, K)")
         ref.validate_h3_projection(self.spec, x, weight_qkv[:n], None)
