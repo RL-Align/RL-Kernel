@@ -37,7 +37,9 @@ def _record_block(layout: str, seed: int) -> ot.OperatorTrace:
     weights = h3_weights.load_h3_block_weights("cuda")
     ops = h3_block.CandidateOps()
     ctx = h3_block.make_block_context(weights, layout=layout, seed=seed, batch=1)
-    trace = ot.OperatorTrace(mode="candidate", metadata={"layout": layout, "seed": seed, "block": 0})
+    trace = ot.OperatorTrace(
+        mode="candidate", metadata={"layout": layout, "seed": seed, "block": 0}
+    )
     ctx["node_observer"] = ot.block_observer(trace, block_index=0)
     with torch.no_grad():
         h3_block.run_graph("candidate", ctx, ops)
@@ -54,7 +56,9 @@ def main() -> int:
     verify = sub.add_parser("verify")
     verify.add_argument("trace", type=Path)
     verify.add_argument("--allow", nargs="*", default=["row"], choices=ot.STATUSES)
-    verify.add_argument("--block", type=int, default=None, help="expect only this transformer block")
+    verify.add_argument(
+        "--block", type=int, default=None, help="expect only this transformer block"
+    )
     diff = sub.add_parser("diff")
     diff.add_argument("lhs", type=Path)
     diff.add_argument("rhs", type=Path)
