@@ -4,7 +4,8 @@ This runbook validates [AdaLN modulation](../operators/adaln-modulation.md) on
 H100/SM90. Run commands from the repository root in an environment with matching
 PyTorch/CUDA, a CUDA toolkit and NVIDIA Compute Sanitizer.
 
-These are validation instructions, not recorded results. Retain the source revision,
+The commands below are validation instructions; the recorded run is summarized
+at the end. Retain the source revision,
 working-tree status, environment, build log, test output, sanitizer logs and benchmark
 JSON together. A skipped backend is not native CUDA acceptance.
 
@@ -107,3 +108,52 @@ environment. It includes hardware and integration tests beyond AdaLN:
 
 Keep failures or collection errors in the validation record; a focused AdaLN pass
 does not imply the repository suite passed.
+
+## Recorded H100 Acceptance (2026-10-22)
+
+The locally retained `adaln-h100-evidence-20261021-01.tar.gz` records source
+`69bd47f72a24d1177580d9b11b6efdfeb6c6bab5` against comparison base
+`16b81175874ecf11d5ff05c00de3b69e9457591b` on one H100 PCIe (SM90), with
+Python 3.11.17, PyTorch 2.12.1+cu126, Triton 3.7.1, CUDA toolkit 12.6.85 and
+driver 595.91.07. These results are focused operator acceptance, not full WS1,
+model, trajectory, repository-suite or cross-platform qualification.
+
+| Stage | Recorded result |
+| --- | --- |
+| Correctness | 413 passed; no skips or xfails |
+| Racecheck subset | 211 passed; 0 hazards, errors or warnings |
+| Memcheck subset | 225 passed; 0 errors |
+| Benchmark | 54 points completed; 36 samples per point |
+
+The run retained a forced extension build, source-file hashes, SM90 binary
+targets and per-process loaded-binary hash checks. The archived extension SHA256
+matches `identity.json` and `status.json`:
+
+```text
+deee4d78b05f8ef7fff5f288141ac831b02fe24407f97fccdde474953117743a
+```
+
+The runtime source profile equals the profile retained by image build
+[39741435857](https://github.com/hongleng/RL-Kernel/actions/runs/39741435857).
+All repository tracked file hashes match that source revision except
+`requirements.txt`, deliberately replaced by the image's pinned dependency list;
+its hash matches the build artifact. Image infrastructure remains separate from
+this operator PR.
+
+Evidence erratum: the outer `image-reference.txt` and `image-build-url.txt`
+incorrectly name the older build 39565761133 (digest prefix `310f692`). The newer
+build 39741435857 publishes digest prefix `682fae9`. Profile agreement supports
+the source/environment association but does not independently prove which image
+digest the host deployed. Preserve the original archive and this correction.
+The inner archive checksum was verified; the outer checksum sidecar was not
+retrieved and is not claimed as verified.
+
+The 54-point measurement uses the separate image acceptance harness: FP32/BF16,
+the three real sequence lengths, CUDA/Triton/PyTorch, and forward/backward-only/
+forward+backward with preallocated random upstream gradients. It is distinct from
+the repository benchmark command above. Sample coefficients of variation range
+from about 0.8% to 50.9%; these timings do not establish stable speedup ratios.
+
+Subsequent documentation-only edits do not change the accepted executable source.
+Any arithmetic, dispatch, build or test change needs an explicit reassessment and
+affected H100 checks rerun; these results must not be relabelled as a fresh pass.

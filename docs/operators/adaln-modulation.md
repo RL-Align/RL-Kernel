@@ -75,6 +75,9 @@ CPU, ROCm, MUSA and NPU registry entries select PyTorch. Indexed modulation alwa
 selects the PyTorch select01 path, with `fallback=true` and reason
 `modulate_index_requires_select01`.
 
+Dedicated CUDA/Triton indexed kernels are deferred to a follow-up PR. This PR
+does not qualify indexed framework backward for the shared replay profile.
+
 ### Strict mode and trace
 
 Pass `strict=True` when resolving the shared path to require its declared arithmetic
