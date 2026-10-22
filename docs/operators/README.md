@@ -43,4 +43,5 @@ Every operator page should include:
 - [MiniMax-H3 Sequence-Parallel Norm and AdaLN](h3-sp-norm-adaln.md)
 - [MiniMax-H3 One Block, Forward and Backward](h3-one-block.md)
 - [MiniMax-H3 Architecture Fingerprint](h3-arch-fingerprint.md)
+- [MiniMax-H3 Operator Trace](h3-operator-trace.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)
