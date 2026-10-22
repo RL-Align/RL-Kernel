@@ -112,6 +112,56 @@ def test_logp_native_candidate_suite_passes():
     assert all(case.passed for case in report.candidates[0].cases)
 
 
+@pytest.mark.parametrize("check_grad", [False, True])
+def test_report_snapshots_generic_trace_without_interpreting_backend_policy(check_grad):
+    class TracedDouble:
+        def __init__(self):
+            self.trace = {}
+
+        def __call__(self, x):
+            self.trace["sample"] = float(x[0].detach())
+            return x * 2
+
+    op = TracedDouble()
+    cases = [
+        OperatorCase(
+            name=f"sample-{value}", op_class="elementwise", dtype=torch.float32,
+            inputs={"x": torch.tensor([value])}, gold_fn=lambda x: x * 2,
+            grad_input_names=("x",),
+        )
+        for value in (1.0, 3.0)
+    ]
+    report = run_operator_suite(
+        "trace", candidates=[CandidateSpec(name="double", fn=op)],
+        cases=cases, check_grad=check_grad,
+    )
+    assert report.passed
+    op.trace.clear()
+    result = report.to_dict()["candidates"][0]
+    assert result["backend_provenance"] is None
+    assert [case["backend_trace"] for case in result["cases"]] == [
+        {"sample": 1.0}, {"sample": 3.0},
+    ]
+    assert all("backend_provenance" not in case for case in result["cases"])
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_gpu_candidate_compares_with_cpu_gold_for_outputs_and_gradients(dtype):
+    x = torch.tensor([1.0, -2.0], device="cuda", dtype=dtype)
+    case = OperatorCase(
+        name="gpu-candidate-cpu-gold", op_class="elementwise", dtype=dtype,
+        inputs={"x": x}, gold_fn=lambda x: x.cpu().float() * 2,
+        grad_input_names=("x",), gold_input_dtype=torch.float32,
+    )
+    report = run_operator_suite(
+        "cross-device", candidates=[CandidateSpec(name="double", fn=lambda x: x * 2)],
+        cases=[case], check_grad=True,
+    )
+    assert report.passed
+    assert all(output.max_abs_error == 0 for output in report.candidates[0].cases[0].outputs)
+
+
 def test_embedding_native_candidate_suite_passes_issue_108_helper():
     report = run_operator_suite(
         "embedding",

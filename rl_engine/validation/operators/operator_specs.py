@@ -22,6 +22,8 @@ class OperatorSpec:
     gold_method: str
     candidate_paths: dict[str, str]
     grad_input_names: tuple[str, ...] = ()
+    gold_input_dtype: torch.dtype | None = None
+    output_matches_input_dtype: bool = False
 
 
 def _load_object(path: str) -> Any:
@@ -32,6 +34,24 @@ def _load_object(path: str) -> Any:
 
 
 OP_SPECS = {
+    "adaln_modulation": OperatorSpec(
+        name="adaln_modulation",
+        op_class="reduction",
+        gold_path="rl_engine.validation.operators.operator_specs.GtestAdaLNReference",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": (
+                "rl_engine.reference.norm.adaln_modulation.NativeAdaLNModulationOp"
+            ),
+            "triton": (
+                "rl_engine.backends.shared.triton.norm.adaln_modulation.TritonAdaLNModulationOp"
+            ),
+            "cuda": "rl_engine.backends.cuda.norm.adaln_modulation.CudaAdaLNModulationOp",
+        },
+        grad_input_names=("x", "modulation"),
+        gold_input_dtype=torch.float32,
+        output_matches_input_dtype=True,
+    ),
     "rms_norm": OperatorSpec(
         name="rms_norm",
         op_class="reduction",
@@ -275,6 +295,51 @@ OP_SPECS = {
 }
 
 
+class _GtestSharedAdaLNAffine(torch.autograd.Function):
+    """Independent CPU affine VJP with the specified ascending FP32 S fold."""
+
+    @staticmethod
+    def forward(ctx, norm, modulation):
+        shift, scale, gate = modulation.chunk(3, dim=-1)
+        ctx.save_for_backward(norm, scale)
+        return norm * (1 + scale[:, None, :]) + shift[:, None, :], gate[:, None, :]
+
+    @staticmethod
+    def backward(ctx, dy, dg):
+        norm, scale = ctx.saved_tensors
+        shift_grad = torch.zeros_like(scale)
+        scale_grad = torch.zeros_like(scale)
+        # CPU torch's broadcast backward may reassociate this reduction. The
+        # reference follows the declared token order without any kernel helper.
+        for token in range(norm.shape[1]):
+            shift_grad = shift_grad + dy[:, token, :]
+            scale_grad = scale_grad + dy[:, token, :] * norm[:, token, :]
+        dm = torch.cat((shift_grad, scale_grad, dg[:, 0, :]), dim=-1)
+        return dy * (1 + scale[:, None, :]), dm
+
+
+class GtestAdaLNReference:
+    """Independent CPU FP32 LayerNorm/autograd gold, not the fixed-tree kernel.
+
+    Transfers/casts retain autograd edges to the caller's inputs. Outputs stay
+    FP32; no production normalization or backward helper is used. Shared
+    affine gradients use a separate CPU VJP for the contract's FP32 token fold.
+    """
+
+    def forward_fp32(self, x, modulation, *, eps=1e-6, modulate_index=None):
+        x32 = x.to(device="cpu", dtype=torch.float32)
+        mod32 = modulation.to(device="cpu", dtype=torch.float32)
+        if modulate_index is None:
+            norm = torch.nn.functional.layer_norm(x32, (x.shape[-1],), eps=eps)
+            return _GtestSharedAdaLNAffine.apply(norm, mod32)
+        else:
+            batch = x.shape[0]
+            rows = torch.arange(batch)[:, None] + modulate_index.cpu().long() * batch
+            shift, scale, gate = mod32[rows].chunk(3, dim=-1)
+        norm = torch.nn.functional.layer_norm(x32, (x.shape[-1],), eps=eps)
+        return norm * (1 + scale) + shift, gate
+
+
 class GtestPackOp:
     """gtest view of NativePackOp: compare the packed rows, not cu_seqlens."""
 
@@ -345,15 +410,30 @@ def make_operator_case(
         inputs=make_operator_inputs(args.op, args, dtype, device),
         gold_fn=gold_fn,
         grad_input_names=spec.grad_input_names,
+        gold_input_dtype=spec.gold_input_dtype,
+        candidate_output_dtype=dtype if spec.output_matches_input_dtype else None,
     )
 
 
-def make_candidate(args: argparse.Namespace) -> CandidateSpec:
+def make_candidate(args: argparse.Namespace, *, observe_backend: bool = False) -> CandidateSpec:
     spec = OP_SPECS[args.op]
     candidate_name = "pytorch" if args.candidate == "native" else args.candidate
 
     if candidate_name in spec.candidate_paths:
         candidate_op = _load_object(spec.candidate_paths[candidate_name])()
+        if args.op == "adaln_modulation" and observe_backend:
+            from rl_engine.runtime.adaln import SHARED_PROFILE, AdaLNDispatch
+
+            candidate_op = AdaLNDispatch(
+                candidate_op,
+                {
+                    "requested_backend": candidate_name,
+                    "fallback": False,
+                    "fallback_reason": None,
+                    "arithmetic_profile": SHARED_PROFILE,
+                },
+                hidden=args.normalized_dim,
+            )
         if args.op == "logp" and candidate_name == "cuda-sm90":
             candidate_op = _LogpSM90CandidateAdapter(candidate_op)
         return CandidateSpec(

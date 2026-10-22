@@ -25,6 +25,7 @@ def make_operator_inputs(
     device: torch.device,
 ) -> dict[str, Any]:
     builders = {
+        "adaln_modulation": _make_adaln_modulation_inputs,
         "rms_norm": _make_rms_norm_inputs,
         "qk_norm": _make_qk_norm_inputs,
         "pack": _make_pack_inputs,
@@ -53,6 +54,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
     batch, seq = _batch_seq(args)
     vocab = _arg_int(args, "vocab", DEFAULT_VOCAB)
     names = {
+        "adaln_modulation": f"{batch}x{seq}x{_normalized_dim(args)}",
         "rms_norm": f"{batch}x{seq}x{_normalized_dim(args)}",
         "qk_norm": f"{batch}x{seq}x{_arg_int(args, 'n_heads', DEFAULT_N_HEADS)}x"
         f"{_arg_int(args, 'head_dim', DEFAULT_HEAD_DIM)}",
@@ -77,6 +79,18 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         return names[op_name]
     except KeyError as exc:
         raise ValueError(f"unsupported operator shape: {op_name}") from exc
+
+
+def _make_adaln_modulation_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    batch, seq = _batch_seq(args)
+    hidden = _normalized_dim(args)
+    return {
+        "x": _floating_tensor((batch, seq, hidden), args, dtype, device, offset=0),
+        "modulation": _floating_tensor((batch, 3 * hidden), args, dtype, device, offset=1),
+        "eps": _arg_float(args, "eps", DEFAULT_RMS_EPS),
+    }
 
 
 def _make_rms_norm_inputs(

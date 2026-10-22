@@ -177,6 +177,14 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     TRITON_SILU = "rl_engine.kernels.ops.triton.activation.swiglu.TritonSiLUOp"
     TRITON_SWIGLU = "rl_engine.kernels.ops.triton.activation.swiglu.TritonSwiGLUOp"
 
+    PYTORCH_ADALN_MODULATION = (
+        "rl_engine.reference.norm.adaln_modulation.NativeAdaLNModulationOp"
+    )
+    TRITON_ADALN_MODULATION = (
+        "rl_engine.backends.shared.triton.norm.adaln_modulation.TritonAdaLNModulationOp"
+    )
+    CUDA_ADALN_MODULATION = "rl_engine.backends.cuda.norm.adaln_modulation.CudaAdaLNModulationOp"
+
     # WS1 pure-PyTorch ground-truth attention reference (hand-written fp32 softmax).
     # Distinct from PYTORCH_ATTN above, which is the production SDPA fallback.
     PYTORCH_NATIVE_ATTENTION = (
@@ -602,6 +610,11 @@ class KernelRegistry:
                     OpBackend.TRITON_SWIGLU,
                     OpBackend.PYTORCH_NATIVE_SWIGLU,
                 ],
+                "adaln_modulation": [
+                    OpBackend.CUDA_ADALN_MODULATION,
+                    OpBackend.TRITON_ADALN_MODULATION,
+                    OpBackend.PYTORCH_ADALN_MODULATION,
+                ],
                 # Default dispatch logic for new operators
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rope": [
@@ -649,6 +662,7 @@ class KernelRegistry:
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
+                "adaln_modulation": [OpBackend.PYTORCH_ADALN_MODULATION],
             },
             "musa": {
                 "logp": [
@@ -697,6 +711,7 @@ class KernelRegistry:
                 ],
                 "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
+                "adaln_modulation": [OpBackend.PYTORCH_ADALN_MODULATION],
             },
             "cpu": {
                 "logp": [OpBackend.PYTORCH_NATIVE],
@@ -722,11 +737,13 @@ class KernelRegistry:
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
+                "adaln_modulation": [OpBackend.PYTORCH_ADALN_MODULATION],
             },
             # Ascend NPU: op types without an entry fall back to their CPU
             # candidates (see the runtime override below), so only
             # Ascend-accelerated ops are listed.
             "npu": {
+                "adaln_modulation": [OpBackend.PYTORCH_ADALN_MODULATION],
                 "batch_invariant_logp": [
                     OpBackend.ASCEND_BATCH_INVARIANT_LOGP,
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
@@ -1046,6 +1063,79 @@ class KernelRegistry:
                 return op_instance
 
         raise RuntimeError(f"No functional backend found for {op_type} on {platform}")
+
+    def get_adaln_modulation_op(
+        self,
+        device: torch.device | str | None = None,
+        *,
+        hidden: int,
+        modulate_index: torch.Tensor | None = None,
+        strict: bool = False,
+    ) -> tuple[Any, dict[str, Any]]:
+        """Resolve AdaLN; strict permits only the shared declared replay profile."""
+        from rl_engine.runtime.adaln import (
+            SELECT01_PROFILE,
+            SHARED_PROFILE,
+            AdaLNDispatch,
+            adaln_backend,
+        )
+
+        if hidden <= 0:
+            raise ValueError("hidden must be positive")
+        profile = SELECT01_PROFILE if modulate_index is not None else SHARED_PROFILE
+        if strict and modulate_index is not None:
+            raise RuntimeError("strict AdaLN rejects select01 framework backward")
+        platform = self._platform_for_device(device)
+        if modulate_index is not None:
+            backend = OpBackend.PYTORCH_ADALN_MODULATION
+            op = self._get_or_create_backend(backend)
+            if op is None:
+                raise RuntimeError("PyTorch select01 AdaLN fallback is unavailable")
+            trace = {
+                "selected_backend": backend.name,
+                "fallback": True,
+                "fallback_reason": "modulate_index_requires_select01",
+                "rejected_backends": [],
+                "reduction_order": "pairwise_lower_upper_H; framework_select01_backward",
+                "accumulator_dtype": "fp32",
+                "split_k": False,
+                "stream_k": False,
+                "tf32": False,
+                "kernel_fingerprint": "adaln_modulation_select01_native_v1",
+                "requested_backend": "pytorch",
+                "arithmetic_profile": profile,
+            }
+            return AdaLNDispatch(op, trace, hidden=hidden, strict=strict), trace
+        candidates = self._priority_map[platform]["adaln_modulation"]
+        rejected: list[str] = []
+        for backend in candidates:
+            if backend is OpBackend.CUDA_ADALN_MODULATION and hidden > 4096:
+                rejected.append("CUDA_ADALN_MODULATION: H > 4096")
+                continue
+            op = self._get_or_create_backend(backend)
+            if op is None:
+                rejected.append(backend.name)
+                continue
+            actual = adaln_backend(op)
+            if strict and (actual is None or (actual == "pytorch" and platform != "cpu")):
+                rejected.append(f"{backend.name}: no declared strict replay profile")
+                continue
+            trace = {
+                "selected_backend": backend.name,
+                "fallback": bool(rejected),
+                "rejected_backends": rejected,
+                "reduction_order": "pairwise_lower_upper_H; ascending_logical_token_S",
+                "accumulator_dtype": "fp32",
+                "split_k": False,
+                "stream_k": False,
+                "tf32": False,
+                "kernel_fingerprint": f"adaln_modulation_v1:{backend.name}",
+                "arithmetic_profile": profile,
+                "requested_backend": candidates[0].name.split("_")[0].lower(),
+                "fallback_reason": "; ".join(rejected) if rejected else None,
+            }
+            return AdaLNDispatch(op, trace, hidden=hidden, strict=strict), trace
+        raise RuntimeError(f"No functional adaln_modulation backend on {platform}: {rejected}")
 
     def _platform_for_device(self, device: torch.device | str | None) -> str:
         if device is None:

@@ -99,8 +99,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--candidate",
         default="pytorch",
-        help="Candidate backend to validate, for example pytorch, cuda, cuda-sm90, triton, "
-        "ascend.",
+        help="Candidate backend to validate, for example pytorch, cuda, cuda-sm90, triton, ascend.",
     )
     parser.add_argument("--dtype", choices=("fp32", "bf16", "fp16"), default="fp32")
     parser.add_argument("--device", default="auto")
@@ -144,7 +143,7 @@ def main() -> None:
     args = parse_args()
     dtype = _parse_dtype(args.dtype)
     device = _select_device(args.device)
-    candidate = make_candidate(args)
+    candidate = make_candidate(args, observe_backend=True)
     case = make_operator_case(args, dtype, device)
     report = run_operator_suite(
         args.op,
