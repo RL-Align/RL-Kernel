@@ -143,10 +143,17 @@ It checks both outputs and gradients of x and modulation using the shared
 Accuracy checks and fixed-reference byte comparisons are separate tests.
 `IndexedAdaLNFixedReference` is a separate CPU FP32 callable for indexed byte
 tests, with its own H tree and explicit VJP. It is not the framework fallback.
-The first indexed tests independently check a hand-calculated nonzero VJP and
-a small mixed-bank case; broader indexed reference/autograd boundaries remain
-part of the follow-up. The accuracy gold's indexed branch still uses framework
-autograd and is not a fixed-order byte oracle.
+Indexed reference literals check sample/bank routing, absent versus explicit zero
+dy, frozen leaves, cancellation order, separate product/add rounding, empty-bank
++0 isolation with NaN/Inf, gate payload copies and subnormal contributions.
+The accuracy gold uses an independent selected-token affine VJP while retaining
+CPU LayerNorm/autograd normalization; it is not a fixed-order byte oracle.
+The same literals exercise the public CUDA callable in the FP32 [2,8,2] slice.
+All0 tests compare indexed bank0 dshift/dscale with shared bytes, check bank1 +0
+separately and retain independent gold comparisons; shared/indexed dgate are not
+equated. CUDA and public-dispatch tests require fresh current-source GPU evidence.
+Ticket 02 adds no wider input-domain or strict qualification claim; indexed strict
+remains closed.
 The CLI records trace snapshots without automatically constructing C1
 `BackendProvenance`; its accuracy report alone is not a WS1 system gate.
 

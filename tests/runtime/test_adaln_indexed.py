@@ -113,3 +113,17 @@ def test_cuda_indexed_resolution_can_execute_shared_without_stale_profile():
     assert trace["arithmetic_profile"] == "adaln-shared-fp32-tree-v1"
     assert trace["kernel_fingerprint"] == "adaln_modulation_v1:CUDA_ADALN_MODULATION"
     check_small_case(op, "cuda", trace)
+
+@pytest.mark.cuda_only
+@pytest.mark.parametrize("explicit_zero", [False, True])
+def test_cuda_indexed_public_dispatch_preserves_absent_vs_zero_dy(explicit_zero):
+    require_cuda()
+    from tests.helpers.adaln_indexed import check_absent_vs_zero_dy
+
+    index = torch.zeros(2, 8, dtype=torch.int32, device="cuda")
+    op, trace = KernelRegistry().get_adaln_modulation_op("cuda", hidden=2, modulate_index=index)
+    check_absent_vs_zero_dy(op, "cuda", explicit_zero)
+    assert trace["actual_backend"] == "cuda"
+    assert trace["arithmetic_profile"] == "adaln-indexed-fp32-tree-v1"
+    assert trace["kernel_fingerprint"] == "adaln_indexed_cuda_v1"
+    assert not trace["fallback"]

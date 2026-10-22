@@ -318,6 +318,39 @@ class _GtestSharedAdaLNAffine(torch.autograd.Function):
         return dy * (1 + scale[:, None, :]), dm
 
 
+class _GtestIndexedAdaLNAffine(torch.autograd.Function):
+    """Independent selected-token affine VJP; LayerNorm stays in CPU autograd."""
+
+    @staticmethod
+    def forward(ctx, norm, modulation, index):
+        batch = norm.shape[0]
+        rows = torch.arange(batch)[:, None] + index.long() * batch
+        shift, scale, gate = modulation[rows].chunk(3, dim=-1)
+        ctx.set_materialize_grads(False)
+        ctx.save_for_backward(norm, scale, rows)
+        ctx.mod_shape = modulation.shape
+        return norm * (1 + scale) + shift, gate
+
+    @staticmethod
+    def backward(ctx, dy, dg):
+        norm, scale, rows = ctx.saved_tensors
+        hidden = norm.shape[-1]
+        dm = norm.new_zeros(ctx.mod_shape)
+        # Select contributions before arithmetic so other banks cannot see NaNs.
+        for token in range(norm.shape[1]):
+            for sample in range(norm.shape[0]):
+                row = int(rows[sample, token])
+                if dy is not None:
+                    grad = dy[sample, token]
+                    dm[row, :hidden] += grad
+                    product = grad * norm[sample, token]
+                    dm[row, hidden : 2 * hidden] += product
+                if dg is not None:
+                    dm[row, 2 * hidden :] += dg[sample, token]
+        dnorm = None if dy is None else dy * (1 + scale)
+        return dnorm, dm, None
+
+
 class GtestAdaLNReference:
     """Independent CPU FP32 LayerNorm/autograd gold, not the fixed-tree kernel.
 
@@ -332,12 +365,8 @@ class GtestAdaLNReference:
         if modulate_index is None:
             norm = torch.nn.functional.layer_norm(x32, (x.shape[-1],), eps=eps)
             return _GtestSharedAdaLNAffine.apply(norm, mod32)
-        else:
-            batch = x.shape[0]
-            rows = torch.arange(batch)[:, None] + modulate_index.cpu().long() * batch
-            shift, scale, gate = mod32[rows].chunk(3, dim=-1)
         norm = torch.nn.functional.layer_norm(x32, (x.shape[-1],), eps=eps)
-        return norm * (1 + scale) + shift, gate
+        return _GtestIndexedAdaLNAffine.apply(norm, mod32, modulate_index.cpu())
 
 
 class GtestPackOp:
