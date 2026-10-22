@@ -165,7 +165,7 @@ class TrajectoryRecorder:
         for name, group in (("velocity", velocity), ("latent", latent)):
             if set(group) != set(self.modalities):
                 raise ValueError(f"{name} must cover exactly {self.modalities}")
-        body = {
+        body: dict[str, Any] = {
             "index": index,
             "sigma": {m: self.grids[m][index] for m in self.modalities},
             "sigma_next": {m: self.grids[m][index + 1] for m in self.modalities},
