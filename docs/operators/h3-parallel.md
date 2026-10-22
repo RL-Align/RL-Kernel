@@ -85,3 +85,9 @@ Timing of the forward per rank (ms): TP2 80, TP4 102, TP8 110, TP4xCP2 113, TP4x
 - dW under CP is exact through `seq_sharded_linear` for non-TP linears; the TP x CP block compares
   forward and `dX` (CP shards the token axis of the TP weight gradients).
 - `HierarchicalCollective` assumes ranks are packed node-major and node counts of 1/2/4/8.
+
+## Hopper evidence chart
+
+These outputs and figures are not part of this diff; they are on the fork's `pr_assets` branch (links in the PR description).
+Per-layout results of the 2 nodes x 4 H100 runs (`reports/experiments/h3-ws2-parallel-h100/*.json`): every layout is bitwise equal to the single-GPU reference
+(forward and input gradient); mean per-rank forward time of block 0 shown below.
