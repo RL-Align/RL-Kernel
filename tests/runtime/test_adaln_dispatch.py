@@ -2,6 +2,8 @@
 # Copyright (c) 2026 RL-Kernel Contributors
 """AdaLN dispatch policy and observations at the public resolver seam."""
 
+import os
+
 import pytest
 import torch
 
@@ -17,9 +19,96 @@ from rl_engine.contracts.numerical import (
     resolve_tolerance,
     validate_backend_provenance,
 )
+from rl_engine.backends.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
 from rl_engine.reference.norm.adaln_modulation import NativeAdaLNModulationOp
 from rl_engine.runtime.registry import OpBackend
-from rl_engine.runtime.registry import KernelRegistry
+from rl_engine.runtime.registry import KernelRegistry, kernel_registry
+
+
+@pytest.fixture
+def cuda_op(request):
+    try:
+        return CudaAdaLNModulationOp(threads=getattr(request, "param", 256))
+    except RuntimeError:
+        if os.environ.get("RL_KERNEL_REQUIRE_EXT") == "1":
+            raise
+        pytest.skip("compiled CUDA AdaLN extension required")
+
+
+def test_adaln_registry_trace_reports_selected_backend():
+    op, trace = kernel_registry.get_adaln_modulation_op(device="cpu", hidden=4)
+    assert isinstance(op.implementation, NativeAdaLNModulationOp)
+    assert trace["selected_backend"] == OpBackend.PYTORCH_ADALN_MODULATION.name
+    assert trace["fallback"] is False
+    assert trace["accumulator_dtype"] == "fp32"
+    assert trace["split_k"] is False and trace["stream_k"] is False
+
+
+def test_adaln_modulate_index_uses_explicit_native_fallback():
+    x = torch.tensor([[[1.0, 3.0], [2.0, 4.0]]], requires_grad=True)
+    # First batch row is choice 0, second batch row is choice 1.
+    modulation = torch.tensor(
+        [
+            [0.5, -0.5, 1.0, 0.0, 2.0, 3.0],
+            [-1.0, 1.0, 0.0, 1.0, 4.0, 5.0],
+        ],
+        requires_grad=True,
+    )
+    modulate_index = torch.tensor([[0, 1]])
+
+    op, trace = kernel_registry.get_adaln_modulation_op(
+        device=x.device,
+        hidden=x.shape[-1],
+        modulate_index=modulate_index,
+    )
+    y, gate = op(x, modulation, modulate_index=modulate_index, eps=0.0)
+
+    torch.testing.assert_close(y, torch.tensor([[[-1.5, 0.5], [-2.0, 3.0]]]))
+    torch.testing.assert_close(gate, torch.tensor([[[2.0, 3.0], [4.0, 5.0]]]))
+    (y.sum() + gate.sum()).backward()
+    torch.testing.assert_close(x.grad, torch.zeros_like(x))
+    torch.testing.assert_close(
+        modulation.grad,
+        torch.tensor([[1.0, 1.0, -1.0, 1.0, 1.0, 1.0]]).repeat(2, 1),
+    )
+    assert isinstance(op.implementation, NativeAdaLNModulationOp)
+    assert trace["selected_backend"] == OpBackend.PYTORCH_ADALN_MODULATION.name
+    assert trace["fallback"] is True
+    assert trace["fallback_reason"] == "modulate_index_requires_select01"
+
+
+def test_adaln_cuda_registry_reports_real_fallback():
+    try:
+        torch.cuda.init()
+    except RuntimeError:
+        pytest.skip("CUDA required")
+    op, trace = kernel_registry.get_adaln_modulation_op(device="cuda", hidden=32)
+    assert type(op.implementation).__name__ in {"CudaAdaLNModulationOp", "TritonAdaLNModulationOp"}
+    if type(op.implementation).__name__ == "TritonAdaLNModulationOp":
+        assert trace["fallback"] is True
+        assert "CUDA_ADALN_MODULATION" in trace["rejected_backends"]
+    else:
+        assert trace["fallback"] is False
+
+
+def test_adaln_registry_skips_cuda_for_large_hidden():
+    pytest.importorskip("triton")
+    op, trace = kernel_registry.get_adaln_modulation_op(device="cuda", hidden=5000)
+    assert type(op.implementation).__name__ == "TritonAdaLNModulationOp"
+    assert trace["fallback"] is True
+    assert "CUDA_ADALN_MODULATION: H > 4096" in trace["rejected_backends"]
+
+
+@pytest.mark.parametrize("hidden", [4095, 4096, 4097])
+def test_cuda_shared_registry_respects_hidden_limit(cuda_op, hidden):
+    _, trace = kernel_registry.get_adaln_modulation_op("cuda", hidden=hidden)
+    if hidden <= 4096:
+        assert trace["selected_backend"] == OpBackend.CUDA_ADALN_MODULATION.name
+        assert not trace["fallback"]
+    else:
+        assert trace["selected_backend"] != OpBackend.CUDA_ADALN_MODULATION.name
+        assert trace["fallback"]
+        assert "CUDA_ADALN_MODULATION: H > 4096" in trace["rejected_backends"]
 
 
 def test_strict_cpu_call_records_execution_without_claiming_hardware_qualification():

@@ -8,7 +8,6 @@ import pytest
 import torch
 
 from rl_engine.backends.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
-from rl_engine.runtime.registry import OpBackend, kernel_registry
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
@@ -69,18 +68,6 @@ def test_cuda_shared_rejects_hidden_4097(cuda_op, dtype):
     m = torch.empty(1, 3 * 4097, device=device, dtype=dtype)
     with pytest.raises(RuntimeError, match="H <= 4096"):
         cuda_op(x, m)
-
-
-@pytest.mark.parametrize("hidden", [4095, 4096, 4097])
-def test_cuda_shared_registry_respects_hidden_limit(cuda_op, hidden):
-    _, trace = kernel_registry.get_adaln_modulation_op("cuda", hidden=hidden)
-    if hidden <= 4096:
-        assert trace["selected_backend"] == OpBackend.CUDA_ADALN_MODULATION.name
-        assert not trace["fallback"]
-    else:
-        assert trace["selected_backend"] != OpBackend.CUDA_ADALN_MODULATION.name
-        assert trace["fallback"]
-        assert "CUDA_ADALN_MODULATION: H > 4096" in trace["rejected_backends"]
 
 
 @pytest.mark.parametrize("cuda_op", [128, 256, 512], indirect=True)
