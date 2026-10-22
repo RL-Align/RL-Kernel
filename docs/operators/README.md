@@ -30,6 +30,8 @@ Every operator page should include:
 - [Policy Ratio + KL Penalty](ratio-kl.md)
 - [Pack and Pad](pack-and-pad.md)
 - [Matmul](matmul.md)
+- [Attn-Out Bias GEMM](attn-out-bias-gemm.md)
+- [txt_in RMSNorm → Linear](txt-in-rmsnorm-linear.md)
 - [Sampling](sampling.md)
 - [Token Embedding](embedding.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)

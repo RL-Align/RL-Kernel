@@ -476,3 +476,106 @@ def test_random_grad_mode_catches_nonuniform_upstream_gradient_bug():
     assert not random_report.passed
     assert gradient_output.message == "gradient:x"
     assert gradient_output.max_abs_error > 0.0
+
+
+class _FrozenScaledIdentity(torch.autograd.Function):
+    """Identity forward with a deliberately NON-derived backward (3x).
+
+    autograd through any plain forward of this op yields the TRUE 1x
+    gradient; the frozen contract pins 3x. This difference makes the gold
+    gradient SOURCE observable: differentiating gold_fn must fail the
+    bitwise bar, while gold_backward_fn (the frozen chain) must pass it.
+    """
+
+    @staticmethod
+    def forward(ctx, x):
+        return x.clone()
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output * 3.0
+
+
+def _frozen_scaled_identity(x):
+    return _FrozenScaledIdentity.apply(x)
+
+
+def _bump_one_ulp_bf16(t: torch.Tensor) -> torch.Tensor:
+    out = t.detach().clone()
+    view = out.view(torch.int16)
+    view[0, 0] += 1
+    return out
+
+
+def _strict_identity_case() -> OperatorCase:
+    generator = torch.Generator().manual_seed(3)
+    x = torch.randn(4, 5, generator=generator).to(torch.bfloat16)
+    return OperatorCase(
+        name="strict-identity-bf16",
+        op_class="elementwise",
+        dtype=torch.bfloat16,
+        inputs={"x": x},
+        gold_fn=lambda x: x.float(),
+        grad_input_names=("x",),
+        bitwise_strict=True,
+        gold_backward_fn=_frozen_scaled_identity,
+    )
+
+
+def test_bitwise_strict_forward_rejects_one_ulp_despite_tolerance():
+    # one bf16 ulp is far inside the generic tolerance, but the strict bar
+    # compares bit patterns: the bumped candidate must FAIL.
+    report = run_operator_suite(
+        "identity",
+        candidates=[
+            CandidateSpec(name="bumped", backend="test", fn=lambda x: _bump_one_ulp_bf16(x))
+        ],
+        cases=[_strict_identity_case()],
+        check_grad=False,
+    )
+    forward = report.candidates[0].cases[0].outputs[0]
+    assert not forward.passed
+    assert "bitwise: bit-pattern mismatch" in forward.message
+    # the tolerance judgment alone WOULD have passed it -- stats stay diagnostic
+    assert forward.max_abs_error > 0.0
+
+
+def test_bitwise_strict_uses_frozen_gold_backward_not_autograd_graph():
+    # candidate implements the frozen 3x backward: passes against
+    # gold_backward_fn but would differ from autograd-through-gold_fn (1x).
+    report = run_operator_suite(
+        "identity",
+        candidates=[CandidateSpec(name="frozen", backend="test", fn=_frozen_scaled_identity)],
+        cases=[_strict_identity_case()],
+        check_grad=True,
+    )
+    assert report.passed
+    for output in report.candidates[0].cases[0].outputs:
+        assert output.passed
+        assert "bitwise" in output.message
+
+
+def test_bitwise_strict_gradient_rejects_one_ulp():
+    class _FrozenScaledIdentityOffByOne(torch.autograd.Function):
+        @staticmethod
+        def forward(ctx, x):
+            return x.clone()
+
+        @staticmethod
+        def backward(ctx, grad_output):
+            return _bump_one_ulp_bf16(grad_output * 3.0)
+
+    report = run_operator_suite(
+        "identity",
+        candidates=[
+            CandidateSpec(
+                name="grad-off-one-ulp", backend="test", fn=_FrozenScaledIdentityOffByOne.apply
+            )
+        ],
+        cases=[_strict_identity_case()],
+        check_grad=True,
+    )
+    gradient = report.candidates[0].cases[0].outputs[1]
+    assert not report.passed
+    assert not gradient.passed
+    assert "bitwise: bit-pattern mismatch" in gradient.message
