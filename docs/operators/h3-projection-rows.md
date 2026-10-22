@@ -48,7 +48,13 @@ y = registry.get_op("text_context_projection", device="cuda")(x, weight, bias)
 * FP32 rows use `input_precision="ieee"` (no TF32); BF16 rows use the tensor-core dot. The
   bias is added once in FP32 and the result rounded once to the output dtype;
 * `d_input = g @ W` reduces the output axis ascending; `d_weight = g^T x` and `d_bias`
-  reduce tokens in logical row order (the one cross-token reduction); results are cast once;
+  reduce the token axis (the one cross-token reduction); results are cast once. Every op takes
+  an optional `logical_keys` (`[T, 2|3]` int64, a negative first component marks padding):
+  rows are then reduced in ascending key order with padding dropped, so `d_weight` / `d_bias`
+  are bitwise independent of how the caller permutes, pads or splits the rows. Active keys must
+  be unique. Without keys the reduction follows the call order and is only invariant for an
+  unchanged row order; the backward provenance records which of the two was used. The key
+  format follows #562;
 * `h3_qkv_gemm` backward is the fused `[Q; K; V]` backward: `N = 7168` is a multiple of
   `BLOCK_K`, so concatenating the three operands moves no block boundary and the separate and
   fused layouts have identical gradient bytes.

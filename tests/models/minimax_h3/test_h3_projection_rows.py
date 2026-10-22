@@ -445,3 +445,108 @@ def test_registry_dispatches_cuda():
         cu.H3AudioInputProjectionCudaOp
     )
     assert type(registry.get_op("h3_qkv_gemm", device="cuda")) is cu.H3QKVGemmCudaOp
+
+
+def _keys(tokens, device="cuda"):
+    t = torch.arange(tokens, device=device)
+    return torch.stack([t // 7, t % 7, t], dim=1).to(torch.int64)
+
+
+@requires_cuda
+def test_audio_input_param_grads_are_row_permutation_invariant_with_keys():
+    """Review repro (#568): jointly permuting x and g must not change dW / dbias."""
+
+    op = _cuda_ops().H3AudioInputProjectionCudaOp()
+    x = torch.ones(3, 32, device="cuda")
+    g = torch.zeros(3, 5376, device="cuda")
+    g[:, 0] = torch.tensor([1.0, 2**-24, -1.0], device="cuda")
+    keys = torch.tensor([[0, 0, 0], [0, 0, 1], [0, 0, 2]], device="cuda")
+
+    def grads(order, use_keys):
+        w = torch.zeros(5376, 32, device="cuda", requires_grad=True)
+        b = torch.zeros(5376, device="cuda", requires_grad=True)
+        out = op(x[order], w, b, logical_keys=keys[order] if use_keys else None)
+        return torch.autograd.grad(out, (w, b), g[order])
+
+    for i, j in (([0, 1, 2], [0, 2, 1]), ([0, 1, 2], [2, 1, 0]), ([0, 1, 2], [1, 0, 2])):
+        a, b_ = grads(i, True), grads(j, True)
+        assert torch.equal(a[0], b_[0]) and torch.equal(a[1], b_[1])
+    # without keys the reduction follows the call order (documented), so it is not asserted here
+
+
+@requires_cuda
+@pytest.mark.parametrize("row", sorted(ROWS))
+def test_param_grads_are_invariant_to_permutation_and_padding(row):
+    cu = _cuda_ops()
+    spec, name = ROWS[row]
+    op = getattr(
+        cu,
+        {
+            "audio_input_projection_fp32": "H3AudioInputProjectionCudaOp",
+            "audio_output_projection_fp32": "H3AudioOutputProjectionCudaOp",
+            "text_context_projection": "H3TextContextProjectionCudaOp",
+        }[row],
+    )()
+    tokens = 37
+    x = _x(spec, tokens)
+    gen = torch.Generator(device="cuda").manual_seed(5)
+    g = torch.randn(tokens, spec.out_features, device="cuda", generator=gen).to(spec.dtype)
+    w0, b0 = _params(spec)
+    keys = _keys(tokens)
+
+    def run(order, pad):
+        w, b = w0.detach().clone().requires_grad_(), (
+            None if b0 is None else b0.detach().clone().requires_grad_()
+        )
+        xs, gs, ks = x[order], g[order], keys[order]
+        if pad:
+            xs = torch.cat([xs, torch.randn_like(xs[:pad])])
+            gs = torch.cat([gs, torch.randn_like(gs[:pad])])
+            ks = torch.cat([ks, torch.full((pad, 3), -1, device="cuda", dtype=torch.int64)])
+        params = (w,) if b is None else (w, b)
+        return torch.autograd.grad(op(xs, w, b, logical_keys=ks), params, gs)
+
+    ident = torch.arange(tokens, device="cuda")
+    base = run(ident, 0)
+    for order, pad in (
+        (ident.flip(0), 0),
+        (torch.randperm(tokens, device="cuda", generator=gen), 0),
+        (ident, 5),
+    ):
+        got = run(order, pad)
+        assert all(torch.equal(a, b) for a, b in zip(base, got))
+
+
+@requires_cuda
+def test_qkv_param_grads_are_invariant_to_permutation_with_keys():
+    cu = _cuda_ops()
+    op = cu.H3QKVGemmCudaOp()
+    tokens = 41
+    gen = torch.Generator(device="cuda").manual_seed(9)
+    x = torch.randn(tokens, 5376, device="cuda", generator=gen).bfloat16()
+    gs = [torch.randn(tokens, 7168, device="cuda", generator=gen).bfloat16() for _ in range(3)]
+    ws = [torch.randn(7168, 5376, device="cuda", generator=gen).bfloat16() for _ in range(3)]
+    keys = _keys(tokens)
+
+    def run(order):
+        params = [w.detach().clone().requires_grad_() for w in ws]
+        outs = op(x[order], *params, logical_keys=keys[order])
+        return torch.autograd.grad(outs, params, [g[order] for g in gs])
+
+    ident = torch.arange(tokens, device="cuda")
+    base = run(ident)
+    other = run(torch.randperm(tokens, device="cuda", generator=gen))
+    assert all(torch.equal(a, b) for a, b in zip(base, other))
+
+
+@requires_cuda
+def test_logical_keys_are_validated():
+    op = _cuda_ops().H3AudioInputProjectionCudaOp()
+    x = torch.ones(2, 32, device="cuda")
+    w, b = torch.zeros(5376, 32, device="cuda"), torch.zeros(5376, device="cuda")
+    with pytest.raises(ValueError, match="unique"):
+        op(x, w, b, logical_keys=torch.tensor([[0, 0], [0, 0]], device="cuda"))
+    with pytest.raises(ValueError, match="int64"):
+        op(x, w, b, logical_keys=torch.zeros(2, 2, device="cuda", dtype=torch.int32))
+    with pytest.raises(ValueError, match="shape"):
+        op(x, w, b, logical_keys=torch.zeros(3, 2, device="cuda", dtype=torch.int64))
