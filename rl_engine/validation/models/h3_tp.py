@@ -54,7 +54,7 @@ def make_grid(tp: int, cp: int, *, local_size: int | None = None) -> Grid:
     cp_rank, tp_rank = divmod(rank, tp)
     tp_groups = [dist.new_group(list(range(c * tp, (c + 1) * tp))) for c in range(cp)]
     cp_groups = [dist.new_group(list(range(t, world, tp))) for t in range(tp)]
-    collective = None
+    collective: DeterministicCollective | HierarchicalCollective | None = None
     if tp > 1:
         mine = tp_groups[cp_rank]
         if local_size is not None and local_size < tp:
@@ -235,6 +235,7 @@ def block_case(weights, grid: Grid, *, sp=False, seq_len=0, backward=False, layo
         full_grad = torch.randn(1, n, HIDDEN, generator=gen).to(out.dtype).cuda()
         out.backward(full_grad[:, lo:hi])
         result["dx"] = hidden.grad[:, lo:hi].detach()
+        assert leaves is not None
         for name, tensor in leaves.items():
             result["dw." + name] = tensor.grad.detach()
     return result
