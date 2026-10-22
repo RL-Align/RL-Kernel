@@ -185,3 +185,21 @@ def test_drift_order_interleaves_parameter_and_activation_backward_hooks():
     assert drift_order({"trace": {"execution_order": trace.execution_order}}, names) == (
         trace.execution_order
     )
+
+
+def test_strict_boundaries_apply_to_candidate_execution_only():
+    from rl_engine.validation.models.h3_full_model import (
+        PROVIDER_BOUNDARIES,
+        STRICT_BOUNDARY_ROWS,
+    )
+
+    with pytest.raises(ValueError, match="candidate execution only"):
+        with full_model_execution(
+            Model(), candidate=False, trace=FullModelTrace(), strict_boundaries=True
+        ):
+            pass
+    # every boundary module is either bound to a row or explicitly left on the provider
+    assert set(STRICT_BOUNDARY_ROWS) | set(PROVIDER_BOUNDARIES) == {
+        "proj_in", "audio_proj_in", "context_embedder", "token_refiner",
+        "time_embedder", "norm_out", "proj_out", "audio_proj_out",
+    }

@@ -229,6 +229,7 @@ def run_refiner(
     *,
     num_blocks: int = 2,
     observer_factory: Callable[[int], Callable[[str], None]] | None = None,
+    on_block: Callable[[int, torch.Tensor], None] | None = None,
 ) -> torch.Tensor:
     """The whole text refiner: ``num_blocks`` blocks then the final RMSNorm."""
 
@@ -238,6 +239,8 @@ def run_refiner(
         if observer_factory is not None:
             ctx["node_observer"] = observer_factory(block)
         h = run_graph(mode, ctx, ops)[OUTPUT]
+        if on_block is not None:
+            on_block(block, h)
     weight = weights[FINAL_NORM]
     if mode == "candidate":
         assert ops is not None

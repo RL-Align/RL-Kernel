@@ -47,4 +47,5 @@ Every operator page should include:
 - [Operator Doc Template](../contributing/operator-doc-template.md)
 - [MiniMax-H3 Projection Rows](h3-projection-rows.md)
 - [MiniMax-H3 Token Refiner Block](h3-token-refiner.md)
+- [MiniMax-H3 Full Transformer and Dual Trajectory](h3-full-transformer.md)
 - [MiniMax-H3 Trajectory Artifact](h3-trajectory-artifact.md)
