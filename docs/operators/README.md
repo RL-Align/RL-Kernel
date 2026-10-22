@@ -42,4 +42,5 @@ Every operator page should include:
 - [MiniMax-H3 Tensor-Parallel AdaLN Projection](h3-tp-adaln-3mod.md)
 - [MiniMax-H3 Sequence-Parallel Norm and AdaLN](h3-sp-norm-adaln.md)
 - [MiniMax-H3 One Block, Forward and Backward](h3-one-block.md)
+- [MiniMax-H3 Architecture Fingerprint](h3-arch-fingerprint.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)
