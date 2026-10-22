@@ -400,10 +400,10 @@ def block_observer(
     if stage not in ("transformer_blocks", "token_refiner"):
         raise ValueError(f"unknown stage {stage!r}")
     if bindings is None:
-        if stage == "token_refiner":
-            from rl_engine.validation.models import h3_refiner as source  # lazy: needs torch
-        else:
-            from rl_engine.validation.models import h3_block as source  # lazy: needs torch
+        import importlib  # lazy: the graph modules need torch
+
+        module = "h3_refiner" if stage == "token_refiner" else "h3_block"
+        source = importlib.import_module(f"rl_engine.validation.models.{module}")
 
         bindings = {node.name: node.binding for node in source.NODES}
 

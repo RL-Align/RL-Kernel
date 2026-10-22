@@ -240,6 +240,7 @@ def run_refiner(
         h = run_graph(mode, ctx, ops)[OUTPUT]
     weight = weights[FINAL_NORM]
     if mode == "candidate":
+        assert ops is not None
         return ops.norm(h, weight)
     if mode == "provider":
         return prov.provider_head_rmsnorm(h, weight)
@@ -279,7 +280,7 @@ def run_refiner_case(
     for node in NODES:
         name = node.name
         row0 = hb._batch_row(batched[name], 0, 2)
-        entry = {
+        entry: dict[str, Any] = {
             "node": name,
             "rfc_row": node.binding.rfc_row,
             "status": node.binding.status,
