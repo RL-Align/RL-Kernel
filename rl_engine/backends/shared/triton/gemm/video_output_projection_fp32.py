@@ -12,14 +12,31 @@ from rl_engine.backends.shared.triton.gemm.det_gemm import (
 )
 from rl_engine.ops.gemm.video_output_projection_fp32 import VideoOutputProjectionFP32Op
 
+_PROJECTION_TILE = (128, 32, 4)
+
 
 def projection_gemm_fp32(a, b, *, bias=None):
-    """Reuse full-K GEMM for dX and fixed chunks for long H3 reductions.
+    """Reuse input-projection layouts for H3 output's FP32 matrix products.
 
     Forward reduces 5376 hidden channels. Weight and bias gradients reduce
-    the session's canonical rows. dX reduces only 96 patch channels.
+    the session's canonical rows. dX reduces only 96 patch channels and keeps
+    the original full-K GEMM. Tile selection is independent of physical rows.
     """
-    output = _triton_gemm_fp32(a, b) if a.shape[1] <= 96 else _triton_chunked_gemm_fp32(a, b)
+    rows, reduction = a.shape
+    columns = b.shape[1]
+    if reduction <= 96:
+        output = _triton_gemm_fp32(a, b)
+    elif rows == 96 and columns == 5376:
+        # dW = G.T @ X. Compute X.T @ G, then restore [96, 5376]. This
+        # matches input projection's dW layout and uses narrow output tiles.
+        # Operands remain strided views; only the small final dW is copied.
+        output = _triton_chunked_gemm_fp32(b.t(), a.t(), tile=_PROJECTION_TILE).t().contiguous()
+    elif reduction == 5376 and columns == 96:
+        # Forward matches input projection's dX layout. Keep this tile for
+        # every row count, including the shape-identical dbias at K=5376.
+        output = _triton_chunked_gemm_fp32(a, b, tile=_PROJECTION_TILE)
+    else:
+        output = _triton_chunked_gemm_fp32(a, b)
     return output if bias is None else output + bias
 
 
@@ -53,7 +70,9 @@ class TritonVideoOutputProjectionFP32Op(VideoOutputProjectionFP32Op):
             "kernel": "_det_gemm_fp32_kernel / _det_gemm_fp32_chunk_merge_kernel",
             "chunk_k": 128,
             "reduction": "fixed_128_chunks_balanced_fp32_merge",
+            "projection_tile": _PROJECTION_TILE,
+            "weight_gradient": "transposed_product_when_k_gt_96",
             "triton_version": triton.__version__,
-            "canonical_rows": "stable_sort",
+            "canonical_rows": "stable_sort_shared_weight_bias",
             "tf32": False,
         }

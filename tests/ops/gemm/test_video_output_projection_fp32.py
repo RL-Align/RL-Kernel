@@ -147,6 +147,67 @@ def test_frozen_parameter_registration(frozen):
     assert (result[3] is None) == (frozen in ("bias", "both"))
 
 
+@pytest.mark.parametrize("bias_uses", ["all", "partial", "distinct"])
+def test_canonical_bias_sharing_requires_matching_contributions(bias_uses, monkeypatch):
+    from rl_engine.ops.autograd.canonical_backward import CanonicalBackwardSession
+    from rl_engine.ops.gemm.canonical_linear import canonical_linear_fp32
+
+    torch.manual_seed(421)
+    x = torch.randn(7, 3, requires_grad=True)
+    weight = torch.randn(5, 3, requires_grad=True)
+    biases = [torch.randn(5, requires_grad=True) for _ in range(2)]
+    grad = torch.randn(7, 5)
+    indices = [torch.tensor([4, 1, 6]), torch.tensor([0, 5, 2, 3])]
+    keys = _keys(7, "cpu")
+    keys[2, 0] = -1
+    normalized = []
+    original = CanonicalBackwardSession._normalize
+
+    def observe(self, parameter_id, values):
+        result = original(self, parameter_id, values)
+        normalized.append((parameter_id, result[1]))
+        return result
+
+    monkeypatch.setattr(CanonicalBackwardSession, "_normalize", observe)
+    with canonical_backward_session() as session:
+        outputs = []
+        for use, ix in enumerate(indices):
+            bias = (
+                None
+                if bias_uses == "partial" and use == 1
+                else biases[use if bias_uses == "distinct" else 0]
+            )
+            outputs.append(
+                canonical_linear_fp32(
+                    x[ix],
+                    weight,
+                    keys[ix],
+                    parameter_id="weight",
+                    family="pytorch",
+                    bias=bias,
+                    bias_parameter_id=f"bias.{use if bias_uses == 'distinct' else 0}",
+                )
+            )
+        torch.autograd.backward(outputs, [grad[ix] for ix in indices])
+        session.validate_complete()
+        assert not session._normalized
+    active = keys[:, 0] >= 0
+    torch.testing.assert_close(weight.grad, grad[active].t() @ x.detach()[active])
+    torch.testing.assert_close(x.grad, grad @ weight.detach())
+    for use, bias in enumerate(biases):
+        if use == 1 and bias_uses != "distinct":
+            assert bias.grad is None
+            continue
+        ix = torch.arange(7) if bias_uses == "all" else indices[use]
+        ix = ix[active[ix]]
+        torch.testing.assert_close(bias.grad, grad[ix].sum(0))
+    if bias_uses == "all":
+        assert len(normalized) == 2
+        assert normalized[0][1] is normalized[1][1]
+    else:
+        assert all(a[1] is not b[1] for i, a in enumerate(normalized) for b in normalized[i + 1 :])
+
+
 @pytest.mark.parametrize(
     "invalid,error_type,message",
     [
@@ -215,7 +276,7 @@ def test_invalid_inputs(invalid, error_type, message):
 
 
 @requires_sm90
-@pytest.mark.parametrize("rows", [1, 9, 17, 65, 129, 257])
+@pytest.mark.parametrize("rows", [1, 9, 17, 65, 96, 97, 128, 129, 257])
 @pytest.mark.parametrize("with_bias", [False, True])
 def test_forward_and_actual_gradients(rows, with_bias):
     data = _data(rows)
@@ -225,7 +286,7 @@ def test_forward_and_actual_gradients(rows, with_bias):
 
 
 @requires_sm90
-@pytest.mark.parametrize("rows", [9, 65, 127, 128, 129, 257])
+@pytest.mark.parametrize("rows", [9, 65, 96, 97, 127, 128, 129, 257])
 def test_parameter_bi_permutation_chunk_padding(rows):
     _check_parameter_bi(_data(rows))
 
@@ -262,30 +323,34 @@ def _check_parameter_bi(data):
 
 
 @requires_sm90
-@pytest.mark.parametrize("rows", [129, 13104])
-@pytest.mark.parametrize("seed", [420, 421, 422, 423])
+@pytest.mark.parametrize(
+    "seed,rows",
+    [(seed, rows) for seed in (420, 421, 422, 423) for rows in (129, 13104)] + [(420, 5376)],
+)
 def test_standard_normal_long_reduction(rows, seed):
     # Output projection moves the 5376-term dot into forward; dW reduces over rows.
+    # At 5376 rows, dbias shares the one-row forward GEMM shape.
     data = _data(rows, seed=seed, scaled=False)
     _assert_result_accuracy(_run(_op(), data, _keys(rows, "cuda")), _reference(data))
     _check_parameter_bi(data)
 
 
 @requires_sm90
-def test_existing_canonical_linear_bf16_call_preserves_accuracy_and_bi():
+@pytest.mark.parametrize("rows,hidden,outputs", [(17, 4096, 128), (4096, 64, 32)])
+def test_existing_canonical_linear_bf16_call_preserves_accuracy_and_bi(rows, hidden, outputs):
     from rl_engine.ops.gemm.canonical_linear import canonical_linear_fp32
 
     generator = torch.Generator(device="cuda").manual_seed(420)
-    x = (torch.randn(17, 4096, generator=generator, device="cuda") * 0.125).bfloat16()
-    weight = (torch.randn(128, 4096, generator=generator, device="cuda") * 0.0625).bfloat16()
-    grad = torch.randn(17, 128, generator=generator, device="cuda") * 0.0625
-    keys = _keys(17, "cuda")
+    x = (torch.randn(rows, hidden, generator=generator, device="cuda") * 0.125).bfloat16()
+    weight = (torch.randn(outputs, hidden, generator=generator, device="cuda") * 0.0625).bfloat16()
+    grad = torch.randn(rows, outputs, generator=generator, device="cuda") * 0.0625
+    keys = _keys(rows, "cuda")
 
     def run(cuts):
         inputs, parameter = [value.detach().clone().requires_grad_() for value in (x, weight)]
         with canonical_backward_session() as session:
             # Preserve the existing call shape without bias or a custom matmul.
-            outputs = [
+            values = [
                 canonical_linear_fp32(
                     inputs.index_select(0, indices),
                     parameter,
@@ -295,18 +360,19 @@ def test_existing_canonical_linear_bf16_call_preserves_accuracy_and_bi():
                 )
                 for indices in cuts
             ]
-            torch.autograd.backward(outputs, [grad.index_select(0, indices) for indices in cuts])
+            torch.autograd.backward(values, [grad.index_select(0, indices) for indices in cuts])
             session.validate_complete()
-        output = torch.empty(17, 128, dtype=torch.float32, device="cuda")
-        for indices, values in zip(cuts, outputs, strict=True):
-            output.index_copy_(0, indices, values.detach())
+        output = torch.empty(rows, outputs, dtype=torch.float32, device="cuda")
+        for indices, value in zip(cuts, values, strict=True):
+            output.index_copy_(0, indices, value.detach())
         return output, inputs.grad, parameter.grad
 
-    baseline = run([torch.arange(17, device="cuda")])
-    order = torch.randperm(17, generator=generator, device="cuda")
-    chunked = run(list(torch.tensor_split(order, 3)))
-    for actual, expected in zip(chunked, baseline, strict=True):
-        _assert_bytes(actual, expected)
+    baseline = run([torch.arange(rows, device="cuda")])
+    order = torch.randperm(rows, generator=generator, device="cuda")
+    for cuts in ([order], list(torch.tensor_split(order, 3))):
+        reordered = run(cuts)
+        for actual, expected in zip(reordered, baseline, strict=True):
+            _assert_bytes(actual, expected)
     assert baseline[0].dtype == torch.float32
     assert baseline[1].dtype == baseline[2].dtype == torch.bfloat16
 
@@ -387,10 +453,11 @@ def test_batch_placement_and_unrelated_rows():
 
 
 @requires_sm90
+@pytest.mark.parametrize("rows", [17, 129])
 @pytest.mark.parametrize("expanded_upstream", [False, True])
-def test_noncontiguous_upstream_and_forward_graph(expanded_upstream):
+def test_noncontiguous_upstream_and_forward_graph(expanded_upstream, rows):
     op = _op()
-    x, weight, bias, grad = _data(17)
+    x, weight, bias, grad = _data(rows)
     grad = (
         torch.ones((), device="cuda").expand_as(grad)
         if expanded_upstream
@@ -402,7 +469,7 @@ def test_noncontiguous_upstream_and_forward_graph(expanded_upstream):
             x.requires_grad_(),
             weight.requires_grad_(),
             bias.requires_grad_(),
-            logical_keys=_keys(17, "cuda"),
+            logical_keys=_keys(rows, "cuda"),
             parameter_id="proj_out",
         )
         output.backward(grad)

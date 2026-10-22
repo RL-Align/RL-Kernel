@@ -55,6 +55,7 @@ def _validate_keys(keys, rows, device, parameter_id, session, weight, bias):
     if not isinstance(parameter_id, str) or not parameter_id.strip():
         raise ValueError("parameter gradients require a non-empty parameter_id")
     # A duplicate active identity leaves tie order dependent on chunk arrival.
+    checked = set()
     for name, needed in (
         ("weight", weight.requires_grad),
         ("bias", bias is not None and bias.requires_grad),
@@ -62,6 +63,12 @@ def _validate_keys(keys, rows, device, parameter_id, session, weight, bias):
         if not needed:
             continue
         previous = session.uses.get(f"{parameter_id}.{name}", [])
+        signature = tuple(use.contribution for use in previous)
+        # Matching weight/bias contribution groups allow one key check per group.
+        if all(token is not None for token in signature):
+            if signature in checked:
+                continue
+            checked.add(signature)
         if any(use.keys.shape[1] != keys.shape[1] for use in previous):
             raise ValueError("logical key columns must agree across parameter uses")
         merged = torch.cat([use.keys for use in previous] + [keys], dim=0) if previous else keys

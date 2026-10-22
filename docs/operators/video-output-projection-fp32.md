@@ -19,16 +19,18 @@ helper present in merged [#325](https://github.com/RL-Align/RL-Kernel/pull/325)
 and canonical parameter-gradient collection. The native CUDA layout interfaces
 in [#343](https://github.com/RL-Align/RL-Kernel/pull/343) require BF16 inputs.
 The FP32 input-projection work in
-[#562](https://github.com/RL-Align/RL-Kernel/pull/562) supplies related integration
-and validation patterns; output shapes require their own qualification.
+[#562](https://github.com/RL-Align/RL-Kernel/pull/562) supplies the chunked GEMM,
+tile configuration, shared weight/bias row preparation, and validation patterns.
+These paths are qualified separately for output shapes.
 
 The output adapter reuses the original full-K FP32 GEMM for reductions of at
 most 96 terms. Longer reductions use the fixed 128-term chunk helper developed
 for the input projection. The output-specific qualification found FP32 accuracy
 violations in the original long forward and weight-gradient reductions; the
 chunked candidate passed those cases. The shared default GEMM dispatch and its
-compiler fusion setting remain unchanged. Canonical backward uses the existing
-sorting implementation.
+compiler fusion setting remain unchanged. Canonical backward retains stable
+sorting, combines padding removal and reordering into one gather, and shares
+the sorted upstream gradients between matching weight and bias contributions.
 
 ## Entry Point
 
@@ -92,9 +94,19 @@ For an upstream gradient `G`, the derivatives are:
 - `dW = G_sorted.T @ X_sorted`, reduced over the complete logical row set.
 - `dbias = sum_rows(G_sorted)`.
 
+For long weight-gradient reductions, the backend evaluates
+`dW = (X_sorted.T @ G_sorted).T`. Both operands are views. Only the final
+`[96,5376]` gradient is copied to contiguous storage. This reuses the input
+projection's weight-gradient layout and avoids mostly empty row tiles when
+the workspace budget splits the product. Forward and transposed dW use
+`128 x 32` output tiles with four warps; their 128-term reduction is unchanged.
+
 Forward has 5376 terms per output element. The canonical session collects
 parameter contributions, removes padding, and sorts logical keys before the
-weight and bias reductions. A layout comparison must preserve the same input
+weight and bias reductions. A single forward use skips concatenation. When
+weight and bias have matching complete forward-contribution sequences, they
+share the sorted upstream gradient. Other parameter uses retain independent
+preparation. A layout comparison must preserve the same input
 values, logical keys, and upstream gradients. Adding genuine training samples
 changes the expected parameter gradient.
 
