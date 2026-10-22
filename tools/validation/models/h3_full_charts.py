@@ -57,7 +57,9 @@ def main(evidence: Path, out: Path) -> None:
     names = ["video_rel", "audio_rel"] + [f"d{k}" for k in cmp_["input_grad_rel"]]
     values = [cmp_["video_rel"], cmp_["audio_rel"], *cmp_["input_grad_rel"].values()]
     ax[1].bar(names, values)
-    ax[1].set(yscale="log", ylabel="relative difference to provider", title="Strict vs provider (33B)")
+    ax[1].set(
+        yscale="log", ylabel="relative difference to provider", title="Strict vs provider (33B)"
+    )
     ax[1].tick_params(axis="x", rotation=60, labelsize=7)
     sec = full["seconds"]
     ax[2].bar(
