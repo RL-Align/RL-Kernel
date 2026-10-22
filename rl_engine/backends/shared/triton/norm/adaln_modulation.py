@@ -187,6 +187,8 @@ class TritonAdaLNModulationOp:
 
     def forward(self, x, modulation, *, eps=1e-6):
         _validate(x, modulation, eps)
+        if max(x.numel(), modulation.numel()) > 2**31 - 1:
+            raise ValueError("Triton AdaLN requires tensors to fit int32 indexing")
         if not x.is_cuda:
             raise RuntimeError("Triton AdaLN requires CUDA tensors")
         return _AdaLNTriton.apply(

@@ -11,6 +11,29 @@ from rl_engine.backends.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
 from rl_engine.runtime.registry import OpBackend, kernel_registry
 
 
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("shape", [(1, 524289, 4096), (1, 2**31, 1), (2**30, 1, 1)])
+def test_triton_shared_rejects_int32_address_overflow_without_allocating(shape, dtype):
+    pytest.importorskip("triton")
+    from rl_engine.backends.shared.triton.norm.adaln_modulation import TritonAdaLNModulationOp
+
+    x = torch.empty(shape, device="meta", dtype=dtype)
+    m = torch.empty(shape[0], 3 * shape[-1], device="meta", dtype=dtype)
+    with pytest.raises(ValueError, match="int32 indexing"):
+        TritonAdaLNModulationOp()(x, m)
+
+
+@pytest.mark.parametrize("shape", [(1, 2**31 - 1, 1), (1, 1, 715827882)])
+def test_triton_shared_int32_boundary_reaches_device_check(shape):
+    pytest.importorskip("triton")
+    from rl_engine.backends.shared.triton.norm.adaln_modulation import TritonAdaLNModulationOp
+
+    x = torch.empty(shape, device="meta")
+    m = torch.empty(shape[0], 3 * shape[-1], device="meta")
+    with pytest.raises(RuntimeError, match="requires CUDA tensors"):
+        TritonAdaLNModulationOp()(x, m)
+
+
 @pytest.fixture
 def cuda_op(request):
     try:

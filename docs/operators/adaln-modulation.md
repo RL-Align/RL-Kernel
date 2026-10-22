@@ -163,8 +163,10 @@ fresh extension builds, sanitizer commands and evidence records.
 
 ## Known Limitations
 
-The CUDA extension requires B <= 65535 and at most 2^31-1 elements in each input.
-Python checks these bounds before contiguous copies; C++ checks them before launch.
+Shared CUDA and Triton require at most 2^31-1 elements in each input (`x` and
+`modulation`) for int32 element addressing. Python rejects larger inputs before
+contiguous copies or output/partial allocation. The CUDA extension additionally
+requires B <= 65535 and repeats its bounds checks in C++ before launch.
 
 Exceeding these limits raises an error; resolution only uses H to select fallback.
 
