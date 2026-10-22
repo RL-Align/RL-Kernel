@@ -83,7 +83,7 @@ class CandidateOps:
     deterministic on every GPU this replay runs on.
     """
 
-    def __init__(self, registry: KernelRegistry | None = None) -> None:
+    def __init__(self, registry: KernelRegistry | None = None, attention: str = "auto") -> None:
         from rl_engine.backends.cuda.activation.swiglu import SwiGLUCudaOp
         from rl_engine.backends.cuda.attention.deterministic_attn import DeterministicAttentionOp
         from rl_engine.backends.shared.triton.gemm.det_gemm import TritonDetGemmOp
@@ -95,11 +95,27 @@ class CandidateOps:
         self.gemm = TritonDetGemmOp()
         self.qkv = registry.get_op("h3_qkv_gemm", device="cuda")
         self.attention = DeterministicAttentionOp()
+        self.attention_h3 = None
+        if attention != "interim":
+            # h3_full_attention (#553): query-chunked, bounded workspace, same #240 arithmetic
+            try:
+                from rl_engine.backends.cuda.attention.h3_full_attention import (
+                    H3FullAttentionOp,
+                    _extension,
+                )
+
+                _extension()
+                self.attention_h3 = H3FullAttentionOp()
+            except (ImportError, RuntimeError):
+                if attention == "h3_full":
+                    raise
         self.swiglu = SwiGLUCudaOp()
 
     def backends(self) -> dict[str, str]:
         return {
-            name: f"{type(op).__module__}.{type(op).__name__}" for name, op in vars(self).items()
+            name: f"{type(op).__module__}.{type(op).__name__}"
+            for name, op in vars(self).items()
+            if op is not None
         }
 
 
@@ -146,6 +162,9 @@ def _cand_linear(ops: CandidateOps, x: torch.Tensor, weight: torch.Tensor) -> to
 
 
 def _cand_attention(ops: CandidateOps, q, k, v) -> torch.Tensor:
+    if ops.attention_h3 is not None:  # BSHD, bounded workspace
+        q, k, v = (t.contiguous() for t in (q, k, _heads(v)))
+        return ops.attention_h3(q, k, v).flatten(2, 3)
     q, k, v = (t.transpose(1, 2).contiguous() for t in (q, k, _heads(v)))
     out = ops.attention(q, k, v, causal=False)
     return out.transpose(1, 2).flatten(2, 3)
