@@ -21,11 +21,31 @@ def main(report: Path, out: Path) -> None:
     for name in names:
         sel = [r for r in rows if r["row"] == name]
         ax[0].plot([r["tokens"] for r in sel], [r["candidate_ms"] for r in sel], "o-", label=name)
-        ax[0].plot([r["tokens"] for r in sel], [r["provider_ms"] for r in sel], "x--", label=f"{name} provider")
-        ax[1].plot([r["tokens"] for r in sel], [r["rel_err_candidate"] for r in sel], "o-", label=name)
-        ax[1].plot([r["tokens"] for r in sel], [r["rel_err_provider"] for r in sel], "x--", label=f"{name} provider")
-    ax[0].set(xscale="log", yscale="log", xlabel="tokens", ylabel="forward ms (H100)", title="Performance")
-    ax[1].set(xscale="log", yscale="log", xlabel="tokens", ylabel="relative error vs FP64", title="Accuracy")
+        ax[0].plot(
+            [r["tokens"] for r in sel],
+            [r["provider_ms"] for r in sel],
+            "x--",
+            label=f"{name} provider",
+        )
+        ax[1].plot(
+            [r["tokens"] for r in sel], [r["rel_err_candidate"] for r in sel], "o-", label=name
+        )
+        ax[1].plot(
+            [r["tokens"] for r in sel],
+            [r["rel_err_provider"] for r in sel],
+            "x--",
+            label=f"{name} provider",
+        )
+    ax[0].set(
+        xscale="log", yscale="log", xlabel="tokens", ylabel="forward ms (H100)", title="Performance"
+    )
+    ax[1].set(
+        xscale="log",
+        yscale="log",
+        xlabel="tokens",
+        ylabel="relative error vs FP64",
+        title="Accuracy",
+    )
     for a in ax:
         a.grid(alpha=0.3)
         a.legend(fontsize=6)

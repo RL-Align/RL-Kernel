@@ -270,12 +270,15 @@ def test_rows_are_batch_and_position_invariant(row):
     assert _bits(op.forward(padded, w, b)[:67]) == _bits(full)
 
 
+def _splittable(row):
+    spec, _ = ROWS[row]
+    return spec.out_features % (2 * spec.shard_unit) == 0
+
+
 @requires_cuda
-@pytest.mark.parametrize("row", sorted(ROWS))
+@pytest.mark.parametrize("row", [r for r in sorted(ROWS) if _splittable(r)])
 def test_output_shard_equals_columns_of_full_product(row):
     spec, _ = ROWS[row]
-    if spec.out_features % (2 * spec.shard_unit):
-        pytest.skip("not splittable into two legal shards")
     op = _cuda_op(row)
     w, b = _params(spec)
     x = _x(spec, 40)
@@ -287,6 +290,24 @@ def test_output_shard_equals_columns_of_full_product(row):
     assert _bits(op.forward(x, w[half:].contiguous(), b[half:].contiguous())) == _bits(
         full[:, half:]
     )
+
+
+@requires_cuda
+@pytest.mark.parametrize("row", [r for r in sorted(ROWS) if not _splittable(r)])
+def test_single_unit_output_is_not_shardable_and_fails_closed(row):
+    """A row whose full width is one ``shard_unit`` (``audio_output_projection_fp32``: 32 columns)
+    has no legal output shard: tensor parallelism replicates it (or splits the reduction axis, which
+    the WS2 row-parallel path covers). Any narrower weight must be rejected, not silently computed.
+    """
+    spec, _ = ROWS[row]
+    assert spec.out_features == spec.shard_unit
+    op = _cuda_op(row)
+    w, b = _params(spec)
+    x = _x(spec, 8)
+    assert op.forward(x, w, b).shape == (8, spec.out_features)
+    half = spec.out_features // 2
+    with pytest.raises(ValueError):
+        op.forward(x, w[:half].contiguous(), b[:half].contiguous())
 
 
 @requires_cuda
