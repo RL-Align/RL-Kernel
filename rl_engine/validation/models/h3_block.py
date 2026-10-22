@@ -170,12 +170,27 @@ def _linear_node(name: str, source: str, weight: str, row: str, status: str) -> 
     )
 
 
+def _row_keys(x: torch.Tensor) -> torch.Tensor:
+    """Logical identity ``(batch row, token position)`` of every flattened row of ``[B, S, C]``.
+
+    The parameter-gradient reduction of a projection sorts its rows by this key, so dW does not
+    depend on the physical order the rows reach the GEMM in.
+    """
+
+    batch, seq = x.shape[0], x.shape[1]
+    rows = torch.arange(batch, device=x.device).repeat_interleave(seq)
+    positions = torch.arange(seq, device=x.device).repeat(batch)
+    return torch.stack([rows, positions], dim=1)
+
+
 def _qkv_node(name: str, weight: str) -> Node:
     """Q, K or V projection: the ``h3_qkv_gemm`` row (fixed-order Triton GEMM, BF16)."""
 
     def candidate(ops, ctx, x):
         flat = x.reshape(-1, x.shape[-1])
-        return ops.qkv.project(flat, _w(ctx, weight)).view(*x.shape[:-1], -1)
+        return ops.qkv.project(flat, _w(ctx, weight), logical_keys=_row_keys(x)).view(
+            *x.shape[:-1], -1
+        )
 
     return Node(
         name=name,

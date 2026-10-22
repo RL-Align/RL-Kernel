@@ -48,7 +48,10 @@ def _require_triton() -> None:
 
 
 def canonical_row_order(logical_keys: torch.Tensor | None, x: torch.Tensor) -> torch.Tensor | None:
-    """Row indices of the active rows in ascending logical-key order (``None`` without keys).
+    """Row indices of the active rows in ascending logical-key order.
+
+    ``None`` without keys, and also when the rows already are the active rows in canonical order
+    (the reduction then runs in place and gives the same bytes).
 
     Active keys must be unique, otherwise the order of two equal keys would depend on the call.
     """
@@ -73,7 +76,10 @@ def canonical_row_order(logical_keys: torch.Tensor | None, x: torch.Tensor) -> t
     order = torch.arange(keys.shape[0], device=x.device)
     for column in reversed(range(keys.shape[1])):  # stable passes, least significant key first
         order = order[torch.argsort(keys[order, column], stable=True)]
-    return active[order]
+    order = active[order]
+    if order.numel() == rows and torch.equal(order, torch.arange(rows, device=x.device)):
+        return None  # already in canonical order: reduce in place, no gather of x and g
+    return order
 
 
 def _keyed(logical_keys, x, *params):
