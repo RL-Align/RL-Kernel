@@ -93,6 +93,7 @@ class CandidateOps:
         self.norm = registry.get_op("h3_rmsnorm", device="cuda")
         self.gate = registry.get_op("adaln_gate_residual", device="cuda")
         self.gemm = TritonDetGemmOp()
+        self.qkv = registry.get_op("h3_qkv_gemm", device="cuda")
         self.attention = DeterministicAttentionOp()
         self.swiglu = SwiGLUCudaOp()
 
@@ -169,6 +170,24 @@ def _linear_node(name: str, source: str, weight: str, row: str, status: str) -> 
     )
 
 
+def _qkv_node(name: str, weight: str) -> Node:
+    """Q, K or V projection: the ``h3_qkv_gemm`` row (fixed-order Triton GEMM, BF16)."""
+
+    def candidate(ops, ctx, x):
+        flat = x.reshape(-1, x.shape[-1])
+        return ops.qkv.project(flat, _w(ctx, weight)).view(*x.shape[:-1], -1)
+
+    return Node(
+        name=name,
+        inputs=("norm1",),
+        binding=Binding("h3_qkv_gemm", "row", "H3QKVGemmCudaOp.project"),
+        candidate=candidate,
+        provider=lambda ctx, x: prov.provider_linear(x, _w(ctx, weight)),
+        golden=lambda ctx, x: gold.golden_linear(x, _w(ctx, weight)),
+        provider_bitwise_isolated=False,  # fixed-order K loop vs cuBLAS
+    )
+
+
 def _norm_modulate_node(name: str, source: str, weight: str, shift: int, scale: int) -> Node:
     return Node(
         name=name,
@@ -240,9 +259,9 @@ NODES: list[Node] = [
         provider_bitwise_isolated=False,  # tensor-core tree vs cuBLAS
     ),
     _norm_modulate_node("norm1", "hidden", "norm1.weight", shift=0, scale=1),
-    _linear_node("q_proj", "norm1", "attn.to_q.weight", "h3_qkv_gemm", "interim"),
-    _linear_node("k_proj", "norm1", "attn.to_k.weight", "h3_qkv_gemm", "interim"),
-    _linear_node("v_proj", "norm1", "attn.to_v.weight", "h3_qkv_gemm", "interim"),
+    _qkv_node("q_proj", "attn.to_q.weight"),
+    _qkv_node("k_proj", "attn.to_k.weight"),
+    _qkv_node("v_proj", "attn.to_v.weight"),
     _head_norm_node("q_norm", "q_proj", "attn.norm_q.weight"),
     _head_norm_node("k_norm", "k_proj", "attn.norm_k.weight"),
     _rope_node("rope_q", "q_norm"),

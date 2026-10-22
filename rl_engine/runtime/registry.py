@@ -216,6 +216,22 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     CUDA_H3_TIMESTEP_MLP = (
         "rl_engine.backends.cuda.model_specific.minimax_h3.timestep_mlp.H3TimestepMLPCudaOp"
     )
+    PYTORCH_H3_AUDIO_INPUT_PROJECTION = "rl_engine.reference.minimax_h3.projection.NativeH3AudioInputProjectionOp"
+    CUDA_H3_AUDIO_INPUT_PROJECTION = (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.projection.H3AudioInputProjectionCudaOp"
+    )
+    PYTORCH_H3_AUDIO_OUTPUT_PROJECTION = "rl_engine.reference.minimax_h3.projection.NativeH3AudioOutputProjectionOp"
+    CUDA_H3_AUDIO_OUTPUT_PROJECTION = (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.projection.H3AudioOutputProjectionCudaOp"
+    )
+    PYTORCH_H3_TEXT_CONTEXT_PROJECTION = "rl_engine.reference.minimax_h3.projection.NativeH3TextContextProjectionOp"
+    CUDA_H3_TEXT_CONTEXT_PROJECTION = (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.projection.H3TextContextProjectionCudaOp"
+    )
+    PYTORCH_H3_QKV_GEMM = "rl_engine.reference.minimax_h3.projection.NativeH3QKVGemmOp"
+    CUDA_H3_QKV_GEMM = (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.projection.H3QKVGemmCudaOp"
+    )
     PYTORCH_H3_ADALN_PROJECTION = (
         "rl_engine.reference.minimax_h3.adaln_projection.NativeH3AdaLNProjectionOp"
     )
@@ -719,6 +735,22 @@ class KernelRegistry:
                     OpBackend.CUDA_H3_TIMESTEP_MLP,
                     OpBackend.PYTORCH_H3_TIMESTEP_MLP,
                 ],
+                "audio_input_projection_fp32": [
+                    OpBackend.CUDA_H3_AUDIO_INPUT_PROJECTION,
+                    OpBackend.PYTORCH_H3_AUDIO_INPUT_PROJECTION,
+                ],
+                "audio_output_projection_fp32": [
+                    OpBackend.CUDA_H3_AUDIO_OUTPUT_PROJECTION,
+                    OpBackend.PYTORCH_H3_AUDIO_OUTPUT_PROJECTION,
+                ],
+                "text_context_projection": [
+                    OpBackend.CUDA_H3_TEXT_CONTEXT_PROJECTION,
+                    OpBackend.PYTORCH_H3_TEXT_CONTEXT_PROJECTION,
+                ],
+                "h3_qkv_gemm": [
+                    OpBackend.CUDA_H3_QKV_GEMM,
+                    OpBackend.PYTORCH_H3_QKV_GEMM,
+                ],
                 "adaln_projection_3mod": [
                     OpBackend.CUDA_H3_ADALN_PROJECTION,
                     OpBackend.PYTORCH_H3_ADALN_PROJECTION,
@@ -779,6 +811,10 @@ class KernelRegistry:
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
                 "timestep_sinusoid_h3": [OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID],
                 "timestep_mlp_fp32": [OpBackend.PYTORCH_H3_TIMESTEP_MLP],
+                "audio_input_projection_fp32": [OpBackend.PYTORCH_H3_AUDIO_INPUT_PROJECTION],
+                "audio_output_projection_fp32": [OpBackend.PYTORCH_H3_AUDIO_OUTPUT_PROJECTION],
+                "text_context_projection": [OpBackend.PYTORCH_H3_TEXT_CONTEXT_PROJECTION],
+                "h3_qkv_gemm": [OpBackend.PYTORCH_H3_QKV_GEMM],
                 "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
                 "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
                 "h3_rmsnorm": [OpBackend.PYTORCH_H3_RMSNORM],
@@ -835,6 +871,10 @@ class KernelRegistry:
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
                 "timestep_sinusoid_h3": [OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID],
                 "timestep_mlp_fp32": [OpBackend.PYTORCH_H3_TIMESTEP_MLP],
+                "audio_input_projection_fp32": [OpBackend.PYTORCH_H3_AUDIO_INPUT_PROJECTION],
+                "audio_output_projection_fp32": [OpBackend.PYTORCH_H3_AUDIO_OUTPUT_PROJECTION],
+                "text_context_projection": [OpBackend.PYTORCH_H3_TEXT_CONTEXT_PROJECTION],
+                "h3_qkv_gemm": [OpBackend.PYTORCH_H3_QKV_GEMM],
                 "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
                 "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
                 "h3_rmsnorm": [OpBackend.PYTORCH_H3_RMSNORM],
@@ -868,6 +908,10 @@ class KernelRegistry:
                 "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
                 "timestep_sinusoid_h3": [OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID],
                 "timestep_mlp_fp32": [OpBackend.PYTORCH_H3_TIMESTEP_MLP],
+                "audio_input_projection_fp32": [OpBackend.PYTORCH_H3_AUDIO_INPUT_PROJECTION],
+                "audio_output_projection_fp32": [OpBackend.PYTORCH_H3_AUDIO_OUTPUT_PROJECTION],
+                "text_context_projection": [OpBackend.PYTORCH_H3_TEXT_CONTEXT_PROJECTION],
+                "h3_qkv_gemm": [OpBackend.PYTORCH_H3_QKV_GEMM],
                 "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
                 "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
                 "h3_rmsnorm": [OpBackend.PYTORCH_H3_RMSNORM],
