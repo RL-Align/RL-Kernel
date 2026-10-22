@@ -112,8 +112,12 @@ def test_tensor_digest_covers_bytes_dtype_and_shape() -> None:
     y = x.clone()
     y[5] = torch.nextafter(y[5], torch.tensor(1e9))
     assert tj.tensor_digest(x) != tj.tensor_digest(y)
-    assert tj.tensor_digest(x.reshape(3, 4).t()) == tj.tensor_digest(x.reshape(3, 4).t().contiguous())
-    assert tj.tensor_digest(torch.empty(0)) != tj.tensor_digest(torch.empty(0, dtype=torch.bfloat16))
+    assert tj.tensor_digest(x.reshape(3, 4).t()) == tj.tensor_digest(
+        x.reshape(3, 4).t().contiguous()
+    )
+    assert tj.tensor_digest(torch.empty(0)) != tj.tensor_digest(
+        torch.empty(0, dtype=torch.bfloat16)
+    )
 
 
 # --- recorder contract ------------------------------------------------------------------------
@@ -131,7 +135,9 @@ def test_recorder_enforces_step_order_and_completeness() -> None:
         initial_noise={"video": _noise(0)["video"]},
     )
     with pytest.raises(ValueError, match="expected step 0"):
-        partial.record_step(1, velocity={"video": _noise(0)["video"]}, latent={"video": _noise(0)["video"]})
+        partial.record_step(
+            1, velocity={"video": _noise(0)["video"]}, latent={"video": _noise(0)["video"]}
+        )
     with pytest.raises(ValueError, match="recorded 0 of 2"):
         partial.seal()
     with pytest.raises(ValueError, match="exactly"):
@@ -143,7 +149,13 @@ def test_recorder_enforces_step_order_and_completeness() -> None:
     [
         (dict(variant="Nope"), "unknown variant"),
         (dict(sigma_grids={"video": [1.0]}), "length"),
-        (dict(sigma_grids={"video": [1.0, 0.5], "audio": [1.0, 0.7, 0.0]}, noise=("video", "audio")), "length"),
+        (
+            dict(
+                sigma_grids={"video": [1.0, 0.5], "audio": [1.0, 0.7, 0.0]},
+                noise=("video", "audio"),
+            ),
+            "length",
+        ),
         (dict(noise=("video", "audio")), "modalities"),
     ],
 )
@@ -203,7 +215,9 @@ def test_any_edit_fails_verification(mutate) -> None:
 def test_resealed_edit_is_still_caught_by_the_chain_or_grid() -> None:
     artifact = copy.deepcopy(_run().seal())
     artifact["step_records"][2]["velocity_sha256"]["video"] = "0" * 64
-    artifact["artifact_sha256"] = tj._sha({k: v for k, v in artifact.items() if k != "artifact_sha256"})
+    artifact["artifact_sha256"] = tj._sha(
+        {k: v for k, v in artifact.items() if k != "artifact_sha256"}
+    )
     with pytest.raises(ValueError, match="hash chain"):
         tj.verify(artifact)
 
@@ -211,7 +225,9 @@ def test_resealed_edit_is_still_caught_by_the_chain_or_grid() -> None:
 def test_non_monotone_grid_and_wrong_fingerprint_are_rejected() -> None:
     artifact = copy.deepcopy(_run().seal())
     artifact["architecture_fingerprint_sha256"] = "f" * 64
-    artifact["artifact_sha256"] = tj._sha({k: v for k, v in artifact.items() if k != "artifact_sha256"})
+    artifact["artifact_sha256"] = tj._sha(
+        {k: v for k, v in artifact.items() if k != "artifact_sha256"}
+    )
     with pytest.raises(ValueError, match="fingerprint"):
         tj.verify(artifact)
     tj.verify(artifact, check_fingerprint=False)
@@ -223,7 +239,9 @@ def test_non_monotone_grid_and_wrong_fingerprint_are_rejected() -> None:
         initial_noise={"video": _noise(0)["video"]},
     )
     for step in range(2):
-        recorder.record_step(step, velocity={"video": _noise(0)["video"]}, latent={"video": _noise(0)["video"]})
+        recorder.record_step(
+            step, velocity={"video": _noise(0)["video"]}, latent={"video": _noise(0)["video"]}
+        )
     with pytest.raises(ValueError, match="non-increasing"):
         tj.verify(recorder.seal())
 
@@ -276,7 +294,10 @@ def test_drift_with_tensors_reports_count_and_magnitude(tmp_path: Path) -> None:
     ra.save_tensors(tmp_path / "a.safetensors")
     rb.save_tensors(tmp_path / "b.safetensors")
     drift = tj.first_drift(
-        ra.seal(), rb.seal(), tensors_lhs=tmp_path / "a.safetensors", tensors_rhs=tmp_path / "b.safetensors"
+        ra.seal(),
+        rb.seal(),
+        tensors_lhs=tmp_path / "a.safetensors",
+        tensors_rhs=tmp_path / "b.safetensors",
     )
     assert (drift["step"], drift["kind"], drift["modality"]) == (3, "velocity", "video")
     assert drift["mismatch_count"] == 1

@@ -209,7 +209,9 @@ def _precision_of(name: str) -> str:
     return "fp32" if top in FP32_MODULES else "bf16"
 
 
-def _attention_tensors(prefix: str, config: Mapping[str, Any]) -> Iterable[tuple[str, tuple[int, ...]]]:
+def _attention_tensors(
+    prefix: str, config: Mapping[str, Any]
+) -> Iterable[tuple[str, tuple[int, ...]]]:
     hidden = config["hidden_size"]
     inner = config["num_attention_heads"] * config["attention_head_dim"]
     head_dim = config["attention_head_dim"]
@@ -377,13 +379,17 @@ def build_fingerprint() -> dict[str, Any]:
     snapshot = pinned_checkpoint()
     config = transformer_config("FL2VA")
     if transformer_config("Ref2VA") != config:
-        raise ValueError("FL2VA and Ref2VA transformer configs differ; the fingerprint is per-variant")
+        raise ValueError(
+            "FL2VA and Ref2VA transformer configs differ; the fingerprint is per-variant"
+        )
     table = expected_tensor_table(config)
     digest = tensor_table_digest(table)
     for variant, directory in VARIANTS.items():
         pinned = snapshot["tensor_tables"][directory]
         if pinned["digest"] != digest:
-            raise ValueError(f"{variant}: analytic tensor table does not match the checkpoint headers")
+            raise ValueError(
+                f"{variant}: analytic tensor table does not match the checkpoint headers"
+            )
         if pinned["parameters"] != parameter_count(table):
             raise ValueError(f"{variant}: parameter count mismatch")
     for key, shift in (("scheduler", "video_shift"), ("audio_scheduler", "audio_shift")):

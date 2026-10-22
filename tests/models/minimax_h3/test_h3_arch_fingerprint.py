@@ -87,7 +87,9 @@ def test_fingerprint_is_stable_and_self_consistent() -> None:
 
 
 def test_committed_golden_matches() -> None:
-    golden = Path(__file__).resolve().parents[3] / "rl_engine/models/minimax_h3/arch_fingerprint.json"
+    golden = (
+        Path(__file__).resolve().parents[3] / "rl_engine/models/minimax_h3/arch_fingerprint.json"
+    )
     if not golden.exists():
         pytest.skip("no committed golden fingerprint")
     assert json.loads(golden.read_text()) == fp.build_fingerprint()
@@ -150,7 +152,9 @@ def test_unclaimed_rows_are_visible_in_the_graph() -> None:
 
 def test_scheduler_shifts_match_the_released_configs() -> None:
     assert float(SNAPSHOT["configs"]["scheduler"]["shift"]) == fp.SCHEDULER["video_shift"] == 12.0
-    assert float(SNAPSHOT["configs"]["audio_scheduler"]["shift"]) == fp.SCHEDULER["audio_shift"] == 3.0
+    assert (
+        float(SNAPSHOT["configs"]["audio_scheduler"]["shift"]) == fp.SCHEDULER["audio_shift"] == 3.0
+    )
     assert fp.SCHEDULER["eta"] == 0.0
 
 

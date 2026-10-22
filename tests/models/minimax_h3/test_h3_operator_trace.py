@@ -58,9 +58,7 @@ def test_record_rejects_unknown_paths_wrong_rows_and_statuses() -> None:
     with pytest.raises(ValueError, match="not a node"):
         trace.record_node("transformer_blocks.50.attention", status="row", backend="x")
     with pytest.raises(ValueError, match="graph assigns"):
-        trace.record(
-            ot.OperatorCall("transformer_blocks.0.attention", "h3_swiglu", "row", "x")
-        )
+        trace.record(ot.OperatorCall("transformer_blocks.0.attention", "h3_swiglu", "row", "x"))
     with pytest.raises(ValueError, match="status"):
         trace.record_node("transformer_blocks.0.attention", status="maybe", backend="x")
 
@@ -82,7 +80,9 @@ def test_every_strictness_violation_is_reported(overrides, needle) -> None:
     _run(trace, nodes=GRAPH)
     bad = ot.OperatorTrace()
     for call in trace.calls:
-        bad.record(replace(call, **overrides) if call.path == "transformer_blocks.7.q_proj" else call)
+        bad.record(
+            replace(call, **overrides) if call.path == "transformer_blocks.7.q_proj" else call
+        )
     problems = bad.violations()
     assert any("transformer_blocks.7.q_proj" in p and needle in p for p in problems), problems
     with pytest.raises(ValueError, match="not strict"):
@@ -164,7 +164,9 @@ def test_first_difference_names_the_first_diverging_call() -> None:
 def test_status_summary_counts_per_row() -> None:
     trace = ot.OperatorTrace()
     for node in GRAPH:
-        trace.record_node(node.path, status="row" if node.node != "o_proj" else "interim", backend="b")
+        trace.record_node(
+            node.path, status="row" if node.node != "o_proj" else "interim", backend="b"
+        )
     summary = trace.status_summary()
     assert summary["h3_attention_o_gemm"] == {"interim": 50 + 2}
     assert summary["h3_full_attention"] == {"row": 50 + 2}
@@ -290,9 +292,7 @@ def test_block_replay_trace_matches_h3_block_bindings(h3_block_weights_cuda) -> 
         )
     # Today's stack still has interim and reference nodes: the strict gate must say so.
     assert trace.violations(paths=BLOCK0)
-    assert trace.violations(
-        paths=BLOCK0, allowed_statuses=("row", "interim", "reference")
-    ) == []
+    assert trace.violations(paths=BLOCK0, allowed_statuses=("row", "interim", "reference")) == []
     # Replaying twice gives the same ledger: the trace is part of the repeatable surface.
     again = ot.OperatorTrace(mode="candidate", metadata={"layout": "tiny", "block": 0})
     ctx["node_observer"] = ot.block_observer(again, block_index=0)

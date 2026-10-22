@@ -227,7 +227,9 @@ class OperatorTrace:
                 problems.append(f"{where}: no backend recorded")
         if require_coverage:
             cov = self.coverage(paths)
-            problems += cov["wrong_count"] + [f"{p}: not in the expected set" for p in cov["unexpected"]]
+            problems += cov["wrong_count"] + [
+                f"{p}: not in the expected set" for p in cov["unexpected"]
+            ]
         return problems
 
     def assert_strict(self, **kwargs: Any) -> None:

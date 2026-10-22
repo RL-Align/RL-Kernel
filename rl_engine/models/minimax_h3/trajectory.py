@@ -121,7 +121,9 @@ class TrajectoryRecorder:
         if variant not in fp.VARIANTS:
             raise ValueError(f"unknown variant {variant!r}")
         if set(sigma_grids) != set(initial_noise) or not set(sigma_grids) <= set(MODALITIES):
-            raise ValueError(f"modalities must be a subset of {MODALITIES}, the same for grids and noise")
+            raise ValueError(
+                f"modalities must be a subset of {MODALITIES}, the same for grids and noise"
+            )
         steps = {len(grid) - 1 for grid in sigma_grids.values()}
         if len(steps) != 1 or steps.pop() < 1:
             raise ValueError("every sigma grid needs the same length of at least 2 (steps + 1)")
@@ -202,7 +204,7 @@ class TrajectoryRecorder:
         return artifact
 
     def save_tensors(self, path: Path) -> None:
-        """Write kept tensors as safetensors (keys ``step.kind.modality``; ``-1`` = initial noise)."""
+        """Write kept tensors as safetensors (keys ``step.kind.modality``; -1 = initial noise)."""
 
         if not self.keep_tensors:
             raise ValueError("recorder was created with keep_tensors=False")
