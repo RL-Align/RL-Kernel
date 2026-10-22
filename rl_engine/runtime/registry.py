@@ -114,6 +114,13 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     # Batch-invariant deterministic GEMM (WS1 #146)
     CUDA_DET_GEMM = "rl_engine.kernels.ops.cuda.matmul.det_gemm.DetGemmOp"
     TRITON_DET_GEMM = "rl_engine.kernels.ops.triton.matmul.det_gemm.TritonDetGemmOp"
+    TRITON_VIDEO_OUTPUT_PROJECTION_FP32 = (
+        "rl_engine.backends.shared.triton.gemm.video_output_projection_fp32."
+        "TritonVideoOutputProjectionFP32Op"
+    )
+    PYTORCH_VIDEO_OUTPUT_PROJECTION_FP32 = (
+        "rl_engine.reference.gemm.video_output_projection_fp32.NativeVideoOutputProjectionFP32Op"
+    )
     ASCEND_DET_GEMM = "rl_engine.kernels.ops.ascend.matmul.det_gemm.DetGemmAscendOp"
     # NON-deterministic reference (torch.matmul); reference/benchmark ONLY,
     # intentionally excluded from det_gemm dispatch (cuBLAS breaks invariance).
@@ -234,6 +241,36 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             ),
             fallback_policy=OperatorFallbackPolicy.ERROR,
             version_or_build_fingerprint="h3-query-chunk-v1; binary profile checked at invocation",
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="video_output_projection_fp32",
+            backend_id="triton-video-output-projection-fp32",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"cuda"}),
+            supported_dtypes=frozenset({"float32"}),
+            supported_topologies={
+                "rollout": {
+                    "world_size": (1,),
+                    "tensor_parallel_size": (1,),
+                    "context_parallel_size": (1,),
+                },
+                "training": {"world_size": (1,), "sharding": ("unsharded",)},
+            },
+            determinism_or_alignment_properties={
+                "algorithm": "fixed_fp32_gemm_canonical_parameter_vjp",
+                "input_width": 5376,
+                "output_width": 96,
+                "cuda_sm": 90,
+                "batch_invariant": True,
+                "deterministic": True,
+                "strict_observable": True,
+                "training_mode": "eager",
+                "parameter_gradient_order": "logical_key",
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=OpBackend.TRITON_VIDEO_OUTPUT_PROJECTION_FP32.value,
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="rlkernel-h3-video-output-projection-fp32-v1",
         ),
         OperatorBackendDescriptor(
             semantic_op="video_patch_pack_unpack",
@@ -649,6 +686,7 @@ class KernelRegistry:
                 "pack": [OpBackend.PYTORCH_PACK],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
                 "det_gemm": [OpBackend.CUDA_DET_GEMM, OpBackend.TRITON_DET_GEMM],
+                "video_output_projection_fp32": [OpBackend.TRITON_VIDEO_OUTPUT_PROJECTION_FP32],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
@@ -782,6 +820,7 @@ class KernelRegistry:
                 "ratio_kl": [OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
+                "video_output_projection_fp32": [OpBackend.PYTORCH_VIDEO_OUTPUT_PROJECTION_FP32],
                 "batch_invariant_logp": [OpBackend.PYTORCH_BATCH_INVARIANT_LOGP],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
@@ -1107,6 +1146,8 @@ class KernelRegistry:
         platform = self._platform_for_device(device)
         if op_type == "h3_full_attention" and platform != "cuda":
             raise RuntimeError("h3_full_attention requires NVIDIA CUDA; no fallback")
+        if op_type == "video_output_projection_fp32" and platform not in {"cuda", "cpu"}:
+            raise RuntimeError("video output projection is qualified on CUDA SM90 only")
         candidates = self._priority_map.get(platform, {}).get(op_type, [OpBackend.PYTORCH_NATIVE])
 
         for backend in candidates:

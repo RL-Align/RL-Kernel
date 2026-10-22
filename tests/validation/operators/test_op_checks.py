@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 
 import pytest
 import torch
@@ -18,6 +19,64 @@ from rl_engine.validation.operators.operator_specs import (
     make_operator_case,
     operator_names,
 )
+
+
+def test_video_output_projection_reference_forward_and_backward():
+    args = _spec_args("video_output_projection_fp32")
+    case = make_operator_case(args, torch.float32, torch.device("cpu"))
+    report = run_operator_suite(
+        "video_output_projection_fp32",
+        candidates=[make_candidate(args)],
+        cases=[case],
+        check_grad=True,
+        grad_mode="random",
+    )
+    assert report.passed
+    assert case.grad_input_names == ("x", "weight", "bias")
+
+
+def test_backward_context_surrounds_actual_autograd():
+    state = {"active": False, "backward": False}
+
+    @contextmanager
+    def context():
+        state["active"] = True
+        yield
+        assert state["backward"]
+        state["active"] = False
+
+    class Probe(torch.autograd.Function):
+        @staticmethod
+        def forward(ctx, logits, token_ids):
+            assert state["active"]
+            ctx.save_for_backward(logits, token_ids)
+            return NativeLogpOp().forward_fp32(logits, token_ids)
+
+        @staticmethod
+        def backward(ctx, grad):
+            assert state["active"]
+            state["backward"] = True
+            logits, ids = ctx.saved_tensors
+            with torch.enable_grad():
+                x = logits.detach().requires_grad_()
+                out = NativeLogpOp().forward_fp32(x, ids)
+                result = torch.autograd.grad(out, x, grad)[0]
+            return result, None
+
+    report = run_operator_suite(
+        "logp",
+        candidates=[
+            CandidateSpec(
+                "probe",
+                lambda logits, token_ids: Probe.apply(logits, token_ids),
+                backward_context_factory=context,
+            ),
+        ],
+        cases=[_logp_backward_case("context")],
+        check_grad=True,
+    )
+    assert report.passed
+    assert not state["active"]
 
 
 def _logp_case(name: str, dtype: torch.dtype, *, seed: int = 0) -> OperatorCase:

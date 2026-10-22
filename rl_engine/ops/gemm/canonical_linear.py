@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import torch
 
 from rl_engine.backends.extension import _C
@@ -13,7 +15,20 @@ from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.ops.autograd.canonical_backward import active_session
 
 
-def _gemm_fp32(a: torch.Tensor, b: torch.Tensor, family: str) -> torch.Tensor:
+def _gemm_fp32(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    family: str,
+    *,
+    bias: torch.Tensor | None = None,
+    matmul_op: Callable[..., torch.Tensor] | None = None,
+) -> torch.Tensor:
+    """Dispatch FP32 GEMM through a custom callable or the selected backend."""
+
+    if matmul_op is not None:
+        return matmul_op(a, b) if bias is None else matmul_op(a, b, bias=bias)
+    if bias is not None:
+        return _gemm_fp32(a, b, family) + bias
     if family == "cuda":
         return _C.det_gemm_rowwise_fwd_fp32(a.contiguous(), b.contiguous())
     if family == "triton":
@@ -30,36 +45,105 @@ def _gemm_fp32(a: torch.Tensor, b: torch.Tensor, family: str) -> torch.Tensor:
 
 
 class _CanonicalLinearFn(torch.autograd.Function):
+    """Compute linear gradients with canonical parameter-row collection."""
+
     @staticmethod
-    def forward(ctx, a, weight, logical_keys, parameter_id, family):
+    def forward(
+        ctx,
+        a,
+        weight,
+        logical_keys,
+        parameter_id,
+        family,
+        bias,
+        bias_parameter_id,
+        matmul_op,
+    ):
+        """Register trainable parameters and compute the FP32 linear output."""
+
         session = active_session()
-        if session is None:
+        parameter_grad = ctx.needs_input_grad[1] or ctx.needs_input_grad[5]
+        if parameter_grad and session is None:
             raise RuntimeError("canonical linear requires an active backward session")
+        if parameter_grad and logical_keys is None:
+            raise ValueError("canonical parameter gradients require logical keys")
+        if bias is not None and str(parameter_id) == str(bias_parameter_id):
+            raise ValueError("weight and bias parameter identities must differ")
         ctx.save_for_backward(a, weight)
         ctx.session = session
         ctx.parameter_id = str(parameter_id)
         ctx.family = str(family)
-        ctx.slot = session.register(ctx.parameter_id, logical_keys)
-        return _gemm_fp32(a.float(), weight.float().t().contiguous(), ctx.family)
+        ctx.matmul_op = matmul_op
+        ctx.bias_parameter_id = str(bias_parameter_id)
+        ctx.bias_dtype = bias.dtype if bias is not None else None
+        ctx.slot = (
+            session.register(ctx.parameter_id, logical_keys) if ctx.needs_input_grad[1] else None
+        )
+        ctx.bias_slot = (
+            session.register(ctx.bias_parameter_id, logical_keys)
+            if ctx.needs_input_grad[5]
+            else None
+        )
+        return _gemm_fp32(
+            a.float(),
+            weight.float().t().contiguous(),
+            ctx.family,
+            bias=bias.float() if bias is not None else None,
+            matmul_op=ctx.matmul_op,
+        )
 
     @staticmethod
     def backward(ctx, grad_out):
+        """Compute input gradients and collect rows for parameter gradients."""
+
         a, weight = ctx.saved_tensors
         grad32 = grad_out.contiguous().float()
         da = None
         if ctx.needs_input_grad[0]:
-            da = _gemm_fp32(grad32, weight.float(), ctx.family).to(a.dtype)
+            da = _gemm_fp32(grad32, weight.float(), ctx.family, matmul_op=ctx.matmul_op).to(a.dtype)
 
         dweight = None
         if ctx.needs_input_grad[1]:
 
             def reducer(rows, grads):
-                return _gemm_fp32(grads.float().t().contiguous(), rows.float(), ctx.family).to(
+                """Compute dW from the session's ordered input and gradient rows."""
+
+                lhs = grads.float().t()
+                if ctx.matmul_op is None:
+                    lhs = lhs.contiguous()
+                return _gemm_fp32(lhs, rows.float(), ctx.family, matmul_op=ctx.matmul_op).to(
                     weight.dtype
                 )
 
-            dweight = ctx.session.submit_linear(ctx.parameter_id, ctx.slot, a, grad_out, reducer)
-        if ctx.family == "triton":
+            dweight = ctx.session.submit_linear(ctx.parameter_id, ctx.slot, a, grad32, reducer)
+        dbias = None
+        if ctx.needs_input_grad[5]:
+
+            def bias_reducer(grads):
+                """Sum the session's ordered gradient rows through FP32 GEMM."""
+
+                if grads.shape[0] == 0:
+                    raise RuntimeError(f"no active logical rows for {ctx.bias_parameter_id}")
+                ones = torch.ones((1, grads.shape[0]), device=grads.device, dtype=torch.float32)
+                return (
+                    _gemm_fp32(ones, grads.float(), ctx.family, matmul_op=ctx.matmul_op)
+                    .squeeze(0)
+                    .to(ctx.bias_dtype)
+                )
+
+            dbias = ctx.session.submit_rows(
+                ctx.bias_parameter_id, ctx.bias_slot, grad32, bias_reducer
+            )
+        if ctx.matmul_op is not None:
+            module = getattr(ctx.matmul_op, "__module__", type(ctx.matmul_op).__module__)
+            qualname = getattr(ctx.matmul_op, "__qualname__", type(ctx.matmul_op).__qualname__)
+            record_backward(
+                "det_gemm",
+                kernel_id=f"{module}.{qualname}",
+                impl=f"{ctx.family}_det_gemm_canonical_rowfold",
+                family=ctx.family,
+            )
+        elif ctx.family == "triton":
             record_backward(
                 "det_gemm",
                 kernel_id="rl_engine.backends.shared.triton.gemm.det_gemm._triton_gemm",
@@ -73,18 +157,39 @@ class _CanonicalLinearFn(torch.autograd.Function):
                 impl="ascend_det_gemm_canonical_rowfold",
                 family="ascend",
             )
-        return da, dweight, None, None, None
+        return da, dweight, None, None, None, dbias, None, None
 
 
 def canonical_linear_fp32(
     a: torch.Tensor,
     weight: torch.Tensor,
-    logical_keys: torch.Tensor,
+    logical_keys: torch.Tensor | None,
     *,
     parameter_id: str,
     family: str,
+    bias: torch.Tensor | None = None,
+    bias_parameter_id: str | None = None,
+    matmul_op: Callable[..., torch.Tensor] | None = None,
 ) -> torch.Tensor:
-    return _CanonicalLinearFn.apply(a, weight, logical_keys, parameter_id, family)
+    """Apply a canonical linear using the default backend or an FP32 matmul callable.
+
+    Without ``matmul_op``, ``family`` selects the existing backend dispatch.
+    With a callable, ``family`` identifies its backend for provenance, as in
+    ``canonical_row_lm_head``.
+    A custom matmul handles input strides and accepts ``bias=`` when bias is
+    supplied. The same callable computes forward, dX, dW, and dbias. Parameter
+    gradients reuse the canonical session's stable logical-row sorting.
+    """
+    return _CanonicalLinearFn.apply(
+        a,
+        weight,
+        logical_keys,
+        parameter_id,
+        family,
+        bias,
+        bias_parameter_id if bias_parameter_id is not None else f"{parameter_id}.bias",
+        matmul_op,
+    )
 
 
 __all__ = ["canonical_linear_fp32"]
