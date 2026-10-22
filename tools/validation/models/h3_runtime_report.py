@@ -168,7 +168,7 @@ SIZES = {
 }
 
 
-def model_rows(checkpoint, sizes):
+def model_rows(checkpoint, sizes, no_ablations=False):
     from diffusers import MiniMaxH3Transformer3DModel
 
     from tools.validation.models.h3_full_model import packed_inputs
@@ -205,13 +205,16 @@ def model_rows(checkpoint, sizes):
             sample_ids=[0],
             modality="video",
         )
-        return dict(
-            video=video.detach(),
-            audio=audio.detach(),
-            grad=inputs["hidden_states"].grad.detach(),
+        out = dict(
+            video=video.detach().cpu(),
+            audio=audio.detach().cpu(),
+            grad=inputs["hidden_states"].grad.detach().cpu(),
             report=rep,
-            logp=trans.log_prob.detach(),
+            logp=trans.log_prob.detach().cpu(),
         )
+        del video, audio, inputs, trans
+        torch.cuda.empty_cache()
+        return out
 
     variants = (
         ("off", "off", ""),
@@ -221,6 +224,8 @@ def model_rows(checkpoint, sizes):
         ("strict, node:attention native", "strict", "node:attention"),
         ("strict, boundary:token_refiner native", "strict", "boundary:token_refiner"),
     )
+    if no_ablations:
+        variants = tuple(v for v in variants if not v[2])
     rows, checks = [], {}
     for size in sizes:
         base = packed_inputs("cuda") if SIZES[size] is None else sized_inputs("cuda", **SIZES[size])
@@ -231,6 +236,9 @@ def model_rows(checkpoint, sizes):
             try:
                 r = runs[name] = run(base, mode, spec)
             except torch.OutOfMemoryError:
+                import traceback
+
+                traceback.print_exc()
                 torch.cuda.empty_cache()
                 rows.append(dict(tokens=tokens, variant=name, error="CUDA out of memory"))
                 continue
@@ -320,6 +328,7 @@ def main():
     p.add_argument("--png", type=Path)
     p.add_argument("--checkpoint")
     p.add_argument("--verl-omni")
+    p.add_argument("--no-ablations", action="store_true", help="skip the ablation variants")
     p.add_argument("--sizes", default="12,925,4253", help="comma list from: " + ",".join(SIZES))
     args = p.parse_args()
     modes = {
@@ -333,7 +342,9 @@ def main():
         transition=transition_rows(args.verl_omni),
     )
     if args.checkpoint:
-        report["model"], report["model_checks"] = model_rows(args.checkpoint, args.sizes.split(","))
+        report["model"], report["model_checks"] = model_rows(
+            args.checkpoint, args.sizes.split(","), args.no_ablations
+        )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=1, default=str))
     if args.png:
