@@ -262,6 +262,11 @@ std::vector<torch::Tensor> adaln_modulation_forward_cuda(
 std::vector<torch::Tensor> adaln_modulation_backward_cuda(
     torch::Tensor dy, torch::Tensor dg, torch::Tensor x,
     torch::Tensor modulation, double eps, int threads);
+std::vector<torch::Tensor> adaln_indexed_forward_cuda(
+    torch::Tensor x, torch::Tensor modulation, torch::Tensor index, double eps, int threads);
+std::vector<torch::Tensor> adaln_indexed_backward_cuda(
+    c10::optional<torch::Tensor> dy, c10::optional<torch::Tensor> dg,
+    torch::Tensor x, torch::Tensor modulation, torch::Tensor index, double eps, int threads);
 #endif
 
 // RMSNorm Declarations & Wrappers
@@ -753,6 +758,14 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "AdaLN modulation backward CUDA",
           py::arg("dy"), py::arg("dg"), py::arg("x"), py::arg("modulation"),
           py::arg("eps"), py::arg("threads") = 256);
+    m.def("adaln_indexed_forward", &adaln_indexed_forward_cuda,
+          "Indexed AdaLN small FP32 CUDA slice",
+          py::arg("x"), py::arg("modulation"), py::arg("index"), py::arg("eps"),
+          py::arg("threads") = 256);
+    m.def("adaln_indexed_backward", &adaln_indexed_backward_cuda,
+          "Indexed AdaLN FP32 ascending-token VJP",
+          py::arg("dy"), py::arg("dg"), py::arg("x"), py::arg("modulation"),
+          py::arg("index"), py::arg("eps"), py::arg("threads") = 256);
 #endif
 
     // Deterministic standard-softmax attention (issue #147)

@@ -71,12 +71,18 @@ On NVIDIA CUDA, shared modulation tries CUDA, then Triton, then PyTorch.
 H > 4096 skips CUDA. Missing extension symbols also permit fallback; fast-math
 builds omit the AdaLN CUDA symbols.
 
-CPU, ROCm, MUSA and NPU registry entries select PyTorch. Indexed modulation always
-selects the PyTorch select01 path, with `fallback=true` and reason
-`modulate_index_requires_select01`.
+CPU, ROCm, MUSA and NPU registry entries select PyTorch. The initial dedicated
+indexed CUDA slice accepts only FP32 x `[2,8,2]` and int32 index `[2,8]`, with
+the usual `[4,6]` modulation. It requires fresh indexed extension symbols.
+The small slice has local SM86 coverage using an AdaLN-only extension build;
+full-extension and target H100 qualification remain separate. It does not enable strict.
 
-Dedicated CUDA/Triton indexed kernels are deferred to a follow-up PR. This PR
-does not qualify indexed framework backward for the shared replay profile.
+Other indexed inputs select PyTorch select01 with `fallback=true` and reason
+`modulate_index_requires_select01`. If a resolved indexed CUDA slice receives
+unsupported geometry, dtype or eps at execution, it explicitly executes the
+framework path with reason `indexed_cuda_slice_unsupported`.
+Expanded CUDA coverage and dedicated indexed Triton remain follow-up work.
+Indexed framework backward has no shared replay-profile qualification.
 
 ### Strict mode and trace
 
@@ -109,7 +115,12 @@ For shared modulation, eps must be finite, nonnegative and round to finite
 FP32. Positive values that round to zero are rejected; FP32 subnormals, including
 2^-149, are accepted.
 
-Indexed modulation checks only finite, nonnegative eps.
+Indexed framework fallback checks only finite, nonnegative eps. The small indexed
+CUDA slice uses the shared FP32 eps domain. Its per-sample/bank/channel dshift,
+dscale and dgate start at FP32 +0 and fold selected tokens in ascending order;
+each dscale product rounds to FP32 before addition. Gate copies original bits.
+This is the first `adaln-indexed-fp32-tree-v1` arithmetic choice, independently
+subject to acceptance, not a permanent restriction on future indexed profiles.
 
 With eps=0, zero variance produces NaN. Nonfinite normalization arithmetic may
 propagate NaNs; those NaN payloads are outside byte-equality guarantees.
@@ -130,6 +141,12 @@ It checks both outputs and gradients of x and modulation using the shared
 `reduction` tolerances for `forward_accuracy` and `gradient_accuracy`.
 
 Accuracy checks and fixed-reference byte comparisons are separate tests.
+`IndexedAdaLNFixedReference` is a separate CPU FP32 callable for indexed byte
+tests, with its own H tree and explicit VJP. It is not the framework fallback.
+The first indexed tests independently check a hand-calculated nonzero VJP and
+a small mixed-bank case; broader indexed reference/autograd boundaries remain
+part of the follow-up. The accuracy gold's indexed branch still uses framework
+autograd and is not a fixed-order byte oracle.
 The CLI records trace snapshots without automatically constructing C1
 `BackendProvenance`; its accuracy report alone is not a WS1 system gate.
 
@@ -137,6 +154,8 @@ The CLI records trace snapshots without automatically constructing C1
 
 ```bash
 python -m pytest tests/ops/norm/test_adaln_modulation.py \
+  tests/reference/test_adaln_indexed.py tests/ops/norm/test_adaln_indexed.py \
+  tests/runtime/test_adaln_indexed.py \
   tests/validation/operators/test_adaln_gtest.py tests/runtime/test_adaln_dispatch.py -q -rs
 
 python tools/validation/operators/check_operator.py --op adaln_modulation \

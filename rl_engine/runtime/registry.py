@@ -1073,7 +1073,9 @@ class KernelRegistry:
         strict: bool = False,
     ) -> tuple[Any, dict[str, Any]]:
         """Resolve AdaLN; strict permits only the shared declared replay profile."""
+
         from rl_engine.runtime.adaln import (
+            INDEXED_PROFILE,
             SELECT01_PROFILE,
             SHARED_PROFILE,
             AdaLNDispatch,
@@ -1088,22 +1090,41 @@ class KernelRegistry:
         platform = self._platform_for_device(device)
         if modulate_index is not None:
             backend = OpBackend.PYTORCH_ADALN_MODULATION
+            # Only the first indexed CUDA slice is accelerated; execution rechecks x/eps.
+            if (
+                platform == "cuda"
+                and hidden == 2
+                and modulate_index.shape == (2, 8)
+                and modulate_index.dtype == torch.int32
+            ):
+                cuda = self._get_or_create_backend(OpBackend.CUDA_ADALN_MODULATION)
+                if cuda is not None and getattr(cuda, "indexed_available", False):
+                    backend = OpBackend.CUDA_ADALN_MODULATION
             op = self._get_or_create_backend(backend)
             if op is None:
                 raise RuntimeError("PyTorch select01 AdaLN fallback is unavailable")
+            accelerated = backend is OpBackend.CUDA_ADALN_MODULATION
             trace = {
                 "selected_backend": backend.name,
-                "fallback": True,
-                "fallback_reason": "modulate_index_requires_select01",
+                "fallback": not accelerated,
+                "fallback_reason": None if accelerated else "modulate_index_requires_select01",
                 "rejected_backends": [],
-                "reduction_order": "pairwise_lower_upper_H; framework_select01_backward",
+                "reduction_order": (
+                    "pairwise_lower_upper_H; ascending_selected_token_S_per_bank"
+                    if accelerated
+                    else "pairwise_lower_upper_H; framework_select01_backward"
+                ),
                 "accumulator_dtype": "fp32",
                 "split_k": False,
                 "stream_k": False,
                 "tf32": False,
-                "kernel_fingerprint": "adaln_modulation_select01_native_v1",
-                "requested_backend": "pytorch",
-                "arithmetic_profile": profile,
+                "kernel_fingerprint": (
+                    "adaln_indexed_cuda_v1"
+                    if accelerated
+                    else "adaln_modulation_select01_native_v1"
+                ),
+                "requested_backend": "cuda" if accelerated else "pytorch",
+                "arithmetic_profile": INDEXED_PROFILE if accelerated else profile,
             }
             return AdaLNDispatch(op, trace, hidden=hidden, strict=strict), trace
         candidates = self._priority_map[platform]["adaln_modulation"]

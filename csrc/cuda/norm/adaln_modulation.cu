@@ -159,6 +159,94 @@ void check(const torch::Tensor& x, const torch::Tensor& modulation, double eps, 
               "eps must remain finite FP32 without positive underflow");
 }
 
+// First indexed slice: FP32 B2/S8/H2. Expand only with the domain tests.
+__global__ void indexed_forward_kernel(
+    const float* x, const float* m, const int* index, float* y, float* gate, float eps) {
+  extern __shared__ float scratch[];
+  const int row = blockIdx.x;
+  const int sample = row / 8;
+  const int bank_row = sample + index[row] * 2;
+  const auto stats = row_stats(x, scratch, row, 2, 2, eps);
+  if (threadIdx.x < 2) {
+    const int col = threadIdx.x;
+    const float n = __fmul_rn(__fsub_rn(x[row * 2 + col], stats.mean), stats.rstd);
+    y[row * 2 + col] = __fadd_rn(
+        __fmul_rn(n, __fadd_rn(1.0f, m[bank_row * 6 + 2 + col])), m[bank_row * 6 + col]);
+    gate[row * 2 + col] = m[bank_row * 6 + 4 + col];
+  }
+}
+
+__global__ void indexed_backward_rows_kernel(
+    const float* x, const float* m, const int* index, const float* dy,
+    float* dx, float* partial_shift, float* partial_scale, float eps) {
+  extern __shared__ float scratch[];
+  const int row = blockIdx.x;
+  const int bank_row = row / 8 + index[row] * 2;
+  const auto stats = row_stats(x, scratch, row, 2, 2, eps);
+  if (threadIdx.x < 2) {
+    const int col = threadIdx.x;
+    const float n0 = __fmul_rn(__fsub_rn(x[row * 2], stats.mean), stats.rstd);
+    const float n1 = __fmul_rn(__fsub_rn(x[row * 2 + 1], stats.mean), stats.rstd);
+    const float dn0 = __fmul_rn(dy[row * 2], __fadd_rn(1.0f, m[bank_row * 6 + 2]));
+    const float dn1 = __fmul_rn(dy[row * 2 + 1], __fadd_rn(1.0f, m[bank_row * 6 + 3]));
+    const float mean_dn = __fdiv_rn(__fadd_rn(dn0, dn1), 2.0f);
+    const float mean_dnn = __fdiv_rn(
+        __fadd_rn(__fmul_rn(dn0, n0), __fmul_rn(dn1, n1)), 2.0f);
+    const float n = col == 0 ? n0 : n1;
+    const float dn = col == 0 ? dn0 : dn1;
+    dx[row * 2 + col] = __fmul_rn(
+        __fsub_rn(__fsub_rn(dn, mean_dn), __fmul_rn(n, mean_dnn)), stats.rstd);
+    partial_shift[row * 2 + col] = dy[row * 2 + col];
+    partial_scale[row * 2 + col] = __fmul_rn(dy[row * 2 + col], n);
+  }
+}
+
+__global__ void indexed_backward_reduce_kernel(
+    const float* ps, const float* pc, const float* dg, const int* index, float* dm) {
+  const int sample = blockIdx.x;
+  const int col = threadIdx.x;
+  if (col >= 2) return;
+  float ds[2] = {0.0f, 0.0f}, dc[2] = {0.0f, 0.0f}, dgate[2] = {0.0f, 0.0f};
+#pragma unroll 1
+  for (int token = 0; token < 8; ++token) {
+    const int row = sample * 8 + token;
+    const int bank = index[row];
+    const int offset = row * 2 + col;
+    // The unselected bank performs no add and reads no contribution.
+    if (ps != nullptr) {
+      ds[bank] = __fadd_rn(ds[bank], ps[offset]);
+      dc[bank] = __fadd_rn(dc[bank], pc[offset]);
+    }
+    if (dg != nullptr) dgate[bank] = __fadd_rn(dgate[bank], dg[offset]);
+  }
+  for (int bank = 0; bank < 2; ++bank) {
+    const int offset = (sample + bank * 2) * 6 + col;
+    dm[offset] = ds[bank];
+    dm[offset + 2] = dc[bank];
+    dm[offset + 4] = dgate[bank];
+  }
+}
+
+void check_indexed(
+    const torch::Tensor& x, const torch::Tensor& m, const torch::Tensor& index,
+    double eps, int threads) {
+  TORCH_CHECK(x.dim() == 3 && x.size(0) == 2 && x.size(1) == 8 && x.size(2) == 2,
+              "indexed CUDA slice requires x [2,8,2]");
+  TORCH_CHECK(m.dim() == 2 && m.size(0) == 4 && m.size(1) == 6,
+              "indexed CUDA slice requires modulation [4,6]");
+  TORCH_CHECK(x.scalar_type() == at::kFloat && m.scalar_type() == at::kFloat,
+              "indexed CUDA slice requires FP32");
+  // The shared preflight also checks CUDA, dtype/device, eps and launch settings.
+  check(x, m.narrow(0, 0, 2), eps, threads);
+  TORCH_CHECK(m.is_contiguous(), "indexed modulation must be contiguous");
+  TORCH_CHECK(index.is_cuda() && index.device() == x.device() &&
+              index.scalar_type() == at::kInt && index.is_contiguous() &&
+              index.dim() == 2 && index.size(0) == 2 && index.size(1) == 8,
+              "indexed CUDA slice requires contiguous int32 index [2,8] on x device");
+  TORCH_CHECK(((index == 0) | (index == 1)).all().item<bool>(),
+              "modulate_index values must be 0 or 1");
+}
+
 }  // namespace
 
 std::vector<torch::Tensor> adaln_modulation_forward_cuda(
@@ -210,6 +298,49 @@ std::vector<torch::Tensor> adaln_modulation_backward_cuda(
         partial_shift.data_ptr<float>(), partial_scale.data_ptr<float>(),
         dg.data_ptr<scalar_t>(), dm.data_ptr<scalar_t>(), seq, hidden);
   });
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  return {dx, dm};
+}
+
+std::vector<torch::Tensor> adaln_indexed_forward_cuda(
+    torch::Tensor x, torch::Tensor m, torch::Tensor index, double eps, int threads) {
+  check_indexed(x, m, index, eps, threads);
+  c10::cuda::CUDAGuard guard(x.device());
+  auto y = torch::empty_like(x), gate = torch::empty_like(x);
+  indexed_forward_kernel<<<16, threads, 2 * sizeof(float), at::cuda::getCurrentCUDAStream()>>>(
+      x.data_ptr<float>(), m.data_ptr<float>(), index.data_ptr<int>(),
+      y.data_ptr<float>(), gate.data_ptr<float>(), static_cast<float>(eps));
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  return {y, gate};
+}
+
+std::vector<torch::Tensor> adaln_indexed_backward_cuda(
+    c10::optional<torch::Tensor> dy, c10::optional<torch::Tensor> dg,
+    torch::Tensor x, torch::Tensor m, torch::Tensor index, double eps, int threads) {
+  check_indexed(x, m, index, eps, threads);
+  for (const auto& grad : {dy, dg}) {
+    if (grad.has_value()) {
+      TORCH_CHECK(grad->device() == x.device() && grad->scalar_type() == at::kFloat &&
+                  grad->is_contiguous() && grad->sizes() == x.sizes(),
+                  "indexed output gradient must match x device/dtype/shape");
+    }
+  }
+  c10::cuda::CUDAGuard guard(x.device());
+  auto dm = torch::empty_like(m);
+  torch::Tensor dx, ps, pc;
+  auto stream = at::cuda::getCurrentCUDAStream();
+  if (dy.has_value()) {
+    dx = torch::empty_like(x);
+    ps = torch::empty_like(x);
+    pc = torch::empty_like(x);
+    indexed_backward_rows_kernel<<<16, threads, 2 * sizeof(float), stream>>>(
+        x.data_ptr<float>(), m.data_ptr<float>(), index.data_ptr<int>(), dy->data_ptr<float>(),
+        dx.data_ptr<float>(), ps.data_ptr<float>(), pc.data_ptr<float>(), static_cast<float>(eps));
+  }
+  indexed_backward_reduce_kernel<<<2, threads, 0, stream>>>(
+      ps.defined() ? ps.data_ptr<float>() : nullptr,
+      pc.defined() ? pc.data_ptr<float>() : nullptr,
+      dg.has_value() ? dg->data_ptr<float>() : nullptr, index.data_ptr<int>(), dm.data_ptr<float>());
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return {dx, dm};
 }

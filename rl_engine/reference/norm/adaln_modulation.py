@@ -36,6 +36,14 @@ def _normalize_fp32(x: torch.Tensor, eps: float) -> tuple[torch.Tensor, torch.Te
     return centered * rstd.unsqueeze(-1), rstd
 
 
+def _eps_supported_fp32(eps: float) -> bool:
+    try:
+        eps32 = struct.unpack("f", struct.pack("f", eps))[0]
+    except OverflowError:
+        return False
+    return math.isfinite(eps32) and eps >= 0 and (eps == 0 or eps32 > 0)
+
+
 def _validate(x: torch.Tensor, modulation: torch.Tensor, eps: float) -> None:
     if x.ndim != 3 or min(x.shape) == 0:
         raise ValueError("x must have nonempty shape [B, S, H]")
@@ -47,13 +55,8 @@ def _validate(x: torch.Tensor, modulation: torch.Tensor, eps: float) -> None:
         raise TypeError("x and modulation must be FP32 or BF16")
     if not math.isfinite(eps) or eps < 0:
         raise ValueError("eps must be finite and nonnegative")
-    message = "eps must remain finite FP32 without positive underflow"
-    try:
-        eps32 = struct.unpack("f", struct.pack("f", eps))[0]
-    except OverflowError:
-        raise ValueError(message) from None
-    if not math.isfinite(eps32) or (eps > 0 and eps32 == 0):
-        raise ValueError(message)
+    if not _eps_supported_fp32(eps):
+        raise ValueError("eps must remain finite FP32 without positive underflow")
 
 
 class _AdaLNReference(torch.autograd.Function):
@@ -92,12 +95,12 @@ class _AdaLNReference(torch.autograd.Function):
         return dx, dm, None
 
 
-def _select01_reference(
+def _validate_select01(
     x: torch.Tensor,
     modulation: torch.Tensor,
     modulate_index: torch.Tensor,
     eps: float,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> None:
     if x.ndim != 3 or min(x.shape) == 0:
         raise ValueError("x must have nonempty shape [B, S, H]")
     batch, seq, hidden = x.shape
@@ -123,6 +126,10 @@ def _select01_reference(
     if not math.isfinite(eps) or eps < 0:
         raise ValueError("eps must be finite and nonnegative")
 
+
+def _select01_reference(x, modulation, modulate_index, eps):
+    _validate_select01(x, modulation, modulate_index, eps)
+    batch = x.shape[0]
     shift, scale, gate = modulation.float().chunk(3, dim=-1)
     index = modulate_index.bool().unsqueeze(-1)
     shift = torch.where(index, shift[batch:, None, :], shift[:batch, None, :])
