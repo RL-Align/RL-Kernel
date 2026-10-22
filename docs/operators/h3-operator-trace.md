@@ -29,7 +29,7 @@ trace.digest; trace.dumps(); ot.OperatorTrace.loads(text)
 ot.first_difference(a, b)          # first call where two traces disagree
 ```
 
-`block_observer(trace, block_index=0)` plugs into `h3_block.run_graph` through the existing
+`block_observer(trace, block_index=0)` (`stage="token_refiner"` for the 14-node refiner block) plugs into `h3_block.run_graph` through the existing
 `ctx["node_observer"]` hook. It records each node with the binding `h3_block.NODES` declares,
 so the one-block replay and the full-model replay emit a trace without any change in arithmetic.
 
@@ -52,8 +52,8 @@ against a different graph.
 
 ## Today's One-Block Result
 
-On block 0 (tiny layout, H100) the trace reports 17 calls and 12 non-`row` nodes: 10
-`interim` (Q/K/V, O, gate-up and down GEMMs, QK norm, attention, SwiGLU) and 2 `reference`
+On block 0 (tiny layout, H100) the trace reports 17 calls and 9 non-`row` nodes: 7
+`interim` (O, gate-up and down GEMMs, QK norm, attention, SwiGLU, ...) and 2 `reference`
 (RoPE of Q and K). That list is exactly the work the unclaimed and claimed rows still owe;
 `h3_operator_trace.py verify --block 0` exits non-zero until it is empty, and
 `--allow row interim reference` records the current honest state.

@@ -386,23 +386,36 @@ def block_observer(
     bindings: Mapping[str, Any] | None = None,
     topology: Mapping[str, Any] | None = None,
     dtype: str = "bfloat16",
+    stage: str = "transformer_blocks",
 ) -> Callable[[str], None]:
-    """``node_observer`` for ``h3_block.run_graph``: records each node as the block runs it.
+    """``node_observer`` for ``h3_block.run_graph`` / ``h3_refiner.run_graph``.
 
-    ``bindings`` maps a block node name to ``h3_block.Binding`` (status, backend); by
-    default it is taken from ``h3_block.NODES`` so the trace states exactly how every
-    node is bound today. The node order and the row ownership are verified by ``record``.
+    Records each node as the block runs it. ``stage`` is ``"transformer_blocks"`` (the 17-node
+    block) or ``"token_refiner"`` (the 14-node refiner block). ``bindings`` maps a node name
+    to a ``Binding`` (status, backend); by default it is taken from the stage's ``NODES`` so
+    the trace states exactly how every node is bound today. Node order and row ownership are
+    verified by ``record``.
     """
 
+    if stage not in ("transformer_blocks", "token_refiner"):
+        raise ValueError(f"unknown stage {stage!r}")
     if bindings is None:
-        from rl_engine.validation.models import h3_block  # lazy: needs torch
+        if stage == "token_refiner":
+            from rl_engine.validation.models import h3_refiner as source  # lazy: needs torch
+        else:
+            from rl_engine.validation.models import h3_block as source  # lazy: needs torch
 
-        bindings = {node.name: node.binding for node in h3_block.NODES}
+        bindings = {node.name: node.binding for node in source.NODES}
 
     def observe(name: str) -> None:
         binding = bindings[name]
+        path = (
+            f"token_refiner.refiner_blocks.{block_index}.{name}"
+            if stage == "token_refiner"
+            else graph_path(name, block_index=block_index)
+        )
         trace.record_node(
-            graph_path(name, block_index=block_index),
+            path,
             status=binding.status,
             backend=binding.backend,
             dtype=dtype,

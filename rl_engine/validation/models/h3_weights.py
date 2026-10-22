@@ -106,3 +106,53 @@ def load_h3_block_weights(device: torch.device | str = "cpu") -> dict[str, torch
         **load_h3_conditioning_weights(device),
         **_load_pinned(BLOCK_FILE, "block_tensors", device, None),
     }
+
+
+# --- Tensors straight from the released shards --------------------------------------------------
+
+SHARD_ROOTS = ("hf_full/transformer", "hf/transformer")  # under $RL_KERNEL_H3_WEIGHTS
+
+
+def h3_shard_root() -> Path | None:
+    """The first shard directory under the weights dir that has an index, or None."""
+
+    base = h3_weights_dir()
+    if base is None:
+        return None
+    for sub in SHARD_ROOTS:
+        root = base / sub
+        if (root / "diffusion_pytorch_model.safetensors.index.json").is_file():
+            return root
+    return None
+
+
+def load_h3_tensors(names: list[str], device: torch.device | str = "cpu") -> dict[str, torch.Tensor]:
+    """Load named tensors from whichever released shards are present.
+
+    Resolves each name through the shard index and reads only that tensor
+    (safetensors memory-maps). Raises ``FileNotFoundError`` when the weights
+    directory, the index or a needed shard is missing, so tests can skip.
+    """
+
+    from safetensors import safe_open
+
+    root = h3_shard_root()
+    if root is None:
+        raise FileNotFoundError(f"no shard index under ${WEIGHTS_ENV}/{{{','.join(SHARD_ROOTS)}}}")
+    weight_map = json.loads((root / "diffusion_pytorch_model.safetensors.index.json").read_text())[
+        "weight_map"
+    ]
+    by_shard: dict[str, list[str]] = {}
+    for name in names:
+        if name not in weight_map:
+            raise KeyError(f"{name} is not in the H3 shard index")
+        by_shard.setdefault(weight_map[name], []).append(name)
+    out: dict[str, torch.Tensor] = {}
+    for shard, wanted in by_shard.items():
+        path = root / shard
+        if not path.is_file():
+            raise FileNotFoundError(f"shard {shard} is not downloaded under {root}")
+        with safe_open(str(path), framework="pt", device="cpu") as handle:
+            for name in wanted:
+                out[name] = handle.get_tensor(name).to(device)
+    return out
