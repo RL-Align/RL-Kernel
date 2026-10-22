@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""Charts of the full-transformer and dual-trajectory evidence (rollout vs train drift, accuracy, time)."""
+"""Charts of the full-transformer and dual-trajectory evidence (drift, accuracy, time)."""
 
 from __future__ import annotations
 
