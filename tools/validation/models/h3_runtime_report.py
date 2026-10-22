@@ -127,7 +127,48 @@ def transition_rows(verl_omni):
     return rows
 
 
-def model_rows(checkpoint):
+def sized_inputs(device, *, text, frames, side, audio):
+    """A bigger packed request (``side`` x ``side`` latent grid per frame)."""
+
+    from rl_engine.validation.models.h3_cases import h3_fl2va_layout
+
+    layout = h3_fl2va_layout(
+        num_text_tokens=text,
+        num_latent_frames=frames,
+        latent_height=side,
+        latent_width=side,
+        num_audio_latents=audio,
+        device=device,
+    )
+    tags = layout["token_tags"]
+    video, text_idx, audio_idx = ((tags == t).nonzero().flatten() for t in (0, 1, 2))
+    gen = torch.Generator().manual_seed(420539)
+
+    def rnd(*shape):
+        return torch.randn(shape, generator=gen).to(device).requires_grad_()
+
+    return dict(
+        **layout,
+        hidden_states=rnd(1, len(video), 96),
+        audio_hidden_states=rnd(1, len(audio_idx), 32),
+        encoder_hidden_states=rnd(1, len(text_idx), 5120),
+        timestep=torch.tensor([0.0, 500.0], device=device),
+        video_indices=video,
+        text_indices=text_idx,
+        audio_indices=audio_idx,
+        return_dict=False,
+    )
+
+
+SIZES = {
+    "12": None,
+    "925": dict(text=77, frames=3, side=32, audio=40),
+    "4253": dict(text=77, frames=1, side=128, audio=40),
+    "8349": dict(text=77, frames=2, side=128, audio=40),
+}
+
+
+def model_rows(checkpoint, sizes):
     from diffusers import MiniMaxH3Transformer3DModel
 
     from tools.validation.models.h3_full_model import packed_inputs
@@ -143,15 +184,14 @@ def model_rows(checkpoint):
     model.eval().enable_gradient_checkpointing()
     for p in model.parameters():
         p.register_post_accumulate_grad_hook(lambda q: setattr(q, "grad", None))
-    base = packed_inputs("cuda")
     gi = ("hidden_states", "audio_hidden_states", "encoder_hidden_states")
 
-    def run(mode, spec=""):
+    def run(base, mode, spec=""):
         inputs = {
             k: (v.detach().clone().requires_grad_() if k in gi else v) for k, v in base.items()
         }
         provider = rt.H3TrainingProvider(model, mode, rt.AblationOverlay.parse(spec))
-        with provider.step():
+        with provider.step(), torch.autograd.graph.save_on_cpu(pin_memory=True):
             video, audio = provider.forward(**inputs)
             (video.float().square().mean() + audio.float().square().mean()).backward()
         rep = provider.adapter.report()
@@ -173,7 +213,6 @@ def model_rows(checkpoint):
             logp=trans.log_prob.detach(),
         )
 
-    ref = run("off")
     variants = (
         ("off", "off", ""),
         ("strict", "strict", ""),
@@ -182,26 +221,44 @@ def model_rows(checkpoint):
         ("strict, node:attention native", "strict", "node:attention"),
         ("strict, boundary:token_refiner native", "strict", "boundary:token_refiner"),
     )
-    runs, rows = {}, []
-    for name, mode, spec in variants:
-        r = run(mode, spec)
-        runs[name] = r
-        rows.append(
-            dict(
-                variant=name,
-                label=r["report"]["label"],
-                case_id=r["report"]["case_id"],
-                bound=r["report"]["bound"],
-                video_rel_diff_vs_provider=rel(r["video"], ref["video"]),
-                audio_rel_diff_vs_provider=rel(r["audio"], ref["audio"]),
-                input_grad_rel_diff_vs_provider=rel(r["grad"], ref["grad"]),
-                logp_rel_diff_vs_provider=rel(r["logp"], ref["logp"]),
-                boundary_bindings=r["report"]["boundary_bindings"],
+    rows, checks = [], {}
+    for size in sizes:
+        base = packed_inputs("cuda") if SIZES[size] is None else sized_inputs("cuda", **SIZES[size])
+        tokens = int(base["position_ids"].shape[0])
+        ref = run(base, "off")  # the provider run must fit; the others may report OOM
+        runs = {}
+        for name, mode, spec in variants:
+            try:
+                r = runs[name] = run(base, mode, spec)
+            except torch.OutOfMemoryError:
+                torch.cuda.empty_cache()
+                rows.append(dict(tokens=tokens, variant=name, error="CUDA out of memory"))
+                continue
+            rows.append(
+                dict(
+                    tokens=tokens,
+                    variant=name,
+                    label=r["report"]["label"],
+                    case_id=r["report"]["case_id"],
+                    bound=r["report"]["bound"],
+                    video_rel_diff_vs_provider=rel(r["video"], ref["video"]),
+                    audio_rel_diff_vs_provider=rel(r["audio"], ref["audio"]),
+                    input_grad_rel_diff_vs_provider=rel(r["grad"], ref["grad"]),
+                    logp_rel_diff_vs_provider=rel(r["logp"], ref["logp"]),
+                    boundary_bindings=r["report"]["boundary_bindings"],
+                )
             )
+        if not all(k in runs for k in ("strict", "strict (repeat)", "audit")):
+            continue
+        a, b, c = runs["strict"], runs["strict (repeat)"], runs["audit"]
+        keys = ("video", "audio", "grad", "logp")
+        checks[str(tokens)] = dict(
+            strict_bitwise_repeatable=all(torch.equal(a[k], b[k]) for k in keys),
+            audit_equals_strict=all(torch.equal(a[k], c[k]) for k in keys),
         )
-    a, b = runs["strict"], runs["strict (repeat)"]
-    repeat = all(torch.equal(a[k], b[k]) for k in ("video", "audio", "grad", "logp"))
-    return rows, dict(strict_bitwise_repeatable=repeat)
+        del ref, runs, a, b, c
+        torch.cuda.empty_cache()
+    return rows, checks
 
 
 def plot(report, path):
@@ -210,7 +267,7 @@ def plot(report, path):
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    fig, ax = plt.subplots(1, 3, figsize=(18, 5.2))
+    fig, ax = plt.subplots(1, 4, figsize=(22, 5))
     lora = report["lora_gate"]
     xs = range(len(lora))
     w = 0.25
@@ -236,29 +293,23 @@ def plot(report, path):
     ax[1].set_title("CPS log-prob vs torch.mean (max rel diff);\nprev_sample/mean bitwise equal")
 
     if "model" in report:
-        rows = [r for r in report["model"] if r["variant"] != "off"]
-        xs = range(len(rows))
-        for j, key in enumerate(
-            (
-                "video_rel_diff_vs_provider",
-                "audio_rel_diff_vs_provider",
-                "input_grad_rel_diff_vs_provider",
-            )
+        rows = [
+            r
+            for r in report["model"]
+            if "error" not in r and r["variant"] not in ("off", "strict (repeat)", "audit")
+        ]
+        for axis, key, title in (
+            (ax[2], "video_rel_diff_vs_provider", "33B model: video output"),
+            (ax[3], "input_grad_rel_diff_vs_provider", "33B model: input gradient"),
         ):
-            ax[2].bar(
-                [i + (j - 1) * w for i in xs],
-                [max(r[key], 1e-12) for r in rows],
-                w,
-                label=key.replace("_rel_diff_vs_provider", ""),
-            )
-        ax[2].set_xticks(
-            list(xs),
-            [r["variant"].replace(", ", "\n").replace(" native", "\nnative") for r in rows],
-            fontsize=6,
-        )
-        ax[2].set_yscale("log")
-        ax[2].legend(fontsize=7)
-        ax[2].set_title("33B model, 12-token request: difference to provider")
+            for name in dict.fromkeys(r["variant"] for r in rows):
+                pts = [(r["tokens"], r[key]) for r in rows if r["variant"] == name]
+                axis.plot(*zip(*pts), "o-", label=name)
+            axis.set_xscale("log")
+            axis.set_yscale("log")
+            axis.set_xlabel("tokens")
+            axis.set_title(title + ", relative difference to provider")
+            axis.legend(fontsize=6)
     fig.tight_layout()
     fig.savefig(path, dpi=130)
 
@@ -269,6 +320,7 @@ def main():
     p.add_argument("--png", type=Path)
     p.add_argument("--checkpoint")
     p.add_argument("--verl-omni")
+    p.add_argument("--sizes", default="12,925,4253", help="comma list from: " + ",".join(SIZES))
     args = p.parse_args()
     modes = {
         m: vars(rt.h3_runtime_policy(m)) | {"mode": m} for m in ("strict", "audit", "auto", "off")
@@ -281,7 +333,7 @@ def main():
         transition=transition_rows(args.verl_omni),
     )
     if args.checkpoint:
-        report["model"], report["model_checks"] = model_rows(args.checkpoint)
+        report["model"], report["model_checks"] = model_rows(args.checkpoint, args.sizes.split(","))
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=1, default=str))
     if args.png:
@@ -291,7 +343,7 @@ def main():
     )
     if "model" in report:
         for r in report["model"]:
-            print(r)
+            print({k: v for k, v in r.items() if k != "boundary_bindings"})
         print(report["model_checks"])
 
 
