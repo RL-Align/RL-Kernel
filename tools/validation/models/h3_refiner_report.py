@@ -66,16 +66,32 @@ def main() -> None:
         fig, ax = plt.subplots(1, 2, figsize=(12, 4))
         big = report["cases"][-1]
         xs = range(len(big["nodes"]))
-        ax[0].semilogy(xs, [max(n["candidate_rel_err_vs_golden"], 1e-9) for n in big["nodes"]], "o-", label="RL-Kernel")
-        ax[0].semilogy(xs, [max(n["provider_rel_err_vs_golden"], 1e-9) for n in big["nodes"]], "x--", label="provider")
+        ax[0].semilogy(
+            xs,
+            [max(n["candidate_rel_err_vs_golden"], 1e-9) for n in big["nodes"]],
+            "o-",
+            label="RL-Kernel",
+        )
+        ax[0].semilogy(
+            xs,
+            [max(n["provider_rel_err_vs_golden"], 1e-9) for n in big["nodes"]],
+            "x--",
+            label="provider",
+        )
         ax[0].set_xticks(list(xs))
-        ax[0].set_xticklabels([n["node"] for n in big["nodes"]], rotation=70, ha="right", fontsize=6)
-        ax[0].set(ylabel=f"relative error vs FP64 ({big['tokens']} tokens)", title="Accuracy per node")
+        ax[0].set_xticklabels(
+            [n["node"] for n in big["nodes"]], rotation=70, ha="right", fontsize=6
+        )
+        ax[0].set(
+            ylabel=f"relative error vs FP64 ({big['tokens']} tokens)", title="Accuracy per node"
+        )
         ax[0].legend()
         toks = [c["tokens"] for c in report["cases"]]
         ax[1].plot(toks, [c["candidate_ms"] for c in report["cases"]], "o-", label="RL-Kernel")
         ax[1].plot(toks, [c["provider_ms"] for c in report["cases"]], "x--", label="provider")
-        ax[1].set(xlabel="tokens", ylabel="forward ms, one refiner block (H100)", title="Performance")
+        ax[1].set(
+            xlabel="tokens", ylabel="forward ms, one refiner block (H100)", title="Performance"
+        )
         ax[1].legend()
         args.png.parent.mkdir(parents=True, exist_ok=True)
         fig.tight_layout()
