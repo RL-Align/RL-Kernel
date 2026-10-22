@@ -85,7 +85,9 @@ class HierarchicalCollective:
 
         if input.dtype not in (torch.float32, torch.bfloat16, torch.float16):
             raise TypeError(f"unsupported dtype {input.dtype}")
-        wide = input.contiguous()  # the input dtype is the accumulation dtype, as in the node-local tree
+        wide = (
+            input.contiguous()
+        )  # the input dtype is the accumulation dtype, as in the node-local tree
         partial = self._local.all_reduce(wide) if self.local_size > 1 else wide.clone()
         if self.num_groups > 1:
             gathered = [torch.empty_like(partial) for _ in range(self.num_groups)]

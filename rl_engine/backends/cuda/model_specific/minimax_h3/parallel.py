@@ -51,7 +51,9 @@ FFN = 14336
 
 def check_tp(tp: int, rank: int) -> None:
     if tp not in TP_SIZES or not 0 <= rank < tp:
-        raise ValueError(f"tp must be one of {TP_SIZES} and rank in [0, tp); got tp={tp} rank={rank}")
+        raise ValueError(
+            f"tp must be one of {TP_SIZES} and rank in [0, tp); got tp={tp} rank={rank}"
+        )
 
 
 def shard_rows(weight: torch.Tensor, tp: int, rank: int) -> torch.Tensor:
@@ -104,8 +106,12 @@ def _units_partial(x: torch.Tensor, w: torch.Tensor, tp: int) -> torch.Tensor:
     local = UNITS // tp
     unit = x.shape[1] // local
     parts = [
-        g.gemm(x[:, i * unit : (i + 1) * unit], w[:, i * unit : (i + 1) * unit], b_t=True,
-               out_dtype=torch.float32)
+        g.gemm(
+            x[:, i * unit : (i + 1) * unit],
+            w[:, i * unit : (i + 1) * unit],
+            b_t=True,
+            out_dtype=torch.float32,
+        )
         for i in range(local)
     ]
     return tree_add(parts)
@@ -118,7 +124,9 @@ class _RowParallel(torch.autograd.Function):
         ctx.scatter, ctx.collective = scatter, collective
         partial = _units_partial(x, w, tp)
         if tp > 1:
-            partial = collective.reduce_scatter(partial) if scatter else collective.all_reduce(partial)
+            partial = (
+                collective.reduce_scatter(partial) if scatter else collective.all_reduce(partial)
+            )
         return partial.to(x.dtype)
 
     @staticmethod
@@ -168,21 +176,28 @@ class _ColumnParallel(torch.autograd.Function):
             acc = None
             for grad, w in zip(grads, weights):
                 width = grad.shape[1] // local
-                piece = g.gemm(grad[:, j * width : (j + 1) * width], w[j * width : (j + 1) * width],
-                               out_dtype=torch.float32)
+                piece = g.gemm(
+                    grad[:, j * width : (j + 1) * width],
+                    w[j * width : (j + 1) * width],
+                    out_dtype=torch.float32,
+                )
                 acc = piece if acc is None else acc + piece
             units.append(acc)
         partial = tree_add(units)
         if ctx.tp > 1:
-            partial = (ctx.collective.reduce_scatter(partial) if ctx.gather
-                       else ctx.collective.all_reduce(partial))
+            partial = (
+                ctx.collective.reduce_scatter(partial)
+                if ctx.gather
+                else ctx.collective.all_reduce(partial)
+            )
         dx = partial.to(x.dtype)
         dws = tuple(g.gemm(grad, full_x, a_t=True) for grad in grads)
         return (dx, None, None, None, *dws)
 
 
-def column_parallel_linear(x, weights: Sequence[torch.Tensor], collective=None, tp: int = 1,
-                           gather: bool = False):
+def column_parallel_linear(
+    x, weights: Sequence[torch.Tensor], collective=None, tp: int = 1, gather: bool = False
+):
     """``[x @ w.T for w in weights]`` with each ``w`` a row shard ``(N/tp, K)``.
 
     The forward is the unsharded projection's columns (no collective). With ``gather``, ``x`` is
@@ -234,7 +249,9 @@ def coshard(shard: SeqShard, *tensors: torch.Tensor, dim: int = 0) -> list[torch
     out = []
     for t in tensors:
         if t.shape[dim] != shard.length:
-            raise ValueError(f"tensor has {t.shape[dim]} rows along dim {dim}, expected {shard.length}")
+            raise ValueError(
+                f"tensor has {t.shape[dim]} rows along dim {dim}, expected {shard.length}"
+            )
         out.append(t.narrow(dim, shard.lo, shard.hi - shard.lo).contiguous())
     return out
 
@@ -331,6 +348,10 @@ class _SeqLinear(torch.autograd.Function):
 
 
 def seq_sharded_linear(x, w, shard: SeqShard, group=None):
-    """``x @ W.T`` for this rank's rows; ``dW`` equals the unsharded GEMM's (token sweep, ascending)."""
+    """``x @ W.T`` for this rank's rows; ``dW`` equals the unsharded GEMM (token sweep)."""
 
-    return _SeqLinear.apply(x.contiguous(), w, shard, group) if shard.cp > 1 else g.linear_forward(x, w, None)
+    return (
+        _SeqLinear.apply(x.contiguous(), w, shard, group)
+        if shard.cp > 1
+        else g.linear_forward(x, w, None)
+    )

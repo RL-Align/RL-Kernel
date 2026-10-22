@@ -45,8 +45,11 @@ def main() -> None:
     local = int(os.environ["SLURM_LOCALID"])
     torch.cuda.set_device(local)
     dist.init_process_group(
-        "nccl", init_method=f"tcp://{os.environ['MASTER_ADDR']}:{os.environ.get('MASTER_PORT', '29511')}",
-        rank=rank, world_size=world, device_id=torch.device("cuda", local),
+        "nccl",
+        init_method=f"tcp://{os.environ['MASTER_ADDR']}:{os.environ.get('MASTER_PORT', '29511')}",
+        rank=rank,
+        world_size=world,
+        device_id=torch.device("cuda", local),
     )
     if world != args.tp * args.cp:
         raise SystemExit(f"world {world} != tp {args.tp} x cp {args.cp}")
@@ -58,7 +61,8 @@ def main() -> None:
     kwargs = dict(sp=args.sp, seq_len=args.seq_len, layout=args.layout)
     result = h3_tp.block_case(weights, grid, backward=True, **kwargs)
     # timing of the forward alone
-    torch.cuda.synchronize(); dist.barrier()
+    torch.cuda.synchronize()
+    dist.barrier()
     begin = time.perf_counter()
     for _ in range(args.iters):
         h3_tp.block_case(weights, grid, backward=False, **kwargs)
@@ -68,7 +72,9 @@ def main() -> None:
     torch.save({k: v.cpu() for k, v in result.items()}, args.out / f"rank{rank}.pt")
     dist.barrier()
     timings = [None] * world
-    dist.all_gather_object(timings, {"rank": rank, "host": socket.gethostname(), "forward_s": seconds})
+    dist.all_gather_object(
+        timings, {"rank": rank, "host": socket.gethostname(), "forward_s": seconds}
+    )
     if rank == 0:
         ref = h3_tp.block_case(
             weights, h3_tp.Grid(1, 1, 0, 0), backward=True, **{**kwargs, "sp": False}
@@ -90,21 +96,43 @@ def main() -> None:
             "input_grad_bitwise": dx is not None and torch.equal(dx, ref["dx"].cpu()),
         }
         if args.cp == 1 and not args.sp:
-            for name, axis in (("attn.to_out.0.weight", 1), ("ff.net.2.weight", 1),
-                               ("attn.to_q.weight", 0), ("attn.to_k.weight", 0),
-                               ("attn.to_v.weight", 0), ("ff.hidden", 0), ("ff.gate", 0)):
+            for name, axis in (
+                ("attn.to_out.0.weight", 1),
+                ("ff.net.2.weight", 1),
+                ("attn.to_q.weight", 0),
+                ("attn.to_k.weight", 0),
+                ("attn.to_v.weight", 0),
+                ("ff.hidden", 0),
+                ("ff.gate", 0),
+            ):
                 shards = [r["dw." + name] for r in ranks]
-                checks["dw." + name] = torch.equal(torch.cat(shards, dim=axis), ref["dw." + name].cpu())
+                checks["dw." + name] = torch.equal(
+                    torch.cat(shards, dim=axis), ref["dw." + name].cpu()
+                )
         report = dict(
-            tp=args.tp, cp=args.cp, sp=args.sp, world=world, hosts=sorted({t["host"] for t in timings}),
+            tp=args.tp,
+            cp=args.cp,
+            sp=args.sp,
+            world=world,
+            hosts=sorted({t["host"] for t in timings}),
             collective="hierarchical_ipc_nccl_tree" if spans_nodes else "cuda_ipc_fixed_tree",
             seq_len=int(ref["out"].shape[1]) if not args.seq_len else args.seq_len,
-            checks=checks, all_bitwise=all(checks.values()),
+            checks=checks,
+            all_bitwise=all(checks.values()),
             forward_seconds_per_rank=timings,
-            torch=torch.__version__, device=torch.cuda.get_device_name(),
+            torch=torch.__version__,
+            device=torch.cuda.get_device_name(),
         )
         (args.out / "report.json").write_text(json.dumps(report, indent=1) + "\n")
-        print(json.dumps({k: report[k] for k in ("tp", "cp", "sp", "hosts", "collective", "checks", "all_bitwise")}, indent=1))
+        print(
+            json.dumps(
+                {
+                    k: report[k]
+                    for k in ("tp", "cp", "sp", "hosts", "collective", "checks", "all_bitwise")
+                },
+                indent=1,
+            )
+        )
     dist.barrier()
     if rank == 0:
         time.sleep(3)  # keep the rendezvous store up until every rank has left

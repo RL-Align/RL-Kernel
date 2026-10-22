@@ -16,7 +16,6 @@ import torch
 
 from rl_engine.backends.cuda.model_specific.minimax_h3 import parallel as par
 from rl_engine.distributed.algorithms.hierarchical import tree_add
-from rl_engine.validation.models import h3_block as hb
 from rl_engine.validation.models import h3_tp
 from rl_engine.validation.models.h3_ws2 import run_world
 
@@ -57,7 +56,9 @@ class TestSharding:
     @pytest.mark.parametrize("length", [1, 2, 3, 7, 261, 264, 925])
     @pytest.mark.parametrize("cp", [1, 2, 3, 4])
     def test_seq_shards_tile_any_length(self, length, cp):
-        spans = [(par.SeqShard(length, cp, r).lo, par.SeqShard(length, cp, r).hi) for r in range(cp)]
+        spans = [
+            (par.SeqShard(length, cp, r).lo, par.SeqShard(length, cp, r).hi) for r in range(cp)
+        ]
         assert spans[0][0] == 0 and spans[-1][1] == length
         assert all(a[1] == b[0] for a, b in zip(spans, spans[1:]))
         sizes = [hi - lo for lo, hi in spans]
@@ -93,9 +94,7 @@ class TestCanonicalReduction:
             for r in range(tp)
         ]
         assert torch.equal(tree_add(parts), full)
-        assert torch.equal(
-            par.row_parallel_linear(x, w), full.bfloat16()
-        )
+        assert torch.equal(par.row_parallel_linear(x, w), full.bfloat16())
 
     def test_row_parallel_close_to_fp64(self):
         _triton()
@@ -122,7 +121,6 @@ class TestCanonicalReduction:
         _triton()
         gen = torch.Generator().manual_seed(4)
         k, n = 5376, 7168
-        x = torch.randn(40, k, generator=gen).bfloat16().cuda()
         ws = [(torch.randn(n, k, generator=gen) / k**0.5).bfloat16().cuda() for _ in range(3)]
         grads = [torch.randn(40, n, generator=gen).bfloat16().cuda() for _ in range(3)]
 
@@ -133,7 +131,8 @@ class TestCanonicalReduction:
                 for grad, w in zip(gs, weights):
                     width = grad.shape[1] // local
                     piece = par.g.gemm(
-                        grad[:, j * width : (j + 1) * width], w[j * width : (j + 1) * width],
+                        grad[:, j * width : (j + 1) * width],
+                        w[j * width : (j + 1) * width],
                         out_dtype=torch.float32,
                     )
                     acc = piece if acc is None else acc + piece
@@ -214,8 +213,14 @@ GRIDS = [
 def test_parallel_block_equals_single_gpu_bitwise(tp, cp, sp, length):
     _triton()
     ranks = run_world(
-        tp * cp, h3_tp.block_target, {"dummy": torch.zeros(1)},
-        tp=tp, cp=cp, sp=sp, seq_len=length, backward=True,
+        tp * cp,
+        h3_tp.block_target,
+        {"dummy": torch.zeros(1)},
+        tp=tp,
+        cp=cp,
+        sp=sp,
+        seq_len=length,
+        backward=True,
     )
     ref = _reference(length, backward=True)
     out, spans = _assemble(ranks, tp, cp)
@@ -224,9 +229,15 @@ def test_parallel_block_equals_single_gpu_bitwise(tp, cp, sp, length):
     dx, _ = _assemble(ranks, tp, cp, "dx")
     assert torch.equal(dx.cpu(), ref["dx"].cpu()), "input gradient differs"
     if cp == 1:  # weight gradients: shards of the unsharded gradient
-        for name, axis in (("attn.to_out.0.weight", 1), ("ff.net.2.weight", 1),
-                           ("attn.to_q.weight", 0), ("attn.to_k.weight", 0), ("attn.to_v.weight", 0),
-                           ("ff.hidden", 0), ("ff.gate", 0)):
+        for name, axis in (
+            ("attn.to_out.0.weight", 1),
+            ("ff.net.2.weight", 1),
+            ("attn.to_q.weight", 0),
+            ("attn.to_k.weight", 0),
+            ("attn.to_v.weight", 0),
+            ("ff.hidden", 0),
+            ("ff.gate", 0),
+        ):
             if sp:
                 continue  # SP shards sequence rows; dW is reduced over rows below
             full = ref["dw." + name].cpu()
@@ -274,14 +285,18 @@ def _hier_target(collective, dummy, *, local_size, dtype):
     from rl_engine.distributed.algorithms.hierarchical import HierarchicalCollective
 
     del dummy
-    h = HierarchicalCollective(local_size, device=torch.cuda.current_device(), max_size_bytes=64 << 20)
+    h = HierarchicalCollective(
+        local_size, device=torch.cuda.current_device(), max_size_bytes=64 << 20
+    )
     gen = torch.Generator().manual_seed(100 + dist.get_rank())
-    x = (torch.randn(257, 129, generator=gen) * 10 ** torch.randint(-3, 4, (257, 1), generator=gen)).to(
-        dtype
-    ).cuda()
+    x = (
+        (torch.randn(257, 129, generator=gen) * 10 ** torch.randint(-3, 4, (257, 1), generator=gen))
+        .to(dtype)
+        .cuda()
+    )
     flat = collective.all_reduce(x.clone())
     mine = h.all_reduce(x)
-    rs = h.reduce_scatter(x[: 256].contiguous())
+    rs = h.reduce_scatter(x[:256].contiguous())
     ag = h.all_gather(x[:2].contiguous())
     return {"flat": flat, "hier": mine, "rs": rs, "ag": ag, "x": x}
 
@@ -291,7 +306,9 @@ def _hier_target(collective, dummy, *, local_size, dtype):
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.parametrize("local_size", [1, 2])
 def test_hierarchical_equals_single_node_fixed_tree(local_size, dtype):
-    ranks = run_world(4, _hier_target, {"dummy": torch.zeros(1)}, local_size=local_size, dtype=dtype)
+    ranks = run_world(
+        4, _hier_target, {"dummy": torch.zeros(1)}, local_size=local_size, dtype=dtype
+    )
     for r in ranks:
         assert torch.equal(r["flat"], r["hier"]), f"rank {r['rank']}: hierarchical != fixed tree"
     assert torch.equal(ranks[0]["rs"], ranks[0]["hier"][:64])

@@ -58,11 +58,13 @@ def make_grid(tp: int, cp: int, *, local_size: int | None = None) -> Grid:
     if tp > 1:
         mine = tp_groups[cp_rank]
         if local_size is not None and local_size < tp:
-            collective = HierarchicalCollective(local_size, mine, torch.cuda.current_device(),
-                                                max_size_bytes=256 << 20)
+            collective = HierarchicalCollective(
+                local_size, mine, torch.cuda.current_device(), max_size_bytes=256 << 20
+            )
         else:
-            collective = DeterministicCollective(mine, torch.cuda.current_device(),
-                                                 max_size_bytes=256 << 20)
+            collective = DeterministicCollective(
+                mine, torch.cuda.current_device(), max_size_bytes=256 << 20
+            )
     return Grid(tp, cp, tp_rank, cp_rank, collective, cp_groups[tp_rank] if cp > 1 else None)
 
 
@@ -121,6 +123,7 @@ def run_tp_block(
             tensor.requires_grad_(True)
             leaves[name] = tensor
         return tensor
+
     table = ops.projection(temb, w("adaln_proj.linear.weight"), w("adaln_proj.linear.bias"))
 
     def proj_in(x, name_weights, gather):
@@ -128,7 +131,14 @@ def run_tp_block(
         return par.column_parallel_linear(flat, name_weights, coll, tp, gather=gather)
 
     x = ops.norm.forward_modulated(h_res, w("norm1.weight"), table[0], table[1], idx_res)
-    q, k, v = proj_in(x, [leaf(f"attn.to_{n}.weight", par.shard_rows(w(f"attn.to_{n}.weight"), tp, grid.tp_rank)) for n in "qkv"], sp)
+    q, k, v = proj_in(
+        x,
+        [
+            leaf(f"attn.to_{n}.weight", par.shard_rows(w(f"attn.to_{n}.weight"), tp, grid.tp_rank))
+            for n in "qkv"
+        ],
+        sp,
+    )
     local_heads = par.HEADS // tp
 
     def heads(t):
@@ -142,7 +152,10 @@ def run_tp_block(
     attn = par.ulysses_attention(q, k, heads(v), _attention_fn(ops), shard, grid.cp_group)
     o = par.row_parallel_linear(
         attn.reshape(rows, local_heads * HEAD_DIM),
-        leaf("attn.to_out.0.weight", par.shard_cols(w("attn.to_out.0.weight"), tp, grid.tp_rank)), coll, tp, scatter=sp,
+        leaf("attn.to_out.0.weight", par.shard_cols(w("attn.to_out.0.weight"), tp, grid.tp_rank)),
+        coll,
+        tp,
+        scatter=sp,
     )
     h1 = ops.gate(h_res, o.view(1, -1, HIDDEN), table[2], idx_res)
     x2 = ops.norm.forward_modulated(h1, w("norm2.weight"), table[3], table[4], idx_res)
@@ -150,20 +163,35 @@ def run_tp_block(
     half = fused.shape[0] // 2
     hid, gate = proj_in(
         x2,
-        [leaf("ff.hidden", par.shard_rows(fused[:half], tp, grid.tp_rank)),
-         leaf("ff.gate", par.shard_rows(fused[half:], tp, grid.tp_rank))],
+        [
+            leaf("ff.hidden", par.shard_rows(fused[:half], tp, grid.tp_rank)),
+            leaf("ff.gate", par.shard_rows(fused[half:], tp, grid.tp_rank)),
+        ],
         sp,
     )
     act = ops.swiglu(gate.contiguous(), hid.contiguous())
     down = par.row_parallel_linear(
-        act, leaf("ff.net.2.weight", par.shard_cols(w("ff.net.2.weight"), tp, grid.tp_rank)), coll, tp, scatter=sp
+        act,
+        leaf("ff.net.2.weight", par.shard_cols(w("ff.net.2.weight"), tp, grid.tp_rank)),
+        coll,
+        tp,
+        scatter=sp,
     )
     return ops.gate(h1, down.view(1, -1, HIDDEN), table[5], idx_res)
 
 
 def block_target(
-    collective, dummy, *, tp: int, cp: int, sp: bool = False, seq_len: int = 0,
-    backward: bool = False, local_size: int = -1, layout: str = "tiny", seed: int = 0,
+    collective,
+    dummy,
+    *,
+    tp: int,
+    cp: int,
+    sp: bool = False,
+    seq_len: int = 0,
+    backward: bool = False,
+    local_size: int = -1,
+    layout: str = "tiny",
+    seed: int = 0,
 ):
     """``run_world`` target: this rank's rows of the parallel block (and gradients) for one case."""
 
@@ -171,8 +199,15 @@ def block_target(
     from rl_engine.validation.models.h3_weights import load_h3_block_weights
 
     grid = make_grid(tp, cp, local_size=local_size if local_size > 0 else None)
-    return block_case(load_h3_block_weights("cuda"), grid, sp=sp, seq_len=seq_len,
-                      backward=backward, layout=layout, seed=seed)
+    return block_case(
+        load_h3_block_weights("cuda"),
+        grid,
+        sp=sp,
+        seq_len=seq_len,
+        backward=backward,
+        layout=layout,
+        seed=seed,
+    )
 
 
 def block_case(weights, grid: Grid, *, sp=False, seq_len=0, backward=False, layout="tiny", seed=0):
@@ -186,8 +221,9 @@ def block_case(weights, grid: Grid, *, sp=False, seq_len=0, backward=False, layo
     ops = hb.CandidateOps()
     leaves: dict[str, torch.Tensor] | None = {} if backward else None
     with torch.set_grad_enabled(backward):
-        out = run_tp_block(weights, hidden, ctx["temb"], index, rope, ops, grid, sp=sp,
-                           seq_len=n, leaves=leaves)
+        out = run_tp_block(
+            weights, hidden, ctx["temb"], index, rope, ops, grid, sp=sp, seq_len=n, leaves=leaves
+        )
     shard = grid.seq_shard(n)
     lo, hi = shard.lo, shard.hi
     if sp:
