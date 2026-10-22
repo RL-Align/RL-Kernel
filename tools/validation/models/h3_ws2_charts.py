@@ -26,9 +26,13 @@ def main(evidence: Path, out: Path) -> None:
         colors.append("tab:green" if r["all_bitwise"] else "tab:red")
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.bar(labels, times, color=colors)
-    ax.set(ylabel="mean forward s per rank (H100)", title="WS2 layouts: green = bitwise == single GPU")
+    ax.set(
+        ylabel="mean forward s per rank (H100)", title="WS2 layouts: green = bitwise == single GPU"
+    )
     for i, r in enumerate(reports):
-        ax.text(i, times[i], f"{r['world']} GPU\n{len(set(r['hosts']))} node", ha="center", va="bottom")
+        ax.text(
+            i, times[i], f"{r['world']} GPU\n{len(set(r['hosts']))} node", ha="center", va="bottom"
+        )
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
     fig.savefig(out, dpi=120)
