@@ -177,3 +177,9 @@ and `reduction_tile={64,128,256}` (default 128).
 These settings alter scheduling, not the declared reduction order. GPU support
 and numerical acceptance must be checked on the target hardware; CPU tests
 alone do not establish CUDA/Triton acceptance.
+
+Triton currently specializes all three shared kernels on S. A new S can require
+a new compiled variant; repeated calls can reuse the cached variant. Removing
+`tl.constexpr` can reduce variants, but runtime integer specialization can still
+distinguish values such as 1 and alignment classes. Runtime division/remainder
+and loop-bound costs need target-GPU measurements before changing this choice.

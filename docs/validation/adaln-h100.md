@@ -157,3 +157,31 @@ from about 0.8% to 50.9%; these timings do not establish stable speedup ratios.
 Subsequent documentation-only edits do not change the accepted executable source.
 Any arithmetic, dispatch, build or test change needs an explicit reassessment and
 affected H100 checks rerun; these results must not be relabelled as a fresh pass.
+
+## PR #559 Review Follow-up (2026-10-22)
+
+Commit `b2eabc9` adds a Python preflight rejection for Triton inputs exceeding
+2^31-1 elements, before contiguous copies and output/partial allocation. Commit
+`c394895` gates the large-hidden Triton resolution assertion on its dependency.
+The Triton kernel bodies, S specialization, launch settings, CUDA sources and
+numerical gold are unchanged. The historical H100 results remain evidence for
+that unchanged kernel arithmetic and its tested shapes; they do not test the new
+rejection behavior or constitute a fresh pass of the updated source profile.
+
+The new rejection and boundary checks use meta tensors, without large input
+allocations. An import-blocked process confirms Native fallback without Triton
+and that the Triton-specific test skips. These are host checks, not GPU passes.
+
+A small SM86 experiment with Triton 3.7.1 compared constexpr S with a runtime-S
+candidate at B=2, H=128, S=16/17/33 for FP32/BF16. Each original kernel cached
+three variants per dtype; each candidate cached two (aligned and unaligned S).
+Repeating S=16 reused both caches. Both versions matched independent FP32
+accuracy gold and fixed-reference forward/backward bytes for these small cases.
+Whole-call timings were noisy and include host launch/allocation overhead; they
+do not isolate division/remainder/loop costs or establish an H100 speedup.
+
+S remains constexpr pending target H100 evidence. Any future S/kernel change
+requires fresh forward/backward accuracy, byte and launch invariance, relevant
+memcheck/racecheck subsets, and performance measurements at the real S workloads
+above, with source/cache identities and raw timing samples retained. No fresh
+H100 run was performed for this follow-up.
