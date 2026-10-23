@@ -25,6 +25,7 @@ def make_operator_inputs(
     device: torch.device,
 ) -> dict[str, Any]:
     builders = {
+        "qwenimage_adaln_mod_projection": _make_qwenimage_projection_inputs,
         "rms_norm": _make_rms_norm_inputs,
         "qk_norm": _make_qk_norm_inputs,
         "pack": _make_pack_inputs,
@@ -53,6 +54,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
     batch, seq = _batch_seq(args)
     vocab = _arg_int(args, "vocab", DEFAULT_VOCAB)
     names = {
+        "qwenimage_adaln_mod_projection": f"{batch}x3072x18432",
         "rms_norm": f"{batch}x{seq}x{_normalized_dim(args)}",
         "qk_norm": f"{batch}x{seq}x{_arg_int(args, 'n_heads', DEFAULT_N_HEADS)}x"
         f"{_arg_int(args, 'head_dim', DEFAULT_HEAD_DIM)}",
@@ -395,3 +397,17 @@ def _arg_int(args: argparse.Namespace, name: str, default: int) -> int:
 
 def _arg_str(args: argparse.Namespace, name: str, default: str) -> str:
     return str(getattr(args, name, default))
+
+
+def _qwenimage_inputs(args, dtype, device, multiplier):
+    batch, _ = _batch_seq(args)
+    return {
+        "temb": _floating_tensor((batch, 3072), args, dtype, device, offset=0),
+        "weight": _floating_tensor((multiplier * 3072, 3072), args, dtype, device, offset=1)
+        / 3072**0.5,
+        "bias": _floating_tensor((multiplier * 3072,), args, dtype, device, offset=2) * 0.01,
+    }
+
+
+def _make_qwenimage_projection_inputs(args, dtype, device):
+    return _qwenimage_inputs(args, dtype, device, 6)
