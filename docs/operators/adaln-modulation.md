@@ -72,12 +72,12 @@ H > 4096 skips CUDA. Missing extension symbols also permit fallback; fast-math
 builds omit the AdaLN CUDA symbols.
 
 CPU, ROCm, MUSA and NPU registry entries select PyTorch. Dedicated indexed CUDA
-accepts FP32/BF16, H <= 4096, B <= 65535, both route shapes and
+and NVIDIA Triton accept FP32/BF16, H <= 4096, B <= 65535, both route shapes and
 bool/uint8/int8/int16/int32/int64 indices. Inputs and upstreams may be strided or
-expanded; internal copies preserve gradients to source leaves. CUDA route storage
+expanded; internal copies preserve gradients to source leaves. Indexed route storage
 is converted to contiguous int32 after validation.
 
-Indexed CUDA checks element counts and accessed element offsets before copies or
+Indexed CUDA/Triton check element counts and accessed element offsets before copies or
 kernel output/temporary allocations. The checks include both modulation banks,
 route storage, y/gate/dx/dmod and each FP32 partial buffer. The B grid dimension
 contains B entries; each reduction thread writes both banks.
@@ -85,17 +85,27 @@ contains B entries; each reduction thread writes both banks.
 Valid unsupported geometry, addressing or eps executes the existing framework
 select01 fallback in ordinary dispatch. A resolved indexed CUDA implementation
 records `indexed_cuda_domain_unsupported`; resolution that selected framework or a
-shared implementation records `modulate_index_requires_select01`. Illegal inputs
-raise and clear the previous successful execution observation. Direct CUDA calls
+shared implementation records `modulate_index_requires_select01`. Indexed Triton
+records `indexed_triton_domain_unsupported` for the corresponding indexed
+resolution. Illegal inputs
+raise and clear the previous successful execution observation. Direct CUDA/Triton calls
 reject unsupported domains instead of silently falling back.
 
-Current source has CPU regression coverage and a fresh AdaLN-only SM86 local
-run: indexed matrix 361 PASS (including CPU reference/metadata checks), small
+Historical ticket03 AdaLN-only SM86 evidence recorded an indexed matrix of
+361 PASS (including CPU reference/metadata checks), small
 memcheck/racecheck 107 PASS each, and related regression 417 PASS / 6 opt-in
 workload SKIP. Two oversized-upstream tests require >5 GiB free GPU memory and
-remain unexecuted on the 4 GiB target. This is scoped local evidence; historical
-small-slice evidence does not qualify other sources. Dedicated indexed Triton, full-extension
-and H100 qualification remain separate. Indexed strict stays closed.
+remain unexecuted on the 4 GiB target. This evidence applies only to its recorded
+snapshot; affected current-source GPU checks need refresh. The dedicated indexed
+Triton implementation has a separate local SM86 run on RTX 3050 Ti with
+Torch 2.12.1+cu126, Triton 3.7.1 and bundled ptxas 12.8.93: indexed matrix
+297 PASS, small sanitizer matrix 129 PASS per tool (memcheck/racecheck/initcheck/
+synccheck, no reported errors or hazards), and shared regression 13 PASS.
+FP32/BF16 subnormal checks and retained generated-code inspection are included;
+this is local evidence, not CUDA/shared evidence inheritance or general target
+qualification. Two large-upstream cases and twelve full-image workload nodes
+remain unexecuted because the 4 GiB target cannot meet their memory requirements.
+Full-extension and H100 qualification remain separate. Indexed strict stays closed.
 
 ### Strict mode and trace
 
@@ -105,7 +115,8 @@ unknown backends and PyTorch execution on GPU are rejected.
 
 Strict mode rechecks the input device and hidden size at execution. It enforces
 the declared calculation policy, not hardware qualification. The indexed path
-does not claim fixed-order CUDA/Triton backward equivalence.
+declares its own profile but has no qualified CUDA/Triton backward equivalence
+claim.
 
 The returned callable is an `AdaLNDispatch` wrapper with an `implementation`
 attribute. `selected_backend` records resolution; `actual_backend`, dtype and
@@ -129,7 +140,7 @@ FP32. Positive values that round to zero are rejected; FP32 subnormals, includin
 2^-149, are accepted.
 
 Indexed framework fallback checks only finite, nonnegative eps. Dedicated indexed
-CUDA uses the shared FP32 eps domain. Its per-sample/bank/channel dshift,
+CUDA/Triton use the shared FP32 eps domain. Their per-sample/bank/channel dshift,
 dscale and dgate start at FP32 +0 and fold selected tokens in ascending order;
 each dscale product rounds to FP32 before addition. Gate copies original bits.
 This is the first `adaln-indexed-fp32-tree-v1` arithmetic choice, independently
@@ -165,9 +176,10 @@ The same literals exercise the public CUDA callable; BF16 tests add final-output
 rounding, ties-to-even and raw16 gate payloads.
 All0 tests compare indexed bank0 dshift/dscale with shared bytes, check bank1 +0
 separately and retain independent gold comparisons; shared/indexed dgate are not
-equated. CUDA and public-dispatch tests require fresh current-source GPU evidence.
-Ticket 03 implements the wider CUDA domain; GPU acceptance is pending and indexed
-strict remains closed.
+equated. CUDA and public-dispatch tests require source-specific GPU evidence.
+The local Triton run includes the new BF16 minimum-subnormal parameter-gradient
+cases for one/three tokens and gate-only/both upstreams. Ticket 03 still has two
+unexecuted oversized CUDA upstream cases; indexed strict remains closed.
 The CLI records trace snapshots without automatically constructing C1
 `BackendProvenance`; its accuracy report alone is not a WS1 system gate.
 
@@ -217,6 +229,31 @@ and `reduction_tile={64,128,256}` (default 128).
 These settings alter scheduling, not the declared reduction order. GPU support
 and numerical acceptance must be checked on the target hardware; CPU tests
 alone do not establish CUDA/Triton acceptance.
+
+Indexed NVIDIA dispatch tries CUDA symbols, then Triton, then framework. To test
+actual Triton selection while CUDA remains the default, use a separate source
+package without `_C.so`, disable editable import hooks, and assert the extension
+is absent before resolving. Keep the current binary in place. Successful indexed
+Triton execution reports `actual_backend=triton`, indexed arithmetic profile,
+`fallback=false` and `fallback_reason=None`; failed calls clear old observations.
+
+Indexed Triton uses a separate row kernel and selected-bank FP32 fold. It reuses
+the shared H statistics helpers without changing shared arithmetic or validation.
+Both kernels set `enable_fp_fusion=False` and `enable_reflect_ftz=False`. Gate
+copies use original-width integer pointers. Generated code and target subnormal
+behavior require separate checks; flags alone are not evidence. Local SM86
+inspection found RN sqrt/div lowering uses internal FTZ/FMA with correction paths,
+and single-token BF16 gate addition may become FMA(v,1,+0). The latter is an
+equivalent final-result specialization, not multi-token low-precision accumulation.
+Do not claim the entire SASS is free of FTZ/FMA. No compiler/runtime
+beyond the recorded acceptance environment is qualified. Unsupported geometry,
+eps, addressing and non-NVIDIA devices reject directly or explicitly fall back
+through ordinary dispatch. Strict indexed execution stays rejected.
+
+Indexed B/S/H/eps, broadcast mode, forward/backward, upstream presence and launch
+parameters specialize kernels; S is `tl.constexpr`, so new sequence lengths need
+separate variants and identical calls may reuse cache entries. No runtime-S
+optimization or launch-annotation performance gain is claimed.
 
 Triton currently specializes all three shared kernels on S. A new S can require
 a new compiled variant; repeated calls can reuse the cached variant. Removing

@@ -44,6 +44,33 @@ def _eps_supported_fp32(eps: float) -> bool:
     return math.isfinite(eps32) and eps >= 0 and (eps == 0 or eps32 > 0)
 
 
+def _int32_addressable(*tensors):
+    # Copied kernels use int32 element offsets for x/y/gate/dx and each FP32
+    # partial, both modulation banks/dm, and route rows. Source views are checked
+    # before their framework copies too; expanded (zero-stride) axes cost no span.
+    for tensor in tensors:
+        span = sum(
+            (size - 1) * stride for size, stride in zip(tensor.shape, tensor.stride(), strict=True)
+        )
+        if tensor.numel() > 2**31 - 1 or span > 2**31 - 1:
+            return False
+    return True
+
+
+def _indexed_domain_reason(x, modulation, index, eps):
+    if not _int32_addressable(x, modulation, index):
+        return "int32 indexing"
+    if x.shape[0] > 65535:
+        return "B <= 65535"
+    if x.shape[-1] > 4096:
+        return "H <= 4096"
+    if not _eps_supported_fp32(eps):
+        return "finite FP32 eps without positive underflow"
+    if not x.is_cuda or torch.version.hip is not None:
+        return "NVIDIA CUDA tensors"
+    return None
+
+
 def _validate(x: torch.Tensor, modulation: torch.Tensor, eps: float) -> None:
     if x.ndim != 3 or min(x.shape) == 0:
         raise ValueError("x must have nonempty shape [B, S, H]")

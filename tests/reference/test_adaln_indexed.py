@@ -263,3 +263,20 @@ def test_indexed_reference_bf16_parameter_fold_cast_counterexample():
     # Each individual tiny contribution is < half an ULP of -.75:
     assert F(3, 2048) < F(1, 512)  # wrong per-add cast remains -.75
     check_bf16_parameter_fold_final_cast(IndexedAdaLNFixedReference(), "cpu")
+
+
+def test_indexed_reference_bf16_all_parameter_ties():
+    from fractions import Fraction as F
+    from tests.helpers.adaln_indexed import check_bf16_parameter_ties
+
+    assert F(1) + F(1, 256) == (F(1) + F(129, 128)) / 2
+    assert F(1) + F(3, 256) == (F(129, 128) + F(65, 64)) / 2
+    check_bf16_parameter_ties(IndexedAdaLNFixedReference(), "cpu")
+
+
+@pytest.mark.parametrize("seq", [1, 3])
+@pytest.mark.parametrize("outputs", ["gate", "both"])
+def test_indexed_reference_bf16_subnormal_parameter_fold(seq, outputs):
+    from tests.helpers.adaln_indexed import check_bf16_subnormal_parameter_fold
+
+    check_bf16_subnormal_parameter_fold(IndexedAdaLNFixedReference(), "cpu", seq, outputs)

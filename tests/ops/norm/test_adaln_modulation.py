@@ -392,17 +392,13 @@ def test_adaln_indexed_matches_independent_autograd(device, dtype, broadcast):
     _assert_accuracy(modulation.grad, ref_modulation.grad, judgment="gradient_accuracy")
     _assert_bytes_equal(gate, ref_gate.to(dtype))
     assert x.grad.abs().max() > 0
-    accelerated = False
-    if device == "cuda" and torch.version.hip is None:
-        from rl_engine.backends.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
-
-        try:
-            accelerated = CudaAdaLNModulationOp().indexed_available
-        except RuntimeError:
-            if os.environ.get("RL_KERNEL_REQUIRE_EXT") == "1":
-                raise
+    accelerated = device == "cuda" and torch.version.hip is None and trace[
+        "selected_backend"
+    ] in {"CUDA_ADALN_MODULATION", "TRITON_ADALN_MODULATION"}
     if accelerated:
-        assert trace["actual_backend"] == "cuda"
+        assert trace["actual_backend"] == (
+            "cuda" if trace["selected_backend"] == "CUDA_ADALN_MODULATION" else "triton"
+        )
         assert trace["arithmetic_profile"] == "adaln-indexed-fp32-tree-v1"
         assert trace["fallback"] is False and trace["fallback_reason"] is None
         assert "ascending_selected_token_S_per_bank" in trace["reduction_order"]

@@ -80,14 +80,13 @@ class AdaLNDispatch:
         if indexed:
             implementation = self.implementation
             if backend in {"cuda", "triton"}:
-                from rl_engine.backends.cuda.norm.adaln_modulation import _indexed_domain_reason
+                from rl_engine.reference.norm.adaln_modulation import _indexed_domain_reason
                 from rl_engine.reference.norm.adaln_modulation import _validate_select01_metadata
 
                 _validate_select01_metadata(x, modulation, modulate_index, eps)
 
                 if (
-                    backend == "cuda"
-                    and getattr(implementation, "indexed_available", False)
+                    getattr(implementation, "indexed_available", False)
                     and _indexed_domain_reason(x, modulation, modulate_index, eps) is None
                 ):
                     profile = INDEXED_PROFILE
@@ -111,7 +110,7 @@ class AdaLNDispatch:
             self.trace.update(
                 fallback=True,
                 fallback_reason=(
-                    "indexed_cuda_domain_unsupported"
+                    f"indexed_{adaln_backend(self.implementation)}_domain_unsupported"
                     if self._resolution_trace["arithmetic_profile"] == INDEXED_PROFILE
                     else "modulate_index_requires_select01"
                 ),
@@ -123,7 +122,7 @@ class AdaLNDispatch:
                 fallback=False,
                 fallback_reason=None,
                 reduction_order="pairwise_lower_upper_H; ascending_selected_token_S_per_bank",
-                kernel_fingerprint="adaln_indexed_cuda_v1",
+                kernel_fingerprint=f"adaln_indexed_{backend}_v1",
             )
         elif self._resolution_trace["arithmetic_profile"] == INDEXED_PROFILE:
             self.trace.update(

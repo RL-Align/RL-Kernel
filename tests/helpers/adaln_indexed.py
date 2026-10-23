@@ -454,11 +454,17 @@ def check_eps_arithmetic(op, device, dtype, eps):
     assert_bytes(dm[1], torch.zeros(6, dtype=dtype))
 
 
-def check_geometry_bytes(op, device, dtype, hidden):
+def check_geometry_bytes(op, device, dtype, hidden, *, seq=3, route="mixed"):
+    """Compare fixed/gold and equivalent batch layouts for identical logical tokens."""
     generator = torch.Generator().manual_seed(303)
-    x = torch.randn(3, 3, hidden, generator=generator).to(dtype)
+    x = torch.randn(3, seq, hidden, generator=generator).to(dtype)
     m = (torch.randn(6, 3 * hidden, generator=generator) / 4).to(dtype)
-    index = torch.tensor([[0, 1, 0], [1, 0, 1], [0, 0, 1]], dtype=torch.int32)
+    if seq == 3 and route == "mixed":
+        index = torch.tensor([[0, 1, 0], [1, 0, 1], [0, 0, 1]], dtype=torch.int32)
+    else:
+        token = torch.arange(seq)
+        first = (token >= seq // 2) if route == "segmented" else (token % 3 == 1)
+        index = torch.stack((first, ~first, first)).to(torch.int32)
     dy = torch.randn(x.shape, generator=generator).to(dtype)
     dg = torch.randn(x.shape, generator=generator).to(dtype)
 
@@ -570,3 +576,76 @@ def check_bf16_parameter_fold_final_cast(op, device):
             dtype=torch.bfloat16,
         ),
     )
+
+
+def require_triton_gpu():
+    if torch.version.hip is not None or not torch.cuda.is_available():
+        pytest.skip("NVIDIA Triton GPU required; not an indexed PASS")
+    pytest.importorskip("triton")
+
+
+def check_maximum_batch(op, dtype):
+    b = 65535
+    x = torch.tensor([-3.0, 3.0], dtype=dtype, device="cuda").repeat(b, 2, 1).requires_grad_()
+    m = torch.zeros(2 * b, 6, dtype=dtype, device="cuda")
+    tags = (torch.arange(b, device="cuda") % 17).to(dtype)
+    m[:b, 4], m[b:, 4] = tags, tags + 32
+    m.requires_grad_()
+    index = torch.tensor([[0, 1]], dtype=torch.int32, device="cuda")
+    y, gate = op(x, m, modulate_index=index, eps=7.0)
+    dx, dm = torch.autograd.grad(
+        (y, gate),
+        (x, m),
+        (
+            torch.tensor([1.0, 0.0], dtype=dtype, device="cuda").expand_as(x),
+            torch.tensor([2.0, 3.0], dtype=dtype, device="cuda").expand_as(x),
+        ),
+    )
+    assert_bytes(y, torch.tensor([-0.75, 0.75], dtype=dtype).expand(b, 2, 2))
+    assert_bytes(gate[:, 0, 0], tags.cpu())
+    assert_bytes(gate[:, 1, 0], (tags + 32).cpu())
+    assert_bytes(dx, torch.tensor([7 / 128, -7 / 128], dtype=dtype).expand(b, 2, 2))
+    assert_bytes(dm, torch.tensor([1.0, 0.0, -0.75, 0.0, 2.0, 3.0], dtype=dtype).expand(2 * b, 6))
+
+
+def check_bf16_parameter_ties(op, device):
+    # eps=0 gives exact norm=(-1,1), so all dmod slices see opposite-parity ties.
+    x = torch.tensor([-1.0, 1.0], dtype=torch.bfloat16, device=device).repeat(1, 4, 1)
+    x.requires_grad_()
+    m = torch.zeros(2, 6, dtype=x.dtype, device=device, requires_grad=True)
+    index = torch.tensor([[0, 1, 0, 1]], dtype=torch.int32, device=device)
+    y, gate = op(x, m, modulate_index=index, eps=0.0)
+    upstream = torch.tensor([1.0, 1.0, 1 / 256, 3 / 256], dtype=x.dtype, device=device)
+    upstream = upstream[None, :, None].expand_as(x)
+    _, dm = torch.autograd.grad((y, gate), (x, m), (upstream, upstream))
+    assert_bytes(
+        dm,
+        torch.tensor(
+            [
+                [1.0, 1.0, -1.0, 1.0, 1.0, 1.0],
+                [65 / 64, 65 / 64, -65 / 64, 65 / 64, 65 / 64, 65 / 64],
+            ],
+            dtype=torch.bfloat16,
+        ),
+    )
+
+
+def check_bf16_subnormal_parameter_fold(op, device, seq, outputs):
+    x = torch.tensor([-3.0, 3.0], dtype=torch.bfloat16, device=device).repeat(1, seq, 1)
+    x.requires_grad_()
+    m = torch.zeros(2, 6, dtype=x.dtype, device=device, requires_grad=True)
+    index = torch.zeros(1, seq, dtype=torch.int32, device=device)
+    y, gate = op(x, m, modulate_index=index, eps=7.0)
+    upstream = torch.tensor([1, 0x8001], dtype=torch.uint16).view(torch.bfloat16)
+    upstream = upstream.to(device).reshape(1, 1, 2).expand_as(x)
+    if outputs == "gate":
+        gate.backward(upstream)
+        assert x.grad is None
+        words = [0, 0, 0, 0, seq, 0x8000 + seq]
+    else:
+        torch.autograd.backward((y, gate), (upstream, upstream))
+        # -.75 * {1,3} BF16 minimum-subnormal units rounds to {-1,-2} units.
+        scale_units = 1 if seq == 1 else 2
+        words = [seq, 0x8000 + seq, 0x8000 + scale_units, 0x8000 + scale_units, seq, 0x8000 + seq]
+    expected = torch.tensor([words, [0] * 6], dtype=torch.uint16).view(torch.bfloat16)
+    assert_bytes(m.grad, expected)

@@ -1095,13 +1095,20 @@ class KernelRegistry:
                 platform == "cuda"
                 and hidden <= 4096
             ):
-                cuda = self._get_or_create_backend(OpBackend.CUDA_ADALN_MODULATION)
-                if cuda is not None and getattr(cuda, "indexed_available", False):
-                    backend = OpBackend.CUDA_ADALN_MODULATION
+                for candidate in (
+                    OpBackend.CUDA_ADALN_MODULATION, OpBackend.TRITON_ADALN_MODULATION
+                ):
+                    implementation = self._get_or_create_backend(candidate)
+                    if implementation is not None and getattr(
+                        implementation, "indexed_available", False
+                    ):
+                        backend = candidate
+                        break
             op = self._get_or_create_backend(backend)
             if op is None:
                 raise RuntimeError("PyTorch select01 AdaLN fallback is unavailable")
-            accelerated = backend is OpBackend.CUDA_ADALN_MODULATION
+            accelerated = backend is not OpBackend.PYTORCH_ADALN_MODULATION
+            actual = adaln_backend(op)
             trace = {
                 "selected_backend": backend.name,
                 "fallback": not accelerated,
@@ -1117,11 +1124,11 @@ class KernelRegistry:
                 "stream_k": False,
                 "tf32": False,
                 "kernel_fingerprint": (
-                    "adaln_indexed_cuda_v1"
+                    f"adaln_indexed_{actual}_v1"
                     if accelerated
                     else "adaln_modulation_select01_native_v1"
                 ),
-                "requested_backend": "cuda" if accelerated else "pytorch",
+                "requested_backend": actual,
                 "arithmetic_profile": INDEXED_PROFILE if accelerated else profile,
             }
             return AdaLNDispatch(op, trace, hidden=hidden, strict=strict), trace

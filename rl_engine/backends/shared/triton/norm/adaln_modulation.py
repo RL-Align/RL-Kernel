@@ -182,10 +182,18 @@ class TritonAdaLNModulationOp:
         self.num_warps = num_warps
         self.reduction_tile = reduction_tile
 
-    def __call__(self, x, modulation, *, eps=1e-6):
-        return self.forward(x, modulation, eps=eps)
+    indexed_available = True
 
-    def forward(self, x, modulation, *, eps=1e-6):
+    def __call__(self, x, modulation, *, eps=1e-6, modulate_index=None):
+        return self.forward(x, modulation, eps=eps, modulate_index=modulate_index)
+
+    def forward(self, x, modulation, *, eps=1e-6, modulate_index=None):
+        if modulate_index is not None:
+            from .adaln_indexed import indexed_forward
+
+            return indexed_forward(
+                x, modulation, modulate_index, eps, self.num_warps, self.reduction_tile
+            )
         _validate(x, modulation, eps)
         if max(x.numel(), modulation.numel()) > 2**31 - 1:
             raise ValueError("Triton AdaLN requires tensors to fit int32 indexing")

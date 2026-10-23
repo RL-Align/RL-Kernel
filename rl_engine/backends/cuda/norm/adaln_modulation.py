@@ -8,38 +8,12 @@ import torch
 
 from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 from rl_engine.reference.norm.adaln_modulation import (
-    _eps_supported_fp32,
+    _indexed_domain_reason,
+    _int32_addressable,
     _validate,
     _validate_select01,
     _validate_select01_metadata,
 )
-
-
-def _int32_addressable(*tensors):
-    # Copied kernels use int32 element offsets for x/y/gate/dx and each FP32
-    # partial, both modulation banks/dm, and route rows. Source views are checked
-    # before their framework copies too; expanded (zero-stride) axes cost no span.
-    for tensor in tensors:
-        span = sum(
-            (size - 1) * stride for size, stride in zip(tensor.shape, tensor.stride(), strict=True)
-        )
-        if tensor.numel() > 2**31 - 1 or span > 2**31 - 1:
-            return False
-    return True
-
-
-def _indexed_domain_reason(x, modulation, index, eps):
-    if not _int32_addressable(x, modulation, index):
-        return "int32 indexing"
-    if x.shape[0] > 65535:
-        return "B <= 65535"
-    if x.shape[-1] > 4096:
-        return "H <= 4096"
-    if not _eps_supported_fp32(eps):
-        return "finite FP32 eps without positive underflow"
-    if not x.is_cuda or torch.version.hip is not None:
-        return "NVIDIA CUDA tensors"
-    return None
 
 
 class _AdaLNIndexedCuda(torch.autograd.Function):
