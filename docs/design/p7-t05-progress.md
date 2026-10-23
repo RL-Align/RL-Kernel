@@ -30,6 +30,33 @@ Schemas are suffixed `-draft` and are replaced by the T01 publications once froz
 Test doubles for unpublished T01/T02 artifacts live in `tests/p7_doubles/` and are
 not a public ABI.
 
+## PR #556 review fixes (2026-10-23)
+
+- M10 exports include `metadata_sha256`, computed over canonical JSON excluding
+  the checksum field itself. Loading verifies this checksum, recomputes the
+  evidence and optional upstream fingerprints, and checks that row keys, active
+  count and active-byte digest agree with the embedded evidence. Row keys and
+  masks are validated without coercion. Old draft exports without the metadata
+  checksum must be regenerated. These checks detect corruption; they do not
+  authenticate the producer.
+- Gradient readback now records DDP's `average_in_collective` setting. The rank
+  gate requires SUM when false and AVG when true, for both all-reduce and
+  reduce-scatter. Missing configuration or op evidence fails closed, and MAX,
+  MIN, PRODUCT or a SUM/AVG mismatch reports `SILENT_FALLBACK`. Omitted op
+  arguments are recorded as the collective API's effective default, SUM.
+- Regression coverage includes metadata-only mutations with unchanged active
+  bytes, mask swaps preserving active count, independent evidence-fingerprint
+  checks, malformed row identities, and reduction-op negatives on both DDP
+  collective paths. The AVG acceptance check uses recorded CPU evidence; it is
+  not a GPU AVG execution result.
+
+Validation on 2026-10-23: the twelve T05 CPU test modules listed in the PR,
+with Megatron-LM and VIME on `PYTHONPATH` and GPUs hidden, passed with
+**244 passed, 1 skipped** (optimizer ownership does not apply to all-reduce).
+The two focused export/gradient-rank modules passed with **72 passed, 1 skipped**.
+Ruff, black, isort and flake8 passed on the changed Python files. GPU execution
+was not rerun for this follow-up.
+
 ## Verification
 
 Environment: Python 3.11.15, torch 2.9.1+cu128, vLLM 0.16.0, Ray 2.57.0,

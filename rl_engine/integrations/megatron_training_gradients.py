@@ -265,14 +265,16 @@ class GradientStepObserver:
         return spy
 
     def _note_collective(self, kind: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
+        import torch.distributed as dist
+
         if kind == "reduce_scatter":
             output = args[0] if args else kwargs.get("output")
             inputs = args[1] if len(args) > 1 else kwargs.get("input")
-            op = args[2] if len(args) > 2 else kwargs.get("op")
+            op = args[2] if len(args) > 2 else kwargs.get("op", dist.ReduceOp.SUM)
             group = args[3] if len(args) > 3 else kwargs.get("group")
         else:
             inputs = output = args[0] if args else kwargs.get("tensor")
-            op = args[1] if len(args) > 1 else kwargs.get("op")
+            op = args[1] if len(args) > 1 else kwargs.get("op", dist.ReduceOp.SUM)
             group = args[2] if len(args) > 2 else kwargs.get("group")
         if not isinstance(inputs, torch.Tensor) or not isinstance(output, torch.Tensor):
             self._unmatched_calls += 1
@@ -417,11 +419,16 @@ class GradientStepObserver:
     def _sync_evidence(self) -> dict[str, Any]:
         ddp_config = getattr(self._ddp, "ddp_config", None)
         configured = getattr(ddp_config, "use_distributed_optimizer", None)
+        average = getattr(ddp_config, "average_in_collective", None)
         return {
             "source": "observed",
             "use_distributed_optimizer": {
                 "source": "configured",
                 "value": None if configured is None else bool(configured),
+            },
+            "average_in_collective": {
+                "source": "configured",
+                "value": None if average is None else bool(average),
             },
             "buckets": self._bucket_layout(),
             "calls": list(self._sync_calls),

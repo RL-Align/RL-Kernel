@@ -9,7 +9,10 @@ Format (``rlkernel.p7.t05.m10_export.v1-draft``; replaced by the T01 schema once
     Canonical JSON: schema version, side, row keys in local row order
     (``[sample_id, position]``, ``null`` for padding rows), BOOL active mask in
     the same order, byte encoding, active-byte SHA-256, the validated evidence
-    identity and the optional upstream evidence.
+    identity and the optional upstream evidence. ``metadata_sha256`` binds all
+    other metadata fields using canonical JSON; evidence fingerprints are also
+    checked independently on load. These are integrity checks, not authenticated
+    producer provenance. Older drafts without the metadata digest are rejected.
 ``m10_active.bin``
     FP32 selected logprob of the active rows only, in local row order, each
     value written as the little-endian bytes of its ``int32`` view.
@@ -29,7 +32,10 @@ from typing import Any, Mapping, Optional
 
 import torch
 
-from rl_engine.alignment.cross_config.adapters.megatron_training import T05ContractError
+from rl_engine.alignment.cross_config.adapters.megatron_training import (
+    T05ContractError,
+    canonical_sha256,
+)
 from rl_engine.alignment.cross_config.adapters.megatron_training_gate import TrainingM10Evidence
 from rl_engine.alignment.cross_config.adapters.megatron_training_upstream import UpstreamEvidence
 
@@ -85,6 +91,7 @@ def export_m10(
         "upstream": None if upstream is None else upstream.to_dict(),
         "upstream_fingerprint": None if upstream is None else upstream.fingerprint,
     }
+    meta["metadata_sha256"] = hashlib.sha256(_canonical(meta)).hexdigest()
     _write_new(target / BYTES_NAME, raw)
     _write_new(target / META_NAME, _canonical(meta) + b"\n")
     return target
@@ -109,6 +116,8 @@ class LoadedM10:
 
 
 def load_m10(directory: Path | str) -> LoadedM10:
+    """Load an export only after verifying metadata, evidence and active-byte integrity."""
+
     source = Path(directory)
     meta_path, bytes_path = source / META_NAME, source / BYTES_NAME
     missing = [path.name for path in (meta_path, bytes_path) if not path.is_file()]
@@ -118,35 +127,91 @@ def load_m10(directory: Path | str) -> LoadedM10:
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise T05ContractError("CORRUPT_ARTIFACT", META_NAME, str(exc)) from exc
+    if not isinstance(meta, dict):
+        raise T05ContractError("CORRUPT_ARTIFACT", META_NAME, "metadata must be an object")
     if meta.get("schema_version") != M10_EXPORT_SCHEMA_VERSION:
         raise T05ContractError(
             "SCHEMA_MISMATCH", "schema_version", repr(meta.get("schema_version"))
         )
     if meta.get("byte_encoding") != BYTE_ENCODING:
         raise T05ContractError("SCHEMA_MISMATCH", "byte_encoding", repr(meta.get("byte_encoding")))
+    _validate_metadata(meta)
     raw = bytes_path.read_bytes()
     if hashlib.sha256(raw).hexdigest() != meta.get("active_bytes_sha256"):
         raise T05ContractError("CORRUPT_ARTIFACT", BYTES_NAME, "SHA-256 does not match m10.json")
-    mask = meta.get("active_token_mask")
-    keys = meta.get("row_keys")
-    if not isinstance(mask, list) or not isinstance(keys, list) or len(mask) != len(keys):
-        raise T05ContractError("CORRUPT_ARTIFACT", META_NAME, "row keys and mask differ in length")
-    active_count = sum(1 for value in mask if value)
-    if active_count != meta.get("active_count") or len(raw) != 4 * active_count:
+    mask, keys = meta["active_token_mask"], meta["row_keys"]
+    if len(raw) != 4 * meta["active_count"]:
         raise T05ContractError(
             "CORRUPT_ARTIFACT", BYTES_NAME, "byte length does not match the mask"
         )
-    if any(key is None and active for key, active in zip(keys, mask, strict=True)):
-        raise T05ContractError("CORRUPT_ARTIFACT", META_NAME, "active padding row")
     values = torch.frombuffer(bytearray(raw), dtype=torch.int32).view(torch.float32).clone()
     return LoadedM10(
-        side=str(meta.get("side")),
-        row_keys=tuple(None if key is None else (str(key[0]), int(key[1])) for key in keys),
+        side=meta["side"],
+        row_keys=tuple(None if key is None else (key[0], key[1]) for key in keys),
         active_token_mask=torch.tensor(mask, dtype=torch.bool),
         active_values=values,
         active_raw_bytes=raw,
         meta=meta,
     )
+
+
+def _validate_metadata(meta: Mapping[str, Any]) -> None:
+    """Check the metadata checksum, strict row types and embedded evidence bindings."""
+
+    def corrupt(field: str, detail: str) -> T05ContractError:
+        return T05ContractError("CORRUPT_ARTIFACT", field, detail)
+
+    payload = {key: value for key, value in meta.items() if key != "metadata_sha256"}
+    try:
+        digest = hashlib.sha256(_canonical(payload)).hexdigest()
+    except (TypeError, ValueError) as exc:
+        raise corrupt(META_NAME, "metadata is not canonical JSON") from exc
+    if digest != meta.get("metadata_sha256"):
+        raise corrupt("metadata_sha256", "metadata checksum missing or mismatched")
+    if not isinstance(meta.get("side"), str):
+        raise corrupt("side", "expected a string")
+    keys, mask = meta.get("row_keys"), meta.get("active_token_mask")
+    if not isinstance(keys, list) or not isinstance(mask, list) or len(keys) != len(mask):
+        raise corrupt(META_NAME, "row keys and mask must be lists of equal length")
+    if any(type(active) is not bool for active in mask):
+        raise corrupt("active_token_mask", "expected boolean entries")
+    seen = set()
+    for key, active in zip(keys, mask, strict=True):
+        if key is None:
+            if active:
+                raise corrupt("row_keys", "active padding row")
+            continue
+        if (
+            not isinstance(key, list)
+            or len(key) != 2
+            or not isinstance(key[0], str)
+            or type(key[1]) is not int
+            or key[1] < 0
+        ):
+            raise corrupt("row_keys", "expected [sample_id string, nonnegative integer position]")
+        if tuple(key) in seen:
+            raise corrupt("row_keys", "duplicate token identity")
+        seen.add(tuple(key))
+    if type(meta.get("active_count")) is not int or meta["active_count"] != sum(mask):
+        raise corrupt("active_count", "count does not match the mask")
+    if meta["active_count"] == 0:
+        raise corrupt("active_token_mask", "no active tokens")
+    evidence = meta.get("evidence")
+    if not isinstance(evidence, dict) or canonical_sha256(evidence) != meta.get(
+        "evidence_fingerprint"
+    ):
+        raise corrupt("evidence_fingerprint", "evidence missing or fingerprint mismatched")
+    for field in ("row_keys", "active_count", "active_bytes_sha256"):
+        if evidence.get(field) != meta.get(field):
+            raise corrupt(field, "export metadata disagrees with embedded evidence")
+    upstream = meta.get("upstream")
+    if upstream is None:
+        if meta.get("upstream_fingerprint") is not None:
+            raise corrupt("upstream_fingerprint", "fingerprint without upstream evidence")
+    elif not isinstance(upstream, dict) or canonical_sha256(upstream) != meta.get(
+        "upstream_fingerprint"
+    ):
+        raise corrupt("upstream_fingerprint", "upstream fingerprint mismatched")
 
 
 @dataclass(frozen=True)

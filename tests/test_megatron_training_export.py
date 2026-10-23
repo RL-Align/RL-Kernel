@@ -13,7 +13,10 @@ from p7_doubles.fixtures import vime_request
 from p7_doubles.harness import FIXTURES, make_context, run, strict_observer
 
 from rl_engine.alignment.cross_config.adapters import megatron_training_gate as gate
-from rl_engine.alignment.cross_config.adapters.megatron_training import T05ContractError
+from rl_engine.alignment.cross_config.adapters.megatron_training import (
+    T05ContractError,
+    canonical_sha256,
+)
 from rl_engine.alignment.cross_config.adapters.megatron_training_export import (
     BYTES_NAME,
     META_NAME,
@@ -143,6 +146,128 @@ def test_tampered_digest_in_evidence_is_rejected(observer, tmp_path):
     _expect("CORRUPT_ARTIFACT", lambda: export_m10(evidence, tmp_path / "x"))
 
 
+def _rewrite_metadata(directory, mutate, *, checksum=False):
+    """Edit metadata while leaving active bytes untouched, optionally updating its checksum."""
+
+    path = directory / META_NAME
+    meta = json.loads(path.read_text())
+    mutate(meta)
+    if checksum:
+        meta.pop("metadata_sha256", None)
+        encoded = json.dumps(meta, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        meta["metadata_sha256"] = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    path.write_text(json.dumps(meta))
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["row_keys", "active_token_mask", "weight_digest", "evidence_fingerprint", "side"],
+)
+def test_metadata_only_tampering_is_rejected(observer, tmp_path, field):
+    """A valid binary digest must not hide changes to token or weight identity."""
+
+    evidence = _evidence(observer)
+    directory = export_m10(evidence, tmp_path / "a")
+
+    def mutate(meta):
+        if field == "row_keys":
+            meta["row_keys"][0][0] = "another-sample"
+        elif field == "active_token_mask":
+            mask = meta["active_token_mask"]
+            on, off = mask.index(True), mask.index(False)
+            mask[on], mask[off] = False, True  # preserve count and binary length
+        elif field == "weight_digest":
+            meta["evidence"]["weight_shard"]["sha256"] = "0" * 64
+        elif field == "evidence_fingerprint":
+            meta[field] = "0" * 64
+        else:
+            meta[field] = "changed"
+
+    _rewrite_metadata(directory, mutate)
+    assert (directory / BYTES_NAME).read_bytes() == evidence.active_raw_bytes
+    _expect("CORRUPT_ARTIFACT", lambda: load_m10(directory))
+
+
+@pytest.mark.parametrize("field", ["row_keys", "active_count", "active_bytes_sha256"])
+def test_metadata_must_agree_with_evidence(observer, tmp_path, field):
+    """Even a refreshed metadata checksum cannot hide a broken evidence binding."""
+
+    directory = export_m10(_evidence(observer), tmp_path / "a")
+
+    def mutate(meta):
+        if field == "row_keys":
+            meta[field][0][0] = "another-sample"
+        elif field == "active_count":
+            # Change the embedded copy and keep its fingerprint internally consistent.
+            meta["evidence"][field] += 1
+            meta["evidence_fingerprint"] = canonical_sha256(meta["evidence"])
+        else:
+            meta[field] = "0" * 64
+
+    _rewrite_metadata(directory, mutate, checksum=True)
+    _expect("CORRUPT_ARTIFACT", lambda: load_m10(directory))
+
+
+@pytest.mark.parametrize("field", ["weight_digest", "evidence_fingerprint", "evidence"])
+def test_evidence_fingerprint_is_recomputed(observer, tmp_path, field):
+    directory = export_m10(_evidence(observer), tmp_path / "a")
+
+    def mutate(meta):
+        if field == "weight_digest":
+            meta["evidence"]["weight_shard"]["sha256"] = "0" * 64
+        elif field == "evidence_fingerprint":
+            meta[field] = "0" * 64
+        else:
+            meta.pop(field)
+
+    _rewrite_metadata(directory, mutate, checksum=True)
+    _expect("CORRUPT_ARTIFACT", lambda: load_m10(directory))
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda m: m["row_keys"].__setitem__(0, ["sample"]),
+        lambda m: m["row_keys"].__setitem__(0, ["sample", "0"]),
+        lambda m: m["row_keys"].__setitem__(0, ["sample", True]),
+        lambda m: m["row_keys"].__setitem__(0, ["sample", -1]),
+        lambda m: m["row_keys"].__setitem__(0, [123, 0]),
+        lambda m: m["row_keys"].__setitem__(0, list(m["row_keys"][1])),
+        lambda m: m["active_token_mask"].__setitem__(0, 1),
+        lambda m: m.update(active_count=True),
+        lambda m: m.update(side=None),
+    ],
+    ids=[
+        "key-length",
+        "position-str",
+        "position-bool",
+        "negative",
+        "sample-type",
+        "duplicate",
+        "mask-type",
+        "count-type",
+        "side-type",
+    ],
+)
+def test_malformed_metadata_fails_closed(observer, tmp_path, mutate):
+    directory = export_m10(_evidence(observer), tmp_path / "a")
+    _rewrite_metadata(directory, mutate, checksum=True)
+    _expect("CORRUPT_ARTIFACT", lambda: load_m10(directory))
+
+
+def test_metadata_checksum_is_required(observer, tmp_path):
+    directory = export_m10(_evidence(observer), tmp_path / "a")
+    _rewrite_metadata(directory, lambda m: m.pop("metadata_sha256"))
+    _expect("CORRUPT_ARTIFACT", lambda: load_m10(directory))
+
+
+@pytest.mark.parametrize("payload", [[], None, "metadata", 123])
+def test_metadata_must_be_an_object(tmp_path, payload):
+    (tmp_path / META_NAME).write_text(json.dumps(payload))
+    (tmp_path / BYTES_NAME).write_bytes(b"")
+    _expect("CORRUPT_ARTIFACT", lambda: load_m10(tmp_path))
+
+
 def test_self_test_requires_same_tokens(observer, tmp_path):
     a = load_m10(export_m10(_evidence(observer, "packed_varlen_zigzag_cp2", 0), tmp_path / "a"))
     b = load_m10(export_m10(_evidence(observer, "packed_varlen_zigzag_cp2", 1), tmp_path / "b"))
@@ -183,3 +308,17 @@ def test_upstream_evidence_is_embedded(observer, tmp_path):
     meta = load_m10(export_m10(evidence, tmp_path / "u", upstream=upstream)).meta
     assert meta["upstream_fingerprint"] == upstream.fingerprint
     assert meta["upstream"]["forwarded"][0]["payload"]["producer_verdict"] == "PASS"
+
+    directory = tmp_path / "u"
+
+    def mutate(meta):
+        meta["upstream"]["forwarded"][0]["payload"]["producer_verdict"] = "FAIL"
+
+    _rewrite_metadata(directory, mutate, checksum=True)
+    _expect("CORRUPT_ARTIFACT", lambda: load_m10(directory))
+
+
+def test_upstream_fingerprint_requires_evidence(observer, tmp_path):
+    directory = export_m10(_evidence(observer), tmp_path / "a")
+    _rewrite_metadata(directory, lambda m: m.update(upstream_fingerprint="0" * 64), checksum=True)
+    _expect("CORRUPT_ARTIFACT", lambda: load_m10(directory))

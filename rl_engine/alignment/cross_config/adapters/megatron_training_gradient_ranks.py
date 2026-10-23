@@ -14,7 +14,8 @@ per gradient-reduction (DP) group:
   across replicas;
 * every bucket was synchronised exactly once on the DP group, with the
   collective the configuration asks for (reduce-scatter with the distributed
-  optimizer, all-reduce otherwise), and each rank received its own shard;
+  optimizer, all-reduce otherwise), SUM or AVG as configured by
+  ``average_in_collective``, and each rank received its own shard;
 * the distributed-optimizer ranges lie inside the rank's reduce-scatter shard
   and together cover every trainable parameter exactly once.
 
@@ -262,6 +263,11 @@ def _check_replicas(members: Sequence[GradientRankReadback]) -> None:
                 readback.evidence["sync"]["use_distributed_optimizer"],
                 first.evidence["sync"]["use_distributed_optimizer"],
             ),
+            (
+                "sync.average_in_collective",
+                readback.evidence["sync"].get("average_in_collective"),
+                first.evidence["sync"].get("average_in_collective"),
+            ),
         )
         for name, value, reference in pairs:
             if value != reference:
@@ -278,6 +284,18 @@ def _check_sync_calls(
     size = len(dp_ranks)
     for readback in members:
         sync = readback.evidence["sync"]
+        average = sync.get("average_in_collective")
+        if (
+            not isinstance(average, Mapping)
+            or average.get("source") != "configured"
+            or type(average.get("value")) is not bool
+        ):
+            raise _fail(
+                "MISSING_PROVENANCE",
+                "sync.average_in_collective",
+                f"rank {readback.global_rank}: DDP reduction configuration not recorded",
+            )
+        expected_op = "RedOpType.AVG" if average["value"] else "RedOpType.SUM"
         buckets = {(b["buffer_index"], b["bucket_id"]): b for b in sync["buckets"]}
         if not buckets:
             raise _fail(
@@ -307,6 +325,14 @@ def _check_sync_calls(
                     "SILENT_FALLBACK",
                     "sync.calls.kind",
                     f"{where}: {call['kind']} observed, configuration requires {expected_kind}",
+                )
+            if call.get("op") is None:
+                raise _fail("MISSING_PROVENANCE", "sync.calls.op", f"{where}: op not recorded")
+            if call["op"] != expected_op:
+                raise _fail(
+                    "SILENT_FALLBACK",
+                    "sync.calls.op",
+                    f"{where}: {call['op']} observed, configuration requires {expected_op}",
                 )
             if tuple(call["group_ranks"]) != dp_ranks:
                 raise _fail(

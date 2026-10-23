@@ -64,7 +64,9 @@ class DistributedFakeDDP(FakeMegatronDDP):
 
     def __init__(self, module, *, distributed_optimizer, group, bucket_numel=24):
         super().__init__(module)
-        self.ddp_config = SimpleNamespace(use_distributed_optimizer=distributed_optimizer)
+        self.ddp_config = SimpleNamespace(
+            use_distributed_optimizer=distributed_optimizer, average_in_collective=False
+        )
         self.group = group
         size = dist.get_world_size(group=group)
         buffer = self.buffers[0]
@@ -223,6 +225,7 @@ def test_real_gloo_step_passes_and_is_not_certified(gathered):
     assert set(group["emitted"]) == {"adapter", "head", "extra"}
     for item in payload:
         sync = item["evidence"]["sync"]
+        assert sync["average_in_collective"] == {"source": "configured", "value": False}
         assert sync["unmatched_calls"] == 1, "the unrelated all-reduce is not a gradient sync"
         assert len(sync["calls"]) == len(sync["buckets"])
     if distributed:
@@ -275,6 +278,65 @@ def test_wrong_collective_is_silent_fallback(gathered):
             call["kind"] = "all_reduce" if distributed else "reduce_scatter"
 
     _expect(payload, "SILENT_FALLBACK", swap)
+
+
+@pytest.mark.parametrize("average", [False, True], ids=["sum", "avg"])
+@pytest.mark.parametrize("op", ["RedOpType.MAX", "RedOpType.MIN", "RedOpType.PRODUCT"])
+def test_wrong_reduction_op_is_silent_fallback(gathered, average, op):
+    """Both DDP collectives must reject non-gradient reductions, including MAX."""
+
+    _, payload = gathered
+
+    def wrong_op(items):
+        for item in items:
+            sync = item["evidence"]["sync"]
+            sync["average_in_collective"]["value"] = average
+            for call in sync["calls"]:
+                call["op"] = "RedOpType.AVG" if average else "RedOpType.SUM"
+        items[1]["evidence"]["sync"]["calls"][0]["op"] = op
+
+    assert _expect(payload, "SILENT_FALLBACK", wrong_op).field_name == "sync.calls.op"
+
+
+@pytest.mark.parametrize("average", [False, True], ids=["sum", "avg"])
+def test_sum_and_avg_must_match_ddp_configuration(gathered, average):
+    """Accept each configured op and reject swapping SUM and AVG."""
+
+    _, original = gathered
+    payload = copy.deepcopy(original)
+    for item in payload:
+        sync = item["evidence"]["sync"]
+        sync["average_in_collective"]["value"] = average
+        for call in sync["calls"]:
+            call["op"] = "RedOpType.AVG" if average else "RedOpType.SUM"
+    assert validate_gradient_rank_set(_readbacks(payload), TOPOLOGY).complete
+
+    def swap(items):
+        items[0]["evidence"]["sync"]["calls"][0]["op"] = (
+            "RedOpType.SUM" if average else "RedOpType.AVG"
+        )
+
+    _expect(payload, "SILENT_FALLBACK", swap)
+
+
+def test_missing_reduction_configuration_and_op_fail_closed(gathered):
+    _, payload = gathered
+
+    def no_config(items):
+        for item in items:
+            item["evidence"]["sync"].pop("average_in_collective")
+
+    _expect(payload, "MISSING_PROVENANCE", no_config)
+    _expect(
+        payload,
+        "MISSING_PROVENANCE",
+        lambda items: items[0]["evidence"]["sync"]["calls"][0].pop("op"),
+    )
+    _expect(
+        payload,
+        "IDENTITY_DRIFT",
+        lambda items: items[1]["evidence"]["sync"]["average_in_collective"].update(value=True),
+    )
 
 
 def test_wrong_group_and_replica_drift(gathered):
