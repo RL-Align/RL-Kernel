@@ -28,6 +28,9 @@ python -c "import rl_engine._C as _C; assert hasattr(_C, 'fused_logp'); print(_C
 A CPU-only install (plain `pip install -e .` on a machine with no GPU) remains
 supported and runs on the pure-PyTorch backends.
 
+For a complete NVIDIA B200 environment, compilation, and GRPO smoke workflow,
+see [NVIDIA B200 Onboarding](b200-onboarding.md).
+
 ## Optional Backends
 
 The extras add optional dependencies on top of the compiled package, so they use
