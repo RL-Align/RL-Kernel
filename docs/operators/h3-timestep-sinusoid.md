@@ -131,7 +131,7 @@ kernel compiled with `--use_fast_math`, which the build excludes (see Known Limi
 SGLang's `timestep_embedding`, diffusers' path and this kernel are bitwise identical on all
 2.22M timesteps (567.6M outputs). The fast-math build differs in 53.7–82.7% of outputs.
 [`timestep_sinusoid.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr483/reports/experiments/h3-bitwise-reuse-b200/timestep_sinusoid.json)
-was written from a clean tree at `0eb5ddd5` by
+was written from a clean tree at `be6a94ae` by
 
 ```bash
 python tools/validation/models/h3_bitwise_reuse.py --op timestep_sinusoid --fast-math-variant \

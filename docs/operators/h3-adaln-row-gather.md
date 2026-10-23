@@ -129,10 +129,10 @@ There are two data files:
 - [`chain_replay.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr486/reports/experiments/h3-adaln-row-gather-b200/chain_replay.json): the full
   stage-wise forward replay and backward replay over T in {1, 2, 3, 4} × S in {3, 257, 4097, 32768}.
 
-`report.json` was rewritten from a clean tree at commit `40f4400c`, after the op-backward check
+`report.json` was rewritten from a clean tree at commit `a6c85451`, after the op-backward check
 was seeded (it previously took its rows and gradients from the process's default CUDA
 generator, so its fraction depended on how many draws the runner made before it; 99.99999% in
-the previous report). `chain_replay.json` was written from a clean tree at commit `d3b37fe1`.
+the previous report). `chain_replay.json` was written from a clean tree at commit `61d23ade`.
 Both ran on an otherwise idle B200 and were regenerated
 after the AdaLN projection golden's declared cast was changed to round the FP32 SiLU (as the model
 does). Apart from the seeded op-backward fraction, every CUDA field and every pass/fail flag
@@ -171,7 +171,7 @@ gradient with diffusers' path and with this kernel.
 ![adaln_row_gather bitwise comparison](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr486/reports/experiments/h3-bitwise-reuse-b200/adaln_row_gather.png)
 
 There is no reuse candidate beyond diffusers' six index_select calls. The forward is bitwise identical to them at every S (1 to 32768). The table gradient matches at S = 1 and differs from S = 257 on: index_select accumulates it with BF16 atomics, this kernel in a fixed FP32 order.
-[`adaln_row_gather.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr486/reports/experiments/h3-bitwise-reuse-b200/adaln_row_gather.json) was written from a clean tree at `46347118` by
+[`adaln_row_gather.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr486/reports/experiments/h3-bitwise-reuse-b200/adaln_row_gather.json) was written from a clean tree at `62f8009e` by
 
 ```bash
 python tools/validation/models/h3_bitwise_reuse.py --op adaln_row_gather \
