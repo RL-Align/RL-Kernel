@@ -93,7 +93,7 @@ each iteration and is recorded in the report.
 ![h3_rmsnorm on B200: latency and backward accuracy](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr487/reports/experiments/h3-rmsnorm-b200/figure.png)
 
 The data is in [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr487/reports/experiments/h3-rmsnorm-b200/report.json), written by
-`tools/validation/models/h3_evidence.py` from a clean tree at commit `80e4609`. It also records:
+`tools/validation/models/h3_evidence.py` from a clean tree at commit `d2a6546`. It also records:
 
 - bitwise equality with `nn.RMSNorm` for all four pinned norm weights;
 - bitwise equality with diffusers for the modulation;
@@ -137,7 +137,7 @@ gradient with diffusers' path and with this kernel.
 ![norm_modulate bitwise comparison](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr487/reports/experiments/h3-bitwise-reuse-b200/norm_modulate.png)
 
 This kernel's modulated forward is bitwise identical to the diffusers composition at every S (1 to 32768). Liger 0.8.4 differs in 41.8-46.5% of the BF16 outputs, with either gather, and SGLang 0.5.21's fused_norm_scale_shift in 36.0-36.7%. torch F.rms_norm and Transformer Engine compute only the norm, not the modulation, so their rows are listed for completeness, not as parity candidates.
-[`norm_modulate.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr487/reports/experiments/h3-bitwise-reuse-b200/norm_modulate.json) was written from a clean tree at `228e50b9` by
+[`norm_modulate.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr487/reports/experiments/h3-bitwise-reuse-b200/norm_modulate.json) was written from a clean tree at `83797833` by
 
 ```bash
 python tools/validation/models/h3_bitwise_reuse.py --op norm_modulate \
