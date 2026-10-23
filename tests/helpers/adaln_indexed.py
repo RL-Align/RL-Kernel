@@ -287,6 +287,286 @@ def check_shared_bank0(indexed_op, shared_op, device):
         tolerance = resolve_tolerance(
             load_contract(), judgment=judgment, op_class="reduction", dtype=actual.dtype
         )
-        torch.testing.assert_close(
-            actual.cpu(), expected, atol=tolerance.atol, rtol=tolerance.rtol
+        torch.testing.assert_close(actual.cpu(), expected, atol=tolerance.atol, rtol=tolerance.rtol)
+
+
+def check_bf16_rounding(op, device):
+    # norm=(-.75,.75), shift=-.75, scale=2^-8: y[1]=3/1024.
+    # Rounding the affine product early instead gives 1/256.
+    x = torch.tensor([-3.0, 3.0], dtype=torch.bfloat16, device=device).repeat(1, 2, 1)
+    x.requires_grad_()
+    m = torch.zeros(2, 6, dtype=torch.bfloat16, device=device)
+    m[:, :2] = -0.75
+    m[:, 2:4] = 2**-8
+    m.requires_grad_()
+    index = torch.zeros(1, 2, dtype=torch.int32, device=device)
+    y, gate = op(x, m, modulate_index=index, eps=7.0)
+    # dy=(1,0) and (2^-8,0): sum is BF16 midpoint 1+2^-8 -> 1 (even).
+    dy = torch.tensor([[[1.0, 0.0], [2**-8, 0.0]]], dtype=torch.bfloat16, device=device)
+    dg = dy.clone()
+    dx, dm = torch.autograd.grad((y, gate), (x, m), (dy, dg))
+    assert_bytes(y, torch.tensor([[[-1.5, 3 / 1024]] * 2], dtype=torch.bfloat16))
+    # dx0=(1+2^-8)*7/128 rounds to 225/4096; early dnorm cast gives 224/4096.
+    assert_bytes(
+        dx,
+        torch.tensor(
+            [[[225 / 4096, -225 / 4096], [225 / 1048576, -225 / 1048576]]], dtype=torch.bfloat16
+        ),
+    )
+    assert_bytes(
+        dm, torch.tensor([[1.0, 0.0, -0.75390625, 0.0, 1.0, 0.0], [0.0] * 6], dtype=torch.bfloat16)
+    )
+
+
+def check_bf16_gate_payload(op, device):
+    # Includes signed zero, subnormals, infinities, quiet/signaling NaN payloads.
+    words = torch.tensor(
+        [[0, 0x8000], [1, 0x8001], [0x7F81, 0xFFC3], [0x7F80, 0xFF80]], dtype=torch.uint16
+    )
+    m = torch.zeros(4, 6, dtype=torch.bfloat16)
+    m[:, 4:] = words.view(torch.bfloat16)
+    m = m.to(device).requires_grad_()
+    x = (
+        torch.tensor([-3.0, 3.0], dtype=torch.bfloat16, device=device)
+        .repeat(2, 2, 1)
+        .requires_grad_()
+    )
+    index = torch.tensor([[0, 1], [1, 0]], dtype=torch.int64, device=device)
+    _, gate = op(x, m, modulate_index=index, eps=7.0)
+    expected = words.view(torch.bfloat16)[torch.tensor([[0, 2], [3, 1]])]
+    assert_bytes(gate, expected)
+    gate.backward(torch.ones_like(gate))
+    assert x.grad is None
+    assert_bytes(m.grad, torch.tensor([[0.0, 0.0, 0.0, 0.0, 1.0, 1.0]] * 4, dtype=torch.bfloat16))
+
+
+def check_domain_routes(op, device, dtype, index_dtype, broadcast):
+    x = torch.tensor([-3.0, 3.0], dtype=dtype, device=device).repeat(2, 2, 1).requires_grad_()
+    m = torch.tensor(
+        [
+            [0.0, 0.0, 0.0, 0.0, 10.0, 11.0],
+            [1.0, 1.0, 0.0, 0.0, 20.0, 21.0],
+            [2.0, 2.0, 0.0, 0.0, 30.0, 31.0],
+            [3.0, 3.0, 0.0, 0.0, 40.0, 41.0],
+        ],
+        dtype=dtype,
+        device=device,
+        requires_grad=True,
+    )
+    index = torch.tensor(
+        [[0, 1]] if broadcast else [[0, 1], [1, 0]], dtype=index_dtype, device=device
+    )
+    y, gate = op(x, m, modulate_index=index, eps=7.0)
+    dx, dm = torch.autograd.grad(
+        (y, gate),
+        (x, m),
+        (
+            torch.tensor([1.0, 0.0], dtype=dtype, device=device).expand_as(x),
+            torch.tensor([2.0, 3.0], dtype=dtype, device=device).expand_as(x),
+        ),
+    )
+    rows = torch.tensor([[0, 2], [1, 3]] if broadcast else [[0, 2], [3, 1]])
+    assert_bytes(
+        y,
+        torch.tensor([[-0.75, 0.75], [0.25, 1.75], [1.25, 2.75], [2.25, 3.75]], dtype=dtype)[rows],
+    )
+    assert_bytes(
+        gate,
+        torch.tensor([[10.0, 11.0], [20.0, 21.0], [30.0, 31.0], [40.0, 41.0]], dtype=dtype)[rows],
+    )
+    assert_bytes(dx, torch.tensor([7 / 128, -7 / 128], dtype=dtype).expand_as(dx.cpu()))
+    assert_bytes(dm, torch.tensor([[1.0, 0.0, -0.75, 0.0, 2.0, 3.0]] * 4, dtype=dtype))
+
+
+def check_view_edges(op, device, dtype, layout):
+    batch, seq = 2, 4
+    if layout == "strided":
+        source_x = (
+            torch.tensor([-3.0, 99.0, 3.0, 99.0], dtype=dtype, device=device)
+            .repeat(batch, seq, 1)
+            .requires_grad_()
         )
+        source_m = torch.zeros(8, 12, dtype=dtype, device=device, requires_grad=True)
+        x, m = source_x[..., ::2], source_m[::2, ::2]
+        route_storage = torch.tensor(
+            [[0, 9, 1, 9, 0, 9, 1, 9]] * batch, dtype=torch.int16, device=device
+        )
+        index = route_storage[:, ::2]
+        dy = torch.tensor([1.0, 99.0, 0.0, 99.0], dtype=dtype, device=device).repeat(batch, seq, 1)[
+            ..., ::2
+        ]
+        dg = torch.tensor([2.0, 99.0, 3.0, 99.0], dtype=dtype, device=device).repeat(batch, seq, 1)[
+            ..., ::2
+        ]
+    else:
+        source_x = (
+            torch.tensor([-3.0, 3.0], dtype=dtype, device=device).repeat(1, seq, 1).requires_grad_()
+        )
+        source_m = torch.zeros(1, 6, dtype=dtype, device=device, requires_grad=True)
+        x, m = source_x.expand(batch, -1, -1), source_m.expand(2 * batch, -1)
+        index = torch.tensor([[0, 1, 0, 1]], dtype=torch.int16, device=device).expand(batch, -1)
+        dy = torch.tensor([1.0, 0.0], dtype=dtype, device=device).expand_as(x)
+        dg = torch.tensor([2.0, 3.0], dtype=dtype, device=device).expand_as(x)
+    y, gate = op(x, m, modulate_index=index, eps=7.0)
+    torch.autograd.backward((y, gate), (dy, dg))
+    assert_bytes(y, torch.tensor([-0.75, 0.75], dtype=dtype).expand(batch, seq, 2))
+    assert_bytes(gate, torch.zeros(batch, seq, 2, dtype=dtype))
+    if layout == "strided":
+        expected_x = torch.tensor([7 / 128, 0.0, -7 / 128, 0.0], dtype=dtype).repeat(batch, seq, 1)
+        expected_m = torch.zeros(8, 12, dtype=dtype)
+        expected_m[::2, ::2] = torch.tensor([2.0, 0.0, -1.5, 0.0, 4.0, 6.0], dtype=dtype)
+    else:
+        expected_x = torch.tensor([7 / 64, -7 / 64], dtype=dtype).repeat(1, seq, 1)
+        expected_m = torch.tensor([[8.0, 0.0, -6.0, 0.0, 16.0, 24.0]], dtype=dtype)
+    assert source_x.is_leaf and source_m.is_leaf
+    assert_bytes(source_x.grad, expected_x)
+    assert_bytes(source_m.grad, expected_m)
+
+
+def check_eps_arithmetic(op, device, dtype, eps):
+    x = torch.zeros(1, 1, 2, dtype=dtype, device=device, requires_grad=True)
+    m = torch.zeros(2, 6, dtype=dtype, device=device, requires_grad=True)
+    index = torch.zeros(1, 1, dtype=torch.int32, device=device)
+    y, gate = op(x, m, modulate_index=index, eps=eps)
+    dx, dm = torch.autograd.grad(
+        (y, gate),
+        (x, m),
+        (
+            torch.tensor([[[1.0, 0.0]]], dtype=dtype, device=device),
+            torch.tensor([[[1.0, 2.0]]], dtype=dtype, device=device),
+        ),
+    )
+    if eps == 0:
+        assert torch.isnan(y).all() and torch.isnan(dx).all()
+        assert torch.isnan(dm[0, 2:4]).all()
+    else:
+        # Decimal sqrt -> FP32 sqrt -> reciprocal independently pins 2^-149.
+        value = (
+            torch.tensor([0x643504F3], dtype=torch.int32).view(torch.float32)[0]
+            if eps == 2**-149
+            else 2**62
+        )
+        expected_dx = torch.stack((torch.as_tensor(value), -torch.as_tensor(value))).to(dtype)
+        assert_bytes(dx, expected_dx.reshape(1, 1, 2))
+        assert_bytes(y, torch.zeros(1, 1, 2, dtype=dtype))
+        assert_bytes(dm[0, 2:4], torch.zeros(2, dtype=dtype))
+    assert_bytes(dm[0, [0, 1, 4, 5]], torch.tensor([1.0, 0.0, 1.0, 2.0], dtype=dtype))
+    assert_bytes(dm[1], torch.zeros(6, dtype=dtype))
+
+
+def check_geometry_bytes(op, device, dtype, hidden):
+    generator = torch.Generator().manual_seed(303)
+    x = torch.randn(3, 3, hidden, generator=generator).to(dtype)
+    m = (torch.randn(6, 3 * hidden, generator=generator) / 4).to(dtype)
+    index = torch.tensor([[0, 1, 0], [1, 0, 1], [0, 0, 1]], dtype=torch.int32)
+    dy = torch.randn(x.shape, generator=generator).to(dtype)
+    dg = torch.randn(x.shape, generator=generator).to(dtype)
+
+    def execute(callable_op, target, xx, mm, ii, yy, gg):
+        xx = xx.to(target).detach().requires_grad_()
+        mm = mm.to(target).detach().requires_grad_()
+        y, gate = callable_op(xx, mm, modulate_index=ii.to(target), eps=7.0)
+        dx, dm = torch.autograd.grad((y, gate), (xx, mm), (yy.to(target), gg.to(target)))
+        return tuple(t.detach().cpu() for t in (y, gate, dx, dm))
+
+    expected = execute(IndexedAdaLNFixedReference(), "cpu", x, m, index, dy, dg)
+    # Gold uses FP32 leaves, so its gradient tolerance check never compares two BF16 leaves.
+    gold = execute(
+        GtestAdaLNReference().forward_fp32,
+        "cpu",
+        x.float(),
+        m.float(),
+        index,
+        dy.float(),
+        dg.float(),
+    )
+    actual = execute(op, device, x, m, index, dy, dg)
+    for i, (a, e, g) in enumerate(zip(actual, expected, gold, strict=True)):
+        assert_bytes(a, e)
+        tolerance = resolve_tolerance(
+            load_contract(),
+            judgment="forward_accuracy" if i < 2 else "gradient_accuracy",
+            op_class="reduction",
+            dtype=dtype,
+        )
+        torch.testing.assert_close(a.float(), g, atol=tolerance.atol, rtol=tolerance.rtol)
+    # Every logical sample moves to a different batch position; both banks move with it.
+    permutation = torch.tensor([2, 0, 1])
+    bank_rows = torch.cat((permutation, permutation + 3))
+    inverse = torch.argsort(permutation)
+    inverse_banks = torch.cat((inverse, inverse + 3))
+
+    def strided(t):
+        return torch.stack((t, torch.full_like(t, 99)), dim=-1).to(device)[..., 0]
+
+    moved = execute(
+        op,
+        device,
+        strided(x[permutation]),
+        strided(m[bank_rows]),
+        strided(index[permutation]),
+        strided(dy[permutation]),
+        strided(dg[permutation]),
+    )
+    for i, (a, e) in enumerate(zip(moved, actual, strict=True)):
+        assert_bytes(a[inverse_banks if i == 3 else inverse], e)
+
+
+def check_bf16_ties(op, device):
+    x = (
+        torch.tensor([-3.0, 3.0], dtype=torch.bfloat16, device=device)
+        .repeat(1, 2, 1)
+        .requires_grad_()
+    )
+    # y: .75 + {65/256,67/256} are opposite-parity midpoints.
+    m = torch.tensor(
+        [[65 / 256, 65 / 256, 0.0, 0.0, 0.0, 0.0], [67 / 256, 67 / 256, 0.0, 0.0, 0.0, 0.0]],
+        dtype=torch.bfloat16,
+        device=device,
+    )
+    m.requires_grad_()
+    index = torch.tensor([[0, 1]], dtype=torch.int32, device=device)
+    y, _ = op(x, m, modulate_index=index, eps=7.0)
+    assert_bytes(y[..., 1], torch.tensor([[1.0, 65 / 64]], dtype=torch.bfloat16))
+    # dx = (1+scale)*7/128: 455/8192 -> 228/4096 (up),
+    # 469/8192 -> 234/4096 (down), both ties-to-even.
+    with torch.no_grad():
+        m[0, 2] = 1 / 64
+        m[1, 2] = 3 / 64
+    y, _ = op(x, m, modulate_index=index, eps=7.0)
+    dx, _ = torch.autograd.grad(
+        y, (x, m), torch.tensor([1.0, 0.0], dtype=torch.bfloat16, device=device).expand_as(x)
+    )
+    assert_bytes(
+        dx,
+        torch.tensor(
+            [[[228 / 4096, -228 / 4096], [234 / 4096, -234 / 4096]]], dtype=torch.bfloat16
+        ),
+    )
+
+
+def check_bf16_parameter_fold_final_cast(op, device):
+    x = (
+        torch.tensor([-3.0, 3.0], dtype=torch.bfloat16, device=device)
+        .repeat(1, 3, 1)
+        .requires_grad_()
+    )
+    m = torch.zeros(2, 6, dtype=torch.bfloat16, device=device, requires_grad=True)
+    index = torch.zeros(1, 3, dtype=torch.int32, device=device)
+    y, gate = op(x, m, modulate_index=index, eps=7.0)
+    dy = torch.tensor(
+        [[[1.0, 1.0], [1 / 512, 1 / 256], [1 / 512, 1 / 256]]], dtype=torch.bfloat16, device=device
+    )
+    dg = torch.tensor(
+        [[[1.0, 1.0], [1 / 256, 1 / 256], [1 / 256, 1 / 256]]], dtype=torch.bfloat16, device=device
+    )
+    _, dm = torch.autograd.grad((y, gate), (x, m), (dy, dg))
+    # dshift[1]/dgate: 1+1/256+1/256 ->129/128 (per-add BF16 gives 1).
+    # dscale[0]: -.75-3/2048-3/2048 ->-193/256 (per-add gives -.75).
+    assert_bytes(
+        dm,
+        torch.tensor(
+            [[1.0, 129 / 128, -193 / 256, 194 / 256, 129 / 128, 129 / 128], [0.0] * 6],
+            dtype=torch.bfloat16,
+        ),
+    )

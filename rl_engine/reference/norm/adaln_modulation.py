@@ -95,7 +95,7 @@ class _AdaLNReference(torch.autograd.Function):
         return dx, dm, None
 
 
-def _validate_select01(
+def _validate_select01_metadata(
     x: torch.Tensor,
     modulation: torch.Tensor,
     modulate_index: torch.Tensor,
@@ -121,10 +121,14 @@ def _validate_select01(
         torch.int64,
     ):
         raise TypeError("modulate_index must have boolean or integer dtype")
-    if not torch.all((modulate_index == 0) | (modulate_index == 1)).item():
-        raise ValueError("modulate_index values must be 0 or 1")
     if not math.isfinite(eps) or eps < 0:
         raise ValueError("eps must be finite and nonnegative")
+
+
+def _validate_select01(x, modulation, modulate_index, eps):
+    _validate_select01_metadata(x, modulation, modulate_index, eps)
+    if not torch.all((modulate_index == 0) | (modulate_index == 1)).item():
+        raise ValueError("modulate_index values must be 0 or 1")
 
 
 def _select01_reference(x, modulation, modulate_index, eps):

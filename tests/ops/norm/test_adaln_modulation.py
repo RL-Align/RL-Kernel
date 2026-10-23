@@ -392,9 +392,26 @@ def test_adaln_indexed_matches_independent_autograd(device, dtype, broadcast):
     _assert_accuracy(modulation.grad, ref_modulation.grad, judgment="gradient_accuracy")
     _assert_bytes_equal(gate, ref_gate.to(dtype))
     assert x.grad.abs().max() > 0
-    assert trace["fallback"] is True
-    assert trace["fallback_reason"] == "modulate_index_requires_select01"
-    assert "framework_select01_backward" in trace["reduction_order"]
+    accelerated = False
+    if device == "cuda" and torch.version.hip is None:
+        from rl_engine.backends.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
+
+        try:
+            accelerated = CudaAdaLNModulationOp().indexed_available
+        except RuntimeError:
+            if os.environ.get("RL_KERNEL_REQUIRE_EXT") == "1":
+                raise
+    if accelerated:
+        assert trace["actual_backend"] == "cuda"
+        assert trace["arithmetic_profile"] == "adaln-indexed-fp32-tree-v1"
+        assert trace["fallback"] is False and trace["fallback_reason"] is None
+        assert "ascending_selected_token_S_per_bank" in trace["reduction_order"]
+    else:
+        assert trace["actual_backend"] == "pytorch"
+        assert trace["arithmetic_profile"] == "adaln-select01-framework-v1"
+        assert trace["fallback"] is True
+        assert trace["fallback_reason"] == "modulate_index_requires_select01"
+        assert "framework_select01_backward" in trace["reduction_order"]
 
 
 @pytest.mark.parametrize(

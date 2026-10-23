@@ -1090,12 +1090,10 @@ class KernelRegistry:
         platform = self._platform_for_device(device)
         if modulate_index is not None:
             backend = OpBackend.PYTORCH_ADALN_MODULATION
-            # Only the first indexed CUDA slice is accelerated; execution rechecks x/eps.
+            # Resolution is provisional; execution checks actual geometry, device and eps.
             if (
                 platform == "cuda"
-                and hidden == 2
-                and modulate_index.shape == (2, 8)
-                and modulate_index.dtype == torch.int32
+                and hidden <= 4096
             ):
                 cuda = self._get_or_create_backend(OpBackend.CUDA_ADALN_MODULATION)
                 if cuda is not None and getattr(cuda, "indexed_available", False):

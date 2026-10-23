@@ -79,13 +79,16 @@ def test_indexed_byte_reference_preserves_selected_token_fold_and_sample_routing
     )
     assert_bytes(
         dm,
-        torch.tensor([
-            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-            [15.0, 15.0, -11.25, 11.25, 15.0, 15.0],
-            [30.0, 30.0, -22.5, 22.5, 45.0, 45.0],
-        ]),
+        torch.tensor(
+            [
+                [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                [15.0, 15.0, -11.25, 11.25, 15.0, 15.0],
+                [30.0, 30.0, -22.5, 22.5, 45.0, 45.0],
+            ]
+        ),
     )
+
 
 @pytest.mark.parametrize("route", ["all0", "all1", "alternating"])
 def test_indexed_route_identity_literal(reference, route):
@@ -158,3 +161,105 @@ def test_indexed_all0_matches_shared_arithmetic_and_independent_gold():
     from tests.helpers.adaln_indexed import check_shared_bank0
 
     check_shared_bank0(IndexedAdaLNFixedReference(), NativeAdaLNModulationOp(), "cpu")
+
+
+def test_indexed_bf16_reference_casts_once_at_outputs_and_gradients():
+    from tests.helpers.adaln_indexed import check_bf16_rounding
+
+    check_bf16_rounding(IndexedAdaLNFixedReference(), "cpu")
+
+
+def test_bf16_rounding_literals_reject_specific_early_casts():
+    from fractions import Fraction as F
+
+    # Exact rational arithmetic independently checks the discriminating literals.
+    product = F(3, 4) * (1 + F(1, 256))
+    assert product - F(3, 4) == F(3, 1024)
+    assert F(193, 256) - F(3, 4) == F(1, 256)  # early BF16 product
+    exact_dx = F(257, 256) * F(7, 128)
+    assert F(449, 8192) < exact_dx < F(451, 8192)  # rounds to 225/4096
+    assert F(7, 128) != F(225, 4096)  # early BF16 dnorm loses scale
+    assert F(1) + F(1, 256) == (F(1) + F(129, 128)) / 2  # dshift/dgate tie -> even 1
+    assert -F(3, 4) * (1 + F(1, 256)) == -F(771, 1024)  # final dscale -> -193/256
+
+
+def test_indexed_bf16_reference_preserves_raw16_gate_payload():
+    from tests.helpers.adaln_indexed import check_bf16_gate_payload
+
+    check_bf16_gate_payload(IndexedAdaLNFixedReference(), "cpu")
+    # A numeric equality test cannot reject canonicalized NaNs; raw16 can.
+    payload = torch.tensor([0x7F81], dtype=torch.uint16).view(torch.bfloat16)
+    assert not torch.equal(
+        payload.view(torch.uint16), payload.float().bfloat16().view(torch.uint16)
+    )
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize(
+    "index_dtype", [torch.bool, torch.uint8, torch.int8, torch.int16, torch.int32, torch.int64]
+)
+@pytest.mark.parametrize("broadcast", [False, True])
+def test_indexed_reference_full_route_domain(dtype, index_dtype, broadcast):
+    from tests.helpers.adaln_indexed import check_domain_routes
+
+    check_domain_routes(IndexedAdaLNFixedReference(), "cpu", dtype, index_dtype, broadcast)
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("layout", ["strided", "expanded"])
+def test_indexed_reference_source_leaf_gradients(dtype, layout):
+    from tests.helpers.adaln_indexed import check_view_edges
+
+    check_view_edges(IndexedAdaLNFixedReference(), "cpu", dtype, layout)
+
+
+@pytest.mark.parametrize("eps", [0.0, 2**-149, 2**-126])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_indexed_reference_eps_arithmetic(eps, dtype):
+    from tests.helpers.adaln_indexed import check_eps_arithmetic
+
+    check_eps_arithmetic(IndexedAdaLNFixedReference(), "cpu", dtype, eps)
+
+
+def test_subnormal_eps_dx_literal_independent_decimal_sqrt():
+    import struct
+    from decimal import Decimal, localcontext
+
+    with localcontext() as context:
+        context.prec = 100
+        root = struct.unpack("f", struct.pack("f", float((Decimal(2) ** -149).sqrt())))[0]
+        reciprocal = struct.unpack("f", struct.pack("f", 1 / root))[0]
+    assert struct.unpack("I", struct.pack("f", reciprocal / 2))[0] == 0x643504F3
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("hidden", [1, 3, 127, 128, 129, 4095, 4096])
+def test_indexed_reference_geometry_and_batch_layout(dtype, hidden):
+    from tests.helpers.adaln_indexed import check_geometry_bytes
+
+    check_geometry_bytes(IndexedAdaLNFixedReference(), "cpu", dtype, hidden)
+
+
+def test_indexed_reference_bf16_output_and_dx_ties():
+    from fractions import Fraction as F
+    from tests.helpers.adaln_indexed import check_bf16_ties
+
+    assert F(3, 4) + F(65, 256) == (F(1) + F(129, 128)) / 2
+    assert F(3, 4) + F(67, 256) == (F(129, 128) + F(65, 64)) / 2
+    assert F(65, 64) * F(7, 128) == (F(227, 4096) + F(228, 4096)) / 2
+    assert F(67, 64) * F(7, 128) == (F(234, 4096) + F(235, 4096)) / 2
+    check_bf16_ties(IndexedAdaLNFixedReference(), "cpu")
+
+
+def test_indexed_reference_bf16_parameter_fold_cast_counterexample():
+    from fractions import Fraction as F
+    from tests.helpers.adaln_indexed import check_bf16_parameter_fold_final_cast
+
+    assert F(1) + F(1, 256) + F(1, 256) == F(129, 128)
+    # First per-add BF16 tie rounds to 1, and the second repeats that tie.
+    assert F(1) + F(1, 256) == (F(1) + F(129, 128)) / 2
+    exact_scale = -F(3, 4) * (1 + F(1, 512) + F(1, 512))
+    assert -F(387, 512) < exact_scale < -F(385, 512)  # -> -193/256
+    # Each individual tiny contribution is < half an ULP of -.75:
+    assert F(3, 2048) < F(1, 512)  # wrong per-add cast remains -.75
+    check_bf16_parameter_fold_final_cast(IndexedAdaLNFixedReference(), "cpu")

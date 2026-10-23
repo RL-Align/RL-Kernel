@@ -11,21 +11,35 @@ from rl_engine.reference.norm.adaln_modulation import (
     _eps_supported_fp32,
     _validate,
     _validate_select01,
+    _validate_select01_metadata,
 )
 
 
-def _indexed_slice_supported(x, index, eps):
-    # shortcut: only the first FP32 tracer bullet; expand with ticket 03 tests.
-    if not (
-        x.is_cuda
-        and torch.version.hip is None
-        and x.shape == (2, 8, 2)
-        and x.dtype == torch.float32
-        and index.shape == (2, 8)
-        and index.dtype == torch.int32
-    ):
-        return False
-    return _eps_supported_fp32(eps)
+def _int32_addressable(*tensors):
+    # Copied kernels use int32 element offsets for x/y/gate/dx and each FP32
+    # partial, both modulation banks/dm, and route rows. Source views are checked
+    # before their framework copies too; expanded (zero-stride) axes cost no span.
+    for tensor in tensors:
+        span = sum(
+            (size - 1) * stride for size, stride in zip(tensor.shape, tensor.stride(), strict=True)
+        )
+        if tensor.numel() > 2**31 - 1 or span > 2**31 - 1:
+            return False
+    return True
+
+
+def _indexed_domain_reason(x, modulation, index, eps):
+    if not _int32_addressable(x, modulation, index):
+        return "int32 indexing"
+    if x.shape[0] > 65535:
+        return "B <= 65535"
+    if x.shape[-1] > 4096:
+        return "H <= 4096"
+    if not _eps_supported_fp32(eps):
+        return "finite FP32 eps without positive underflow"
+    if not x.is_cuda or torch.version.hip is not None:
+        return "NVIDIA CUDA tensors"
+    return None
 
 
 class _AdaLNIndexedCuda(torch.autograd.Function):
@@ -40,6 +54,9 @@ class _AdaLNIndexedCuda(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_y, grad_gate):
         x, modulation, index = ctx.saved_tensors
+        for grad in (grad_y, grad_gate):
+            if grad is not None and not _int32_addressable(grad):
+                raise ValueError("indexed CUDA upstream requires int32 indexing")
         dx, dm = _C.adaln_indexed_backward(
             None if grad_y is None else grad_y.contiguous(),
             None if grad_gate is None else grad_gate.contiguous(),
@@ -88,15 +105,19 @@ class CudaAdaLNModulationOp:
 
     def forward(self, x, modulation, *, eps=1e-6, modulate_index=None):
         if modulate_index is not None:
+            _validate_select01_metadata(x, modulation, modulate_index, eps)
+            reason = _indexed_domain_reason(x, modulation, modulate_index, eps)
+            if reason in {"int32 indexing", "B <= 65535"}:
+                raise ValueError(f"indexed CUDA requires {reason}")
+            if reason is not None:
+                raise RuntimeError(f"indexed CUDA requires {reason}")
             _validate_select01(x, modulation, modulate_index, eps)
-            if not self.indexed_available or not _indexed_slice_supported(x, modulate_index, eps):
-                raise RuntimeError(
-                    "indexed CUDA slice requires FP32 x [2,8,2] and int32 index [2,8]"
-                )
+            if not self.indexed_available:
+                raise RuntimeError("indexed CUDA extension symbols are unavailable")
             return _AdaLNIndexedCuda.apply(
                 x.contiguous(),
                 modulation.contiguous(),
-                modulate_index.contiguous(),
+                modulate_index.to(dtype=torch.int32).contiguous(),
                 float(eps),
                 self.threads,
             )

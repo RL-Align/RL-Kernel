@@ -3,8 +3,9 @@
 """L2: indexed AdaLN forward/backward accuracy and byte comparisons on CUDA."""
 
 import pytest
+import torch
 
-from tests.helpers.adaln_indexed import check_small_case, require_cuda
+from tests.helpers.adaln_indexed import assert_bytes, check_small_case, require_cuda
 
 
 @pytest.fixture
@@ -100,3 +101,229 @@ def test_cuda_indexed_all0_matches_shared_arithmetic_and_independent_gold(cuda_o
     from tests.helpers.adaln_indexed import check_shared_bank0
 
     check_shared_bank0(cuda_op, cuda_op, "cuda")
+
+
+def test_cuda_indexed_two_bank_metadata_overflow_precedes_value_reads(metadata_op):
+    import torch
+
+    op = metadata_op
+    # x fits int32, but 2*B*3*H does not. Meta .item()/copies must never run.
+    x = torch.empty(65535, 1, 5462, device="meta")
+    m = torch.empty(131070, 16386, device="meta")
+    index = torch.empty(65535, 1, dtype=torch.int32, device="meta")
+    with pytest.raises(ValueError, match="int32 indexing"):
+        op(x, m, modulate_index=index)
+
+
+@pytest.mark.cuda_only
+def test_cuda_indexed_bf16_final_rounding(cuda_op):
+    from tests.helpers.adaln_indexed import check_bf16_rounding
+
+    check_bf16_rounding(cuda_op, "cuda")
+
+
+@pytest.mark.cuda_only
+def test_cuda_indexed_bf16_raw16_gate(cuda_op):
+    from tests.helpers.adaln_indexed import check_bf16_gate_payload
+
+    check_bf16_gate_payload(cuda_op, "cuda")
+
+
+@pytest.mark.cuda_only
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize(
+    "index_dtype", [torch.bool, torch.uint8, torch.int8, torch.int16, torch.int32, torch.int64]
+)
+@pytest.mark.parametrize("broadcast", [False, True])
+def test_cuda_indexed_full_route_domain(cuda_op, dtype, index_dtype, broadcast):
+    from tests.helpers.adaln_indexed import check_domain_routes
+
+    check_domain_routes(cuda_op, "cuda", dtype, index_dtype, broadcast)
+
+
+@pytest.mark.cuda_only
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("layout", ["strided", "expanded"])
+def test_cuda_indexed_source_leaf_gradients(cuda_op, dtype, layout):
+    from tests.helpers.adaln_indexed import check_view_edges
+
+    check_view_edges(cuda_op, "cuda", dtype, layout)
+
+
+@pytest.fixture
+def metadata_op():
+    import os
+    from rl_engine.backends.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
+
+    try:
+        return CudaAdaLNModulationOp()
+    except RuntimeError:
+        if os.environ.get("RL_KERNEL_REQUIRE_EXT") == "1":
+            raise
+        pytest.skip("compiled CUDA AdaLN extension required")
+
+
+@pytest.mark.parametrize(
+    "shape,reason",
+    [
+        ((65536, 1, 2), "B <= 65535"),
+        ((1, 1, 4097), "H <= 4096"),
+        ((1, 2**31, 1), "int32 indexing"),
+        ((1, 524289, 4096), "int32 indexing"),
+    ],
+)
+def test_cuda_indexed_metadata_rejects_before_copy_or_allocation(metadata_op, shape, reason):
+    b, s, h = shape
+    x = torch.empty(shape, device="meta")
+    m = torch.empty(2 * b, 3 * h, device="meta")
+    index = torch.empty(1, s, dtype=torch.int32, device="meta")
+    with pytest.raises((ValueError, RuntimeError), match=reason):
+        metadata_op(x, m, modulate_index=index)
+
+
+@pytest.mark.parametrize("which", ["x", "m", "index"])
+def test_cuda_indexed_metadata_rejects_strided_access_span(metadata_op, which):
+    x = torch.empty(2, 2, 2, device="meta")
+    m = torch.empty(4, 6, device="meta")
+    index = torch.empty(2, 2, dtype=torch.int64, device="meta")
+    if which == "x":
+        x = torch.empty_strided(x.shape, (2**31, 2, 1), device="meta")
+    elif which == "m":
+        m = torch.empty_strided(m.shape, (2**31, 1), device="meta")
+    else:
+        index = torch.empty_strided(index.shape, (2**31, 1), dtype=torch.int64, device="meta")
+    with pytest.raises(ValueError, match="int32 indexing"):
+        metadata_op(x, m, modulate_index=index)
+
+
+@pytest.mark.parametrize("shape", [(1, 2**31 - 1, 1), (65535, 1, 4096)])
+def test_cuda_indexed_positive_metadata_bounds_reach_device_check(metadata_op, shape):
+    b, s, h = shape
+    with pytest.raises(RuntimeError, match="NVIDIA CUDA tensors"):
+        metadata_op(
+            torch.empty(shape, device="meta"),
+            torch.empty(2 * b, 3 * h, device="meta"),
+            modulate_index=torch.empty(1, s, dtype=torch.bool, device="meta"),
+        )
+
+
+@pytest.mark.cuda_only
+@pytest.mark.parametrize("eps", [0.0, 2**-149, 2**-126])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_cuda_indexed_eps_arithmetic(cuda_op, eps, dtype):
+    from tests.helpers.adaln_indexed import check_eps_arithmetic
+
+    check_eps_arithmetic(cuda_op, "cuda", dtype, eps)
+
+
+@pytest.mark.cuda_only
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("threads", [128, 256, 512])
+def test_cuda_indexed_maximum_batch_both_banks_nonzero_dx(dtype, threads):
+    require_cuda()
+    from rl_engine.backends.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
+
+    b = 65535
+    x = torch.tensor([-3.0, 3.0], dtype=dtype, device="cuda").repeat(b, 2, 1).requires_grad_()
+    m = torch.zeros(2 * b, 6, dtype=dtype, device="cuda")
+    tags = (torch.arange(b, device="cuda") % 17).to(dtype)
+    m[:b, 4], m[b:, 4] = tags, tags + 32
+    m.requires_grad_()
+    index = torch.tensor([[0, 1]], dtype=torch.int32, device="cuda")
+    y, gate = CudaAdaLNModulationOp(threads=threads)(x, m, modulate_index=index, eps=7.0)
+    dx, dm = torch.autograd.grad(
+        (y, gate),
+        (x, m),
+        (
+            torch.tensor([1.0, 0.0], dtype=dtype, device="cuda").expand_as(x),
+            torch.tensor([2.0, 3.0], dtype=dtype, device="cuda").expand_as(x),
+        ),
+    )
+    assert_bytes(y, torch.tensor([-0.75, 0.75], dtype=dtype).expand(b, 2, 2))
+    assert_bytes(gate[:, 0, 0], tags.cpu())
+    assert_bytes(gate[:, 1, 0], (tags + 32).cpu())
+    assert_bytes(dx, torch.tensor([7 / 128, -7 / 128], dtype=dtype).expand(b, 2, 2))
+    assert_bytes(dm, torch.tensor([1.0, 0.0, -0.75, 0.0, 2.0, 3.0], dtype=dtype).expand(2 * b, 6))
+
+
+@pytest.mark.cuda_only
+@pytest.mark.parametrize("threads", [128, 256, 512])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("hidden", [1, 2, 3, 127, 128, 129, 255, 256, 257, 4095, 4096])
+def test_cuda_indexed_threads_geometry_batch_layout_bytes(threads, dtype, hidden):
+    require_cuda()
+    from rl_engine.backends.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
+    from tests.helpers.adaln_indexed import check_geometry_bytes
+
+    check_geometry_bytes(CudaAdaLNModulationOp(threads=threads), "cuda", dtype, hidden)
+
+
+@pytest.mark.cuda_only
+def test_cuda_indexed_bf16_output_and_dx_ties(cuda_op):
+    from tests.helpers.adaln_indexed import check_bf16_ties
+
+    check_bf16_ties(cuda_op, "cuda")
+
+
+@pytest.mark.cuda_only
+@pytest.mark.parametrize("invalid", ["value", "shape", "dtype", "eps"])
+def test_cuda_indexed_direct_rejects_invalid_inputs(cuda_op, invalid):
+    x = torch.zeros(1, 2, 3, device="cuda")
+    m = torch.zeros(2, 9, device="cuda")
+    index = torch.zeros(1, 2, device="cuda", dtype=torch.int32)
+    eps = 7.0
+    error, message = ValueError, "values must be 0 or 1"
+    if invalid == "value":
+        index.fill_(2)
+    elif invalid == "shape":
+        index = index[:, :1]
+        message = "must have shape"
+    elif invalid == "dtype":
+        index = index.float()
+        error, message = TypeError, "boolean or integer"
+    else:
+        eps, message = float("nan"), "finite and nonnegative"
+    with pytest.raises(error, match=message):
+        cuda_op(x, m, modulate_index=index, eps=eps)
+
+
+def test_cuda_indexed_int32_maximum_access_offset_metadata(metadata_op):
+    # The pointer is at the view start; the last accessed element offset is INT_MAX.
+    x = torch.empty_strided((2, 1, 2), (2**31 - 2, 2, 1), device="meta")
+    m = torch.empty(4, 6, device="meta")
+    index = torch.empty(1, 1, dtype=torch.int32, device="meta")
+    with pytest.raises(RuntimeError, match="NVIDIA CUDA tensors"):
+        metadata_op(x, m, modulate_index=index)
+
+
+@pytest.mark.cuda_only
+def test_cuda_indexed_bf16_parameter_fold_final_cast(cuda_op):
+    from tests.helpers.adaln_indexed import check_bf16_parameter_fold_final_cast
+
+    check_bf16_parameter_fold_final_cast(cuda_op, "cuda")
+
+
+@pytest.mark.cuda_only
+@pytest.mark.parametrize("output", ["y", "gate"])
+def test_cuda_indexed_large_upstream_offset_rejected_before_copy(output):
+    import os
+
+    if os.environ.get("RLK_ADALN_LARGE_OFFSETS") != "1":
+        pytest.skip(
+            "opt-in: upstream storage requires over 4 GiB; metadata alone cannot test backward"
+        )
+    require_cuda()
+    from rl_engine.backends.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
+
+    free, _ = torch.cuda.mem_get_info()
+    assert free > 5 * 2**30, "large-offset acceptance needs >5 GiB free GPU memory"
+    x = torch.tensor([[[-3.0, 3.0]]], device="cuda", dtype=torch.bfloat16, requires_grad=True)
+    m = torch.zeros(2, 6, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+    index = torch.zeros(1, 1, device="cuda", dtype=torch.int32)
+    y, gate = CudaAdaLNModulationOp()(x, m, modulate_index=index, eps=7.0)
+    # Two logical elements, but final element address exceeds signed int32.
+    # Initialize only accessed positions; never fill this entire 4+ GiB storage.
+    upstream = torch.empty_strided((1, 1, 2), (0, 0, 2**31), device="cuda", dtype=x.dtype)
+    upstream[0, 0, 0], upstream[0, 0, 1] = 1.0, 0.0
+    with pytest.raises(ValueError, match="upstream requires int32 indexing"):
+        torch.autograd.grad(y if output == "y" else gate, (x, m), upstream)

@@ -22,8 +22,9 @@ class _IndexedFixed(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, modulation, index, eps):
         batch, seq, hidden = x.shape
-        mean = _hidden_tree(x.float()) / hidden
-        centered = x.float() - mean[..., None]
+        x32 = x.float()
+        mean = _hidden_tree(x32) / hidden
+        centered = x32 - mean[..., None]
         variance = _hidden_tree(centered * centered) / hidden
         root = (variance + eps).double().sqrt().float()
         rstd = 1.0 / root
@@ -31,18 +32,23 @@ class _IndexedFixed(torch.autograd.Function):
         rows = torch.arange(batch)[:, None] + index.long() * batch
         selected = modulation[rows]
         shift, scale, gate = selected.chunk(3, dim=-1)
+        shift, scale = shift.float(), scale.float()
         ctx.set_materialize_grads(False)
         ctx.save_for_backward(norm, rstd, scale, index)
         ctx.mod_shape = modulation.shape
-        return norm * (1.0 + scale) + shift, gate
+        ctx.dtype = x.dtype
+        return (norm * (1.0 + scale) + shift).to(x.dtype), gate
 
     @staticmethod
     def backward(ctx, dy, dg):
         norm, rstd, scale, index = ctx.saved_tensors
         batch, seq, hidden = norm.shape
+        if dg is not None:
+            dg = dg.float()
         dx = None
         dm = torch.zeros(ctx.mod_shape, dtype=torch.float32)
         if dy is not None:
+            dy = dy.float()
             dnorm = dy * (1.0 + scale)
             dx = (
                 dnorm
@@ -59,15 +65,15 @@ class _IndexedFixed(torch.autograd.Function):
                     dm[row, hidden : 2 * hidden] = dm[row, hidden : 2 * hidden] + contribution
                 if dg is not None:
                     dm[row, 2 * hidden :] = dm[row, 2 * hidden :] + dg[b, s]
-        return dx, dm, None, None
+        return None if dx is None else dx.to(ctx.dtype), dm.to(ctx.dtype), None, None
 
 
 class IndexedAdaLNFixedReference:
-    """FP32 CPU callable for fixed-order byte tests, not a dispatch fallback."""
+    """FP32/BF16 CPU callable for fixed-order byte tests, not a dispatch fallback."""
 
     def __call__(self, x, modulation, *, modulate_index, eps=1e-6):
         if x.device.type != "cpu" or modulation.device.type != "cpu":
             raise ValueError("indexed byte reference requires CPU tensors")
-        if x.dtype != torch.float32 or modulation.dtype != torch.float32:
-            raise TypeError("indexed byte reference requires FP32 inputs")
+        if x.dtype not in (torch.float32, torch.bfloat16) or modulation.dtype != x.dtype:
+            raise TypeError("indexed byte reference requires matching FP32 or BF16 inputs")
         return _IndexedFixed.apply(x, modulation, modulate_index.cpu(), float(eps))

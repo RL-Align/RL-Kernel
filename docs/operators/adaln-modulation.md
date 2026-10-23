@@ -71,18 +71,31 @@ On NVIDIA CUDA, shared modulation tries CUDA, then Triton, then PyTorch.
 H > 4096 skips CUDA. Missing extension symbols also permit fallback; fast-math
 builds omit the AdaLN CUDA symbols.
 
-CPU, ROCm, MUSA and NPU registry entries select PyTorch. The initial dedicated
-indexed CUDA slice accepts only FP32 x `[2,8,2]` and int32 index `[2,8]`, with
-the usual `[4,6]` modulation. It requires fresh indexed extension symbols.
-The small slice has local SM86 coverage using an AdaLN-only extension build;
-full-extension and target H100 qualification remain separate. It does not enable strict.
+CPU, ROCm, MUSA and NPU registry entries select PyTorch. Dedicated indexed CUDA
+accepts FP32/BF16, H <= 4096, B <= 65535, both route shapes and
+bool/uint8/int8/int16/int32/int64 indices. Inputs and upstreams may be strided or
+expanded; internal copies preserve gradients to source leaves. CUDA route storage
+is converted to contiguous int32 after validation.
 
-Other indexed inputs select PyTorch select01 with `fallback=true` and reason
-`modulate_index_requires_select01`. If a resolved indexed CUDA slice receives
-unsupported geometry, dtype or eps at execution, it explicitly executes the
-framework path with reason `indexed_cuda_slice_unsupported`.
-Expanded CUDA coverage and dedicated indexed Triton remain follow-up work.
-Indexed framework backward has no shared replay-profile qualification.
+Indexed CUDA checks element counts and accessed element offsets before copies or
+kernel output/temporary allocations. The checks include both modulation banks,
+route storage, y/gate/dx/dmod and each FP32 partial buffer. The B grid dimension
+contains B entries; each reduction thread writes both banks.
+
+Valid unsupported geometry, addressing or eps executes the existing framework
+select01 fallback in ordinary dispatch. A resolved indexed CUDA implementation
+records `indexed_cuda_domain_unsupported`; resolution that selected framework or a
+shared implementation records `modulate_index_requires_select01`. Illegal inputs
+raise and clear the previous successful execution observation. Direct CUDA calls
+reject unsupported domains instead of silently falling back.
+
+Current source has CPU regression coverage and a fresh AdaLN-only SM86 local
+run: indexed matrix 361 PASS (including CPU reference/metadata checks), small
+memcheck/racecheck 107 PASS each, and related regression 417 PASS / 6 opt-in
+workload SKIP. Two oversized-upstream tests require >5 GiB free GPU memory and
+remain unexecuted on the 4 GiB target. This is scoped local evidence; historical
+small-slice evidence does not qualify other sources. Dedicated indexed Triton, full-extension
+and H100 qualification remain separate. Indexed strict stays closed.
 
 ### Strict mode and trace
 
@@ -115,8 +128,8 @@ For shared modulation, eps must be finite, nonnegative and round to finite
 FP32. Positive values that round to zero are rejected; FP32 subnormals, including
 2^-149, are accepted.
 
-Indexed framework fallback checks only finite, nonnegative eps. The small indexed
-CUDA slice uses the shared FP32 eps domain. Its per-sample/bank/channel dshift,
+Indexed framework fallback checks only finite, nonnegative eps. Dedicated indexed
+CUDA uses the shared FP32 eps domain. Its per-sample/bank/channel dshift,
 dscale and dgate start at FP32 +0 and fold selected tokens in ascending order;
 each dscale product rounds to FP32 before addition. Gate copies original bits.
 This is the first `adaln-indexed-fp32-tree-v1` arithmetic choice, independently
@@ -141,19 +154,20 @@ It checks both outputs and gradients of x and modulation using the shared
 `reduction` tolerances for `forward_accuracy` and `gradient_accuracy`.
 
 Accuracy checks and fixed-reference byte comparisons are separate tests.
-`IndexedAdaLNFixedReference` is a separate CPU FP32 callable for indexed byte
+`IndexedAdaLNFixedReference` is a separate CPU FP32/BF16 callable for indexed byte
 tests, with its own H tree and explicit VJP. It is not the framework fallback.
 Indexed reference literals check sample/bank routing, absent versus explicit zero
 dy, frozen leaves, cancellation order, separate product/add rounding, empty-bank
 +0 isolation with NaN/Inf, gate payload copies and subnormal contributions.
 The accuracy gold uses an independent selected-token affine VJP while retaining
 CPU LayerNorm/autograd normalization; it is not a fixed-order byte oracle.
-The same literals exercise the public CUDA callable in the FP32 [2,8,2] slice.
+The same literals exercise the public CUDA callable; BF16 tests add final-output
+rounding, ties-to-even and raw16 gate payloads.
 All0 tests compare indexed bank0 dshift/dscale with shared bytes, check bank1 +0
 separately and retain independent gold comparisons; shared/indexed dgate are not
 equated. CUDA and public-dispatch tests require fresh current-source GPU evidence.
-Ticket 02 adds no wider input-domain or strict qualification claim; indexed strict
-remains closed.
+Ticket 03 implements the wider CUDA domain; GPU acceptance is pending and indexed
+strict remains closed.
 The CLI records trace snapshots without automatically constructing C1
 `BackendProvenance`; its accuracy report alone is not a WS1 system gate.
 
