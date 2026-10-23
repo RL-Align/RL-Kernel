@@ -78,7 +78,7 @@ tile setup.
 ![adaln_gate_residual on B200: latency and backward accuracy](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr488/reports/experiments/h3-adaln-gate-residual-b200/figure.png)
 
 The data is in [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr488/reports/experiments/h3-adaln-gate-residual-b200/report.json),
-written by `tools/validation/models/h3_evidence.py` from a clean tree at commit `a26b41a`. It also records
+written by `tools/validation/models/h3_evidence.py` from a clean tree at commit `e7bc53a`. It also records
 forward bitwise equality with diffusers in bf16, fp16 and fp32, and row invariance.
 
 ## Existing implementations (RFC #420 reuse rule)
@@ -114,7 +114,7 @@ gradient with diffusers' path and with this kernel.
 ![gate_residual bitwise comparison](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr488/reports/experiments/h3-bitwise-reuse-b200/gate_residual.png)
 
 There is no reuse candidate beyond diffusers' residual + gate.index_select(...) * y. The forward, d_residual and d_sublayer are bitwise identical to it at every S (1 to 32768). The gate-table gradient matches at S = 1 and differs from S = 257 on, where index_select accumulates with atomics and this kernel in a fixed FP32 order.
-[`gate_residual.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr488/reports/experiments/h3-bitwise-reuse-b200/gate_residual.json) was written from a clean tree at `910d614a` by
+[`gate_residual.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr488/reports/experiments/h3-bitwise-reuse-b200/gate_residual.json) was written from a clean tree at `a746bff0` by
 
 ```bash
 python tools/validation/models/h3_bitwise_reuse.py --op gate_residual \
