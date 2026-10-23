@@ -6,9 +6,9 @@ ZIP SHA-256: `9fcc704291bf697274edfe16d6958ca799134008acd9d5f452767b9a92758cb0`.
 
 The archive holds `report.json`, `figure.png`, the TP4 gate's
 `tp4-moe/rank-{0..3}.json` and the original README, byte for byte as measured,
-plus `SHA256SUMS`. The prior art was measured at commit `c58816b` from a clean
+plus `SHA256SUMS`. The prior art was measured at commit `dc79953` from a clean
 clone on one B200 (torch 2.13.0+cu130, Triton 3.7.1); the TP4 gate at
-`2e950f3`, whose MoE code is identical, on four B200. The prior art uses
+`cbdc00a`, whose MoE code is identical, on four B200. The prior art uses
 random weights (scale 0.02) at the TP1 shape (H=2048, 512 experts, top-10,
 width 512); the TP4 gate reads layer 0 of the official
 `Qwen/Qwen3-Next-80B-A3B-Instruct` revision
@@ -27,7 +27,7 @@ TRITON_F32_DEFAULT=ieee torchrun --nproc-per-node 4 tools/validation/models/qwen
     --checkpoint <checkpoint> --output tp4-moe
 ```
 
-At `c58816b` / `2e950f3` the runners lived in `tools/validation/models/` and
+At `dc79953` / `cbdc00a` the runners lived in `tools/validation/models/` and
 `rl_engine/validation/models/`; the commands above use the current layout.
 
 | Candidate | Forward batch invariant | Backward batch invariant | Different expert set (of 256 tokens) | Max abs vs FP64 | Forward, 1024 tokens |
