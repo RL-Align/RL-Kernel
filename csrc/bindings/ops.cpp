@@ -4,6 +4,13 @@
 #include <torch/extension.h>
 #include <cuda_bf16.h>
 
+#if defined(KERNEL_ALIGN_WITH_CUDA)
+torch::Tensor latent_normalize_forward_cuda(torch::Tensor x, torch::Tensor mean,
+    torch::Tensor std_inv, bool inverse, int64_t block_size);
+torch::Tensor latent_normalize_backward_cuda(torch::Tensor grad,
+    torch::Tensor std_inv, bool inverse, int64_t block_size);
+#endif
+
 
 #ifdef KERNEL_ALIGN_WITH_CUDA
 bool qwenimage_strict_math_compiled();
@@ -583,6 +590,17 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 #endif
 
     m.doc() = "RL-Kernel High-Performance Operator Extension Library";
+
+#if defined(KERNEL_ALIGN_WITH_CUDA)
+    m.def("latent_normalize_forward", &latent_normalize_forward_cuda,
+          "Strict latent normalization/inverse forward",
+          pybind11::arg("x"), pybind11::arg("mean"), pybind11::arg("std_inv"),
+          pybind11::arg("inverse") = false, pybind11::arg("block_size") = 256);
+    m.def("latent_normalize_backward", &latent_normalize_backward_cuda,
+          "Strict latent normalization/inverse input gradient",
+          pybind11::arg("grad"), pybind11::arg("std_inv"),
+          pybind11::arg("inverse") = false, pybind11::arg("block_size") = 256);
+#endif
 
     m.def("fused_logp", &fused_logp_forward, "Fused logp forward fallback");
 #if !defined(USE_ROCM) && !defined(KERNEL_ALIGN_WITH_ROCM)
