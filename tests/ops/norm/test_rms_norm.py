@@ -17,10 +17,11 @@ from rl_engine.reference.norm.rms_norm import NativeRMSNormOp
 try:
     from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 
-    # The same two symbols RMSNormCudaOp.__init__ requires; a build that has them
-    # dispatches to the CUDA op, so the dispatch test must agree with that guard.
-    _HAS_CUDA_RMSNORM = _EXT_AVAILABLE and all(
-        hasattr(_C, name) for name in ("rmsnorm_forward", "rmsnorm_backward_dx")
+    # Keep dispatch expectations aligned with the constructor's capability guard.
+    _HAS_CUDA_RMSNORM = (
+        _EXT_AVAILABLE
+        and getattr(_C, "rmsnorm_api_version", None) == 2
+        and all(hasattr(_C, name) for name in ("rmsnorm_forward", "rmsnorm_backward_dx"))
     )
 except ImportError:  # pragma: no cover - import can fail when the extension is not built.
     _HAS_CUDA_RMSNORM = False
@@ -251,7 +252,7 @@ def test_backward_batch_invariance_slice():
 # 9b. The CUDA backend must report itself unavailable by failing construction,
 # which is the seam the registry uses to fall back (see _get_or_create_backend).
 def test_cuda_op_construction_fails_without_extension(monkeypatch):
-    from rl_engine.kernels.ops.cuda.norm import rmsnorm as cuda_rmsnorm
+    from rl_engine.backends.cuda.norm import rmsnorm as cuda_rmsnorm
 
     monkeypatch.setattr(cuda_rmsnorm, "_EXT_AVAILABLE", False)
     monkeypatch.setattr(cuda_rmsnorm, "_C", None)
@@ -260,10 +261,10 @@ def test_cuda_op_construction_fails_without_extension(monkeypatch):
 
 
 def test_cuda_op_construction_fails_when_symbols_missing(monkeypatch):
-    from rl_engine.kernels.ops.cuda.norm import rmsnorm as cuda_rmsnorm
+    from rl_engine.backends.cuda.norm import rmsnorm as cuda_rmsnorm
 
     class _WithoutRMSNorm:  # a built extension that lacks the rmsnorm symbols
-        pass
+        rmsnorm_api_version = 2
 
     monkeypatch.setattr(cuda_rmsnorm, "_EXT_AVAILABLE", True)
     monkeypatch.setattr(cuda_rmsnorm, "_C", _WithoutRMSNorm())
@@ -273,8 +274,8 @@ def test_cuda_op_construction_fails_when_symbols_missing(monkeypatch):
 
 def test_registry_falls_back_to_native_without_extension(monkeypatch):
     """A CUDA-first priority list must still resolve on a build without _C."""
-    from rl_engine.kernels.ops.cuda.norm import rmsnorm as cuda_rmsnorm
-    from rl_engine.kernels.registry import KernelRegistry
+    from rl_engine.backends.cuda.norm import rmsnorm as cuda_rmsnorm
+    from rl_engine.runtime.registry import KernelRegistry
 
     monkeypatch.setattr(cuda_rmsnorm, "_EXT_AVAILABLE", False)
     monkeypatch.setattr(cuda_rmsnorm, "_C", None)
@@ -286,30 +287,66 @@ def test_registry_falls_back_to_native_without_extension(monkeypatch):
 def test_registry_falls_back_when_required_symbol_is_missing(monkeypatch, missing):
     from types import SimpleNamespace
 
-    from rl_engine.kernels.ops.cuda.norm import rmsnorm as cuda_rmsnorm
-    from rl_engine.kernels.registry import KernelRegistry
+    from rl_engine.backends.cuda.norm import rmsnorm as cuda_rmsnorm
+    from rl_engine.runtime.registry import KernelRegistry
 
     symbols = {name: object() for name in ("rmsnorm_forward", "rmsnorm_backward_dx")}
     del symbols[missing]
+    symbols["rmsnorm_api_version"] = 2
     monkeypatch.setattr(cuda_rmsnorm, "_EXT_AVAILABLE", True)
     monkeypatch.setattr(cuda_rmsnorm, "_C", SimpleNamespace(**symbols))
     assert isinstance(KernelRegistry().get_op("rms_norm", device="cuda"), NativeRMSNormOp)
 
 
-def test_registry_cuda_requires_only_used_symbols_and_cpu_stays_native(monkeypatch):
+@pytest.mark.parametrize("api_version", [None, 1, 3])
+def test_cuda_rejects_incompatible_rmsnorm_api_before_dispatch(monkeypatch, api_version):
+    from rl_engine.backends.cuda.norm import rmsnorm as cuda_rmsnorm
+    from rl_engine.runtime.registry import KernelRegistry
+
+    class _LegacyRMSNorm:
+        def rmsnorm_forward(self, x, weight, eps):
+            pytest.fail("an incompatible extension must not be invoked")
+
+        def rmsnorm_backward_dx(self, dy, x, weight, rstd):
+            pytest.fail("an incompatible extension must not be invoked")
+
+    extension = _LegacyRMSNorm()
+    if api_version is not None:
+        extension.rmsnorm_api_version = api_version
+    monkeypatch.setattr(cuda_rmsnorm, "_EXT_AVAILABLE", True)
+    monkeypatch.setattr(cuda_rmsnorm, "_C", extension)
+
+    for op_type in (cuda_rmsnorm.RMSNormCudaOp, cuda_rmsnorm.Qwen3NextRMSNormCudaOp):
+        with pytest.raises(RuntimeError, match="RMSNorm API version 2.*Rebuild"):
+            op_type()
+
+    registry_op = KernelRegistry().get_op("rms_norm", device="cuda")
+    assert isinstance(registry_op, NativeRMSNormOp)
+    x, weight = torch.ones(2, 8), torch.ones(8)
+    assert torch.isfinite(registry_op(x, weight)).all()
+    with pytest.raises(RuntimeError, match="RMSNorm API version 2.*Rebuild"):
+        rmsnorm_cuda(x, weight, weight_offset=1.0)
+
+
+def test_registry_cuda_requires_current_api_and_only_used_symbols(monkeypatch):
     from types import SimpleNamespace
 
-    from rl_engine.kernels.ops.cuda.norm import rmsnorm as cuda_rmsnorm
-    from rl_engine.kernels.registry import KernelRegistry
+    from rl_engine.backends.cuda.norm import rmsnorm as cuda_rmsnorm
+    from rl_engine.runtime.registry import KernelRegistry
 
     monkeypatch.setattr(cuda_rmsnorm, "_EXT_AVAILABLE", True)
     monkeypatch.setattr(
         cuda_rmsnorm,
         "_C",
-        SimpleNamespace(rmsnorm_forward=object(), rmsnorm_backward_dx=object()),
+        SimpleNamespace(
+            rmsnorm_api_version=2,
+            rmsnorm_forward=object(),
+            rmsnorm_backward_dx=object(),
+        ),
     )
     registry = KernelRegistry()
     assert isinstance(registry.get_op("rms_norm", device="cuda"), RMSNormCudaOp)
+    cuda_rmsnorm.Qwen3NextRMSNormCudaOp()
     assert isinstance(registry.get_op("rms_norm", device="cpu"), NativeRMSNormOp)
 
 

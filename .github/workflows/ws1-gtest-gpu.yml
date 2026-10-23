@@ -10,7 +10,7 @@ name: WS1-gtest-GPU
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main, test-qwennext ]
     paths:
       - "rl_engine/validation/**"
       - "rl_engine/backends/**"
@@ -28,6 +28,7 @@ on:
       - "tools/validation/operators/ws1_candidate_evidence.py"
       - "tests/validation/**"
       - "tests/models/**"
+      - "tests/ops/norm/**"
       - "tests/validation/operators/test_forward_invariance.py"
       - "tests/validation/operators/test_gradient_invariance.py"
       - "tests/validation/operators/test_four_judgment_matrix.py"
@@ -36,7 +37,7 @@ on:
       - "ci/scripts/run_gpu_ci.sh"
       - ".github/workflows/ws1-gtest-gpu.yml"
   push:
-    branches: [ main ]
+    branches: [ main, test-qwennext ]
     paths:
       - "rl_engine/validation/**"
       - "rl_engine/backends/**"
@@ -54,6 +55,7 @@ on:
       - "tools/validation/operators/ws1_candidate_evidence.py"
       - "tests/validation/**"
       - "tests/models/**"
+      - "tests/ops/norm/**"
       - "tests/validation/operators/test_forward_invariance.py"
       - "tests/validation/operators/test_gradient_invariance.py"
       - "tests/validation/operators/test_four_judgment_matrix.py"
