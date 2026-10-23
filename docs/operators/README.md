@@ -32,4 +32,7 @@ Every operator page should include:
 - [Matmul](matmul.md)
 - [Sampling](sampling.md)
 - [Token Embedding](embedding.md)
+- [Qwen3-Next RMSNorm (zero-centred)](qwen3-next-rms-norm.md)
+- [Qwen3-Next Gated RMSNorm](qwen3-next-rms-norm-gated.md)
+- [Qwen3-Next MoE route / combine](qwen3-next-moe-route-combine.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)
