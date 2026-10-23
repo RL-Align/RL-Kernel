@@ -4,7 +4,7 @@
 
 ZIP SHA-256: `76028dfea0a2b8698aa8d14d1f82e8da47df4ea11f9cd5240ebfb33094e527c1`.
 
-Measured at commit `c67ec14` (`measured-commit.txt`) from clean clones, one
+Measured at commit `92e93a4` (`measured-commit.txt`) from clean clones, one
 stage after another on nodes with four B200 GPUs, in one environment
 (`environment_sha256` `118384371a88…` in every `run.json`), on the official
 `Qwen/Qwen3-Next-80B-A3B-Instruct` revision
@@ -23,10 +23,10 @@ python tools/validation/models/qwen3_next/qwen3_next_publish_evidence.py --last 
 python benchmarks/models/qwen3_next/plot_qwen3_next_chain.py artifacts/qwen3-next-chain-b200
 ```
 
-At `c67ec14` the runners lived in `scripts/` and `ci/`; the commands use the
+At `92e93a4` the runners lived in `scripts/` and `ci/`; the commands use the
 current layout (the plot script is in the Qwen3-Next benchmark PR). The
-stages ran the code of `c67ec14`; the published copy was made by the publisher
-of `3025497`, which only adds redaction rules and changes no measured byte.
+stages ran the code of `92e93a4`; the published copy was made by the publisher
+of `f431bad`, which only adds redaction rules and changes no measured byte.
 
 | Stage | Checks | Result |
 | --- | --- | --- |
@@ -47,11 +47,11 @@ Site paths, host names, users and the scheduler are replaced by placeholders
 (`<CHECKPOINT>`, `<RUN>`, `<PYTHON>`, `<SITE>`, `<HOME>`); `redaction.json`
 counts them.
 
-## Rerun on the stack top (`90c09164`)
+## Rerun on the stack top (`f05aaef6`)
 
 After the stack was aligned with the reviewed layout (runners under
 `tools/validation/models/qwen3_next/`, code under `rl_engine/models/qwen3_next/`),
-the whole TP4 x EP1 chain was run again from clean clones of `90c09164`
+the whole TP4 x EP1 chain was run again from clean clones of `f05aaef6`
 (commit and tree in `measured-commit.txt` and every `run.json`), same environment
 and checkpoint as above: [raw results (ZIP)](https://github.com/fusheng-ji/RL-Kernel/releases/download/qwen3-next-rfc428-evidence/qwen3-next-chain-stacktop-b200.zip),
 SHA-256 `bde7e27c5db8d92d1171f08d7858231e4f8dee4e4831f60c3103c95505245f09`
@@ -61,7 +61,7 @@ of the same commit).
 | Stage | Result |
 | --- | --- |
 | `preflight`, `layers` | passed |
-| `l2` | 16 / 16 raw-bit; every artifact bitwise identical to the `c67ec14` run |
+| `l2` | 16 / 16 raw-bit; every artifact bitwise identical to the `92e93a4` run |
 | `train1`, `train2` | passed, 16 / 16 raw-bit on the updated weights each |
 | `train` | passed: checkpoint reload, reload == update 2, continuous == resumed step 3, checkpoint fault injection; 16 / 16 raw-bit |
 | chain-gate report | `qwen3-next-chain-v1`, 64 cells, `passed: true`, `first_drift: null` |

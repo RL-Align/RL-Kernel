@@ -15,10 +15,10 @@ attention gate: layer 3).
 
 | Files | Measured at | Command (current layout) |
 | --- | --- | --- |
-| `tp4-gdn/` | `9e6c4f2` | `torchrun --nproc-per-node 4 tools/validation/models/qwen3_next/qwen3_next_tp_gdn_check.py --checkpoint <ckpt> --output tp4-gdn` |
-| `tp4-attention/` | `9e6c4f2` | `torchrun --nproc-per-node 4 tools/validation/models/qwen3_next/qwen3_next_tp_attention_check.py --checkpoint <ckpt> --output tp4-attention` |
-| `tp4-moe/` | `9e6c4f2` | `TRITON_F32_DEFAULT=ieee torchrun --nproc-per-node 4 tools/validation/models/qwen3_next/qwen3_next_tp_moe_check.py --checkpoint <ckpt> --output tp4-moe` |
-| `attention/` | `703c6dc` | `python benchmarks/models/qwen3_next/qwen3_next_attention_prior_art.py --only <all but te_fused> --out report-main.json`, then `--only te_fused --merge report-main.json --out report.json`; `python benchmarks/models/qwen3_next/plot_qwen3_next_attention_prior_art.py report.json` |
+| `tp4-gdn/` | `fce346d` | `torchrun --nproc-per-node 4 tools/validation/models/qwen3_next/qwen3_next_tp_gdn_check.py --checkpoint <ckpt> --output tp4-gdn` |
+| `tp4-attention/` | `fce346d` | `torchrun --nproc-per-node 4 tools/validation/models/qwen3_next/qwen3_next_tp_attention_check.py --checkpoint <ckpt> --output tp4-attention` |
+| `tp4-moe/` | `fce346d` | `TRITON_F32_DEFAULT=ieee torchrun --nproc-per-node 4 tools/validation/models/qwen3_next/qwen3_next_tp_moe_check.py --checkpoint <ckpt> --output tp4-moe` |
+| `attention/` | `137d0fb` | `python benchmarks/models/qwen3_next/qwen3_next_attention_prior_art.py --only <all but te_fused> --out report-main.json`, then `--only te_fused --merge report-main.json --out report.json`; `python benchmarks/models/qwen3_next/plot_qwen3_next_attention_prior_art.py report.json` |
 
 At those commits the runners lived in `tools/validation/models/`; the
 attention prior-art runner is now part of the Qwen3-Next benchmark PR.
