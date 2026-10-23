@@ -264,8 +264,28 @@ def load_manifest(path: str | Path | None = None) -> WS1Manifest:
         raw = json.load(fh)
     if not isinstance(raw, dict):
         raise WorkloadError("manifest root must be a JSON object")
-    validate_manifest(raw)
+    if raw.get("scope") == "qwen3_next_norm_operators":
+        from rl_engine.validation.models.qwen3_next_workload import validate_norm_manifest
+
+        validate_norm_manifest(raw)
+    else:
+        validate_manifest(raw)
     return WS1Manifest(raw=raw, path=manifest_path)
+
+
+def workload_report(manifest: WS1Manifest) -> dict[str, Any]:
+    """The ``workload`` block the C3/C4 gate scripts attach to their JSON report.
+
+    ``full_model_evidence`` is whatever the manifest declares, and ``None`` when
+    it declares nothing.
+    """
+    return {
+        "workload_id": manifest.workload_id,
+        "scope": manifest.raw.get("scope", "qwen3_8b_dense"),
+        "fixture_identity_sha256": manifest.raw["fixture_identity_sha256"],
+        "model_id": manifest.model_identity["model_id"],
+        "full_model_evidence": manifest.raw.get("full_model_evidence"),
+    }
 
 
 def validate_manifest(raw: Mapping[str, Any]) -> None:
@@ -292,20 +312,25 @@ def validate_manifest(raw: Mapping[str, Any]) -> None:
         )
 
 
-def _validate_model_identity(identity: Mapping[str, Any]) -> None:
+def _validate_model_identity(
+    identity: Mapping[str, Any],
+    *,
+    fingerprint: Mapping[str, Any] = _OFFICIAL_FINGERPRINT,
+    model_label: str = "Qwen3-8B Dense",
+) -> None:
     for key in ("model_id", "revision", "config_fingerprint", "weight_snapshot"):
         if key not in identity:
             raise WorkloadError(f"model_identity missing {key!r}")
     fp = identity["config_fingerprint"]
     if not isinstance(fp, Mapping):
         raise WorkloadError("config_fingerprint must be an object")
-    for key, expected in _OFFICIAL_FINGERPRINT.items():
+    for key, expected in fingerprint.items():
         if key not in fp:
             raise WorkloadError(f"config_fingerprint missing {key!r}")
         if fp[key] != expected:
             raise WorkloadError(
                 f"config_fingerprint {key}={fp[key]!r} does not match official "
-                f"Qwen3-8B Dense pin {expected!r}; architecture shrink is forbidden"
+                f"{model_label} pin {expected!r}; architecture shrink is forbidden"
             )
     if not identity.get("exit_forbids_architecture_shrink", False):
         raise WorkloadError("exit_forbids_architecture_shrink must be true")
