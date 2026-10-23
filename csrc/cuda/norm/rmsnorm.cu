@@ -108,7 +108,8 @@ __global__ void rmsnorm_fwd_kernel(
     float* __restrict__ rstd,
     int T,
     int H,
-    float eps
+    float eps,
+    float weight_offset
 ) {
     int row = blockIdx.x;
     int tid = threadIdx.x;
@@ -135,10 +136,17 @@ __global__ void rmsnorm_fwd_kernel(
 
     __syncthreads();
 
-    // Write y = x * rstd * weight.
+    // Write y = x * rstd * (weight_offset + weight). The offset is added in
+    // fp32 after the upcast: a zero-centred weight (Qwen3-Next, Gemma) must not
+    // have its "+1" folded into the low-precision weight beforehand, which would
+    // round the offset and break the bitwise contract.
     for (int col = tid; col < H; col += blockDim.x) {
         float xv = load_as_float<scalar_t>(x_row + col);
         float wv = load_as_float<weight_t>(weight + col);
+        // Guarded: `-0.0f + 0.0f` is +0.0f, so an unconditional add would flip the
+        // sign bit of -0.0 weights on the plain path. Pinned by
+        // tests/models/qwen3_next/test_qwen3_next_norm.py::test_cuda_plain_signed_zero_is_preserved.
+        if (weight_offset != 0.0f) wv += weight_offset;
         float out = xv * row_rstd * wv;
         store_from_float<scalar_t>(y_row + col, out);
     }
@@ -153,7 +161,8 @@ __global__ void rmsnorm_bwd_dx_kernel(
     const float* __restrict__ rstd,
     scalar_t* __restrict__ dx,
     int T,
-    int H
+    int H,
+    float weight_offset
 ) {
     int row = blockIdx.x;
     int tid = threadIdx.x;
@@ -168,6 +177,7 @@ __global__ void rmsnorm_bwd_dx_kernel(
         float dyv = load_as_float<scalar_t>(dy_row + col);
         float xv = load_as_float<scalar_t>(x_row + col);
         float wv = load_as_float<weight_t>(weight + col);
+        if (weight_offset != 0.0f) wv += weight_offset;
         local_dot += dyv * wv * xv;
     }
 
@@ -180,6 +190,7 @@ __global__ void rmsnorm_bwd_dx_kernel(
         float dyv = load_as_float<scalar_t>(dy_row + col);
         float xv = load_as_float<scalar_t>(x_row + col);
         float wv = load_as_float<weight_t>(weight + col);
+        if (weight_offset != 0.0f) wv += weight_offset;
 
         float out = r * dyv * wv - xv * coeff;
         store_from_float<scalar_t>(dx_row + col, out);
@@ -247,7 +258,8 @@ void rmsnorm_forward_cuda(
     torch::Tensor weight,
     torch::Tensor y,
     torch::Tensor rstd,
-    double eps
+    double eps,
+    double weight_offset
 ) {
     // Launch on x's device: the current CUDA stream belongs to the current
     // device, which need not be x's.
@@ -270,7 +282,8 @@ void rmsnorm_forward_cuda(
                 rstd.data_ptr<float>(),
                 T,
                 H,
-                static_cast<float>(eps)
+                static_cast<float>(eps),
+                static_cast<float>(weight_offset)
             );
         });
     });
@@ -282,7 +295,8 @@ void rmsnorm_backward_dx_cuda(
     torch::Tensor x,
     torch::Tensor weight,
     torch::Tensor rstd,
-    torch::Tensor dx
+    torch::Tensor dx,
+    double weight_offset
 ) {
     const at::cuda::OptionalCUDAGuard device_guard(device_of(x));
     int T = x.size(0);
@@ -303,7 +317,8 @@ void rmsnorm_backward_dx_cuda(
                 rstd.data_ptr<float>(),
                 dx.data_ptr<x_t>(),
                 T,
-                H
+                H,
+                static_cast<float>(weight_offset)
             );
         });
     });

@@ -263,14 +263,16 @@ void rmsnorm_forward_cuda(
   torch::Tensor weight,
   torch::Tensor y,
   torch::Tensor rstd,
-  double eps);
+  double eps,
+  double weight_offset);
 
 void rmsnorm_backward_dx_cuda(
   torch::Tensor dy,
   torch::Tensor x,
   torch::Tensor weight,
   torch::Tensor rstd,
-  torch::Tensor dx);
+  torch::Tensor dx,
+  double weight_offset);
 
 void rmsnorm_backward_partial_dw_cuda(
   torch::Tensor dy,
@@ -299,7 +301,8 @@ static void rmsnorm_check_input(const torch::Tensor& x, const char* name) {
 std::vector<torch::Tensor> rmsnorm_forward(
   torch::Tensor x,
   torch::Tensor weight,
-  double eps)
+  double eps,
+  double weight_offset)
 {
   rmsnorm_check_input(x, "x");
   rmsnorm_check_input(weight, "weight");
@@ -312,7 +315,7 @@ std::vector<torch::Tensor> rmsnorm_forward(
   auto y = torch::empty_like(x);
   auto rstd = torch::empty({T}, x.options().dtype(torch::kFloat32));
 
-  rmsnorm_forward_cuda(x, weight, y, rstd, eps);
+  rmsnorm_forward_cuda(x, weight, y, rstd, eps, weight_offset);
 
   return {y, rstd};
 }
@@ -321,7 +324,8 @@ torch::Tensor rmsnorm_backward_dx(
   torch::Tensor dy,
   torch::Tensor x,
   torch::Tensor weight,
-  torch::Tensor rstd)
+  torch::Tensor rstd,
+  double weight_offset)
 {
   rmsnorm_check_input(dy, "dy");
   rmsnorm_check_input(x, "x");
@@ -336,7 +340,7 @@ torch::Tensor rmsnorm_backward_dx(
 
   auto dx = torch::empty_like(x);
 
-  rmsnorm_backward_dx_cuda(dy, x, weight, rstd, dx);
+  rmsnorm_backward_dx_cuda(dy, x, weight, rstd, dx, weight_offset);
 
   return dx;
 }
@@ -718,8 +722,14 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         &det_gemm_db_transposed,
         "Batch-invariant deterministic GEMM backward in canonical [N,K] layout");
     // registry RMSNorm
-    m.def("rmsnorm_forward", &rmsnorm_forward, "Batch-invariant RMSNorm forward CUDA");
-    m.def("rmsnorm_backward_dx", &rmsnorm_backward_dx, "Batch-invariant RMSNorm backward dx CUDA");
+    // API version 2 includes weight_offset in both entry points.
+    m.attr("rmsnorm_api_version") = 2;
+    m.def("rmsnorm_forward", &rmsnorm_forward, "Batch-invariant RMSNorm forward CUDA",
+          py::arg("x"), py::arg("weight"), py::arg("eps"),
+          py::arg("weight_offset") = 0.0);
+    m.def("rmsnorm_backward_dx", &rmsnorm_backward_dx, "Batch-invariant RMSNorm backward dx CUDA",
+          py::arg("dy"), py::arg("x"), py::arg("weight"), py::arg("rstd"),
+          py::arg("weight_offset") = 0.0);
     m.def("rmsnorm_backward_dw", &rmsnorm_backward_dw, "Deterministic RMSNorm backward dweight CUDA");
 #if !defined(USE_ROCM)
     m.def(
