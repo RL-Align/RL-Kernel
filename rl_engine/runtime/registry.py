@@ -159,6 +159,18 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     TRITON_RMS_NORM = "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp"
     PYTORCH_NATIVE_RMS_NORM = "rl_engine.kernels.ops.pytorch.norm.rms_norm.NativeRMSNormOp"
 
+    # Zero-centred RMSNorm (Qwen3-Next decoder / final norm)
+    CUDA_QWEN3_NEXT_RMS_NORM = "rl_engine.kernels.ops.cuda.norm.rmsnorm.Qwen3NextRMSNormCudaOp"
+    PYTORCH_NATIVE_QWEN3_NEXT_RMS_NORM = (
+        "rl_engine.reference.norm.qwen3_next_rms_norm.Qwen3NextRMSNormOp"
+    )
+
+    # Gated RMSNorm (Qwen3-Next Gated DeltaNet block)
+    CUDA_RMS_NORM_GATED = "rl_engine.kernels.ops.cuda.norm.rmsnorm.Qwen3NextRMSNormGatedCudaOp"
+    PYTORCH_NATIVE_RMS_NORM_GATED = (
+        "rl_engine.reference.norm.qwen3_next_rms_norm.Qwen3NextRMSNormGatedOp"
+    )
+
     # Generic fallback
     TRITON_GENERIC = "rl_engine.kernels.ops.triton.generic.TritonOp"
     PYTORCH_ATTN = "rl_engine.kernels.ops.pytorch.attention.NativeAttentionOp"
@@ -594,6 +606,14 @@ class KernelRegistry:
                     OpBackend.CUDA_RMS_NORM,
                     OpBackend.PYTORCH_NATIVE_RMS_NORM,
                 ],
+                "rms_norm_gated": [
+                    OpBackend.CUDA_RMS_NORM_GATED,
+                    OpBackend.PYTORCH_NATIVE_RMS_NORM_GATED,
+                ],
+                "qwen3_next_rms_norm": [
+                    OpBackend.CUDA_QWEN3_NEXT_RMS_NORM,
+                    OpBackend.PYTORCH_NATIVE_QWEN3_NEXT_RMS_NORM,
+                ],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [
@@ -649,6 +669,8 @@ class KernelRegistry:
                 ],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
+                "rms_norm_gated": [OpBackend.PYTORCH_NATIVE_RMS_NORM_GATED],
+                "qwen3_next_rms_norm": [OpBackend.PYTORCH_NATIVE_QWEN3_NEXT_RMS_NORM],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
@@ -694,6 +716,8 @@ class KernelRegistry:
                     OpBackend.TRITON_RMS_NORM,
                     OpBackend.PYTORCH_NATIVE_RMS_NORM,
                 ],
+                "rms_norm_gated": [OpBackend.PYTORCH_NATIVE_RMS_NORM_GATED],
+                "qwen3_next_rms_norm": [OpBackend.PYTORCH_NATIVE_QWEN3_NEXT_RMS_NORM],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [
                     OpBackend.TRITON_EMBEDDING,
@@ -722,6 +746,8 @@ class KernelRegistry:
                 "batch_invariant_logp": [OpBackend.PYTORCH_BATCH_INVARIANT_LOGP],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
+                "rms_norm_gated": [OpBackend.PYTORCH_NATIVE_RMS_NORM_GATED],
+                "qwen3_next_rms_norm": [OpBackend.PYTORCH_NATIVE_QWEN3_NEXT_RMS_NORM],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
@@ -761,6 +787,12 @@ class KernelRegistry:
         self._priority_map["npu"]["rms_norm"] = [
             OpBackend.ASCEND_RMS_NORM,
             OpBackend.PYTORCH_NATIVE_RMS_NORM,
+        ]
+        self._priority_map["npu"]["rms_norm_gated"] = [
+            OpBackend.PYTORCH_NATIVE_RMS_NORM_GATED,
+        ]
+        self._priority_map["npu"]["qwen3_next_rms_norm"] = [
+            OpBackend.PYTORCH_NATIVE_QWEN3_NEXT_RMS_NORM,
         ]
         self._priority_map["npu"]["embedding"] = [
             OpBackend.ASCEND_EMBEDDING,
