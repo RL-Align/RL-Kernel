@@ -18,6 +18,8 @@ import triton
 import triton.language as tl
 from torch import Tensor
 
+from rl_engine.backends.shared.triton.autotuning import TunableKernel, pin_autotune
+
 _SUPPORTED_DTYPES = (torch.float16, torch.bfloat16, torch.float32)
 
 
@@ -162,6 +164,7 @@ def _launch_swiglu_bwd(dy: Tensor, gate: Tensor, up: Tensor) -> tuple[Tensor, Te
     return d_gate, d_up
 
 
+@pin_autotune
 class _SiLUTritonFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x: Tensor) -> Tensor:
@@ -179,6 +182,7 @@ class _SiLUTritonFunction(torch.autograd.Function):
         return dx
 
 
+@pin_autotune
 class _SwiGLUTritonFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, gate: Tensor, up: Tensor) -> Tensor:
@@ -281,3 +285,10 @@ class TritonSwiGLUOp:
         if gate.dtype != up.dtype:
             raise TypeError(f"gate and up must share dtype, got {gate.dtype} and {up.dtype}.")
         return _SwiGLUTritonFunction.apply(gate.float(), up.float())
+
+
+_silu_fwd_kernel = TunableKernel(_silu_fwd_kernel, outputs=(1,), flat_block=2)
+_silu_bwd_kernel = TunableKernel(_silu_bwd_kernel, outputs=(2,), flat_block=3)
+_swiglu_fwd_kernel = TunableKernel(_swiglu_fwd_kernel, outputs=(2,), flat_block=3)
+_swiglu_bwd_kernel = TunableKernel(_swiglu_bwd_kernel, outputs=(2, 3), flat_block=4)
+_swiglu_dgate_kernel = TunableKernel(_swiglu_dgate_kernel, outputs=(3,), flat_block=4)
