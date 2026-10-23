@@ -4,7 +4,7 @@
 
 ZIP SHA-256: `c7530d29f2495d19d43b5424215af960795f62d9676b223fe41c27aa2616ba53`.
 
-Measured at commit `1c4ae265` (`measured-commit.txt`) from clean clones, one
+Measured at commit `78b0db04` (`measured-commit.txt`) from clean clones, one
 stage after another on one node with four B200 GPUs, torch 2.13.0+cu130,
 vLLM 0.30.0, the official `Qwen/Qwen3-Next-80B-A3B-Instruct` revision
 `9c7f2fbe84465e40164a94cc16cd30b6999b0cc7`, in one environment
@@ -23,7 +23,7 @@ cd artifacts
 zip -X -r qwen3-next-distributed-logprob-ep4-b200.zip qwen3-next-distributed-logprob-ep4-b200
 ```
 
-The chain report and the published copy were written at `2d1fc2f3`, which only
+The chain report and the published copy were written at `31851143`, which only
 adds the EP size to the chain report's disclaimer and backend profile. Extract
 the ZIP before inspecting its JSON; `SHA256SUMS` covers every file.
 
@@ -57,7 +57,7 @@ profile (`qwen3-next-moe-ep4-v1`); parity is EP4 rollout == EP4 replay.
 ## EP4 vs TP4 x EP1, end to end
 
 Not part of the acceptance contract. Against the TP4 x EP1 L2 run of the
-full-model chain (#543, measured at `c67ec14`), all 16 cases generate the same
+full-model chain (#543, measured at `92e93a4`), all 16 cases generate the same
 16 response tokens. Logits and logprobs are not bitwise equal: the largest
 selected-logprob difference per case is 1.3e-3 to 0.32 and the largest logit
 difference 0.66 to 7.2. The embedding and layer 0's recurrent state are equal
@@ -67,11 +67,11 @@ mixer, where the MoE block runs.
 Site paths, host names and the scheduler are replaced by placeholders
 (`<CHECKPOINT>`, `<RUN>`, `<PYTHON>`, `<SITE>`, `<HOME>`).
 
-## Batch invariance at EP4 (stack top `90c09164`)
+## Batch invariance at EP4 (stack top `f05aaef6`)
 
 Beyond the `l2` acceptance above, the full batch-invariance suite of the
 full-model chain (97 cells, see #544) was run at TP4 x EP4 x ETP1 from a clean
-clone of `90c09164`, after a passed EP4 `preflight`, `layers` and `l2` at that
+clone of `f05aaef6`, after a passed EP4 `preflight`, `layers` and `l2` at that
 commit (the quick suite, 5 cells, passed first). Result: **97 / 97 cells
 bitwise** (concurrency 13 / 13, interference 10 / 10, chunk 66 / 66, packing
 8 / 8), `first_failure: null`, with the same cell definitions as the EP1 run

@@ -26,11 +26,11 @@ equal, and only equal bits remove the replay/rollout difference the RFC targets.
 
 ## Evidence and reproduction
 
-Measured at `33495ad` on 4 × B200 with the official
+Measured at `c5cea58` on 4 × B200 with the official
 `Qwen/Qwen3-Next-80B-A3B-Instruct` checkpoint revision
 `9c7f2fbe84465e40164a94cc16cd30b6999b0cc7`, torch 2.13.0+cu130,
 vLLM 0.30.0, NCCL 2.29.7, Megatron-core 0.16.0rc0 and VIME 0.3.2.
-The plotted TP parity data was measured at `04db726`.
+The plotted TP parity data was measured at `99c244a`.
 
 [Download raw results and figure (ZIP)](https://github.com/fusheng-ji/RL-Kernel/releases/download/qwen3-next-pr549-evidence/qwen3-next-distributed-logprob-b200.zip).
 ZIP SHA-256: `a48bf29d19e40d22178185de81dcfacdd9138ca03f5dc347d23eed4a4fbd2cd9`.
@@ -63,10 +63,10 @@ The relocated benchmark ran from clean commit
 `67a45169a64e85bea0333dba7c446d5f74564222`, at TP1 and TP4 under all 13 NCCL
 settings, with the same pinned environment, checkpoint and 1024-token shape
 listed above. The extension was freshly built from validation commit
-`b10b6616`; the benchmark snapshot's native source files were checked to be
+`1106e461`; the benchmark snapshot's native source files were checked to be
 identical before reusing that binary.
 
-[Download new raw reports and execution logs (ZIP)](https://github.com/fusheng-ji/RL-Kernel/releases/download/qwen3-next-pr549-evidence/qwen3-next-pr549-gpu-b10b6616.zip).
+[Download new raw reports and execution logs (ZIP)](https://github.com/fusheng-ji/RL-Kernel/releases/download/qwen3-next-pr549-evidence/qwen3-next-pr549-gpu-1106e461.zip).
 ZIP SHA-256: `5fb49bc151fc0224dc92128c0279fb58998435cfa033b62565d9a62957be0e57`.
 The current benchmark and merge commands above reproduce this run. Extract
 its `parity/` and `prior-art/` directories together to render the new figure.

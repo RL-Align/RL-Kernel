@@ -4,12 +4,12 @@
 
 ZIP SHA-256: `d0eaa32625691c2dcc8df6fb0fe42ed0ffe07e050473cb2d5f518cf6a227f2ff`.
 
-Measured at commit `350ea66d` (MoE backward and logprob forward) and `1571c094`
+Measured at commit `6ad63611` (MoE backward and logprob forward) and `03a5898e`
 (logprob backward, TP1 and TP4; both in `measured-commit.txt`; every report has
 `tracked_tree_dirty: false`) on one node with four B200 GPUs, torch 2.13.0+cu130,
 vLLM 0.30.0, Megatron-core 0.16.0rc0, SGLang 0.5.21, NCCL 2.29.7, the official
 `Qwen/Qwen3-Next-80B-A3B-Instruct` revision
-`9c7f2fbe84465e40164a94cc16cd30b6999b0cc7`. A first run at `af5ab9c2` gave
+`9c7f2fbe84465e40164a94cc16cd30b6999b0cc7`. A first run at `04cd9460` gave
 the same conclusions in every row.
 
 Miles (`radixark/miles@23d3d38`) and verl (`volcengine/verl@e5a627c`) are not
@@ -112,7 +112,7 @@ repeated launches gave the same bits here; its row gradient changes with the
 batch. Miles' and verl's backward consume the TP-sharded forward statistics that
 NCCL all-reduces, so their gradients move with the NCCL algorithm and differ from
 TP1, like their forward; RL-Kernel's fixed-order collective keeps one result.
-An earlier TP1-only run (20 launches, `350ea66d`) gave the same counts.
+An earlier TP1-only run (20 launches, `6ad63611`) gave the same counts.
 
 Every result file is JSON with the commit, environment and third-party
 provenance; `figure.png` renders them; `SHA256SUMS` covers every file. Site paths,

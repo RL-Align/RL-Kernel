@@ -4,7 +4,7 @@
 
 ZIP SHA-256: `2375ec36485eb09a8acc81586268584b80ef3914f69a4724d6acbac5bf97c6cf`.
 
-Measured at commit `45719cb3` (`measured-commit.txt`; every rank report has
+Measured at commit `7db4a14b` (`measured-commit.txt`; every rank report has
 `tracked_tree_dirty: false`) on one node with four B200 GPUs, torch
 2.13.0+cu130, vLLM 0.30.0, FlashInfer 0.6.18.post1, Megatron-core 0.16.0rc0,
 NCCL 2.29.7, the official `Qwen/Qwen3-Next-80B-A3B-Instruct` revision
@@ -12,7 +12,7 @@ NCCL 2.29.7, the official `Qwen/Qwen3-Next-80B-A3B-Instruct` revision
 seeded BF16 tokens (replicated on every rank) and the layer-0 router and 512
 experts; the shared expert, identical for all, is left out. At EP4 rank r owns
 experts `[128r, 128r + 128)` at full width. The figure was rendered at
-`2dd3a6ab` (plot code only).
+`b75f4422` (plot code only).
 
 ```bash
 torchrun --nproc-per-node 4 benchmarks/models/qwen3_next/qwen3_next_moe_ep_prior_art.py \
