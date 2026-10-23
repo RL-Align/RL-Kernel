@@ -8,8 +8,8 @@ from __future__ import annotations
 import pytest
 import torch
 
-from rl_engine.backends.extension import _C
 from rl_engine.backends.cuda.model_specific.minimax_h3.det_linear import det_linear_available
+from rl_engine.backends.extension import _C
 
 pytestmark = [
     pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA device"),

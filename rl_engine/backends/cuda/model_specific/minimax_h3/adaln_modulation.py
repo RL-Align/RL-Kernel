@@ -16,8 +16,6 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 
-from rl_engine.ops.autograd.backward_runtime import record_backward
-from rl_engine.backends.extension import _C
 from rl_engine.backends.cuda.model_specific.minimax_h3.adaln_row_gather import (
     _segment_tiles,
     adaln_row_gather_available,
@@ -29,6 +27,8 @@ from rl_engine.backends.cuda.model_specific.minimax_h3.det_linear import (
     det_linear_forward,
     silu_backward_fp32,
 )
+from rl_engine.backends.extension import _C
+from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.reference.minimax_h3 import H3_ADALN_CHUNKS, H3_MODALITY_NUM
 from rl_engine.reference.minimax_h3.adaln_projection import validate_h3_adaln_projection
 from rl_engine.reference.minimax_h3.adaln_row_gather import (

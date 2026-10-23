@@ -284,7 +284,9 @@ def _worker_never_reports(rank, world, init, queue, path, target, kwargs):
 @pytest.mark.parametrize("mode", ["clean_exit", "crash", "reported_error", "timeout"])
 def test_run_world_cleans_up_failed_workers(monkeypatch, mode):
     import time
+
     import torch.multiprocessing as mp
+
     from rl_engine.validation.models import h3_ws2
 
     workers = {

@@ -8,8 +8,6 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 
-from rl_engine.ops.autograd.backward_runtime import record_backward
-from rl_engine.backends.extension import _C
 from rl_engine.backends.cuda.model_specific.minimax_h3.adaln_row_gather import _segment_tiles
 from rl_engine.backends.cuda.model_specific.minimax_h3.det_linear import (
     det_linear_available,
@@ -19,6 +17,8 @@ from rl_engine.backends.cuda.model_specific.minimax_h3.det_linear import (
     silu_backward_fp32,
 )
 from rl_engine.backends.cuda.model_specific.minimax_h3.rmsnorm import h3_rmsnorm_available
+from rl_engine.backends.extension import _C
+from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.reference.minimax_h3.final_adaln_out import validate_h3_final_adaln_out
 from rl_engine.reference.minimax_h3.rmsnorm import H3_NORM_EPS
 

@@ -31,7 +31,6 @@ from dataclasses import dataclass
 import torch
 import torch.nn.functional as F
 
-from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.backends.cuda.model_specific.minimax_h3.det_linear import (
     CONTRACT,
     DINPUT_CHUNK,
@@ -43,6 +42,7 @@ from rl_engine.backends.cuda.model_specific.minimax_h3.det_linear import (
     silu_backward_fp32,
 )
 from rl_engine.backends.cuda.model_specific.minimax_h3.ws2_comm import gather_rows
+from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.reference.minimax_h3 import H3_ADALN_CHUNKS, H3_MODALITY_NUM
 from rl_engine.reference.minimax_h3.adaln_projection import split_adaln_table
 
