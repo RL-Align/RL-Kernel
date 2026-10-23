@@ -4,7 +4,7 @@
 
 ZIP SHA-256: `a6f7245c83d4e2fbbc949ba915abaf05a9b71d5fbeaaf241f846eab5addeb878`.
 
-Measured at commit `759755e` (`measured-commit.txt`) from clean clones, one
+Measured at commit `02c576c` (`measured-commit.txt`) from clean clones, one
 stage after another on one node with four B200 GPUs, in one environment
 (`environment_sha256` `118384371a88…` in every `run.json`):
 
@@ -19,9 +19,9 @@ python tools/validation/models/qwen3_next/qwen3_next_publish_evidence.py --last 
 python benchmarks/models/qwen3_next/plot_qwen3_next_batch_invariance.py artifacts/qwen3-next-batch-invariance-b200
 ```
 
-Commands use the current layout; at `759755e` the runners lived in `scripts/`, and the plot script is now in the Qwen3-Next benchmark PR.
+Commands use the current layout; at `02c576c` the runners lived in `scripts/`, and the plot script is now in the Qwen3-Next benchmark PR.
 The archive preserves the original evidence bytes and `SHA256SUMS`; the publisher
-at `3025497` only added site redactions. Extract the ZIP before inspecting its JSON.
+at `f431bad` only added site redactions. Extract the ZIP before inspecting its JSON.
 
 | Stage | Result |
 | --- | --- |
@@ -47,11 +47,11 @@ section.
 Site paths, host names and the scheduler are replaced by placeholders
 (`<CHECKPOINT>`, `<RUN>`, `<PYTHON>`, `<SITE>`, `<PATH>/name`, `<CGROUP>/file`).
 
-## Rerun of the full suite on the stack top (`90c09164`)
+## Rerun of the full suite on the stack top (`f05aaef6`)
 
-The full 97-cell suite was run again from a clean clone of `90c09164` (TP4 x EP1,
+The full 97-cell suite was run again from a clean clone of `f05aaef6` (TP4 x EP1,
 the same checkpoint and environment; `preflight`, `layers` and `l2` passed first
-and `l2` is bitwise identical to the `c67ec14` run). Result: **97 / 97 cells
+and `l2` is bitwise identical to the `92e93a4` run). Result: **97 / 97 cells
 bitwise** (concurrency 13 / 13, interference 10 / 10, chunk 66 / 66, packing 8 / 8),
 no failed cell, `first_failure: null`. The published copy is inside the chain
 archive of the full-model chain,
