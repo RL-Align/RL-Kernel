@@ -32,6 +32,28 @@ def _load_object(path: str) -> Any:
 
 
 OP_SPECS = {
+    "latent_normalize": OperatorSpec(
+        name="latent_normalize",
+        op_class="elementwise",
+        gold_path="rl_engine.reference.norm.latent_normalize.NativeLatentNormalizeOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.norm.latent_normalize.NativeLatentNormalizeOp",
+            "cuda": "rl_engine.backends.cuda.norm.latent_normalize.LatentNormalizeCudaOp",
+        },
+        grad_input_names=("x",),
+    ),
+    "latent_denormalize": OperatorSpec(
+        name="latent_denormalize",
+        op_class="elementwise",
+        gold_path="rl_engine.reference.norm.latent_normalize.NativeLatentDenormalizeOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.norm.latent_normalize.NativeLatentDenormalizeOp",
+            "cuda": "rl_engine.backends.cuda.norm.latent_normalize.LatentDenormalizeCudaOp",
+        },
+        grad_input_names=("x",),
+    ),
     "rms_norm": OperatorSpec(
         name="rms_norm",
         op_class="reduction",

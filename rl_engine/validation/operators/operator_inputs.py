@@ -25,6 +25,8 @@ def make_operator_inputs(
     device: torch.device,
 ) -> dict[str, Any]:
     builders = {
+        "latent_normalize": _make_latent_normalize_inputs,
+        "latent_denormalize": _make_latent_normalize_inputs,
         "rms_norm": _make_rms_norm_inputs,
         "qk_norm": _make_qk_norm_inputs,
         "pack": _make_pack_inputs,
@@ -53,6 +55,8 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
     batch, seq = _batch_seq(args)
     vocab = _arg_int(args, "vocab", DEFAULT_VOCAB)
     names = {
+        "latent_normalize": f"{batch}x16x1x{seq}",
+        "latent_denormalize": f"{batch}x16x1x{seq}",
         "rms_norm": f"{batch}x{seq}x{_normalized_dim(args)}",
         "qk_norm": f"{batch}x{seq}x{_arg_int(args, 'n_heads', DEFAULT_N_HEADS)}x"
         f"{_arg_int(args, 'head_dim', DEFAULT_HEAD_DIM)}",
@@ -77,6 +81,15 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         return names[op_name]
     except KeyError as exc:
         raise ValueError(f"unsupported operator shape: {op_name}") from exc
+
+
+def _make_latent_normalize_inputs(args, dtype, device):
+    batch, seq = _batch_seq(args)
+    return {
+        "x": _floating_tensor((batch, 16, 1, seq), args, dtype, device, offset=0),
+        "mean": _floating_tensor((16,), args, torch.float32, device, offset=1),
+        "std_inv": (_floating_tensor((16,), args, torch.float32, device, offset=2).abs() + 0.5),
+    }
 
 
 def _make_rms_norm_inputs(

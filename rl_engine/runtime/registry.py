@@ -66,6 +66,14 @@ class _KernelEnumMeta(EnumMeta):
 
 
 class OpBackend(Enum, metaclass=_KernelEnumMeta):
+    CUDA_LATENT_NORMALIZE = "rl_engine.backends.cuda.norm.latent_normalize.LatentNormalizeCudaOp"
+    CUDA_LATENT_DENORMALIZE = (
+        "rl_engine.backends.cuda.norm.latent_normalize.LatentDenormalizeCudaOp"
+    )
+    PYTORCH_LATENT_NORMALIZE = "rl_engine.reference.norm.latent_normalize.NativeLatentNormalizeOp"
+    PYTORCH_LATENT_DENORMALIZE = (
+        "rl_engine.reference.norm.latent_normalize.NativeLatentDenormalizeOp"
+    )
     # NVIDIA optimized stack
     FLASH_ATTN = "rl_engine.kernels.ops.cuda.attention.flash_attn.FlashAttentionOp"
     FLASHINFER = "rl_engine.kernels.ops.cuda.flashinfer.FlashInferOp"
@@ -585,6 +593,8 @@ class KernelRegistry:
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
                 "det_gemm": [OpBackend.CUDA_DET_GEMM, OpBackend.TRITON_DET_GEMM],
+                "latent_normalize": [OpBackend.CUDA_LATENT_NORMALIZE],
+                "latent_denormalize": [OpBackend.CUDA_LATENT_DENORMALIZE],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
@@ -699,6 +709,8 @@ class KernelRegistry:
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
             },
             "cpu": {
+                "latent_normalize": [OpBackend.PYTORCH_LATENT_NORMALIZE],
+                "latent_denormalize": [OpBackend.PYTORCH_LATENT_DENORMALIZE],
                 "logp": [OpBackend.PYTORCH_NATIVE],
                 "logp_deterministic": [OpBackend.PYTORCH_NATIVE],
                 "logp_deterministic_indexed": [OpBackend.PYTORCH_NATIVE],
@@ -1037,7 +1049,15 @@ class KernelRegistry:
     def get_op(self, op_type: str, device: torch.device | str | None = None) -> Any:
         """Select the best legacy operator for the requested device."""
 
+        if op_type in ("latent_normalize", "latent_denormalize") and device is not None:
+            if torch.device(device).type not in ("cpu", "cuda"):
+                raise RuntimeError(f"{op_type} is unsupported on {device}; no implicit fallback")
         platform = self._platform_for_device(device)
+        if op_type in ("latent_normalize", "latent_denormalize") and platform not in (
+            "cpu",
+            "cuda",
+        ):
+            raise RuntimeError(f"{op_type} is unsupported on {platform}; no implicit fallback")
         candidates = self._priority_map.get(platform, {}).get(op_type, [OpBackend.PYTORCH_NATIVE])
 
         for backend in candidates:
