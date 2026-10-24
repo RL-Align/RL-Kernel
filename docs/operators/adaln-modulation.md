@@ -109,14 +109,31 @@ Full-extension and H100 qualification remain separate. Indexed strict stays clos
 
 ### Strict mode and trace
 
-Pass `strict=True` when resolving the shared path to require its declared arithmetic
-profile. CPU Native and NVIDIA CUDA/Triton are permitted; indexed modulation,
-unknown backends and PyTorch execution on GPU are rejected.
+Pass `strict=True` to enforce the applicable arithmetic policy. CPU Native and
+NVIDIA CUDA/Triton retain the shared profile. Indexed strict additionally requires
+an explicit `IndexedAdaLNQualification` from `rl_engine.runtime.adaln`, passed as
+`indexed_qualification=scope` to `get_adaln_modulation_op`. Its default is `None`:
+**indexed strict delivery qualification remains closed**. Implemented policy and
+CPU policy tests do not establish hardware qualification.
 
-Strict mode rechecks the input device and hidden size at execution. It enforces
-the declared calculation policy, not hardware qualification. The indexed path
-declares its own profile but has no qualified CUDA/Triton backward equivalence
-claim.
+The immutable scope names one backend, an explicit CUDA ordinal, GPU model and
+compute capability, exact Torch/CUDA runtime versions, and the Triton version for
+Triton. It expresses activation after external evidence review; it does not
+verify a certificate or infer evidence. CUDA qualification cannot activate Triton.
+Resolution checks backend/runtime/hidden eligibility without launching kernels;
+execution rechecks actual device, GPU identity, H and the full indexed domain.
+Inputs determine shared/indexed/framework-select01 profiles on every call; there
+is no caller profile parameter. An indexed resolution may execute shared inputs
+and vice versa, but strict never permits framework select01 or unsupported input.
+Illegal input remains an input error and every failure clears earlier observations.
+
+Acceptance uses this same explicit scope and public resolver/callable path, in a
+separate source package for real Triton selection. After ticket06 accepts evidence,
+activation uses the reviewed target values without modifying arithmetic, backend
+selection or launch code. Source/binary/compiler identity, profiler and sanitizer
+evidence stay in external manifests. The scope does not attest those properties;
+a changed core path requires new affected evidence. No scope is installed globally
+or enabled by an environment variable.
 
 The returned callable is an `AdaLNDispatch` wrapper with an `implementation`
 attribute. `selected_backend` records resolution; `actual_backend`, dtype and
@@ -220,7 +237,11 @@ Shared CUDA and Triton require at most 2^31-1 elements in each input (`x` and
 contiguous copies or output/partial allocation. The CUDA extension additionally
 requires B <= 65535 and repeats its bounds checks in C++ before launch.
 
-Exceeding these limits raises an error; resolution only uses H to select fallback.
+Direct backend calls reject unsupported domains. Ordinary dispatch rechecks
+actual inputs and uses a real Native fallback when shared device/geometry is
+unsupported, preserving the shared validation and arithmetic contract. Its trace
+records `shared_cuda_domain_unsupported` or `shared_triton_domain_unsupported`.
+Strict rejects this fallback. Resolution uses the metadata available at that point.
 
 Registry dispatch uses default launch settings. Direct constructors accept
 CUDA `threads={128,256,512}` (default 256), Triton `num_warps={4,8}` (default 4)
@@ -248,7 +269,8 @@ equivalent final-result specialization, not multi-token low-precision accumulati
 Do not claim the entire SASS is free of FTZ/FMA. No compiler/runtime
 beyond the recorded acceptance environment is qualified. Unsupported geometry,
 eps, addressing and non-NVIDIA devices reject directly or explicitly fall back
-through ordinary dispatch. Strict indexed execution stays rejected.
+through ordinary dispatch. Indexed strict remains default-closed; its explicit
+activation path is implemented for acceptance and later reviewed delivery.
 
 Indexed B/S/H/eps, broadcast mode, forward/backward, upstream presence and launch
 parameters specialize kernels; S is `tl.constexpr`, so new sequence lengths need

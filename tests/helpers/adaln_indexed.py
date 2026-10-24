@@ -584,6 +584,45 @@ def require_triton_gpu():
     pytest.importorskip("triton")
 
 
+def resolve_qualified_indexed(backend, *, hidden=2, indexed=True):
+    """Acceptance uses the delivery API; this explicit opt-in is not evidence."""
+    from rl_engine.runtime.adaln import IndexedAdaLNQualification
+    from rl_engine.runtime.registry import KernelRegistry
+
+    if backend == "cuda":
+        require_cuda()
+        triton_version = None
+    else:
+        require_triton_gpu()
+        import triton
+
+        from rl_engine.backends.extension import _EXT_AVAILABLE
+
+        if os.environ.get("RLK_ADALN_TRITON_ISOLATED") != "1":
+            pytest.skip("Triton L3 requires a real extension-free source package")
+        assert not _EXT_AVAILABLE
+        triton_version = triton.__version__
+    device = torch.device("cuda", torch.cuda.current_device())
+    scope = IndexedAdaLNQualification(
+        backend=backend,
+        device=str(device),
+        device_name=torch.cuda.get_device_name(device),
+        capability=torch.cuda.get_device_capability(device),
+        torch_version=torch.__version__,
+        cuda_version=torch.version.cuda,
+        triton_version=triton_version,
+    )
+    op, trace = KernelRegistry().get_adaln_modulation_op(
+        device,
+        hidden=hidden,
+        strict=True,
+        indexed_qualification=scope,
+        modulate_index=torch.zeros(1, 8, dtype=torch.int32) if indexed else None,
+    )
+    assert trace["selected_backend"] == f"{backend.upper()}_ADALN_MODULATION"
+    return op, trace
+
+
 def check_maximum_batch(op, dtype):
     b = 65535
     x = torch.tensor([-3.0, 3.0], dtype=dtype, device="cuda").repeat(b, 2, 1).requires_grad_()

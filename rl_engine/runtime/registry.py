@@ -31,6 +31,7 @@ from rl_engine.contracts.operators.logprob import (
     MaskMode,
 )
 from rl_engine.platforms.device import device_ctx
+from rl_engine.runtime.adaln import IndexedAdaLNQualification
 from rl_engine.runtime.semantic_registry import (
     OperatorBackendDescriptor,
     OperatorFallbackPolicy,
@@ -177,9 +178,7 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     TRITON_SILU = "rl_engine.kernels.ops.triton.activation.swiglu.TritonSiLUOp"
     TRITON_SWIGLU = "rl_engine.kernels.ops.triton.activation.swiglu.TritonSwiGLUOp"
 
-    PYTORCH_ADALN_MODULATION = (
-        "rl_engine.reference.norm.adaln_modulation.NativeAdaLNModulationOp"
-    )
+    PYTORCH_ADALN_MODULATION = "rl_engine.reference.norm.adaln_modulation.NativeAdaLNModulationOp"
     TRITON_ADALN_MODULATION = (
         "rl_engine.backends.shared.triton.norm.adaln_modulation.TritonAdaLNModulationOp"
     )
@@ -1071,8 +1070,9 @@ class KernelRegistry:
         hidden: int,
         modulate_index: torch.Tensor | None = None,
         strict: bool = False,
+        indexed_qualification: IndexedAdaLNQualification | None = None,
     ) -> tuple[Any, dict[str, Any]]:
-        """Resolve AdaLN; strict permits only the shared declared replay profile."""
+        """Resolve AdaLN; indexed strict requires an explicit AdaLN-local scope."""
 
         from rl_engine.runtime.adaln import (
             INDEXED_PROFILE,
@@ -1084,19 +1084,28 @@ class KernelRegistry:
 
         if hidden <= 0:
             raise ValueError("hidden must be positive")
+        if modulate_index is not None:
+            if modulate_index.ndim != 2 or min(modulate_index.shape) == 0:
+                raise ValueError("modulate_index must have nonempty shape [B, S] or [1, S]")
+            if modulate_index.dtype not in (
+                torch.bool,
+                torch.uint8,
+                torch.int8,
+                torch.int16,
+                torch.int32,
+                torch.int64,
+            ):
+                raise TypeError("modulate_index must have boolean or integer dtype")
         profile = SELECT01_PROFILE if modulate_index is not None else SHARED_PROFILE
-        if strict and modulate_index is not None:
-            raise RuntimeError("strict AdaLN rejects select01 framework backward")
         platform = self._platform_for_device(device)
+        resolved_device = device if device is not None else device_ctx.device
         if modulate_index is not None:
             backend = OpBackend.PYTORCH_ADALN_MODULATION
             # Resolution is provisional; execution checks actual geometry, device and eps.
-            if (
-                platform == "cuda"
-                and hidden <= 4096
-            ):
+            if platform == "cuda" and hidden <= 4096:
                 for candidate in (
-                    OpBackend.CUDA_ADALN_MODULATION, OpBackend.TRITON_ADALN_MODULATION
+                    OpBackend.CUDA_ADALN_MODULATION,
+                    OpBackend.TRITON_ADALN_MODULATION,
                 ):
                     implementation = self._get_or_create_backend(candidate)
                     if implementation is not None and getattr(
@@ -1109,6 +1118,12 @@ class KernelRegistry:
                 raise RuntimeError("PyTorch select01 AdaLN fallback is unavailable")
             accelerated = backend is not OpBackend.PYTORCH_ADALN_MODULATION
             actual = adaln_backend(op)
+            if strict:
+                if not accelerated or indexed_qualification is None:
+                    raise RuntimeError(
+                        "strict AdaLN rejects unqualified indexed/select01 execution"
+                    )
+                indexed_qualification.check(actual, resolved_device)
             trace = {
                 "selected_backend": backend.name,
                 "fallback": not accelerated,
@@ -1131,7 +1146,17 @@ class KernelRegistry:
                 "requested_backend": actual,
                 "arithmetic_profile": INDEXED_PROFILE if accelerated else profile,
             }
-            return AdaLNDispatch(op, trace, hidden=hidden, strict=strict), trace
+            return (
+                AdaLNDispatch(
+                    op,
+                    trace,
+                    hidden=hidden,
+                    strict=strict,
+                    indexed_qualification=indexed_qualification,
+                    device=resolved_device,
+                ),
+                trace,
+            )
         candidates = self._priority_map[platform]["adaln_modulation"]
         rejected: list[str] = []
         for backend in candidates:
@@ -1160,7 +1185,17 @@ class KernelRegistry:
                 "requested_backend": candidates[0].name.split("_")[0].lower(),
                 "fallback_reason": "; ".join(rejected) if rejected else None,
             }
-            return AdaLNDispatch(op, trace, hidden=hidden, strict=strict), trace
+            return (
+                AdaLNDispatch(
+                    op,
+                    trace,
+                    hidden=hidden,
+                    strict=strict,
+                    indexed_qualification=indexed_qualification,
+                    device=resolved_device,
+                ),
+                trace,
+            )
         raise RuntimeError(f"No functional adaln_modulation backend on {platform}: {rejected}")
 
     def _platform_for_device(self, device: torch.device | str | None) -> str:
