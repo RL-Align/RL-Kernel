@@ -3,6 +3,7 @@
 
 """CPU checks for collective benchmark timing boundaries."""
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -13,11 +14,15 @@ from benchmarks import benchmark_deterministic_collectives as benchmark
 
 @pytest.mark.parametrize("warmup", [0, 2])
 @pytest.mark.parametrize("with_prepare", [False, True])
-def test_paired_median_us_excludes_preparation(monkeypatch, warmup, with_prepare):
+def test_paired_samples_us_excludes_preparation(monkeypatch, warmup, with_prepare):
     """Alternate each sample's order and reset NCCL inputs outside timing events."""
     clock_us = 0
     calls = []
     value = 1
+    deterministic_durations = [17, 5, 9, 4, 12]
+    nccl_durations = [19, 8, 15, 6, 11]
+    deterministic_calls = 0
+    nccl_calls = 0
 
     class Event:
         """Model CUDA events on a stream with a deterministic virtual clock."""
@@ -48,27 +53,30 @@ def test_paired_median_us_excludes_preparation(monkeypatch, warmup, with_prepare
         calls.append("prepare")
 
     def deterministic():
-        """Model an out-of-place reduction with seven microseconds of work."""
-        nonlocal clock_us
-        clock_us += 7
+        """Model an out-of-place reduction with varying sample durations."""
+        nonlocal clock_us, deterministic_calls
+        clock_us += deterministic_durations[deterministic_calls]
+        deterministic_calls += 1
         calls.append("deterministic")
 
     def nccl():
-        """Model an in-place reduction with eleven microseconds of work."""
-        nonlocal clock_us, value
+        """Model an in-place reduction with varying sample durations."""
+        nonlocal clock_us, value, nccl_calls
         if with_prepare:
             assert value == 1
         value *= 2
-        clock_us += 11
+        clock_us += nccl_durations[nccl_calls]
+        nccl_calls += 1
         calls.append("nccl")
 
     monkeypatch.setattr(benchmark.torch.cuda, "Event", Event)
     monkeypatch.setattr(benchmark.torch.cuda, "synchronize", lambda: calls.append("sync"))
-    measured = benchmark._paired_median_us(
+    measured = benchmark._paired_samples_us(
         deterministic, nccl, warmup, 3, prepare_nccl=prepare if with_prepare else None
     )
 
-    assert measured == pytest.approx((7, 11))
+    assert measured[0] == pytest.approx(deterministic_durations[warmup : warmup + 3])
+    assert measured[1] == pytest.approx(nccl_durations[warmup : warmup + 3])
     expected = []
     for count, timed in ((warmup, False), (3, True)):
         if timed:
@@ -86,8 +94,31 @@ def test_paired_median_us_excludes_preparation(monkeypatch, warmup, with_prepare
     assert calls == expected
 
 
-def test_reduction_callbacks_reuse_outputs(monkeypatch):
-    """Reuse separate reduction buffers while preserving and resetting inputs."""
+def test_gather_samples_us_preserves_rank_order_and_precision(monkeypatch):
+    """Keep each rank's complete ordered samples without float32 rounding."""
+    samples_by_rank = [[1.123456789, 3.987654321], [7.876543219, 2.234567891]]
+
+    def gather(outputs, samples):
+        """Populate gathered tensors in global-rank order."""
+        assert samples.dtype == torch.float64
+        assert samples.tolist() == samples_by_rank[1]
+        for output, rank_samples in zip(outputs, samples_by_rank, strict=True):
+            output.copy_(torch.tensor(rank_samples, dtype=torch.float64))
+
+    cpu_torch = SimpleNamespace(
+        tensor=lambda values, *, device, dtype: torch.tensor(values, dtype=dtype),
+        float64=torch.float64,
+        empty_like=torch.empty_like,
+    )
+    cpu_dist = SimpleNamespace(get_world_size=lambda: 2, all_gather=gather)
+    monkeypatch.setattr(benchmark, "torch", cpu_torch)
+    monkeypatch.setattr(benchmark, "dist", cpu_dist)
+
+    assert benchmark._gather_samples_us(samples_by_rank[1]) == samples_by_rank
+
+
+def test_reduction_callbacks_reuse_outputs_and_report_samples(monkeypatch, tmp_path):
+    """Reuse reduction buffers and report all ranks with their maximum medians."""
     outputs = {name: [] for name in ("reduce_scatter", "all_reduce")}
     nccl_outputs = {name: [] for name in outputs}
     inputs = []
@@ -138,14 +169,26 @@ def test_reduction_callbacks_reuse_outputs(monkeypatch):
             if prepare_nccl is not None:
                 prepare_nccl()
             nccl()
-        return 7.0, 11.0
+        return [7.0, 19.0], [19.0, 17.0]
+
+    def gather_samples(samples):
+        """Model different slowest ranks for deterministic and NCCL timings."""
+        if samples == [7.0, 19.0]:
+            return [samples, [20.0, 10.0]]
+        assert samples == [19.0, 17.0]
+        return [samples, [21.0, 13.0]]
 
     cpu_torch = SimpleNamespace(
-        cuda=SimpleNamespace(set_device=lambda rank: None),
+        cuda=SimpleNamespace(
+            set_device=lambda rank: None,
+            get_device_properties=lambda rank: SimpleNamespace(name="test-gpu"),
+        ),
         device=torch.device,
         empty=lambda *shape, device=None, **kwargs: torch.empty(*shape, **kwargs),
         randn=lambda *shape, device=None: torch.randn(*shape),
         empty_like=torch.empty_like,
+        __version__="test-torch",
+        version=SimpleNamespace(cuda="test-cuda"),
     )
     cpu_dist = SimpleNamespace(
         init_process_group=lambda *args, **kwargs: None,
@@ -159,8 +202,9 @@ def test_reduction_callbacks_reuse_outputs(monkeypatch):
     monkeypatch.setattr(benchmark, "torch", cpu_torch)
     monkeypatch.setattr(benchmark, "dist", cpu_dist)
     monkeypatch.setattr(benchmark, "DeterministicCollective", Collective)
-    monkeypatch.setattr(benchmark, "_paired_median_us", measure)
-    monkeypatch.setattr(benchmark, "_slowest", lambda value: value)
+    monkeypatch.setattr(benchmark, "_paired_samples_us", measure)
+    monkeypatch.setattr(benchmark, "_gather_samples_us", gather_samples)
+    report_path = tmp_path / "nested" / "timings.json"
     benchmark.main(
         [
             "--size-bytes",
@@ -172,6 +216,8 @@ def test_reduction_callbacks_reuse_outputs(monkeypatch):
             "1",
             "--iterations",
             "2",
+            "--output",
+            str(report_path),
         ]
     )
 
@@ -182,3 +228,13 @@ def test_reduction_callbacks_reuse_outputs(monkeypatch):
         assert outputs[name][0] is not nccl_outputs[name][0]
         torch.testing.assert_close(outputs[name][0], nccl_outputs[name][0])
     assert all(torch.equal(value, inputs[0]) for value in inputs)
+
+    report = json.loads(report_path.read_text())
+    assert report["world_size"] == 2
+    assert [row["operation"] for row in report["rows"]] == ["reduce_scatter", "all_reduce"]
+    for row in report["rows"]:
+        assert row["input_bytes_per_rank"] == 32
+        assert row["deterministic_samples_us"] == [[7.0, 19.0], [20.0, 10.0]]
+        assert row["nccl_samples_us"] == [[19.0, 17.0], [21.0, 13.0]]
+        assert row["deterministic_us"] == 15.0
+        assert row["nccl_us"] == 18.0
