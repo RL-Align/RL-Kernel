@@ -82,14 +82,17 @@ def _worker(rank: int, world_size: int, port: int) -> None:
                     expected = torch.empty(size * world_size, dtype=torch.uint8, device=device)
                     dist.all_gather_into_tensor(expected, shard.contiguous())
 
-                    storage = torch.zeros(
-                        size * world_size + output_offset, dtype=torch.uint8, device=device
+                    storage = torch.full(
+                        (size * world_size + output_offset,),
+                        0xA5,
+                        dtype=torch.uint8,
+                        device=device,
                     )
                     out = storage[output_offset:]
                     returned = collective.all_gather(shard, out=out)
                     assert returned is out
                     assert torch.equal(out, expected), (size, input_offset, output_offset)
-                    assert torch.count_nonzero(storage[:output_offset]) == 0
+                    assert torch.all(storage[:output_offset] == 0xA5)
             dist.barrier()
     finally:
         dist.destroy_process_group()
