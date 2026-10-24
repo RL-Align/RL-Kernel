@@ -31,7 +31,7 @@ partition metadata:
 - The frozen models are exactly unchanged.
 
 Maximum absolute error against native Megatron TP=1
-([reports](frameworks/)):
+([reports](https://github.com/fusheng-ji/RL-Kernel/tree/d5bb3ab1e9bad7d410adc67f8ecea73a9cf98872/pr548/reports/experiments/issue44_tp_ppo/frameworks/)):
 
 | Quantity | Megatron TP=2 | DeepSpeed TP=1 | DeepSpeed TP=2 |
 | --- | ---: | ---: | ---: |
@@ -74,7 +74,7 @@ Every run passes two complete PPO rounds. Each round checks:
 - trainable parameters changed;
 - frozen models unchanged.
 
-See the [run summaries](rollout/).
+See the [run summaries](https://github.com/fusheng-ji/RL-Kernel/tree/d5bb3ab1e9bad7d410adc67f8ecea73a9cf98872/pr548/reports/experiments/issue44_tp_ppo/rollout/).
 
 ## 3. vLLM rollout with live weight installation
 
@@ -92,14 +92,13 @@ hidden-size-32 configuration above applies to the shared-group checks.
 | Cached tokens right after install / on same-version replay | 0 / 16 | 0 / 16 |
 | Max behavior-logprob error (vLLM vs Actor recompute) | 4.768e-7 | 4.768e-7 |
 
-See the [summaries and runtime reports](vllm/) for per-rank assertions and
+See the [summaries and runtime reports](https://github.com/fusheng-ji/RL-Kernel/tree/d5bb3ab1e9bad7d410adc67f8ecea73a9cf98872/pr548/reports/experiments/issue44_tp_ppo/vllm/) for per-rank assertions and
 installation/cache observations.
 
-A separate dedicated four-GPU cluster check, job `1095862` (`test`, `overflow`),
-completed two rounds with Actor TP=2, Critic TP=1 and vLLM TP=1. Its final Actor
+A separate dedicated four-GPU cluster check completed two rounds with Actor TP=2, Critic TP=1 and vLLM TP=1. Its final Actor
 and Critic tensors were exactly equal between the Megatron and DeepSpeed runs;
 the maximum behavior-logprob error was `4.7684e-7` in both runs. The
-[comparison report](dedicated-four-gpu/comparison.json) also records weight
+[comparison report](https://github.com/fusheng-ji/RL-Kernel/blob/d5bb3ab1e9bad7d410adc67f8ecea73a9cf98872/pr548/reports/experiments/issue44_tp_ppo/dedicated-four-gpu/comparison.json) also records weight
 versions, cache hits and timings. This report comes from the original source
 snapshot before the repository-layout migration; it is separate from the
 other run summaries above. Its timings are observations for a tiny FP32 model,
@@ -110,7 +109,7 @@ not production throughput measurements.
 With `RUN_TP_CUDA=1`, `tests/integrations/common/test_ppo.py`,
 `tests/integrations/common/test_tp_scalar.py` and
 `tests/integrations/engines/train/test_ppo_adapters.py` report 26 passed
-([log](pytest-gpu.txt)).
+([log](https://github.com/fusheng-ji/RL-Kernel/blob/d5bb3ab1e9bad7d410adc67f8ecea73a9cf98872/pr548/reports/experiments/issue44_tp_ppo/pytest-gpu.txt)).
 
 ## 5. Validation after rebasing onto current main
 
@@ -120,7 +119,7 @@ framework adapters in `integrations/engines/train`, and the old bridge module
 remains a compatibility import. The vLLM child resolves its module from the
 checkout root after the test harness moved into `tests/distributed/tp`.
 
-The [validation report](main-rebase/validation.json) records new runs on two
+The [validation report](https://github.com/fusheng-ji/RL-Kernel/blob/d5bb3ab1e9bad7d410adc67f8ecea73a9cf98872/pr548/reports/experiments/issue44_tp_ppo/main-rebase/validation.json) records new runs on two
 B200 GPUs shared across roles, separately from the earlier four-GPU evidence.
 Both real-framework/vLLM jobs ran from outside the checkout to exercise the
 isolated child's module path.
@@ -144,7 +143,7 @@ Both trainable models changed and both frozen models remained unchanged.
 These are correctness checks for the tiny FP32 model; no production performance
 claim follows from them.
 
-Regression command ([output](main-rebase/pytest-regression.txt)):
+Regression command ([output](https://github.com/fusheng-ji/RL-Kernel/blob/d5bb3ab1e9bad7d410adc67f8ecea73a9cf98872/pr548/reports/experiments/issue44_tp_ppo/main-rebase/pytest-regression.txt)):
 
 ```bash
 RUN_TP_CUDA=1 OMP_NUM_THREADS=1 python -m pytest \
