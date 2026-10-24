@@ -51,6 +51,7 @@ def _byte_sizes(world_size: int) -> list[int]:
             per_rank_threshold,
             per_rank_threshold + 1,
             per_rank_threshold + 16,
+            1024 * 1024,
             1024 * 1024 + 5,
         }
     )

@@ -13,6 +13,9 @@ Example:
 single-block fast paths (64 KiB gathered output for ``all_gather``, 256 KiB
 for the ``reduce_scatter`` input and ``all_reduce``). NCCL rows are
 performance references only; they are not a correctness oracle.
+
+JSON timing samples are grouped by global rank, in collection order. The
+reported latency is the maximum of those ranks' median sample latencies.
 """
 
 from __future__ import annotations
@@ -60,15 +63,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _paired_median_us(
+def _paired_samples_us(
     deterministic: Callable[[], object],
     nccl: Callable[[], object],
     warmup: int,
     iterations: int,
     *,
     prepare_nccl: Callable[[], object] | None = None,
-) -> tuple[float, float]:
-    """Time both implementations in alternating order, excluding input resets."""
+) -> tuple[list[float], list[float]]:
+    """Collect alternating timing samples in microseconds, excluding resets."""
     functions = (deterministic, nccl)
     preparations = (None, prepare_nccl)
     for sample in range(warmup):
@@ -93,14 +96,15 @@ def _paired_median_us(
             end.record()
             end.synchronize()
             samples[index].append(start.elapsed_time(end) * 1e3)
-    return statistics.median(samples[0]), statistics.median(samples[1])
+    return samples
 
 
-def _slowest(value: float) -> float:
-    """Return the largest per-rank timing across the process group."""
-    tensor = torch.tensor([value], device="cuda")
-    dist.all_reduce(tensor, op=dist.ReduceOp.MAX)
-    return float(tensor.item())
+def _gather_samples_us(samples: list[float]) -> list[list[float]]:
+    """Gather timing samples in global-rank order without reducing their precision."""
+    tensor = torch.tensor(samples, device="cuda", dtype=torch.float64)
+    gathered = [torch.empty_like(tensor) for _ in range(dist.get_world_size())]
+    dist.all_gather(gathered, tensor)
+    return [rank_samples.tolist() for rank_samples in gathered]
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -146,14 +150,20 @@ def main(argv: Sequence[str] | None = None) -> None:
             for op in args.operations:
                 deterministic, nccl = cases[op]
                 prepare = partial(nccl_reduced.copy_, x) if op == "all_reduce" else None
-                deterministic_us, nccl_us = _paired_median_us(
+                deterministic_samples, nccl_samples = _paired_samples_us(
                     deterministic, nccl, args.warmup, args.iterations, prepare_nccl=prepare
                 )
+                deterministic_samples_us = _gather_samples_us(deterministic_samples)
+                nccl_samples_us = _gather_samples_us(nccl_samples)
                 row = {
                     "operation": op,
                     "input_bytes_per_rank": numel * element,
-                    "deterministic_us": _slowest(deterministic_us),
-                    "nccl_us": _slowest(nccl_us),
+                    "deterministic_us": max(
+                        statistics.median(samples) for samples in deterministic_samples_us
+                    ),
+                    "nccl_us": max(statistics.median(samples) for samples in nccl_samples_us),
+                    "deterministic_samples_us": deterministic_samples_us,
+                    "nccl_samples_us": nccl_samples_us,
                 }
                 rows.append(row)
                 if rank == 0:

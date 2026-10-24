@@ -606,6 +606,19 @@ __global__ void deterministic_reduce_scatter_fast_kernel(
   }
 }
 
+__host__ __device__ __forceinline__ bool can_vectorize_all_gather_copy(
+    const PeerPointers& peers,
+    int world_size,
+    const void* output,
+    int64_t input_bytes) {
+  uintptr_t alignment =
+      reinterpret_cast<uintptr_t>(output) | static_cast<uintptr_t>(input_bytes);
+  for (int peer = 0; peer < world_size; ++peer) {
+    alignment |= reinterpret_cast<uintptr_t>(peers.values[peer]);
+  }
+  return (alignment & 15u) == 0u;
+}
+
 // The all-gather payload copy: output[peer * input_bytes + i] = peer's byte i,
 // in rank order. When the output, the size and every peer payload are 16-byte
 // aligned, one flat index over all peers' 16-byte vectors keeps every thread
@@ -619,12 +632,7 @@ __device__ __forceinline__ void copy_rank_ordered(
     int64_t input_bytes,
     int64_t thread_index,
     int64_t stride) {
-  uintptr_t alignment =
-      reinterpret_cast<uintptr_t>(output) | static_cast<uintptr_t>(input_bytes);
-  for (int peer = 0; peer < world_size; ++peer) {
-    alignment |= reinterpret_cast<uintptr_t>(peers.values[peer]);
-  }
-  if ((alignment & 15u) == 0u) {
+  if (can_vectorize_all_gather_copy(peers, world_size, output, input_bytes)) {
     const int64_t peer_vectors = input_bytes / static_cast<int64_t>(sizeof(uint4));
     auto* destination = reinterpret_cast<uint4*>(output);
     for (int64_t index = thread_index; index < peer_vectors * world_size; index += stride) {
@@ -1923,9 +1931,13 @@ class DeterministicCollectiveState {
       publish_done(stream);
       return;
     }
+    const int64_t work_items = can_vectorize_all_gather_copy(
+        peers_, world_size_, output.data_ptr(), staged_bytes_)
+        ? output_bytes / static_cast<int64_t>(sizeof(uint4))
+        : output_bytes;
     const int blocks = static_cast<int>(std::min<int64_t>(
         kMaxBlocks,
-        (output_bytes + kThreads - 1) / kThreads));
+        (work_items + kThreads - 1) / kThreads));
     deterministic_all_gather_kernel<<<blocks, kThreads, 0, stream>>>(
         peers_,
         static_cast<uint8_t*>(output.data_ptr()),
