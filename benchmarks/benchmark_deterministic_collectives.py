@@ -60,7 +60,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--warmup", type=int, default=20)
     parser.add_argument("--iterations", type=int, default=100)
     parser.add_argument("--output", type=Path)
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.iterations <= 0:
+        parser.error("--iterations must be positive")
+    element = torch.empty((), dtype=_DTYPES[args.dtype]).element_size()
+    if any(size <= 0 or size % element != 0 for size in args.size_bytes):
+        parser.error(
+            f"--size-bytes values must be positive and divisible by "
+            f"the {element}-byte dtype element size"
+        )
+    return args
 
 
 def _paired_samples_us(
@@ -136,7 +145,9 @@ def main(argv: Sequence[str] | None = None) -> None:
                 ),
                 "all_gather_many": (
                     partial(collective.all_gather_many, (x,)),
-                    partial(dist.all_gather_into_tensor, gathered, x),
+                    lambda out=gathered, src=x: dist.all_gather_into_tensor(
+                        out.new_empty(out.shape), src
+                    ),
                 ),
                 "reduce_scatter": (
                     partial(collective.reduce_scatter, reduce_in, out=deterministic_scattered),
@@ -157,7 +168,9 @@ def main(argv: Sequence[str] | None = None) -> None:
                 nccl_samples_us = _gather_samples_us(nccl_samples)
                 row = {
                     "operation": op,
-                    "input_bytes_per_rank": numel * element,
+                    "input_bytes_per_rank": (
+                        reduce_in.numel() * element if op == "reduce_scatter" else numel * element
+                    ),
                     "deterministic_us": max(
                         statistics.median(samples) for samples in deterministic_samples_us
                     ),
@@ -182,6 +195,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             "world_size": world,
             "dtype": args.dtype,
             "gpu": props.name,
+            "warmup": args.warmup,
+            "iterations": args.iterations,
             "torch": torch.__version__,
             "cuda": torch.version.cuda,
             "rows": rows,

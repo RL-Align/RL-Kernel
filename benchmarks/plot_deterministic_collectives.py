@@ -57,7 +57,7 @@ def main() -> None:
                 f"{before_path} and {after_path} have different world sizes: "
                 f"{before_report['world_size']} != {after_report['world_size']}"
             )
-        for field in ("gpu", "dtype"):
+        for field in ("gpu", "dtype", "torch", "cuda", "warmup", "iterations"):
             if before_report[field] != after_report[field]:
                 raise SystemExit(
                     f"{before_path} and {after_path} have different {field} values: "

@@ -232,9 +232,20 @@ def test_reduction_callbacks_reuse_outputs_and_report_samples(monkeypatch, tmp_p
     report = json.loads(report_path.read_text())
     assert report["world_size"] == 2
     assert [row["operation"] for row in report["rows"]] == ["reduce_scatter", "all_reduce"]
+    assert (report["warmup"], report["iterations"]) == (1, 2)
+    assert [row["input_bytes_per_rank"] for row in report["rows"]] == [64, 32]
     for row in report["rows"]:
-        assert row["input_bytes_per_rank"] == 32
         assert row["deterministic_samples_us"] == [[7.0, 19.0], [20.0, 10.0]]
         assert row["nccl_samples_us"] == [[19.0, 17.0], [21.0, 13.0]]
         assert row["deterministic_us"] == 15.0
         assert row["nccl_us"] == 18.0
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [["--iterations", "0"], ["--size-bytes", "0"], ["--size-bytes", "33"]],
+)
+def test_parse_args_rejects_invalid_workloads(argv):
+    """Reject workloads that would produce no samples or truncated tensors."""
+    with pytest.raises(SystemExit):
+        benchmark.parse_args(argv)
