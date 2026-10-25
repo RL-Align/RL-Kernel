@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import json
 import math
 import re
@@ -103,7 +104,75 @@ def _validate_topology(value: Any) -> list[str]:
         errors.append(
             "manifest rollout_engines does not match rollout_gpus // rollout_gpus_per_engine"
         )
+    layout = value.get("rollout_layout", "regular")
+    if layout not in {"regular", "1p1d"}:
+        errors.append(f"unknown rollout layout {layout!r}")
+    elif layout == "1p1d" and (
+        tensor_parallel,
+        context_parallel,
+        rollout_tp,
+        rollout_cp,
+        rollout_engines,
+    ) != (4, 2, 4, 1, 2):
+        errors.append("1p1d requires training TP4/CP2 and one TP4 prefill plus one TP4 decode")
     return errors
+
+
+def _validate_pd_disaggregation(manifest: Mapping[str, Any], log_text: str) -> dict[str, Any]:
+    topology = manifest.get("topology", {})
+    if not isinstance(topology, Mapping) or topology.get("rollout_layout", "regular") != "1p1d":
+        return {"required": False, "passed": True, "errors": []}
+    errors: list[str] = []
+    routing = manifest.get("rollout_routing", {})
+    command = manifest.get("train_command", [])
+    expected_groups = [
+        {"worker_type": role, "num_gpus": 4, "num_gpus_per_engine": 4}
+        for role in ("prefill", "decode")
+    ]
+    if not isinstance(routing, Mapping) or routing.get("layout") != "1p1d":
+        errors.append("1p1d rollout routing is missing")
+        routing = {}
+    if routing.get("server_groups") != expected_groups:
+        errors.append("1p1d manifest must specify one TP4 prefill and one TP4 decode group")
+    config_path = routing.get("vllm_config")
+    if (
+        not isinstance(command, list)
+        or not isinstance(config_path, str)
+        or not any(
+            command[index : index + 2] == ["--vllm-config", config_path]
+            for index in range(max(0, len(command) - 1))
+        )
+    ):
+        errors.append("1p1d train command must pass the recorded --vllm-config")
+    try:
+        config_bytes = Path(config_path).read_bytes() if isinstance(config_path, str) else b""
+        config = json.loads(config_bytes)
+        models = config.get("vllm", []) if isinstance(config, Mapping) else []
+        if len(models) != 1 or models[0] != {
+            "name": "default",
+            "update_weights": True,
+            "server_groups": expected_groups,
+        }:
+            errors.append("1p1d vLLM config has different worker roles or weight-update policy")
+        if hashlib.sha256(config_bytes).hexdigest() != routing.get("vllm_config_sha256"):
+            errors.append("1p1d vLLM config changed since submission")
+    except (OSError, ValueError, TypeError) as exc:
+        errors.append(f"cannot validate 1p1d vLLM config: {exc}")
+    for role in ("prefill", "decode"):
+        if f"Engine group '{role}'" not in log_text:
+            errors.append(f"vime did not report a {role} engine group")
+    execution = manifest.get("vllm_execution", {})
+    batching = manifest.get("batching", {})
+    batch_size = batching.get("rollout_batch_size") if isinstance(batching, Mapping) else None
+    samples = batching.get("n_samples_per_prompt") if isinstance(batching, Mapping) else None
+    concurrency = batch_size * samples if type(batch_size) is int and type(samples) is int else 0
+    if (
+        not isinstance(execution, Mapping)
+        or concurrency <= 0
+        or execution.get("capture_sizes") != list(range(1, concurrency + 1))
+    ):
+        errors.append("1p1d decode graph must cover the full request concurrency")
+    return {"required": True, "passed": not errors, "errors": errors}
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -485,6 +554,7 @@ def validate_run(run_dir: Path) -> dict[str, Any]:
     records = _parse_runtime_records(log_text)
     require_zero = all(str(arm[CASE_FIELDS[module]]) == "R/R" for module in MODULES)
     cudagraph = _validate_cudagraph(log_text, manifest)
+    pd_disaggregation = _validate_pd_disaggregation(manifest, log_text)
     raw_readbacks = _load_readbacks(run_dir / "readbacks")
     readbacks = _validate_readbacks(raw_readbacks, arm, log_text)
     pcp = _validate_pcp_readbacks(raw_readbacks, manifest["topology"], arm)
@@ -615,6 +685,7 @@ def validate_run(run_dir: Path) -> dict[str, Any]:
         "group": arm.get("group"),
         "passed": bool(
             cudagraph["passed"]
+            and pd_disaggregation["passed"]
             and readbacks["passed"]
             and pcp["passed"]
             and logprobs["passed"]
@@ -623,6 +694,7 @@ def validate_run(run_dir: Path) -> dict[str, Any]:
         ),
         "errors": global_errors,
         "cudagraph": cudagraph,
+        "pd_disaggregation": pd_disaggregation,
         "runtime_readbacks": readbacks,
         "pcp_execution": pcp,
         "train_rollout_logprob": logprobs,
