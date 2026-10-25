@@ -108,13 +108,9 @@
     },
     "included_files_sha256": {
       "sm90-h800/env.txt": "13d42ff62485307c55d4af5efe7fb6e7633a8f37a869d975d70249b1acaaaebf",
-      "sm90-h800/run_a.log": "e94695df1a4bab87c590e51b2231b179d91dc935674ad39a9388508f5854b593",
       "sm90-h800/run_a.xml": "4797238671384fbeb1ad9ddd54fa18ba48d760d18d69207f354ca291c3882604",
-      "sm90-h800/run_b.log": "62bf01571a0e70e8e095ed7e59fe5dc0e68b760e51f9abeca658cbd33b938aee",
       "sm90-h800/run_b.xml": "86cfec27c58060990317720777ce63b51dc208d09962445f1bca3a8121e5a658",
-      "sm90-h800/run_c.log": "7b46d39f310343f35776b76dc26405bb67bc9c047abd8bc1c987724de04cc12b",
       "sm90-h800/run_c.xml": "e2ea3433d80e7634976819856123659d6dafa8b3c747b964afc192e90ca802d2",
-      "sm90-h800/bench.log": "30acf2fb3ae50aed57efad735565b4225021ed13b9c81e1165995c8cf09b5224",
       "sm90-h800/benchmark-h800.json": "769b89b16679bdc5db365a2cc10f1dc7cc1966d72fbcf5ce0aae5a9d61b73d4c",
       "sm90-h800/pr566_sm90_evidence.md": "5ecf4b0672fd41bf74f9ce9f0484ed07fce252e3c6aadc490a5dd8b1080a9e81"
     },
@@ -131,7 +127,7 @@
       "sm90-h800/pr566_sm90_evidence.md": "f4edb693161ce5a212c4da47f9e2737f3b35ec1f78ddd2908700f0e76e81e0c6"
     },
     "benchmark_gate": "path C (Triton) bitwise equal to path A (CPU reference) for all 8 cases; gate wall incl. Triton compilation 1143.6 ms, excluded from timed samples; benchmark-h800.json is byte-identical to the server original except an appended final newline",
-    "redaction": "GPU UUID, container hostname and /root/... paths removed from the committed logs, JUnit XML and report (JUnit hostname attribute dropped, as for the 4090D XML; host paths additionally replaced by REPO_ROOT / EVIDENCE_DIR / MINICONDA_PYTHON tokens, one step beyond the 4090D precedent). A final newline was appended to the three XMLs and to benchmark-h800.json for the end-of-file-fixer hook; env.txt needed no change. original_server_sha256 records the pre-redaction originals (verified 10/10 against the host before it was released); included_files_sha256 refers to the committed, redacted files.",
+    "redaction": "GPU UUID, container hostname and /root/... paths removed from the committed logs, JUnit XML and report (JUnit hostname attribute dropped, as for the 4090D XML; host paths additionally replaced by REPO_ROOT / EVIDENCE_DIR / MINICONDA_PYTHON tokens, one step beyond the 4090D precedent). A final newline was appended to the three XMLs and to benchmark-h800.json for the end-of-file-fixer hook; env.txt needed no change. The four standalone console logs (run_a/b/c.log, bench.log) are excluded by the repository-wide *.log ignore rule — as in the 4090D evidence directory — so they are not committed; their full text is embedded verbatim in sm90-h800/pr566_sm90_evidence.md and their hashes are recorded in original_server_sha256. included_files_sha256 covers the committed, redacted files.",
     "binding": "Tested tree 40070d3 = a66c999 (default-backend change) plus the test-h3 merge (eae0118). Reference, CUDA backend, fixture and reference test are byte-identical to the 4090D snapshot; the dispatch and CUDA tests and the benchmark differ (a66c999 split one registry test into two and rewrote dispatch assertions; every kernel bit assertion is unchanged). After the run, commit ace9c20 changed only the benchmark's GPU-without-Triton and HIP/ROCm branches (not executed on the H800 host; the run took the NVIDIA + Triton branch, whose logic, order, samples and JSON keys are unchanged) plus documentation: current sha256 benchmarks/models/benchmark_h3_sigma_schedule.py 04e2403ec4093245583d48f0e8a1b8645d6810743cbb9534a762335251ed4d16, docs/operators/h3-sigma-schedule.md 8f31e87df382178a4001167a29ab53c7062d3eef1b577bf683c7817b6de11956. Those new branches were verified by CPU-only execution, _summarize simulations and static review; they have not run on GPU or HIP hardware."
   }
 }

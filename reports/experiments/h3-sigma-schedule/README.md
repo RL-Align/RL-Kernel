@@ -71,9 +71,13 @@ These are single-operator results, with no whole-model speedup claim.
 Collected on 2026-10-26 on a rented SM90 host (one **NVIDIA H800 PCIe**, per
 `nvidia-smi`), with the same three pytest invocations and the same benchmark
 command as above, at tested commit
-`40070d37495d193e2d8764837321d3a68dad9483` (`40070d3`). Raw logs, JUnit XML,
-the benchmark JSON and the full collection report are in
-[sm90-h800/](sm90-h800/). GPU UUID, container hostname and `/root/…` paths
+`40070d37495d193e2d8764837321d3a68dad9483` (`40070d3`). The JUnit XML for each
+run, the benchmark JSON, the environment snapshot and the full collection
+report (which embeds the raw console logs verbatim) are in
+[sm90-h800/](sm90-h800/). The standalone console `.log` files are excluded by
+the repository-wide `*.log` ignore rule — as in the 4090D directory; their
+hashes are recorded in `source-provenance.json` (`original_server_sha256`).
+GPU UUID, container hostname and `/root/…` paths
 were redacted: the JUnit `hostname` attribute was removed (as for the 4090D
 XML, which keeps the historical `/root/…` skip-message paths — the SM90 files
 additionally replace them with `REPO_ROOT` / `EVIDENCE_DIR` /
