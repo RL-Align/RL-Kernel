@@ -159,6 +159,18 @@ multi-GPU execution and full-repository native builds remain unverified.
 The target branch's GitHub workflows did not execute these GPU acceptance runs.
 An older local double-free remains undiagnosed; the isolated H100 suites passed.
 
+## Historical evidence downloads
+
+Complete A100/H100 results are published separately from the merge diff. These are historical executions, not a new GPU run. The A100 derivative replaces one device UUID with `<GPU_UUID>`; measurements and original artifact hashes are unchanged. H100 is byte-identical to the preserved bundle.
+
+- [Provenance and limitations](https://gist.githubusercontent.com/zzf2024/013d1510aa34a3a29d27574bf9159bfa/raw/d15136a4a9eefc586c33fea4a1a1b396a0675bf4/README.md)
+- [Checksum manifest](https://gist.githubusercontent.com/zzf2024/013d1510aa34a3a29d27574bf9159bfa/raw/d15136a4a9eefc586c33fea4a1a1b396a0675bf4/SHA256SUMS)
+
+| Bundle | SHA256 |
+| --- | --- |
+| [a100-results.json](https://gist.githubusercontent.com/zzf2024/013d1510aa34a3a29d27574bf9159bfa/raw/d15136a4a9eefc586c33fea4a1a1b396a0675bf4/a100-results.json) | `6871f6908d1f51df5d668f14f70a341b147d0ab154f8a562b832e2cdc5a34493` |
+| [h100-results.json](https://gist.githubusercontent.com/zzf2024/013d1510aa34a3a29d27574bf9159bfa/raw/d15136a4a9eefc586c33fea4a1a1b396a0675bf4/h100-results.json) | `21184e8ed4acb6b7edd4786236603ee857d3534bf46b3b055a3e8da13ed21762` |
+
 Additional reproduction commands, with isolated output paths:
 
 ```bash
