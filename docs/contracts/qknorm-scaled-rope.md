@@ -141,7 +141,7 @@ parity results are limited to the reported environments; compiler-IR qualificati
 and performance work remain outstanding.
 
 The forward candidates select CUDA `rsqrtf` and Triton `libdevice.rsqrt`, while the
-model reference keeps `torch.pow(m32, -0.5)`. The [SM89 experiment](../../reports/f2-rsqrt-2026-10-24/README.md)
+model reference keeps `torch.pow(m32, -0.5)`. The SM89 experiment (local experiment record; not included in this PR)
 found zero FP32 mismatches against PyTorch on 1,114,119 sampled inputs with
 PyTorch 2.14.1+cu132 and Triton 3.8.0. Direct CUDA/Triton pow candidates disagreed.
 This is measured compatibility on that environment, not equivalence for all inputs
@@ -284,11 +284,11 @@ compiles only F2, uses PyTorch's default C++ standard, and adds explicit no-fast
 CUDA flags. The CUDA/ROCm build now delegates the C++ standard to PyTorch rather
 than forcing C++17 (PyTorch 2.14 requires C++20). The standard SM80 extension build
 and 73 targeted tests passed; fixed-data outputs matched the isolated build bitwise.
-See the [SM80 integration report](../../reports/f2-sm80-integration-2026-10-24/README.md)
+See the SM80 integration report (local experiment record; not included in this PR)
 for artifacts and preliminary call timings. Other platforms and cross-GPU bitwise
 identity remain unvalidated.
 
-The [SM89 forward validation](../../reports/f2-forward-2026-10-24/README.md) passed
+The SM89 forward validation (local experiment record; not included in this PR) passed
 37 tests (reference and forward suites, no skips), including direct CUDA/Triton
 bit-pattern comparisons of BF16 outputs and FP32 rstd. This does not qualify backward,
 other GPU targets, table provenance or the repository-wide extension build.
@@ -297,20 +297,20 @@ CUDA forward now delegates position-range checking to its checked native entry
 point, avoiding a duplicate Python GPU-to-host bounds check. Python still validates
 metadata and preserves its ValueError for out-of-range positions; Triton still
 checks bounds in Python. No validation is cached. See the
-[SM80 bounds-check regression](../../reports/f2-sm80-bounds-2026-10-24/README.md):
+SM80 bounds-check regression (local experiment record; not included in this PR):
 80 targeted tests passed and fixed-data outputs remained bitwise identical.
 
 Triton now uses one warp per head on SM80, following a 1/2/4-warp sweep and
 80-test regression. Other architectures retain four warps. The logical reduction
 tree and rounding rules are unchanged. See the
-[SM80 warp-tuning report](../../reports/f2-sm80-warps-2026-10-24/README.md)
+SM80 warp-tuning report (local experiment record; not included in this PR)
 for bitwise checks and device-side timing methodology.
 
 Position bounds validation is now fused separately from the floating-point
 operator: CUDA and Triton each scan int64 positions in one predicate kernel and
 read one int32 flag on the host. This integer reduction does not change the FP32
 arithmetic tree. Empty inputs skip validation, no validity is cached, and graph
-capture remains unsupported. The [validation-fusion report](../../reports/f2-fused-bounds-2026-10-24/README.md)
+capture remains unsupported. The validation-fusion report (local experiment record; not included in this PR)
 records 94 passing tests, unchanged fixed-data outputs, sanitizer results and
 Nsight confirmation of one validation kernel and one synchronization per check.
 
@@ -339,7 +339,7 @@ backward binding validates gradient and saved-rstd geometry, device and dtype.
 Bounds validation remains synchronous; graph capture and runtime registry binding
 are not provided by this entry point.
 
-The [SM89 first-order validation](../../reports/f2-backward-2026-10-24/README.md)
+The SM89 first-order validation (local experiment record; not included in this PR)
 passed 64 reference/forward/backward tests with no skips. CUDA/Triton gradients
 matched bitwise on the tested cases; independent FP64 autograd comparisons used
 the unchanged provisional 0.03 relative-L2 bound, checked per head in GPU tests.
@@ -382,13 +382,13 @@ CPU artifact loading supports tests; it does not introduce a CPU kernel fallback
 No canonical cross-platform hash is hardcoded or inferred from an arbitrary
 external table. The standard SM80 extension and complete targeted suite passed
 120 tests with no skips, including table round trips and public-entry rejection.
-See [table identity validation](../../reports/f2-table-identity-2026-10-24/README.md)
+See table identity validation (local experiment record; not included in this PR)
 for identity, timing samples and limitations.
 
 
 ## Native eager performance baseline
 
-The [A100 native baseline report](../../reports/f2-native-benchmark-2026-10-24/README.md)
+The A100 native baseline report (local experiment record; not included in this PR)
 compares the pinned native eager functions with both public fused backends, covering
 forward, backward and combined training calls at T=1/128/2048. It includes lookup
 and dispatch overhead, excludes table creation, and makes no full-model speedup claim.
@@ -396,7 +396,7 @@ and dispatch overhead, excludes table creation, and makes no full-model speedup 
 
 ## A100–H100 validation
 
-The [H100 report](../../reports/f2-h100-2026-10-24/README.md) records 121 passing
+The H100 report (local experiment record; not included in this PR) records 121 passing
 tests and zero bit differences across 144 tensor comparisons against A100 VJP v2.
 The cross-device probe reuses identical inputs and the verified A100 table.
 This validates the tested SM80/cu130 and SM90/cu132 environments, not all GPUs

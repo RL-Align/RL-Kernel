@@ -2,7 +2,7 @@
 
 Status: arithmetic mapping checked and integrated for SM80 after isolated and
 standard-build validation. Other architectures retain the shared-memory tree.
-See [validation evidence](../../reports/f2-sm80-shuffle-2026-10-24/README.md).
+See validation evidence (local experiment record; not included in this PR).
 This proposal preserves the 128-thread block and all 127 ordered FP32 addition
 nodes. It changes transport/storage only for the final five stages. It is not a
 replacement with an unspecified warp-reduction primitive.
@@ -103,22 +103,16 @@ synchronization correctness, absence of races, cross-GPU identity or performance
 NaN payload behavior and the broader overflow/nonfinite contract remain unresolved;
 this proposal does not extend the declared numerical domain.
 
-## Executable structural check
+## Structural verification scope
 
-Run:
-
-```bash
-python reports/f2-reduction-mapping-2026-10-24/check_mapping.py
-```
-
-The script compares nested ordered `fadd_rn` expressions for **all 127 nodes**, not
-just the final contributing-index set. It also rejects a negative control that
-first reduces each contiguous 32-element warp and then combines four warp sums.
-Results are saved in `reports/f2-reduction-mapping-2026-10-24/result.json`.
+A local experimental checker compared the nested ordered `fadd_rn` expressions
+for all 127 nodes and rejected a contiguous-warp-first negative control. That
+experimental script is not shipped in this PR; the node mapping and argument
+above document the implementation contract.
 
 ## Implementation acceptance
 
-The SM80 validation linked above completed the following checks: build the candidate in isolation; inspect generated
+The SM80 local validation described above completed the following checks: build the candidate in isolation; inspect generated
 PTX/SASS for preserved FP32 operations and intended shuffle/barrier layout; test
 cancellation-sensitive signed reductions and dynamic ranges; compare forward,
 rstd and backward against the original CUDA/Triton/reference paths; run available
