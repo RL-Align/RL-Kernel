@@ -37,17 +37,21 @@ numbers exclude compilation by construction. The benchmark calls the op
 classes directly (registry bypassed for timing); registry-entry identity
 and correctness are pinned by tests/runtime/ and tests/backends/cuda/.
 
-Before any timing on a GPU host, path C is verified bitwise against path A
-for every measured case (sigmas, timesteps, and num_model_evals); a
-mismatch aborts with exit code 2 and no performance numbers are produced.
+Before any timing on a GPU host where the Triton backend is available, path C
+is verified bitwise against path A for every measured case (sigmas,
+timesteps, and num_model_evals); a mismatch aborts with exit code 2 and no
+performance numbers are produced.
 
 Exit codes: 0 on success; 2 on the pre-timing correctness gate; nonzero on
 invalid arguments, and on any Triton compile, launch, or runtime failure
-after the backend was confirmed available. The Triton section is skipped
-only for a *confirmed* absent backend: no CUDA/HIP device
-(``torch.cuda.is_available()`` false) or a confirmed missing Triton import
-on a GPU host. The script runs from an uninstalled checkout (it bootstraps
-the repository root onto ``sys.path``).
+after the backend was confirmed available. Path B needs only torch and a
+device, so it is measured on every GPU host. Path C (and its gate) is
+skipped only for a *confirmed* absent backend — a missing Triton import on a
+GPU host — or recorded as unsupported on a HIP/ROCm build, where the
+NVIDIA-only kernels (inline PTX) refuse construction. Without any CUDA/HIP
+device (``torch.cuda.is_available()`` false) both B and C are skipped. The
+script runs from an uninstalled checkout (it bootstraps the repository root
+onto ``sys.path``).
 
 The grid is tiny (4 KB at N=1000), so GPU launch overhead may exceed the
 arithmetic — the numbers are what they are, and this benchmark does not
@@ -212,7 +216,16 @@ def _summarize(report: dict) -> dict:
     summary = {"definition": _SPEEDUP_NOTE, "cases": {}}
     path_b = report.get("path_b_reference_cpu_build_then_copy_to_gpu")
     path_c = report.get("path_c_triton_device_build")
-    if not path_b or not path_c or "skipped" in path_b or "skipped" in path_c:
+    # A path that was skipped or recorded as unsupported carries no per-case
+    # timings, so there is no ratio to compute (B alone is still reported).
+    if (
+        not path_b
+        or not path_c
+        or "skipped" in path_b
+        or "unsupported" in path_b
+        or "skipped" in path_c
+        or "unsupported" in path_c
+    ):
         return summary
     for key, case_b in path_b.items():
         case_c = path_c[key]
@@ -271,26 +284,47 @@ def main(argv: list[str] | None = None) -> int:
 
             report["triton"] = triton.__version__
         except ImportError as exc:
+            # Path B is the registry default path and needs only torch plus a
+            # device, so a missing Triton skips path C alone.
             skip = f"triton import failed on a GPU host: {exc}"
-            report["path_b_reference_cpu_build_then_copy_to_gpu"] = {"skipped": skip}
-            report["path_c_triton_device_build"] = {"skipped": skip}
-            print(f"paths B and C: skipped — triton missing ({exc})")
-        else:
-            print("verifying path C against path A bitwise before timing...")
-            gate_ms = _verify_triton_matches_reference()
-            report["correctness_gate_wall_ms"] = gate_ms
-            print(
-                "correctness gate passed "
-                f"(includes Triton kernel compilation: {gate_ms:.1f} ms wall, "
-                "reported once, excluded from all timed samples)"
-            )
-
             print(f"path B (reference, cpu build, outputs moved to gpu): {args.samples} calls")
             report["path_b_reference_cpu_build_then_copy_to_gpu"] = _time_reference(
                 args.samples, args.warmup, device="cuda"
             )
-            print(f"path C (triton, device build): {args.samples} calls")
-            report["path_c_triton_device_build"] = _time_triton(args.samples, args.warmup)
+            report["path_c_triton_device_build"] = {"skipped": skip}
+            print(f"path C: skipped — triton missing ({exc})")
+        else:
+            if torch.version.hip is not None:
+                # Triton may import on a HIP host, but the backend is NVIDIA-only
+                # (inline PTX) and refuses construction: record that instead of
+                # letting the ImportError escape from inside the correctness gate.
+                unsupported = (
+                    "HIP/ROCm build: the Triton backend is NVIDIA-only (inline PTX "
+                    "div.rn.f32) and refuses construction; the bitwise correctness "
+                    "gate was not run"
+                )
+                print(f"path B (reference, cpu build, outputs moved to gpu): {args.samples} calls")
+                report["path_b_reference_cpu_build_then_copy_to_gpu"] = _time_reference(
+                    args.samples, args.warmup, device="cuda"
+                )
+                report["path_c_triton_device_build"] = {"unsupported": unsupported}
+                print("path C: unsupported — NVIDIA-only backend on a HIP/ROCm build")
+            else:
+                print("verifying path C against path A bitwise before timing...")
+                gate_ms = _verify_triton_matches_reference()
+                report["correctness_gate_wall_ms"] = gate_ms
+                print(
+                    "correctness gate passed "
+                    f"(includes Triton kernel compilation: {gate_ms:.1f} ms wall, "
+                    "reported once, excluded from all timed samples)"
+                )
+
+                print(f"path B (reference, cpu build, outputs moved to gpu): {args.samples} calls")
+                report["path_b_reference_cpu_build_then_copy_to_gpu"] = _time_reference(
+                    args.samples, args.warmup, device="cuda"
+                )
+                print(f"path C (triton, device build): {args.samples} calls")
+                report["path_c_triton_device_build"] = _time_triton(args.samples, args.warmup)
 
     report["summary"] = _summarize(report)
 

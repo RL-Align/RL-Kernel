@@ -22,7 +22,11 @@ schedule.num_model_evals # M - 1 (deduplicated length drives the count)
 ```
 
 `get_op` returns the PyTorch reference on every platform, CUDA included: the
-grid is built on CPU and both outputs are moved to `device`.
+grid is built on CPU and both outputs are moved to `device`. When `device` is
+omitted, the reference returns CPU tensors while the opt-in Triton backend
+builds on `cuda` by default — callers should always pass `device=` explicitly.
+Both per-backend defaults are intentional and pinned by the existing tests;
+the default-backend switch did not change them.
 
 ## Opt-in: device-side Triton backend
 
@@ -95,6 +99,24 @@ or on a HIP/ROCm build, so an opt-in that cannot be honored fails explicitly
 (semantic `instantiate` raises `OperatorInstantiationError`) instead of
 silently swapping arithmetic (see
 [Runtime Dispatch](../architecture/runtime-dispatch.md)).
+
+The two selection layers differ in fallback semantics and device scope:
+
+- Candidate-list fallback belongs to the legacy `kernel_registry.get_op` path
+  only: it moves to the next candidate when a backend cannot be constructed.
+  For `sigma_schedule_h3` every platform list holds the reference alone, so
+  there is nothing to fall back from or to.
+- The semantic path never falls back.
+  `session.resolve(requested_backend="rlkernel.h3_sigma_schedule.triton")`
+  requires that exact backend to be registered and to match the request
+  (declared `supported_devices={"cuda"}`, `fallback_policy=ERROR`). When
+  Triton is not importable, resolution still succeeds but
+  `session.instantiate` raises `OperatorInstantiationError`
+  (`"triton is required"`); the reference is not substituted.
+- The semantic reference descriptor declares
+  `supported_devices={"cpu", "cuda", "rocm"}` and `fallback_policy=ERROR` —
+  it does not cover MUSA or NPU, whereas the legacy `get_op` lists serve the
+  reference on those platforms too.
 
 ## Accuracy
 
