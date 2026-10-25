@@ -209,8 +209,19 @@ def _error_boxes(ax, title: str, series: list[tuple[str, str, list[float]]], con
     ax.set_xlim(-0.6, len(series) - 0.1)
 
 
+def mlp_title(report: dict[str, Any]) -> str:
+    """Figure title that names the weights the report was measured with."""
+
+    source = report["accuracy"].get("weights_source")
+    label = {
+        "pinned": "pinned time_embedder weights",
+        "random": "random same-shape weights, not the checkpoint",
+    }.get(source, "weight source not recorded")
+    return f"timestep_mlp_fp32  ({label})"
+
+
 def plot_mlp(report: dict[str, Any]):
-    fig, (left, right) = _figure(report, "timestep_mlp_fp32  (pinned time_embedder weights)")
+    fig, (left, right) = _figure(report, mlp_title(report))
     _latency_panel(left, report["perf"], "diffusers (cuBLAS)")
     acc = report["accuracy"]
     _error_boxes(

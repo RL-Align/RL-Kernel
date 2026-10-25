@@ -94,7 +94,7 @@ def time_interleaved(
 
 def measure(case: dict[str, Any], warmup: int = 20, iters: int = 200) -> dict[str, Any]:
     row: dict[str, Any] = {
-        key: case[key] for key in ("op", "case", "backend", "bytes") if key in case
+        key: case[key] for key in ("op", "case", "backend", "bytes", "weights") if key in case
     }
     keys = [key for key in TIMED_KEYS if key in case]
     medians, executed = time_interleaved({key: case[key] for key in keys}, warmup, iters)
@@ -155,17 +155,21 @@ def _sinusoid_accuracy(registry: KernelRegistry) -> dict[str, Any]:
     return {"contract_atol": 1e-5, "cases": rows}
 
 
-def h3_params(names: list[str], shapes: list[tuple[int, ...]]) -> list[torch.Tensor]:
-    """Pinned checkpoint tensors when available, otherwise same-shape random ones."""
+def h3_params(names: list[str], shapes: list[tuple[int, ...]]) -> tuple[list[torch.Tensor], str]:
+    """Pinned checkpoint tensors when available, otherwise same-shape random ones.
+
+    Returns the tensors and their source, ``"pinned"`` or ``"random"``; the evidence stores it so a
+    report made without the pinned checkpoint cannot pass for one that used it.
+    """
 
     if h3_weights_dir() is not None:
         weights = load_h3_conditioning_weights("cuda", names)
-        return [weights[name] for name in names]
+        return [weights[name] for name in names], "pinned"
     generator = torch.Generator(device="cuda").manual_seed(0)
     return [
         torch.randn(shape, device="cuda", generator=generator) * shape[-1] ** -0.5
         for shape in shapes
-    ]
+    ], "random"
 
 
 # --------------------------------------------------------------------------- #
@@ -178,7 +182,7 @@ MLP_SHAPES = [(5376, 256), (5376,), (2688, 5376), (2688,)]
 
 def _mlp_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
     op = registry.get_op("timestep_mlp_fp32", device="cuda")
-    params = h3_params(MLP_NAMES, MLP_SHAPES)
+    params, weights_source = h3_params(MLP_NAMES, MLP_SHAPES)
     weight_bytes = sum(p.numel() * p.element_size() for p in params)
     cases = []
     for num in (1, 2, 3, 4):
@@ -190,6 +194,7 @@ def _mlp_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
                 "case": f"T={num}",
                 "backend": type(op).__name__,
                 "bytes": weight_bytes,
+                "weights": weights_source,
                 "candidate": lambda x=x: op(x, *params),
                 "provider": lambda x=x: provider_time_embedder(x, *params),
             }
@@ -201,7 +206,7 @@ def _mlp_accuracy(registry: KernelRegistry, draws: int = 200) -> dict[str, Any]:
     op = registry.get_op("timestep_mlp_fp32", device="cuda")
     golden = registry._get_or_create_backend(registry._priority_map["cpu"]["timestep_mlp_fp32"][-1])
     sinusoid = registry.get_op("timestep_sinusoid_h3", device="cuda")
-    params = h3_params(MLP_NAMES, MLP_SHAPES)
+    params, weights_source = h3_params(MLP_NAMES, MLP_SHAPES)
     cuda_err, provider_err = [], []
     for seed in range(draws):
         x = sinusoid(h3_timesteps(4, seed=seed))
@@ -214,6 +219,7 @@ def _mlp_accuracy(registry: KernelRegistry, draws: int = 200) -> dict[str, Any]:
     invariant = all(torch.equal(op(x[i : i + 1], *params)[0], full[i]) for i in range(9))
     return {
         "contract_atol": 1e-4,
+        "weights_source": weights_source,
         "draws": draws,
         "num_timesteps": 4,
         "cuda_max_abs_vs_fp64": cuda_err,
