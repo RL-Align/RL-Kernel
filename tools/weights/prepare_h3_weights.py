@@ -23,11 +23,11 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
-from rl_engine.validation.models.h3_weights import (
+from rl_engine.validation.models.h3_weights import (  # noqa: E402
     EXTRACTED_FILE,
     load_h3_manifest,
     sha256_file,
-)  # noqa: E402
+)
 
 
 def _check(path: Path, expected: str) -> None:

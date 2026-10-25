@@ -10,6 +10,7 @@ op against the provider path and its golden. Each RFC #420 row registers both.
 
 from __future__ import annotations
 
+import random
 import statistics
 from typing import Any, Callable
 
@@ -57,14 +58,56 @@ def peak_mib(fn: Callable[[], Any]) -> float:
     return (torch.cuda.max_memory_allocated() - base) / 2**20
 
 
+def time_interleaved(
+    fns: dict[str, Callable[[], Any]], warmup: int = 20, iters: int = 200, seed: int = 0
+) -> tuple[dict[str, float], list[str]]:
+    """Median CUDA-event time of every callable, each sample in a freshly shuffled order.
+
+    Clock boost, thermal state and L2 contents drift while a benchmark runs, so timing all
+    samples of one callable before the other's would bias the comparison. Every iteration runs
+    each callable once, in a random order from ``seed``. Returns the medians in microseconds and
+    the executed order of every iteration (the digits are indices into ``list(fns)``).
+    """
+
+    names = list(fns)
+    rng = random.Random(seed)
+    for fn in fns.values():
+        for _ in range(warmup):
+            fn()
+    torch.cuda.synchronize()
+    samples: dict[str, list[float]] = {name: [] for name in names}
+    executed: list[str] = []
+    for _ in range(iters):
+        order = names[:]
+        rng.shuffle(order)
+        executed.append("".join(str(names.index(name)) for name in order))
+        for name in order:
+            start = torch.cuda.Event(enable_timing=True)
+            end = torch.cuda.Event(enable_timing=True)
+            start.record()
+            fns[name]()
+            end.record()
+            end.synchronize()
+            samples[name].append(start.elapsed_time(end) * 1e3)
+    return {name: statistics.median(values) for name, values in samples.items()}, executed
+
+
 def measure(case: dict[str, Any], warmup: int = 20, iters: int = 200) -> dict[str, Any]:
-    row = {key: case[key] for key in ("op", "case", "backend", "bytes") if key in case}
-    for key in TIMED_KEYS:
-        if key in case:
-            us = time_us(case[key], warmup, iters)
-            row[f"{key}_us"] = us
-            row[f"{key}_gbps"] = case["bytes"] / (us * 1e-6) / 1e9
-            row[f"{key}_peak_mib"] = peak_mib(case[key])
+    row: dict[str, Any] = {
+        key: case[key] for key in ("op", "case", "backend", "bytes") if key in case
+    }
+    keys = [key for key in TIMED_KEYS if key in case]
+    medians, executed = time_interleaved({key: case[key] for key in keys}, warmup, iters)
+    for key in keys:
+        row[f"{key}_us"] = medians[key]
+        row[f"{key}_gbps"] = case["bytes"] / (medians[key] * 1e-6) / 1e9
+        row[f"{key}_peak_mib"] = peak_mib(case[key])
+    row["timing"] = {
+        "order": "shuffled per sample, all callables timed in every iteration",
+        "seed": 0,
+        "callables": keys,
+        "executed_order": executed,
+    }
     return row
 
 
