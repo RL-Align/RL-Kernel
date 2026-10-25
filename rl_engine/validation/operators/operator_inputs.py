@@ -44,6 +44,7 @@ def make_operator_inputs(
         "embedding": _make_embedding_inputs,
         "lm_head": _make_lm_head_inputs,
         "kv_cache_attention": _make_kv_cache_attention_inputs,
+        "h3_ode_step": _make_h3_ode_step_inputs,
     }
     try:
         return builders[op_name](args, dtype, device)
@@ -78,6 +79,8 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "embedding": f"{batch}x{seq}x{vocab}x{_normalized_dim(args)}",
         "lm_head": f"{batch}x{seq}x{_normalized_dim(args)}x{vocab}",
         "kv_cache_attention": f"{batch}x{DEFAULT_N_HEADS}x1x{seq + 1}x{DEFAULT_HEAD_DIM}",
+        # batch = packed-row count, seq = latent channel width (24 video / 32 audio)
+        "h3_ode_step": f"{batch}x{seq}",
     }
     try:
         return names[op_name]
@@ -441,4 +444,32 @@ def _make_h3_attention_inputs(args, dtype, device):
     return {
         name: _floating_tensor((batch, seq, 56, 128), args, dtype, device, offset)
         for offset, name in enumerate(("q", "k", "v"))
+    }
+
+
+def _h3_sigma_pair(rows, args, device):
+    """Per-row (sigma, sigma_next) from the H3 shifted sigma grid.
+
+    Shifted linspace(1, 0, steps) with consecutive fp32 duplicates removed, so
+    every step satisfies 1 >= sigma > sigma_next >= 0 and the operator's
+    fail-closed validation never fires on legal input.
+    """
+    steps = 8
+    grid = torch.linspace(1.0, 0.0, steps + 1, dtype=torch.float32, device=device)
+    if _arg_str(args, "input_mode", "random") == "constant":
+        index = torch.zeros(rows, dtype=torch.long, device=device)
+    else:
+        generator = _generator(args, device, offset=23)
+        index = torch.randint(0, steps, (rows,), generator=generator, device=device)
+    return grid[index].unsqueeze(-1), grid[index + 1].unsqueeze(-1)
+
+
+def _make_h3_ode_step_inputs(args, dtype, device):
+    rows, channels = _batch_seq(args)
+    sigma, sigma_next = _h3_sigma_pair(rows, args, device)
+    return {
+        "xt": _floating_tensor((rows, channels), args, dtype, device, offset=0),
+        "v": _floating_tensor((rows, channels), args, dtype, device, offset=1),
+        "sigma": sigma,
+        "sigma_next": sigma_next,
     }

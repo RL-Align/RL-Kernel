@@ -391,6 +391,7 @@ def get_extensions():
                     sources=[
                         "csrc/bindings/h3_ops.cpp",
                         "csrc/cuda/attention/deterministic_attention.cu",
+                        "csrc/cuda/flow/ode_step.cu",
                     ],
                     extra_compile_args={
                         "cxx": ["-O3"],
