@@ -8,9 +8,10 @@ Operator-only microbenchmark: builds sigma grids for N in {25, 50, 1000,
 
 * path A — CPU reference, grid built on CPU, outputs stay on CPU;
 * path B — CPU reference, grid built on CPU, sigmas and timesteps moved to
-  the target GPU via the operator's ``device`` argument (what a user without
-  the GPU backend gets: build + host-to-device copy);
-* path C — Triton candidate, grid built on the device.
+  the target GPU via the operator's ``device`` argument (the registry default
+  path on every platform: build + host-to-device copy);
+* path C — Triton opt-in backend (semantic ``requested_backend`` or direct
+  construction), grid built on the device.
 
 B vs C is the comparison that matters when the consumer lives on the GPU; A
 is an auxiliary CPU baseline and A/C ratios must not be presented as a

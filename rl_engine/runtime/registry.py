@@ -204,7 +204,12 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     CUDA_SM90_LM_HEAD = "rl_engine.kernels.ops.cuda.linear.lm_head.SM90LMHeadOp"
     CUDA_SM90_EMBEDDING = "rl_engine.kernels.ops.cuda.linear.embedding.SM90EmbeddingOp"
 
-    # MiniMax-H3 (RFC #420) scheduler grid
+    # MiniMax-H3 (RFC #420) scheduler grid. The PyTorch reference is the
+    # legacy ``get_op`` default on every platform; the Triton CUDA backend is
+    # opt-in only — select it through the semantic path with
+    # requested_backend="rlkernel.h3_sigma_schedule.triton", or construct
+    # H3SigmaScheduleCudaOp directly (default backend change per review,
+    # PR #566).
     PYTORCH_H3_SIGMA_SCHEDULE = (
         "rl_engine.reference.minimax_h3.sigma_schedule.NativeH3SigmaScheduleOp"
     )
@@ -726,10 +731,12 @@ class KernelRegistry:
                     OpBackend.TRITON_ROPE,
                     OpBackend.PYTORCH_NATIVE_ROPE,
                 ],
-                "sigma_schedule_h3": [
-                    OpBackend.CUDA_H3_SIGMA_SCHEDULE,
-                    OpBackend.PYTORCH_H3_SIGMA_SCHEDULE,
-                ],
+                # Reference only, like every other platform: the device-side
+                # Triton build is slower than CPU build + copy at typical H3
+                # sizes and nothing requires on-device construction. Triton is
+                # opt-in via the semantic path or direct construction (see
+                # docs/operators/h3-sigma-schedule.md).
+                "sigma_schedule_h3": [OpBackend.PYTORCH_H3_SIGMA_SCHEDULE],
             },
             "rocm": {
                 "logp": [

@@ -13,8 +13,24 @@ all outcomes; its hostname attribute was removed and the XML reserialized.
 
 [Source provenance](source-provenance.json) records SHA256 hashes for the
 tested archive, selected source files, and included results. The reference,
-CUDA backend, fixture, CPU/GPU/dispatch tests, and benchmark in the final
-closing snapshot are byte-identical to those files in `374488b`.
+CUDA backend, fixture and CPU reference test in the final closing snapshot are
+byte-identical to those files in `374488b` and to the current branch.
+
+The dispatch test, the CUDA test and the benchmark docstring were revised
+after the 4090D runs for the review-driven default backend change (the legacy
+`sigma_schedule_h3` candidate list is now reference-only on CUDA; the Triton
+backend is opt-in through the semantic `requested_backend` or direct
+construction). Those edits touch candidate order, test selection logic and
+prose only: every kernel bit assertion is unchanged, and the CUDA suite gained
+an assertion that the default reference path matches the Triton path bit for
+bit. No GPU run backs the revised tests yet. `source-provenance.json` still
+carries the `374488b` hashes; its `source_files_sha256` entries for
+`tests/runtime/test_h3_sigma_schedule_dispatch.py`,
+`tests/backends/cuda/test_h3_sigma_schedule_cuda.py` and
+`benchmarks/models/benchmark_h3_sigma_schedule.py`, and the benchmark
+`binding` note ("Benchmark and reference byte-identical"), are therefore stale.
+They are deliberately left as recorded and will be refreshed together with the
+pending SM90 (Hopper) evidence run rather than piecemeal.
 
 The performance run (`run-20261016-235221-8055`) predates the final HIP
 rejection guard. Its reference and benchmark are byte-identical to the
@@ -30,7 +46,8 @@ Hardware/software: one NVIDIA GeForce RTX 4090D, x86_64 Linux, driver
 [Raw benchmark JSON](benchmark-4090d.json) is copied without modification.
 It contains 100 samples per case and path (2,400 samples total), after
 five warmup calls. Path A builds on CPU and leaves outputs there; path B
-builds on CPU and copies both outputs to CUDA; path C constructs on CUDA.
+builds on CPU and copies both outputs to CUDA (the registry default path);
+path C constructs on CUDA (the Triton opt-in backend).
 Only B/C compares equal output placement. Timing is per-call host wall
 latency with synchronization before and after each GPU sample; correctness
 checking and compilation happen before timed samples.

@@ -1,25 +1,35 @@
 # H3 Sigma Schedule
 
-Device-side construction of the MiniMax-H3 rectified-flow sigma grid (RFC #420,
-`h3_sigma_schedule`): `linspace(1, 0, N)` in fp32, the exponential shift
+The MiniMax-H3 rectified-flow sigma grid (RFC #420, `h3_sigma_schedule`):
+`linspace(1, 0, N)` in fp32, the exponential shift
 `shift·s / (1 + (shift−1)·s)`, `unique_consecutive` deduplication, and
 `timesteps = 1 − sigmas[:-1]`. Video uses `shift=12`, audio `shift=3`; the two
-grids are independent per-request inputs, never a shared step index.
+grids are independent per-request inputs, never a shared step index. The
+default backend on every platform is the PyTorch reference (CPU construction,
+outputs copied to the requested device); a device-side NVIDIA Triton backend
+is available as an explicit opt-in.
 
 ## Entry Point
 
 ```python
 from rl_engine.runtime.registry import kernel_registry
 
-op = kernel_registry.get_op("sigma_schedule_h3", device="cuda")
-schedule = op(25, shift=12.0, device="cuda")   # device= selects backend AND output
+op = kernel_registry.get_op("sigma_schedule_h3", device="cuda")   # PyTorch reference
+schedule = op(25, shift=12.0, device="cuda")   # device= selects output placement only
 schedule.sigmas          # fp32 [M], strictly decreasing, terminal exactly 0.0
 schedule.timesteps       # fp32 [M-1] = 1 - sigmas[:-1]
 schedule.num_model_evals # M - 1 (deduplicated length drives the count)
 ```
 
-The semantic path resolves with provenance (`requested_backend`
-`rlkernel.h3_sigma_schedule.triton` / `.reference`):
+`get_op` returns the PyTorch reference on every platform, CUDA included: the
+grid is built on CPU and both outputs are moved to `device`.
+
+## Opt-in: device-side Triton backend
+
+Two explicit routes select `H3SigmaScheduleCudaOp`; neither is reachable
+through a legacy `get_op` candidate list. The semantic path resolves with
+provenance (`requested_backend` `rlkernel.h3_sigma_schedule.triton`; the
+reference is `.reference`):
 
 ```python
 from rl_engine.runtime.registry import kernel_registry
@@ -36,13 +46,27 @@ op = session.instantiate(resolution)
 provenance = session.instance_provenance(resolution, op)
 ```
 
+Or construct the class directly:
+
+```python
+from rl_engine.backends.cuda.model_specific.minimax_h3.sigma_schedule import (
+    H3SigmaScheduleCudaOp,
+)
+
+op = H3SigmaScheduleCudaOp()   # raises ImportError without Triton or on HIP/ROCm
+schedule = op(25, shift=12.0, device="cuda")
+```
+
+Both routes produce the same bytes as the default reference path (the CUDA
+suite asserts this); opting in only moves the arithmetic onto the device.
+
 ## Backends
 
 | Backend | Wrapper | Native symbol | Status |
 | --- | --- | --- | --- |
-| CUDA (Triton) | `rl_engine.backends.cuda.model_specific.minimax_h3.sigma_schedule.H3SigmaScheduleCudaOp` | 3 Triton kernels (grid / dedup scan / timesteps) | Validated on RTX 4090D (torch 2.5.1+cu121, Triton 3.1.0): bitwise-identical to the pinned upstream oracle across the full device suite |
+| CUDA (Triton) | `rl_engine.backends.cuda.model_specific.minimax_h3.sigma_schedule.H3SigmaScheduleCudaOp` | 3 Triton kernels (grid / dedup scan / timesteps) | **Opt-in** (semantic `requested_backend` or direct construction; not a legacy `get_op` candidate). Validated on RTX 4090D (torch 2.5.1+cu121, Triton 3.1.0): bitwise-identical to the pinned upstream oracle across the full device suite |
 | ROCm | — | — | **CUDA only.** The ROCm column stays open. The inline PTX `div.rn.f32` is NVIDIA-only, so the backend refuses construction on HIP; ROCm dispatches the PyTorch reference. |
-| PyTorch reference | `rl_engine.reference.minimax_h3.sigma_schedule.NativeH3SigmaScheduleOp` | `torch.linspace` + `unique_consecutive` | Active (byte-frozen oracle; fixture generated on Linux CPU under torch 2.14.1, reproduced on 2.4.1 and 2.5.1) |
+| PyTorch reference | `rl_engine.reference.minimax_h3.sigma_schedule.NativeH3SigmaScheduleOp` | `torch.linspace` + `unique_consecutive` | **Default on every platform** (byte-frozen oracle; fixture generated on Linux CPU under torch 2.14.1, reproduced on 2.4.1 and 2.5.1). Builds on CPU and copies the outputs to the requested device |
 
 ## Tensor Contract
 
@@ -50,22 +74,27 @@ provenance = session.instance_provenance(resolution, op)
 | --- | --- | --- | --- |
 | `num_inference_steps` | scalar | int | `>= 2`; terminal zero included in the count |
 | `shift` | scalar | python float | `> 0` (video 12.0 / audio 3.0) |
-| `device` | — | — | CUDA backend requires an NVIDIA CUDA device (NVIDIA-only; refuses construction on HIP/ROCm); CPU requests use the reference |
+| `device` | — | — | Output placement. The default reference accepts any device (builds on CPU, copies to `device`); the opt-in Triton backend requires an NVIDIA CUDA device (refuses construction on HIP/ROCm) |
 | → `sigmas` | `[M]`, `M ≤ N` | float32 | strictly decreasing; `sigmas[0] == 1.0` and `sigmas[-1] == 0.0` exactly for released shifts |
 | → `timesteps` | `[M-1]` | float32 | `1 − sigmas[:-1]`, strictly increasing from 0.0 |
 | → `num_model_evals` | scalar | int | `M − 1` |
 
 ## Dispatch Behavior
 
-The registry walks the CUDA candidate list
-`[Triton H3, PyTorch reference]`; on ROCm/MUSA/NPU/CPU only the reference is
-registered. The Triton backend raises `ImportError` at construction
-when Triton is not importable, so the first-available-candidate loop skips it
-at selection time (see
-[Runtime Dispatch](../architecture/runtime-dispatch.md)) — forward-time errors
-are never used for selection. When the Triton backend is skipped on CUDA, the
-reference builds the grid on CPU and moves the outputs to the requested CUDA
-device; the result stays device-resident, but the arithmetic is the CPU path.
+The legacy candidate list for `sigma_schedule_h3` is `[PyTorch reference]` on
+every platform — CUDA, ROCm, MUSA, NPU and CPU alike — so `get_op` always
+builds the grid on CPU and moves the outputs to the requested device. This is a
+deliberate default (review 2026-10-25, PR #566): the 4090D measurements below
+show the device-side build is 2.5–3.2x slower at typical H3 sizes, and no
+consumer requires on-device construction. The Triton backend is not a legacy
+candidate anywhere; it is selected only through the semantic
+`requested_backend="rlkernel.h3_sigma_schedule.triton"` or by direct
+construction (see Opt-in above). Its construction-time guards are unchanged —
+`H3SigmaScheduleCudaOp()` raises `ImportError` when Triton is not importable
+or on a HIP/ROCm build, so an opt-in that cannot be honored fails explicitly
+(semantic `instantiate` raises `OperatorInstantiationError`) instead of
+silently swapping arithmetic (see
+[Runtime Dispatch](../architecture/runtime-dispatch.md)).
 
 ## Accuracy
 
@@ -106,8 +135,8 @@ python benchmarks/models/benchmark_h3_sigma_schedule.py --samples 100
 
 Measures **per-call end-to-end host wall latency** on three paths — A:
 reference built on CPU, outputs on CPU; B: reference built on CPU, sigmas and
-timesteps moved to the GPU via `device="cuda"` (what a consumer without the
-GPU backend gets); C: the Triton backend building on the device. Each call is
+timesteps moved to the GPU via `device="cuda"` (the registry default path on
+every platform); C: the opt-in Triton backend building on the device. Each call is
 timed individually (GPU paths synchronize before each sample and after each
 call); raw samples, mean/median/stdev/min/max are reported per case, and the
 median is the headline number. Before any timing on a GPU host the script
@@ -128,6 +157,13 @@ within dispersion, so it is not claimed. The N=1e6 CPU medians are noisy
 check only by a small margin. See Known Limitations and the raw JSON, CUDA
 test results, source hashes, and reproduction commands in the
 [4090D evidence report](https://github.com/RL-Align/RL-Kernel/tree/test-h3/reports/experiments/h3-sigma-schedule).
+
+These numbers are the basis for the default: the reference path (B) is the
+legacy `get_op` backend on CUDA because it is 2.5–3.2x faster at every typical
+H3 size and produces identical bytes. The trade reverses only at the N=1e6
+dedup stress case — at shift=12 the reference median is 48.37 ms against
+0.93 ms for Triton (51.98x), so a consumer building grids of that size should
+opt into the Triton backend explicitly; it is not a released-model workload.
 
 ## Tests
 
@@ -158,9 +194,11 @@ itself bit-identical to the executed upstream method on those inputs.
 - Measured end-to-end latency on the 4090D: for the typical H3 sizes
   (N = 25/50/1000) the device-side Triton build is 2.5–3.2x SLOWER than
   building on CPU and copying to the GPU (B/C median 0.315–0.403, all separated
-  from dispersion). The device path wins only at the N = 1e6 dedup stress
-  case: 51.98x at shift=12 (separated) and 7.9x at shift=3 (within dispersion,
-  not claimed). These numbers are single-operator microbenchmark results on
-  one card and say nothing about whole-model speed.
+  from dispersion) — which is why it is opt-in rather than the default. The
+  device path wins only at the N = 1e6 dedup stress case: 51.98x at shift=12
+  (separated) and 7.9x at shift=3 (within dispersion, not claimed); the default
+  reference path is correspondingly slower there (48.37 ms vs 0.93 ms at
+  shift=12). These numbers are single-operator microbenchmark results on one
+  card and say nothing about whole-model speed.
 - `N` beyond 2^31 is not supported (int32 indexing); the shift arithmetic is
   internal-fp64, which is slow on consumer GPUs but irrelevant at these sizes.

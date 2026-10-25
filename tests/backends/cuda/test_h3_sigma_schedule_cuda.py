@@ -9,8 +9,12 @@ to the host only for comparison; no value is recomputed on the CPU.
 
 The backend is NVIDIA-only (its kernels emit inline PTX ``div.rn.f32``);
 the suite runs on NVIDIA CUDA hardware and skips on HIP/ROCm builds, where
-``H3SigmaScheduleCudaOp`` refuses construction and the registry serves the
-PyTorch reference instead.
+``H3SigmaScheduleCudaOp`` refuses construction. It is opt-in everywhere: the
+legacy registry serves the PyTorch reference on CUDA too (default backend
+change per review, 2026-10-25), and the Triton class is reached through the
+semantic ``requested_backend`` or direct construction. The suite therefore
+constructs the backend directly for kernel checks and asserts that the default
+reference path matches it bit for bit.
 """
 
 from __future__ import annotations
@@ -306,8 +310,9 @@ def test_backend_identity_is_device_path_not_cpu_fallback():
     )
     from rl_engine.runtime.registry import OpBackend
 
-    # The registry lists the NVIDIA Triton implementation ahead of the PyTorch
-    # reference for device "cuda"; outputs above prove the device path ran.
+    # Both backends stay registered as enum members; the legacy "cuda" list
+    # carries only the reference (Triton is opt-in). The outputs above came
+    # from the directly constructed Triton class, proving the device path ran.
     assert OpBackend.CUDA_H3_SIGMA_SCHEDULE.value.endswith(
         "model_specific.minimax_h3.sigma_schedule.H3SigmaScheduleCudaOp"
     )
@@ -320,19 +325,40 @@ def test_backend_identity_is_device_path_not_cpu_fallback():
     assert torch.version.hip is None  # NVIDIA-only backend
 
 
-def test_public_entry_selects_device_backend_and_reports_provenance():
-    # The registry must hand out the Triton class itself (device identity is
-    # the instance type, not just `.is_cuda`, which a CPU-build-then-copy
-    # would also have), and the semantic path must report the same backend.
+def test_public_entry_defaults_to_reference_and_matches_triton_bits():
+    # Default backend change per review (2026-10-25): legacy ``get_op`` hands
+    # out the PyTorch reference on CUDA devices (CPU build + host-to-device
+    # copy) and the Triton class is opt-in. The switch is only safe because the
+    # two paths are bit-identical — pin that equality here, on hardware, for
+    # both outputs and the evaluation count.
+    from rl_engine.backends.cuda.model_specific.minimax_h3.sigma_schedule import (
+        H3SigmaScheduleCudaOp,
+    )
+    from rl_engine.reference.minimax_h3.sigma_schedule import NativeH3SigmaScheduleOp
+    from rl_engine.runtime.registry import kernel_registry
+
+    op = kernel_registry.get_op("sigma_schedule_h3", device="cuda")
+    assert isinstance(op, NativeH3SigmaScheduleOp)
+
+    default = op(25, shift=12.0, device="cuda")
+    device_side = H3SigmaScheduleCudaOp()(25, shift=12.0)
+    assert default.sigmas.is_cuda and default.timesteps.is_cuda
+    assert _int32_bits(default.sigmas.cpu()) == _int32_bits(device_side.sigmas.cpu())
+    assert _int32_bits(default.timesteps.cpu()) == _int32_bits(device_side.timesteps.cpu())
+    assert default.num_model_evals == device_side.num_model_evals
+    assert torch.version.hip is None  # NVIDIA-only backend
+
+
+def test_public_entry_opt_in_selects_triton_and_reports_provenance():
+    # The explicit opt-in is unchanged: the semantic path must hand out the
+    # Triton class itself (device identity is the instance type, not just
+    # `.is_cuda`, which the CPU-build-then-copy default also has) and report
+    # that backend in the provenance.
     from rl_engine.backends.cuda.model_specific.minimax_h3.sigma_schedule import (
         H3SigmaScheduleCudaOp,
     )
     from rl_engine.runtime.registry import kernel_registry
     from rl_engine.runtime.semantic_registry import OperatorRequirements
-
-    op = kernel_registry.get_op("sigma_schedule_h3", device="cuda")
-    assert isinstance(op, H3SigmaScheduleCudaOp)
-    assert op(25, shift=12.0).sigmas.is_cuda
 
     session = kernel_registry.semantic.session()
     resolution = session.resolve(

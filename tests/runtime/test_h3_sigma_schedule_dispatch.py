@@ -3,12 +3,13 @@
 
 """Registry and semantic-entry tests for ``h3_sigma_schedule`` (RFC #420).
 
-Covers the public selection paths on any machine: legacy ``get_op`` candidate
-fallback when the Triton backend cannot construct, semantic descriptor
-registration, session resolve / instantiate / provenance for the reference
-backend, and the CPU-pinned scalar-rounding helper. The device-path identity
-(legacy ``get_op`` returning the Triton class, plus result bytes) is asserted
-on hardware in tests/backends/cuda/test_h3_sigma_schedule_cuda.py.
+Covers the public selection paths on any machine: legacy ``get_op`` serving
+the PyTorch reference on every platform (the Triton backend is opt-in only and
+never a legacy candidate), semantic descriptor registration, session resolve /
+instantiate / provenance for both backends, and the CPU-pinned scalar-rounding
+helper. The device-path parity (the default reference path producing the same
+bytes as the directly constructed Triton class) is asserted on hardware in
+tests/backends/cuda/test_h3_sigma_schedule_cuda.py.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ import importlib
 import pytest
 import torch
 
-from rl_engine.runtime.registry import KernelRegistry, kernel_registry
+from rl_engine.runtime.registry import KernelRegistry, OpBackend, kernel_registry
 from rl_engine.runtime.semantic_registry import (
     OperatorInstantiationError,
     OperatorRequirements,
@@ -45,18 +46,22 @@ def test_get_op_cpu_selects_reference_and_builds_pinned_grid():
     assert schedule.num_model_evals == 3
 
 
-def test_get_op_cuda_without_triton_skips_unavailable_backend(monkeypatch):
-    # Old behavior (review 2026-10-13): the unavailable GPU class was selected
-    # and failed only inside forward. Construction now raises ImportError, so
-    # the registry's first-available-candidate loop skips it at selection time
-    # (docs/architecture/runtime-dispatch.md) instead of the registry having
-    # to catch arbitrary forward errors.
-    monkeypatch.setattr(_BACKEND_MODULE, "_TRITON_AVAILABLE", False)
-    registry = KernelRegistry()
+def test_get_op_cuda_defaults_to_reference_regardless_of_triton(monkeypatch):
+    # Default backend change per review (2026-10-25): the CUDA candidate list
+    # carries only the PyTorch reference (CPU build + host-to-device copy) —
+    # the device-side Triton build measured 2.5-3.2x slower at typical H3
+    # sizes and nothing requires on-device construction. Triton is opt-in via
+    # the semantic path or direct construction, so whether it is importable
+    # must not influence the legacy selection in either direction.
+    for triton_importable in (False, True):
+        monkeypatch.setattr(_BACKEND_MODULE, "_TRITON_AVAILABLE", triton_importable)
+        registry = KernelRegistry()
 
-    op = registry.get_op("sigma_schedule_h3", device="cuda")
-
-    assert f"{type(op).__module__}.{type(op).__name__}" == _REFERENCE_PATH
+        assert registry._priority_map["cuda"]["sigma_schedule_h3"] == [
+            OpBackend.PYTORCH_H3_SIGMA_SCHEDULE
+        ]
+        op = registry.get_op("sigma_schedule_h3", device="cuda")
+        assert f"{type(op).__module__}.{type(op).__name__}" == _REFERENCE_PATH
 
 
 def test_cuda_backend_construction_fails_loudly_without_triton(monkeypatch):
@@ -95,17 +100,29 @@ def test_cuda_backend_construction_rejected_on_hip_build(monkeypatch):
         _BACKEND_MODULE.H3SigmaScheduleCudaOp()
 
 
-def test_get_op_falls_back_to_reference_on_hip_build(monkeypatch):
-    # End-to-end selection semantics under the same simulation: the registry
-    # walks the cuda candidate list, the Triton class refuses construction
-    # with ImportError, and the PyTorch reference is served instead — no
-    # error reaches the caller and nothing is silently misattributed.
+def test_get_op_on_hip_build_serves_reference(monkeypatch):
+    # Same simulation, end to end: ``device="cuda"`` resolves to the rocm
+    # platform, whose list has always been reference-only, and the NVIDIA-only
+    # Triton class is not a legacy candidate anywhere — the caller gets the
+    # reference with no error and nothing silently misattributed, exactly as
+    # on an NVIDIA build.
     monkeypatch.setattr(torch.version, "hip", "6.2")
     registry = KernelRegistry()
 
     op = registry.get_op("sigma_schedule_h3", device="cuda")
 
     assert f"{type(op).__module__}.{type(op).__name__}" == _REFERENCE_PATH
+
+
+def test_triton_backend_is_not_a_legacy_candidate_on_any_platform():
+    # Opt-in only: the Triton class is reachable through the semantic path
+    # (requested_backend="rlkernel.h3_sigma_schedule.triton") or direct
+    # construction, never through a legacy ``get_op`` candidate list.
+    registry = KernelRegistry()
+
+    for platform in ("cuda", "rocm", "musa", "cpu", "npu"):
+        candidates = registry._priority_map[platform]["sigma_schedule_h3"]
+        assert candidates == [OpBackend.PYTORCH_H3_SIGMA_SCHEDULE], platform
 
 
 def test_semantic_descriptors_declared_truthfully():
