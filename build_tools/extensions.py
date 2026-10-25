@@ -239,10 +239,15 @@ def get_extensions():
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
             cuda_sources.append("csrc/cuda/attention/prefix_shared_attention.cu")
+            # F2 uses BF16 and fixed FP32 arithmetic, without Hopper-only instructions.
+            cuda_sources.append("csrc/cuda/rope/qknorm_scaled_rope.cu")
 
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
         if envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH):
             nvcc_flags.append("--use_fast_math")
+            # Preserve other operators' build behavior; F2 explicitly fails closed.
+            if not is_rocm:
+                nvcc_flags.append("-DRL_KERNEL_F2_FAST_MATH_BUILD")
         if not is_rocm:
             cc_major, cc_minor = torch.cuda.get_device_capability()
             enable_sm90 = os.environ.get("KERNEL_ALIGN_FORCE_SM90") == "1"
@@ -323,7 +328,9 @@ def get_extensions():
             nvcc_flags.append("-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH")
 
         platform_define = "-DKERNEL_ALIGN_WITH_ROCM" if is_rocm else "-DKERNEL_ALIGN_WITH_CUDA"
-        cxx_flags = ["-O3", "-std=c++17", platform_define]
+        # Let PyTorch select its required standard for both host and device code.
+        # Forcing C++17 breaks newer PyTorch headers that require C++20.
+        cxx_flags = ["-O3", platform_define]
         extra_link_args = list(torch_rpath)
         if os.name != "nt" and not is_rocm:
             # CUDA IPC metadata queries use the driver API (cuPointerGetAttribute).

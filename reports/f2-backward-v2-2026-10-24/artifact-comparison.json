@@ -1,0 +1,50 @@
+{
+  "False/cuda": {
+    "forward_rstd_mismatches": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "gradient_changed_elements": [
+      92788,
+      5813
+    ]
+  },
+  "False/triton": {
+    "forward_rstd_mismatches": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "gradient_changed_elements": [
+      92788,
+      5813
+    ]
+  },
+  "True/cuda": {
+    "forward_rstd_mismatches": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "gradient_changed_elements": [
+      92920,
+      5532
+    ]
+  },
+  "True/triton": {
+    "forward_rstd_mismatches": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "gradient_changed_elements": [
+      92920,
+      5532
+    ]
+  }
+}

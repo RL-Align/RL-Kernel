@@ -1,0 +1,399 @@
+{
+  "gpu": "NVIDIA H100 80GB HBM3",
+  "capability": [
+    9,
+    0
+  ],
+  "torch": "2.14.1+cu132",
+  "cuda": "13.2",
+  "triton": "3.8.0",
+  "input_sha256": "30b84ed1893f5ed9ad40b21e56018737cc22c97f83f49048c2932906f5482c98",
+  "a100_v2_sha256": "47b5e51fdd8e2b2594dc4aff2a7c63c11df1acb37cb61a13e06d7d0a808ae349",
+  "table_sha256": "c0df1dfb156f81993c6fcfebdd50eca72ce31099436a565dc9407f8d562ac2c3",
+  "rows": [
+    {
+      "local": false,
+      "backend": "cuda",
+      "start": 0,
+      "end": 257,
+      "hq": 32,
+      "hk": 2,
+      "bit_mismatches": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "local": false,
+      "backend": "cuda",
+      "start": 0,
+      "end": 1,
+      "hq": 32,
+      "hk": 2,
+      "bit_mismatches": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "local": false,
+      "backend": "cuda",
+      "start": 1,
+      "end": 8,
+      "hq": 32,
+      "hk": 2,
+      "bit_mismatches": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "local": false,
+      "backend": "cuda",
+      "start": 8,
+      "end": 136,
+      "hq": 32,
+      "hk": 2,
+      "bit_mismatches": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "local": false,
+      "backend": "cuda",
+      "start": 136,
+      "end": 257,
+      "hq": 32,
+      "hk": 2,
+      "bit_mismatches": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "local": false,
+      "backend": "cuda",
+      "start": 0,
+      "end": 257,
+      "hq": 4,
+      "hk": 1,
+      "bit_mismatches": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "local": false,
+      "backend": "triton",
+      "start": 0,
+      "end": 257,
+      "hq": 32,
+      "hk": 2,
+      "bit_mismatches": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "local": false,
+      "backend": "triton",
+      "start": 0,
+      "end": 1,
+      "hq": 32,
+      "hk": 2,
+      "bit_mismatches": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "local": false,
+      "backend": "triton",
+      "start": 1,
+      "end": 8,
+      "hq": 32,
+      "hk": 2,
+      "bit_mismatches": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "local": false,
+      "backend": "triton",
+      "start": 8,
+      "end": 136,
+      "hq": 32,
+      "hk": 2,
+      "bit_mismatches": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "local": false,
+      "backend": "triton",
+      "start": 136,
+      "end": 257,
+      "hq": 32,
+      "hk": 2,
+      "bit_mismatches": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "local": false,
+      "backend": "triton",
+      "start": 0,
+      "end": 257,
+      "hq": 4,
+      "hk": 1,
+      "bit_mismatches": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "local": true,
+      "backend": "cuda",
+      "start": 0,
+      "end": 257,
+      "hq": 32,
+      "hk": 2,
+      "bit_mismatches": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "local": true,
+      "backend": "cuda",
+      "start": 0,
+      "end": 1,
+      "hq": 32,
+      "hk": 2,
+      "bit_mismatches": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "local": true,
+      "backend": "cuda",
+      "start": 1,
+      "end": 8,
+      "hq": 32,
+      "hk": 2,
+      "bit_mismatches": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "local": true,
+      "backend": "cuda",
+      "start": 8,
+      "end": 136,
+      "hq": 32,
+      "hk": 2,
+      "bit_mismatches": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "local": true,
+      "backend": "cuda",
+      "start": 136,
+      "end": 257,
+      "hq": 32,
+      "hk": 2,
+      "bit_mismatches": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "local": true,
+      "backend": "cuda",
+      "start": 0,
+      "end": 257,
+      "hq": 4,
+      "hk": 1,
+      "bit_mismatches": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "local": true,
+      "backend": "triton",
+      "start": 0,
+      "end": 257,
+      "hq": 32,
+      "hk": 2,
+      "bit_mismatches": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "local": true,
+      "backend": "triton",
+      "start": 0,
+      "end": 1,
+      "hq": 32,
+      "hk": 2,
+      "bit_mismatches": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "local": true,
+      "backend": "triton",
+      "start": 1,
+      "end": 8,
+      "hq": 32,
+      "hk": 2,
+      "bit_mismatches": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "local": true,
+      "backend": "triton",
+      "start": 8,
+      "end": 136,
+      "hq": 32,
+      "hk": 2,
+      "bit_mismatches": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "local": true,
+      "backend": "triton",
+      "start": 136,
+      "end": 257,
+      "hq": 32,
+      "hk": 2,
+      "bit_mismatches": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "local": true,
+      "backend": "triton",
+      "start": 0,
+      "end": 257,
+      "hq": 4,
+      "hk": 1,
+      "bit_mismatches": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
