@@ -37,6 +37,7 @@ def make_operator_inputs(
         "matmul": _make_matmul_inputs,
         "det_gemm": _make_det_gemm_inputs,
         "attention": _make_attention_inputs,
+        "h3_full_attention": _make_h3_attention_inputs,
         "prefix_shared_attention": _make_prefix_shared_attention_inputs,
         "cp_attention": _make_cp_attention_inputs,
         "logp": _make_logp_inputs,
@@ -75,6 +76,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "matmul": f"{batch}x{seq}x{_matmul_k(args)}x{_matmul_n(args)}",
         "det_gemm": f"{batch}x{seq}x{_matmul_k(args)}x{_matmul_n(args)}",
         "attention": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}",
+        "h3_full_attention": f"{batch}x{seq}x56x128",
         "prefix_shared_attention": f"{batch}x{_arg_int(args, 'n_heads', DEFAULT_N_HEADS)}"
         f"x{seq}x{DEFAULT_HEAD_DIM}",
         "cp_attention": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}xcp2",
@@ -555,3 +557,11 @@ def _arg_int(args: argparse.Namespace, name: str, default: int) -> int:
 
 def _arg_str(args: argparse.Namespace, name: str, default: str) -> str:
     return str(getattr(args, name, default))
+
+
+def _make_h3_attention_inputs(args, dtype, device):
+    batch, seq = _batch_seq(args)
+    return {
+        name: _floating_tensor((batch, seq, 56, 128), args, dtype, device, offset)
+        for offset, name in enumerate(("q", "k", "v"))
+    }
