@@ -4,7 +4,7 @@
 import pytest
 import torch
 
-from rl_engine.kernels.ops.pytorch.timestep_embed_mlp import _ReferenceLinear
+from rl_engine.reference.embedding.timestep_embed_mlp import _ReferenceLinear
 
 
 @pytest.mark.parametrize("batch", [1, 3, 33])

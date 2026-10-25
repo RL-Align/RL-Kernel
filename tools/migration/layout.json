@@ -338,7 +338,11 @@
     "ci/run_ws1_ascend_ci.sh",
     "ci/run_ws1_chain_gate.sh",
     "ci/run_ws1_gtest.sh",
-    "requirements-docs.txt"
+    "requirements-docs.txt",
+    "rl_engine/kernels/ops/timestep_embed_mlp.py",
+    "rl_engine/kernels/ops/cuda/timestep_embed_mlp.py",
+    "rl_engine/kernels/ops/triton/timestep_embed_mlp.py",
+    "rl_engine/kernels/ops/pytorch/timestep_embed_mlp.py"
   ],
   "moves": {
     "benchmarks/benchmark_attention.py": "benchmarks/operators/attention/benchmark_attention.py",
@@ -968,7 +972,18 @@
     "tests/test_ws1_workload.py": "tests/validation/operators/test_ws1_workload.py",
     "tests/test_ws2_attention_gpu_acceptance.py": "tests/validation/distributed/test_ws2_attention_gpu_acceptance.py",
     "tests/test_ws2_cp_attention_drift_benchmark.py": "tests/validation/distributed/test_ws2_cp_attention_drift_benchmark.py",
-    "tests/test_ws2_megatron_te_cp_compare.py": "tests/validation/distributed/test_ws2_megatron_te_cp_compare.py"
+    "tests/test_ws2_megatron_te_cp_compare.py": "tests/validation/distributed/test_ws2_megatron_te_cp_compare.py",
+    "rl_engine/kernels/ops/timestep_embed_mlp.py": "rl_engine/ops/embedding/timestep_embed_mlp.py",
+    "rl_engine/kernels/ops/cuda/timestep_embed_mlp.py": "rl_engine/backends/cuda/embedding/timestep_embed_mlp.py",
+    "rl_engine/kernels/ops/triton/timestep_embed_mlp.py": "rl_engine/backends/cuda/embedding/timestep_embed_mlp_triton.py",
+    "rl_engine/kernels/ops/pytorch/timestep_embed_mlp.py": "rl_engine/reference/embedding/timestep_embed_mlp.py",
+    "csrc/cuda/timestep_embed_mlp.cu": "csrc/cuda/embedding/timestep_embed_mlp.cu",
+    "scripts/validate_timestep_official.py": "tools/validation/operators/validate_timestep_official.py",
+    "scripts/audit_timestep_reference.py": "tools/validation/operators/audit_timestep_reference.py",
+    "scripts/run_timestep_official.sh": "ci/scripts/run_timestep_official.sh",
+    "scripts/run_timestep_sm90.sh": "ci/scripts/run_timestep_sm90.sh",
+    "tests/test_timestep_official.py": "tests/ops/embedding/test_timestep_official.py",
+    "tests/test_timestep_reference_audit.py": "tests/reference/test_timestep_reference_audit.py"
   },
   "splits": {
     "rl_engine/integrations/framework_operators.py": [

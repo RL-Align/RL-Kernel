@@ -12,19 +12,23 @@ import argparse
 import hashlib
 import json
 import math
-from pathlib import Path
 import sys
 import time
+from pathlib import Path
 
 import torch
 import torch.nn.functional as F
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
-from validate_timestep_official import inputs, NAMES, run_grad  # noqa: E402
-from rl_engine.kernels.gtest.tolerance import load_contract, resolve_tolerance  # noqa: E402
-from rl_engine.kernels.ops.pytorch.timestep_embed_mlp import NativeTimestepEmbedMLPOp  # noqa: E402
-from rl_engine.kernels.ops.timestep_embed_mlp import TimestepEmbedMLPOp  # noqa: E402
+from rl_engine.contracts.numerical import load_contract, resolve_tolerance  # noqa: E402
+from rl_engine.ops.embedding.timestep_embed_mlp import TimestepEmbedMLPOp  # noqa: E402
+from rl_engine.reference.embedding.timestep_embed_mlp import NativeTimestepEmbedMLPOp  # noqa: E402
+from tools.validation.operators.validate_timestep_official import (  # noqa: E402
+    NAMES,
+    inputs,
+    run_grad,
+)
 
 
 def conventional(values, upstream, *, double, boundary):
@@ -99,8 +103,8 @@ def main():
             str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in [
                 Path(__file__).resolve(),
-                ROOT / "rl_engine/kernels/ops/pytorch/timestep_embed_mlp.py",
-                ROOT / "rl_engine/kernels/gtest/tolerance_contract.json",
+                ROOT / "rl_engine/reference/embedding/timestep_embed_mlp.py",
+                ROOT / "rl_engine/contracts/profiles/precision/ws1.json",
             ]
         },
     )

@@ -384,7 +384,7 @@ def get_extensions():
         extensions.append(
             GpuExtension(
                 name="rl_engine._timestep_cuda",
-                sources=["csrc/cuda/timestep_embed_mlp.cu"],
+                sources=["csrc/cuda/embedding/timestep_embed_mlp.cu"],
                 extra_compile_args={"cxx": ["-O3"], "nvcc": ["-O3", "--fmad=false"]},
                 extra_link_args=torch_rpath,
             )

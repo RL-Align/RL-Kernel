@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 : "${TIMESTEP_RUN_ROOT:?Set TIMESTEP_RUN_ROOT to an isolated output directory for this task}"
 : "${CUDA_HOME:=/usr/local/cuda}"
 export CUDA_HOME PYTHONDONTWRITEBYTECODE=1
@@ -33,14 +33,14 @@ PYENV
 nvidia-smi >> "$run_dir/environment.txt"
 nvcc --version >> "$run_dir/environment.txt"
 python -m pip freeze > "$run_dir/packages.txt"
-python -m pytest tests/test_timestep_official.py tests/contracts/test_tolerance_contract.py tests/validation/operators/test_operator_inputs.py -q > "$run_dir/pytest.log" 2>&1
+python -m pytest tests/ops/embedding/test_timestep_official.py tests/contracts/test_tolerance_contract.py tests/validation/operators/test_operator_inputs.py -q > "$run_dir/pytest.log" 2>&1
 for backend in cuda triton; do
     for dtype in fp32 bf16; do
-        python scripts/check_operator.py --op timestep_embed_mlp --candidate "$backend" \
+        python tools/validation/operators/check_operator.py --op timestep_embed_mlp --candidate "$backend" \
             --device cuda --dtype "$dtype" --batch 3 --seq 1 --seed 386 --check-grad --json \
             > "$run_dir/gtest-$backend-$dtype.json" 2> "$run_dir/gtest-$backend-$dtype.stderr"
     done
 done
-python scripts/validate_timestep_official.py --trace --benchmark --output "$run_dir/matrix.json" \
+python tools/validation/operators/validate_timestep_official.py --trace --benchmark --output "$run_dir/matrix.json" \
     > "$run_dir/matrix.log" 2>&1
 printf 'Evidence: %s\n' "$run_dir"

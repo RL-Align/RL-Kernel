@@ -91,7 +91,5 @@ def test_timestep_cuda_build_preserves_strict_flags(monkeypatch) -> None:
     extension = _load_extension_config(
         monkeypatch, hip=None, extension_name="rl_engine._timestep_cuda"
     )
-    assert extension["sources"] == ["csrc/cuda/timestep_embed_mlp.cu"]
-    assert extension["extra_compile_args"] == {
-        "cxx": ["-O3"], "nvcc": ["-O3", "--fmad=false"]
-    }
+    assert extension["sources"] == ["csrc/cuda/embedding/timestep_embed_mlp.cu"]
+    assert extension["extra_compile_args"] == {"cxx": ["-O3"], "nvcc": ["-O3", "--fmad=false"]}

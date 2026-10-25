@@ -35,12 +35,15 @@ OP_SPECS = {
     "timestep_embed_mlp": OperatorSpec(
         name="timestep_embed_mlp",
         op_class="reduction",
-        gold_path="rl_engine.kernels.ops.pytorch.timestep_embed_mlp.NativeTimestepEmbedMLPOp",
+        gold_path="rl_engine.reference.embedding.timestep_embed_mlp.NativeTimestepEmbedMLPOp",
         gold_method="forward_fp32",
         candidate_paths={
-            "pytorch": "rl_engine.kernels.ops.pytorch.timestep_embed_mlp.NativeTimestepEmbedMLPOp",
-            "cuda": "rl_engine.kernels.ops.cuda.timestep_embed_mlp.CudaTimestepEmbedMLPOp",
-            "triton": "rl_engine.kernels.ops.triton.timestep_embed_mlp.TritonTimestepEmbedMLPOp",
+            "pytorch": "rl_engine.reference.embedding.timestep_embed_mlp.NativeTimestepEmbedMLPOp",
+            "cuda": "rl_engine.backends.cuda.embedding.timestep_embed_mlp.CudaTimestepEmbedMLPOp",
+            "triton": (
+                "rl_engine.backends.cuda.embedding."
+                "timestep_embed_mlp_triton.TritonTimestepEmbedMLPOp"
+            ),
         },
         grad_input_names=("timestep", "weight1", "bias1", "weight2", "bias2"),
     ),

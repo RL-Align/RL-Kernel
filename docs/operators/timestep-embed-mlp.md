@@ -6,7 +6,7 @@ It does not add guidance or conditioning. Smaller hidden dimensions are accepted
 for testing. Weights follow `torch.nn.Linear` layout `[out_features, in_features]`.
 
 ```python
-from rl_engine.kernels.ops.timestep_embed_mlp import TimestepEmbedMLPOp
+from rl_engine.ops.embedding.timestep_embed_mlp import TimestepEmbedMLPOp
 
 op = TimestepEmbedMLPOp("cuda")  # or "triton"; "pytorch" is the slow independent gold
 output, trace = op(timestep, weight1, bias1, weight2, bias2, return_trace=True)
@@ -82,14 +82,14 @@ identify this independently built extension's execution path.
 ## Reproduce
 
 ```bash
-OMP_NUM_THREADS=4 python -m pytest tests/test_timestep_official.py \
+OMP_NUM_THREADS=4 python -m pytest tests/ops/embedding/test_timestep_official.py \
     tests/contracts/test_tolerance_contract.py tests/validation/operators/test_operator_inputs.py -q
 
-python scripts/check_operator.py --op timestep_embed_mlp --candidate cuda \
+python tools/validation/operators/check_operator.py --op timestep_embed_mlp --candidate cuda \
     --device cuda --dtype bf16 --batch 3 --seq 1 --seed 386 --check-grad --json
 # Repeat with --candidate triton and --dtype fp32.
 
-python scripts/validate_timestep_official.py --trace --benchmark \
+python tools/validation/operators/validate_timestep_official.py --trace --benchmark \
     --output /absolute/isolated/output/matrix.json
 ```
 
@@ -101,12 +101,72 @@ CUDA-event timings include operator dispatch and allocation overhead after warmu
 compilation is excluded. The performance baseline is ordinary batched PyTorch with
 the same fused FP32 compute policy, not the deliberately slow compensated oracle.
 
-`TIMESTEP_RUN_ROOT=/absolute/isolated/root bash scripts/run_timestep_official.sh`
+`TIMESTEP_RUN_ROOT=/absolute/isolated/root bash ci/scripts/run_timestep_official.sh`
 provides an A100-only fresh-cache reproduction including pytest, four official CLI
 runs, the matrix, package inventory and device information. Activate the desired
 venv and set CUDA_HOME/CPATH for your environment first. It does not connect to a
 server, install dependencies or alter system configuration.
 
-GPU acceptance results, the independent reference audit, reproduction commands,
-and limitations are summarized in [the validation report](timestep-reports/README.md).
-Full-repository native extension CI and full-model training remain unverified.
+## Implementation and historical validation
+
+| Component | Canonical location |
+| --- | --- |
+| Semantic API and autograd | `rl_engine/ops/embedding/timestep_embed_mlp.py` |
+| Independent PyTorch reference | `rl_engine/reference/embedding/timestep_embed_mlp.py` |
+| Native CUDA source and loader | `csrc/cuda/embedding/timestep_embed_mlp.cu`, `rl_engine/backends/cuda/embedding/timestep_embed_mlp.py` |
+| Triton kernels and adapter | `rl_engine/backends/cuda/embedding/timestep_embed_mlp_triton.py` |
+| API and reference tests | `tests/ops/embedding/test_timestep_official.py`, `tests/reference/test_timestep_reference_audit.py` |
+| Acceptance and reference audit | `tools/validation/operators/validate_timestep_official.py`, `tools/validation/operators/audit_timestep_reference.py` |
+
+The Triton implementation uses NVIDIA libdevice and is registered only for NVIDIA
+CUDA devices. Legacy Python modules remain aliases of these canonical modules,
+sharing class identities and the CUDA extension cache. Recorded operator identities
+remain stable across the move. New code and reproduction commands use canonical paths.
+
+These are **historical executions**, not new tests of the directory migration:
+
+| Check | A100 / sm80, 2026-10-02 | H100 / sm90, 2026-10-07 |
+| --- | --- | --- |
+| H3072, B1/3/16, seeds 386/9386, CUDA/Triton, FP32/BF16 | 24/24 passed | 24/24 passed |
+| H17, B33/64 long reductions | 8/8 passed | 8/8 passed |
+| Official forward/backward CLI checks | 4/4 passed | 4/4 passed |
+| Original related tests | 60 passed | 60 passed |
+| Reference VJP finite differences / expanded suite | Not run | 63 passed, no skips |
+| Related gtest framework regressions | Not claimed | 155 passed, no skips |
+| Independent FP32-phase reference audit | Not run | 8/8 passed |
+| Profiler confirmation without fallback | Four traces | Four traces |
+
+The H100 acceptance source is `ea55fa686706892ce94ebe7020829c19c108496c`;
+source manifests, dependencies, commands, seeds, thresholds, raw measurements,
+traces and failed attempts remain preserved outside the current tree. The native
+CUDA source and reference are unchanged by the migration; backend arithmetic and
+launch settings are unchanged, with only imports and source locations adjusted.
+GPU acceptance was not rerun for the migration; local import/build-path checks
+do not establish a fresh device execution.
+
+The independent audit compares all six tensors against FP64 trig/MLP/autograd
+at the specified **FP32 phase boundary**. It passed all eight H3072 cases.
+A separate all-FP64-phase diagnostic exceeded tolerance in 3/4 FP32 cases;
+it is a different contract, not an acceptance substitute. In the historical
+B16/seed9386 case, timestep-gradient error/tolerance was 5.311 for the old
+reference, 0.642 for the current reference, and 80.892 for the all-FP64 diagnostic.
+
+H100 CUDA forward+backward microbenchmarks measured approximately 1.51–1.85x
+speedup over ordinary batched PyTorch using 20 CUDA-event samples and medians.
+B16 forward and most Triton cases were slower. No full-model speedup or
+Hopper-specific WGMMA/TMA optimization is claimed. Full-model training,
+multi-GPU execution and full-repository native builds remain unverified.
+The target branch's GitHub workflows did not execute these GPU acceptance runs.
+An older local double-free remains undiagnosed; the isolated H100 suites passed.
+
+Additional reproduction commands, with isolated output paths:
+
+```bash
+TIMESTEP_RUN_ROOT=/absolute/new-h100-run bash ci/scripts/run_timestep_sm90.sh
+python tools/validation/operators/validate_timestep_official.py --hidden 17 \
+    --batches 33 64 --seeds 386 --output /absolute/new-long-reduction.json
+OMP_NUM_THREADS=4 TIMESTEP_CUDA_JIT_ONLY=1 TORCH_CUDA_ARCH_LIST=9.0 \
+    python tools/validation/operators/audit_timestep_reference.py \
+    --output /absolute/new-audit.json
+python -m pytest tests/reference/test_timestep_reference_audit.py -q
+```

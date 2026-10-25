@@ -7,9 +7,9 @@ import unittest
 import torch
 import torch.nn.functional as F
 
-from rl_engine.kernels.gtest.tolerance import load_contract, resolve_tolerance
-from rl_engine.kernels.ops.pytorch.timestep_embed_mlp import NativeTimestepEmbedMLPOp
-from rl_engine.kernels.ops.timestep_embed_mlp import TimestepEmbedMLPOp
+from rl_engine.contracts.numerical import load_contract, resolve_tolerance
+from rl_engine.ops.embedding.timestep_embed_mlp import TimestepEmbedMLPOp
+from rl_engine.reference.embedding.timestep_embed_mlp import NativeTimestepEmbedMLPOp
 
 
 class TimestepOfficialTests(unittest.TestCase):

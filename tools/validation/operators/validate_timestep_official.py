@@ -7,23 +7,31 @@ Use --device cpu --backends pytorch for plumbing only, never GPU certification.
 """
 
 import argparse
-from dataclasses import asdict
 import hashlib
 import json
 import math
-from pathlib import Path
 import platform
 import sys
 import time
+from dataclasses import asdict
+from pathlib import Path
 
 import torch
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
-from rl_engine.kernels.gtest import CandidateSpec, OperatorCase, run_operator_suite  # noqa: E402
-from rl_engine.kernels.gtest.tolerance import BackendProvenance, load_contract, resolve_tolerance  # noqa: E402
-from rl_engine.kernels.ops.timestep_embed_mlp import TimestepEmbedMLPOp  # noqa: E402
-from rl_engine.kernels.ops.pytorch.timestep_embed_mlp import NativeTimestepEmbedMLPOp  # noqa: E402
+from rl_engine.contracts.numerical import (  # noqa: E402
+    BackendProvenance,
+    load_contract,
+    resolve_tolerance,
+)
+from rl_engine.ops.embedding.timestep_embed_mlp import TimestepEmbedMLPOp  # noqa: E402
+from rl_engine.reference.embedding.timestep_embed_mlp import NativeTimestepEmbedMLPOp  # noqa: E402
+from rl_engine.validation.operators import (  # noqa: E402
+    CandidateSpec,
+    OperatorCase,
+    run_operator_suite,
+)
 
 NAMES = ("timestep", "weight1", "bias1", "weight2", "bias2")
 
@@ -223,7 +231,7 @@ def main():
             "cuda": torch.version.cuda,
             "gpu": torch.cuda.get_device_name() if args.device == "cuda" else None,
             "contract_sha256": hashlib.sha256(
-                (ROOT / "rl_engine/kernels/gtest/tolerance_contract.json").read_bytes()
+                (ROOT / "rl_engine/contracts/profiles/precision/ws1.json").read_bytes()
             ).hexdigest(),
             "base_sha": "32b765ec992cd1206517104ec66506881203c91c",
             "tf32": False,
@@ -233,11 +241,14 @@ def main():
         "passed": False,
     }
     paths = [
-        *ROOT.glob("rl_engine/kernels/ops/**/timestep_embed_mlp.py"),
-        ROOT / "csrc/cuda/timestep_embed_mlp.cu",
+        ROOT / "rl_engine/ops/embedding/timestep_embed_mlp.py",
+        ROOT / "rl_engine/backends/cuda/embedding/timestep_embed_mlp.py",
+        ROOT / "rl_engine/backends/cuda/embedding/timestep_embed_mlp_triton.py",
+        ROOT / "rl_engine/reference/embedding/timestep_embed_mlp.py",
+        ROOT / "csrc/cuda/embedding/timestep_embed_mlp.cu",
         Path(__file__).resolve(),
-        ROOT / "rl_engine/kernels/gtest/operator_specs.py",
-        ROOT / "rl_engine/kernels/gtest/operator_inputs.py",
+        ROOT / "rl_engine/validation/operators/operator_specs.py",
+        ROOT / "rl_engine/validation/operators/operator_inputs.py",
     ]
     for p in paths:
         report["source_sha256"][str(p.relative_to(ROOT))] = hashlib.sha256(
@@ -276,9 +287,9 @@ def main():
                         provenance = None
                         if dtype == torch.bfloat16 and backend != "pytorch":
                             provenance = BackendProvenance(
-                                backend_profile="cuda_bf16"
-                                if backend == "cuda"
-                                else "triton_cuda_bf16",
+                                backend_profile=(
+                                    "cuda_bf16" if backend == "cuda" else "triton_cuda_bf16"
+                                ),
                                 requested_backend=backend,
                                 actual_backend=backend,
                                 execution_dtype="bfloat16",
