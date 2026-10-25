@@ -6,13 +6,17 @@
 // All reductions use fixed order; no split-KV or dynamic dispatch.
 
 #include <ATen/ATen.h>
+#include <ATen/MemoryOverlap.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <torch/extension.h>
 
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>
+#include <cmath>
 #include <limits>
+#include <map>
+#include <string>
 #include <vector>
 
 namespace {
@@ -58,6 +62,117 @@ __global__ void qk_kernel(
 
   const int64_t out_idx = (int64_t)b * Hq * Sq * Skv + (int64_t)hq * Sq * Skv + (int64_t)q_idx * Skv + k_idx;
   scores[out_idx] = scale * acc;
+}
+
+// H3 fixed-D dot product. Cooperative, contiguous global loads convert each
+// BF16 input once per CTA. Padding/transposition keeps shared-memory reads
+// conflict-free for the (16 key, 16 query) thread layout. Each score retains
+// the original ascending-d, separate-multiply/add FP32 reduction.
+template <bool ApplyScale>
+__global__ void h3_shared_qk_kernel(
+    const at::BFloat16* __restrict__ Q,
+    const at::BFloat16* __restrict__ K,
+    float* __restrict__ scores,
+    int64_t Sq, int64_t Skv, float scale) {
+  __shared__ float sq[16][129];
+  __shared__ float sk[128][17];
+  const int tid = threadIdx.y * 16 + threadIdx.x;
+  const int64_t q_start = (int64_t)blockIdx.y * 16;
+  const int64_t k_start = (int64_t)blockIdx.x * 16;
+  const int64_t bh = blockIdx.z;
+  for (int i = tid; i < 16 * 128; i += 256) {
+    const int row = i / 128;
+    const int d = i % 128;
+    sq[row][d] = q_start + row < Sq
+        ? (float)Q[(bh * Sq + q_start + row) * 128 + d] : 0.0f;
+    sk[d][row] = k_start + row < Skv
+        ? (float)K[(bh * Skv + k_start + row) * 128 + d] : 0.0f;
+  }
+  __syncthreads();
+  const int64_t qi = q_start + threadIdx.y;
+  const int64_t ki = k_start + threadIdx.x;
+  if (qi >= Sq || ki >= Skv) return;
+  float acc = 0.0f;
+  #pragma unroll 8
+  for (int d = 0; d < 128; ++d) {
+    acc += sq[threadIdx.y][d] * sk[d][threadIdx.x];
+  }
+  scores[(bh * Sq + qi) * Skv + ki] = ApplyScale ? scale * acc : acc;
+}
+
+// H3 PV/dQ and fused dK/dV reuse staged operands in shared memory.
+// Each output retains the native scalar ascending reduction order.
+// All threads take every barrier, including tail rows/channels.
+template <bool Scale>
+__global__ void h3_staged_row_product(
+    const float* __restrict__ A, const at::BFloat16* __restrict__ X,
+    at::BFloat16* __restrict__ Y, int64_t Rows, int64_t Inner, float scale) {
+  __shared__ float a[8][33];
+  __shared__ float x[32][33];
+  const int tid = threadIdx.y * 32 + threadIdx.x;
+  const int64_t bh = blockIdx.z;
+  const int64_t row = (int64_t)blockIdx.y * 8 + threadIdx.y;
+  const int d = blockIdx.x * 32 + threadIdx.x;
+  float acc = 0.0f;
+  for (int64_t start = 0; start < Inner; start += 32) {
+    const int ar = tid / 32, ak = tid % 32;
+    const int64_t global_row = (int64_t)blockIdx.y * 8 + ar;
+    a[ar][ak] = global_row < Rows && start + ak < Inner
+        ? A[(bh * Rows + global_row) * Inner + start + ak] : 0.0f;
+    for (int i = tid; i < 32 * 32; i += 256) {
+      const int k = i / 32, c = i % 32;
+      x[k][c] = start + k < Inner
+          ? (float)X[(bh * Inner + start + k) * 128 + blockIdx.x * 32 + c] : 0.0f;
+    }
+    __syncthreads();
+    // No padded contributions: even signed zero keeps the original operation count.
+    const int n = (int)min((int64_t)32, Inner - start);
+    #pragma unroll 8
+    for (int j = 0; j < n; ++j) {
+      acc += a[threadIdx.y][j] * x[j][threadIdx.x];
+    }
+    __syncthreads();
+  }
+  if (row < Rows) Y[(bh * Rows + row) * 128 + d] =
+      (at::BFloat16)(Scale ? scale * acc : acc);
+}
+
+__global__ void h3_staged_dkv(
+    const float* __restrict__ DS, const float* __restrict__ P,
+    const at::BFloat16* __restrict__ Q, const at::BFloat16* __restrict__ DO,
+    float* __restrict__ DK, float* __restrict__ DV, int64_t Sq, int64_t Skv) {
+  __shared__ float ds[32][9], p[32][9];
+  __shared__ float q[32][33], dout[32][33];
+  const int tid = threadIdx.y * 32 + threadIdx.x;
+  const int64_t bh = blockIdx.z;
+  const int64_t ki = (int64_t)blockIdx.y * 8 + threadIdx.y;
+  const int d = blockIdx.x * 32 + threadIdx.x;
+  const int64_t index = (bh * Skv + ki) * 128 + d;
+  float dk = ki < Skv ? DK[index] : 0.0f;
+  float dv = ki < Skv ? DV[index] : 0.0f;
+  for (int64_t start = 0; start < Sq; start += 32) {
+    const int r = tid / 8, c = tid % 8;
+    const int64_t k = (int64_t)blockIdx.y * 8 + c;
+    const bool valid = start + r < Sq && k < Skv;
+    ds[r][c] = valid ? DS[(bh * Sq + start + r) * Skv + k] : 0.0f;
+    p[r][c] = valid ? P[(bh * Sq + start + r) * Skv + k] : 0.0f;
+    for (int i = tid; i < 32 * 32; i += 256) {
+      const int row = i / 32, dim = i % 32;
+      const bool valid_q = start + row < Sq;
+      const int64_t offset = (bh * Sq + start + row) * 128 + blockIdx.x * 32 + dim;
+      q[row][dim] = valid_q ? (float)Q[offset] : 0.0f;
+      dout[row][dim] = valid_q ? (float)DO[offset] : 0.0f;
+    }
+    __syncthreads();
+    const int n = (int)min((int64_t)32, Sq - start);
+    #pragma unroll 8
+    for (int j = 0; j < n; ++j) {
+      dk += ds[j][threadIdx.y] * q[j][threadIdx.x];
+      dv += p[j][threadIdx.y] * dout[j][threadIdx.x];
+    }
+    __syncthreads();
+  }
+  if (ki < Skv) { DK[index] = dk; DV[index] = dv; }
 }
 
 // ---------------------------------------------------------------------------
@@ -263,7 +378,9 @@ std::vector<torch::Tensor> deterministic_attention_forward_impl(
     bool causal,
     double scale,
     torch::optional<torch::Tensor> key_padding_mask,
-    bool output_fp32) {
+    bool output_fp32,
+    bool compute_output = true,
+    bool h3_shared_qk = false) {
   check_deterministic_attention_inputs(q, k, v, key_padding_mask);
 
   const at::cuda::OptionalCUDAGuard device_guard(at::device_of(q));
@@ -295,17 +412,24 @@ std::vector<torch::Tensor> deterministic_attention_forward_impl(
         (Skv + kQKTileK - 1) / kQKTileK,
         (Sq + kQKTileQ - 1) / kQKTileQ,
         B * Hq);
-    AT_DISPATCH_FLOATING_TYPES_AND2(
-        at::ScalarType::Half, at::ScalarType::BFloat16,
-        q_contig.scalar_type(), "qk_kernel", [&] {
-          qk_kernel<scalar_t><<<grid, block, 0, stream>>>(
-              q_contig.data_ptr<scalar_t>(),
-              k_contig.data_ptr<scalar_t>(),
-              scores.data_ptr<float>(),
-              B, Hq, Hkv, Sq, Skv, D,
-              (float)scale);
-          C10_CUDA_KERNEL_LAUNCH_CHECK();
-        });
+    if (h3_shared_qk) {
+      h3_shared_qk_kernel<true><<<grid, block, 0, stream>>>(
+          q_contig.data_ptr<at::BFloat16>(), k_contig.data_ptr<at::BFloat16>(),
+          scores.data_ptr<float>(), Sq, Skv, (float)scale);
+      C10_CUDA_KERNEL_LAUNCH_CHECK();
+    } else {
+      AT_DISPATCH_FLOATING_TYPES_AND2(
+          at::ScalarType::Half, at::ScalarType::BFloat16,
+          q_contig.scalar_type(), "qk_kernel", [&] {
+            qk_kernel<scalar_t><<<grid, block, 0, stream>>>(
+                q_contig.data_ptr<scalar_t>(),
+                k_contig.data_ptr<scalar_t>(),
+                scores.data_ptr<float>(),
+                B, Hq, Hkv, Sq, Skv, D,
+                (float)scale);
+            C10_CUDA_KERNEL_LAUNCH_CHECK();
+          });
+    }
   }
 
   // --- Launch Masked Softmax + LSE kernel ---
@@ -326,6 +450,10 @@ std::vector<torch::Tensor> deterministic_attention_forward_impl(
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
 
+  if (!compute_output) {
+    return {torch::Tensor(), lse, scores};
+  }
+
   // --- Launch PV kernel ---
   auto out = output_fp32
       ? torch::empty(q_contig.sizes(), q_contig.options().dtype(at::kFloat))
@@ -336,24 +464,33 @@ std::vector<torch::Tensor> deterministic_attention_forward_impl(
         (D + kPVTileD - 1) / kPVTileD,
         (Sq + kPVTileQ - 1) / kPVTileQ,
         B * Hq);
-    AT_DISPATCH_FLOATING_TYPES_AND2(
-        at::ScalarType::Half, at::ScalarType::BFloat16,
-        q_contig.scalar_type(), "pv_kernel", [&] {
-          if (output_fp32) {
-            pv_kernel<scalar_t, float><<<grid, block, 0, stream>>>(
-                scores.data_ptr<float>(),
-                v_contig.data_ptr<scalar_t>(),
-                out.data_ptr<float>(),
-                B, Hq, Hkv, Sq, Skv, D);
-          } else {
-            pv_kernel<scalar_t, scalar_t><<<grid, block, 0, stream>>>(
-                scores.data_ptr<float>(),
-                v_contig.data_ptr<scalar_t>(),
-                out.data_ptr<scalar_t>(),
-                B, Hq, Hkv, Sq, Skv, D);
-          }
-          C10_CUDA_KERNEL_LAUNCH_CHECK();
-        });
+    if (h3_shared_qk && !output_fp32) {
+      dim3 h3block(32, 8);
+      dim3 h3grid(4, (Sq + 7) / 8, B * Hq);
+      h3_staged_row_product<false><<<h3grid, h3block, 0, stream>>>(
+          scores.data_ptr<float>(), v_contig.data_ptr<at::BFloat16>(),
+          out.data_ptr<at::BFloat16>(), Sq, Skv, (float)scale);
+      C10_CUDA_KERNEL_LAUNCH_CHECK();
+    } else {
+      AT_DISPATCH_FLOATING_TYPES_AND2(
+          at::ScalarType::Half, at::ScalarType::BFloat16,
+          q_contig.scalar_type(), "pv_kernel", [&] {
+            if (output_fp32) {
+              pv_kernel<scalar_t, float><<<grid, block, 0, stream>>>(
+                  scores.data_ptr<float>(),
+                  v_contig.data_ptr<scalar_t>(),
+                  out.data_ptr<float>(),
+                  B, Hq, Hkv, Sq, Skv, D);
+            } else {
+              pv_kernel<scalar_t, scalar_t><<<grid, block, 0, stream>>>(
+                  scores.data_ptr<float>(),
+                  v_contig.data_ptr<scalar_t>(),
+                  out.data_ptr<scalar_t>(),
+                  B, Hq, Hkv, Sq, Skv, D);
+            }
+            C10_CUDA_KERNEL_LAUNCH_CHECK();
+          });
+    }
   }
 
   return {out, lse, scores};
@@ -371,6 +508,63 @@ std::vector<torch::Tensor> deterministic_attention_forward_fp32(
     torch::optional<torch::Tensor> key_padding_mask) {
   return deterministic_attention_forward_impl(
       q, k, v, causal, scale, key_padding_mask, true);
+}
+
+namespace {
+void check_h3_build() {
+#if !defined(RL_KERNEL_H3_STRICT) || !RL_KERNEL_H3_STRICT || defined(USE_ROCM)
+  TORCH_CHECK(false,
+              "H3 requires an audited strict CUDA build; rebuild with RL_KERNEL_H3_STRICT=1");
+#endif
+}
+
+void check_h3_inputs(const torch::Tensor& q, const torch::Tensor& k,
+                     const torch::Tensor& v) {
+  check_h3_build();
+  TORCH_CHECK(q.dim() == 4 && k.dim() == 4 && v.dim() == 4,
+              "H3 requires 4-D head-major Q/K/V");
+  TORCH_CHECK(q.size(1) == 56 && k.size(1) == 56 && v.size(1) == 56,
+              "H3 requires 56 MHA heads");
+  TORCH_CHECK(q.scalar_type() == at::kBFloat16, "H3 requires BF16");
+  TORCH_CHECK(q.size(0) > 0 && q.size(0) <= 65535 / 56,
+              "H3 batch exceeds CUDA grid bounds");
+  // H3's staged PV/dQ/dK/dV kernels use eight rows per grid block. Keep
+  // their y-dimension within CUDA's 16-bit grid limit as well as the QK
+  // kernel's sixteen-row limit.
+  TORCH_CHECK(q.size(2) <= 65535 * 8 && k.size(2) <= 65535 * 8,
+              "H3 sequence exceeds CUDA grid bounds");
+  TORCH_CHECK(q.size(0) * 56 * q.size(2) <= 2147483647LL,
+              "H3 query chunk exceeds softmax row index bounds");
+  check_deterministic_attention_inputs(q, k, v, torch::nullopt);
+  TORCH_CHECK(at::cuda::getDeviceProperties(q.get_device())->major >= 8,
+              "H3 BF16 CUDA profile requires SM80 or newer");
+}
+} // namespace
+
+std::map<std::string, std::string> h3_attention_build_info() {
+#if defined(RL_KERNEL_H3_STRICT) && RL_KERNEL_H3_STRICT && !defined(USE_ROCM)
+  return {{"profile", "h3-cuda-strict-v1"}, {"fmad", "false"}, {"ftz", "false"},
+          {"prec_div", "true"}, {"prec_sqrt", "true"}, {"fast_math", "false"},
+          {"cuda_compiler", std::to_string(__CUDACC_VER_MAJOR__) + "." +
+                            std::to_string(__CUDACC_VER_MINOR__) + "." +
+                            std::to_string(__CUDACC_VER_BUILD__)}};
+#else
+  return {{"profile", "unqualified"}};
+#endif
+}
+
+std::vector<torch::Tensor> h3_attention_forward(
+    torch::Tensor q, torch::Tensor k, torch::Tensor v) {
+  check_h3_inputs(q, k, v);
+  return deterministic_attention_forward_impl(q, k, v, false, 1.0 / std::sqrt(128.0),
+                                               torch::nullopt, false, true, true);
+}
+
+// Recompute only probabilities during H3 backward; do not execute an unused PV.
+torch::Tensor h3_attention_probabilities(torch::Tensor q, torch::Tensor k, torch::Tensor v) {
+  check_h3_inputs(q, k, v);
+  return deterministic_attention_forward_impl(q, k, v, false, 1.0 / std::sqrt(128.0),
+                                               torch::nullopt, false, false, true)[2];
 }
 
 // ===========================================================================
@@ -681,6 +875,93 @@ std::vector<torch::Tensor> deterministic_attention_backward(
               B, Hq, Hkv, Sq, Skv, D);
           C10_CUDA_KERNEL_LAUNCH_CHECK();
         });
+  }
+
+  return {dQ, dK, dV};
+}
+
+// H3 backward continues FP32 accumulators across query chunks.
+std::vector<torch::Tensor> h3_attention_backward_accumulate(
+    torch::Tensor grad_output,
+    torch::Tensor q,
+    torch::Tensor k,
+    torch::Tensor v,
+    torch::Tensor P,       // recomputed [B, 56, Sq, Skv] FP32
+    torch::Tensor dK, torch::Tensor dV) {
+  check_h3_inputs(q, k, v);
+  TORCH_CHECK(grad_output.sizes() == q.sizes() && grad_output.device() == q.device()
+              && grad_output.scalar_type() == q.scalar_type(), "invalid H3 grad_output");
+  TORCH_CHECK(P.dim() == 4 && P.size(0) == q.size(0) && P.size(1) == 56
+              && P.size(2) == q.size(2) && P.size(3) == k.size(2)
+              && P.device() == q.device() && P.scalar_type() == at::kFloat, "invalid H3 P");
+  for (const auto& acc : {dK, dV}) {
+    TORCH_CHECK(acc.device() == q.device() && acc.scalar_type() == at::kFloat
+                && acc.sizes() == k.sizes() && acc.is_contiguous(), "invalid H3 accumulator");
+  }
+
+  at::assert_no_overlap(dK, dV);
+  for (const auto& input : {q, k, v, P, grad_output}) {
+    at::assert_no_overlap(dK, input);
+    at::assert_no_overlap(dV, input);
+  }
+
+  const at::cuda::OptionalCUDAGuard device_guard(at::device_of(q));
+
+  auto dO = grad_output.contiguous();
+  auto q_c = q.contiguous();
+  auto k_c = k.contiguous();
+  auto v_c = v.contiguous();
+  auto P_c = P.contiguous();
+
+  const int64_t B = q_c.size(0);
+  const int64_t Hq = q_c.size(1);
+  const int64_t Sq = q_c.size(2);
+  const int64_t Skv = k_c.size(2);
+
+  auto stream = at::cuda::getCurrentCUDAStream();
+
+  // dP = dO @ V^T  [B, Hq, Sq, Skv]
+  auto dP = torch::empty({B, Hq, Sq, Skv}, q_c.options().dtype(at::kFloat));
+  {
+    dim3 block(kQKTileK, kQKTileQ);
+    dim3 grid(
+        (Skv + kQKTileK - 1) / kQKTileK,
+        (Sq + kQKTileQ - 1) / kQKTileQ,
+        B * Hq);
+    h3_shared_qk_kernel<false><<<grid, block, 0, stream>>>(
+        dO.data_ptr<at::BFloat16>(), v_c.data_ptr<at::BFloat16>(),
+        dP.data_ptr<float>(), Sq, Skv, 1.0f);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+  }
+
+  // Softmax backward: dS = P * (dP - delta), writes in-place over dP
+  {
+    const int64_t num_rows = B * Hq * Sq;
+    softmax_backward_kernel<<<num_rows, kSoftmaxThreads, 0, stream>>>(
+        dP.data_ptr<float>(),
+        P_c.data_ptr<float>(),
+        Skv);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+  }
+  // dP buffer now contains dS
+
+  auto dQ = torch::empty_like(q_c);
+  {
+    dim3 block(32, 8);
+    dim3 grid(4, (Sq + 7) / 8, B * Hq);
+    h3_staged_row_product<true><<<grid, block, 0, stream>>>(
+        dP.data_ptr<float>(), k_c.data_ptr<at::BFloat16>(),
+        dQ.data_ptr<at::BFloat16>(), Sq, Skv, (float)(1.0 / std::sqrt(128.0)));
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+  }
+  {
+    dim3 block(32, 8);
+    dim3 grid(4, (Skv + 7) / 8, B * Hq);
+    h3_staged_dkv<<<grid, block, 0, stream>>>(
+        dP.data_ptr<float>(), P_c.data_ptr<float>(),
+        q_c.data_ptr<at::BFloat16>(), dO.data_ptr<at::BFloat16>(),
+        dK.data_ptr<float>(), dV.data_ptr<float>(), Sq, Skv);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
 
   return {dQ, dK, dV};

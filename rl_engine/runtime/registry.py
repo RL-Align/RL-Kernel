@@ -76,6 +76,7 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     MUSA_FUSED_LOGP_GENERIC = "rl_engine.backends.musa.logprob.logp.MusaFusedLogpOp"
     CUDA_DETERMINISTIC_LOGP = "rl_engine.kernels.ops.cuda.loss.logp.DeterministicLogpCUDAOp"
     # Deterministic standard-softmax attention (issue #147); not FlashAttention.
+    CUDA_H3_FULL_ATTENTION = "rl_engine.backends.cuda.attention.h3_full_attention.H3FullAttentionOp"
     CUDA_DETERMINISTIC_ATTENTION = (
         "rl_engine.kernels.ops.cuda.attention.deterministic_attn.DeterministicAttentionOp"
     )
@@ -231,6 +232,34 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
 
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
     return (
+        OperatorBackendDescriptor(
+            semantic_op="h3_full_attention",
+            backend_id="rlkernel.cuda.h3_full_attention.query_chunk.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"cuda"}),
+            supported_dtypes=frozenset({"bfloat16"}),
+            supported_topologies={
+                "world_size": (1,),
+                "tensor_parallel_size": (1,),
+                "context_parallel_size": (1,),
+            },
+            determinism_or_alignment_properties={
+                "deterministic": True,
+                "batch_invariant": True,
+                "strict_observable": True,
+                "arithmetic_profile": "h3-cuda-strict-v1",
+                "layout": "BSHD",
+                "heads": 56,
+                "head_dim": 128,
+                "causal": False,
+            },
+            lifecycle=OperatorLifecycle.ENGINE_CONSTRUCTION,
+            implementation_class_or_factory=(
+                "rl_engine.backends.cuda.attention.h3_full_attention.H3FullAttentionOp"
+            ),
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="h3-query-chunk-v1; binary profile checked at invocation",
+        ),
         OperatorBackendDescriptor(
             semantic_op="video_patch_pack_unpack",
             backend_id="pytorch-video-patch-pack-unpack-v1",
@@ -625,6 +654,7 @@ class KernelRegistry:
                     OpBackend.TRITON_GENERIC,
                     OpBackend.PYTORCH_ATTN,
                 ],
+                "h3_full_attention": [OpBackend.CUDA_H3_FULL_ATTENTION],
                 "attention": [
                     OpBackend.CUDA_DETERMINISTIC_ATTENTION,
                     OpBackend.PYTORCH_NATIVE_ATTENTION,
@@ -1129,6 +1159,8 @@ class KernelRegistry:
         """Select the best legacy operator for the requested device."""
 
         platform = self._platform_for_device(device)
+        if op_type == "h3_full_attention" and platform != "cuda":
+            raise RuntimeError("h3_full_attention requires NVIDIA CUDA; no fallback")
         candidates = self._priority_map.get(platform, {}).get(op_type, [OpBackend.PYTORCH_NATIVE])
 
         for backend in candidates:
