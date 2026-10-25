@@ -32,6 +32,16 @@ def _load_object(path: str) -> Any:
 
 
 OP_SPECS = {
+    "h3_full_attention": OperatorSpec(
+        name="h3_full_attention",
+        op_class="attention",
+        gold_path=("rl_engine.reference.attention.standard_attn.H3FullAttentionReference"),
+        gold_method="forward_fp32",
+        candidate_paths={
+            "cuda": "rl_engine.backends.cuda.attention.h3_full_attention.H3FullAttentionOp",
+        },
+        grad_input_names=("q", "k", "v"),
+    ),
     "rms_norm": OperatorSpec(
         name="rms_norm",
         op_class="reduction",
