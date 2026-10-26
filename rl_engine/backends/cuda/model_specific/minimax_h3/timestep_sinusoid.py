@@ -46,6 +46,12 @@ class _H3TimestepSinusoidCuda(torch.autograd.Function):
 
         (out,) = ctx.saved_tensors
         half = ctx.num_channels // 2
+        # The VJP slices the native output as [cos | sin] over frequencies_fp32 order.
+        if out.dim() != 2 or out.shape[-1] != ctx.num_channels:
+            raise RuntimeError(
+                f"native timestep features have shape {tuple(out.shape)}, expected "
+                f"(T, {ctx.num_channels}) in [cos | sin] order"
+            )
         freq = NativeH3TimestepSinusoidOp.frequencies_fp32(ctx.num_channels, out.device)
         cos_part, sin_part = out[:, :half], out[:, half:]
         g = grad_out.float()
