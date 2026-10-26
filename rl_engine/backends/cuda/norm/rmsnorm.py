@@ -248,7 +248,8 @@ def _gate_activation_fp32(gate: torch.Tensor, activation: int) -> torch.Tensor:
 
 
 def _gate_activation_grad_fp32(gate: torch.Tensor, activation: int) -> torch.Tensor:
-    """d act(gate) / d gate in fp32, matching ``gate_activation_grad``."""
+    """d act(gate) / d gate in fp32: sigma * (1 + z * (1 - sigma)) for silu, sigma * (1 - sigma)
+    for sigmoid, with sigma = sigmoid(z)."""
     gate32 = gate.float()
     sigma = torch.sigmoid(gate32)
     if activation == 0:
