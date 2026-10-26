@@ -56,8 +56,25 @@ def _leaf_grads(fn, temb, weight, bias, grads):
     return [leaf.grad for leaf in leaves]
 
 
+def test_pre_sm80_device_is_refused_at_construction_so_the_registry_can_fall_back(monkeypatch):
+    from rl_engine.backends.cuda.model_specific.minimax_h3 import adaln_modulation as module
+
+    monkeypatch.setattr(module, "det_linear_available", lambda: True)
+    monkeypatch.setattr(module, "adaln_row_gather_available", lambda: True)
+    monkeypatch.setattr(module, "det_linear_device_supported", lambda: False)
+    with pytest.raises(RuntimeError, match="SM80"):
+        module.H3AdaLNModulationCudaOp()
+
+
 @requires_cuda
 class TestFusedModulation:
+    def test_indices_on_another_device_than_temb_are_rejected(self):
+        fused, _, _ = _ops()
+        temb, weight, bias = _params(64, 2688)
+        ti, tags = h3_packed_layout(1000, 3)
+        with pytest.raises(ValueError, match="rows are on"):
+            fused(temb, weight, bias, ti.cpu(), tags.cpu(), check_range=False)
+
     def test_forward_bitwise_equal_to_separate_ops(self):
         fused, proj, gather = _ops()
         temb, weight, bias = _params(64, 2688)

@@ -16,8 +16,6 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 
-from rl_engine.ops.autograd.backward_runtime import record_backward
-from rl_engine.backends.extension import _C
 from rl_engine.backends.cuda.model_specific.minimax_h3.adaln_row_gather import (
     _segment_tiles,
     adaln_row_gather_available,
@@ -26,9 +24,12 @@ from rl_engine.backends.cuda.model_specific.minimax_h3.det_linear import (
     det_linear_available,
     det_linear_backward_input,
     det_linear_backward_weight,
+    det_linear_device_supported,
     det_linear_forward,
     silu_backward_fp32,
 )
+from rl_engine.backends.extension import _C
+from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.reference.minimax_h3 import H3_ADALN_CHUNKS, H3_MODALITY_NUM
 from rl_engine.reference.minimax_h3.adaln_projection import validate_h3_adaln_projection
 from rl_engine.reference.minimax_h3.adaln_row_gather import (
@@ -108,12 +109,14 @@ class H3AdaLNModulationCudaOp:
     def __init__(self) -> None:
         if not (det_linear_available() and adaln_row_gather_available()):
             raise RuntimeError("rl_engine._C lacks the h3_det_linear_* / h3_adaln_row_gather_* ops")
+        if not det_linear_device_supported():
+            raise RuntimeError("the BF16 h3 det_linear forward needs SM80 or newer")
 
     def __call__(self, temb, weight, bias, timestep_indices, token_tags, *, check_range=True):
         hidden = validate_h3_adaln_projection(temb, weight, bias)
         if not temb.is_cuda:
             raise ValueError("H3AdaLNModulationCudaOp needs CUDA tensors")
-        _validate_indices(timestep_indices, token_tags, temb.shape[0], check_range)
+        _validate_indices(timestep_indices, token_tags, temb.shape[0], temb.device, check_range)
         packed = _H3AdaLNModulationCuda.apply(
             temb,
             weight,
@@ -125,9 +128,8 @@ class H3AdaLNModulationCudaOp:
         return tuple(packed.unbind(0))
 
 
-def _validate_indices(timestep_indices, token_tags, num_timesteps, check_range):
-    # Reuse the gather's checks against a stand-in of the right row count.
-    stand_in = torch.empty(
-        (num_timesteps * H3_MODALITY_NUM, H3_ADALN_CHUNKS), device=timestep_indices.device
-    )
+def _validate_indices(timestep_indices, token_tags, num_timesteps, device, check_range):
+    # Reuse the gather's checks against a stand-in of the right row count on temb's device, so
+    # indices on another device are rejected here.
+    stand_in = torch.empty((num_timesteps * H3_MODALITY_NUM, H3_ADALN_CHUNKS), device=device)
     validate_h3_adaln_row_gather(stand_in, timestep_indices, token_tags, check_range=check_range)

@@ -29,10 +29,13 @@ _REFS = ("diffusers[plain]", "diffusers", "rl_kernel")
 def _cell(entry: dict | None) -> float | None:
     if not entry:
         return None
-    out = entry["out"][0]
-    if out is None or "differ" not in out:
+    outs = [o for o in entry["out"] if o is not None]
+    if not outs:
         return None
-    return 0.0 if out["equal"] else out["differ"] / out["numel"]
+    if any("differ" not in o for o in outs):  # shape or dtype mismatch
+        return 1.0
+    numel = sum(o["numel"] for o in outs)
+    return sum(o["differ"] for o in outs) / numel if numel else None
 
 
 def _text(frac: float | None) -> str:
