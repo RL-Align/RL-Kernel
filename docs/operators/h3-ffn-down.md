@@ -146,10 +146,10 @@ Use a dedicated non-MIG H100 80GB and a CUDA 12.4 development environment:
 python3.10 -m venv .venv
 source .venv/bin/activate
 python -m pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124
-python -m pip install -r scripts/requirements-h3-down.txt
-python scripts/prepare_h3_down_fixture.py --rows 129 --output ${FIXTURE_ROOT}/h3-down-fixture.pt
-H3_FIXTURE=${FIXTURE_ROOT}/h3-down-fixture.pt bash scripts/run_h3_down_h100.sh smoke
-python scripts/validate_h3_ffn_down.py --seed 420 --repeats 5 \
+python -m pip install -r requirements/h3-down.txt
+python tools/weights/prepare_h3_down_fixture.py --rows 129 --output ${FIXTURE_ROOT}/h3-down-fixture.pt
+H3_FIXTURE=${FIXTURE_ROOT}/h3-down-fixture.pt bash ci/scripts/run_h3_down_h100.sh smoke
+python tools/validation/operators/validate_h3_ffn_down.py --seed 420 --repeats 5 \
   --rows 1,31,32,33,127,128,129,256,513,1024,2048,4096,8192,16385,24577,32768 \
   --families random,swiglu_like,cancellation \
   --fixture ${FIXTURE_ROOT}/h3-down-fixture.pt --output /tmp/h3-down-full.json

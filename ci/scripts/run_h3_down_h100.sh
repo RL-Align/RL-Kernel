@@ -3,10 +3,10 @@
 # Copyright (c) 2026 RL-Kernel Contributors
 set -euo pipefail
 
-repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_dir"
 mode="${1:-smoke}"
-case "$mode" in smoke|full) ;; *) echo 'Usage: bash scripts/run_h3_down_h100.sh [smoke|full]' >&2; exit 2 ;; esac
+case "$mode" in smoke|full) ;; *) echo 'Usage: bash ci/scripts/run_h3_down_h100.sh [smoke|full]' >&2; exit 2 ;; esac
 result_dir="${H3_RESULT_DIR:-$repo_dir/artifacts/h3-down/$(date -u +%Y%m%dT%H%M%SZ)}"
 mkdir -p "$result_dir"
 export KERNEL_ALIGN_USE_FAST_MATH=0
@@ -69,10 +69,10 @@ fi
 if [[ -n "${H3_FIXTURE:-}" ]]; then args+=(--fixture "$H3_FIXTURE"); fi
 if [[ "${H3_COMPARE_VLLM:-0}" == 1 ]]; then args+=(--compare-vllm); fi
 set +e
-python scripts/validate_h3_ffn_down.py "${args[@]}" 2>&1 | tee "$result_dir/validation.log"
+python tools/validation/operators/validate_h3_ffn_down.py "${args[@]}" 2>&1 | tee "$result_dir/validation.log"
 validation_status=${PIPESTATUS[0]}
 set -e
-python scripts/plot_h3_down_report.py "$result_dir/report.json" --output-dir "$result_dir"
+python benchmarks/operators/gemm/plot_h3_down_report.py "$result_dir/report.json" --output-dir "$result_dir"
 echo "Evidence directory: $result_dir"
 if [[ "$gpu_test_status" -ne 0 ]]; then exit "$gpu_test_status"; fi
 exit "$validation_status"

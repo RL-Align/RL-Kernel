@@ -16,7 +16,7 @@ def test_gpu_validator_refuses_cpu_and_preserves_error_evidence(tmp_path, monkey
     import torch
 
     spec = importlib.util.spec_from_file_location(
-        "h3_validator_under_test", ROOT / "scripts/validate_h3_ffn_down.py"
+        "h3_validator_under_test", ROOT / "tools/validation/operators/validate_h3_ffn_down.py"
     )
     validator = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(validator)
@@ -59,7 +59,7 @@ def test_failed_run_renders_summary_without_inventing_charts(tmp_path):
     result = subprocess.run(
         [
             sys.executable,
-            str(ROOT / "scripts/plot_h3_down_report.py"),
+            str(ROOT / "benchmarks/operators/gemm/plot_h3_down_report.py"),
             str(source),
             "--output-dir",
             str(tmp_path),
@@ -112,7 +112,7 @@ def test_plot_pipeline_with_explicitly_synthetic_test_data(tmp_path):
     result = subprocess.run(
         [
             sys.executable,
-            str(ROOT / "scripts/plot_h3_down_report.py"),
+            str(ROOT / "benchmarks/operators/gemm/plot_h3_down_report.py"),
             str(source),
             "--output-dir",
             str(tmp_path),

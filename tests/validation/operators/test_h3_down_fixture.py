@@ -9,7 +9,7 @@ import pytest
 
 spec = importlib.util.spec_from_file_location(
     "h3_fixture_under_test",
-    Path(__file__).resolve().parents[3] / "scripts/prepare_h3_down_fixture.py",
+    Path(__file__).resolve().parents[3] / "tools/weights/prepare_h3_down_fixture.py",
 )
 fixture = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fixture)

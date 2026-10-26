@@ -17,7 +17,7 @@ import time
 import traceback
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
 import torch  # noqa: E402
@@ -103,7 +103,7 @@ def provenance(args):
         "rl_engine/backends/extension.py",
         "rl_engine/contracts/numerical.py",
         "rl_engine/runtime/registry.py",
-        "scripts/validate_h3_ffn_down.py",
+        "tools/validation/operators/validate_h3_ffn_down.py",
     ):
         result["source_hashes"][name] = sha256(ROOT / name)
     if base._EXT_AVAILABLE:
