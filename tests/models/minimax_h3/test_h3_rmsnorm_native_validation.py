@@ -207,3 +207,76 @@ def test_modulation_row_outside_the_table_asserts_in_the_kernel(native, entrypoi
     assert (
         "device-side assert triggered" in completed.stderr
     ), f"expected a CUDA bounds assertion, got:\n{completed.stdout}\n{completed.stderr}"
+
+
+def test_rejects_modulation_rows_that_overlap(native, inputs):
+    """A table of rows needs a row stride of at least N; an overlapping view is not one."""
+
+    table = torch.arange(32, dtype=torch.float32, device="cuda")
+    inputs["shift"] = inputs["scale"] = table.as_strided((2, 8), (4, 1))
+    with pytest.raises(RuntimeError, match="row stride 4 is smaller than N=8"):
+        _call(native, inputs, "forward")
+
+
+def test_a_view_of_a_wider_table_is_read_by_its_row_pitch(native, inputs):
+    """``table.chunk(2, dim=-1)`` has row stride 2N; the kernel must index rows by it."""
+
+    g = torch.Generator(device="cpu").manual_seed(0)
+    table = torch.randn(2, 16, generator=g).cuda()
+    views = table.chunk(2, dim=-1)
+    copies = tuple(v.contiguous() for v in views)
+    assert views[0].stride(0) == 16 and copies[0].stride(0) == 8
+    out = []
+    for shift, scale in (views, copies):
+        inputs["shift"], inputs["scale"] = shift, scale
+        out.append(_call(native, inputs, "forward")[0])
+    assert torch.equal(out[0], out[1])
+
+
+def _backward_in_child(mutation: str) -> subprocess.CompletedProcess:
+    probe = textwrap.dedent(
+        """
+        import sys
+        import torch
+        from rl_engine.backends.extension import _C
+
+        mutation = sys.argv[1]
+        x = torch.randn(4, 8, device="cuda")
+        weight = torch.ones(8, device="cuda")
+        _, rstd = _C.h3_rmsnorm_forward(x, weight, 1e-5)
+        shift, scale = torch.zeros(2, 16, device="cuda").chunk(2, dim=1)
+        args = dict(
+            grad=torch.ones_like(x), x=x, weight=weight, rstd=rstd, shift=shift, scale=scale,
+            index=torch.tensor([0, 1, 0, 1], dtype=torch.int64, device="cuda"),
+            sorted_pos=torch.tensor([0, 2, 1, 3], dtype=torch.int64, device="cuda"),
+            tile_begin=torch.tensor([0, 2], dtype=torch.int64, device="cuda"),
+            tile_end=torch.tensor([2, 4], dtype=torch.int64, device="cuda"),
+            seg_first_tile=torch.tensor([0, 1, 2], dtype=torch.int64, device="cuda"),
+        )
+        if mutation == "tile_end_past_rows":
+            args["tile_end"] = torch.tensor([2, 9], dtype=torch.int64, device="cuda")
+        elif mutation == "position_past_rows":
+            args["sorted_pos"] = torch.tensor([0, 2, 1, 4], dtype=torch.int64, device="cuda")
+        elif mutation == "segments_past_tiles":
+            args["seg_first_tile"] = torch.tensor([0, 1, 5], dtype=torch.int64, device="cuda")
+        _C.h3_rmsnorm_backward(**args)
+        torch.cuda.synchronize()
+        """
+    )
+    return subprocess.run(
+        [sys.executable, "-c", probe, mutation],
+        cwd=Path(__file__).resolve().parents[3],
+        env={**os.environ, "CUDA_LAUNCH_BLOCKING": "1"},
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+
+def test_the_backward_stops_on_tile_metadata_that_does_not_describe_the_rows(native):
+    control = _backward_in_child("none")
+    assert control.returncode == 0, control.stderr
+    for mutation in ("tile_end_past_rows", "position_past_rows", "segments_past_tiles"):
+        done = _backward_in_child(mutation)
+        assert done.returncode != 0, mutation
+        assert "device-side assert triggered" in done.stderr, (mutation, done.stderr)

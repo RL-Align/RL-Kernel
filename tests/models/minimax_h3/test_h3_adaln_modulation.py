@@ -124,6 +124,25 @@ class TestFusedModulation:
         for grad, golden in zip(ours[1:], (ref[1].grad, ref[2].grad)):
             assert (grad == golden.to(torch.bfloat16)).float().mean() > 0.9999
 
+    @pytest.mark.parametrize("frozen", ["bias", "weight", "temb", "bias_and_temb"])
+    def test_frozen_inputs_get_no_gradient_and_the_others_are_unchanged(self, frozen):
+        fused, _, _ = _ops()
+        temb, weight, bias = _params(64, 2688, seed=5)
+        ti, tags = h3_packed_layout(1500, 3, seed=5)
+        grads = _grads(1500, 64, seed=5)
+        full = _leaf_grads(lambda t, w, b: fused(t, w, b, ti, tags), temb, weight, bias, grads)
+
+        leaves = [t.detach().clone() for t in (temb, weight, bias)]
+        names = ("temb", "weight", "bias")
+        for leaf, name in zip(leaves, names):
+            leaf.requires_grad_(name not in frozen)
+        torch.autograd.backward(list(fused(*leaves, ti, tags)), grads)
+        for leaf, name, expected in zip(leaves, names, full):
+            if name in frozen:
+                assert leaf.grad is None
+            else:
+                assert torch.equal(leaf.grad, expected)
+
     def test_backward_repeat_bitwise(self):
         fused, _, _ = _ops()
         temb, weight, bias = _params(64, 2688, seed=3)

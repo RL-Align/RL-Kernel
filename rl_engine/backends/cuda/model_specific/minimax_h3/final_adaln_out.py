@@ -16,6 +16,7 @@ from rl_engine.backends.cuda.model_specific.minimax_h3.det_linear import (
     det_linear_available,
     det_linear_backward_input,
     det_linear_backward_weight,
+    det_linear_device_supported,
     det_linear_forward,
     silu_backward_fp32,
 )
@@ -56,6 +57,7 @@ class _H3FinalAdaLNOutCuda(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad):
         x2, norm_weight, rstd, temb, act, weight, table, timestep_indices = ctx.saved_tensors
+        need_x, need_norm_weight, need_temb, need_weight, need_bias = ctx.needs_input_grad[:5]
         shift, scale = table.chunk(2, dim=-1)
         positions = _repeat_positions(timestep_indices, x2.shape[0])
         tiles = _segment_tiles(positions, table.shape[0])
@@ -69,14 +71,29 @@ class _H3FinalAdaLNOutCuda(torch.autograd.Function):
             timestep_indices,
             *tiles,
         )
-        # The table gradient stays FP32 into the projection backward.
+        # The table gradient stays FP32 into the projection backward; the projection's weight,
+        # bias and input folds run only for the inputs that need a gradient.
         d_table = torch.cat([d_shift, d_scale], dim=1)
-        dw, db = det_linear_backward_weight(d_table, act, weight.dtype)
-        d_temb = silu_backward_fp32(det_linear_backward_input(d_table, weight, torch.float32), temb)
+        d_temb = dw = db = None
+        if need_weight or need_bias:
+            dw, *rest = det_linear_backward_weight(d_table, act, weight.dtype, with_bias=need_bias)
+            db = rest[0] if need_bias else None
+        if need_temb:
+            d_temb = silu_backward_fp32(
+                det_linear_backward_input(d_table, weight, torch.float32), temb
+            )
         record_backward(
             "final_adaln_out", kernel_id=BACKWARD_KERNEL_ID, impl=BACKWARD_IMPL, family="cuda"
         )
-        return dx.view(ctx.x_shape), d_norm_weight, d_temb, dw, db, None, None
+        return (
+            dx.view(ctx.x_shape) if need_x else None,
+            d_norm_weight if need_norm_weight else None,
+            d_temb,
+            dw if need_weight else None,
+            db if need_bias else None,
+            None,
+            None,
+        )
 
 
 class H3FinalAdaLNOutCudaOp:
@@ -95,6 +112,10 @@ class H3FinalAdaLNOutCudaOp:
     def __init__(self) -> None:
         if not (det_linear_available() and h3_rmsnorm_available()):
             raise RuntimeError("rl_engine._C lacks the h3_det_linear_* / h3_rmsnorm_* ops")
+        if not det_linear_device_supported():
+            # The BF16 projection is an mma.sync kernel; refuse here so the registry falls back to
+            # the PyTorch reference instead of failing in every forward.
+            raise RuntimeError("the BF16 h3 det_linear forward needs SM80 or newer")
 
     def __call__(self, x, norm_weight, temb, weight, bias, timestep_indices, eps=H3_NORM_EPS):
         return self.forward(x, norm_weight, temb, weight, bias, timestep_indices, eps)
