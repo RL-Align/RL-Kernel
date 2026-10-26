@@ -65,9 +65,9 @@ B200, B = 1, H = 5376, BF16:
 
 | S | CUDA fwd | diffusers fwd | CUDA bwd | diffusers bwd |
 | --- | --- | --- | --- | --- |
-| 4097 | 0.05 ms | 0.06 ms | 1.19 ms | 0.68 ms |
-| 32768 | 0.24 ms | 0.41 ms | 1.37 ms | 2.71 ms |
-| 131072 | 0.92 ms | 1.59 ms | 3.29 ms | 10.6 ms |
+| 4097 | 0.06 ms | 0.07 ms | 1.02 ms | 0.55 ms |
+| 32768 | 0.24 ms | 0.43 ms | 1.08 ms | 2.24 ms |
+| 131072 | 0.88 ms | 1.61 ms | 2.21 ms | 8.92 ms |
 
 The forward is one pass over `residual` and `sublayer_output`, using 16-byte vectors with one
 block per row. At small S the backward pays a fixed cost of about 1 ms for the stable sort and
@@ -75,10 +75,11 @@ tile setup.
 
 ## Evidence
 
-![adaln_gate_residual on B200: latency and backward accuracy](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr488/reports/experiments/h3-adaln-gate-residual-b200/figure.png)
+![adaln_gate_residual on B200: latency and backward accuracy](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/3848e6fcb227415ce8ad4d21ca120701f58aacf6/pr488/reports/experiments/h3-adaln-gate-residual-b200/figure.png)
 
-The data is in [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr488/reports/experiments/h3-adaln-gate-residual-b200/report.json),
-written by `tools/validation/models/h3_evidence.py` from a clean tree at commit `e7bc53a`. It also records
+The data is in [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/3848e6fcb227415ce8ad4d21ca120701f58aacf6/pr488/reports/experiments/h3-adaln-gate-residual-b200/report.json),
+written by `tools/validation/models/h3_evidence.py` from a clean tree at commit `239ef808` on an otherwise idle B200 (backward timings exclude the leaf
+creation, the forward pass and the graph construction; the execution order alternates and is recorded). It also records
 forward bitwise equality with diffusers in bf16, fp16 and fp32, and row invariance.
 
 ## Existing implementations (RFC #420 reuse rule)
