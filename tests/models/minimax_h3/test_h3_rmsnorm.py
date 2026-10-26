@@ -74,6 +74,27 @@ class TestReference:
             expected,
         )
 
+    def test_modulation_backward_is_bitwise_the_per_row_scan_it_replaced(self):
+        from rl_engine.reference.minimax_h3.rmsnorm import _DeterministicModulation
+
+        g = torch.Generator(device="cpu").manual_seed(11)
+        n = torch.randn(300, 16, generator=g)
+        shift, scale = torch.randn(7, 16, generator=g), torch.randn(7, 16, generator=g)
+        index = torch.randint(0, 5, (300,), generator=g)  # rows 5 and 6 are never referenced
+        grad = torch.randn(300, 16, generator=g)
+        leaves = [t.clone().requires_grad_(True) for t in (n, shift, scale)]
+        _DeterministicModulation.apply(*leaves, index).backward(grad)
+
+        per_shift = grad.reshape(-1, 300, 16).sum(dim=0)
+        per_scale = (grad * n).reshape(-1, 300, 16).sum(dim=0)
+        d_shift, d_scale = torch.zeros(7, 16), torch.zeros(7, 16)
+        for row in range(7):  # the loop of the earlier implementation
+            positions = torch.nonzero(index == row).flatten()
+            if positions.numel():
+                d_shift[row] = per_shift.index_select(0, positions).sum(dim=0)
+                d_scale[row] = per_scale.index_select(0, positions).sum(dim=0)
+        assert torch.equal(leaves[1].grad, d_shift) and torch.equal(leaves[2].grad, d_scale)
+
     def test_rejects_bad_inputs(self):
         op = NativeH3RMSNormOp()
         x, w = torch.randn(2, 8), torch.ones(8)
@@ -88,6 +109,13 @@ class TestReference:
         shift, scale = torch.zeros(3, 8), torch.zeros(3, 8)
         with pytest.raises(IndexError):
             op.forward_modulated(x, w, shift, scale, torch.tensor([0, 3]))
+        with pytest.raises(IndexError):  # the golden takes check_range like the provider path
+            op.forward_modulated_fp32(x, w, shift, scale, torch.tensor([0, 3]))
+        op.forward_modulated_fp32(x, w, shift, scale, torch.tensor([0, 2]), check_range=False)
+        with pytest.raises(ValueError, match="is on meta"):  # a device mismatch is a ValueError
+            op.forward_modulated(x, w, shift.to("meta"), scale, torch.tensor([0, 1]))
+        with pytest.raises(TypeError, match="dtype"):  # a dtype mismatch stays a TypeError
+            op.forward_modulated(x, w, shift.double(), scale, torch.tensor([0, 1]))
         with pytest.raises(ValueError):  # one index per position S
             op.forward_modulated(x, w, shift, scale, torch.tensor([0]))
 
@@ -138,6 +166,28 @@ class TestCudaForward:
         x = _x((2, 333, 5376), dtype, seed=9)
         ours = _cuda_op().forward_modulated(x, w, shift, scale, index)
         assert torch.equal(ours, provider_norm_modulate(x, w, shift, scale, index))
+
+    def test_overlapping_table_rows_are_copied_and_wider_table_views_are_not(self):
+        w = (torch.rand(5376, device="cuda") + 0.5).bfloat16()
+        table = _x((9, 2 * 5376), seed=21, scale=0.5)
+        wide_shift, wide_scale = table.chunk(2, dim=-1)  # row stride 2H, handed over as views
+        ti, tags = h3_packed_layout(100, 3, seed=21)
+        index = ti * 3 + tags
+        x = _x((1, 100, 5376), seed=21)
+        op = _cuda_op()
+        expected = op.forward_modulated(
+            x, w, wide_shift.contiguous(), wide_scale.contiguous(), index
+        )
+        assert torch.equal(op.forward_modulated(x, w, wide_shift, wide_scale, index), expected)
+        # An expanded table (row stride 0) is a table of equal rows: copied, not rejected.
+        row = _x((1, 5376), seed=22, scale=0.5)
+        expanded = row.expand(9, 5376)
+        assert expanded.stride(0) == 0
+        dense = row.repeat(9, 1)
+        assert torch.equal(
+            op.forward_modulated(x, w, expanded, expanded, index),
+            op.forward_modulated(x, w, dense, dense, index),
+        )
 
     def test_rows_are_batch_and_position_invariant(self):
         w = (torch.rand(5376, device="cuda") + 0.5).bfloat16()
