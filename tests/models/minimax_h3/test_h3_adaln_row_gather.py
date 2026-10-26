@@ -94,6 +94,43 @@ def test_backward_positions_are_a_whole_number_of_index_repeats():
         _repeat_positions(index[:0], 4)
 
 
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_positions_by_row_equal_the_per_row_scan(device):
+    from rl_engine.reference.minimax_h3.adaln_row_gather import positions_by_row
+
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("needs a CUDA device")
+    g = torch.Generator(device="cpu").manual_seed(0)
+    index = torch.randint(0, 7, (500,), generator=g).to(device)  # rows 7..11 are never referenced
+    positions = positions_by_row(index, 12)
+    assert len(positions) == 12
+    for row, found in enumerate(positions):
+        assert torch.equal(found, torch.nonzero(index == row).flatten())
+
+
+@requires_cuda
+def test_reference_backward_is_bitwise_the_per_row_scan_it_replaced():
+    from rl_engine.reference.minimax_h3.adaln_row_gather import _DeterministicRowGather
+
+    rows = _rows(3, hidden=64, seed=7)
+    ti, tags = h3_packed_layout(777, 3, seed=7)
+    index = ti.long() * 3 + tags.long()
+    gen = torch.Generator(device="cuda").manual_seed(7)
+    grad = torch.randn(6, 777, 64, device="cuda", generator=gen).bfloat16()
+
+    leaf = rows.detach().clone().requires_grad_(True)
+    outputs = _DeterministicRowGather.apply(leaf, index)
+    outputs.backward(grad)
+
+    grad32 = grad.float()
+    expected = grad32.new_zeros((rows.shape[0], 6, 64))
+    for row in range(rows.shape[0]):  # the loop of the earlier implementation
+        positions = torch.nonzero(index == row).flatten()
+        if positions.numel():
+            expected[row] = grad32.index_select(1, positions).sum(dim=1)
+    assert torch.equal(leaf.grad, expected.reshape(rows.shape[0], -1).to(rows.dtype))
+
+
 @requires_cuda
 class TestCudaForward:
     @pytest.mark.parametrize("seq", [1, 2, 3, 257, 4097, 32768])
@@ -302,6 +339,81 @@ class TestCudaBackward:
         torch.testing.assert_close(
             first.float(), self._cuda_grad(rows, ti, tags, grads).float(), atol=1e-1, rtol=2e-2
         )
+
+    @staticmethod
+    def _backward_probe(mutation: str):
+        """Run the native backward on corrupted tile metadata in a child process."""
+
+        probe = textwrap.dedent(
+            """
+            import sys
+            import torch
+            from rl_engine.backends.extension import _C
+            from rl_engine.backends.cuda.model_specific.minimax_h3.adaln_row_gather import (
+                _segment_tiles,
+            )
+
+            mutation = sys.argv[1]
+            seq, hidden = 40, 8
+            index = (torch.arange(seq, device="cuda") % 3)
+            grad = torch.ones(6, seq, hidden, device="cuda")
+            sorted_pos, begin, end, first = _segment_tiles(index, 3)
+            if mutation == "tile_end_past_seq":
+                end = end.clone(); end[-1] = seq + 5
+            elif mutation == "position_past_seq":
+                sorted_pos = sorted_pos.clone(); sorted_pos[0] = seq
+            elif mutation == "segments_past_tiles":
+                first = first.clone(); first[-1] = begin.numel() + 3
+            elif mutation == "no_tiles":
+                begin = begin[:0]; end = end[:0]
+            _C.h3_adaln_row_gather_backward(grad, sorted_pos, begin, end, first, torch.float32)
+            torch.cuda.synchronize()
+            """
+        )
+        return subprocess.run(
+            [sys.executable, "-c", probe, mutation],
+            cwd=Path(__file__).resolve().parents[3],
+            env={**os.environ, "CUDA_LAUNCH_BLOCKING": "1"},
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+    def test_the_backward_stops_on_metadata_that_does_not_describe_the_tiles(self):
+        _cuda_op()
+        control = self._backward_probe("none")
+        assert control.returncode == 0, control.stderr
+        for mutation in (
+            "tile_end_past_seq",
+            "position_past_seq",
+            "segments_past_tiles",
+            "no_tiles",
+        ):
+            done = self._backward_probe(mutation)
+            assert done.returncode != 0, mutation
+            assert "device-side assert triggered" in done.stderr, (mutation, done.stderr)
+
+    def test_backward_with_no_table_rows_returns_an_empty_table_and_rejects_no_boundaries(self):
+        from rl_engine.backends.extension import _C
+
+        _cuda_op()
+        grad = torch.ones(6, 4, 8, device="cuda")
+        zero = torch.zeros(0, dtype=torch.int64, device="cuda")
+        pos = torch.arange(4, device="cuda")
+        one = torch.zeros(1, dtype=torch.int64, device="cuda")  # R = 0
+        empty = _C.h3_adaln_row_gather_backward(grad, pos, zero, zero, one, torch.float32)
+        assert empty.shape == (0, 48)
+        with pytest.raises(RuntimeError, match="R \\+ 1 entries"):
+            _C.h3_adaln_row_gather_backward(grad, pos, zero, zero, zero, torch.float32)
+
+    def test_forward_rejects_more_chunks_than_one_grid_dimension_holds(self):
+        from rl_engine.backends.extension import _C
+
+        _cuda_op()
+        rows = torch.zeros(3, 65536, device="cuda")
+        ti = torch.zeros(1, dtype=torch.int64, device="cuda")
+        with pytest.raises(RuntimeError, match="grid.y"):
+            _C.h3_adaln_row_gather_forward(rows, ti, ti, 65536, 3)
 
     def test_registry_dispatches_cuda(self):
         from rl_engine.runtime.registry import KernelRegistry

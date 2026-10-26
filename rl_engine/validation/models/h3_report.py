@@ -354,9 +354,12 @@ def _gather_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
             torch.randn(seq, hidden, device="cuda", generator=gen).bfloat16() for _ in range(6)
         ]
 
-        def backward(fn, ti=ti, tags=tags, grads=grads):
+        def prepare_backward(fn, ti=ti, tags=tags):
             leaf = rows.detach().requires_grad_(True)
-            torch.autograd.backward(list(fn(leaf, ti, tags)), grads)
+            return list(fn(leaf, ti, tags))
+
+        def backward(outputs, grads=grads):
+            torch.autograd.backward(outputs, grads)
 
         cases.append(
             {
@@ -367,11 +370,15 @@ def _gather_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
                 "bytes": 6 * seq * hidden * 2,
                 "candidate": lambda ti=ti, tags=tags: op.forward(rows, ti, tags, check_range=False),
                 "provider": lambda ti=ti, tags=tags: provider_adaln_row_gather(chunks, ti, tags),
-                "candidate_backward": lambda b=backward: b(
-                    lambda r, ti, tags: op.forward(r, ti, tags, check_range=False)
+                "candidate_backward": backward,
+                "provider_backward": backward,
+                "candidate_backward_setup": lambda b=prepare_backward: b(
+                    lambda r, indices, row_tags: op.forward(r, indices, row_tags, check_range=False)
                 ),
-                "provider_backward": lambda b=backward: b(
-                    lambda r, ti, tags: provider_adaln_row_gather(r.chunk(6, dim=-1), ti, tags)
+                "provider_backward_setup": lambda b=prepare_backward: b(
+                    lambda r, indices, row_tags: provider_adaln_row_gather(
+                        r.chunk(6, dim=-1), indices, row_tags
+                    )
                 ),
             }
         )

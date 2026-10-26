@@ -76,7 +76,9 @@ class _H3AdaLNModulationCuda(torch.autograd.Function):
         d_table = d_rows.view(num_timesteps, width)
         d_temb = dw = db = None
         if need_weight or need_bias:
-            dw, db = det_linear_backward_weight(d_table, act, weight.dtype)
+            # The bias fold is skipped when only the weight needs a gradient.
+            dw, *rest = det_linear_backward_weight(d_table, act, weight.dtype, with_bias=need_bias)
+            db = rest[0] if need_bias else None
         if need_temb:
             d_temb = silu_backward_fp32(
                 det_linear_backward_input(d_table, weight, torch.float32), temb
