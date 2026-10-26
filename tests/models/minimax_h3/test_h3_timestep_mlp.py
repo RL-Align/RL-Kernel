@@ -90,6 +90,13 @@ class TestReference:
         with pytest.raises(ValueError):
             op.forward(x[:0], w1, b1, w2, b2)
 
+    @pytest.mark.parametrize("bad_w1", [torch.zeros(256), torch.zeros(2, 5, 256)])
+    def test_a_w1_that_is_not_a_matrix_gets_a_dimension_error(self, bad_w1):
+        x = _features(2, device="cpu")
+        _, b1, w2, b2 = _synthetic_params(256, 64, 32, device="cpu")
+        with pytest.raises(ValueError, match="w1 must be a 2-D"):
+            NativeH3TimestepMLPOp().forward(x, bad_w1, b1, w2, b2)
+
 
 @requires_cuda
 class TestCudaRealWeights:
