@@ -218,13 +218,6 @@ __device__ __forceinline__ float gate_activation(float z) {
     return (ACT == 0) ? z * sigma : sigma;
 }
 
-template <int ACT>
-__device__ __forceinline__ float gate_activation_grad(float z) {
-    const float sigma = 1.0f / (1.0f + expf(-z));
-    // d/dz [z * sigma] = sigma * (1 + z * (1 - sigma));  d/dz [sigma] = sigma * (1 - sigma)
-    return (ACT == 0) ? sigma * (1.0f + z * (1.0f - sigma)) : sigma * (1.0f - sigma);
-}
-
 
 template <typename scalar_t, typename weight_t, int ACT>
 __global__ void rmsnorm_gated_fwd_kernel(

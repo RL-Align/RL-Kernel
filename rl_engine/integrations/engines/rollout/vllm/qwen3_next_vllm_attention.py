@@ -175,7 +175,8 @@ class SharedAttentionImpl(AttentionImpl[SharedAttentionMetadata]):
             plans.append((start, end, length, physical))
         if any(not torch.isfinite(tensor[:n]).all() for tensor in (query, key, value)):
             raise ValueError("Projected attention inputs must be finite")
-        # Validate every request before mutating any scheduler-owned cache slot.
+        # Slots, block tables and the new Q/K/V are validated above, before this write into the
+        # scheduler-owned cache. The prefix check below reads back data written in earlier steps.
         blocks, offsets = slots // block_size, slots % block_size
         kv_cache[blocks, 0, offsets, :256] = key[:n, 0]
         kv_cache[blocks, 0, offsets, 256:] = value[:n, 0]
