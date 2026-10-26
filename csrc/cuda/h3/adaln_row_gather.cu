@@ -211,6 +211,7 @@ torch::Tensor h3_adaln_row_gather_backward(torch::Tensor grad, torch::Tensor sor
                     t->scalar_type() == at::kLong,
                 "tile metadata must be contiguous int64 tensors on ", grad.device());
   }
+  TORCH_CHECK(seg_first_tile.numel() >= 1, "seg_first_tile must hold R + 1 entries");
   TORCH_CHECK(tile_begin.numel() == tile_end.numel(), "tile_begin/tile_end length mismatch");
   const int64_t chunks = grad.size(0);
   const int64_t seq = grad.size(1);

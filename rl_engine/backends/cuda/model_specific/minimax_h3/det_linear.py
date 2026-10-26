@@ -32,6 +32,12 @@ def det_linear_available() -> bool:
     return bool(_EXT_AVAILABLE and all(hasattr(_C, name) for name in _SYMBOLS))
 
 
+def det_linear_device_supported() -> bool:
+    """Return whether the current CUDA device can run the BF16 forward (``mma.sync``, SM80+)."""
+
+    return not torch.cuda.is_available() or torch.cuda.get_device_capability()[0] >= 8
+
+
 def _require() -> None:
     """Raise when a deterministic linear entry point is unavailable."""
 

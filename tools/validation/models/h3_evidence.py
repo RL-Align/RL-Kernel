@@ -25,11 +25,25 @@ import torch  # noqa: E402
 
 from rl_engine.runtime.registry import KernelRegistry  # noqa: E402
 from rl_engine.validation.models.h3_chain import environment, git_state  # noqa: E402
-from rl_engine.validation.models.h3_report import ACCURACY, PERF_CASES, measure  # noqa: E402
+from rl_engine.validation.models.h3_report import (  # noqa: E402
+    ACCURACY,
+    PERF_CASES,
+    h3_weights_source,
+    measure,
+)
 from rl_engine.validation.models.h3_weights import (  # noqa: E402
     WEIGHTS_ENV,
     h3_weights_dir,
     load_h3_manifest,
+)
+
+# Operators whose evidence runs on seeded inputs only and never reads the checkpoint.
+WEIGHT_FREE_OPS = frozenset({"timestep_sinusoid_h3", "adaln_gate_residual"})
+
+_NEEDS_PINNED_MLP = (
+    "timestep_mlp_fp32 evidence needs the pinned time_embedder weights; set "
+    "RL_KERNEL_H3_WEIGHTS (tools/weights/prepare_h3_weights.py) "
+    "or pass --allow-random-weights"
 )
 
 
@@ -50,11 +64,14 @@ def check_weight_source(op: str, report: dict, allow_random: bool) -> None:
         and report["accuracy"]["weights_source"] != "pinned"
         and not allow_random
     ):
-        raise SystemExit(
-            "timestep_mlp_fp32 evidence needs the pinned time_embedder weights; set "
-            "RL_KERNEL_H3_WEIGHTS (tools/weights/prepare_h3_weights.py) "
-            "or pass --allow-random-weights"
-        )
+        raise SystemExit(_NEEDS_PINNED_MLP)
+
+
+def require_pinned_weights(op: str, allow_random: bool) -> None:
+    """Stop before any measurement when timestep_mlp_fp32 would run on random weights."""
+
+    if op == "timestep_mlp_fp32" and h3_weights_source() != "pinned" and not allow_random:
+        raise SystemExit(_NEEDS_PINNED_MLP)
 
 
 def main() -> None:
@@ -70,8 +87,10 @@ def main() -> None:
         "(smoke runs only)",
     )
     args = parser.parse_args()
-    uses_weights = args.op != "timestep_sinusoid_h3"
-    if uses_weights and h3_weights_dir() is None:
+    require_pinned_weights(args.op, args.allow_random_weights)
+    uses_weights = args.op not in WEIGHT_FREE_OPS
+    smoke_run = args.allow_random_weights and args.op == "timestep_mlp_fp32"
+    if uses_weights and h3_weights_dir() is None and not smoke_run:
         raise SystemExit(f"set {WEIGHTS_ENV} to the tools/weights/prepare_h3_weights.py output dir")
     if not torch.cuda.is_available():
         raise SystemExit("needs a CUDA device")
@@ -85,7 +104,11 @@ def main() -> None:
         "op": args.op,
         "rfc": manifest["rfc"],
         "model_revision": manifest["model_identity"]["revision"],
-        "weight_source": "pinned_checkpoint" if uses_weights else "not_applicable",
+        "weight_source": (
+            ("pinned_checkpoint" if h3_weights_source() == "pinned" else "random")
+            if uses_weights
+            else "not_applicable"
+        ),
         "reference_commit": manifest["reference_implementation"]["commit"],
         **git_state(),
         "environment": environment(),

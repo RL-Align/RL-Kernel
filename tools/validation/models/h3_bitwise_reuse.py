@@ -118,7 +118,12 @@ def dump(op: str, mode: str, parts: Path, megatron_src: str | None, fast_math: b
     torch.backends.cudnn.allow_tf32 = False
     cands = PA.candidates(op, mode)
     if fast_math and op == "timestep_sinusoid" and mode == "plain":
-        cands.append({"name": "rl_kernel_fast_math", **_fast_math_sinusoid(parts / "build")})
+        try:
+            cands.append({"name": "rl_kernel_fast_math", **_fast_math_sinusoid(parts / "build")})
+        except Exception as exc:  # noqa: BLE001
+            (parts / "rl_kernel_fast_math.unavailable").write_text(
+                f"{type(exc).__name__}: {exc}"[:300]
+            )
     for cand in cands:
         name = cand.pop("name")
         if "unavailable" in cand:
