@@ -7,8 +7,10 @@ from collections.abc import Mapping
 from typing import Any
 
 from rl_engine.config.workload import (
+    _REQUIRED_TOP_LEVEL,
     WorkloadError,
     _validate_backend_profiles,
+    _validate_chain_semantics,
     _validate_fixtures,
     _validate_logical_identity,
     _validate_model_identity,
@@ -46,6 +48,11 @@ def validate_norm_manifest(raw: Mapping[str, Any]) -> None:
 
 
 def _validate_norm_manifest(raw: Mapping[str, Any]) -> None:
+    missing = [k for k in _REQUIRED_TOP_LEVEL if k not in raw]
+    if missing:
+        raise WorkloadError(
+            f"norm workload manifest is malformed: missing top-level keys {missing}"
+        )
     identity = raw["model_identity"]
     if identity["model_id"] != MODEL_ID or identity["revision"] != REVISION:
         raise WorkloadError("Qwen3-Next norm workload requires the pinned official checkpoint")
@@ -55,12 +62,13 @@ def _validate_norm_manifest(raw: Mapping[str, Any]) -> None:
         or raw.get("full_model_evidence") is not False
     ):
         raise WorkloadError("norm workload cannot claim full-model evidence")
+    _validate_chain_semantics(raw["chain_semantics"])
     _validate_stochastic_policy(raw["stochastic_policy"])
     _validate_primary_matrix(raw["primary_matrix"], raw["fixtures"])
     _validate_fixtures(raw["fixtures"], raw["primary_matrix"])
     _validate_logical_identity(raw["logical_identity"])
     caps = raw["capabilities"]
-    if {e["op"] for e in caps["required_chain_ops"]} != set(NORM_OPS):
+    if sorted(e["op"] for e in caps["required_chain_ops"]) != sorted(NORM_OPS):
         raise WorkloadError("norm workload must contain exactly the two Qwen3-Next norms")
     if any(e["status"] != "required" for e in caps["required_chain_ops"]):
         raise WorkloadError("both norm operators are required")
