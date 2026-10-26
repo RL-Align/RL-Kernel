@@ -806,6 +806,35 @@ def test_zero_centred_cuda_constructor_rejects_missing_extension(monkeypatch):
         rmsnorm.Qwen3NextRMSNormCudaOp()
 
 
+def test_gated_cuda_constructor_rejects_stale_api_version(monkeypatch):
+    """The gated op needs the same RMSNorm API version as the plain op."""
+    from types import SimpleNamespace
+
+    from rl_engine.backends.cuda.norm import rmsnorm
+
+    stale = SimpleNamespace(
+        rmsnorm_gated_forward=object(), rmsnorm_gated_backward_dx=object(), rmsnorm_api_version=1
+    )
+    monkeypatch.setattr(rmsnorm, "_EXT_AVAILABLE", True)
+    monkeypatch.setattr(rmsnorm, "_C", stale)
+    with pytest.raises(RuntimeError, match="API version 2"):
+        rmsnorm.Qwen3NextRMSNormGatedCudaOp()
+    del stale.rmsnorm_api_version
+    with pytest.raises(RuntimeError, match="API version 2"):
+        rmsnorm.Qwen3NextRMSNormGatedCudaOp()
+
+
+def test_gated_cuda_forward_raises_runtime_error_without_extension(monkeypatch):
+    """Not an ``assert``: it must survive ``python -O`` and stay a RuntimeError."""
+    from rl_engine.backends.cuda.norm import rmsnorm
+
+    monkeypatch.setattr(rmsnorm, "_EXT_AVAILABLE", False)
+    monkeypatch.setattr(rmsnorm, "_C", None)
+    x = torch.zeros(2, 4)
+    with pytest.raises(RuntimeError, match="requires the compiled"):
+        rmsnorm.rmsnorm_gated_cuda(x, torch.ones(4), torch.zeros(2, 4))
+
+
 @requires_cuda_gated
 @pytest.mark.parametrize(
     "fault", ["weight_shape", "weight_dtype", "gate_dtype", "dy_dtype", "rstd_dtype"]

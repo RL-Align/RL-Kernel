@@ -19,6 +19,7 @@ from qwen3_next_runtime import (
     failure_fields,
     memory_limits,
     parse_memory_request,
+    require_four_supported_gpus,
     subprocess_failure,
     verify_checkpoint,
     verify_environment,
@@ -94,12 +95,7 @@ def main():
         }
         atomic_json(output / "environment.json", inventory)
         run("environment-lock", [sys.executable, "-m", "pip", "freeze", "--all"])
-        if torch.cuda.device_count() != 4 or any(
-            "B200" not in torch.cuda.get_device_name(i) for i in range(4)
-        ):
-            raise RuntimeError(
-                "topology_mismatch: requires exactly four B200 GPUs in the execution step"
-            )
+        require_four_supported_gpus()
         if "V13.0.88" not in nvcc or torch.version.cuda != "13.0":
             raise RuntimeError(
                 "environment_mismatch: requires CUDA toolkit 13.0.88 and a CUDA 13.0 torch runtime"

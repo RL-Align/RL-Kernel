@@ -43,8 +43,8 @@ y = rmsnorm_cuda(x, weight, eps=1e-6, weight_offset=1.0)
 
 | Argument | Shape | Dtype | Requirements |
 | --- | --- | --- | --- |
-| `x` | `[..., H]` | fp32 / bf16 / fp16 | CUDA path requires contiguous |
-| `weight` | `[H]` | matches `x` | zero-centred (upstream inits to zeros) |
+| `x` | `[..., H]` | fp32 / bf16 / fp16 | CUDA wrapper copies non-contiguous inputs; low-level `rmsnorm_cuda` requires contiguous inputs |
+| `weight` | `[H]` | matches `x` | zero-centred (upstream inits to zeros); CUDA wrapper copies non-contiguous weights; low-level `rmsnorm_cuda` requires contiguous weights |
 | `eps` | scalar | float | inside the sqrt; `1e-6` for Qwen3-Next |
 
 ## Dispatch Behavior
@@ -125,6 +125,69 @@ BF16.
   that the batch `dweight` equals the in-order sum of single-row contributions bitwise (the
   gradient-invariance contract's singleton-aggregate check). That serial fold over rows is
   the cost; a faster tree fold would not pass that check.
+
+## Existing implementations: measured batch invariance, accuracy, gates
+
+![qwen3_next_rms_norm vs existing implementations](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr468/docs/usage/evidence/qwen3-next-norm-reuse-b200/qwen3_next_rms_norm.png)
+
+| Implementation | Batch-invariance checks | Forward correctly rounded | Worst grad err | Forward / fwd+bwd | C3/C4 gates |
+|---|---|---|---|---|---|
+| rl-kernel Qwen3NextRMSNormCudaOp | yes (sampled) | 99.9993% | 2.4e-03 | 426 / 31485 µs | see gate table below |
+| rl-kernel PyTorch reference | **no** (49 rows, 94 sub-batches) | 99.9993% | 2.4e-03 | 2146 / 5024 µs | — |
+| transformers 5.17.0 Qwen3NextRMSNorm | **no** (90 rows, 142 sub-batches) | 99.9992% | 2.4e-03 | 1449 / 4468 µs | see gate table below |
+| Liger 0.8.4 RMSNorm, offset 1, gemma | yes (sampled) | 99.9993% | 2.4e-03 | 133 / 974 µs | see gate table below |
+| FLA 0.5.2 rms_norm, weight passed as 1 + w | yes (sampled) | 73.0161% | 5.5e-03 | 147 / 1051 µs | see gate table below |
+| TE 2.20.2 RMSNorm(zero_centered_gamma) | **no** (175 rows, 245 sub-batches) | 99.9992% | 2.4e-03 | 156 / 779 µs | — |
+| FlashInfer 0.6.18.post1 gemma_rmsnorm | yes (sampled) | 99.9992% | — | 91 / — µs | — |
+| vLLM 0.30.0 GemmaRMSNorm.forward_cuda | **no** (16 rows, 26 sub-batches) | 99.9992% | — | 1454 / — µs | — |
+
+Batch invariance is bitwise and covers three checks: every row computed alone vs inside full
+batches of three sizes; sampled small sub-batches and exhaustive larger sub-batches
+of the full workload-size batch; and a batch-size sweep over probe rows. In these
+historical reports, sub-batch sizes 1 and 7 visit only 512 starts per seed, so a
+"yes (sampled)" does not establish every-row coverage at those sizes. The JSON
+records the actual stride and rows checked per size. The current script instead
+partitions the full batch at every advertised sub-batch size, covering every row
+including a final partial batch. These historical measurements have not been rerun.
+A "no" counts the rows, sub-batches or sweep cases that differed. Accuracy is against FP64 at the workload size; latency is the median on an otherwise
+idle B200. The C3/C4 column runs this repository's own gate scripts unchanged, with the CUDA
+candidate replaced by a subclass of this op whose forward and backward call the other library.
+The subclass drops this op's FP32 `dweight` row contributions
+(`parameter_vjp_contributions_fp32`), so every C4 `dweight` check judges the `dweight` that
+library's own backward returns. The C3/C4 results for this op are in the gate table below. [`qwen3_next_rms_norm.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr468/docs/usage/evidence/qwen3-next-norm-reuse-b200/qwen3_next_rms_norm.json)
+was originally written from a clean tree at `a66493c` by the command below. The
+Megatron `52fbcbc` result has been excluded from the reports, tables and figure:
+that revision computes `weight_eff` but uses the original `weight` in its forward
+output, so it does not implement the zero-centred operation despite accepting the
+flag. The remaining measurements are unchanged; the figure was regenerated from
+the corrected report without rerunning benchmarks. The reuse checker now rejects
+Megatron implementations that fail a zero-weight probe before benchmarking them.
+
+Original command:
+
+```bash
+python tools/validation/models/qwen3_next_norm_reuse_check.py --op qwen3_next_rms_norm \
+    --out docs/usage/evidence/qwen3-next-norm-reuse-b200/qwen3_next_rms_norm.json [--megatron-src <Megatron-LM checkout>]
+```
+
+
+The gate scripts support this op on this branch. Run unchanged on a B200 from a clean tree at `339bc3ff`, with the CUDA candidate swapped for each implementation ([`qwen3_next_rms_norm_gates.json`](https://github.com/fusheng-ji/RL-Kernel/blob/692c4082f9fe6ca0f0dba37d277a4422dd689ba2/pr468/docs/usage/evidence/qwen3-next-norm-reuse-b200/qwen3_next_rms_norm_gates.json), `tools/validation/models/qwen3_next_norm_reuse_check.py --op qwen3_next_rms_norm --checks gates`):
+
+| Implementation swapped into the CUDA candidate | C3 forward | C4 gradient (incl. singleton-aggregate) |
+|---|---|---|
+| rl-kernel Qwen3NextRMSNormCudaOp | pass | pass |
+| transformers 5.17.0 Qwen3NextRMSNorm | pass | **fail** |
+| Liger 0.8.4 RMSNorm, offset 1, gemma | pass | **fail** |
+| FLA 0.5.2 rms_norm, weight passed as 1 + w | pass | **fail** |
+
+Each existing implementation fails C4 on `dweight` in the chunked-prefill and
+singleton-aggregate configurations (max |diff| 1.8e-4); transformers also fails `dx` under
+chunking and for one singleton sample. Both `dweight` configurations split the batch into
+several calls and the harness adds the per-call `dweight`, which each library returns in BF16;
+the split sum is not bitwise equal to the one-call `dweight`. This op passes because it declares
+FP32 per-row `dweight` contributions that the harness folds in a fixed order. An
+earlier run reported C4 passes for Liger and FLA: the swapped op still inherited this op's
+row contributions, so those checks measured this op's `dweight`, not the library's.
 
 ## Tests
 
