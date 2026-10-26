@@ -8,16 +8,17 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 
-from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.backends.cuda.model_specific.minimax_h3.det_linear import (
     ACT_NONE,
     CONTRACT,
     det_linear_available,
     det_linear_backward_input,
     det_linear_backward_weight,
+    det_linear_device_supported,
     det_linear_forward,
     silu_backward_fp32,
 )
+from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.reference.minimax_h3.adaln_projection import (
     split_adaln_table,
     validate_h3_adaln_projection,
@@ -98,6 +99,8 @@ class H3AdaLNProjectionCudaOp:
             raise RuntimeError(
                 "rl_engine._C lacks h3_det_linear_*; rebuild with csrc/cuda/h3/det_linear.cu"
             )
+        if not det_linear_device_supported():
+            raise RuntimeError("the BF16 h3 det_linear forward needs SM80 or newer")
 
     def __call__(self, temb, weight, bias):
         """Return six weight-dtype ``(3T, H)`` modulation views for CUDA inputs."""
