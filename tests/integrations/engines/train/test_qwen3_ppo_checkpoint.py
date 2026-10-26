@@ -205,6 +205,19 @@ def test_independent_hf_targets_and_losses_match_handled_termination():
     )
 
 
+def test_independent_hf_targets_reject_a_row_without_action_tokens():
+    from examples.post_training.tp_ppo.hf_ppo_reference import independent_targets
+    from tests.integrations.common.test_ppo import rollout_fixture
+
+    rollout = rollout_fixture()
+    packet = dict(rollout.packet())
+    packet["action_mask"] = packet["action_mask"].clone()
+    packet["action_mask"][0] = False
+    values = torch.zeros_like(rollout.input_ids, dtype=torch.float32)
+    with pytest.raises(ValueError, match="at least one action token"):
+        independent_targets(packet, values, torch.zeros_like(rollout.behavior_logps))
+
+
 def test_fixed_evidence_rejects_corruption_and_inventory_shape(tmp_path):
     from examples.post_training.tp_ppo.fixed_contract import read_tensor, write_tensor
 

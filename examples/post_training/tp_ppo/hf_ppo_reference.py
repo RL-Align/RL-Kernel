@@ -87,6 +87,8 @@ class HFModel(torch.nn.Module):
 
 def independent_targets(packet, values, reference):
     mask = packet["action_mask"]
+    if not mask.any(1).all():
+        raise ValueError("every rollout row needs at least one action token")
     positions = torch.arange(values.shape[1], device=values.device).expand_as(values)
     last_state = positions.masked_fill(~packet["attention_mask"], -1).max(1).values
     rows = torch.arange(values.shape[0], device=values.device)
