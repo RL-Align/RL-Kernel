@@ -45,7 +45,7 @@ def test_pre_sm80_device_is_refused_at_construction_so_the_registry_can_fall_bac
     from rl_engine.backends.cuda.model_specific.minimax_h3 import adaln_projection as module
 
     monkeypatch.setattr(module, "det_linear_available", lambda: True)
-    monkeypatch.setattr(module, "det_linear_device_supported", lambda: False)
+    monkeypatch.setattr(module, "det_linear_device_supported", lambda *args: False)
     with pytest.raises(RuntimeError, match="SM80"):
         module.H3AdaLNProjectionCudaOp()
 
@@ -106,6 +106,11 @@ class TestReference:
             op.forward(_temb(0, 16, device="cpu"), weight, bias)
         with pytest.raises(TypeError):
             op.forward(_temb(2, 16, device="cpu"), weight, bias.float())
+
+    def test_rejects_a_zero_width_input_instead_of_returning_the_bias(self):
+        weight, bias = _synthetic(8, 16, device="cpu")
+        with pytest.raises(ValueError, match="nonzero input width"):
+            NativeH3AdaLNProjectionOp().forward(_temb(2, 0, device="cpu"), weight[:, :0], bias)
 
 
 @requires_cuda

@@ -27,7 +27,7 @@ _REFS = ("diffusers[plain]", "diffusers", "rl_kernel")
 
 
 def _cell(entry: dict | None) -> float | None:
-    if not entry:
+    if not entry or "out" not in entry:  # no entry, or a case the reference never saved
         return None
     outs = [o for o in entry["out"] if o is not None]
     if not outs:
@@ -62,14 +62,16 @@ def _panel(ax, report: dict) -> None:
             ax.text(
                 j,
                 i,
-                "—" if row == ref else _text(frac),
+                "—" if row == ref else ("n/a" if frac is None else _text(frac)),
                 ha="center",
                 va="center",
                 fontsize=7.5,
                 color="white" if frac is not None and frac > 0.3 else "black",
                 fontweight="bold" if frac == 0 else None,
             )
-    ax.imshow(np.sqrt(np.nan_to_num(grid)), cmap="Reds", vmin=0, vmax=1, aspect="auto")
+    # A comparison that was not made is grey, so it cannot be read as the white of "bitwise equal".
+    cmap = plt.get_cmap("Reds").with_extremes(bad="0.82")
+    ax.imshow(np.ma.masked_invalid(np.sqrt(grid)), cmap=cmap, vmin=0, vmax=1, aspect="auto")
     ax.set_yticks(range(len(rows)), rows, fontsize=8)
     ax.set_xticks(range(len(cols)), [str(c) for _, c in cols], fontsize=7, rotation=45)
     transform = ax.get_xaxis_transform()
