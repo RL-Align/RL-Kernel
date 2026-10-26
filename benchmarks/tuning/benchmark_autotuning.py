@@ -60,6 +60,10 @@ def worker(directory: str, shape: tuple[int, int], scan_candidates: bool) -> dic
             graphs[f"operator_{'tuned' if enabled else 'fixed'}"] = graph
     del output
 
+    if not state.records:
+        raise RuntimeError(
+            "the tuned call recorded no selection; the device identity is unavailable"
+        )
     configs = {"kernel_fixed": {}, "kernel_selected": state.records[0]["config"]}
     if scan_candidates:
         for warps in (4, 8):
