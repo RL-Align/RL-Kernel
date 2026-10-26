@@ -3,6 +3,7 @@
 
 import importlib.util
 import os
+import shlex
 import sysconfig
 import warnings
 from distutils.errors import CompileError
@@ -27,6 +28,29 @@ H3_BITWISE_SOURCES = (
     "csrc/cuda/h3/gate_residual.cu",
 )
 H3_KERNELS_DEFINE = "-DKERNEL_ALIGN_WITH_H3_KERNELS"
+# nvcc options that relax FP32 math. They can also arrive through the environment, where PyTorch's
+# BuildExtension appends them after the flags built here, so the H3 kernels check for them too.
+_RELAXED_MATH_NVCC_FLAGS = frozenset(
+    {
+        "--use_fast_math",
+        "-use_fast_math",
+        "--ftz=true",
+        "-ftz=true",
+        "--prec-div=false",
+        "-prec-div=false",
+        "--prec-sqrt=false",
+        "-prec-sqrt=false",
+    }
+)
+
+
+def _external_relaxed_math() -> bool:
+    """Return whether NVCC_*_FLAGS / TORCH_NVCC_FLAGS turn on relaxed FP32 math."""
+
+    for name in ("NVCC_PREPEND_FLAGS", "NVCC_APPEND_FLAGS", "TORCH_NVCC_FLAGS"):
+        if _RELAXED_MATH_NVCC_FLAGS & set(shlex.split(os.environ.get(name, ""))):
+            return True
+    return False
 
 
 def _resolve_package_data_source(
@@ -234,6 +258,17 @@ def get_extensions():
 
     if is_rocm or torch.cuda.is_available():
         use_fast_math = envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH)
+        # One predicate decides both the H3 sources and the define that enables their bindings, so
+        # the bindings can never outlive the kernels.
+        relaxed_math_env = _external_relaxed_math()
+        if relaxed_math_env and not is_rocm:
+            warnings.warn(
+                "NVCC_*_FLAGS / TORCH_NVCC_FLAGS relax FP32 math; the bitwise MiniMax-H3 kernels "
+                "are left out of this build and dispatch falls back to the PyTorch reference.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        h3_enabled = not is_rocm and not use_fast_math and not relaxed_math_env
         cuda_sources = [
             "csrc/bindings/ops.cpp",
             "csrc/cuda/logprob/fused_logp_kernel.cu",
@@ -256,7 +291,7 @@ def get_extensions():
             # CUDA IPC and the fixed-tree collective implementation are not
             # part of the ROCm extension.
             cuda_sources.append("csrc/cuda/collectives/deterministic_collective.cu")
-            if not use_fast_math:
+            if h3_enabled:
                 cuda_sources.extend(H3_BITWISE_SOURCES)
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
@@ -350,7 +385,7 @@ def get_extensions():
         if os.name != "nt" and not is_rocm:
             # CUDA IPC metadata queries use the driver API (cuPointerGetAttribute).
             extra_link_args.append("-lcuda")
-        if not is_rocm and not use_fast_math:
+        if h3_enabled:
             cxx_flags.append(H3_KERNELS_DEFINE)
             nvcc_flags.append(H3_KERNELS_DEFINE)
 
