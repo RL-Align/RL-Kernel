@@ -163,10 +163,14 @@ __global__ void __launch_bounds__(kWarpsPerBlock * kWarp)
               XV::load(x + (t0 + r) * k_in + k0, xv);
 #pragma unroll
               for (int c = 0; c < kCols; ++c) {
-                float wv[kVec];
-                WV::unpack(raw[u][c], wv);
+                // raw[u][c] is only loaded for columns inside the output; the last column tile of
+                // an N that is not a multiple of kCols must not read the other registers.
+                if (n0 + c < n_out) {
+                  float wv[kVec];
+                  WV::unpack(raw[u][c], wv);
 #pragma unroll
-                for (int j = 0; j < kVec; ++j) acc[c][r] = fmaf(xv[j], wv[j], acc[c][r]);
+                  for (int j = 0; j < kVec; ++j) acc[c][r] = fmaf(xv[j], wv[j], acc[c][r]);
+                }
               }
             }
           }
