@@ -113,25 +113,33 @@ B200, T = 3, H = 5376, BF16. "write BW" counts the 6·S·H outputs; the table st
 
 | S | CUDA forward | provider forward | CUDA backward | provider backward |
 | --- | --- | --- | --- | --- |
-| 4097 | 0.06 ms | 0.09 ms | 1.15 ms | 1.47 ms |
-| 32768 | 0.32 ms | 0.59 ms | 2.18 ms | 8.72 ms |
-| 131072 | 1.23 ms (6.8 TB/s write) | 2.37 ms | 6.86 ms | 34.9 ms |
+| 4097 | 0.07 ms | 0.11 ms | 1.01 ms | 1.30 ms |
+| 32768 | 0.34 ms | 0.63 ms | 1.76 ms | 8.00 ms |
+| 131072 | 1.24 ms (6.8 TB/s write) | 2.40 ms | 5.59 ms | 32.2 ms |
 
-The backward's peak memory is about twice the provider's, because autograd stacks the
-six output gradients and the per-tile FP32 partials are materialised.
+The backward columns time `autograd.backward` only: the forward pass and the graph construction run
+outside the timed region (`candidate_backward_setup` / `provider_backward_setup`), and the execution
+order alternates and is recorded.
+
+Backward-only peak memory (increment over the forward graph): 255, 2034 and 8130 MiB for the CUDA op
+at S = 4097, 32768 and 131072, against about 1 MiB for the provider. Autograd stacks the six
+output gradients into one `(6, S, H)` tensor for the CUDA op and the per-tile FP32 partials are
+materialised, while the provider's atomic scatter-add writes straight into the `(3T, 6H)` table
+gradient. The peak is the price of the deterministic FP32 segment sum.
 
 ## Evidence
 
-![adaln_row_gather on B200: latency and whole-chain gradient accuracy](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr486/reports/experiments/h3-adaln-row-gather-b200/figure.png)
+![adaln_row_gather on B200: latency and whole-chain gradient accuracy](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/999c0c75078605229ad74dc600dc963d89c7ed9e/pr486/reports/experiments/h3-adaln-row-gather-b200/figure.png)
 
 There are two data files:
 
-- [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr486/reports/experiments/h3-adaln-row-gather-b200/report.json): op timings, forward
+- [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/999c0c75078605229ad74dc600dc963d89c7ed9e/pr486/reports/experiments/h3-adaln-row-gather-b200/report.json): op timings, forward
   bitwise checks, op-level backward, and the chain-backward cases plotted above.
 - [`chain_replay.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr486/reports/experiments/h3-adaln-row-gather-b200/chain_replay.json): the full
   stage-wise forward replay and backward replay over T in {1, 2, 3, 4} × S in {3, 257, 4097, 32768}.
 
-`report.json` was rewritten from a clean tree at commit `a6c85451`, after the op-backward check
+`report.json` was rewritten from a clean tree at commit `c416a101` on an otherwise idle B200 (backward
+timings exclude the forward pass; the previous revision came from `a6c85451`), after the op-backward check
 was seeded (it previously took its rows and gradients from the process's default CUDA
 generator, so its fraction depended on how many draws the runner made before it; 99.99999% in
 the previous report). `chain_replay.json` was written from a clean tree at commit `61d23ade`.
