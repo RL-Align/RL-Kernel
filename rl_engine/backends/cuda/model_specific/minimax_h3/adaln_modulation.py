@@ -21,6 +21,7 @@ from rl_engine.backends.cuda.model_specific.minimax_h3.adaln_row_gather import (
     adaln_row_gather_available,
 )
 from rl_engine.backends.cuda.model_specific.minimax_h3.det_linear import (
+    ACT_NONE,
     det_linear_available,
     det_linear_backward_input,
     det_linear_backward_weight,
@@ -55,7 +56,7 @@ class _H3AdaLNModulationCuda(torch.autograd.Function):
     def forward(ctx, temb, weight, bias, timestep_indices, token_tags, hidden):
         temb = temb.contiguous()
         act = F.silu(temb).to(weight.dtype)
-        (table,) = det_linear_forward(act, weight, bias)
+        (table,) = det_linear_forward(act, weight, bias, activation=ACT_NONE)
         rows = table.view(-1, H3_ADALN_CHUNKS * hidden)
         packed = _C.h3_adaln_row_gather_forward(
             rows, timestep_indices, token_tags, H3_ADALN_CHUNKS, H3_MODALITY_NUM
