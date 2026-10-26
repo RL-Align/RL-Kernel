@@ -8,11 +8,18 @@ import hashlib
 import torch
 
 
+def _source(weights, name):
+    try:
+        return weights[name]
+    except KeyError:
+        raise ValueError(f"no checkpoint tensor maps to vLLM parameter {name}") from None
+
+
 def expected_shard(name, weights, *, rank, tp, shape):
     if ".qkv_proj." in name:
         return torch.cat(
             [
-                weights[name.replace("qkv_proj", n)].chunk(tp, dim=0)[rank]
+                _source(weights, name.replace("qkv_proj", n)).chunk(tp, dim=0)[rank]
                 for n in ("q_proj", "k_proj", "v_proj")
             ],
             dim=0,
@@ -20,12 +27,12 @@ def expected_shard(name, weights, *, rank, tp, shape):
     if ".gate_up_proj." in name:
         return torch.cat(
             [
-                weights[name.replace("gate_up_proj", n)].chunk(tp, dim=0)[rank]
+                _source(weights, name.replace("gate_up_proj", n)).chunk(tp, dim=0)[rank]
                 for n in ("gate_proj", "up_proj")
             ],
             dim=0,
         )
-    value = weights[name]
+    value = _source(weights, name)
     if name in ("model.embed_tokens.weight", "lm_head.weight"):
         padded = shape[0] * tp
         if padded < value.shape[0]:

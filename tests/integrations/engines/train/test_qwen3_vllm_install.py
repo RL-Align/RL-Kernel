@@ -35,3 +35,14 @@ def test_qkv_shards_are_contiguous_q_k_v_not_megatron_grouped_order():
             ]
         ),
     )
+
+
+def test_parameter_without_checkpoint_source_names_the_parameter():
+    weights = {"model.layers.0.self_attn.q_proj.weight": torch.zeros(8, 8)}
+    for name in (
+        "model.layers.0.self_attn.qkv_proj.weight",
+        "model.layers.0.mlp.gate_up_proj.weight",
+        "model.layers.0.self_attn.q_norm.weight",
+    ):
+        with pytest.raises(ValueError, match="no checkpoint tensor maps to vLLM parameter"):
+            expected_shard(name, weights, rank=0, tp=2, shape=(8, 8))
