@@ -505,7 +505,14 @@ std::vector<torch::Tensor> h3_rmsnorm_backward_partials(
   const int threads = 256;
   const unsigned col_blocks = static_cast<unsigned>((n + threads - 1) / threads);
   const int64_t tiles = dw_begin.numel();
+  TORCH_CHECK(2 * n <= std::numeric_limits<int>::max() && (2 * n + threads - 1) / threads <= 65535,
+              "N=", n, " is too large for the kernels (int indices, grid.y limit of 65535)");
   auto dw_partial = torch::empty({tiles, n}, x.options().dtype(at::kFloat));
+  // The row and tile lists are caller-built: every row must be a row of x and every tile must lie
+  // inside its list before the kernels read through them.
+  h3_tiles::check_lists(stream, dw_rows.data_ptr<int64_t>(), dw_rows.numel(), rows,
+                        dw_begin.data_ptr<int64_t>(), dw_end.data_ptr<int64_t>(), tiles, nullptr, 0,
+                        0);
   if (tiles > 0) {
     H3_DISPATCH(x.scalar_type(), "h3_rmsnorm_backward_partials", [&] {
       rmsnorm_dweight_partial_kernel<T><<<dim3(static_cast<unsigned>(tiles), col_blocks), threads,
@@ -523,6 +530,9 @@ std::vector<torch::Tensor> h3_rmsnorm_backward_partials(
   check_tiles(*seg_rows, *seg_begin, *seg_end, x);
   const int64_t seg_tiles = seg_begin->numel();
   const int64_t width = 2 * n;
+  h3_tiles::check_lists(stream, seg_rows->data_ptr<int64_t>(), seg_rows->numel(), rows,
+                        seg_begin->data_ptr<int64_t>(), seg_end->data_ptr<int64_t>(), seg_tiles,
+                        nullptr, 0, 0);
   auto seg_partial = torch::empty({seg_tiles, width}, x.options().dtype(at::kFloat));
   const unsigned wide_blocks = static_cast<unsigned>((width + threads - 1) / threads);
   if (seg_tiles > 0) {
@@ -572,14 +582,22 @@ std::vector<torch::Tensor> h3_rmsnorm_fold_partials(torch::Tensor dw_partial, to
                   seg_partial->dim() == 2 && seg_partial->is_contiguous() &&
                   seg_partial->scalar_type() == at::kFloat && seg_partial->size(1) == 2 * n,
               "seg_partial must be a contiguous float32 (tiles, 2N) CUDA tensor");
+  TORCH_CHECK(seg_first_tile->numel() >= 1, "seg_first_tile must hold R + 1 entries");
   const int64_t segments = seg_first_tile->numel() - 1;
   const int64_t width = 2 * n;
+  TORCH_CHECK(width <= std::numeric_limits<int>::max() && (width + threads - 1) / threads <= 65535,
+              "N=", n, " is too large for the kernels (int indices, grid.y limit of 65535)");
   auto table_grad = torch::empty({segments, width}, dw_partial.options());
   const unsigned wide_blocks = static_cast<unsigned>((width + threads - 1) / threads);
-  fold_segments_kernel<<<dim3(static_cast<unsigned>(segments), wide_blocks), threads, 0, stream>>>(
-      seg_partial->data_ptr<float>(), seg_first_tile->data_ptr<int64_t>(),
-      table_grad.data_ptr<float>(), static_cast<int>(width));
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  if (segments > 0) {  // a zero-sized grid is not a valid launch
+    h3_tiles::check_lists(stream, nullptr, 0, 0, nullptr, nullptr, 0,
+                          seg_first_tile->data_ptr<int64_t>(), segments, seg_partial->size(0));
+    fold_segments_kernel<<<dim3(static_cast<unsigned>(segments), wide_blocks), threads, 0,
+                           stream>>>(seg_partial->data_ptr<float>(),
+                                     seg_first_tile->data_ptr<int64_t>(),
+                                     table_grad.data_ptr<float>(), static_cast<int>(width));
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+  }
   return {dweight, table_grad.narrow(1, 0, n), table_grad.narrow(1, n, n)};
 }
 
