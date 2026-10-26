@@ -3,6 +3,7 @@
 
 #include <torch/extension.h>
 #include <cuda_bf16.h>
+#include <limits>
 
 // Fused LogP Declarations
 torch::Tensor fused_logp_forward(torch::Tensor logits, torch::Tensor token_ids);
@@ -320,6 +321,9 @@ static void rmsnorm_check_input(const torch::Tensor& x, const char* name) {
 
 static void rmsnorm_check_weight(const torch::Tensor& x, const torch::Tensor& weight) {
   TORCH_CHECK(x.dim() == 2 && x.size(1) > 0, "x must be 2D with positive hidden size");
+  // The kernels address rows as int row * H.
+  TORCH_CHECK(x.numel() <= std::numeric_limits<int>::max(),
+              "x must have at most INT_MAX elements (32-bit row offsets)");
   TORCH_CHECK(x.scalar_type() == torch::kFloat32 || x.scalar_type() == torch::kFloat16 ||
               x.scalar_type() == torch::kBFloat16, "x must be float32, float16 or bfloat16");
   TORCH_CHECK(weight.dim() == 1 && weight.size(0) == x.size(1), "weight must be [H]");
@@ -467,6 +471,8 @@ torch::Tensor rmsnorm_backward_dw(
   TORCH_CHECK(x.size(1) > 0, "hidden size must be positive");
   TORCH_CHECK(rstd.size(0) == x.size(0), "rstd.size(0) must equal x.size(0)");
   TORCH_CHECK(mask.size(0) == x.size(0), "mask.size(0) must equal x.size(0)");
+  TORCH_CHECK(x.numel() <= std::numeric_limits<int>::max(),
+              "x must have at most INT_MAX elements (32-bit row offsets)");
 
   auto T = x.size(0);
   auto H = x.size(1);
