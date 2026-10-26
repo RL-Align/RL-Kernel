@@ -100,11 +100,15 @@ class _CPUOrchestrationOnlyExtension:
 
     def __init__(self):
         self.weight_reduction_inputs = []
+        self.forward_calls = 0
+        self.input_gradient_calls = 0
 
     def det_gemm_fwd_rhs_transposed(self, x, w):
+        self.forward_calls += 1
         return (x.float() @ w.float().t()).bfloat16()
 
     def det_gemm_fwd(self, x, w):
+        self.input_gradient_calls += 1
         return (x.float() @ w.float()).bfloat16()
 
     def det_gemm_db_transposed(self, x, dy):
@@ -320,6 +324,13 @@ def test_gradient_kernel_roles_and_runtime_ids(
     assert op.last_execution["input_gradient_kernel"] == (kernel_id if input_grad else None)
     assert op.last_execution["weight_gradient_kernel"] == (kernel_id if weight_grad else None)
     assert len(events) == 1 and events[0]["kernel_id"] == kernel_id
+    assert cpu_orchestration.forward_calls == 1
+    assert cpu_orchestration.input_gradient_calls == int(input_grad)
+    assert len(cpu_orchestration.weight_reduction_inputs) == int(weight_grad)
+    if input_grad:
+        torch.testing.assert_close(x.grad, torch.full_like(x, 3), atol=0, rtol=0)
+    if weight_grad:
+        torch.testing.assert_close(w.grad, torch.full_like(w, 2), atol=0, rtol=0)
 
 
 requires_sm90 = pytest.mark.skipif(
@@ -343,11 +354,14 @@ def test_full_h3_accuracy_and_four_judgments_on_gpu(rows):
     op = down.H3FFNDownGemmOp()
     actual, _ = training_projection(op, x, w, dy, keys)
     expected = reference_projection(x, w, dy)
+    # The projection contract is exactly (forward, input gradient, weight gradient).
+    assert len(actual) == len(expected) == 3
     for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
         judgment = "forward_accuracy" if index == 0 else "gradient_accuracy"
         result = comparison(left, right, judgment)
         assert result["passed"], result
     chunked, _ = training_projection(op, x, w, dy, keys, chunk_size=31)
+    assert len(chunked) == 3
     for index, (left, right) in enumerate(zip(chunked, actual, strict=True)):
         judgment = "forward_invariance" if index == 0 else "gradient_invariance"
         result = comparison(left, right, judgment)

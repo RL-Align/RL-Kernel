@@ -412,7 +412,12 @@ def main(argv=None):
                 raise ValueError("fixture activation_kind must be captured or synthetic")
             # Metadata must remain serializable even on a later validation failure.
             json.dumps(metadata, allow_nan=False)
-            report["fixture"] = {"sha256": sha256(args.fixture), "metadata": metadata}
+            report["fixture"] = {
+                "sha256": sha256(args.fixture),
+                "metadata": metadata,
+                # A file hash and self-declared label do not attest capture provenance.
+                "activation_provenance_verified": False,
+            }
             values = [fixture[key].to("cuda") for key in ("x", "weight", "grad_output")]
             if any(value.dtype != torch.bfloat16 for value in values):
                 raise TypeError("fixture tensors must already be quantized BF16")
@@ -438,6 +443,10 @@ def main(argv=None):
             report["remaining_acceptance"].append("real checkpoint weights and captured inputs")
         elif report["fixture"]["metadata"]["activation_kind"] != "captured":
             report["remaining_acceptance"].append("real captured SwiGLU activations")
+        else:
+            report["remaining_acceptance"].append(
+                "independent verification of captured SwiGLU activation provenance"
+            )
         if not args.build_log and args.backend == H3_LEGACY_DOWN_BACKEND:
             report["remaining_acceptance"].append("auditable no-fast-math extension build log")
         exit_code = 0 if passed else 1

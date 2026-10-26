@@ -9,6 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -125,3 +127,84 @@ def test_plot_pipeline_with_explicitly_synthetic_test_data(tmp_path):
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "synthetic_test_data.png").read_bytes().startswith(b"\x89PNG")
     assert "synthetic_test_data" in (tmp_path / "checks.csv").read_text()
+
+
+@pytest.mark.parametrize("activation_kind", ["synthetic", "captured"])
+def test_fixture_label_cannot_clear_capture_qualification(tmp_path, monkeypatch, activation_kind):
+    import torch
+
+    spec = importlib.util.spec_from_file_location(
+        "h3_fixture_metadata_under_test",
+        ROOT / "tools/validation/operators/validate_h3_ffn_down.py",
+    )
+    validator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(validator)
+
+    class FixtureTensor:
+        """Exercise report control flow without claiming device computation."""
+
+        dtype = torch.bfloat16
+
+        def to(self, device):
+            assert device == "cuda"
+            return self
+
+        def reshape(self, *shape):
+            return self
+
+    values = tuple(FixtureTensor() for _ in range(3))
+    metadata = {
+        "checkpoint_revision": validator.H3_CHECKPOINT_REVISION,
+        "weight_key": "test.down.weight",
+        "activation_source": "synthetic test fixture claiming a capture",
+        "activation_kind": activation_kind,
+        "capture_sha256": "0" * 64,
+    }
+    monkeypatch.setattr(validator, "provenance", lambda args: {})
+    monkeypatch.setattr(validator, "command", lambda args: "test device metadata")
+    monkeypatch.setattr(validator, "_require_backend", lambda *args: None)
+    monkeypatch.setattr(validator, "make_inputs", lambda *args: values)
+    monkeypatch.setattr(validator, "run_case", lambda *args, **kwargs: {"passed": True})
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "get_device_name", lambda: "test device")
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda: (9, 0))
+    monkeypatch.setattr(torch.version, "hip", None)
+    monkeypatch.setattr(torch, "set_float32_matmul_precision", lambda value: None)
+    monkeypatch.setattr(torch.backends.cuda.matmul, "allow_tf32", False)
+    monkeypatch.setattr(torch.backends.cuda.matmul, "allow_bf16_reduced_precision_reduction", False)
+    monkeypatch.setattr(
+        torch,
+        "load",
+        lambda *args, **kwargs: {
+            "x": values[0],
+            "weight": values[1],
+            "grad_output": values[2],
+            "metadata": metadata,
+        },
+    )
+    fixture_path = tmp_path / "fixture.pt"
+    fixture_path.write_bytes(b"synthetic control-flow fixture; tensor loading is mocked")
+    report_path = tmp_path / "report.json"
+    status = validator.main(
+        [
+            "--rows",
+            "1",
+            "--families",
+            "random",
+            "--fixture",
+            str(fixture_path),
+            "--output",
+            str(report_path),
+        ]
+    )
+    report = json.loads(report_path.read_text())
+    assert status == 0 and report["status"] == "passed"
+    assert report["fixture"]["metadata"] == metadata
+    assert not report["fixture"]["activation_provenance_verified"]
+    assert not report["acceptance_complete"]
+    required = (
+        "real captured SwiGLU activations"
+        if activation_kind == "synthetic"
+        else "independent verification of captured SwiGLU activation provenance"
+    )
+    assert required in report["remaining_acceptance"]

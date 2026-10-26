@@ -21,7 +21,10 @@ No new CUDA or Triton device kernel is added.
 The eager operator accepts BF16 `[M,14336]` or `[B,S,14336]`, flattened row count
 1..32768, native `[5376,14336]` weights and no bias on one SM90 CUDA device.
 It computes `Y=X@W.T`, `dX=dY@W`, and canonical `dW=dY.T@X`. Strided tensors
-are normalized by copies. Weight-gradient rows are sorted by logical identity
+are normalized by copies. The adapter passes transposed weight/gradient views
+using explicit operand strides; storage layout does not change logical K order.
+The historical forward/dX/dW matrix includes this path. Weight-gradient rows
+are sorted by logical identity
 and padded to a fixed 32-row extent before a single reduction.
 
 The operator rejects invalid shapes, types, devices, TF32, duplicate active
@@ -99,6 +102,10 @@ The checkpoint fixture uses `transformer_blocks.0.ff.net.2.weight`, BF16
 whole model. Weight SHA256 is
 `e19d4e1649e4b55b1931842e5cc4bb46892c2e635b9315b2996630a86284e88f`.
 Activations and upstream gradients are **synthetic**, not captured model data.
+The validation CLI preserves fixture labels as declarations and records
+`activation_provenance_verified=false`. Even a fixture labeled `captured` keeps
+independent capture-provenance verification in its remaining acceptance list;
+a file checksum or self-declared capture hash does not establish provenance.
 
 The explicit legacy backend `rlkernel.h3_ffn_down.sm90.midtree.v1` failed real-weight
 forward accuracy at M=129: 23,353 failing elements, maximum error/tolerance
@@ -160,6 +167,12 @@ Local review-fix checks on 2026-10-26: **56 passed, 3 skipped** across
 and `tests/runtime/test_layout_compatibility.py`. The three skips require SM90;
 the new tests exercise CPU orchestration, not GPU arithmetic. Lint and formatting
 checks passed. No GPU run or performance measurement was made for this fix.
+
+A follow-up to the same review passed **33 tests with 3 SM90 skips** across
+the operator and tooling suites after strengthening actual-call assertions
+and testing unverified fixture labels. The earlier registry/layout results
+were reused; their runtime sources are unchanged. Follow-up lint and formatting
+checks passed. No GPU execution was repeated.
 
 ## Reproduction and remaining qualification
 
