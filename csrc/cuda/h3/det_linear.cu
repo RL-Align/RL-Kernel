@@ -134,7 +134,6 @@ __global__ void __launch_bounds__(kWarpsPerBlock * kWarp)
   static_assert(kCols * kRows <= kWarp,
                 "the epilogue stores through lane == c * kRows + r, so kCols * kRows must fit a warp");
   constexpr int kVec = WV::kN;
-  static_assert(kCols * kRows <= kWarp, "one warp cannot store more than kWarp outputs per tile");
   static_assert(XV::kN == kVec, "x and weight share a dtype");
   constexpr int64_t kStride = static_cast<int64_t>(kWarp) * kVec;
 

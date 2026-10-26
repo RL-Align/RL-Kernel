@@ -45,7 +45,7 @@ def test_pre_sm80_device_is_refused_at_construction_so_the_registry_can_fall_bac
     from rl_engine.backends.cuda.model_specific.minimax_h3 import adaln_projection as module
 
     monkeypatch.setattr(module, "det_linear_available", lambda: True)
-    monkeypatch.setattr(module, "det_linear_device_supported", lambda: False)
+    monkeypatch.setattr(module, "det_linear_device_supported", lambda *args: False)
     with pytest.raises(RuntimeError, match="SM80"):
         module.H3AdaLNProjectionCudaOp()
 
