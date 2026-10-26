@@ -606,9 +606,12 @@ def _gate_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
         gate = _gate_view(table)
         grad = torch.randn_like(residual)
 
-        def backward(fn, residual=residual, y=y, table=table, grad=grad):
+        def prepare_backward(fn, residual=residual, y=y, table=table):
             leaves = [t.detach().requires_grad_(True) for t in (residual, y, table)]
-            fn(leaves[0], leaves[1], _gate_view(leaves[2])).backward(grad)
+            return fn(leaves[0], leaves[1], _gate_view(leaves[2]))
+
+        def backward(output, grad=grad):
+            output.backward(grad)
 
         cases.append(
             {
@@ -622,10 +625,12 @@ def _gate_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
                 "provider": lambda r=residual, y=y, g=gate, i=index: provider_gate_residual(
                     r, g, i, y
                 ),
-                "candidate_backward": lambda b=backward, i=index: b(
+                "candidate_backward": backward,
+                "provider_backward": backward,
+                "candidate_backward_setup": lambda b=prepare_backward, i=index: b(
                     lambda r, y_, g: op.forward(r, y_, g, i, check_range=False)
                 ),
-                "provider_backward": lambda b=backward, i=index: b(
+                "provider_backward_setup": lambda b=prepare_backward, i=index: b(
                     lambda r, y_, g: provider_gate_residual(r, g, i, y_)
                 ),
             }
