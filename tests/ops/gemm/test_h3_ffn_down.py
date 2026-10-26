@@ -134,6 +134,8 @@ def test_canonical_chunk_permutation_and_padding_orchestration(cpu_orchestration
     chunked, traces = training_projection(op, x, w, dy, keys, chunk_size=2)
     assert all(raw_equal(a, b) for a, b in zip(canonical, chunked, strict=True))
     assert sum(trace["weight_gradient_executed"] for trace in traces) == 1
+    assert sum(trace["weight_gradient_kernel"] is not None for trace in traces) == 1
+    assert all(trace["input_gradient_kernel"] is not None for trace in traces)
     order = torch.tensor([6, 1, 3, 0, 5, 2, 4])
     permuted, _ = training_projection(op, x[order], w, dy[order], keys[order])
     assert raw_equal(canonical[2], permuted[2])
@@ -243,6 +245,81 @@ def test_nonzero_padding_gradient_is_rejected(cpu_orchestration):
         y = down.h3_ffn_down_gemm(x, w, logical_keys=keys)
         with pytest.raises(ValueError, match="zero upstream"):
             y.backward(torch.ones_like(y))
+
+
+def test_backend_is_resolved_once_per_forward_and_retained_for_backward(
+    cpu_orchestration, monkeypatch
+):
+    resolutions = []
+
+    def resolve(device, backend):
+        extension = _CPUOrchestrationOnlyExtension()
+        resolutions.append(extension)
+        return extension
+
+    monkeypatch.setattr(down, "_require_backend", resolve)
+    op = down.H3FFNDownGemmOp()
+    x = torch.ones(2, 4).bfloat16().requires_grad_(True)
+    w = torch.ones(3, 4).bfloat16().requires_grad_(True)
+    with canonical_backward_session() as session:
+        first = op(x[:1], w, logical_keys=logical_keys(1, "cpu"))
+        second = op(x[1:], w, logical_keys=logical_keys(1, "cpu") + 1)
+        assert len(resolutions) == 2
+        torch.autograd.backward((first, second), (torch.ones_like(first), torch.ones_like(second)))
+        session.validate_complete()
+    assert len(resolutions) == 2
+    assert sum(len(ext.weight_reduction_inputs) for ext in resolutions) == 1
+
+
+def test_unpadded_backward_needs_no_padding_scalar_readback(cpu_orchestration, monkeypatch):
+    x = torch.ones(2, 4).bfloat16().requires_grad_(True)
+    w = torch.ones(3, 4).bfloat16().requires_grad_(True)
+    with canonical_backward_session() as session:
+        y = down.h3_ffn_down_gemm(x, w, logical_keys=logical_keys(2, "cpu"))
+
+        def unexpected_item(self, *args, **kwargs):
+            raise AssertionError("unpadded backward must not read a validation scalar")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(torch.Tensor, "item", unexpected_item)
+            y.backward(torch.ones_like(y))
+            session.validate_complete()
+    assert x.grad is not None and w.grad is not None
+
+
+@pytest.mark.parametrize("padding_gradient", [1.0, float("nan"), float("inf")])
+def test_padding_validation_uses_forward_snapshot(cpu_orchestration, padding_gradient):
+    x = torch.ones(2, 4).bfloat16()
+    w = torch.ones(3, 4).bfloat16().requires_grad_(True)
+    keys = torch.tensor([[0, 0], [-1, -1]])
+    with canonical_backward_session():
+        y = down.h3_ffn_down_gemm(x, w, logical_keys=keys)
+        keys[1] = torch.tensor([1, 1])
+        gradient = torch.ones_like(y)
+        gradient[1] = padding_gradient
+        with pytest.raises(ValueError, match="zero upstream"):
+            y.backward(gradient)
+    assert not cpu_orchestration.weight_reduction_inputs
+
+
+@pytest.mark.parametrize("input_grad,weight_grad", [(True, False), (False, True), (True, True)])
+def test_gradient_kernel_roles_and_runtime_ids(
+    cpu_orchestration, monkeypatch, input_grad, weight_grad
+):
+    kernel_id = "test.shared_gemm_kernel"
+    monkeypatch.setattr(cpu_orchestration, "h3_kernel_id", kernel_id, raising=False)
+    events = []
+    monkeypatch.setattr(down, "record_backward", lambda kind, **event: events.append(event))
+    x = torch.ones(2, 4).bfloat16().requires_grad_(input_grad)
+    w = torch.ones(3, 4).bfloat16().requires_grad_(weight_grad)
+    op = down.H3FFNDownGemmOp()
+    with canonical_backward_session() as session:
+        y = op(x, w, logical_keys=logical_keys(2, "cpu"))
+        y.backward(torch.ones_like(y))
+        session.validate_complete()
+    assert op.last_execution["input_gradient_kernel"] == (kernel_id if input_grad else None)
+    assert op.last_execution["weight_gradient_kernel"] == (kernel_id if weight_grad else None)
+    assert len(events) == 1 and events[0]["kernel_id"] == kernel_id
 
 
 requires_sm90 = pytest.mark.skipif(

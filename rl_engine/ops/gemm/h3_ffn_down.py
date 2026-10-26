@@ -2,7 +2,7 @@
 # Copyright (c) 2026 RL-Kernel Contributors
 """H3 BF16 down projection: an explicit SM90 reuse candidate for issue #420.
 
-The default reuses the existing fixed-order FP32 Triton tile kernel. The native
+The default reuses fixed-order BF16 Triton MMA tiles with FP32 accumulation. The native
 BF16 midpoint tree is retained as an explicit legacy comparison backend.
 """
 
@@ -104,7 +104,10 @@ def _register_rows(session, weight, keys, rows, parameter_id):
         raise ValueError("active logical keys must be unique across parameter uses")
     slot = session.register(parameter_id, keys)
     bindings[parameter_id] = weight
-    return slot, keys
+    # Resolve the dynamic padding selection during forward registration.
+    # Unpadded backward calls then need no padding-related device readback.
+    padding_rows = torch.nonzero(keys[:, 0] < 0, as_tuple=True)[0]
+    return slot, padding_rows
 
 
 def _weight_gradient(extension, rows, grads):
@@ -123,15 +126,14 @@ def _weight_gradient(extension, rows, grads):
 
 class _H3DownFn(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, x, weight, session, slot, keys, parameter_id, trace):
-        extension = _require_backend(x.device, trace["requested_backend"])
+    def forward(ctx, x, weight, session, slot, padding_rows, parameter_id, trace, extension):
         flat = x.reshape(-1, H3_FFN_DIM).contiguous()
         native_weight = weight.contiguous()
         # The native extension uses the current device's stream and SM query.
         with torch.cuda.device(x.device):
             y = extension.det_gemm_fwd_rhs_transposed(flat, native_weight)
         # Retain original version counters even when layout normalization copies.
-        ctx.save_for_backward(flat, native_weight, keys, x, weight)
+        ctx.save_for_backward(flat, native_weight, padding_rows, x, weight)
         ctx.session, ctx.slot, ctx.parameter_id = session, slot, parameter_id
         ctx.extension, ctx.trace, ctx.input_shape = extension, trace, x.shape
         trace.update(actual_backend=trace["requested_backend"], forward_executed=True)
@@ -145,18 +147,22 @@ class _H3DownFn(torch.autograd.Function):
     @staticmethod
     @once_differentiable
     def backward(ctx, grad_output):
-        x, weight, keys, _original_x, _original_weight = ctx.saved_tensors
+        x, weight, padding_rows, _original_x, _original_weight = ctx.saved_tensors
         grad = grad_output.reshape(-1, H3_HIDDEN_DIM).contiguous()
         if grad.dtype != torch.bfloat16:
             raise TypeError("H3 upstream gradient must have dtype bfloat16")
-        if keys is not None and torch.any(grad[keys[:, 0] < 0] != 0).item():
-            raise ValueError("padding rows must have zero upstream gradient")
+        if padding_rows is not None and padding_rows.numel():
+            # Keep strict validation for padded uses; upstream zeroing is not guaranteed.
+            if torch.any(grad.index_select(0, padding_rows) != 0).item():
+                raise ValueError("padding rows must have zero upstream gradient")
         dx = dw = None
         executed = []
         with torch.cuda.device(x.device):
             if ctx.needs_input_grad[0]:
                 dx = ctx.extension.det_gemm_fwd(grad, weight).reshape(ctx.input_shape)
-                executed.append(getattr(ctx.extension, "h3_kernel_id", "rl_engine._C.det_gemm_fwd"))
+                kernel = getattr(ctx.extension, "h3_kernel_id", "rl_engine._C.det_gemm_fwd")
+                executed.append(kernel)
+                ctx.trace["input_gradient_kernel"] = kernel
                 ctx.trace["input_gradient_executed"] = True
                 if hasattr(ctx.extension, "h3_last_launch"):
                     ctx.trace["input_gradient_launch"] = ctx.extension.h3_last_launch
@@ -164,11 +170,11 @@ class _H3DownFn(torch.autograd.Function):
 
                 def reducer(rows, grads):
                     value = _weight_gradient(ctx.extension, rows, grads)
-                    executed.append(
-                        getattr(
-                            ctx.extension, "h3_kernel_id", "rl_engine._C.det_gemm_db_transposed"
-                        )
+                    kernel = getattr(
+                        ctx.extension, "h3_kernel_id", "rl_engine._C.det_gemm_db_transposed"
                     )
+                    executed.append(kernel)
+                    ctx.trace["weight_gradient_kernel"] = kernel
                     ctx.trace["weight_gradient_executed"] = True
                     ctx.trace["canonical_active_rows"] = rows.shape[0]
                     if hasattr(ctx.extension, "h3_last_launch"):
@@ -179,11 +185,11 @@ class _H3DownFn(torch.autograd.Function):
         if executed:
             record_backward(
                 "h3_ffn_down_gemm",
-                kernel_id="+".join(executed),
+                kernel_id="+".join(dict.fromkeys(executed)),
                 impl=ctx.trace["requested_backend"],
                 family="triton" if ctx.trace["requested_backend"] == H3_DOWN_BACKEND else "cuda",
             )
-        return dx, dw, None, None, None, None, None
+        return dx, dw, None, None, None, None, None, None
 
 
 class H3FFNDownGemmOp:
@@ -204,13 +210,13 @@ class H3FFNDownGemmOp:
         _validate_inputs(x, weight)
         if torch.compiler.is_compiling():
             raise RuntimeError("this H3 profile currently supports eager execution only")
-        _require_backend(x.device, self.backend)
-        session, slot, keys = None, None, None
+        extension = _require_backend(x.device, self.backend)
+        session, slot, padding_rows = None, None, None
         if torch.is_grad_enabled() and weight.requires_grad:
             session = active_session()
             if session is None:
                 raise RuntimeError("weight gradients require an active canonical backward session")
-            slot, keys = _register_rows(
+            slot, padding_rows = _register_rows(
                 session, weight, logical_keys, x.numel() // H3_FFN_DIM, parameter_id
             )
         trace = {
@@ -219,7 +225,8 @@ class H3FFNDownGemmOp:
             "kernel_id": None,
             "fallback": False,
             "arithmetic": (
-                "32-wide FP32 dot tiles, ordered FP32 additions, one BF16 epilogue cast"
+                "32-wide BF16 MMA tiles with FP32 accumulation, ordered FP32 additions, "
+                "one BF16 epilogue cast"
                 if self.backend == H3_DOWN_BACKEND
                 else "32-wide FP32 MMA leaves, BF16 leaves and midpoint tree nodes"
             ),
@@ -242,10 +249,14 @@ class H3FFNDownGemmOp:
             "forward_executed": False,
             "input_gradient_executed": False,
             "weight_gradient_executed": False,
+            "input_gradient_kernel": None,
+            "weight_gradient_kernel": None,
             "qualification": "pending_h3_gpu_evidence",
         }
         self.last_execution = trace
-        return _H3DownFn.apply(x, weight, session, slot, keys, parameter_id, trace)
+        return _H3DownFn.apply(
+            x, weight, session, slot, padding_rows, parameter_id, trace, extension
+        )
 
 
 def h3_ffn_down_gemm(

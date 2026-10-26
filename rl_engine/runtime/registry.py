@@ -215,7 +215,7 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             supported_dtypes=frozenset({"bfloat16"}),
             supported_topologies={"world_size": (1,), "tensor_parallel_size": (1,)},
             determinism_or_alignment_properties={
-                "arithmetic": "fp32_dot_tiles_ordered_fp32_adds_bf16_epilogue",
+                "arithmetic": "bf16_mma_fp32_accumulation_ordered_fp32_adds_bf16_epilogue",
                 "shape": "14336_to_5376",
                 "weight_gradient_order": "canonical_logical_keys",
                 "gpu_qualified": False,

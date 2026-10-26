@@ -10,9 +10,11 @@ Checkpoint: `MiniMaxAI/MiniMax-H3@42ed227ee7df40d41602854ae760620d6eb651fe`.
 
 Backend `rlkernel.h3_ffn_down.triton.fp32_tiles.v1` reuses the existing
 `rl_engine.backends.shared.triton.gemm.det_gemm._det_gemm_fp32_kernel`.
-The historical logical kernel identifier in traces remains stable. BF16 operands feed FP32
-32-wide dot products and ascending FP32 tile additions, followed by one BF16
-cast. The schedule is fixed at 64x64x32, four warps and two stages, with
+The historical backend, class and logical kernel identifiers remain stable;
+`fp32_tiles` denotes accumulation precision, not FP32 multiplication. With
+`PROMOTE_INPUTS=False`, BF16 operands feed 32-wide BF16 tensor-core MMA
+tiles with FP32 accumulation and ascending FP32 tile additions, followed
+by one BF16 cast. The schedule is fixed at 64x64x32, four warps and two stages, with
 `enable_fp_fusion=False`, TF32 disabled, no tuning, no split-K and no fallback.
 No new CUDA or Triton device kernel is added.
 
@@ -61,7 +63,16 @@ and microbatching. A negative first component marks inactive padding. The same
 weight Tensor must retain one parameter ID. Do not sum independently rounded
 microbatch weight gradients; call `validate_complete()` to detect missing branches.
 Execution traces record requested/actual backend, kernel, arithmetic, schedule,
-topology, checkpoint, executed gradients and actual JIT/cubin hashes.
+topology, checkpoint, separate `input_gradient_kernel` / `weight_gradient_kernel`
+fields and actual JIT/cubin hashes. A deferred canonical weight reduction keeps
+its kernel field unset until that use executes the reduction.
+
+Each forward validates and constructs its backend once and retains it for
+backward. Padding row indices are snapshotted during forward registration;
+unpadded uses skip the padding-related backward readback. Padded uses still
+synchronously reject nonzero upstream padding gradients. Forward registration
+and canonical row preparation can still synchronize; this is not an
+asynchronous execution guarantee or a measured speedup.
 
 ## H100 results
 
@@ -122,7 +133,9 @@ summary, forward/dX/dW tolerances and worst errors, replay digests, representati
 timings, rejected native results and original bundle hashes. Full reports, samples,
 traces and raw originals are preserved privately. This is a selected derivative,
 not a lossless report or a new GPU run. Historical published copies remain in Git
-history; private archives do not establish public reproducibility.
+history; private archives do not establish public reproducibility. The historical
+JSON retains its original FP32-dot trace wording; the corrected BF16 MMA / FP32
+accumulation description above applies to that unchanged device computation.
 
 - Operator: `rl_engine/ops/gemm/h3_ffn_down.py`.
 - Triton adapter: `rl_engine/backends/shared/triton/gemm/h3_down_fp32_backend.py`;
@@ -135,8 +148,18 @@ history; private archives do not establish public reproducibility.
 
 Historical local checks at `d8ae6cf` passed 58 tests with 13 GPU-dependent skips
 (registry, full-attention and H3 down selections). No tests or GPU runs were
-repeated for this documentation/evidence reduction. Numerical sources are unchanged;
-source fingerprints and derivative values are checked separately from test execution.
+repeated for that documentation/evidence reduction. The subsequent review fix
+corrects the arithmetic description and changes wrapper preparation and gradient
+tracing, while preserving the device kernel, launch settings and canonical
+reduction arithmetic. The H100 results above remain historical and were not
+rerun for this fix; they do not measure the updated wrapper or establish its
+GPU acceptance. Original reports, summary bytes and evidence pins are unchanged.
+
+Local review-fix checks on 2026-10-26: **56 passed, 3 skipped** across
+`tests/ops/gemm/test_h3_ffn_down.py`, `tests/runtime/test_kernel_registry.py`
+and `tests/runtime/test_layout_compatibility.py`. The three skips require SM90;
+the new tests exercise CPU orchestration, not GPU arithmetic. Lint and formatting
+checks passed. No GPU run or performance measurement was made for this fix.
 
 ## Reproduction and remaining qualification
 

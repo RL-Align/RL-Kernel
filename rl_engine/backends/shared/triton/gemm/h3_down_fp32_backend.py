@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""H3 adapter for the existing fixed-order Triton FP32 tile GEMM kernel."""
+"""H3 BF16 adapter for the existing fixed-order Triton GEMM kernel."""
 
 import hashlib
 
@@ -10,9 +10,12 @@ _BINARY_HASHES = {}
 
 
 class FixedFP32Backend:
-    """BF16 operands; FP32 dot tiles and ordered FP32 additions; one final cast.
+    """BF16 MMA tiles with FP32 accumulation and ordered FP32 tile additions.
 
-    Reuses `_det_gemm_fp32_kernel`, bypassing its FP32-input/output wrapper.
+    Reuses `_det_gemm_fp32_kernel` with PROMOTE_INPUTS=False and a BF16 output.
+    Operands stay BF16; each 32-wide dot accumulates in FP32 before the ordered
+    FP32 tile sum and one final BF16 cast. The class name is a historical alias
+    for the accumulator precision, not FP32 multiplication.
     Fixed 64x64x32 tiles, four warps, two stages, no tuning or split-K.
     """
 
@@ -22,7 +25,7 @@ class FixedFP32Backend:
         from rl_engine.backends.shared.triton.gemm import det_gemm
 
         if not det_gemm._TRITON_AVAILABLE:
-            raise RuntimeError("Triton is required for H3 FP32 tiles; fallback is forbidden")
+            raise RuntimeError("Triton is required for H3 BF16 MMA tiles; fallback is forbidden")
         self.kernel = det_gemm._det_gemm_fp32_kernel
         self.triton = det_gemm.triton
 
