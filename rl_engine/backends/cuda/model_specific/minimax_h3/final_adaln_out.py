@@ -8,9 +8,10 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 
-from rl_engine.ops.autograd.backward_runtime import record_backward
-from rl_engine.backends.extension import _C
-from rl_engine.backends.cuda.model_specific.minimax_h3.adaln_row_gather import _segment_tiles
+from rl_engine.backends.cuda.model_specific.minimax_h3.adaln_row_gather import (
+    _repeat_positions,
+    _segment_tiles,
+)
 from rl_engine.backends.cuda.model_specific.minimax_h3.det_linear import (
     det_linear_available,
     det_linear_backward_input,
@@ -19,6 +20,8 @@ from rl_engine.backends.cuda.model_specific.minimax_h3.det_linear import (
     silu_backward_fp32,
 )
 from rl_engine.backends.cuda.model_specific.minimax_h3.rmsnorm import h3_rmsnorm_available
+from rl_engine.backends.extension import _C
+from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.reference.minimax_h3.final_adaln_out import validate_h3_final_adaln_out
 from rl_engine.reference.minimax_h3.rmsnorm import H3_NORM_EPS
 
@@ -54,7 +57,7 @@ class _H3FinalAdaLNOutCuda(torch.autograd.Function):
     def backward(ctx, grad):
         x2, norm_weight, rstd, temb, act, weight, table, timestep_indices = ctx.saved_tensors
         shift, scale = table.chunk(2, dim=-1)
-        positions = timestep_indices.repeat(x2.shape[0] // timestep_indices.shape[0])
+        positions = _repeat_positions(timestep_indices, x2.shape[0])
         tiles = _segment_tiles(positions, table.shape[0])
         dx, d_norm_weight, d_shift, d_scale = _C.h3_rmsnorm_backward(
             grad.contiguous().view_as(x2),

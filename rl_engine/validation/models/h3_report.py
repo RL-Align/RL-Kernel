@@ -717,9 +717,12 @@ def _final_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
         x, nw, temb, w, b, ti = _final_inputs(seq)
         grad = torch.randn_like(x)
 
-        def backward(fn, tensors=(x, nw, temb, w, b), grad=grad):
+        def prepare_backward(fn, tensors=(x, nw, temb, w, b)):
             leaves = [t.detach().requires_grad_(True) for t in tensors]
-            fn(*leaves).backward(grad)
+            return fn(*leaves)
+
+        def backward(output, grad=grad):
+            output.backward(grad)
 
         cases.append(
             {
@@ -730,8 +733,12 @@ def _final_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
                 "bytes": 2 * seq * 5376 * 2 + w.numel() * 2,
                 "candidate": lambda t=(x, nw, temb, w, b), i=ti: op(*t, i),
                 "provider": lambda t=(x, nw, temb, w, b), i=ti: provider_final_adaln_out(*t, i),
-                "candidate_backward": lambda bw=backward, i=ti: bw(lambda *t: op(*t, i)),
-                "provider_backward": lambda bw=backward, i=ti: bw(
+                "candidate_backward": backward,
+                "provider_backward": backward,
+                "candidate_backward_setup": lambda b=prepare_backward, i=ti: b(
+                    lambda *t: op(*t, i)
+                ),
+                "provider_backward_setup": lambda b=prepare_backward, i=ti: b(
                     lambda *t: provider_final_adaln_out(*t, i)
                 ),
             }
