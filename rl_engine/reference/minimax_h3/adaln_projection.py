@@ -58,6 +58,9 @@ def validate_h3_adaln_projection(temb: torch.Tensor, weight: torch.Tensor, bias:
             f"weight/bias must share a dtype in {_WEIGHT_DTYPES}, got {weight.dtype}/{bias.dtype}"
         )
     hidden = adaln_hidden_size(weight)
+    if weight.shape[1] == 0:
+        # F.linear over an empty reduction returns the broadcast bias instead of failing.
+        raise ValueError(f"AdaLN weight must have a nonzero input width, got {tuple(weight.shape)}")
     if temb.dim() != 2 or temb.shape[0] == 0 or temb.shape[1] != weight.shape[1]:
         raise ValueError(
             f"temb must be a non-empty (T, {weight.shape[1]}) matrix, got {tuple(temb.shape)}"

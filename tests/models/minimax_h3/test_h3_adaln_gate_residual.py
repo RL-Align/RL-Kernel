@@ -52,6 +52,25 @@ def _gate(table, chunk=2):
 
 
 class TestReference:
+    def test_gate_backward_is_bitwise_the_per_row_scan_it_replaced(self):
+        from rl_engine.reference.minimax_h3.gate_residual import _DeterministicGateResidual
+
+        g = torch.Generator(device="cpu").manual_seed(5)
+        residual, y = torch.randn(2, 300, 16, generator=g), torch.randn(2, 300, 16, generator=g)
+        gate = torch.randn(7, 16, generator=g)
+        index = torch.randint(0, 5, (300,), generator=g)  # rows 5 and 6 are never referenced
+        grad = torch.randn(2, 300, 16, generator=g)
+        leaf = gate.clone().requires_grad_(True)
+        _DeterministicGateResidual.apply(residual, y, leaf, index).backward(grad)
+
+        per_position = (grad * y).reshape(-1, 300, 16).sum(dim=0)
+        expected = torch.zeros(7, 16)
+        for row in range(7):  # the loop of the earlier implementation
+            positions = torch.nonzero(index == row).flatten()
+            if positions.numel():
+                expected[row] = per_position.index_select(0, positions).sum(dim=0)
+        assert torch.equal(leaf.grad, expected)
+
     def test_rejects_bad_inputs(self):
         op = NativeH3GateResidualOp()
         res, y, gate = torch.zeros(4, 8), torch.zeros(4, 8), torch.zeros(3, 8)
@@ -165,3 +184,71 @@ def test_gate_row_outside_the_table_asserts_in_the_kernel(entrypoint, bad_row):
     assert (
         "device-side assert triggered" in completed.stderr
     ), f"expected a CUDA bounds assertion, got:\n{completed.stdout}\n{completed.stderr}"
+
+
+def _gate_backward_in_child(mutation: str) -> subprocess.CompletedProcess:
+    probe = textwrap.dedent(
+        """
+        import sys
+        import torch
+        from rl_engine.backends.extension import _C
+
+        if not hasattr(_C, "h3_gate_residual_backward"):
+            sys.exit(77)
+        mutation = sys.argv[1]
+        x = torch.randn(4, 8, device="cuda")
+        gate = torch.ones(2, 8, device="cuda")
+        index = torch.tensor([0, 1, 0, 1], dtype=torch.int64, device="cuda")
+        i64 = dict(dtype=torch.int64, device="cuda")
+        sorted_pos = torch.tensor([0, 2, 1, 3], **i64)
+        begin, end = torch.tensor([0, 2], **i64), torch.tensor([2, 4], **i64)
+        first = torch.tensor([0, 1, 2], **i64)
+        if mutation == "tile_end_past_rows":
+            end = torch.tensor([2, 9], **i64)
+        elif mutation == "position_past_rows":
+            sorted_pos = torch.tensor([0, 2, 1, 4], **i64)
+        elif mutation == "segments_past_tiles":
+            first = torch.tensor([0, 1, 5], **i64)
+        elif mutation == "no_tiles":
+            begin, end = begin[:0], end[:0]
+        elif mutation == "short_sorted_pos":
+            sorted_pos = sorted_pos[:3]
+        elif mutation == "no_boundary":
+            first = first[:0]
+        grad = torch.ones_like(x)
+        _C.h3_gate_residual_backward(grad, x, gate, index, sorted_pos, begin, end, first)
+        torch.cuda.synchronize()
+        """
+    )
+    return subprocess.run(
+        [sys.executable, "-c", probe, mutation],
+        cwd=Path(__file__).resolve().parents[3],
+        env={**os.environ, "CUDA_LAUNCH_BLOCKING": "1"},
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA device")
+def test_the_gate_backward_stops_on_tile_metadata_that_does_not_describe_the_rows():
+    control = _gate_backward_in_child("none")
+    if control.returncode == 77:
+        pytest.skip("rl_engine._C lacks h3_gate_residual_*")
+    assert control.returncode == 0, control.stderr
+    for mutation in (
+        "tile_end_past_rows",
+        "position_past_rows",
+        "segments_past_tiles",
+        "no_tiles",
+    ):
+        done = _gate_backward_in_child(mutation)
+        assert done.returncode != 0, mutation
+        assert "device-side assert triggered" in done.stderr, (mutation, done.stderr)
+    # Lengths are checked on the host, before any launch.
+    for mutation, message in (
+        ("short_sorted_pos", "sorted_pos must have M entries"),
+        ("no_boundary", "seg_first_tile must hold R + 1 entries"),
+    ):
+        done = _gate_backward_in_child(mutation)
+        assert done.returncode != 0 and message in done.stderr, (mutation, done.stderr)
