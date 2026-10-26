@@ -191,3 +191,28 @@ def test_untrusted_cache_directory_falls_back_to_memory(tmp_path, monkeypatch, s
     assert not list(directory.iterdir())
     # A fresh process cannot reuse an untrusted record; it tunes again.
     assert PersistentAutotuner(directory).select({}, CANDIDATES, _timing).source == "tuned"
+
+
+def _stub_kernel_body(x, out):
+    """Stand-in for a Triton kernel body; only its module is used to hash the revision."""
+
+
+def test_output_passed_by_keyword_launches_the_fixed_kernel(monkeypatch):
+    """A launch whose declared output is not positional must not index past ``args``."""
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("triton")
+    from rl_engine.backends.shared.triton import autotuning
+
+    calls = []
+
+    class Jit:
+        fn = staticmethod(_stub_kernel_body)
+
+        def __getitem__(self, grid):
+            return lambda *args, **kwargs: calls.append((grid, args, kwargs))
+
+    monkeypatch.setattr(autotuning, "autotune_enabled", lambda: True)
+    kernel = autotuning.TunableKernel(Jit(), outputs=(1,))
+    x, out = torch.zeros(4), torch.zeros(4)
+    kernel[(1,)](x, out=out)
+    assert calls == [((1,), (x,), {"out": out})]

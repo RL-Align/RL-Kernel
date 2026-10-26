@@ -250,6 +250,8 @@ class TunableKernel:
             if (
                 not enabled
                 or (self.core and (state is None or not state.core))
+                # An output passed by keyword cannot be cloned for benchmarking: launch it fixed.
+                or len(args) <= max(self.outputs)
                 or args[self.outputs[0]].device.type != "cuda"
             ):
                 return self.kernel[grid](*args, **kwargs)
