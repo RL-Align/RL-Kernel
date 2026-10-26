@@ -48,12 +48,25 @@ def test_invalid_cache_indices_are_rejected(kind, indices, message):
         _call(kind, indices)
 
 
-@pytest.mark.parametrize("kind", ["conv", "gdn"])
-@pytest.mark.parametrize("indices", [torch.tensor([0, -1, 0]), torch.empty(0, dtype=torch.int64)])
+@pytest.mark.parametrize(
+    "kind, indices",
+    [
+        ("conv", torch.tensor([0, 0, 0])),
+        ("gdn", torch.tensor([0, -1, 0])),
+        ("conv", torch.empty(0, dtype=torch.int64)),
+        ("gdn", torch.empty(0, dtype=torch.int64)),
+    ],
+)
 def test_inactive_and_empty_batches_preserve_cache(kind, indices):
     (out, state), before = _call(kind, indices)
     assert torch.equal(state, before)
     assert torch.count_nonzero(out) == 0
+
+
+def test_conv_rejects_negative_state_indices():
+    """vLLM skips only the null block id, so a negative entry must not pass as inactive."""
+    with pytest.raises(ValueError, match="must be >= 0"):
+        _call("conv", torch.tensor([1, -1, 2]))
 
 
 @pytest.mark.parametrize("heads", [0, -1, 1.5, True])

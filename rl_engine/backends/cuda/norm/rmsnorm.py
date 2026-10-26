@@ -160,6 +160,11 @@ class RMSNormCudaOp:
         hidden = x.shape[-1]
         # Only `rstd` is used, and it does not depend on the offset; the offset is
         # passed so this is the same call the forward makes, not because it matters.
+        # The kernel's own `rstd` is deliberate: the contributions must fold to exactly the
+        # `dweight` the CUDA backward produces, and that backward uses the saved kernel `rstd`.
+        # A torch-computed `rstd` differs in the last bits and breaks
+        # test_cuda_parameter_contributions_reproduce_backward. The op's constructor has
+        # already checked the extension (`_require_cuda_rmsnorm`).
         _, rstd = _C.rmsnorm_forward(
             x.contiguous().reshape(-1, hidden),
             weight.contiguous(),
@@ -218,6 +223,24 @@ def _check_gate_activation(activation: str) -> int:
     return _GATE_ACTIVATIONS[activation]
 
 
+def _require_cuda_gated() -> None:
+    """Guard shared by the gated op's constructor and its autograd forward.
+
+    Checks the two gated symbols and the same RMSNorm API version the plain op
+    requires, so a stale extension that exports the symbols with an older
+    signature is rejected instead of being called.
+    """
+    _require_cuda_symbols(
+        "Gated CUDA RMSNorm", "rmsnorm_gated_forward", "rmsnorm_gated_backward_dx"
+    )
+    api_version = getattr(_C, "rmsnorm_api_version", None)
+    if api_version != _RMSNORM_API_VERSION:
+        raise RuntimeError(
+            f"Gated CUDA RMSNorm requires rl_engine._C RMSNorm API version {_RMSNORM_API_VERSION} "
+            f"(loaded {api_version!r}). Rebuild the extension with csrc/cuda/norm/rmsnorm.cu."
+        )
+
+
 def _gate_activation_fp32(gate: torch.Tensor, activation: int) -> torch.Tensor:
     """act(gate) in fp32, matching the kernel's ``gate_activation``."""
     gate32 = gate.float()
@@ -253,15 +276,12 @@ class RMSNormGatedCuda(torch.autograd.Function):
           weight:  [H]
           activation: 0 = silu/swish, 1 = sigmoid
         """
+        _require_cuda_gated()
         assert x.is_cuda and weight.is_cuda and gate.is_cuda, "inputs must be CUDA tensors"
         assert x.is_contiguous() and weight.is_contiguous() and gate.is_contiguous()
         assert x.dim() == 2, "x must be [T, H]"
         assert weight.dim() == 1, "weight must be [H]"
         assert gate.shape == x.shape, "gate must match x"
-        assert _EXT_AVAILABLE and hasattr(
-            _C, "rmsnorm_gated_forward"
-        ), "Gated RMSNorm CUDA extension is unavailable. Rebuild with csrc/cuda/norm/rmsnorm.cu."
-
         y, rstd = _C.rmsnorm_gated_forward(
             x, weight, gate, float(eps), float(weight_offset), int(activation)
         )
@@ -284,11 +304,11 @@ class RMSNormGatedCuda(torch.autograd.Function):
         # dweight: the gate is a per-element constant here, so the ungated row
         # contributions apply once dy carries act(gate).
         gate_act = _gate_activation_fp32(gate, act)
-        rows = rmsnorm_dweight_rows_fp32(x, dy.float() * gate_act, rstd=rstd)
+        rows = rmsnorm_dweight_rows_fp32(x, dy.float() * gate_act, rstd=rstd.reshape(x.shape[:-1]))
         dw = _fold_dweight_rows(rows, weight.dtype)
 
         # dgate: row-local and reduction-free.
-        normed = x.float() * rstd.unsqueeze(-1)
+        normed = x.float() * rstd.reshape(x.shape[:-1]).unsqueeze(-1)
         # Same guard as the kernels: an unconditional `+ 0.0` turns -0.0 weights into +0.0.
         scale = weight.float()
         if ctx.weight_offset != 0.0:
@@ -344,9 +364,7 @@ class Qwen3NextRMSNormGatedCudaOp:
     def __init__(self, activation: str = "silu") -> None:
         _check_gate_activation(activation)
         self.activation = activation
-        _require_cuda_symbols(
-            "Gated CUDA RMSNorm", "rmsnorm_gated_forward", "rmsnorm_gated_backward_dx"
-        )
+        _require_cuda_gated()
 
     def __call__(self, x, weight, gate, *, eps=1e-6):
         return self.forward(x, weight, gate, eps=eps)
@@ -372,6 +390,8 @@ class Qwen3NextRMSNormGatedCudaOp:
             raise ValueError(f"gate must match x, got {tuple(gate.shape)} vs {tuple(x.shape)}")
         hidden = x.shape[-1]
         act = _GATE_ACTIVATIONS[self.activation]
+        # Kernel `rstd` on purpose, as in RMSNormCudaOp.parameter_vjp_contributions_fp32;
+        # the constructor has already run `_require_cuda_gated`.
         _, rstd = _C.rmsnorm_gated_forward(
             x.contiguous().reshape(-1, hidden),
             weight.contiguous(),

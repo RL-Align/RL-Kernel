@@ -4,6 +4,7 @@
 """The norm workload cannot stand in for Dense or full-checkpoint evidence."""
 
 import copy
+import json
 from pathlib import Path
 
 import pytest
@@ -57,10 +58,62 @@ def test_norm_manifest_rejects_false_evidence_even_with_regenerated_hash(fault):
         validate_norm_manifest(raw)
 
 
-def test_norm_dimension_gate_rejects_shrunk_workload():
+@pytest.mark.parametrize(
+    "missing", ["model_identity", "stochastic_policy", "primary_matrix", "fixtures", "capabilities"]
+)
+def test_norm_manifest_missing_block_raises_workload_error(missing):
+    """A required block removed from a norm manifest is a WorkloadError, not a KeyError."""
+    raw = copy.deepcopy(load_manifest(MANIFEST).raw)
+    del raw[missing]
+    with pytest.raises(WorkloadError, match="malformed"):
+        validate_norm_manifest(raw)
+
+
+@pytest.mark.parametrize(
+    "op,hidden,head_dim",
+    [
+        ("qwen3_next_rms_norm", 64, 128),
+        ("qwen3_next_rms_norm", 2048, 256),
+        ("rms_norm_gated", 2048, 256),
+        ("rms_norm_gated", 128, 128),
+        ("rms_norm", 2048, 128),
+    ],
+)
+def test_norm_dimension_gate_rejects_other_widths(op, hidden, head_dim):
+    """Both gates run only at the checkpoint widths: hidden 2048, gated head_dim 128."""
     from rl_engine.validation.models.qwen3_next_workload import validate_norm_dimensions
 
     raw = load_manifest(MANIFEST).raw
     with pytest.raises(WorkloadError, match="hidden 2048"):
-        validate_norm_dimensions(raw, "qwen3_next_rms_norm", 64, 128)
-    validate_norm_dimensions(raw, "rms_norm_gated", 2048, 128)
+        validate_norm_dimensions(raw, op, hidden, head_dim)
+
+
+@pytest.mark.parametrize("op", ["qwen3_next_rms_norm", "rms_norm_gated"])
+def test_norm_dimension_gate_accepts_checkpoint_widths(op):
+    from rl_engine.validation.models.qwen3_next_workload import validate_norm_dimensions
+
+    validate_norm_dimensions(load_manifest(MANIFEST).raw, op, 2048, 128)
+
+
+def test_norm_adapters_are_required_by_the_norm_manifest_only():
+    """The Qwen3-Next norms are required where the manifest declares them, not in Dense."""
+    from rl_engine.validation.operators.gradient_adapters import required_gradient_adapters
+
+    norm = {spec.op_name for spec in required_gradient_adapters(load_manifest(MANIFEST))}
+    assert norm == {"qwen3_next_rms_norm", "rms_norm_gated"}
+    dense = {spec.op_name for spec in required_gradient_adapters(load_manifest())}
+    assert dense.isdisjoint(norm)
+
+
+@pytest.mark.parametrize(
+    "source,scope",
+    [(MANIFEST, "qwen3-next-norm-operators"), (None, "qwen3_next_norm_operator")],
+)
+def test_unknown_manifest_scope_is_rejected(tmp_path, source, scope):
+    """A typo'd scope is a scope error, not a Dense fingerprint mismatch or a silent Dense."""
+    raw = copy.deepcopy(load_manifest(source).raw)
+    raw["scope"] = scope
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(raw))
+    with pytest.raises(WorkloadError, match="unknown manifest scope"):
+        load_manifest(path)
