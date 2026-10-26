@@ -62,22 +62,23 @@ B200, B = 1, T = 3, pinned `norm_out` weights:
 
 | S | CUDA fwd | diffusers fwd | CUDA bwd | diffusers bwd |
 | --- | --- | --- | --- | --- |
-| 4097 | 0.18 ms | 0.19 ms | 1.50 ms | 1.07 ms |
-| 32768 | 0.44 ms | 0.84 ms | 2.75 ms | 5.34 ms |
-| 131072 | 1.29 ms | 2.99 ms | 7.76 ms | 20.8 ms |
+| 4097 | 0.18 ms | 0.18 ms | 1.38 ms | 0.86 ms |
+| 32768 | 0.42 ms | 0.82 ms | 2.56 ms | 4.47 ms |
+| 131072 | 1.28 ms | 2.96 ms | 7.04 ms | 17.7 ms |
 
 At small S the backward is dominated by fixed setup: the stable sort for the segment sums and the
 projection backward.
 
 ## Evidence
 
-![final_adaln_out on B200: latency and backward accuracy](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr489/reports/experiments/h3-final-adaln-out-b200/figure.png)
+![final_adaln_out on B200: latency and backward accuracy](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/3848e6fcb227415ce8ad4d21ca120701f58aacf6/pr489/reports/experiments/h3-final-adaln-out-b200/figure.png)
 
 There are two data files:
 
-- [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr489/reports/experiments/h3-final-adaln-out-b200/report.json): op timings, the
+- [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/3848e6fcb227415ce8ad4d21ca120701f58aacf6/pr489/reports/experiments/h3-final-adaln-out-b200/report.json): op timings, the
   forward-equality fraction, row invariance and backward accuracy. Regenerated from a clean
-  tree at `a4bc99f9` on an otherwise idle B200, with FP64 leaves and upstream gradients, after
+  tree at `1d26287f` on an otherwise idle B200 (backward timings exclude the leaf creation, the
+  forward pass and the graph construction; the previous revision came from `a4bc99f9`), with FP64 leaves and upstream gradients, after
   the golden's declared cast was changed to round the FP32 SiLU as the model does. The
   backward reference keeps only the SiLU and table roundings, so the errors include the BF16
   rounding of `norm(x)` and `1 + scale`.
