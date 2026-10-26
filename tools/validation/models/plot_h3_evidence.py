@@ -221,7 +221,9 @@ def mlp_title(report: dict[str, Any]) -> str:
 
 
 def plot_mlp(report: dict[str, Any]):
-    fig, (left, right) = _figure(report, mlp_title(report))
+    fig, (left, right) = _figure(report, "timestep_mlp_fp32  (pinned time_embedder weights)")
+    # name the weights the report was measured with instead of always claiming the pinned ones
+    fig.suptitle(mlp_title(report), x=0.01, ha="left", fontsize=12, color=INK, fontweight="bold")
     _latency_panel(left, report["perf"], "diffusers (cuBLAS)")
     acc = report["accuracy"]
     _error_boxes(

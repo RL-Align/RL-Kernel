@@ -53,7 +53,7 @@ def test_measure_interleaves_backends_and_records_samples(monkeypatch):
 
     monkeypatch.setattr(h3_report.torch.cuda, "Event", Event)
     monkeypatch.setattr(h3_report.torch.cuda, "synchronize", lambda: None)
-    monkeypatch.setattr(h3_report, "peak_mib", lambda fn: 0.0)
+    monkeypatch.setattr(h3_report, "peak_mib", lambda fn, **kwargs: 0.0)
     report = h3_report.measure(
         {"bytes": 1000, "candidate": candidate, "provider": provider}, warmup=1, iters=4
     )

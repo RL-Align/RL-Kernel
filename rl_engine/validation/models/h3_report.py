@@ -30,35 +30,59 @@ TIMED_KEYS = (
 )
 
 
-def time_us(fn: Callable[[], Any], warmup: int = 20, iters: int = 200) -> float:
-    """Median CUDA-event time of ``fn`` in microseconds (includes the Python wrapper)."""
+def _prepared_call(
+    fn: Callable[..., Any], setup: Callable[[], Any] | None = None
+) -> Callable[[], Any]:
+    if setup is None:
+        return fn
+    prepared = setup()
+    return lambda: fn(prepared)
+
+
+def _sample_us(fn: Callable[..., Any], setup: Callable[[], Any] | None = None) -> float:
+    run = _prepared_call(fn, setup)
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+    start.record()
+    run()
+    end.record()
+    end.synchronize()
+    return start.elapsed_time(end) * 1e3
+
+
+def time_us(
+    fn: Callable[..., Any],
+    warmup: int = 20,
+    iters: int = 200,
+    *,
+    setup: Callable[[], Any] | None = None,
+) -> float:
+    """Median CUDA-event microseconds; optional setup runs outside the timed region.
+
+    When supplied, ``setup`` runs before every call and its return value is passed
+    to ``fn``. Backward measurements use it to build a fresh forward graph.
+    """
 
     for _ in range(warmup):
-        fn()
+        _prepared_call(fn, setup)()
     torch.cuda.synchronize()
-    samples = []
-    for _ in range(iters):
-        start = torch.cuda.Event(enable_timing=True)
-        end = torch.cuda.Event(enable_timing=True)
-        start.record()
-        fn()
-        end.record()
-        end.synchronize()
-        samples.append(start.elapsed_time(end) * 1e3)
-    return statistics.median(samples)
+    return statistics.median(_sample_us(fn, setup) for _ in range(iters))
 
 
-def peak_mib(fn: Callable[[], Any]) -> float:
+def peak_mib(fn: Callable[..., Any], *, setup: Callable[[], Any] | None = None) -> float:
+    """Incremental peak CUDA memory of the call, excluding optional setup."""
+
+    run = _prepared_call(fn, setup)
     torch.cuda.synchronize()
     torch.cuda.reset_peak_memory_stats()
     base = torch.cuda.memory_allocated()
-    fn()
+    run()
     torch.cuda.synchronize()
     return (torch.cuda.max_memory_allocated() - base) / 2**20
 
 
 def measure(case: dict[str, Any], warmup: int = 20, iters: int = 200) -> dict[str, Any]:
-    """Time case callables in rotating order after warmup and return their evidence.
+    """Interleave timed keys, reversing their execution order on alternate iterations.
 
     Record raw CUDA-event samples, executed orders, median microseconds,
     decimal GB/s from ``case['bytes']``, and peak allocated MiB per callable.
@@ -68,32 +92,29 @@ def measure(case: dict[str, Any], warmup: int = 20, iters: int = 200) -> dict[st
     keys = [key for key in TIMED_KEYS if key in case]
     if not keys:
         return row
-    for _ in range(warmup):
-        for key in keys:
-            case[key]()
+    orders = (keys, list(reversed(keys)))
+    row["execution_order"] = {
+        "policy": "alternating",
+        "iteration_0": orders[0],
+        "iteration_1": orders[1],
+    }
+    if any(key.endswith("_backward") for key in keys):
+        row["backward_timing_scope"] = "backward_only"
+    for iteration in range(warmup):
+        for key in orders[iteration % 2]:
+            _prepared_call(case[key], case.get(f"{key}_setup"))()
     torch.cuda.synchronize()
     samples = {key: [] for key in keys}
-    orders = []
-    for index in range(iters):
-        # Rotate the first implementation so drift does not favor one backend.
-        offset = index % len(keys)
-        order = keys[offset:] + keys[:offset]
-        orders.append(order)
-        for key in order:
-            start = torch.cuda.Event(enable_timing=True)
-            end = torch.cuda.Event(enable_timing=True)
-            start.record()
-            case[key]()
-            end.record()
-            end.synchronize()
-            samples[key].append(start.elapsed_time(end) * 1e3)
+    for iteration in range(iters):
+        for key in orders[iteration % 2]:
+            samples[key].append(_sample_us(case[key], case.get(f"{key}_setup")))
     row["timing_samples_us"] = samples
-    row["timing_order"] = orders
+    row["timing_order"] = [orders[iteration % 2] for iteration in range(iters)]
     for key in keys:
         us = statistics.median(samples[key])
         row[f"{key}_us"] = us
         row[f"{key}_gbps"] = case["bytes"] / (us * 1e-6) / 1e9
-        row[f"{key}_peak_mib"] = peak_mib(case[key])
+        row[f"{key}_peak_mib"] = peak_mib(case[key], setup=case.get(f"{key}_setup"))
     return row
 
 
@@ -141,21 +162,23 @@ def _sinusoid_accuracy(registry: KernelRegistry) -> dict[str, Any]:
     return {"contract_atol": 1e-5, "cases": rows}
 
 
-def h3_params(names: list[str], shapes: list[tuple[int, ...]]) -> tuple[list[torch.Tensor], str]:
-    """Pinned checkpoint tensors when available, otherwise same-shape random ones.
-
-    Returns the tensors and their source, ``"pinned"`` or ``"random"``; the evidence stores it so a
-    report made without the pinned checkpoint cannot pass for one that used it.
-    """
+def h3_params(names: list[str], shapes: list[tuple[int, ...]]) -> list[torch.Tensor]:
+    """Pinned checkpoint tensors when available, otherwise same-shape random ones."""
 
     if h3_weights_dir() is not None:
         weights = load_h3_conditioning_weights("cuda", names)
-        return [weights[name] for name in names], "pinned"
+        return [weights[name] for name in names]
     generator = torch.Generator(device="cuda").manual_seed(0)
     return [
         torch.randn(shape, device="cuda", generator=generator) * shape[-1] ** -0.5
         for shape in shapes
-    ], "random"
+    ]
+
+
+def h3_weights_source() -> str:
+    """Source ``h3_params`` draws from: ``pinned`` checkpoint tensors or ``random`` ones."""
+
+    return "pinned" if h3_weights_dir() is not None else "random"
 
 
 # --------------------------------------------------------------------------- #
@@ -168,7 +191,7 @@ MLP_SHAPES = [(5376, 256), (5376,), (2688, 5376), (2688,)]
 
 def _mlp_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
     op = registry.get_op("timestep_mlp_fp32", device="cuda")
-    params, weights_source = h3_params(MLP_NAMES, MLP_SHAPES)
+    params = h3_params(MLP_NAMES, MLP_SHAPES)
     weight_bytes = sum(p.numel() * p.element_size() for p in params)
     cases = []
     for num in (1, 2, 3, 4):
@@ -180,7 +203,7 @@ def _mlp_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
                 "case": f"T={num}",
                 "backend": type(op).__name__,
                 "bytes": weight_bytes,
-                "weights": weights_source,
+                "weights": h3_weights_source(),
                 "candidate": lambda x=x: op(x, *params),
                 "provider": lambda x=x: provider_time_embedder(x, *params),
             }
@@ -192,7 +215,7 @@ def _mlp_accuracy(registry: KernelRegistry, draws: int = 200) -> dict[str, Any]:
     op = registry.get_op("timestep_mlp_fp32", device="cuda")
     golden = registry._get_or_create_backend(registry._priority_map["cpu"]["timestep_mlp_fp32"][-1])
     sinusoid = registry.get_op("timestep_sinusoid_h3", device="cuda")
-    params, weights_source = h3_params(MLP_NAMES, MLP_SHAPES)
+    params = h3_params(MLP_NAMES, MLP_SHAPES)
     cuda_err, provider_err = [], []
     for seed in range(draws):
         x = sinusoid(h3_timesteps(4, seed=seed))
@@ -205,7 +228,7 @@ def _mlp_accuracy(registry: KernelRegistry, draws: int = 200) -> dict[str, Any]:
     invariant = all(torch.equal(op(x[i : i + 1], *params)[0], full[i]) for i in range(9))
     return {
         "contract_atol": 1e-4,
-        "weights_source": weights_source,
+        "weights_source": h3_weights_source(),
         "draws": draws,
         "num_timesteps": 4,
         "cuda_max_abs_vs_fp64": cuda_err,

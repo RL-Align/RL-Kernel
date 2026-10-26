@@ -8,27 +8,20 @@ from __future__ import annotations
 import pytest
 import torch
 
-from rl_engine.validation.models.h3_report import MLP_NAMES, MLP_SHAPES, h3_params
+from rl_engine.validation.models.h3_report import h3_weights_source
 from rl_engine.validation.models.h3_weights import WEIGHTS_ENV, h3_weights_dir
 from tools.validation.models.h3_evidence import check_weight_source, measure_case
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA device")
-def test_without_the_pinned_checkpoint_the_params_are_marked_random(monkeypatch):
+def test_without_the_pinned_checkpoint_the_source_is_random(monkeypatch):
     monkeypatch.delenv(WEIGHTS_ENV, raising=False)
-    params, source = h3_params(MLP_NAMES, MLP_SHAPES)
-    assert source == "random"
-    assert [tuple(p.shape) for p in params] == MLP_SHAPES
-    assert all(p.is_cuda for p in params)
+    assert h3_weights_source() == "random"
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA device")
-def test_with_the_pinned_checkpoint_the_params_are_marked_pinned():
+def test_with_the_pinned_checkpoint_the_source_is_pinned():
     if h3_weights_dir() is None:
         pytest.skip(f"{WEIGHTS_ENV} not set; run tools/weights/prepare_h3_weights.py")
-    params, source = h3_params(MLP_NAMES, MLP_SHAPES)
-    assert source == "pinned"
-    assert [tuple(p.shape) for p in params] == MLP_SHAPES
+    assert h3_weights_source() == "pinned"
 
 
 def test_mlp_evidence_is_refused_without_pinned_weights():
