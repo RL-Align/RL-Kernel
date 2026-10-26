@@ -35,6 +35,7 @@
 #include <cuda_bf16.h>
 
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 namespace {
@@ -110,6 +111,8 @@ __global__ void __launch_bounds__(kWarpsPerBlock * kWarp)
                               int64_t k_in, int64_t activation) {
   using WV = Vec16<w_t>;
   using XV = Vec16<x_t>;
+  static_assert(kCols * kRows <= kWarp,
+                "the epilogue stores through lane == c * kRows + r, so kCols * kRows must fit a warp");
   constexpr int kVec = WV::kN;
   static_assert(XV::kN == kVec, "x and weight share a dtype");
   constexpr int64_t kStride = static_cast<int64_t>(kWarp) * kVec;
@@ -405,6 +408,12 @@ torch::Tensor h3_det_linear_backward_input(torch::Tensor grad, torch::Tensor wei
   const int64_t k_in = weight.size(1);
   const c10::cuda::CUDAGuard device_guard(grad.device());
   const int64_t chunks = (n_out + kDInputChunk - 1) / kDInputChunk;
+  // chunks is blockIdx.y and rows * k_in / threads is blockIdx.x of the fold: fail with a clear message
+  // instead of "invalid configuration argument" when a launch dimension would overflow.
+  TORCH_CHECK(chunks <= 65535, "N=", n_out, " needs ", chunks,
+              " input-gradient chunks; at most 65535 are supported");
+  TORCH_CHECK((rows * k_in + 255) / 256 <= std::numeric_limits<int32_t>::max(), "rows * K = ",
+              rows * k_in, " is too large for one input-gradient fold launch");
   auto partial = torch::empty({chunks, rows, k_in}, grad.options());
   auto out = torch::empty({rows, k_in}, grad.options().dtype(out_dtype));
   auto stream = at::cuda::getCurrentCUDAStream();
