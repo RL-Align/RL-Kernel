@@ -28,6 +28,8 @@
 
 #include <cstdint>
 
+#include "tile_metadata.cuh"
+
 namespace {
 
 __device__ __forceinline__ float to_float(float v) { return v; }
@@ -109,11 +111,10 @@ __global__ void adaln_row_gather_partial_kernel(const g_t* __restrict__ grad,
   const int64_t c = j / hidden;
   const int64_t h = j - c * hidden;
   const g_t* g = grad + c * seq * hidden + h;
+  const int64_t begin = tile_begin[tile];
+  const int64_t end = tile_end[tile];
   float acc = 0.0f;
-  const int64_t begin = tile_begin[tile], end = tile_end[tile];
-  CUDA_KERNEL_ASSERT(begin >= 0 && begin <= end && end <= seq);
   for (int64_t p = begin; p < end; ++p) {
-    CUDA_KERNEL_ASSERT(sorted_pos[p] >= 0 && sorted_pos[p] < seq);
     acc += to_float(g[sorted_pos[p] * hidden]);
   }
   partial[tile * width + j] = acc;
@@ -122,14 +123,12 @@ __global__ void adaln_row_gather_partial_kernel(const g_t* __restrict__ grad,
 template <typename out_t>
 __global__ void adaln_row_gather_fold_kernel(const float* __restrict__ partial,
                                              const int64_t* __restrict__ seg_first_tile,
-                                             out_t* __restrict__ out, int64_t width, int64_t tiles) {
+                                             out_t* __restrict__ out, int64_t width) {
   const int64_t r = blockIdx.x;
   const int64_t j = static_cast<int64_t>(blockIdx.y) * blockDim.x + threadIdx.x;
   if (j >= width) return;
   float acc = 0.0f;
-  const int64_t begin = seg_first_tile[r], end = seg_first_tile[r + 1];
-  CUDA_KERNEL_ASSERT(begin >= 0 && begin <= end && end <= tiles);
-  for (int64_t tile = begin; tile < end; ++tile) {
+  for (int64_t tile = seg_first_tile[r]; tile < seg_first_tile[r + 1]; ++tile) {
     acc += partial[tile * width + j];
   }
   out[r * width + j] = from_float<out_t>(acc);
@@ -156,6 +155,7 @@ torch::Tensor h3_adaln_row_gather_forward(torch::Tensor rows, torch::Tensor time
               " is not a multiple of ", chunks);
   TORCH_CHECK(modality_num > 0 && rows.size(0) % modality_num == 0, "rows count ",
               rows.size(0), " is not a multiple of ", modality_num);
+  TORCH_CHECK(chunks <= 65535, "chunks=", chunks, " exceeds the grid.y limit of 65535");
   const int64_t num_timesteps = rows.size(0) / modality_num;
   const int64_t seq = timestep_indices.numel();
   TORCH_CHECK(seq > 0, "the packed sequence must not be empty");
@@ -212,10 +212,9 @@ torch::Tensor h3_adaln_row_gather_backward(torch::Tensor grad, torch::Tensor sor
   TORCH_CHECK(grad.is_cuda() && grad.dim() == 3 && grad.is_contiguous(),
               "grad must be a contiguous (C, S, H) CUDA tensor");
   for (const auto* t : {&sorted_pos, &tile_begin, &tile_end, &seg_first_tile}) {
-    TORCH_CHECK(t->is_cuda() && t->device() == grad.device() &&
-                    t->dim() == 1 && t->is_contiguous() &&
+    TORCH_CHECK(t->is_cuda() && t->device() == grad.device() && t->dim() == 1 && t->is_contiguous() &&
                     t->scalar_type() == at::kLong,
-                "tile metadata must be contiguous 1-D int64 tensors on grad device");
+                "tile metadata must be contiguous int64 tensors on ", grad.device());
   }
   TORCH_CHECK(seg_first_tile.numel() >= 1, "seg_first_tile must hold R + 1 entries");
   TORCH_CHECK(tile_begin.numel() == tile_end.numel(), "tile_begin/tile_end length mismatch");
@@ -225,16 +224,22 @@ torch::Tensor h3_adaln_row_gather_backward(torch::Tensor grad, torch::Tensor sor
   const int64_t width = chunks * hidden;
   const int64_t num_rows = seg_first_tile.numel() - 1;
   const int64_t tiles = tile_begin.numel();
+  TORCH_CHECK(sorted_pos.numel() == seq, "sorted_pos must have S entries");
   TORCH_CHECK(chunks > 0 && seq > 0 && hidden > 0 && num_rows > 0,
               "gradient dimensions and table row count must be positive");
-  TORCH_CHECK(sorted_pos.numel() == seq, "sorted_pos must have S entries");
   const c10::cuda::CUDAGuard device_guard(grad.device());
   auto out = torch::empty({num_rows, width}, grad.options().dtype(out_dtype));
   auto partial = torch::empty({std::max<int64_t>(tiles, 1), width},
                               grad.options().dtype(at::kFloat));
   auto stream = at::cuda::getCurrentCUDAStream();
   const int threads = 256;
-  const unsigned col_blocks = static_cast<unsigned>((width + threads - 1) / threads);
+  const int64_t col_blocks64 = (width + threads - 1) / threads;
+  TORCH_CHECK(col_blocks64 <= 65535, "width ", width, " needs ", col_blocks64,
+              " column blocks, more than the grid.y limit of 65535");
+  const unsigned col_blocks = static_cast<unsigned>(col_blocks64);
+  h3_tiles::check_tile_metadata(stream, sorted_pos.data_ptr<int64_t>(), seq,
+                                tile_begin.data_ptr<int64_t>(), tile_end.data_ptr<int64_t>(), tiles,
+                                seg_first_tile.data_ptr<int64_t>(), num_rows);
   if (tiles > 0) {
     AT_DISPATCH_FLOATING_TYPES_AND2(
         at::kHalf, at::kBFloat16, grad.scalar_type(), "h3_adaln_row_gather_partial", [&] {
@@ -253,7 +258,7 @@ torch::Tensor h3_adaln_row_gather_backward(torch::Tensor grad, torch::Tensor sor
         adaln_row_gather_fold_kernel<O>
             <<<dim3(static_cast<unsigned>(num_rows), col_blocks), threads, 0, stream>>>(
                 partial.data_ptr<float>(), seg_first_tile.data_ptr<int64_t>(),
-                reinterpret_cast<O*>(out.data_ptr<scalar_t>()), width, tiles);
+                reinterpret_cast<O*>(out.data_ptr<scalar_t>()), width);
       });
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return out;

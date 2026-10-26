@@ -33,8 +33,11 @@
 #include <cuda_fp16.h>
 
 #include <cstdint>
+#include <limits>
 #include <utility>
 #include <vector>
+
+#include "tile_metadata.cuh"
 
 namespace {
 
@@ -296,6 +299,10 @@ Modulation make_modulation(const c10::optional<torch::Tensor>& shift,
   }
   TORCH_CHECK(sh.size(0) == sc.size(0) && sh.stride(0) == sc.stride(0),
               "shift and scale must be views of the same table layout");
+  // Rows are read as dense N-element spans at `row_stride`: a view of a wider table is fine, an
+  // expanded or overlapping one (row_stride < N) is not a table of rows.
+  TORCH_CHECK(sh.size(0) <= 1 || sh.stride(0) >= n, "shift/scale row stride ", sh.stride(0),
+              " is smaller than N=", n);
   TORCH_CHECK(ix.is_cuda() && ix.device() == x.device() && ix.scalar_type() == at::kLong &&
                   ix.dim() == 1 && ix.is_contiguous() && ix.numel() > 0,
               "row index must be a non-empty contiguous int64 tensor on ", x.device());
@@ -427,9 +434,16 @@ std::vector<torch::Tensor> h3_rmsnorm_backward(
   const int64_t segments = seg_first_tile->numel() - 1;
   const int64_t seg_tiles = tile_begin->numel();
   const int64_t width = 2 * n;
+  TORCH_CHECK(width <= std::numeric_limits<int>::max(), "N=", n, " is too large for the kernels");
+  TORCH_CHECK((width + threads - 1) / threads <= 65535, "N=", n,
+              " needs more column blocks than the grid.y limit of 65535");
   auto seg_partial = torch::empty({std::max<int64_t>(seg_tiles, 1), width}, x.options().dtype(at::kFloat));
   auto table_grad = torch::empty({segments, width}, x.options().dtype(at::kFloat));
   const unsigned wide_blocks = static_cast<unsigned>((width + threads - 1) / threads);
+  // The tile list is caller-built metadata: check it before the kernels read through it.
+  h3_tiles::check_tile_metadata(stream, sorted_pos->data_ptr<int64_t>(), rows,
+                                tile_begin->data_ptr<int64_t>(), tile_end->data_ptr<int64_t>(),
+                                seg_tiles, seg_first_tile->data_ptr<int64_t>(), segments);
   if (seg_tiles > 0) {
     H3_DISPATCH(x.scalar_type(), "h3_rmsnorm_modulation_grad", [&] {
       modulation_grad_partial_kernel<T>
@@ -441,10 +455,13 @@ std::vector<torch::Tensor> h3_rmsnorm_backward(
     });
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
-  fold_segments_kernel<<<dim3(static_cast<unsigned>(segments), wide_blocks), threads, 0, stream>>>(
-      seg_partial.data_ptr<float>(), seg_first_tile->data_ptr<int64_t>(),
-      table_grad.data_ptr<float>(), static_cast<int>(width));
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  if (segments > 0) {  // a zero-sized grid is not a valid launch
+    fold_segments_kernel<<<dim3(static_cast<unsigned>(segments), wide_blocks), threads, 0,
+                           stream>>>(seg_partial.data_ptr<float>(),
+                                     seg_first_tile->data_ptr<int64_t>(),
+                                     table_grad.data_ptr<float>(), static_cast<int>(width));
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+  }
   return {dx, dweight, table_grad.narrow(1, 0, n), table_grad.narrow(1, n, n)};
 }
 

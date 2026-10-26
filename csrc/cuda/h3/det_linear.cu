@@ -31,7 +31,14 @@
 //     partials for those chunks, which is what tensor-parallel shards gather.
 // d_weight dW[n, k] = sum_t g[t, n] * x[t, k];  d_bias db[n] = sum_t g[t, n]
 //   * an ascending-t fmaf chain into FP32 from 0, cast once. This is the one
-//     cross-row reduction; its order is the logical row order.
+//     cross-row reduction; its order is the logical row order. db is the same
+//     chain with the multiplier 1, which is a plain FP32 add (fmaf(g, 1, a) == a + g).
+//
+// Tails: the host requires K % VEC == 0 (VEC = 16 / sizeof(w)), and every 16-byte
+// load in the forward kernels starts at a multiple of VEC (the MMA kernel's at
+// k = kb + 32u + 8q), so `k < K` implies `k + VEC <= K`: no load straddles the end
+// of a row, and every row start stays 16-byte aligned. N and the row count have no
+// such requirement; their tails are masked per column / per row.
 //
 // Reduction contract h3-det-linear-bf16-mma-v1 (BF16 x and W, FP32 accumulate)
 // -----------------------------------------------------------------------------
@@ -130,7 +137,6 @@ __global__ void __launch_bounds__(kWarpsPerBlock * kWarp)
   static_assert(kCols * kRows <= kWarp,
                 "the epilogue stores through lane == c * kRows + r, so kCols * kRows must fit a warp");
   constexpr int kVec = WV::kN;
-  static_assert(kCols * kRows <= kWarp, "one warp cannot store more than kWarp outputs per tile");
   static_assert(XV::kN == kVec, "x and weight share a dtype");
   constexpr int64_t kStride = static_cast<int64_t>(kWarp) * kVec;
 
@@ -152,6 +158,8 @@ __global__ void __launch_bounds__(kWarpsPerBlock * kWarp)
         uint4 raw[kLoadAhead][kCols];
 #pragma unroll
         for (int u = 0; u < kLoadAhead; ++u) {
+          // K % kVec == 0 (host check) and k0 is a multiple of kVec, so k0 < k_in means the whole
+          // 16-byte chunk lies inside the row.
           const int64_t k0 = g0 + u * kStride;
 #pragma unroll
           for (int c = 0; c < kCols; ++c) {
@@ -553,6 +561,10 @@ torch::Tensor h3_det_linear_fold_chunks(torch::Tensor partial, c10::ScalarType o
   if (elems == 0) return out;
   auto stream = at::cuda::getCurrentCUDAStream();
   const int threads = 256;
+  // Same bound as h3_det_linear_backward_input: grid.x holds at most INT32_MAX blocks. (That is 5e11
+  // elements, beyond any tensor that fits in memory; the check keeps the two entry points alike.)
+  TORCH_CHECK((elems + threads - 1) / threads <= std::numeric_limits<int32_t>::max(),
+              "rows * K = ", elems, " needs more blocks than one grid.x launch holds");
   const unsigned fold_blocks = static_cast<unsigned>((elems + threads - 1) / threads);
   if (out_dtype == at::kFloat) {
     det_fold_chunks_kernel<float><<<fold_blocks, threads, 0, stream>>>(
@@ -604,6 +616,7 @@ std::vector<torch::Tensor> h3_det_linear_backward_weight(torch::Tensor grad, tor
   const int64_t total = n_out * k_in;
   const unsigned blocks = static_cast<unsigned>(grid_for(total, threads));
   const float* g = grad.data_ptr<float>();
+  // check_matrix(x) above admits float32 and bfloat16 only, so the last branch is bfloat16.
 #define H3_DW_LAUNCH(XT, XC, WT, WC)                                                     \
   det_linear_dweight_kernel<float, XC, WC><<<blocks, threads, 0, stream>>>(             \
       g, cptr<XT>(x), mptr<WT>(dw), rows, n_out, k_in)

@@ -579,6 +579,19 @@ def plot_tp_adaln(report: dict[str, Any]):
 
     tp_runs = [run for run in runs if run["tp"] > 1]
     _style(right, f"Time per call, T = {num_t} (slowest rank; lower is better)", "ms")
+    if not tp_runs:
+        # A TP1-only report (--worlds 1) has nothing to compare with the single-GPU WS1 call.
+        right.text(
+            0.5,
+            0.5,
+            "no run with TP > 1 in this report",
+            transform=right.transAxes,
+            ha="center",
+            va="center",
+            fontsize=10,
+            color=MUTED,
+        )
+        return fig
     _bars(
         right,
         [f"TP{run['tp']}" for run in tp_runs],

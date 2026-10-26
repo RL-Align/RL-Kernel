@@ -29,6 +29,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "tile_metadata.cuh"
+
 namespace {
 
 __device__ __forceinline__ float to_f(float v) { return v; }
@@ -218,8 +220,11 @@ std::vector<torch::Tensor> h3_gate_residual_backward(torch::Tensor grad, torch::
   }
   const int64_t rows = grad.size(0);
   const int64_t n = grad.size(1);
+  TORCH_CHECK(seg_first_tile.numel() >= 1, "seg_first_tile must hold R + 1 entries");
   const int64_t segments = seg_first_tile.numel() - 1;
   TORCH_CHECK(segments == gate.size(0), "segments must equal the gate rows");
+  TORCH_CHECK(sorted_pos.numel() == rows, "sorted_pos must have M entries");
+  TORCH_CHECK(tile_begin.numel() == tile_end.numel(), "tile_begin/tile_end length mismatch");
   const int64_t tiles = tile_begin.numel();
   const c10::cuda::CUDAGuard guard(grad.device());
   auto stream = at::cuda::getCurrentCUDAStream();
@@ -227,7 +232,14 @@ std::vector<torch::Tensor> h3_gate_residual_backward(torch::Tensor grad, torch::
   auto partial = torch::empty({std::max<int64_t>(tiles, 1), n}, grad.options().dtype(at::kFloat));
   auto dgate = torch::empty({segments, n}, grad.options());
   const int threads = 256;
-  const unsigned col_blocks = static_cast<unsigned>((n + threads - 1) / threads);
+  const int64_t col_blocks64 = (n + threads - 1) / threads;
+  TORCH_CHECK(col_blocks64 <= 65535, "N=", n, " needs ", col_blocks64,
+              " column blocks, more than the grid.y limit of 65535");
+  const unsigned col_blocks = static_cast<unsigned>(col_blocks64);
+  // The tile list is caller-built metadata: check it before the kernels read through it.
+  h3_tiles::check_tile_metadata(stream, sorted_pos.data_ptr<int64_t>(), rows,
+                                tile_begin.data_ptr<int64_t>(), tile_end.data_ptr<int64_t>(), tiles,
+                                seg_first_tile.data_ptr<int64_t>(), segments);
   H3_DISPATCH(grad.scalar_type(), "h3_gate_residual_backward", [&] {
     const T* gp = reinterpret_cast<const T*>(grad.data_ptr());
     const T* yp = reinterpret_cast<const T*>(y.data_ptr());
@@ -239,9 +251,11 @@ std::vector<torch::Tensor> h3_gate_residual_backward(torch::Tensor grad, torch::
           gp, yp, sorted_pos.data_ptr<int64_t>(), tile_begin.data_ptr<int64_t>(),
           tile_end.data_ptr<int64_t>(), partial.data_ptr<float>(), n);
     }
-    gate_grad_fold_kernel<T><<<dim3(static_cast<unsigned>(segments), col_blocks), threads, 0, stream>>>(
-        partial.data_ptr<float>(), seg_first_tile.data_ptr<int64_t>(),
-        reinterpret_cast<T*>(dgate.data_ptr()), n);
+    if (segments > 0) {  // a zero-sized grid is not a valid launch
+      gate_grad_fold_kernel<T><<<dim3(static_cast<unsigned>(segments), col_blocks), threads, 0, stream>>>(
+          partial.data_ptr<float>(), seg_first_tile.data_ptr<int64_t>(),
+          reinterpret_cast<T*>(dgate.data_ptr()), n);
+    }
   });
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return {dy, dgate};

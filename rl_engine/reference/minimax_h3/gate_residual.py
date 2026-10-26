@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import torch
 
+from rl_engine.reference.minimax_h3.adaln_row_gather import positions_by_row
+
 _DTYPES = (torch.float32, torch.bfloat16, torch.float16)
 
 
@@ -69,8 +71,7 @@ class _DeterministicGateResidual(torch.autograd.Function):
         contrib = (grad.float() * y.float()).reshape(-1, index.shape[0], y.shape[-1])
         per_position = contrib.sum(dim=0)  # (S, H): fixed reduction over the batch
         d_gate = per_position.new_zeros((ctx.gate_rows, y.shape[-1]))
-        for row in range(ctx.gate_rows):
-            positions = torch.nonzero(index == row).flatten()
+        for row, positions in enumerate(positions_by_row(index, ctx.gate_rows)):
             if positions.numel():
                 d_gate[row] = per_position.index_select(0, positions).sum(dim=0)
         return grad, grad * gathered, d_gate.to(gathered.dtype), None

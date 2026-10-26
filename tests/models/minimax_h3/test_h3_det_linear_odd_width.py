@@ -3,10 +3,12 @@
 
 """Output widths that are not a multiple of the column tile of the deterministic linear.
 
-Each warp of the forward kernel owns kCols adjacent output columns (2 for FP32, 4 for BF16), so the
-last tile of an odd or short N has columns that are not loaded and must not be consumed. The
-results for such widths must match an FP64 golden, and must be bitwise the leading columns of the
-same product with zero columns padded on (the tail does not influence the real columns).
+Each warp of the FP32 forward kernel owns kCols = 2 adjacent output columns, and each warp of the
+BF16 forward (an ``mma.sync`` kernel) owns a 16-column tile (kMmaCols), so the last tile of an odd
+or short N has columns that are not loaded and must not be consumed. The results for such widths
+must match an FP64 golden, and must be bitwise the leading columns of the same product with zero
+columns padded on (the tail does not influence the real columns). The BF16 forward needs SM80, so
+its cases are skipped on older devices.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from rl_engine.backends.cuda.model_specific.minimax_h3.det_linear import (
     det_linear_available,
     det_linear_backward_input,
     det_linear_backward_weight,
+    det_linear_device_supported,
     det_linear_forward,
 )
 
@@ -30,6 +33,11 @@ DTYPES = [torch.float32, torch.bfloat16]
 WIDTHS = [1, 2, 3, 5, 7, 9, 33, 65]  # odd widths, and tails past a 2- or 4-column tile
 K_IN = 64
 ROWS = [1, 3, 5]
+
+
+def _skip_unsupported(dtype):
+    if dtype == torch.bfloat16 and not det_linear_device_supported():
+        pytest.skip("the BF16 forward needs SM80 or newer")
 
 
 def _inputs(dtype, rows, n_out, seed=0):
@@ -49,6 +57,7 @@ def _pad(weight, bias, extra):
 @pytest.mark.parametrize("n_out", WIDTHS)
 @pytest.mark.parametrize("rows", ROWS)
 def test_forward_matches_golden_and_ignores_the_tail(dtype, n_out, rows):
+    _skip_unsupported(dtype)
     x, weight, bias = _inputs(dtype, rows, n_out)
     out = det_linear_forward(x, weight, bias)[0]
     assert out.shape == (rows, n_out) and torch.isfinite(out.float()).all()
@@ -94,6 +103,8 @@ def test_backward_matches_golden_and_ignores_the_tail(dtype, n_out):
 @pytest.mark.parametrize("n_out", [1, 3, 33])
 def test_k_that_is_not_a_multiple_of_the_lane_stride_matches_the_golden(dtype, k_in, n_out):
     """Row lengths that are a vector multiple but not a multiple of the 32-lane stride."""
+
+    _skip_unsupported(dtype)
 
     g = torch.Generator(device="cpu").manual_seed(k_in + n_out)
     x = torch.randn(3, k_in, generator=g).to(dtype).cuda()

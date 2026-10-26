@@ -128,6 +128,46 @@ class TestShardArithmetic:
             H3TPAdaLNProjectionCudaOp(SimpleNamespace(rank=0, world_size=16), weight.shape[0])
         assert op.readback()["columns"] == [2304, 4608]
 
+    def test_pre_sm80_is_refused_at_construction_and_before_the_first_collective(self, monkeypatch):
+        _require_ext()
+        from rl_engine.backends.cuda.model_specific.minimax_h3 import tp_adaln_projection as module
+
+        calls = []
+        collective = SimpleNamespace(
+            rank=0, world_size=2, backend_id="unused", all_gather=lambda t: calls.append(t)
+        )
+        temb, weight, bias, _ = _inputs(2, 3 * 6 * 256, 136)
+        op = module.H3TPAdaLNProjectionCudaOp(collective, weight.shape[0])
+        w, b = module.shard_adaln_projection(weight, bias, 2, 0)
+        monkeypatch.setattr(module, "det_linear_device_supported", lambda *args: False)
+        with pytest.raises(RuntimeError, match="SM80"):
+            module.H3TPAdaLNProjectionCudaOp(collective, weight.shape[0])
+        with pytest.raises(RuntimeError, match="SM80"):
+            op(temb, w, b)
+        assert not calls  # no rank is left waiting in a collective
+
+    def test_backward_rejects_a_table_gradient_of_the_wrong_width(self):
+        _require_ext()
+        from rl_engine.backends.cuda.model_specific.minimax_h3.tp_adaln_projection import (
+            H3TPAdaLNProjectionCudaOp,
+            _TPAdaLNProjection,
+            shard_adaln_projection,
+        )
+
+        one = SimpleNamespace(rank=0, world_size=1, backend_id="none", all_gather=lambda t: t)
+        temb, weight, bias, grad = _inputs(2, 3 * 6 * 256, 136)
+        op = H3TPAdaLNProjectionCudaOp(one, weight.shape[0])
+        w, b = shard_adaln_projection(weight, bias, 1, 0)
+        leaf = temb.clone().requires_grad_(True)
+        table = op.forward_table(leaf, w, b)
+        node = table.grad_fn  # the autograd node is the ``ctx`` its backward receives
+        # Autograd checks the shape of a gradient that reaches this node through the graph, so the
+        # check guards a direct call of the node's backward, which this makes.
+        for bad in (grad[:, :-64], grad[:1]):
+            with pytest.raises(ValueError, match="table gradient must be"):
+                _TPAdaLNProjection.backward(node, bad.to(table.dtype))
+        assert _TPAdaLNProjection.backward(node, grad.to(table.dtype))[0].shape == temb.shape
+
 
 @pytest.mark.parametrize("world", [2, 4, 8])
 @pytest.mark.skipif(int(os.environ.get("WORLD_SIZE", "1")) != 1, reason="owns its processes")

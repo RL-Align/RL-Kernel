@@ -36,7 +36,9 @@ class _H3GateResidualCuda(torch.autograd.Function):
         y2 = y.contiguous().view(-1, hidden)
         out = _C.h3_gate_residual_forward(res2, y2, gate, index)
         ctx.save_for_backward(y2, gate, index)
-        ctx.shape = residual.shape
+        # validate_h3_gate_residual makes y and residual one shape; each gradient is still viewed
+        # as the shape of its own input.
+        ctx.residual_shape, ctx.y_shape = residual.shape, y.shape
         return out.view(residual.shape)
 
     @staticmethod
@@ -49,7 +51,7 @@ class _H3GateResidualCuda(torch.autograd.Function):
         record_backward(
             "adaln_gate_residual", kernel_id=BACKWARD_KERNEL_ID, impl=BACKWARD_IMPL, family="cuda"
         )
-        return grad, dy.view(ctx.shape), dgate, None
+        return grad, dy.view(ctx.y_shape), dgate, None
 
 
 class H3GateResidualCudaOp:
