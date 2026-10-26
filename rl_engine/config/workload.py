@@ -264,14 +264,18 @@ def load_manifest(path: str | Path | None = None) -> WS1Manifest:
         raw = json.load(fh)
     if not isinstance(raw, dict):
         raise WorkloadError("manifest root must be a JSON object")
-    if raw.get("scope") == "qwen3_next_norm_operators":
+    # A manifest without a scope is the Dense workload, as in workload_report.
+    scope = raw.get("scope", "qwen3_8b_dense")
+    if scope == "qwen3_next_norm_operators":
         from rl_engine.validation.models.qwen3_next.qwen3_next_workload import (
             validate_norm_manifest,
         )
 
         validate_norm_manifest(raw)
-    else:
+    elif scope == "qwen3_8b_dense":
         validate_manifest(raw)
+    else:
+        raise WorkloadError(f"unknown manifest scope {scope!r}")
     return WS1Manifest(raw=raw, path=manifest_path)
 
 

@@ -5,7 +5,8 @@
 """Plot a report from tools/validation/models/qwen3_next/qwen3_next_norm_evidence.py: one 2x2
 figure per op.
 
-    python tools/validation/models/qwen3_next/plot_qwen3_next_norm_evidence.py report.json
+python -m pip install matplotlib  # optional plotting dependency
+python tools/validation/models/qwen3_next/plot_qwen3_next_norm_evidence.py report.json
 
 Writes figure[-<op>].png beside the report.
 """

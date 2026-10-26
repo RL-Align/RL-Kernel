@@ -65,7 +65,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-_CHECK_FILE = REPO_ROOT / "tests" / "check_gdn_recurrent_golden.py"
+_CHECK_FILE = REPO_ROOT / "tests" / "models" / "qwen3_next" / "check_gdn_recurrent_golden.py"
 _STATE_DTYPES = {"fp32": torch.float32, "bf16": torch.bfloat16}
 _INT_VIEW = {2: torch.int16, 4: torch.int32}
 # FLA_USE_FAST_OPS swaps the kernel's exp/log for fast_expf/fast_logf;

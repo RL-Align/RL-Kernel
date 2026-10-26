@@ -136,6 +136,10 @@ class CausalConv1dUpdateOp:
         if x.shape[1] != dim:
             raise ValueError("x and conv_state must have the same dim")
         _validate_state_indices(conv_state_indices, x.shape[0], state.shape[0], x.device)
+        # vLLM's causal_conv1d_update skips only the null block id; a negative entry is
+        # not a null block there. Reject it instead of treating it as inactive.
+        if bool((conv_state_indices < 0).any()):
+            raise ValueError("conv state indices must be >= 0; only the null block id is skipped")
         for name, tensor in (
             ("x", x),
             ("conv_state", conv_state),
@@ -152,7 +156,7 @@ class CausalConv1dUpdateOp:
         if tail != width - 1:
             raise ValueError(f"conv_state tail must be W-1={width - 1}, got {tail}")
 
-        active = conv_state_indices > NULL_BLOCK_ID
+        active = conv_state_indices != NULL_BLOCK_ID
         out = torch.zeros(x.shape, dtype=torch.float32, device=x.device)
         new_state = conv_state.clone()  # the cache dtype is the contract here
         if not bool(active.any()):
