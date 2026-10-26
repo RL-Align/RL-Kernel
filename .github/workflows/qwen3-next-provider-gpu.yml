@@ -32,7 +32,11 @@ on:
       - "rl_engine/validation/models/qwen3_next/**"
       - "tools/validation/models/qwen3_next/**"
       - "tests/models/qwen3_next/**"
-      - "tests/models/qwen3_next/check_gdn_recurrent_golden.py"
+      - "rl_engine/config/**"
+      - "rl_engine/validation/common/**"
+      - "csrc/cuda/norm/**"
+      - "csrc/bindings/**"
+      - "rl_engine/contracts/**"
       - ".github/workflows/qwen3-next-provider-gpu.yml"
   workflow_dispatch:
     inputs:
