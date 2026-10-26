@@ -7,7 +7,7 @@
 modulation tensors of one transformer block, for all three modalities:
 
 ```text
-act   = silu(temb).to(bf16)                         SiLU in FP32, one declared cast
+act   = silu(temb).to(W.dtype)                      SiLU in FP32, one declared cast (BF16 for the checkpoint weights)
 table = act @ W.T + b                               (T, 96768) BF16, W: (96768, 2688)
 rows  = table.view(3T, 32256)                       row t * 3 + m, m: 0 video, 1 text, 2 audio
 shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = rows.chunk(6, -1)   # (3T, 5376) each

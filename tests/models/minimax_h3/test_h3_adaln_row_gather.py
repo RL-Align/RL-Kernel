@@ -149,7 +149,8 @@ class TestCudaForward:
         """Reject semantic index violations without poisoning pytest's CUDA context."""
 
         _cuda_op()
-        probe = textwrap.dedent("""
+        probe = textwrap.dedent(
+            """
             import sys
             import torch
             from rl_engine.backends.extension import _C
@@ -167,7 +168,8 @@ class TestCudaForward:
             else:
                 H3AdaLNRowGatherCudaOp().forward(rows, ti, tags, check_range=False)
             torch.cuda.synchronize()
-            """)
+            """
+        )
         completed = subprocess.run(
             [sys.executable, "-c", probe, entrypoint, str(timestep), str(tag), index_dtype],
             cwd=Path(__file__).resolve().parents[3],
@@ -296,3 +298,44 @@ class TestCudaBackward:
         _cuda_op()
         op = KernelRegistry().get_op("adaln_row_gather", device="cuda")
         assert type(op).__name__ == "H3AdaLNRowGatherCudaOp"
+
+
+def _backward_args(device="cuda"):
+    kw = {"device": device, "dtype": torch.int64}
+    return {
+        "grad": torch.ones((6, 4, 8), device="cuda"),
+        "sorted_pos": torch.tensor([0, 2, 1, 3], **kw),
+        "tile_begin": torch.tensor([0, 2], **kw),
+        "tile_end": torch.tensor([2, 4], **kw),
+        "seg_first_tile": torch.tensor([0, 1, 2], **kw),
+        "out_dtype": torch.float32,
+    }
+
+
+@requires_cuda
+class TestNativeBackwardMetadata:
+    def test_a_valid_call_runs(self):
+        _cuda_op()
+        from rl_engine.backends.extension import _C
+
+        assert _C.h3_adaln_row_gather_backward(**_backward_args()).shape == (2, 48)
+
+    def test_empty_segment_table_is_rejected(self):
+        _cuda_op()
+        from rl_engine.backends.extension import _C
+
+        args = _backward_args()
+        args["seg_first_tile"] = args["seg_first_tile"][:0]
+        with pytest.raises(RuntimeError, match="seg_first_tile"):
+            _C.h3_adaln_row_gather_backward(**args)
+
+    @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="needs two CUDA devices")
+    @pytest.mark.parametrize("name", ["sorted_pos", "tile_begin", "tile_end", "seg_first_tile"])
+    def test_metadata_on_another_device_than_grad_is_rejected(self, name):
+        _cuda_op()
+        from rl_engine.backends.extension import _C
+
+        args = _backward_args()
+        args[name] = args[name].to("cuda:1")
+        with pytest.raises(RuntimeError, match="grad's device"):
+            _C.h3_adaln_row_gather_backward(**args)

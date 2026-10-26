@@ -41,6 +41,15 @@ def _cuda_op():
     return H3AdaLNProjectionCudaOp()
 
 
+def test_pre_sm80_device_is_refused_at_construction_so_the_registry_can_fall_back(monkeypatch):
+    from rl_engine.backends.cuda.model_specific.minimax_h3 import adaln_projection as module
+
+    monkeypatch.setattr(module, "det_linear_available", lambda: True)
+    monkeypatch.setattr(module, "det_linear_device_supported", lambda: False)
+    with pytest.raises(RuntimeError, match="SM80"):
+        module.H3AdaLNProjectionCudaOp()
+
+
 def _temb(num, dim=2688, seed=0, device="cuda"):
     """Generate seeded FP32 timestep embeddings on CPU and move them to the test device."""
 
