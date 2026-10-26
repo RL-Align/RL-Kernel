@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // Fixed-tile FP32 primitives. No atomic reductions or shape-dependent dispatch.
 #include <torch/extension.h>
+#include <limits>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/cuda/CUDAException.h>
 
 namespace {
+constexpr int kMmThreads = 256;
+static_assert(kMmThreads % 32 == 0, "matrix blocks must contain complete warps");
+constexpr int64_t kMaxIndex = std::numeric_limits<int>::max();
 struct Fp32Pair { float hi, lo; };
 __device__ __forceinline__ Fp32Pair pair_add(Fp32Pair a, Fp32Pair b) {
     float s=a.hi+b.hi;
@@ -29,6 +33,7 @@ __global__ void timestep_mm_short(const float* a, const float* b, float* c,
 __global__ void timestep_mm_warp(const float* a, const float* b, float* c,
                                  int m, int n, int k, int64_t as0, int64_t as1,
                                  int64_t bs0, int64_t bs1) {
+    // Every warp is complete; out is uniform within it, including the early return.
     int lane=threadIdx.x%32;
     int out=blockIdx.x*(blockDim.x/32)+threadIdx.x/32;
     if (out >= m*n) return;
@@ -74,6 +79,10 @@ __global__ void timestep_dt(const float* de, const float* e, const float* f,
 }
 void check(const torch::Tensor& x) {
     TORCH_CHECK(x.is_cuda() && x.scalar_type()==at::kFloat, "expected CUDA FP32");
+    TORCH_CHECK(x.numel() <= kMaxIndex, "tensor exceeds CUDA int32 indexing limit");
+    for (auto size : x.sizes()) {
+        TORCH_CHECK(size <= kMaxIndex, "dimension exceeds CUDA int32 indexing limit");
+    }
 }
 }
 
@@ -81,17 +90,22 @@ torch::Tensor mm(torch::Tensor a, torch::Tensor b) {
     check(a); check(b);
     TORCH_CHECK(a.dim()==2 && b.dim()==2 && a.size(1)==b.size(0), "bad mm shape");
     TORCH_CHECK(a.device()==b.device(), "device mismatch");
+    // Check before allocating output or narrowing dimensions in kernel arguments.
+    TORCH_CHECK(a.size(0) == 0 || b.size(1) <= kMaxIndex / a.size(0),
+                "matrix output exceeds CUDA int32 indexing limit");
+    TORCH_CHECK(a.size(1) <= kMaxIndex - 31,
+                "matrix reduction exceeds CUDA int32 indexing limit");
     c10::cuda::CUDAGuard guard(a.device());
     auto c=torch::empty({a.size(0),b.size(1)},a.options());
     if (c.numel()) {
         if (a.size(1)<=32) {
-            timestep_mm_short<<<(c.numel()+255)/256,256,0,at::cuda::getCurrentCUDAStream()>>>(
+            timestep_mm_short<<<(c.numel()+kMmThreads-1)/kMmThreads,kMmThreads,0,at::cuda::getCurrentCUDAStream()>>>(
                 a.data_ptr<float>(),b.data_ptr<float>(),c.data_ptr<float>(),
                 a.size(0),b.size(1),a.size(1),a.stride(0),a.stride(1),b.stride(0),b.stride(1));
         } else {
             // Make the reduction dimension contiguous for coalesced warp loads.
             if (b.stride(0)!=1) b=b.transpose(0,1).contiguous().transpose(0,1);
-            timestep_mm_warp<<<(c.numel()+7)/8,256,0,at::cuda::getCurrentCUDAStream()>>>(
+            timestep_mm_warp<<<(c.numel()+kMmThreads/32-1)/(kMmThreads/32),kMmThreads,0,at::cuda::getCurrentCUDAStream()>>>(
                 a.data_ptr<float>(),b.data_ptr<float>(),c.data_ptr<float>(),
                 a.size(0),b.size(1),a.size(1),a.stride(0),a.stride(1),b.stride(0),b.stride(1));
         }
@@ -103,6 +117,8 @@ torch::Tensor embedding(torch::Tensor t, torch::Tensor f) {
     check(t); check(f);
     TORCH_CHECK(t.dim()==1 && t.is_contiguous() && f.numel()==128 && f.is_contiguous(), "bad embedding shape");
     TORCH_CHECK(t.device()==f.device(), "device mismatch");
+    TORCH_CHECK(t.numel() <= kMaxIndex / 256,
+                "embedding output exceeds CUDA int32 indexing limit");
     c10::cuda::CUDAGuard guard(t.device());
     auto e=torch::empty({t.numel(),256},t.options());
     if (t.numel()) {

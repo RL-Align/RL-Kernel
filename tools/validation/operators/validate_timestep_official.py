@@ -11,6 +11,8 @@ import hashlib
 import json
 import math
 import platform
+import re
+import subprocess
 import sys
 import time
 from dataclasses import asdict
@@ -69,7 +71,8 @@ def invariance(op, values, dtype, seed):
     contract = load_contract()
     for judgment in ("forward_invariance", "gradient_invariance"):
         tol = resolve_tolerance(contract, judgment=judgment, op_class="reduction", dtype=dtype)
-        assert tol.mode == "bitwise" and tol.atol == tol.rtol == 0
+        if tol.mode != "bitwise" or tol.atol != 0 or tol.rtol != 0:
+            raise RuntimeError("invariance requires the unchanged bitwise contract")
     t = values["timestep"]
     n, h = t.numel(), values["weight1"].shape[0]
     gen = torch.Generator().manual_seed(seed + 100)
@@ -157,8 +160,8 @@ def observed_trace(op, values, output):
     kernels = sorted(
         {e.name for e in prof.events() if e.device_type == torch.autograd.DeviceType.CUDA}
     )
-    required = ("timestep_mm", "timestep_embedding", "timestep_silu", "timestep_dt")
-    passed = all(any(r in k for k in kernels) for r in required)
+    passed = kernel_families_observed(kernels, trace.actual_backend)
+    require_requested_backend(trace, op.backend)
     return {
         "passed": passed,
         "observed_cuda_kernels": kernels,
@@ -167,14 +170,64 @@ def observed_trace(op, values, output):
     }
 
 
-def eager_batched(timestep, weight1, bias1, weight2, bias2):
-    """Conventional batched FP32 compute baseline, independent of fixed-order kernels."""
-    frequency = torch.exp(-math.log(10000.0) * torch.arange(128, dtype=torch.float32) / 128)
-    phase = (timestep.float()[:, None] * frequency.to(timestep.device)) * 1000.0
+def kernel_families_observed(kernels, backend):
+    """Match emitted device symbols, separately for native CUDA and Triton."""
+    families = ("mm", "embedding", "silu", "dt")
+    prefix = (
+        r"(?:void )?(?:\(anonymous namespace\)::)?timestep_" if backend == "cuda" else "_timestep_"
+    )
+    if backend not in ("cuda", "triton"):
+        return False
+    return all(
+        any(re.match(r"^" + prefix + family + r"(?:_|\(|$)", k) for k in kernels)
+        for family in families
+    )
+
+
+def require_requested_backend(trace, backend):
+    """Do not let optimized Python silently accept a fallback result."""
+    if trace.actual_backend != backend or trace.fallback_reason is not None:
+        raise RuntimeError("requested backend did not execute without fallback")
+
+
+def source_revision():
+    """Record the checkout identity; per-file hashes also identify uncommitted source."""
+    try:
+        head = (
+            subprocess.check_output(
+                ["git", "-C", str(ROOT), "rev-parse", "HEAD"], stderr=subprocess.DEVNULL
+            )
+            .decode()
+            .strip()
+        )
+        dirty = bool(
+            subprocess.check_output(
+                ["git", "-C", str(ROOT), "status", "--porcelain", "--untracked-files=no"],
+                stderr=subprocess.DEVNULL,
+            ).strip()
+        )
+        return {"head_sha": head, "tracked_dirty": dirty}
+    except (OSError, subprocess.CalledProcessError):
+        return {"head_sha": None, "tracked_dirty": None}
+
+
+def eager_batched(timestep, weight1, bias1, weight2, bias2, *, frequency):
+    """Batched FP32 baseline; caller prepares the immutable table outside timing."""
+    phase = (timestep.float()[:, None] * frequency) * 1000.0
     e = torch.cat((phase.cos(), phase.sin()), dim=1)
     z = torch.nn.functional.linear(e, weight1.float(), bias1.float())
     h = torch.nn.functional.silu(z)
     return torch.nn.functional.linear(h, weight2.float(), bias2.float()).to(weight1.dtype)
+
+
+def prepared_eager_batched(device):
+    frequency = torch.exp(-math.log(10000.0) * torch.arange(128, dtype=torch.float32) / 128)
+    frequency = frequency.to(device)
+
+    def call(**values):
+        return eager_batched(**values, frequency=frequency)
+
+    return call
 
 
 def benchmark(op, values, iterations):
@@ -233,9 +286,10 @@ def main():
             "contract_sha256": hashlib.sha256(
                 (ROOT / "rl_engine/contracts/profiles/precision/ws1.json").read_bytes()
             ).hexdigest(),
-            "base_sha": "32b765ec992cd1206517104ec66506881203c91c",
+            **source_revision(),
             "tf32": False,
         },
+        "benchmark_method": "cuda_events_warmed_device_frequency_v2",
         "source_sha256": {},
         "cases": [],
         "passed": False,
@@ -314,8 +368,7 @@ def main():
                         row["accuracy"] = suite.to_dict()
                         row["launch_record"] = asdict(op.last_trace)
                         if backend != "pytorch":
-                            assert op.last_trace.actual_backend == backend
-                            assert op.last_trace.fallback_reason is None
+                            require_requested_backend(op.last_trace, backend)
                             row["invariance"] = invariance(op, values, dtype, seed)
                         if args.trace and batch == args.batches[0] and seed == args.seeds[0]:
                             trace_path = args.output.with_name(
@@ -325,7 +378,9 @@ def main():
                         if args.benchmark and seed == args.seeds[0]:
                             row["timing"] = benchmark(op, values, args.iterations)
                             row["native_batched_timing"] = benchmark(
-                                eager_batched, values, args.iterations
+                                prepared_eager_batched(values["timestep"].device),
+                                values,
+                                args.iterations,
                             )
                         row["passed"] = (
                             suite.passed

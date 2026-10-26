@@ -17,3 +17,17 @@ def test_reference_linear_vjp_finite_differences(batch):
         for shape in ((batch, 5), (7, 5), (7,))
     )
     assert torch.autograd.gradcheck(_ReferenceLinear.apply, values)
+
+
+@pytest.mark.parametrize("batch", [0, 2])
+@pytest.mark.parametrize("index", [0, 1, 2])
+def test_reference_linear_selective_vjp(batch, index):
+    generator = torch.Generator().manual_seed(386)
+    values = [torch.randn(shape, generator=generator) for shape in ((batch, 5), (7, 5), (7,))]
+    values[index].requires_grad_()
+    actual = _ReferenceLinear.apply(*values)
+    expected = torch.nn.functional.linear(*values)
+    upstream = torch.randn(actual.shape, generator=generator)
+    (a,) = torch.autograd.grad(actual, values[index], upstream)
+    (b,) = torch.autograd.grad(expected, values[index], upstream)
+    torch.testing.assert_close(a, b)

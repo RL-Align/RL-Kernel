@@ -79,10 +79,11 @@ class _ReferenceLinear(torch.autograd.Function):
 
 
 class NativeTimestepEmbedMLPOp(nn.Module):
-    """Gold with independent compensated FP32 linear VJPs and torch sigmoid autograd.
+    """Gold with compensated FP32 forward/input VJPs and torch sigmoid autograd.
 
     BF16 describes parameter/output storage; fused intermediates remain FP32.
-    No fixed-order parameter-gradient guarantee is made for this eager gold.
+    Weight VJPs use an ordered FP32 outer-product sum; bias VJPs use torch.sum.
+    Parameter-gradient accuracy is tolerance-based, without a bitwise permutation guarantee.
     """
 
     def forward_fp32(self, timestep, weight1, bias1, weight2, bias2):

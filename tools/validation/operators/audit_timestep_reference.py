@@ -4,7 +4,8 @@
 
 The boundary oracle evaluates trig at the specified FP32 phase, with the
 analytic phase Jacobian, then uses FP64 F.linear/F.silu and native autograd.
-A separate all-FP64 phase diagnostic measures the effect of phase rounding.
+A separate all-FP64 diagnostic changes both phase values and frequency/Jacobian
+precision. Their difference does not isolate phase-value rounding alone.
 Neither oracle imports candidate reduction or custom-backward primitives.
 """
 

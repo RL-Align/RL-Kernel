@@ -34,7 +34,9 @@ frequency-fingerprint gates.
 The operator is registered in `rl_engine/validation/operators/operator_specs.py` with `op_class="reduction"`
 and all five differentiable inputs. The unchanged shared contract resolves forward
 and gradient accuracy independently. The independent gold uses pure PyTorch FP32
-compensated product sums and explicit linear VJPs, plus torch sigmoid autograd.
+compensated forward/input-VJP product sums, explicit FP32 outer-product weight
+VJPs and torch.sum bias VJPs, plus torch sigmoid autograd. Parameter-gradient
+accuracy is tolerance-based; the gold does not promise bitwise permutation invariance.
 It does not invoke candidate primitives. A separate conventional `F.linear` path
 is used for semantic regression and performance comparison.
 
@@ -70,6 +72,12 @@ prebuilt module is absent. JIT needs a compatible CUDA toolkit, C++ compiler,
 Python headers and Ninja. Set `TORCH_EXTENSIONS_DIR` and `TRITON_CACHE_DIR` to
 isolated writable directories. The Triton backend needs a compatible Triton install.
 
+Native CUDA primitives reject tensors, dimensions and outputs outside signed int32
+indexing before allocation or launch. Embedding output must fit `B*256`; matrix
+output must fit `M*N`, and its reduction length must be at most `INT_MAX-31`.
+These checks do not change arithmetic for supported shapes. Matrix launches use
+a shared block-size constant constrained to complete warps.
+
 Unavailable backends raise by default. `allow_fallback=True` explicitly enables
 the PyTorch reference; the returned trace records requested/actual backend and the
 reason. Kernel execution errors are not silently converted into fallback results.
@@ -98,7 +106,10 @@ FP32/BF16 and both GPU backends. Accuracy gold runs on CPU with the same input a
 upstream values. The JSON records source hashes, resolved tolerances, per-output
 errors, full invariance verdicts, observed kernels, environment, and timing samples.
 CUDA-event timings include operator dispatch and allocation overhead after warmup;
-compilation is excluded. The performance baseline is ordinary batched PyTorch with
+compilation is excluded. Both paths prepare their immutable device frequency table
+before timing (method `cuda_events_warmed_device_frequency_v2`). Reports record
+the actual checkout HEAD, tracked-dirty status and source hashes. The performance
+baseline is ordinary batched PyTorch with
 the same fused FP32 compute policy, not the deliberately slow compensated oracle.
 
 `TIMESTEP_RUN_ROOT=/absolute/isolated/root bash ci/scripts/run_timestep_official.sh`
@@ -138,22 +149,25 @@ These are **historical executions**, not new tests of the directory migration:
 
 The H100 acceptance source is `ea55fa686706892ce94ebe7020829c19c108496c`;
 source manifests, dependencies, commands, seeds, thresholds, raw measurements,
-traces and failed attempts remain preserved outside the current tree. The native
-CUDA source and reference are unchanged by the migration; backend arithmetic and
-launch settings are unchanged, with only imports and source locations adjusted.
-GPU acceptance was not rerun for the migration; local import/build-path checks
-do not establish a fresh device execution.
+traces and failed attempts remain preserved outside the current tree. The directory migration preserved backend arithmetic and launch settings. Later
+native host-side index guards preserve the same device computation for these
+historical shapes. A100/H100 acceptance has not been rerun; local checks do not
+establish a fresh execution on those architectures.
 
 The independent audit compares all six tensors against FP64 trig/MLP/autograd
 at the specified **FP32 phase boundary**. It passed all eight H3072 cases.
 A separate all-FP64-phase diagnostic exceeded tolerance in 3/4 FP32 cases;
-it is a different contract, not an acceptance substitute. In the historical
+it changes both frequency/Jacobian precision and phase values, so it does not
+isolate phase-value rounding alone and is not an acceptance substitute. In the historical
 B16/seed9386 case, timestep-gradient error/tolerance was 5.311 for the old
 reference, 0.642 for the current reference, and 80.892 for the all-FP64 diagnostic.
 
-H100 CUDA forward+backward microbenchmarks measured approximately 1.51–1.85x
-speedup over ordinary batched PyTorch using 20 CUDA-event samples and medians.
-B16 forward and most Triton cases were slower. No full-model speedup or
+Historical H100 CUDA forward+backward timing ratios were approximately 1.51–1.85x
+using 20 CUDA-event samples and medians. That older baseline rebuilt and transferred
+its frequency table inside every timed call while the candidate cached it; these
+setup-inclusive ratios are not evidence of a fair steady-state speedup. The corrected
+method has not been benchmarked on A100/H100. B16 forward and most Triton cases
+were slower even with the older method. No full-model speedup or
 Hopper-specific WGMMA/TMA optimization is claimed. Full-model training,
 multi-GPU execution and full-repository native builds remain unverified.
 The target branch's GitHub workflows did not execute these GPU acceptance runs.
