@@ -11,7 +11,10 @@
 # reporting a false pass.
 #
 # Security: do not use pull_request_target. Fork PRs never reach the self-hosted
-# runner; a maintainer dispatches the reviewed commit from a trusted branch.
+# runner; a maintainer dispatches the reviewed commit from a trusted branch and
+# names the repository and 40-character SHA to run. Only the format is checked
+# below: the dispatcher needs write access to the repository and is responsible for
+# naming a commit that has been reviewed (as in ws1-chain-npu.yml).
 
 name: Qwen3-Next-provider-GPU
 
@@ -32,6 +35,16 @@ on:
       - "tests/models/qwen3_next/check_gdn_recurrent_golden.py"
       - ".github/workflows/qwen3-next-provider-gpu.yml"
   workflow_dispatch:
+    inputs:
+      source_repository:
+        description: "Public repository containing the reviewed commit (owner/name)"
+        required: true
+        default: "RL-Align/RL-Kernel"
+        type: string
+      source_sha:
+        description: "Exact reviewed 40-character commit SHA to execute on the runner"
+        required: true
+        type: string
 
 concurrency:
   group: qwen3-next-provider-gpu-${{ github.ref }}
@@ -56,9 +69,24 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, x64, rl-kernel-qwen3-next]
     timeout-minutes: 30
+    env:
+      # A missing _C must fail the job, not skip every CUDA case.
+      RL_KERNEL_REQUIRE_EXT: "1"
     steps:
-      - uses: actions/checkout@v4
+      - name: Validate the dispatched source
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          [[ "$SOURCE_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-fA-F]{40}$ ]]
+
+      - name: Checkout the reviewed commit
+        uses: actions/checkout@v4
         with:
+          repository: ${{ github.event_name == 'workflow_dispatch' && inputs.source_repository || github.repository }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_sha || github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - name: Require the audited runtime
         run: |
@@ -69,7 +97,14 @@ jobs:
           assert torch.cuda.is_available()
           PY
       - name: Build the extension against that runtime
-        run: python3 setup.py build_ext --inplace
+        # The runner is long-lived: remove any extension or build tree left by an earlier
+        # job so setuptools cannot judge a stale _C up to date and skip the rebuild.
+        run: |
+          find . -name '_C*.so' -not -path './.git/*' -delete
+          rm -rf build
+          python3 setup.py build_ext --inplace
+      - name: Fail fast when the extension is missing or built for the wrong architecture
+        run: python3 tools/checks/ci_smoke.py
       - name: Require the extension built from this checkout
         # A stale editable install elsewhere on the runner would otherwise satisfy the
         # import and test some other tree's _C.
@@ -90,8 +125,17 @@ jobs:
         env:
           TRITON_F32_DEFAULT: ieee
         run: |
-          python3 -m pytest -q tests/models/qwen3_next/check_qwen3_next_norm_providers.py tests/models/qwen3_next/check_gdn_recurrent_golden.py \
+          set -o pipefail
+          log="$RUNNER_TEMP/provider-pytest.log"
+          python3 -m pytest -q -rs tests/models/qwen3_next/check_qwen3_next_norm_providers.py tests/models/qwen3_next/check_gdn_recurrent_golden.py \
             tests/models/qwen3_next/check_qwen3_next_forward.py tests/models/qwen3_next/check_qwen3_next_attention.py \
             tests/models/qwen3_next/check_qwen3_next_gdn_bridge.py tests/models/qwen3_next/check_qwen3_next_gdn_sequence.py \
             tests/models/qwen3_next/check_qwen3_next_conv_bridge.py tests/models/qwen3_next/check_qwen3_next_core_matrix.py \
-            tests/models/qwen3_next/check_qwen3_next_shared_core.py
+            tests/models/qwen3_next/check_qwen3_next_shared_core.py | tee "$log"
+          # Fail closed: these modules skip as a whole when CUDA or vLLM is missing, and pytest
+          # exits 0 for an all-skipped run. A skipped provider check is not provider evidence.
+          if grep -Eq '^SKIPPED|[0-9]+ skipped' "$log"; then
+            echo "::error::a provider check was skipped"
+            exit 1
+          fi
+          grep -Eq '[0-9]+ passed' "$log"

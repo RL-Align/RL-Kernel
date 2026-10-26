@@ -38,6 +38,14 @@ NORM_OPS = {"qwen3_next_rms_norm": 2048, "rms_norm_gated": 128}
 
 
 def validate_norm_manifest(raw: Mapping[str, Any]) -> None:
+    """Validate a norm-operator manifest; every malformed manifest raises ``WorkloadError``."""
+    try:
+        _validate_norm_manifest(raw)
+    except (KeyError, TypeError) as exc:
+        raise WorkloadError(f"norm workload manifest is malformed: {exc!r}") from exc
+
+
+def _validate_norm_manifest(raw: Mapping[str, Any]) -> None:
     identity = raw["model_identity"]
     if identity["model_id"] != MODEL_ID or identity["revision"] != REVISION:
         raise WorkloadError("Qwen3-Next norm workload requires the pinned official checkpoint")
@@ -87,7 +95,12 @@ def validate_norm_manifest(raw: Mapping[str, Any]) -> None:
 def validate_norm_dimensions(raw: Mapping[str, Any], op: str, hidden: int, head_dim: int) -> None:
     if raw.get("scope") != "qwen3_next_norm_operators":
         return
-    if op not in NORM_OPS or hidden != 2048 or head_dim != 128:
+    # Both gates take the same pair: --hidden is the model hidden size, the zero-centred
+    # norm's width, and the gated norm runs at --head-dim (linear_value_head_dim), not at
+    # --hidden. Pinning the pair to the two checkpoint widths pins each op's width.
+    expected = (NORM_OPS["qwen3_next_rms_norm"], NORM_OPS["rms_norm_gated"])
+    if op not in NORM_OPS or (hidden, head_dim) != expected:
         raise WorkloadError(
-            "Qwen3-Next norm gate requires its two norm ops, --hidden 2048 --head-dim 128"
+            "Qwen3-Next norm gate requires its two norm ops, "
+            f"--hidden {expected[0]} --head-dim {expected[1]}"
         )
