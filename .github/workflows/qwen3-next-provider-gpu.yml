@@ -34,6 +34,9 @@ on:
       - "tests/models/qwen3_next/**"
       - "rl_engine/config/**"
       - "rl_engine/validation/common/**"
+      - "csrc/cuda/norm/**"
+      - "csrc/bindings/**"
+      - "rl_engine/contracts/**"
       - ".github/workflows/qwen3-next-provider-gpu.yml"
   workflow_dispatch:
     inputs:
