@@ -561,6 +561,10 @@ torch::Tensor h3_det_linear_fold_chunks(torch::Tensor partial, c10::ScalarType o
   if (elems == 0) return out;
   auto stream = at::cuda::getCurrentCUDAStream();
   const int threads = 256;
+  // Same bound as h3_det_linear_backward_input: grid.x holds at most INT32_MAX blocks. (That is 5e11
+  // elements, beyond any tensor that fits in memory; the check keeps the two entry points alike.)
+  TORCH_CHECK((elems + threads - 1) / threads <= std::numeric_limits<int32_t>::max(),
+              "rows * K = ", elems, " needs more blocks than one grid.x launch holds");
   const unsigned fold_blocks = static_cast<unsigned>((elems + threads - 1) / threads);
   if (out_dtype == at::kFloat) {
     det_fold_chunks_kernel<float><<<fold_blocks, threads, 0, stream>>>(

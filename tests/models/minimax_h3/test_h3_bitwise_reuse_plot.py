@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""A heatmap cell counts every forward output of the operator, not only the first."""
+"""A heatmap cell counts every forward output of the operator, not only the first.
+
+Also: the TP evidence figure for a report that has no TP > 1 run.
+"""
 
 from __future__ import annotations
 
@@ -70,4 +73,40 @@ def test_missing_comparisons_are_drawn_grey_not_as_bitwise_equal():
     assert ax.images[0].cmap(ax.images[0].norm(0.0)) != ax.images[0].cmap._rgba_bad
     texts = [t.get_text() for t in ax.texts]
     assert "n/a" in texts and "0" in texts
+    plt.close(fig)
+
+
+def _tp_run(tp: int) -> dict:
+    perf = {
+        "num_timesteps": 3,
+        "tp_forward_us": 110.0,
+        "tp_forward_backward_us": 2000.0,
+        "ws1_forward_us": 100.0,
+        "ws1_forward_backward_us": 1900.0,
+    }
+    equal = dict.fromkeys(("table", "d_temb", "d_weight_shard", "d_bias_shard"), True)
+    return {
+        "tp": tp,
+        "ranks": [{"rank": 0, "equality": [{"num_timesteps": 3, **equal}], "perf": [perf]}],
+    }
+
+
+def _tp_report(worlds: list[int]) -> dict:
+    return {
+        "op": "tp_adaln_3mod",
+        "environment": {"gpu": "gpu", "torch": "t", "cuda": "c"},
+        "rl_kernel_commit": "0123456789",
+        "model_revision": "0123456789",
+        "runs": [_tp_run(tp) for tp in worlds],
+    }
+
+
+@pytest.mark.parametrize("worlds", [[1], [1, 2, 4], [2, 4]])
+def test_tp_figure_for_reports_with_and_without_tp_above_one(worlds):
+    import matplotlib.pyplot as plt
+    from plot_h3_evidence import plot_tp_adaln
+
+    fig = plot_tp_adaln(_tp_report(worlds))
+    texts = [t.get_text() for ax in fig.axes for t in ax.texts]
+    assert ("no run with TP > 1 in this report" in texts) == (worlds == [1])
     plt.close(fig)

@@ -31,18 +31,19 @@ from dataclasses import dataclass
 import torch
 import torch.nn.functional as F
 
-from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.backends.cuda.model_specific.minimax_h3.det_linear import (
     CONTRACT,
     DINPUT_CHUNK,
     det_linear_available,
     det_linear_backward_input_partials,
     det_linear_backward_weight,
+    det_linear_device_supported,
     det_linear_fold_chunks,
     det_linear_forward,
     silu_backward_fp32,
 )
 from rl_engine.backends.cuda.model_specific.minimax_h3.ws2_comm import gather_rows
+from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.reference.minimax_h3 import H3_ADALN_CHUNKS, H3_MODALITY_NUM
 from rl_engine.reference.minimax_h3.adaln_projection import split_adaln_table
 
@@ -122,6 +123,10 @@ def _validate_shard_inputs(temb, weight, bias, shard: AdaLNColumnShard) -> None:
         raise TypeError(
             f"weight/bias must share bfloat16 or float32, got {weight.dtype}/{bias.dtype}"
         )
+    if weight.dtype == torch.bfloat16 and not det_linear_device_supported(weight.device):
+        # Checked here, before any collective: a rank that fails inside the forward would leave the
+        # other ranks waiting in gather_rows.
+        raise RuntimeError(f"the BF16 h3 det_linear forward needs SM80 or newer ({weight.device})")
     width = shard.end - shard.begin
     if weight.dim() != 2 or weight.shape[0] != width or bias.shape != (width,):
         raise ValueError(
@@ -148,6 +153,13 @@ class _TPAdaLNProjection(torch.autograd.Function):
     def backward(ctx, grad_table):
         temb, act, weight = ctx.saved_tensors
         shard = ctx.shard
+        if grad_table.dim() != 2 or grad_table.shape != (temb.shape[0], shard.n_total):
+            # The backward reads this rank's columns of a replicated (T, N) table gradient; any
+            # other width would slice the wrong columns without an error.
+            raise ValueError(
+                f"table gradient must be ({temb.shape[0]}, {shard.n_total}), "
+                f"got {tuple(grad_table.shape)}"
+            )
         grad_local = grad_table[:, shard.begin : shard.end].float().contiguous()
         dw, db = det_linear_backward_weight(grad_local, act, weight.dtype)
         partial = det_linear_backward_input_partials(grad_local, weight)
@@ -176,6 +188,10 @@ class H3TPAdaLNProjectionCudaOp:
             raise RuntimeError(
                 "rl_engine._C lacks h3_det_linear_*; rebuild with csrc/cuda/h3/det_linear.cu"
             )
+        if not det_linear_device_supported():
+            # Best effort at construction so the registry can fall back; forward checks the
+            # weight's own device before the first collective.
+            raise RuntimeError("the BF16 h3 det_linear forward needs SM80 or newer")
         self.collective = collective
         self.shard = adaln_column_shard(n_total, collective.world_size, collective.rank)
 
