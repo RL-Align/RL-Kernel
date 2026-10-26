@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import torch
 
-from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.reference.minimax_h3 import H3_ADALN_CHUNKS, H3_MODALITY_NUM
 from rl_engine.reference.minimax_h3.adaln_row_gather import (
     h3_adaln_indices,
@@ -44,6 +44,21 @@ def _segment_tiles(index: torch.Tensor, num_rows: int):
     tile_begin = seg_start[tile_seg] + tile_local * BACKWARD_TILE
     tile_end = torch.minimum(tile_begin + BACKWARD_TILE, seg_start[tile_seg] + counts[tile_seg])
     return sorted_pos, tile_begin.contiguous(), tile_end.contiguous(), seg_first_tile
+
+
+def _repeat_positions(index: torch.Tensor, rows: int) -> torch.Tensor:
+    """Table row of every flattened position: ``index`` repeated ``rows // len(index)`` times.
+
+    The native forward only accepts a row count that is a multiple of ``len(index)``; the backward
+    states the same contract instead of letting floor division build a shorter position list.
+    """
+
+    if index.numel() == 0 or rows % index.shape[0] != 0:
+        raise ValueError(
+            f"{rows} flattened rows are not a whole number of repeats of an index of "
+            f"length {index.shape[0]}"
+        )
+    return index.repeat(rows // index.shape[0])
 
 
 class _H3AdaLNRowGatherCuda(torch.autograd.Function):

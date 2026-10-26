@@ -83,6 +83,17 @@ class TestReference:
             NativeH3AdaLNRowGatherOp().forward(torch.zeros(3, 25), ti, tags)  # not 6 * H
 
 
+def test_backward_positions_are_a_whole_number_of_index_repeats():
+    from rl_engine.backends.cuda.model_specific.minimax_h3.adaln_row_gather import _repeat_positions
+
+    index = torch.tensor([2, 0, 1])
+    assert _repeat_positions(index, 6).tolist() == [2, 0, 1, 2, 0, 1]
+    with pytest.raises(ValueError, match="whole number of repeats"):
+        _repeat_positions(index, 7)
+    with pytest.raises(ValueError, match="whole number of repeats"):
+        _repeat_positions(index[:0], 4)
+
+
 @requires_cuda
 class TestCudaForward:
     @pytest.mark.parametrize("seq", [1, 2, 3, 257, 4097, 32768])
