@@ -26,7 +26,14 @@
 //     ascending chunk order and cast once.
 // d_weight dW[n, k] = sum_t g[t, n] * x[t, k];  d_bias db[n] = sum_t g[t, n]
 //   * an ascending-t fmaf chain into FP32 from 0, cast once. This is the one
-//     cross-row reduction; its order is the logical row order.
+//     cross-row reduction; its order is the logical row order. db is the same
+//     chain with the multiplier 1, which is a plain FP32 add (fmaf(g, 1, a) == a + g).
+//
+// Tails: the host requires K % VEC == 0 (VEC = 16 / sizeof(w)), and every 16-byte
+// load in the forward kernels starts at a multiple of VEC, so `k < K` implies
+// `k + VEC <= K`: no load straddles the end of a row, and every row start stays
+// 16-byte aligned. N and the row count have no such requirement; their tails are
+// masked per column / per row.
 
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
@@ -135,6 +142,8 @@ __global__ void __launch_bounds__(kWarpsPerBlock * kWarp)
         uint4 raw[kLoadAhead][kCols];
 #pragma unroll
         for (int u = 0; u < kLoadAhead; ++u) {
+          // K % kVec == 0 (host check) and k0 is a multiple of kVec, so k0 < k_in means the whole
+          // 16-byte chunk lies inside the row.
           const int64_t k0 = g0 + u * kStride;
 #pragma unroll
           for (int c = 0; c < kCols; ++c) {
@@ -464,6 +473,7 @@ std::vector<torch::Tensor> h3_det_linear_backward_weight(torch::Tensor grad, tor
   const int64_t total = n_out * k_in;
   const unsigned blocks = static_cast<unsigned>(grid_for(total, threads));
   const float* g = grad.data_ptr<float>();
+  // check_matrix(x) above admits float32 and bfloat16 only, so the last branch is bfloat16.
 #define H3_DW_LAUNCH(XT, XC, WT, WC)                                                     \
   det_linear_dweight_kernel<float, XC, WC><<<blocks, threads, 0, stream>>>(             \
       g, cptr<XT>(x), mptr<WT>(dw), rows, n_out, k_in)
