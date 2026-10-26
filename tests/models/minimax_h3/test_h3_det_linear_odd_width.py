@@ -84,3 +84,22 @@ def test_backward_matches_golden_and_ignores_the_tail(dtype, n_out):
     )
     d_weight_p, d_bias_p = det_linear_backward_weight(padded_grad, x, dtype, with_bias=True)
     assert torch.equal(d_weight, d_weight_p[:n_out]) and torch.equal(d_bias, d_bias_p[:n_out])
+
+
+@pytest.mark.parametrize(
+    "dtype, k_in",
+    [(torch.bfloat16, k) for k in (8, 24, 40, 72, 264, 520)]
+    + [(torch.float32, k) for k in (4, 12, 20, 36, 132, 1044)],
+)
+@pytest.mark.parametrize("n_out", [1, 3, 33])
+def test_k_that_is_not_a_multiple_of_the_lane_stride_matches_the_golden(dtype, k_in, n_out):
+    """Row lengths that are a vector multiple but not a multiple of the 32-lane stride."""
+
+    g = torch.Generator(device="cpu").manual_seed(k_in + n_out)
+    x = torch.randn(3, k_in, generator=g).to(dtype).cuda()
+    weight = (torch.randn(n_out, k_in, generator=g) / k_in**0.5).to(dtype).cuda()
+    bias = (torch.randn(n_out, generator=g) * 0.1).to(dtype).cuda()
+    out = det_linear_forward(x, weight, bias)[0]
+    tol = 1e-5 if dtype == torch.float32 else 1e-2
+    golden = x.double() @ weight.double().T + bias.double()
+    torch.testing.assert_close(out.double(), golden, atol=tol, rtol=tol)
