@@ -29,25 +29,78 @@ H3_BITWISE_SOURCES = (
 H3_KERNELS_DEFINE = "-DKERNEL_ALIGN_WITH_H3_KERNELS"
 # nvcc options that relax FP32 math. They can also arrive through the environment, where PyTorch's
 # BuildExtension appends them after the flags built here, so the H3 kernels check for them too.
-_RELAXED_MATH_NVCC_FLAGS = frozenset(
-    {
-        "--use_fast_math",
-        "-use_fast_math",
-        "--ftz=true",
-        "-ftz=true",
-        "--prec-div=false",
-        "-prec-div=false",
-        "--prec-sqrt=false",
-        "-prec-sqrt=false",
-    }
-)
+# nvcc takes ``--ftz``, ``--prec-div`` and ``--prec-sqrt`` with a value, as ``--opt=value`` or
+# ``--opt value``, and accepts one or two leading dashes; ``--use_fast_math`` takes none.
+_RELAXED_MATH_FLAG = "use_fast_math"
+_RELAXED_MATH_VALUE_FLAGS = {
+    "ftz": {"true", "1"},
+    "prec-div": {"false", "0"},
+    "prec-sqrt": {"false", "0"},
+}
+_RESPONSE_FILE_DEPTH = 4
+
+
+def _nvcc_flag_tokens(text: str, *, depth: int = 0) -> list[str] | None:
+    """Split an NVCC_*_FLAGS value into tokens; None when a response file cannot be read.
+
+    Tokens are split like a shell would, then on whitespace and ``;`` (TORCH_NVCC_FLAGS is
+    ';'-separated), so ``"-O2 --use_fast_math"`` in one quoted word is still two options. ``@file``
+    response files are expanded.
+    """
+
+    tokens: list[str] = []
+    for word in shlex.split(text):
+        for token in word.replace(";", " ").split():
+            if not token.startswith("@"):
+                tokens.append(token)
+                continue
+            if depth >= _RESPONSE_FILE_DEPTH:
+                return None
+            try:
+                inner = _nvcc_flag_tokens(Path(token[1:]).read_text(), depth=depth + 1)
+            except (OSError, ValueError):
+                return None
+            if inner is None:
+                return None
+            tokens.extend(inner)
+    return tokens
+
+
+def _tokens_relax_math(tokens: list[str]) -> bool:
+    for i, token in enumerate(tokens):
+        if not token.startswith("-"):
+            continue
+        name, has_value, value = token.lstrip("-").partition("=")
+        if name == _RELAXED_MATH_FLAG:
+            return True
+        relaxed_values = _RELAXED_MATH_VALUE_FLAGS.get(name)
+        if relaxed_values is None:
+            continue
+        if not has_value:
+            # "--ftz true": the value is the next word. Without one, nvcc rejects the option; treat
+            # it as relaxed rather than guess.
+            nxt = tokens[i + 1] if i + 1 < len(tokens) else ""
+            if nxt.startswith("-") or not nxt:
+                return True
+            value = nxt
+        if value.lower() in relaxed_values:
+            return True
+    return False
 
 
 def _external_relaxed_math() -> bool:
-    """Return whether NVCC_*_FLAGS / TORCH_NVCC_FLAGS turn on relaxed FP32 math."""
+    """Return whether NVCC_*_FLAGS / TORCH_NVCC_FLAGS turn on relaxed FP32 math.
+
+    Fails closed: a value that cannot be parsed or a response file that cannot be read counts as
+    relaxed, because the H3 kernels would otherwise be built with flags nobody checked.
+    """
 
     for name in ("NVCC_PREPEND_FLAGS", "NVCC_APPEND_FLAGS", "TORCH_NVCC_FLAGS"):
-        if _RELAXED_MATH_NVCC_FLAGS & set(shlex.split(os.environ.get(name, ""))):
+        try:
+            tokens = _nvcc_flag_tokens(os.environ.get(name, ""))
+        except ValueError:
+            return True
+        if tokens is None or _tokens_relax_math(tokens):
             return True
     return False
 
