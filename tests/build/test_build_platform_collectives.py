@@ -6,6 +6,7 @@ from __future__ import annotations
 import runpy
 from typing import Any
 
+import pytest
 import setuptools
 import torch
 from torch.utils import cpp_extension
@@ -113,3 +114,30 @@ def test_fast_math_build_excludes_bitwise_h3_kernels(monkeypatch) -> None:
     assert not [s for s in extension["sources"] if s.startswith("csrc/cuda/h3/")]
     assert H3_KERNELS_DEFINE not in extension["extra_compile_args"]["cxx"]
     assert H3_KERNELS_DEFINE not in extension["extra_compile_args"]["nvcc"]
+
+
+@pytest.mark.parametrize(
+    "variable", ["NVCC_PREPEND_FLAGS", "NVCC_APPEND_FLAGS", "TORCH_NVCC_FLAGS"]
+)
+def test_relaxed_math_nvcc_flags_from_the_environment_exclude_bitwise_h3_kernels(
+    monkeypatch, variable
+) -> None:
+    # The flags are appended after the ones built here, so a build with
+    # NVCC_APPEND_FLAGS='--use_fast_math' would otherwise ship H3 kernels with approximated math.
+    monkeypatch.delenv("KERNEL_ALIGN_USE_FAST_MATH", raising=False)
+    monkeypatch.setenv(variable, "-O2 --use_fast_math --ftz=true")
+    with pytest.warns(RuntimeWarning, match="bitwise MiniMax-H3 kernels"):
+        extension = _load_extension_config(monkeypatch, hip=None)
+
+    assert not [s for s in extension["sources"] if s.startswith("csrc/cuda/h3/")]
+    assert H3_KERNELS_DEFINE not in extension["extra_compile_args"]["cxx"]
+    assert H3_KERNELS_DEFINE not in extension["extra_compile_args"]["nvcc"]
+
+
+def test_unrelated_nvcc_flags_keep_the_h3_kernels(monkeypatch) -> None:
+    monkeypatch.delenv("KERNEL_ALIGN_USE_FAST_MATH", raising=False)
+    monkeypatch.setenv("NVCC_APPEND_FLAGS", "-lineinfo --fmad=true")
+    extension = _load_extension_config(monkeypatch, hip=None)
+
+    assert set(H3_BITWISE_SOURCES) <= set(extension["sources"])
+    assert H3_KERNELS_DEFINE in extension["extra_compile_args"]["nvcc"]

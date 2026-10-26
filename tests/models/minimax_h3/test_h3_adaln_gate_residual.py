@@ -11,6 +11,12 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
+
 import pytest
 import torch
 
@@ -113,3 +119,49 @@ class TestCuda:
         _cuda_op()
         op = KernelRegistry().get_op("adaln_gate_residual", device="cuda")
         assert type(op).__name__ == "H3GateResidualCudaOp"
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA device")
+@pytest.mark.parametrize("entrypoint", ["forward", "backward"])
+@pytest.mark.parametrize("bad_row", [-1, 2], ids=["negative", "past-table"])
+def test_gate_row_outside_the_table_asserts_in_the_kernel(entrypoint, bad_row):
+    """check_range=False callers get a device-side assert, not a read past the gate table."""
+
+    probe = textwrap.dedent(
+        """
+        import sys
+        import torch
+        from rl_engine.backends.extension import _C
+
+        if not hasattr(_C, "h3_gate_residual_forward"):
+            sys.exit(77)
+        entrypoint, bad_row = sys.argv[1], int(sys.argv[2])
+        x = torch.randn(4, 8, device="cuda")
+        gate = torch.ones(2, 8, device="cuda")  # a table of two rows
+        index = torch.tensor([0, bad_row], dtype=torch.int64, device="cuda")
+        if entrypoint == "forward":
+            _C.h3_gate_residual_forward(x, x, gate, index)
+        else:
+            i64 = dict(dtype=torch.int64, device="cuda")
+            _C.h3_gate_residual_backward(
+                torch.ones_like(x), x, gate, index,
+                torch.tensor([0, 2, 1, 3], **i64), torch.tensor([0, 2], **i64),
+                torch.tensor([2, 4], **i64), torch.tensor([0, 1, 2], **i64),
+            )
+        torch.cuda.synchronize()
+        """
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", probe, entrypoint, str(bad_row)],
+        cwd=Path(__file__).resolve().parents[3],
+        env={**os.environ, "CUDA_LAUNCH_BLOCKING": "1"},
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if completed.returncode == 77:
+        pytest.skip("rl_engine._C lacks h3_gate_residual_*")
+    assert completed.returncode != 0, "the kernel accepted a gate row outside the table"
+    assert (
+        "device-side assert triggered" in completed.stderr
+    ), f"expected a CUDA bounds assertion, got:\n{completed.stdout}\n{completed.stderr}"

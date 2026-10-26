@@ -7,9 +7,12 @@ from __future__ import annotations
 
 import torch
 
-from rl_engine.ops.autograd.backward_runtime import record_backward
+from rl_engine.backends.cuda.model_specific.minimax_h3.adaln_row_gather import (
+    _repeat_positions,
+    _segment_tiles,
+)
 from rl_engine.backends.extension import _C, _EXT_AVAILABLE
-from rl_engine.backends.cuda.model_specific.minimax_h3.adaln_row_gather import _segment_tiles
+from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.reference.minimax_h3.rmsnorm import (
     H3_NORM_EPS,
     validate_h3_modulation,
@@ -46,7 +49,7 @@ class _H3RMSNormCuda(torch.autograd.Function):
             dx, dweight = _C.h3_rmsnorm_backward(g2, x2, weight.contiguous(), rstd)
             d_shift = d_scale = None
         else:
-            positions = index.repeat(x2.shape[0] // index.shape[0])
+            positions = _repeat_positions(index, x2.shape[0])
             tiles = _segment_tiles(positions, shift.shape[0])
             dx, dweight, d_shift, d_scale = _C.h3_rmsnorm_backward(
                 g2, x2, weight.contiguous(), rstd, shift, scale, index, *tiles
