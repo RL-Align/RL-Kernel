@@ -49,6 +49,15 @@ topology. Formal evidence runs must use clean source checkouts and must not pass
 
 ## Supported reference configuration
 
+For the experimental single-node Prefill/Decode split, see the
+[Qwen3-8B dense example](../integrations/orchestrators/vime/dense/README.md).
+It is opt-in with `--pd`, limited to H100 TP4/CP2 training
+and one TP4 engine per rollout role; it is not part of the GPU-validated
+regular-engine reference matrix below.
+The one-step H100 smoke passed exact logprob checks; the example documents
+the separate two-update acceptance and the 25% vLLM memory fraction needed
+for colocated Prefill/Decode KV cache wakeup.
+
 The bundled CUDA profile targets one Linux node with eight 80 GB NVIDIA H100 GPUs.
 Megatron runs TP4/CP2 and two colocated vLLM engines run TP4. The frozen runtime
 contract is Python 3.11.15, PyTorch 2.9.1, vLLM 0.16.0, Ray 2.57.0, and
