@@ -347,6 +347,13 @@ def test_gated_shape_mismatch_raises():
         op.forward_fp32(x, w, _rand((3, _HEAD_V_DIM), seed=32))
 
 
+def test_gated_dtype_mismatch_names_both_dtypes():
+    op = Qwen3NextRMSNormGatedOp()
+    x, w = _rand((2, _HEAD_V_DIM), seed=33), _rand((_HEAD_V_DIM,), seed=34)
+    with pytest.raises(ValueError, match=r"gate=\(dtype=torch.float64"):
+        op.forward_fp32(x, w, _rand((2, _HEAD_V_DIM), seed=35).double())
+
+
 # --------------------------------------------------------------------------- #
 # 6. CUDA kernel: the offset is applied in fp32 inside the kernel
 # --------------------------------------------------------------------------- #
@@ -625,13 +632,35 @@ def test_cuda_gated_weight_offset_is_applied_in_fp32():
 
 
 @requires_cuda_gated
+def test_cuda_gated_backward_is_offset_aware():
+    """dx and dgate must see (1 + w); dw is offset-independent since d/dw (1+w) == d/dw w."""
+    from rl_engine.backends.cuda.norm.rmsnorm import rmsnorm_gated_cuda
+
+    x, w, gate = (t.float() for t in _gated_cuda_inputs(rows=128))
+    dy = torch.randn_like(x)
+    grads = {}
+    for name, weight, off in (("offset", w, 1.0), ("explicit", 1.0 + w, 0.0), ("plain", w, 0.0)):
+        xg, gg = x.clone().requires_grad_(True), gate.clone().requires_grad_(True)
+        wg = weight.clone().requires_grad_(True)
+        rmsnorm_gated_cuda(xg, wg, gg, eps=_EPS, weight_offset=off).backward(dy.clone())
+        grads[name] = (xg.grad, gg.grad, wg.grad)
+    for got, want in zip(grads["offset"], grads["explicit"], strict=True):
+        assert torch.equal(got, want)
+    assert not torch.equal(grads["offset"][0], grads["plain"][0])  # dx differs
+    assert not torch.equal(grads["offset"][1], grads["plain"][1])  # dgate differs
+    assert torch.equal(grads["offset"][2], grads["plain"][2])  # dw does not
+
+
+@requires_cuda_gated
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.parametrize("activation", ["silu", "sigmoid"])
-def test_cuda_gated_parameter_vjp_contributions_match_the_fold(dtype, activation):
-    """Compare the harness hook with actual autograd, including its CUDA rstd."""
+@pytest.mark.parametrize("shape", [(512,), (2, 256)])
+def test_cuda_gated_parameter_vjp_contributions_match_the_fold(dtype, activation, shape):
+    """Compare the harness hook with actual autograd, including its CUDA rstd and N-D x."""
     from rl_engine.backends.cuda.norm.rmsnorm import Qwen3NextRMSNormGatedCudaOp, _fold_dweight_rows
 
     x, w, gate = (t.to(dtype) for t in _gated_cuda_inputs(rows=512))
+    x, gate = x.reshape(*shape, -1), gate.reshape(*shape, -1)
     w = w.float().requires_grad_()
     dy = torch.randn_like(x)
     op = Qwen3NextRMSNormGatedCudaOp(activation=activation)
@@ -639,7 +668,7 @@ def test_cuda_gated_parameter_vjp_contributions_match_the_fold(dtype, activation
     rows = op.parameter_vjp_contributions_fp32(x=x, weight=w, gate=gate, grad_output=dy, eps=_EPS)[
         "weight"
     ]
-    assert torch.equal(_fold_dweight_rows(rows, torch.float32), w.grad)
+    assert torch.equal(_fold_dweight_rows(rows.reshape(-1, x.shape[-1]), torch.float32), w.grad)
 
 
 @requires_cuda_gated

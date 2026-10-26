@@ -40,7 +40,10 @@ def test_norm_manifest_pins_real_architecture_and_separate_scope():
         )
 
 
-@pytest.mark.parametrize("fault", ["architecture", "full_model", "revision", "shape", "binding"])
+@pytest.mark.parametrize(
+    "fault",
+    ["architecture", "full_model", "revision", "shape", "binding", "chain_dtype", "duplicate_op"],
+)
 def test_norm_manifest_rejects_false_evidence_even_with_regenerated_hash(fault):
     raw = copy.deepcopy(load_manifest(MANIFEST).raw)
     if fault == "architecture":
@@ -49,6 +52,11 @@ def test_norm_manifest_rejects_false_evidence_even_with_regenerated_hash(fault):
         raw["full_model_evidence"] = True
     elif fault == "revision":
         raw["model_identity"]["revision"] = "main"
+    elif fault == "chain_dtype":
+        raw["chain_semantics"]["execution_dtype"] = "float16"
+    elif fault == "duplicate_op":
+        ops = raw["capabilities"]["required_chain_ops"]
+        ops.append(dict(ops[0]))
     elif fault == "shape":
         raw["representative_cases"][0]["hidden"] = 64
     else:
@@ -59,7 +67,19 @@ def test_norm_manifest_rejects_false_evidence_even_with_regenerated_hash(fault):
 
 
 @pytest.mark.parametrize(
-    "missing", ["model_identity", "stochastic_policy", "primary_matrix", "fixtures", "capabilities"]
+    "missing",
+    [
+        "model_identity",
+        "stochastic_policy",
+        "primary_matrix",
+        "fixtures",
+        "capabilities",
+        "chain_semantics",
+        "seed",
+        "workload_id",
+        "version",
+        "provenance_boundary",
+    ],
 )
 def test_norm_manifest_missing_block_raises_workload_error(missing):
     """A required block removed from a norm manifest is a WorkloadError, not a KeyError."""
@@ -107,7 +127,11 @@ def test_norm_adapters_are_required_by_the_norm_manifest_only():
 
 @pytest.mark.parametrize(
     "source,scope",
-    [(MANIFEST, "qwen3-next-norm-operators"), (None, "qwen3_next_norm_operator")],
+    [
+        (MANIFEST, "qwen3-next-norm-operators"),
+        (None, "qwen3_next_norm_operator"),
+        (MANIFEST, None),
+    ],
 )
 def test_unknown_manifest_scope_is_rejected(tmp_path, source, scope):
     """A typo'd scope is a scope error, not a Dense fingerprint mismatch or a silent Dense."""
