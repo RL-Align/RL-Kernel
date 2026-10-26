@@ -107,6 +107,11 @@ class TestReference:
         with pytest.raises(TypeError):
             op.forward(_temb(2, 16, device="cpu"), weight, bias.float())
 
+    def test_rejects_a_zero_width_input_instead_of_returning_the_bias(self):
+        weight, bias = _synthetic(8, 16, device="cpu")
+        with pytest.raises(ValueError, match="nonzero input width"):
+            NativeH3AdaLNProjectionOp().forward(_temb(2, 0, device="cpu"), weight[:, :0], bias)
+
 
 @requires_cuda
 class TestLayout:

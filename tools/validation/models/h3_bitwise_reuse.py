@@ -161,6 +161,23 @@ def _same(a: torch.Tensor | None, b: torch.Tensor | None) -> dict[str, Any] | No
     }
 
 
+def _compare_case(run: dict[str, Any], ref_run: dict[str, Any] | None) -> dict[str, Any]:
+    """Compare one case with the reference's run of it.
+
+    A case the reference never saved is unavailable.
+
+    A reference child can die after saving only some of its cases (an out-of-memory at the largest
+    size, say); the comparisons that did complete must still reach the report.
+    """
+
+    if ref_run is None:
+        return {"unavailable": "the reference run has no saved result for this case"}
+    return {
+        "out": [_same(a, b) for a, b in zip(run["out"], ref_run["out"])],
+        "grads": {g: _same(run["grads"].get(g), ref_run["grads"].get(g)) for g in run["grads"]},
+    }
+
+
 def compare(parts: Path) -> dict[str, Any]:
     runs: dict[str, dict[str, Any]] = {}
     for f in sorted(parts.glob("*.pt")):
@@ -174,14 +191,7 @@ def compare(parts: Path) -> dict[str, Any]:
             if ref == name:
                 continue
             entry[f"vs {ref}"] = {
-                case: {
-                    "out": [_same(a, b) for a, b in zip(run["out"], runs[ref][case]["out"])],
-                    "grads": {
-                        g: _same(run["grads"].get(g), runs[ref][case]["grads"].get(g))
-                        for g in run["grads"]
-                    },
-                }
-                for case, run in by_case.items()
+                case: _compare_case(run, runs[ref].get(case)) for case, run in by_case.items()
             }
         out[name] = entry
     for f in parts.glob("*.unavailable"):
