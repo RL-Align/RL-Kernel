@@ -10,7 +10,11 @@ import torch
 
 from rl_engine.validation.models.h3_report import h3_weights_source
 from rl_engine.validation.models.h3_weights import WEIGHTS_ENV, h3_weights_dir
-from tools.validation.models.h3_evidence import check_weight_source, measure_case
+from tools.validation.models.h3_evidence import (
+    check_weight_source,
+    measure_case,
+    require_pinned_weights,
+)
 
 
 def test_without_the_pinned_checkpoint_the_source_is_random(monkeypatch):
@@ -33,6 +37,14 @@ def test_mlp_evidence_is_refused_without_pinned_weights():
     check_weight_source("timestep_mlp_fp32", pinned_run, allow_random=False)
     # the sinusoid op has no weights, so it records none
     check_weight_source("timestep_sinusoid_h3", {"accuracy": {}}, allow_random=False)
+
+
+def test_mlp_evidence_is_refused_before_measuring_without_pinned_weights(monkeypatch):
+    monkeypatch.delenv(WEIGHTS_ENV, raising=False)
+    with pytest.raises(SystemExit, match="pinned time_embedder weights"):
+        require_pinned_weights("timestep_mlp_fp32", allow_random=False)
+    require_pinned_weights("timestep_mlp_fp32", allow_random=True)
+    require_pinned_weights("timestep_sinusoid_h3", allow_random=False)
 
 
 def test_the_figure_title_names_the_recorded_weight_source():
