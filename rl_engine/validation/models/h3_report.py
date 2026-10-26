@@ -183,6 +183,12 @@ def h3_params(names: list[str], shapes: list[tuple[int, ...]]) -> list[torch.Ten
     ]
 
 
+def h3_weights_source() -> str:
+    """Source ``h3_params`` draws from: ``pinned`` checkpoint tensors or ``random`` ones."""
+
+    return "pinned" if h3_weights_dir() is not None else "random"
+
+
 # --------------------------------------------------------------------------- #
 # timestep_mlp_fp32
 # --------------------------------------------------------------------------- #
@@ -207,6 +213,7 @@ def _mlp_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
                 "case": f"T={num}",
                 "backend": type(op).__name__,
                 "bytes": weight_bytes,
+                "weights": h3_weights_source(),
                 "candidate": lambda x=x: op(x, *params),
                 "provider": lambda x=x: provider_time_embedder(x, *params),
             }
@@ -233,6 +240,7 @@ def _mlp_accuracy(registry: KernelRegistry, draws: int = 200) -> dict[str, Any]:
     invariant = all(torch.equal(op(x[i : i + 1], *params)[0], full[i]) for i in range(9))
     return {
         "contract_atol": 1e-4,
+        "weights_source": h3_weights_source(),
         "draws": draws,
         "num_timesteps": 4,
         "cuda_max_abs_vs_fp64": cuda_err,
