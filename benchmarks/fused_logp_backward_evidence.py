@@ -87,11 +87,12 @@ def _vjp(vjp):
     """The autograd VJP reads the module attribute at backward time, so patch it
     for the whole forward + backward."""
 
+    previous = logp_mod.fused_logp_backward_chunked
     logp_mod.fused_logp_backward_chunked = vjp
     try:
         yield
     finally:
-        logp_mod.fused_logp_backward_chunked = CHUNKED
+        logp_mod.fused_logp_backward_chunked = previous
 
 
 def _autograd_fn(backend):

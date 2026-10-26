@@ -195,10 +195,18 @@ def test_fused_backward_is_deterministic_and_batch_invariant():
     logits, labels, grad = _make_inputs(96, 32_000, torch.bfloat16, "cuda", seed=5)
     full = _C.fused_logp_backward(logits, labels, grad)
     assert torch.equal(full, _C.fused_logp_backward(logits, labels, grad))
+    # An independent FP64 oracle, so a row-offset bug that shifts the full and the
+    # sliced call identically cannot pass by comparing the kernel with itself.
+    one_hot = torch.nn.functional.one_hot(labels, 32_000).double()
+    oracle = (grad.double()[:, None] * (one_hot - torch.softmax(logits.double(), -1))).to(
+        torch.bfloat16
+    )
+    torch.testing.assert_close(full, oracle, atol=1e-2, rtol=1.6e-2)
     for rows in ([0], [5, 17, 95], list(range(31, 64))):
         idx = torch.tensor(rows, device="cuda")
         part = _C.fused_logp_backward(logits[idx].contiguous(), labels[idx], grad[idx])
         assert torch.equal(part, full[idx])
+        torch.testing.assert_close(part, oracle[idx], atol=1e-2, rtol=1.6e-2)
 
 
 @requires_fused_backward
@@ -243,6 +251,12 @@ def test_fused_backward_guards_tensor_device_and_uses_its_current_stream(dtype):
         with torch.cuda.device(tensor_device):
             torch.cuda.set_stream(stream)
             logits, labels, grad = _make_inputs(13, 1031, dtype, f"cuda:{tensor_device}", seed=20)
+            true_grad = grad.clone()
+            # Queue a long sleep and then the real gradient on the stream. A launch on
+            # any other stream would read the zeros below instead of the final values.
+            grad.zero_()
+            torch.cuda._sleep(200_000_000)
+            grad.copy_(true_grad)
         assert torch.cuda.current_device() == caller_device
         assert torch.cuda.current_stream(tensor_device) == stream
 
@@ -250,6 +264,7 @@ def test_fused_backward_guards_tensor_device_and_uses_its_current_stream(dtype):
         assert torch.cuda.current_device() == caller_device
         assert actual.device == logits.device
         stream.synchronize()
+        grad = true_grad
 
         expected = _reference_grad(logits.cpu(), labels.cpu(), grad.cpu()).to(dtype)
         torch.testing.assert_close(actual.cpu(), expected, atol=1e-5, rtol=1.6e-2)

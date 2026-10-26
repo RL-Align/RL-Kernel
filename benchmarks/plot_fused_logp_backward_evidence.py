@@ -33,7 +33,7 @@ def main() -> None:
     path = Path(sys.argv[1])
     report = json.loads(path.read_text())
     names = list(report["row_invariance"])
-    perf = report["performance"]
+    perf = report.get("performance")
     fig, axes = plt.subplots(2, 2, figsize=(16, 11), layout="constrained")
     fig.suptitle(
         f"Generic fused logp backward (#174) — {report['environment']['gpu']}, "
@@ -45,6 +45,17 @@ def main() -> None:
         (axes[0, 0], "step_ms", "forward + backward time (median)"),
         (axes[0, 1], "peak_gib", "peak memory above the inputs (incl. returned grad)"),
     ):
+        if perf is None:
+            ax.text(
+                0.5,
+                0.5,
+                "no performance check in this report",
+                ha="center",
+                va="center",
+                transform=ax.transAxes,
+            )
+            ax.set_title(label)
+            continue
         for name in names:
             rows = sorted(int(r) for r in perf[name])
             ax.plot(

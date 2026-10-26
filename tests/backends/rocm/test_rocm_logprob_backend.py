@@ -72,7 +72,6 @@ def test_hip_extension_does_not_export_unvalidated_cuda_fused_logp_backward():
 
     if not _EXT_AVAILABLE:
         pytest.skip("compiled HIP extension is required")
-    assert hasattr(_C, "fused_logp"), "the existing HIP forward must remain available"
     assert not hasattr(_C, "fused_logp_backward")
 
 

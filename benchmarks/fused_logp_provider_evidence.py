@@ -183,6 +183,11 @@ def _vllm_forward(logits: torch.Tensor) -> dict[str, Any]:
         raise RuntimeError("actual vLLM WS2 provider did not expose observed logp/LSE locals")
     labels = result.sampled_token_ids.reshape(-1).long()
     ids = result.logprobs_tensors.logprob_token_ids
+    present = (ids == labels[:, None]).any(dim=-1)
+    if not bool(present.all()):
+        raise RuntimeError(
+            f"{int((~present).sum())} sampled tokens are missing from logprob_token_ids"
+        )
     columns = (ids == labels[:, None]).long().argmax(dim=-1)
     selected = result.logprobs_tensors.logprobs.gather(1, columns[:, None]).reshape(-1)
     return {

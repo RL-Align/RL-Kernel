@@ -27,8 +27,16 @@ def _loop_arithmetic_harness(source: str) -> str:
         kernel,
     )
     indices = re.findall(r"(?:int|int64_t) i = base \+ u \* stride;", kernel)
-    assert len(declarations) == 2 and len(loops) == 4 and len(indices) == 4
-    unroll = int(re.search(r"kFusedLogpBackwardUnroll = (\d+);", source)[1])
+    out_of_sync = (
+        "the INT_MAX harness is out of sync with fused_logp_kernel.cu "
+        f"(found {len(declarations)} declarations, {len(loops)} loops, "
+        f"{len(indices)} index lines; expected 2, 4, 4): update the patterns here, "
+        "this is not an overflow regression"
+    )
+    assert len(declarations) == 2 and len(loops) == 4 and len(indices) == 4, out_of_sync
+    unroll_match = re.search(r"kFusedLogpBackwardUnroll = (\d+);", source)
+    assert unroll_match is not None, out_of_sync
+    unroll = int(unroll_match[1])
 
     functions = []
     checks = []
