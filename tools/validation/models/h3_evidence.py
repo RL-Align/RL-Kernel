@@ -29,6 +29,15 @@ from rl_engine.validation.models.h3_report import ACCURACY, PERF_CASES, measure 
 from rl_engine.validation.models.h3_weights import load_h3_manifest  # noqa: E402
 
 
+def measure_case(case: dict) -> dict:
+    """Time one perf case and keep the weight source the case was built with next to the timings."""
+
+    row = measure(case)
+    if "weights" in case:
+        row["weights"] = case["weights"]
+    return row
+
+
 def check_weight_source(op: str, report: dict, allow_random: bool) -> None:
     """Refuse a timestep_mlp_fp32 report that was measured without the pinned checkpoint."""
 
@@ -71,7 +80,7 @@ def main() -> None:
         **git_state(),
         "environment": environment(),
         "accuracy": ACCURACY[args.op](registry),
-        "perf": [measure(case) for case in PERF_CASES[args.op](registry)],
+        "perf": [measure_case(case) for case in PERF_CASES[args.op](registry)],
     }
     check_weight_source(args.op, report, args.allow_random_weights)
     args.out.parent.mkdir(parents=True, exist_ok=True)

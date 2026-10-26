@@ -10,7 +10,7 @@ import torch
 
 from rl_engine.validation.models.h3_report import MLP_NAMES, MLP_SHAPES, h3_params
 from rl_engine.validation.models.h3_weights import WEIGHTS_ENV, h3_weights_dir
-from tools.validation.models.h3_evidence import check_weight_source
+from tools.validation.models.h3_evidence import check_weight_source, measure_case
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA device")
@@ -49,3 +49,20 @@ def test_the_figure_title_names_the_recorded_weight_source():
     assert "pinned time_embedder weights" in mlp_title({"accuracy": {"weights_source": "pinned"}})
     assert "random" in mlp_title({"accuracy": {"weights_source": "random"}})
     assert "not recorded" in mlp_title({"accuracy": {}})
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA device")
+def test_a_perf_row_keeps_the_weight_source_of_its_case():
+    a = torch.randn(128, 128, device="cuda")
+    case = {
+        "op": "matmul",
+        "case": "T=1",
+        "backend": "torch",
+        "bytes": 1 << 16,
+        "weights": "random",
+        "candidate": lambda: a @ a,
+    }
+    row = measure_case(case)
+    assert row["weights"] == "random"
+    assert row["candidate_us"] > 0
+    assert "weights" not in measure_case({k: v for k, v in case.items() if k != "weights"})
