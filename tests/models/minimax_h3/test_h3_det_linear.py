@@ -8,8 +8,12 @@ from __future__ import annotations
 import pytest
 import torch
 
+from rl_engine.backends.cuda.model_specific.minimax_h3.det_linear import (
+    det_linear_available,
+    det_linear_device_supported,
+    det_linear_forward,
+)
 from rl_engine.backends.extension import _C
-from rl_engine.backends.cuda.model_specific.minimax_h3.det_linear import det_linear_available
 
 pytestmark = [
     pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA device"),
@@ -66,3 +70,37 @@ def test_backward_weight_handles_empty_columns(dtype, w_dtype, k_in, n_out, with
     torch.testing.assert_close(actual[0], expected_weight, atol=0, rtol=0)
     if with_bias:
         torch.testing.assert_close(actual[1], grad.sum(dim=0).to(w_dtype), atol=0, rtol=0)
+
+
+def test_device_support_follows_the_device_that_is_asked_about(monkeypatch):
+    """The capability is read for the given device, not for the current one."""
+
+    seen = []
+
+    def capability(device=None):
+        seen.append(device)
+        return (7, 5) if device == torch.device("cuda:0") else (9, 0)
+
+    monkeypatch.setattr(torch.cuda, "get_device_capability", capability)
+    assert not det_linear_device_supported(torch.device("cuda:0"))
+    assert det_linear_device_supported(torch.device("cuda:1"))
+    assert not det_linear_device_supported(torch.device("cpu"))
+    assert seen == [torch.device("cuda:0"), torch.device("cuda:1")]
+
+
+def test_no_cuda_means_no_support(monkeypatch):
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    assert not det_linear_device_supported()
+
+
+def test_bf16_forward_is_refused_on_a_pre_sm80_device_with_a_clear_error(monkeypatch):
+    """The wrapper checks the tensors' device, so no opaque launch error reaches the caller."""
+
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda device=None: (7, 5))
+    x = torch.zeros(1, 64, device="cuda", dtype=torch.bfloat16)
+    w = torch.zeros(8, 64, device="cuda", dtype=torch.bfloat16)
+    with pytest.raises(RuntimeError, match="SM80"):
+        det_linear_forward(x, w, None)
+    # FP32 does not use mma.sync and is not refused.
+    out = det_linear_forward(x.float(), w.float(), None)[0]
+    assert out.shape == (1, 8)

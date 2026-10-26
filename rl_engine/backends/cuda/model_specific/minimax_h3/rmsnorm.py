@@ -98,7 +98,16 @@ class H3RMSNormCudaOp:
         validate_h3_modulation(x, shift, scale, index, check_range=check_range)
         if not x.is_cuda:
             raise ValueError("H3RMSNormCudaOp needs CUDA tensors")
-        if shift.stride(1) != 1 or scale.stride(1) != 1 or shift.stride(0) != scale.stride(0):
+        # A view of a wider table (``table.chunk(2, dim=-1)``: unit column stride, row stride 2H)
+        # goes to the kernel as it is, which indexes rows by the stride. Anything that is not a
+        # table of dense rows (mixed layouts, or rows that overlap because the stride is below
+        # H) is copied first.
+        if (
+            shift.stride(1) != 1
+            or scale.stride(1) != 1
+            or shift.stride(0) != scale.stride(0)
+            or (shift.shape[0] > 1 and shift.stride(0) < shift.shape[1])
+        ):
             shift, scale = shift.contiguous(), scale.contiguous()
         return _H3RMSNormCuda.apply(x, weight, shift, scale, index.contiguous(), eps)
 

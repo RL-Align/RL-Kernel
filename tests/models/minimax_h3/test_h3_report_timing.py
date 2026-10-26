@@ -60,7 +60,10 @@ def test_backward_timings_of_every_perf_case_exclude_the_forward_pass(monkeypatc
     from rl_engine.runtime.registry import KernelRegistry
     from rl_engine.validation.models import h3_report
 
-    monkeypatch.setattr(h3_report, "NORM_SEQ_LENS", (257,))
+    # The structure is what is checked; the cases need not be as large as the evidence runs.
+    for name in ("GATHER_SEQ_LENS", "NORM_SEQ_LENS"):
+        if hasattr(h3_report, name):
+            monkeypatch.setattr(h3_report, name, (257,))
     registry = KernelRegistry()
     checked = 0
     for op, build in h3_report.PERF_CASES.items():
