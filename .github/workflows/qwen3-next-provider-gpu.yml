@@ -37,6 +37,11 @@ on:
       - "csrc/cuda/norm/**"
       - "csrc/bindings/**"
       - "rl_engine/contracts/**"
+      - "csrc/cuda/logprob/**"
+      - "rl_engine/integrations/engines/rollout/vllm/qwen3_next*"
+      - "rl_engine/integrations/common/qwen3_next*"
+      - "rl_engine/integrations/orchestrators/vime/experiments/qwen3_next/**"
+      - "rl_engine/distributed/algorithms/collectives.py"
       - ".github/workflows/qwen3-next-provider-gpu.yml"
   workflow_dispatch:
     inputs:
