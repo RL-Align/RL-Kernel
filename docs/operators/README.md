@@ -32,4 +32,5 @@ Every operator page should include:
 - [Matmul](matmul.md)
 - [Sampling](sampling.md)
 - [Token Embedding](embedding.md)
+- [Learned Router Weights and Capacity](learned-route.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)
