@@ -30,6 +30,7 @@ from rl_engine.validation.cross_config._provenance import (
 )
 from rl_engine.validation.cross_config.artifacts import REQUIRED_CASE_ARTIFACTS
 from rl_engine.validation.cross_config.comparison import recompute_mismatch_mask
+from rl_engine.validation.cross_config.divergence import first_divergence
 from rl_engine.validation.cross_config.runtime import RuntimeMaterialization
 from rl_engine.validation.cross_config.schema import (
     CanonicalScoringBatch,
@@ -112,6 +113,7 @@ def completed_attempt_matches(
     runtime = materialization.provenance.to_dict()
     effective_status = effective_runtime_status(materialization).value
     score_tensors: dict[str, Mapping[str, torch.Tensor]] = {}
+    score_provenance: dict[str, Mapping[str, Any]] = {}
     for target in ("rollout", "training"):
         prior = actual.get(target)
         if not isinstance(prior, Mapping):
@@ -170,6 +172,7 @@ def completed_attempt_matches(
             score_payload = _load_resume_tensor_bundle(attempt_dir / f"score_{target}.pt")
             score_artifact = score_payload["metadata"]["score_artifact"]
             prior_scorer = score_artifact["scorer"]
+            score_provenance[target] = _resume_runtime_identity(score_artifact, batch)
         except (OSError, KeyError, TypeError, RuntimeError, ValueError):
             return False
         expected_scorer = concrete_scorer_spec(specs[target], instance).to_dict()
@@ -213,6 +216,7 @@ def completed_attempt_matches(
         marker,
         score_tensors,
         specs,
+        score_provenance,
     )
 
 
@@ -238,6 +242,7 @@ def _resume_comparison_matches(
     marker: Mapping[str, Any],
     scores: Mapping[str, Mapping[str, torch.Tensor]],
     specs: Mapping[str, ScorerSpec],
+    score_provenance: Mapping[str, Mapping[str, Any]],
 ) -> bool:
     try:
         comparison = read_json_object(attempt_dir / "comparison.json")
@@ -309,6 +314,12 @@ def _resume_comparison_matches(
         active_mask,
         absolute_diff,
         mismatch_count,
+        provenance={
+            "case_id": case.case_id,
+            "attempt_id": attempt_dir.name,
+            "rollout": score_provenance["rollout"],
+            "training": score_provenance["training"],
+        },
     )
     expected_comparison = {
         "schema_version": "cross_config.alignment_result.v1",
@@ -353,6 +364,7 @@ def _comparison_diagnostics(
     active_mask: torch.Tensor,
     absolute_diff: torch.Tensor,
     mismatch_count: int,
+    provenance: Mapping[str, Any],
 ) -> dict[str, Any]:
     active_diff = absolute_diff[active_mask].float()
     delta = (training[active_mask] - rollout[active_mask]).float()
@@ -371,6 +383,31 @@ def _comparison_diagnostics(
         "approximate_kl_mean": approximate_kl_mean,
         "approximate_kl_finite": approximate_kl_mean is not None,
         "worst_token_index": worst_token,
+        "divergence": first_divergence(
+            rollout,
+            training,
+            tensor_name="selected_logprobs",
+            active_mask=active_mask,
+            axis_names=("sample", "token") if rollout.ndim == 2 else None,
+            provenance=provenance,
+        ).to_dict(),
+    }
+
+
+def _resume_runtime_identity(
+    score_artifact: Mapping[str, Any], batch: CanonicalScoringBatch
+) -> dict[str, Any]:
+    provenance = score_artifact.get("provenance", {})
+    requested = provenance.get("requested", {})
+    actual = provenance.get("actual", {})
+    return {
+        "requested_backend": requested.get("logp", {}).get("backend"),
+        "actual_backend": actual.get("logp", {}).get("backend"),
+        "implementation_fingerprint": provenance.get("implementation_fingerprint", ""),
+        "rank": provenance.get("rank", 0),
+        "world_size": provenance.get("world_size", 1),
+        "model_version": batch.identity.model_version,
+        "checkpoint_id": batch.identity.checkpoint_id,
     }
 
 
