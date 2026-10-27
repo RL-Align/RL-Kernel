@@ -17,9 +17,9 @@ import torch
 from torch.utils import cpp_extension
 
 from build_tools.extensions import (
+    _OPTIONS_FILE_MAX_BYTES,
     H3_BITWISE_SOURCES,
     H3_KERNELS_DEFINE,
-    _external_relaxed_math,
     _relaxed_math_reason,
     _resolve_package_data_source,
     _tokens_relax_math,
@@ -27,6 +27,10 @@ from build_tools.extensions import (
 )
 
 _NVCC_ENV = ("NVCC_PREPEND_FLAGS", "NVCC_APPEND_FLAGS", "TORCH_NVCC_FLAGS")
+
+
+def _external_relaxed_math() -> bool:
+    return _relaxed_math_reason() is not None
 
 
 def _clear_nvcc_env(monkeypatch) -> None:
@@ -153,6 +157,7 @@ def test_relaxed_math_nvcc_flags_from_the_environment_exclude_bitwise_h3_kernels
     # The flags are appended after the ones built here, so a build with
     # NVCC_APPEND_FLAGS='--use_fast_math' would otherwise ship H3 kernels with approximated math.
     _clear_nvcc_env(monkeypatch)
+    assert _relaxed_math_reason() is None  # a leaked variable would fail the control, not the flags
     control = _load_extension_config(monkeypatch, hip=None)
     assert set(H3_BITWISE_SOURCES) <= set(control["sources"])  # the flags are the only difference
 
@@ -201,10 +206,9 @@ def test_predicate_sees_every_spelling_of_relaxed_math(monkeypatch, flags) -> No
         "--fmad=false",
         "--ftz=false",
         "--ftz false",
-        "-ftz=0",
+        "--ftz=FALSE",
         "--prec-div=true",
-        "--prec-div true -O2",
-        "-prec-sqrt 1",
+        "--prec-div TRUE -O2",
         "-O2 -gencode arch=compute_90,code=sm_90",
         "--use_fast_mathematically",
     ],
@@ -239,6 +243,14 @@ _OPTION_FILES = {
     "sqrt.opts": "--prec-sqrt=false",
     "plain.opts": "-lineinfo\n--fmad=false\n",
     "nested.opts": "-optf fast.opts\n",
+    # Names with a space or ';' are one word when double-quoted, as nvcc reads them. The decoys
+    # ``my`` and ``a`` are what a parser that split the quoted word would read instead.
+    "my opts.txt": "--use_fast_math\n",
+    "my": "-lineinfo\n",
+    "a;b.txt": "--ftz=true\n",
+    "a": "-lineinfo\n",
+    "plain opts.txt": "-lineinfo\n",
+    "plain": "--use_fast_math\n",
 }
 
 
@@ -256,6 +268,10 @@ _OPTION_FILES = {
         ("--options-file=plain.opts,plain.opts", False),
         ("@fast.opts", True),
         ("@plain.opts", False),
+        ('--options-file "my opts.txt"', True),
+        ('-optf="my opts.txt"', True),
+        ('-optf "a;b.txt"', True),
+        ('-optf "plain opts.txt"', False),
     ],
 )
 def test_predicate_reads_the_options_files_nvcc_reads(
@@ -279,6 +295,40 @@ def test_options_files_nvcc_cannot_open_count_as_relaxed(monkeypatch, tmp_path, 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("NVCC_PREPEND_FLAGS", flags)
     assert _external_relaxed_math()
+
+
+@pytest.mark.parametrize(
+    "flags",
+    ["--ftz=yes", "--ftz=0", "-ftz 1", "--prec-div=no", "--prec-div maybe", "-prec-sqrt=1"],
+)
+def test_values_nvcc_does_not_take_are_not_read_as_the_exact_spelling(monkeypatch, flags) -> None:
+    # nvcc stops on these; the build then fails, but the predicate must not call them safe.
+    _clear_nvcc_env(monkeypatch)
+    monkeypatch.setenv("NVCC_APPEND_FLAGS", flags)
+    reason = _relaxed_math_reason()
+    assert reason is not None, flags
+    assert "NVCC_APPEND_FLAGS contains" in reason, reason
+
+
+def test_options_files_that_are_not_ordinary_small_files_are_not_read(
+    monkeypatch, tmp_path
+) -> None:
+    # An options file is read whole before anything checks it. A device node (``/dev/zero`` never
+    # ends) or a FIFO would hang the configure step, and a huge file would exhaust memory.
+    _clear_nvcc_env(monkeypatch)
+    big = tmp_path / "big.opts"
+    big.write_text("-lineinfo\n" * (_OPTIONS_FILE_MAX_BYTES // 8))
+    fifo = tmp_path / "fifo.opts"
+    os.mkfifo(fifo)
+    for name, why in [
+        ("/dev/zero", "not a regular file"),
+        (str(fifo), "not a regular file"),
+        (str(tmp_path), "not a regular file"),
+        (str(big), "larger than"),
+    ]:
+        monkeypatch.setenv("NVCC_APPEND_FLAGS", f"-optf {name}")
+        reason = _relaxed_math_reason()
+        assert reason is not None and why in reason, (name, reason)
 
 
 def test_the_build_warning_names_the_variable_and_the_reason(monkeypatch, tmp_path) -> None:
@@ -306,6 +356,23 @@ def _nvcc() -> str | None:
     return shutil.which("nvcc")
 
 
+_FLAG_SETS_THAT_RELAX = {
+    "--use_fast_math",
+    "-use_fast_math",
+    "--ftz=true",
+    "-ftz true",
+    "--prec-div=false",
+    "-prec-div false",
+    "--prec-sqrt=false",
+    "-optf fast.opts",
+    "--options-file=ftz.opts",
+    "--options-file plain.opts,sqrt.opts",
+    "-optf nested.opts",
+    '--options-file "my opts.txt"',
+    '-optf "a;b.txt"',
+}
+
+
 @pytest.mark.skipif(_nvcc() is None, reason="needs nvcc")
 @pytest.mark.parametrize(
     "flags",
@@ -328,6 +395,10 @@ def _nvcc() -> str | None:
         "--options-file plain.opts,sqrt.opts",
         "-optf plain.opts",
         "-optf nested.opts",
+        '--options-file "my opts.txt"',
+        '-optf "a;b.txt"',
+        '-optf "plain opts.txt"',
+        "-O2 --ftz=false --prec-div=true --prec-sqrt=true",
     ],
 )
 @pytest.mark.parametrize("variable", ["NVCC_PREPEND_FLAGS", "NVCC_APPEND_FLAGS"])
@@ -354,10 +425,13 @@ def test_predicate_agrees_with_what_nvcc_compiles_with(
     assert done.returncode == 0, done.stderr
     cicc = [line for line in done.stderr.splitlines() if "cicc" in line]
     assert cicc, done.stderr
-    nvcc_relaxes = any(
-        f" {opt} " in f" {cicc[0]} " for opt in ("-ftz=1", "-prec_div=0", "-prec_sqrt=0")
-    )
-    assert _external_relaxed_math() is nvcc_relaxes, (variable, flags, cicc[0])
+    line = f" {cicc[0]} "
+    # The three options must be in the line at all, so a format change fails here and does not make
+    # every flag set look unrelaxed; and the sets that relax must be seen to relax.
+    assert all(f" {opt}=" in line for opt in ("-ftz", "-prec_div", "-prec_sqrt")), line
+    nvcc_relaxes = any(f" {opt} " in line for opt in ("-ftz=1", "-prec_div=0", "-prec_sqrt=0"))
+    assert nvcc_relaxes is (flags in _FLAG_SETS_THAT_RELAX), (flags, line)
+    assert _external_relaxed_math() is nvcc_relaxes, (variable, flags, line)
 
 
 def test_no_flag_built_here_relaxes_math_while_the_h3_define_is_set(monkeypatch) -> None:

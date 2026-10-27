@@ -370,6 +370,16 @@ class TestCudaBackward:
                 first = first.clone(); first[-1] = first[-1] - 1
             elif mutation == "no_tiles":
                 begin = begin[:0]; end = end[:0]
+            elif mutation == "no_tiles_and_empty_segments":
+                begin = begin[:0]; end = end[:0]; first = torch.zeros_like(first)
+            elif mutation == "gap_between_tiles":
+                begin = begin.clone(); begin[1] += 1
+            elif mutation == "overlapping_tiles":
+                begin = begin.clone(); begin[1] -= 1
+            elif mutation == "first_tile_not_at_zero":
+                begin = begin.clone(); begin[0] += 1
+            elif mutation == "last_tile_stops_short":
+                end = end.clone(); end[-1] -= 1
             _C.h3_adaln_row_gather_backward(grad, sorted_pos, begin, end, first, torch.float32)
             torch.cuda.synchronize()
             """
@@ -393,11 +403,20 @@ class TestCudaBackward:
             "segments_past_tiles",
             "first_segment_not_at_tile_zero",
             "last_tile_owned_by_no_segment",
-            "no_tiles",
+            "gap_between_tiles",
+            "overlapping_tiles",
+            "first_tile_not_at_zero",
+            "last_tile_stops_short",
         ):
             done = self._backward_probe(mutation)
             assert done.returncode != 0, mutation
             assert "device-side assert triggered" in done.stderr, (mutation, done.stderr)
+        # An empty tile list over a non-empty sequence is refused on the host, before any launch,
+        # whether or not the segment boundaries agree with it.
+        for mutation in ("no_tiles", "no_tiles_and_empty_segments"):
+            done = self._backward_probe(mutation)
+            assert done.returncode != 0, mutation
+            assert "tile list is empty" in done.stderr, (mutation, done.stderr)
 
     @pytest.mark.parametrize("grad_dtype", [torch.float32, torch.bfloat16, torch.float16])
     @pytest.mark.parametrize("out_dtype", [torch.float32, torch.bfloat16])
