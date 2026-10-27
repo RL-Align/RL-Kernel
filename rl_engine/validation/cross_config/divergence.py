@@ -277,7 +277,15 @@ def compute_mismatch_mask(
     fixed_threshold: float,
     relative_tolerance: float = 0.0,
 ) -> torch.Tensor:
-    """Apply the shared finite-value and tolerance rules used by every reporter."""
+    """Apply comparison_semantics.v2 rules shared by comparison and resume.
+
+    Matching signed infinities are equal; NaN and other non-finite pairs are
+    mismatches. Signed zeros differ when the absolute threshold is zero.
+    This intentionally supersedes the old abs-difference-only predicate.
+    Persisted diagnostics carry COMPARISON_SEMANTICS_VERSION, so attempts
+    recorded with older semantics do not qualify for resume and are rerun.
+    The live comparator separately rejects non-finite active score artifacts.
+    """
 
     if expected.shape != actual.shape or active_mask.shape != expected.shape:
         raise ValueError("mismatch operands and active_mask must have matching shapes")
