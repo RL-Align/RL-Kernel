@@ -26,6 +26,7 @@ nav:
       - operators/lm_head.md
       - operators/ratio-kl.md
       - operators/pack-and-pad.md
+      - operators/dsv4-output-combine.md
       - operators/sampling.md
       - operators/det-gemm.md
       - operators/embedding.md

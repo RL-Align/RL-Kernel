@@ -102,6 +102,12 @@ jobs:
             tests/distributed/cp/test_cp_attention.py \
             tests/integrations/engines/train/megatron/test_cp_attention_transformer_engine.py
 
+      - name: Run DSV4 Output Combine Tests (CPU-safe)
+        run: |
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \
+            tests/reference/test_moe_output_combine.py \
+            tests/ops/moe/test_output_combine.py
+
       - name: Run KV-Cache Attention Ground-Truth Tests (CPU-safe)
         run: |
           python -m pytest tests/ops/attention/test_kv_cache_attention.py -v -k "not large and not gpu"
