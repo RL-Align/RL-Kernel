@@ -387,7 +387,7 @@ def _gradient_request(*, shared=False, residual=False, run_id="run-1"):
     return plan, inputs
 
 
-def test_local_input_gradients_stop_before_rms_and_preserve_fixed_order():
+def test_local_input_gradients_stop_before_rms_and_residual_merges_afterward():
     plan, inputs = _gradient_request(shared=True, residual=True)
     expert_gradient = torch.tensor(
         [[1, 2, 3, 4], [3, 4, 5, 6], [5, 6, 7, 8], [7, 8, 9, 10]],
@@ -407,12 +407,20 @@ def test_local_input_gradients_stop_before_rms_and_preserve_fixed_order():
 
     expected = torch.tensor([[5.5, 7.5, 9.5, 11.5], [13.5, 15.5, 17.5, 19.5]])
     assert torch.equal(d_x_norm, expected.to(torch.bfloat16))
+    rms_gradient = torch.tensor(
+        [[1.25, -2.5, 3.75, -4.0], [0.5, 1.5, -2.25, 4.5]], dtype=torch.bfloat16
+    )
+    residual_gradient = torch.tensor(
+        [[2.0, -1.0, 0.25, 3.0], [-0.5, 2.0, 1.25, -1.5]], dtype=torch.bfloat16
+    )
     after_rms = merge_residual_gradient_after_rms(
         plan,
-        d_x_norm,
-        torch.full((2, 4), 2.0, dtype=torch.bfloat16),
+        rms_gradient,
+        residual_gradient,
     )
-    assert torch.equal(after_rms, (expected + 2).to(torch.bfloat16))
+    assert torch.equal(
+        after_rms, (rms_gradient.float() + residual_gradient.float()).to(torch.bfloat16)
+    )
 
 
 def test_local_input_gradients_use_order_sensitive_values_and_recompute():

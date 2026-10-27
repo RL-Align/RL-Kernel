@@ -202,6 +202,8 @@ def merge_residual_gradient_after_rms(
 
     The RMS gradient dtype determines the returned dtype.  Both inputs are
     accumulated in FP32 before the final conversion at this boundary.
+    The residual branch bypasses the RMSNorm Jacobian; P1 must provide the
+    already-transformed ``rms_input_gradient`` before this function is called.
     """
 
     if plan.residual_mode != "external":
