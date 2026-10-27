@@ -111,6 +111,10 @@ def combine_local_input_gradients(
     then adds the shared-expert and gate branches in that order.  The gate
     branch is an independent router-path dX contribution, so it remains valid
     whether or not producer-owned routing weights are applied to expert slots.
+    The expert gradient is the unweighted per-slot dY.  When
+    ``plan.expert_weight_applied`` is false, this function applies the
+    producer-owned routing weight exactly once; when it is true, routing
+    weights must be absent and no scaling is applied here.
     Producer-owned
     routing weights are restored with the same mapping and applied to each
     expert-gradient slot before accumulation.  The returned

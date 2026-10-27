@@ -491,6 +491,27 @@ def test_local_input_gradients_apply_nonuniform_routing_weights():
     assert torch.equal(result, expected)
 
 
+def test_local_input_gradients_do_not_reapply_weights_when_expert_weight_is_applied():
+    plan, inputs = _gradient_request()
+    plan = replace(plan, expert_weight_applied=True)
+    inputs = replace(inputs, routing_weights=None)
+    expert_gradient = torch.tensor(
+        [[1.0] * plan.hidden_size, [2.0] * plan.hidden_size]
+        + [[3.0] * plan.hidden_size, [4.0] * plan.hidden_size],
+        dtype=torch.bfloat16,
+    )
+    result = combine_local_input_gradients(
+        plan,
+        inputs,
+        expert_gradient,
+        num_tokens=2,
+    )
+    expected = torch.tensor(
+        [[3.0] * plan.hidden_size, [7.0] * plan.hidden_size], dtype=torch.bfloat16
+    )
+    assert torch.equal(result, expected)
+
+
 def test_local_input_gradients_enforce_modes_and_mapping_run_id():
     plan, inputs = _gradient_request()
     expert_gradient = torch.ones(4, plan.hidden_size, dtype=torch.bfloat16)
