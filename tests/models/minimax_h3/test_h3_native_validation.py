@@ -432,6 +432,10 @@ elif mutation == "position_past_rows":
     sorted_pos = torch.tensor([0, 2, 1, 4], **i64)
 elif mutation == "segments_past_tiles":
     first = torch.tensor([0, 1, 5], **i64)
+elif mutation == "index_past_table":
+    index = torch.tensor([0, 1, 0, 7], **i64)
+elif mutation == "index_negative":
+    index = torch.tensor([0, 1, 0, -1], **i64)
 if kind == "rmsnorm_backward":
     _, rstd = _C.h3_rmsnorm_forward(x, weight, 1e-5)
     shift, scale = torch.zeros(2, 16, device="cuda").chunk(2, dim=1)
@@ -450,6 +454,12 @@ elif kind == "rmsnorm_partials":
 elif kind == "rmsnorm_fold":
     _C.h3_rmsnorm_fold_partials(torch.ones(2, 8, device="cuda"), weight,
                                 torch.ones(2, 16, device="cuda"), first)
+elif kind == "rmsnorm_partials_modulated":
+    # called without the dx entry point having run: the partials check the index values themselves
+    _, rstd = _C.h3_rmsnorm_forward(x, weight, 1e-5)
+    shift, scale = torch.zeros(2, 16, device="cuda").chunk(2, dim=1)
+    _C.h3_rmsnorm_backward_partials(torch.ones_like(x), x, weight, rstd, shift, scale, index,
+                                    sorted_pos, begin, end, sorted_pos, begin, end)
 torch.cuda.synchronize()
 """
 
@@ -459,6 +469,7 @@ _METADATA_CASES = {
     "gate_partials": ("tile_end_past_rows", "position_past_rows"),
     "gate_fold": ("segments_past_tiles",),
     "rmsnorm_partials": ("tile_end_past_rows", "position_past_rows"),
+    "rmsnorm_partials_modulated": ("index_past_table", "index_negative"),
     "rmsnorm_fold": ("segments_past_tiles",),
 }
 
