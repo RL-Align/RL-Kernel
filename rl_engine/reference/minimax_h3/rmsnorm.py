@@ -56,6 +56,11 @@ def validate_h3_modulation(
     same_dtype: bool = True,
 ) -> None:
     hidden = x.shape[-1]
+    # The modulated form always gathers rows: a missing table or index is an error, not the plain
+    # norm (which is ``forward``, without shift and scale).
+    for name, tensor in (("shift", shift), ("scale", scale), ("index", index)):
+        if not isinstance(tensor, torch.Tensor):
+            raise TypeError(f"{name} must be a torch.Tensor, got {type(tensor).__name__}")
     for name, tensor in (("shift", shift), ("scale", scale)):
         if tensor.device != x.device:
             raise ValueError(f"{name} is on {tensor.device}, x is on {x.device}")
