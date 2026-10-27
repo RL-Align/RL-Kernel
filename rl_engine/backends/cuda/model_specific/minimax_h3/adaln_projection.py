@@ -63,7 +63,11 @@ class _H3AdaLNProjectionCuda(torch.autograd.Function):
         grad_table = grad_table.float().contiguous()
         d_temb = dw = db = None
         if need_weight or need_bias:
-            dw, db = det_linear_backward_weight(grad_table, act, weight.dtype)
+            # The bias fold is skipped when only the weight needs a gradient.
+            dw, *rest = det_linear_backward_weight(
+                grad_table, act, weight.dtype, with_bias=need_bias
+            )
+            db = rest[0] if need_bias else None
         if need_temb:
             # The cast's VJP is the identity; the SiLU VJP runs in FP32.
             d_act = det_linear_backward_input(grad_table, weight, torch.float32)

@@ -198,6 +198,25 @@ class TestCudaSynthetic:
                 cuda_input.grad.cpu(), cpu_input.grad, atol=0, rtol=0, msg=name
             )
 
+    @pytest.mark.parametrize("with_bias", [True, False])
+    def test_weight_gradient_with_no_input_columns_keeps_the_bias_gradient(self, with_bias):
+        # K = 0: dW is an (N, 0) tensor, but the bias gradient is still the column sums of grad, so
+        # it must be computed (not skipped like the empty dW).
+        from rl_engine.backends.cuda.model_specific.minimax_h3.det_linear import (
+            det_linear_backward_weight,
+        )
+
+        _cuda_op()
+        grad = torch.randn(5, 7, device="cuda")
+        x = torch.empty(5, 0, device="cuda")
+        result = det_linear_backward_weight(grad, x, torch.float32, with_bias=with_bias)
+        assert len(result) == (2 if with_bias else 1)
+        assert result[0].shape == (7, 0)
+        if with_bias:
+            torch.testing.assert_close(
+                result[1].double(), grad.double().sum(0), atol=1e-5, rtol=1e-5
+            )
+
     def test_rejects_unaligned_k(self):
         """Reject inner dimensions that violate the native FP32 four-element alignment."""
 
@@ -250,6 +269,51 @@ class TestCudaSynthetic:
         for i in range(6):
             assert torch.equal(dx(slice(i, i + 1))[0], full[i])
 
+    @pytest.mark.parametrize(
+        "frozen",
+        [("b1",), ("b2",), ("b1", "b2"), ("w1",), ("w2",), ("x",), ("w1", "b1", "w2", "b2")],
+    )
+    def test_frozen_inputs_get_no_gradient_and_do_not_change_the_others(self, frozen, monkeypatch):
+        from rl_engine.backends.cuda.model_specific.minimax_h3 import timestep_mlp
+
+        op = _cuda_op()
+        params = _synthetic_params(256, 5376, 2688, seed=6)
+        x = _features(3, seed=6)
+        grad_out = torch.randn(3, 2688, device="cuda")
+
+        def grads(frozen_names):
+            leaves = [t.detach().clone() for t in (x, *params)]
+            for name, leaf in zip(NAMES, leaves, strict=True):
+                leaf.requires_grad_(name not in frozen_names)
+            if all(not leaf.requires_grad for leaf in leaves):
+                return leaves
+            op(*leaves).backward(grad_out)
+            return leaves
+
+        full = grads(())
+        calls = []
+        real = timestep_mlp.det_linear_backward_weight
+
+        def recording(*args, **kwargs):
+            calls.append(kwargs.get("with_bias", True))
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(timestep_mlp, "det_linear_backward_weight", recording)
+        part = grads(frozen)
+        for name, a, b in zip(NAMES, full, part, strict=True):
+            if name in frozen:
+                assert b.grad is None, name
+            else:
+                assert torch.equal(a.grad, b.grad), name
+        # The bias fold runs only for a layer whose bias needs a gradient; a layer none of whose
+        # parameters need one is not folded at all.
+        expected = []
+        if "w2" not in frozen or "b2" not in frozen:
+            expected.append("b2" not in frozen)
+        if "w1" not in frozen or "b1" not in frozen:
+            expected.append("b1" not in frozen)
+        assert calls == expected, (frozen, calls)
+
     def test_registry_dispatches_cuda(self):
         """Resolve the timestep MLP registry entry to its dedicated CUDA implementation."""
 
@@ -301,3 +365,36 @@ class TestCudaDetLinearDeviceContract:
         x = torch.randn(2, 8, device="cuda:1", dtype=dtype)
         with pytest.raises(RuntimeError, match="grad and x must be on the same device"):
             det_linear_backward_weight(grad, x, dtype)
+
+    def test_ops_run_on_the_device_of_their_tensors_not_the_current_one(self, dtype):
+        # The entry points are registered as plain function pointers; the device guard inside
+        # each of them (not the binding) is what puts the launch on the tensors' device.
+        from rl_engine.backends.cuda.model_specific.minimax_h3.det_linear import (
+            det_linear_backward_input,
+            det_linear_backward_weight,
+            det_linear_forward,
+        )
+
+        _cuda_op()
+        g = torch.Generator("cpu").manual_seed(0)
+
+        def run(device):
+            x = torch.randn(3, 64, generator=g).to(device=device, dtype=dtype)
+            weight = torch.randn(40, 64, generator=g).to(device=device, dtype=dtype)
+            bias = torch.randn(40, generator=g).to(device=device, dtype=dtype)
+            grad = torch.randn(3, 40, generator=g).to(device)
+            (out,) = det_linear_forward(x, weight, bias)
+            dx = det_linear_backward_input(grad, weight, torch.float32)
+            dw, db = det_linear_backward_weight(grad, x, dtype)
+            return [t.cpu() for t in (out, dx, dw, db)]
+
+        # Same bytes from the same generator state on both devices, called while device 0 is
+        # current: nothing may run on (or touch the memory of) the wrong device.
+        torch.cuda.set_device(0)
+        g.manual_seed(0)
+        on_zero = run("cuda:0")
+        g.manual_seed(0)
+        on_one = run("cuda:1")
+        assert torch.cuda.current_device() == 0
+        for a, b in zip(on_zero, on_one, strict=True):
+            assert torch.equal(a, b)
