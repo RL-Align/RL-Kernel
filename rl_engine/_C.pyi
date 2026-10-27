@@ -374,10 +374,23 @@ def h3_det_linear_backward_input(
     """
     ...
 
-def h3_det_linear_backward_input_partials(
-    grad: torch.Tensor, weight: torch.Tensor
-) -> torch.Tensor: ...
-def h3_det_linear_fold_chunks(partial: torch.Tensor, out_dtype: torch.dtype) -> torch.Tensor: ...
+def h3_det_linear_backward_input_partials(grad: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
+    """Return the ``(C, T, K)`` FP32 per-chunk partials of ``grad @ weight`` before the fold.
+
+    Same operands as ``h3_det_linear_backward_input``. Chunk ``c`` of ``C = ceil(N / 64)`` sums the
+    output columns ``64c .. 64c + 63`` in ascending order; the tensor-parallel path reduces its
+    shard's chunks with ``h3_det_linear_fold_chunks`` after the shards are gathered.
+    """
+    ...
+
+def h3_det_linear_fold_chunks(partial: torch.Tensor, out_dtype: torch.dtype) -> torch.Tensor:
+    """Left-fold ``partial (C, T, K)`` FP32 over ``C`` in ascending order, cast once to ``out_dtype``.
+
+    Require a non-empty contiguous FP32 CUDA tensor and an FP32 or BF16 ``out_dtype``; return
+    ``(T, K)``.
+    """
+    ...
+
 def h3_det_linear_backward_weight(
     grad: torch.Tensor, x: torch.Tensor, w_dtype: torch.dtype, with_bias: bool = True
 ) -> list[torch.Tensor]:
@@ -425,6 +438,7 @@ def h3_adaln_row_gather_backward(
     inside ``sorted_pos``, segments that cut the tile list exactly and in order.
     """
     ...
+
 def h3_rmsnorm_forward(
     x: torch.Tensor,
     weight: torch.Tensor,
@@ -469,6 +483,7 @@ def h3_rmsnorm_backward(
     modulation they must be omitted.
     """
     ...
+
 def h3_gate_residual_forward(
     residual: torch.Tensor, y: torch.Tensor, gate: torch.Tensor, index: torch.Tensor
 ) -> torch.Tensor:
@@ -501,4 +516,3 @@ def h3_gate_residual_backward(
     checked on the device before use.
     """
     ...
-
