@@ -286,6 +286,8 @@ def local_input_gradient_provenance(
                 },
             },
             "accumulation_dtype": plan.accumulation_dtype,
+            "expert_weight_applied": plan.expert_weight_applied,
+            "expert_gradient_weight_state": "unweighted_per_slot_dy",
             "routing_weights_applied": not plan.expert_weight_applied,
             "output_dtype": str(output.dtype).removeprefix("torch."),
             "output_shape": list(output.shape),

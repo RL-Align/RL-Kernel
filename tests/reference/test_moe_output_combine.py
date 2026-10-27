@@ -593,5 +593,7 @@ def test_local_input_gradient_provenance_records_checks():
     assert provenance["branches"]["gate"]["dtype"] is None
     assert provenance["branches"]["shared_expert"]["dtype"] == "bfloat16"
     assert provenance["routing_weights_applied"] is True
+    assert provenance["expert_weight_applied"] is False
+    assert provenance["expert_gradient_weight_state"] == "unweighted_per_slot_dy"
     assert provenance["mapping_run_id_verified"] is True
     assert provenance["merge_order"] == [0, 1]
