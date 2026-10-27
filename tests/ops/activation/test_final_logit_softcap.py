@@ -229,8 +229,16 @@ def test_triton_forward_backward_and_block_boundaries(triton_op, dtype, shape, s
 
 @pytest.mark.parametrize("softcap", _SOFTCAPS)
 @pytest.mark.parametrize("dtype", _DTYPES)
-def test_triton_forward_backward_across_int32_index_boundary(triton_op, dtype, softcap):
-    """Exercise real kernel offsets around 2**31 using small rebased buffers."""
+def test_triton_forward_backward_at_large_program_ids(triton_op, dtype, softcap):
+    """Drive the production kernels with program IDs near 2**31 // BLOCK.
+
+    Both kernels widen the program ID to int64 before multiplying by the block
+    size, so element offsets never wrap in 32 bits. What this test covers is the
+    behaviour at large program IDs with rebased pointers: that the grid can be
+    that long, that only the last blocks touch memory, and that the masked tail
+    past ``valid`` is left untouched. A real >2**31-element allocation is not
+    attempted.
+    """
     import triton
     import triton.language as tl
 
@@ -343,6 +351,12 @@ def test_triton_repeat_slice_padding_reshape_and_inference_invariance(triton_op,
         inference = op(x.detach().requires_grad_(True))
     assert not inference.requires_grad
     _assert_bitwise_equal(inference, expected[0])
+    # Every comparison above is against the same wrapper, so a systematic offset
+    # or stride error would cancel out. Anchor the full-input result to the
+    # independent native reference as well.
+    reference = _evaluate(NativeFinalLogitSoftcapOp(softcap), x.detach().cpu(), grad_y.cpu())
+    _assert_accuracy(expected[0], reference[0], "forward_accuracy")
+    _assert_accuracy(expected[1], reference[1], "gradient_accuracy")
 
 
 def test_triton_backward_rejects_mismatched_upstream_gradient(triton_op):
