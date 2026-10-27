@@ -22,7 +22,11 @@ negative-tail approximation avoids intermediate softplus underflow. A deeper
 negative-tail VJP rescales in log space so large finite upstream gradients can
 produce representable derivatives even when the FP32 score is zero.
 
-The independent CPU FP64 oracle uses logaddexp/sqrt and an analytic VJP.
+The independent CPU FP64 mathematical oracle uses logaddexp/sqrt and an analytic
+VJP. Its conservative tail cutoff is -36 rather than the production -16: it
+retains the mathematical formula on [-36,-16) to measure the production
+approximation independently. It is not a production-arithmetic emulator.
+Separate FP32-formula/ULP tests check the production -16 branch and neighbors.
 Forward tolerance is `rtol=5e-7`; VJP tolerance is `rtol=2e-5`; both admit an
 absolute difference of eight minimum FP32 subnormal quanta. BI checks require
 zero differing raw bits independently of those numerical tolerances.
@@ -37,10 +41,10 @@ AITER_TRITON_ONLY=1 PYTHONPATH="$PWD/artifacts/task29/aiter:$PWD" \
 
 | Suite | Result |
 | --- | ---: |
-| MI300X accuracy, score/VJP BI, upstream score reuse and runtime rejection | 40 passed |
-| CPU-safe input/math, dispatch and source guards | 19 passed |
+| MI300X accuracy, score/VJP BI, upstream score reuse and runtime rejection | 41 passed |
+| CPU-safe input/math, dispatch and source guards | 20 passed |
 | Existing registry regression | 12 passed |
-| **Total** | **71 passed; no failures or skips** |
+| **Total** | **73 passed; no failures or skips** |
 
 The expected empty-graph warning comes from explicitly rejecting capture.
 Ruff check/format, strict MkDocs build, patch application and whitespace checks

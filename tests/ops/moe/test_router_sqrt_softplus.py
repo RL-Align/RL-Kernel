@@ -4,8 +4,10 @@
 import pytest
 import torch
 
+from rl_engine.contracts.operators.router_sqrt_softplus import NEGATIVE_TAIL_CUTOFF
 from rl_engine.ops.moe.router_sqrt_softplus import router_sqrt_softplus
 from rl_engine.reference.moe.router_sqrt_softplus import (
+    MATHEMATICAL_ORACLE_TAIL_CUTOFF,
     mlite_sqrt_softplus,
     sqrt_softplus_fp64,
     sqrt_softplus_vjp_fp64,
@@ -15,6 +17,54 @@ gpu = pytest.mark.skipif(
     torch.version.hip is None or not torch.cuda.is_available(), reason="requires ROCm GPU"
 )
 QUANTUM_TOLERANCE = 2.0**-146  # Eight minimum FP32 subnormal quanta.
+
+
+def test_mathematical_oracle_keeps_the_more_conservative_tail_cutoff():
+    # This interval distinguishes mathematical validation from repeating the
+    # production approximation. -20 exposes a difference well above FP64 epsilon.
+    x = torch.tensor([-36.0, -30.0, -20.0, -16.00001], dtype=torch.float64)
+    mathematical = torch.sqrt(torch.logaddexp(x, torch.zeros_like(x)))
+    mathematical_slope = torch.sigmoid(x) / (2 * mathematical)
+    oracle = sqrt_softplus_fp64(x)
+    oracle_slope = sqrt_softplus_vjp_fp64(x, torch.ones_like(x))
+    assert MATHEMATICAL_ORACLE_TAIL_CUTOFF == -36.0 < NEGATIVE_TAIL_CUTOFF
+    torch.testing.assert_close(oracle, mathematical, rtol=0, atol=0)
+    torch.testing.assert_close(oracle_slope, mathematical_slope, rtol=0, atol=0)
+    production_tail = torch.exp(x / 2)
+    assert production_tail[2] > oracle[2]
+    assert 0.5 * production_tail[2] > oracle_slope[2]
+    assert ((production_tail - oracle).abs() / oracle).max() < torch.exp(
+        torch.tensor(NEGATIVE_TAIL_CUTOFF, dtype=torch.float64)
+    ) / 4
+
+
+@gpu
+def test_production_tail_formula_and_vjp_at_fp32_branch_neighbors():
+    cutoff = torch.tensor(NEGATIVE_TAIL_CUTOFF, dtype=torch.float32)
+    values = torch.tensor([-40.0, -36.0, -30.0, -20.0, -17.0, -16.0, -15.0, 0.0])
+    neighbors = torch.stack(
+        [
+            torch.nextafter(cutoff, torch.tensor(-torch.inf)),
+            torch.nextafter(cutoff, torch.tensor(torch.inf)),
+        ]
+    )
+    x_cpu = torch.cat((values, neighbors)).reshape(1, -1)
+    # An explicit FP32 contract emulator is separate from the FP64 math oracle.
+    e = torch.exp(-x_cpu.abs())
+    expected = torch.where(
+        x_cpu < NEGATIVE_TAIL_CUTOFF,
+        torch.exp(x_cpu / 2),
+        torch.sqrt(torch.clamp_min(x_cpu, 0) + torch.log1p(e)),
+    )
+    sigmoid = torch.where(x_cpu >= 0, 1 / (1 + e), e / (1 + e))
+    slope = torch.where(x_cpu < NEGATIVE_TAIL_CUTOFF, 0.5 * expected, sigmoid / (2 * expected))
+    x = x_cpu.cuda().requires_grad_()
+    scores = transform(x).scores
+    dx = torch.autograd.grad(scores, x, torch.ones_like(scores))[0]
+    # CPU libm and AMD OCML may differ by a small number of ULPs. This is an
+    # arithmetic-contract check, independent of broad mathematical tolerances.
+    assert (bits(scores).cpu().long() - bits(expected).long()).abs().max() <= 2
+    assert (bits(dx).cpu().long() - bits(slope).long()).abs().max() <= 3
 
 
 def transform(x):

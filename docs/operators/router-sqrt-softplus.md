@@ -103,9 +103,19 @@ There are no derived weights or route-state caches.
 
 ## Validation and performance
 
-The independent CPU FP64 oracle uses `logaddexp` and an analytic VJP, with a
-deep-negative representation that avoids intermediate underflow. Finite
-differences validate that oracle separately. Score tolerance is `rtol=5e-7`;
+The independent CPU FP64 **mathematical oracle is not a production-arithmetic
+emulator**. It deliberately uses a more conservative approximation cutoff of
+**-36**, compared with the production contract's **-16**. In [-36,-16), it
+retains `sqrt(logaddexp(x,0))` and the mathematical derivative, allowing tests
+to measure the production approximation's error independently. Below -36,
+the score/slope approximation bounds (`exp(-36)/4`, `3*exp(-36)/4`) are below
+FP64 machine epsilon and avoid intermediate underflow.
+
+Separate tests validate the production -16 branch formula and its FP32 rounding
+near the boundary; raw-bit BI checks cover repeated execution and batch/layout
+changes. Mathematical accuracy checks alone cannot certify branch/order
+equivalence when different formulas fall within tolerance. Finite differences
+validate the mathematical oracle separately. Score tolerance is `rtol=5e-7`;
 VJP tolerance is `rtol=2e-5`, including deep-tail rescaling with large upstream
 gradients. Both use an absolute allowance of eight minimum FP32 subnormal
 quanta (`2^-146`). Tolerances never replace raw-bit BI checks.
