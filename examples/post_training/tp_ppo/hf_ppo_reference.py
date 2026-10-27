@@ -25,6 +25,11 @@ from examples.post_training.tp_ppo.fixed_contract import (
 
 class HFModel(torch.nn.Module):
     def __init__(self, checkpoint, role, dtype):
+        """Load an HF actor (causal LM) or critic (backbone plus seeded scalar head) on CUDA.
+
+        Raises ``ValueError`` if the checkpoint has missing, unexpected or mismatched tensors
+        (the critic's dropped ``lm_head.weight`` excepted) or a parameter is not ``dtype``.
+        """
         super().__init__()
         from transformers import AutoModel, AutoModelForCausalLM
 
@@ -61,6 +66,10 @@ class HFModel(torch.nn.Module):
             raise ValueError("HF parameter dtype differs")
 
     def forward(self, packet):
+        """Return FP32 next-token log-probs ``[B, T-1]`` (actor) or values ``[B, T]`` (critic).
+
+        Critic values keep the model dtype (BF16 in the BF16 control).
+        """
         out = self.backbone(
             **{k: packet[k] for k in ("input_ids", "attention_mask", "position_ids")},
             use_cache=False,
@@ -76,6 +85,7 @@ class HFModel(torch.nn.Module):
         return self.score(out.last_hidden_state).squeeze(-1)
 
     def canonical(self):
+        """Return parameters by canonical name (critic: ``model.`` prefix plus ``score.*``)."""
         result = {
             (("model." if self.role == "critic" else "") + n): p
             for n, p in self.backbone.named_parameters()
@@ -86,6 +96,14 @@ class HFModel(torch.nn.Module):
 
 
 def independent_targets(packet, values, reference):
+    """Recompute PPO targets with explicit per-token GAE loops from critic ``values``.
+
+    The reward is the value at each row's last attended position, added at the last action
+    token; step rewards are ``-kl_coefficient * (behavior - reference)``. Bootstrap is zero
+    for terminated rows. Returns old/bootstrap values, rewards, reference log-probs,
+    normalized advantages and returns (from the unnormalized advantages); per-token entries
+    are zero outside the action mask. Raises ``ValueError`` if a row has no action token.
+    """
     mask = packet["action_mask"]
     if not mask.any(1).all():
         raise ValueError("every rollout row needs at least one action token")
@@ -127,6 +145,10 @@ def independent_targets(packet, values, reference):
 
 
 def independent_loss(role, scores, packet, targets):
+    """Return the mean clipped PPO policy loss (actor) or clipped value loss (critic).
+
+    Both means are taken over the action-mask tokens of ``packet``.
+    """
     mask = packet["action_mask"]
     if role == "actor":
         ratio = torch.exp(scores[mask].float() - packet["behavior_logps"][mask])
@@ -141,6 +163,15 @@ def independent_loss(role, scores, packet, targets):
 
 
 def main():
+    """Freeze HF FP32 PPO targets (``--score-only``) or run the HF reference PPO updates.
+
+    ``--score-only`` always uses FP32 actor and critic models, ignoring role and precision.
+    Training runs ``CONFIG.epochs`` AdamW steps, each accumulating per-row microbatch
+    gradients into FP32 parameters (FP32 masters for BF16) and clipping to ``max_grad_norm``,
+    and writes scores, loss, gradients, norms and parameter updates as evidence tensors.
+    Once the provenance checks before the main ``try`` pass, ``report.json`` is written to
+    ``--output`` on success and on failure.
+    """
     p = argparse.ArgumentParser()
     p.add_argument("--checkpoint", type=Path, required=True)
     p.add_argument("--rollout", type=Path, required=True)

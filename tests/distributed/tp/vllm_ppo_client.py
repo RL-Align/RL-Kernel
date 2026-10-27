@@ -25,6 +25,10 @@ def gpt2_weights(weights):
     result, used = {}, set()
 
     def copy(target, source, *, transpose=False, qkv=False):
+        """Store CPU ``weights[source]`` as ``result[target]`` and mark ``source`` as used.
+
+        ``qkv`` regroups rows from per-head to Q/K/V order; ``transpose`` gives Conv1D layout.
+        """
         value = weights[source].detach().cpu()
         used.add(source)
         if qkv:
@@ -69,6 +73,12 @@ class VllmPPOClient:
         tp=1,
         cache_logprob_atol=None,
     ):
+        """Launch the vLLM sidecar on ``tp`` GPUs from ``device`` and wait until it is ready.
+
+        With ``checkpoint``, two fixed text prompts are encoded with its tokenizer and the
+        sidecar serves that checkpoint; otherwise it serves the tiny GPT-2 harness. torchrun
+        variables are removed from the sidecar's environment.
+        """
         self.directory = directory.resolve()
         self.directory.mkdir(parents=True, exist_ok=True)
         self.device = device
@@ -154,6 +164,11 @@ class VllmPPOClient:
             raise
 
     def _read(self):
+        """Return the sidecar's next JSON response, waiting at most 600 seconds.
+
+        Raises ``TimeoutError`` on timeout and ``RuntimeError`` if the sidecar exited or
+        replied with an error.
+        """
         if not select.select([self.responses], [], [], 600)[0]:
             raise TimeoutError(f"vLLM response timed out; see {self.directory}/runtime.log")
         line = self.responses.readline()
@@ -165,11 +180,17 @@ class VllmPPOClient:
         return response
 
     def _request(self, request):
+        """Send ``request`` to the sidecar as one JSON line and return its response."""
         self.process.stdin.write(json.dumps(request) + "\n")
         self.process.stdin.flush()
         return self._read()
 
     def install(self, weights, version):
+        """Convert actor weights to HF names, have the sidecar install them, return ``True``.
+
+        ``version`` must follow the last installed one. Qwen3 checkpoints convert with
+        ``megatron_to_hf``; the tiny harness uses ``gpt2_weights``.
+        """
         if version != self.version + 1:
             raise ValueError("vLLM install versions must be consecutive")
         filename = self.directory / f"weights_v{version}.pt"
@@ -194,6 +215,10 @@ class VllmPPOClient:
         return True
 
     def sample(self, actor_version, critic_version):
+        """Sample the fixed prompts on the installed version and return a left-padded rollout.
+
+        Behavior logps are vLLM's sampled-token logprobs; ``terminated`` marks stop finishes.
+        """
         assert self.version == actor_version
         prompts = self.prompts
         response = self._request({"op": "sample", "version": actor_version, "prompts": prompts})
@@ -235,6 +260,7 @@ class VllmPPOClient:
         )
 
     def close(self):
+        """Stop the sidecar, require exit code 0 and write ``report.json`` with its timings."""
         self._request({"op": "close"})
         self.process.wait(timeout=30)
         assert self.process.returncode == 0

@@ -44,6 +44,11 @@ class TinyModel(torch.nn.Module):
         seed: int = 1,
         device="cpu",
     ):
+        """Build seeded full weights and keep this rank's ``width`` shard of embedding and head.
+
+        Without ``group`` the model is unsharded. Raises ``ValueError`` if ``width`` is not
+        divisible by the TP size.
+        """
         super().__init__()
         self.group, self.leader = group, leader
         size = dist.get_world_size(group) if group is not None else 1
@@ -61,12 +66,17 @@ class TinyModel(torch.nn.Module):
             self.register_buffer("bias", torch.zeros(outputs, device=device))
 
     def forward(self, input_ids, attention_mask=None, position_ids=None, use_cache=False):
+        """Return this rank's additive per-token outputs, squeezing a single output channel.
+
+        Masks and positions are ignored; ``use_cache=True`` raises ``ValueError``.
+        """
         if use_cache:
             raise ValueError("example does not use a KV cache")
         output = self.embedding[input_ids].tanh() @ self.head + self.bias
         return output.squeeze(-1) if output.shape[-1] == 1 else output
 
     def logps(self, inputs: TPModelInputs) -> torch.Tensor:
+        """Return next-token log-probs ``[B, S-1]``, summing logits over the TP group if any."""
         logits = self(inputs.input_ids)
         if self.group is not None:
             logits = sum_tp_contributions(logits, self.group)
@@ -74,6 +84,11 @@ class TinyModel(torch.nn.Module):
 
     @torch.no_grad()
     def export(self):
+        """Return full unsharded weights on the TP leader and ``None`` on other ranks.
+
+        Without a group it returns the local state dict; otherwise every group member must
+        call it, since the shards are all-gathered.
+        """
         if self.group is None:
             return dict(self.state_dict())
         size = dist.get_world_size(self.group)
@@ -92,18 +107,26 @@ class TinyModel(torch.nn.Module):
 
 class TinySampler:
     def __init__(self, device="cpu"):
+        """Create an unsharded bigram model with no installed version and a seeded generator."""
         self.model = TinyModel(outputs=8, device=device)
         self.version = -1
         self.device = torch.device(device)
         self.generator = torch.Generator(device=self.device).manual_seed(44)
 
     def install(self, weights, version):
+        """Load full Actor ``weights``, record ``version`` and return ``True``."""
         self.model.load_state_dict(weights)
         self.version = version
         return True
 
     @torch.no_grad()
     def sample(self, actor_version, critic_version):
+        """Sample a ``PPORollout`` of four one-token prompts, each followed by up to four tokens.
+
+        A sampled token 0 is kept as the row's last action and terminates the row.
+
+        Raises ``ValueError`` if ``actor_version`` is not the installed version.
+        """
         if actor_version != self.version:
             raise ValueError("sampler has stale Actor weights")
         batch, max_tokens = 4, 5
@@ -208,6 +231,7 @@ def make_example(actor_tp: int, critic_tp: int, *, device="cpu", epochs=4):
 
 
 def main():
+    """Run ``--rounds`` PPO rounds of the tiny TP example and print each rank's metrics."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--actor-tp", type=int, default=2)
     parser.add_argument("--critic-tp", type=int, default=1)

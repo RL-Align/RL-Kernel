@@ -82,6 +82,12 @@ def canonical(model, group, config, role, buffers=None):
 
 
 def main():
+    """Replay the frozen rollout through one actor or critic ``worker.train`` call at TP1 or TP2.
+
+    The acceptance manifest must be frozen and match the rollout/targets SHA-256s, and the
+    targets must be unchanged after training. Rank 0 saves per-update scores, loss, gradients,
+    norms and parameter deltas plus the report; every rank writes ``rank{rank}.json``.
+    """
     p = argparse.ArgumentParser()
     p.add_argument("--checkpoint", type=Path, required=True)
     p.add_argument("--rollout", type=Path, required=True)
@@ -193,6 +199,13 @@ def main():
         before = {}
 
         def observe(event, update, buffers, value):
+            """Check and record evidence for one ``worker.update_observer`` event.
+
+            ``before_clip`` checks that changing padded token IDs leaves selected scores exact
+            and that padding-ID embedding rows get zero gradient; ``after_clip`` recomputes the
+            clipped norm; ``after_step`` requires FP32 optimizer state. Rank 0 saves scores,
+            loss, gradients, both norms and the parameter update.
+            """
             nonlocal before
             if event == "before_clip":
                 before = canonical(model, group, config, a.role)

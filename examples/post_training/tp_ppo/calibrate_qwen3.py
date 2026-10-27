@@ -29,6 +29,7 @@ def report_json_default(value):
 
 
 def sha(path):
+    """Return the hex SHA-256 digest of a file, read in 8 MiB chunks."""
     h = hashlib.sha256()
     with Path(path).open("rb") as f:
         for chunk in iter(lambda: f.read(8 * 1024**2), b""):
@@ -37,6 +38,13 @@ def sha(path):
 
 
 def main():
+    """Derive Qwen3 tolerances from HF FP32 and BF16 runs on two fixed teacher-forced texts.
+
+    Writes ``fp32.pt``, ``bf16.pt`` and ``thresholds.json`` (4x the BF16-vs-FP32 log-prob,
+    loss and grad-norm error plus a floor) to ``--output``, which must not exist yet. Once it
+    is created, ``report.json`` is written on success and on failure. Requires a clean git
+    tree, a manifest for ``REVISION`` and a checkpoint matching ``--manifest``.
+    """
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--checkpoint", type=Path, required=True)
     p.add_argument("--manifest", type=Path, required=True)

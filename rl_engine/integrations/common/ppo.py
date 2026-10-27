@@ -27,6 +27,11 @@ class PPOConfig:
     microbatch_size: int | None = None
 
     def __post_init__(self) -> None:
+        """Raise ``ValueError`` on a non-finite float field or an out-of-range value.
+
+        ``gamma`` and ``gae_lambda`` must lie in [0, 1] and ``kl_coefficient`` must be
+        nonnegative; clips, ``max_grad_norm``, ``epochs`` and batch sizes must be positive.
+        """
         import math
 
         if self.microbatch_size is not None and self.microbatch_size < 1:
@@ -320,6 +325,13 @@ class PPOTrainingWorker:
         gradient_state: PPOGradientState | None = None,
         update_observer: Callable | None = None,
     ) -> None:
+        """Validate the role, callbacks and parameter ownership, raising ``ValueError``.
+
+        ``backward`` and ``step`` must be given together. The optimized parameters (from
+        ``gradient_state.parameters`` when given) must be unique and exactly the trainable
+        ones, each with a ``sharded`` or ``replicated`` layout. Without framework callbacks,
+        ``backward`` is ``torch.Tensor.backward`` and ``step`` is ``optimizer.step``.
+        """
         if role not in ("actor", "critic"):
             raise ValueError("role must be actor or critic")
         if (backward is None) != (step is None):
@@ -347,6 +359,7 @@ class PPOTrainingWorker:
         self.parameters = [(named[name], layout) for name, layout in parameter_layouts.items()]
 
     def _observe(self, observer, event, update, gradients, value, device):
+        """Call ``observer`` if set and raise any rank's observer failure on the whole TP group."""
         if observer is None:
             return
         error = None

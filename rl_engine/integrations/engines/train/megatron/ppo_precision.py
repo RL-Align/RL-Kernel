@@ -19,6 +19,12 @@ class FP32MasterWeights:
     """
 
     def __init__(self, parameters, optimizer_factory: Callable):
+        """Clone trainable BF16 ``parameters`` into FP32 masters and build ``gradient_state``.
+
+        ``optimizer_factory(masters)`` must return an optimizer owning exactly those masters.
+        Non-trainable parameters are skipped. Raises ``ValueError`` for no trainable, duplicate,
+        non-BF16 or ``main_grad``-carrying parameters, or an optimizer not owning the masters.
+        """
         self.parameters = tuple(p for p in parameters if p.requires_grad)
         if not self.parameters or len({id(p) for p in self.parameters}) != len(self.parameters):
             raise ValueError("master weights require unique trainable parameters")

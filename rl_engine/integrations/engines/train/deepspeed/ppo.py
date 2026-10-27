@@ -35,6 +35,7 @@ class DeepSpeedTPGroups:
     dp: dist.ProcessGroup
 
     def __post_init__(self) -> None:
+        """Reject missing groups, groups that exclude this rank, and a DP group larger than 1."""
         if self.tp is None or self.dp is None:
             raise ValueError("TP and DP groups must be explicit")
         if dist.get_rank(self.tp) < 0 or dist.get_rank(self.dp) < 0:
@@ -43,12 +44,15 @@ class DeepSpeedTPGroups:
             raise ValueError("DeepSpeed PPO currently requires singleton DP")
 
     def get_model_parallel_group(self):
+        """Return the tensor-parallel process group."""
         return self.tp
 
     def get_model_parallel_rank(self):
+        """Return this rank's index within the TP group."""
         return dist.get_rank(self.tp)
 
     def get_model_parallel_world_size(self):
+        """Return the number of ranks in the TP group."""
         return dist.get_world_size(self.tp)
 
     get_tensor_model_parallel_group = get_model_parallel_group
@@ -56,18 +60,23 @@ class DeepSpeedTPGroups:
     get_tensor_model_parallel_world_size = get_model_parallel_world_size
 
     def get_tensor_model_parallel_src_rank(self):
+        """Return the global rank of TP-group rank 0."""
         return dist.get_process_group_ranks(self.tp)[0]
 
     def get_data_parallel_group(self):
+        """Return the singleton data-parallel process group."""
         return self.dp
 
     def get_data_parallel_rank(self):
+        """Return this rank's index within the singleton DP group."""
         return dist.get_rank(self.dp)
 
     def get_data_parallel_world_size(self):
+        """Return the DP group size, which ``__post_init__`` requires to be 1."""
         return dist.get_world_size(self.dp)
 
     def get_data_parallel_group_ranks(self):
+        """Return the global ranks of the DP group."""
         return dist.get_process_group_ranks(self.dp)
 
 
@@ -114,6 +123,12 @@ def deepspeed_ppo_worker(
 
 
 def _bf16_gradient_state(engine) -> PPOGradientState:
+    """Expose DeepSpeed ``BF16_Optimizer`` FP32 gradient views as a ``PPOGradientState``.
+
+    Raises ``ValueError`` unless the optimizer is a ``BF16_Optimizer`` with FP32 gradient
+    accumulation buffers, its BF16 groups own exactly
+    the trainable parameters, and its inner optimizer owns the FP32 flat master partitions.
+    """
     from deepspeed.runtime.bf16_optimizer import BF16_Optimizer
 
     optimizer = engine.optimizer
@@ -130,6 +145,11 @@ def _bf16_gradient_state(engine) -> PPOGradientState:
         raise ValueError("DeepSpeed optimizer does not own the expected FP32 masters")
 
     def gradients():
+        """Return FP32 gradient views in ``parameters`` order, ``None`` where one is absent.
+
+        Raises ``ValueError`` if DeepSpeed's group-to-gradient mapping or a buffer's dtype or
+        size has changed.
+        """
         if not (
             len(optimizer.bf16_groups)
             == len(optimizer.fp32_groups_gradients)

@@ -114,6 +114,10 @@ class PPOCoordinator:
         actor_version: int = 0,
         critic_version: int = 0,
     ) -> None:
+        """Store round state, then check groups, topology and services as control-wide phases.
+
+        A check failing on any control rank raises ``ValueError`` on every control rank.
+        """
         self.groups, self.services = groups, services
         self.device = torch.device(device)
         self.transport_device = (
@@ -130,6 +134,10 @@ class PPOCoordinator:
         self._phase(self._validate_services)
 
     def _validate_topology(self) -> None:
+        """Require control ranks to agree on leaders, versions, weight schema and PPO config.
+
+        Each rank's local group must also be exactly the control ranks that share its role.
+        """
         members = dist.get_process_group_ranks(self.groups.control)
         local = dist.get_process_group_ranks(self.groups.local)
         roles = ("rollout", "actor", "critic")
@@ -170,6 +178,11 @@ class PPOCoordinator:
             raise ValueError("all PPO ranks must use the same configuration")
 
     def _validate_services(self) -> None:
+        """Check this role's services against the groups and config, then freeze scoring models.
+
+        The Actor reference model and the reward model get ``requires_grad_(False)`` and
+        ``eval()``; versions must be nonnegative and ``weight_fields`` nonempty and unique.
+        """
         service, role = self.services, self.groups.role
         if self.actor_version < 0 or self.critic_version < 0:
             raise ValueError("initial versions must be nonnegative")
@@ -219,6 +232,10 @@ class PPOCoordinator:
                 service.reward.model.eval()
 
     def _phase(self, operation: Callable[[], T], *, active: bool = True) -> T | None:
+        """Run ``operation`` where ``active`` and raise any rank's exception on all control ranks.
+
+        Returns the operation's result, or None on inactive ranks.
+        """
         result = None
         error = None
         if active:
@@ -235,9 +252,15 @@ class PPOCoordinator:
         source: int,
         packet: Mapping[str, torch.Tensor] | None,
     ) -> dict[str, torch.Tensor]:
+        """Deliver ``source``'s packet to every control rank via the leaders and local groups.
+
+        ``source`` must be one of the role leaders. The result is on ``self.device``, and the
+        metrics of each bridge this rank uses are appended to ``transport_metrics``.
+        """
         is_leader = dist.get_rank() == self.groups.local_leader
 
         def stage():
+            """Detach the source packet onto the transport device."""
             assert packet is not None
             return {
                 name: value.detach().to(self.transport_device) for name, value in packet.items()
@@ -246,6 +269,7 @@ class PPOCoordinator:
         staged = self._phase(stage, active=dist.get_rank() == source and packet is not None)
 
         def relay():
+            """Broadcast the staged packet among role leaders and record the transport metrics."""
             bridge = TensorPacketBridge(
                 group=self.groups.leaders, source=source, device=self.transport_device
             )
@@ -256,12 +280,14 @@ class PPOCoordinator:
         relayed = self._phase(relay, active=is_leader)
 
         def to_device():
+            """Copy the relayed packet from the transport device to the model device."""
             assert relayed is not None
             return {name: value.to(self.device) for name, value in relayed.items()}
 
         local_packet = self._phase(to_device, active=is_leader)
 
         def local_broadcast():
+            """Broadcast the packet from the role leader to its local group and record metrics."""
             bridge = TensorPacketBridge(
                 group=self.groups.local,
                 source=self.groups.local_leader,
@@ -276,7 +302,13 @@ class PPOCoordinator:
         return result
 
     def _install_actor(self, version: int) -> None:
+        """Export Actor weights, deliver them to every control rank and install them on rollout.
+
+        Every control rank raises unless each rollout rank's ``install`` returns ``True``.
+        """
+
         def export():
+            """Call the Actor ``export`` service on this rank."""
             assert self.services.export is not None  # Checked for Actor ranks at construction.
             return self.services.export()
 
@@ -284,6 +316,7 @@ class PPOCoordinator:
         packet = self._exchange(self.weight_fields, self.groups.actor_leader, weights)
 
         def install():
+            """Install the received weights at ``version``, requiring a ``True`` acknowledgement."""
             if self.services.install(packet, version) is not True:
                 raise ValueError("rollout did not acknowledge installed Actor weights")
 
@@ -300,12 +333,18 @@ class PPOCoordinator:
             raise
 
     def _run_round(self) -> dict[str, float | int]:
+        """Sample, score, build targets, train and install the next Actor version once.
+
+        The first round installs the initial Actor weights. An empty rollout returns without
+        training or advancing versions; otherwise both versions advance after installation.
+        """
         self.transport_metrics.clear()
         if not self.initialized:
             self._install_actor(self.actor_version)
             self.initialized = True
 
         def sample():
+            """Sample a rollout at the current versions, validate it and return its packet."""
             rollout = self.services.sample(self.actor_version, self.critic_version)
             rollout.validate(actor_version=self.actor_version, critic_version=self.critic_version)
             return rollout.packet()
@@ -327,6 +366,7 @@ class PPOCoordinator:
 
         @torch.no_grad()
         def reference():
+            """Return ``{"reference_logps": ...}``, rejecting scores not shaped like action_mask."""
             scores = self.services.reference(rollout.inputs)
             if scores.shape != rollout.action_mask.shape:
                 raise ValueError("reference adapter must return [B,S-1]")
@@ -337,6 +377,7 @@ class PPOCoordinator:
 
         @torch.no_grad()
         def targets():
+            """Score values and rewards with the critic in eval; only its leader returns targets."""
             critic = self.services.critic
             modes = [(module, module.training) for module in critic.model.modules()]
             critic.model.eval()
@@ -363,6 +404,7 @@ class PPOCoordinator:
         self.last_batch = batch
 
         def train():
+            """Train this rank's Actor or Critic worker on the shared batch."""
             assert self.services.worker is not None  # Checked for trainer ranks at construction.
             return self.services.worker.train(batch)
 

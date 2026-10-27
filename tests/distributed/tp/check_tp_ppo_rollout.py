@@ -41,6 +41,11 @@ from tests.distributed.tp.check_tp_ppo_frameworks import (
 
 
 def run(args):
+    """Run two coordinated PPO rounds over a TP=2 actor, a TP=1/2 critic and rollout ranks.
+
+    Rollout uses the vLLM sidecar with ``--vllm-python``, else a local tiny Megatron GPT sampler.
+    Each rank writes ``rank{rank}.json``; rank 0 also writes ``summary.json``.
+    """
     from megatron.core import parallel_state
     from megatron.core.process_groups_config import ProcessGroupCollection
 
@@ -109,6 +114,7 @@ def run(args):
         model = make_gpt(1, policy=True, pg_collection=pgs).eval()
 
         def install(weights, version):
+            """Load and exactly verify a full actor state dict, then record ``version``."""
             state = model.state_dict()
             assert set(weights) == {k for k, v in state.items() if isinstance(v, torch.Tensor)}
             state.update(weights)
@@ -120,6 +126,10 @@ def run(args):
 
         @torch.no_grad()
         def sample(actor_version, critic_version):
+            """Sample up to four tokens per prompt from the installed actor, seeded by version.
+
+            A row stops after EOS token 31; returns the ``PPORollout`` with behavior logps.
+            """
             assert installed[-1] == actor_version
             sampled.append(actor_version)
             # Different prompt lengths exercise left padding. Four real sampled
@@ -211,6 +221,11 @@ def run(args):
         original_train = services.worker.train
 
         def checked_train(batch):
+            """Run the original ``train``, then require the targets and behavior logps unchanged.
+
+            For the actor, first check recomputed action logprobs against the behavior logprobs
+            (``atol=rtol=2e-6``) and record the max error.
+            """
             if role == "actor":
                 with torch.no_grad():
                     actual = trainable(batch.rollout.inputs)
@@ -320,6 +335,7 @@ def run(args):
 
 
 def main():
+    """Bind each rank to a GPU (``rank`` if dedicated, else ``rank % 2``), init NCCL, run."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--framework", choices=["megatron", "deepspeed"], required=True)
     parser.add_argument("--critic-tp", type=int, choices=[1, 2], required=True)

@@ -15,6 +15,12 @@ import torch
 
 
 def _dimensions(config: Mapping, tp: int):
+    """Return ``(heads, kv_heads, hidden_size, head_dim)`` for a dense Qwen3 config at TP ``tp``.
+
+    Raises ``ValueError`` unless ``model_type`` is ``qwen3``, ``tp >= 1``, query heads group
+    evenly by KV head, KV heads and ``intermediate_size`` divide by ``tp``, attention has no
+    bias and the LM head is untied.
+    """
     if config.get("model_type") != "qwen3":
         raise ValueError("only dense Qwen3 checkpoints are supported")
     heads, kv = config["num_attention_heads"], config["num_key_value_heads"]
@@ -82,6 +88,7 @@ def megatron_to_hf(
     out = {}
 
     def replicated(name):
+        """Return a copy of tensor ``name``, raising ``ValueError`` unless all shards agree."""
         first = shards[0][name]
         if any(not torch.equal(first, shard[name]) for shard in shards[1:]):
             raise ValueError(f"replicated weights disagree: {name}")

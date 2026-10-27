@@ -8,6 +8,13 @@ from examples.post_training.tp_ppo.fixed_contract import REVISION, load_packet, 
 
 
 def main():
+    """Write a frozen acceptance manifest of SHA-256s for the fixed HF reference inputs and bounds.
+
+    Verifies the rollout and targets, then hashes them, the actor/critic FP32/BF16 reports of
+    repeats 0 and 1, and the bounds files; tensor artifact hashes are copied from the reports,
+    not recomputed. Also pins the behavior log-prob atol (actor cross-precision ``0/scores``)
+    and the test matrix. Raises ``ValueError`` if ``--output`` exists or a report is incomplete.
+    """
     p = argparse.ArgumentParser()
     p.add_argument("--reference-root", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)

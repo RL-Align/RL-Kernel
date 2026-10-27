@@ -24,6 +24,11 @@ from rl_engine.integrations.common.tp_scalar import TPModelInputs
 
 
 def rollout_fixture():
+    """Return a valid two-sequence rollout at Actor and Critic version 0.
+
+    Row 0 is right-padded and terminated; row 1 is left-padded and cut off by length.
+    Every behavior logprob is -1.
+    """
     ids = torch.tensor([[1, 2, 3, 4, 0], [0, 1, 2, 3, 4]])
     attention = torch.tensor([[1, 1, 1, 1, 0], [0, 1, 1, 1, 1]], dtype=torch.bool)
     action = torch.tensor([[0, 1, 1, 0], [0, 0, 1, 1]], dtype=torch.bool)
@@ -42,6 +47,7 @@ def rollout_fixture():
 
 
 def test_gae_alignment_terminal_padding_and_snapshots():
+    """Padded GAE bootstraps only the cut-off row, normalizes advantages and snapshots inputs."""
     rollout = rollout_fixture()
     rollout.validate(actor_version=0, critic_version=0)
     states = torch.tensor([[99.0, 1.0, 2.0, 8.0, 99.0], [99.0, 99.0, 3.0, 4.0, 5.0]])
@@ -70,6 +76,7 @@ def test_gae_alignment_terminal_padding_and_snapshots():
 
 
 def test_clipped_losses_ignore_masked_nan_and_preserve_gradients():
+    """Clipped losses match hand values and keep finite gradients despite masked NaN slots."""
     rollout = rollout_fixture()
     mask = rollout.action_mask
     old = torch.zeros_like(rollout.behavior_logps)
@@ -110,11 +117,13 @@ def test_clipped_losses_ignore_masked_nan_and_preserve_gradients():
     ],
 )
 def test_rollout_rejects_invalid_inputs(change, match):
+    """Each single-field change to the fixture makes ``PPORollout.validate`` raise ValueError."""
     with pytest.raises(ValueError, match=match):
         replace(rollout_fixture(), **change).validate(actor_version=0, critic_version=0)
 
 
 def test_kl_shaping_and_discounted_bootstrap():
+    """KL-shaped, discounted GAE with a cut-off bootstrap gives the hand-computed returns."""
     rollout = rollout_fixture()
     states = torch.ones_like(rollout.input_ids, dtype=torch.float32)
     batch = build_ppo_batch(
@@ -131,6 +140,7 @@ def test_kl_shaping_and_discounted_bootstrap():
 
 
 def test_training_batch_rejects_live_behavior_graph():
+    """``PPOBatch.validate`` rejects behavior logprobs that require gradients."""
     rollout = rollout_fixture()
     batch = build_ppo_batch(
         rollout,
@@ -146,6 +156,7 @@ def test_training_batch_rejects_live_behavior_graph():
 
 
 def _init(rank, size, rendezvous, backend):
+    """Use one CPU thread and join a file-rendezvous group; NCCL ranks use device ``rank``."""
     torch.set_num_threads(1)
     if backend == "nccl":
         torch.cuda.set_device(rank)
@@ -193,6 +204,12 @@ def test_sharded_actor_logps_and_gradients(tmp_path, size):
 
 
 def _ppo_worker(rank, size, rendezvous, actor_tp, critic_tp):
+    """Run two ``make_example`` PPO rounds and check versions, frozen targets and snapshots.
+
+    Rank 0 checks behavior logprobs against the rollout model; only Actor, Critic and rollout
+    weights change. Then an empty rollout makes no update, an unacknowledged install raises
+    without bumping versions, and the failed coordinator refuses another round.
+    """
     _init(rank, size, rendezvous, "gloo")
     try:
         coordinator, models = make_example(actor_tp, critic_tp, epochs=2)
@@ -204,6 +221,7 @@ def _ppo_worker(rank, size, rendezvous, actor_tp, critic_tp):
             original_sample = coordinator.services.sample
 
             def checked_sample(actor_version, critic_version):
+                """Sample and assert behavior logprobs match the rollout model on valid actions."""
                 result = original_sample(actor_version, critic_version)
                 recomputed = models["rollout"].logps(result.inputs)
                 torch.testing.assert_close(
@@ -235,6 +253,7 @@ def _ppo_worker(rank, size, rendezvous, actor_tp, critic_tp):
         if rank == 0:
 
             def empty_sample(actor_version, critic_version):
+                """Return the sample truncated to zero sequences, keeping versions and sampling."""
                 sample = original_sample(actor_version, critic_version)
                 packet = sample.packet()
                 for name in packet:
@@ -260,6 +279,7 @@ def _ppo_worker(rank, size, rendezvous, actor_tp, critic_tp):
 
 @pytest.mark.parametrize("actor_tp,critic_tp", [(2, 1), (1, 2)])
 def test_two_round_ppo_separate_tp_groups(tmp_path, actor_tp, critic_tp):
+    """PPO with disjoint Actor and Critic TP groups passes the ``_ppo_worker`` round checks."""
     size = 1 + actor_tp + critic_tp
     mp.start_processes(
         _ppo_worker,
@@ -279,6 +299,7 @@ def _observer_worker(rank, size, rendezvous):
         model = torch.nn.Linear(1, 1, bias=False)
 
         def forward(inputs):
+            """Return ``-1 + weight * token_id`` for each state slot as [B, S-1] Actor logprobs."""
             return -1 + model(inputs.input_ids[:, :-1].float().unsqueeze(-1)).squeeze(-1)
 
         events = []

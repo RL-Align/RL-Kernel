@@ -34,6 +34,11 @@ from tests.distributed.tp.check_tp_ppo_frameworks import initialize_engine, snap
 
 
 def run(args):
+    """Run two coordinated PPO rounds over pretrained Qwen3 actor, critic and rollout roles.
+
+    Ranks below ``actor_tp`` are the actor, the next rank the critic and the last the rollout.
+    Each rank writes ``rank{rank}.json``; rank 0 also writes ``summary.json``.
+    """
     from megatron.core import parallel_state
     from megatron.core.process_groups_config import ProcessGroupCollection
 
@@ -183,6 +188,11 @@ def run(args):
         original_train = services.worker.train
 
         def checked_train(batch):
+            """Run the original ``train``, then require the targets and behavior logps unchanged.
+
+            For the actor, first check recomputed action logprobs against the behavior logprobs
+            within the ``--thresholds`` ``behavior_logprob`` atol/rtol and record the max error.
+            """
             if role == "actor":
                 with torch.no_grad():
                     actual = trainable(batch.rollout.inputs)
@@ -310,6 +320,11 @@ def run(args):
 
 
 def main():
+    """Check clean source, the pinned checkpoint, thresholds and 4-GPU topology; call ``run``.
+
+    The topology must be dedicated with actor, critic and vLLM TP summing to 4; each rank is
+    bound to GPU ``rank`` and NCCL is initialized before ``run``.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--framework", choices=["megatron", "deepspeed"], required=True)
     parser.add_argument("--actor-tp", type=int, choices=[1, 2], required=True)

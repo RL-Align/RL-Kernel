@@ -12,6 +12,10 @@ from examples.post_training.tp_ppo.fixed_contract import read_tensor, sha
 
 
 def errors(x, y):
+    """Return the FP64 max absolute error and relative L2 error (relative to ``x``) of ``x - y``.
+
+    Raises ``ValueError`` on a shape mismatch or nonfinite values.
+    """
     if x.shape != y.shape or not torch.isfinite(x).all() or not torch.isfinite(y).all():
         raise ValueError("nonfinite or mismatched tensor comparison")
     delta = x.double() - y.double()
@@ -22,6 +26,7 @@ def errors(x, y):
 
 
 def floor(name):
+    """Return the absolute bound floor: 1e-7 for updates, 1e-5 for scores, 1e-6 otherwise."""
     if "/update/" in name:
         return 1e-7
     if name.endswith("/scores"):
@@ -30,6 +35,7 @@ def floor(name):
 
 
 def report(root):
+    """Return ``root/report.json``; raise ``ValueError`` unless it is a completed fixed run."""
     row = json.loads((root / "report.json").read_text())
     if row["status"] not in ("fixed_reference_complete", "fixed_candidate_complete"):
         raise ValueError("incomplete fixed-rollout run")
@@ -37,6 +43,11 @@ def report(root):
 
 
 def same_inputs(a, b):
+    """Raise ``ValueError`` unless two run reports were made from the same fixed inputs.
+
+    They must match in role, rollout and targets manifests, config, optimizer, model revision
+    and tensor inventory.
+    """
     for key in (
         "role",
         "rollout_manifest_sha256",
@@ -52,6 +63,13 @@ def same_inputs(a, b):
 
 
 def main():
+    """Compare every evidence tensor of two fixed-rollout runs and write the result JSON.
+
+    Without ``--thresholds``, two HF reference runs freeze bounds of 4x their max error plus
+    a floor. With it, the other run passes or fails on ``max_abs`` against threshold bounds
+    pinned in the acceptance manifest, and the process exits with status 1 on any failure.
+    Raises ``ValueError`` if ``--output`` already exists.
+    """
     p = argparse.ArgumentParser()
     p.add_argument("--reference", type=Path, required=True)
     p.add_argument("--other", type=Path, required=True)

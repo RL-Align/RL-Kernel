@@ -9,6 +9,7 @@ from rl_engine.integrations.engines.train.megatron.ppo import megatron_attention
 
 
 def test_megatron_mask_preserves_causality_and_left_padding():
+    """Valid queries see only causal valid keys; every query row, padded included, keeps a key."""
     valid = torch.tensor([[False, True, True, True], [True, True, True, False]])
     blocked = megatron_attention_mask(valid)
     assert blocked.shape == (2, 1, 4, 4)
@@ -23,6 +24,7 @@ def test_megatron_mask_preserves_causality_and_left_padding():
 
 
 def test_engine_callbacks_must_be_paired():
+    """``PPOTrainingWorker`` rejects a framework ``backward`` callback without ``step``."""
     model = torch.nn.Linear(2, 1)
     with pytest.raises(ValueError, match="provided together"):
         PPOTrainingWorker(

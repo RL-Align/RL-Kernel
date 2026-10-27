@@ -37,6 +37,11 @@ from rl_engine.integrations.engines.train.megatron.ppo import (
 
 
 def make_gpt(tp: int, *, policy: bool, pg_collection=None, hidden_size=32, max_sequence_length=16):
+    """Build a seeded random 2-layer FP32 Megatron ``GPTModel`` with vocab 32 on CUDA.
+
+    ``policy`` sets ``post_process``; the TP group comes from ``pg_collection`` when given,
+    else from Megatron's global parallel state.
+    """
     from megatron.core import parallel_state
     from megatron.core.models.gpt import GPTModel
     from megatron.core.models.gpt.gpt_layer_specs import get_gpt_layer_local_spec
@@ -87,6 +92,10 @@ def make_gpt(tp: int, *, policy: bool, pg_collection=None, hidden_size=32, max_s
 def make_model(
     tp: int, *, policy: bool, pg_collection=None, hidden_size=32, max_sequence_length=16
 ):
+    """Return ``make_gpt`` wrapped as an eval-mode policy adapter or scalar-value adapter.
+
+    The scalar adapter's bias-free head is this rank's feature shard of one seeded master weight.
+    """
     backbone = make_gpt(
         tp,
         policy=policy,
@@ -108,6 +117,7 @@ def make_model(
 
 
 def rollout(device):
+    """Return a fixed version-0 ``PPORollout``: one right- and one left-padded sequence."""
     ids = torch.tensor([[1, 2, 3, 4, 5, 0], [0, 1, 2, 3, 4, 5]], device=device)
     mask = torch.tensor([[1, 1, 1, 1, 1, 0], [0, 1, 1, 1, 1, 1]], dtype=torch.bool, device=device)
     actions = torch.tensor([[0, 1, 1, 1, 0], [0, 0, 1, 1, 1]], dtype=torch.bool, device=device)
@@ -167,6 +177,11 @@ def snapshot(model, group, *, gradients=False):
 
 
 def initialize_engine(model, *, tp_group=None, dp_group=None, bf16=False, optimizer=None):
+    """Wrap ``model`` in a ZeRO stage-0 DeepSpeed engine over the given or global TP/DP groups.
+
+    Without ``optimizer``, use AdamW (lr 1e-5) for BF16 and SGD (lr 0.01) otherwise.
+    DeepSpeed gradient clipping is disabled.
+    """
     import deepspeed
     from megatron.core import parallel_state
 
@@ -207,6 +222,11 @@ def initialize_engine(model, *, tp_group=None, dp_group=None, bf16=False, optimi
 
 
 def run(framework: str, tp: int):
+    """Exercise TP reward/value executors and actor/critic PPO workers on random tiny GPTs.
+
+    Checks padding-invariant rewards, parameter updates and unchanged frozen models. Returns
+    gathered CPU tensors for baseline comparison and the actor/critic training stats.
+    """
     from megatron.core import parallel_state
 
     group = parallel_state.get_tensor_model_parallel_group()
@@ -307,6 +327,7 @@ def run(framework: str, tp: int):
     backward = actor_worker.backward
 
     def capture_backward(loss):
+        """Call the worker's original backward and keep the latest gathered actor gradients."""
         backward(loss)
         actor_gradients.update(snapshot(actor, group, gradients=True))
 
@@ -339,6 +360,10 @@ def run(framework: str, tp: int):
 
 
 def compare(actual, expected):
+    """Assert each section of ``actual`` is close to ``expected``; return per-section max errors.
+
+    Tolerances are ``atol=2e-5`` and ``rtol=2e-4``; dict sections must have identical keys.
+    """
     errors = {}
     for section in actual:
         left, right = actual[section], expected[section]
@@ -354,6 +379,10 @@ def compare(actual, expected):
 
 
 def main():
+    """Require world size equal to ``--tp``, call ``run``; rank 0 saves tensors and a JSON report.
+
+    With ``--baseline``, rank 0 first compares the results against that saved run.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--framework", choices=("megatron", "deepspeed"), required=True)
     parser.add_argument("--tp", type=int, required=True)

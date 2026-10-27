@@ -10,6 +10,7 @@ from rl_engine.integrations.engines.rollout.vllm.ppo_qwen3 import (
 
 
 def test_missing_duplicate_and_stale_rank_confirmations_fail():
+    """Acks pass with one current entry per rank; missing, duplicate or stale ones raise."""
     acks = [dict(rank=r, tp=2, version=1, verified_tensors=12) for r in range(2)]
     verify_acknowledgments(acks, version=1, tp=2)
     for bad in (acks[:1], [acks[0], acks[0]], [acks[0], dict(acks[1], version=0)]):
@@ -18,6 +19,7 @@ def test_missing_duplicate_and_stale_rank_confirmations_fail():
 
 
 def test_qkv_shards_are_contiguous_q_k_v_not_megatron_grouped_order():
+    """A vLLM fused QKV shard is the rank's Q, K and V row slices concatenated in that order."""
     weights = {
         f"model.layers.0.self_attn.{n}_proj.weight": torch.arange(rows * 8).reshape(rows, 8)
         + offset
@@ -38,6 +40,7 @@ def test_qkv_shards_are_contiguous_q_k_v_not_megatron_grouped_order():
 
 
 def test_parameter_without_checkpoint_source_names_the_parameter():
+    """``expected_shard`` raises ``ValueError`` naming a vLLM parameter with no source tensor."""
     weights = {"model.layers.0.self_attn.q_proj.weight": torch.zeros(8, 8)}
     for name in (
         "model.layers.0.self_attn.qkv_proj.weight",

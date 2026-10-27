@@ -12,6 +12,11 @@ from tests.distributed.tp.vllm_ppo_client import VllmPPOClient
 
 
 def main():
+    """Install the verified checkpoint as version 0 in a vLLM TP2 sampler and freeze one rollout.
+
+    Writes ``version0.pt``, ``rollout.pt`` and a ``manifest.json`` with provenance, hashes and
+    sampler timings to ``--output``.
+    """
     p = argparse.ArgumentParser()
     p.add_argument("--checkpoint", type=Path, required=True)
     p.add_argument("--vllm-python", required=True)

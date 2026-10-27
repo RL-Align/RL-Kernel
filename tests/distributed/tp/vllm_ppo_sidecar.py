@@ -45,6 +45,7 @@ def install_weights(worker, filename: str, version: int):
 
 class PPOWeightLoader:
     def install_ppo_weights(self, filename: str, version: int):
+        """Install with the Qwen3 installer for Qwen3 models, else this module's GPT-2 one."""
         if self.model_runner.model.config.model_type == "qwen3":
             from rl_engine.integrations.engines.rollout.vllm.ppo_qwen3 import (
                 install_weights as qwen_install,
@@ -54,6 +55,11 @@ class PPOWeightLoader:
         return install_weights(self, filename, version)
 
     def probe_ppo_rejections(self, filename: str, version: int):
+        """Return this rank's evidence that a stale install and a corrupt QKV shard are rejected.
+
+        Reinstalling ``version`` must fail, and one perturbed QKV element must fail
+        ``verify_parameters``; the restored weights must then verify again.
+        """
         from vllm.distributed import (
             get_tensor_model_parallel_rank,
             get_tensor_model_parallel_world_size,
@@ -90,6 +96,13 @@ class PPOWeightLoader:
 
 
 def main():
+    """Serve JSON-line requests from stdin with a vLLM engine and reply on ``--response-fd``.
+
+    Without ``--checkpoint`` the engine is a dummy-weight tiny GPT-2. ``install`` checks every
+    worker's acknowledgment and resets the prefix cache; ``sample`` requires a cold cache and
+    checks that a cached replay matches the cold tokens and, within tolerance, their logprobs;
+    ``negative_controls`` runs the rejection probes; ``close`` stops the loop.
+    """
     from importlib.metadata import version
 
     from transformers import GPT2Config
@@ -148,6 +161,7 @@ def main():
     )
 
     def emit(value):
+        """Write ``value`` as one JSON line to the response pipe."""
         print(json.dumps(value), file=responses, flush=True)
 
     emit(

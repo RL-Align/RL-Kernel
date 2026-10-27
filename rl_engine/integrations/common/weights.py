@@ -2717,6 +2717,7 @@ class TensorPacketBridge:
         source: int,
         device: torch.device | str,
     ) -> None:
+        """Raise ``ValueError`` unless this rank and global ``source`` belong to ``group``."""
         self.group = group
         self.source = source
         self.device = torch.device(device)
@@ -2731,6 +2732,12 @@ class TensorPacketBridge:
         fields: tuple[str, ...],
         tensors: Optional[Mapping[str, torch.Tensor]] = None,
     ) -> dict[str, torch.Tensor]:
+        """Send the source's tensors for ``fields`` to every member and return them by name.
+
+        The source packet must match ``fields`` exactly, use a supported dtype, have at most 8
+        dims and live on ``self.device``; the source also gets detached clones. ``metrics``
+        records payload bytes, broadcast calls and elapsed milliseconds.
+        """
         started = time.perf_counter()
         is_source = torch.distributed.get_rank() == self.source
         error = None

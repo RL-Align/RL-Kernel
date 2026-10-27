@@ -45,6 +45,14 @@ class MegatronScalarAdapter(torch.nn.Module):
         group: dist.ProcessGroup,
         leader: int,
     ) -> None:
+        """Validate the TP layout, mark ``head.weight`` TP-sharded on dim 1 and create the bias.
+
+        ``head.weight`` is annotated ``partition_dim=1`` (sharded over input features).
+        ``leader`` is a global rank in ``group``; only it holds a trainable zero bias, while the
+        other ranks hold a zero buffer. Raises ``ValueError`` for a missing group or leader, a
+        backbone on another TP group, with ``post_process`` or with SP/PP, or a head that is
+        not ``Linear(hidden_size / TP, 1, bias=False)``.
+        """
         super().__init__()
         if group is None or dist.get_rank(group) < 0:
             raise ValueError("scalar adapter requires an explicit TP group containing this rank")
@@ -76,6 +84,11 @@ class MegatronScalarAdapter(torch.nn.Module):
             )
 
     def forward(self, input_ids, attention_mask, position_ids, use_cache=False):
+        """Return this rank's additive share of the per-token scalar as a ``[B, S]`` tensor.
+
+        Summing the shares over the TP group gives the full head output plus the leader's bias.
+        ``attention_mask`` is the bool token-validity mask; ``use_cache=True`` is rejected.
+        """
         from megatron.core.tensor_parallel.mappings import scatter_to_tensor_model_parallel_region
 
         if use_cache:
@@ -93,6 +106,12 @@ class MegatronPolicyAdapter(torch.nn.Module):
     """Selected-token logprobs from GPTModel's vocabulary-parallel output."""
 
     def __init__(self, model: torch.nn.Module, *, real_vocab_size: int | None = None) -> None:
+        """Wrap a vocabulary-parallel GPTModel (``post_process`` and ``parallel_output`` set).
+
+        Raises ``ValueError`` if the model uses SP/PP or its TP group is not
+        ``parallel_state``'s tensor-model-parallel group, which the vocab-parallel CE uses.
+        ``real_vocab_size``, when given, excludes padded vocabulary entries from the logprobs.
+        """
         from megatron.core import parallel_state
 
         super().__init__()
@@ -106,6 +125,10 @@ class MegatronPolicyAdapter(torch.nn.Module):
         self.real_vocab_size = real_vocab_size
 
     def forward(self, inputs: TPModelInputs) -> torch.Tensor:
+        """Return FP32 logprobs of each next input token as a ``[B, S-1]`` tensor.
+
+        Vocabulary entries at or beyond ``real_vocab_size`` are masked to ``-inf`` first.
+        """
         from megatron.core.tensor_parallel.cross_entropy import vocab_parallel_cross_entropy
 
         logits = self.model(

@@ -18,6 +18,7 @@ from tests.integrations.common.test_tp_scalar import _init
 
 
 def fixture():
+    """Return a tiny two-layer GQA Qwen3 config and a seeded random HF state dict."""
     c = dict(
         model_type="qwen3",
         num_attention_heads=4,
@@ -54,6 +55,7 @@ def fixture():
 
 @pytest.mark.parametrize("tp", [1, 2])
 def test_checkpoint_roundtrip_preserves_all_real_tensor_slots(tp):
+    """Splitting HF weights into TP shards and merging them back restores every tensor exactly."""
     c, state = fixture()
     shards = [hf_to_megatron(state, c, tp=tp, rank=r) for r in range(tp)]
     restored = megatron_to_hf(shards, c)
@@ -63,6 +65,7 @@ def test_checkpoint_roundtrip_preserves_all_real_tensor_slots(tp):
 
 
 def test_gqa_group_layout_and_gate_up_stride_are_independently_correct():
+    """TP rank 1 holds its GQA Q/K/V slice, gate-then-up FC1 halves and a zero vocab pad row."""
     c, state = fixture()
     s = hf_to_megatron(state, c, tp=2, rank=1)
     prefix = "model.layers.0."
@@ -86,6 +89,7 @@ def test_gqa_group_layout_and_gate_up_stride_are_independently_correct():
 
 
 def test_replicated_norm_disagreement_is_rejected():
+    """Merging shards raises when a replicated norm weight differs across TP ranks."""
     c, state = fixture()
     shards = [hf_to_megatron(state, c, tp=2, rank=r) for r in range(2)]
     shards[1]["decoder.layers.1.self_attention.q_layernorm.weight"].add_(1)
@@ -158,6 +162,7 @@ def test_actor_snapshot_preserves_gate_up_weights_and_gradients(tmp_path, tp):
 
 
 def test_reference_report_preserves_loading_diagnostics():
+    """``report_json_default`` writes sets as sorted lists and rejects other unknown objects."""
     from examples.post_training.tp_ppo.calibrate_qwen3 import report_json_default
 
     report = {
@@ -174,6 +179,10 @@ def test_reference_report_preserves_loading_diagnostics():
 
 
 def test_independent_hf_targets_and_losses_match_handled_termination():
+    """Standalone HF targets match ``build_ppo_batch`` and its losses match the PPO loss functions.
+
+    Covers the fixture's terminated and length-cut-off rows.
+    """
     from examples.post_training.tp_ppo.fixed_contract import CONFIG
     from examples.post_training.tp_ppo.hf_ppo_reference import independent_loss, independent_targets
     from rl_engine.integrations.common.ppo import build_ppo_batch, ppo_policy_loss, ppo_value_loss
@@ -206,6 +215,7 @@ def test_independent_hf_targets_and_losses_match_handled_termination():
 
 
 def test_independent_hf_targets_reject_a_row_without_action_tokens():
+    """``independent_targets`` raises ``ValueError`` for a row with no action tokens."""
     from examples.post_training.tp_ppo.hf_ppo_reference import independent_targets
     from tests.integrations.common.test_ppo import rollout_fixture
 
@@ -219,6 +229,7 @@ def test_independent_hf_targets_reject_a_row_without_action_tokens():
 
 
 def test_fixed_evidence_rejects_corruption_and_inventory_shape(tmp_path):
+    """Evidence tensors round-trip; a wrong manifest shape or altered file bytes is rejected."""
     from examples.post_training.tp_ppo.fixed_contract import read_tensor, write_tensor
 
     row = write_tensor(tmp_path, "gradient", torch.arange(4.0))
@@ -232,6 +243,7 @@ def test_fixed_evidence_rejects_corruption_and_inventory_shape(tmp_path):
 
 
 def test_scalar_checkpoint_mapping_never_requires_an_lm_head():
+    """Scalar (``policy=False``) restore needs no output layer and emits no ``lm_head``."""
     config, state = fixture()
     shard = hf_to_megatron(state, config, tp=1, rank=0)
     del shard["output_layer.weight"]

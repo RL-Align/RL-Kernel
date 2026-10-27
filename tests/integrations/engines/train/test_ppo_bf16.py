@@ -11,6 +11,7 @@ from rl_engine.integrations.engines.train.megatron.ppo_precision import FP32Mast
 
 @pytest.fixture
 def group(tmp_path):
+    """Yield a single-rank Gloo world group, destroying it after the test."""
     dist.init_process_group(
         "gloo", init_method=f"file://{tmp_path / 'group'}", rank=0, world_size=1
     )
@@ -21,6 +22,7 @@ def group(tmp_path):
 
 
 def test_master_gradient_clipping_consumes_fp32_buffer_not_model_grad(group):
+    """Clipping scales the FP32 master gradient used by ``step``, not the BF16 model grad."""
     parameter = torch.nn.Parameter(torch.tensor([1.0, -1.0], dtype=torch.bfloat16))
     master = FP32MasterWeights([parameter], lambda ps: torch.optim.SGD(ps, lr=0.25))
     parameter.grad = torch.tensor([3.0, 4.0], dtype=torch.bfloat16)
@@ -44,6 +46,7 @@ def test_master_gradient_clipping_consumes_fp32_buffer_not_model_grad(group):
 
 
 def test_sub_bf16_updates_accumulate_in_fp32_master():
+    """Updates below BF16 resolution accumulate in the FP32 master and reach the BF16 weight."""
     parameter = torch.nn.Parameter(torch.ones(1, dtype=torch.bfloat16))
     master = FP32MasterWeights([parameter], lambda ps: torch.optim.SGD(ps, lr=0.001))
     for _ in range(8):
@@ -56,6 +59,7 @@ def test_sub_bf16_updates_accumulate_in_fp32_master():
 
 
 def test_master_rejects_step_without_fresh_gradients():
+    """``step`` raises unless master gradients were materialized for this update."""
     parameter = torch.nn.Parameter(torch.ones(1, dtype=torch.bfloat16))
     master = FP32MasterWeights([parameter], lambda ps: torch.optim.SGD(ps, lr=0.1))
     with pytest.raises(RuntimeError, match="materialize"):
@@ -63,6 +67,7 @@ def test_master_rejects_step_without_fresh_gradients():
 
 
 def test_nonfinite_optimizer_buffer_is_rejected(group):
+    """TP clipping raises ``ValueError`` on a NaN optimizer gradient buffer."""
     parameter = torch.nn.Parameter(torch.ones(1, dtype=torch.bfloat16))
     parameter.grad = torch.zeros_like(parameter)
     with pytest.raises(ValueError, match="non-finite"):
@@ -76,6 +81,7 @@ def test_nonfinite_optimizer_buffer_is_rejected(group):
 
 
 def test_microbatch_gradients_accumulate_in_fp32_before_clipping():
+    """BF16 microbatch gradients sum exactly in FP32 and each is cleared once accumulated."""
     parameter = torch.nn.Parameter(torch.ones(1, dtype=torch.bfloat16))
     master = FP32MasterWeights([parameter], lambda ps: torch.optim.SGD(ps, lr=0.001))
     for value in [256.0] + [1.0] * 8:
@@ -86,6 +92,10 @@ def test_microbatch_gradients_accumulate_in_fp32_before_clipping():
 
 
 def test_microbatch_token_weighting_matches_full_minibatch(group):
+    """One-sequence microbatches match the full minibatch's updated weight, loss and grad norm.
+
+    The two rows have unequal action counts, so per-sequence averaging would diverge.
+    """
     from rl_engine.integrations.common.ppo import PPOBatch, PPOConfig, PPOTrainingWorker
     from tests.integrations.common.test_ppo import rollout_fixture
 
@@ -110,6 +120,7 @@ def test_microbatch_token_weighting_matches_full_minibatch(group):
             model.weight.fill_(0.01)
 
         def forward(inputs):
+            """Return ``-1 + weight * token_id`` for each state slot as [B, S-1] Actor logprobs."""
             return -1 + model(inputs.input_ids[:, :-1].float().unsqueeze(-1)).squeeze(-1)
 
         worker = PPOTrainingWorker(

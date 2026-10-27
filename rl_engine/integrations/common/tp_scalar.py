@@ -20,6 +20,11 @@ class TPModelInputs:
     position_ids: torch.Tensor
 
     def validate(self) -> None:
+        """Raise ``ValueError`` unless the inputs form a well-typed ``[B, S]`` batch on one device.
+
+        ``attention_mask`` must be bool and ``position_ids`` int64, both matching ``input_ids``;
+        every sequence needs at least one valid token.
+        """
         if self.input_ids.ndim != 2 or self.input_ids.dtype != torch.int64:
             raise ValueError("input_ids must be int64 [B, S]")
         if self.attention_mask.shape != self.input_ids.shape:
@@ -36,6 +41,7 @@ class TPModelInputs:
             raise ValueError("each sequence must contain a valid token")
 
     def select(self, indices: torch.Tensor) -> TPModelInputs:
+        """Return the rows chosen by ``indices`` from all three tensors."""
         return TPModelInputs(
             self.input_ids[indices], self.attention_mask[indices], self.position_ids[indices]
         )
@@ -50,12 +56,14 @@ class _SumLocalHead(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, value: torch.Tensor, group: dist.ProcessGroup) -> torch.Tensor:
+        """All-reduce (SUM) a clone of ``value`` over ``group``, leaving the input unchanged."""
         result = value.clone()
         dist.all_reduce(result, group=group)
         return result
 
     @staticmethod
     def backward(ctx, gradient: torch.Tensor):
+        """Pass the gradient through unchanged; ``group`` receives no gradient."""
         return gradient, None
 
 
@@ -84,6 +92,10 @@ class TPScalarExecutor:
         leader: int,
         output_layout: Literal["replicated", "local_sum"],
     ) -> None:
+        """Raise ``ValueError`` unless this rank and ``leader`` belong to ``group``.
+
+        ``output_layout`` must be ``replicated`` or ``local_sum``; reduction counters start at 0.
+        """
         if group is None or dist.get_rank(group) < 0:
             raise ValueError("an explicit TP group containing this rank is required")
         if leader not in dist.get_process_group_ranks(group):
@@ -97,6 +109,12 @@ class TPScalarExecutor:
         self.head_metrics = {"reduce_calls": 0, "payload_bytes": 0}
 
     def _forward(self, inputs: TPModelInputs, *, scalar_allowed: bool) -> torch.Tensor:
+        """Validate inputs, run the model with ``use_cache=False`` and return its unreduced output.
+
+        The output must be a finite floating tensor on the input device, shaped ``[B, S]`` or,
+        when ``scalar_allowed``, ``[B]``. An input or output check failing on any rank raises
+        ``ValueError`` on all ranks; exceptions from the model itself are not synchronized.
+        """
         error = None
         try:
             inputs.validate()
