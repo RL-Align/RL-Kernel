@@ -54,6 +54,9 @@ except ImportError:  # pragma: no cover - extension may be missing in CPU-only b
 
 # Qwen3-8B SwiGLU intermediate dim (gate/up_proj output width).
 _INTERMEDIATE = 12288
+# FP32 candidate against an FP64 golden: the gap is FP32 rounding, not the
+# elementwise contract's bf16/fp16 tolerance rows.
+_FP64_TOL = {"rtol": 1e-6, "atol": 1e-6}
 _ASCEND_DTYPES = (torch.float32, torch.float16, torch.bfloat16)
 
 
@@ -138,6 +141,88 @@ def test_native_activation_rejects_invalid_dtypes():
             torch.ones(8, dtype=torch.float16),
             torch.ones(8, dtype=torch.bfloat16),
         )
+
+
+# Independent high-precision reference (WS1 acceptance: forward and backward
+# correctness against an FP64 reference).
+
+
+def _ref_silu(x):
+    """Independent SiLU reference, dtype-preserving.
+
+    Pass fp32 tensors for a bitwise fp32 check, or ``.double()`` tensors for a
+    TF32-immune high-precision reference. Written from the definition rather
+    than reusing ``NativeSiLUOp``, so an error in the production formula cannot
+    cancel out.
+    """
+    return x * torch.sigmoid(x)
+
+
+def _ref_swiglu(gate, up):
+    """Independent SwiGLU reference, dtype-preserving. See ``_ref_silu``."""
+    return gate * torch.sigmoid(gate) * up
+
+
+@pytest.mark.parametrize("dtype", (torch.float32, torch.bfloat16, torch.float16))
+def test_native_silu_matches_fp64_reference_forward_and_backward(dtype: torch.dtype):
+    x = _rand((4, 2, 64), seed=30, dtype=dtype)
+    leaf = x.float().detach().requires_grad_(True)
+    out = NativeSiLUOp().forward_fp32(leaf)
+
+    # A random cotangent, not .sum(): an all-ones cotangent collapses the
+    # product rule in the SiLU derivative and can hide a wrong term.
+    gen = torch.Generator().manual_seed(31)
+    dy = torch.randn(out.shape, generator=gen, dtype=out.dtype)
+    out.backward(dy)
+
+    leaf_d = x.double().detach().requires_grad_(True)
+    _ref_silu(leaf_d).backward(dy.double())
+
+    torch.testing.assert_close(out.detach(), _ref_silu(leaf_d).detach().float(), **_FP64_TOL)
+    assert leaf.grad is not None
+    torch.testing.assert_close(leaf.grad, leaf_d.grad.float(), **_FP64_TOL)
+
+
+@pytest.mark.parametrize("dtype", (torch.float32, torch.bfloat16, torch.float16))
+def test_native_swiglu_matches_fp64_reference_forward_and_backward(dtype: torch.dtype):
+    gate = _rand((4, 2, 64), seed=32, dtype=dtype)
+    up = _rand((4, 2, 64), seed=33, dtype=dtype)
+    gate_leaf = gate.float().detach().requires_grad_(True)
+    up_leaf = up.float().detach().requires_grad_(True)
+    out = NativeSwiGLUOp().forward_fp32(gate_leaf, up_leaf)
+
+    gen = torch.Generator().manual_seed(34)
+    dy = torch.randn(out.shape, generator=gen, dtype=out.dtype)
+    out.backward(dy)
+
+    gate_d = gate.double().detach().requires_grad_(True)
+    up_d = up.double().detach().requires_grad_(True)
+    _ref_swiglu(gate_d, up_d).backward(dy.double())
+
+    torch.testing.assert_close(
+        out.detach(), _ref_swiglu(gate_d, up_d).detach().float(), **_FP64_TOL
+    )
+    for leaf, leaf_d in ((gate_leaf, gate_d), (up_leaf, up_d)):
+        assert leaf.grad is not None and leaf.grad.shape == leaf.shape
+        torch.testing.assert_close(leaf.grad, leaf_d.grad.float(), **_FP64_TOL)
+
+
+def test_swiglu_fp64_reference_detects_a_wrong_gradient_term():
+    """The FP64 check must fail on the classic SiLU-derivative mistake.
+
+    ``d/dg [g*sigmoid(g)] = s*(1 + g*(1 - s))``. Dropping the ``g*(1 - s)``
+    term leaves plain ``sigmoid(g)``, which is close for small ``|g|`` and
+    wrong elsewhere. Guards against the FP64 comparison being vacuous.
+    """
+    gate = _rand((64,), seed=35).double().requires_grad_(True)
+    up = _rand((64,), seed=36).double()
+    gen = torch.Generator().manual_seed(37)
+    dy = torch.randn(gate.shape, generator=gen, dtype=torch.float64)
+
+    _ref_swiglu(gate, up).backward(dy)
+    wrong = dy * up * torch.sigmoid(gate.detach())
+
+    assert not torch.allclose(gate.grad, wrong, **_FP64_TOL)
 
 
 # Axis A -- batch invariance, bitwise (the WS1 "aligned" property).
