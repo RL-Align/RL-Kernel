@@ -16,7 +16,7 @@ head channels in their original order. Inputs support 1 to 131072 rows.
 The expanded range passed the H100 operator tests below.
 One NVIDIA SM90 device, eager execution and TF32 disabled are required.
 
-The shared adapter reuses `_det_gemm_fp32_kernel` with fixed 64x64x32 tiles,
+The NVIDIA adapter reuses `_det_gemm_fp32_kernel` with fixed 64x64x32 tiles,
 four warps, two stages, no fusion, no autotuning and no split-K. Each 32-wide
 BF16 dot tile produces FP32; tile sums are added in increasing K order and
 cast to BF16 once. Forward, dX and dW use the same arithmetic policy.
@@ -271,6 +271,25 @@ These shared-helper measurements do not establish H3 performance or broad
 performance acceptance. The earlier four-warp regressions (2.74 to 7.11x)
 and all other original results remain privately preserved unchanged.
 
+A targeted manual H100 follow-up on 2026-10-27 at `c8045837` used the same
+software versions and unchanged shared module. Two separate processes measured
+only the flagged shape/dtype and its strided counterpart: 100 warmups, 36
+balanced path orders per mode and 100 wrapper calls per eager batch. All 864
+observations across eager and graph diagnostics are retained without trimming
+or pooling processes. Primary eager candidate/baseline CUDA-event ratios were
+0.941509 and 0.964632 for contiguous inputs; synchronized-wall ratios were
+0.941898 and 0.964311. The strided control remained slower: CUDA-event ratios
+1.056958 and 1.061701, with synchronized-wall ratios 1.056830 and 1.061710.
+Descriptive block-bootstrap 95% upper bounds were below 1.25 in both processes
+for both primary metrics and layouts. These resample six balanced cycles and
+do not establish independent observations or the cause of the earlier variation.
+The earlier 1.250282x result was not reproduced under this follow-up protocol;
+it remains in the evidence. Graph replay excludes host dispatch and is diagnostic
+only. This resolves the local timing flag for the tested case without changing
+the kernel or establishing broader performance acceptance. All three paths
+passed the unchanged FP32 and FP64-reference tolerances for both layouts;
+candidate outputs matched the four-warp compensated version byte for byte.
+
 Historical H100 execution on 2026-10-26 passed six full-width H3 cases at
 1, 33 and 129 rows, including y/dX/dW accuracy and chunk invariance, with
 zero failures or skips. That H3 evidence is reused without rerunning: its
@@ -278,7 +297,11 @@ direct kernel call, kernel body and numerical dependencies are unchanged.
 The adapter was relocated byte for byte to its NVIDIA-owned directory and the
 reference functions moved unchanged to the reference layer; canonical imports
 and provenance paths were updated, with compatibility imports retained.
-Affected CPU regression execution for this relocation remains incomplete. Traces used `INDEX_64=True` without compensation. The current
+The follow-up executed all 58 affected CPU regression tests successfully, with
+zero failures or skips and six GPU-only cases deliberately deselected. Earlier
+local CPU execution failures remain preserved; the successful checks used
+Python 3.11.10 and PyTorch 2.4.1+cu124. Historical H3 traces used
+`INDEX_64=True` without compensation. The current
 change does not establish actual CI execution, native-extension regression,
 full H3 workload performance or qualification on other software/device
 profiles. Original results, failed attempts, source snapshots and compiled
