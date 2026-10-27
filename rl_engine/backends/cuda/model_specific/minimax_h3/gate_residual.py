@@ -51,7 +51,9 @@ class _H3GateResidualCuda(torch.autograd.Function):
         record_backward(
             "adaln_gate_residual", kernel_id=BACKWARD_KERNEL_ID, impl=BACKWARD_IMPL, family="cuda"
         )
-        return grad, dy.view(ctx.y_shape), dgate, None
+        # The cotangent has the output's shape, which is the residual's; the residual's VJP is that
+        # cotangent itself. reshape (not view) so a non-contiguous gradient is accepted.
+        return grad.reshape(ctx.residual_shape), dy.view(ctx.y_shape), dgate, None
 
 
 class H3GateResidualCudaOp:
@@ -80,7 +82,11 @@ class H3GateResidualCudaOp:
         validate_h3_gate_residual(residual, y, gate, index, check_range=check_range)
         if not residual.is_cuda:
             raise ValueError("H3GateResidualCudaOp needs CUDA tensors")
-        if gate.stride(1) != 1:
+        # A view of a wider table (``table.view(R, 6, H)[:, 2]``: unit column stride, row stride 6H)
+        # goes to the kernel as it is, which indexes rows by the stride. Anything that is not a
+        # table of dense rows (non-unit columns, or rows that overlap because the stride is below
+        # H, as for an expanded table) is copied first.
+        if gate.stride(1) != 1 or (gate.shape[0] > 1 and gate.stride(0) < gate.shape[1]):
             gate = gate.contiguous()
         return _H3GateResidualCuda.apply(residual, y, gate, index.contiguous())
 

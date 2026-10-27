@@ -364,6 +364,10 @@ class TestCudaBackward:
                 sorted_pos = sorted_pos.clone(); sorted_pos[0] = seq
             elif mutation == "segments_past_tiles":
                 first = first.clone(); first[-1] = begin.numel() + 3
+            elif mutation == "first_segment_not_at_tile_zero":
+                first = first.clone(); first[0] = 1
+            elif mutation == "last_tile_owned_by_no_segment":
+                first = first.clone(); first[-1] = first[-1] - 1
             elif mutation == "no_tiles":
                 begin = begin[:0]; end = end[:0]
             _C.h3_adaln_row_gather_backward(grad, sorted_pos, begin, end, first, torch.float32)
@@ -387,11 +391,40 @@ class TestCudaBackward:
             "tile_end_past_seq",
             "position_past_seq",
             "segments_past_tiles",
+            "first_segment_not_at_tile_zero",
+            "last_tile_owned_by_no_segment",
             "no_tiles",
         ):
             done = self._backward_probe(mutation)
             assert done.returncode != 0, mutation
             assert "device-side assert triggered" in done.stderr, (mutation, done.stderr)
+
+    @pytest.mark.parametrize("grad_dtype", [torch.float32, torch.bfloat16, torch.float16])
+    @pytest.mark.parametrize("out_dtype", [torch.float32, torch.bfloat16])
+    def test_backward_writes_the_requested_dtype_whatever_the_gradient_dtype(
+        self, grad_dtype, out_dtype
+    ):
+        """The table gradient has ``out_dtype``, not the dtype of the incoming gradient."""
+
+        from rl_engine.backends.cuda.model_specific.minimax_h3.adaln_row_gather import (
+            _segment_tiles,
+        )
+        from rl_engine.backends.extension import _C
+
+        _cuda_op()
+        seq, hidden = 40, 8
+        index = torch.arange(seq, device="cuda") % 3
+        generator = torch.Generator(device="cpu").manual_seed(0)
+        # Small integers: every sum is exact in all three dtypes, so the result can be compared
+        # with torch.equal.
+        grad = torch.randint(-3, 4, (6, seq, hidden), generator=generator).to("cuda", grad_dtype)
+        tiles = _segment_tiles(index, 3)
+        got = _C.h3_adaln_row_gather_backward(grad, *tiles, out_dtype)
+        assert got.dtype == out_dtype and got.shape == (3, 6 * hidden)
+        expected = torch.stack(
+            [grad.double()[:, index == r, :].sum(1).reshape(-1) for r in range(3)]
+        ).to(out_dtype)
+        assert torch.equal(got, expected)
 
     def test_backward_with_no_table_rows_or_no_boundaries_is_rejected(self):
         from rl_engine.backends.extension import _C

@@ -66,6 +66,12 @@
 
 namespace {
 
+// The FP32 forward launch shape is one pair of knobs, and the single compiled case below is built
+// from the same pair, so the shape picked at run time is always one that was compiled. A build that
+// overrides one knob has to override the other (and H3_FWD_CONFIGS for a multi-case sweep).
+#if defined(H3_FWD_F32_COLS) != defined(H3_FWD_F32_AHEAD)
+#error "define H3_FWD_F32_COLS and H3_FWD_F32_AHEAD together"
+#endif
 #ifndef H3_FWD_F32_COLS
 #define H3_FWD_F32_COLS 2
 #define H3_FWD_F32_AHEAD 6

@@ -51,6 +51,22 @@ def test_a_case_the_reference_never_saved_is_unavailable_and_does_not_abort_the_
     assert "unavailable" in missing and _cell(missing) is None
 
 
+def test_a_different_number_of_outputs_is_a_difference_not_a_shorter_comparison():
+    import torch
+
+    ones = torch.ones(3)
+    run = {"out": [ones, ones], "grads": {"x": torch.zeros(2)}}
+    ref = {"out": [ones], "grads": {"x": torch.zeros(2)}}
+    done = _compare_case(run, ref)
+    # the extra output is not dropped (a zip would call this case bitwise equal) ...
+    assert done["out"] == [{"equal": False, "note": "2 vs 1 outputs"}]
+    assert _cell(done) == 1.0
+    # ... and the gradients are still compared.
+    assert done["grads"]["x"]["equal"]
+    same = _compare_case(run, {"out": [ones, ones], "grads": {"x": torch.zeros(2)}})
+    assert [o["equal"] for o in same["out"]] == [True, True]
+
+
 def test_missing_comparisons_are_drawn_grey_not_as_bitwise_equal():
     import matplotlib.pyplot as plt
 

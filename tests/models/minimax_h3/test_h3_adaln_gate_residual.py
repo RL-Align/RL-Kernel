@@ -125,6 +125,43 @@ class TestCuda:
         assert rel < 5e-3  # only the BF16 rounding of the table gradient
         assert torch.count_nonzero(ours[2].view(9, 6, -1)[:, [0, 1, 3, 4, 5]]) == 0
 
+    def test_residual_gradient_keeps_the_residual_shape_for_batched_and_strided_gradients(self):
+        """A (B, S, H) residual gets a (B, S, H) gradient even when the incoming one is a view."""
+
+        table, residual, y, index = _case(300, hidden=64, seed=5)
+        leaves = [t.detach().clone().requires_grad_(True) for t in (residual, y, table)]
+        out = _cuda_op()(leaves[0], leaves[1], _gate(leaves[2]), index)
+        # a non-contiguous cotangent: the transpose of a (B, H, S) tensor
+        grad = torch.randn(2, 64, 300, device="cuda").bfloat16().transpose(1, 2)
+        assert not grad.is_contiguous() and grad.shape == out.shape
+        out.backward(grad)
+        ref = [t.detach().clone().requires_grad_(True) for t in (residual, y, table)]
+        provider_gate_residual(ref[0], _gate(ref[2]), index, ref[1]).backward(grad)
+        assert leaves[0].grad.shape == residual.shape and leaves[1].grad.shape == y.shape
+        assert torch.equal(leaves[0].grad, ref[0].grad)
+        assert torch.equal(leaves[1].grad, ref[1].grad)
+
+    def test_a_gate_table_whose_rows_overlap_is_copied_not_read_in_place(self):
+        """An expanded table (row stride 0) is a legal gate: it is copied to dense rows first."""
+
+        from rl_engine.backends.extension import _C
+
+        hidden = 64
+        row = (torch.randn(1, hidden, device="cuda") * 0.5).bfloat16()
+        expanded = row.expand(9, hidden)  # stride (0, 1): all nine rows alias one
+        assert expanded.stride(0) == 0
+        _, residual, y, index = _case(100, hidden=hidden, seed=6)
+        index = index % 9
+        dense = expanded.contiguous()
+        got = _cuda_op()(residual, y, expanded, index)
+        assert torch.equal(got, _cuda_op()(residual, y, dense, index))
+        assert torch.equal(got, provider_gate_residual(residual, dense, index, y))
+        # the native entry point refuses the layout instead of reading overlapping rows
+        res2, y2 = residual.reshape(-1, hidden), y.reshape(-1, hidden)
+        with pytest.raises(RuntimeError, match="row stride"):
+            _C.h3_gate_residual_forward(res2, y2, expanded, index)
+        _C.h3_gate_residual_forward(res2, y2, dense, index)  # the dense copy is accepted
+
     def test_rejects_cpu_and_bad_index(self):
         table, residual, y, index = _case(10, hidden=16)
         with pytest.raises(IndexError):

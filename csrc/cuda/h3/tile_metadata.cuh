@@ -14,6 +14,12 @@
 // pass on purpose: an assert in or before the loops of the partial and fold kernels changes how the
 // compiler schedules their loads and slowed them by 6-12% (and by several times inside the loop),
 // while this pass costs one small launch (about 4 us).
+//
+// The checks are CUDA_KERNEL_ASSERTs. Unlike assert(), that macro is not removed by NDEBUG on CUDA
+// (c10 expands it to a plain `if (!cond) __assert_fail(...)`; only Android, Apple and FreeBSD
+// compile it out, and ROCm aborts), so they stay in the release build this extension ships as
+// well; tests/models/minimax_h3/test_h3_assert_in_release_build.py compiles with -DNDEBUG -O3 to
+// keep that true for the torch it runs against.
 #pragma once
 
 #include <ATen/cuda/CUDAContext.h>
@@ -43,6 +49,10 @@ static __global__ void check_tile_metadata_kernel(const int64_t* __restrict__ so
   for (int64_t i = first_thread; i <= segments; i += stride) {
     CUDA_KERNEL_ASSERT(seg_first_tile[i] >= 0 && seg_first_tile[i] <= tiles);
     CUDA_KERNEL_ASSERT(i == segments || seg_first_tile[i] <= seg_first_tile[i + 1]);
+    // The segments cut the tile list exactly. A tile that no segment owns would be missing from
+    // every row's sum, silently.
+    CUDA_KERNEL_ASSERT(i != 0 || seg_first_tile[0] == 0);
+    CUDA_KERNEL_ASSERT(i != segments || seg_first_tile[segments] == tiles);
   }
 }
 
@@ -51,7 +61,8 @@ static __global__ void check_tile_metadata_kernel(const int64_t* __restrict__ so
 inline void check_tile_metadata(cudaStream_t stream, const int64_t* sorted_pos, int64_t positions,
                                 const int64_t* tile_begin, const int64_t* tile_end, int64_t tiles,
                                 const int64_t* seg_first_tile, int64_t segments) {
-  const int64_t items = std::max({positions, tiles, segments + 1});
+  // At least one block, so an empty list (segments + 1 == 0) is a no-op and not an invalid launch.
+  const int64_t items = std::max({positions, tiles, segments + 1, int64_t{1}});
   const unsigned blocks = static_cast<unsigned>(std::min<int64_t>((items + 255) / 256, 1024));
   check_tile_metadata_kernel<<<blocks, 256, 0, stream>>>(sorted_pos, positions, tile_begin,
                                                          tile_end, tiles, seg_first_tile, segments);
@@ -92,10 +103,31 @@ static __global__ void check_lists_kernel(const int64_t* __restrict__ rows, int6
 inline void check_lists(cudaStream_t stream, const int64_t* rows, int64_t n_rows, int64_t row_limit,
                         const int64_t* tile_begin, const int64_t* tile_end, int64_t tiles,
                         const int64_t* seg_first_tile, int64_t segments, int64_t seg_limit) {
-  const int64_t items = std::max({n_rows, tiles, segments + 1});
+  // At least one block, so an empty list is a no-op and not an invalid launch.
+  const int64_t items = std::max({n_rows, tiles, segments + 1, int64_t{1}});
   const unsigned blocks = static_cast<unsigned>(std::min<int64_t>((items + 255) / 256, 1024));
   check_lists_kernel<<<blocks, 256, 0, stream>>>(rows, n_rows, row_limit, tile_begin, tile_end,
                                                  tiles, seg_first_tile, segments, seg_limit);
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+}
+
+// Table-row indices read inside a kernel's loop: `n` entries, each a row of a table with `limit`
+// rows. The assert would cost the loop its scheduling (the same 6-12% as above, measured on the
+// rmsnorm dweight partials), so the entry point checks the S index values once, here, before it
+// launches the kernels that read them.
+static __global__ void check_index_range_kernel(const int64_t* __restrict__ index, int64_t n,
+                                                int64_t limit) {
+  const int64_t stride = static_cast<int64_t>(gridDim.x) * blockDim.x;
+  for (int64_t i = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x; i < n; i += stride) {
+    CUDA_KERNEL_ASSERT(index[i] >= 0 && index[i] < limit);
+  }
+}
+
+inline void check_index_range(cudaStream_t stream, const int64_t* index, int64_t n,
+                              int64_t limit) {
+  const unsigned blocks =
+      static_cast<unsigned>(std::max<int64_t>(1, std::min<int64_t>((n + 255) / 256, 1024)));
+  check_index_range_kernel<<<blocks, 256, 0, stream>>>(index, n, limit);
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
