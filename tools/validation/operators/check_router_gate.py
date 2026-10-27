@@ -3,7 +3,6 @@
 
 import argparse
 from datetime import datetime, timezone
-import hashlib
 import json
 from pathlib import Path
 import statistics
@@ -11,10 +10,7 @@ import statistics
 import torch
 
 from rl_engine.ops.moe.router_gate import router_gate_projection
-
-
-def checksum(tensor):
-    return hashlib.sha256(tensor.detach().cpu().contiguous().view(torch.uint8).numpy()).hexdigest()
+from rl_engine.validation.operators.router_gate_fixture import checksum, validate_gate_fixture
 
 
 def main():
@@ -23,11 +19,10 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--device", type=int, default=0)
     args = parser.parse_args()
-    torch.cuda.set_device(args.device)
     fixture = torch.load(args.weights, map_location="cpu", weights_only=True)
-    if checksum(fixture["weight"]) != fixture["metadata"]["weight_sha256"]:
-        raise ValueError("gate weight checksum does not match the replay metadata")
-    weight = fixture["weight"].cuda().requires_grad_()
+    validated_weight = validate_gate_fixture(fixture)
+    torch.cuda.set_device(args.device)
+    weight = validated_weight.cuda().requires_grad_()
     generator = torch.Generator().manual_seed(28)
     row = torch.randn((1, weight.shape[1]), generator=generator, dtype=torch.bfloat16).cuda()
     version = fixture["metadata"]["revision"] + ":" + fixture["metadata"]["weight_sha256"]
