@@ -25,6 +25,7 @@ nav:
       - operators/grpo-loss.md
       - operators/lm_head.md
       - operators/ratio-kl.md
+      - operators/dsv4-route-weight-grad.md
       - operators/pack-and-pad.md
       - operators/sampling.md
       - operators/det-gemm.md

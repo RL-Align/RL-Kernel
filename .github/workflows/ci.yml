@@ -89,6 +89,11 @@ jobs:
         run: |
           python -m pytest tests/ops/attention/test_attention.py -v -k "not large and not gpu"
 
+      - name: Run DSV4 Route-Weight Gradient Tests (CPU-safe)
+        run: |
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \
+            tests/ops/moe/test_route_weight_grad.py
+
       - name: Run WS2 Attention Cross-Configuration Tests (CPU-safe)
         run: |
           PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \
