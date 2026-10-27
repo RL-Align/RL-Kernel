@@ -189,6 +189,8 @@ def first_divergence(
         )
     if not math.isfinite(atol) or not math.isfinite(rtol) or atol < 0 or rtol < 0:
         raise ValueError("atol and rtol must be finite and non-negative")
+    if mismatch_mask is not None and (atol != 0.0 or rtol != 0.0):
+        raise ValueError("mismatch_mask cannot be combined with non-zero atol or rtol")
     expected_cpu = expected.detach().cpu()
     actual_cpu = actual.detach().cpu()
     mask = torch.ones(expected_cpu.shape, dtype=torch.bool)
