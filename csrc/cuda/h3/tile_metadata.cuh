@@ -10,7 +10,9 @@
 // fold kernels read the partial rows of a segment's tiles, so a stale or short list would read out
 // of bounds.
 //
-// check_tile_metadata() verifies the list on the device before any of that happens. It is a separate
+// check_tile_metadata() verifies the list on the device before any of that happens: indices in
+// range, the tiles an exact in-order partition of the positions, and the segments an exact cut of
+// the tile list. It is a separate
 // pass on purpose: an assert in or before the loops of the partial and fold kernels changes how the
 // compiler schedules their loads and slowed them by 6-12% (and by several times inside the loop),
 // while this pass costs one small launch (about 4 us).
@@ -45,6 +47,11 @@ static __global__ void check_tile_metadata_kernel(const int64_t* __restrict__ so
   for (int64_t i = first_thread; i < tiles; i += stride) {
     CUDA_KERNEL_ASSERT(tile_begin[i] >= 0 && tile_begin[i] <= tile_end[i] &&
                        tile_end[i] <= positions);
+    // The tiles partition [0, positions) in order: each starts where the one before it ends, the
+    // first at 0 and the last at `positions`. A gap would drop positions from every row's sum and
+    // an overlap would count them twice, both without leaving the bounds checked above.
+    CUDA_KERNEL_ASSERT(tile_begin[i] == (i == 0 ? int64_t{0} : tile_end[i - 1]));
+    CUDA_KERNEL_ASSERT(i != tiles - 1 || tile_end[i] == positions);
   }
   for (int64_t i = first_thread; i <= segments; i += stride) {
     CUDA_KERNEL_ASSERT(seg_first_tile[i] >= 0 && seg_first_tile[i] <= tiles);
@@ -61,6 +68,9 @@ static __global__ void check_tile_metadata_kernel(const int64_t* __restrict__ so
 inline void check_tile_metadata(cudaStream_t stream, const int64_t* sorted_pos, int64_t positions,
                                 const int64_t* tile_begin, const int64_t* tile_end, int64_t tiles,
                                 const int64_t* seg_first_tile, int64_t segments) {
+  // No tiles over a non-empty sequence would leave every row's sum at zero.
+  TORCH_CHECK(tiles > 0 || positions == 0, "the tile list is empty but there are ", positions,
+              " positions to sum");
   // At least one block, so an empty list (segments + 1 == 0) is a no-op and not an invalid launch.
   const int64_t items = std::max({positions, tiles, segments + 1, int64_t{1}});
   const unsigned blocks = static_cast<unsigned>(std::min<int64_t>((items + 255) / 256, 1024));
