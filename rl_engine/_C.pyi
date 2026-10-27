@@ -392,7 +392,18 @@ def h3_adaln_row_gather_forward(
     token_tags: torch.Tensor,
     chunks: int = 6,
     modality_num: int = 3,
-) -> torch.Tensor: ...
+) -> torch.Tensor:
+    """Gather AdaLN table rows into packed per-position chunks; return ``(chunks, S, H)``.
+
+    ``rows`` is a 2-D CUDA ``(R, chunks * H)`` table with unit column stride and ``R`` a multiple of
+    ``modality_num``; ``timestep_indices`` and ``token_tags`` are ``(S,)`` contiguous integer
+    tensors (int64 or int32, one dtype) on its device, ``S > 0``. Position ``s`` reads table row
+    ``timestep_indices[s] * modality_num + token_tags[s]`` and receives its ``chunks`` slices of
+    width ``H`` in ``rows``' dtype (a pure copy). Out-of-range indices stop the kernel with a
+    device-side assert.
+    """
+    ...
+
 def h3_adaln_row_gather_backward(
     grad: torch.Tensor,
     sorted_pos: torch.Tensor,
@@ -400,4 +411,13 @@ def h3_adaln_row_gather_backward(
     tile_end: torch.Tensor,
     seg_first_tile: torch.Tensor,
     out_dtype: torch.dtype,
-) -> torch.Tensor: ...
+) -> torch.Tensor:
+    """Sum a ``(chunks, S, H)`` gradient into table rows; return ``(R, chunks * H)`` in ``out_dtype``.
+
+    ``sorted_pos`` holds the ``S`` positions sorted stably by table row, ``[tile_begin, tile_end)``
+    cut that order into fixed-size tiles, and ``seg_first_tile`` (``R + 1`` entries) gives the
+    first tile of each row (see ``_segment_tiles``). Tiles are summed in FP32 and folded in order,
+    with no atomics. The metadata is checked on the device first: positions inside ``[0, S)``, tiles
+    inside ``sorted_pos``, segments that cut the tile list exactly and in order.
+    """
+    ...

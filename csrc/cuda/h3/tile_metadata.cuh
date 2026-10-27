@@ -14,6 +14,12 @@
 // pass on purpose: an assert in or before the loops of the partial and fold kernels changes how the
 // compiler schedules their loads and slowed them by 6-12% (and by several times inside the loop),
 // while this pass costs one small launch (about 4 us).
+//
+// The checks are CUDA_KERNEL_ASSERTs. Unlike assert(), that macro is not removed by NDEBUG on CUDA
+// (c10 expands it to a plain `if (!cond) __assert_fail(...)`; only Android, Apple and FreeBSD
+// compile it out, and ROCm aborts), so they stay in the release build this extension ships as
+// well; tests/models/minimax_h3/test_h3_assert_in_release_build.py compiles with -DNDEBUG -O3 to
+// keep that true for the torch it runs against.
 #pragma once
 
 #include <ATen/cuda/CUDAContext.h>
@@ -43,6 +49,10 @@ static __global__ void check_tile_metadata_kernel(const int64_t* __restrict__ so
   for (int64_t i = first_thread; i <= segments; i += stride) {
     CUDA_KERNEL_ASSERT(seg_first_tile[i] >= 0 && seg_first_tile[i] <= tiles);
     CUDA_KERNEL_ASSERT(i == segments || seg_first_tile[i] <= seg_first_tile[i + 1]);
+    // The segments cut the tile list exactly. A tile that no segment owns would be missing from
+    // every row's sum, silently.
+    CUDA_KERNEL_ASSERT(i != 0 || seg_first_tile[0] == 0);
+    CUDA_KERNEL_ASSERT(i != segments || seg_first_tile[segments] == tiles);
   }
 }
 
@@ -51,7 +61,8 @@ static __global__ void check_tile_metadata_kernel(const int64_t* __restrict__ so
 inline void check_tile_metadata(cudaStream_t stream, const int64_t* sorted_pos, int64_t positions,
                                 const int64_t* tile_begin, const int64_t* tile_end, int64_t tiles,
                                 const int64_t* seg_first_tile, int64_t segments) {
-  const int64_t items = std::max({positions, tiles, segments + 1});
+  // At least one block, so an empty list (segments + 1 == 0) is a no-op and not an invalid launch.
+  const int64_t items = std::max({positions, tiles, segments + 1, int64_t{1}});
   const unsigned blocks = static_cast<unsigned>(std::min<int64_t>((items + 255) / 256, 1024));
   check_tile_metadata_kernel<<<blocks, 256, 0, stream>>>(sorted_pos, positions, tile_begin,
                                                          tile_end, tiles, seg_first_tile, segments);
