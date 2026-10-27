@@ -1,0 +1,23 @@
+{
+  "schema": "rlkernel.router_aux_loss.fresh_process_bytes.v1",
+  "passed": true,
+  "processes": 2,
+  "normal_cases": 24,
+  "tensors_compared": 147,
+  "raw_payload_bytes_compared": 7100200,
+  "actual_uint8_payloads_equal": true,
+  "includes_signed_zero": true,
+  "fields": [
+    "logits",
+    "logical_ids",
+    "bias",
+    "loss",
+    "dlogits",
+    "experts",
+    "counts",
+    "masses",
+    "probabilities"
+  ],
+  "fixed_route_replay": false,
+  "raw_artifacts": "ignored artifacts/task34/raw-{a,b}.pt"
+}
