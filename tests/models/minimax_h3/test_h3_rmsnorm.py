@@ -379,3 +379,21 @@ def test_a_modulation_index_outside_the_table_stops_the_kernels(entry, bad):
     done = _index_probe(entry, bad)
     assert done.returncode != 0, entry
     assert "device-side assert triggered" in done.stderr, done.stderr
+
+
+@pytest.mark.parametrize("missing", ["shift", "scale", "index"])
+def test_the_modulated_form_rejects_a_missing_table_or_index(missing):
+    """``index=None`` must not fall back to the plain norm (or fail on a ``None`` attribute)."""
+
+    x = torch.randn(4, 8, dtype=torch.bfloat16)
+    weight = torch.ones(8, dtype=torch.bfloat16)
+    args = {
+        "shift": torch.randn(2, 8, dtype=torch.bfloat16),
+        "scale": torch.randn(2, 8, dtype=torch.bfloat16),
+        "index": torch.tensor([0, 1, 1, 0]),
+    }
+    args[missing] = None
+    with pytest.raises(TypeError, match=f"{missing} must be a torch.Tensor"):
+        NativeH3RMSNormOp().forward_modulated(
+            x, weight, args["shift"], args["scale"], args["index"]
+        )
