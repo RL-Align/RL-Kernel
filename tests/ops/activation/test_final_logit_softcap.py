@@ -345,6 +345,18 @@ def test_triton_repeat_slice_padding_reshape_and_inference_invariance(triton_op,
     _assert_bitwise_equal(inference, expected[0])
 
 
+def test_triton_backward_rejects_mismatched_upstream_gradient(triton_op):
+    """A direct launcher call with a shorter dy must fail before the kernel runs."""
+    from rl_engine.kernels.ops.triton.activation.final_logit_softcap import (
+        _launch_final_logit_softcap_bwd,
+    )
+
+    x = _rand((8,), device="cuda")
+    dy = _rand((4,), device="cuda", seed=416)
+    with pytest.raises(ValueError, match="dy must match x"):
+        _launch_final_logit_softcap_bwd(dy, x, 30.0)
+
+
 @pytest.mark.parametrize("softcap", _SOFTCAPS)
 @pytest.mark.parametrize("dtype", _DTYPES)
 def test_triton_training_and_inference_agree(triton_op, dtype, softcap):

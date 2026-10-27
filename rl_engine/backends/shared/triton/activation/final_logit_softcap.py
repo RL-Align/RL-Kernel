@@ -77,6 +77,14 @@ def _launch_final_logit_softcap_fwd(x: Tensor, softcap: float) -> Tensor:
 
 
 def _launch_final_logit_softcap_bwd(dy: Tensor, x: Tensor, softcap: float) -> Tensor:
+    # Both pointers are indexed by x.numel(), so a shorter upstream gradient
+    # would be read past its end with the mask still set. Autograd rejects a
+    # mismatched grad_output before this point, but direct callers bypass that.
+    if dy.shape != x.shape:
+        raise ValueError(
+            f"dy must match x, got tuple(dy.shape)={tuple(dy.shape)} "
+            f"vs tuple(x.shape)={tuple(x.shape)}."
+        )
     n = x.numel()
     dy_c = dy.contiguous()
     x_c = x.contiguous()

@@ -189,10 +189,16 @@ python benchmarks/operators/activation/benchmark_final_logit_softcap.py \
 ```
 
 This standalone operator benchmark reuses the existing `PerformanceProfiler`
-accelerator-event timer (CUDA events on NVIDIA, HIP events on ROCm). It directly
-constructs the native and Triton wrappers on the same GPU with the same cap,
-checks output and gradient accuracy before timing, and writes `results.json` and
-`report.md`. Failure to import or run Triton is an error.
+accelerator-event timer (CUDA events on NVIDIA, HIP events on ROCm). It builds
+the Native and Triton wrappers on the same GPU with the same cap, checks output
+and gradient accuracy before timing, and writes `results.json` and `report.md`.
+Failure to import or run Triton is an error.
+
+The native baseline is driven through `forward_fp32`. `NativeFinalLogitSoftcapOp.forward`
+casts its result back to the input dtype while the Triton wrapper always returns
+FP32, so timing the two as-is would compare a BF16 or FP16 write path against an
+FP32 one and inflate the Triton speedup. Routing the baseline through the FP32
+entry keeps the byte volume identical on both sides.
 
 Default shapes are `1x1x1025`, `1x1x262144`, `1x16x262144` and `1x64x262144`.
 Default caps are `20` and `30`. Inputs are contiguous, with random FP32 upstream

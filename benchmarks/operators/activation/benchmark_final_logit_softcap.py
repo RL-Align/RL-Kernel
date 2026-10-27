@@ -57,6 +57,22 @@ def _positive_int(value: str) -> int:
     return number
 
 
+class _FP32NativeBaseline:
+    """Drive the reference through its FP32 entry so both sides emit FP32.
+
+    ``NativeFinalLogitSoftcapOp.forward`` casts back to the input dtype while the
+    Triton wrapper always returns FP32. Timing the two as-is would compare a
+    BF16/FP16 write path against an FP32 one, so the baseline goes through
+    ``forward_fp32`` and the byte volume matches on both sides.
+    """
+
+    def __init__(self, op):
+        self._op = op
+
+    def __call__(self, x):
+        return self._op.forward_fp32(x)
+
+
 def _make_workload(op, x, grad_y, mode):
     """Prepare inputs/graphs outside timing; discard results without accumulating .grad."""
     if mode == "forward":
@@ -137,7 +153,10 @@ def _measure(profiler, fn):
     torch.cuda.reset_peak_memory_stats(profiler.device)
     fn()
     profiler._sync()
-    peak = torch.cuda.max_memory_allocated(profiler.device) - baseline
+    # max_memory_allocated is measured from the reset point, so it cannot fall
+    # below the baseline on its own; clamp anyway so a backend whose accounting
+    # lags cannot surface a negative "extra" column.
+    peak = max(torch.cuda.max_memory_allocated(profiler.device) - baseline, 0)
     return {"median_ms": median_ms, "std_ms": std_ms, "peak_extra_mib": peak / 1024**2}
 
 
@@ -159,7 +178,7 @@ def _environment(device, args, triton_version, block_size, target: GPUTargetInfo
     failed to load, with an emulated compute capability attached.
     """
     props = torch.cuda.get_device_properties(device)
-    is_rocm = target.backend == "rocm"
+    is_rocm = target.compute_capability is None
     return {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "git_commit": _command_output(["git", "rev-parse", "HEAD"]),
@@ -195,7 +214,10 @@ def _environment(device, args, triton_version, block_size, target: GPUTargetInfo
             f"PerformanceProfiler {'HIP' if is_rocm else 'CUDA'} events; "
             "median and sample standard deviation"
         ),
-        "baseline": "eager NativeFinalLogitSoftcapOp on the same GPU; no torch.compile",
+        "baseline": (
+            "eager NativeFinalLogitSoftcapOp driven through forward_fp32 on the same GPU, "
+            "so both sides emit FP32; no torch.compile"
+        ),
         "scope": "Public wrappers, including allocation and autograd dispatch; no graph capture",
         "backward": "Random FP32 upstream gradient; prebuilt retained graph; no forward timing",
         "memory": "Extra peak allocated MiB per call; excludes inputs and any prebuilt graph",
@@ -276,7 +298,7 @@ def run_benchmark(args):
             "results": [],
         }
         for softcap in args.softcaps:
-            native = NativeFinalLogitSoftcapOp(softcap)
+            native = _FP32NativeBaseline(NativeFinalLogitSoftcapOp(softcap))
             candidate = TritonFinalLogitSoftcapOp(softcap)
             for dtype_name in args.dtypes:
                 dtype = DTYPES[dtype_name]
