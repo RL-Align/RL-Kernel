@@ -14,6 +14,14 @@ import pytest
 
 
 def _loop_arithmetic_harness(source: str) -> str:
+    """Return a C++17 program that replays the backward kernel's vocab loops near ``INT_MAX``.
+
+    The stride/tile declarations, loop types and steps, unrolled index lines and unroll factor
+    come from ``source``; only the start moves to the last two tiles. The program exits non-zero
+    if a loop variable goes negative, an unrolled index differs from its 64-bit value, or a walk
+    does not take exactly two steps. Raises ``AssertionError`` if ``source`` does not yield 2
+    declarations, 4 loops, 4 index lines and the unroll constant (patterns out of sync).
+    """
     kernel = source.split("__global__ void fused_logp_backward_kernel(", 1)[1].split(
         "template <typename scalar_t, typename output_t, int BlockSize>", 1
     )[0]
@@ -89,6 +97,7 @@ int main() {{
 
 @pytest.mark.unit
 def test_backward_vocab_loop_arithmetic_does_not_overflow_int_max(tmp_path):
+    """The kernel's vocab loops, built with UBSan, walk vocab sizes near ``INT_MAX`` safely."""
     compiler = shutil.which("c++") or shutil.which("g++") or shutil.which("clang++")
     if compiler is None:
         pytest.skip("a C++ compiler is required for the CUDA indexing arithmetic regression")

@@ -36,6 +36,7 @@ _DEVICES = ["cpu", pytest.param("cuda", marks=requires_cuda)]
 
 
 def _make_inputs(n_rows, vocab, dtype, device, seed=0):
+    """Return seeded ``(logits, labels, grad_output)`` with in-range labels and one grad per row."""
     gen = torch.Generator().manual_seed(seed)
     logits = (torch.randn(n_rows, vocab, generator=gen) * 4).to(dtype=dtype, device=device)
     labels = torch.randint(0, vocab, (n_rows,), generator=gen).to(device)
@@ -44,6 +45,7 @@ def _make_inputs(n_rows, vocab, dtype, device, seed=0):
 
 
 def _unchunked_backward(logits, labels, grad_output, out_dtype):
+    """Return the full-matrix FP32 VJP ``-grad * (softmax - one_hot)`` cast to ``out_dtype``."""
     # The pre-#174 implementation, kept as the bitwise oracle for valid targets.
     probs = torch.softmax(logits.float(), dim=-1)
     rows = torch.arange(logits.size(0), device=logits.device)
@@ -53,6 +55,7 @@ def _unchunked_backward(logits, labels, grad_output, out_dtype):
 
 
 def _reference_grad(logits, labels, grad_output):
+    """Return the FP32 logits gradient from autograd through ``log_softmax`` and ``gather``."""
     leaf = logits.detach().float().requires_grad_(True)
     logp = torch.log_softmax(leaf, dim=-1).gather(-1, labels.unsqueeze(-1)).squeeze(-1)
     (logp * grad_output.float()).sum().backward()
@@ -60,6 +63,7 @@ def _reference_grad(logits, labels, grad_output):
 
 
 def test_rows_per_chunk_bounds_workspace():
+    """The rows per chunk are ``chunk_elems // vocab``, but never fewer than one."""
     assert fused_logp_backward_rows_per_chunk(151_936, chunk_elems=1 << 24) == 110
     assert fused_logp_backward_rows_per_chunk(1 << 30, chunk_elems=1 << 24) == 1
     assert fused_logp_backward_rows_per_chunk(17, chunk_elems=170) == 10
@@ -69,6 +73,7 @@ def test_rows_per_chunk_bounds_workspace():
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.parametrize("rows_per_chunk", [1, 3, 7, 64])
 def test_chunked_is_bitwise_equal_to_unchunked(device, dtype, rows_per_chunk):
+    """The chunked backward keeps ``out_dtype`` and equals the unchunked VJP bitwise."""
     vocab = 1031
     logits, labels, grad = _make_inputs(37, vocab, dtype, device)
     expected = _unchunked_backward(logits, labels, grad, dtype)
@@ -81,6 +86,7 @@ def test_chunked_is_bitwise_equal_to_unchunked(device, dtype, rows_per_chunk):
 
 @pytest.mark.parametrize("device", _DEVICES)
 def test_chunked_matches_autograd_reference(device):
+    """The FP32 chunked backward matches the autograd ``log_softmax`` gradient."""
     logits, labels, grad = _make_inputs(29, 513, torch.float32, device, seed=1)
     actual = fused_logp_backward_chunked(logits, labels, grad, torch.float32, chunk_elems=4 * 513)
     torch.testing.assert_close(actual, _reference_grad(logits, labels, grad), atol=1e-6, rtol=1e-5)
@@ -91,6 +97,10 @@ def test_chunked_matches_autograd_reference(device):
 @pytest.mark.parametrize("rows_per_chunk", [1, 5, 64])
 @pytest.mark.parametrize("masked_invalid_rows", [False, True])
 def test_out_of_range_targets_get_zero_gradient(device, dtype, rows_per_chunk, masked_invalid_rows):
+    """Rows with targets outside ``[0, V)`` get a finite zero gradient, even if all ``-inf``.
+
+    The remaining rows still equal the unchunked VJP bitwise.
+    """
     vocab = 257
     logits, labels, grad = _make_inputs(12, vocab, dtype, device, seed=2)
     invalid = torch.tensor([1, 4, 9], device=device)
@@ -124,15 +134,18 @@ def test_autograd_backward_dispatch_uses_chunked_on_hip(monkeypatch, hip_version
     class Backend:
         @staticmethod
         def fused_logp(logits, labels):
+            """Return FP32 selected log-probabilities computed with ``torch.log_softmax``."""
             return torch.log_softmax(logits.float(), -1).gather(1, labels[:, None]).squeeze(1)
 
         @staticmethod
         def fused_logp_backward(logits, labels, grad):
+            """Record a fused dispatch, fail if HIP is mocked, and return the chunked VJP."""
             calls.append("fused")
             assert hip_version is None, "the CUDA backward must not be dispatched on HIP"
             return fused_logp_backward_chunked(logits, labels, grad, logits.dtype)
 
     def chunked(*args, **kwargs):
+        """Record a fallback dispatch and delegate to the real ``fused_logp_backward_chunked``."""
         calls.append("chunked")
         return fused_logp_backward_chunked(*args, **kwargs)
 
@@ -151,6 +164,7 @@ def test_autograd_backward_dispatch_uses_chunked_on_hip(monkeypatch, hip_version
 @requires_fused_backward
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_generic_op_backward_uses_fused_kernel(dtype):
+    """``FusedLogpGenericOp`` backward on 3-D logits equals ``_C.fused_logp_backward`` bitwise."""
     logits, labels, grad = _make_inputs(64, 4099, dtype, "cuda", seed=3)
     leaf = logits.clone().reshape(4, 16, 4099).requires_grad_(True)
     out = FusedLogpGenericOp().apply(leaf, labels.reshape(4, 16))
@@ -164,6 +178,7 @@ def test_generic_op_backward_uses_fused_kernel(dtype):
 @requires_fused_logp
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_backend_without_fused_backward_uses_chunked_vjp(dtype):
+    """A backend without ``fused_logp_backward`` gets the chunked VJP, bitwise."""
     logits, labels, grad = _make_inputs(64, 4099, dtype, "cuda", seed=3)
     leaf = logits.clone().requires_grad_(True)
     out = _FusedLogpAutograd.apply(leaf, labels, _ForwardOnlyBackend())
@@ -180,6 +195,7 @@ def test_backend_without_fused_backward_uses_chunked_vjp(dtype):
 )
 @pytest.mark.parametrize("vocab", [1, 255, 1031, 151_936])
 def test_fused_backward_matches_reference(dtype, atol, rtol, vocab):
+    """The fused kernel keeps the logits dtype and matches an FP64 reference up to 151,936 vocab."""
     logits, labels, grad = _make_inputs(33, vocab, dtype, "cuda", seed=4)
     actual = _C.fused_logp_backward(logits, labels, grad)
     expected = (
@@ -192,6 +208,10 @@ def test_fused_backward_matches_reference(dtype, atol, rtol, vocab):
 
 @requires_fused_backward
 def test_fused_backward_is_deterministic_and_batch_invariant():
+    """The fused kernel is bitwise repeatable and row subsets equal the full-batch rows.
+
+    Both the full and the sliced results also match an FP64 oracle.
+    """
     logits, labels, grad = _make_inputs(96, 32_000, torch.bfloat16, "cuda", seed=5)
     full = _C.fused_logp_backward(logits, labels, grad)
     assert torch.equal(full, _C.fused_logp_backward(logits, labels, grad))
@@ -211,6 +231,7 @@ def test_fused_backward_is_deterministic_and_batch_invariant():
 
 @requires_fused_backward
 def test_fused_backward_out_of_range_targets_and_masked_logits():
+    """Out-of-range targets and ``-inf`` columns get zero gradient; other rows match chunked."""
     vocab = 1031
     logits, labels, grad = _make_inputs(8, vocab, torch.float32, "cuda", seed=6)
     logits[:, 1000:] = float("-inf")  # padded / masked vocabulary tail
@@ -227,6 +248,7 @@ def test_fused_backward_out_of_range_targets_and_masked_logits():
 
 @requires_fused_backward
 def test_fused_backward_rejects_bad_inputs():
+    """The binding rejects non-FP32 grads, non-int64 labels and short grads; zero rows work."""
     logits, labels, grad = _make_inputs(4, 17, torch.float32, "cuda")
     with pytest.raises(RuntimeError, match="float32"):
         _C.fused_logp_backward(logits, labels, grad.double())
@@ -241,6 +263,10 @@ def test_fused_backward_rejects_bad_inputs():
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="two CUDA devices are required")
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_fused_backward_guards_tensor_device_and_uses_its_current_stream(dtype):
+    """The binding runs on the inputs' device and that device's current stream.
+
+    The caller's different current device is left unchanged across the call.
+    """
     caller_device = torch.cuda.current_device()
     tensor_device = 1 if caller_device == 0 else 0
     previous_stream = torch.cuda.current_stream(tensor_device)
@@ -278,6 +304,11 @@ def test_fused_backward_guards_tensor_device_and_uses_its_current_stream(dtype):
 @pytest.mark.parametrize("impl", ["chunked", pytest.param("fused", marks=requires_fused_backward)])
 @pytest.mark.parametrize("n_rows", [8192, 16384, 32768])
 def test_long_sequence_backward_workspace_is_bounded(n_rows, impl):
+    """BF16 backward with a 151,936 vocab and 8k-32k rows keeps peak transient memory bounded.
+
+    The fused kernel allocates nothing beyond its output; the chunked fallback stays within
+    two FP32 row chunks plus 64 bytes per row and 8 MiB of slack. Skips without enough memory.
+    """
     vocab = 151_936  # Qwen2/Qwen3 vocabulary
     dtype = torch.bfloat16
     elem = torch.finfo(dtype).bits // 8

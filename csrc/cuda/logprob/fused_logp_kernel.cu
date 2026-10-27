@@ -122,6 +122,9 @@ __device__ __forceinline__ LogSumExpState blockReduceLogSumExp(LogSumExpState st
     return state;
 }
 
+// Two-pass selected log-prob, one block per row (or per row_indices entry): an FP32 block max,
+// then a block sum of exp(x - max), then output[row] = logits[target] - max - log(sum).
+// Rows whose target is outside [0, V) get 0; row ids outside [0, total_tokens) are skipped.
 template <typename scalar_t, typename output_t>
 __global__ void fused_logp_forward_kernel(
     const scalar_t* __restrict__ logits,      // [TotalTokens, VocabSize]
@@ -263,6 +266,9 @@ __global__ void fused_logp_backward_kernel(
 }
 #endif
 
+// Single-pass variant of fused_logp_forward_kernel: each thread keeps an online (max, sum-exp)
+// state over its strided elements, merged across the block by blockReduceLogSumExp.
+// Output values and skipped rows follow the same rules as the two-pass kernel.
 template <typename scalar_t, typename output_t, int BlockSize>
 __global__ void __launch_bounds__(BlockSize) fused_logp_forward_online_kernel(
     const scalar_t* __restrict__ logits,      // [TotalTokens, VocabSize]
@@ -697,6 +703,11 @@ torch::Tensor fused_logp_forward_online_indexed_fp32(
 }
 
 #if !defined(__HIPCC__) && !defined(__HIP_PLATFORM_AMD__)
+// Returns grad_output * (one_hot(target) - softmax(logits)) shaped and typed like logits
+// (zero rows for targets outside [0, V)), one fused_logp_backward_kernel block per row.
+// TORCH_CHECK fails unless all inputs are CUDA tensors on one device, logits is 2D with
+// 0 < V <= INT_MAX, and token_ids (int64) / grad_output (FP32) are 1D with one entry per row.
+// The launch uses the current stream of the logits device.
 torch::Tensor fused_logp_backward(
     torch::Tensor logits,
     torch::Tensor token_ids,

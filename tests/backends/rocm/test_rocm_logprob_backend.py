@@ -68,6 +68,7 @@ def test_rocm_backend_import_does_not_require_native_extension():
 
 @pytest.mark.skipif(torch.version.hip is None, reason="requires an actual HIP extension build")
 def test_hip_extension_does_not_export_unvalidated_cuda_fused_logp_backward():
+    """A HIP build of ``_C`` does not expose the CUDA-only ``fused_logp_backward``."""
     from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 
     if not _EXT_AVAILABLE:

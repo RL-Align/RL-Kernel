@@ -70,6 +70,7 @@ class _ForwardOnly:
 
     @staticmethod
     def fused_logp(logits, labels):
+        """Return ``_C.fused_logp(logits, labels)``, the only ``_C`` op this stand-in exposes."""
         return _C.fused_logp(logits, labels)
 
 
@@ -96,10 +97,12 @@ def _vjp(vjp):
 
 
 def _autograd_fn(backend):
+    """Return a ``(logits, labels)`` forward through ``_FusedLogpAutograd`` on ``backend``."""
     return lambda logits, labels: logp_mod._FusedLogpAutograd.apply(logits, labels, backend)
 
 
 def _torch_logp(logits, labels):
+    """Return FP32 selected-token logprobs from ``log_softmax`` + ``gather`` (plain autograd)."""
     return torch.log_softmax(logits.float(), dim=-1).gather(-1, labels[:, None]).squeeze(-1)
 
 
@@ -164,6 +167,7 @@ def _add_external_candidates(flash_attn_src: Path | None) -> None:
 
 
 def _leaf(name: str, logits: torch.Tensor) -> torch.Tensor:
+    """Return a detached leaf of ``logits`` requiring grad, cloned for ``IN_PLACE`` candidates."""
     x = logits.detach().clone() if name in IN_PLACE else logits.detach()
     return x.requires_grad_(True)
 
@@ -181,6 +185,10 @@ def _effective_upstream_gradient(
 
 
 def _inputs(rows: int, seed: int, dtype=torch.bfloat16):
+    """Return seeded CUDA ``(logits, labels, grad)`` for ``rows`` tokens.
+
+    ``logits`` is ``[rows, VOCAB]`` in ``dtype``; ``grad`` is FP32 holding ``dtype``-rounded values.
+    """
     g = torch.Generator(device="cuda").manual_seed(seed)
     logits = (torch.randn(rows, VOCAB, device="cuda", generator=g) * 2).to(dtype)
     labels = torch.randint(0, VOCAB, (rows,), device="cuda", generator=g)
@@ -189,6 +197,10 @@ def _inputs(rows: int, seed: int, dtype=torch.bfloat16):
 
 
 def _step(name, logits, labels, grad, x=None):
+    """Run one forward + backward of candidate ``name``; return the detached logp and ``x.grad``.
+
+    ``x`` defaults to a fresh leaf of ``logits``; ``grad`` is cast to the output dtype.
+    """
     fn, vjp = CANDIDATES[name]
     x = _leaf(name, logits) if x is None else x
     with _vjp(vjp):
@@ -198,6 +210,12 @@ def _step(name, logits, labels, grad, x=None):
 
 
 def accuracy(rows: int = 257, seed: int = 1) -> dict[str, Any]:
+    """Compare each candidate's logp and dlogits with one FP64 reference on a seeded batch.
+
+    Reports max abs errors, the dlogits error over the reference's max magnitude and the fraction
+    of dlogits elements equal to the reference rounded to their dtype. Raises ``AssertionError``
+    if casting the shared upstream gradient to a candidate's output dtype changes it.
+    """
     logits, labels, grad = _inputs(rows, seed)
     x64 = logits.double()
     probs = torch.softmax(x64, dim=-1)
@@ -383,6 +401,7 @@ def _time_ms(
     """Median CUDA-event ms; ``setup`` (outside the timed region) feeds ``fn`` its argument."""
 
     def call():
+        """Invoke ``fn``, passing it a fresh ``setup()`` result when ``setup`` is given."""
         return fn(setup()) if setup is not None else fn()
 
     for _ in range(warmup):
@@ -401,6 +420,11 @@ def _time_ms(
 
 
 def performance() -> dict[str, Any]:
+    """Time every candidate and measure its memory at each ``TIMED_ROWS`` row count.
+
+    Per row count: median forward + backward ``step_ms``, ``peak_gib`` allocated above the
+    pre-step allocation during one step, and median backward-only ``backward_ms``.
+    """
     result: dict[str, Any] = {name: {} for name in CANDIDATES}
     for rows in TIMED_ROWS:
         logits, labels, grad = _inputs(rows, seed=11)
@@ -408,9 +432,11 @@ def performance() -> dict[str, Any]:
             fn = CANDIDATES[name]
 
             def setup(name=name, logits=logits):
+                """Return a fresh leaf of this row count's logits for candidate ``name``."""
                 return _leaf(name, logits)
 
             def step(x, name=name, logits=logits, labels=labels, grad=grad):
+                """Run one forward + backward of candidate ``name`` on ``x``; return its grad."""
                 _, g = _step(name, logits, labels, grad, x=x)
                 return g
 
@@ -442,6 +468,7 @@ def performance() -> dict[str, Any]:
 
 
 def _version(name: str) -> str | None:
+    """Return the installed version of distribution ``name``, or ``None`` if it is missing."""
     try:
         return importlib.metadata.version(name)
     except importlib.metadata.PackageNotFoundError:
@@ -449,6 +476,7 @@ def _version(name: str) -> str | None:
 
 
 def _git(*args: str) -> str:
+    """Return the stripped output of ``git *args`` run in ``REPO_ROOT``, or ``""`` on failure."""
     try:
         return subprocess.check_output(["git", *args], cwd=REPO_ROOT, text=True).strip()
     except (OSError, subprocess.CalledProcessError):
@@ -456,6 +484,12 @@ def _git(*args: str) -> str:
 
 
 def main() -> None:
+    """Run the selected checks and write the JSON report to ``--out``.
+
+    The report is rewritten after each check, so completed checks survive an interrupted run.
+    Exits before any check if a row-count option is below 16, if there is no CUDA device, or if
+    ``_C`` lacks ``fused_logp_backward``.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument(

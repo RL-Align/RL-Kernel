@@ -14,6 +14,7 @@ from benchmarks import fused_logp_provider_evidence as evidence
 @pytest.mark.unit
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_comparison_counts_raw_bytes_and_rows_on_noncontiguous_tensors(dtype):
+    """On transposed inputs ``_comparison`` counts a +0/-0 flip as differing, by element and row."""
     reference = torch.tensor([[0.0, 1.0], [2.0, 3.0]], dtype=dtype).T
     candidate = torch.tensor([[-0.0, 1.0], [2.5, -3.25]], dtype=dtype).T
     assert not reference.is_contiguous()
@@ -32,6 +33,7 @@ def test_comparison_counts_raw_bytes_and_rows_on_noncontiguous_tensors(dtype):
 
 @pytest.mark.unit
 def test_comparison_equal_inputs_reports_all_checked_rows():
+    """Identical 1-D inputs count each element as a checked row, with no differences or error."""
     values = torch.tensor([-2.0, -0.0, 1.25])
 
     result = evidence._comparison(values.clone(), values)
@@ -45,6 +47,7 @@ def test_comparison_equal_inputs_reports_all_checked_rows():
 @pytest.mark.unit
 @pytest.mark.parametrize("mismatch", ["shape", "dtype"])
 def test_comparison_rejects_incomparable_boundaries(mismatch):
+    """``_comparison`` raises ``ValueError`` when the shapes or dtypes differ."""
     reference = torch.ones(2, 3, dtype=torch.float32)
     candidate = reference.reshape(3, 2) if mismatch == "shape" else reference.bfloat16()
 
@@ -54,9 +57,14 @@ def test_comparison_rejects_incomparable_boundaries(mismatch):
 
 @pytest.fixture
 def passing_provider_case():
+    """Return the minimal ``run_case``-style case that ``_summary`` reads, with flash-attn executed.
+
+    Every comparison is a self-comparison, so all are bitwise equal and finite.
+    """
     values = {"logp": torch.tensor([-2.0, -3.0]), "lse": torch.tensor([2.0, 3.0])}
 
     def pair(prefix):
+        """Return self-comparisons of ``values`` keyed ``<prefix>_logp`` and ``<prefix>_lse``."""
         return evidence._pair_comparisons(values, values, prefix)
 
     return {
@@ -88,6 +96,7 @@ def passing_provider_case():
 @pytest.mark.unit
 @pytest.mark.parametrize("nonfinite", [float("nan"), float("inf"), -float("inf")])
 def test_same_bit_nonfinite_results_fail_summary_verdict(nonfinite, passing_provider_case):
+    """Bitwise-equal NaN/inf results fail the summary, the WS2 baseline and the flash verdict."""
     values = torch.tensor([-2.0, nonfinite])
     metric = evidence._comparison(values.clone(), values)
 
@@ -110,6 +119,7 @@ def test_same_bit_nonfinite_results_fail_summary_verdict(nonfinite, passing_prov
 def test_changed_implementation_drift_is_diagnostic_for_coordinated_replacement(
     passing_provider_case,
 ):
+    """Flash-vs-WS2 drift is reported as a diagnostic but does not fail the replacement verdict."""
     passing_provider_case["flash_attn"]["changed_implementation_vs_ws2"]["flash_vs_ws2_logp"] = (
         evidence._comparison(torch.tensor([-2.0, -3.25]), torch.tensor([-2.0, -3.0]))
     )
@@ -134,6 +144,7 @@ def test_changed_implementation_drift_is_diagnostic_for_coordinated_replacement(
 def test_coordinated_tp_train_rollout_drift_fails_even_when_layouts_pass(
     passing_provider_case,
 ):
+    """Coordinated flash train-vs-rollout drift fails the replacement while other gates pass."""
     passing_provider_case["flash_attn"]["coordinated_train_vs_rollout"]["flash_logp"] = (
         evidence._comparison(torch.tensor([-2.0, -3.25]), torch.tensor([-2.0, -3.0]))
     )
@@ -165,6 +176,11 @@ def test_coordinated_tp_train_rollout_drift_fails_even_when_layouts_pass(
 def test_real_vime_and_vllm_providers_compare_the_same_logit_boundary(
     monkeypatch, dtype, real_vocab, temperature, vocab_mask
 ):
+    """Real Vime and vLLM providers report the WS2 backend without fallback; checked pairs match.
+
+    Vime vs vLLM, Vime train vs no-grad and vLLM selected vs observed logp have no differing
+    bytes on any of the 5 rows. Also checks that ``run_case`` restores the caller's profile hook.
+    """
     monkeypatch.setenv("VLLM_USE_FLASHINFER_SAMPLER", "0")
     pytest.importorskip("vllm.v1.sample.sampler", reason="installed vLLM sampler is required")
     previous_profiler = sys.getprofile()

@@ -88,6 +88,7 @@ def _comparison(candidate: torch.Tensor, reference: torch.Tensor) -> dict[str, A
 
 
 def _readback(value: torch.Tensor) -> dict[str, Any]:
+    """Return shape, dtype, JSON-safe values and the SHA-256 and hex of the raw element bytes."""
     value = value.detach().contiguous().cpu()
     raw = bytes(value.view(torch.uint8).reshape(-1).tolist())
     values = value.tolist()
@@ -95,6 +96,7 @@ def _readback(value: torch.Tensor) -> dict[str, Any]:
         # Keep JSON valid even when a candidate produces NaN on a padded shard.
         # Raw bytes remain the authoritative exact representation.
         def json_number(v):
+            """Replace non-finite floats with their string form, recursing into nested lists."""
             if isinstance(v, list):
                 return [json_number(item) for item in v]
             return v if math.isfinite(v) else str(v)
@@ -110,6 +112,7 @@ def _readback(value: torch.Tensor) -> dict[str, Any]:
 
 
 def _fingerprint(value: torch.Tensor) -> dict[str, Any]:
+    """Return shape, dtype, byte count and SHA-256 of the raw element bytes, without values."""
     raw = value.detach().contiguous().view(torch.uint8).cpu().numpy()
     return {
         "shape": list(value.shape),
@@ -125,6 +128,10 @@ def _observed_call(function: Callable, invoke: Callable) -> tuple[Any, dict[str,
     observed: dict[str, Any] = {}
 
     def observe(frame, event, arg):
+        """Chain to ``previous``; when ``function`` returns, copy its LSE/logp/contract locals.
+
+        Also records ``dispatch.provenance`` as ``dispatch_provenance`` when that local exists.
+        """
         if previous is not None:
             previous(frame, event, arg)
         if event == "return" and frame.f_code is function.__code__:
@@ -144,6 +151,7 @@ def _observed_call(function: Callable, invoke: Callable) -> tuple[Any, dict[str,
 
 
 def _sampler_metadata(rows: int, device: torch.device):
+    """Build all-greedy vLLM ``SamplingMetadata`` with unit temperature and neutral penalties."""
     from vllm.v1.sample.logits_processor import LogitsProcessors
     from vllm.v1.sample.metadata import SamplingMetadata
 
@@ -168,6 +176,12 @@ def _sampler_metadata(rows: int, device: torch.device):
 
 
 def _vllm_forward(logits: torch.Tensor) -> dict[str, Any]:
+    """Score a clone of ``logits`` through ``VllmLogpOperator`` around the real ``Sampler.forward``.
+
+    Returns the sampled-token logp, the operator's observed ``_lse`` and ``selected`` locals, the
+    sampled labels and provenance. Raises ``RuntimeError`` if those locals are not observed or a
+    sampled token is missing from ``logprob_token_ids``.
+    """
     from vllm.v1.sample.sampler import Sampler
 
     sampler = Sampler(logprobs_mode="raw_logprobs")
@@ -211,6 +225,7 @@ def _vllm_forward(logits: torch.Tensor) -> dict[str, Any]:
 
 
 def _vime_request(local_logits, labels, real_vocab, padded_vocab, tp_group, tp_rank, tp_world):
+    """Build a Vime logp request for one TP vocab shard: no CP, no entropy and no keep mask."""
     return SimpleNamespace(
         logits=local_logits,
         target_ids=labels,
@@ -230,6 +245,10 @@ def _vime_request(local_logits, labels, real_vocab, padded_vocab, tp_group, tp_r
 
 
 def _vime_forward(request, *, training: bool) -> dict[str, Any]:
+    """Call the Vime provider with grad on or off; return logp, observed ``_lse`` and provenance.
+
+    Raises ``RuntimeError`` if the provider's ``_lse`` local is not observed.
+    """
     manager = torch.enable_grad if training else torch.no_grad
     with manager():
         result, observed = _observed_call(vime_provider, lambda: vime_provider(request))
@@ -250,6 +269,10 @@ def _vime_forward(request, *, training: bool) -> dict[str, Any]:
 
 
 def _load_flash(source: Path):
+    """Import flash-attn's Triton ``cross_entropy.py`` from a source tree; return it and provenance.
+
+    Provenance is ``SOURCE.json`` (when present) plus the loaded file's path and SHA-256.
+    """
     path = source / "flash_attn/ops/triton/cross_entropy.py"
     spec = importlib.util.spec_from_file_location("provider_evidence_flash_ce", path)
     if spec is None or spec.loader is None:
@@ -263,6 +286,10 @@ def _load_flash(source: Path):
 
 
 def _flash_forward(module, logits, labels, *, tp_group=None, training=True):
+    """Run flash-attn ``cross_entropy_loss``; return the negated loss as logp and the observed LSE.
+
+    Raises ``RuntimeError`` if ``CrossEntropyLoss.forward`` does not expose an ``lse`` local.
+    """
     manager = torch.enable_grad if training else torch.no_grad
     x = logits.detach().requires_grad_(training)
     with manager():
@@ -276,10 +303,12 @@ def _flash_forward(module, logits, labels, *, tp_group=None, training=True):
 
 
 def _pair_comparisons(left, right, prefix):
+    """Compare ``logp`` and ``lse`` byte-wise under keys ``<prefix>_logp`` and ``<prefix>_lse``."""
     return {f"{prefix}_{key}": _comparison(left[key], right[key]) for key in ("logp", "lse")}
 
 
 def _pack_provider(value):
+    """Return a provider result's provenance with exact readbacks of its ``logp`` and ``lse``."""
     return {
         "provenance": value["provenance"],
         "readback": {key: _readback(value[key]) for key in ("logp", "lse")},
@@ -287,6 +316,7 @@ def _pack_provider(value):
 
 
 def _explicit_contract(logits, active, real_vocab, tp_rank, tp_world, role):
+    """Build a BF16/FP32 ``LogprobContract`` for equal-width TP shards and the given active rows."""
     width = logits.shape[1]
     return LogprobContract(
         role=role,
@@ -338,6 +368,12 @@ def run_case(
     module, flash_source = _load_flash(Path(flash_attn_src)) if flash_attn_src else (None, None)
 
     def execute(batch):
+        """Score ``batch`` with every provider; return their results and the Vime request.
+
+        vLLM samples labels from the full-vocab ``batch``; Vime training and (when flash-attn is
+        loaded) flash-attn training score this rank's vocab shard against those labels, and
+        flash-attn rollout scores the full-vocab ``batch`` without grad or a TP group.
+        """
         rollout = _vllm_forward(batch)
         shard = batch[:, local_slice].detach().contiguous().requires_grad_(True)
         request = _vime_request(
@@ -522,10 +558,12 @@ def run_case(
 
 
 def _git(*args):
+    """Run ``git`` with ``args`` in the repository root and return its stripped stdout."""
     return subprocess.check_output(["git", *args], cwd=REPO_ROOT, text=True).strip()
 
 
 def _version(name):
+    """Return the installed version of distribution ``name``, or ``None`` if it is absent."""
     try:
         return importlib.metadata.version(name)
     except importlib.metadata.PackageNotFoundError:
@@ -533,6 +571,7 @@ def _version(name):
 
 
 def _summarize_comparisons(entries):
+    """Sum comparison counts and take the max error; pass only if non-empty, bitwise and finite."""
     entries = list(entries)
     result = {
         "comparisons_checked": len(entries),
@@ -550,6 +589,12 @@ def _summarize_comparisons(entries):
 
 
 def _summary(cases):
+    """Aggregate per-case comparisons into the report's pass/fail summary.
+
+    Vime/vLLM and direct-registry active-mask comparisons form the WS2 baseline. The flash-attn
+    candidate passes only if its self-mode, TP1 control, coordinated and any layout/compaction
+    checks pass; its drift against WS2 is reported as a diagnostic only.
+    """
     baseline, self_modes, tp1_controls, candidate_layouts, coordinated, changed = (
         [] for _ in range(6)
     )
@@ -609,6 +654,7 @@ def _summary(cases):
 
 
 def _module_source(module_name):
+    """Return the source path and SHA-256 of a module; raise ``RuntimeError`` if none is found."""
     spec = importlib.util.find_spec(module_name)
     if spec is None or spec.origin is None:
         raise RuntimeError(f"cannot locate actual module source: {module_name}")
@@ -617,6 +663,11 @@ def _module_source(module_name):
 
 
 def main():
+    """Run every seed/rows/dtype/temperature/mask case and write the JSON evidence report.
+
+    The report is rewritten after each case. With several ranks each writes
+    ``<stem>.rank<N><suffix>``, then rank 0 writes all gathered reports and a summary to ``--out``.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--flash-attn-src", type=Path)

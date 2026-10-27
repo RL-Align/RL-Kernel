@@ -12,6 +12,7 @@ pytestmark = pytest.mark.unit
 
 
 def test_effective_upstream_gradient_is_shared_by_bf16_and_fp32_outputs():
+    """The BF16-quantized FP32 upstream gradient survives casts to BF16 and FP32 unchanged."""
     raw = torch.tensor([1.001, -0.12345, 3.14159, 0.0])
     common = evidence._effective_upstream_gradient(raw)
 
@@ -23,6 +24,7 @@ def test_effective_upstream_gradient_is_shared_by_bf16_and_fp32_outputs():
 
 
 def _cpu_accuracy_inputs():
+    """Return two-row CPU ``(logits, labels, grad)``; the FP32 ``grad`` is not BF16-exact."""
     logits = torch.tensor([[1.0, -2.0, 0.5], [0.25, 0.75, -1.0]])
     labels = torch.tensor([0, 2])
     grad = torch.tensor([1.001, -0.12345])
@@ -30,6 +32,7 @@ def _cpu_accuracy_inputs():
 
 
 def _mixed_dtype_candidates():
+    """Return a ``CANDIDATES`` stand-in: ``_torch_logp`` with FP32 output and with BF16 output."""
     return {
         "fp32": (evidence._torch_logp, evidence.CHUNKED),
         "bf16": (
@@ -40,6 +43,7 @@ def _mixed_dtype_candidates():
 
 
 def test_accuracy_compares_mixed_output_dtypes_with_one_upstream(monkeypatch):
+    """Given a BF16-exact upstream, BF16- and FP32-output candidates get equal gradient metrics."""
     logits, labels, raw = _cpu_accuracy_inputs()
     common = evidence._effective_upstream_gradient(raw)
     monkeypatch.setattr(evidence, "_inputs", lambda *args: (logits, labels, common))
@@ -58,6 +62,7 @@ def test_accuracy_compares_mixed_output_dtypes_with_one_upstream(monkeypatch):
 
 
 def test_accuracy_rejects_upstream_changed_by_output_dtype(monkeypatch):
+    """``accuracy`` raises ``AssertionError`` when a BF16 cast changes a non-BF16-exact upstream."""
     monkeypatch.setattr(evidence, "_inputs", lambda *args: _cpu_accuracy_inputs())
     monkeypatch.setattr(evidence, "CANDIDATES", _mixed_dtype_candidates())
 

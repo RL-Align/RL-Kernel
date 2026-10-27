@@ -30,6 +30,12 @@ COLORS = {
 
 
 def main() -> None:
+    """Plot time, memory, dlogits accuracy and batch invariance from the report in ``argv[1]``.
+
+    Writes ``figure.png`` next to the report. Batch invariance comes from ``batch_size_sweep``
+    when the report has it, else from ``row_invariance``. The report must contain ``accuracy`` and
+    ``row_invariance``; without ``performance`` the time and memory panels show a placeholder note.
+    """
     path = Path(sys.argv[1])
     report = json.loads(path.read_text())
     names = list(report["row_invariance"])
