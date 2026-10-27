@@ -7,7 +7,7 @@ import pytest
 import torch
 
 from rl_engine.ops.gemm import h3_projections as ops
-from rl_engine.validation.operators.h3_projection_validation import reference_projection
+from rl_engine.reference.gemm.h3_projections import reference_projection
 
 ROOT = Path(__file__).resolve().parents[3]
 spec = importlib.util.spec_from_file_location(

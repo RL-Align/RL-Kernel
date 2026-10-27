@@ -48,7 +48,7 @@ def _require_backend(device, backend):
         raise RuntimeError("H3 projections currently support SM90 only")
     if torch.backends.cuda.matmul.allow_tf32:
         raise RuntimeError("disable TF32 before executing the H3 numerical profile")
-    from rl_engine.backends.shared.triton.gemm.h3_projection_fp32 import (
+    from rl_engine.backends.cuda.gemm.h3_projection_fp32 import (
         FixedFP32Backend,
     )
 

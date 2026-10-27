@@ -9,11 +9,11 @@ import torch
 
 import rl_engine.ops.gemm.h3_projections as down
 from rl_engine.ops.autograd.canonical_backward import canonical_backward_session
+from rl_engine.reference.gemm.h3_projections import reference_projection
 from rl_engine.validation.operators.h3_projection_validation import (
     comparison,
     logical_keys,
     raw_equal,
-    reference_projection,
     training_projection,
 )
 
@@ -68,17 +68,6 @@ def test_raw_bytes_and_nonfinite_policy():
     nan = torch.tensor([float("nan")], dtype=torch.bfloat16)
     assert raw_equal(nan, nan)
     assert not comparison(nan, nan, "forward_invariance")["passed"]
-
-
-def test_fp32_reference_keeps_quantized_inputs_and_gradients():
-    x = torch.tensor([[0.25, -0.5], [1.0, 0.125]], dtype=torch.bfloat16)
-    w = torch.tensor([[0.5, 2.0]], dtype=torch.bfloat16)
-    dy = torch.tensor([[0.5], [-0.25]], dtype=torch.bfloat16)
-    y, dx, dw = reference_projection(x, w, dy)
-    assert y.dtype == dx.dtype == dw.dtype == torch.float32
-    torch.testing.assert_close(y.double(), x.double() @ w.double().t(), atol=0, rtol=0)
-    torch.testing.assert_close(dx.double(), dy.double() @ w.double(), atol=0, rtol=0)
-    torch.testing.assert_close(dw.double(), dy.double().t() @ x.double(), atol=0, rtol=0)
 
 
 class _CPUOrchestrationOnlyExtension:

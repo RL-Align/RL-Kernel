@@ -25,10 +25,10 @@ from rl_engine.ops.gemm.h3_projections import (  # noqa: E402
     _require_backend,
     _weight_gradient,
 )
+from rl_engine.reference.gemm.h3_projections import reference_projection  # noqa: E402
 from rl_engine.validation.operators.h3_projection_validation import (  # noqa: E402
     comparison,
     logical_keys,
-    reference_projection,
     training_projection,
 )
 
@@ -50,10 +50,11 @@ def tensor_digest(tensor):
 def provenance(args):
     names = [
         "rl_engine/ops/gemm/h3_projections.py",
-        "rl_engine/backends/shared/triton/gemm/h3_projection_fp32.py",
+        "rl_engine/backends/cuda/gemm/h3_projection_fp32.py",
         "rl_engine/backends/shared/triton/gemm/det_gemm.py",
         "rl_engine/ops/autograd/canonical_backward.py",
         "rl_engine/ops/autograd/backward_runtime.py",
+        "rl_engine/reference/gemm/h3_projections.py",
         "rl_engine/validation/operators/h3_projection_validation.py",
         "rl_engine/runtime/registry.py",
         "rl_engine/contracts/numerical.py",

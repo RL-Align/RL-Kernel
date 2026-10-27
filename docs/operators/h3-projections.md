@@ -146,7 +146,10 @@ these results do not establish production readiness or a performance improvement
 
 - Operator/session integration: `rl_engine/ops/gemm/h3_projections.py` and
   `rl_engine/ops/autograd/canonical_backward.py`.
-- Adapter: `rl_engine/backends/shared/triton/gemm/h3_projection_fp32.py`.
+- NVIDIA adapter: `rl_engine/backends/cuda/gemm/h3_projection_fp32.py`.
+  The historical shared import remains a thin compatibility alias.
+- Mathematical reference: `rl_engine/reference/gemm/h3_projections.py`;
+  comparison and training orchestration remain in `rl_engine/validation/operators/`.
 - Device computation: existing `_det_gemm_fp32_kernel` in the shared `det_gemm.py`.
   These operators select 64-bit indexing; default callers retain their index policy.
   No new native CUDA kernel or silent native fallback is introduced.
@@ -271,8 +274,11 @@ and all other original results remain privately preserved unchanged.
 Historical H100 execution on 2026-10-26 passed six full-width H3 cases at
 1, 33 and 129 rows, including y/dX/dW accuracy and chunk invariance, with
 zero failures or skips. That H3 evidence is reused without rerunning: its
-direct kernel call, kernel body, adapter and numerical dependencies are
-unchanged. Traces used `INDEX_64=True` without compensation. The current
+direct kernel call, kernel body and numerical dependencies are unchanged.
+The adapter was relocated byte for byte to its NVIDIA-owned directory and the
+reference functions moved unchanged to the reference layer; canonical imports
+and provenance paths were updated, with compatibility imports retained.
+Affected CPU regression execution for this relocation remains incomplete. Traces used `INDEX_64=True` without compensation. The current
 change does not establish actual CI execution, native-extension regression,
 full H3 workload performance or qualification on other software/device
 profiles. Original results, failed attempts, source snapshots and compiled
