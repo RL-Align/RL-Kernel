@@ -96,6 +96,14 @@ class TestReference:
         with pytest.raises(ValueError):
             NativeH3TimestepSinusoidOp().forward(torch.tensor([0.5]), num_channels=255)
 
+    @pytest.mark.parametrize("num_channels", [0, -2, 1, 255])
+    def test_frequency_table_rejects_what_the_validator_rejects(self, num_channels):
+        # The table is public API (the backward builds it): it must not truncate an odd count to
+        # half = (n - 1) / 2 or return an empty table where forward raises.
+        with pytest.raises(ValueError, match="positive even"):
+            NativeH3TimestepSinusoidOp.frequencies_fp32(num_channels, "cpu")
+        assert NativeH3TimestepSinusoidOp.frequencies_fp32(256, "cpu").shape == (128,)
+
 
 @requires_cuda
 class TestCuda:
