@@ -304,7 +304,7 @@ class H3SigmaScheduleCudaOp:
             with torch.cuda.device(target):
                 bits = torch.full((n,), signed, dtype=torch.int32, device=target)
                 sigmas = bits.view(torch.float32)
-                timesteps = sigmas[: n - 1]
+                timesteps = sigmas[: n - 1].clone()
             return H3SigmaSchedule(sigmas=sigmas, timesteps=timesteps, num_model_evals=n - 1)
 
         # Device guard: allocations, Triton launches (which use the current

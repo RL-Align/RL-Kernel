@@ -234,6 +234,20 @@ def test_negative_nan_shift_propagates_negative_quiet_nan():
     assert set(_int32_bits(actual.sigmas.cpu())) == {-4194304}  # 0xffc00000, signed
 
 
+def test_nan_path_timesteps_do_not_alias_sigmas_storage():
+    # The NaN/inf fast path slices sigmas for timesteps; the slice must own its
+    # storage like every other path here (the kernel path writes into a fresh
+    # torch.empty) and like the reference, whose ``1.0 - sigmas[:-1]`` is a new
+    # tensor. An in-place write to timesteps must not bleed into sigmas — the
+    # bitwise tests above cannot catch aliasing because the two NaN grids carry
+    # identical bit patterns.
+    schedule = _cuda_op()(25, shift=float("nan"))
+
+    bits_before = _int32_bits(schedule.sigmas.cpu())
+    schedule.timesteps.fill_(123.0)
+    assert _int32_bits(schedule.sigmas.cpu()) == bits_before
+
+
 _EDGE_SHIFTS = [
     float("nan"),  # all-NaN grid; IEEE != keeps every row (matches upstream)
     float("inf"),  # all-NaN grid via fp32 scalar overflow semantics
