@@ -69,4 +69,24 @@ inline void check_tile_metadata(cudaStream_t stream, const int64_t* sorted_pos, 
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
+// Table-row indices read inside a kernel's loop: `n` entries, each a row of a table with `limit`
+// rows. The assert would cost the loop its scheduling (the same 6-12% as above, measured on the
+// rmsnorm dweight partials), so the entry point checks the S index values once, here, before it
+// launches the kernels that read them.
+static __global__ void check_index_range_kernel(const int64_t* __restrict__ index, int64_t n,
+                                                int64_t limit) {
+  const int64_t stride = static_cast<int64_t>(gridDim.x) * blockDim.x;
+  for (int64_t i = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x; i < n; i += stride) {
+    CUDA_KERNEL_ASSERT(index[i] >= 0 && index[i] < limit);
+  }
+}
+
+inline void check_index_range(cudaStream_t stream, const int64_t* index, int64_t n,
+                              int64_t limit) {
+  const unsigned blocks =
+      static_cast<unsigned>(std::max<int64_t>(1, std::min<int64_t>((n + 255) / 256, 1024)));
+  check_index_range_kernel<<<blocks, 256, 0, stream>>>(index, n, limit);
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+}
+
 }  // namespace h3_tiles
