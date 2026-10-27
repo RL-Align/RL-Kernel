@@ -85,6 +85,11 @@ jobs:
             tests/contracts/test_tolerance_contract.py \
             tests/runtime/test_kernel_registry.py
 
+      - name: Run DSV4 Clamp SwiGLU Contract Tests (CPU-safe)
+        run: |
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \
+            tests/ops/moe/test_clamp_swiglu.py
+
       - name: Run Attention Ground-Truth Tests (CPU-safe)
         run: |
           python -m pytest tests/ops/attention/test_attention.py -v -k "not large and not gpu"
