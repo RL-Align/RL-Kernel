@@ -325,6 +325,13 @@ def deterministic_collective_rocm_ipc_all_gather_input(
     input: torch.Tensor,
     output: torch.Tensor,
 ) -> None: ...
+
+# MiniMax-H3 kernels (RFC #420). These exist only in a build that compiles the H3 sources: not on
+# ROCm, and not with KERNEL_ALIGN_USE_FAST_MATH=1 or relaxed NVCC_*_FLAGS (build_tools/extensions.py
+# leaves the sources and the KERNEL_ALIGN_WITH_H3_KERNELS define out together). Like the ROCm and
+# SM90 symbols above, they are declared here for type checking; the Python backends test for them
+# (the ``*_available()`` helpers, called by every constructor) so dispatch falls back to the PyTorch
+# reference instead of raising AttributeError.
 def h3_timestep_sinusoid_forward(
     timestep: torch.Tensor,
     num_channels: int = 256,

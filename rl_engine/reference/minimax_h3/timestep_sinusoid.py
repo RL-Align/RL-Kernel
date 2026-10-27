@@ -112,6 +112,8 @@ class NativeH3TimestepSinusoidOp:
     def frequencies_fp32(num_channels: int, device: torch.device | str) -> torch.Tensor:
         """The FP32 frequency table the provider path multiplies by."""
 
+        if num_channels <= 0 or num_channels % 2 != 0:
+            raise ValueError(f"num_channels must be a positive even number, got {num_channels}")
         half = num_channels // 2
         exponent = -math.log(H3_MAX_PERIOD) * torch.arange(
             start=0, end=half, dtype=torch.float32, device=device
