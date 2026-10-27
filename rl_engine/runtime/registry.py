@@ -205,6 +205,31 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
     return (
         OperatorBackendDescriptor(
+            semantic_op="router_gate_projection",
+            backend_id="rlkernel.aiter_fixed_bf16_fp32.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"rocm"}),
+            supported_dtypes=frozenset({"bfloat16"}),
+            supported_topologies={
+                "training": {"tensor_parallel_size": (1,)},
+                "rollout": {"tensor_parallel_size": (1,)},
+            },
+            determinism_or_alignment_properties={
+                "batch_invariant": True,
+                "output_dtype": "float32",
+                "split_k": 1,
+                "graph": False,
+                "architectures": ("gfx942", "gfx950"),
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=(
+                "rl_engine.ops.moe.router_gate.RouterGateProjectionOp"
+            ),
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="rlkernel.aiter_fixed_bf16_fp32.v1",
+        ),
+        OperatorBackendDescriptor(
             semantic_op="selected_logprob",
             backend_id="rlkernel.reference_logp",
             supported_targets=frozenset({"rollout", "training"}),

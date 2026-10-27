@@ -116,6 +116,9 @@ jobs:
             tests/backends/rocm/test_rocm_lm_head_weight_cache.py \
             -v
 
+      - name: Run DSV4 LoRA Math and Autograd Tests (CPU-safe)
+        run: python -m pytest tests/models/deepseek_v4/test_lora.py -q
+
       - name: Run WS2 Vocab-Parallel Logprob Tests (CPU-safe)
         run: python -m pytest tests/distributed/tp/test_vocab_parallel_logp.py -v
 

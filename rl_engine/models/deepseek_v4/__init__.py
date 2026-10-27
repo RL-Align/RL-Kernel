@@ -1,2 +1,2 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Reserved model package. No validated implementation is available yet."""
+"""DeepSeek V4 gate and LoRA components; complete model integration is not validated yet."""
