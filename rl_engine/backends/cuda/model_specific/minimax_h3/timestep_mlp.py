@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import torch
 
-from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.backends.cuda.model_specific.minimax_h3.det_linear import (
     ACT_NONE,
     ACT_SILU,
@@ -18,6 +17,7 @@ from rl_engine.backends.cuda.model_specific.minimax_h3.det_linear import (
     det_linear_forward,
     silu_backward_fp32,
 )
+from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.reference.minimax_h3.timestep_mlp import validate_h3_timestep_mlp
 
 KERNEL_ID = "rl_engine._C.h3_det_linear_forward[silu]+rl_engine._C.h3_det_linear_forward"
@@ -45,13 +45,18 @@ class _H3TimestepMLPCuda(torch.autograd.Function):
         grad_out = grad_out.float().contiguous()
         dw2 = db2 = dw1 = db1 = dx = None
         if need_w2 or need_b2:
-            dw2, db2 = det_linear_backward_weight(grad_out, hidden, torch.float32)
+            # The bias fold is skipped when only the weight needs a gradient.
+            dw2, *rest = det_linear_backward_weight(
+                grad_out, hidden, torch.float32, with_bias=need_b2
+            )
+            db2 = rest[0] if need_b2 else None
         d_pre = None
         if need_x or need_w1 or need_b1:
             d_hidden = det_linear_backward_input(grad_out, w2, torch.float32)
             d_pre = silu_backward_fp32(d_hidden, pre).contiguous()
         if need_w1 or need_b1:
-            dw1, db1 = det_linear_backward_weight(d_pre, x, torch.float32)
+            dw1, *rest = det_linear_backward_weight(d_pre, x, torch.float32, with_bias=need_b1)
+            db1 = rest[0] if need_b1 else None
         if need_x:
             dx = det_linear_backward_input(d_pre, w1, torch.float32)
         record_backward(
