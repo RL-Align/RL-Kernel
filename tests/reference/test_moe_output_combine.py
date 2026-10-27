@@ -416,31 +416,50 @@ def test_local_input_gradients_stop_before_rms_and_preserve_fixed_order():
 
 
 def test_local_input_gradients_use_order_sensitive_values_and_recompute():
-    plan, inputs = _gradient_request(shared=True)
+    plan = _plan(top_k=3)
+    inputs = MoEOutputCombineInputs(
+        expert_output=torch.zeros(6, plan.hidden_size, dtype=torch.bfloat16),
+        token_indices=torch.tensor([0, 0, 0, 1, 1, 1], dtype=torch.int64),
+        expert_indices=torch.tensor([0, 1, 2, 0, 1, 2], dtype=torch.int64),
+        slot_indices=torch.tensor([0, 1, 2, 0, 1, 2], dtype=torch.int64),
+        routing_weights=torch.ones(6, dtype=torch.float32),
+        num_tokens=2,
+    )
     expert_gradient = torch.tensor(
-        [[2**24, 0, 0, 0], [0, 0, 0, 0], [2**24, 0, 0, 0], [0, 0, 0, 0]],
+        [
+            [2**24, 0, 0, 0],
+            [1, 0, 0, 0],
+            [-(2**24), 0, 0, 0],
+            [2**24, 0, 0, 0],
+            [1, 0, 0, 0],
+            [-(2**24), 0, 0, 0],
+        ],
         dtype=torch.bfloat16,
     )
-    shared_gradient = torch.ones(2, 4, dtype=torch.bfloat16)
-    gate_gradient = torch.full((2, 4), -(2**24), dtype=torch.bfloat16)
 
     first = combine_local_input_gradients(
         plan,
         inputs,
         expert_gradient,
-        shared_expert_gradient=shared_gradient,
-        gate_gradient=gate_gradient,
         num_tokens=2,
     )
     second = combine_local_input_gradients(
         plan,
         inputs,
         expert_gradient,
-        shared_expert_gradient=shared_gradient,
-        gate_gradient=gate_gradient,
         num_tokens=2,
     )
 
+    expected = torch.tensor(0.0, dtype=torch.float32)
+    expected = expected + 2**24
+    expected = expected + 1.0
+    expected = expected - 2**24
+    reverse_order = torch.tensor(0.0, dtype=torch.float32)
+    reverse_order = reverse_order - 2**24
+    reverse_order = reverse_order + 1.0
+    reverse_order = reverse_order + 2**24
+    assert expected.item() == 0.0
+    assert reverse_order.item() == 1.0
     assert torch.equal(first, second)
     assert torch.equal(first[:, 0], torch.zeros(2, dtype=torch.bfloat16))
 
