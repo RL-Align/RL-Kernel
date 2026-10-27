@@ -149,6 +149,10 @@ Gate make_gate(const torch::Tensor& gate, const torch::Tensor& index, const torc
               "gate must be a CUDA tensor with the activations' dtype");
   TORCH_CHECK(gate.dim() == 2 && gate.size(1) == x.size(1) && gate.stride(1) == 1,
               "gate must be (R, N) with unit column stride");
+  // Rows are read as dense N-element spans at `stride(0)`: a view of a wider table is fine, an
+  // expanded or overlapping one (stride(0) < N) is not a table of rows.
+  TORCH_CHECK(gate.size(0) <= 1 || gate.stride(0) >= gate.size(1), "gate row stride ",
+              gate.stride(0), " is smaller than N=", gate.size(1));
   TORCH_CHECK(index.is_cuda() && index.device() == x.device() && index.scalar_type() == at::kLong &&
                   index.dim() == 1 && index.is_contiguous() && index.numel() > 0,
               "index must be a non-empty contiguous int64 tensor on ", x.device());

@@ -35,16 +35,22 @@ def det_linear_available() -> bool:
 def det_linear_device_supported(device: torch.device | int | str | None = None) -> bool:
     """Return whether ``device`` can run the BF16 forward (``mma.sync``, SM80+).
 
-    ``device`` defaults to the current CUDA device. Without CUDA, or for a non-CUDA device, the
-    answer is False: constructors use this as an early check so the registry falls back to the
-    PyTorch reference, and ``det_linear_forward`` repeats it for the device of the actual tensors.
+    ``device`` defaults to the current CUDA device. Without CUDA, for a non-CUDA device, for an
+    index this host does not have, or when the CUDA runtime cannot be queried, the answer is False:
+    constructors use this as an early check so the registry falls back to the PyTorch reference,
+    and ``det_linear_forward`` repeats it for the device of the actual tensors.
     """
 
     if not torch.cuda.is_available():
         return False
-    if device is not None and torch.device(device).type != "cuda":
+    try:
+        if device is not None and torch.device(device).type != "cuda":
+            return False
+        return torch.cuda.get_device_capability(device)[0] >= 8
+    except (AssertionError, RuntimeError, TypeError, ValueError):
+        # torch raises AssertionError for an index outside the host's devices and RuntimeError for
+        # a device string it cannot parse or a CUDA runtime that fails to start.
         return False
-    return torch.cuda.get_device_capability(device)[0] >= 8
 
 
 def _require() -> None:
