@@ -455,10 +455,11 @@ def test_local_input_gradients_apply_nonuniform_routing_weights():
         plan,
         inputs,
         torch.ones(4, plan.hidden_size, dtype=torch.bfloat16),
+        gate_gradient=torch.full((2, plan.hidden_size), 0.25, dtype=torch.bfloat16),
         num_tokens=2,
     )
     expected = torch.tensor(
-        [[2.5] * plan.hidden_size, [1.75] * plan.hidden_size], dtype=torch.bfloat16
+        [[2.75] * plan.hidden_size, [2.0] * plan.hidden_size], dtype=torch.bfloat16
     )
     assert torch.equal(result, expected)
 

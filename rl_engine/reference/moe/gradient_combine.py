@@ -108,7 +108,10 @@ def combine_local_input_gradients(
     ``expert_input_gradient`` uses the same physical slot order and mapping
     metadata as ``inputs.expert_output``.  The reference path restores it to
     token-major/slot-minor order, accumulates slots in ``plan.merge_order``,
-    then adds the shared-expert and gate branches in that order.  Producer-owned
+    then adds the shared-expert and gate branches in that order.  The gate
+    branch is an independent router-path dX contribution, so it remains valid
+    whether or not producer-owned routing weights are applied to expert slots.
+    Producer-owned
     routing weights are restored with the same mapping and applied to each
     expert-gradient slot before accumulation.  The returned
     value is ``dX_norm`` and must be passed through the P1 RMSNorm backward
