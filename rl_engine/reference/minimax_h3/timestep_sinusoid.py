@@ -7,9 +7,11 @@ H3 builds ``Timesteps(num_channels=256, flip_sin_to_cos=True,
 downscale_freq_shift=0)`` and feeds it the *distinct* timestep values of the
 packed sequence, unscaled in ``[0, 1]`` (``t = 1 - sigma``)::
 
-    freq[k] = exp(-ln(10000) * k / 128)          k = 0..127, FP32
+    freq[k] = exp(-ln(10000) * k / half)         k = 0..half-1, half = num_channels // 2, FP32
     arg[t, k] = t * freq[k]                      FP32
-    out[t] = [cos(arg[t]) | sin(arg[t])]         (T, 256) FP32
+    out[t] = [cos(arg[t]) | sin(arg[t])]         (T, num_channels) FP32
+
+H3 pins ``num_channels = 256`` (``half = 128``).
 
 The output is always FP32: ``time_embedder`` is a ``_keep_in_fp32_modules``
 module in the checkpoint, so the features never pass through BF16.
