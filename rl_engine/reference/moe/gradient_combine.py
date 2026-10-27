@@ -91,7 +91,6 @@ def combine_local_input_gradients(
     if not torch.isfinite(expert_input_gradient).all():
         raise MoEOutputCombineContractError("expert_input_gradient must contain only finite values")
 
-    inputs.validate(plan)
     if shared_expert_gradient is gate_gradient and shared_expert_gradient is not None:
         raise MoEOutputCombineContractError("shared and gate gradients must be separate tensors")
     if plan.shared_expert_mode == "separate" and shared_expert_gradient is None:
@@ -201,10 +200,28 @@ def local_input_gradient_provenance(
         gate_gradient=gate_gradient,
         expected_mapping_run_id=expected_mapping_run_id,
     )
-    provenance = inputs.provenance(plan)
+    mapping_plan = replace(
+        plan,
+        output_dtype=_dtype_name(expert_input_gradient.dtype),
+        shared_expert_mode="excluded",
+        residual_mode="excluded",
+    )
+    mapping_inputs = replace(
+        inputs,
+        expert_output=expert_input_gradient,
+        shared_output=None,
+        residual=None,
+    )
+    provenance = mapping_inputs.provenance(mapping_plan)
+    provenance["plan_version"] = plan.plan_version
+    provenance["plan_fingerprint"] = plan.fingerprint
+    provenance["expert_gradient_dtype"] = provenance.pop("expert_output_dtype")
+    provenance["expert_gradient_shape"] = provenance.pop("expert_output_shape")
+    provenance["expert_gradient_stride"] = provenance.pop("expert_output_stride")
     provenance.update(
         {
             "semantic_op": "moe_input_gradient_combine",
+            "num_tokens": num_tokens,
             "mapping_run_id_verified": expected_mapping_run_id is not None,
             "expected_mapping_run_id": expected_mapping_run_id,
             "merge_order": list(plan.merge_order),

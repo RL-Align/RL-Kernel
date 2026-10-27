@@ -467,6 +467,13 @@ def test_local_input_gradients_enforce_modes_and_mapping_run_id():
             expert_gradient,
             num_tokens=2,
         )
+    combine_local_input_gradients(
+        shared_plan,
+        replace(shared_inputs, shared_output=None),
+        expert_gradient,
+        shared_expert_gradient=torch.zeros(2, shared_plan.hidden_size, dtype=torch.bfloat16),
+        num_tokens=2,
+    )
     with pytest.raises(MoEOutputCombineContractError, match="run id"):
         combine_local_input_gradients(
             shared_plan,
@@ -508,6 +515,9 @@ def test_local_input_gradient_provenance_records_checks():
     assert provenance["semantic_op"] == "moe_input_gradient_combine"
     assert provenance["producer_backend"] == "unknown"
     assert provenance["num_slots"] == 4
+    assert provenance["num_tokens"] == 2
+    assert provenance["expert_gradient_dtype"] == "bfloat16"
+    assert "expert_output_dtype" not in provenance
     assert provenance["branches"]["gate"]["dtype"] is None
     assert provenance["branches"]["shared_expert"]["dtype"] == "bfloat16"
     assert provenance["mapping_run_id_verified"] is True
