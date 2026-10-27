@@ -70,6 +70,31 @@ def test_first_divergence_supports_active_tokens_and_metadata_shape_failures():
     shape = first_divergence(torch.zeros((2, 1)), torch.zeros((2, 2)))
     assert shape.first is not None
     assert shape.first.reason == "shape_mismatch"
+    assert shape.compared_count == 0
+    assert shape.metadata_errors == ("shape_mismatch",)
+
+
+def test_first_divergence_handles_tolerance_infinities_and_signed_zero():
+    within = first_divergence(
+        torch.tensor([1.0]),
+        torch.tensor([1.0 + 1e-6]),
+        atol=1e-5,
+    )
+    assert within.passed is True
+
+    infinities = first_divergence(
+        torch.tensor([float("-inf"), float("nan")]),
+        torch.tensor([float("-inf"), 1.0]),
+    )
+    assert infinities.mismatch_count == 1
+    assert infinities.first is not None
+    assert infinities.first.coordinates == (1,)
+    assert infinities.first.reason == "non_finite"
+
+    signed_zero = first_divergence(torch.tensor([0.0]), torch.tensor([-0.0]))
+    assert signed_zero.passed is False
+    assert signed_zero.first is not None
+    assert signed_zero.first.reason == "signed_zero"
 
 
 def test_first_divergence_rejects_vacuous_samples_and_invalid_axis_metadata():

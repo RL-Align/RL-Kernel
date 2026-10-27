@@ -52,7 +52,22 @@ def recompute_mismatch_mask(
         raise ValueError("fixed_threshold must be non-negative")
     active = active_mask.to(device=rollout_logprobs.device, dtype=torch.bool)
     training = training_logprobs.to(device=rollout_logprobs.device)
-    return active & (torch.abs(training - rollout_logprobs) > fixed_threshold)
+    finite = torch.isfinite(rollout_logprobs) & torch.isfinite(training)
+    same_infinity = (
+        torch.isinf(rollout_logprobs) & torch.isinf(training) & (rollout_logprobs == training)
+    )
+    mismatch = active & (
+        (~finite & ~same_infinity)
+        | (finite & (torch.abs(training - rollout_logprobs) > fixed_threshold))
+    )
+    if fixed_threshold == 0.0 and rollout_logprobs.is_floating_point():
+        mismatch |= (
+            active
+            & (rollout_logprobs == 0)
+            & (training == 0)
+            & (torch.signbit(rollout_logprobs) != torch.signbit(training))
+        )
+    return mismatch
 
 
 class FixedThresholdComparator:
@@ -181,6 +196,7 @@ class FixedThresholdComparator:
                 absolute_diff,
                 mismatch_count,
                 provenance=_comparison_provenance(rollout, training),
+                mismatch_mask=mismatch_mask,
             ),
             token_artifact=token_artifact,
         )
@@ -287,6 +303,7 @@ def _diagnostics(
     absolute_diff: torch.Tensor,
     mismatch_count: int,
     provenance: dict[str, Any],
+    mismatch_mask: torch.Tensor,
 ) -> dict[str, Any]:
     active_diff = absolute_diff[active_mask].float()
     delta = (training_logprobs[active_mask] - rollout_logprobs[active_mask]).float()
@@ -303,6 +320,7 @@ def _diagnostics(
         active_mask=active_mask,
         axis_names=("sample", "token") if rollout_logprobs.ndim == 2 else None,
         provenance=provenance,
+        mismatch_mask=mismatch_mask,
     )
     return {
         "mean_abs_diff": _finite_float_or_none(active_diff.mean()),

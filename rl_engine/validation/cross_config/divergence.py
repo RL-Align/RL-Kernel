@@ -122,6 +122,8 @@ def first_divergence(
     rtol: float = 0.0,
     axis_names: Sequence[str] | None = None,
     provenance: Mapping[str, Any] | None = None,
+    mismatch_mask: torch.Tensor | None = None,
+    reason: str = "value_mismatch",
 ) -> DivergenceReport:
     """Compare tensors and return a stable, structured first-error record.
 
@@ -131,6 +133,8 @@ def first_divergence(
 
     if expected.numel() == 0 or actual.numel() == 0:
         raise ValueError("divergence comparison requires non-empty tensors")
+    if not reason:
+        raise ValueError("reason must not be empty")
     axes = _axes(expected.ndim, axis_names)
     if expected.shape != actual.shape:
         record = DivergenceRecord(
@@ -149,7 +153,14 @@ def first_divergence(
             reason="shape_mismatch",
             provenance=provenance or {},
         )
-        return DivergenceReport(tensor_name, 1, 1, False, record)
+        return DivergenceReport(
+            tensor_name,
+            0,
+            0,
+            False,
+            record,
+            metadata_errors=("shape_mismatch",),
+        )
     if expected.dtype != actual.dtype:
         record = DivergenceRecord(
             tensor_name=tensor_name,
@@ -167,7 +178,14 @@ def first_divergence(
             reason="dtype_mismatch",
             provenance=provenance or {},
         )
-        return DivergenceReport(tensor_name, 1, 1, False, record)
+        return DivergenceReport(
+            tensor_name,
+            0,
+            0,
+            False,
+            record,
+            metadata_errors=("dtype_mismatch",),
+        )
     if not math.isfinite(atol) or not math.isfinite(rtol) or atol < 0 or rtol < 0:
         raise ValueError("atol and rtol must be finite and non-negative")
     expected_cpu = expected.detach().cpu()
@@ -179,9 +197,27 @@ def first_divergence(
         mask = active_mask.detach().cpu().to(dtype=torch.bool)
         if not bool(mask.any()):
             raise ValueError("divergence comparison requires at least one active element")
-    finite = torch.isfinite(expected_cpu) & torch.isfinite(actual_cpu)
-    tolerance = atol + rtol * torch.abs(expected_cpu)
-    mismatch = mask & (~finite | (torch.abs(actual_cpu - expected_cpu) > tolerance))
+    if mismatch_mask is not None:
+        if mismatch_mask.shape != expected.shape:
+            raise ValueError("mismatch_mask shape must match compared tensors")
+        mismatch = mismatch_mask.detach().cpu().to(dtype=torch.bool) & mask
+    else:
+        finite = torch.isfinite(expected_cpu) & torch.isfinite(actual_cpu)
+        both_same_inf = (
+            torch.isinf(expected_cpu) & torch.isinf(actual_cpu) & (expected_cpu == actual_cpu)
+        )
+        tolerance = atol + rtol * torch.abs(expected_cpu)
+        mismatch = mask & (
+            (~finite & ~both_same_inf)
+            | (finite & (torch.abs(actual_cpu - expected_cpu) > tolerance))
+        )
+        if atol == 0.0 and rtol == 0.0 and expected_cpu.is_floating_point():
+            mismatch |= (
+                mask
+                & (expected_cpu == 0)
+                & (actual_cpu == 0)
+                & (torch.signbit(expected_cpu) != torch.signbit(actual_cpu))
+            )
     compared_count = int(mask.sum().item())
     mismatch_count = int(mismatch.sum().item())
     if not mismatch_count:
@@ -192,9 +228,24 @@ def first_divergence(
     )
     expected_value = expected_cpu.reshape(-1)[flat_index].item()
     actual_value = actual_cpu.reshape(-1)[flat_index].item()
-    absolute = (
-        abs(float(actual_value) - float(expected_value)) if finite.reshape(-1)[flat_index] else None
+    finite_pair = bool(
+        torch.isfinite(expected_cpu.reshape(-1)[flat_index])
+        and torch.isfinite(actual_cpu.reshape(-1)[flat_index])
     )
+    absolute = abs(float(actual_value) - float(expected_value)) if finite_pair else None
+    record_reason = reason
+    if not finite_pair:
+        record_reason = "non_finite"
+    elif (
+        atol == 0.0
+        and rtol == 0.0
+        and expected_cpu.is_floating_point()
+        and expected_value == 0
+        and actual_value == 0
+        and bool(torch.signbit(expected_cpu.reshape(-1)[flat_index]))
+        != bool(torch.signbit(actual_cpu.reshape(-1)[flat_index]))
+    ):
+        record_reason = "signed_zero"
     denominator = max(abs(float(expected_value)), 1e-12) if absolute is not None else None
     return DivergenceReport(
         tensor_name=tensor_name,
@@ -214,6 +265,7 @@ def first_divergence(
             actual_shape=tuple(actual.shape),
             expected_dtype=str(expected.dtype).replace("torch.", ""),
             actual_dtype=str(actual.dtype).replace("torch.", ""),
+            reason=record_reason,
             provenance=provenance or {},
         ),
     )
