@@ -4,6 +4,7 @@
 import importlib.util
 import os
 import shlex
+import stat
 import sysconfig
 import warnings
 from distutils.errors import CompileError
@@ -37,6 +38,12 @@ _RELAXED_MATH_VALUE_FLAGS = {
     "prec-div": {"false", "0"},
     "prec-sqrt": {"false", "0"},
 }
+# The spelling that keeps the math exact. A value that is neither this nor in the set above is one
+# nvcc does not know; it is reported as unreadable, not taken for the safe one.
+_EXACT_MATH_VALUES = {"ftz": "false", "prec-div": "true", "prec-sqrt": "true"}
+# An options file is read in full before anything checks it; a device node or a huge file named by
+# a stray variable would hang or exhaust memory the configure step.
+_OPTIONS_FILE_MAX_BYTES = 1 << 20
 # nvcc reads more options from the files named by ``--options-file`` / ``-optf`` (a comma-separated
 # list, as ``--options-file=a,b`` or ``--options-file a,b``), also when the option comes from
 # NVCC_*_FLAGS. nvcc 13.0 does not expand ``@file`` (it takes it for an input file and stops); that
@@ -49,16 +56,46 @@ class _UncheckableFlags(Exception):
     """The flags cannot be read well enough to say whether they relax math."""
 
 
+def _nvcc_flag_words(text: str) -> list[str]:
+    """Split like nvcc does for the double-quoted values it accepts, and on ``;`` as well.
+
+    ``;`` separates the flags of TORCH_NVCC_FLAGS; here it separates words outside quotes only, so
+    ``--options-file "my opts;1.txt"`` keeps its file name in one piece, as nvcc reads it.
+    """
+
+    lexer = shlex.shlex(text, posix=True)
+    lexer.whitespace_split = True
+    lexer.whitespace += ";"
+    lexer.commenters = ""
+    return list(lexer)
+
+
+def _read_options_file(name: str) -> str:
+    path = Path(name)
+    try:
+        info = path.stat()  # a missing file is an OSError, reported as unreadable
+        if not stat.S_ISREG(info.st_mode):
+            raise _UncheckableFlags(f"options file {name!r} is not a regular file")
+        if info.st_size > _OPTIONS_FILE_MAX_BYTES:
+            raise _UncheckableFlags(
+                f"options file {name!r} is larger than {_OPTIONS_FILE_MAX_BYTES} bytes"
+            )
+        return path.read_text()
+    except OSError as exc:
+        raise _UncheckableFlags(f"cannot read options file {name!r}: {exc.strerror}") from exc
+
+
 def _nvcc_flag_tokens(text: str, *, depth: int = 0) -> list[str]:
     """Split an NVCC_*_FLAGS value into tokens, expanding options files.
 
-    Tokens are split like a shell would, then on whitespace and ``;`` (TORCH_NVCC_FLAGS is
-    ';'-separated), so ``"-O2 --use_fast_math"`` in one quoted word is still two options. Raises
+    A word that holds whitespace or ``;`` came out of quotes; nvcc takes it as one argument (an
+    option it then rejects, or a file name). It is kept whole for that reading, and its pieces
+    follow it, so ``"-O2 --use_fast_math"`` in one quoted word still reads as relaxed. Raises
     _UncheckableFlags for an options file that cannot be read or an option nvcc rejects for lack
     of its file name, and ValueError for a string that cannot be split.
     """
 
-    words = [part for word in shlex.split(text) for part in word.replace(";", " ").split()]
+    words = _nvcc_flag_words(text)
     tokens: list[str] = []
     i = 0
     while i < len(words):
@@ -77,17 +114,14 @@ def _nvcc_flag_tokens(text: str, *, depth: int = 0) -> list[str]:
             files = value.split(",")
         else:
             tokens.append(token)
+            pieces = token.replace(";", " ").split()
+            if len(pieces) > 1:
+                tokens.extend(pieces)
             continue
         if depth >= _OPTIONS_FILE_DEPTH:
             raise _UncheckableFlags(f"options files nest deeper than {_OPTIONS_FILE_DEPTH} levels")
         for name in files:
-            try:
-                content = Path(name).read_text()
-            except OSError as exc:
-                raise _UncheckableFlags(
-                    f"cannot read options file {name!r}: {exc.strerror}"
-                ) from exc
-            tokens.extend(_nvcc_flag_tokens(content, depth=depth + 1))
+            tokens.extend(_nvcc_flag_tokens(_read_options_file(name), depth=depth + 1))
     return tokens
 
 
@@ -114,6 +148,8 @@ def _tokens_relax_math(tokens: list[str]) -> str | None:
             spelled = f"{token} {nxt}"
         if value.lower() in relaxed_values:
             return spelled
+        if value.lower() != _EXACT_MATH_VALUES[name]:
+            return f"{spelled} (a value nvcc does not take)"
     return None
 
 
@@ -134,12 +170,6 @@ def _relaxed_math_reason() -> str | None:
         if relaxed is not None:
             return f"{name} contains {relaxed}"
     return None
-
-
-def _external_relaxed_math() -> bool:
-    """Return whether NVCC_*_FLAGS / TORCH_NVCC_FLAGS relax FP32 math or cannot be checked."""
-
-    return _relaxed_math_reason() is not None
 
 
 def _resolve_package_data_source(
