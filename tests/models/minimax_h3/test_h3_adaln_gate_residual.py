@@ -141,6 +141,26 @@ class TestCuda:
         assert torch.equal(leaves[0].grad, ref[0].grad)
         assert torch.equal(leaves[1].grad, ref[1].grad)
 
+    def test_no_residual_gradient_is_returned_for_a_residual_that_needs_none(self):
+        """The backward node hands back ``None`` for a frozen residual, the cotangent otherwise."""
+
+        table, residual, y, index = _case(100, hidden=64, seed=7)
+        grad = torch.randn_like(residual)
+        for needs_residual in (False, True):
+            leaves = [
+                residual.detach().clone().requires_grad_(needs_residual),
+                y.detach().clone().requires_grad_(True),
+                table.detach().clone().requires_grad_(True),
+            ]
+            out = _cuda_op()(leaves[0], leaves[1], _gate(leaves[2]), index)
+            # grad_fn.apply returns what backward returned, before autograd drops the unused ones
+            d_residual, d_y, *_ = out.grad_fn.apply(grad)
+            if needs_residual:
+                assert torch.equal(d_residual, grad)
+            else:
+                assert d_residual is None
+            assert d_y.shape == y.shape
+
     def test_a_gate_table_whose_rows_overlap_is_copied_not_read_in_place(self):
         """An expanded table (row stride 0) is a legal gate: it is copied to dense rows first."""
 
@@ -248,6 +268,12 @@ def _gate_backward_in_child(mutation: str) -> subprocess.CompletedProcess:
             first = torch.tensor([0, 1, 5], **i64)
         elif mutation == "no_tiles":
             begin, end = begin[:0], end[:0]
+        elif mutation == "gap_between_tiles":
+            begin = torch.tensor([0, 3], **i64)
+        elif mutation == "overlapping_tiles":
+            begin = torch.tensor([0, 1], **i64)
+        elif mutation == "last_tile_stops_short":
+            end = torch.tensor([2, 3], **i64)
         elif mutation == "short_sorted_pos":
             sorted_pos = sorted_pos[:3]
         elif mutation == "no_boundary":
@@ -277,13 +303,16 @@ def test_the_gate_backward_stops_on_tile_metadata_that_does_not_describe_the_row
         "tile_end_past_rows",
         "position_past_rows",
         "segments_past_tiles",
-        "no_tiles",
+        "gap_between_tiles",
+        "overlapping_tiles",
+        "last_tile_stops_short",
     ):
         done = _gate_backward_in_child(mutation)
         assert done.returncode != 0, mutation
         assert "device-side assert triggered" in done.stderr, (mutation, done.stderr)
     # Lengths are checked on the host, before any launch.
     for mutation, message in (
+        ("no_tiles", "the tile list is empty but there are 4 positions to sum"),
         ("short_sorted_pos", "sorted_pos must have M entries"),
         ("no_boundary", "seg_first_tile must hold R + 1 entries"),
     ):

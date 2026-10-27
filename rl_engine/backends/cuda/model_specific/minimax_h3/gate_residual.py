@@ -52,8 +52,10 @@ class _H3GateResidualCuda(torch.autograd.Function):
             "adaln_gate_residual", kernel_id=BACKWARD_KERNEL_ID, impl=BACKWARD_IMPL, family="cuda"
         )
         # The cotangent has the output's shape, which is the residual's; the residual's VJP is that
-        # cotangent itself. reshape (not view) so a non-contiguous gradient is accepted.
-        return grad.reshape(ctx.residual_shape), dy.view(ctx.y_shape), dgate, None
+        # cotangent itself. reshape (not view) so a non-contiguous gradient is accepted. A residual
+        # that needs no gradient (a frozen skip path) gets none.
+        d_residual = grad.reshape(ctx.residual_shape) if ctx.needs_input_grad[0] else None
+        return d_residual, dy.view(ctx.y_shape), dgate, None
 
 
 class H3GateResidualCudaOp:
