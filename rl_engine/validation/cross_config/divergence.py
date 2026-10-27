@@ -1,0 +1,231 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 RL-Kernel Contributors
+
+"""Deterministic first-error records shared by cross-configuration checks."""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass, field
+from typing import Any, Mapping, Sequence
+
+import torch
+
+SCHEMA_VERSION = "cross_config.divergence.v1"
+
+
+def _json_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _json_value(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_json_value(item) for item in value]
+    if isinstance(value, torch.dtype):
+        return str(value).replace("torch.", "")
+    if isinstance(value, torch.Tensor):
+        return value.detach().cpu().tolist()
+    return value
+
+
+@dataclass(frozen=True)
+class DivergenceRecord:
+    """One lexicographically first mismatch plus the context needed to replay it."""
+
+    tensor_name: str
+    flat_index: int
+    coordinates: tuple[int, ...]
+    axis_names: tuple[str, ...]
+    expected_value: Any
+    actual_value: Any
+    absolute_diff: float | None
+    relative_diff: float | None
+    expected_shape: tuple[int, ...]
+    actual_shape: tuple[int, ...]
+    expected_dtype: str
+    actual_dtype: str
+    reason: str = "value_mismatch"
+    provenance: Mapping[str, Any] = field(default_factory=dict)
+    schema_version: str = SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if not self.tensor_name:
+            raise ValueError("tensor_name must not be empty")
+        if self.flat_index < 0:
+            raise ValueError("flat_index must be non-negative")
+        if len(self.coordinates) != len(self.axis_names):
+            raise ValueError("coordinates and axis_names must have equal length")
+        if self.schema_version != SCHEMA_VERSION:
+            raise ValueError("unsupported divergence schema_version")
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = {
+            "schema_version": self.schema_version,
+            "tensor_name": self.tensor_name,
+            "flat_index": self.flat_index,
+            "coordinates": list(self.coordinates),
+            "axis_names": list(self.axis_names),
+            "expected_value": _json_value(self.expected_value),
+            "actual_value": _json_value(self.actual_value),
+            "absolute_diff": self.absolute_diff,
+            "relative_diff": self.relative_diff,
+            "expected_shape": list(self.expected_shape),
+            "actual_shape": list(self.actual_shape),
+            "expected_dtype": self.expected_dtype,
+            "actual_dtype": self.actual_dtype,
+            "reason": self.reason,
+            "provenance": _json_value(self.provenance),
+        }
+        payload["coordinate_map"] = {
+            name: coordinate for name, coordinate in zip(self.axis_names, self.coordinates)
+        }
+        return payload
+
+
+@dataclass(frozen=True)
+class DivergenceReport:
+    """Summary of a comparison, retaining only the first mismatch in detail."""
+
+    tensor_name: str
+    mismatch_count: int
+    compared_count: int
+    passed: bool
+    first: DivergenceRecord | None = None
+    metadata_errors: tuple[str, ...] = ()
+    schema_version: str = SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if self.mismatch_count < 0 or self.compared_count < 0:
+            raise ValueError("divergence counts must be non-negative")
+        if self.mismatch_count > self.compared_count:
+            raise ValueError("mismatch_count cannot exceed compared_count")
+        if self.passed != (self.mismatch_count == 0 and not self.metadata_errors):
+            raise ValueError("passed must agree with mismatch and metadata status")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "tensor_name": self.tensor_name,
+            "mismatch_count": self.mismatch_count,
+            "compared_count": self.compared_count,
+            "passed": self.passed,
+            "metadata_errors": list(self.metadata_errors),
+            "first": self.first.to_dict() if self.first is not None else None,
+        }
+
+
+def first_divergence(
+    expected: torch.Tensor,
+    actual: torch.Tensor,
+    *,
+    tensor_name: str = "tensor",
+    active_mask: torch.Tensor | None = None,
+    atol: float = 0.0,
+    rtol: float = 0.0,
+    axis_names: Sequence[str] | None = None,
+    provenance: Mapping[str, Any] | None = None,
+) -> DivergenceReport:
+    """Compare tensors and return a stable, structured first-error record.
+
+    The first mismatch is selected in row-major flattened order. Empty tensors and
+    masks with no active elements are rejected so a vacuous sample cannot pass.
+    """
+
+    if expected.numel() == 0 or actual.numel() == 0:
+        raise ValueError("divergence comparison requires non-empty tensors")
+    axes = _axes(expected.ndim, axis_names)
+    if expected.shape != actual.shape:
+        record = DivergenceRecord(
+            tensor_name=tensor_name,
+            flat_index=0,
+            coordinates=(),
+            axis_names=(),
+            expected_value=None,
+            actual_value=None,
+            absolute_diff=None,
+            relative_diff=None,
+            expected_shape=tuple(expected.shape),
+            actual_shape=tuple(actual.shape),
+            expected_dtype=str(expected.dtype).replace("torch.", ""),
+            actual_dtype=str(actual.dtype).replace("torch.", ""),
+            reason="shape_mismatch",
+            provenance=provenance or {},
+        )
+        return DivergenceReport(tensor_name, 1, 1, False, record)
+    if expected.dtype != actual.dtype:
+        record = DivergenceRecord(
+            tensor_name=tensor_name,
+            flat_index=0,
+            coordinates=tuple(0 for _ in expected.shape),
+            axis_names=axes,
+            expected_value=None,
+            actual_value=None,
+            absolute_diff=None,
+            relative_diff=None,
+            expected_shape=tuple(expected.shape),
+            actual_shape=tuple(actual.shape),
+            expected_dtype=str(expected.dtype).replace("torch.", ""),
+            actual_dtype=str(actual.dtype).replace("torch.", ""),
+            reason="dtype_mismatch",
+            provenance=provenance or {},
+        )
+        return DivergenceReport(tensor_name, 1, 1, False, record)
+    if not math.isfinite(atol) or not math.isfinite(rtol) or atol < 0 or rtol < 0:
+        raise ValueError("atol and rtol must be finite and non-negative")
+    expected_cpu = expected.detach().cpu()
+    actual_cpu = actual.detach().cpu()
+    mask = torch.ones(expected_cpu.shape, dtype=torch.bool)
+    if active_mask is not None:
+        if active_mask.shape != expected.shape:
+            raise ValueError("active_mask shape must match compared tensors")
+        mask = active_mask.detach().cpu().to(dtype=torch.bool)
+        if not bool(mask.any()):
+            raise ValueError("divergence comparison requires at least one active element")
+    finite = torch.isfinite(expected_cpu) & torch.isfinite(actual_cpu)
+    tolerance = atol + rtol * torch.abs(expected_cpu)
+    mismatch = mask & (~finite | (torch.abs(actual_cpu - expected_cpu) > tolerance))
+    compared_count = int(mask.sum().item())
+    mismatch_count = int(mismatch.sum().item())
+    if not mismatch_count:
+        return DivergenceReport(tensor_name, 0, compared_count, True)
+    flat_index = int(torch.nonzero(mismatch.reshape(-1), as_tuple=False)[0].item())
+    coordinates = tuple(
+        int(item) for item in torch.unravel_index(torch.tensor(flat_index), expected.shape)
+    )
+    expected_value = expected_cpu.reshape(-1)[flat_index].item()
+    actual_value = actual_cpu.reshape(-1)[flat_index].item()
+    absolute = (
+        abs(float(actual_value) - float(expected_value)) if finite.reshape(-1)[flat_index] else None
+    )
+    denominator = max(abs(float(expected_value)), 1e-12) if absolute is not None else None
+    return DivergenceReport(
+        tensor_name=tensor_name,
+        mismatch_count=mismatch_count,
+        compared_count=compared_count,
+        passed=False,
+        first=DivergenceRecord(
+            tensor_name=tensor_name,
+            flat_index=flat_index,
+            coordinates=coordinates,
+            axis_names=axes,
+            expected_value=expected_value,
+            actual_value=actual_value,
+            absolute_diff=absolute,
+            relative_diff=(absolute / denominator if absolute is not None else None),
+            expected_shape=tuple(expected.shape),
+            actual_shape=tuple(actual.shape),
+            expected_dtype=str(expected.dtype).replace("torch.", ""),
+            actual_dtype=str(actual.dtype).replace("torch.", ""),
+            provenance=provenance or {},
+        ),
+    )
+
+
+def _axes(ndim: int, names: Sequence[str] | None) -> tuple[str, ...]:
+    if names is None:
+        return tuple(f"dim_{index}" for index in range(ndim))
+    result = tuple(str(name) for name in names)
+    if len(result) != ndim:
+        raise ValueError("axis_names length must match tensor rank")
+    return result
+
+
+__all__ = ["DivergenceRecord", "DivergenceReport", "SCHEMA_VERSION", "first_divergence"]

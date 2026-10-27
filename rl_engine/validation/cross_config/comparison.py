@@ -12,6 +12,7 @@ from typing import Any
 import torch
 
 from rl_engine.contracts.numerical import resolve_logprob_threshold, tolerance_contract_fingerprint
+from rl_engine.validation.cross_config.divergence import first_divergence
 from rl_engine.validation.cross_config.schema import (
     AlignmentResult,
     AlignmentStatus,
@@ -179,6 +180,7 @@ class FixedThresholdComparator:
                 active_mask,
                 absolute_diff,
                 mismatch_count,
+                provenance=_comparison_provenance(rollout, training),
             ),
             token_artifact=token_artifact,
         )
@@ -284,6 +286,7 @@ def _diagnostics(
     active_mask: torch.Tensor,
     absolute_diff: torch.Tensor,
     mismatch_count: int,
+    provenance: dict[str, Any],
 ) -> dict[str, Any]:
     active_diff = absolute_diff[active_mask].float()
     delta = (training_logprobs[active_mask] - rollout_logprobs[active_mask]).float()
@@ -293,6 +296,14 @@ def _diagnostics(
     approximate_kl = torch.exp(delta.double()) - delta.double() - 1.0
     approximate_kl_mean = _finite_float_or_none(approximate_kl.mean())
     active_count = int(active_diff.numel())
+    divergence = first_divergence(
+        rollout_logprobs,
+        training_logprobs,
+        tensor_name="selected_logprobs",
+        active_mask=active_mask,
+        axis_names=("sample", "token") if rollout_logprobs.ndim == 2 else None,
+        provenance=provenance,
+    )
     return {
         "mean_abs_diff": _finite_float_or_none(active_diff.mean()),
         "p95_abs_diff": _finite_float_or_none(torch.quantile(active_diff, 0.95)),
@@ -302,6 +313,31 @@ def _diagnostics(
         "approximate_kl_mean": approximate_kl_mean,
         "approximate_kl_finite": approximate_kl_mean is not None,
         "worst_token_index": worst_coordinate,
+        "divergence": divergence.to_dict(),
+    }
+
+
+def _comparison_provenance(rollout: ScoreArtifact, training: ScoreArtifact) -> dict[str, Any]:
+    """Capture both sides' runtime identity without claiming backend equivalence."""
+
+    return {
+        "case_id": rollout.case_id,
+        "attempt_id": rollout.attempt_id,
+        "rollout": _runtime_identity(rollout),
+        "training": _runtime_identity(training),
+    }
+
+
+def _runtime_identity(artifact: ScoreArtifact) -> dict[str, Any]:
+    provenance = artifact.provenance
+    return {
+        "requested_backend": provenance.requested.get("logp", {}).get("backend"),
+        "actual_backend": provenance.actual.get("logp", {}).get("backend"),
+        "implementation_fingerprint": provenance.implementation_fingerprint,
+        "rank": provenance.rank,
+        "world_size": provenance.world_size,
+        "model_version": artifact.identity.model_version,
+        "checkpoint_id": artifact.identity.checkpoint_id,
     }
 
 
