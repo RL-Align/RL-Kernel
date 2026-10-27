@@ -19,7 +19,6 @@ H3_HIDDEN_SIZE = 5376
 # Modality tags of the packed sequence: 0 video, 1 text, 2 audio.
 H3_MODALITY_NUM = 3
 # shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp
-H3_ADALN_CHUNKS = 6
 H3_ADALN_CHUNK_NAMES = (
     "shift_msa",
     "scale_msa",
@@ -28,3 +27,4 @@ H3_ADALN_CHUNK_NAMES = (
     "scale_mlp",
     "gate_mlp",
 )
+H3_ADALN_CHUNKS = len(H3_ADALN_CHUNK_NAMES)

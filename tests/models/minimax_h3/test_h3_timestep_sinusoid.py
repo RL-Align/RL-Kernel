@@ -258,3 +258,18 @@ class TestCuda:
         _cuda_op()
         op = KernelRegistry().get_op("timestep_sinusoid_h3", device="cuda")
         assert type(op).__name__ == "H3TimestepSinusoidCudaOp"
+
+
+def test_h3_layout_constants_agree_with_each_other():
+    from rl_engine.reference.minimax_h3 import (
+        H3_ADALN_CHUNK_NAMES,
+        H3_ADALN_CHUNKS,
+        H3_FREQ_DIM,
+        H3_MODALITY_NUM,
+    )
+
+    # The chunk count is the length of the name list, and the pinned layout is six chunks of three
+    # modalities (diffusers order) with 256 sinusoid channels.
+    assert H3_ADALN_CHUNKS == len(H3_ADALN_CHUNK_NAMES) == 6
+    assert H3_ADALN_CHUNK_NAMES[:3] == ("shift_msa", "scale_msa", "gate_msa")
+    assert H3_MODALITY_NUM == 3 and H3_FREQ_DIM == 256
