@@ -104,4 +104,6 @@ with an invitation to reopen once the commits are signed.
 ## Development guide
 
 For setting up a development environment, running tests, and documentation
-conventions, see the [developer guide](contributing/README.md).
+conventions, see the [developer guide](contributing/README.md). For where a
+change belongs in the repository — models, operators, backends, or docs —
+see the [contributor guide](contributing/contributor-guide.md).
