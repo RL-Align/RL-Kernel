@@ -1,0 +1,385 @@
+Task 30 AITER Hash route companion; prerequisite router-sqrt-softplus.patch
+
+Copyright © Advanced Micro Devices, Inc. All rights reserved.
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--- /dev/null
++++ b/aiter/ops/triton/_triton_kernels/moe/moe_routing/hash_route.py
+@@ -0,0 +1,162 @@
++# SPDX-License-Identifier: MIT
++# Copyright (C) 2024-2026, Advanced Micro Devices, Inc. All rights reserved.
++# Modifications Copyright (c) 2026 RL-Kernel Contributors
++# Adapted from AITER 326cffa _hash_routing; fixed slot sum and clamp_min.
++import triton
++import triton.language as tl
++from aiter.ops.triton._triton_kernels.moe.moe_routing.topk import _sqrt_softplus_fp32
++
++
++@triton.jit
++def _hash_routing(
++    InputIds,  # int32 [n_rows] — token-id per row
++    Tid2Eid,  # int32 [vocab_size, K] — per-token-id top-K expert table
++    stride_t2e_v,  # row stride of Tid2Eid (= K)
++    X,  # [n_rows, n_expts_tot] router logits (bf16/fp32)
++    stride_xm,
++    Yv,  # output expt_scal [n_rows, N_EXPTS_ACT_PAD]
++    Yi,  # output expt_indx [n_rows, N_EXPTS_ACT_PAD] (int16)
++    stride_ym,
++    Bits,  # bitmatrix data
++    stride_rm,
++    stride_rn,
++    n_rows,
++    n_expts_tot,
++    S,  # bitmatrix scratchpad (must memset to 0)
++    BLOCK_S: tl.constexpr,
++    s_blocks,
++    SP,  # bitmatrix partials (must memset to 0)
++    BLOCK_SP: tl.constexpr,
++    sp_blocks,
++    sp_size,
++    BLOCK_M: tl.constexpr,
++    N_EXPTS_PAD: tl.constexpr,  # padded n_expts_tot (power of 2 ≥ n_expts_tot)
++    N_EXPTS_ACT: tl.constexpr,
++    N_EXPTS_ACT_PAD: tl.constexpr,  # next pow2 of K
++    BLOCK_N: tl.constexpr,
++    SCORE_MODE: tl.constexpr = "sqrtsoftplus",
++    APPLY_RENORM: tl.constexpr = True,
++    ROUTED_SCALING: tl.constexpr = 1.0,
++):
++    """Fused hash routing for DeepSeek-V4 hash layers.
++
++    Replaces _hash_topk (Python: tid2eid lookup + softplus + sqrt + gather +
++    renorm + scale) AND fused_routing_from_topk (3-kernel counting sort) AND
++    bitmatrix construction with ONE Triton kernel. Output contract matches
++    `_topk` so downstream `sort_tokens_fused` consumes it unchanged.
++
++    Pipeline per row:
++      1. expt_indx = Tid2Eid[input_id, :K]  # tid2eid lookup
++      2. raw_scores = sqrt(softplus(X[row, :]))  # apply score transform
++      3. expt_scal = raw_scores[expt_indx]  # gather K weights
++      4. (optional) renorm: expt_scal /= expt_scal.sum() ; clamp_min(1e-20)
++      5. expt_scal *= routed_scaling_factor
++      6. Pack expt_indx into bitmatrix.
++
++    No topk selection — expt_indx is fully determined by Tid2Eid lookup.
++    """
++    pid = tl.program_id(0)
++
++    # Memset bitmatrix scratchpads (mirror _topk pattern)
++    if pid < s_blocks:
++        tl.store(
++            S + BLOCK_S * pid + tl.arange(0, BLOCK_S), tl.zeros([BLOCK_S], tl.int32)
++        )
++    elif pid < s_blocks + sp_blocks:
++        offs = BLOCK_SP * (pid - s_blocks) + tl.arange(0, BLOCK_SP)
++        tl.store(SP + offs, tl.zeros([BLOCK_SP], tl.int32), mask=offs < sp_size)
++
++    if pid * BLOCK_M >= n_rows:
++        return
++
++    tl.static_assert(BLOCK_N % 32 == 0)
++    tl.static_assert(N_EXPTS_PAD % BLOCK_N == 0)
++    x_dtype: tl.constexpr = X.dtype.element_ty
++
++    offs_m = pid * BLOCK_M + tl.arange(0, BLOCK_M)
++    mask_m = offs_m < n_rows
++
++    # 1. Load input_ids for this BLOCK_M, then tid2eid[input_ids[i], :K]
++    input_ids = tl.load(InputIds + offs_m, mask=mask_m, other=0).to(tl.int32)
++    offs_k = tl.arange(0, N_EXPTS_ACT_PAD)
++    mask_k = (
++        offs_k < N_EXPTS_ACT
++        if N_EXPTS_ACT != N_EXPTS_ACT_PAD
++        else tl.full([N_EXPTS_ACT_PAD], 1, tl.int1)
++    )
++    # Gather Tid2Eid[input_ids[m], k] for m in BLOCK_M, k in K
++    t2e_offs = input_ids[:, None] * stride_t2e_v + offs_k[None, :]
++    expt_indx = tl.load(
++        Tid2Eid + t2e_offs,
++        mask=mask_m[:, None] & mask_k[None, :],
++        other=0,
++    ).to(tl.int32)
++
++    # 2-3. Apply score transform to full row + gather at expt_indx.
++    # Streaming load of X row in BLOCK_N chunks; accumulate scores per expert
++    # at expt_indx (each row has K << n_expts_tot, so we test which chunk
++    # holds each expert index).
++    y_scores = tl.zeros([BLOCK_M, N_EXPTS_ACT_PAD], dtype=tl.float32)
++    loop_iterations: tl.constexpr = N_EXPTS_PAD // BLOCK_N
++    for i in range(loop_iterations):
++        offs_x_n = i * BLOCK_N + tl.arange(0, BLOCK_N)
++        mask_n = offs_x_n < n_expts_tot
++        X_ptrs = X + offs_m[:, None] * stride_xm + offs_x_n[None, :]
++        x = tl.load(X_ptrs, mask=mask_m[:, None] & mask_n[None, :], other=0.0).to(
++            tl.float32
++        )
++        # sqrt(softplus(x)) — numerically stable
++        if SCORE_MODE == "sqrtsoftplus":
++            scores = _sqrt_softplus_fp32(x)
++        else:
++            scores = x
++        # For each (m, k): if expt_indx[m, k] is in [i*BLOCK_N, (i+1)*BLOCK_N), pick scores[m, expt_indx[m, k] - i*BLOCK_N]
++        # Implement via expand: scores[m, n] vs expt_indx[m, k] mapping.
++        # gate_mask[m, k, n] = (expt_indx[m, k] == offs_x_n[n])
++        match = expt_indx[:, :, None] == offs_x_n[None, None, :]
++        # picked[m, k] = sum_n match[m, k, n] * scores[m, n]
++        scores_3d = scores[:, None, :].broadcast_to(BLOCK_M, N_EXPTS_ACT_PAD, BLOCK_N)
++        picked = tl.where(match, scores_3d, 0.0)
++        y_scores += tl.sum(picked, axis=2)
++
++    # Real-entry mask (handles N_EXPTS_ACT_PAD > N_EXPTS_ACT padding lanes)
++    real_mask = mask_k[None, :]
++    y_f = tl.where(mask_m[:, None] & real_mask, y_scores, 0.0)
++
++    # 4-5. Renorm + scale
++    if APPLY_RENORM:
++        # Task 30: sum selected slots in table order, then clamp the denominator.
++        s = tl.full((BLOCK_M, 1), 0.0, tl.float32)
++        for slot in tl.static_range(N_EXPTS_ACT):
++            s += tl.sum(tl.where(offs_k[None, :] == slot, y_f, 0.0), axis=1)[:, None]
++        y_f = (y_f / tl.maximum(s, 1e-20)) * ROUTED_SCALING
++    elif ROUTED_SCALING != 1.0:
++        y_f = y_f * ROUTED_SCALING
++
++    y_values = y_f.to(x_dtype)
++
++    # Write outputs
++    Yv_ptrs = Yv + offs_m[:, None] * stride_ym + offs_k[None, :]
++    Yi_ptrs = Yi + offs_m[:, None] * stride_ym + offs_k[None, :]
++    write_mask = mask_m[:, None] & real_mask
++    tl.store(Yv_ptrs, y_values, mask=write_mask)
++    tl.store(Yi_ptrs, expt_indx, mask=write_mask)
++
++    # Pack into bitmatrix (mirror _topk pattern; sentinels (indx=0 in padded
++    # lanes) safely OR with a real bit since y_values=0 in those lanes won't
++    # affect downstream — but to be safe, mask out padded lanes from packing).
++    safe_indx = tl.where(real_mask, expt_indx, 0).to(tl.int32)
++    y_div = safe_indx // 32
++    y_rem = safe_indx % 32
++    bm_iters: tl.constexpr = N_EXPTS_PAD // BLOCK_N
++    for i in range(bm_iters):
++        offs_r_n = tl.arange(0, BLOCK_N // 32) + i * (BLOCK_N // 32)
++        # Only contribute bits from real lanes
++        y2 = tl.where(
++            (y_div[:, :, None] == offs_r_n[None, None, :]) & real_mask[:, :, None],
++            (1 << y_rem)[:, :, None],
++            0,
++        )
++        r = tl.reduce_or(y2, axis=1)
++        BitsPtrs = Bits + offs_m[:, None] * stride_rm + offs_r_n[None, :] * stride_rn
++        tl.store(BitsPtrs, r, mask=mask_m[:, None])
+--- /dev/null
++++ b/aiter/ops/triton/moe/moe_routing/hash_route.py
+@@ -0,0 +1,193 @@
++# SPDX-License-Identifier: MIT
++# Copyright (C) 2024-2026, Advanced Micro Devices, Inc. All rights reserved.
++# Modifications Copyright (c) 2026 RL-Kernel Contributors
++"""Task-30 fixed-slot Hash route binding and local first-order weight VJP."""
++
++import torch
++import triton
++import triton.language as tl
++import triton.language.extra.libdevice as libdevice
++
++from aiter.ops.triton._triton_kernels.moe.moe_routing.topk import _sqrt_softplus_fp32
++from aiter.ops.triton._triton_kernels.moe.moe_routing.hash_route import _hash_routing
++from aiter.ops.triton.moe.moe_routing.bitmatrix import Bitmatrix
++
++HASH_ROUTE_CONTRACT_ID = "aiter.hash_route.fp32.slot_order.clamp_min.v1"
++
++
++def hash_route_fwd(logits, tid2eid, token_ids, renormalize, scale):
++    # Existing hash_routing owns lookup, score transform, gather and bitmatrix.
++    weights, indices, _ = _hash_routing_impl(
++        logits,
++        tid2eid,
++        token_ids,
++        6,
++        score_mode="sqrtsoftplus",
++        renorm=renormalize,
++        routed_scaling_factor=scale,
++    )
++    return weights, indices.to(torch.int64)
++
++
++@triton.jit
++def _hash_route_vjp(
++    X, IDS, G, DX, ROWS, RENORMALIZE: tl.constexpr, SCALE: tl.constexpr
++):
++    row = tl.program_id(0).to(tl.int64)
++    slot = tl.arange(0, 8)
++    expert = tl.load(IDS + row * 6 + slot, mask=slot < 6, other=0)
++    x = tl.load(X + row * 256 + expert, mask=slot < 6, other=0.0)
++    score = tl.where(slot < 6, _sqrt_softplus_fp32(x), 0.0)
++    grad = tl.load(G + row * 6 + slot, mask=slot < 6, other=0.0) * SCALE
++    total = tl.full((), 0.0, tl.float32)
++    for i in tl.static_range(6):
++        total += tl.sum(tl.where(slot == i, score, 0.0), axis=0)
++    denominator = tl.maximum(total, 1e-20) if RENORMALIZE else 1.0
++    dot = tl.full((), 0.0, tl.float32)
++    if RENORMALIZE:
++        normalized = score / denominator
++        for i in tl.static_range(6):
++            dot += tl.sum(tl.where(slot == i, grad * normalized, 0.0), axis=0)
++    numerator = grad - tl.where(RENORMALIZE & (total >= 1e-20), dot, 0.0)
++    e = libdevice.exp(-tl.abs(x))
++    sigmoid = tl.where(x >= 0, 1.0 / (1.0 + e), e / (1.0 + e))
++    safe_score = tl.where(x < -16.0, 1.0, score)
++    regular = (numerator / denominator) * (sigmoid / (2.0 * safe_score))
++    # Combine the negative-tail slope and normalization in log space. This
++    # preserves derivatives when score=0 or numerator/denominator would overflow.
++    log_abs = (
++        (libdevice.log(tl.abs(numerator)) + 0.5 * x) - 0.6931471805599453
++    ) - libdevice.log(denominator)
++    tail = libdevice.copysign(libdevice.exp(log_abs), numerator)
++    value = tl.where(x < -16.0, tail, regular)
++    tl.store(DX + row * 256 + expert, value, mask=slot < 6)
++
++
++def hash_route_bwd(logits, indices, grad_weights, renormalize, scale):
++    # Caller guarantees six distinct expert IDs per row. No scatter atomics.
++    grad = grad_weights.contiguous()
++    dx = torch.zeros_like(logits)
++    if logits.shape[0]:
++        _hash_route_vjp[(logits.shape[0],)](
++            logits,
++            indices,
++            grad,
++            dx,
++            logits.shape[0],
++            RENORMALIZE=renormalize,
++            SCALE=scale,
++            num_warps=1,
++            num_stages=1,
++            enable_fp_fusion=False,
++        )
++    return dx
++
++
++def _hash_routing_impl(
++    router_logits: torch.Tensor,  # [n_rows, n_expts_tot] bf16/fp32
++    tid2eid: torch.Tensor,  # [vocab_size, K] int32 per-token-id expert table
++    input_ids: torch.Tensor,  # [n_rows] int32 token ids (post DP gather, clamped)
++    n_expts_act: int,
++    HIST_BLOCK_M: int = 32,
++    score_mode: str = "sqrtsoftplus",
++    renorm: bool = True,
++    routed_scaling_factor: float = 1.0,
++):
++    """Fused hash routing: tid2eid lookup + score transform + gather + renorm
++    + scale + bitmatrix construction. Output contract matches :func:`topk` so
++    downstream :func:`sort_tokens_fused` consumes it unchanged.
++
++    Replaces the Python ``_hash_topk`` + ``fused_routing_from_topk``
++    counting-sort + bitmatrix-build chain with one Triton kernel launch.
++    """
++
++    BLOCK_M = 32
++    BLOCK_N = 128
++    BLOCK_S = 128
++    BLOCK_SP = 128
++    assert router_logits.dim() == 2
++    assert input_ids.dim() == 1
++    assert tid2eid.dim() == 2
++    assert input_ids.shape[0] == router_logits.shape[0]
++    assert tid2eid.shape[1] == n_expts_act, (
++        f"tid2eid second dim {tid2eid.shape[1]} must equal n_expts_act {n_expts_act}"
++    )
++    assert tid2eid.dtype == torch.int32
++    assert input_ids.dtype in (torch.int32, torch.int64)
++    assert score_mode in ("sqrtsoftplus",)
++
++    n_rows, n_cols = router_logits.shape
++    dev = router_logits.device
++    k = n_expts_act
++
++    y_vals = torch.empty((n_rows, k), dtype=router_logits.dtype, device=dev)
++    y_indx = torch.empty((n_rows, k), dtype=torch.int16, device=dev)
++    # See note in topk(): pad to ≥ 2 to dodge tl.topk(k=1) compile bug.
++    k_pow2 = max(2, triton.next_power_of_2(k))
++
++    n_cols_pad = triton.cdiv(n_cols, BLOCK_N) * BLOCK_N
++    n_cols_words = n_cols_pad // 32
++    bitmatrix = torch.empty(
++        (n_cols_words, triton.cdiv(n_rows, 32) * 32), dtype=torch.uint32, device=dev
++    )
++    bitmatrix = torch.transpose(bitmatrix, 0, 1)[:n_rows]
++    s_blocks = triton.cdiv(n_cols, BLOCK_S)
++    s_cols = s_blocks * BLOCK_S
++    scratchpad = torch.empty((s_cols,), dtype=torch.int32, device=dev)
++    TILE_SIZE = 8
++    BLOCK_MM = HIST_BLOCK_M * TILE_SIZE
++    pids_x = triton.cdiv(n_rows, BLOCK_MM)
++    scratchpad_partials = torch.empty(
++        (n_cols_pad, pids_x * TILE_SIZE), device=dev, dtype=torch.int32
++    )
++    scratchpad_partials = torch.transpose(scratchpad_partials, 0, 1)
++    sp_size = torch.numel(scratchpad_partials)
++    sp_blocks = triton.cdiv(sp_size, BLOCK_SP)
++    pids = max(triton.cdiv(n_rows, BLOCK_M), s_blocks + sp_blocks)
++
++    # int32 cast for input_ids if int64
++    input_ids_i32 = (
++        input_ids.to(torch.int32) if input_ids.dtype != torch.int32 else input_ids
++    )
++
++    _hash_routing[(pids,)](
++        input_ids_i32,
++        tid2eid,
++        tid2eid.stride(0),
++        router_logits,
++        router_logits.stride(0),
++        y_vals,
++        y_indx,
++        y_vals.stride(0),
++        bitmatrix,
++        bitmatrix.stride(0),
++        bitmatrix.stride(1),
++        n_rows,
++        n_cols,
++        scratchpad,
++        BLOCK_S,
++        s_blocks,
++        scratchpad_partials,
++        BLOCK_SP,
++        sp_blocks,
++        sp_size,
++        BLOCK_M=BLOCK_M,
++        BLOCK_N=BLOCK_N,
++        N_EXPTS_PAD=n_cols_pad,
++        N_EXPTS_ACT=k,
++        N_EXPTS_ACT_PAD=k_pow2,
++        SCORE_MODE=score_mode,
++        APPLY_RENORM=renorm,
++        ROUTED_SCALING=routed_scaling_factor,
++        num_warps=8,
++        enable_fp_fusion=False,
++    )
++
++    bitmatrix_shape = [n_rows, n_cols_words * 32]
++    bitmatrix = Bitmatrix(
++        bitmatrix,
++        shape=bitmatrix_shape,
++        scratchpad=scratchpad,
++        scratchpad_partials=scratchpad_partials,
++    )
++    return y_vals, y_indx, bitmatrix
