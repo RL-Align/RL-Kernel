@@ -47,6 +47,28 @@ def _validate_token_gradient(
         raise MoEOutputCombineContractError(f"{name} must contain only finite values")
 
 
+def _mapping_view(
+    plan: MoEOutputCombinePlan,
+    inputs: MoEOutputCombineInputs,
+    expert_input_gradient: torch.Tensor,
+) -> tuple[MoEOutputCombinePlan, MoEOutputCombineInputs]:
+    """Build the mapping-only view shared by execution and provenance."""
+
+    mapping_plan = replace(
+        plan,
+        output_dtype=_dtype_name(expert_input_gradient.dtype),
+        shared_expert_mode="excluded",
+        residual_mode="excluded",
+    )
+    mapping_inputs = replace(
+        inputs,
+        expert_output=expert_input_gradient,
+        shared_output=None,
+        residual=None,
+    )
+    return mapping_plan, mapping_inputs
+
+
 def combine_local_input_gradients(
     plan: MoEOutputCombinePlan,
     inputs: MoEOutputCombineInputs,
@@ -114,18 +136,7 @@ def combine_local_input_gradients(
         device=expert_input_gradient.device,
     )
 
-    mapping_plan = replace(
-        plan,
-        output_dtype=_dtype_name(expert_input_gradient.dtype),
-        shared_expert_mode="excluded",
-        residual_mode="excluded",
-    )
-    mapped_inputs = replace(
-        inputs,
-        expert_output=expert_input_gradient,
-        shared_output=None,
-        residual=None,
-    )
+    mapping_plan, mapped_inputs = _mapping_view(plan, inputs, expert_input_gradient)
     expert_major = inverse_map_expert_output(
         mapping_plan,
         mapped_inputs,
@@ -200,18 +211,7 @@ def local_input_gradient_provenance(
         gate_gradient=gate_gradient,
         expected_mapping_run_id=expected_mapping_run_id,
     )
-    mapping_plan = replace(
-        plan,
-        output_dtype=_dtype_name(expert_input_gradient.dtype),
-        shared_expert_mode="excluded",
-        residual_mode="excluded",
-    )
-    mapping_inputs = replace(
-        inputs,
-        expert_output=expert_input_gradient,
-        shared_output=None,
-        residual=None,
-    )
+    mapping_plan, mapping_inputs = _mapping_view(plan, inputs, expert_input_gradient)
     provenance = mapping_inputs.provenance(mapping_plan)
     provenance["plan_version"] = plan.plan_version
     provenance["plan_fingerprint"] = plan.fingerprint

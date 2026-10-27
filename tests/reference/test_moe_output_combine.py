@@ -467,13 +467,6 @@ def test_local_input_gradients_enforce_modes_and_mapping_run_id():
             expert_gradient,
             num_tokens=2,
         )
-    combine_local_input_gradients(
-        shared_plan,
-        replace(shared_inputs, shared_output=None),
-        expert_gradient,
-        shared_expert_gradient=torch.zeros(2, shared_plan.hidden_size, dtype=torch.bfloat16),
-        num_tokens=2,
-    )
     with pytest.raises(MoEOutputCombineContractError, match="run id"):
         combine_local_input_gradients(
             shared_plan,
@@ -500,6 +493,18 @@ def test_local_input_gradients_enforce_modes_and_mapping_run_id():
             gate_gradient=shared_gradient,
             num_tokens=2,
         )
+
+
+def test_gradient_combine_allows_missing_forward_shared_output():
+    plan, inputs = _gradient_request(shared=True)
+    result = combine_local_input_gradients(
+        plan,
+        replace(inputs, shared_output=None),
+        torch.ones(4, plan.hidden_size, dtype=torch.bfloat16),
+        shared_expert_gradient=torch.zeros(2, plan.hidden_size, dtype=torch.bfloat16),
+        num_tokens=2,
+    )
+    assert result.shape == (2, plan.hidden_size)
 
 
 def test_local_input_gradient_provenance_records_checks():
