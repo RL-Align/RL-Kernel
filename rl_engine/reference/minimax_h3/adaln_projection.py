@@ -34,6 +34,8 @@ def adaln_hidden_size(weight: torch.Tensor) -> int:
             f"AdaLN weight must be (6 * H * 3, D); got {tuple(weight.shape)}, whose first "
             f"dim is not a multiple of {rows_per_hidden}"
         )
+    if weight.shape[0] == 0:
+        raise ValueError(f"AdaLN weight must have a nonzero row count, got {tuple(weight.shape)}")
     return weight.shape[0] // rows_per_hidden
 
 
