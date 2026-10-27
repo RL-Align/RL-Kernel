@@ -141,8 +141,9 @@ python benchmarks/models/benchmark_h3_sigma_schedule.py --samples 100 --warmup 5
 ```
 
 Pre-timing correctness gate: path C (Triton, device build) bitwise equal to
-path A (CPU reference) for all 8 cases — **passed**; Triton compilation
-1143.6 ms wall, reported once and excluded from timed samples. Raw JSON:
+path A (CPU reference) for all 8 cases — **passed**; the gate's total wall
+time was 1143.6 ms (Triton kernel compilation included), reported once and
+excluded from timed samples. Raw JSON:
 `EVIDENCE_DIR/benchmark-h800.json` (52 KB, 100 samples per case and
 path after 5 warmups).
 
@@ -187,12 +188,17 @@ On NVIDIA H800 PCIe (SM90, compute capability 9.0, driver 580.82.07, torch
 2.5.1+cu124, CUDA 12.4, Triton 3.1.0) at HEAD `40070d37495d193e2d8764837321d3a68dad9483`:
 
 - All 35 runnable tests in `tests/backends/cuda/test_h3_sigma_schedule_cuda.py`
-  passed — pinned-fixture bitwise match, live-CPU-reference bitwise match
-  (N=50/1000, shift 3/12), dense-grid dedup, grid invariants, subnormal
+  passed — pinned-fixture bitwise match, live-CPU-reference bitwise match on
+  the three combos that test parametrizes (N=50/shift=3, N=50/shift=12 and
+  N=1000/shift=12; its parametrization has no N=1000/shift=3 case),
+  dense-grid dedup, grid invariants, subnormal
   (1e-45) / underflow (1e-46) / ±NaN / inf / 1e39 / 3.5e38 / 1e30 / 1e-10
   edge parity, float-N truncation, input rejections, repeated/interleaved
   stability, backend identity, default-reference-vs-Triton bit equality, and
-  semantic Triton opt-in. 1 test skipped (needs 2 GPUs; host has 1).
+  semantic Triton opt-in. 1 test skipped (needs 2 GPUs; host has 1). The
+  three-combo list is that test's full parametrization — all-8-case coverage
+  (N=25/50/1000/1e6 × shift 3/12) is provided separately by the benchmark's
+  pre-timing correctness gate, not by this suite.
 - All 12 dispatch tests passed. 20 reference tests passed, 1 skipped
   (`diffusers` not installed).
 - 0 failures and 0 errors across runs A, B and C.

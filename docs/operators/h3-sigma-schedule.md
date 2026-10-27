@@ -62,7 +62,12 @@ schedule = op(25, shift=12.0, device="cuda")
 ```
 
 Both routes produce the same bytes as the default reference path (the CUDA
-suite asserts this); opting in only moves the arithmetic onto the device.
+suite asserts this; the byte identity was verified on x86_64 Linux hosts).
+Whether it extends to ARM hosts for the extreme shifts (infinite,
+fp32-overflowing, underflowing) is unverified — the device fast path fills
+those grids with the x86 CPU oracle's NaN bits (see
+[Known Limitations](#known-limitations)). Opting in only moves the
+arithmetic onto the device.
 
 ## Backends
 

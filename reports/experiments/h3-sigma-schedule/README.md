@@ -114,8 +114,9 @@ two; no test that passed on the 4090D failed here; the single skip is the
 same test for the same reason.
 
 Benchmark (100 samples, 5 warmups, [raw JSON](sm90-h800/benchmark-h800.json)):
-the pre-timing bitwise gate (path C vs path A) passed for all 8 cases; Triton
-compilation 1143.6 ms, reported once and excluded from timed samples.
+the pre-timing bitwise gate (path C vs path A) passed for all 8 cases; the
+gate took 1143.6 ms wall in total (Triton kernel compilation included),
+reported once and excluded from timed samples.
 
 | Workload | B median (ms) | C median (ms) | B/C |
 | --- | ---: | ---: | ---: |
