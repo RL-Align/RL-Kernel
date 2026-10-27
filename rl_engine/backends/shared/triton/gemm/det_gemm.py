@@ -695,6 +695,7 @@ if _TRITON_AVAILABLE:
         BLOCK_K: tl.constexpr,
         PROMOTE_INPUTS: tl.constexpr,
         INDEX_64: tl.constexpr = False,
+        COMPENSATED: tl.constexpr = False,
     ):
         # One program = one output tile, walks the whole K in fixed order.
         # No split-K -> K-accumulation order independent of M -> batch-invariant.
@@ -710,6 +711,8 @@ if _TRITON_AVAILABLE:
         a_ptrs = a_ptr + (offs_m[:, None] * stride_am + offs_k[None, :] * stride_ak)
         b_ptrs = b_ptr + (offs_k[:, None] * stride_bk + offs_n[None, :] * stride_bn)
         acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
+        if COMPENSATED:
+            correction = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
         for k in range(0, tl.cdiv(K, BLOCK_K)):
             k_rem = K - k * BLOCK_K
             a_mask = (offs_m[:, None] < M) & (offs_k[None, :] < k_rem)
@@ -719,7 +722,31 @@ if _TRITON_AVAILABLE:
             if PROMOTE_INPUTS:
                 a = a.to(tl.float32)
                 b = b.to(tl.float32)
-            acc += tl.dot(a, b, allow_tf32=False)
+            if COMPENSATED:
+                partial = tl.dot(a, b, allow_tf32=False)
+                # Kahan addition across K tiles. Explicit rounding keeps the
+                # compiler from reassociating away the compensation or folding
+                # the running accumulator into the dot product.
+                # adjusted = partial - correction; updated = acc + adjusted;
+                # correction = (updated - acc) - adjusted; acc = updated.
+                acc, correction = tl.inline_asm_elementwise(
+                    asm="""{
+                        .reg .f32 adjusted, updated, error;
+                        sub.rn.f32 adjusted, $3, $4;
+                        add.rn.f32 updated, $2, adjusted;
+                        sub.rn.f32 error, updated, $2;
+                        sub.rn.f32 error, error, adjusted;
+                        mov.b32 $0, updated;
+                        mov.b32 $1, error;
+                    }""",
+                    constraints="=f,=f,f,f,f",
+                    args=[acc, partial, correction],
+                    dtype=(tl.float32, tl.float32),
+                    is_pure=True,
+                    pack=1,
+                )
+            else:
+                acc += tl.dot(a, b, allow_tf32=False)
             a_ptrs += BLOCK_K * stride_ak
             b_ptrs += BLOCK_K * stride_bk
         c = acc.to(c_ptr.dtype.element_ty)
@@ -751,6 +778,10 @@ def _triton_gemm_fp32(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
         BLOCK_N=_BLOCK_N,
         BLOCK_K=_BLOCK_K,
         PROMOTE_INPUTS=True,
+        # The PTX compensation is specific to the NVIDIA FP32-output path.
+        # H3 direct callers and other devices retain their arithmetic contract.
+        COMPENSATED=a.device.type == "cuda" and torch.version.hip is None,
+        num_warps=8 if a.device.type == "cuda" and torch.version.hip is None else 4,
     )
     return c
 

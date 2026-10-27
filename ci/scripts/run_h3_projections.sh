@@ -18,6 +18,7 @@ if torch.cuda.get_device_capability() != (9, 0):
     raise SystemExit('This profile requires SM90')
 PY
 if [[ "$mode" == smoke ]]; then
+    RL_KERNEL_REQUIRE_FP32_GPU=1 python -m pytest -q tests/ops/gemm/test_det_gemm_fp32.py
     python -m pytest -q tests/ops/gemm/test_h3_projections.py \
         tests/validation/operators/test_h3_projection_*.py
 fi

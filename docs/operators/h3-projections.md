@@ -131,7 +131,8 @@ Full reports, historical runs, raw logs and compiled artifacts remain privately
 preserved and hash-verified (261 current-run and 170 earlier-run files). The compact
 JSON is a selected derivative, not a lossless export or new execution. Previously
 published reports remain in Git history. Private archives do not establish public
-reproducibility. Numerical implementation fingerprints are unchanged.
+reproducibility. The earlier evidence reduction did not change numerical
+implementation fingerprints; the later shared FP32 repair is described below.
 
 Historical local checks at `3537a0b` passed 91 tests with 16 GPU-dependent skips
 (registry, full-attention and projection selections). No runtime tests or GPU runs
@@ -204,6 +205,79 @@ WS/TP combinations. Direct eager calls are local operators and do not negotiate
 distributed topology; distributed callers must use the strict registry. Existing
 coverage includes empty/wrong-dtype inputs, unsupported devices/backends,
 non-contiguous inputs, padding gradients and stale autograd versions.
+
+## Shared FP32 regression and CI
+
+`tests/ops/gemm/test_det_gemm_fp32.py` covers the shared helper and public
+`forward_fp32` entry point with real launches using the unchanged
+`INDEX_64=False` default. Its 24-case matrix combines `(M,K,N)` shapes
+`(1,65,73)`, `(33,129,67)` and `(129,5376,73)`, BF16/FP32 and mixed inputs,
+and contiguous/strided layouts. Each case resets seed 420 and checks FP32
+reference accuracy at the existing `atol=rtol=1e-4`, byte-identical repeats,
+row reversal and 31-row chunks. This extends the earlier BF16-only checks;
+it is not an exact replay of their inputs.
+
+```bash
+RL_KERNEL_REQUIRE_FP32_GPU=1 python -m pytest -q tests/ops/gemm/test_det_gemm_fp32.py
+```
+
+This command requires NVIDIA SM90+ and Triton and fails on missing prerequisites;
+ordinary unsupported-device runs skip. The H3 smoke profile retains its exact
+SM90 requirement and runs this command first. The proposed GPU workflow adds
+`test-h3` with only an SM90 job, retains the `needs-gpu-ci` label gate and uses
+same-device-model fallback. Other targets retain the existing architecture matrix.
+The shared runner executes the selection strictly on SM90+ when the checked-out
+source contains it, before native extension smoke checks but after the editable
+build. Older PRs without this file are unaffected; lower-SM jobs do not establish
+shared FP32 acceptance. Because the trusted workflow and runner come from the
+base branch, a maintainer must enable this route there or provide another SM90+
+CI route. No actual CI execution of this selection has been recorded.
+
+The target-branch kernel at `97a7ab9` failed all eight long-K accuracy cases
+under matched H100 inputs, including against an FP64 product rounded to FP32;
+these are pre-existing precision failures. The NVIDIA FP32-output helper now
+uses compensated addition across fixed K tiles with explicit round-to-nearest
+PTX operations, retaining disabled TF32, fixed tile sizes/order and no split-K.
+Four exact cancellation cases cover the compensation for each dtype pair.
+This changes the general NVIDIA FP32 path; direct H3 adapters and non-NVIDIA
+callers retain the uncompensated default. Shared FP32 backward support is unchanged.
+
+The NVIDIA helper uses eight warps; the H3 direct adapter retains four warps.
+Manual H100 SM90 validation on 2026-10-27 (UTC+08:00; shared-module SHA256 prefix
+`b2619e122fbb8d33`; Python 3.11.10, PyTorch 2.4.1+cu124, Triton 3.0.0,
+driver 595.91.07) passed all 28 shared tests with zero failures or skips.
+All 164 observed launches used `INDEX_64=False`, compensation and eight warps.
+All 24 matched diagnostics passed against FP32 and FP64-rounded-to-FP32
+references, with worst error/tolerance ratios of 0.384756 and 0.161371.
+Outputs matched the previous four-warp compensated version byte for byte in
+all 24 cases. The pre-compensation PR module passed 16/24 cases; it is a
+separate baseline from the target-branch comparison above.
+
+The three-path performance comparison retains all 432 samples: ten warmups
+per path and all six path-order permutations, with twenty calls per timed
+batch using CUDA events. Timings include wrapper copies/allocation; clocks
+were not pinned. Eight warps reduced the four previously large regressions
+to candidate/baseline ratios of 1.072 to 1.182 in this run. One case remains
+flagged for review: contiguous FP32/BF16 `(33,129,67)` measured 0.035488 ms
+versus 0.028384 ms for the pre-compensation baseline (1.250282x) and
+0.031197 ms for four-warps compensation. Its six candidate samples range
+from 0.021970 to 0.062435 ms; the cause of this variation is unresolved.
+The 1.25 flag is a local review threshold, not an upstream acceptance rule.
+Across all 24 cases, candidate/baseline ratios range from 0.426 to 1.250282.
+These shared-helper measurements do not establish H3 performance or broad
+performance acceptance. The earlier four-warp regressions (2.74 to 7.11x)
+and all other original results remain privately preserved unchanged.
+
+Historical H100 execution on 2026-10-26 passed six full-width H3 cases at
+1, 33 and 129 rows, including y/dX/dW accuracy and chunk invariance, with
+zero failures or skips. That H3 evidence is reused without rerunning: its
+direct kernel call, kernel body, adapter and numerical dependencies are
+unchanged. Traces used `INDEX_64=True` without compensation. The current
+change does not establish actual CI execution, native-extension regression,
+full H3 workload performance or qualification on other software/device
+profiles. Original results, failed attempts, source snapshots and compiled
+artifacts remain private; private integrity checks are not public evidence
+availability. Correctness passes do not establish merge readiness.
 
 Additional regression commands (neither is included in passing operator counts):
 

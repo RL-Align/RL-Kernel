@@ -199,6 +199,17 @@ TORCH_INDEX_URL="${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu124}"
 "$PY" -m pip install --no-build-isolation --no-deps -e .
 "$PY" -m pip install --no-cache-dir numpy tabulate accelerate "transformers==5.13.1" pytest triton "flashinfer-python>=0.6.0,<0.7"
 nvidia-smi
+# The trusted base runner also tests older PR heads without this new suite.
+# When present on SM90+, require real execution before native extension smoke.
+if [ -f tests/ops/gemm/test_det_gemm_fp32.py ]; then
+  if [ "${ACTUAL_SM%%.*}" -ge 9 ]; then
+    RL_KERNEL_REQUIRE_FP32_GPU=1 "$PY" -m pytest tests/ops/gemm/test_det_gemm_fp32.py -q
+  else
+    echo "[remote] Shared FP32 acceptance not run: requires NVIDIA SM90+."
+  fi
+else
+  echo "[remote] Shared FP32 selection absent from the checked-out source."
+fi
 # Fail fast if _C did not build or cannot launch, instead of silently using native fallbacks.
 "$PY" tools/checks/ci_smoke.py
 # Enforce _C in the pytest suite too (test_extension_smoke.py skips unless this is set).
