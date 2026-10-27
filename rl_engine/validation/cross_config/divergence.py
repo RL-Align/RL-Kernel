@@ -203,7 +203,7 @@ def first_divergence(
             raise ValueError("mismatch_mask shape must match compared tensors")
         mismatch = mismatch_mask.detach().cpu().to(dtype=torch.bool) & mask
     else:
-        mismatch = compute_mismatch_mask(expected_cpu, actual_cpu, mask, atol)
+        mismatch = compute_mismatch_mask(expected_cpu, actual_cpu, mask, atol, rtol)
     compared_count = int(mask.sum().item())
     mismatch_count = int(mismatch.sum().item())
     if not mismatch_count:
@@ -271,19 +271,29 @@ def compute_mismatch_mask(
     actual: torch.Tensor,
     active_mask: torch.Tensor,
     fixed_threshold: float,
+    relative_tolerance: float = 0.0,
 ) -> torch.Tensor:
     """Apply the shared finite-value and tolerance rules used by every reporter."""
 
     if expected.shape != actual.shape or active_mask.shape != expected.shape:
         raise ValueError("mismatch operands and active_mask must have matching shapes")
+    if (
+        not math.isfinite(fixed_threshold)
+        or not math.isfinite(relative_tolerance)
+        or fixed_threshold < 0.0
+        or relative_tolerance < 0.0
+    ):
+        raise ValueError("tolerances must be finite and non-negative")
+    active = active_mask.to(dtype=torch.bool)
     finite = torch.isfinite(expected) & torch.isfinite(actual)
     same_infinity = torch.isinf(expected) & torch.isinf(actual) & (expected == actual)
-    mismatch = active_mask.to(dtype=torch.bool) & (
-        (~finite & ~same_infinity) | (finite & (torch.abs(actual - expected) > fixed_threshold))
+    tolerance = fixed_threshold + relative_tolerance * torch.abs(expected)
+    mismatch = active & (
+        (~finite & ~same_infinity) | (finite & (torch.abs(actual - expected) > tolerance))
     )
     if fixed_threshold == 0.0 and expected.is_floating_point():
         mismatch |= (
-            active_mask
+            active
             & (expected == 0)
             & (actual == 0)
             & (torch.signbit(expected) != torch.signbit(actual))
@@ -296,14 +306,26 @@ def runtime_identity(
 ) -> dict[str, Any]:
     """Normalize runtime provenance for comparison and resume using one schema."""
 
-    requested = provenance.get("requested", {})
-    actual = provenance.get("actual", {})
+    required = ("requested", "actual", "implementation_fingerprint", "rank", "world_size")
+    missing = [key for key in required if key not in provenance]
+    if missing:
+        raise ValueError("runtime provenance is missing required fields: " + ", ".join(missing))
+    requested = provenance["requested"]
+    actual = provenance["actual"]
+    if not isinstance(requested, Mapping) or not isinstance(actual, Mapping):
+        raise ValueError("runtime provenance requested and actual fields must be mappings")
+    requested_logp = requested.get("logp")
+    actual_logp = actual.get("logp")
+    if not isinstance(requested_logp, Mapping) or not isinstance(actual_logp, Mapping):
+        raise ValueError("runtime provenance must include requested and actual logp mappings")
+    if "backend" not in requested_logp or "backend" not in actual_logp:
+        raise ValueError("runtime provenance logp mappings must include backend")
     return {
-        "requested_backend": requested.get("logp", {}).get("backend"),
-        "actual_backend": actual.get("logp", {}).get("backend"),
-        "implementation_fingerprint": provenance.get("implementation_fingerprint", ""),
-        "rank": provenance.get("rank", 0),
-        "world_size": provenance.get("world_size", 1),
+        "requested_backend": requested_logp["backend"],
+        "actual_backend": actual_logp["backend"],
+        "implementation_fingerprint": provenance["implementation_fingerprint"],
+        "rank": provenance["rank"],
+        "world_size": provenance["world_size"],
         "model_version": model_version,
         "checkpoint_id": checkpoint_id,
     }

@@ -81,6 +81,18 @@ def test_first_divergence_handles_tolerance_infinities_and_signed_zero():
         atol=1e-5,
     )
     assert within.passed is True
+    relative = first_divergence(
+        torch.tensor([100.0]),
+        torch.tensor([101.0]),
+        rtol=0.005,
+    )
+    assert relative.passed is False
+    relative_within = first_divergence(
+        torch.tensor([100.0]),
+        torch.tensor([101.0]),
+        rtol=0.02,
+    )
+    assert relative_within.passed is True
 
     infinities = first_divergence(
         torch.tensor([float("-inf"), float("nan")]),
