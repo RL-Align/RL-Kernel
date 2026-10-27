@@ -146,6 +146,22 @@ out = gate_f * torch.sigmoid(gate_f) * up.float()
   bitwise-identical regardless of batch size or padding (`torch.equal`, `atol=0`).
 - **Axis B — tolerance**: as `elementwise` ops, low-precision tolerance follows the
   `elementwise` row of the WS1 numerical contract (`tolerance_contract.json`).
+- **Geometry**: tested at the Qwen3-8B intermediate width (12288) and at the
+  Muse-Glimmer-30B gate/up output width (19968), whose hidden size is 6656 and whose
+  MLP uses separate `gate_proj` and `up_proj` projections. The elementwise contract
+  does not depend on the row count, so the tested shapes are a declaration rather
+  than a constraint.
+- **Operator-trace node**: the Muse-Glimmer operator trace maps the `swiglu` node
+  kind to the `swiglu_ffn` work-item row of RFC #501. One node kind, one row, no
+  deviations from the frozen semantics (`form: swiglu`, `activation: silu`,
+  `order: down(silu(gate(x)) * up(x))`).
+- **CUDA vs Triton**: the two GPU backends are not bitwise equal. The CUDA kernel
+  computes sigmoid with `expf`; the Triton kernel uses `tl.exp` and `tl.div_rn`.
+  Different exponential primitives round differently, so outputs and gradients
+  differ by a few ulp before the cast to the input dtype. They agree within the same
+  tolerance row each is held to against the gold. RFC #501 asks for CUDA == Triton
+  bitwise; that item is not met for this operator and is recorded as an `xfail` in
+  `tests/ops/activation/test_swiglu.py`.
 
 ## Ground-truth harness
 

@@ -54,6 +54,8 @@ except ImportError:  # pragma: no cover - extension may be missing in CPU-only b
 
 # Qwen3-8B SwiGLU intermediate dim (gate/up_proj output width).
 _INTERMEDIATE = 12288
+# Muse-Glimmer-30B gate_proj / up_proj output width (RFC #501, hidden 6656).
+_MUSEGLIMMER_INTERMEDIATE = 19968
 # FP32 candidate against an FP64 golden: the gap is FP32 rounding, not the
 # elementwise contract's bf16/fp16 tolerance rows.
 _FP64_TOL = {"rtol": 1e-6, "atol": 1e-6}
@@ -380,6 +382,111 @@ def _make_swiglu_op(impl: str):
     if impl == "triton":
         return TritonSwiGLUOp()
     raise ValueError(impl)
+
+
+# RFC #501 declarations. Muse-Glimmer-30B: hidden 6656, gate/up output 19968,
+# two separate projections, so the elementwise contract is over (rows, 19968).
+_MUSE_SHAPES = [
+    (1, _MUSEGLIMMER_INTERMEDIATE),
+    (8, _MUSEGLIMMER_INTERMEDIATE),
+    (64, _MUSEGLIMMER_INTERMEDIATE),
+    (2, 3, _MUSEGLIMMER_INTERMEDIATE),
+]
+
+
+@requires_cuda
+@pytest.mark.parametrize("impl", _silu_impls())
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16, torch.float16])
+@pytest.mark.parametrize("shape", _MUSE_SHAPES, ids=lambda s: "x".join(map(str, s)))
+def test_swiglu_matches_native_on_museglimmer_shapes(impl, dtype, shape):
+    """Muse-Glimmer intermediate width, forward and backward vs the native gold."""
+    if impl == "cuda" and not _HAS_CUDA_ACTIVATION:
+        pytest.skip("CUDA SwiGLU extension is not available")
+
+    gate_cpu = _rand(shape, seed=40, dtype=torch.float32)
+    up_cpu = _rand(shape, seed=41, dtype=torch.float32)
+    dy_cpu = _rand(shape, seed=42, dtype=torch.float32)
+
+    gate_ref = gate_cpu.to(dtype).float().detach().requires_grad_(True)
+    up_ref = up_cpu.to(dtype).float().detach().requires_grad_(True)
+    dy_ref = dy_cpu.to(dtype).float()
+    NativeSwiGLUOp().forward_fp32(gate_ref, up_ref).backward(dy_ref)
+
+    gate_gpu = gate_cpu.to(device="cuda", dtype=dtype).detach().requires_grad_(True)
+    up_gpu = up_cpu.to(device="cuda", dtype=dtype).detach().requires_grad_(True)
+    _make_swiglu_op(impl).forward(gate_gpu, up_gpu).backward(dy_cpu.to(device="cuda", dtype=dtype))
+
+    atol, rtol = _dtype_tolerance(dtype)
+    torch.testing.assert_close(
+        gate_gpu.grad.detach().cpu().float(), gate_ref.grad, atol=atol, rtol=rtol
+    )
+    torch.testing.assert_close(
+        up_gpu.grad.detach().cpu().float(), up_ref.grad, atol=atol, rtol=rtol
+    )
+
+
+def _run_cuda_and_triton_swiglu(dtype, shape):
+    """Forward and backward on both GPU backends from identical device tensors."""
+    gate = _rand(shape, seed=43, dtype=dtype, device="cuda").requires_grad_(True)
+    up = _rand(shape, seed=44, dtype=dtype, device="cuda").requires_grad_(True)
+    dy = _rand(shape, seed=45, dtype=dtype, device="cuda")
+
+    gate_c = gate.detach().clone().requires_grad_(True)
+    up_c = up.detach().clone().requires_grad_(True)
+    y_cuda = SwiGLUCudaOp().forward(gate_c, up_c)
+    y_cuda.backward(dy)
+
+    y_triton = TritonSwiGLUOp().forward(gate, up)
+    y_triton.backward(dy)
+
+    return (y_cuda, gate_c.grad, up_c.grad), (y_triton, gate.grad, up.grad)
+
+
+_requires_both_gpu_backends = pytest.mark.skipif(
+    not (_HAS_CUDA_ACTIVATION and _HAS_TRITON_ACTIVATION),
+    reason="both CUDA and Triton SiLU/SwiGLU are required",
+)
+
+
+@requires_cuda
+@_requires_both_gpu_backends
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16, torch.float16])
+@pytest.mark.parametrize("shape", _MUSE_SHAPES + [(2, 8, _INTERMEDIATE)])
+def test_cuda_and_triton_swiglu_agree_within_contract(dtype, shape):
+    """CUDA and Triton agree within the WS1 elementwise tolerance on Muse shapes.
+
+    The two backends use different exponential primitives (``expf`` in the CUDA
+    kernel, ``tl.exp`` in Triton), so they are not expected to be bitwise equal;
+    see the companion xfail test. They must still agree within the same row of
+    the tolerance contract that each is held to against the native gold.
+    """
+    cuda_out, triton_out = _run_cuda_and_triton_swiglu(dtype, shape)
+    atol, rtol = _dtype_tolerance(dtype)
+    for c, t in zip(cuda_out, triton_out, strict=True):
+        torch.testing.assert_close(c, t, atol=atol, rtol=rtol)
+
+
+@requires_cuda
+@_requires_both_gpu_backends
+@pytest.mark.xfail(
+    strict=False,
+    reason=(
+        "RFC #501 asks for CUDA == Triton bitwise. The CUDA kernel computes "
+        "sigmoid with expf and the Triton kernel with tl.exp; the two exponential "
+        "primitives round differently, so outputs and gradients differ by a few "
+        "ulp before the cast to the input dtype. No operator in this repository "
+        "currently meets the bitwise bar across the two backends. strict=False "
+        "because a small case can coincide after the cast to bf16/fp16 by chance; "
+        "the agree_within_contract test above is the one that must pass."
+    ),
+)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16, torch.float16])
+@pytest.mark.parametrize("shape", _MUSE_SHAPES + [(2, 8, _INTERMEDIATE)])
+def test_cuda_and_triton_swiglu_are_bitwise_equal(dtype, shape):
+    """RFC #501 acceptance item, recorded as an expected failure."""
+    cuda_out, triton_out = _run_cuda_and_triton_swiglu(dtype, shape)
+    for c, t in zip(cuda_out, triton_out, strict=True):
+        assert torch.equal(c, t)
 
 
 @requires_cuda
