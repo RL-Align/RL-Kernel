@@ -445,6 +445,24 @@ def test_local_input_gradients_use_order_sensitive_values_and_recompute():
     assert torch.equal(first[:, 0], torch.zeros(2, dtype=torch.bfloat16))
 
 
+def test_local_input_gradients_apply_nonuniform_routing_weights():
+    plan, inputs = _gradient_request()
+    inputs = replace(
+        inputs,
+        routing_weights=torch.tensor([0.5, 2.0, 1.5, 0.25], dtype=torch.float32),
+    )
+    result = combine_local_input_gradients(
+        plan,
+        inputs,
+        torch.ones(4, plan.hidden_size, dtype=torch.bfloat16),
+        num_tokens=2,
+    )
+    expected = torch.tensor(
+        [[2.5] * plan.hidden_size, [1.75] * plan.hidden_size], dtype=torch.bfloat16
+    )
+    assert torch.equal(result, expected)
+
+
 def test_local_input_gradients_enforce_modes_and_mapping_run_id():
     plan, inputs = _gradient_request()
     expert_gradient = torch.ones(4, plan.hidden_size, dtype=torch.bfloat16)
@@ -525,5 +543,6 @@ def test_local_input_gradient_provenance_records_checks():
     assert "expert_output_dtype" not in provenance
     assert provenance["branches"]["gate"]["dtype"] is None
     assert provenance["branches"]["shared_expert"]["dtype"] == "bfloat16"
+    assert provenance["routing_weights_applied"] is True
     assert provenance["mapping_run_id_verified"] is True
     assert provenance["merge_order"] == [0, 1]

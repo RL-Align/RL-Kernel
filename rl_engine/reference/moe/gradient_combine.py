@@ -69,6 +69,30 @@ def _mapping_view(
     return mapping_plan, mapping_inputs
 
 
+def _canonical_routing_weights(
+    mapping_plan: MoEOutputCombinePlan,
+    mapping_inputs: MoEOutputCombineInputs,
+    *,
+    num_tokens: int,
+) -> torch.Tensor | None:
+    """Restore producer-owned routing weights to token-major/slot-minor order."""
+
+    if mapping_plan.expert_weight_applied:
+        return None
+    if mapping_inputs.routing_weights is None:
+        raise MoEOutputCombineContractError("routing_weights are required for expert gradients")
+    weight_plan = replace(mapping_plan, hidden_size=1, output_dtype="float32")
+    weight_inputs = replace(
+        mapping_inputs,
+        expert_output=mapping_inputs.routing_weights.reshape(-1, 1),
+    )
+    return inverse_map_expert_output(
+        weight_plan,
+        weight_inputs,
+        num_tokens=num_tokens,
+    ).squeeze(-1)
+
+
 def combine_local_input_gradients(
     plan: MoEOutputCombinePlan,
     inputs: MoEOutputCombineInputs,
@@ -84,7 +108,9 @@ def combine_local_input_gradients(
     ``expert_input_gradient`` uses the same physical slot order and mapping
     metadata as ``inputs.expert_output``.  The reference path restores it to
     token-major/slot-minor order, accumulates slots in ``plan.merge_order``,
-    then adds the shared-expert and gate branches in that order.  The returned
+    then adds the shared-expert and gate branches in that order.  Producer-owned
+    routing weights are restored with the same mapping and applied to each
+    expert-gradient slot before accumulation.  The returned
     value is ``dX_norm`` and must be passed through the P1 RMSNorm backward
     before an original residual gradient is added with
     :func:`merge_residual_gradient_after_rms`.
@@ -143,13 +169,21 @@ def combine_local_input_gradients(
         num_tokens=num_tokens,
         expected_mapping_run_id=expected_mapping_run_id,
     )
+    routing_weights = _canonical_routing_weights(
+        mapping_plan,
+        mapped_inputs,
+        num_tokens=num_tokens,
+    )
     combined = torch.zeros(
         (num_tokens, plan.hidden_size),
         dtype=torch.float32,
         device=expert_input_gradient.device,
     )
     for slot in plan.merge_order:
-        combined.add_(expert_major[:, slot, :].to(torch.float32))
+        expert_slot = expert_major[:, slot, :].to(torch.float32)
+        if routing_weights is not None:
+            expert_slot = expert_slot * routing_weights[:, slot].to(torch.float32).unsqueeze(-1)
+        combined.add_(expert_slot)
     for branch in (shared_expert_gradient, gate_gradient):
         if branch is not None:
             combined.add_(branch.to(torch.float32))
@@ -243,6 +277,7 @@ def local_input_gradient_provenance(
                 },
             },
             "accumulation_dtype": plan.accumulation_dtype,
+            "routing_weights_applied": not plan.expert_weight_applied,
             "output_dtype": str(output.dtype).removeprefix("torch."),
             "output_shape": list(output.shape),
             "output_stride": list(output.stride()),
