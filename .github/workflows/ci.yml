@@ -129,6 +129,12 @@ jobs:
             tests/backends/rocm/test_rocm_paged_workspace.py \
             tests/distributed/collectives/test_collective_ipc_errors.py
 
+      - name: Run DSV4 Expert Training Module Tests (CPU-safe)
+        run: |
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \
+            tests/models/deepseek_v4/test_expert_training.py \
+            tests/backends/rocm/test_expert_training_binding.py
+
   docs:
     runs-on: ubuntu-latest
     steps:
