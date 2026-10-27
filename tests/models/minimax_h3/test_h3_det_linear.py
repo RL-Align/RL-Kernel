@@ -5,6 +5,10 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
+from pathlib import Path
+
 import pytest
 import torch
 
@@ -88,6 +92,26 @@ def test_device_support_follows_the_device_that_is_asked_about(monkeypatch):
     assert seen == [torch.device("cuda:0"), torch.device("cuda:1")]
 
 
+@pytest.mark.parametrize("device", [torch.cuda.device_count(), 99, "cuda:99", "bogus", 1.5])
+def test_a_device_this_host_does_not_have_is_unsupported_not_an_error(device):
+    """The probe answers False where torch raises, so a constructor falls back, not fails."""
+
+    assert det_linear_device_supported(device) is False
+
+
+def test_an_integer_index_names_a_cuda_device():
+    assert det_linear_device_supported(0) == det_linear_device_supported(torch.device("cuda", 0))
+    assert det_linear_device_supported("cuda:0") == det_linear_device_supported(0)
+
+
+def test_a_cuda_runtime_that_cannot_be_queried_is_unsupported(monkeypatch):
+    def broken(device=None):
+        raise RuntimeError("CUDA driver initialization failed")
+
+    monkeypatch.setattr(torch.cuda, "get_device_capability", broken)
+    assert det_linear_device_supported() is False
+
+
 def test_no_cuda_means_no_support(monkeypatch):
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     assert not det_linear_device_supported()
@@ -104,3 +128,39 @@ def test_bf16_forward_is_refused_on_a_pre_sm80_device_with_a_clear_error(monkeyp
     # FP32 does not use mma.sync and is not refused.
     out = det_linear_forward(x.float(), w.float(), None)[0]
     assert out.shape == (1, 8)
+
+
+@pytest.mark.skipif(shutil.which("g++") is None, reason="needs a C++ preprocessor")
+@pytest.mark.parametrize(
+    ("defines", "builds"),
+    [
+        ([], True),
+        (["-DH3_FWD_F32_COLS=2", "-DH3_FWD_F32_AHEAD=6"], True),
+        (["-DH3_FWD_F32_COLS=4"], False),
+        (["-DH3_FWD_F32_AHEAD=4"], False),
+    ],
+)
+def test_the_fp32_launch_shape_knobs_are_overridden_together(tmp_path, defines, builds):
+    """One knob alone would leave the compiled case and the run-time shape apart: say so.
+
+    Only the preprocessor runs, on empty stand-ins for the torch and CUDA headers.
+    """
+
+    for header in (
+        "torch/extension.h",
+        "ATen/cuda/CUDAContext.h",
+        "c10/cuda/CUDAGuard.h",
+        "c10/cuda/CUDAException.h",
+        "cuda_bf16.h",
+    ):
+        (tmp_path / header).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / header).write_text("")
+    source = Path(__file__).resolve().parents[3] / "csrc/cuda/h3/det_linear.cu"
+    done = subprocess.run(
+        ["g++", "-E", "-x", "c++", "-std=c++17", f"-I{tmp_path}", *defines, str(source)],
+        capture_output=True,
+        text=True,
+    )
+    assert (done.returncode == 0) is builds, done.stderr[-400:]
+    if not builds:
+        assert "define H3_FWD_F32_COLS and H3_FWD_F32_AHEAD together" in done.stderr
