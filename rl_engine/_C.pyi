@@ -325,6 +325,13 @@ def deterministic_collective_rocm_ipc_all_gather_input(
     input: torch.Tensor,
     output: torch.Tensor,
 ) -> None: ...
+
+# MiniMax-H3 kernels (RFC #420). These exist only in a build that compiles the H3 sources: not on
+# ROCm, and not with KERNEL_ALIGN_USE_FAST_MATH=1 or relaxed NVCC_*_FLAGS (build_tools/extensions.py
+# leaves the sources and the KERNEL_ALIGN_WITH_H3_KERNELS define out together). Like the ROCm and
+# SM90 symbols above, they are declared here for type checking; the Python backends test for them
+# (the ``*_available()`` helpers, called by every constructor) so dispatch falls back to the PyTorch
+# reference instead of raising AttributeError.
 def h3_timestep_sinusoid_forward(
     timestep: torch.Tensor,
     num_channels: int = 256,
@@ -385,7 +392,18 @@ def h3_adaln_row_gather_forward(
     token_tags: torch.Tensor,
     chunks: int = 6,
     modality_num: int = 3,
-) -> torch.Tensor: ...
+) -> torch.Tensor:
+    """Gather AdaLN table rows into packed per-position chunks; return ``(chunks, S, H)``.
+
+    ``rows`` is a 2-D CUDA ``(R, chunks * H)`` table with unit column stride and ``R`` a multiple of
+    ``modality_num``; ``timestep_indices`` and ``token_tags`` are ``(S,)`` contiguous integer
+    tensors (int64 or int32, one dtype) on its device, ``S > 0``. Position ``s`` reads table row
+    ``timestep_indices[s] * modality_num + token_tags[s]`` and receives its ``chunks`` slices of
+    width ``H`` in ``rows``' dtype (a pure copy). Out-of-range indices stop the kernel with a
+    device-side assert.
+    """
+    ...
+
 def h3_adaln_row_gather_backward(
     grad: torch.Tensor,
     sorted_pos: torch.Tensor,
@@ -393,7 +411,16 @@ def h3_adaln_row_gather_backward(
     tile_end: torch.Tensor,
     seg_first_tile: torch.Tensor,
     out_dtype: torch.dtype,
-) -> torch.Tensor: ...
+) -> torch.Tensor:
+    """Sum a ``(chunks, S, H)`` gradient into table rows; return ``(R, chunks * H)`` in ``out_dtype``.
+
+    ``sorted_pos`` holds the ``S`` positions sorted stably by table row, ``[tile_begin, tile_end)``
+    cut that order into fixed-size tiles, and ``seg_first_tile`` (``R + 1`` entries) gives the
+    first tile of each row (see ``_segment_tiles``). Tiles are summed in FP32 and folded in order,
+    with no atomics. The metadata is checked on the device first: positions inside ``[0, S)``, tiles
+    inside ``sorted_pos``, segments that cut the tile list exactly and in order.
+    """
+    ...
 def h3_rmsnorm_forward(
     x: torch.Tensor,
     weight: torch.Tensor,
@@ -401,7 +428,19 @@ def h3_rmsnorm_forward(
     shift: torch.Tensor | None = None,
     scale: torch.Tensor | None = None,
     index: torch.Tensor | None = None,
-) -> list[torch.Tensor]: ...
+) -> list[torch.Tensor]:
+    """RMSNorm over the last dimension of a contiguous CUDA ``(M, N)`` tensor; return ``[y, rstd]``.
+
+    ``N`` is a multiple of 4 (and at most ``INT_MAX``); ``weight`` is ``(N,)`` in ``x``'s dtype
+    (FP32, FP16 or BF16). The reduction replays PyTorch's vectorized RMSNorm, so ``y`` is bitwise
+    ``nn.RMSNorm``. With ``shift``/``scale`` (views of one ``(R, N)`` table with unit column stride
+    and a row stride of at least ``N``) and ``index`` (``(S,)`` int64, ``M`` a multiple of ``S``),
+    row ``r`` also gets ``cast(cast(n * cast(1 + scale[i])) + shift[i])`` with
+    ``i = index[r % S]``; an index outside ``[0, R)`` stops with a device-side assert. ``rstd`` is
+    the FP32 ``(M,)`` statistic the backward reuses.
+    """
+    ...
+
 def h3_rmsnorm_backward(
     grad: torch.Tensor,
     x: torch.Tensor,
@@ -414,4 +453,16 @@ def h3_rmsnorm_backward(
     tile_begin: torch.Tensor | None = None,
     tile_end: torch.Tensor | None = None,
     seg_first_tile: torch.Tensor | None = None,
-) -> list[torch.Tensor]: ...
+) -> list[torch.Tensor]:
+    """Deterministic backward of ``h3_rmsnorm_forward``; return ``[dx, dweight]`` in the input dtype.
+
+    ``grad`` and ``x`` are ``(M, N)``, ``rstd`` comes from the forward, and ``shift``/``scale``/
+    ``index`` are the forward's. ``dx`` is row-local; ``dweight`` sums fixed 256-row tiles in order.
+    With modulation the result continues with the FP32 ``(R, N)`` table gradients
+    ``[d_shift, d_scale]``, summed over stable-sorted tiles of rows per table row: pass
+    ``sorted_pos``, ``tile_begin``, ``tile_end`` and ``seg_first_tile`` as built by
+    ``adaln_row_gather._segment_tiles``; they are checked on the device before use. Without
+    modulation they must be omitted.
+    """
+    ...
+

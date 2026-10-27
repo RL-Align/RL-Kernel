@@ -30,79 +30,118 @@ H3_KERNELS_DEFINE = "-DKERNEL_ALIGN_WITH_H3_KERNELS"
 # nvcc options that relax FP32 math. They can also arrive through the environment, where PyTorch's
 # BuildExtension appends them after the flags built here, so the H3 kernels check for them too.
 # nvcc takes ``--ftz``, ``--prec-div`` and ``--prec-sqrt`` with a value, as ``--opt=value`` or
-# ``--opt value``, and accepts one or two leading dashes; ``--use_fast_math`` takes none.
+# ``--opt value``, and accepts one or two leading dashes; ``--use_fast_math`` takes none. nvcc only
+# takes true / false for them and stops on ``--ftz 1``; 1 / 0 are listed too, so that a spelling
+# nvcc rejects is never read as the safe one.
 _RELAXED_MATH_FLAG = "use_fast_math"
 _RELAXED_MATH_VALUE_FLAGS = {
     "ftz": {"true", "1"},
     "prec-div": {"false", "0"},
     "prec-sqrt": {"false", "0"},
 }
-_RESPONSE_FILE_DEPTH = 4
+# nvcc reads more options from the files named by ``--options-file`` / ``-optf`` (a comma-separated
+# list, as ``--options-file=a,b`` or ``--options-file a,b``), also when the option comes from
+# NVCC_*_FLAGS. nvcc 13.0 does not expand ``@file`` (it takes it for an input file and stops); that
+# spelling is read as well, so a driver that does expand it is covered.
+_OPTIONS_FILE_FLAGS = {"optf", "options-file"}
+_OPTIONS_FILE_DEPTH = 4
 
 
-def _nvcc_flag_tokens(text: str, *, depth: int = 0) -> list[str] | None:
-    """Split an NVCC_*_FLAGS value into tokens; None when a response file cannot be read.
+class _UncheckableFlags(Exception):
+    """The flags cannot be read well enough to say whether they relax math."""
+
+
+def _nvcc_flag_tokens(text: str, *, depth: int = 0) -> list[str]:
+    """Split an NVCC_*_FLAGS value into tokens, expanding options files.
 
     Tokens are split like a shell would, then on whitespace and ``;`` (TORCH_NVCC_FLAGS is
-    ';'-separated), so ``"-O2 --use_fast_math"`` in one quoted word is still two options. ``@file``
-    response files are expanded.
+    ';'-separated), so ``"-O2 --use_fast_math"`` in one quoted word is still two options. Raises
+    _UncheckableFlags for an options file that cannot be read or an option nvcc rejects for lack
+    of its file name, and ValueError for a string that cannot be split.
     """
 
+    words = [part for word in shlex.split(text) for part in word.replace(";", " ").split()]
     tokens: list[str] = []
-    for word in shlex.split(text):
-        for token in word.replace(";", " ").split():
-            if not token.startswith("@"):
-                tokens.append(token)
-                continue
-            if depth >= _RESPONSE_FILE_DEPTH:
-                return None
+    i = 0
+    while i < len(words):
+        token = words[i]
+        i += 1
+        files: list[str]
+        if token.startswith("@"):
+            files = [token[1:]]
+        elif token.startswith("-") and token.lstrip("-").partition("=")[0] in _OPTIONS_FILE_FLAGS:
+            _, has_value, value = token.lstrip("-").partition("=")
+            if not has_value:
+                if i >= len(words) or words[i].startswith("-"):
+                    raise _UncheckableFlags(f"{token} has no file name")
+                value = words[i]
+                i += 1
+            files = value.split(",")
+        else:
+            tokens.append(token)
+            continue
+        if depth >= _OPTIONS_FILE_DEPTH:
+            raise _UncheckableFlags(f"options files nest deeper than {_OPTIONS_FILE_DEPTH} levels")
+        for name in files:
             try:
-                inner = _nvcc_flag_tokens(Path(token[1:]).read_text(), depth=depth + 1)
-            except (OSError, ValueError):
-                return None
-            if inner is None:
-                return None
-            tokens.extend(inner)
+                content = Path(name).read_text()
+            except OSError as exc:
+                raise _UncheckableFlags(
+                    f"cannot read options file {name!r}: {exc.strerror}"
+                ) from exc
+            tokens.extend(_nvcc_flag_tokens(content, depth=depth + 1))
     return tokens
 
 
-def _tokens_relax_math(tokens: list[str]) -> bool:
+def _tokens_relax_math(tokens: list[str]) -> str | None:
+    """Return the first option that relaxes FP32 math, spelled as given, or None."""
+
     for i, token in enumerate(tokens):
         if not token.startswith("-"):
             continue
         name, has_value, value = token.lstrip("-").partition("=")
         if name == _RELAXED_MATH_FLAG:
-            return True
+            return token
         relaxed_values = _RELAXED_MATH_VALUE_FLAGS.get(name)
         if relaxed_values is None:
             continue
+        spelled = token
         if not has_value:
             # "--ftz true": the value is the next word. Without one, nvcc rejects the option; treat
             # it as relaxed rather than guess.
             nxt = tokens[i + 1] if i + 1 < len(tokens) else ""
             if nxt.startswith("-") or not nxt:
-                return True
+                return f"{token} without a value"
             value = nxt
+            spelled = f"{token} {nxt}"
         if value.lower() in relaxed_values:
-            return True
-    return False
+            return spelled
+    return None
 
 
-def _external_relaxed_math() -> bool:
-    """Return whether NVCC_*_FLAGS / TORCH_NVCC_FLAGS turn on relaxed FP32 math.
+def _relaxed_math_reason() -> str | None:
+    """Say why NVCC_*_FLAGS / TORCH_NVCC_FLAGS turn on relaxed FP32 math, or None if they do not.
 
-    Fails closed: a value that cannot be parsed or a response file that cannot be read counts as
-    relaxed, because the H3 kernels would otherwise be built with flags nobody checked.
+    Fails closed: a value that cannot be parsed or an options file that cannot be read gives a
+    reason too, because the H3 kernels would otherwise be built with flags nobody checked.
     """
 
     for name in ("NVCC_PREPEND_FLAGS", "NVCC_APPEND_FLAGS", "TORCH_NVCC_FLAGS"):
         try:
-            tokens = _nvcc_flag_tokens(os.environ.get(name, ""))
-        except ValueError:
-            return True
-        if tokens is None or _tokens_relax_math(tokens):
-            return True
-    return False
+            relaxed = _tokens_relax_math(_nvcc_flag_tokens(os.environ.get(name, "")))
+        except ValueError as exc:
+            return f"{name} cannot be parsed ({exc})"
+        except _UncheckableFlags as exc:
+            return f"{name}: {exc}"
+        if relaxed is not None:
+            return f"{name} contains {relaxed}"
+    return None
+
+
+def _external_relaxed_math() -> bool:
+    """Return whether NVCC_*_FLAGS / TORCH_NVCC_FLAGS relax FP32 math or cannot be checked."""
+
+    return _relaxed_math_reason() is not None
 
 
 def _resolve_package_data_source(
@@ -312,11 +351,13 @@ def get_extensions():
         use_fast_math = envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH)
         # One predicate decides both the H3 sources and the define that enables their bindings, so
         # the bindings can never outlive the kernels.
-        relaxed_math_env = _external_relaxed_math()
+        relaxed_reason = _relaxed_math_reason()
+        relaxed_math_env = relaxed_reason is not None
         if relaxed_math_env and not is_rocm:
             warnings.warn(
-                "NVCC_*_FLAGS / TORCH_NVCC_FLAGS relax FP32 math; the bitwise MiniMax-H3 kernels "
-                "are left out of this build and dispatch falls back to the PyTorch reference.",
+                f"NVCC_*_FLAGS / TORCH_NVCC_FLAGS relax FP32 math or cannot be checked "
+                f"({relaxed_reason}); the bitwise MiniMax-H3 kernels are left out of this build "
+                "and dispatch falls back to the PyTorch reference.",
                 RuntimeWarning,
                 stacklevel=2,
             )

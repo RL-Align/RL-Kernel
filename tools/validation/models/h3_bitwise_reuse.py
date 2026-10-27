@@ -172,8 +172,16 @@ def _compare_case(run: dict[str, Any], ref_run: dict[str, Any] | None) -> dict[s
 
     if ref_run is None:
         return {"unavailable": "the reference run has no saved result for this case"}
+    if len(run["out"]) != len(ref_run["out"]):
+        # Outputs that have no counterpart are a difference, not something to drop: a zip would
+        # stop at the shorter list and could report the case as bitwise equal.
+        outs: list[dict[str, Any] | None] = [
+            {"equal": False, "note": f"{len(run['out'])} vs {len(ref_run['out'])} outputs"}
+        ]
+    else:
+        outs = [_same(a, b) for a, b in zip(run["out"], ref_run["out"], strict=True)]
     return {
-        "out": [_same(a, b) for a, b in zip(run["out"], ref_run["out"])],
+        "out": outs,
         "grads": {g: _same(run["grads"].get(g), ref_run["grads"].get(g)) for g in run["grads"]},
     }
 

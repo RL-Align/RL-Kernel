@@ -260,12 +260,20 @@ def test_h3_timestep_falls_back_when_fast_math_build_omits_kernel(monkeypatch):
     from rl_engine.backends.cuda.model_specific.minimax_h3 import timestep_sinusoid
     from rl_engine.reference.minimax_h3.timestep_sinusoid import NativeH3TimestepSinusoidOp
 
-    monkeypatch.setattr(timestep_sinusoid, "h3_sinusoid_cuda_available", lambda: False)
+    # Simulate the omitted binding itself (an extension without the symbol), not the probe that
+    # looks for it, so the test follows the real trigger.
+    class ExtensionWithoutH3:
+        pass
+
+    monkeypatch.setattr(timestep_sinusoid, "_C", ExtensionWithoutH3())
+    monkeypatch.setattr(timestep_sinusoid, "_EXT_AVAILABLE", True)
     monkeypatch.setattr(torch.version, "hip", None, raising=False)
 
-    op = KernelRegistry().get_op("timestep_sinusoid_h3", device="cuda:0")
+    registry = KernelRegistry()
+    op = registry.get_op("timestep_sinusoid_h3", device="cuda:0")
 
     assert isinstance(op, NativeH3TimestepSinusoidOp)
+    assert "CUDA_H3_TIMESTEP_SINUSOID" in registry._failed_backends
 
 
 def test_npu_available_handles_runtime_failure(monkeypatch):
