@@ -12,7 +12,11 @@ from typing import Any
 import torch
 
 from rl_engine.contracts.numerical import resolve_logprob_threshold, tolerance_contract_fingerprint
-from rl_engine.validation.cross_config.divergence import first_divergence
+from rl_engine.validation.cross_config.divergence import (
+    COMPARISON_SEMANTICS_VERSION,
+    compute_mismatch_mask,
+    first_divergence,
+)
 from rl_engine.validation.cross_config.schema import (
     AlignmentResult,
     AlignmentStatus,
@@ -52,22 +56,7 @@ def recompute_mismatch_mask(
         raise ValueError("fixed_threshold must be non-negative")
     active = active_mask.to(device=rollout_logprobs.device, dtype=torch.bool)
     training = training_logprobs.to(device=rollout_logprobs.device)
-    finite = torch.isfinite(rollout_logprobs) & torch.isfinite(training)
-    same_infinity = (
-        torch.isinf(rollout_logprobs) & torch.isinf(training) & (rollout_logprobs == training)
-    )
-    mismatch = active & (
-        (~finite & ~same_infinity)
-        | (finite & (torch.abs(training - rollout_logprobs) > fixed_threshold))
-    )
-    if fixed_threshold == 0.0 and rollout_logprobs.is_floating_point():
-        mismatch |= (
-            active
-            & (rollout_logprobs == 0)
-            & (training == 0)
-            & (torch.signbit(rollout_logprobs) != torch.signbit(training))
-        )
-    return mismatch
+    return compute_mismatch_mask(rollout_logprobs, training, active, fixed_threshold)
 
 
 class FixedThresholdComparator:
@@ -323,6 +312,7 @@ def _diagnostics(
         mismatch_mask=mismatch_mask,
     )
     return {
+        "comparison_semantics_version": COMPARISON_SEMANTICS_VERSION,
         "mean_abs_diff": _finite_float_or_none(active_diff.mean()),
         "p95_abs_diff": _finite_float_or_none(torch.quantile(active_diff, 0.95)),
         "p99_abs_diff": _finite_float_or_none(torch.quantile(active_diff, 0.99)),

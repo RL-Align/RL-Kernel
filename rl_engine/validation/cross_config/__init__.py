@@ -14,6 +14,7 @@ from typing import Any
 from rl_engine.validation.cross_config.comparison import compare_score_artifacts
 from rl_engine.validation.cross_config.config import ExperimentConfig, load_config
 from rl_engine.validation.cross_config.divergence import (
+    COMPARISON_SEMANTICS_VERSION,
     DivergenceRecord,
     DivergenceReport,
     first_divergence,
@@ -41,6 +42,7 @@ __all__ = [
     "RuntimeTools",
     "build_execution_plan",
     "compare_score_artifacts",
+    "COMPARISON_SEMANTICS_VERSION",
     "DivergenceRecord",
     "DivergenceReport",
     "first_divergence",

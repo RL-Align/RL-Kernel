@@ -12,6 +12,7 @@ from typing import Any, Mapping, Sequence
 import torch
 
 SCHEMA_VERSION = "cross_config.divergence.v1"
+COMPARISON_SEMANTICS_VERSION = "cross_config.comparison_semantics.v2"
 
 
 def _json_value(value: Any) -> Any:
@@ -202,22 +203,7 @@ def first_divergence(
             raise ValueError("mismatch_mask shape must match compared tensors")
         mismatch = mismatch_mask.detach().cpu().to(dtype=torch.bool) & mask
     else:
-        finite = torch.isfinite(expected_cpu) & torch.isfinite(actual_cpu)
-        both_same_inf = (
-            torch.isinf(expected_cpu) & torch.isinf(actual_cpu) & (expected_cpu == actual_cpu)
-        )
-        tolerance = atol + rtol * torch.abs(expected_cpu)
-        mismatch = mask & (
-            (~finite & ~both_same_inf)
-            | (finite & (torch.abs(actual_cpu - expected_cpu) > tolerance))
-        )
-        if atol == 0.0 and rtol == 0.0 and expected_cpu.is_floating_point():
-            mismatch |= (
-                mask
-                & (expected_cpu == 0)
-                & (actual_cpu == 0)
-                & (torch.signbit(expected_cpu) != torch.signbit(actual_cpu))
-            )
+        mismatch = compute_mismatch_mask(expected_cpu, actual_cpu, mask, atol)
     compared_count = int(mask.sum().item())
     mismatch_count = int(mismatch.sum().item())
     if not mismatch_count:
@@ -280,4 +266,36 @@ def _axes(ndim: int, names: Sequence[str] | None) -> tuple[str, ...]:
     return result
 
 
-__all__ = ["DivergenceRecord", "DivergenceReport", "SCHEMA_VERSION", "first_divergence"]
+def compute_mismatch_mask(
+    expected: torch.Tensor,
+    actual: torch.Tensor,
+    active_mask: torch.Tensor,
+    fixed_threshold: float,
+) -> torch.Tensor:
+    """Apply the shared finite-value and tolerance rules used by every reporter."""
+
+    if expected.shape != actual.shape or active_mask.shape != expected.shape:
+        raise ValueError("mismatch operands and active_mask must have matching shapes")
+    finite = torch.isfinite(expected) & torch.isfinite(actual)
+    same_infinity = torch.isinf(expected) & torch.isinf(actual) & (expected == actual)
+    mismatch = active_mask.to(dtype=torch.bool) & (
+        (~finite & ~same_infinity) | (finite & (torch.abs(actual - expected) > fixed_threshold))
+    )
+    if fixed_threshold == 0.0 and expected.is_floating_point():
+        mismatch |= (
+            active_mask
+            & (expected == 0)
+            & (actual == 0)
+            & (torch.signbit(expected) != torch.signbit(actual))
+        )
+    return mismatch
+
+
+__all__ = [
+    "COMPARISON_SEMANTICS_VERSION",
+    "DivergenceRecord",
+    "DivergenceReport",
+    "SCHEMA_VERSION",
+    "compute_mismatch_mask",
+    "first_divergence",
+]

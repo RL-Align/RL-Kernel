@@ -30,7 +30,10 @@ from rl_engine.validation.cross_config._provenance import (
 )
 from rl_engine.validation.cross_config.artifacts import REQUIRED_CASE_ARTIFACTS
 from rl_engine.validation.cross_config.comparison import recompute_mismatch_mask
-from rl_engine.validation.cross_config.divergence import first_divergence
+from rl_engine.validation.cross_config.divergence import (
+    COMPARISON_SEMANTICS_VERSION,
+    first_divergence,
+)
 from rl_engine.validation.cross_config.runtime import RuntimeMaterialization
 from rl_engine.validation.cross_config.schema import (
     CanonicalScoringBatch,
@@ -377,6 +380,7 @@ def _comparison_diagnostics(
     approximate_kl_mean = _finite_float(approximate_kl.mean())
     active_count = int(active_diff.numel())
     return {
+        "comparison_semantics_version": COMPARISON_SEMANTICS_VERSION,
         "mean_abs_diff": _finite_float(active_diff.mean()),
         "p95_abs_diff": _finite_float(torch.quantile(active_diff, 0.95)),
         "p99_abs_diff": _finite_float(torch.quantile(active_diff, 0.99)),
