@@ -606,6 +606,9 @@ __global__ void deterministic_reduce_scatter_fast_kernel(
   }
 }
 
+// True when the output pointer, the per-rank byte count and every peer payload pointer
+// are all multiples of 16 bytes. Shared by the host grid sizing in all_gather() and the
+// device copy in copy_rank_ordered(), so both agree on the flat uint4 path over all peers.
 __host__ __device__ __forceinline__ bool can_vectorize_all_gather_copy(
     const PeerPointers& peers,
     int world_size,
@@ -662,6 +665,9 @@ __device__ __forceinline__ void copy_rank_ordered(
   }
 }
 
+// One-block all-gather for fast-staged inputs: thread 0 waits until every peer's stage
+// sequence reaches this rank's, the block copies all payloads into output in rank order,
+// then thread 0 publishes this rank's done sequence.
 __global__ void deterministic_all_gather_fast_kernel(
     PeerPointers peers,
     int world_size,
@@ -985,6 +991,9 @@ void launch_all_reduce_fused_fast(
   }
 }
 
+// One-block stage + gather: wait for every peer's done sequence, copy input into this
+// rank's IPC payload and advance its stage sequence, wait for every peer to stage, copy
+// all payloads into output in rank order, then publish this rank's done sequence.
 __global__ void deterministic_all_gather_fused_fast_kernel(
     PeerPointers peers,
     int world_size,
@@ -1042,6 +1051,7 @@ __global__ void deterministic_all_gather_fused_fast_kernel(
   }
 }
 
+// Launch deterministic_all_gather_fused_fast_kernel as one block of kThreads on stream.
 void launch_all_gather_fused_fast(
     const PeerPointers& peers,
     uint64_t* local_stage_sequence,
@@ -1187,6 +1197,9 @@ void launch_reduce_scatter_fast(
   }
 }
 
+// Multi-block rank-ordered all-gather copy over a grid-stride loop. Does no
+// synchronization: the caller waits for every peer's stage before the launch and
+// publishes the done sequence after it.
 __global__ void deterministic_all_gather_kernel(
     PeerPointers peers,
     uint8_t* output,
@@ -1681,6 +1694,9 @@ class DeterministicCollectiveState {
     all_reduce(output, stream, /*allow_owner_path=*/false);
   }
 
+  // Stage input and gather every rank's copy into output in rank order. Outputs up to
+  // kAllGatherSingleBlockMaxBytes use the one-launch fused kernel; larger outputs fall
+  // back to stage() followed by all_gather().
   void all_gather_fused(
       torch::Tensor& input,
       torch::Tensor& output,
@@ -1717,6 +1733,9 @@ class DeterministicCollectiveState {
     AT_CUDA_CHECK(cudaGetLastError());
   }
 
+  // Gather several tensors under one stage/done sequence: inputs are packed into this
+  // rank's IPC payload at 16-byte-aligned offsets, then each output receives every rank's
+  // copy in rank order through cudaMemcpyAsync.
   void all_gather_many(
       const std::vector<torch::Tensor>& inputs,
       const std::vector<torch::Tensor>& outputs,
@@ -1901,6 +1920,10 @@ class DeterministicCollectiveState {
     publish_done(stream);
   }
 
+  // Gather every rank's staged input into output in rank order. Fast-staged inputs with
+  // output <= kAllGatherSingleBlockMaxBytes use the one-block kernel; otherwise the grid
+  // is sized from 16-byte vectors when the copy can vectorize, else from bytes, capped at
+  // kMaxBlocks.
   void all_gather(torch::Tensor& output, cudaStream_t stream) {
     check_tensor(output, "output");
     TORCH_CHECK(has_staged_input_, "stage() must be called before all_gather()");
@@ -2142,6 +2165,7 @@ void deterministic_collective_all_reduce_fused(
   state_from_handle(handle)->all_reduce_fused(input, output, stream);
 }
 
+// Run the fused stage + all-gather for handle on the current stream of input's device.
 void deterministic_collective_all_gather_fused(
     int64_t handle,
     torch::Tensor& input,
@@ -2151,6 +2175,7 @@ void deterministic_collective_all_gather_fused(
   state_from_handle(handle)->all_gather_fused(input, output, stream);
 }
 
+// Run all_gather_many for handle on the current stream of the first input's device.
 void deterministic_collective_all_gather_many(
     int64_t handle,
     std::vector<torch::Tensor> inputs,
@@ -2167,6 +2192,8 @@ void deterministic_collective_reduce_scatter(int64_t handle, torch::Tensor& outp
   state_from_handle(handle)->reduce_scatter(output, stream);
 }
 
+// Gather every rank's previously staged input into output on the current stream of
+// output's device.
 void deterministic_collective_all_gather(int64_t handle, torch::Tensor& output) {
   const c10::cuda::CUDAGuard device_guard(output.device());
   auto stream = c10::cuda::getCurrentCUDAStream().stream();
