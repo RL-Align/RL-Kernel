@@ -8,7 +8,7 @@ import json
 import pytest
 import torch
 
-from rl_engine.validation.cross_config.divergence import first_divergence
+from rl_engine.validation.cross_config.divergence import first_divergence, runtime_identity
 
 
 def test_first_divergence_records_token_and_runtime_identity_deterministically():
@@ -120,3 +120,5 @@ def test_first_divergence_rejects_vacuous_samples_and_invalid_axis_metadata():
         )
     with pytest.raises(ValueError, match="axis_names"):
         first_divergence(torch.zeros(2), torch.zeros(2), axis_names=("token", "slot"))
+    with pytest.raises(ValueError, match="missing required fields"):
+        runtime_identity({}, model_version="v1", checkpoint_id="c1")
