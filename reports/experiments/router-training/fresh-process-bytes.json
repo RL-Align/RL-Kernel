@@ -1,0 +1,14 @@
+{
+  "schema": "rlkernel.router_training.fresh_process_bytes.v1",
+  "passed": true,
+  "processes": 2,
+  "normal_cases": 54,
+  "tensors_compared": 165,
+  "raw_bytes_compared": 4098624,
+  "forward_and_vjp_record_hashes_equal": true,
+  "raw_uint8_payloads_equal": true,
+  "includes_signed_zero": true,
+  "source_fingerprints_equal": true,
+  "fields": "logits, logical IDs, upstream, normal weights, dlogits, global expert IDs",
+  "diagnostic_replay_does_not_earn_acceptance": true
+}

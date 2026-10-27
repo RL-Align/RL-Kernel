@@ -1,0 +1,146 @@
+Task 31 AITER stable Top-6 companion
+Base: 326cffa38c9eda16bef19375ba55334e4d3acd59
+
+Copyright © Advanced Micro Devices, Inc. All rights reserved.
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--- /dev/null
++++ b/aiter/ops/triton/_triton_kernels/moe/moe_routing/stable_topk6.py
+@@ -0,0 +1,72 @@
++# SPDX-License-Identifier: MIT
++# Copyright (C) 2024-2026, Advanced Micro Devices, Inc. All rights reserved.
++# Modifications Copyright (c) 2026 RL-Kernel Contributors
++"""Adapt AITER streaming_topk to score-descending/global-ID-ascending slots.
++
++Raw FP32 payloads are loaded unchanged after ranking. Signed zeros tie, while
++all other finite bit patterns (including subnormals) keep their numeric order.
++"""
++
++import triton
++import triton.language as tl
++
++from aiter.ops.triton._triton_kernels.moe.moe_routing.topk import fpval_to_key
++
++
++@triton.jit
++def _pack_keys(value, gid, column, valid):
++    raw = value.to(tl.uint32, bitcast=True)
++    # Canonicalize zeros for ranking only; return the original payload below.
++    ranking_bits = tl.where((raw & 0x7FFFFFFF) == 0, 0, raw).to(tl.uint32)
++    score_key = fpval_to_key(ranking_bits)
++    packed = (
++        (score_key.to(tl.uint64) << 32)
++        | ((65535 - gid.to(tl.uint64)) << 16)
++        | column.to(tl.uint64)
++    )
++    return tl.where(valid, packed, 0)
++
++
++@triton.jit
++def streaming_stable_topk6(X, GIDS, row, EXPERTS: tl.constexpr, BLOCK_N: tl.constexpr):
++    # Same peeled-last-block and bitonic streaming merge as upstream AITER.
++    chunks: tl.constexpr = tl.cdiv(EXPERTS, BLOCK_N)
++    column = (chunks - 1) * BLOCK_N + tl.arange(0, BLOCK_N)
++    valid = column < EXPERTS
++    value = tl.load(X + row * EXPERTS + column, mask=valid, other=0.0)
++    gid = tl.load(GIDS + column, mask=valid, other=0)
++    key = _pack_keys(value, gid, column, valid)
++    candidates = tl.topk(key[None, :], 8, dim=1)
++    for _ in (tl.static_range if chunks <= 4 else range)(chunks - 1):
++        candidates = tl.bitonic_merge(candidates)
++        column -= BLOCK_N
++        value = tl.load(X + row * EXPERTS + column)
++        gid = tl.load(GIDS + column)
++        key = _pack_keys(value, gid, column, tl.full((BLOCK_N,), True, tl.int1))
++        candidates = tl.maximum(candidates, tl.topk(key[None, :], 8, dim=1))
++    # K=6 is padded to 8, so sort merged candidates before keeping slots 0..5.
++    return tl.sort(candidates, descending=True, dim=1)
++
++
++@triton.jit
++def _stable_topk6_fwd(X, GIDS, VALUES, IDS, COLUMNS, EXPERTS: tl.constexpr):
++    row = tl.program_id(0).to(tl.int64)
++    candidates = streaming_stable_topk6(X, GIDS, row, EXPERTS, 128)
++    column = (candidates & 65535).to(tl.int32)
++    gid = (65535 - ((candidates >> 16) & 65535)).to(tl.int64)
++    slot = tl.arange(0, 8)[None, :]
++    # Keep signed-zero/subnormal payload bytes, rather than decoding the key.
++    value = tl.load(X + row * EXPERTS + column, mask=slot < 6, other=0.0)
++    tl.store(VALUES + row * 6 + slot, value, mask=slot < 6)
++    tl.store(IDS + row * 6 + slot, gid, mask=slot < 6)
++    tl.store(COLUMNS + row * 6 + slot, column, mask=slot < 6)
++
++
++@triton.jit
++def _stable_topk6_vjp(COLUMNS, GRAD, DX, EXPERTS: tl.constexpr):
++    row = tl.program_id(0).to(tl.int64)
++    slot = tl.arange(0, 8)
++    column = tl.load(COLUMNS + row * 6 + slot, mask=slot < 6, other=0)
++    grad = tl.load(GRAD + row * 6 + slot, mask=slot < 6, other=0.0)
++    # Unique columns imply one writer per output; no atomics or reductions.
++    tl.store(DX + row * EXPERTS + column, grad, mask=slot < 6)
+--- /dev/null
++++ b/aiter/ops/triton/moe/moe_routing/stable_topk6.py
+@@ -0,0 +1,43 @@
++# SPDX-License-Identifier: MIT
++# Copyright (c) 2026 RL-Kernel Contributors
++"""Task-31 stable selection over already computed FP32 selection scores."""
++
++import torch
++
++from aiter.ops.triton._triton_kernels.moe.moe_routing.stable_topk6 import (
++    _stable_topk6_fwd,
++    _stable_topk6_vjp,
++)
++
++STABLE_TOPK6_CONTRACT_ID = "aiter.stable_topk6.fp32.global_id.v1"
++LAUNCH = {"num_warps": 4, "num_stages": 1, "enable_fp_fusion": False}
++
++
++def stable_topk6_fwd(scores, global_expert_ids):
++    m = scores.shape[0]
++    values = torch.empty((m, 6), dtype=torch.float32, device=scores.device)
++    ids = torch.empty((m, 6), dtype=torch.int64, device=scores.device)
++    columns = torch.empty((m, 6), dtype=torch.int32, device=scores.device)
++    if m:
++        _stable_topk6_fwd[(m,)](
++            scores,
++            global_expert_ids,
++            values,
++            ids,
++            columns,
++            EXPERTS=scores.shape[1],
++            **LAUNCH,
++        )
++    return values, ids, columns
++
++
++def stable_topk6_bwd(columns, grad_values, experts):
++    grad = grad_values.contiguous()
++    dx = torch.zeros(
++        (columns.shape[0], experts), dtype=torch.float32, device=columns.device
++    )
++    if columns.shape[0]:
++        _stable_topk6_vjp[(columns.shape[0],)](
++            columns, grad, dx, EXPERTS=experts, **LAUNCH
++        )
++    return dx
