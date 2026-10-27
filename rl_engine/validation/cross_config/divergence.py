@@ -291,6 +291,24 @@ def compute_mismatch_mask(
     return mismatch
 
 
+def runtime_identity(
+    provenance: Mapping[str, Any], *, model_version: str, checkpoint_id: str
+) -> dict[str, Any]:
+    """Normalize runtime provenance for comparison and resume using one schema."""
+
+    requested = provenance.get("requested", {})
+    actual = provenance.get("actual", {})
+    return {
+        "requested_backend": requested.get("logp", {}).get("backend"),
+        "actual_backend": actual.get("logp", {}).get("backend"),
+        "implementation_fingerprint": provenance.get("implementation_fingerprint", ""),
+        "rank": provenance.get("rank", 0),
+        "world_size": provenance.get("world_size", 1),
+        "model_version": model_version,
+        "checkpoint_id": checkpoint_id,
+    }
+
+
 __all__ = [
     "COMPARISON_SEMANTICS_VERSION",
     "DivergenceRecord",
@@ -298,4 +316,5 @@ __all__ = [
     "SCHEMA_VERSION",
     "compute_mismatch_mask",
     "first_divergence",
+    "runtime_identity",
 ]

@@ -18,6 +18,7 @@ from rl_engine.validation.cross_config.divergence import (
     DivergenceRecord,
     DivergenceReport,
     first_divergence,
+    runtime_identity,
 )
 from rl_engine.validation.cross_config.execution_plan import ExecutionPlan, build_execution_plan
 from rl_engine.validation.cross_config.planner import ExperimentPlan, Planner
@@ -46,5 +47,6 @@ __all__ = [
     "DivergenceRecord",
     "DivergenceReport",
     "first_divergence",
+    "runtime_identity",
     "load_config",
 ]

@@ -33,6 +33,7 @@ from rl_engine.validation.cross_config.comparison import recompute_mismatch_mask
 from rl_engine.validation.cross_config.divergence import (
     COMPARISON_SEMANTICS_VERSION,
     first_divergence,
+    runtime_identity,
 )
 from rl_engine.validation.cross_config.runtime import RuntimeMaterialization
 from rl_engine.validation.cross_config.schema import (
@@ -175,7 +176,11 @@ def completed_attempt_matches(
             score_payload = _load_resume_tensor_bundle(attempt_dir / f"score_{target}.pt")
             score_artifact = score_payload["metadata"]["score_artifact"]
             prior_scorer = score_artifact["scorer"]
-            score_provenance[target] = _resume_runtime_identity(score_artifact, batch)
+            score_provenance[target] = runtime_identity(
+                score_artifact.get("provenance", {}),
+                model_version=batch.identity.model_version,
+                checkpoint_id=batch.identity.checkpoint_id,
+            )
         except (OSError, KeyError, TypeError, RuntimeError, ValueError):
             return False
         expected_scorer = concrete_scorer_spec(specs[target], instance).to_dict()
@@ -398,23 +403,6 @@ def _comparison_diagnostics(
             provenance=provenance,
             mismatch_mask=mismatch_mask,
         ).to_dict(),
-    }
-
-
-def _resume_runtime_identity(
-    score_artifact: Mapping[str, Any], batch: CanonicalScoringBatch
-) -> dict[str, Any]:
-    provenance = score_artifact.get("provenance", {})
-    requested = provenance.get("requested", {})
-    actual = provenance.get("actual", {})
-    return {
-        "requested_backend": requested.get("logp", {}).get("backend"),
-        "actual_backend": actual.get("logp", {}).get("backend"),
-        "implementation_fingerprint": provenance.get("implementation_fingerprint", ""),
-        "rank": provenance.get("rank", 0),
-        "world_size": provenance.get("world_size", 1),
-        "model_version": batch.identity.model_version,
-        "checkpoint_id": batch.identity.checkpoint_id,
     }
 
 

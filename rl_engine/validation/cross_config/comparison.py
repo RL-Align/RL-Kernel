@@ -16,6 +16,7 @@ from rl_engine.validation.cross_config.divergence import (
     COMPARISON_SEMANTICS_VERSION,
     compute_mismatch_mask,
     first_divergence,
+    runtime_identity,
 )
 from rl_engine.validation.cross_config.schema import (
     AlignmentResult,
@@ -337,16 +338,11 @@ def _comparison_provenance(rollout: ScoreArtifact, training: ScoreArtifact) -> d
 
 
 def _runtime_identity(artifact: ScoreArtifact) -> dict[str, Any]:
-    provenance = artifact.provenance
-    return {
-        "requested_backend": provenance.requested.get("logp", {}).get("backend"),
-        "actual_backend": provenance.actual.get("logp", {}).get("backend"),
-        "implementation_fingerprint": provenance.implementation_fingerprint,
-        "rank": provenance.rank,
-        "world_size": provenance.world_size,
-        "model_version": artifact.identity.model_version,
-        "checkpoint_id": artifact.identity.checkpoint_id,
-    }
+    return runtime_identity(
+        artifact.provenance.to_dict(),
+        model_version=artifact.identity.model_version,
+        checkpoint_id=artifact.identity.checkpoint_id,
+    )
 
 
 def _finite_float_or_none(value: torch.Tensor) -> float | None:
