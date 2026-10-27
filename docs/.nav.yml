@@ -28,6 +28,7 @@ nav:
       - operators/pack-and-pad.md
       - operators/sampling.md
       - operators/det-gemm.md
+      - operators/router-gate.md
       - operators/embedding.md
   - Developer Guide:
     - contributing/README.md

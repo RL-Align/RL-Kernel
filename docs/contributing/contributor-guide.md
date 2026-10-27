@@ -51,7 +51,7 @@ The model directories currently have different implementation states:
 | Model family | Package | State in this refactor | Starting point |
 | --- | --- | --- | --- |
 | Qwen3-8B Dense | rl_engine/models/qwen3/ | Existing specification and reference assembly migrated | spec.py, reference.py, and tests/models/qwen3/ |
-| DeepSeek V4 | rl_engine/models/deepseek_v4/ | Reserved package; adaptation is not implemented | Add the model specification and required operator mapping |
+| DeepSeek V4 | rl_engine/models/deepseek_v4/ | Task-28 gate component only; complete model adaptation is not implemented | gate.py and the router gate operator contract |
 | Gemma | rl_engine/models/gemma/ | Reserved package; adaptation is not implemented | Add the model specification and required operator mapping |
 | MiniMax H3 | rl_engine/models/minimax_h3/ | Reserved package; adaptation is not implemented | Add the model specification and required operator mapping |
 

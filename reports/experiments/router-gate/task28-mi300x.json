@@ -1,0 +1,417 @@
+{
+  "schema": "rlkernel.router_gate.task28.v1",
+  "created_utc": "2026-10-27T02:45:18.273259+00:00",
+  "fixture": {
+    "model": "deepseek-ai/DeepSeek-V4-Flash-0731",
+    "revision": "7872f01b1d1fe23eabc4c98b48bffcef5a386062",
+    "tensor": "layers.0.ffn.gate.weight",
+    "shard": "model-00002-of-00048.safetensors",
+    "tensor_metadata": {
+      "dtype": "BF16",
+      "shape": [
+        256,
+        4096
+      ],
+      "data_offsets": [
+        9362904,
+        11460056
+      ]
+    },
+    "weight_sha256": "e110e3c4e310e7c9981f287038c5a0c8ad73da1b36b36feb3b909e04477a6a12"
+  },
+  "activation_fixture": {
+    "kind": "synthetic_bf16_normal",
+    "seed": 28,
+    "generator": "torch_cpu",
+    "tokenizer": "not_used"
+  },
+  "cases": [
+    {
+      "m": 1,
+      "input_sha256": "5250d38afebc6f3da7538101381798b167e06271545801870ba9996231012152",
+      "positions": [
+        0
+      ],
+      "row_bit_mismatches": 0,
+      "mode_bit_mismatches": 0,
+      "logits_sha256": "0c5410944c5663ca5e46566e1d7afda1b982ab6f3659b6d5072abd4c6935ce57",
+      "max_abs_error_vs_fp64": 4.2188039515167475e-06,
+      "median_adapter_us": 96.76200151443481,
+      "samples": 30,
+      "warmup": 10,
+      "execution": {
+        "contract_id": "rlkernel.aiter_fixed_bf16_fp32.v1",
+        "actual_backend": "aiter.triton.gemm_a16w16",
+        "kernel": "aiter.ops.triton._triton_kernels.gemm.basic.gemm_a16w16._gemm_a16_w16_kernel",
+        "api_profile": "legacy_triton_only",
+        "source_sha256": {
+          "aiter.ops.triton.gemm.basic.gemm_a16w16": "e8883d42c77c8b63d97019ad06ebe01abcfa1b2f2ca5fd0184de660ff19c83b7",
+          "aiter.ops.triton._triton_kernels.gemm.basic.gemm_a16w16": "4375b3ddb2b865bfa823ff60f283bb47a7485e21bfd9cf1e63680507a2ae514b"
+        },
+        "gpu": "AMD Instinct MI300X VF",
+        "arch": "gfx942:sramecc+:xnack-",
+        "device": "cuda:0",
+        "torch": "2.12.0+rocm7.14.0a20260608",
+        "rocm": "7.14.60850",
+        "aiter": "0.1.12.post2.dev214+gb5e03ed19",
+        "triton": "3.7.0",
+        "config": {
+          "BLOCK_SIZE_M": 16,
+          "BLOCK_SIZE_N": 64,
+          "BLOCK_SIZE_K": 32,
+          "GROUP_SIZE_M": 1,
+          "NUM_KSPLIT": 1,
+          "SPLITK_BLOCK_SIZE": 4096,
+          "cache_modifier": ".cg",
+          "num_warps": 4,
+          "num_stages": 2,
+          "matrix_instr_nonkdim": 16,
+          "kpack": 1
+        },
+        "output_dtype": "float32",
+        "bias": false,
+        "activation": null,
+        "graph": false,
+        "workspace_bytes": 0,
+        "task": 28,
+        "model_version": "7872f01b1d1fe23eabc4c98b48bffcef5a386062:e110e3c4e310e7c9981f287038c5a0c8ad73da1b36b36feb3b909e04477a6a12",
+        "input_shape": [
+          1,
+          4096
+        ],
+        "weight_shape": [
+          256,
+          4096
+        ],
+        "input_stride": [
+          4096,
+          1
+        ],
+        "weight_stride": [
+          4096,
+          1
+        ],
+        "input_dtype": "bfloat16",
+        "weight_dtype": "bfloat16",
+        "grad_enabled": true,
+        "input_requires_grad": false,
+        "weight_requires_grad": true,
+        "kernel_launched": true,
+        "backward_backend": "rlk.triton.fixed_fp32_dot"
+      }
+    },
+    {
+      "m": 16,
+      "input_sha256": "5921557783e645fd53064559901e3ecb30a5ea57b8e435efdbaba3cd627c713c",
+      "positions": [
+        0,
+        8,
+        15
+      ],
+      "row_bit_mismatches": 0,
+      "mode_bit_mismatches": 0,
+      "logits_sha256": "8f3d642ba0e695708277d79b4e0c551cc4e49bb83cc7196d4eabaae13b24dd8f",
+      "max_abs_error_vs_fp64": 6.102025508880615e-06,
+      "median_adapter_us": 96.30049765110016,
+      "samples": 30,
+      "warmup": 10,
+      "execution": {
+        "contract_id": "rlkernel.aiter_fixed_bf16_fp32.v1",
+        "actual_backend": "aiter.triton.gemm_a16w16",
+        "kernel": "aiter.ops.triton._triton_kernels.gemm.basic.gemm_a16w16._gemm_a16_w16_kernel",
+        "api_profile": "legacy_triton_only",
+        "source_sha256": {
+          "aiter.ops.triton.gemm.basic.gemm_a16w16": "e8883d42c77c8b63d97019ad06ebe01abcfa1b2f2ca5fd0184de660ff19c83b7",
+          "aiter.ops.triton._triton_kernels.gemm.basic.gemm_a16w16": "4375b3ddb2b865bfa823ff60f283bb47a7485e21bfd9cf1e63680507a2ae514b"
+        },
+        "gpu": "AMD Instinct MI300X VF",
+        "arch": "gfx942:sramecc+:xnack-",
+        "device": "cuda:0",
+        "torch": "2.12.0+rocm7.14.0a20260608",
+        "rocm": "7.14.60850",
+        "aiter": "0.1.12.post2.dev214+gb5e03ed19",
+        "triton": "3.7.0",
+        "config": {
+          "BLOCK_SIZE_M": 16,
+          "BLOCK_SIZE_N": 64,
+          "BLOCK_SIZE_K": 32,
+          "GROUP_SIZE_M": 1,
+          "NUM_KSPLIT": 1,
+          "SPLITK_BLOCK_SIZE": 4096,
+          "cache_modifier": ".cg",
+          "num_warps": 4,
+          "num_stages": 2,
+          "matrix_instr_nonkdim": 16,
+          "kpack": 1
+        },
+        "output_dtype": "float32",
+        "bias": false,
+        "activation": null,
+        "graph": false,
+        "workspace_bytes": 0,
+        "task": 28,
+        "model_version": "7872f01b1d1fe23eabc4c98b48bffcef5a386062:e110e3c4e310e7c9981f287038c5a0c8ad73da1b36b36feb3b909e04477a6a12",
+        "input_shape": [
+          16,
+          4096
+        ],
+        "weight_shape": [
+          256,
+          4096
+        ],
+        "input_stride": [
+          4096,
+          1
+        ],
+        "weight_stride": [
+          4096,
+          1
+        ],
+        "input_dtype": "bfloat16",
+        "weight_dtype": "bfloat16",
+        "grad_enabled": true,
+        "input_requires_grad": false,
+        "weight_requires_grad": true,
+        "kernel_launched": true,
+        "backward_backend": "rlk.triton.fixed_fp32_dot"
+      }
+    },
+    {
+      "m": 17,
+      "input_sha256": "a7d4eda7c281544f305d5dcc81f8983bc9cf4ace7157a3c85b607b4d7bd4001d",
+      "positions": [
+        0,
+        8,
+        16
+      ],
+      "row_bit_mismatches": 0,
+      "mode_bit_mismatches": 0,
+      "logits_sha256": "8dc92a1079c0be295141b48d76a2a159167dc84d3476a7a364df4179d3094e46",
+      "max_abs_error_vs_fp64": 5.035282811149955e-06,
+      "median_adapter_us": 97.52300009131432,
+      "samples": 30,
+      "warmup": 10,
+      "execution": {
+        "contract_id": "rlkernel.aiter_fixed_bf16_fp32.v1",
+        "actual_backend": "aiter.triton.gemm_a16w16",
+        "kernel": "aiter.ops.triton._triton_kernels.gemm.basic.gemm_a16w16._gemm_a16_w16_kernel",
+        "api_profile": "legacy_triton_only",
+        "source_sha256": {
+          "aiter.ops.triton.gemm.basic.gemm_a16w16": "e8883d42c77c8b63d97019ad06ebe01abcfa1b2f2ca5fd0184de660ff19c83b7",
+          "aiter.ops.triton._triton_kernels.gemm.basic.gemm_a16w16": "4375b3ddb2b865bfa823ff60f283bb47a7485e21bfd9cf1e63680507a2ae514b"
+        },
+        "gpu": "AMD Instinct MI300X VF",
+        "arch": "gfx942:sramecc+:xnack-",
+        "device": "cuda:0",
+        "torch": "2.12.0+rocm7.14.0a20260608",
+        "rocm": "7.14.60850",
+        "aiter": "0.1.12.post2.dev214+gb5e03ed19",
+        "triton": "3.7.0",
+        "config": {
+          "BLOCK_SIZE_M": 16,
+          "BLOCK_SIZE_N": 64,
+          "BLOCK_SIZE_K": 32,
+          "GROUP_SIZE_M": 1,
+          "NUM_KSPLIT": 1,
+          "SPLITK_BLOCK_SIZE": 4096,
+          "cache_modifier": ".cg",
+          "num_warps": 4,
+          "num_stages": 2,
+          "matrix_instr_nonkdim": 16,
+          "kpack": 1
+        },
+        "output_dtype": "float32",
+        "bias": false,
+        "activation": null,
+        "graph": false,
+        "workspace_bytes": 0,
+        "task": 28,
+        "model_version": "7872f01b1d1fe23eabc4c98b48bffcef5a386062:e110e3c4e310e7c9981f287038c5a0c8ad73da1b36b36feb3b909e04477a6a12",
+        "input_shape": [
+          17,
+          4096
+        ],
+        "weight_shape": [
+          256,
+          4096
+        ],
+        "input_stride": [
+          4096,
+          1
+        ],
+        "weight_stride": [
+          4096,
+          1
+        ],
+        "input_dtype": "bfloat16",
+        "weight_dtype": "bfloat16",
+        "grad_enabled": true,
+        "input_requires_grad": false,
+        "weight_requires_grad": true,
+        "kernel_launched": true,
+        "backward_backend": "rlk.triton.fixed_fp32_dot"
+      }
+    },
+    {
+      "m": 32,
+      "input_sha256": "acb80ed86433338d496182042c4e9db4b8f25949bae6c441975f63c495809bc7",
+      "positions": [
+        0,
+        16,
+        31
+      ],
+      "row_bit_mismatches": 0,
+      "mode_bit_mismatches": 0,
+      "logits_sha256": "8994332b5e0dfd65848913bd350d1c3dba73fc535a77fe9f32b515a978be96c8",
+      "max_abs_error_vs_fp64": 8.338945917785168e-06,
+      "median_adapter_us": 106.68399930000305,
+      "samples": 30,
+      "warmup": 10,
+      "execution": {
+        "contract_id": "rlkernel.aiter_fixed_bf16_fp32.v1",
+        "actual_backend": "aiter.triton.gemm_a16w16",
+        "kernel": "aiter.ops.triton._triton_kernels.gemm.basic.gemm_a16w16._gemm_a16_w16_kernel",
+        "api_profile": "legacy_triton_only",
+        "source_sha256": {
+          "aiter.ops.triton.gemm.basic.gemm_a16w16": "e8883d42c77c8b63d97019ad06ebe01abcfa1b2f2ca5fd0184de660ff19c83b7",
+          "aiter.ops.triton._triton_kernels.gemm.basic.gemm_a16w16": "4375b3ddb2b865bfa823ff60f283bb47a7485e21bfd9cf1e63680507a2ae514b"
+        },
+        "gpu": "AMD Instinct MI300X VF",
+        "arch": "gfx942:sramecc+:xnack-",
+        "device": "cuda:0",
+        "torch": "2.12.0+rocm7.14.0a20260608",
+        "rocm": "7.14.60850",
+        "aiter": "0.1.12.post2.dev214+gb5e03ed19",
+        "triton": "3.7.0",
+        "config": {
+          "BLOCK_SIZE_M": 16,
+          "BLOCK_SIZE_N": 64,
+          "BLOCK_SIZE_K": 32,
+          "GROUP_SIZE_M": 1,
+          "NUM_KSPLIT": 1,
+          "SPLITK_BLOCK_SIZE": 4096,
+          "cache_modifier": ".cg",
+          "num_warps": 4,
+          "num_stages": 2,
+          "matrix_instr_nonkdim": 16,
+          "kpack": 1
+        },
+        "output_dtype": "float32",
+        "bias": false,
+        "activation": null,
+        "graph": false,
+        "workspace_bytes": 0,
+        "task": 28,
+        "model_version": "7872f01b1d1fe23eabc4c98b48bffcef5a386062:e110e3c4e310e7c9981f287038c5a0c8ad73da1b36b36feb3b909e04477a6a12",
+        "input_shape": [
+          32,
+          4096
+        ],
+        "weight_shape": [
+          256,
+          4096
+        ],
+        "input_stride": [
+          4096,
+          1
+        ],
+        "weight_stride": [
+          4096,
+          1
+        ],
+        "input_dtype": "bfloat16",
+        "weight_dtype": "bfloat16",
+        "grad_enabled": true,
+        "input_requires_grad": false,
+        "weight_requires_grad": true,
+        "kernel_launched": true,
+        "backward_backend": "rlk.triton.fixed_fp32_dot"
+      }
+    },
+    {
+      "m": 65,
+      "input_sha256": "089d8b9c9c7c0baa0cf2c4fe5ff88f6fa585c7a155f19fc12816de069c8ad7ec",
+      "positions": [
+        0,
+        32,
+        64
+      ],
+      "row_bit_mismatches": 0,
+      "mode_bit_mismatches": 0,
+      "logits_sha256": "49dc1b4e47b054eff677c76b5792c19af85290e549b01948232d94c5a1297610",
+      "max_abs_error_vs_fp64": 8.487259037792683e-06,
+      "median_adapter_us": 118.6319962143898,
+      "samples": 30,
+      "warmup": 10,
+      "execution": {
+        "contract_id": "rlkernel.aiter_fixed_bf16_fp32.v1",
+        "actual_backend": "aiter.triton.gemm_a16w16",
+        "kernel": "aiter.ops.triton._triton_kernels.gemm.basic.gemm_a16w16._gemm_a16_w16_kernel",
+        "api_profile": "legacy_triton_only",
+        "source_sha256": {
+          "aiter.ops.triton.gemm.basic.gemm_a16w16": "e8883d42c77c8b63d97019ad06ebe01abcfa1b2f2ca5fd0184de660ff19c83b7",
+          "aiter.ops.triton._triton_kernels.gemm.basic.gemm_a16w16": "4375b3ddb2b865bfa823ff60f283bb47a7485e21bfd9cf1e63680507a2ae514b"
+        },
+        "gpu": "AMD Instinct MI300X VF",
+        "arch": "gfx942:sramecc+:xnack-",
+        "device": "cuda:0",
+        "torch": "2.12.0+rocm7.14.0a20260608",
+        "rocm": "7.14.60850",
+        "aiter": "0.1.12.post2.dev214+gb5e03ed19",
+        "triton": "3.7.0",
+        "config": {
+          "BLOCK_SIZE_M": 16,
+          "BLOCK_SIZE_N": 64,
+          "BLOCK_SIZE_K": 32,
+          "GROUP_SIZE_M": 1,
+          "NUM_KSPLIT": 1,
+          "SPLITK_BLOCK_SIZE": 4096,
+          "cache_modifier": ".cg",
+          "num_warps": 4,
+          "num_stages": 2,
+          "matrix_instr_nonkdim": 16,
+          "kpack": 1
+        },
+        "output_dtype": "float32",
+        "bias": false,
+        "activation": null,
+        "graph": false,
+        "workspace_bytes": 0,
+        "task": 28,
+        "model_version": "7872f01b1d1fe23eabc4c98b48bffcef5a386062:e110e3c4e310e7c9981f287038c5a0c8ad73da1b36b36feb3b909e04477a6a12",
+        "input_shape": [
+          65,
+          4096
+        ],
+        "weight_shape": [
+          256,
+          4096
+        ],
+        "input_stride": [
+          4096,
+          1
+        ],
+        "weight_stride": [
+          4096,
+          1
+        ],
+        "input_dtype": "bfloat16",
+        "weight_dtype": "bfloat16",
+        "grad_enabled": true,
+        "input_requires_grad": false,
+        "weight_requires_grad": true,
+        "kernel_launched": true,
+        "backward_backend": "rlk.triton.fixed_fp32_dot"
+      }
+    }
+  ],
+  "passed": true,
+  "scope": "single-rank gate projection; checkpoint weights, synthetic activations",
+  "not_validated": [
+    "MI355X",
+    "CUDA mm/CuTe",
+    "whole model",
+    "verl",
+    "vime"
+  ]
+}
