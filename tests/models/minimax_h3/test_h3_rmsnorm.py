@@ -13,6 +13,12 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
+
 import pytest
 import torch
 
@@ -206,6 +212,22 @@ class TestCudaForward:
         with pytest.raises(ValueError):
             _cuda_op()(_x((2, 8)).cpu(), torch.ones(8).bfloat16())
 
+    def test_rejects_a_row_wider_than_the_int_the_kernels_count_with(self):
+        """N goes to the kernels as ``int``: forward and backward both refuse it up front."""
+
+        from rl_engine.backends.extension import _C
+
+        _cuda_op()
+        n = 2**31  # a multiple of 4 above INT_MAX
+        if torch.cuda.mem_get_info()[0] < 10 * 2**30:
+            pytest.skip("needs about 8 GiB of free device memory for the two operands")
+        x = torch.empty(1, n, device="cuda", dtype=torch.float16)
+        w = torch.empty(n, device="cuda", dtype=torch.float16)
+        with pytest.raises(RuntimeError, match="too large"):
+            _C.h3_rmsnorm_forward(x, w, 1e-6)
+        with pytest.raises(RuntimeError, match="too large"):
+            _C.h3_rmsnorm_backward(x, x, w, torch.empty(1, device="cuda"))
+
 
 _DEVICE_MESSAGES = {
     "weight": "with x's dtype and device",
@@ -350,3 +372,60 @@ class TestCudaBackward:
         assert (
             type(KernelRegistry().get_op("h3_rmsnorm", device="cuda")).__name__ == "H3RMSNormCudaOp"
         )
+
+
+def _index_probe(entry: str, bad: int):
+    """Run one native entry point with a table-row index outside the table, in a child process."""
+
+    probe = textwrap.dedent(
+        """
+        import sys
+        import torch
+        from rl_engine.backends.extension import _C
+
+        entry, bad = sys.argv[1], int(sys.argv[2])
+        rows, hidden, table_rows = 600, 64, 4
+        x = torch.randn(rows, hidden, device="cuda").bfloat16()
+        w = torch.ones(hidden, device="cuda").bfloat16()
+        table = torch.randn(table_rows, 2 * hidden, device="cuda").bfloat16()
+        shift, scale = table.chunk(2, dim=-1)
+        index = torch.arange(rows, device="cuda") % table_rows
+        index[rows - 3] = bad  # the last tile of rows, past the first dx blocks
+        if entry == "forward":
+            _C.h3_rmsnorm_forward(x, w, 1e-5, shift, scale, index)
+        else:
+            from rl_engine.backends.cuda.model_specific.minimax_h3.adaln_row_gather import (
+                _segment_tiles,
+            )
+            valid = index.clamp(0, table_rows - 1)
+            y, rstd = _C.h3_rmsnorm_forward(x, w, 1e-5, shift, scale, valid)
+            tiles = _segment_tiles(valid, table_rows)
+            _C.h3_rmsnorm_backward(torch.ones_like(x), x, w, rstd, shift, scale, index, *tiles)
+        torch.cuda.synchronize()
+        """
+    )
+    return subprocess.run(
+        [sys.executable, "-c", probe, entry, str(bad)],
+        cwd=Path(__file__).resolve().parents[3],
+        env={**os.environ, "CUDA_LAUNCH_BLOCKING": "1"},
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+
+@requires_cuda
+@pytest.mark.parametrize("entry", ["forward", "backward"])
+@pytest.mark.parametrize("bad", [-1, 4, 10**9], ids=["negative", "past-table", "far"])
+def test_a_modulation_index_outside_the_table_stops_the_kernels(entry, bad):
+    """check_range=False and direct calls get a device-side assert, not an out-of-bounds read.
+
+    The dweight partials read the index inside their row loop, where an assert costs about 11% of
+    the backward; the entry point checks the index values once before launching them.
+    """
+
+    _cuda_op()
+    assert _index_probe(entry, 1).returncode == 0  # the control: the same call with a valid index
+    done = _index_probe(entry, bad)
+    assert done.returncode != 0, entry
+    assert "device-side assert triggered" in done.stderr, done.stderr

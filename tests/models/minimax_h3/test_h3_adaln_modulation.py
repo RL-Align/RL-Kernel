@@ -81,7 +81,7 @@ class TestFusedModulation:
         ti, tags = h3_packed_layout(1000, 3)
         ours = fused(temb, weight, bias, ti, tags)
         separate = gather.gather_chunks(proj(temb, weight, bias), ti, tags)
-        assert all(torch.equal(a, b) for a, b in zip(ours, separate))
+        assert all(torch.equal(a, b) for a, b in zip(ours, separate, strict=True))
 
     def test_backward_keeps_table_gradient_fp32(self, h3_weights_cpu):
         fused, proj, gather = _ops()
@@ -121,7 +121,7 @@ class TestFusedModulation:
         assert rel(ours[0], ref[0].grad) < 1e-5
         assert rel(ours[0], ref[0].grad) < rel(separate[0], ref[0].grad) / 100
         # dW, db: only their own final BF16 rounding remains.
-        for grad, golden in zip(ours[1:], (ref[1].grad, ref[2].grad)):
+        for grad, golden in zip(ours[1:], (ref[1].grad, ref[2].grad), strict=True):
             assert (grad == golden.to(torch.bfloat16)).float().mean() > 0.9999
 
     @pytest.mark.parametrize("frozen", ["bias", "weight", "temb", "bias_and_temb"])
@@ -134,10 +134,10 @@ class TestFusedModulation:
 
         leaves = [t.detach().clone() for t in (temb, weight, bias)]
         names = ("temb", "weight", "bias")
-        for leaf, name in zip(leaves, names):
+        for leaf, name in zip(leaves, names, strict=True):
             leaf.requires_grad_(name not in frozen)
         torch.autograd.backward(list(fused(*leaves, ti, tags)), grads)
-        for leaf, name, expected in zip(leaves, names, full):
+        for leaf, name, expected in zip(leaves, names, full, strict=True):
             if name in frozen:
                 assert leaf.grad is None
             else:
@@ -150,7 +150,7 @@ class TestFusedModulation:
         grads = _grads(3000, 64, seed=3)
         first = _leaf_grads(lambda t, w, b: fused(t, w, b, ti, tags), temb, weight, bias, grads)
         again = _leaf_grads(lambda t, w, b: fused(t, w, b, ti, tags), temb, weight, bias, grads)
-        assert all(torch.equal(a, b) for a, b in zip(first, again))
+        assert all(torch.equal(a, b) for a, b in zip(first, again, strict=True))
 
     def test_rejects_bad_indices(self):
         fused, _, _ = _ops()
