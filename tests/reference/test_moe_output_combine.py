@@ -408,6 +408,7 @@ def test_local_input_gradients_stop_before_rms_and_preserve_fixed_order():
     expected = torch.tensor([[5.5, 7.5, 9.5, 11.5], [13.5, 15.5, 17.5, 19.5]])
     assert torch.equal(d_x_norm, expected.to(torch.bfloat16))
     after_rms = merge_residual_gradient_after_rms(
+        plan,
         d_x_norm,
         torch.full((2, 4), 2.0, dtype=torch.bfloat16),
     )
@@ -475,6 +476,23 @@ def test_local_input_gradients_enforce_modes_and_mapping_run_id():
             expected_mapping_run_id="stale-run",
             num_tokens=2,
         )
+    with pytest.raises(MoEOutputCombineContractError, match="residual_mode"):
+        merge_residual_gradient_after_rms(
+            plan,
+            torch.ones(2, plan.hidden_size, dtype=torch.bfloat16),
+            torch.ones(2, plan.hidden_size, dtype=torch.bfloat16),
+        )
+
+    with pytest.raises(MoEOutputCombineContractError, match="separate tensors"):
+        shared_gradient = torch.zeros(2, shared_plan.hidden_size, dtype=torch.bfloat16)
+        combine_local_input_gradients(
+            shared_plan,
+            shared_inputs,
+            expert_gradient,
+            shared_expert_gradient=shared_gradient,
+            gate_gradient=shared_gradient,
+            num_tokens=2,
+        )
 
 
 def test_local_input_gradient_provenance_records_checks():
@@ -488,5 +506,9 @@ def test_local_input_gradient_provenance_records_checks():
         num_tokens=2,
     )
     assert provenance["semantic_op"] == "moe_input_gradient_combine"
+    assert provenance["producer_backend"] == "unknown"
+    assert provenance["num_slots"] == 4
+    assert provenance["branches"]["gate"]["dtype"] is None
+    assert provenance["branches"]["shared_expert"]["dtype"] == "bfloat16"
     assert provenance["mapping_run_id_verified"] is True
     assert provenance["merge_order"] == [0, 1]

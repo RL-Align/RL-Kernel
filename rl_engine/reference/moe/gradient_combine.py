@@ -16,6 +16,12 @@ from rl_engine.contracts.operators.moe import (
 )
 from rl_engine.reference.moe.inverse_mapping import inverse_map_expert_output
 
+_SUPPORTED_GRADIENT_DTYPES = {torch.float16, torch.bfloat16, torch.float32}
+
+
+def _dtype_name(value: torch.dtype) -> str:
+    return str(value).removeprefix("torch.")
+
 
 def _validate_token_gradient(
     name: str,
@@ -35,6 +41,8 @@ def _validate_token_gradient(
         raise MoEOutputCombineContractError(f"{name} must have shape [num_tokens, hidden_size]")
     if not value.is_floating_point():
         raise MoEOutputCombineContractError(f"{name} must use a floating-point dtype")
+    if value.dtype not in _SUPPORTED_GRADIENT_DTYPES:
+        raise MoEOutputCombineContractError(f"{name} uses an unsupported gradient dtype")
     if not torch.isfinite(value).all():
         raise MoEOutputCombineContractError(f"{name} must contain only finite values")
 
@@ -78,22 +86,19 @@ def combine_local_input_gradients(
         raise MoEOutputCombineContractError(
             "expert_input_gradient must have shape [num_slots, hidden_size]"
         )
-    if expert_input_gradient.dtype != getattr(torch, plan.output_dtype):
-        raise MoEOutputCombineContractError("expert_input_gradient dtype disagrees with the plan")
+    if expert_input_gradient.dtype not in _SUPPORTED_GRADIENT_DTYPES:
+        raise MoEOutputCombineContractError("expert_input_gradient uses an unsupported dtype")
     if not torch.isfinite(expert_input_gradient).all():
         raise MoEOutputCombineContractError("expert_input_gradient must contain only finite values")
 
+    inputs.validate(plan)
+    if shared_expert_gradient is gate_gradient and shared_expert_gradient is not None:
+        raise MoEOutputCombineContractError("shared and gate gradients must be separate tensors")
     if plan.shared_expert_mode == "separate" and shared_expert_gradient is None:
         raise MoEOutputCombineContractError("shared_expert_gradient is required by the plan")
     if plan.shared_expert_mode == "excluded" and shared_expert_gradient is not None:
         raise MoEOutputCombineContractError(
             "shared_expert_gradient must be omitted when shared expert mode is excluded"
-        )
-    if plan.residual_mode == "external" and inputs.residual is None:
-        raise MoEOutputCombineContractError("residual metadata is required by the plan")
-    if plan.residual_mode == "excluded" and inputs.residual is not None:
-        raise MoEOutputCombineContractError(
-            "residual metadata must be omitted when residual mode is excluded"
         )
     _validate_token_gradient(
         "shared_expert_gradient",
@@ -110,9 +115,20 @@ def combine_local_input_gradients(
         device=expert_input_gradient.device,
     )
 
-    mapped_inputs = replace(inputs, expert_output=expert_input_gradient)
-    expert_major = inverse_map_expert_output(
+    mapping_plan = replace(
         plan,
+        output_dtype=_dtype_name(expert_input_gradient.dtype),
+        shared_expert_mode="excluded",
+        residual_mode="excluded",
+    )
+    mapped_inputs = replace(
+        inputs,
+        expert_output=expert_input_gradient,
+        shared_output=None,
+        residual=None,
+    )
+    expert_major = inverse_map_expert_output(
+        mapping_plan,
         mapped_inputs,
         num_tokens=num_tokens,
         expected_mapping_run_id=expected_mapping_run_id,
@@ -131,11 +147,20 @@ def combine_local_input_gradients(
 
 
 def merge_residual_gradient_after_rms(
+    plan: MoEOutputCombinePlan,
     rms_input_gradient: torch.Tensor,
     residual_gradient: torch.Tensor,
 ) -> torch.Tensor:
-    """Add the original residual gradient after P1 RMSNorm backward."""
+    """Add external residual dH after P1 RMSNorm backward.
 
+    The RMS gradient dtype determines the returned dtype.  Both inputs are
+    accumulated in FP32 before the final conversion at this boundary.
+    """
+
+    if plan.residual_mode != "external":
+        raise MoEOutputCombineContractError("residual gradient requires residual_mode='external'")
+    if plan.accumulation_dtype != "float32":
+        raise MoEOutputCombineContractError("P6 gradient accumulation must be float32")
     if rms_input_gradient.device.type != "cpu" or residual_gradient.device.type != "cpu":
         raise MoEOutputCombineContractError("P6 reference gradients must be on CPU")
     if rms_input_gradient.shape != residual_gradient.shape:
@@ -146,6 +171,8 @@ def merge_residual_gradient_after_rms(
     ):
         if not value.is_floating_point():
             raise MoEOutputCombineContractError(f"{name} must use a floating-point dtype")
+        if value.dtype not in _SUPPORTED_GRADIENT_DTYPES:
+            raise MoEOutputCombineContractError(f"{name} uses an unsupported gradient dtype")
         if not torch.isfinite(value).all():
             raise MoEOutputCombineContractError(f"{name} must contain only finite values")
     return (rms_input_gradient.to(torch.float32) + residual_gradient.to(torch.float32)).to(
@@ -174,25 +201,37 @@ def local_input_gradient_provenance(
         gate_gradient=gate_gradient,
         expected_mapping_run_id=expected_mapping_run_id,
     )
-    return {
-        "semantic_op": "moe_input_gradient_combine",
-        "plan_version": plan.plan_version,
-        "plan_fingerprint": plan.fingerprint,
-        "mapping_schema_version": plan.mapping_schema_version,
-        "mapping_run_id": inputs.mapping_run_id,
-        "mapping_run_id_verified": expected_mapping_run_id is not None,
-        "expected_mapping_run_id": expected_mapping_run_id,
-        "merge_order": list(plan.merge_order),
-        "branches": {
-            "expert": True,
-            "shared_expert": shared_expert_gradient is not None,
-            "gate": gate_gradient is not None,
-        },
-        "accumulation_dtype": plan.accumulation_dtype,
-        "output_dtype": str(output.dtype).removeprefix("torch."),
-        "output_shape": list(output.shape),
-        "output_stride": list(output.stride()),
-    }
+    provenance = inputs.provenance(plan)
+    provenance.update(
+        {
+            "semantic_op": "moe_input_gradient_combine",
+            "mapping_run_id_verified": expected_mapping_run_id is not None,
+            "expected_mapping_run_id": expected_mapping_run_id,
+            "merge_order": list(plan.merge_order),
+            "branches": {
+                "expert": {"present": True, "dtype": _dtype_name(expert_input_gradient.dtype)},
+                "shared_expert": {
+                    "present": shared_expert_gradient is not None,
+                    "dtype": (
+                        _dtype_name(shared_expert_gradient.dtype)
+                        if shared_expert_gradient is not None
+                        else None
+                    ),
+                },
+                "gate": {
+                    "present": gate_gradient is not None,
+                    "dtype": (
+                        _dtype_name(gate_gradient.dtype) if gate_gradient is not None else None
+                    ),
+                },
+            },
+            "accumulation_dtype": plan.accumulation_dtype,
+            "output_dtype": str(output.dtype).removeprefix("torch."),
+            "output_shape": list(output.shape),
+            "output_stride": list(output.stride()),
+        }
+    )
+    return provenance
 
 
 __all__ = [
