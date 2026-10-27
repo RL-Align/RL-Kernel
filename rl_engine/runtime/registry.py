@@ -272,6 +272,29 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             version_or_build_fingerprint="VocabParallelLogprobOp-fixed-tiles-v1",
         ),
         OperatorBackendDescriptor(
+            semantic_op="router_sqrt_softplus",
+            backend_id="rlkernel.router_sqrt_softplus.fp32.stable_tail.v1",
+            supported_targets=frozenset({"training", "rollout"}),
+            supported_devices=frozenset({"rocm"}),
+            supported_dtypes=frozenset({"float32"}),
+            supported_topologies={
+                "training": {"tensor_parallel_size": (1,)},
+                "rollout": {"tensor_parallel_size": (1,)},
+            },
+            determinism_or_alignment_properties={
+                "batch_invariant": True,
+                "graph": False,
+                "output_dtype": "float32",
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=(
+                "rl_engine.ops.moe.router_sqrt_softplus.RouterSqrtSoftplusOp"
+            ),
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="rlkernel.router_sqrt_softplus.fp32.stable_tail.v1",
+        ),
+        OperatorBackendDescriptor(
             semantic_op="attention",
             backend_id="rlkernel.attention.deterministic.v1",
             supported_targets=frozenset({"rollout", "training"}),
