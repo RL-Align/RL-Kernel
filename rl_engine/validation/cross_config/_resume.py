@@ -329,6 +329,7 @@ def _resume_comparison_matches(
             "training": score_provenance["training"],
         },
         mismatch_mask=mismatch_mask,
+        fixed_threshold=fixed_threshold,
     )
     expected_comparison = {
         "schema_version": "cross_config.alignment_result.v1",
@@ -375,6 +376,7 @@ def _comparison_diagnostics(
     mismatch_count: int,
     provenance: Mapping[str, Any],
     mismatch_mask: torch.Tensor,
+    fixed_threshold: float,
 ) -> dict[str, Any]:
     active_diff = absolute_diff[active_mask].float()
     delta = (training[active_mask] - rollout[active_mask]).float()
@@ -402,6 +404,7 @@ def _comparison_diagnostics(
             axis_names=("sample", "token") if rollout.ndim == 2 else None,
             provenance=provenance,
             mismatch_mask=mismatch_mask,
+            atol=fixed_threshold,
         ).to_dict(),
     }
 

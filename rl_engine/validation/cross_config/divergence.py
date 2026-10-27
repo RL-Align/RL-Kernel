@@ -189,8 +189,6 @@ def first_divergence(
         )
     if not math.isfinite(atol) or not math.isfinite(rtol) or atol < 0 or rtol < 0:
         raise ValueError("atol and rtol must be finite and non-negative")
-    if mismatch_mask is not None and (atol != 0.0 or rtol != 0.0):
-        raise ValueError("mismatch_mask cannot be combined with non-zero atol or rtol")
     expected_cpu = expected.detach().cpu()
     actual_cpu = actual.detach().cpu()
     mask = torch.ones(expected_cpu.shape, dtype=torch.bool)
@@ -203,7 +201,11 @@ def first_divergence(
     if mismatch_mask is not None:
         if mismatch_mask.shape != expected.shape:
             raise ValueError("mismatch_mask shape must match compared tensors")
-        mismatch = mismatch_mask.detach().cpu().to(dtype=torch.bool) & mask
+        supplied = mismatch_mask.detach().cpu().to(dtype=torch.bool) & mask
+        computed = compute_mismatch_mask(expected_cpu, actual_cpu, mask, atol, rtol)
+        if not torch.equal(supplied, computed):
+            raise ValueError("mismatch_mask does not match tensor comparison semantics")
+        mismatch = supplied
     else:
         mismatch = compute_mismatch_mask(expected_cpu, actual_cpu, mask, atol, rtol)
     compared_count = int(mask.sum().item())

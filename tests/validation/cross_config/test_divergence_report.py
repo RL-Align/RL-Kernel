@@ -107,12 +107,12 @@ def test_first_divergence_handles_tolerance_infinities_and_signed_zero():
     assert signed_zero.passed is False
     assert signed_zero.first is not None
     assert signed_zero.first.reason == "signed_zero"
-    with pytest.raises(ValueError, match="mismatch_mask cannot be combined"):
+    with pytest.raises(ValueError, match="does not match tensor comparison"):
         first_divergence(
             torch.zeros(1),
             torch.ones(1),
             atol=1e-5,
-            mismatch_mask=torch.ones(1, dtype=torch.bool),
+            mismatch_mask=torch.zeros(1, dtype=torch.bool),
         )
 
 

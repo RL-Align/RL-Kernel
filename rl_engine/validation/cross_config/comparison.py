@@ -187,6 +187,7 @@ class FixedThresholdComparator:
                 mismatch_count,
                 provenance=_comparison_provenance(rollout, training),
                 mismatch_mask=mismatch_mask,
+                fixed_threshold=fixed_threshold,
             ),
             token_artifact=token_artifact,
         )
@@ -294,6 +295,7 @@ def _diagnostics(
     mismatch_count: int,
     provenance: dict[str, Any],
     mismatch_mask: torch.Tensor,
+    fixed_threshold: float,
 ) -> dict[str, Any]:
     active_diff = absolute_diff[active_mask].float()
     delta = (training_logprobs[active_mask] - rollout_logprobs[active_mask]).float()
@@ -311,6 +313,7 @@ def _diagnostics(
         axis_names=("sample", "token") if rollout_logprobs.ndim == 2 else None,
         provenance=provenance,
         mismatch_mask=mismatch_mask,
+        atol=fixed_threshold,
     )
     return {
         "comparison_semantics_version": COMPARISON_SEMANTICS_VERSION,
