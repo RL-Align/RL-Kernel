@@ -15,56 +15,10 @@ from rl_engine.reference.moe import (
     combine_local_input_gradients,
     inverse_map_expert_output,
     inverse_mapping_provenance,
+    local_input_gradient_provenance,
+    merge_residual_gradient_after_rms,
     prepare_output_combine,
 )
-
-
-def test_local_input_gradients_use_fixed_slot_and_branch_order():
-    # Physical rows are (token=1, slot=0), (0, 0), (1, 1), (0, 1).
-    plan = MoEOutputCombinePlan(top_k=2, hidden_size=2)
-    inputs = MoEOutputCombineInputs(
-        expert_output=torch.zeros(4, 2, dtype=torch.bfloat16),
-        token_indices=torch.tensor([1, 0, 1, 0], dtype=torch.int64),
-        expert_indices=torch.tensor([0, 0, 1, 1], dtype=torch.int64),
-        slot_indices=torch.tensor([0, 0, 1, 1], dtype=torch.int64),
-        routing_weights=torch.ones(4, dtype=torch.float32),
-        num_tokens=2,
-    )
-    expert_gradient = torch.tensor([[1, 2], [3, 4], [5, 6], [7, 8]], dtype=torch.bfloat16)
-
-    combined = combine_local_input_gradients(
-        plan,
-        inputs,
-        expert_gradient,
-        shared_expert_gradient=torch.tensor([[0.5, 1.0], [0.5, 1.0]], dtype=torch.bfloat16),
-        gate_gradient=torch.tensor([[1.0, 0.0], [1.0, 0.0]], dtype=torch.bfloat16),
-        residual_gradient=torch.tensor([[2.0, 3.0], [2.0, 3.0]], dtype=torch.bfloat16),
-        num_tokens=2,
-    )
-
-    expected = torch.tensor([[13.5, 16.0], [9.5, 12.0]], dtype=torch.bfloat16)
-    assert torch.equal(combined, expected)
-
-
-def test_local_input_gradients_reject_bad_branch_shape_and_count():
-    plan, inputs = _request()
-    expert_gradient = torch.ones(4, 3, dtype=torch.bfloat16)
-
-    with pytest.raises(MoEOutputCombineContractError, match="shape"):
-        combine_local_input_gradients(
-            plan,
-            inputs,
-            expert_gradient,
-            shared_expert_gradient=torch.ones(3, 2, dtype=torch.bfloat16),
-            num_tokens=2,
-        )
-    with pytest.raises(MoEOutputCombineContractError, match="slot count"):
-        combine_local_input_gradients(
-            plan,
-            inputs,
-            torch.ones(4, 3, dtype=torch.bfloat16),
-            num_tokens=3,
-        )
 
 
 def _plan(**kwargs):
@@ -416,3 +370,123 @@ def test_inverse_mapping_matches_declared_input_token_count():
     )
     with pytest.raises(MoEOutputCombineContractError, match="disagrees"):
         inverse_map_expert_output(plan, inputs, num_tokens=3)
+
+
+def _gradient_request(*, shared=False, residual=False, run_id="run-1"):
+    plan = _plan(
+        shared_expert_mode="separate" if shared else "excluded",
+        residual_mode="external" if residual else "excluded",
+    )
+    inputs = _inputs(
+        plan,
+        mapping_run_id=run_id,
+        num_tokens=2,
+        shared_output=(torch.zeros(2, plan.hidden_size, dtype=torch.bfloat16) if shared else None),
+        residual=(torch.zeros(2, plan.hidden_size, dtype=torch.bfloat16) if residual else None),
+    )
+    return plan, inputs
+
+
+def test_local_input_gradients_stop_before_rms_and_preserve_fixed_order():
+    plan, inputs = _gradient_request(shared=True, residual=True)
+    expert_gradient = torch.tensor(
+        [[1, 2, 3, 4], [3, 4, 5, 6], [5, 6, 7, 8], [7, 8, 9, 10]],
+        dtype=torch.bfloat16,
+    )
+    shared_gradient = torch.full((2, 4), 0.5, dtype=torch.bfloat16)
+    gate_gradient = torch.ones(2, 4, dtype=torch.float32)
+
+    d_x_norm = combine_local_input_gradients(
+        plan,
+        inputs,
+        expert_gradient,
+        shared_expert_gradient=shared_gradient,
+        gate_gradient=gate_gradient,
+        num_tokens=2,
+    )
+
+    expected = torch.tensor([[5.5, 7.5, 9.5, 11.5], [13.5, 15.5, 17.5, 19.5]])
+    assert torch.equal(d_x_norm, expected.to(torch.bfloat16))
+    after_rms = merge_residual_gradient_after_rms(
+        d_x_norm,
+        torch.full((2, 4), 2.0, dtype=torch.bfloat16),
+    )
+    assert torch.equal(after_rms, (expected + 2).to(torch.bfloat16))
+
+
+def test_local_input_gradients_use_order_sensitive_values_and_recompute():
+    plan, inputs = _gradient_request(shared=True)
+    expert_gradient = torch.tensor(
+        [[2**24, 0, 0, 0], [0, 0, 0, 0], [2**24, 0, 0, 0], [0, 0, 0, 0]],
+        dtype=torch.bfloat16,
+    )
+    shared_gradient = torch.ones(2, 4, dtype=torch.bfloat16)
+    gate_gradient = torch.full((2, 4), -(2**24), dtype=torch.bfloat16)
+
+    first = combine_local_input_gradients(
+        plan,
+        inputs,
+        expert_gradient,
+        shared_expert_gradient=shared_gradient,
+        gate_gradient=gate_gradient,
+        num_tokens=2,
+    )
+    second = combine_local_input_gradients(
+        plan,
+        inputs,
+        expert_gradient,
+        shared_expert_gradient=shared_gradient,
+        gate_gradient=gate_gradient,
+        num_tokens=2,
+    )
+
+    assert torch.equal(first, second)
+    assert torch.equal(first[:, 0], torch.zeros(2, dtype=torch.bfloat16))
+
+
+def test_local_input_gradients_enforce_modes_and_mapping_run_id():
+    plan, inputs = _gradient_request()
+    expert_gradient = torch.ones(4, plan.hidden_size, dtype=torch.bfloat16)
+    with pytest.raises(
+        MoEOutputCombineContractError, match="shared_expert_gradient must be omitted"
+    ):
+        combine_local_input_gradients(
+            plan,
+            inputs,
+            expert_gradient,
+            shared_expert_gradient=torch.zeros(2, plan.hidden_size, dtype=torch.bfloat16),
+            num_tokens=2,
+        )
+
+    shared_plan, shared_inputs = _gradient_request(shared=True)
+    with pytest.raises(MoEOutputCombineContractError, match="shared_expert_gradient is required"):
+        combine_local_input_gradients(
+            shared_plan,
+            shared_inputs,
+            expert_gradient,
+            num_tokens=2,
+        )
+    with pytest.raises(MoEOutputCombineContractError, match="run id"):
+        combine_local_input_gradients(
+            shared_plan,
+            shared_inputs,
+            expert_gradient,
+            shared_expert_gradient=torch.zeros(2, shared_plan.hidden_size, dtype=torch.bfloat16),
+            expected_mapping_run_id="stale-run",
+            num_tokens=2,
+        )
+
+
+def test_local_input_gradient_provenance_records_checks():
+    plan, inputs = _gradient_request(shared=True, run_id="run-1")
+    provenance = local_input_gradient_provenance(
+        plan,
+        inputs,
+        torch.ones(4, plan.hidden_size, dtype=torch.bfloat16),
+        shared_expert_gradient=torch.ones(2, plan.hidden_size, dtype=torch.bfloat16),
+        expected_mapping_run_id="run-1",
+        num_tokens=2,
+    )
+    assert provenance["semantic_op"] == "moe_input_gradient_combine"
+    assert provenance["mapping_run_id_verified"] is True
+    assert provenance["merge_order"] == [0, 1]
