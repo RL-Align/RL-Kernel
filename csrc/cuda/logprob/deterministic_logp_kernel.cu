@@ -100,6 +100,9 @@ __device__ __forceinline__ float deterministicBlockReduceSum(float val) {
     return val;
 }
 
+// One block per launched row (row_indices[blockIdx.x] in indexed mode; out-of-range ids are
+// skipped). Writes output[row] = z[target] - logsumexp(z) with FP32 fixed-tree block reductions
+// and lse[row] when lse is non-null; an out-of-range target writes 0 and lse = -inf.
 template <typename input_t, typename output_t, int BlockSize>
 __global__ void __launch_bounds__(BlockSize) deterministic_logp_forward_kernel(
     const input_t* __restrict__ logits,
@@ -194,6 +197,8 @@ void check_deterministic_logp_inputs(
         "output dtype must be float64, float32, float16, or bfloat16");
 }
 
+// Validate that row_indices is a 1D int64 CUDA tensor on the logits device whose length fits
+// the CUDA grid-x dimension.
 void check_deterministic_logp_indices(
     const torch::Tensor& logits,
     const torch::Tensor& row_indices) {
@@ -208,6 +213,9 @@ void check_deterministic_logp_indices(
         "row_indices length exceeds CUDA grid-x limit");
 }
 
+// Dispatch deterministic_logp_forward_kernel over the logits and output dtypes with one block
+// per launched row; the block size depends only on vocab_size (128 for up to 128 columns, 256
+// for up to 4096, else 512). Does nothing when launch_rows is 0.
 void launch_deterministic_logp_kernel(
     const torch::Tensor& logits,
     const torch::Tensor& token_ids,
@@ -319,6 +327,8 @@ torch::Tensor deterministic_logp_forward_out(
     return output;
 }
 
+// Write per-row log-probabilities into output only for the rows listed in row_indices; other
+// entries of output are left untouched. Requires 16-byte aligned logits and returns output.
 torch::Tensor deterministic_logp_forward_indexed_out(
     torch::Tensor logits,
     torch::Tensor token_ids,
@@ -371,6 +381,9 @@ torch::Tensor deterministic_logp_forward_indexed_fp32(
     return deterministic_logp_forward_indexed_out(logits, token_ids, row_indices, output);
 }
 
+// Return {logp, lse} as FP32 vectors with one entry per logits row. With row_indices only the
+// listed rows are computed; unlisted rows and rows with an out-of-range target hold logp = 0
+// and lse = -inf.
 std::vector<torch::Tensor> deterministic_logp_forward_with_lse(
     torch::Tensor logits,
     torch::Tensor token_ids,
@@ -749,6 +762,8 @@ torch::Tensor deterministic_logp_backward(
 // Single-device FP64 and double backward. Keep the legacy FP32 forward and
 // vocab-parallel backward unchanged, including their reduction topology.
 namespace {
+// Block-wide sum (max when Max is true): warp shuffles, then one shared-memory pass in warp 0.
+// The reduction tree is fixed by BlockSize; only thread 0 holds the full result.
 template <typename acc_t, int BlockSize, bool Max = false>
 __device__ acc_t deterministic_logp_reduce(acc_t value) {
     constexpr int Warps = BlockSize / 32;
@@ -770,6 +785,9 @@ __device__ acc_t deterministic_logp_reduce(acc_t value) {
     return value;
 }
 
+// FP64 forward, one block per launched row (out-of-range row ids are skipped): output[row] =
+// x[target] - logsumexp(x) via fixed block reductions, and lse[row] when lse is non-null. An
+// out-of-range target writes output 0 and lse -inf.
 template <int BlockSize>
 __global__ void deterministic_logp_forward_fp64_kernel(
     const double* logits, const int64_t* labels, const int64_t* indices,
@@ -796,6 +814,8 @@ __global__ void deterministic_logp_forward_fp64_kernel(
     }
 }
 
+// FP64 VJP of logp w.r.t. logits, one block per row: output = g * (onehot(label) - exp(x - lse)),
+// written as 0 on rows with a non-finite lse or an out-of-range label. Purely elementwise.
 __global__ void deterministic_logp_backward_fp64_kernel(
     const double* logits, const double* lse, const double* g,
     const int64_t* labels, double* output, int vocab) {
@@ -807,6 +827,9 @@ __global__ void deterministic_logp_backward_fp64_kernel(
     }
 }
 
+// VJP of the first backward grad = g * (onehot - p) for upstream h, one block per row:
+// dx = -g * p * (h - E_p[h]) and dg = h[target] - E_p[h], with E_p[h] from a fixed acc_t block
+// reduction. Rows with a non-finite lse or an out-of-range label get dx = 0 and dg = 0.
 template <typename input_t, typename acc_t, int BlockSize>
 __global__ void deterministic_logp_double_backward_kernel(
     const input_t* logits, const acc_t* lse, const acc_t* g,
@@ -837,6 +860,9 @@ __global__ void deterministic_logp_double_backward_kernel(
     }
 }
 
+// Validate logits, labels and the coefficient g with the forward checks, then require g and lse
+// to be contiguous row vectors in the accumulation dtype (float64 for float64 logits, else
+// float32) on the logits device.
 void check_deterministic_logp_derivative_inputs(
     const torch::Tensor& logits, const torch::Tensor& lse,
     const torch::Tensor& g, const torch::Tensor& labels) {
@@ -853,6 +879,9 @@ void check_deterministic_logp_derivative_inputs(
 }
 } // namespace
 
+// FP64 LogP forward for float64 logits: return {logp, lse}, where lse is an empty tensor unless
+// save_lse is true. With row_indices only the listed rows are computed; unlisted rows and rows
+// with an out-of-range target hold logp = 0 (and lse = -inf).
 std::vector<torch::Tensor> deterministic_logp_forward_fp64(
     torch::Tensor logits, torch::Tensor token_ids,
     torch::optional<torch::Tensor> row_indices, bool save_lse) {
@@ -883,6 +912,9 @@ std::vector<torch::Tensor> deterministic_logp_forward_fp64(
     return {output, lse};
 }
 
+// FP64 gradient of logp w.r.t. float64 logits, shaped like logits:
+// g[:, None] * (onehot(labels) - exp(logits - lse[:, None])), zero on rows with a non-finite lse
+// or an out-of-range label.
 torch::Tensor deterministic_logp_backward_fp64(
     torch::Tensor logits, torch::Tensor lse, torch::Tensor g, torch::Tensor labels) {
     check_deterministic_logp_derivative_inputs(logits, lse, g, labels);
@@ -899,6 +931,9 @@ torch::Tensor deterministic_logp_backward_fp64(
     return output;
 }
 
+// Return {dx, dg}, the VJPs of grad = g * (onehot - p) w.r.t. logits and g for upstream h.
+// Accumulates in float64 for float64 logits and float32 otherwise; dx has the logits dtype and
+// dg the accumulation dtype.
 std::vector<torch::Tensor> deterministic_logp_double_backward(
     torch::Tensor logits, torch::Tensor lse, torch::Tensor g,
     torch::Tensor labels, torch::Tensor h) {
@@ -973,6 +1008,10 @@ __global__ void deterministic_logp_triple_backward_kernel(
 }
 } // namespace
 
+// Return {dx, dg, dh}, the VJPs of the double-backward outputs (dx, dg) w.r.t. logits, g and h
+// for upstreams a (logits-shaped) and b (row vector in the accumulation dtype). Accumulates in
+// float64 for float64 logits and float32 otherwise; dx and dh have the logits dtype, dg the
+// accumulation dtype.
 std::vector<torch::Tensor> deterministic_logp_triple_backward(
     torch::Tensor logits, torch::Tensor lse, torch::Tensor g,
     torch::Tensor labels, torch::Tensor h, torch::Tensor a, torch::Tensor b) {
@@ -1004,6 +1043,8 @@ std::vector<torch::Tensor> deterministic_logp_triple_backward(
 }
 
 namespace {
+// Elementwise p = exp(x - lse) in acc_t, one block per row; 0 on rows that are inactive or have
+// a non-finite lse.
 template <typename input_t, typename acc_t>
 __global__ void deterministic_logp_probability_kernel(
     const input_t* x, const acc_t* lse, const bool* active, acc_t* p, int vocab) {
@@ -1013,6 +1054,8 @@ __global__ void deterministic_logp_probability_kernel(
         p[i] = active[row] && isfinite(lse[row]) ? exp(acc_t(x[i]) - lse[row]) : acc_t(0);
     }
 }
+// Row sums with one block per row; must be launched with 256 threads, since the column stride
+// and the fixed reduction tree both assume that block size.
 template <typename scalar_t>
 __global__ void deterministic_logp_row_sum_kernel(const scalar_t* x, scalar_t* y, int vocab) {
     scalar_t sum = 0;
@@ -1020,6 +1063,8 @@ __global__ void deterministic_logp_row_sum_kernel(const scalar_t* x, scalar_t* y
     sum = deterministic_logp_reduce<scalar_t, 256>(sum);
     if (threadIdx.x == 0) y[blockIdx.x] = sum;
 }
+// Grid-stride scatter that sets mask[row] = true for every in-range row id in indices and
+// ignores out-of-range ids; duplicate ids store the same value.
 __global__ void deterministic_logp_selection_kernel(const int64_t* indices, bool* mask, int64_t n, int64_t rows) {
     for (int64_t i = int64_t(blockIdx.x) * blockDim.x + threadIdx.x; i < n; i += int64_t(gridDim.x) * blockDim.x) {
         const int64_t row = indices[i];
@@ -1028,6 +1073,8 @@ __global__ void deterministic_logp_selection_kernel(const int64_t* indices, bool
 }
 } // namespace
 
+// Return p = exp(logits - lse[:, None]) as a matrix in the accumulation dtype (lse's dtype),
+// with zero rows where active is false or lse is non-finite.
 torch::Tensor deterministic_logp_probability(torch::Tensor logits, torch::Tensor lse, torch::Tensor active) {
     auto labels = torch::zeros({logits.size(0)}, logits.options().dtype(at::kLong));
     check_deterministic_logp_derivative_inputs(logits, lse, lse, labels);
@@ -1048,6 +1095,8 @@ torch::Tensor deterministic_logp_probability(torch::Tensor logits, torch::Tensor
     return result;
 }
 
+// Return the per-row sum of a float32/float64 CUDA matrix, reduced by one 256-thread block per
+// row with a fixed tree, so each row's sum does not depend on the other rows.
 torch::Tensor deterministic_logp_row_sum(torch::Tensor values) {
     TORCH_CHECK(values.is_cuda() && values.dim() == 2 && values.size(1) > 0,
                 "values must be a CUDA matrix with non-empty vocabulary");
@@ -1067,6 +1116,7 @@ torch::Tensor deterministic_logp_row_sum(torch::Tensor values) {
     return output;
 }
 
+// Return a bool mask of length rows that is true at every in-range row id in indices.
 torch::Tensor deterministic_logp_selection(torch::Tensor indices, int64_t rows) {
     TORCH_CHECK(indices.is_cuda() && indices.dim() == 1 && indices.scalar_type() == at::kLong,
                 "indices must be a CUDA int64 vector");

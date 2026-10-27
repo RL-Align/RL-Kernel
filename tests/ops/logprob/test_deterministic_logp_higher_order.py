@@ -21,6 +21,7 @@ ATOL = {
 
 @pytest.fixture
 def op(record_property):
+    """Return a ``DeterministicLogpCUDAOp`` and record its backend in the test report."""
     result = DeterministicLogpCUDAOp()
     record_property("backend", type(result).__name__)
     record_property("second_backward", "recursive probability/row-sum CUDA primitives")
@@ -28,11 +29,17 @@ def op(record_property):
 
 
 def bits(a, b):
+    """Assert ``a`` and ``b`` have the same dtype and shape and are bitwise identical."""
     assert a.dtype == b.dtype and a.shape == b.shape
     assert torch.equal(a.contiguous().view(torch.uint8), b.contiguous().view(torch.uint8))
 
 
 def inputs(dtype, rows=6, vocab=17):
+    """Return seeded CUDA logits ``x``, labels ``ids``, upstream ``g`` and direction ``h``.
+
+    ``x`` and ``h`` are ``(rows, vocab)`` in ``dtype``; ``g`` is a ``(rows,)`` linspace in float64
+    for FP64 inputs, else float32. ``x`` and ``g`` require gradients.
+    """
     rng = torch.Generator(device="cuda").manual_seed(20261010)
     x = torch.randn(rows, vocab, device="cuda", dtype=dtype, generator=rng).requires_grad_()
     ids = torch.arange(rows, device="cuda") % vocab
@@ -43,6 +50,11 @@ def inputs(dtype, rows=6, vocab=17):
 
 
 def call(op, x, ids, rows=None, out=False):
+    """Call the dense, indexed or ``out`` LogP method matching ``x``'s dtype and ``rows``.
+
+    With ``out=True`` the buffer is pre-filled with 7.0 (float64 for FP64 logits, else float32)
+    and the result is asserted to alias it.
+    """
     fp64 = x.dtype == torch.float64
     if out:
         buffer = torch.full(
@@ -62,6 +74,11 @@ def call(op, x, ids, rows=None, out=False):
 
 
 def reference(x, ids, rows=None, out=False):
+    """Return the PyTorch ``log_softmax`` + gather reference for ``call``.
+
+    Computes in float32 (float64 for FP64 logits) and writes 0 for out-of-range labels. With
+    ``rows``, rows not selected by a valid index are 0, or 7.0 to match the ``out`` buffer.
+    """
     acc = x if x.dtype == torch.float64 else x.float()
     valid = (ids >= 0) & (ids < x.size(-1))
     result = acc.log_softmax(-1).gather(-1, ids.clamp(0, x.size(-1) - 1).unsqueeze(-1)).squeeze(-1)
@@ -75,6 +92,7 @@ def reference(x, ids, rows=None, out=False):
 
 
 def derivatives(y, x, g, h):
+    """Return ``J^T g`` (detached) and the grads of ``<J^T g, h>`` w.r.t. ``x`` and ``g``."""
     dx = torch.autograd.grad(y, x, g, create_graph=True)[0]
     dxx, dg = torch.autograd.grad(dx, (x, g), h)
     return dx.detach(), dxx, dg
@@ -84,6 +102,11 @@ def derivatives(y, x, g, h):
 @pytest.mark.parametrize("vocab", [1, 128, 129, 257, 4096, 4097, 128256])
 @pytest.mark.parametrize("indexed", [False, True])
 def test_second_derivative_reference(op, dtype, vocab, indexed, record_property):
+    """Gradient, HVP and upstream derivative match the PyTorch reference.
+
+    Also checks the no-grad forward is bitwise equal to the autograd forward and that rows with
+    out-of-range labels or not selected by ``rows`` get zero derivatives.
+    """
     x, ids, g, h = inputs(dtype, vocab=vocab)
     ids[1] = -1
     ids[4] = vocab
@@ -110,10 +133,12 @@ def test_second_derivative_reference(op, dtype, vocab, indexed, record_property)
 @pytest.mark.parametrize("indexed", [False, True])
 @pytest.mark.parametrize("out", [False, True])
 def test_fp64_gradcheck(op, indexed, out):
+    """FP64 dense, indexed and ``out`` calls pass ``gradcheck`` and ``gradgradcheck``."""
     x, ids, _, _ = inputs(torch.float64, rows=3, vocab=5)
     rows = torch.tensor([0, 2, 2, -1, 7], device="cuda") if indexed else None
 
     def fn(x):
+        """Return the LogP call of ``x`` with the captured labels, rows and ``out`` mode."""
         return call(op, x, ids, rows, out)
 
     assert torch.autograd.gradcheck(fn, (x,), eps=1e-6, atol=1e-5, rtol=1e-3)
@@ -124,6 +149,10 @@ def test_fp64_gradcheck(op, indexed, out):
 @pytest.mark.parametrize("selected", [None, [], [0, 2, 2, -1, 99]])
 @pytest.mark.parametrize("empty", [False, True])
 def test_out_noncontiguous_empty_and_mask(op, dtype, selected, empty):
+    """``out`` calls on transposed and empty inputs match the reference values and derivatives.
+
+    Covers no row selection, an empty selection and one with duplicate and out-of-range indices.
+    """
     x, ids, g, h = inputs(dtype, rows=0 if empty else 6)
     x = x.reshape(2, -1, 17).transpose(0, 1)
     ids = ids.reshape(2, -1).transpose(0, 1)
@@ -143,10 +172,16 @@ def test_out_noncontiguous_empty_and_mask(op, dtype, selected, empty):
 @pytest.mark.parametrize("indexed", [False, True])
 @pytest.mark.parametrize("out", [False, True])
 def test_derivative_layout_bits(op, dtype, indexed, out):
+    """Gradient, HVP and upstream derivative are bitwise invariant to batch layout.
+
+    Compares repeat runs, the selection without duplicate/invalid indices, row chunks of 1, 2 and
+    4, a row permutation and the same rows embedded in a larger padded batch.
+    """
     x, ids, g, h = inputs(dtype, rows=7, vocab=4097)
     selected = torch.tensor([0, 2, 6, 2, -1, 99], device="cuda") if indexed else None
 
     def run(x, ids, g, h, rows):
+        """Return ``derivatives`` of the LogP call for these inputs and row selection."""
         return derivatives(call(op, x, ids, rows, out), x, g, h)
 
     baseline = run(x, ids, g, h, selected)
@@ -184,12 +219,19 @@ def test_derivative_layout_bits(op, dtype, indexed, out):
 @pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("indexed", [False, True])
 def test_out_reuse_and_guards(op, dtype, indexed):
+    """``out`` buffers are reused in place and guarded against gradient tracking and aliasing.
+
+    With grad enabled, a buffer that requires gradients (including one left attached to the
+    previous graph) or shares storage with the logits raises ``RuntimeError``; under ``no_grad``
+    the grad-requiring buffer is accepted and written in place.
+    """
     x, ids, g, h = inputs(dtype)
     buffer = torch.zeros_like(ids, dtype=g.dtype)
     rows = torch.tensor([0, 2, 2], device="cuda")
     name = ("indexed_out" if indexed else "out") + ("_fp64" if dtype == torch.float64 else "")
 
     def run(output):
+        """Call the dense or indexed ``out`` method under test with ``output`` as the buffer."""
         return (
             getattr(op, name)(x, ids, rows, output)
             if indexed
@@ -227,6 +269,10 @@ def test_out_reuse_and_guards(op, dtype, indexed):
     ],
 )
 def test_fp64_aliases(op, method):
+    """FP64 methods and ``online_*`` aliases match reference derivatives.
+
+    Passing float32 logits to the same method raises ``TypeError`` ("requires float64 logits").
+    """
     x, ids, g, h = inputs(torch.float64)
     args = [x, ids]
     if "indexed" in method:
@@ -244,6 +290,7 @@ def test_fp64_aliases(op, method):
 
 
 def test_fp64_not_float32_disguised(op):
+    """``apply_fp64`` keeps unit logit gaps at magnitude 1e8 that the default float32 call loses."""
     # FP32 loses these differences completely; true FP64 must retain them.
     x = torch.tensor(
         [[1e8, 1e8 + 1, 1e8 + 2]],
@@ -261,6 +308,11 @@ def test_fp64_not_float32_disguised(op):
 
 
 def test_missing_symbols_and_third_order(op):
+    """The FP64 grad of ``sum(HVP)`` w.r.t. ``h`` is zero, and missing ``_C`` symbols raise.
+
+    Softmax Hessian rows sum to zero, so this third-order term vanishes; with an empty backend
+    ``apply_fp64`` raises the "Rebuild rl_engine._C" ``RuntimeError``.
+    """
     x, ids, g, h = inputs(torch.float64)
     grad = torch.autograd.grad(op.apply_fp64(x, ids), x, g, create_graph=True)[0]
     second = torch.autograd.grad(grad, x, h.requires_grad_(), create_graph=True)[0]
@@ -275,6 +327,7 @@ def test_missing_symbols_and_third_order(op):
 @pytest.mark.parametrize("indexed", [False, True])
 @pytest.mark.parametrize("out", [False, True])
 def test_fp64_three_step_sgd(op, linear, indexed, out, record_property):
+    """Three FP64 SGD steps on raw logits or a ``Linear`` layer track the reference within 1e-10."""
     x, ids, g, _ = inputs(torch.float64, rows=6, vocab=17)
     torch.manual_seed(123)
     if linear:
@@ -307,6 +360,7 @@ def test_fp64_three_step_sgd(op, linear, indexed, out, record_property):
 
 @pytest.mark.parametrize("dtype", DTYPES)
 def test_composed_loss_second_derivative(op, dtype):
+    """The HVP of the composed loss ``sum(y ** 2)`` matches the reference within ``8 * ATOL``."""
     x, ids, _, h = inputs(dtype)
     y = call(op, x, ids)
     expected = reference(x, ids)
@@ -321,6 +375,10 @@ def test_composed_loss_second_derivative(op, dtype):
 @pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("composed", [False, True])
 def test_third_order_with_constant_vector(op, dtype, composed):
+    """Third derivative of ``sum(y)`` or ``sum(y ** 2)`` matches the reference within ``8 * ATOL``.
+
+    The HVP along ``h`` is differentiated again w.r.t. ``x`` with a random cotangent vector.
+    """
     x, ids, _, h = inputs(dtype)
     y = call(op, x, ids)
     loss = y.square().sum() if composed else y.sum()

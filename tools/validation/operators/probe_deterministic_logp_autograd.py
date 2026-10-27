@@ -21,6 +21,12 @@ from rl_engine.backends.cuda.logprob.logp import DeterministicLogpCUDAOp  # noqa
 
 
 def main():
+    """Profile each dtype, method and derivative mode and write a JSON kernel-provenance report.
+
+    A case passes when the expected ``deterministic_logp_*`` kernels run, no softmax, Triton,
+    ``batch_invariant_logp`` or double/triple-backward kernel runs, and the result is finite.
+    Raises ``RuntimeError`` if the wrong ``_C`` is loaded or any case fails.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--max-order", type=int, default=8)
@@ -74,6 +80,10 @@ def main():
                     )
 
                 def fn(z):
+                    """Return ``op.<name>(z, ids, ...)``, adding ``rows`` and/or a zero out buffer.
+
+                    ``rows`` is passed when ``indexed``; a zero ``acc``-dtype buffer when ``out``.
+                    """
                     inputs = [z, ids]
                     if indexed:
                         inputs.append(rows)

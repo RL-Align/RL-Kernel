@@ -21,6 +21,7 @@ HIGH_ATOL = {torch.float64: 1e-8, torch.float32: 1e-4, torch.float16: 2e-3, torc
 
 @pytest.fixture
 def op(record_property):
+    """Return a ``DeterministicLogpCUDAOp`` and record its backend names as test properties."""
     record_property("backend", "DeterministicLogpCUDAOp")
     record_property(
         "derivative_backend", "recursive custom CUDA probability/row-sum + ATen pointwise"
@@ -29,6 +30,12 @@ def op(record_property):
 
 
 def invoke(op, x, ids, rows=None, out=False):
+    """Call the ``op`` LogP method selected by ``x.dtype``, ``rows`` and ``out``.
+
+    Float64 logits use the ``*_fp64`` methods and other dtypes the FP32 ones (``out`` and
+    ``indexed_out`` have no suffix); ``rows`` picks the indexed variant, and ``out=True`` writes
+    into a new ``ids.shape`` buffer prefilled with 7.0. Returns the method's result.
+    """
     suffix = "fp64" if x.dtype == torch.float64 else "fp32"
     if out:
         buffer = x.new_full(
@@ -45,6 +52,10 @@ def invoke(op, x, ids, rows=None, out=False):
 
 
 def data(dtype, rows=2, vocab=5):
+    """Return seeded ``(rows, vocab)`` CUDA logits (scaled by 0.2, requiring grad) and labels.
+
+    The labels are ``arange(rows) % vocab``.
+    """
     rng = torch.Generator(device="cuda").manual_seed(20261010)
     x = (torch.randn(rows, vocab, device="cuda", dtype=dtype, generator=rng) * 0.2).requires_grad_()
     ids = torch.arange(rows, device="cuda") % vocab
@@ -56,6 +67,12 @@ def data(dtype, rows=2, vocab=5):
 @pytest.mark.parametrize("out", [False, True])
 @pytest.mark.parametrize("composed", [False, True])
 def test_recursive_orders(op, dtype, indexed, out, composed, record_property):
+    """Reverse-mode derivatives of orders 1..``MAX_ORDER`` match the PyTorch ``reference``.
+
+    Each order differentiates the previous gradients w.r.t. logits and output weights, contracted
+    with a weight direction and a logit direction that is flipped every order; ``composed``
+    squares the LogP first and widens the order <= 3 tolerance 8x.
+    """
     x, ids = data(dtype)
     rows = torch.tensor([0, 0, -1, 9], device="cuda") if indexed else None
     weights = torch.tensor(
@@ -95,13 +112,20 @@ def test_recursive_orders(op, dtype, indexed, out, composed, record_property):
 @pytest.mark.parametrize("indexed", [False, True])
 @pytest.mark.parametrize("out", [False, True])
 def test_func_transforms(op, dtype, indexed, out, record_property):
+    """``torch.func`` transforms and their nested compositions match the PyTorch ``reference``.
+
+    Also checks JVP under ``no_grad``, forward-AD dual tensors, and the adjoint identity
+    ``<J t, u> == <t, J^T u>`` evaluated in FP64.
+    """
     x, ids = data(dtype)
     rows = torch.tensor([0, 0, -1, 9], device="cuda") if indexed else None
 
     def fn(z):
+        """Return the op's LogP of ``z`` with the enclosing labels, rows and out mode."""
         return invoke(op, z, ids, rows, out)
 
     def ref(z):
+        """Return the reference LogP of ``z`` with the enclosing labels, rows and out mode."""
         return reference(z, ids, rows, out)
 
     tangent = torch.linspace(-0.7, 0.8, x.numel(), device="cuda", dtype=dtype).reshape(x.shape)
@@ -156,6 +180,11 @@ def test_func_transforms(op, dtype, indexed, out, record_property):
 @pytest.mark.parametrize("mapped_metadata", [False, True])
 @pytest.mark.parametrize("axis", [0, 1])
 def test_vmap_combinations(op, out, mapped_metadata, axis):
+    """``vmap`` of the FP64 indexed op, its ``grad`` and its JVP bitwise match per-sample calls.
+
+    Covers batch axis 0 and 1 and mapped or shared labels and row indices; nested ``vmap`` is
+    also compared bitwise, while the empty batch only has its output shape checked.
+    """
     x, ids = data(torch.float64)
     batch = torch.stack([x, x + 0.1, x - 0.1]).movedim(0, axis)
     labels = ids.expand(3, -1) if mapped_metadata else ids
@@ -167,6 +196,7 @@ def test_vmap_combinations(op, out, mapped_metadata, axis):
     dims = (axis, 0 if mapped_metadata else None, 0 if mapped_metadata else None)
 
     def fn(z, i, r):
+        """Return the indexed LogP of logits ``z`` with labels ``i`` and row indices ``r``."""
         return invoke(op, z, i, r, out)
 
     result = torch.vmap(fn, in_dims=dims)(batch, labels, indices)
@@ -183,6 +213,7 @@ def test_vmap_combinations(op, out, mapped_metadata, axis):
     bits(result, baseline)
 
     def scalar(z, i, r):
+        """Return the summed indexed LogP, the scalar that ``torch.func.grad`` differentiates."""
         return fn(z, i, r).sum()
 
     vg = torch.vmap(torch.func.grad(scalar), in_dims=dims)(batch, labels, indices)
@@ -199,6 +230,7 @@ def test_vmap_combinations(op, out, mapped_metadata, axis):
     bits(vg, expected)
 
     def jvp(z, i, r):
+        """Return the JVP of the indexed LogP at ``z`` along an all-ones tangent."""
         return torch.func.jvp(lambda t: fn(t, i, r), (z,), (torch.ones_like(z),))[1]
 
     bits(
@@ -216,6 +248,7 @@ def test_vmap_combinations(op, out, mapped_metadata, axis):
     )
 
     def fn_shared(z):
+        """Return the indexed LogP of ``z`` with the outer labels and fixed rows ``[0, 0]``."""
         return invoke(op, z, ids, torch.tensor([0, 0], device="cuda"), out)
 
     nested = x.expand(2, 3, *x.shape)
@@ -230,10 +263,12 @@ def test_vmap_combinations(op, out, mapped_metadata, axis):
 @pytest.mark.parametrize("indexed", [False, True])
 @pytest.mark.parametrize("out", [False, True])
 def test_fp64_checks(op, indexed, out):
+    """FP64 LogP passes ``gradcheck``/``gradgradcheck`` and matches a central-difference JVP."""
     x, ids = data(torch.float64, rows=1, vocab=3)
     rows = torch.tensor([0, 0, -1], device="cuda") if indexed else None
 
     def fn(z):
+        """Return the op's FP64 LogP of ``z`` with the enclosing labels, rows and out mode."""
         return invoke(op, z, ids, rows, out)
 
     assert torch.autograd.gradcheck(fn, (x,), eps=1e-6, atol=1e-5, rtol=1e-3, check_forward_ad=True)
@@ -245,11 +280,17 @@ def test_fp64_checks(op, indexed, out):
 
 
 def test_mapped_out_storage_and_shared_rejection(op):
+    """Mapped ``out_fp64`` buffers are written in place; shared or captured buffers raise.
+
+    ``vmap`` with a per-sample buffer returns that storage, equal to ``apply_fp64``; an unmapped
+    buffer under ``vmap`` or a captured one under ``torch.func.grad`` raises ``RuntimeError``.
+    """
     x, ids = data(torch.float64)
     batch = x.expand(3, *x.shape).clone()
     buffers = torch.empty(3, *ids.shape, device="cuda", dtype=x.dtype)
 
     def fn(z, b):
+        """Write the FP64 LogP of ``z`` into the out buffer ``b`` and return it."""
         return op.out_fp64(z, ids, b)
 
     result = torch.vmap(fn)(batch, buffers)
@@ -268,6 +309,11 @@ def test_mapped_out_storage_and_shared_rejection(op):
 @pytest.mark.parametrize("indexed", [False, True])
 @pytest.mark.parametrize("out", [False, True])
 def test_all_order_layout_bits(op, dtype, indexed, out):
+    """Gradients of orders 1..``MAX_ORDER`` are bitwise invariant to the batch layout.
+
+    Reruns, unique vs duplicate/out-of-range row indices, row chunking, row permutation and
+    zero-weight padding rows reproduce the baseline bits; padding rows get zero gradients.
+    """
     x, ids = data(dtype, rows=7, vocab=17)
     weights = torch.linspace(
         -0.4,
@@ -280,6 +326,10 @@ def test_all_order_layout_bits(op, dtype, indexed, out):
     rows = torch.tensor([0, 2, 6, 2, -1, 99], device="cuda") if indexed else None
 
     def run(x, ids, weights, vectors, rows):
+        """Return detached gradients w.r.t. ``x`` of orders 1..``MAX_ORDER`` of the weighted LogP.
+
+        Each order differentiates the previous gradient contracted with ``vectors``.
+        """
         scalar = (invoke(op, x, ids, rows, out) * weights).sum()
         grads = []
         for order in range(MAX_ORDER):
@@ -322,6 +372,11 @@ def test_all_order_layout_bits(op, dtype, indexed, out):
 @pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("empty", [False, True])
 def test_transform_edge_inputs(op, dtype, empty):
+    """Indexed ``jvp`` (primal and tangent) and ``grad`` match the reference on transposed logits.
+
+    The logits are non-contiguous and optionally empty. Non-empty labels include -1 and ``vocab``;
+    row indices include duplicates and out-of-range values; plain and ``out`` calls are checked.
+    """
     x, ids = data(dtype, rows=0 if empty else 6, vocab=5)
     x = x.reshape(2, 0 if empty else 3, 5).transpose(0, 1)
     ids = ids.reshape(2, 0 if empty else 3).transpose(0, 1)
@@ -333,9 +388,11 @@ def test_transform_edge_inputs(op, dtype, empty):
     for out in (False, True):
 
         def fn(z):
+            """Return the op's indexed LogP of ``z`` in the current ``out`` mode."""
             return invoke(op, z, ids, rows, out)
 
         def ref(z):
+            """Return the reference indexed LogP of ``z`` in the current ``out`` mode."""
             return reference(z, ids, rows, out)
 
         for actual, expected in zip(
@@ -352,18 +409,24 @@ def test_transform_edge_inputs(op, dtype, empty):
 
 @pytest.mark.parametrize("dtype", DTYPES)
 def test_nested_forward_orders(op, dtype, record_property):
+    """Nested forward-mode JVPs of indexed ``out`` LogP match the reference up to ``MAX_ORDER``."""
     x, ids = data(dtype)
     rows = torch.tensor([0, 0, -1, 99], device="cuda")
     vector = torch.linspace(-0.7, 0.8, x.numel(), device=x.device, dtype=dtype).reshape(x.shape)
 
     def actual(z):
+        """Return the op's indexed ``out`` LogP of ``z``."""
         return invoke(op, z, ids, rows, out=True)
 
     def expected(z):
+        """Return the reference indexed ``out`` LogP of ``z``."""
         return reference(z, ids, rows, out=True)
 
     def differentiate(fn):
+        """Return a function that computes the JVP of ``fn`` along ``vector``."""
+
         def derivative(z):
+            """Return the JVP of ``fn`` at ``z`` along ``vector``."""
             return torch.func.jvp(fn, (z,), (vector,))[1]
 
         return derivative

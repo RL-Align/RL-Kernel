@@ -273,6 +273,10 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
         logger.info("Successfully linked to precompiled _C.deterministic_logp kernel.")
 
     def _prepare_inputs(self, logits, token_ids):
+        """Return ``(rows, vocab)`` logits, flat contiguous int64 ``token_ids`` and the row shape.
+
+        ``token_ids`` is moved to the ``logits`` device; the row shape is ``logits.shape[:-1]``.
+        """
         shape = logits.shape[:-1]
         rows = logits.numel() // logits.shape[-1]
         return (
@@ -284,6 +288,7 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
         )
 
     def _prepare_output(self, output, shape):
+        """Return ``output`` flattened to 1-D; raise ``ValueError`` if its shape isn't ``shape``."""
         if output.shape != shape:
             raise ValueError(
                 f"output shape {tuple(output.shape)} must match logits leading shape {tuple(shape)}"
@@ -291,6 +296,7 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
         return output.reshape(output.numel())
 
     def _prepare_indices(self, row_indices, logits):
+        """Return ``row_indices`` as a flat contiguous int64 vector on the ``logits`` device."""
         return (
             row_indices.reshape(row_indices.numel())
             .to(device=logits.device, dtype=torch.long)
@@ -304,6 +310,12 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
         return self.apply_fp32(logits, token_ids)
 
     def apply_fp32(self, logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
+        """Return float32 ``log_softmax(logits)`` at ``token_ids``, shaped ``logits.shape[:-1]``.
+
+        Rows with an out-of-range token id are 0. When ``logits`` needs reverse/forward AD or a
+        functorch transform, the recursively differentiable ``_Logp`` node computes the result
+        (and raises ``TypeError`` for float64 logits); otherwise the FP32 forward kernel runs.
+        """
         if _needs_ad(logits):
             return _deterministic_logp(logits, token_ids, None, self._backend, False)
         logits_2d, token_ids_1d, orig_shape = self._prepare_inputs(logits, token_ids)
@@ -311,6 +323,13 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
         return results.view(orig_shape)
 
     def _validate_out(self, logits, token_ids, row_indices, output, fp64=False):
+        """Raise unless ``output`` can safely receive the LogP result; return nothing.
+
+        A shape mismatch raises ``ValueError``; every other violation raises ``RuntimeError``.
+        ``output`` must match the logits row shape, be contiguous on the logits device and be
+        float16/bfloat16/float32/float64 (float64 when ``fp64``). Under grad mode or AD it must
+        also not require grad and must not share storage with any input.
+        """
         self._prepare_output(output, logits.shape[:-1])
         if output.device != logits.device or not output.is_contiguous():
             raise RuntimeError("output must be contiguous and on the logits device")
@@ -329,6 +348,11 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
                     raise RuntimeError("out buffer must not share storage with inputs")
 
     def _copy_out(self, logits, token_ids, row_indices, output, fp64=False):
+        """Copy the differentiable FP32 or FP64 LogP into ``output`` and return ``output``.
+
+        In indexed mode, rows not named by an in-range ``row_indices`` entry keep their current
+        ``output`` values.
+        """
         # copy_ supplies the standard autograd mutation/version tracking. In
         # indexed mode unselected buffer values are constants, not zero-filled.
         if row_indices is None:
@@ -350,6 +374,12 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
     def out(
         self, logits: torch.Tensor, token_ids: torch.Tensor, output: torch.Tensor
     ) -> torch.Tensor:
+        """Write each row's FP32-computed LogP into ``output`` (cast to its dtype) and return it.
+
+        Under AD the ``_Logp`` result is copied in with ``copy_`` so gradients flow and ``output``
+        is returned; otherwise the forward kernel writes ``output`` in place and a view of it is
+        returned.
+        """
         self._validate_out(logits, token_ids, None, output)
         if _needs_ad(logits):
             return self._copy_out(logits, token_ids, None, output)
@@ -366,6 +396,12 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
         row_indices: torch.Tensor,
         output: torch.Tensor,
     ) -> torch.Tensor:
+        """Write LogP for the rows in ``row_indices`` into ``output``; other rows keep their values.
+
+        Out-of-range row indices are skipped. Under AD the FP32 ``_Logp`` result is merged and
+        copied in with ``copy_`` so gradients flow; otherwise the indexed forward kernel writes
+        ``output`` in place (it requires 16-byte aligned logits) and a view of it is returned.
+        """
         self._validate_out(logits, token_ids, row_indices, output)
         if _needs_ad(logits):
             return self._copy_out(logits, token_ids, row_indices, output)
@@ -379,14 +415,25 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
         return results.view(orig_shape)
 
     def apply_fp64(self, logits: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:
+        """Return float64 LogP per row of float64 ``logits``, shaped ``logits.shape[:-1]``.
+
+        Computed with FP64 arithmetic; out-of-range token ids give 0. Other dtypes raise
+        ``TypeError``.
+        """
         return self._fp64(logits, token_ids, None)
 
     def indexed_fp64(
         self, logits: torch.Tensor, token_ids: torch.Tensor, row_indices: torch.Tensor
     ) -> torch.Tensor:
+        """Return float64 LogP for the rows in ``row_indices``; all other rows are zero."""
         return self._fp64(logits, token_ids, self._prepare_indices(row_indices, logits))
 
     def _fp64(self, logits, token_ids, row_indices):
+        """Compute float64 LogP, restricted to the prepared ``row_indices`` when given.
+
+        Raises ``TypeError`` for non-float64 logits and ``RuntimeError`` if the FP64 kernel is not
+        built. Uses the differentiable ``_Logp`` node when AD is needed, else the FP64 kernel.
+        """
         if logits.dtype != torch.float64:
             raise TypeError("FP64 LogP requires float64 logits")
         _require_deterministic_symbols(self._backend, "deterministic_logp_forward_fp64")
@@ -399,6 +446,7 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
     def out_fp64(
         self, logits: torch.Tensor, token_ids: torch.Tensor, output: torch.Tensor
     ) -> torch.Tensor:
+        """Copy the FP64 LogP into float64 ``output`` with a differentiable ``copy_``; return it."""
         self._validate_out(logits, token_ids, None, output, fp64=True)
         return self._copy_out(logits, token_ids, None, output, fp64=True)
 
@@ -409,6 +457,10 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
         row_indices: torch.Tensor,
         output: torch.Tensor,
     ) -> torch.Tensor:
+        """Copy FP64 LogP for the rows in ``row_indices`` into float64 ``output``; return it.
+
+        Rows not named by an in-range index keep their current ``output`` values.
+        """
         self._validate_out(logits, token_ids, row_indices, output, fp64=True)
         return self._copy_out(logits, token_ids, row_indices, output, fp64=True)
 
@@ -420,6 +472,10 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
     def indexed_fp32(
         self, logits: torch.Tensor, token_ids: torch.Tensor, row_indices: torch.Tensor
     ) -> torch.Tensor:
+        """Return float32 LogP for the rows in ``row_indices``; all other rows are zero.
+
+        Uses the recursively differentiable ``_Logp`` node when AD is needed, else the kernel.
+        """
         logits_2d, token_ids_1d, orig_shape = self._prepare_inputs(logits, token_ids)
         row_indices_1d = self._prepare_indices(row_indices, logits)
         if _needs_ad(logits):

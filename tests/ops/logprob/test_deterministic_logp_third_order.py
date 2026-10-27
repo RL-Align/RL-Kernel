@@ -16,17 +16,23 @@ pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is u
 
 @pytest.fixture
 def op(record_property):
+    """Return a ``DeterministicLogpCUDAOp`` and record its backend in the test report."""
     record_property("backend", "DeterministicLogpCUDAOp")
     record_property("third_backward", "recursive probability/row-sum CUDA primitives")
     return DeterministicLogpCUDAOp()
 
 
 def second(y, x, g, h):
+    """Return differentiable grads of ``<J^T g, h>`` w.r.t. ``x`` and ``g`` (``J = dy/dx``)."""
     first = torch.autograd.grad(y, x, g, create_graph=True)[0]
     return torch.autograd.grad(first, (x, g), h, create_graph=True)
 
 
 def third(y, x, g, h, a, b, branch="both"):
+    """Return grads of ``<dx, a> + <dg, b>`` w.r.t. ``(x, g, h)``, where ``dx, dg = second(...)``.
+
+    ``branch="x"`` zeroes ``b`` and ``branch="g"`` zeroes ``a``, keeping one second output.
+    """
     dx, dg = second(y, x, g, h)
     if branch == "x":
         b = torch.zeros_like(b)
@@ -39,6 +45,10 @@ def third(y, x, g, h, a, b, branch="both"):
 @pytest.mark.parametrize("vocab", [1, 128, 129, 257, 4096, 4097, 128256])
 @pytest.mark.parametrize("indexed", [False, True])
 def test_third_reference(op, dtype, vocab, indexed, record_property):
+    """Third-order grads w.r.t. ``x``, ``g`` and ``h`` match the PyTorch reference.
+
+    Rows with out-of-range labels or not selected by ``rows`` get exactly zero gradients.
+    """
     x, ids, g, h = inputs(dtype, vocab=vocab)
     h.requires_grad_()
     ids[1], ids[4] = -1, vocab
@@ -59,11 +69,13 @@ def test_third_reference(op, dtype, vocab, indexed, record_property):
 @pytest.mark.parametrize("indexed", [False, True])
 @pytest.mark.parametrize("out", [False, True])
 def test_third_fp64_finite_differences(op, indexed, out):
+    """FP64 ``second`` passes ``gradcheck`` in ``x``, ``g`` and ``h``, validating third order."""
     x, ids, g, h = inputs(torch.float64, rows=3, vocab=5)
     h.requires_grad_()
     rows = torch.tensor([0, 2, 2, -1, 8], device="cuda") if indexed else None
 
     def fn(x, g, h):
+        """Return ``second`` of the LogP call with the captured labels, rows and ``out`` mode."""
         return second(call(op, x, ids, rows, out), x, g, h)
 
     assert torch.autograd.gradcheck(fn, (x, g, h), eps=1e-6, atol=1e-5, rtol=1e-3)
@@ -72,6 +84,7 @@ def test_third_fp64_finite_differences(op, indexed, out):
 @pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("branch", ["x", "g"])
 def test_each_second_output(op, dtype, branch):
+    """Grads of ``dx`` alone or ``dg`` alone match the reference with the other cotangent zeroed."""
     x, ids, g, h = inputs(dtype)
     h.requires_grad_()
     a, b = h.detach().flip(-1), g.detach().flip(0)
@@ -93,12 +106,19 @@ def test_each_second_output(op, dtype, branch):
 @pytest.mark.parametrize("indexed", [False, True])
 @pytest.mark.parametrize("out", [False, True])
 def test_third_layout_bits(op, dtype, indexed, out):
+    """Third-order grads are bitwise invariant to batch layout.
+
+    Compares repeat runs, the selection without duplicate/invalid indices, row chunks of 1, 2 and
+    4, a row permutation and a padded batch; when indexed, the unselected padding rows must get
+    zero gradients.
+    """
     x, ids, g, h = inputs(dtype, rows=7, vocab=4097)
     h.requires_grad_()
     a, b = h.detach().flip(-1), g.detach().flip(0)
     rows = torch.tensor([0, 2, 6, 2, -1, 99], device="cuda") if indexed else None
 
     def run(x, ids, g, h, a, b, rows):
+        """Return ``third`` of the LogP call for these inputs, cotangents and row selection."""
         return third(call(op, x, ids, rows, out), x, g, h, a, b)
 
     base = run(x, ids, g, h, a, b, rows)
@@ -148,6 +168,7 @@ def test_third_layout_bits(op, dtype, indexed, out):
 @pytest.mark.parametrize("empty", [False, True])
 @pytest.mark.parametrize("selection", [None, [], [0, 2, 2, -1, 99]])
 def test_third_noncontiguous_empty_out(op, dtype, empty, selection):
+    """Third-order grads of ``out`` calls on transposed and empty inputs match the reference."""
     x, ids, g, h = inputs(dtype, rows=0 if empty else 6)
     x = x.reshape(2, -1, 17).transpose(0, 1)
     ids = ids.reshape(2, -1).transpose(0, 1)
@@ -164,6 +185,7 @@ def test_third_noncontiguous_empty_out(op, dtype, empty, selection):
 @pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("composed", [False, True])
 def test_fourth_reference(op, dtype, composed):
+    """Fourth-order directional derivatives of ``sum(y)`` and ``sum(y ** 2)`` match reference."""
     x, ids, _, h = inputs(dtype)
     y = call(op, x, ids)
     loss = y.square().sum() if composed else y.sum()
@@ -181,6 +203,7 @@ def test_fourth_reference(op, dtype, composed):
 
 
 def test_missing_recursive_symbol(op):
+    """A ``create_graph`` backward raises "Rebuild rl_engine._C" with only first-order symbols."""
     names = ("deterministic_logp_forward_with_lse", "deterministic_logp_backward")
     op._backend = SimpleNamespace(**{name: getattr(op._backend, name) for name in names})
     x, ids, g, h = inputs(torch.float32)
