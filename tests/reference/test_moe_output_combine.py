@@ -12,10 +12,59 @@ from rl_engine.contracts.operators.moe import (
     MoEOutputCombinePlan,
 )
 from rl_engine.reference.moe import (
+    combine_local_input_gradients,
     inverse_map_expert_output,
     inverse_mapping_provenance,
     prepare_output_combine,
 )
+
+
+def test_local_input_gradients_use_fixed_slot_and_branch_order():
+    # Physical rows are (token=1, slot=0), (0, 0), (1, 1), (0, 1).
+    plan = MoEOutputCombinePlan(top_k=2, hidden_size=2)
+    inputs = MoEOutputCombineInputs(
+        expert_output=torch.zeros(4, 2, dtype=torch.bfloat16),
+        token_indices=torch.tensor([1, 0, 1, 0], dtype=torch.int64),
+        expert_indices=torch.tensor([0, 0, 1, 1], dtype=torch.int64),
+        slot_indices=torch.tensor([0, 0, 1, 1], dtype=torch.int64),
+        routing_weights=torch.ones(4, dtype=torch.float32),
+        num_tokens=2,
+    )
+    expert_gradient = torch.tensor([[1, 2], [3, 4], [5, 6], [7, 8]], dtype=torch.bfloat16)
+
+    combined = combine_local_input_gradients(
+        plan,
+        inputs,
+        expert_gradient,
+        shared_expert_gradient=torch.tensor([[0.5, 1.0], [0.5, 1.0]], dtype=torch.bfloat16),
+        gate_gradient=torch.tensor([[1.0, 0.0], [1.0, 0.0]], dtype=torch.bfloat16),
+        residual_gradient=torch.tensor([[2.0, 3.0], [2.0, 3.0]], dtype=torch.bfloat16),
+        num_tokens=2,
+    )
+
+    expected = torch.tensor([[13.5, 16.0], [9.5, 12.0]], dtype=torch.bfloat16)
+    assert torch.equal(combined, expected)
+
+
+def test_local_input_gradients_reject_bad_branch_shape_and_count():
+    plan, inputs = _request()
+    expert_gradient = torch.ones(4, 3, dtype=torch.bfloat16)
+
+    with pytest.raises(MoEOutputCombineContractError, match="shape"):
+        combine_local_input_gradients(
+            plan,
+            inputs,
+            expert_gradient,
+            shared_expert_gradient=torch.ones(3, 2, dtype=torch.bfloat16),
+            num_tokens=2,
+        )
+    with pytest.raises(MoEOutputCombineContractError, match="slot count"):
+        combine_local_input_gradients(
+            plan,
+            inputs,
+            torch.ones(4, 3, dtype=torch.bfloat16),
+            num_tokens=3,
+        )
 
 
 def _plan(**kwargs):
