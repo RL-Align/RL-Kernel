@@ -325,3 +325,26 @@ def deterministic_collective_rocm_ipc_all_gather_input(
     input: torch.Tensor,
     output: torch.Tensor,
 ) -> None: ...
+
+# Qwen-Image conditioning; NVIDIA CUDA only, strict math build.
+def qwenimage_det_linear_forward(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    bias: torch.Tensor | None,
+    activation: int,
+    save_pre_activation: bool,
+) -> list[torch.Tensor]: ...
+def qwenimage_det_linear_backward_input(
+    grad: torch.Tensor,
+    weight: torch.Tensor,
+    out_dtype: torch.dtype,
+) -> torch.Tensor: ...
+def qwenimage_det_linear_backward_weight(
+    grad: torch.Tensor,
+    x: torch.Tensor,
+    out_dtype: torch.dtype,
+    with_bias: bool,
+) -> list[torch.Tensor]: ...
+def qwenimage_token_sum(x: torch.Tensor) -> torch.Tensor: ...
+def qwenimage_strict_math_compiled() -> bool: ...
+def qwenimage_det_linear_backward_bias(grad: torch.Tensor, dtype: torch.dtype) -> torch.Tensor: ...
