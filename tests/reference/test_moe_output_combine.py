@@ -245,6 +245,17 @@ def test_reference_entry_points_reject_non_cpu_inputs():
         inverse_map_expert_output(plan, inputs, num_tokens=2)
 
 
+def test_contract_rejects_meta_indices_when_expert_output_is_materialized():
+    plan = _plan()
+    inputs = _inputs(
+        plan,
+        token_indices=torch.zeros(4, dtype=torch.int64, device="meta"),
+    )
+
+    with pytest.raises(MoEOutputCombineContractError, match="token_indices"):
+        inputs.validate(plan)
+
+
 def _request(
     *, index_dtype=torch.int64, expert_output=None, tokens=None, slots=None, run_id="run-1"
 ):

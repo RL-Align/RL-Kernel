@@ -28,6 +28,10 @@ def _exchange(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Send independent rows; no float reduction or implicit local fallback."""
 
+    if destinations.ndim != 1 or destinations.dtype not in (torch.int32, torch.int64):
+        raise ValueError("destinations must be a 1-D int32/int64 tensor")
+    if bool(torch.any(destinations < 0).item()) or bool(torch.any(destinations >= world).item()):
+        raise ValueError("destinations must be in [0, world)")
     order = torch.argsort(destinations, stable=True)
     send_counts = torch.bincount(destinations, minlength=world).to(torch.int64)
     receive_counts = torch.empty_like(send_counts)
@@ -89,7 +93,8 @@ def run_case(world: int, rank: int, device: torch.device, *, skew: bool) -> dict
     received: list = [None] * world
     dist.all_gather_object(received, (returned.cpu(), outputs.cpu()))
     returned_to_source = all(
-        bool((item[0][:, 0] == source).all()) for source, item in enumerate(received)
+        item[0].shape[0] == counts[source] * top_k and bool((item[0][:, 0] == source).all())
+        for source, item in enumerate(received)
     )
     all_routes = torch.cat([item[0] for item in received])
     all_values = torch.cat([item[1] for item in received])

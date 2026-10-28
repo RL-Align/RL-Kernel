@@ -74,6 +74,7 @@ def _canonical_routing_weights(
     mapping_inputs: MoEOutputCombineInputs,
     *,
     num_tokens: int,
+    expected_mapping_run_id: str | None,
 ) -> torch.Tensor | None:
     """Restore producer-owned routing weights to token-major/slot-minor order."""
 
@@ -90,6 +91,7 @@ def _canonical_routing_weights(
         weight_plan,
         weight_inputs,
         num_tokens=num_tokens,
+        expected_mapping_run_id=expected_mapping_run_id,
     ).squeeze(-1)
 
 
@@ -180,6 +182,7 @@ def combine_local_input_gradients(
         mapping_plan,
         mapped_inputs,
         num_tokens=num_tokens,
+        expected_mapping_run_id=expected_mapping_run_id,
     )
     combined = torch.zeros(
         (num_tokens, plan.hidden_size),
