@@ -242,6 +242,7 @@ def test_indexed_reference_geometry_and_batch_layout(dtype, hidden):
 
 def test_indexed_reference_bf16_output_and_dx_ties():
     from fractions import Fraction as F
+
     from tests.helpers.adaln_indexed import check_bf16_ties
 
     assert F(3, 4) + F(65, 256) == (F(1) + F(129, 128)) / 2
@@ -253,6 +254,7 @@ def test_indexed_reference_bf16_output_and_dx_ties():
 
 def test_indexed_reference_bf16_parameter_fold_cast_counterexample():
     from fractions import Fraction as F
+
     from tests.helpers.adaln_indexed import check_bf16_parameter_fold_final_cast
 
     assert F(1) + F(1, 256) + F(1, 256) == F(129, 128)
@@ -267,6 +269,7 @@ def test_indexed_reference_bf16_parameter_fold_cast_counterexample():
 
 def test_indexed_reference_bf16_all_parameter_ties():
     from fractions import Fraction as F
+
     from tests.helpers.adaln_indexed import check_bf16_parameter_ties
 
     assert F(1) + F(1, 256) == (F(1) + F(129, 128)) / 2

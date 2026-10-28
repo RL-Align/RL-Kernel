@@ -3,10 +3,10 @@ import os
 import pytest
 import torch
 
-from rl_engine.validation.operators.operator_specs import GtestAdaLNReference
 from rl_engine.contracts.numerical import load_contract, resolve_tolerance
 from rl_engine.reference.norm.adaln_modulation import NativeAdaLNModulationOp
 from rl_engine.runtime.registry import OpBackend, kernel_registry
+from rl_engine.validation.operators.operator_specs import GtestAdaLNReference
 
 
 def _assert_bytes_equal(actual, expected):
@@ -392,9 +392,11 @@ def test_adaln_indexed_matches_independent_autograd(device, dtype, broadcast):
     _assert_accuracy(modulation.grad, ref_modulation.grad, judgment="gradient_accuracy")
     _assert_bytes_equal(gate, ref_gate.to(dtype))
     assert x.grad.abs().max() > 0
-    accelerated = device == "cuda" and torch.version.hip is None and trace[
-        "selected_backend"
-    ] in {"CUDA_ADALN_MODULATION", "TRITON_ADALN_MODULATION"}
+    accelerated = (
+        device == "cuda"
+        and torch.version.hip is None
+        and trace["selected_backend"] in {"CUDA_ADALN_MODULATION", "TRITON_ADALN_MODULATION"}
+    )
     if accelerated:
         assert trace["actual_backend"] == (
             "cuda" if trace["selected_backend"] == "CUDA_ADALN_MODULATION" else "triton"

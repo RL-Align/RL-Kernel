@@ -3,15 +3,12 @@
 """AdaLN dispatch policy and observations at the public resolver seam."""
 
 import os
+from argparse import Namespace
 
 import pytest
 import torch
 
-from argparse import Namespace
-
-from rl_engine.validation.operators import CandidateSpec, run_operator_suite
-from rl_engine.validation.operators.operator_specs import make_candidate, make_operator_case
-from rl_engine.validation.operators.operator_specs import GtestAdaLNReference
+from rl_engine.backends.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
 from rl_engine.contracts.numerical import (
     BackendProvenance,
     ContractResolveError,
@@ -19,10 +16,14 @@ from rl_engine.contracts.numerical import (
     resolve_tolerance,
     validate_backend_provenance,
 )
-from rl_engine.backends.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
 from rl_engine.reference.norm.adaln_modulation import NativeAdaLNModulationOp
-from rl_engine.runtime.registry import OpBackend
-from rl_engine.runtime.registry import KernelRegistry, kernel_registry
+from rl_engine.runtime.registry import KernelRegistry, OpBackend, kernel_registry
+from rl_engine.validation.operators import CandidateSpec, run_operator_suite
+from rl_engine.validation.operators.operator_specs import (
+    GtestAdaLNReference,
+    make_candidate,
+    make_operator_case,
+)
 
 
 @pytest.fixture

@@ -9,6 +9,9 @@ from dataclasses import replace
 import pytest
 import torch
 
+from rl_engine.contracts.numerical import load_contract, resolve_tolerance
+from rl_engine.reference.norm.adaln_modulation import NativeAdaLNModulationOp
+from rl_engine.runtime.registry import OpBackend, kernel_registry
 from rl_engine.validation.operators import run_operator_suite
 from rl_engine.validation.operators.operator_inputs import operator_shape_name
 from rl_engine.validation.operators.operator_specs import (
@@ -16,9 +19,6 @@ from rl_engine.validation.operators.operator_specs import (
     make_candidate,
     make_operator_case,
 )
-from rl_engine.contracts.numerical import load_contract, resolve_tolerance
-from rl_engine.reference.norm.adaln_modulation import NativeAdaLNModulationOp
-from rl_engine.runtime.registry import OpBackend, kernel_registry
 
 
 def _args(hidden=7):

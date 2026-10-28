@@ -64,7 +64,8 @@ def test_indexed_missing_extension_real_resolution(tmp_path, triton_state, missi
     script = (
         f"TRITON_AVAILABLE = {triton_available!r}\n"
         f"MISSING_SYMBOL = {missing_symbol!r}\nSHARED_CUDA = {shared_cuda!r}\n"
-        f"FIXTURE_SHA256 = {fixture_digest!r}\n" + """
+        f"FIXTURE_SHA256 = {fixture_digest!r}\n"
+        + """
 import pathlib, torch, rl_engine, importlib.util
 assert (importlib.util.find_spec("triton") is not None) == TRITON_INSTALLED
 from rl_engine.backends.extension import _C, _EXT_AVAILABLE

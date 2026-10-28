@@ -165,6 +165,7 @@ def metadata_op(request):
 
         return TritonAdaLNModulationOp()
     import os
+
     from rl_engine.backends.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
 
     try:
@@ -234,7 +235,6 @@ def test_indexed_eps_arithmetic(indexed_op, eps, dtype):
 def test_cuda_indexed_maximum_batch_both_banks_nonzero_dx(dtype, threads):
     require_cuda()
     from rl_engine.backends.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
-
     from tests.helpers.adaln_indexed import check_maximum_batch
 
     check_maximum_batch(CudaAdaLNModulationOp(threads=threads), dtype)
