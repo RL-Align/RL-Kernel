@@ -21,7 +21,10 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # approximations and flushes denormals, so these sources are left out of
 # KERNEL_ALIGN_USE_FAST_MATH=1 builds; their bindings are gated on
 # KERNEL_ALIGN_WITH_H3_KERNELS and dispatch falls back to the PyTorch reference.
-H3_BITWISE_SOURCES = ("csrc/cuda/h3/timestep_sinusoid.cu",)
+H3_BITWISE_SOURCES = (
+    "csrc/cuda/h3/timestep_sinusoid.cu",
+    "csrc/cuda/h3/det_linear.cu",
+)
 H3_KERNELS_DEFINE = "-DKERNEL_ALIGN_WITH_H3_KERNELS"
 # nvcc options that relax FP32 math. They can also arrive through the environment, where PyTorch's
 # BuildExtension appends them after the flags built here, so the H3 kernels check for them too.

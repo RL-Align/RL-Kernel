@@ -338,3 +338,16 @@ def h3_timestep_sinusoid_forward(
     max_period: float = 10000.0,
     check_range: bool = True,
 ) -> torch.Tensor: ...
+def h3_det_linear_forward(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    bias: torch.Tensor | None = None,
+    activation: int = 0,
+    save_pre_activation: bool = False,
+) -> list[torch.Tensor]: ...
+def h3_det_linear_backward_input(
+    grad: torch.Tensor, weight: torch.Tensor, out_dtype: torch.dtype
+) -> torch.Tensor: ...
+def h3_det_linear_backward_weight(
+    grad: torch.Tensor, x: torch.Tensor, w_dtype: torch.dtype, with_bias: bool = True
+) -> list[torch.Tensor]: ...
