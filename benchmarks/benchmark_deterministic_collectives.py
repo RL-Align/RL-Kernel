@@ -63,6 +63,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if args.iterations <= 0:
         parser.error("--iterations must be positive")
+    if args.warmup < 0:
+        parser.error("--warmup must not be negative")
     element = torch.empty((), dtype=_DTYPES[args.dtype]).element_size()
     if any(size <= 0 or size % element != 0 for size in args.size_bytes):
         parser.error(

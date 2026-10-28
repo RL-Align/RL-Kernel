@@ -95,6 +95,17 @@ def _worker(rank: int, world_size: int, port: int) -> None:
                     assert torch.equal(out, expected), (size, input_offset, output_offset)
                     assert torch.all(storage[:output_offset] == 0xA5)
                     assert torch.all(storage[output_offset + size * world_size :] == 0xA5)
+
+                    if (input_offset, output_offset) == (0, 0) and size * world_size <= _THRESHOLD:
+                        # The staged one-block kernel is a separate path from the fused entry.
+                        staged_out = torch.full_like(expected, 0xA5)
+                        collective._extension.deterministic_collective_stage(
+                            collective._handle, shard
+                        )
+                        collective._extension.deterministic_collective_all_gather(
+                            collective._handle, staged_out
+                        )
+                        assert torch.equal(staged_out, expected), (size, "staged")
             dist.barrier()
     finally:
         dist.destroy_process_group()

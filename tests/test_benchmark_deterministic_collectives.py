@@ -244,7 +244,7 @@ def test_reduction_callbacks_reuse_outputs_and_report_samples(monkeypatch, tmp_p
 
 @pytest.mark.parametrize(
     "argv",
-    [["--iterations", "0"], ["--size-bytes", "0"], ["--size-bytes", "33"]],
+    [["--iterations", "0"], ["--warmup", "-1"], ["--size-bytes", "0"], ["--size-bytes", "33"]],
 )
 def test_parse_args_rejects_invalid_workloads(argv):
     """Reject workloads that would produce no samples or truncated tensors."""

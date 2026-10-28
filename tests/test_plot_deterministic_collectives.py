@@ -22,6 +22,8 @@ def _write_report(path: Path, world_size: int, sizes: list[int], latency: float)
         "torch": "test",
         "cuda": "test",
         "dtype": "float32",
+        "warmup": 1,
+        "iterations": 2,
         "rows": [
             {
                 "operation": "all_gather",
