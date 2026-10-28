@@ -193,6 +193,7 @@ def test_reduction_callbacks_reuse_outputs_and_report_samples(monkeypatch, tmp_p
     cpu_dist = SimpleNamespace(
         init_process_group=lambda *args, **kwargs: None,
         get_world_size=lambda: 2,
+        get_rank=lambda: 0,
         all_gather_into_tensor=lambda *args: None,
         reduce_scatter_tensor=nccl_scatter,
         all_reduce=nccl_reduce,

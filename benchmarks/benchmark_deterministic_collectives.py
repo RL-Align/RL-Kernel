@@ -119,14 +119,15 @@ def _gather_samples_us(samples: list[float]) -> list[list[float]]:
 def main(argv: Sequence[str] | None = None) -> None:
     """Measure selected collectives on every rank and save the rank-zero report."""
     args = parse_args(argv)
-    rank = int(os.environ["LOCAL_RANK"])
-    torch.cuda.set_device(rank)
-    dist.init_process_group("nccl", device_id=torch.device("cuda", rank))
+    local_rank = int(os.environ["LOCAL_RANK"])
+    torch.cuda.set_device(local_rank)
+    dist.init_process_group("nccl", device_id=torch.device("cuda", local_rank))
+    rank = dist.get_rank()
     world = dist.get_world_size()
     dtype = _DTYPES[args.dtype]
     element = torch.empty((), dtype=dtype).element_size()
     capacity = max(args.size_bytes) * world
-    collective = DeterministicCollective(device=rank, max_size_bytes=capacity)
+    collective = DeterministicCollective(device=local_rank, max_size_bytes=capacity)
     rows = []
     try:
         for size in args.size_bytes:
@@ -189,7 +190,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     finally:
         collective.close()
     if rank == 0 and args.output is not None:
-        props = torch.cuda.get_device_properties(rank)
+        props = torch.cuda.get_device_properties(local_rank)
         report = {
             "kind": "deterministic_collectives_benchmark",
             "world_size": world,
