@@ -112,28 +112,29 @@ class _IndexedTriton(torch.autograd.Function):
         b, s, h = x.shape
         y, gate = torch.empty_like(x), torch.empty_like(x)
         block = triton.next_power_of_2(h)
-        _rows[(b * s,)](
-            x,
-            m,
-            index,
-            y,
-            gate,
-            None,
-            None,
-            None,
-            None,
-            b,
-            s,
-            h,
-            eps,
-            index.shape[0] == 1,
-            False,
-            block,
-            block.bit_length() - 1,
-            num_warps=num_warps,
-            enable_fp_fusion=False,
-            enable_reflect_ftz=False,
-        )
+        with torch.cuda.device(x.device):
+            _rows[(b * s,)](
+                x,
+                m,
+                index,
+                y,
+                gate,
+                None,
+                None,
+                None,
+                None,
+                b,
+                s,
+                h,
+                eps,
+                index.shape[0] == 1,
+                False,
+                block,
+                block.bit_length() - 1,
+                num_warps=num_warps,
+                enable_fp_fusion=False,
+                enable_reflect_ftz=False,
+            )
         ctx.save_for_backward(x, m, index)
         ctx.eps, ctx.num_warps, ctx.tile = eps, num_warps, tile
         return y, gate

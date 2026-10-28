@@ -79,10 +79,7 @@ def test_adaln_modulate_index_uses_explicit_native_fallback():
 
 
 def test_adaln_cuda_registry_reports_real_fallback():
-    try:
-        torch.cuda.init()
-    except RuntimeError:
-        pytest.skip("CUDA required")
+    pytest.importorskip("triton")
     op, trace = kernel_registry.get_adaln_modulation_op(device="cuda", hidden=32)
     assert type(op.implementation).__name__ in {"CudaAdaLNModulationOp", "TritonAdaLNModulationOp"}
     if type(op.implementation).__name__ == "TritonAdaLNModulationOp":

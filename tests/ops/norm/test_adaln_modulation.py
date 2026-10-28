@@ -121,9 +121,7 @@ def test_adaln_modulation_accepts_qwen_six_chunk_view():
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_triton_adaln_modulation_forward_backward_and_batch_position(dtype):
-    try:
-        torch.cuda.init()
-    except RuntimeError:
+    if not torch.cuda.is_available():
         pytest.skip("CUDA required")
     from rl_engine.backends.shared.triton.norm.adaln_modulation import TritonAdaLNModulationOp
 
@@ -161,9 +159,7 @@ def test_triton_adaln_modulation_forward_backward_and_batch_position(dtype):
 
 
 def test_triton_irregular_hidden_and_bf16_tie_rounding():
-    try:
-        torch.cuda.init()
-    except RuntimeError:
+    if not torch.cuda.is_available():
         pytest.skip("CUDA required")
     from rl_engine.backends.shared.triton.norm.adaln_modulation import TritonAdaLNModulationOp
 
@@ -188,9 +184,7 @@ def test_triton_irregular_hidden_and_bf16_tie_rounding():
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_adaln_gpu_padding_and_batch_size_do_not_change_valid_bytes(dtype):
-    try:
-        torch.cuda.init()
-    except RuntimeError:
+    if not torch.cuda.is_available():
         pytest.skip("CUDA required")
     from rl_engine.backends.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
     from rl_engine.backends.shared.triton.norm.adaln_modulation import TritonAdaLNModulationOp
@@ -237,12 +231,13 @@ def test_cuda_adaln_bit_equality_harness(hidden, dtype):
     from rl_engine.backends.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
 
     try:
-        torch.cuda.init()
         cuda_op = CudaAdaLNModulationOp()
     except RuntimeError:
         if os.environ.get("RL_KERNEL_REQUIRE_EXT") == "1":
             raise
         pytest.skip("compiled CUDA AdaLN extension required")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA required")
     torch.manual_seed(390)
     x = torch.randn(1, 3, hidden, dtype=dtype, requires_grad=True)
     modulation = torch.randn(1, 3 * hidden, dtype=dtype, requires_grad=True)
@@ -268,9 +263,7 @@ def test_cuda_adaln_bit_equality_harness(hidden, dtype):
     reason="set RLK_ADALN_REAL_SHAPES=1 for Qwen-Image resolution coverage",
 )
 def test_adaln_real_image_shapes_forward_backward(seq, dtype):
-    try:
-        torch.cuda.init()
-    except RuntimeError:
+    if not torch.cuda.is_available():
         pytest.skip("CUDA required")
     op, trace = kernel_registry.get_adaln_modulation_op(device="cuda", hidden=3072)
     if os.environ.get("RL_KERNEL_REQUIRE_EXT") == "1":

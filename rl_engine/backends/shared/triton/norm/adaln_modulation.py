@@ -115,20 +115,21 @@ class _AdaLNTriton(torch.autograd.Function):
         batch, seq, hidden = x.shape
         y = torch.empty_like(x)
         gate = torch.empty((batch, 1, hidden), device=x.device, dtype=x.dtype)
-        _fwd[(batch * seq,)](
-            x,
-            modulation,
-            y,
-            gate,
-            seq,
-            hidden,
-            eps,
-            triton.next_power_of_2(hidden),
-            triton.next_power_of_2(hidden).bit_length() - 1,
-            enable_fp_fusion=False,
-            enable_reflect_ftz=False,
-            num_warps=num_warps,
-        )
+        with torch.cuda.device(x.device):
+            _fwd[(batch * seq,)](
+                x,
+                modulation,
+                y,
+                gate,
+                seq,
+                hidden,
+                eps,
+                triton.next_power_of_2(hidden),
+                triton.next_power_of_2(hidden).bit_length() - 1,
+                enable_fp_fusion=False,
+                enable_reflect_ftz=False,
+                num_warps=num_warps,
+            )
         ctx.save_for_backward(x, modulation)
         ctx.eps = eps
         ctx.num_warps = num_warps

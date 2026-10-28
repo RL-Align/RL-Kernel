@@ -74,10 +74,20 @@ def _summarize(report: Any) -> None:
     print(f"suite={report.suite_name} passed={report.passed} pass_rate={report.pass_rate:.4f}")
     for candidate in report.candidates:
         print(
-            f"candidate={candidate.candidate_name} backend={candidate.backend} "
+            f"candidate={candidate.candidate_name} requested_backend={candidate.backend} "
             f"passed={candidate.passed} pass_rate={candidate.pass_rate:.4f}"
         )
         for case in candidate.cases:
+            trace = case.backend_trace or {}
+            actual = trace.get("actual_backend") or "unknown"
+            fallback = trace.get("fallback")
+            if fallback is None:
+                fallback = "unknown"
+            reason = trace.get("fallback_reason")
+            print(
+                f"  case={case.case_name} actual_backend={actual} fallback={fallback}"
+                + (f" fallback_reason={reason}" if reason else "")
+            )
             for output in case.outputs:
                 label = f" {output.message}" if output.message else ""
                 print(

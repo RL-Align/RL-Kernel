@@ -109,7 +109,26 @@ def test_default_indexed_strict_rejection_clears_previous_shared_success():
     assert trace["profiler_observed"] is False
 
 
-def test_explicit_indexed_activation_resolves_without_enabling_cpu_select01():
+@pytest.fixture
+def indexed_cuda_symbols():
+    # Resolution needs a CUDA runtime identity and symbols, but no physical GPU.
+    if torch.version.cuda is None or torch.version.hip is not None:
+        pytest.skip("NVIDIA CUDA runtime identity required")
+    from rl_engine.backends.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
+
+    try:
+        op = CudaAdaLNModulationOp()
+    except RuntimeError:
+        if os.environ.get("RL_KERNEL_REQUIRE_EXT") == "1":
+            raise
+        pytest.skip("compiled CUDA AdaLN extension required")
+    if not op.indexed_available:
+        if os.environ.get("RL_KERNEL_REQUIRE_EXT") == "1":
+            pytest.fail("indexed CUDA extension symbols required")
+        pytest.skip("indexed CUDA extension symbols required")
+
+
+def test_explicit_indexed_activation_resolves_without_enabling_cpu_select01(indexed_cuda_symbols):
     from rl_engine.runtime.adaln import IndexedAdaLNQualification
 
     scope = IndexedAdaLNQualification(
@@ -162,7 +181,9 @@ def test_indexed_resolution_then_shared_execution_reports_actual_shared_contract
     "eps,reason",
     [(7.0, "NVIDIA CUDA tensors"), (1e300, "finite FP32 eps"), (2**-150, "finite FP32 eps")],
 )
-def test_activated_strict_rechecks_actual_domain_before_execution(eps, reason):
+def test_activated_strict_rechecks_actual_domain_before_execution(
+    indexed_cuda_symbols, eps, reason
+):
     from rl_engine.runtime.adaln import IndexedAdaLNQualification
 
     scope = IndexedAdaLNQualification(
@@ -221,9 +242,21 @@ def test_resolver_rejects_illegal_route_metadata_before_policy(index, error, str
 
 
 @pytest.mark.parametrize("mismatch", ["backend", "torch", "cuda", "device", "cpu", "hidden"])
-def test_activation_scope_does_not_qualify_another_backend_or_runtime(mismatch):
+def test_activation_scope_does_not_qualify_another_backend_or_runtime(monkeypatch, mismatch):
     from rl_engine.runtime.adaln import IndexedAdaLNQualification
 
+    # Scope checks are metadata-only. Simulate a consistent runtime even on CPU/HIP.
+    monkeypatch.setattr(torch.version, "cuda", "reviewed-CUDA-runtime")
+    monkeypatch.setattr(torch.version, "hip", None)
+    baseline = IndexedAdaLNQualification(
+        backend="cuda",
+        device="cuda:0",
+        device_name="reviewed target",
+        capability=(8, 6),
+        torch_version=torch.__version__,
+        cuda_version=torch.version.cuda,
+    )
+    baseline.check("cuda", "cuda:0")
     scope = IndexedAdaLNQualification(
         backend="triton" if mismatch == "backend" else "cuda",
         device="cuda:1" if mismatch == "device" else "cuda:0",
@@ -233,6 +266,9 @@ def test_activation_scope_does_not_qualify_another_backend_or_runtime(mismatch):
         cuda_version="unqualified" if mismatch == "cuda" else torch.version.cuda,
         triton_version="unqualified" if mismatch == "backend" else None,
     )
+    if mismatch != "hidden":
+        with pytest.raises(RuntimeError, match="strict AdaLN rejects"):
+            scope.check("cuda", "cpu" if mismatch == "cpu" else "cuda:0")
     with pytest.raises(RuntimeError, match="strict AdaLN rejects"):
         KernelRegistry().get_adaln_modulation_op(
             "cpu" if mismatch == "cpu" else "cuda:0",
