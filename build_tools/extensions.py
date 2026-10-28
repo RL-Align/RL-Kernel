@@ -3,6 +3,8 @@
 
 import importlib.util
 import os
+import shlex
+import stat
 import sysconfig
 import warnings
 from distutils.errors import CompileError
@@ -13,6 +15,158 @@ from setuptools import Extension
 from setuptools.command.build_py import build_py as _BuildPy
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+# MiniMax-H3 (RFC #420) kernels promise bitwise parity with diffusers' eager
+# FP32 math. --use_fast_math swaps expf/sinf/cosf/rsqrtf and division for
+# approximations and flushes denormals, so these sources are left out of
+# KERNEL_ALIGN_USE_FAST_MATH=1 builds; their bindings are gated on
+# KERNEL_ALIGN_WITH_H3_KERNELS and dispatch falls back to the PyTorch reference.
+H3_BITWISE_SOURCES = ("csrc/cuda/h3/timestep_sinusoid.cu",)
+H3_KERNELS_DEFINE = "-DKERNEL_ALIGN_WITH_H3_KERNELS"
+# nvcc options that relax FP32 math. They can also arrive through the environment, where PyTorch's
+# BuildExtension appends them after the flags built here, so the H3 kernels check for them too.
+# nvcc takes ``--ftz``, ``--prec-div`` and ``--prec-sqrt`` with a value, as ``--opt=value`` or
+# ``--opt value``, and accepts one or two leading dashes; ``--use_fast_math`` takes none. nvcc only
+# takes true / false for them and stops on ``--ftz 1``; 1 / 0 are listed too, so that a spelling
+# nvcc rejects is never read as the safe one.
+_RELAXED_MATH_FLAG = "use_fast_math"
+_RELAXED_MATH_VALUE_FLAGS = {
+    "ftz": {"true", "1"},
+    "prec-div": {"false", "0"},
+    "prec-sqrt": {"false", "0"},
+}
+# The spelling that keeps the math exact. A value that is neither this nor in the set above is one
+# nvcc does not know; it is reported as unreadable, not taken for the safe one.
+_EXACT_MATH_VALUES = {"ftz": "false", "prec-div": "true", "prec-sqrt": "true"}
+# An options file is read in full before anything checks it; a device node or a huge file named by
+# a stray variable would hang or exhaust memory the configure step.
+_OPTIONS_FILE_MAX_BYTES = 1 << 20
+# nvcc reads more options from the files named by ``--options-file`` / ``-optf`` (a comma-separated
+# list, as ``--options-file=a,b`` or ``--options-file a,b``), also when the option comes from
+# NVCC_*_FLAGS. nvcc 13.0 does not expand ``@file`` (it takes it for an input file and stops); that
+# spelling is read as well, so a driver that does expand it is covered.
+_OPTIONS_FILE_FLAGS = {"optf", "options-file"}
+_OPTIONS_FILE_DEPTH = 4
+
+
+class _UncheckableFlags(Exception):
+    """The flags cannot be read well enough to say whether they relax math."""
+
+
+def _nvcc_flag_words(text: str) -> list[str]:
+    """Split like nvcc does for the double-quoted values it accepts, and on ``;`` as well.
+
+    ``;`` separates the flags of TORCH_NVCC_FLAGS; here it separates words outside quotes only, so
+    ``--options-file "my opts;1.txt"`` keeps its file name in one piece, as nvcc reads it.
+    """
+
+    lexer = shlex.shlex(text, posix=True)
+    lexer.whitespace_split = True
+    lexer.whitespace += ";"
+    lexer.commenters = ""
+    return list(lexer)
+
+
+def _read_options_file(name: str) -> str:
+    path = Path(name)
+    try:
+        info = path.stat()  # a missing file is an OSError, reported as unreadable
+        if not stat.S_ISREG(info.st_mode):
+            raise _UncheckableFlags(f"options file {name!r} is not a regular file")
+        if info.st_size > _OPTIONS_FILE_MAX_BYTES:
+            raise _UncheckableFlags(
+                f"options file {name!r} is larger than {_OPTIONS_FILE_MAX_BYTES} bytes"
+            )
+        return path.read_text()
+    except OSError as exc:
+        raise _UncheckableFlags(f"cannot read options file {name!r}: {exc.strerror}") from exc
+
+
+def _nvcc_flag_tokens(text: str, *, depth: int = 0) -> list[str]:
+    """Split an NVCC_*_FLAGS value into tokens, expanding options files.
+
+    A word that holds whitespace or ``;`` came out of quotes; nvcc takes it as one argument (an
+    option it then rejects, or a file name). It is kept whole for that reading, and its pieces
+    follow it, so ``"-O2 --use_fast_math"`` in one quoted word still reads as relaxed. Raises
+    _UncheckableFlags for an options file that cannot be read or an option nvcc rejects for lack
+    of its file name, and ValueError for a string that cannot be split.
+    """
+
+    words = _nvcc_flag_words(text)
+    tokens: list[str] = []
+    i = 0
+    while i < len(words):
+        token = words[i]
+        i += 1
+        files: list[str]
+        if token.startswith("@"):
+            files = [token[1:]]
+        elif token.startswith("-") and token.lstrip("-").partition("=")[0] in _OPTIONS_FILE_FLAGS:
+            _, has_value, value = token.lstrip("-").partition("=")
+            if not has_value:
+                if i >= len(words) or words[i].startswith("-"):
+                    raise _UncheckableFlags(f"{token} has no file name")
+                value = words[i]
+                i += 1
+            files = value.split(",")
+        else:
+            tokens.append(token)
+            pieces = token.replace(";", " ").split()
+            if len(pieces) > 1:
+                tokens.extend(pieces)
+            continue
+        if depth >= _OPTIONS_FILE_DEPTH:
+            raise _UncheckableFlags(f"options files nest deeper than {_OPTIONS_FILE_DEPTH} levels")
+        for name in files:
+            tokens.extend(_nvcc_flag_tokens(_read_options_file(name), depth=depth + 1))
+    return tokens
+
+
+def _tokens_relax_math(tokens: list[str]) -> str | None:
+    """Return the first option that relaxes FP32 math, spelled as given, or None."""
+
+    for i, token in enumerate(tokens):
+        if not token.startswith("-"):
+            continue
+        name, has_value, value = token.lstrip("-").partition("=")
+        if name == _RELAXED_MATH_FLAG:
+            return token
+        relaxed_values = _RELAXED_MATH_VALUE_FLAGS.get(name)
+        if relaxed_values is None:
+            continue
+        spelled = token
+        if not has_value:
+            # "--ftz true": the value is the next word. Without one, nvcc rejects the option; treat
+            # it as relaxed rather than guess.
+            nxt = tokens[i + 1] if i + 1 < len(tokens) else ""
+            if nxt.startswith("-") or not nxt:
+                return f"{token} without a value"
+            value = nxt
+            spelled = f"{token} {nxt}"
+        if value.lower() in relaxed_values:
+            return spelled
+        if value.lower() != _EXACT_MATH_VALUES[name]:
+            return f"{spelled} (a value nvcc does not take)"
+    return None
+
+
+def _relaxed_math_reason() -> str | None:
+    """Say why NVCC_*_FLAGS / TORCH_NVCC_FLAGS turn on relaxed FP32 math, or None if they do not.
+
+    Fails closed: a value that cannot be parsed or an options file that cannot be read gives a
+    reason too, because the H3 kernels would otherwise be built with flags nobody checked.
+    """
+
+    for name in ("NVCC_PREPEND_FLAGS", "NVCC_APPEND_FLAGS", "TORCH_NVCC_FLAGS"):
+        try:
+            relaxed = _tokens_relax_math(_nvcc_flag_tokens(os.environ.get(name, "")))
+        except ValueError as exc:
+            return f"{name} cannot be parsed ({exc})"
+        except _UncheckableFlags as exc:
+            return f"{name}: {exc}"
+        if relaxed is not None:
+            return f"{name} contains {relaxed}"
+    return None
 
 
 def _resolve_package_data_source(
@@ -219,6 +373,20 @@ def get_extensions():
         )
 
     if is_rocm or torch.cuda.is_available():
+        use_fast_math = envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH)
+        # One predicate decides both the H3 sources and the define that enables their bindings, so
+        # the bindings can never outlive the kernels.
+        relaxed_reason = _relaxed_math_reason()
+        relaxed_math_env = relaxed_reason is not None
+        if relaxed_math_env and not is_rocm:
+            warnings.warn(
+                f"NVCC_*_FLAGS / TORCH_NVCC_FLAGS relax FP32 math or cannot be checked "
+                f"({relaxed_reason}); the bitwise MiniMax-H3 kernels are left out of this build "
+                "and dispatch falls back to the PyTorch reference.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        h3_enabled = not is_rocm and not use_fast_math and not relaxed_math_env
         cuda_sources = [
             "csrc/bindings/ops.cpp",
             "csrc/cuda/logprob/fused_logp_kernel.cu",
@@ -241,12 +409,14 @@ def get_extensions():
             # CUDA IPC and the fixed-tree collective implementation are not
             # part of the ROCm extension.
             cuda_sources.append("csrc/cuda/collectives/deterministic_collective.cu")
+            if h3_enabled:
+                cuda_sources.extend(H3_BITWISE_SOURCES)
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
             cuda_sources.append("csrc/cuda/attention/prefix_shared_attention.cu")
 
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
-        if envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH):
+        if use_fast_math:
             nvcc_flags.append("--use_fast_math")
         if not is_rocm:
             cc_major, cc_minor = torch.cuda.get_device_capability()
@@ -333,6 +503,9 @@ def get_extensions():
         if os.name != "nt" and not is_rocm:
             # CUDA IPC metadata queries use the driver API (cuPointerGetAttribute).
             extra_link_args.append("-lcuda")
+        if h3_enabled:
+            cxx_flags.append(H3_KERNELS_DEFINE)
+            nvcc_flags.append(H3_KERNELS_DEFINE)
 
         if not is_rocm:
             sm90_srcs = [
