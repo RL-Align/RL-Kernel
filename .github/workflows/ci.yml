@@ -73,9 +73,37 @@ jobs:
 
       - name: Run Mocked Hardware Discovery Tests
         run: |
-          python -m pytest tests/runtime/test_dispatch.py -v
+          python -m pytest tests/runtime/test_dispatch.py tests/validation/common/test_file_digest.py -v
           PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/ops/attention/test_attention_correctness.py -q -rs
-          python -m pytest tests/validation/operators/test_forward_invariance.py tests/contracts/test_tolerance_contract.py tests/validation/operators/test_ws1_workload.py tests/validation/operators/test_gradient_invariance.py tests/validation/operators/test_elementwise_inventory.py tests/validation/operators/test_four_judgment_matrix.py tests/validation/operators/test_op_checks.py tests/validation/operators/test_operator_inputs.py tests/benchmarks/test_profiler.py tests/validation/operators/test_kv_consistency.py tests/models/qwen3/test_ws1_qwen3_dense.py tests/validation/models/test_ws1_chain_integration.py tests/models/qwen3_next/test_qwen3_next_norm.py tests/models/qwen3_next/test_gdn_state_contract.py -q
+          python -m pytest tests/validation/operators/test_forward_invariance.py tests/contracts/test_tolerance_contract.py tests/validation/operators/test_ws1_workload.py tests/validation/operators/test_gradient_invariance.py tests/validation/operators/test_elementwise_inventory.py tests/validation/operators/test_four_judgment_matrix.py tests/validation/operators/test_op_checks.py tests/validation/operators/test_operator_inputs.py tests/benchmarks/test_profiler.py tests/validation/operators/test_kv_consistency.py tests/models/qwen3/test_ws1_qwen3_dense.py tests/validation/models/test_ws1_chain_integration.py tests/models/qwen3_next/test_qwen3_next_norm.py tests/models/qwen3_next/test_gdn_state_contract.py tests/validation/common/test_tensor_identity.py tests/models/qwen3_next/test_qwen3_next_forward_contract.py tests/models/qwen3_next/test_qwen3_next_tp_blocks.py tests/models/qwen3_next/test_qwen3_next_tp_gdn.py -q
+          python -m pytest -q \
+            tests/models/qwen3_next/test_qwen3_next_binary_evidence.py \
+            tests/models/qwen3_next/test_qwen3_next_case_manifest.py \
+            tests/models/qwen3_next/test_qwen3_next_checkpoint.py \
+            tests/models/qwen3_next/test_qwen3_next_engine_weights.py \
+            tests/models/qwen3_next/test_qwen3_next_environment_identity.py \
+            tests/models/qwen3_next/test_qwen3_next_failure.py \
+            tests/models/qwen3_next/test_qwen3_next_imported_binary.py \
+            tests/models/qwen3_next/test_qwen3_next_installed_provider_identity.py \
+            tests/models/qwen3_next/test_qwen3_next_l2.py \
+            tests/models/qwen3_next/test_qwen3_next_layers.py \
+            tests/models/qwen3_next/test_qwen3_next_logprob_adapter.py \
+            tests/models/qwen3_next/test_qwen3_next_native_recompute.py \
+            tests/models/qwen3_next/test_qwen3_next_operator_gates.py \
+            tests/models/qwen3_next/test_qwen3_next_profile.py \
+            tests/models/qwen3_next/test_qwen3_next_rl_fixture.py \
+            tests/models/qwen3_next/test_qwen3_next_rotary_dtype.py \
+            tests/models/qwen3_next/test_qwen3_next_storage.py \
+            tests/models/qwen3_next/test_qwen3_next_training_audit.py \
+            tests/models/qwen3_next/test_qwen3_next_training_closeout.py \
+            tests/models/qwen3_next/test_qwen3_next_training_export.py \
+            tests/models/qwen3_next/test_qwen3_next_subnode.py \
+            tests/models/qwen3_next/test_qwen3_next_chain_report.py \
+            tests/models/qwen3_next/test_qwen3_next_run.py \
+            tests/models/qwen3_next/test_qwen3_next_evidence_redaction.py \
+            tests/models/qwen3_next/test_qwen3_next_bi_cases.py \
+            tests/models/qwen3_next/test_qwen3_next_tp_reductions.py \
+            tests/models/qwen3_next/test_qwen3_next_ep.py
 
       - name: Run Cross-Configuration Contract Tests (CPU-safe)
         run: |

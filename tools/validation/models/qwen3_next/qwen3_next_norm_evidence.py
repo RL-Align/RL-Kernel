@@ -9,8 +9,8 @@ an FP64 golden, checked for row invariance (a row computed alone vs inside a bat
 bitwise), and timed. Optional providers (transformers, vLLM, FlashInfer) are skipped
 when they are not installed; the report says which ran.
 
-    python tools/validation/models/qwen3_next_norm_evidence.py --out report.json
-    python tools/validation/models/plot_qwen3_next_norm_evidence.py report.json
+    python tools/validation/models/qwen3_next/qwen3_next_norm_evidence.py --out report.json
+    python tools/validation/models/qwen3_next/plot_qwen3_next_norm_evidence.py report.json
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Any, Callable
 import torch
 import torch.nn.functional as F
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT))
 
 from rl_engine.backends.cuda.norm.rmsnorm import (  # noqa: E402

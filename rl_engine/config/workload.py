@@ -267,7 +267,9 @@ def load_manifest(path: str | Path | None = None) -> WS1Manifest:
     # A manifest without a scope is the Dense workload, as in workload_report.
     scope = raw.get("scope", "qwen3_8b_dense")
     if scope == "qwen3_next_norm_operators":
-        from rl_engine.validation.models.qwen3_next_workload import validate_norm_manifest
+        from rl_engine.validation.models.qwen3_next.qwen3_next_workload import (
+            validate_norm_manifest,
+        )
 
         validate_norm_manifest(raw)
     elif scope == "qwen3_8b_dense":
