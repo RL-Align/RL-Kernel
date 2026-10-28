@@ -1,0 +1,15 @@
+{
+  "scope": "Qwen-Image multi_axis_rope operator; ordinary full _C build",
+  "python": "3.12.3",
+  "platform": "Linux-6.18.54.1-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "torch": "2.9.1+cu128",
+  "cuda": "12.8",
+  "triton": "3.5.1",
+  "gpu": "NVIDIA GeForce RTX 5080",
+  "capability": [
+    12,
+    0
+  ],
+  "native_library": "/home/dandan/src/RL-Kernel/rl_engine/_C.cpython-312-x86_64-linux-gnu.so",
+  "native_library_sha256": "2661e7188984c7d78acae1ef5186a3e90ec4aa8bb6f457522b23435a1f24f94a"
+}

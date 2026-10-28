@@ -1,0 +1,20 @@
+/home/dandan/src/RL-Kernel/.venv/lib/python3.12/site-packages/setuptools/config/_apply_pyprojecttoml.py:82: SetuptoolsDeprecationWarning: `project.license` as a TOML table is deprecated
+!!
+
+        ********************************************************************************
+        Please use a simple string containing a SPDX expression for `project.license`. You can also use `project.license-files`. (Both options available on setuptools>=77.0.0).
+
+        This deprecation is overdue, please update your project and remove deprecated
+        calls to avoid build errors in the future.
+
+        See https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license for details.
+        ********************************************************************************
+
+!!
+  corresp(dist, value, root_dir)
+running build_ext
+W1028 18:37:59.459000 9791 .venv/lib/python3.12/site-packages/torch/utils/cpp_extension.py:531] There are no x86_64-linux-gnu-g++ version bounds defined for CUDA version 12.8
+building 'rl_engine._C' extension
+ninja: no work to do.
+x86_64-linux-gnu-g++ -fno-strict-overflow -Wsign-compare -DNDEBUG -g -O2 -Wall -shared -Wl,-O1 -Wl,-Bsymbolic-functions /home/dandan/src/RL-Kernel/build/temp.linux-x86_64-cpython-312/csrc/bindings/ops.o /home/dandan/src/RL-Kernel/build/temp.linux-x86_64-cpython-312/csrc/cuda/activation/activation.o /home/dandan/src/RL-Kernel/build/temp.linux-x86_64-cpython-312/csrc/cuda/attention/deterministic_attention.o /home/dandan/src/RL-Kernel/build/temp.linux-x86_64-cpython-312/csrc/cuda/attention/prefix_shared_attention.o /home/dandan/src/RL-Kernel/build/temp.linux-x86_64-cpython-312/csrc/cuda/collectives/deterministic_collective.o /home/dandan/src/RL-Kernel/build/temp.linux-x86_64-cpython-312/csrc/cuda/gemm/det_gemm_kernel.o /home/dandan/src/RL-Kernel/build/temp.linux-x86_64-cpython-312/csrc/cuda/logprob/deterministic_logp_kernel.o /home/dandan/src/RL-Kernel/build/temp.linux-x86_64-cpython-312/csrc/cuda/logprob/fused_logp_kernel.o /home/dandan/src/RL-Kernel/build/temp.linux-x86_64-cpython-312/csrc/cuda/norm/rmsnorm.o /home/dandan/src/RL-Kernel/build/temp.linux-x86_64-cpython-312/csrc/cuda/rope/multi_axis_rope.o -L/home/dandan/src/RL-Kernel/.venv/lib/python3.12/site-packages/torch/lib -L/usr/local/cuda-12.8/lib64 -L/usr/lib/x86_64-linux-gnu -lc10 -ltorch -ltorch_cpu -ltorch_python -lcudart -lc10_cuda -ltorch_cuda -o build/lib.linux-x86_64-cpython-312/rl_engine/_C.cpython-312-x86_64-linux-gnu.so -Wl,-rpath,$ORIGIN/../torch/lib -lcuda
+copying build/lib.linux-x86_64-cpython-312/rl_engine/_C.cpython-312-x86_64-linux-gnu.so -> rl_engine

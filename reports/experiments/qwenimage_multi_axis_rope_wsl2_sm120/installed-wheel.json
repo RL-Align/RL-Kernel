@@ -1,0 +1,38 @@
+{
+  "package": "/home/dandan/src/RL-Kernel/.venv/lib/python3.12/site-packages/rl_engine",
+  "companion_library": null,
+  "full_extension_library": "/home/dandan/src/RL-Kernel/.venv/lib/python3.12/site-packages/rl_engine/_C.cpython-312-x86_64-linux-gnu.so",
+  "native_dispatcher_registered": true,
+  "torch": "2.9.1+cu128",
+  "gpu": "NVIDIA GeForce RTX 5080",
+  "license_present": true,
+  "packed_qkv_stride": [
+    17280,
+    1152,
+    128,
+    1
+  ],
+  "checks": {
+    "cuda_eager": "passed",
+    "cuda_compiled": "passed",
+    "cuda_trace": {
+      "contract": "qwenimage-interleaved-rope-fp32-v1",
+      "actual_backend": "rlkernel.cuda.qwenimage_multi_axis_rope.v1",
+      "kernel_id": "torch.ops.rl_kernel_native.multi_axis_rope",
+      "layout": "BSHD, adjacent channel pairs",
+      "arithmetic": "fp32 separate multiply/add, one output cast, no reduction",
+      "table_revision": "40f63690da440e8c382ab53e67508835deb1ed2f"
+    },
+    "triton_eager": "passed",
+    "triton_compiled": "passed",
+    "triton_trace": {
+      "contract": "qwenimage-interleaved-rope-fp32-v1",
+      "actual_backend": "rlkernel.triton.qwenimage_multi_axis_rope.v1",
+      "kernel_id": "rl_engine.backends.shared.triton.rope._flash_attn_rotary.rotary_kernel",
+      "layout": "BSHD, adjacent channel pairs",
+      "arithmetic": "fp32 separate multiply/add, one output cast, no reduction",
+      "table_revision": "40f63690da440e8c382ab53e67508835deb1ed2f"
+    }
+  },
+  "passed": true
+}

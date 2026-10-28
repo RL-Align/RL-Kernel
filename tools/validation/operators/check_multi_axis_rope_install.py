@@ -13,6 +13,7 @@ from pathlib import Path
 import torch
 
 import rl_engine
+from rl_engine.backends import extension
 from rl_engine.ops.rope.multi_axis_rope import (
     build_multi_axis_cos_sin,
     get_multi_axis_rope_op,
@@ -50,6 +51,7 @@ def main():
     report = {
         "package": str(package),
         "companion_library": native.origin if native else None,
+        "full_extension_library": getattr(extension._C, "__file__", None),
         "native_dispatcher_registered": hasattr(torch.ops.rl_kernel_native, "multi_axis_rope"),
         "torch": torch.__version__,
         "gpu": torch.cuda.get_device_name(),

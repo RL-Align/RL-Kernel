@@ -1,0 +1,22 @@
+{
+  "profile": "ordinary complete _C; no RL_KERNEL_ROPE_ONLY",
+  "module": "/home/dandan/src/RL-Kernel/rl_engine/_C.cpython-312-x86_64-linux-gnu.so",
+  "binary_sha256": "2661e7188984c7d78acae1ef5186a3e90ec4aa8bb6f457522b23435a1f24f94a",
+  "sources": [
+    "csrc/bindings/ops.cpp",
+    "csrc/cuda/logprob/fused_logp_kernel.cu",
+    "csrc/cuda/logprob/deterministic_logp_kernel.cu",
+    "csrc/cuda/gemm/det_gemm_kernel.cu",
+    "csrc/cuda/norm/rmsnorm.cu",
+    "csrc/cuda/activation/activation.cu",
+    "csrc/cuda/attention/deterministic_attention.cu",
+    "csrc/cuda/rope/multi_axis_rope.cu",
+    "csrc/cuda/collectives/deterministic_collective.cu",
+    "csrc/cuda/attention/prefix_shared_attention.cu"
+  ],
+  "cuda_home": "/usr/local/cuda-12.8",
+  "driver_link_search": "/usr/lib/wsl/lib",
+  "torch": "2.9.1+cu128",
+  "architecture": "12.0",
+  "max_jobs": "2"
+}

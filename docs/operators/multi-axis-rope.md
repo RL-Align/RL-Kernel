@@ -172,6 +172,29 @@ with C1's elementwise tolerance profile and C2's logical configuration transform
 This gate qualifies the Qwen-Image operator and does not certify the Dense Qwen3
 chain, distributed execution, or model assembly.
 
+For a complete native package installation on Linux, run the dedicated gate:
+
+```bash
+export CUDA_HOME=/usr/local/cuda-12.8
+export PATH="$CUDA_HOME/bin:$PATH"
+RL_KERNEL_REQUIRE_EXT=1 python -m pip install --no-build-isolation -e .
+ROPE_PYTHON=python bash ci/scripts/run_qwenimage_rope_ws1.sh
+```
+
+The gate requires a real NVIDIA GPU, Triton and an ordinary `rl_engine._C`
+containing the native RoPE registration. It rejects the operator-only profile
+and fast-math mode, checks required tests actually execute, and permits only
+the two-device guard to skip on a single-GPU host. Results include the loaded
+binary fingerprint, ordinary operator CLI checks and both WS1 backend reports.
+Set `ROPE_WS1_OUTPUT` to select the artifact directory.
+
+On WSL2, keep the checkout and Python environment in the Linux filesystem.
+GNU linking of the package's CUDA driver calls may need
+`LIBRARY_PATH=/usr/lib/wsl/lib`. Record the WSL kernel and physical GPU in the
+evidence; a WSL2 profile does not qualify a bare-metal Linux server or another
+GPU architecture. The `Qwen-Image RoPE` workflow runs CPU contracts and changed-file
+checks for PRs targeting `test-qwenimage`; GPU qualification uses the gate above.
+
 Tests cover independent forward/VJP accuracy, adjacent-pair layout, shared and
 batched positions, odd and rectangular grids, batch/padding/chunk invariance,
 non-contiguous tensors, packed QKV views without copies, default-device contexts,
