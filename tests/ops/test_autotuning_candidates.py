@@ -64,6 +64,7 @@ def qualify(monkeypatch, request):
                     right = trial[i].contiguous().view(torch.uint8)
                     comparisons.append((config, i, torch.all(left == right)))
                 seen.add((kernel.name, config.options))
+            assert comparisons, f"{kernel.name}: no candidate was compared"
             # One synchronization per kernel, rather than one per candidate/output.
             if not torch.stack([check for _, _, check in comparisons]).all().item():
                 failures = [(config, i) for config, i, check in comparisons if not check.item()]

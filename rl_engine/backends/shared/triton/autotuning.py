@@ -63,8 +63,9 @@ def pin_autotune(function_class):
 
     @wraps(backward)
     def pinned_backward(ctx, *args, **kwargs):
-        """Run backward under the policy captured in forward."""
-        with tuning_scope(replace(ctx.autotune_state, phase="backward")):
+        """Run backward under the policy captured in forward, or the environment's if none."""
+        state = getattr(ctx, "autotune_state", None) or TuneState(autotune_enabled())
+        with tuning_scope(replace(state, phase="backward")):
             return backward(ctx, *args, **kwargs)
 
     function_class.forward = staticmethod(pinned_forward)

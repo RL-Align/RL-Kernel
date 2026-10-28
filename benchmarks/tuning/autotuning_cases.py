@@ -173,7 +173,12 @@ def preset_shape(name, preset):
 
 
 def fixed_case(case, name, dtype):
-    """Use the existing fixed public core backend as the performance baseline."""
+    """Return the baseline workload: the fixed core backend for gemm, attention and logp.
+
+    Every other operator is its own baseline: the experiment runs the same ``op`` once with
+    tuning disabled (the original launch) and once enabled, so the comparison is fixed launch
+    parameters against selected ones, not a different backend.
+    """
     if name == "gemm":
         from rl_engine.backends.shared.triton.gemm.det_gemm import TritonDetGemmOp
 

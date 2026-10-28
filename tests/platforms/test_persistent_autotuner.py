@@ -216,3 +216,36 @@ def test_output_passed_by_keyword_launches_the_fixed_kernel(monkeypatch):
     x, out = torch.zeros(4), torch.zeros(4)
     kernel[(1,)](x, out=out)
     assert calls == [((1,), (x,), {"out": out})]
+
+
+def test_backward_without_a_pinned_forward_uses_the_environment_policy(monkeypatch):
+    """Calling ``backward`` on a context that never ran the pinned forward must not crash."""
+    pytest.importorskip("triton")
+    from types import SimpleNamespace
+
+    from rl_engine.backends.shared.triton import autotuning
+
+    seen = []
+
+    class Fn:
+        @staticmethod
+        def forward(ctx, x):
+            return x
+
+        @staticmethod
+        def backward(ctx, g):
+            state = autotuning._STATE.get()
+            seen.append((state.enabled, state.phase))
+            return g
+
+    autotuning.pin_autotune(Fn)
+    for enabled in (True, False):
+        monkeypatch.setattr(autotuning, "autotune_enabled", lambda enabled=enabled: enabled)
+        assert Fn.backward(SimpleNamespace(), 1) == 1
+        assert Fn.backward(SimpleNamespace(autotune_state=None), 1) == 1
+    assert seen == [
+        (True, "backward"),
+        (True, "backward"),
+        (False, "backward"),
+        (False, "backward"),
+    ]
