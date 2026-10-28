@@ -38,10 +38,6 @@ import torch.distributed as dist
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-# Choose the actual native sampler without an optional FlashInfer installation.
-# The selected implementation and environment are recorded in the report.
-os.environ.setdefault("VLLM_USE_FLASHINFER_SAMPLER", "0")
-
 from rl_engine.contracts.operators.logprob import (  # noqa: E402
     LogprobContract,
     LogprobDType,
@@ -668,6 +664,10 @@ def main():
     The report is rewritten after each case. With several ranks each writes
     ``<stem>.rank<N><suffix>``, then rank 0 writes all gathered reports and a summary to ``--out``.
     """
+    # Choose the actual native sampler without an optional FlashInfer installation.
+    # The selected implementation and environment are recorded in the report. Set here, not at
+    # import, so importing this module (for example from tests) leaves the environment alone.
+    os.environ.setdefault("VLLM_USE_FLASHINFER_SAMPLER", "0")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--flash-attn-src", type=Path)
@@ -686,6 +686,8 @@ def main():
     args = parser.parse_args()
     rank, world = int(os.getenv("RANK", "0")), int(os.getenv("WORLD_SIZE", "1"))
     local_rank = int(os.getenv("LOCAL_RANK", "0"))
+    # WORLD_SIZE counts ranks on every node; GPU sharing is a per-node property.
+    local_world = int(os.getenv("LOCAL_WORLD_SIZE", str(world)))
     devices = torch.cuda.device_count()
     if not devices:
         raise SystemExit("requires CUDA and an importable genuine vLLM Sampler")
@@ -694,7 +696,7 @@ def main():
             "rank count exceeds physical GPUs; "
             "pass --allow-shared-gpus to label rank sharing explicitly"
         )
-    if world > devices and args.distributed_backend == "nccl":
+    if local_world > devices and args.distributed_backend == "nccl":
         raise SystemExit(
             "NCCL duplicate-device ranks are unsupported; use a valid transport for GPU sharing"
         )
@@ -714,11 +716,12 @@ def main():
         "device_uuid": str(getattr(properties, "uuid", "unknown")),
         "visible_gpu_count": devices,
         "world_size": world,
+        "local_world_size": local_world,
         "transport": dist.get_backend() if world > 1 else "none",
         "physical_gpu_topology_claim": (
             "one rank per GPU"
-            if world <= devices
-            else "multiple ranks per GPU; not four physical GPUs"
+            if local_world <= devices
+            else f"{local_world} ranks share {devices} physical GPUs on this node"
         ),
     }
     report = {

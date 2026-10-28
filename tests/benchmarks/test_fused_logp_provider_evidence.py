@@ -3,12 +3,34 @@
 
 """Regression coverage for real training/rollout provider comparisons."""
 
+import os
+import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 import torch
 
 from benchmarks import fused_logp_provider_evidence as evidence
+
+
+@pytest.mark.unit
+def test_importing_the_module_leaves_the_vllm_sampler_environment_alone():
+    """Importing the module in a clean process does not set ``VLLM_USE_FLASHINFER_SAMPLER``."""
+    env = {k: v for k, v in os.environ.items() if k != "VLLM_USE_FLASHINFER_SAMPLER"}
+    code = (
+        "import os; import benchmarks.fused_logp_provider_evidence; "
+        "print(repr(os.environ.get('VLLM_USE_FLASHINFER_SAMPLER')))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=Path(__file__).resolve().parents[2],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert result.stdout.strip().splitlines()[-1] == "None"
 
 
 @pytest.mark.unit

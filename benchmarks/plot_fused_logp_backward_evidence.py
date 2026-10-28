@@ -101,7 +101,8 @@ def main() -> None:
     )
     ax.set_yscale("log")
     ax.set_ylim(top=max(vals) * 5)
-    ax.set_title("dlogits error vs FP64: max |err| / max |dlogits| (257 rows)")
+    acc_rows = report.get("accuracy_contract", {}).get("rows", "?")
+    ax.set_title(f"dlogits error vs FP64: max |err| / max |dlogits| ({acc_rows} rows)")
     ax.grid(True, axis="y", alpha=0.3)
 
     ax = axes[1, 1]
