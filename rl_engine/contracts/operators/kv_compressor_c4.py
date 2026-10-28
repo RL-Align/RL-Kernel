@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+from typing import ClassVar
 
 from rl_engine.contracts.operators.attention import AttentionContractError
 
@@ -34,6 +35,9 @@ def source_hash(path):
 
 @dataclass(frozen=True)
 class C4Contract:
+    expected_head_dim: ClassVar[int] = 512
+    expected_backend_id: ClassVar[str] = C4_BACKEND_ID
+    family: ClassVar[str] = "main_kv_c4"
     head_dim: int = 512
     ratio: int = 4
     overlap: int = 8
@@ -63,8 +67,10 @@ class C4Contract:
                 f"{name} must be a positive integer",
             )
         require(
-            (self.head_dim, self.ratio, self.overlap, self.rope_dim) == (512, 4, 8, 64),
-            "validated C4 main-KV profile is D=512, ratio=4, overlap=8, RoPE=64",
+            (self.head_dim, self.ratio, self.overlap, self.rope_dim)
+            == (self.expected_head_dim, 4, 8, 64),
+            f"validated {self.family} profile is D={self.expected_head_dim}, "
+            "ratio=4, overlap=8, RoPE=64",
         )
         require(
             type(self.rms_eps) in (int, float)
@@ -76,7 +82,7 @@ class C4Contract:
             self.max_input_rows < 2**31 and self.max_groups < 2**24,
             "int32 provider indexing capacity exceeded",
         )
-        require(self.backend_id == C4_BACKEND_ID, "unknown C4 backend; no fallback")
+        require(self.backend_id == self.expected_backend_id, "unknown C4 backend; no fallback")
         require(self.output_dtype == "bf16", "C4 emits BF16 independent rows")
         require(self.graph_capture is False, "Graph capture belongs to runtime integration")
 
@@ -86,7 +92,9 @@ class C4Contract:
 
     @property
     def fingerprint(self):
-        return hashlib.sha256(json.dumps(asdict(self), sort_keys=True).encode()).hexdigest()
+        return hashlib.sha256(
+            json.dumps({"family": self.family, **asdict(self)}, sort_keys=True).encode()
+        ).hexdigest()
 
     @property
     def arithmetic(self):

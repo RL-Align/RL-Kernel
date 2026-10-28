@@ -302,6 +302,10 @@ def register_parameters(session, prefix, parameters, bound, implementation):
                 not entry[2].intersection(bound.logical_keys),
                 "duplicate C4 group across microbatches",
             )
+            require(
+                len(entry[2]) + len(bound.logical_keys) <= bound.contract.max_backward_groups,
+                "canonical backward group budget exceeded",
+            )
     slots = {}
     for suffix, parameter in parameters.items():
         if parameter.requires_grad and bound.logical_keys:
@@ -368,12 +372,18 @@ class _C4Autograd(torch.autograd.Function):
 
 
 class C4Compressor:
-    def __init__(self, contract, *, backend=None, expected_implementation=None):
-        require(isinstance(contract, C4Contract), "typed C4 contract required")
-        if backend is None:
-            from rl_engine.backends.rocm.attention.kv_compressor_c4 import AiterC4Backend
+    contract_type = C4Contract
 
-            backend = AiterC4Backend()
+    @staticmethod
+    def _make_backend():
+        from rl_engine.backends.rocm.attention.kv_compressor_c4 import AiterC4Backend
+
+        return AiterC4Backend()
+
+    def __init__(self, contract, *, backend=None, expected_implementation=None):
+        require(type(contract) is self.contract_type, "typed C4 contract required")
+        if backend is None:
+            backend = self._make_backend()
         require(backend.backend_id == contract.backend_id, "C4 backend identity mismatch")
         self.contract, self.backend = contract, backend
         identity = {
@@ -433,19 +443,19 @@ class C4Compressor:
         bound.validate()
         require(
             isinstance(ape, torch.Tensor)
-            and tuple(ape.shape) == (4, 1024)
+            and tuple(ape.shape) == (4, 2 * self.contract.head_dim)
             and ape.dtype == torch.float32
             and ape.is_contiguous()
             and ape.device == bound.values.device,
-            "APE must be contiguous FP32 [4,1024]",
+            f"APE must be contiguous FP32 [4,{2 * self.contract.head_dim}]",
         )
         require(
             isinstance(norm, torch.Tensor)
-            and tuple(norm.shape) == (512,)
+            and tuple(norm.shape) == (self.contract.head_dim,)
             and norm.dtype == torch.float32
             and norm.is_contiguous()
             and norm.device == bound.values.device,
-            "RMS weight must be contiguous FP32 [512]",
+            f"RMS weight must be contiguous FP32 [{self.contract.head_dim}]",
         )
         for value, name in ((ape, "APE"), (norm, "RMS weight")):
             require(
@@ -485,12 +495,21 @@ class C4Compressor:
                 len(bound.logical_keys) <= self.contract.max_backward_groups,
                 "C4 backward group budget exceeded",
             )
-            output = _C4Autograd.apply(bound.source, ape, norm, cos, sin, self, bound, parameter_id)
+            output = _C4Autograd.apply(
+                bound.source,
+                ape,
+                norm,
+                cos,
+                sin,
+                self,
+                bound,
+                f"{self.contract.family}:{parameter_id}" if parameter_id else "",
+            )
         else:
             with torch.no_grad():
                 output = self.backend.forward(bound, ape, norm, cos, sin, self.contract)
         require(
-            output.shape == (len(bound.logical_keys), 512)
+            output.shape == (len(bound.logical_keys), self.contract.head_dim)
             and output.dtype == torch.bfloat16
             and output.device == bound.values.device,
             "C4 provider returned invalid output",

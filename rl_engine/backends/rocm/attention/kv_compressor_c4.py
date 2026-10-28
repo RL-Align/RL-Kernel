@@ -82,10 +82,11 @@ class AiterC4Backend:
 
     def forward(self, bound, ape, norm, cos, sin, contract):
         groups = len(bound.logical_keys)
+        dim = contract.head_dim
         if groups == 0:
-            return torch.empty((0, 512), dtype=torch.bfloat16, device=bound.values.device)
+            return torch.empty((0, dim), dtype=torch.bfloat16, device=bound.values.device)
         blocks = max((block for block, _slot in bound.cache_slots_host), default=-1) + 1
-        cache = torch.empty((blocks, 64, 512), dtype=torch.bfloat16, device=bound.values.device)
+        cache = torch.empty((blocks, 64, dim), dtype=torch.bfloat16, device=bound.values.device)
         provider_values = bound.context_values.reshape(-1, bound.context_values.shape[-1])
         state_kv = bound.kv_state
         state_score = bound.score_state
@@ -93,8 +94,8 @@ class AiterC4Backend:
         plan = bound.plan.contiguous()
         block_table = bound.block_table
         self.aiter.flydsl_fused_compress_attn(
-            kv_in=provider_values[:, :1024],
-            score_in=provider_values[:, 1024:],
+            kv_in=provider_values[:, : 2 * dim],
+            score_in=provider_values[:, 2 * dim :],
             kv_state=state_kv,
             score_state=state_score,
             plan_gpu=plan,
@@ -109,7 +110,7 @@ class AiterC4Backend:
             k_per_block=64,
             overlap=True,
             ratio=4,
-            head_dim=512,
+            head_dim=dim,
             rope_head_dim=64,
             quant=False,
             use_ue8m0=True,
@@ -142,7 +143,7 @@ class AiterC4Backend:
                     group_ids,
                     cache,
                     ratio=4,
-                    head_dim=512,
+                    head_dim=contract.head_dim,
                     rope_dim=64,
                     eps=contract.rms_eps,
                 )
@@ -158,9 +159,9 @@ class AiterC4Backend:
                 ape_rows.append(da)
                 norm_rows.append(dn)
         record_backward(
-            "kv_compressor_c4",
+            "indexer_compressor_c4" if contract.family == "indexer_c4" else "kv_compressor_c4",
             kernel_id="megatron.compressed_compact_graph.ratio4+rlk.fixed_order_rows",
             impl="upstream_functional_vjp",
-            family="c4",
+            family=contract.family,
         )
         return contributions, torch.stack(ape_rows), torch.stack(norm_rows)
