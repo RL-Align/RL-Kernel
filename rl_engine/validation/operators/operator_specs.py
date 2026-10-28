@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 
@@ -41,6 +42,25 @@ OP_SPECS = {
             "cuda": "rl_engine.backends.cuda.attention.h3_full_attention.H3FullAttentionOp",
         },
         grad_input_names=("q", "k", "v"),
+    ),
+    "video_input_projection_fp32": OperatorSpec(
+        name="video_input_projection_fp32",
+        op_class="reduction",
+        gold_path=(
+            "rl_engine.reference.gemm.video_input_projection_fp32.NativeVideoInputProjectionFP32Op"
+        ),
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": (
+                "rl_engine.reference.gemm.video_input_projection_fp32."
+                "NativeVideoInputProjectionFP32Op"
+            ),
+            "triton": (
+                "rl_engine.backends.shared.triton.gemm.video_input_projection_fp32."
+                "TritonVideoInputProjectionFP32Op"
+            ),
+        },
+        grad_input_names=("x", "weight", "bias"),
     ),
     "rms_norm": OperatorSpec(
         name="rms_norm",
@@ -493,6 +513,11 @@ def make_candidate(args: argparse.Namespace) -> CandidateSpec:
             backend=candidate_name,
             arch_key=args.arch_key,
             fn=candidate_op,
+            backward_context_factory=(
+                _canonical_validation_context
+                if args.op == "video_input_projection_fp32" and candidate_name != "pytorch"
+                else None
+            ),
         )
 
     supported = sorted([*spec.candidate_paths, "native"])
@@ -500,3 +525,14 @@ def make_candidate(args: argparse.Namespace) -> CandidateSpec:
         f"unsupported candidate {args.candidate!r} for op {args.op!r}; "
         f"supported candidates: {', '.join(supported)}"
     )
+
+
+@contextmanager
+def _canonical_validation_context():
+    """Keep the session active for forward/backward and check contributions on exit."""
+
+    from rl_engine.ops.autograd.canonical_backward import canonical_backward_session
+
+    with canonical_backward_session() as session:
+        yield session
+        session.validate_complete()

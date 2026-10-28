@@ -114,6 +114,10 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     # Batch-invariant deterministic GEMM (WS1 #146)
     CUDA_DET_GEMM = "rl_engine.kernels.ops.cuda.matmul.det_gemm.DetGemmOp"
     TRITON_DET_GEMM = "rl_engine.kernels.ops.triton.matmul.det_gemm.TritonDetGemmOp"
+    TRITON_VIDEO_INPUT_PROJECTION_FP32 = (
+        "rl_engine.backends.shared.triton.gemm.video_input_projection_fp32."
+        "TritonVideoInputProjectionFP32Op"
+    )
     ASCEND_DET_GEMM = "rl_engine.kernels.ops.ascend.matmul.det_gemm.DetGemmAscendOp"
     # NON-deterministic reference (torch.matmul); reference/benchmark ONLY,
     # intentionally excluded from det_gemm dispatch (cuBLAS breaks invariance).
@@ -261,6 +265,51 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             ),
             fallback_policy=OperatorFallbackPolicy.ERROR,
             version_or_build_fingerprint="h3-query-chunk-v1; binary profile checked at invocation",
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="video_input_projection_fp32",
+            backend_id="triton-video-input-projection-fp32",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"cuda"}),
+            supported_dtypes=frozenset({"float32"}),
+            supported_topologies={
+                "rollout": {
+                    "world_size": (1,),
+                    "tensor_parallel_size": (1,),
+                    "context_parallel_size": (1,),
+                },
+                "training": {"world_size": (1,), "sharding": ("unsharded",)},
+            },
+            determinism_or_alignment_properties={
+                "algorithm": "fixed_fp32_gemm_canonical_parameter_vjp",
+                "forward_bias": "fp32_epilogue",
+                "direct_gemm_fp_fusion": "compiler_default",
+                "chunked_gemm_fp_fusion": False,
+                "tree_gemm_fp_fusion": False,
+                "leaf_loop_bound": "max_logical_leaf_length",
+                "input_width": 96,
+                "output_width": 5376,
+                "cuda_sm": 90,
+                "batch_invariant": True,
+                "deterministic": True,
+                "strict_observable": True,
+                "training_mode": "eager",
+                "parameter_gradient_order": "logical_key",
+                "reduction": "fixed_128_chunks_balanced_fp32_merge",
+                "dx_dw_tile": (128, 32, 32),
+                "dx_dw_num_warps": 4,
+                "dx_dw_register_allocation": "compiler_default",
+                "dx_dw_chunk_accumulation": "two_64_term_halves",
+                "forward_aligned_tiles": True,
+                "canonical_rows": "live_strict_order_proof_or_stable_sort",
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=OpBackend.TRITON_VIDEO_INPUT_PROJECTION_FP32.value,
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint=(
+                "rlkernel-triton-ieee-fp32-dot-chunk128-halves64-tile128x32-merge64-"
+                "strided-aligned-forward-default-fusion-auto-canonical-proof-h3"
+            ),
         ),
         OperatorBackendDescriptor(
             semantic_op="video_patch_pack_unpack",
@@ -677,6 +726,7 @@ class KernelRegistry:
                 "pack": [OpBackend.PYTORCH_PACK],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
                 "det_gemm": [OpBackend.CUDA_DET_GEMM, OpBackend.TRITON_DET_GEMM],
+                "video_input_projection_fp32": [OpBackend.TRITON_VIDEO_INPUT_PROJECTION_FP32],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
@@ -1167,6 +1217,8 @@ class KernelRegistry:
         platform = self._platform_for_device(device)
         if op_type == "h3_full_attention" and platform != "cuda":
             raise RuntimeError("h3_full_attention requires NVIDIA CUDA; no fallback")
+        if op_type == "video_input_projection_fp32" and platform != "cuda":
+            raise RuntimeError("video input projection is qualified on CUDA SM90 only")
         candidates = self._priority_map.get(platform, {}).get(op_type, [OpBackend.PYTORCH_NATIVE])
 
         for backend in candidates:
