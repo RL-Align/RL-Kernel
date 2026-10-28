@@ -254,6 +254,17 @@ it and edit `paths` for another installation. All four companion checkouts
 The [companion patch bundle](https://github.com/RL-Align/RL-Kernel/blob/main/rl_engine/integrations/orchestrators/vime/patches/rocm_attention/README.md)
 records exact bases, patch hashes and validation scope.
 
+**vLLM source pin:** the recorded base `11d76fc7259b3c1d70e2043b7513226aec9a665a`
+is a local ROCm build commit, not a fetchable commit in `vllm-project/vllm`.
+For a fresh checkout, follow the
+[public-upstream reconstruction steps](https://github.com/RL-Align/RL-Kernel/blob/main/rl_engine/integrations/orchestrators/vime/patches/rocm_attention/README.md#reconstruct-the-vllm-base-from-public-upstream):
+start at upstream `b22afe45ac797ae58e67a7a3ad79ee5714024420`, apply
+`vllm-base.patch` and then `vllm.patch`, and verify both recorded source trees.
+The base patch fixes ROCm VMM host access, not KV-cache tensor layout. A patch
+applying to another release such as `v0.27.1` does not establish equivalent
+sources or numerical behavior. The documented GPU validation is MI300X/gfx942;
+MI355 and other version/layout combinations require their own runtime checks.
+
 ```bash
 cd /path/to/RL-Kernel
 export PATH="$PWD/bin:/opt/venv/bin:$PATH"
