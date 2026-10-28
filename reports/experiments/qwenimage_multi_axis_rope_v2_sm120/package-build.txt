@@ -1,0 +1,40 @@
+Selected lines from the completed sdist/wheel build log.
+Full local log SHA256: bfbcd342efaf8caa36adcd208acee385db1ba6fbc4326fe8e0325f9523f199b0
+running sdist
+copying rl_engine\backends\shared\triton\rope\FLASH_ATTENTION_LICENSE -> rl_kernel-0.1.0\rl_engine\backends\shared\triton\rope
+running bdist_wheel
+copying rl_engine\backends\shared\triton\rope\FLASH_ATTENTION_LICENSE -> build\lib.win-amd64-cpython-313\rl_engine\backends\shared\triton\rope
+copying rl_engine\backends\shared\triton\rope\FLASH_ATTENTION_LICENSE -> build\lib.win-amd64-cpython-313\rl_engine\backends\shared\triton\rope
+running build_ext
+ninja: no work to do.
+"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\bin\HostX64\x64\link.exe" /nologo /INCREMENTAL:NO /LTCG /DLL /MANIFEST:EMBED,ID=2 /MANIFESTUAC:NO /LIBPATH:D:\dandan123\dandan\myvllm\.cuda-12.8\Library\lib /LIBPATH:D:\anaconda\Lib\site-packages\torch\lib /LIBPATH:D:\dandan123\dandan\myvllm\.cuda-12.8\Library\lib\x64 /LIBPATH:D:\dandan123\dandan\issue\investigation-rl-kernel\RL-Kernel\.venv\libs /LIBPATH:D:\anaconda\libs /LIBPATH:D:\anaconda /LIBPATH:D:\dandan123\dandan\issue\investigation-rl-kernel\RL-Kernel\.venv\PCbuild\amd64 "/LIBPATH:C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\lib\x64" "/LIBPATH:C:\Program Files (x86)\Windows Kits\10\lib\10.0.26100.0\ucrt\x64" "/LIBPATH:C:\Program Files (x86)\Windows Kits\10\\lib\10.0.26100.0\\um\x64" c10.lib torch.lib torch_cpu.lib torch_python.lib cudart.lib c10_cuda.lib torch_cuda.lib /EXPORT:PyInit__rope_cuda D:\dandan123\dandan\issue\investigation-rl-kernel\RL-Kernel\build\temp.win-amd64-cpython-313\Release\csrc\bindings\rope_module.obj D:\dandan123\dandan\issue\investigation-rl-kernel\RL-Kernel\build\temp.win-amd64-cpython-313\Release\csrc\cuda\rope\multi_axis_rope.obj /OUT:build\lib.win-amd64-cpython-313\rl_engine\_rope_cuda.cp313-win_amd64.pyd /IMPLIB:D:\dandan123\dandan\issue\investigation-rl-kernel\RL-Kernel\build\temp.win-amd64-cpython-313\Release\csrc\bindings\_rope_cuda.cp313-win_amd64.lib
+copying build\lib.win-amd64-cpython-313\rl_engine\backends\shared\triton\rope\FLASH_ATTENTION_LICENSE -> build\bdist.win-amd64\wheel\.\rl_engine\backends\shared\triton\rope
+copying build\lib.win-amd64-cpython-313\rl_engine\_rope_cuda.cp313-win_amd64.pyd -> build\bdist.win-amd64\wheel\.\rl_engine
+adding 'rl_engine/_rope_cuda.cp313-win_amd64.pyd'
+adding 'rl_engine/backends/shared/triton/rope/FLASH_ATTENTION_LICENSE'
+
+In-place build log:
+D:\anaconda\Lib\site-packages\setuptools\config\_apply_pyprojecttoml.py:82: SetuptoolsDeprecationWarning: `project.license` as a TOML table is deprecated
+!!
+
+        ********************************************************************************
+        Please use a simple string containing a SPDX expression for `project.license`. You can also use `project.license-files`. (Both options available on setuptools>=77.0.0).
+
+        By 2027-Feb-18, you need to update your project and remove deprecated calls
+        or your builds will no longer be supported.
+
+        See https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license for details.
+        ********************************************************************************
+
+!!
+  corresp(dist, value, root_dir)
+running build_ext
+W1028 16:52:54.107000 9384 site-packages\torch\utils\cpp_extension.py:480] Error checking compiler version for cl: 'cp1' codec can't decode bytes in position 0--1: No mapping for the Unicode character exists in the target code page.
+building 'rl_engine._rope_cuda' extension
+W1028 16:52:54.150000 9384 site-packages\torch\utils\cpp_extension.py:480] Error checking compiler version for cl: 'cp1' codec can't decode bytes in position 0--1: No mapping for the Unicode character exists in the target code page.
+ninja: no work to do.
+"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\bin\HostX64\x64\link.exe" /nologo /INCREMENTAL:NO /LTCG /DLL /MANIFEST:EMBED,ID=2 /MANIFESTUAC:NO /LIBPATH:D:\dandan123\dandan\myvllm\.cuda-12.8\Library\lib /LIBPATH:D:\anaconda\Lib\site-packages\torch\lib /LIBPATH:D:\dandan123\dandan\myvllm\.cuda-12.8\Library\lib\x64 /LIBPATH:D:\dandan123\dandan\issue\investigation-rl-kernel\RL-Kernel\.venv\libs /LIBPATH:D:\anaconda\libs /LIBPATH:D:\anaconda /LIBPATH:D:\dandan123\dandan\issue\investigation-rl-kernel\RL-Kernel\.venv\PCbuild\amd64 "/LIBPATH:C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\lib\x64" "/LIBPATH:C:\Program Files (x86)\Windows Kits\10\lib\10.0.26100.0\ucrt\x64" "/LIBPATH:C:\Program Files (x86)\Windows Kits\10\\lib\10.0.26100.0\\um\x64" c10.lib torch.lib torch_cpu.lib torch_python.lib cudart.lib c10_cuda.lib torch_cuda.lib /EXPORT:PyInit__rope_cuda D:\dandan123\dandan\issue\investigation-rl-kernel\RL-Kernel\build\temp.win-amd64-cpython-313\Release\csrc\bindings\rope_module.obj D:\dandan123\dandan\issue\investigation-rl-kernel\RL-Kernel\build\temp.win-amd64-cpython-313\Release\csrc\cuda\rope\multi_axis_rope.obj /OUT:build\lib.win-amd64-cpython-313\rl_engine\_rope_cuda.cp313-win_amd64.pyd /IMPLIB:D:\dandan123\dandan\issue\investigation-rl-kernel\RL-Kernel\build\temp.win-amd64-cpython-313\Release\csrc\bindings\_rope_cuda.cp313-win_amd64.lib
+  正在创建库 D:\dandan123\dandan\issue\investigation-rl-kernel\RL-Kernel\build\temp.win-amd64-cpython-313\Release\csrc\bindings\_rope_cuda.cp313-win_amd64.lib 和对象 D:\dandan123\dandan\issue\investigation-rl-kernel\RL-Kernel\build\temp.win-amd64-cpython-313\Release\csrc\bindings\_rope_cuda.cp313-win_amd64.exp
+正在生成代码
+已完成代码的生成
+copying build\lib.win-amd64-cpython-313\rl_engine\_rope_cuda.cp313-win_amd64.pyd -> rl_engine

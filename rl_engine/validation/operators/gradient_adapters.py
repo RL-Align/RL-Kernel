@@ -220,6 +220,21 @@ GRADIENT_ADAPTERS: dict[str, GradientAdapterSpec] = {
             "csrc/cuda/logprob/fused_linear_logp_sm90.cu",
         ),
     ),
+    # Optional Qwen-Image extension: do not certify it as a Dense Qwen3 chain node.
+    "multi_axis_rope": GradientAdapterSpec(
+        op_name="multi_axis_rope",
+        chain_node="multi_axis_rope",
+        op_class="elementwise",
+        spec_name="multi_axis_rope",
+        tensors=(_DX,),
+        requirement="optional_fused",
+        source_files=(
+            "rl_engine/backends/cuda/rope/multi_axis_rope.py",
+            "rl_engine/backends/shared/triton/rope/multi_axis_rope.py",
+            "rl_engine/backends/shared/triton/rope/_flash_attn_rotary.py",
+            "csrc/cuda/rope/multi_axis_rope.cu",
+        ),
+    ),
     "rope": GradientAdapterSpec(
         op_name="rope",
         chain_node="rope",
@@ -712,6 +727,16 @@ def _row_inputs(
             "weight": params["weight"],
             "bias": None,
         }
+    if op_name == "multi_axis_rope":
+        from rl_engine.ops.rope.multi_axis_rope import build_multi_axis_cos_sin
+
+        if head_dim != 128:
+            raise ValueError("multi_axis_rope gradient adapter requires head_dim=128")
+        rows = _stack_rows(keys, leading, (n_heads, head_dim), device=device, dtype=dtype)
+        positions = _row_positions(keys, device=torch.device("cpu"))
+        coords = torch.stack((positions % 7, positions % 127 - 63, positions % 61 - 30), dim=-1)
+        cos, sin = build_multi_axis_cos_sin(coords, device=device)
+        return {"x": rows.unsqueeze(0), "cos": cos, "sin": sin}
     if op_name == "rope":
         rows = _stack_rows(keys, leading, (n_heads, head_dim), device=device, dtype=dtype)
         return {
@@ -724,6 +749,10 @@ def _row_inputs(
 
 def _to_rows(op_name: str, value: torch.Tensor, n_rows: int) -> torch.Tensor:
     """Normalize an operator output / input-grad back to (n_rows, *tail)."""
+    if op_name == "multi_axis_rope":
+        if value.shape[0] != 1 or value.shape[1] != n_rows:
+            raise ValueError("multi_axis_rope row adapter expects [1, tokens, heads, 128]")
+        return value.squeeze(0)
     if op_name == "rope":
         # RoPE runs as (1, heads, tokens, head_dim); tokens is the row axis.
         permuted = value.permute(0, 2, 1, 3)

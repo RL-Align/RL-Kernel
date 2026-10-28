@@ -1,0 +1,10 @@
+........................................................................ [ 35%]
+........................................................................ [ 71%]
+...................................................sssssss               [100%]
+=========================== short test summary info ===========================
+SKIPPED [3] tests\ops\rope\test_rope.py:390: rope_apply_ascend is not compiled (requires an Ascend NPU build).
+SKIPPED [1] tests\ops\rope\test_rope.py:406: rope_apply_ascend is not compiled (requires an Ascend NPU build).
+SKIPPED [1] tests\ops\rope\test_rope.py:413: rope_apply_ascend is not compiled (requires an Ascend NPU build).
+SKIPPED [1] tests\ops\rope\test_rope.py:420: rope_apply_ascend is not compiled (requires an Ascend NPU build).
+SKIPPED [1] tests\ops\rope\test_rope.py:433: rope_apply_ascend is not compiled (requires an Ascend NPU build).
+195 passed, 7 skipped in 4.31s

@@ -103,6 +103,24 @@ def test_cp_attention_operator_spec_registers_backward_grad_inputs():
     assert candidate.name == "pytorch-cp_attention"
 
 
+def test_multi_axis_rope_operator_spec_and_seeded_inputs():
+    args = _args(op="multi_axis_rope", batch=2, seq=7, n_heads=3, input_mode="random")
+    case = make_operator_case(args, torch.float32, torch.device("cpu"))
+    inputs = make_operator_inputs("multi_axis_rope", args, torch.float32, torch.device("cpu"))
+    repeated = make_operator_inputs("multi_axis_rope", args, torch.float32, torch.device("cpu"))
+    assert case.op_class == "elementwise"
+    assert case.grad_input_names == ("x",)
+    assert inputs["x"].shape == (2, 7, 3, 128)
+    assert inputs["cos"].shape == inputs["sin"].shape == (7, 64)
+    for name in inputs:
+        assert torch.equal(inputs[name], repeated[name])
+    assert operator_shape_name("multi_axis_rope", args) == "2x7x3x128"
+    with pytest.raises(ValueError, match="128"):
+        make_operator_inputs(
+            "multi_axis_rope", _args(head_dim=64), torch.float32, torch.device("cpu")
+        )
+
+
 def test_constant_linear_logp_inputs_match_operator_contract():
     args = _args(input_mode="constant", constant_value=0.5, token_value=3)
     inputs = make_operator_inputs("linear_logp", args, torch.float32, torch.device("cpu"))

@@ -1,0 +1,5 @@
+........................................................................ [ 87%]
+s.........                                                               [100%]
+=========================== short test summary info ===========================
+SKIPPED [1] tests\ops\rope\test_multi_axis_rope.py:336: requires two NVIDIA GPUs
+81 passed, 1 skipped in 5.55s

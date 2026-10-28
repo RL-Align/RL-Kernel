@@ -26,6 +26,7 @@ Every operator page should include:
 - [Fused Linear LogP TP Test Runbook](linear-logp-tp-test.md)
 - [GRPO Loss](grpo-loss.md)
 - [RoPE](rope.md)
+- [Qwen-Image Multi-Axis RoPE](multi-axis-rope.md)
 - [LM Head](lm_head.md)
 - [Policy Ratio + KL Penalty](ratio-kl.md)
 - [Pack and Pad](pack-and-pad.md)

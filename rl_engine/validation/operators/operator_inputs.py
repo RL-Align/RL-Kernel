@@ -37,6 +37,7 @@ def make_operator_inputs(
         "linear_logp": _make_linear_logp_inputs,
         "batch_invariant_logp": _make_batch_invariant_logp_inputs,
         "rope": _make_rope_inputs,
+        "multi_axis_rope": _make_multi_axis_rope_inputs,
         "silu": _make_silu_inputs,
         "swiglu": _make_swiglu_inputs,
         "embedding": _make_embedding_inputs,
@@ -67,6 +68,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "linear_logp": f"{batch}x{seq}x{_normalized_dim(args)}x{vocab}",
         "batch_invariant_logp": f"{batch}x{seq}x{vocab}",
         "rope": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}",
+        "multi_axis_rope": f"{batch}x{seq}x{_arg_int(args, 'n_heads', 24)}x128",
         "silu": f"{batch}x{seq}x{DEFAULT_INTERMEDIATE}",
         "swiglu": f"{batch}x{seq}x{DEFAULT_INTERMEDIATE}",
         "embedding": f"{batch}x{seq}x{vocab}x{_normalized_dim(args)}",
@@ -247,6 +249,23 @@ def _make_batch_invariant_logp_inputs(
     return {
         "logits": _floating_tensor((batch, seq, vocab), args, dtype, device, offset=0),
         "target_ids": _token_ids((batch, seq), vocab, args, device),
+    }
+
+
+def _make_multi_axis_rope_inputs(args, dtype, device):
+    from rl_engine.ops.rope.multi_axis_rope import build_multi_axis_cos_sin
+
+    batch, seq = _batch_seq(args)
+    if _arg_int(args, "head_dim", 128) != 128:
+        raise ValueError("multi_axis_rope requires head_dim=128")
+    heads = _arg_int(args, "n_heads", 24)
+    row = torch.arange(seq, device="cpu", dtype=torch.int64)
+    positions = torch.stack((row % 7, (row // 127) % 4096, row % 127 - 63), dim=-1)
+    cos, sin = build_multi_axis_cos_sin(positions, device=device)
+    return {
+        "x": _floating_tensor((batch, seq, heads, 128), args, dtype, device, offset=0),
+        "cos": cos,
+        "sin": sin,
     }
 
 
