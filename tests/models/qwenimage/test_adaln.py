@@ -207,3 +207,29 @@ def test_projection_chunk_order():
     out = operator("projection")(**args)
     for i, chunk in enumerate(out.chunk(6, -1)):
         assert equal_bytes(chunk, torch.full_like(chunk, i))
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_misaligned_storage_views_match_aligned_copies(dtype):
+    rows, cols = 6 * 3072, 3072
+    generator = torch.Generator(device="cuda").manual_seed(5)
+    flat = torch.randn(rows * cols + 8, generator=generator, device="cuda", dtype=dtype) * 0.02
+    bias_flat = torch.randn(rows + 8, generator=generator, device="cuda", dtype=dtype) * 0.01
+    # Contiguous views whose storage offset is one element: contiguous() keeps them misaligned.
+    weight = flat[1 : 1 + rows * cols].view(rows, cols).requires_grad_()
+    bias = bias_flat[1 : 1 + rows].requires_grad_()
+    assert weight.is_contiguous() and weight.data_ptr() % 16
+    temb = torch.randn(2, cols, generator=generator, device="cuda", dtype=dtype).requires_grad_()
+    copies = {
+        "temb": temb,
+        "weight": weight.detach().clone().requires_grad_(),
+        "bias": bias.detach().clone().requires_grad_(),
+    }
+    assert copies["weight"].data_ptr() % 16 == 0
+    op = operator("projection")
+    grad = random_upstream(op(temb=temb, weight=weight, bias=bias))
+    y, grads = evaluate(op, {"temb": temb, "weight": weight, "bias": bias}, grad)
+    y_copy, grads_copy = evaluate(op, copies, grad)
+    assert equal_bytes(y, y_copy)
+    for name in grads:
+        assert equal_bytes(grads[name], grads_copy[name]), name
