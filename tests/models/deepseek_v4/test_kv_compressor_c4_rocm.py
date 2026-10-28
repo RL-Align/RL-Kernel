@@ -61,7 +61,7 @@ def test_native_forward_fixed_overlap_plan_and_cache_isolation(backend, monkeypa
 
     def capture(**kwargs):
         assert kwargs["ratio"] == 4 and kwargs["overlap"] is True
-        assert kwargs["k_split_num_waves"] == 1
+        assert kwargs.get("k_split_num_waves", 1) == 1
         assert kwargs["k_per_block"] == 64
         captured.append(kwargs["plan_gpu"].clone())
         return original(**kwargs)
@@ -72,6 +72,7 @@ def test_native_forward_fixed_overlap_plan_and_cache_isolation(backend, monkeypa
             operator.bind(values, ids, version="v1"), ape, norm, cos, sin, version="v1"
         ).values
     assert captured and captured[0].shape == (8, 4)
+    assert captured[0][:, 3].cpu().tolist() == [4, 0, 0, 0, 0, 0, 0, 0]
     assert torch.equal(captured[0][:, 2].cpu(), torch.tensor([3, 7, 11, 15, 19, 23, 27, 31]))
     expected = reference(
         values.double(), ape.double(), norm.double(), torch.arange(8), cos, sin, 1e-6
@@ -237,12 +238,6 @@ def test_fresh_process_provider_fingerprint(backend, tmp_path):
         env = {
             **os.environ,
             "PYTHONPATH": str(Path(__file__).resolve().parents[3]),
-            "RLK_MLITE_DSV4_BACKWARD_SOURCE": str(
-                Path(__file__).resolve().parents[3]
-                / ".codex-work"
-                / "upstream"
-                / "megatron_backward.py"
-            ),
             "TRITON_CACHE_DIR": str(tmp_path / f"cache{index}"),
         }
         subprocess.run(
@@ -255,3 +250,42 @@ def test_fresh_process_provider_fingerprint(backend, tmp_path):
         )
         records.append(json.loads(output.read_text()))
     assert records[0] == records[1]
+
+
+@pytest.mark.parametrize("bias", [-(2.0**30), -(2.0**25), 0, 2.0**25])
+def test_first_window_native_mask_excludes_padding_even_for_extreme_scores(backend, bias):
+    operator = op(backend)
+    values, ids, ape, norm, cos, sin = fixture(1, device="cuda")
+    values[:, 1024:] = bias
+    ape.zero_()
+    bound = operator.bind(values, ids, version="v1")
+    actual = operator(bound, ape, norm, cos, sin, version="v1").values
+    expected = reference(
+        values.double(), ape.double(), norm.double(), torch.tensor([0]), cos, sin, 1e-6
+    )
+    numerical_close(actual, expected)
+
+
+def test_nonfinite_predecessor_context_is_not_hidden_by_emit_filter(backend):
+    operator = op(backend)
+    values, ids, *_ = fixture(2, device="cuda")
+    values[0, 0] = float("nan")
+    with pytest.raises(C4Error, match="finite"):
+        operator.bind(values, ids, version="v1", emit_group_ids=[(7, 1)])
+
+
+def test_fp64_oracle_really_preserves_fp64():
+    values, ids, ape, norm, cos, sin = fixture(2, device="cuda")
+    x = values.double().requires_grad_()
+    a = ape.double().requires_grad_()
+    n = norm.double().requires_grad_()
+    y = reference(x, a, n, torch.arange(2, device="cuda"), cos, sin, 1e-6)
+    assert y.dtype == torch.float64
+    eps = 1e-8
+    with torch.no_grad():
+        perturbed = x.clone()
+        perturbed[0, 0] += eps
+    assert not torch.equal(
+        y, reference(perturbed, a, n, torch.arange(2, device="cuda"), cos, sin, 1e-6)
+    )
+    assert all(t.dtype == torch.float64 for t in torch.autograd.grad(y.sum(), (x, a, n)))

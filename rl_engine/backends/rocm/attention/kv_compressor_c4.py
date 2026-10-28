@@ -10,6 +10,7 @@ import torch
 
 from rl_engine.contracts.operators.kv_compressor_c4 import (
     AITer_C4_SHA256,
+    AITer_C4_LEGACY_SHA256,
     C4_BACKEND_ID,
     C4Error,
     MLITE_BACKWARD_SHA256,
@@ -37,9 +38,16 @@ class AiterC4Backend:
             )
         except (ImportError, AttributeError) as exc:
             raise C4Error("pinned aiter C4 ABI unavailable") from exc
+        provider_hash = source_hash(getattr(self.aiter, "__file__", None))
         require(
-            source_hash(getattr(self.aiter, "__file__", None)) == AITer_C4_SHA256,
+            provider_hash in (AITer_C4_SHA256, AITer_C4_LEGACY_SHA256),
             "unvalidated aiter C4 source revision",
+        )
+        # Two explicitly identified upstream ABIs, not a silent numerical fallback.
+        self.launch_options = (
+            {"quant_mode": "none", "k_split_num_waves": 1}
+            if provider_hash == AITer_C4_SHA256
+            else {}
         )
         path = megatron_backward_path or os.environ.get("RLK_MLITE_DSV4_BACKWARD_SOURCE")
         if path is None:
@@ -65,7 +73,9 @@ class AiterC4Backend:
             "hip": torch.version.hip,
             "triton": importlib.import_module("triton").__version__,
             "flydsl": importlib.metadata.version("flydsl"),
-            "aiter_c4": AITer_C4_SHA256,
+            "aiter_c4": provider_hash,
+            "launch_options": self.launch_options,
+            "padding": "native state-phase negative-position masking",
             "mlite_backward": MLITE_BACKWARD_SHA256,
             "adapter": source_hash(__file__),
         }
@@ -76,19 +86,12 @@ class AiterC4Backend:
             return torch.empty((0, 512), dtype=torch.bfloat16, device=bound.values.device)
         blocks = max((block for block, _slot in bound.cache_slots_host), default=-1) + 1
         cache = torch.empty((blocks, 64, 512), dtype=torch.bfloat16, device=bound.values.device)
-        provider_values = bound.context_values.reshape(-1, bound.context_values.shape[-1]).clone()
-        state_kv = torch.zeros_like(bound.kv_state)
-        state_score = torch.zeros_like(bound.score_state)
+        provider_values = bound.context_values.reshape(-1, bound.context_values.shape[-1])
+        state_kv = bound.kv_state
+        state_score = bound.score_state
         state_slots = bound.state_slots
         plan = bound.plan.contiguous()
         block_table = bound.block_table
-        for index, (_request, group) in enumerate(bound.logical_keys):
-            if group == 0:
-                # The overlap kernel's input phase intentionally has no
-                # negative-infinity sentinel path. A finite BF16 floor is
-                # below the softmax range of the admitted score domain and
-                # avoids -inf - (-inf) while remaining numerically masked.
-                provider_values[index * 8 : index * 8 + 4, 1024:] = -(2.0**30)
         self.aiter.flydsl_fused_compress_attn(
             kv_in=provider_values[:, :1024],
             score_in=provider_values[:, 1024:],
@@ -111,8 +114,7 @@ class AiterC4Backend:
             quant=False,
             use_ue8m0=True,
             preshuffle=True,
-            quant_mode="none",
-            k_split_num_waves=1,
+            **self.launch_options,
         )
         return torch.stack(
             [cache[block, slot] for block, slot in bound.cache_slots_host],
@@ -152,7 +154,7 @@ class AiterC4Backend:
                         y, (source, a, n), grad_outputs=grad[index : index + 1].float()
                     )
                     dx = torch.cat((torch.zeros_like(context[:4]), dx))
-                contributions.append((bound.context_indices[index], dx))
+                contributions.append((bound.context_indices_host[index], dx))
                 ape_rows.append(da)
                 norm_rows.append(dn)
         record_backward(

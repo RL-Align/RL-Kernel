@@ -11,6 +11,7 @@ from rl_engine.contracts.operators.attention import AttentionContractError
 
 C4_BACKEND_ID = "aiter.csa.c4.gfx942.bf16.overlap.fixed1.v1"
 AITer_C4_SHA256 = "53cdd2801b6b2f5866b02d18bff1b2d56a19289a8048cdc14fe8bb687e572a14"
+AITer_C4_LEGACY_SHA256 = "0c2019ca3a4a0d6dc7d5fdd20ebcce658ff5f504fdc880dffd61c9c398029451"
 MLITE_BACKWARD_SHA256 = "6a1e78ca89b83f56391b5e5ac409e765338f1e3a625251d0d4c877c1e80b4a68"
 
 

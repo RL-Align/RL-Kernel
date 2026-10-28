@@ -213,13 +213,13 @@ def bind_complete_groups(
                 torch.zeros_like(context[:, :4]),
             )
         require(
-            bool((torch.isfinite(packed.float()) & (packed.float().abs() <= 2.0**30)).all()),
+            bool((torch.isfinite(context.float()) & (context.float().abs() <= 2.0**30)).all()),
             "selected input outside finite C4 FP32 accumulation domain",
         )
         group_ids = torch.tensor(selected, dtype=torch.int64, device=values.device).reshape(-1, 2)
         plan = torch.tensor(
             [
-                [i * 8 + 7, request_order[request], group * 4 + 3, 0]
+                [i * 8 + 7, request_order[request], group * 4 + 3, 4 if group == 0 else 0]
                 for i, (request, group) in enumerate(selected)
             ],
             dtype=torch.int32,

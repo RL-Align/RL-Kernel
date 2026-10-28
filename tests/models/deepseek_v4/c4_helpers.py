@@ -7,6 +7,8 @@ from rl_engine.contracts.operators.kv_compressor_c4 import C4_BACKEND_ID
 
 
 def context_reference(context, ape, norm, group, cos, sin, eps):
+    if context.dtype != torch.float64:
+        context = context.float()
     # Each source row is [content1024, score1024]. The overlap window uses
     # previous group's first half and current group's second half.
     previous = context[:4, :1024]
@@ -27,12 +29,12 @@ def context_reference(context, ape, norm, group, cos, sin, eps):
         gate = torch.cat((previous_gate[:, :512], current_gate[:, 512:]), dim=0)
     ape_window = torch.cat((ape[:, :512], ape[:, 512:]), dim=0)
     gate = gate + ape_window
-    weights = torch.softmax(gate.float(), dim=0).to(content.dtype)
-    pooled = (content * weights).sum(0).float()
+    weights = torch.softmax(gate, dim=0)
+    pooled = (content * weights).sum(0)
     pooled = pooled * torch.rsqrt(pooled.square().mean(-1, keepdim=True) + eps)
-    pooled = pooled * norm.float()
-    selected_cos = cos[group * 4].float()
-    selected_sin = sin[group * 4].float()
+    pooled = pooled * norm.to(context.dtype)
+    selected_cos = cos[group * 4].to(context.dtype)
+    selected_sin = sin[group * 4].to(context.dtype)
     tail = pooled[-64:].reshape(32, 2)
     rotated = torch.stack(
         (
@@ -52,9 +54,7 @@ def reference(values, ape, norm, groups, cos, sin, eps):
             context = torch.cat((torch.zeros_like(values[group]), values[group]), dim=0)
         else:
             context = torch.cat((values[group - 1], values[group]), dim=0)
-        outputs.append(
-            context_reference(context.float(), ape, norm, int(groups[group]), cos, sin, eps)
-        )
+        outputs.append(context_reference(context, ape, norm, int(groups[group]), cos, sin, eps))
     return (
         torch.stack(outputs).to(values.dtype)
         if outputs
