@@ -37,11 +37,19 @@ def require_device(tensor):
         raise RuntimeError("Qwen-Image CUDA requires SM80 or newer")
 
 
+def aligned(tensor):
+    """Return ``tensor`` contiguous and 16-byte aligned for the vector loads of the kernels.
+
+    ``contiguous()`` keeps a view whose storage offset is not a multiple of 16 bytes, so such a
+    view is copied explicitly.
+    """
+    tensor = tensor.contiguous()
+    return tensor.clone() if tensor.data_ptr() % 16 else tensor
+
+
 def projection_forward(temb, weight, bias):
-    act = F.silu(temb).contiguous()
-    table = _C.qwenimage_det_linear_forward(act, weight.contiguous(), bias.contiguous(), 0, False)[
-        0
-    ]
+    act = aligned(F.silu(temb))
+    table = _C.qwenimage_det_linear_forward(act, aligned(weight), aligned(bias), 0, False)[0]
     return table, act
 
 
@@ -50,9 +58,9 @@ def parameter_gradients(grad, act, dtype):
 
 
 def projection_backward(grad, temb, act, weight):
-    grad = grad.float().contiguous()
+    grad = aligned(grad.float())
     dw, db = parameter_gradients(grad, act, weight.dtype)
-    da = _C.qwenimage_det_linear_backward_input(grad, weight.contiguous(), torch.float32)
+    da = _C.qwenimage_det_linear_backward_input(grad, aligned(weight), torch.float32)
     z = temb.float()
     sigmoid = torch.sigmoid(z)
     dt = da * (sigmoid * (1 + z * (1 - sigmoid)))

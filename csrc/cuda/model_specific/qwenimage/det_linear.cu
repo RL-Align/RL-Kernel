@@ -50,15 +50,43 @@
 #include <c10/cuda/CUDAException.h>
 #include <cuda_bf16.h>
 
+#include <atomic>
 #include <cstdint>
 #include <vector>
 
+namespace {
+// Runs in this translation unit, so it is built with the same nvcc flags as the kernels. A
+// subnormal survives a multiply only without flush-to-zero, and IEEE division differs from
+// div.full (what --use_fast_math emits) for the chosen operands. Inputs come from device memory
+// so the compiler cannot fold either result.
+__global__ void strict_math_probe(const float* in, float* out) {
+  out[0] = in[0] * in[3];
+  out[1] = in[1] / in[2];
+}
+}  // namespace
+
+// Report whether this extension was built without --use_fast_math by executing the probe above.
+// nvcc defines no macro for that flag (neither __FAST_MATH__ nor __USE_FAST_MATH__ is visible to
+// device code), so the build is measured, not detected. Fails closed when the probe cannot run.
 bool qwenimage_strict_math_compiled() {
-#ifdef __FAST_MATH__
-  return false;
-#else
-  return true;
-#endif
+  static std::atomic<int> verdict{0};  // 0 unknown, 1 strict, 2 fast math
+  if (int known = verdict.load()) return known == 1;
+  try {
+    // 0x1.ed8256p+0 / 0x1.5e809ep+0 rounds differently under div.full.
+    volatile float subnormal_source = 1e-40f, a_source = 0x1.ed8256p+0f, b_source = 0x1.5e809ep+0f;
+    const float subnormal = subnormal_source, a = a_source, b = b_source, quotient = a / b;
+    auto in = torch::tensor({subnormal, a, b, 1.0f}, torch::kFloat).to(torch::kCUDA);
+    auto out = torch::empty({2}, in.options());
+    strict_math_probe<<<1, 1, 0, at::cuda::getCurrentCUDAStream()>>>(in.data_ptr<float>(),
+                                                                     out.data_ptr<float>());
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    auto result = out.cpu();
+    const bool strict = result[0].item<float>() == subnormal && result[1].item<float>() == quotient;
+    verdict.store(strict ? 1 : 2);
+    return strict;
+  } catch (const c10::Error&) {
+    return false;
+  }
 }
 
 namespace {

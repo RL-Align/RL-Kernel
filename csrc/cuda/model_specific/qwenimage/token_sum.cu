@@ -5,6 +5,8 @@
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/cuda/CUDAException.h>
 
+bool qwenimage_strict_math_compiled();
+
 namespace {
 // Neumaier step: add v to the running sum s and accumulate the rounding error in c.
 __device__ __forceinline__ void neumaier_add(float& s, float& c, float v) {
@@ -43,9 +45,7 @@ __global__ void token_partials(const float* x, const float* x_corr, float* p, fl
 }
 
 torch::Tensor qwenimage_token_sum(torch::Tensor x) {
-#ifdef __FAST_MATH__
-  TORCH_CHECK(false, "Qwen-Image requires a build without fast math");
-#endif
+  TORCH_CHECK(qwenimage_strict_math_compiled(), "Qwen-Image requires a build without fast math");
   TORCH_CHECK(x.is_cuda() && x.scalar_type() == at::kFloat && x.dim() == 3 && x.is_contiguous(),
               "token_sum requires contiguous CUDA float32 [B,S,H]");
   const auto b = x.size(0), s = x.size(1), h = x.size(2);
