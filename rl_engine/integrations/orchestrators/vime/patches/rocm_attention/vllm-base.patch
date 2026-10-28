@@ -1,0 +1,100 @@
+diff --git a/csrc/cumem_allocator.cpp b/csrc/cumem_allocator.cpp
+index 720c990..d5c72ab 100644
+--- a/csrc/cumem_allocator.cpp
++++ b/csrc/cumem_allocator.cpp
+@@ -203,12 +203,25 @@ void create_and_map(unsigned long long device, ssize_t size, CUdeviceptr d_mem,
+   }
+ #endif
+ 
+-  CUmemAccessDesc accessDesc = {};
+-  accessDesc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+-  accessDesc.location.id = device;
+-  accessDesc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
++  CUmemAccessDesc accessDesc[2] = {};
++  size_t numAccessDesc = 0;
++  accessDesc[numAccessDesc].location.type = CU_MEM_LOCATION_TYPE_DEVICE;
++  accessDesc[numAccessDesc].location.id = device;
++  accessDesc[numAccessDesc].flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
++  numAccessDesc++;
++#ifdef USE_ROCM
++  // Grant the host read/write access to this VMM range.  On large-BAR devices
++  // (MI300X) PyTorch's _local_scalar_dense_cuda reads scalar tensors by
++  // dereferencing the device pointer directly from the host side, bypassing
++  // hipMemcpy.  Without a host mapping that dereference triggers SIGSEGV,
++  // silently killing the worker process with no Python traceback.
++  accessDesc[numAccessDesc].location.type = CU_MEM_LOCATION_TYPE_HOST;
++  accessDesc[numAccessDesc].location.id = 0;
++  accessDesc[numAccessDesc].flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
++  numAccessDesc++;
++#endif
+ 
+-  CUDA_CHECK(cuMemSetAccess(d_mem, size, &accessDesc, 1));
++  CUDA_CHECK(cuMemSetAccess(d_mem, size, accessDesc, numAccessDesc));
+   if (error_code != 0) {
+     return;
+   }
+diff --git a/csrc/cumem_allocator_compat.h b/csrc/cumem_allocator_compat.h
+index 74f4bc9..f703a68 100644
+--- a/csrc/cumem_allocator_compat.h
++++ b/csrc/cumem_allocator_compat.h
+@@ -24,6 +24,7 @@ typedef hipMemAccessDesc CUmemAccessDesc;
+ 
+   #define CU_MEM_ALLOCATION_TYPE_PINNED hipMemAllocationTypePinned
+   #define CU_MEM_LOCATION_TYPE_DEVICE hipMemLocationTypeDevice
++  #define CU_MEM_LOCATION_TYPE_HOST hipMemLocationTypeHost
+   #define CU_MEM_ACCESS_FLAGS_PROT_READWRITE hipMemAccessFlagsProtReadWrite
+   #define CU_MEM_ALLOC_GRANULARITY_MINIMUM hipMemAllocationGranularityMinimum
+ 
+diff --git a/tests/basic_correctness/test_mem.py b/tests/basic_correctness/test_mem.py
+index 0618562..6a74908 100644
+--- a/tests/basic_correctness/test_mem.py
++++ b/tests/basic_correctness/test_mem.py
+@@ -374,3 +374,48 @@ def test_deep_sleep_fp8_kvcache():
+ 
+     # cmp output
+     assert output[0].outputs[0].text == output2[0].outputs[0].text
++
++
++@create_new_process_for_each_test("fork" if current_platform.is_cuda() else "spawn")
++@pytest.mark.skipif(not current_platform.is_rocm(),
++                    reason="Host-access regression only affects ROCm large-BAR")
++def test_cumem_host_read_scalar():
++    """Verify that .item() works on scalars residing in VMM-allocated memory.
++
++    On ROCm with large-BAR GPUs, PyTorch reads scalar values by directly
++    dereferencing the device pointer from the host side.  If the VMM mapping
++    does not include CU_MEM_LOCATION_TYPE_HOST access, this causes a SEGFAULT
++    with no Python traceback.
++
++    This test exercises the fix in create_and_map() that grants host access.
++    """
++    allocator = get_mem_allocator_instance()
++
++    with allocator.use_memory_pool():
++        # Allocate a tensor in the cumem (VMM) pool
++        x = torch.ones(1024, device=DEVICE_TYPE, dtype=torch.float32)
++        x *= 3.0
++
++        # .sum() produces a scalar tensor still backed by VMM memory
++        scalar = x.sum()
++
++        # .item() triggers host-side pointer dereference on large-BAR ROCm.
++        # Without the host-access fix this line segfaults.
++        value = scalar.item()
++
++    assert value == pytest.approx(3072.0), (
++        f"Expected 3072.0, got {value}. "
++        "Host read from VMM-backed scalar returned wrong value."
++    )
++
++    # Also verify after sleep/wake cycle
++    allocator.sleep()
++    allocator.wake_up()
++
++    with allocator.use_memory_pool():
++        y = torch.full((256,), -1.0, device=DEVICE_TYPE)
++        result = y.min().item()
++
++    assert result == pytest.approx(-1.0), (
++        f"Expected -1.0 after sleep/wake, got {result}."
++    )
