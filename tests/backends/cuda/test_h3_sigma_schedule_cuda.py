@@ -8,8 +8,11 @@ diffusers scheduler (see tests/reference/minimax_h3/). GPU results are copied
 to the host only for comparison; no value is recomputed on the CPU.
 
 The backend is NVIDIA-only (its kernels emit inline PTX ``div.rn.f32``);
-the suite runs on NVIDIA CUDA hardware and skips on HIP/ROCm builds, where
-``H3SigmaScheduleCudaOp`` refuses construction. It is opt-in everywhere: the
+the suite runs on NVIDIA CUDA hardware with a Triton wheel and skips
+without a GPU, on HIP/ROCm builds, and when the backend module cannot
+import Triton (same guard shape as the sibling Triton suite
+``tests/backends/cuda/test_h3_flash_attention.py``). It is opt-in
+everywhere: the
 legacy registry serves the PyTorch reference on CUDA too (default backend
 change per review, 2026-10-25), and the Triton class is reached through the
 semantic ``requested_backend`` or direct construction. The suite therefore
@@ -25,10 +28,13 @@ import pathlib
 import pytest
 import torch
 
+from rl_engine.backends.cuda.model_specific.minimax_h3.sigma_schedule import _TRITON_AVAILABLE
+
 pytestmark = pytest.mark.skipif(
-    not torch.cuda.is_available() or torch.version.hip is not None,
-    reason="NVIDIA CUDA device required: the Triton path is NVIDIA-only "
-    "(skipped without a GPU and on HIP/ROCm builds)",
+    not torch.cuda.is_available() or torch.version.hip is not None or not _TRITON_AVAILABLE,
+    reason="NVIDIA CUDA device and Triton wheel required: the Triton path is "
+    "NVIDIA-only (skipped without a GPU, on HIP/ROCm builds, and when Triton "
+    "is not importable)",
 )
 
 _FIXTURE_PATH = (
