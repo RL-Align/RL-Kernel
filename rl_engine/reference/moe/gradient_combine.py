@@ -143,6 +143,14 @@ def combine_local_input_gradients(
         raise MoEOutputCombineContractError(
             "expert_input_gradient must have shape [num_slots, hidden_size]"
         )
+    if inputs.expert_output.ndim != 2:
+        raise MoEOutputCombineContractError(
+            "inputs.expert_output must have shape [num_slots, hidden_size]"
+        )
+    if expert_input_gradient.shape[0] != inputs.expert_output.shape[0]:
+        raise MoEOutputCombineContractError(
+            "expert_input_gradient slot count must match inputs.expert_output"
+        )
     if expert_input_gradient.dtype not in _SUPPORTED_GRADIENT_DTYPES:
         raise MoEOutputCombineContractError("expert_input_gradient uses an unsupported dtype")
     if not torch.isfinite(expert_input_gradient).all():
