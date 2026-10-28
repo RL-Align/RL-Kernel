@@ -321,6 +321,33 @@ OP_SPECS = {
         },
         grad_input_names=("temb", "weight", "bias"),
     ),
+    # The gather's forward is a copy (asserted bitwise in tests/models/minimax_h3), but its VJP
+    # sums every packed position of a table row, so it is judged as a reduction.
+    "adaln_row_gather": OperatorSpec(
+        name="adaln_row_gather",
+        op_class="reduction",
+        gold_path="rl_engine.reference.minimax_h3.adaln_row_gather.NativeH3AdaLNRowGatherOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": ("rl_engine.reference.minimax_h3.adaln_row_gather.NativeH3AdaLNRowGatherOp"),
+            "cuda": (
+                "rl_engine.backends.cuda.model_specific.minimax_h3."
+                "adaln_row_gather.H3AdaLNRowGatherCudaOp"
+            ),
+        },
+        grad_input_names=("rows",),
+    ),
+    "h3_rmsnorm": OperatorSpec(
+        name="h3_rmsnorm",
+        op_class="reduction",
+        gold_path="rl_engine.reference.minimax_h3.rmsnorm.NativeH3RMSNormOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.minimax_h3.rmsnorm.NativeH3RMSNormOp",
+            "cuda": "rl_engine.backends.cuda.model_specific.minimax_h3.rmsnorm.H3RMSNormCudaOp",
+        },
+        grad_input_names=("x", "weight"),
+    ),
     "pack": OperatorSpec(
         name="pack",
         op_class="elementwise",

@@ -30,7 +30,7 @@ from rl_engine.validation.models.h3_weights import (  # noqa: E402
 
 
 def _ints(text: str) -> list[int]:
-    """Parse comma-separated integers for the replay CLI's case dimensions."""
+    """Parse a comma-separated list of integer case sizes."""
 
     return [int(v) for v in text.split(",")]
 
@@ -48,17 +48,27 @@ def main() -> None:
     parser.add_argument("--seq-lens", type=_ints, default=[3, 257, 4097], help="comma list of S")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, default=None)
+    parser.add_argument(
+        "--backward",
+        action="store_true",
+        help="also replay the chain backward (needs every stage): parameter-gradient "
+        "determinism and accuracy for the separate-op, fused and diffusers chains",
+    )
     args = parser.parse_args()
+
+    wanted = args.stages.split(",")
+    stage_names = [s.name for s in h3_chain.STAGES]
+    unknown = sorted(set(wanted) - set(stage_names))
+    if unknown:
+        parser.error(f"unknown stages: {unknown}")
+    stages = [s for s in h3_chain.STAGES if s.name in wanted]
+    if args.backward and len(stages) != len(h3_chain.STAGES):
+        parser.error("--backward requires every stage of the chain")
+    last_stage = max(i for i, stage in enumerate(h3_chain.STAGES) if stage.name in wanted)
+    execution_stages = h3_chain.STAGES[: last_stage + 1]
 
     if not torch.cuda.is_available():
         raise SystemExit("the chain replay needs a CUDA device")
-    wanted = args.stages.split(",")
-    unknown = sorted(set(wanted) - {s.name for s in h3_chain.STAGES})
-    if unknown:
-        raise SystemExit(f"unknown stages: {unknown}")
-    stages = [s for s in h3_chain.STAGES if s.name in wanted]
-    last_stage = max(i for i, stage in enumerate(h3_chain.STAGES) if stage.name in wanted)
-    execution_stages = h3_chain.STAGES[: last_stage + 1]
 
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
@@ -87,6 +97,23 @@ def main() -> None:
             )
             print(f"T={num_timesteps} S={seq_len}: {summary}; first_drift={case['first_drift']}")
 
+    backward_cases = []
+    if args.backward:
+        for num_timesteps in args.timesteps:
+            for seq_len in args.seq_lens:
+                case = h3_chain.run_backward_case(
+                    registry, weights, num_timesteps=num_timesteps, seq_len=seq_len, seed=args.seed
+                )
+                backward_cases.append(case)
+                parts = []
+                for mode in h3_chain.BACKWARD_MODES:
+                    entries = case["leaves"].values()
+                    det = all(e[mode]["repeat_bitwise_equal"] for e in entries)
+                    worst = max(e[mode]["max_abs_vs_golden_over_absmax"] for e in entries)
+                    parts.append(f"{mode}: {'det' if det else 'NONDET'} {worst:.1e}")
+                summary = " | ".join(parts)
+                print(f"backward T={num_timesteps} S={seq_len}: {summary}")
+
     evidence = {
         "kind": "h3_conditioning_chain_replay",
         "rfc": manifest["rfc"],
@@ -98,6 +125,7 @@ def main() -> None:
         "stages": [s.name for s in stages],
         "executed_stages": [s.name for s in execution_stages],
         "cases": cases,
+        "backward_cases": backward_cases,
     }
     if args.out is not None:
         args.out.parent.mkdir(parents=True, exist_ok=True)

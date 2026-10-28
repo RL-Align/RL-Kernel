@@ -32,11 +32,14 @@ from rl_engine.runtime.registry import KernelRegistry
 from rl_engine.validation.models.h3_cases import h3_packed_layout, h3_timesteps
 from rl_engine.validation.models.h3_provider import (
     provider_adaln_modulation,
+    provider_adaln_row_gather,
+    provider_norm_modulate,
     provider_time_embedder,
     provider_time_proj,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+HIDDEN = 5376
 
 
 @dataclass(frozen=True)
@@ -98,7 +101,73 @@ STAGES: list[Stage] = [
         golden_atol=5e-2,  # reduction / bfloat16
         golden_rtol=2e-2,
     ),
+    Stage(
+        name="adaln_row_gather",
+        op_type="adaln_row_gather",
+        candidate=lambda op, ctx, up: op.gather_chunks(
+            up, ctx["timestep_indices"], ctx["token_tags"]
+        ),
+        provider=lambda ctx, up: provider_adaln_row_gather(
+            up, ctx["timestep_indices"], ctx["token_tags"]
+        ),
+        golden=lambda op, ctx, up: op.forward_fp32(
+            torch.cat(list(up), dim=1), ctx["timestep_indices"], ctx["token_tags"]
+        ),
+        provider_bitwise_isolated=True,  # a copy
+        golden_atol=5e-2,  # carries the projection's BF16 rounding (reduction / bfloat16)
+        golden_rtol=2e-2,
+    ),
 ]
+
+
+def adaln_indices(ctx: dict[str, Any]) -> torch.Tensor:
+    return ctx["timestep_indices"] * 3 + ctx["token_tags"]
+
+
+def _norm1_modulated(ctx: dict[str, Any], modulation, call):
+    shift_msa, scale_msa = modulation[0], modulation[1]
+    weight = ctx["weights"]["transformer_blocks.0.norm1.weight"]
+    return call(ctx["hidden"], weight, shift_msa, scale_msa, adaln_indices(ctx))
+
+
+STAGES.append(
+    Stage(
+        name="h3_rmsnorm",
+        op_type="h3_rmsnorm",
+        # Block norm1 followed by the MSA shift/scale of the projection stage.
+        candidate=lambda op, ctx, _up: _norm1_modulated(
+            ctx, ctx["history"]["adaln_projection_3mod"], op.forward_modulated
+        ),
+        provider=lambda ctx, _up: _norm1_modulated(
+            ctx, ctx["history"]["adaln_projection_3mod"], provider_norm_modulate
+        ),
+        golden=lambda op, ctx, _up: _norm1_modulated(
+            ctx, ctx["history"]["adaln_projection_3mod"], op.forward_modulated_fp32
+        ),
+        provider_bitwise_isolated=True,  # replays nn.RMSNorm's reduction order
+        golden_atol=5e-2,  # reduction / bfloat16
+        golden_rtol=2e-2,
+    )
+)
+
+# The backward replay covers the conditioning chain up to the row gather.
+CONDITIONING_STAGES = (
+    "timestep_sinusoid_h3",
+    "timestep_mlp_fp32",
+    "adaln_projection_3mod",
+    "adaln_row_gather",
+)
+
+# Parameters whose gradients the backward replay reports, in chain order.
+GRAD_LEAVES = (
+    "time_embedder.linear_1.weight",
+    "time_embedder.linear_1.bias",
+    "time_embedder.linear_2.weight",
+    "time_embedder.linear_2.bias",
+    "transformer_blocks.0.adaln_proj.linear.weight",
+    "transformer_blocks.0.adaln_proj.linear.bias",
+)
+BACKWARD_MODES = ("candidate", "candidate_fused", "provider")
 
 
 def _flat(value: Any) -> list[torch.Tensor]:
@@ -133,6 +202,13 @@ def make_context(weights, *, num_timesteps: int, seq_len: int, seed: int) -> dic
         "timestep_indices": timestep_indices,
         "token_tags": token_tags,
         "weights": weights,
+        # Stand-in for the packed hidden states (the patch/text projections are
+        # other RFC rows): BF16 (1, S, H), seeded.
+        "hidden": torch.randn(
+            (1, seq_len, HIDDEN), generator=torch.Generator().manual_seed(seed + 2)
+        )
+        .to(torch.bfloat16)
+        .cuda(),
     }
 
 
@@ -167,16 +243,24 @@ def run_case(
     }
     chained = provider = golden = None
     first_drift = first_isolated = None
+    # Each mode sees its own earlier outputs (a stage may read any earlier stage).
+    history = {"candidate": {}, "provider": {}, "golden": {}}
+    ctx_c = {**ctx, "history": history["candidate"]}
+    ctx_p = {**ctx, "history": history["provider"]}
+    ctx_g = {**ctx, "history": history["golden"]}
     for stage in stages:
         op = registry.get_op(stage.op_type, device="cuda")
         gold = golden_op(registry, stage.op_type)
         with torch.no_grad():
-            isolated = stage.candidate(op, ctx, provider)
+            isolated = stage.candidate(op, ctx_p, provider)
             chained_input = chained
-            chained = stage.candidate(op, ctx, chained_input)
-            repeat = stage.candidate(op, ctx, chained_input)
-            golden = stage.golden(gold, ctx, golden)
-            provider = stage.provider(ctx, provider)
+            chained = stage.candidate(op, ctx_c, chained_input)
+            repeat = stage.candidate(op, ctx_c, chained_input)
+            golden = stage.golden(gold, ctx_g, golden)
+            provider = stage.provider(ctx_p, provider)
+        history["candidate"][stage.name] = chained
+        history["provider"][stage.name] = provider
+        history["golden"][stage.name] = golden
         entry = {
             "stage": stage.name,
             "backend": type(op).__name__,
@@ -194,6 +278,81 @@ def run_case(
         report["stages"].append(entry)
     report["first_drift"] = first_drift
     report["first_isolated_drift"] = first_isolated
+    return report
+
+
+def chain_grads(mode: str, registry: KernelRegistry, ctx, upstream) -> list[torch.Tensor]:
+    """Parameter gradients of the full chain for one execution mode.
+
+    ``candidate`` runs the four RL-Kernel ops separately, ``candidate_fused``
+    runs projection + gather as ``H3AdaLNModulationCudaOp``, ``provider`` the
+    diffusers path, ``golden`` the FP64 references.
+    """
+
+    leaves = {
+        name: ctx["weights"][name].detach().clone().requires_grad_(True) for name in GRAD_LEAVES
+    }
+    run_ctx = {**ctx, "weights": {**ctx["weights"], **leaves}, "history": {}}
+    value = None
+    if mode == "candidate_fused":
+        from rl_engine.backends.cuda.model_specific.minimax_h3.adaln_modulation import (
+            H3AdaLNModulationCudaOp,
+        )
+
+        for stage in STAGES[:2]:
+            value = stage.candidate(registry.get_op(stage.op_type, device="cuda"), run_ctx, value)
+        value = H3AdaLNModulationCudaOp()(
+            value, *adaln_params(run_ctx), ctx["timestep_indices"], ctx["token_tags"]
+        )
+    else:
+        for stage in (s for s in STAGES if s.name in CONDITIONING_STAGES):
+            if mode == "provider":
+                value = stage.provider(run_ctx, value)
+            elif mode == "candidate":
+                op = registry.get_op(stage.op_type, device="cuda")
+                value = stage.candidate(op, run_ctx, value)
+            else:
+                value = stage.golden(golden_op(registry, stage.op_type), run_ctx, value)
+    outputs = list(value)
+    torch.autograd.backward(
+        outputs, [g.to(out.dtype) for g, out in zip(upstream, outputs, strict=True)]
+    )
+    return [leaves[name].grad for name in GRAD_LEAVES]
+
+
+def run_backward_case(
+    registry: KernelRegistry, weights, *, num_timesteps: int, seq_len: int, seed: int = 0
+) -> dict[str, Any]:
+    """Determinism and accuracy of the chain's parameter gradients, per mode."""
+
+    ctx = make_context(weights, num_timesteps=num_timesteps, seq_len=seq_len, seed=seed)
+    generator = torch.Generator(device="cuda").manual_seed(seed + 1)
+    hidden = weights[GRAD_LEAVES[4]].shape[0] // 18
+    upstream = [
+        torch.randn(seq_len, hidden, device="cuda", generator=generator).bfloat16()
+        for _ in range(6)
+    ]
+    golden = chain_grads("golden", registry, ctx, upstream)
+    runs = {
+        mode: [chain_grads(mode, registry, ctx, upstream) for _ in range(2)]
+        for mode in BACKWARD_MODES
+    }
+    report: dict[str, Any] = {"num_timesteps": num_timesteps, "seq_len": seq_len, "leaves": {}}
+    for index, name in enumerate(GRAD_LEAVES):
+        gold = golden[index].float()
+        entry: dict[str, Any] = {"golden_absmax": float(gold.abs().max())}
+        for mode, (first, second) in runs.items():
+            grad = first[index]
+            err = (grad.float() - gold).abs().max()
+            entry[mode] = {
+                "repeat_bitwise_equal": bool(torch.equal(first[index], second[index])),
+                "max_abs_vs_golden": float(err),
+                "max_abs_vs_golden_over_absmax": float(err / gold.abs().max().clamp_min(1e-30)),
+                "correctly_rounded_fraction": float(
+                    (grad == golden[index].to(grad.dtype)).float().mean()
+                ),
+            }
+        report["leaves"][name] = entry
     return report
 
 

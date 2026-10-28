@@ -67,3 +67,28 @@ def provider_adaln_modulation(
     temb = F.linear(F.silu(temb).to(weight.dtype), weight, bias)
     temb = temb.view(-1, 6 * hidden_size)
     return temb.chunk(6, dim=-1)
+
+
+def provider_adaln_row_gather(
+    modulation: tuple[torch.Tensor, ...], timestep_indices: torch.Tensor, token_tags: torch.Tensor
+) -> tuple[torch.Tensor, ...]:
+    """``adaln_indices = timestep_indices * 3 + token_tags`` then six ``index_select``."""
+
+    adaln_indices = timestep_indices * 3 + token_tags
+    return tuple(tensor.index_select(0, adaln_indices) for tensor in modulation)
+
+
+def provider_norm_modulate(
+    hidden_states: torch.Tensor,
+    norm_weight: torch.Tensor,
+    shift: torch.Tensor,
+    scale: torch.Tensor,
+    indices: torch.Tensor,
+    eps: float = 1e-5,
+) -> torch.Tensor:
+    """``norm(x) * (1.0 + scale[i]) + shift[i]`` with ``index_select``; block and norm_out."""
+
+    norm_hidden_states = F.rms_norm(hidden_states, (hidden_states.shape[-1],), norm_weight, eps)
+    return norm_hidden_states * (1.0 + scale.index_select(0, indices)) + shift.index_select(
+        0, indices
+    )
