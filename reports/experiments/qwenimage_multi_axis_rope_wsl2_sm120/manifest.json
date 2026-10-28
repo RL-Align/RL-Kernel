@@ -30,9 +30,12 @@
     "tools/validation/operators/check_multi_axis_rope_install.py": "f295fc8ac5878ac13b6255c2f0be83b66d34ff2ad2f75111bb8b633508a865a7"
   },
   "evidence_sha256": {
+    "README.md": "3ad6f8ef514b4fc61d51fb0ce8cb6d420d2180251c9ee4f84b8c931aa3a75094",
     "benchmark-bfloat16.json": "e9c1e4b1085623d84800656c179e4a0e86d70a0ef7fc9ed92f9e6ccc50f0f491",
     "cpu-contracts.txt": "9518f53a6efc603bca1c52f160e5430f1006bb2abc9a7ef57694dae6feac5d78",
     "cpu-environment.json": "4dfc68f3d76af05a050d830840b4a6b8c8fa0a4c12c29d11d632a56a57a2d4c6",
+    "cpu310-contracts.txt": "02f57808b9553cefe6f4dcec06d46a5163157b4290cc0c590b344a1616057852",
+    "cpu310-environment.json": "7130d4c164c98804284cc0f1e07ae6265c35e7498c2fb8285a5e6df87cb010b2",
     "full-extension.json": "8fae782e3c5e6aae59de6fe6b4e7ae185729e49d2282dbd0cb3b9ca08c0274cd",
     "full-inplace-build.txt": "04d5ef122650ab305847d58850a6c3b44438eacf97920492e1eb1c5580e9a21e",
     "full-wheel-build.txt": "a7883dfb1211798c869ede1ee0b6f1dfb32edd7b27b359ee18c6e5ab9fe449d5",
@@ -47,7 +50,6 @@
     "precommit.txt": "7cf90e06cf73194271c176ebc2d147e64cf8f5ed522d8e0e03093a4647f63759",
     "python-packages.json": "617f8cef5a24f3b2a683e70e0b491e47db6d24a7ca848e5b3e461e87993a7201",
     "quality.txt": "8826f0e406946a923400d792dd60d0f545b32f9fcffa3a148268c969e30e14c0",
-    "README.md": "af365e658fe4875df643704b2495e1f115c6c889f5d449880233d49e511040ac",
     "regression.txt": "039cd9813a2ea54bfc5b7750fc0555b54d2bf30b09dbca2eba4a0403578ab9b0",
     "tests-and-ws1.txt": "68397e27144c9244743dbcff39ffdca8a77a30eaf1e8180b2ca84dfc1216d633",
     "upstream.json": "04e5472a82477a305b996ccbb420d0f3cc7b39af4053c867d37916a9bf5de51a",

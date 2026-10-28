@@ -1,0 +1,9 @@
+{
+  "python": "3.10.22",
+  "torch": "2.9.1+cpu",
+  "cuda": null,
+  "package": "/home/dandan/venvs/rlk-rope-cpu310/lib/python3.10/site-packages/rl_engine",
+  "reference_forward_backward": true,
+  "cpu_wheel_contains_no_cuda_binary": true,
+  "passed": true
+}

@@ -48,7 +48,8 @@ SM120; bare-metal Linux and A100/H100 remain separate hardware profiles.
 | Related regressions | 195 passed, 7 Ascend skips | `regression.txt` |
 | Repository layout with extension enforcement enabled | 37 passed, zero skips/failures | `layout.txt` |
 | Fresh installed full wheel, outside source checkout | Eager/compiled forward and input-gradient bytes exact for both backends | `installed-wheel.json` |
-| Actual CPU-only PyTorch wheel/reference installation | 57 passed, 52 expected GPU skips; reference forward/backward passed | `cpu-contracts.txt`, `cpu-environment.json` |
+| Actual CPU-only PyTorch wheel/reference installation, Python 3.10.22 | 57 passed, 52 expected GPU skips; reference forward/backward passed | `cpu310-contracts.txt`, `cpu310-environment.json` |
+| Actual CPU-only PyTorch wheel/reference installation, Python 3.12.3 | 57 passed, 52 expected GPU skips; reference forward/backward passed | `cpu-contracts.txt`, `cpu-environment.json` |
 | Compute Sanitizer accuracy/stride/empty/stream subset | 34 passed; zero errors | `memcheck.txt` |
 | Pinned actual Diffusers symbols | 30 forward/backward cases passed; image/text tables exact | `upstream.json` |
 | Reference-grid benchmark correctness | 40 comparisons passed | `benchmark-bfloat16.json` |
@@ -56,8 +57,10 @@ SM120; bare-metal Linux and A100/H100 remain separate hardware profiles.
 
 The full-extension GPU gate rejects missing native/Triton execution. Its only
 allowed operator-test skip is the two-device guard on a one-GPU runner.
-The CPU-only result is separate: it uses `torch==2.9.1+cpu`, and its installed
-package contains no native CUDA binary. CPU skips are not GPU acceptance evidence.
+The CPU-only results are separate: both Python versions use `torch==2.9.1+cpu`,
+and their installed packages contain no native CUDA binary. CPU skips are not
+GPU acceptance evidence. Both runs install the normal CPU package and exercise
+the workflow's three test files locally; these are not hosted CI results.
 The 37 passing Linux layout tests contrast with the five Windows baseline
 failures recorded earlier; those historical logs were not rewritten.
 
@@ -123,8 +126,9 @@ The new [operator gate](../../../ci/scripts/run_qwenimage_rope_ws1.sh) requires
 the complete `_C` registration, records actual library/backend identity and
 enforces the GPU skip policy. The [CPU workflow](../../../.github/workflows/qwenimage-rope.yml)
 targets `test-qwenimage`, runs Python 3.10/3.12 CPU contracts, checks changed files
-and builds documentation. This report's actual CPU-only run used Python 3.12;
-hosted CI status is tracked on the PR. GPU runners use the explicit gate.
+and builds documentation. This report includes local CPU-only runs on both
+Python 3.10 and 3.12; hosted CI status is tracked on the PR. GPU runners use the
+explicit gate.
 
 Bare-metal Linux, A100/H100, two-GPU guards, QK-norm fusion, model/block assembly
 and trajectories remain unqualified. Building the entire library does not
