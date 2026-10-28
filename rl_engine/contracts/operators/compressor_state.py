@@ -4,6 +4,7 @@
 from dataclasses import asdict, dataclass
 import hashlib
 import json
+from typing import ClassVar
 
 from rl_engine.contracts.operators.kv_compressor_c4 import C4Error, require
 
@@ -12,6 +13,10 @@ CompressorStateError = C4Error
 
 @dataclass(frozen=True)
 class CompressorStateContract:
+    head_dim: ClassVar[int] = 512
+    cache_dtype: ClassVar[str] = "bfloat16"
+    cache_element_bytes: ClassVar[int] = 2
+    family: ClassVar[str] = "main_compressor"
     ratio: int = 4
     max_requests: int = 4
     max_tokens_per_step: int = 256
@@ -45,7 +50,15 @@ class CompressorStateContract:
 
     @property
     def width(self):
-        return 1024 if self.ratio == 4 else 512
+        return 2 * self.head_dim if self.ratio == 4 else self.head_dim
+
+    @property
+    def cache_width(self):
+        return self.head_dim
+
+    @property
+    def extra_resident_bytes(self):
+        return 0
 
     @property
     def state_rows(self):
@@ -65,13 +78,18 @@ class CompressorStateContract:
         # positions/write metadata, plan, tables, and model/position constants.
         return (
             self.max_requests * self.state_rows * self.width * 4 * 4
-            + self.max_requests * self.pages_per_request * 64 * 512 * 2
+            + self.max_requests
+            * self.pages_per_request
+            * 64
+            * self.cache_width
+            * self.cache_element_bytes
             + self.max_tokens_per_step * (self.width * 4 + 16)
             + self.plan_rows * 16
             + self.max_requests * (self.pages_per_request + 1) * 4
             + self.ratio * self.width * 4
-            + 512 * 4
+            + self.head_dim * 4
             + self.max_sequence_tokens * 64 * 2
+            + self.extra_resident_bytes
         )
 
     @property
@@ -82,4 +100,9 @@ class CompressorStateContract:
 
     @property
     def fingerprint(self):
-        return hashlib.sha256(json.dumps(asdict(self), sort_keys=True).encode()).hexdigest()
+        return hashlib.sha256(
+            json.dumps(
+                {**asdict(self), "family": self.family, "head_dim": self.head_dim},
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()

@@ -58,6 +58,10 @@ class AiterCompressorStateBackend:
             self._execute(arena)
 
     def _execute(self, arena):
+        self._compress_to(arena, arena._cache)
+        self._save_history(arena)
+
+    def _compress_to(self, arena, cache):
         c = arena.contract
         # Layout adaptation only. Both destination buffers are preallocated,
         # so eager and captured execution use the same reader representation.
@@ -75,16 +79,19 @@ class AiterCompressorStateBackend:
             rms_eps=arena.rms_eps,
             cos_cache=arena._cos,
             sin_cache=arena._sin,
-            kv_cache=arena._cache,
+            kv_cache=cache,
             block_tables=arena._blocks,
             k_per_block=64,
             overlap=c.ratio == 4,
             ratio=c.ratio,
-            head_dim=512,
+            head_dim=c.head_dim,
             rope_head_dim=64,
             quant=False,
             **self.options,
         )
+
+    def _save_history(self, arena):
+        c = arena.contract
         # Ordering is essential: compression consumes PREVIOUS partial state.
         # Duplicate ring writers are removed by prepare() before this launch.
         self.save_partial(

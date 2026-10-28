@@ -59,6 +59,32 @@ class CompressorStateCache:
     parameter, state and output ownership is explicit; cache writes have no VJP.
     """
 
+    contract_type = CompressorStateContract
+
+    @staticmethod
+    def _make_backend():
+        from rl_engine.backends.rocm.attention.compressor_state import AiterCompressorStateBackend
+
+        return AiterCompressorStateBackend()
+
+    @staticmethod
+    def _specialization_source():
+        return __file__
+
+    def _allocate_extra_buffers(self):
+        pass
+
+    def _prepare_extra(self, handle, start, stop):
+        pass
+
+    def _check_empty_outputs(self):
+        return bool((self._cache == 0).all())
+
+    def _clear_outputs(self, slot):
+        c = self.contract
+        page = slot * c.pages_per_request
+        self._cache[page : page + c.pages_per_request].zero_()
+
     def __init__(
         self,
         contract,
@@ -74,7 +100,7 @@ class CompressorStateCache:
         backend=None,
         expected_implementation=None,
     ):
-        require(type(contract) is CompressorStateContract, "typed state contract required")
+        require(type(contract) is self.contract_type, "typed state contract required")
         require(
             expected_arithmetic == contract.arithmetic_id,
             "compressor arithmetic mismatch; C128 HCA eight-wave is a different profile",
@@ -91,11 +117,7 @@ class CompressorStateCache:
             "invalid RMS epsilon",
         )
         if backend is None:
-            from rl_engine.backends.rocm.attention.compressor_state import (
-                AiterCompressorStateBackend,
-            )
-
-            backend = AiterCompressorStateBackend()
+            backend = self._make_backend()
         self.contract, self.backend, self.rms_eps = contract, backend, rms_eps
         require(
             isinstance(ape, torch.Tensor) and ape.device.type == backend.device_type,
@@ -123,9 +145,9 @@ class CompressorStateCache:
             )
             self._read_score = torch.empty_like(self._read_kv)
             self._cache = torch.zeros(
-                (c.max_requests * c.pages_per_request, 64, 512),
+                (c.max_requests * c.pages_per_request, 64, c.cache_width),
                 device=self.device,
-                dtype=torch.bfloat16,
+                dtype=getattr(torch, c.cache_dtype),
             )
             self._input = torch.zeros(
                 (c.max_tokens_per_step, 2 * c.width), device=self.device, dtype=torch.bfloat16
@@ -140,12 +162,14 @@ class CompressorStateCache:
             self._blocks = torch.arange(
                 c.max_requests * c.pages_per_request, device=self.device, dtype=torch.int32
             ).reshape(c.max_requests, -1)
+            self._allocate_extra_buffers()
         identity = {
             "contract": c.fingerprint,
             "arithmetic": c.arithmetic_id,
             "eps": rms_eps,
             "provider": getattr(backend, "provenance", {"test_backend": type(backend).__name__}),
             "model_source": source_hash(__file__),
+            "specialization_source": source_hash(self._specialization_source()),
         }
         self.implementation_fingerprint = hashlib.sha256(
             json.dumps(identity, sort_keys=True).encode()
@@ -182,7 +206,7 @@ class CompressorStateCache:
         result = []
         for tensor, shape, dtype, name in (
             (ape, (c.ratio, c.width), torch.float32, "APE"),
-            (norm, (512,), torch.float32, "RMS"),
+            (norm, (c.head_dim,), torch.float32, "RMS"),
             (cos, (c.max_sequence_tokens, 32), torch.bfloat16, "cos"),
             (sin, (c.max_sequence_tokens, 32), torch.bfloat16, "sin"),
         ):
@@ -223,7 +247,7 @@ class CompressorStateCache:
             self.backend.execute(self)
         self._complete_device()
         require(
-            bool((self._state == 0).all()) and bool((self._cache == 0).all()),
+            bool((self._state == 0).all()) and self._check_empty_outputs(),
             "provider warmup/capture wrote real state",
         )
 
@@ -241,10 +265,8 @@ class CompressorStateCache:
 
     def _clear_slot(self, slot):
         try:
-            c = self.contract
-            page = slot * c.pages_per_request
             self._state[slot].zero_()
-            self._cache[page : page + c.pages_per_request].zero_()
+            self._clear_outputs(slot)
             self._complete_device()
         except BaseException:
             self._poisoned = True
@@ -336,6 +358,7 @@ class CompressorStateCache:
                 self._plan[: len(plan)].copy_(
                     torch.tensor(plan, dtype=torch.int32, device=self.device)
                 )
+            self._prepare_extra(handle, start_position, stop)
             # A different caller thread/stream may own commit(). Finish the
             # staging writes before handing off this exclusive lease.
             self._complete_device()
