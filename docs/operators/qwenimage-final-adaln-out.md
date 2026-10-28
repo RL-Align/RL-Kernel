@@ -37,16 +37,17 @@ versions; strict training and rollout must both bind this same operator.
 
 Backward uses FP32 intermediates and straight-through derivatives at storage
 rounding boundaries. Native LayerNorm backward computes `dx`; scale/shift
-contributions reduce over S with recursively balanced 32-token FP32 trees.
-The independent CPU reference uses sequential Neumaier summation over tokens
-in FP32 (or FP64 for diagnostics). This also retains small contributions under
-cancellation, independently of the unchanged CUDA token tree. There are no atomics
+contributions reduce over S in fixed 32-token tiles. Inside a tile the tokens
+are added in ascending order with FP32 Neumaier compensation, and the tile sums
+and corrections are folded level by level, so small contributions survive next
+to large cancelling ones. The independent CPU reference uses sequential Neumaier
+summation over tokens in FP32 (or FP64 for diagnostics). There are no atomics
 or collective reductions. The projection receives FP32
 table gradients before the final casts to leaf dtypes. Batch size/position does
 not alter a sample's token reduction tree.
 
 Readback identifies the native LayerNorm and elementwise stages, CUDA projection
-kernel, recursive token-sum tree, dtype, device, and lack of fallback. No fused
+kernel, compensated token-sum tiles, dtype, device, and lack of fallback. No fused
 kernel or speedup over the native composition is claimed.
 
 ## Supported scope and evidence

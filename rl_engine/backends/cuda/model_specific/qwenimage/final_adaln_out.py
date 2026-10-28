@@ -65,7 +65,7 @@ class QwenImageFinalAdaLNOutCudaOp:
         info = implementation_info("qwenimage_final_adaln_out", x)
         info.update(
             norm="aten.native_layer_norm[fp32,eps=1e-6]",
-            token_gradient_tree="recursive_32_token_balanced",
+            token_gradient_tree="neumaier_32_token_tiles_folded",
             cast_boundaries="silu,projection,norm,1+scale,product,output",
             fused=False,
         )

@@ -247,3 +247,16 @@ def test_final_scale_then_shift_and_layernorm():
     args["x"] = torch.full_like(args["x"], 13.0)
     out = operator("final")(**args)
     assert equal_bytes(out, torch.full_like(out, 7.0))
+
+
+def test_token_sum_retains_small_contributions_under_cancellation():
+    from rl_engine.backends.extension import _C
+
+    # 2**26 absorbs a unit token in FP32, so a plain tree returns 6020 instead of 6030.
+    values = torch.ones(2, 6032, 3, dtype=torch.float32)
+    values[:, 0] = 2**26
+    values[:, -1] = -(2**26)
+    golden = values.double().sum(1).float()
+    assert equal_bytes(_C.qwenimage_token_sum(values.cuda()).cpu(), golden)
+    # The same sample reduced alone gives the same bytes.
+    assert equal_bytes(_C.qwenimage_token_sum(values[1:].cuda()).cpu(), golden[1:])

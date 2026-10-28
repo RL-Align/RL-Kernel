@@ -6,26 +6,38 @@
 #include <c10/cuda/CUDAException.h>
 
 namespace {
-// Recursive fixed 32-token balanced trees. Each
-// sample/channel has its own sequence; batching never changes the tree.
-__global__ void token_partials(const float* x, float* p, int64_t seq, int64_t hidden,
-                               int64_t tiles) {
+// Neumaier step: add v to the running sum s and accumulate the rounding error in c.
+__device__ __forceinline__ void neumaier_add(float& s, float& c, float v) {
+  const float t = __fadd_rn(s, v);
+  c = __fadd_rn(c, fabsf(s) >= fabsf(v) ? __fadd_rn(__fsub_rn(s, t), v)
+                                         : __fadd_rn(__fsub_rn(v, t), s));
+  s = t;
+}
+
+// Fixed 32-token tiles, folded level by level. Inside a tile the tokens are added in ascending
+// order with Neumaier compensation, and a tile's carried correction joins the next level's
+// correction, so small contributions survive next to large cancelling ones. Each
+// sample/channel has its own sequence; batching never changes the order.
+// The first level reads x only; later levels read the previous level's sums and corrections.
+__global__ void token_partials(const float* x, const float* x_corr, float* p, float* p_corr,
+                               int64_t seq, int64_t hidden, int64_t tiles) {
   const int64_t h = blockIdx.x * blockDim.x + threadIdx.x;
   const int64_t tile = blockIdx.y;
   const int64_t batch = blockIdx.z;
   if (h >= hidden) return;
-  float v[32];
-#pragma unroll
+  float s = 0.0f, c = 0.0f;
+#pragma unroll 4
   for (int i = 0; i < 32; ++i) {
-    int64_t row = tile * 32 + i;
-    v[i] = row < seq ? x[(batch * seq + row) * hidden + h] : 0.0f;
+    const int64_t row = tile * 32 + i;
+    if (row < seq) {
+      const int64_t at = (batch * seq + row) * hidden + h;
+      neumaier_add(s, c, x[at]);
+      if (x_corr != nullptr) c = __fadd_rn(c, x_corr[at]);
+    }
   }
-#pragma unroll
-  for (int stride = 1; stride < 32; stride *= 2) {
-#pragma unroll
-    for (int i = 0; i < 32; i += 2 * stride) v[i] = __fadd_rn(v[i], v[i + stride]);
-  }
-  p[(batch * tiles + tile) * hidden + h] = v[0];
+  const int64_t out = (batch * tiles + tile) * hidden + h;
+  p[out] = s;
+  p_corr[out] = c;
 }
 
 }
@@ -41,16 +53,22 @@ torch::Tensor qwenimage_token_sum(torch::Tensor x) {
               "token_sum geometry out of bounds");
   const c10::cuda::CUDAGuard guard(x.device());
   auto current = x;
+  torch::Tensor correction;
   auto stream = at::cuda::getCurrentCUDAStream();
   int64_t rows = s;
   while (rows > 1) {
     const auto tiles = (rows + 31) / 32;
     auto partials = torch::empty({b, tiles, h}, x.options());
+    auto corrections = torch::empty({b, tiles, h}, x.options());
     token_partials<<<dim3((h + 255) / 256, tiles, b), 256, 0, stream>>>(
-        current.data_ptr<float>(), partials.data_ptr<float>(), rows, h, tiles);
+        current.data_ptr<float>(), correction.defined() ? correction.data_ptr<float>() : nullptr,
+        partials.data_ptr<float>(), corrections.data_ptr<float>(), rows, h, tiles);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
     current = partials;
+    correction = corrections;
     rows = tiles;
   }
+  // One IEEE add of the final sum and its carried correction.
+  if (correction.defined()) current = current + correction;
   return current.view({b, h});
 }
