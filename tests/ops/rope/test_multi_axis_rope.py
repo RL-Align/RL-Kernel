@@ -3,6 +3,7 @@
 
 import gc
 import math
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -86,12 +87,15 @@ def test_forward_backward_accuracy(implementation, dtype, batched):
     result = op(x, cos, sin)
     dx = torch.autograd.grad(result, x, grad)[0]
     tolerance = {torch.float32: 8e-7, torch.float16: 0.002, torch.bfloat16: 0.02}[dtype]
+    # Make the oracle's batch axis explicit when the candidate reads shared tables.
+    c = cos if batched else cos.unsqueeze(0).expand(x.shape[0], -1, -1)
+    s = sin if batched else sin.unsqueeze(0).expand(x.shape[0], -1, -1)
     torch.testing.assert_close(
-        result.double(), complex_reference(x, cos, sin), atol=tolerance, rtol=tolerance
+        result.double(), complex_reference(x, c, s), atol=tolerance, rtol=tolerance
     )
     torch.testing.assert_close(
         dx.double(),
-        complex_reference(grad, cos, sin, transpose=True),
+        complex_reference(grad, c, s, transpose=True),
         atol=tolerance,
         rtol=tolerance,
     )
@@ -143,6 +147,33 @@ def test_noncontiguous_input_tables_and_gradient(implementation):
     dd = torch.autograd.grad(yy, xx, grad.contiguous())[0]
     assert_bits(result, yy)
     assert_bits(dx, dd)
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("layout", ["head_dim_stride_2", "head_dim_outermost"])
+def test_arbitrary_head_dimension_stride_and_gradient(implementation, dtype, layout):
+    op, device = implementation
+    _, cos, sin = inputs(device, dtype)
+    if layout == "head_dim_stride_2":
+        x = torch.randn(2, 7, 3, 256, device=device, dtype=dtype)[..., ::2]
+        assert x.stride(-1) == 2
+    else:
+        x = torch.randn(128, 2, 7, 3, device=device, dtype=dtype).permute(1, 2, 3, 0)
+        assert x.stride(-1) > max(x.stride()[:-1])
+    x.requires_grad_()
+    grad = torch.randn(2, 7, 3, 256, device=device, dtype=dtype)[..., ::2]
+    result = op(x, cos, sin)
+    dx = torch.autograd.grad(result, x, grad)[0]
+    tolerance = {torch.float32: 8e-7, torch.float16: 0.002, torch.bfloat16: 0.02}[dtype]
+    torch.testing.assert_close(
+        result.double(), complex_reference(x, cos, sin), atol=tolerance, rtol=tolerance
+    )
+    torch.testing.assert_close(
+        dx.double(),
+        complex_reference(grad, cos, sin, transpose=True),
+        atol=tolerance,
+        rtol=tolerance,
+    )
 
 
 @pytest.mark.parametrize("batch,seq", [(0, 7), (2, 0), (0, 0)])
@@ -207,6 +238,49 @@ def test_explicit_backend_and_reference_dispatch(monkeypatch):
         get_multi_axis_rope_op("typo")
     x, cos, sin = inputs("cpu")
     assert_bits(multi_axis_rope(x, cos, sin), op(x, cos, sin))
+
+
+@pytest.mark.parametrize("platform", ["cpu", "npu", "rocm", "musa"])
+def test_non_cuda_registry_keeps_multi_axis_reference(platform, monkeypatch):
+    """Exercise candidate selection on CPU; no accelerator execution is certified."""
+    from rl_engine.runtime.registry import KernelRegistry, OpBackend
+
+    registry = KernelRegistry()
+    assert registry._priority_map[platform]["multi_axis_rope"] == [
+        OpBackend.PYTORCH_MULTI_AXIS_ROPE
+    ]
+    monkeypatch.setattr(registry, "_platform", lambda: platform)
+    op = registry.get_op("multi_axis_rope")
+    assert op.trace()["actual_backend"] == "rlkernel.reference.qwenimage_multi_axis_rope.v1"
+    x, cos, sin = inputs("cpu")
+    assert_bits(op(x, cos, sin), get_multi_axis_rope_op("reference")(x, cos, sin))
+
+
+@pytest.mark.parametrize("exception_type", [OSError, RuntimeError])
+def test_operator_wheel_load_error_propagates(exception_type, monkeypatch):
+    from rl_engine.backends.cuda.rope import multi_axis_rope as cuda_module
+
+    error = exception_type("probe library load failure")
+
+    def fail_load(path):
+        raise error
+
+    monkeypatch.setattr(
+        cuda_module,
+        "torch",
+        SimpleNamespace(
+            version=SimpleNamespace(hip=None),
+            ops=SimpleNamespace(rl_kernel_native=SimpleNamespace(), load_library=fail_load),
+        ),
+    )
+    monkeypatch.setattr(
+        cuda_module.importlib.util,
+        "find_spec",
+        lambda name: SimpleNamespace(origin="probe.so"),
+    )
+    with pytest.raises(exception_type, match="probe library load failure") as caught:
+        cuda_module.native_available()
+    assert caught.value is error
 
 
 def test_cuda_registry_uses_native_when_present():

@@ -15,6 +15,9 @@ def register_rotation(name, implementation, *, kernel_id, family):
         validate_inputs(x, cos, sin)
         result = implementation(x, cos, sin, transpose)
         if transpose:
+            # Keep telemetry inside the opaque custom op; fake/AOT tracing
+            # must not execute this Python lock. CUDA Graph replay runs only
+            # captured kernels, so execution_count is not a replay counter.
             record_backward(
                 "multi_axis_rope",
                 kernel_id=kernel_id,

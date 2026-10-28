@@ -8,6 +8,9 @@ import argparse
 import pytest
 import torch
 
+from rl_engine.config.workload import LogicalSample
+from rl_engine.ops.rope.multi_axis_rope import build_multi_axis_cos_sin, qwen_image_positions
+from rl_engine.validation.operators.gradient_adapters import _row_inputs
 from rl_engine.validation.operators.operator_inputs import make_operator_inputs, operator_shape_name
 from rl_engine.validation.operators.operator_specs import (
     make_candidate,
@@ -119,6 +122,68 @@ def test_multi_axis_rope_operator_spec_and_seeded_inputs():
         make_operator_inputs(
             "multi_axis_rope", _args(head_dim=64), torch.float32, torch.device("cpu")
         )
+
+
+@pytest.mark.parametrize(
+    "seq,side", [(0, 1), (1, 1), (7, 3), (15, 4), (16, 4), (4096, 64), (6889, 83)]
+)
+def test_multi_axis_rope_validation_uses_centered_image_grid_prefix(seq, side):
+    inputs = make_operator_inputs(
+        "multi_axis_rope", _args(seq=seq, n_heads=1), torch.float32, torch.device("cpu")
+    )
+    image, _ = qwen_image_positions(side, side, 0)
+    cos, sin = build_multi_axis_cos_sin(image[:seq])
+    assert torch.equal(inputs["cos"], cos)
+    assert torch.equal(inputs["sin"], sin)
+
+
+@pytest.mark.parametrize("layout", ["packed", "permuted", "chunked", "padded"])
+def test_multi_axis_rope_validation_preserves_logical_tables_across_layouts(layout):
+    samples = (
+        LogicalSample("short", tuple(range(7)), prompt_len=1, seq_len=7),
+        LogicalSample("long", tuple(range(15)), prompt_len=2, seq_len=15),
+    )
+    tokens = {
+        (token.sample_id, token.token_position): token
+        for sample in samples
+        for token in sample.tokens()
+    }
+    expected = {
+        sample.sample_id: make_operator_inputs(
+            "multi_axis_rope",
+            _args(seq=sample.seq_len, n_heads=1),
+            torch.float32,
+            torch.device("cpu"),
+        )
+        for sample in samples
+    }
+    keys = list(tokens)
+    if layout == "permuted":
+        keys.reverse()
+    elif layout == "chunked":
+        keys = [("short", 5), ("short", 6), ("long", 12)]
+    elif layout == "padded":
+        keys = [None, ("long", 4), None, ("short", 6), ("short", 0), None]
+    inputs = _row_inputs(
+        "multi_axis_rope",
+        keys,
+        tokens,
+        {},
+        device=torch.device("cpu"),
+        dtype=torch.float32,
+        hidden=1,
+        vocab_size=17,
+        n_heads=1,
+        head_dim=128,
+    )
+    for row, key in enumerate(keys):
+        if key is None:
+            assert torch.equal(inputs["cos"][row], torch.ones(64))
+            assert torch.equal(inputs["sin"][row], torch.zeros(64))
+        else:
+            sample_id, position = key
+            for name in ("cos", "sin"):
+                assert torch.equal(inputs[name][row], expected[sample_id][name][position])
 
 
 def test_constant_linear_logp_inputs_match_operator_contract():

@@ -9,6 +9,9 @@
 #include <algorithm>
 
 namespace {
+constexpr int64_t kHeadDim = 128;
+constexpr int64_t kPairsPerHead = kHeadDim / 2;
+
 struct Strides {
   int64_t xb, xs, xh, xd;
   int64_t cb, cs, cd, sb, ss, sd;
@@ -21,8 +24,8 @@ __global__ void rotate_pairs(const scalar_t* x, const float* cos, const float* s
   const int64_t step = static_cast<int64_t>(blockDim.x) * gridDim.x;
   for (int64_t i = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
        i < n; i += step) {
-    const int64_t pair = i % 64;
-    const int64_t row = i / 64;
+    const int64_t pair = i % kPairsPerHead;
+    const int64_t row = i / kPairsPerHead;
     const int64_t head = row % heads;
     const int64_t token = row / heads;
     const int64_t batch = token / seq;
@@ -43,15 +46,15 @@ at::Tensor multi_axis_rope_apply(const at::Tensor& x, const at::Tensor& cos,
                                 const at::Tensor& sin, bool transpose) {
   TORCH_CHECK(x.is_cuda() && cos.is_cuda() && sin.is_cuda(), "multi_axis_rope: CUDA tensors required");
   TORCH_CHECK(x.device() == cos.device() && x.device() == sin.device(), "multi_axis_rope: device mismatch");
-  TORCH_CHECK(x.dim() == 4 && x.size(3) == 128 && x.size(2) > 0,
+  TORCH_CHECK(x.dim() == 4 && x.size(3) == kHeadDim && x.size(2) > 0,
               "multi_axis_rope: x must be [B, S, H, 128], H > 0");
   TORCH_CHECK(x.scalar_type() == at::kFloat || x.scalar_type() == at::kHalf ||
               x.scalar_type() == at::kBFloat16, "multi_axis_rope: unsupported input dtype");
   TORCH_CHECK(cos.scalar_type() == at::kFloat && sin.scalar_type() == at::kFloat,
               "multi_axis_rope: tables must be fp32");
   TORCH_CHECK(cos.sizes() == sin.sizes(), "multi_axis_rope: table shape mismatch");
-  TORCH_CHECK((cos.dim() == 2 && cos.size(0) == x.size(1) && cos.size(1) == 64) ||
-              (cos.dim() == 3 && cos.size(0) == x.size(0) && cos.size(1) == x.size(1) && cos.size(2) == 64),
+  TORCH_CHECK((cos.dim() == 2 && cos.size(0) == x.size(1) && cos.size(1) == kPairsPerHead) ||
+              (cos.dim() == 3 && cos.size(0) == x.size(0) && cos.size(1) == x.size(1) && cos.size(2) == kPairsPerHead),
               "multi_axis_rope: tables must be [S, 64] or [B, S, 64]");
   TORCH_CHECK(!cos.requires_grad() && !sin.requires_grad(), "multi_axis_rope: table gradients unsupported");
   const c10::cuda::CUDAGuard guard(x.device());

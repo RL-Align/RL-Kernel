@@ -8,6 +8,8 @@ from typing import Any
 
 import torch
 
+from rl_engine.validation.operators.rope_inputs import qwen_image_grid_prefix
+
 DEFAULT_HIDDEN = 4096
 DEFAULT_N_HEADS = 32
 DEFAULT_N_KV_HEADS = 8
@@ -259,8 +261,7 @@ def _make_multi_axis_rope_inputs(args, dtype, device):
     if _arg_int(args, "head_dim", 128) != 128:
         raise ValueError("multi_axis_rope requires head_dim=128")
     heads = _arg_int(args, "n_heads", 24)
-    row = torch.arange(seq, device="cpu", dtype=torch.int64)
-    positions = torch.stack((row % 7, (row // 127) % 4096, row % 127 - 63), dim=-1)
+    positions = qwen_image_grid_prefix(seq)
     cos, sin = build_multi_axis_cos_sin(positions, device=device)
     return {
         "x": _floating_tensor((batch, seq, heads, 128), args, dtype, device, offset=0),

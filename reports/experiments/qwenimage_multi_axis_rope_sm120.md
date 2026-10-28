@@ -1,7 +1,7 @@
 # Qwen-Image multi-axis RoPE: SM120 validation
 
 Recorded 2026-10-28 for [PR #623](https://github.com/RL-Align/RL-Kernel/pull/623).
-The numerical/native implementation is based on `ac17ab87e8d93dabe93dfdc134e9853d47de7af1`.
+The rotation arithmetic is based on `ac17ab87e8d93dabe93dfdc134e9853d47de7af1`.
 The [operator documentation](../../docs/operators/multi-axis-rope.md) defines the
 contract, upstream reuse, API and detailed reproduction commands.
 
@@ -25,7 +25,7 @@ The normal full wheel was built with `RL_KERNEL_ROPE_ONLY`, forced SM90 and
 fast-math flags unset. Linking existing CUDA driver calls used
 `LIBRARY_PATH=/usr/lib/wsl/lib`; the Windows driver supplies CUDA driver access.
 
-## Recorded results
+## Initial qualification
 
 | Check | WSL2 Linux | Windows |
 | --- | --- | --- |
@@ -50,6 +50,37 @@ The five historical Windows layout failures also reproduce on its clean base
 (27 passed, 5 failures, 1 skip): driver linking and Windows symlink privileges or
 placeholders. The later Linux run preserved all 27 tracked symlinks and passed.
 The earlier Windows logs remain unchanged in the archive.
+
+## Automated-review follow-up
+
+The standard CLI and WS1 adapters now share a centered image-grid prefix,
+selected by full logical sample length and token identity. Eleven CPU regression
+cases cover empty/square/nonsquare lengths and packed/permuted/chunked/padded
+layouts. Before the change, ten of those cases failed; all eleven now pass.
+Additional tests pin non-CUDA reference routing, library-load error propagation,
+shared-table broadcasting, and head-dimension stride 2 or outermost storage.
+Native shape checks and indexing share named dimension constants; the rotation
+arithmetic is unchanged. Backward telemetry documents its graph-replay limits.
+
+The following are new local WSL2 runs of the updated implementation and fixtures:
+
+| Check | Result |
+| --- | --- |
+| Rebuilt ordinary complete CUDA wheel; fresh installed-package eager/fullgraph forward/input gradient | Passed for both GPU backends |
+| Public operator suite | 105 passed, 1 two-GPU guard skip |
+| CUDA/Triton WS1 accuracy/invariance and ordinary CLI checks | Both passed with explicit backend provenance |
+| Related regressions, including the eleven new input cases | 206 passed, 7 Ascend skips |
+| Repository layout with native extension enforcement | 37 passed |
+| CPU-only PyTorch 2.9.1+cpu, Python 3.10.22 and 3.12.3 | Each: 80 passed, 64 expected GPU skips; installed reference forward/backward passed |
+| Expanded Compute Sanitizer subset, including the new stride cases | 52 passed, zero errors |
+| Changed-file checks and strict docs | Passed locally |
+
+The full wheel contains the shared validation helper and the FlashAttention BSD
+license. Wheel SHA256:
+`9feb8200b948021c268c933f93efcd424b6b68d6c55bc24c3004d6336deb3a13`.
+Non-CUDA routing tests exercise candidate selection with CPU tensors; they do
+not certify NPU/ROCm/MUSA hardware. The benchmark below retains its initial-run
+measurements; no new timing comparison was performed for this follow-up.
 
 ## Standalone benchmark
 
@@ -115,8 +146,8 @@ source/binary SHA256 manifests remain available at immutable commit
 - [WSL2 complete-extension evidence](https://github.com/dandan20031031/RL-Kernel/tree/84751473006401c19c1c8c17844e8ef8b1c44375/reports/experiments/qwenimage_multi_axis_rope_wsl2_sm120)
 - [Historical Windows operator-profile evidence](https://github.com/dandan20031031/RL-Kernel/tree/84751473006401c19c1c8c17844e8ef8b1c44375/reports/experiments/qwenimage_multi_axis_rope_v2_sm120)
 
-This summary preserves those recorded results; consolidating reports does not
-rerun the numerical suites. Bare-metal Linux, A100/H100, two-GPU guards,
+Those archives identify the initial runs; the follow-up table records subsequent
+reruns. Bare-metal Linux, A100/H100, two-GPU guards,
 QK-norm fusion, model/block assembly and trajectories remain unqualified.
 Building the full library does not certify every native operator or Dense Qwen3.
 No distributed or cross-version/device byte-equality claim is made.

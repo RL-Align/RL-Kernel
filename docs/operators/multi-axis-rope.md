@@ -172,6 +172,17 @@ with C1's elementwise tolerance profile and C2's logical configuration transform
 This gate qualifies the Qwen-Image operator and does not certify the Dense Qwen3
 chain, distributed execution, or model assembly.
 
+The standard CLI and WS1 forward/gradient adapters share a centered image-grid
+prefix from `qwen_image_positions`. The square grid contains the full logical
+sample; a nonsquare sequence length uses its row-major prefix. WS1 selects rows
+by `(sample_id, token_position)` from that sample's grid, so physical chunking,
+reordering and padding cannot change active-token coordinates. Padding uses
+zero coordinates. These are operator fixtures, not a model's image/text assembly.
+
+Backward provenance is recorded inside the opaque custom-op implementation,
+outside fake/AOT tracing. Its Python `execution_count` is not a CUDA Graph replay
+counter: replay executes the captured GPU kernels without re-entering Python.
+
 For a complete native package installation on Linux, run the dedicated gate:
 
 ```bash
