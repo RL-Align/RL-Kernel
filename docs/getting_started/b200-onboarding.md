@@ -42,8 +42,8 @@ export CUDA_VISIBLE_DEVICES=1
 Use Python 3.11 with venv support:
 
 ```bash
-python3.11 -m venv .venv-b200
-source .venv-b200/bin/activate
+python3.11 -m venv .venv
+source .venv/bin/activate
 python -m pip install --upgrade pip setuptools==81.0.0 wheel ninja
 python -m pip install torch==2.9.1 --index-url https://download.pytorch.org/whl/cu130
 ```
@@ -225,7 +225,11 @@ The explicit vmap rules evaluate each sample independently, including empty and
 nested mapped batches; they make no vectorized-performance guarantee.
 
 ```python
-op = DeterministicLogpCUDAOp()  # from rl_engine.backends.cuda.logprob.logp
+import torch
+
+from rl_engine.backends.cuda.logprob.logp import DeterministicLogpCUDAOp
+
+op = DeterministicLogpCUDAOp()
 x = torch.randn(3, 129, device="cuda", dtype=torch.float64, requires_grad=True)
 ids = torch.tensor([0, 1, 2], device="cuda")
 buffer = torch.empty(3, device="cuda", dtype=torch.float64)
