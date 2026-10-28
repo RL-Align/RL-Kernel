@@ -27,9 +27,16 @@ nav:
       - operators/ratio-kl.md
       - operators/pack-and-pad.md
       - operators/video-patch-pack-unpack.md
+      - operators/video-input-projection-fp32.md
       - operators/sampling.md
       - operators/det-gemm.md
       - operators/embedding.md
+      - MiniMax-H3:
+        - operators/h3-timestep-sinusoid.md
+        - operators/h3-timestep-mlp.md
+        - operators/h3-adaln-projection.md
+        - operators/h3-adaln-row-gather.md
+        - operators/h3-rmsnorm.md
   - Developer Guide:
     - contributing/README.md
     - Contributor Guide: contributing/contributor-guide.md
