@@ -1,7 +1,0 @@
-{
-  "torch": "2.9.1+cpu",
-  "cuda": null,
-  "package": "/home/dandan/venvs/rlk-rope-cpu/lib/python3.12/site-packages/rl_engine/__init__.py",
-  "reference_forward_backward": true,
-  "passed": true
-}
