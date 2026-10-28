@@ -24,6 +24,15 @@ ROOT = Path(__file__).resolve().parents[3]
     "op,candidate,actual", [("adaln_modulation", "cuda", "pytorch"), ("logp", "pytorch", "unknown")]
 )
 def test_cli_text_and_json_report_observed_backend(op, candidate, actual):
+    if candidate == "cuda":
+        from rl_engine.backends.cuda.norm.adaln_modulation import CudaAdaLNModulationOp
+
+        try:
+            CudaAdaLNModulationOp()
+        except RuntimeError:
+            if os.environ.get("RL_KERNEL_REQUIRE_EXT") == "1":
+                raise
+            pytest.skip("compiled CUDA AdaLN extension required")
     command = [
         sys.executable,
         "tools/validation/operators/check_operator.py",

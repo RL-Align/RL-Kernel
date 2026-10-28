@@ -95,3 +95,19 @@ def test_indexed_qualification_tests_with_cpu_wheel_identity(hip):
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "6 passed, 4 skipped" in result.stdout
+
+
+@pytest.mark.parametrize("require_ext", ["0", "1"])
+def test_cli_tests_without_cuda_extension_only_skip_optional_cuda_candidate(require_ext):
+    result = run_pytest(
+        'import sys\nsys.modules["rl_engine._C"] = None\n',
+        "tests/validation/operators/test_check_operator_cli.py",
+        require_ext=require_ext,
+    )
+    if require_ext == "1":
+        assert result.returncode == 1, result.stdout + result.stderr
+        assert "1 failed, 2 passed" in result.stdout
+        assert "CUDA AdaLN extension symbols are unavailable" in result.stdout
+    else:
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "2 passed, 1 skipped" in result.stdout
