@@ -10,12 +10,12 @@ from pathlib import Path
 import pytest
 
 from rl_engine.config.workload import WorkloadError, load_manifest, manifest_identity_hash
-from rl_engine.validation.models.qwen3_next_workload import validate_norm_manifest
+from rl_engine.validation.models.qwen3_next.qwen3_next_workload import validate_norm_manifest
 from rl_engine.validation.operators.gradient_adapters import get_adapter, resolve_profile_candidate
 
 MANIFEST = (
     Path(__file__).resolve().parents[3]
-    / "rl_engine/validation/models/qwen3_next_norm_manifest.json"
+    / "rl_engine/validation/models/qwen3_next/qwen3_next_norm_manifest.json"
 )
 
 
@@ -101,7 +101,7 @@ def test_norm_manifest_missing_block_raises_workload_error(missing):
 )
 def test_norm_dimension_gate_rejects_other_widths(op, hidden, head_dim):
     """Both gates run only at the checkpoint widths: hidden 2048, gated head_dim 128."""
-    from rl_engine.validation.models.qwen3_next_workload import validate_norm_dimensions
+    from rl_engine.validation.models.qwen3_next.qwen3_next_workload import validate_norm_dimensions
 
     raw = load_manifest(MANIFEST).raw
     with pytest.raises(WorkloadError, match="hidden 2048"):
@@ -110,7 +110,7 @@ def test_norm_dimension_gate_rejects_other_widths(op, hidden, head_dim):
 
 @pytest.mark.parametrize("op", ["qwen3_next_rms_norm", "rms_norm_gated"])
 def test_norm_dimension_gate_accepts_checkpoint_widths(op):
-    from rl_engine.validation.models.qwen3_next_workload import validate_norm_dimensions
+    from rl_engine.validation.models.qwen3_next.qwen3_next_workload import validate_norm_dimensions
 
     validate_norm_dimensions(load_manifest(MANIFEST).raw, op, 2048, 128)
 

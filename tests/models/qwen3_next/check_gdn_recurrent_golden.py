@@ -37,7 +37,7 @@ import torch
 pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
 
 from rl_engine.reference.linear_attn import GatedDeltaRuleRecurrentStepOp  # noqa: E402
-from rl_engine.validation.models.qwen3_next_workload import FINGERPRINT  # noqa: E402
+from rl_engine.validation.models.qwen3_next.qwen3_next_workload import FINGERPRINT  # noqa: E402
 
 # Qwen3-Next-80B-A3B-Instruct dims, from the pinned checkpoint fingerprint.
 _H = FINGERPRINT["linear_num_key_heads"]
