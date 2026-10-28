@@ -13,7 +13,18 @@ from __future__ import annotations
 
 from rl_engine.reference.minimax_h3.sigma_schedule import H3SigmaSchedule, NativeH3SigmaScheduleOp
 
-__all__ = ["H3SigmaSchedule", "NativeH3SigmaScheduleOp"]
+__all__ = [
+    "H3SigmaSchedule",
+    "H3_ADALN_CHUNK_NAMES",
+    "H3_ADALN_CHUNKS",
+    "H3_FREQ_DIM",
+    "H3_HIDDEN_SIZE",
+    "H3_MAX_PERIOD",
+    "H3_MODALITY_NUM",
+    "H3_TIME_EMBED_DIM",
+    "H3_TIME_EMBED_HIDDEN_DIM",
+    "NativeH3SigmaScheduleOp",
+]
 
 H3_FREQ_DIM = 256
 H3_MAX_PERIOD = 10000
