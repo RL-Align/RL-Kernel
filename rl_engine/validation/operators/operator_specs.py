@@ -197,6 +197,20 @@ OP_SPECS = {
         },
         grad_input_names=("a", "b"),
     ),
+    "multi_axis_rope": OperatorSpec(
+        name="multi_axis_rope",
+        op_class="elementwise",
+        gold_path="rl_engine.reference.rope.multi_axis_rope.NativeMultiAxisRoPEOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.rope.multi_axis_rope.NativeMultiAxisRoPEOp",
+            "cuda": "rl_engine.backends.cuda.rope.multi_axis_rope.MultiAxisRoPECudaOp",
+            "triton": (
+                "rl_engine.backends.shared.triton.rope.multi_axis_rope.MultiAxisRoPETritonOp"
+            ),
+        },
+        grad_input_names=("x",),
+    ),
     "rope": OperatorSpec(
         name="rope",
         op_class="elementwise",

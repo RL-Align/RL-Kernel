@@ -41,7 +41,7 @@ where = ["."]
 include = ["rl_engine*"]
 
 [tool.setuptools.package-data]
-rl_engine = ["**/*.json", "**/*.jsonl", "**/*.sh", "**/*.patch", "*.pyi"]
+rl_engine = ["**/*.json", "**/*.jsonl", "**/*.sh", "**/*.patch", "*.pyi", "**/FLASH_ATTENTION_LICENSE"]
 
 [tool.ruff]
 line-length = 100

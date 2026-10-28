@@ -167,6 +167,11 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     PYTORCH_NATIVE_ROPE = "rl_engine.kernels.ops.pytorch.rotary_embedding.rope.NativeRoPEOp"
     TRITON_ROPE = "rl_engine.kernels.ops.triton.rotary_embedding.rope.TritonRoPEOp"
     CUDA_ROPE_SM90 = "rl_engine.kernels.ops.cuda.rotary_embedding.rope.RoPESM90Op"
+    CUDA_MULTI_AXIS_ROPE = "rl_engine.backends.cuda.rope.multi_axis_rope.MultiAxisRoPECudaOp"
+    TRITON_MULTI_AXIS_ROPE = (
+        "rl_engine.backends.shared.triton.rope.multi_axis_rope.MultiAxisRoPETritonOp"
+    )
+    PYTORCH_MULTI_AXIS_ROPE = "rl_engine.reference.rope.multi_axis_rope.NativeMultiAxisRoPEOp"
     ASCEND_ROPE = "rl_engine.kernels.ops.ascend.rotary_embedding.rope.RoPEAscendOp"
     PYTORCH_NATIVE_SILU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSiLUOp"
     PYTORCH_NATIVE_SWIGLU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSwiGLUOp"
@@ -737,6 +742,15 @@ class KernelRegistry:
                 ],
             },
         }
+        # CUDA qualification for the new interleaved Qwen-Image contract.
+        # Other platforms retain an explicit diagnostic reference, not logp.
+        for candidates in self._priority_map.values():
+            candidates["multi_axis_rope"] = [OpBackend.PYTORCH_MULTI_AXIS_ROPE]
+        self._priority_map["cuda"]["multi_axis_rope"] = [
+            OpBackend.CUDA_MULTI_AXIS_ROPE,
+            OpBackend.TRITON_MULTI_AXIS_ROPE,
+            OpBackend.PYTORCH_MULTI_AXIS_ROPE,
+        ]
         # Preserve the former CPU fallback behavior for every operator on NPU,
         # then override only the operators with an Ascend-specific backend.
         self._priority_map["npu"] = {
