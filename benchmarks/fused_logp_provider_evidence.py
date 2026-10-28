@@ -311,6 +311,12 @@ def _pack_provider(value):
     }
 
 
+def _check_vocab_layout(vocab: int, real_vocab: int, tp_world_size: int) -> None:
+    """Raise ``ValueError`` unless the padded vocab splits across the TP ranks and fixed tiles."""
+    if not 0 < real_vocab <= vocab or vocab % DEFAULT_NUM_VOCAB_TILES or vocab % tp_world_size:
+        raise ValueError("real vocab, padded vocab, TP degree and fixed tiles are incompatible")
+
+
 def _explicit_contract(logits, active, real_vocab, tp_rank, tp_world, role):
     """Build a BF16/FP32 ``LogprobContract`` for equal-width TP shards and the given active rows."""
     width = logits.shape[1]
@@ -347,8 +353,7 @@ def run_case(
 ) -> dict[str, Any]:
     """Call real integration providers; mask-only contracts have separate scope."""
     real_vocab = vocab if real_vocab is None else real_vocab
-    if not 0 < real_vocab <= vocab or vocab % DEFAULT_NUM_VOCAB_TILES or vocab % tp_world_size:
-        raise ValueError("real vocab, padded vocab, TP degree and fixed tiles are incompatible")
+    _check_vocab_layout(vocab, real_vocab, tp_world_size)
     if temperature <= 0:
         raise ValueError("temperature must be positive")
     generator = torch.Generator().manual_seed(seed)
@@ -688,6 +693,8 @@ def main():
     local_rank = int(os.getenv("LOCAL_RANK", "0"))
     # WORLD_SIZE counts ranks on every node; GPU sharing is a per-node property.
     local_world = int(os.getenv("LOCAL_WORLD_SIZE", str(world)))
+    # Fail on every rank before the process group exists, not mid-run.
+    _check_vocab_layout(args.vocab, args.vocab - args.padding, world)
     devices = torch.cuda.device_count()
     if not devices:
         raise SystemExit("requires CUDA and an importable genuine vLLM Sampler")

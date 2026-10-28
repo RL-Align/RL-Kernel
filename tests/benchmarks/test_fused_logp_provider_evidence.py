@@ -236,3 +236,18 @@ def test_real_vime_and_vllm_providers_compare_the_same_logit_boundary(
         assert comparison["elements_checked"] == 5, boundary
         assert comparison["rows_differing"] == 0, boundary
         assert comparison["elements_differing"] == 0, boundary
+
+
+@pytest.mark.parametrize(
+    ("vocab", "real_vocab", "tp"), [(151_937, 151_930, 1), (151_936, 151_936, 3), (64, 65, 1)]
+)
+def test_vocab_layout_check_rejects_incompatible_shapes(vocab, real_vocab, tp):
+    """A vocab that the fixed tiles or TP degree cannot split fails before any rank starts."""
+    with pytest.raises(ValueError, match="incompatible"):
+        evidence._check_vocab_layout(vocab, real_vocab, tp)
+
+
+def test_vocab_layout_check_accepts_the_default_layout():
+    """The default padded vocab splits across 1 and 2 TP ranks and the fixed tiles."""
+    evidence._check_vocab_layout(151_936, 151_929, 1)
+    evidence._check_vocab_layout(151_936, 151_929, 2)
