@@ -126,7 +126,7 @@ def main() -> None:
     ys = range(len(names))
     ax.barh([y - 0.2 for y in ys], lp, 0.4, color="#2a6fdb", label="logp")
     ax.barh([y + 0.2 for y in ys], gr, 0.4, color="#e07b39", label="dlogits")
-    for y, a, b in zip(ys, lp, gr):
+    for y, a, b in zip(ys, lp, gr, strict=True):
         ax.text(max(a, b) + 0.05, y, f"{a} / {b}", va="center", fontsize=8)
     ax.set_yticks(list(ys), [n.replace(" (", "\n(") for n in names], fontsize=8)
     ax.invert_yaxis()

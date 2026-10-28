@@ -157,7 +157,7 @@ def test_autograd_backward_dispatch_uses_chunked_on_hip(monkeypatch, hip_version
     out.backward(grad.reshape(2, 3))
 
     assert calls == (["fused"] if hip_version is None else ["chunked"])
-    expected = fused_logp_backward_chunked(logits, labels, grad, dtype)
+    expected = _unchunked_backward(logits, labels, grad, dtype)
     assert torch.equal(leaf.grad.reshape_as(logits), expected)
 
 
@@ -184,7 +184,7 @@ def test_backend_without_fused_backward_uses_chunked_vjp(dtype):
     out = _FusedLogpAutograd.apply(leaf, labels, _ForwardOnlyBackend())
     out.backward(grad.to(out.dtype))
 
-    expected = fused_logp_backward_chunked(logits, labels, grad.to(out.dtype), dtype)
+    expected = _unchunked_backward(logits, labels, grad.to(out.dtype), dtype)
     assert torch.equal(leaf.grad, expected)
 
 
