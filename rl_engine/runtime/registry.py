@@ -216,6 +216,12 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     CUDA_H3_TIMESTEP_MLP = (
         "rl_engine.backends.cuda.model_specific.minimax_h3.timestep_mlp.H3TimestepMLPCudaOp"
     )
+    PYTORCH_H3_ADALN_PROJECTION = (
+        "rl_engine.reference.minimax_h3.adaln_projection.NativeH3AdaLNProjectionOp"
+    )
+    CUDA_H3_ADALN_PROJECTION = (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.adaln_projection.H3AdaLNProjectionCudaOp"
+    )
 
 
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
@@ -515,6 +521,7 @@ class KernelRegistry:
     """
 
     def __init__(self):
+        """Initialize backend caches, capability contracts, and device-specific priorities."""
         self._instance_cache: Dict[str, Any] = {}
         self._failed_backends: Set[str] = set()
         self.semantic = SemanticOperatorCatalog(_default_semantic_descriptors())
@@ -694,6 +701,10 @@ class KernelRegistry:
                     OpBackend.CUDA_H3_TIMESTEP_MLP,
                     OpBackend.PYTORCH_H3_TIMESTEP_MLP,
                 ],
+                "adaln_projection_3mod": [
+                    OpBackend.CUDA_H3_ADALN_PROJECTION,
+                    OpBackend.PYTORCH_H3_ADALN_PROJECTION,
+                ],
             },
             "rocm": {
                 "logp": [
@@ -737,6 +748,7 @@ class KernelRegistry:
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
                 "timestep_sinusoid_h3": [OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID],
                 "timestep_mlp_fp32": [OpBackend.PYTORCH_H3_TIMESTEP_MLP],
+                "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
             },
             "musa": {
                 "logp": [
@@ -788,6 +800,7 @@ class KernelRegistry:
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
                 "timestep_sinusoid_h3": [OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID],
                 "timestep_mlp_fp32": [OpBackend.PYTORCH_H3_TIMESTEP_MLP],
+                "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
             },
             "cpu": {
                 "logp": [OpBackend.PYTORCH_NATIVE],
@@ -816,6 +829,7 @@ class KernelRegistry:
                 "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
                 "timestep_sinusoid_h3": [OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID],
                 "timestep_mlp_fp32": [OpBackend.PYTORCH_H3_TIMESTEP_MLP],
+                "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
             },
             # Ascend NPU: op types without an entry fall back to their CPU
             # candidates (see the runtime override below), so only

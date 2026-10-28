@@ -31,7 +31,11 @@ from rl_engine.validation.models.h3_report import (  # noqa: E402
     h3_weights_source,
     measure,
 )
-from rl_engine.validation.models.h3_weights import load_h3_manifest  # noqa: E402
+from rl_engine.validation.models.h3_weights import (  # noqa: E402
+    WEIGHTS_ENV,
+    h3_weights_dir,
+    load_h3_manifest,
+)
 
 _NEEDS_PINNED_MLP = (
     "timestep_mlp_fp32 evidence needs the pinned time_embedder weights; set "
@@ -68,6 +72,8 @@ def require_pinned_weights(op: str, allow_random: bool) -> None:
 
 
 def main() -> None:
+    """Collect CUDA accuracy and performance evidence, requiring weights for weighted ops."""
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--op", required=True, choices=sorted(ACCURACY))
     parser.add_argument("--out", type=Path, required=True)
@@ -79,6 +85,10 @@ def main() -> None:
     )
     args = parser.parse_args()
     require_pinned_weights(args.op, args.allow_random_weights)
+    uses_weights = args.op != "timestep_sinusoid_h3"
+    smoke_run = args.allow_random_weights and args.op == "timestep_mlp_fp32"
+    if uses_weights and h3_weights_dir() is None and not smoke_run:
+        raise SystemExit(f"set {WEIGHTS_ENV} to the tools/weights/prepare_h3_weights.py output dir")
     if not torch.cuda.is_available():
         raise SystemExit("needs a CUDA device")
     torch.backends.cuda.matmul.allow_tf32 = False
@@ -91,6 +101,11 @@ def main() -> None:
         "op": args.op,
         "rfc": manifest["rfc"],
         "model_revision": manifest["model_identity"]["revision"],
+        "weight_source": (
+            ("pinned_checkpoint" if h3_weights_source() == "pinned" else "random")
+            if uses_weights
+            else "not_applicable"
+        ),
         "reference_commit": manifest["reference_implementation"]["commit"],
         **git_state(),
         "environment": environment(),
