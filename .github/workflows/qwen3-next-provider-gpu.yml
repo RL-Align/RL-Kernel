@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-# RFC #428 Qwen3-Next provider comparisons: the C1/C3/C4 norm providers and the C6
-# GDN decode-step goldens, each checked against the real vLLM 0.30.0 provider.
+# RFC #428 Qwen3-Next provider comparisons: the C1/C3/C4 norm providers, the C6
+# GDN decode-step goldens, the shared GEMM/MoE route-combine provider and the TP4
+# GDN/convolution/attention mixers, each checked against the real vLLM 0.30.0 provider.
 #
 # These check_ files import vLLM, so the default pytest collection never runs them
 # (tests/integrations/common/test_framework_operator_integrations.py asserts vLLM is not imported). This
@@ -23,10 +24,24 @@ on:
     paths:
       - "rl_engine/backends/**"
       - "rl_engine/reference/**"
+      - "csrc/cuda/attention/**"
+      - "rl_engine/models/qwen3_next/**"
+      - "rl_engine/integrations/engines/train/vllm/qwen3_next*"
       - "rl_engine/validation/models/qwen3_next*"
       - "tools/validation/models/*qwen3_next*"
+      - "rl_engine/validation/models/qwen3_next/**"
+      - "tools/validation/models/qwen3_next/**"
       - "tests/models/qwen3_next/**"
       - "rl_engine/config/**"
+      - "rl_engine/validation/common/**"
+      - "csrc/cuda/norm/**"
+      - "csrc/bindings/**"
+      - "rl_engine/contracts/**"
+      - "csrc/cuda/logprob/**"
+      - "rl_engine/integrations/engines/rollout/vllm/qwen3_next*"
+      - "rl_engine/integrations/common/qwen3_next*"
+      - "rl_engine/integrations/orchestrators/vime/experiments/qwen3_next/**"
+      - "rl_engine/distributed/algorithms/collectives.py"
       - ".github/workflows/qwen3-next-provider-gpu.yml"
   workflow_dispatch:
     inputs:
@@ -118,10 +133,18 @@ jobs:
           print("rl_engine._C:", loaded)
           PY
       - name: Check pinned providers in their own process
+        # The FP32 router needs IEEE Triton dots from process start.
+        env:
+          TRITON_F32_DEFAULT: ieee
         run: |
           set -o pipefail
           log="$RUNNER_TEMP/provider-pytest.log"
-          python3 -m pytest -q -rs tests/models/qwen3_next/check_qwen3_next_norm_providers.py tests/models/qwen3_next/check_gdn_recurrent_golden.py | tee "$log"
+          python3 -m pytest -q -rs tests/models/qwen3_next/check_qwen3_next_norm_providers.py tests/models/qwen3_next/check_gdn_recurrent_golden.py \
+            tests/models/qwen3_next/check_qwen3_next_forward.py tests/models/qwen3_next/check_qwen3_next_attention.py \
+            tests/models/qwen3_next/check_qwen3_next_gdn_bridge.py tests/models/qwen3_next/check_qwen3_next_gdn_sequence.py \
+            tests/models/qwen3_next/check_qwen3_next_conv_bridge.py tests/models/qwen3_next/check_qwen3_next_core_matrix.py \
+            tests/models/qwen3_next/check_qwen3_next_shared_core.py tests/models/qwen3_next/check_qwen3_next_paged_attention.py \
+            tests/models/qwen3_next/check_qwen3_next_batch_invariance.py tests/models/qwen3_next/check_qwen3_next_bi_requests.py | tee "$log"
           # Fail closed: these modules skip as a whole when CUDA or vLLM is missing, and pytest
           # exits 0 for an all-skipped run. A skipped provider check is not provider evidence.
           if grep -Eq '^SKIPPED|[0-9]+ skipped' "$log"; then

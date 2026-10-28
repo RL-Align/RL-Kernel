@@ -78,7 +78,7 @@ print("[ws1-gtest] C8 gate passed")
 PY
 
 echo "[ws1-gtest] Qwen3-Next C3/C4 norms (operator scope)"
-QWEN3_NEXT_NORM_MANIFEST=rl_engine/validation/models/qwen3_next_norm_manifest.json
+QWEN3_NEXT_NORM_MANIFEST=rl_engine/validation/models/qwen3_next/qwen3_next_norm_manifest.json
 # --hidden is the model hidden size the manifest pins: validate_norm_dimensions requires
 # --hidden 2048 --head-dim 128 for both ops. rms_norm_gated does not run at 2048: its inputs and
 # weight are built at --head-dim (128, the GDN value-head width), so the same flags give each
