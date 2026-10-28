@@ -302,6 +302,22 @@ def test_zero_tokens_identity_mismatch_and_invalid_scores_are_not_numerical_fail
         )
 
 
+def test_sparse_runtime_provenance_returns_invalid_artifact_instead_of_raising():
+    rollout = _score(ScoreSide.ROLLOUT, torch.zeros((1, 3)))
+    training = _score(ScoreSide.TRAINING, torch.zeros((1, 3)))
+    sparse_provenance = replace(training.provenance, actual={})
+    training = replace(training, provenance=sparse_provenance)
+
+    result = compare_score_artifacts(rollout, training)
+
+    assert result.status is AlignmentStatus.INVALID_ARTIFACT
+    assert result.comparable is False
+    assert result.passed is False
+    assert result.mismatch_count == 0
+    assert result.artifact_errors
+    assert "logp" in result.artifact_errors[0]
+
+
 def test_planner_emits_one_stable_baseline_and_one_change_per_oat_case():
     definition = _definition()
     plan = Planner().plan(definition)

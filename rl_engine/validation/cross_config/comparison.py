@@ -169,6 +169,22 @@ class FixedThresholdComparator:
 
         mismatch_count = int(mismatch_mask.sum().item())
         passed = mismatch_count == 0
+        try:
+            comparison_provenance = _comparison_provenance(rollout, training)
+        except ValueError as exc:
+            return AlignmentResult(
+                case_id=rollout.case_id,
+                attempt_id=rollout.attempt_id,
+                status=AlignmentStatus.INVALID_ARTIFACT,
+                comparable=False,
+                passed=False,
+                active_token_count=active_token_count,
+                mismatch_count=0,
+                contract_fingerprint=contract_fingerprint,
+                fixed_threshold=fixed_threshold,
+                artifact_errors=(f"runtime provenance is invalid: {exc}",),
+                token_artifact=token_artifact,
+            )
         return AlignmentResult(
             case_id=rollout.case_id,
             attempt_id=rollout.attempt_id,
@@ -185,7 +201,7 @@ class FixedThresholdComparator:
                 active_mask,
                 absolute_diff,
                 mismatch_count,
-                provenance=_comparison_provenance(rollout, training),
+                provenance=comparison_provenance,
                 mismatch_mask=mismatch_mask,
                 fixed_threshold=fixed_threshold,
             ),

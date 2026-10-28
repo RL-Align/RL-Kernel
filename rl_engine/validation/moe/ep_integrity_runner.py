@@ -75,8 +75,10 @@ def run_case(world: int, rank: int, device: torch.device, *, skew: bool) -> dict
     routes = expected_routes[local].to(device)
     values = original[local].to(device)
     routed, expert_inputs = _exchange(routes, values, routes[:, 4], world)
-    # Record the actual receiving/compute rank, not the planned owner field.
-    routed[:, 4] = rank
+    # Preserve the planned owner in column 4. Carry the actual compute rank in
+    # a separate column so a misrouted row cannot relabel itself as correct.
+    compute_rank = torch.full((routed.shape[0], 1), rank, dtype=routed.dtype, device=routed.device)
+    routed = torch.cat((routed, compute_rank), dim=1)
     # Synthetic arithmetic is an integrity sentinel, not an MoE kernel claim.
     expert_values = expert_inputs + routed[:, 3:4].to(torch.bfloat16)
     # Deliberately reverse physical arrival order before returning to each source.
@@ -93,7 +95,7 @@ def run_case(world: int, rank: int, device: torch.device, *, skew: bool) -> dict
     all_values = torch.cat([item[1] for item in received])
     batches = []
     for owner in range(world):
-        selector = all_routes[:, 4] == owner
+        selector = all_routes[:, 5] == owner
         batches.append(
             EPRankResults(
                 rank=owner,
