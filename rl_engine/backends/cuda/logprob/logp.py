@@ -327,8 +327,8 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
 
         A shape mismatch raises ``ValueError``; every other violation raises ``RuntimeError``.
         ``output`` must match the logits row shape, be contiguous on the logits device and be
-        float16/bfloat16/float32/float64 (float64 when ``fp64``). Under grad mode or AD it must
-        also not require grad and must not share storage with any input.
+        float16/bfloat16/float32/float64 (float64 when ``fp64``). It must not share storage with any
+        input, and under grad mode or AD it must also not require grad.
         """
         self._prepare_output(output, logits.shape[:-1])
         if output.device != logits.device or not output.is_contiguous():
@@ -336,16 +336,17 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
         allowed = (torch.float16, torch.bfloat16, torch.float32, torch.float64)
         if output.dtype not in allowed or (fp64 and output.dtype != torch.float64):
             raise RuntimeError("output dtype must be floating point (float64 for FP64 interfaces)")
-        if torch.is_grad_enabled() or _needs_ad(logits):
-            if output.requires_grad:
-                raise RuntimeError(
-                    "out buffer must not require gradients; detach it after the previous backward"
-                )
-            for tensor in (logits, token_ids, row_indices):
-                if tensor is not None and torch._C._overlaps(
-                    _storage_tensor(output), _storage_tensor(tensor)
-                ):
-                    raise RuntimeError("out buffer must not share storage with inputs")
+        if (torch.is_grad_enabled() or _needs_ad(logits)) and output.requires_grad:
+            raise RuntimeError(
+                "out buffer must not require gradients; detach it after the previous backward"
+            )
+        # The native kernel writes rows while other blocks still read the inputs, so an
+        # aliasing buffer corrupts results even without autograd.
+        for tensor in (logits, token_ids, row_indices):
+            if tensor is not None and torch._C._overlaps(
+                _storage_tensor(output), _storage_tensor(tensor)
+            ):
+                raise RuntimeError("out buffer must not share storage with inputs")
 
     def _copy_out(self, logits, token_ids, row_indices, output, fp64=False):
         """Copy the differentiable FP32 or FP64 LogP into ``output`` and return ``output``.

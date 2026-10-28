@@ -222,8 +222,9 @@ def test_out_reuse_and_guards(op, dtype, indexed):
     """``out`` buffers are reused in place and guarded against gradient tracking and aliasing.
 
     With grad enabled, a buffer that requires gradients (including one left attached to the
-    previous graph) or shares storage with the logits raises ``RuntimeError``; under ``no_grad``
-    the grad-requiring buffer is accepted and written in place.
+    previous graph) raises ``RuntimeError``; under ``no_grad`` that buffer is accepted and
+    written in place. A buffer sharing storage with the logits raises ``RuntimeError`` in
+    either mode.
     """
     x, ids, g, h = inputs(dtype)
     buffer = torch.zeros_like(ids, dtype=g.dtype)
@@ -253,6 +254,8 @@ def test_out_reuse_and_guards(op, dtype, indexed):
     with torch.no_grad():
         result = run(buffer)
         assert result.data_ptr() == buffer.data_ptr()
+        with pytest.raises(RuntimeError, match="share storage"):
+            run(alias)
 
 
 @pytest.mark.parametrize(
