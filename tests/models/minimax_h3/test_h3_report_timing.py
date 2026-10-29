@@ -52,3 +52,24 @@ def test_the_reported_medians_come_from_the_stored_samples():
         assert row[f"{key}_peak_mib"] >= 0
     # the larger matmul is slower than the smaller one in the same run
     assert row["provider_us"] > row["candidate_us"]
+
+
+def test_backward_timings_of_every_perf_case_exclude_the_forward_pass(monkeypatch):
+    """A case with a timed backward must prepare the graph outside the CUDA-event window."""
+
+    from rl_engine.runtime.registry import KernelRegistry
+    from rl_engine.validation.models import h3_report
+
+    # The structure is what is checked; the cases need not be as large as the evidence runs.
+    for name in ("GATHER_SEQ_LENS", "NORM_SEQ_LENS"):
+        if hasattr(h3_report, name):
+            monkeypatch.setattr(h3_report, name, (257,))
+    registry = KernelRegistry()
+    checked = 0
+    for op, build in h3_report.PERF_CASES.items():
+        for case in build(registry):
+            for side in ("candidate", "provider"):
+                if f"{side}_backward" in case:
+                    checked += 1
+                    assert f"{side}_backward_setup" in case, f"{op} {case['case']} {side}"
+    assert checked

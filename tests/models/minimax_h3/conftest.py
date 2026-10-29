@@ -22,6 +22,8 @@ from rl_engine.validation.models.h3_weights import (
 
 @pytest.fixture(scope="session")
 def h3_weights_cpu() -> dict[str, torch.Tensor]:
+    """Load pinned CPU weights once per session, skipping unavailable artifacts."""
+
     if h3_weights_dir() is None:
         pytest.skip(f"{WEIGHTS_ENV} not set; run tools/weights/prepare_h3_weights.py")
     try:
