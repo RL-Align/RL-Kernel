@@ -37,6 +37,8 @@ def main() -> None:
     parser.add_argument("--layout", default="tiny")
     parser.add_argument("--local-size", type=int, default=4, help="GPUs per node")
     parser.add_argument("--iters", type=int, default=5)
+    parser.add_argument("--attention", choices=("interim", "h3_full"), default="interim")
+    parser.add_argument("--cp-mode", choices=("ulysses", "ring"), default="ulysses")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
 
@@ -56,7 +58,13 @@ def main() -> None:
     probe = torch.ones(1, device="cuda") * rank
     dist.all_reduce(probe)  # NCCL connectivity across nodes
     spans_nodes = args.tp > args.local_size
-    grid = h3_tp.make_grid(args.tp, args.cp, local_size=args.local_size if spans_nodes else None)
+    grid = h3_tp.make_grid(
+        args.tp,
+        args.cp,
+        local_size=args.local_size if spans_nodes else None,
+        attention=args.attention,
+        cp_mode=args.cp_mode,
+    )
     weights = load_h3_block_weights("cuda")
     kwargs = dict(sp=args.sp, seq_len=args.seq_len, layout=args.layout)
     result = h3_tp.block_case(weights, grid, backward=True, **kwargs)
@@ -77,7 +85,10 @@ def main() -> None:
     )
     if rank == 0:
         ref = h3_tp.block_case(
-            weights, h3_tp.Grid(1, 1, 0, 0), backward=True, **{**kwargs, "sp": False}
+            weights,
+            h3_tp.Grid(1, 1, 0, 0, attention=args.attention),
+            backward=True,
+            **{**kwargs, "sp": False},
         )
         ranks = [torch.load(args.out / f"rank{r}.pt") for r in range(world)]
 
@@ -113,6 +124,8 @@ def main() -> None:
             tp=args.tp,
             cp=args.cp,
             sp=args.sp,
+            attention=args.attention,
+            cp_mode=args.cp_mode,
             world=world,
             hosts=sorted({t["host"] for t in timings}),
             collective="hierarchical_ipc_nccl_tree" if spans_nodes else "cuda_ipc_fixed_tree",
