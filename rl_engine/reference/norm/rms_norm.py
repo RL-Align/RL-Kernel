@@ -110,6 +110,20 @@ def shape_invariant_meansq(x_f: torch.Tensor) -> torch.Tensor:
     return sumsq / float(hidden)
 
 
+def shape_invariant_rowsum(x_f: torch.Tensor) -> torch.Tensor:
+    """Shape-invariant sum over the last dim, same fixed-chunk scheme as the mean.
+
+    The backward pass reduces a per-row dot product, and it has to use the same
+    chunking as ``shape_invariant_meansq`` or gradients stop being batch invariant
+    even though the forward still is.
+    """
+    hidden = x_f.shape[-1]
+    if hidden % 32 != 0:
+        return x_f.sum(dim=-1)
+    chunked = x_f.reshape(*x_f.shape[:-1], -1, 32)
+    return chunked.sum(dim=-1).sum(dim=-1)
+
+
 def shape_invariant_rstd(x_f: torch.Tensor, eps: float) -> torch.Tensor:
     """Shape-invariant per-row rstd, ``rsqrt`` form."""
     return torch.rsqrt(shape_invariant_meansq(x_f) + float(eps))

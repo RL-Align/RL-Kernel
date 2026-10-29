@@ -22,6 +22,8 @@ from rl_engine.reference.norm.fused_add_norm import (
     RMS_NORM_EPS,
     NativeFinalNormOp,
     NativeFusedAddNormOp,
+    final_norm_backward,
+    fused_add_norm_backward,
 )
 
 _FP64_TOL = {"atol": 1e-6, "rtol": 1e-6}
@@ -169,3 +171,145 @@ def test_outputs_keep_the_input_dtype(dtype):
     assert residual_out.dtype == dtype
     assert pre_normed.dtype == dtype
     assert NativeFinalNormOp().forward(args[0], args[2]).dtype == dtype
+
+
+# --------------------------------------------------------------------------- #
+# Backward
+# --------------------------------------------------------------------------- #
+# The closed-form backward is what the CUDA and Triton kernels will implement, so
+# it has to be checked against something that did not come from the same algebra.
+# Two independent checks here: autograd on the reference forward, and autograd on
+# an FP64 forward written from the definition.
+
+
+def _ref_fused_forward_fp64(hidden, residual, post_w, pre_w):
+    """FP64 forward from the definition, mirroring forward_fp32's structure."""
+    post = _ref_centered(hidden, post_w, POST_NORM_EPS)
+    residual_out = residual + post
+    return residual_out, _ref_centered(residual_out, pre_w, RMS_NORM_EPS)
+
+
+@pytest.mark.parametrize("shape", SHAPES, ids=lambda s: "x".join(map(str, s)))
+def test_closed_form_backward_matches_autograd(shape):
+    """The hand-derived gradients agree with autograd on the same forward.
+
+    Both output cotangents are random and non-zero. An all-ones cotangent would
+    hide the rstd term, and a zero cotangent on residual_out would hide that the
+    residual output is live on two paths at once.
+    """
+    hidden = _rand(shape, seed=50, dtype=torch.float32).requires_grad_(True)
+    residual = _rand(shape, seed=51, dtype=torch.float32).requires_grad_(True)
+    post_w = _rand((shape[-1],), seed=52, dtype=torch.float32).requires_grad_(True)
+    pre_w = _rand((shape[-1],), seed=53, dtype=torch.float32).requires_grad_(True)
+    g_residual = _rand(shape, seed=54, dtype=torch.float32)
+    g_pre = _rand(shape, seed=55, dtype=torch.float32)
+
+    residual_out, pre_normed = NativeFusedAddNormOp().forward_fp32(hidden, residual, post_w, pre_w)
+    torch.autograd.backward((residual_out, pre_normed), grad_tensors=(g_residual, g_pre))
+
+    d_hidden, d_residual, d_post_rows, d_pre_rows = fused_add_norm_backward(
+        g_residual, g_pre, hidden.detach(), residual.detach(), post_w.detach(), pre_w.detach()
+    )
+    lead = tuple(range(d_post_rows.dim() - 1))
+    torch.testing.assert_close(d_hidden, hidden.grad, atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(d_residual, residual.grad, atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(d_post_rows.sum(dim=lead), post_w.grad, atol=1e-4, rtol=1e-4)
+    torch.testing.assert_close(d_pre_rows.sum(dim=lead), pre_w.grad, atol=1e-4, rtol=1e-4)
+
+
+@pytest.mark.parametrize("shape", SHAPES, ids=lambda s: "x".join(map(str, s)))
+def test_closed_form_backward_matches_fp64_definition(shape):
+    """Same gradients against autograd on an independent FP64 forward."""
+    hidden = _rand(shape, seed=56)
+    residual = _rand(shape, seed=57)
+    post_w = _rand((shape[-1],), seed=58)
+    pre_w = _rand((shape[-1],), seed=59)
+    g_residual = _rand(shape, seed=60)
+    g_pre = _rand(shape, seed=61)
+
+    leaves = [t.clone().requires_grad_(True) for t in (hidden, residual, post_w, pre_w)]
+    out_residual, out_pre = _ref_fused_forward_fp64(*leaves)
+    torch.autograd.backward((out_residual, out_pre), grad_tensors=(g_residual, g_pre))
+
+    d_hidden, d_residual, d_post_rows, d_pre_rows = fused_add_norm_backward(
+        g_residual.float(),
+        g_pre.float(),
+        hidden.float(),
+        residual.float(),
+        post_w.float(),
+        pre_w.float(),
+    )
+    lead = tuple(range(d_post_rows.dim() - 1))
+    torch.testing.assert_close(d_hidden.double(), leaves[0].grad, atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(d_residual.double(), leaves[1].grad, atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(
+        d_post_rows.sum(dim=lead).double(), leaves[2].grad, atol=1e-4, rtol=1e-4
+    )
+    torch.testing.assert_close(
+        d_pre_rows.sum(dim=lead).double(), leaves[3].grad, atol=1e-4, rtol=1e-4
+    )
+
+
+def test_backward_needs_both_cotangents():
+    """Guard: dropping the downstream residual cotangent changes the answer.
+
+    residual_out feeds both the next residual add and the pre-norm. A kernel that
+    only propagated the pre-norm path would pass any test that left g_residual at
+    zero, so this pins that the two contributions really do both land.
+    """
+    shape = (4, HIDDEN_SIZE)
+    args = (
+        _rand(shape, seed=62, dtype=torch.float32),
+        _rand(shape, seed=63, dtype=torch.float32),
+        _rand((shape[-1],), seed=64, dtype=torch.float32),
+        _rand((shape[-1],), seed=65, dtype=torch.float32),
+    )
+    g_pre = _rand(shape, seed=66, dtype=torch.float32)
+    with_downstream = fused_add_norm_backward(
+        _rand(shape, seed=67, dtype=torch.float32), g_pre, *args
+    )
+    without = fused_add_norm_backward(torch.zeros(shape), g_pre, *args)
+    assert not torch.equal(with_downstream[0], without[0])
+    assert not torch.equal(with_downstream[1], without[1])
+
+
+@pytest.mark.parametrize("shape", SHAPES, ids=lambda s: "x".join(map(str, s)))
+def test_final_norm_backward_matches_fp64_definition(shape):
+    x = _rand(shape, seed=68)
+    weight = _rand((shape[-1],), seed=69)
+    cotangent = _rand(shape, seed=70)
+
+    x_leaf = x.clone().requires_grad_(True)
+    w_leaf = weight.clone().requires_grad_(True)
+    _ref_scaled(x_leaf, w_leaf, RMS_NORM_EPS).backward(cotangent)
+
+    dx, dw_rows = final_norm_backward(cotangent.float(), x.float(), weight.float())
+    lead = tuple(range(dw_rows.dim() - 1))
+    torch.testing.assert_close(dx.double(), x_leaf.grad, atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(dw_rows.sum(dim=lead).double(), w_leaf.grad, atol=1e-4, rtol=1e-4)
+
+
+def test_backward_row_reduction_is_batch_invariant():
+    """A row's gradient bytes do not change with batch size or position.
+
+    Axis A applies to the backward too. The reduction inside the closed form is
+    the chunked row sum for exactly this reason; a plain sum would drift here while
+    the forward still looked invariant.
+    """
+    width = HIDDEN_SIZE
+    big = 16
+    hidden = _rand((big, width), seed=71, dtype=torch.float32)
+    residual = _rand((big, width), seed=72, dtype=torch.float32)
+    post_w = _rand((width,), seed=73, dtype=torch.float32)
+    pre_w = _rand((width,), seed=74, dtype=torch.float32)
+    g_residual = _rand((big, width), seed=75, dtype=torch.float32)
+    g_pre = _rand((big, width), seed=76, dtype=torch.float32)
+
+    full = fused_add_norm_backward(g_residual, g_pre, hidden, residual, post_w, pre_w)
+    for row in (0, 1, big // 2, big - 1):
+        sl = slice(row, row + 1)
+        single = fused_add_norm_backward(
+            g_residual[sl], g_pre[sl], hidden[sl], residual[sl], post_w, pre_w
+        )
+        for whole, part, name in zip(full, single, ("d_hidden", "d_residual", "d_post", "d_pre")):
+            assert torch.equal(whole[sl], part), f"{name} drifted at row {row}"

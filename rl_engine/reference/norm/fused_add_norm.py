@@ -43,7 +43,7 @@ from __future__ import annotations
 import torch
 from torch import Tensor, nn
 
-from rl_engine.reference.norm.rms_norm import shape_invariant_meansq
+from rl_engine.reference.norm.rms_norm import shape_invariant_meansq, shape_invariant_rowsum
 
 # Muse-Glimmer-30B text config; see the #558 manifest.
 HIDDEN_SIZE = 6656
@@ -182,3 +182,97 @@ class NativeFinalNormOp(nn.Module):
         _validate_row(x, "x")
         _validate_weight(weight, x.shape[-1], "weight")
         return _scaled_norm(x.float(), weight, eps).to(output_dtype)
+
+
+# --------------------------------------------------------------------------- #
+# Closed-form backward
+# --------------------------------------------------------------------------- #
+# Autograd already differentiates the references above. These functions exist
+# because the CUDA and Triton kernels cannot, and they have to agree with autograd
+# before that arithmetic gets written twice in two languages. The tests compare
+# them against autograd on the reference and against FP64.
+#
+# For y = x * rstd * g with rstd = (meansq(x) + eps) ** -0.5 and g fixed per column:
+#
+#     dx_j = rstd * dy_j * g_j - x_j * rstd**3 * c,   c = rowsum(dy * g * x) / n
+#     dw_j = sum over rows of dy_j * x_j * rstd
+#
+# g is (1 + w) for the decoder norms and w for the final norm, and dw is the same
+# either way because d(1 + w)/dw is 1. The row reduction in c uses
+# shape_invariant_rowsum for the same reason the forward uses the chunked mean: a
+# plain sum makes the gradient depend on the batch layout.
+
+
+def _centered_backward(
+    dy_f: Tensor, x_f: Tensor, gain: Tensor, rstd: Tensor
+) -> tuple[Tensor, Tensor]:
+    """Return ``(dx, dweight_rows)`` for one norm, all FP32.
+
+    ``gain`` is the full multiplier the forward applied, so ``1 + w`` for a decoder
+    norm and ``w`` for the final norm. ``rstd`` is the forward's statistic, passed
+    in rather than recomputed so the backward cannot drift from the forward.
+    """
+    hidden = x_f.shape[-1]
+    scaled = dy_f * gain
+    c = (shape_invariant_rowsum(scaled * x_f) / float(hidden)).unsqueeze(-1)
+    dx = rstd * scaled - x_f * rstd.pow(3) * c
+    dweight_rows = dy_f * x_f * rstd
+    return dx, dweight_rows
+
+
+def fused_add_norm_backward(
+    grad_residual_out: Tensor,
+    grad_pre_normed: Tensor,
+    hidden: Tensor,
+    residual: Tensor,
+    post_weight: Tensor,
+    pre_weight: Tensor,
+    *,
+    post_eps: float = POST_NORM_EPS,
+    pre_eps: float = RMS_NORM_EPS,
+) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+    """Gradients of ``NativeFusedAddNormOp.forward_fp32``.
+
+    Returns ``(d_hidden, d_residual, d_post_weight_rows, d_pre_weight_rows)``. The
+    two weight entries are per-row FP32 contributions, not sums, matching
+    ``parameter_vjp_contributions_fp32`` elsewhere in the repo; the caller folds
+    them with ``reduce_rows_fp32``.
+
+    ``residual_out`` is both an output and the pre-norm's input, so the gradient
+    reaching it is the sum of what comes back from downstream and what comes back
+    through the pre-norm. Getting that wrong is invisible when the downstream
+    cotangent is zero, which is why the tests drive both outputs.
+    """
+    hidden_f = hidden.float()
+    residual_f = residual.float()
+    post_gain = 1.0 + post_weight.float()
+    pre_gain = 1.0 + pre_weight.float()
+
+    # Recompute the forward to recover both statistics and the intermediate.
+    rstd_post = torch.rsqrt(shape_invariant_meansq(hidden_f) + float(post_eps)).unsqueeze(-1)
+    residual_out = residual_f + (hidden_f * rstd_post) * post_gain
+    rstd_pre = torch.rsqrt(shape_invariant_meansq(residual_out) + float(pre_eps)).unsqueeze(-1)
+
+    d_from_pre, d_pre_weight_rows = _centered_backward(
+        grad_pre_normed.float(), residual_out, pre_gain, rstd_pre
+    )
+    # The residual output is live on two paths; add them before going further back.
+    d_residual_out = grad_residual_out.float() + d_from_pre
+
+    d_hidden, d_post_weight_rows = _centered_backward(
+        d_residual_out, hidden_f, post_gain, rstd_post
+    )
+    return d_hidden, d_residual_out, d_post_weight_rows, d_pre_weight_rows
+
+
+def final_norm_backward(
+    grad_output: Tensor, x: Tensor, weight: Tensor, *, eps: float = RMS_NORM_EPS
+) -> tuple[Tensor, Tensor]:
+    """Gradients of ``NativeFinalNormOp.forward_fp32``: ``(dx, dweight_rows)``.
+
+    Separate from the decoder-norm path because the gain is ``w`` rather than
+    ``1 + w`` and the statistic is spelled ``pow_neg_half``.
+    """
+    x_f = x.float()
+    rstd = ((shape_invariant_meansq(x_f) + float(eps)) ** -0.5).unsqueeze(-1)
+    return _centered_backward(grad_output.float(), x_f, weight.float(), rstd)
