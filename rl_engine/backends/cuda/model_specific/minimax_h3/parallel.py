@@ -3,8 +3,9 @@
 
 """MiniMax-H3 tensor-, sequence- and context-parallel building blocks (contract ``h3-parallel-v1``).
 
-Rows: ``tp_attention_7168``, ``tp_ffn_14336``, ``cp_full_attention`` (Ulysses),
-``cp_metadata_coshard``, ``cp_arbitrary_length``, ``distributed_packed_io``.
+Rows: ``tp_attention_7168``, ``tp_ffn_14336``, ``cp_full_attention`` (Ulysses here, the ring in
+``ring_attention.py``), ``cp_metadata_coshard``, ``cp_arbitrary_length``, ``distributed_packed_io``
+(``scatter_from_root``, ``gather_selected``, ``check_row_identity``).
 
 Every reduction that crosses ranks is defined on **8 canonical units** so TP 1/2/4/8 add the
 same numbers in the same order:
@@ -274,6 +275,150 @@ def gather_packed(local: torch.Tensor, shard: SeqShard, group=None, dim: int = 0
     chunks = [torch.empty_like(torch.cat([moved, pad])) for _ in range(shard.cp)]
     dist.all_gather(chunks, torch.cat([moved, pad]), group=group)
     return torch.cat([c[:n] for c, n in zip(chunks, sizes)]).movedim(0, dim)
+
+
+def group_peer(group, index: int) -> int:
+    """Global rank of member ``index`` of ``group`` (``None`` is the world group)."""
+
+    return index if group is None else dist.get_global_rank(group, index)
+
+
+def scatter_from_root(
+    packed: torch.Tensor | None,
+    shard: SeqShard,
+    *,
+    tail_shape: Sequence[int],
+    dtype: torch.dtype,
+    root: int = 0,
+    group=None,
+    dim: int = 0,
+) -> torch.Tensor:
+    """Distributed packed-input scatter: only ``root`` holds ``packed``; every rank gets its rows.
+
+    ``packed`` has ``shard.length`` rows along ``dim`` on the root and is ``None`` elsewhere;
+    ``tail_shape`` are the sizes of the other axes (with ``dim`` moved to the front) so the
+    receivers can allocate. Point-to-point copies of contiguous row ranges: exact, any length,
+    ranks that own no rows send and receive nothing.
+    """
+
+    cp, rank, sizes = shard.cp, shard.rank, shard.sizes
+    if not 0 <= root < cp:
+        raise ValueError(f"root {root} is not a member of the {cp}-rank group")
+    device = torch.device("cuda", torch.cuda.current_device())
+    if rank == root:
+        if packed is None or packed.shape[dim] != shard.length:
+            raise ValueError("the root must hold the full packed tensor")
+        full = packed.movedim(dim, 0).contiguous()
+        ops = []
+        for peer in range(cp):
+            if peer != root and sizes[peer]:
+                lo = sum(sizes[:peer])
+                ops.append(
+                    dist.P2POp(
+                        dist.isend,
+                        full[lo : lo + sizes[peer]].contiguous(),
+                        group_peer(group, peer),
+                        group,
+                    )
+                )
+        if ops:
+            for work in dist.batch_isend_irecv(ops):
+                work.wait()
+        lo = shard.lo
+        return full[lo : lo + sizes[rank]].contiguous().movedim(0, dim)
+    if packed is not None:
+        raise ValueError("only the root holds the packed tensor")
+    mine = torch.empty((sizes[rank], *tail_shape), device=device, dtype=dtype)
+    if sizes[rank]:
+        for work in dist.batch_isend_irecv(
+            [dist.P2POp(dist.irecv, mine, group_peer(group, root), group)]
+        ):
+            work.wait()
+    return mine.movedim(0, dim)
+
+
+def _selected_counts(selected: torch.Tensor, shard: SeqShard) -> list[list[int]]:
+    """Per rank, the positions in ``selected`` whose row that rank owns (replicated metadata)."""
+
+    owner = torch.zeros(shard.length, dtype=torch.long, device=selected.device)
+    for r in range(shard.cp):
+        lo = sum(shard.sizes[:r])
+        owner[lo : lo + shard.sizes[r]] = r
+    who = owner[selected]
+    return [(who == r).nonzero().flatten().tolist() for r in range(shard.cp)]
+
+
+def _check_selection(selected: torch.Tensor, shard: SeqShard) -> None:
+    if selected.dim() != 1 or selected.dtype not in (torch.int32, torch.int64):
+        raise ValueError("selected rows must be a 1-D integer tensor")
+    if selected.numel():
+        if int(selected.min()) < 0 or int(selected.max()) >= shard.length:
+            raise ValueError(f"selected rows must lie in [0, {shard.length})")
+        if int(torch.unique(selected).numel()) != selected.numel():
+            raise ValueError("selected rows must be unique (a repeated row has no fixed order)")
+
+
+class _GatherSelected(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, local, shard, selected, group, dim):
+        owned = _selected_counts(selected, shard)
+        mine = owned[shard.rank]
+        rows = torch.tensor(mine, dtype=torch.long, device=local.device)
+        moved = local.movedim(dim, 0).contiguous()
+        local_ids = (selected[rows] - shard.lo).to(torch.long)
+        piece = moved.index_select(0, local_ids)
+        widest = max((len(o) for o in owned), default=0)
+        pad = piece.new_zeros((widest - piece.shape[0], *piece.shape[1:]))
+        pieces = [torch.empty_like(torch.cat([piece, pad])) for _ in range(shard.cp)]
+        dist.all_gather(pieces, torch.cat([piece, pad]), group=group)
+        out = piece.new_empty((selected.numel(), *piece.shape[1:]))
+        for r in range(shard.cp):
+            if owned[r]:
+                where = torch.tensor(owned[r], dtype=torch.long, device=local.device)
+                out.index_copy_(0, where, pieces[r][: len(owned[r])])
+        ctx.keep = (local_ids, rows, local.shape, dim)
+        return out.movedim(0, dim)
+
+    @staticmethod
+    def backward(ctx, grad):
+        local_ids, rows, shape, dim = ctx.keep
+        moved_shape = (shape[dim], *[s for i, s in enumerate(shape) if i != dim])
+        back = grad.new_zeros(moved_shape)
+        back.index_copy_(0, local_ids, grad.movedim(dim, 0).index_select(0, rows))
+        return back.movedim(0, dim), None, None, None, None
+
+
+def gather_selected(local, shard: SeqShard, selected, group=None, dim: int = 0) -> torch.Tensor:
+    """Rows ``selected`` (global ids, in order) of a sequence-sharded tensor, on every rank.
+
+    This is the final video / audio gather: ``selected`` is e.g. ``video_indices``. The result is
+    ``full.index_select(dim, selected)`` bit for bit for any shard sizes and any (unique) order;
+    only the selected rows travel. The backward gives each rank the rows of the (replicated)
+    output gradient that it owns and zero elsewhere, so no collective and no summation.
+    """
+
+    _check_selection(selected, shard)
+    if local.shape[dim] != shard.sizes[shard.rank]:
+        raise ValueError(
+            f"expected {shard.sizes[shard.rank]} local rows, got {local.shape[dim]} along dim {dim}"
+        )
+    if shard.cp == 1:
+        return local.index_select(dim, selected.to(local.device).to(torch.long))
+    return _GatherSelected.apply(local, shard, selected.to(local.device), group, dim)
+
+
+def check_row_identity(local_ids: torch.Tensor, shard: SeqShard, group=None) -> None:
+    """Fail unless the ranks' declared row ids concatenate to ``0 .. length - 1`` in order.
+
+    ``local_ids`` are the global ids that travel with this rank's rows (any tensor that was
+    sliced with the rows). It catches a rank that received the wrong rows or metadata sliced
+    with a different ``SeqShard``.
+    """
+
+    ids = gather_packed(local_ids.to(torch.long), shard, group)
+    expected = torch.arange(shard.length, device=ids.device)
+    if ids.shape != expected.shape or not torch.equal(ids, expected):
+        raise ValueError("row identity drift: the ranks' rows are not the packed sequence in order")
 
 
 class _AllToAll(torch.autograd.Function):
