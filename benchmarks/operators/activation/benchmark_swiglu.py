@@ -26,6 +26,7 @@ import math
 import platform
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -144,7 +145,26 @@ def _check_accuracy(native, candidate, gate, up, dy):
     return errors
 
 
+# An elementwise call at these widths runs for about 70 microseconds, while an
+# idle H100 sits at 345 MHz against a 1980 MHz maximum and only ramps under
+# sustained load. Ten warmup iterations do not lift the clock, so a median taken
+# right after them lands at an arbitrary point on the ramp: the same row moved by
+# 30 percent between runs on an identical idle GPU. Drive the device for a fixed
+# wall-clock span first so the measurement happens at a settled clock.
+CLOCK_SETTLE_SECONDS = 1.0
+
+
+def _settle_clocks(profiler, fn):
+    """Drive fn for CLOCK_SETTLE_SECONDS so the device clock has ramped."""
+    deadline = time.perf_counter() + CLOCK_SETTLE_SECONDS
+    while time.perf_counter() < deadline:
+        for _ in range(32):
+            fn()
+        profiler._sync()
+
+
 def _measure(profiler, fn):
+    _settle_clocks(profiler, fn)
     _, median_ms, std_ms = profiler._time_kernel(fn)
     if not math.isfinite(median_ms) or median_ms <= 0:
         raise RuntimeError(f"invalid accelerator-event latency: {median_ms}")
@@ -195,6 +215,7 @@ def _environment(device, args, triton_version, shapes):
         "shapes": ["x".join(map(str, s)) for s in shapes],
         "intermediate_width": INTERMEDIATE,
         "warmup": args.warmup,
+        "clock_settle_seconds": CLOCK_SETTLE_SECONDS,
         "repeat": args.repeat,
         "seed": args.seed,
         "tolerance_contract_sha256": tolerance_contract_fingerprint(),
@@ -249,7 +270,10 @@ def _markdown(report):
         f"{env['backend']} runtime: {env['runtime']}.",
         f"Commit: `{env['git_commit']}`; tracked changes: "
         f"`{env['git_tracked_changes'] or 'none'}`.",
-        f"Warmup: {env['warmup']}; measured repetitions: {env['repeat']}.",
+        f"Warmup: {env['warmup']} iterations after a {env['clock_settle_seconds']}s "
+        f"clock-settling phase; measured repetitions: {env['repeat']}. The settling "
+        f"phase is needed because an idle H100 sits near 345 MHz against a 1980 MHz "
+        f"maximum, and a 70-microsecond workload does not lift the clock on its own.",
         "",
         "Both sides are timed through the public `forward`, which returns the input "
         "dtype on both backends. Median accelerator-event latency for public wrappers, "
