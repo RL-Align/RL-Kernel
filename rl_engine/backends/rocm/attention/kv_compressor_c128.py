@@ -10,6 +10,7 @@ import torch
 
 from rl_engine.contracts.operators.kv_compressor_c128 import (
     AITer_HCA_SHA256,
+    AITer_HCA_LEGACY_SHA256,
     C128_BACKEND_ID,
     C128Error,
     MLITE_BACKWARD_SHA256,
@@ -28,23 +29,39 @@ class AiterC128Backend:
         self.device = torch.device("cuda", torch.cuda.current_device())
         arch = torch.cuda.get_device_properties(self.device).gcnArchName.split(":")[0]
         require(arch == "gfx942", f"unvalidated C128 architecture: {arch}")
-        names = [
-            "aiter.ops.flydsl.kernels.fused_compress_attn_hca",
-            "aiter.ops.flydsl.kernels.fused_compress_attn_common",
-            "aiter.ops.flydsl.kernels.kernels_common",
-            "aiter.ops.flydsl.kernels.tensor_shim",
-            "aiter.ops.flydsl.kernels.quant_utils",
-        ]
+        name = "aiter.ops.flydsl.kernels.fused_compress_attn_hca"
         try:
-            modules = [importlib.import_module(name) for name in names]
-            self.hca, self.shim = modules[0], modules[3]
+            self.hca = importlib.import_module(name)
+            provider_hash = source_hash(self.hca.__file__)
+            require(
+                provider_hash in (AITer_HCA_SHA256, AITer_HCA_LEGACY_SHA256),
+                "unvalidated aiter HCA source revision",
+            )
+            self.legacy_hca = provider_hash == AITer_HCA_LEGACY_SHA256
+            # The packaged 0.1.16 ABI is self-contained and exposes the
+            # two-kernel composite launcher. Newer aiter splits out helpers.
+            names = [name, "aiter.ops.flydsl.kernels.tensor_shim"]
+            if not self.legacy_hca:
+                names.extend(
+                    [
+                        "aiter.ops.flydsl.kernels.fused_compress_attn_common",
+                        "aiter.ops.flydsl.kernels.kernels_common",
+                        "aiter.ops.flydsl.kernels.quant_utils",
+                    ]
+                )
+            modules = [importlib.import_module(item) for item in names]
+            self.shim = modules[1]
             self.Stream = importlib.import_module("flydsl.expr.typing").Stream
             # Validate the ABI before admitting a backend identity.
             require(
                 all(
                     callable(fn)
                     for fn in (
-                        self.hca.flydsl_hca_compress_forward,
+                        (
+                            self.hca.flydsl_hca_compress_attn
+                            if self.legacy_hca
+                            else self.hca.flydsl_hca_compress_forward
+                        ),
                         self.hca.compile_hca_norm_rope_scatter,
                         self.shim._run_compiled,
                     )
@@ -57,7 +74,6 @@ class AiterC128Backend:
             name: source_hash(getattr(m, "__file__", None))
             for name, m in zip(names, modules, strict=True)
         }
-        require(sources[names[0]] == AITer_HCA_SHA256, "unvalidated aiter HCA source revision")
         path = megatron_backward_path or os.environ.get("RLK_MLITE_DSV4_BACKWARD_SOURCE")
         if path is None:
             try:
@@ -83,6 +99,7 @@ class AiterC128Backend:
             "triton": importlib.import_module("triton").__version__,
             "flydsl": importlib.metadata.version("flydsl"),
             "sources": sources,
+            "hca_abi": "packaged_composite" if self.legacy_hca else "split_forward",
             "mlite_backward": MLITE_BACKWARD_SHA256,
             "adapter": source_hash(__file__),
         }
@@ -93,6 +110,33 @@ class AiterC128Backend:
             return torch.empty((0, 512), dtype=torch.bfloat16, device=bound.values.device)
         values = bound.values
         state = torch.zeros((1, 128, 512), dtype=torch.float32, device=values.device)
+        if self.legacy_hca:
+            output = torch.empty((groups, 1, 512), dtype=torch.bfloat16, device=values.device)
+            # Explicit values bypass the library's capacity-based dispatch.
+            # This pinned ABI's norm/RoPE kernel is intrinsically one-wave.
+            self.hca.flydsl_hca_compress_attn(
+                kv_in=values[:, :512],
+                score_in=values[:, 512:],
+                kv_state=state,
+                score_state=state,
+                state_slot_mapping=bound.state_slots,
+                plan_gpu=bound.plan,
+                ape=ape,
+                rms_weight=norm,
+                rms_eps=contract.rms_eps,
+                cos_cache=cos,
+                sin_cache=sin,
+                kv_cache=output,
+                block_tables=bound.block_table,
+                k_per_block=1,
+                ratio=128,
+                head_dim=512,
+                rope_head_dim=64,
+                k_split_num_waves=8,
+                slice_size=64,
+                stream=torch.cuda.current_stream(self.device),
+            )
+            return output[:, 0, :].contiguous()
         pooled = self.hca.flydsl_hca_compress_forward(
             kv_in=values[:, :512],
             score_in=values[:, 512:],

@@ -78,3 +78,24 @@ The MI300X acceptance tests cover:
 The Gloo fixture validates transport and logical ownership only. It is not a
 claim of RCCL or multi-GPU acceptance. Benchmark output reports Python launch
 and synchronization time, not full model throughput.
+
+## 2026-10-29 packaged ROCm-image compatibility
+
+The adapter also accepts the explicitly pinned, self-contained HCA source
+shipped in the current aiter 0.1.16 ROCm image:
+`e7aaf267eb78dd16c24f2967c6f5f825781a8dbac81d837dad74f8218a2aad5a`.
+It reuses `flydsl_hca_compress_attn` with explicit eight-wave/slice-64 pooling
+and that source's fixed one-wave norm/RoPE kernel. It does not replace or
+upgrade the installed library, and unknown source revisions still fail closed.
+
+The newer split-forward ABI pinned by
+`183136a19a0c76fe19fd99b084b9dca9631b5e1fcee0ff2a5c440c271eea07d8`
+remains supported unchanged. The provider fingerprint records the selected
+ABI and all relevant source hashes. Train/rollout must agree on this exact
+fingerprint; byte equality across different library revisions is not claimed.
+
+This remains the **eight-wave HCA** profile, not item 21's single-wave C128
+state profile. This compatibility update does not waive that arithmetic
+handshake or claim cross-profile equivalence.
+
+See `reports/kv-compressor-c128-new-host-20261029.md`.
