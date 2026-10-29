@@ -516,6 +516,7 @@ def h3_gate_residual_backward(
     checked on the device before use.
     """
     ...
+
 def h3_rmsnorm_backward_partials(
     grad: torch.Tensor,
     x: torch.Tensor,
