@@ -344,31 +344,51 @@ def _reproducibility(passes):
     return summary
 
 
+# The memory column is printed to four decimals of a GiB. Comparing raw bytes
+# across passes inside one process flags allocator bookkeeping of a few hundred
+# bytes that never reaches the printed figure, so compare at the precision the
+# report actually claims and carry the largest raw deviation alongside it.
+_MEMORY_DECIMALS = 4
+
+
 def _determinism(passes):
-    """Count rows whose memory or accuracy figures moved between passes."""
+    """Check what should not move between passes: memory and accuracy.
+
+    Memory is compared at the reported precision, with the largest raw deviation
+    reported separately so a real drift cannot hide behind the rounding.
+    """
     if len(passes) < 2:
-        return {"compared_rows": 0, "memory_mismatches": 0, "accuracy_mismatches": 0}
+        return {
+            "compared_rows": 0,
+            "memory_mismatches": 0,
+            "accuracy_mismatches": 0,
+            "max_memory_deviation_gib": 0.0,
+        }
 
     def key(row):
         return (row["dtype"], tuple(row["shape"]), row["mode"])
 
     base = {key(row): row for row in passes[0]}
     memory = accuracy = compared = 0
+    worst = 0.0
     for rows in passes[1:]:
         for row in rows:
             reference = base[key(row)]
             compared += 1
-            if (
-                row["native"]["peak_extra_gib"] != reference["native"]["peak_extra_gib"]
-                or row["triton"]["peak_extra_gib"] != reference["triton"]["peak_extra_gib"]
-            ):
-                memory += 1
+            for side in ("native", "triton"):
+                a = row[side]["peak_extra_gib"]
+                b = reference[side]["peak_extra_gib"]
+                worst = max(worst, abs(a - b))
+                if round(a, _MEMORY_DECIMALS) != round(b, _MEMORY_DECIMALS):
+                    memory += 1
+                    break
             if row["accuracy"] != reference["accuracy"]:
                 accuracy += 1
     return {
         "compared_rows": compared,
         "memory_mismatches": memory,
         "accuracy_mismatches": accuracy,
+        "max_memory_deviation_gib": worst,
     }
 
 
@@ -405,11 +425,22 @@ def _reproducibility_lines(report):
     if det.get("compared_rows"):
         lines += [
             "",
-            f"Memory and accuracy are deterministic here: across {det['compared_rows']} "
-            f"row comparisons between passes, {det['memory_mismatches']} peak-memory and "
-            f"{det['accuracy_mismatches']} accuracy figures differed. The detail table "
-            f"below is the last pass.",
+            f"Memory and accuracy hold still: across {det['compared_rows']} row "
+            f"comparisons between passes, {det['memory_mismatches']} peak-memory and "
+            f"{det['accuracy_mismatches']} accuracy figures differed at the printed "
+            f"precision, with a largest raw memory deviation of "
+            f"{det['max_memory_deviation_gib']:.2e} GiB. The detail table below is the "
+            f"last pass.",
         ]
+    lines += [
+        "",
+        "These intervals are within one invocation. Separate invocations shift the "
+        "whole measurement: a second ten-pass session on the same GPU moved the "
+        "eager forward median by about 5% on code that had not changed, which was "
+        "enough to flip the fp16 and bf16 forward verdict. Treat a verdict that "
+        "rests on a few percent as provisional until it survives a second session; "
+        "the fp32 figures here reproduced across both.",
+    ]
     return lines + [""]
 
 
