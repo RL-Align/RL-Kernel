@@ -72,12 +72,7 @@ def test_graph_is_well_formed():
         seen.add(node.name)
     assert h3_block.OUTPUT == "residual_mlp"
     rows = {n.binding.rfc_row for n in h3_block.NODES if n.binding.status == "row"}
-    assert rows == {
-        "adaln_projection_3mod",
-        "h3_rmsnorm",
-        "adaln_gate_residual",
-        "h3_qkv_gemm",
-    }
+    assert rows == {"adaln_projection_3mod", "h3_rmsnorm", "adaln_gate_residual"}
 
 
 def test_partial_rope_rotates_96_of_128_channels():

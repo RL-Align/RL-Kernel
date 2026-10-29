@@ -46,7 +46,9 @@ def validate_h3_timestep_mlp(
             raise ValueError(f"{name} is on {tensor.device}, x is on {x.device}")
     if x.dim() != 2 or x.shape[0] == 0:
         raise ValueError(f"x must be a non-empty (T, K) matrix, got {tuple(x.shape)}")
-    hidden, k_in = w1.shape if w1.dim() == 2 else (None, None)
+    if w1.dim() != 2:
+        raise ValueError(f"w1 must be a 2-D (H, {x.shape[1]}) matrix, got {tuple(w1.shape)}")
+    hidden, k_in = w1.shape
     if k_in != x.shape[1]:
         raise ValueError(f"w1 must be (H, {x.shape[1]}), got {tuple(w1.shape)}")
     if b1.shape != (hidden,):
