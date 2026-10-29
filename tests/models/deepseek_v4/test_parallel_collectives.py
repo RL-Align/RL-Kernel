@@ -80,6 +80,12 @@ def _rank_worker(rank, rendezvous, scenario):
             allow_cpu_reference=True,
         )
         try:
+            if scenario == "begin_active":
+                if rank == 0:
+                    runtime._active = True
+                with pytest.raises(Dsv4CollectiveError, match="invalid"):
+                    runtime.begin_step(7, model_version="checkpoint-42")
+                return
             if scenario == "version_mismatch":
                 with pytest.raises(Dsv4CollectiveError, match="mismatch"):
                     runtime.begin_step(7, model_version="stale" if rank == 0 else "checkpoint-42")
@@ -87,6 +93,12 @@ def _rank_worker(rank, rendezvous, scenario):
                     runtime.begin_step(8, model_version="checkpoint-42")
                 return
             runtime.begin_step(7, model_version="checkpoint-42")
+            if scenario == "execute_inactive":
+                if rank == 0:
+                    runtime._active = False
+                with pytest.raises(Dsv4CollectiveError, match="invalid"):
+                    runtime.execute("tp_gather", torch.tensor([rank + 1.0]))
+                return
             if scenario == "empty":
                 for phase in plan.phases:
                     result = runtime.execute(phase.name, torch.empty(0))
@@ -127,7 +139,16 @@ def _rank_worker(rank, rendezvous, scenario):
 
 
 @pytest.mark.parametrize(
-    "scenario", ["valid", "empty", "version_mismatch", "phase_mismatch", "shape_mismatch"]
+    "scenario",
+    [
+        "valid",
+        "empty",
+        "version_mismatch",
+        "phase_mismatch",
+        "shape_mismatch",
+        "begin_active",
+        "execute_inactive",
+    ],
 )
 def test_four_rank_gloo_plan(tmp_path: Path, scenario: str):
     rendezvous = str(tmp_path / f"{scenario}-rendezvous")

@@ -73,13 +73,14 @@ class Dsv4ParallelCollectives:
         self._closed = False
         self._next = 0
 
-    def _agree(self, signature: tuple) -> None:
+    def _agree(self, signature: tuple, valid: bool = True) -> None:
         peers = [None] * dist.get_world_size(self.world_group)
-        dist.all_gather_object(peers, signature, group=self.world_group)
+        dist.all_gather_object(peers, (signature, valid), group=self.world_group)
         require(
-            all(peer == signature for peer in peers),
+            all(peer[0] == signature for peer in peers),
             f"DSV4 rank schedule/version mismatch: {peers}",
         )
+        require(all(peer[1] for peer in peers), "invalid DSV4 phase state or layout on a rank")
 
     def _usable(self) -> None:
         require(not self._poisoned, "collective instance is closed or poisoned")
@@ -90,11 +91,14 @@ class Dsv4ParallelCollectives:
 
     def begin_step(self, step_id: int, *, model_version: str) -> None:
         self._usable()
-        require(not self._active, "previous collective step not ended")
         try:
-            self._agree(("begin", step_id, model_version, self.contract.fingerprint))
-            require(type(step_id) is int and step_id >= 0, "nonnegative step id required")
-            require(model_version == self.contract.model_version, "stale model version")
+            valid = (
+                not self._active
+                and type(step_id) is int
+                and step_id >= 0
+                and model_version == self.contract.model_version
+            )
+            self._agree(("begin", step_id, model_version, self.contract.fingerprint), valid)
         except Exception:
             self._poisoned = True
             raise
@@ -109,21 +113,20 @@ class Dsv4ParallelCollectives:
                 if isinstance(value, torch.Tensor)
                 else None
             )
-            self._agree(("phase", self._next, phase_name, layout))
-            require(
-                self._active and self._next < len(self.contract.phases),
-                "no scheduled collective phase",
+            phase = (
+                self.contract.phases[self._next] if self._next < len(self.contract.phases) else None
             )
-            phase = self.contract.phases[self._next]
-            require(phase_name == phase.name, f"expected phase {phase.name}, got {phase_name}")
-            require(
-                isinstance(value, torch.Tensor)
+            valid = (
+                self._active
+                and phase is not None
+                and phase_name == phase.name
+                and isinstance(value, torch.Tensor)
                 and tuple(value.shape) == phase.shape
                 and value.dtype == phase.dtype
                 and value.device == self.device
-                and value.is_contiguous(),
-                f"{phase.name} input differs from sealed layout",
+                and value.is_contiguous()
             )
+            self._agree(("phase", self._next, phase_name, layout), valid)
             if value.numel() == 0:
                 # The world-wide phase handshake already established an empty input
                 # on every rank, so no backend transport is necessary.
@@ -147,10 +150,9 @@ class Dsv4ParallelCollectives:
     def end_step(self) -> None:
         self._usable()
         try:
-            self._agree(("end", self._next, self.contract.fingerprint))
-            require(
+            self._agree(
+                ("end", self._next, self.contract.fingerprint),
                 self._active and self._next == len(self.contract.phases),
-                "collective step has unfinished phases",
             )
         except Exception:
             self._poisoned = True
