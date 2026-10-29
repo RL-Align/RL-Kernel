@@ -18,6 +18,12 @@
 // Backward (FP32, one cast per output, no atomics):
 //   d_n      = g * cast(1 + scale)  (g without modulation)
 //   dx       = rstd * w * d_n - x * rstd^3 * sum(w * d_n * x) / N   (row-local)
+//              evaluated as coef = ((rstd * rstd) * rstd) * dot / N and
+//              dx = cast(rstd * w * d_n - x * coef), with dot a fixed block tree over fmaf terms.
+//              nvcc may contract the last line to an FMA; the build flags are fixed, so the result
+//              is the same on every run. That is the contract of the backward: it is measured
+//              against an FP64 golden (the *_against_fp64 tests), and not claimed bitwise equal to
+//              autograd's RMSNorm backward, which forms rstd^3 differently.
 //   dweight  = sum_r d_n * x * rstd  over fixed 256-row tiles, tiles folded in order
 //   dshift   = sum_{r -> i} g,   dscale = sum_{r -> i} g * n         (sorted tiles)
 //
@@ -33,8 +39,11 @@
 #include <cuda_fp16.h>
 
 #include <cstdint>
+#include <limits>
 #include <utility>
 #include <vector>
+
+#include "tile_metadata.cuh"
 
 namespace {
 
@@ -209,11 +218,11 @@ __global__ void rmsnorm_dweight_partial_kernel(const T* __restrict__ g, const T*
   float acc = 0.0f;
   for (int64_t p = p0; p < p1; ++p) {
     const int64_t r = row_list != nullptr ? row_list[p] : p;
+    // Read unchecked: this loop is the kernel's whole cost, and an assert in it slows the backward by
+    // about 11%. The entry points run h3_tiles::check_index_range over the S index values first.
     const T* scale = nullptr;
     if (mod.index != nullptr) {
-      const int64_t i = mod.index[r % mod.seq];
-      CUDA_KERNEL_ASSERT(i >= 0 && i < mod.num_rows);
-      scale = static_cast<const T*>(mod.scale) + i * mod.row_stride;
+      scale = static_cast<const T*>(mod.scale) + mod.index[r % mod.seq] * mod.row_stride;
     }
     acc = fmaf(d_norm_out(g + r * n, scale, j), to_f(x[r * n + j]) * rstd[r], acc);
   }
@@ -279,6 +288,8 @@ Modulation make_modulation(const c10::optional<torch::Tensor>& shift,
                            const c10::optional<torch::Tensor>& scale,
                            const c10::optional<torch::Tensor>& index, const torch::Tensor& x,
                            int64_t n) {
+  // No modulation: kernels test `index == nullptr`. seq = 1 (not 0) keeps `r % seq` defined for
+  // any code that computes it before looking at the index.
   Modulation mod{nullptr, nullptr, 0, 0, nullptr, 1};
   if (!index.has_value()) {
     TORCH_CHECK(!shift.has_value() && !scale.has_value(), "shift/scale need a row index");
@@ -296,6 +307,10 @@ Modulation make_modulation(const c10::optional<torch::Tensor>& shift,
   }
   TORCH_CHECK(sh.size(0) == sc.size(0) && sh.stride(0) == sc.stride(0),
               "shift and scale must be views of the same table layout");
+  // Rows are read as dense N-element spans at `row_stride`: a view of a wider table is fine, an
+  // expanded or overlapping one (row_stride < N) is not a table of rows.
+  TORCH_CHECK(sh.size(0) <= 1 || sh.stride(0) >= n, "shift/scale row stride ", sh.stride(0),
+              " is smaller than N=", n);
   TORCH_CHECK(ix.is_cuda() && ix.device() == x.device() && ix.scalar_type() == at::kLong &&
                   ix.dim() == 1 && ix.is_contiguous() && ix.numel() > 0,
               "row index must be a non-empty contiguous int64 tensor on ", x.device());
@@ -320,6 +335,11 @@ void check_xw(const torch::Tensor& x, const torch::Tensor& w) {
   TORCH_CHECK(x.size(1) > 0, "x must have at least one column");
   TORCH_CHECK(x.size(1) % kVec == 0, "N=", x.size(1), " must be a multiple of ", kVec,
               " (PyTorch's vectorized RMSNorm path)");
+  // The kernels take N as `int` and launch one block per row on grid.x.
+  TORCH_CHECK(x.size(1) <= std::numeric_limits<int>::max(), "N=", x.size(1),
+              " is too large for the kernels (at most ", std::numeric_limits<int>::max(), ")");
+  TORCH_CHECK(x.size(0) <= std::numeric_limits<int>::max(), "M=", x.size(0),
+              " rows do not fit one grid.x launch (at most ", std::numeric_limits<int>::max(), ")");
 }
 
 // float32 / float16 / bfloat16 only (float64 has no PyTorch-matching vector path here).
@@ -400,6 +420,8 @@ std::vector<torch::Tensor> h3_rmsnorm_backward(
   }
   const c10::cuda::CUDAGuard guard(x.device());
   auto stream = at::cuda::getCurrentCUDAStream();
+  // The dweight partials read the index inside their row loop: check its values first.
+  if (mod.index != nullptr) h3_tiles::check_index_range(stream, mod.index, mod.seq, mod.num_rows);
   auto dx = torch::empty_like(x);
   const int64_t tiles = (rows + kRowTile - 1) / kRowTile;
   auto partial = torch::empty({tiles, n}, x.options().dtype(at::kFloat));
@@ -427,9 +449,20 @@ std::vector<torch::Tensor> h3_rmsnorm_backward(
   const int64_t segments = seg_first_tile->numel() - 1;
   const int64_t seg_tiles = tile_begin->numel();
   const int64_t width = 2 * n;
+  TORCH_CHECK(width <= std::numeric_limits<int>::max(), "N=", n, " is too large for the kernels");
+  TORCH_CHECK(segments <= std::numeric_limits<int>::max() &&
+                  seg_tiles <= std::numeric_limits<int>::max(),
+              "table rows (", segments, ") and tiles (", seg_tiles,
+              ") must each fit one grid.x launch");
+  TORCH_CHECK((width + threads - 1) / threads <= 65535, "N=", n,
+              " needs more column blocks than the grid.y limit of 65535");
   auto seg_partial = torch::empty({std::max<int64_t>(seg_tiles, 1), width}, x.options().dtype(at::kFloat));
   auto table_grad = torch::empty({segments, width}, x.options().dtype(at::kFloat));
   const unsigned wide_blocks = static_cast<unsigned>((width + threads - 1) / threads);
+  // The tile list is caller-built metadata: check it before the kernels read through it.
+  h3_tiles::check_tile_metadata(stream, sorted_pos->data_ptr<int64_t>(), rows,
+                                tile_begin->data_ptr<int64_t>(), tile_end->data_ptr<int64_t>(),
+                                seg_tiles, seg_first_tile->data_ptr<int64_t>(), segments);
   if (seg_tiles > 0) {
     H3_DISPATCH(x.scalar_type(), "h3_rmsnorm_modulation_grad", [&] {
       modulation_grad_partial_kernel<T>
@@ -441,10 +474,13 @@ std::vector<torch::Tensor> h3_rmsnorm_backward(
     });
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
-  fold_segments_kernel<<<dim3(static_cast<unsigned>(segments), wide_blocks), threads, 0, stream>>>(
-      seg_partial.data_ptr<float>(), seg_first_tile->data_ptr<int64_t>(),
-      table_grad.data_ptr<float>(), static_cast<int>(width));
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  if (segments > 0) {  // a zero-sized grid is not a valid launch
+    fold_segments_kernel<<<dim3(static_cast<unsigned>(segments), wide_blocks), threads, 0,
+                           stream>>>(seg_partial.data_ptr<float>(),
+                                     seg_first_tile->data_ptr<int64_t>(),
+                                     table_grad.data_ptr<float>(), static_cast<int>(width));
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+  }
   return {dx, dweight, table_grad.narrow(1, 0, n), table_grad.narrow(1, n, n)};
 }
 
@@ -488,7 +524,17 @@ std::vector<torch::Tensor> h3_rmsnorm_backward_partials(
   const int threads = 256;
   const unsigned col_blocks = static_cast<unsigned>((n + threads - 1) / threads);
   const int64_t tiles = dw_begin.numel();
+  TORCH_CHECK(2 * n <= std::numeric_limits<int>::max() && (2 * n + threads - 1) / threads <= 65535,
+              "N=", n, " is too large for the kernels (int indices, grid.y limit of 65535)");
   auto dw_partial = torch::empty({tiles, n}, x.options().dtype(at::kFloat));
+  // The row and tile lists are caller-built: every row must be a row of x and every tile must lie
+  // inside its list before the kernels read through them.
+  h3_tiles::check_lists(stream, dw_rows.data_ptr<int64_t>(), dw_rows.numel(), rows,
+                        dw_begin.data_ptr<int64_t>(), dw_end.data_ptr<int64_t>(), tiles, nullptr, 0,
+                        0);
+  // The dweight partials read the modulation index inside their row loop: check its values first
+  // (this entry point can be called without the dx entry point having run).
+  if (mod.index != nullptr) h3_tiles::check_index_range(stream, mod.index, mod.seq, mod.num_rows);
   if (tiles > 0) {
     H3_DISPATCH(x.scalar_type(), "h3_rmsnorm_backward_partials", [&] {
       rmsnorm_dweight_partial_kernel<T><<<dim3(static_cast<unsigned>(tiles), col_blocks), threads,
@@ -506,6 +552,9 @@ std::vector<torch::Tensor> h3_rmsnorm_backward_partials(
   check_tiles(*seg_rows, *seg_begin, *seg_end, x);
   const int64_t seg_tiles = seg_begin->numel();
   const int64_t width = 2 * n;
+  h3_tiles::check_lists(stream, seg_rows->data_ptr<int64_t>(), seg_rows->numel(), rows,
+                        seg_begin->data_ptr<int64_t>(), seg_end->data_ptr<int64_t>(), seg_tiles,
+                        nullptr, 0, 0);
   auto seg_partial = torch::empty({seg_tiles, width}, x.options().dtype(at::kFloat));
   const unsigned wide_blocks = static_cast<unsigned>((width + threads - 1) / threads);
   if (seg_tiles > 0) {
@@ -555,14 +604,22 @@ std::vector<torch::Tensor> h3_rmsnorm_fold_partials(torch::Tensor dw_partial, to
                   seg_partial->dim() == 2 && seg_partial->is_contiguous() &&
                   seg_partial->scalar_type() == at::kFloat && seg_partial->size(1) == 2 * n,
               "seg_partial must be a contiguous float32 (tiles, 2N) CUDA tensor");
+  TORCH_CHECK(seg_first_tile->numel() >= 1, "seg_first_tile must hold R + 1 entries");
   const int64_t segments = seg_first_tile->numel() - 1;
   const int64_t width = 2 * n;
+  TORCH_CHECK(width <= std::numeric_limits<int>::max() && (width + threads - 1) / threads <= 65535,
+              "N=", n, " is too large for the kernels (int indices, grid.y limit of 65535)");
   auto table_grad = torch::empty({segments, width}, dw_partial.options());
   const unsigned wide_blocks = static_cast<unsigned>((width + threads - 1) / threads);
-  fold_segments_kernel<<<dim3(static_cast<unsigned>(segments), wide_blocks), threads, 0, stream>>>(
-      seg_partial->data_ptr<float>(), seg_first_tile->data_ptr<int64_t>(),
-      table_grad.data_ptr<float>(), static_cast<int>(width));
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  if (segments > 0) {  // a zero-sized grid is not a valid launch
+    h3_tiles::check_lists(stream, nullptr, 0, 0, nullptr, nullptr, 0,
+                          seg_first_tile->data_ptr<int64_t>(), segments, seg_partial->size(0));
+    fold_segments_kernel<<<dim3(static_cast<unsigned>(segments), wide_blocks), threads, 0,
+                           stream>>>(seg_partial->data_ptr<float>(),
+                                     seg_first_tile->data_ptr<int64_t>(),
+                                     table_grad.data_ptr<float>(), static_cast<int>(width));
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+  }
   return {dweight, table_grad.narrow(1, 0, n), table_grad.narrow(1, n, n)};
 }
 

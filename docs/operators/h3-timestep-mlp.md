@@ -56,8 +56,9 @@ Forward, for each output `y[t, n]`:
 - Each lane accumulates its chunks in ascending order, and the elements inside a chunk
   in ascending order, using `fmaf` into an FP32 accumulator that starts at 0.
 - The 32 lane sums are combined with an xor butterfly (16, 8, 4, 2, 1).
-- The bias is added once, then SiLU runs in FP32 as `v / (1 + expf(-v))`
-  (PyTorch's formula). The result is stored as FP32.
+- The bias is added once. In `linear_1` SiLU then runs in FP32 as `v / (1 + expf(-v))`
+  (PyTorch's formula); `linear_2` returns its biased linear output without an activation.
+  The result is stored as FP32.
 
 How many columns a warp owns, the row tile (1, 2 or 4), and how many chunks are
 loaded ahead change only when loads are issued, never the order in which a column

@@ -7,7 +7,10 @@ from __future__ import annotations
 
 import torch
 
-from rl_engine.backends.cuda.model_specific.minimax_h3.adaln_row_gather import _segment_tiles
+from rl_engine.backends.cuda.model_specific.minimax_h3.adaln_row_gather import (
+    _repeat_positions,
+    _segment_tiles,
+)
 from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.reference.minimax_h3.rmsnorm import (
@@ -46,7 +49,7 @@ class _H3RMSNormCuda(torch.autograd.Function):
             dx, dweight = _C.h3_rmsnorm_backward(g2, x2, weight.contiguous(), rstd)
             d_shift = d_scale = None
         else:
-            positions = index.repeat(x2.shape[0] // index.shape[0])
+            positions = _repeat_positions(index, x2.shape[0])
             tiles = _segment_tiles(positions, shift.shape[0])
             dx, dweight, d_shift, d_scale = _C.h3_rmsnorm_backward(
                 g2, x2, weight.contiguous(), rstd, shift, scale, index, *tiles
@@ -95,7 +98,16 @@ class H3RMSNormCudaOp:
         validate_h3_modulation(x, shift, scale, index, check_range=check_range)
         if not x.is_cuda:
             raise ValueError("H3RMSNormCudaOp needs CUDA tensors")
-        if shift.stride(1) != 1 or scale.stride(1) != 1 or shift.stride(0) != scale.stride(0):
+        # A view of a wider table (``table.chunk(2, dim=-1)``: unit column stride, row stride 2H)
+        # goes to the kernel as it is, which indexes rows by the stride. Anything that is not a
+        # table of dense rows (mixed layouts, or rows that overlap because the stride is below
+        # H) is copied first.
+        if (
+            shift.stride(1) != 1
+            or scale.stride(1) != 1
+            or shift.stride(0) != scale.stride(0)
+            or (shift.shape[0] > 1 and shift.stride(0) < shift.shape[1])
+        ):
             shift, scale = shift.contiguous(), scale.contiguous()
         return _H3RMSNormCuda.apply(x, weight, shift, scale, index.contiguous(), eps)
 

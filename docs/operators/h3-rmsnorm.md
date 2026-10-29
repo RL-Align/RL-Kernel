@@ -95,7 +95,8 @@ each iteration and is recorded in the report.
 ![h3_rmsnorm on B200: latency and backward accuracy](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr487/reports/experiments/h3-rmsnorm-b200/figure.png)
 
 The data is in [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr487/reports/experiments/h3-rmsnorm-b200/report.json), written by
-`tools/validation/models/h3_evidence.py` from a clean tree at commit `d2a6546`. It also records:
+`tools/validation/models/h3_evidence.py` from a clean tree at commit `d2a6546` (`80e4609` in the report and the figure footer, which predate
+the history rewrite of 2026-10-23). It also records:
 
 - bitwise equality with `nn.RMSNorm` for all four pinned norm weights;
 - bitwise equality with diffusers for the modulation;
@@ -120,7 +121,7 @@ forward + backward time on an otherwise idle B200. Batch invariance is bitwise a
 three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
 131072-token batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
 "no" means that at least one row, sub-batch or gradient differed. [`norm_modulate.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr487/reports/experiments/h3-prior-art-b200/norm_modulate.json)
-was written from a clean tree at `ee83dec` by
+was written from a clean tree at `f6ad7a23` (`ee83dec` in the JSON, same rewrite) by
 
 ```bash
 python tools/validation/models/h3_prior_art.py --op norm_modulate --out reports/experiments/h3-prior-art-b200/norm_modulate.json

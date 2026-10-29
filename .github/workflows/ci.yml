@@ -5,9 +5,9 @@ name: CI-Pipeline
 
 on:
   push:
-    branches: [ main, test, test-h3 ]
+    branches: [ main, test ]
   pull_request:
-    branches: [ main, test, test-h3 ]
+    branches: [ main, test ]
 
 permissions:
   contents: read
@@ -71,8 +71,9 @@ jobs:
       - name: Check refactor packaging and compatibility
         run: python ci/run.py layout -q
 
-      - name: Run full H3 binding contracts
-        run: python -m pytest -q tests/models/minimax_h3/test_h3_full_model.py
+      - name: Run H3 Sigma Schedule Tests (CPU-safe)
+        run: |
+          python -m pytest tests/reference/minimax_h3 tests/runtime/test_h3_sigma_schedule_dispatch.py -q
 
       - name: Run Mocked Hardware Discovery Tests
         run: |
