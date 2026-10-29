@@ -155,13 +155,20 @@ out = gate_f * torch.sigmoid(gate_f) * up.float()
   kind to the `swiglu_ffn` work-item row of RFC #501. One node kind, one row, no
   deviations from the frozen semantics (`form: swiglu`, `activation: silu`,
   `order: down(silu(gate(x)) * up(x))`).
-- **CUDA vs Triton**: the two GPU backends are not bitwise equal. The CUDA kernel
-  computes sigmoid with `expf`; the Triton kernel uses `tl.exp` and `tl.div_rn`.
-  Different exponential primitives round differently, so outputs and gradients
-  differ by a few ulp before the cast to the input dtype. They agree within the same
-  tolerance row each is held to against the gold. RFC #501 asks for CUDA == Triton
-  bitwise; that item is not met for this operator and is recorded as an `xfail` in
-  `tests/ops/activation/test_swiglu.py`.
+- **CUDA vs Triton**: the two GPU backends are bitwise equal, which RFC #501 asks
+  for. Both compute sigmoid as `1 / (1 + exp(-x))` with IEEE round-to-nearest
+  division, and both backward paths evaluate `s * (1 + x * (1 - s))` in the same
+  association order. Getting there required one change: the Triton kernel calls
+  `libdevice.exp`, not `tl.exp`. On NVIDIA, `tl.exp` lowers to `ex2.approx.f32`,
+  the hardware approximate exponential, which differs from the CUDA kernel's `expf`
+  by a few ulp on roughly 9% of elements. `libdevice.exp` is the precise
+  implementation and reproduces `expf` exactly; it is a per-backend dispatcher, so
+  the ROCm path resolves to OCML with no architecture-specific kernel code. These
+  kernels are bandwidth-bound at the tested widths, so the precise exponential has
+  no measurable cost. Asserted across three dtypes and five shapes by
+  `test_cuda_and_triton_swiglu_are_bitwise_equal` in
+  `tests/ops/activation/test_swiglu.py`; if it ever fails, dump the Triton PTX and
+  check whether `ex2.approx` has come back before looking elsewhere.
 
 ## Ground-truth harness
 
