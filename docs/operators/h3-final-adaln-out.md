@@ -6,7 +6,7 @@
 blocks (RFC #420, WS1 step 7):
 
 ```text
-shift, scale = norm_out.linear(silu(temb).to(bf16)).chunk(2)     # (T, 5376) each, shift first
+shift, scale = norm_out.linear(silu(temb).to(bf16)).chunk(2, dim=-1)   # (T, 5376) each, shift first
 out = norm_out.norm(x) * (1.0 + scale[timestep_indices]) + shift[timestep_indices]
 ```
 
@@ -49,8 +49,9 @@ out = op(x, norm_out_norm_w, temb, norm_out_linear_w, norm_out_linear_b, timeste
   cast, `norm_out.linear`'s BF16 output table, `norm_out.norm`'s BF16 output and the BF16
   `1 + scale`. All four are rounded straight-through for the gradient. The table and `1 + scale`
   are shared by every position of a timestep. Without them the golden's `d_norm_w` drifts
-  systematically with S, and the gtest missed it from S = 257. `norm_out.norm`'s rounding
-  enters `d_scale`, `dW` and `d_temb` summed over S, and the gtest missed those from S = 1024.
+  systematically with S, and the gtest failed on `d_norm_w` from S = 257 because the golden did not
+  round where the model does. `norm_out.norm`'s rounding enters `d_scale`, `dW` and `d_temb`
+  summed over S, and the gtest failed on those from S = 1024 for the same reason.
 
 ## Performance Notes
 
@@ -126,7 +127,7 @@ gradient with diffusers' path and with this kernel.
 
 ![final_adaln_out bitwise comparison](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr489/reports/experiments/h3-bitwise-reuse-b200/final_adaln_out.png)
 
-There is no reuse candidate beyond diffusers' MiniMaxH3AdaLayerNormOut. This op does not promise bitwise equality: its shift/scale projection uses #485's fixed-order linear, not cuBLAS. The output differs from diffusers in 0.05-0.07% of BF16 elements at every S (1 to 32768), and every gradient differs as expected for the deterministic FP32 reductions.
+There is no reuse candidate beyond diffusers' MiniMaxH3AdaLayerNormOut. This op does not promise bitwise equality: its shift/scale projection uses #485's fixed-order linear, not cuBLAS. The output differs from diffusers in 0.05-0.07% of BF16 elements at every S (1 to 32768), and the gradients differ as expected for the deterministic FP32 reductions: all five at S = 257, 4097 and 32768, and all but the bias gradient at S = 1, where one position leaves a single term to sum.
 [`final_adaln_out.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr489/reports/experiments/h3-bitwise-reuse-b200/final_adaln_out.json) was written from a clean tree at `8cb4abed` by
 
 ```bash

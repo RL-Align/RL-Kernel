@@ -29,6 +29,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "tile_metadata.cuh"
+
 namespace {
 
 __device__ __forceinline__ float to_f(float v) { return v; }
@@ -149,6 +151,10 @@ Gate make_gate(const torch::Tensor& gate, const torch::Tensor& index, const torc
               "gate must be a CUDA tensor with the activations' dtype");
   TORCH_CHECK(gate.dim() == 2 && gate.size(1) == x.size(1) && gate.stride(1) == 1,
               "gate must be (R, N) with unit column stride");
+  // Rows are read as dense N-element spans at `stride(0)`: a view of a wider table is fine, an
+  // expanded or overlapping one (stride(0) < N) is not a table of rows.
+  TORCH_CHECK(gate.size(0) <= 1 || gate.stride(0) >= gate.size(1), "gate row stride ",
+              gate.stride(0), " is smaller than N=", gate.size(1));
   TORCH_CHECK(index.is_cuda() && index.device() == x.device() && index.scalar_type() == at::kLong &&
                   index.dim() == 1 && index.is_contiguous() && index.numel() > 0,
               "index must be a non-empty contiguous int64 tensor on ", x.device());
@@ -218,8 +224,11 @@ std::vector<torch::Tensor> h3_gate_residual_backward(torch::Tensor grad, torch::
   }
   const int64_t rows = grad.size(0);
   const int64_t n = grad.size(1);
+  TORCH_CHECK(seg_first_tile.numel() >= 1, "seg_first_tile must hold R + 1 entries");
   const int64_t segments = seg_first_tile.numel() - 1;
   TORCH_CHECK(segments == gate.size(0), "segments must equal the gate rows");
+  TORCH_CHECK(sorted_pos.numel() == rows, "sorted_pos must have M entries");
+  TORCH_CHECK(tile_begin.numel() == tile_end.numel(), "tile_begin/tile_end length mismatch");
   const int64_t tiles = tile_begin.numel();
   const c10::cuda::CUDAGuard guard(grad.device());
   auto stream = at::cuda::getCurrentCUDAStream();
@@ -227,7 +236,14 @@ std::vector<torch::Tensor> h3_gate_residual_backward(torch::Tensor grad, torch::
   auto partial = torch::empty({std::max<int64_t>(tiles, 1), n}, grad.options().dtype(at::kFloat));
   auto dgate = torch::empty({segments, n}, grad.options());
   const int threads = 256;
-  const unsigned col_blocks = static_cast<unsigned>((n + threads - 1) / threads);
+  const int64_t col_blocks64 = (n + threads - 1) / threads;
+  TORCH_CHECK(col_blocks64 <= 65535, "N=", n, " needs ", col_blocks64,
+              " column blocks, more than the grid.y limit of 65535");
+  const unsigned col_blocks = static_cast<unsigned>(col_blocks64);
+  // The tile list is caller-built metadata: check it before the kernels read through it.
+  h3_tiles::check_tile_metadata(stream, sorted_pos.data_ptr<int64_t>(), rows,
+                                tile_begin.data_ptr<int64_t>(), tile_end.data_ptr<int64_t>(), tiles,
+                                seg_first_tile.data_ptr<int64_t>(), segments);
   H3_DISPATCH(grad.scalar_type(), "h3_gate_residual_backward", [&] {
     const T* gp = reinterpret_cast<const T*>(grad.data_ptr());
     const T* yp = reinterpret_cast<const T*>(y.data_ptr());
@@ -239,9 +255,11 @@ std::vector<torch::Tensor> h3_gate_residual_backward(torch::Tensor grad, torch::
           gp, yp, sorted_pos.data_ptr<int64_t>(), tile_begin.data_ptr<int64_t>(),
           tile_end.data_ptr<int64_t>(), partial.data_ptr<float>(), n);
     }
-    gate_grad_fold_kernel<T><<<dim3(static_cast<unsigned>(segments), col_blocks), threads, 0, stream>>>(
-        partial.data_ptr<float>(), seg_first_tile.data_ptr<int64_t>(),
-        reinterpret_cast<T*>(dgate.data_ptr()), n);
+    if (segments > 0) {  // a zero-sized grid is not a valid launch
+      gate_grad_fold_kernel<T><<<dim3(static_cast<unsigned>(segments), col_blocks), threads, 0, stream>>>(
+          partial.data_ptr<float>(), seg_first_tile.data_ptr<int64_t>(),
+          reinterpret_cast<T*>(dgate.data_ptr()), n);
+    }
   });
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return {dy, dgate};
@@ -266,7 +284,15 @@ torch::Tensor h3_gate_grad_partials(torch::Tensor grad, torch::Tensor y, torch::
   auto partial = torch::empty({tiles, n}, grad.options().dtype(at::kFloat));
   if (tiles == 0) return partial;
   const int threads = 256;
-  const unsigned col_blocks = static_cast<unsigned>((n + threads - 1) / threads);
+  const int64_t col_blocks64 = (n + threads - 1) / threads;
+  TORCH_CHECK(col_blocks64 <= 65535, "N=", n, " needs ", col_blocks64,
+              " column blocks, more than the grid.y limit of 65535");
+  const unsigned col_blocks = static_cast<unsigned>(col_blocks64);
+  // The row and tile lists are caller-built: every row must be a row of grad and every tile must
+  // lie inside the list before the kernel reads through them.
+  h3_tiles::check_lists(at::cuda::getCurrentCUDAStream(), rows.data_ptr<int64_t>(), rows.numel(),
+                        grad.size(0), tile_begin.data_ptr<int64_t>(), tile_end.data_ptr<int64_t>(),
+                        tiles, nullptr, 0, 0);
   H3_DISPATCH(grad.scalar_type(), "h3_gate_grad_partials", [&] {
     gate_grad_partial_kernel<T><<<dim3(static_cast<unsigned>(tiles), col_blocks), threads, 0,
                                   at::cuda::getCurrentCUDAStream()>>>(
@@ -288,12 +314,19 @@ torch::Tensor h3_gate_grad_fold(torch::Tensor partial, torch::Tensor seg_first_t
                   seg_first_tile.scalar_type() == at::kLong && seg_first_tile.dim() == 1 &&
                   seg_first_tile.is_contiguous(),
               "seg_first_tile must be a contiguous int64 CUDA tensor on partial's device");
+  TORCH_CHECK(seg_first_tile.numel() >= 1, "seg_first_tile must hold R + 1 entries");
   const int64_t n = partial.size(1);
   const int64_t segments = seg_first_tile.numel() - 1;
   const c10::cuda::CUDAGuard guard(partial.device());
   auto out = torch::empty({segments, n}, partial.options().dtype(dtype));
+  if (segments == 0) return out;  // a zero-sized grid is not a valid launch
   const int threads = 256;
-  const unsigned col_blocks = static_cast<unsigned>((n + threads - 1) / threads);
+  const int64_t col_blocks64 = (n + threads - 1) / threads;
+  TORCH_CHECK(col_blocks64 <= 65535, "N=", n, " needs ", col_blocks64,
+              " column blocks, more than the grid.y limit of 65535");
+  const unsigned col_blocks = static_cast<unsigned>(col_blocks64);
+  h3_tiles::check_lists(at::cuda::getCurrentCUDAStream(), nullptr, 0, 0, nullptr, nullptr, 0,
+                        seg_first_tile.data_ptr<int64_t>(), segments, partial.size(0));
   H3_DISPATCH(dtype, "h3_gate_grad_fold", [&] {
     gate_grad_fold_kernel<T><<<dim3(static_cast<unsigned>(segments), col_blocks), threads, 0,
                                at::cuda::getCurrentCUDAStream()>>>(

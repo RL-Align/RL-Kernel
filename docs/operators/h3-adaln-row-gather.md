@@ -22,7 +22,9 @@ from rl_engine.runtime.registry import kernel_registry
 
 op = kernel_registry.get_op("adaln_row_gather", device="cuda")
 outs = op(table.view(-1, 6 * 5376), timestep_indices, token_tags)    # six (S, 5376)
-outs = op.gather_chunks((shift_msa, ..., gate_mlp), timestep_indices, token_tags)  # drop-in
+outs = op.gather_chunks(
+    (shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp), timestep_indices, token_tags
+)  # drop-in: six (3T, 5376) tables in, six (S, 5376) tensors out (S = len(timestep_indices))
 ```
 
 ## Backends

@@ -235,10 +235,23 @@ def _error_boxes(ax, title: str, series: list[tuple[str, str, list[float]]], con
     ax.set_xlim(-0.6, len(series) - 0.1)
 
 
+def mlp_title(report: dict[str, Any]) -> str:
+    """Figure title that names the weights the report was measured with."""
+
+    source = report["accuracy"].get("weights_source")
+    label = {
+        "pinned": "pinned time_embedder weights",
+        "random": "random same-shape weights, not the checkpoint",
+    }.get(source, "weight source not recorded")
+    return f"timestep_mlp_fp32  ({label})"
+
+
 def plot_mlp(report: dict[str, Any]):
     """Return an MLP report figure showing latency and per-draw FP64 error distributions."""
 
     fig, (left, right) = _figure(report, "timestep_mlp_fp32  (pinned time_embedder weights)")
+    # name the weights the report was measured with instead of always claiming the pinned ones
+    fig.suptitle(mlp_title(report), x=0.01, ha="left", fontsize=12, color=INK, fontweight="bold")
     _latency_panel(left, report["perf"], "diffusers (cuBLAS)")
     acc = report["accuracy"]
     _error_boxes(
@@ -566,6 +579,19 @@ def plot_tp_adaln(report: dict[str, Any]):
 
     tp_runs = [run for run in runs if run["tp"] > 1]
     _style(right, f"Time per call, T = {num_t} (slowest rank; lower is better)", "ms")
+    if not tp_runs:
+        # A TP1-only report (--worlds 1) has nothing to compare with the single-GPU WS1 call.
+        right.text(
+            0.5,
+            0.5,
+            "no run with TP > 1 in this report",
+            transform=right.transAxes,
+            ha="center",
+            va="center",
+            fontsize=10,
+            color=MUTED,
+        )
+        return fig
     _bars(
         right,
         [f"TP{run['tp']}" for run in tp_runs],
