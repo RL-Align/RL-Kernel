@@ -146,6 +146,30 @@ out = gate_f * torch.sigmoid(gate_f) * up.float()
   bitwise-identical regardless of batch size or padding (`torch.equal`, `atol=0`).
 - **Axis B — tolerance**: as `elementwise` ops, low-precision tolerance follows the
   `elementwise` row of the WS1 numerical contract (`tolerance_contract.json`).
+- **Geometry**: tested at the Qwen3-8B intermediate width (12288) and at the
+  Muse-Glimmer-30B gate/up output width (19968), whose hidden size is 6656 and whose
+  MLP uses separate `gate_proj` and `up_proj` projections. The elementwise contract
+  does not depend on the row count, so the tested shapes are a declaration rather
+  than a constraint.
+- **Operator-trace node**: the Muse-Glimmer operator trace maps the `swiglu` node
+  kind to the `swiglu_ffn` work-item row of RFC #501. One node kind, one row, no
+  deviations from the frozen semantics (`form: swiglu`, `activation: silu`,
+  `order: down(silu(gate(x)) * up(x))`).
+- **CUDA vs Triton**: bitwise equal on CUDA, which is what RFC #501 asks for. Both
+  compute `1 / (1 + exp(-x))` with round-to-nearest division, and both backward
+  paths evaluate `s * (1 + x * (1 - s))` in the same order. The one thing that had
+  to change is the exponential: `tl.exp` lowers to a `mul.f32` by log2(e) plus
+  `ex2.approx.f32` with no correction term, which differs from the CUDA kernel's
+  `expf` by a few ulp on about 9% of elements. `libdevice.exp` emits the same
+  FMA-based range reduction `expf` uses and reproduces it exactly, at no measurable
+  cost here because the kernels are bandwidth-bound. `rocm/gemm/swiglu_gemm.py`
+  already spells it that way. Asserted over three dtypes and five shapes by
+  `test_cuda_and_triton_swiglu_are_bitwise_equal`; if it ever fails, check the
+  Triton PTX for `ex2.approx` before looking anywhere else.
+- **CUDA vs ROCm**: not claimed. On AMD every spelling of the exponential lowers to
+  a bare `v_exp_f32`, which still differs from HIP's `expf`; the vendor-exact
+  sequences in `shared/triton/attention/deterministic_attn.py` show what closing
+  that costs. RFC #501 schedules CUDA-to-ROCm equality separately.
 
 ## Ground-truth harness
 

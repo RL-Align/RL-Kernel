@@ -9,6 +9,23 @@ dtype on store — the same dual-path contract as the PyTorch references:
   swiglu(g, u) = silu(g) * u
 
 Element-wise and row-independent, so Axis-A batch invariance holds bitwise.
+
+The sigmoid uses ``libdevice.exp``, not ``tl.exp``. On NVIDIA ``tl.exp`` lowers to
+one ``mul.f32`` by log2(e) followed by ``ex2.approx.f32``, with no correction term,
+and that differs from the CUDA kernel's ``expf`` by a few ULP on roughly 9% of
+elements. ``libdevice.exp`` emits the FMA-based range reduction ``expf`` uses and
+reproduces it exactly, which is what RFC #501's CUDA == Triton bitwise bar needs.
+``rocm/gemm/swiglu_gemm.py`` already spells the sigmoid this way, so this is the
+house style rather than a new choice.
+
+The bitwise claim is CUDA-only. On AMD all three spellings lower to a bare
+``v_exp_f32`` and still differ from HIP's ``expf``; see the comment above the
+vendor-exact sequences in ``shared/triton/attention/deterministic_attn.py`` for
+what matching the vendor costs there. Nothing here regresses ROCm, but nothing
+here buys CUDA-to-ROCm equality either, which RFC #501 schedules separately.
+
+At these widths the kernels are bandwidth-bound, so the precise exponential costs
+nothing measurable despite roughly doubling the instruction count.
 """
 
 from __future__ import annotations
@@ -17,6 +34,7 @@ import torch
 import triton
 import triton.language as tl
 from torch import Tensor
+from triton.language.extra import libdevice
 
 _SUPPORTED_DTYPES = (torch.float16, torch.bfloat16, torch.float32)
 
@@ -32,7 +50,7 @@ def _silu_fwd_kernel(x_ptr, y_ptr, n_elements, BLOCK: tl.constexpr):
     offs = pid * BLOCK + tl.arange(0, BLOCK)
     mask = offs < n_elements
     x = tl.load(x_ptr + offs, mask=mask, other=0.0).to(tl.float32)
-    s = tl.div_rn(1.0, 1.0 + tl.exp(-x))
+    s = tl.div_rn(1.0, 1.0 + libdevice.exp(-x))
     y = x * s
     tl.store(y_ptr + offs, y.to(y_ptr.dtype.element_ty), mask=mask)
 
@@ -44,7 +62,7 @@ def _silu_bwd_kernel(dy_ptr, x_ptr, dx_ptr, n_elements, BLOCK: tl.constexpr):
     mask = offs < n_elements
     dy = tl.load(dy_ptr + offs, mask=mask, other=0.0).to(tl.float32)
     x = tl.load(x_ptr + offs, mask=mask, other=0.0).to(tl.float32)
-    s = tl.div_rn(1.0, 1.0 + tl.exp(-x))
+    s = tl.div_rn(1.0, 1.0 + libdevice.exp(-x))
     # silu'(x) = s * (1 + x * (1 - s))
     dx = dy * s * (1.0 + x * (1.0 - s))
     tl.store(dx_ptr + offs, dx.to(dx_ptr.dtype.element_ty), mask=mask)
@@ -57,7 +75,7 @@ def _swiglu_fwd_kernel(gate_ptr, up_ptr, y_ptr, n_elements, BLOCK: tl.constexpr)
     mask = offs < n_elements
     g = tl.load(gate_ptr + offs, mask=mask, other=0.0).to(tl.float32)
     u = tl.load(up_ptr + offs, mask=mask, other=0.0).to(tl.float32)
-    s = tl.div_rn(1.0, 1.0 + tl.exp(-g))
+    s = tl.div_rn(1.0, 1.0 + libdevice.exp(-g))
     y = (g * s) * u
     tl.store(y_ptr + offs, y.to(y_ptr.dtype.element_ty), mask=mask)
 
@@ -69,7 +87,7 @@ def _swiglu_bwd_kernel(dy_ptr, gate_ptr, silu_grad_ptr, d_up_ptr, n_elements, BL
     mask = offs < n_elements
     dy = tl.load(dy_ptr + offs, mask=mask, other=0.0).to(tl.float32)
     g = tl.load(gate_ptr + offs, mask=mask, other=0.0).to(tl.float32)
-    s = tl.div_rn(1.0, 1.0 + tl.exp(-g))
+    s = tl.div_rn(1.0, 1.0 + libdevice.exp(-g))
     silu_g = g * s
     d_up = dy * silu_g
     silu_grad = s * (1.0 + g * (1.0 - s))

@@ -14,6 +14,7 @@ Covers:
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass, fields
 from types import SimpleNamespace
 
 import pytest
@@ -54,6 +55,11 @@ except ImportError:  # pragma: no cover - extension may be missing in CPU-only b
 
 # Qwen3-8B SwiGLU intermediate dim (gate/up_proj output width).
 _INTERMEDIATE = 12288
+# Muse-Glimmer-30B gate_proj / up_proj output width (RFC #501, hidden 6656).
+_MUSEGLIMMER_INTERMEDIATE = 19968
+# FP32 candidate against an FP64 golden: the gap is FP32 rounding, not the
+# elementwise contract's bf16/fp16 tolerance rows.
+_FP64_TOL = {"rtol": 1e-6, "atol": 1e-6}
 _ASCEND_DTYPES = (torch.float32, torch.float16, torch.bfloat16)
 
 
@@ -138,6 +144,88 @@ def test_native_activation_rejects_invalid_dtypes():
             torch.ones(8, dtype=torch.float16),
             torch.ones(8, dtype=torch.bfloat16),
         )
+
+
+# Independent high-precision reference (WS1 acceptance: forward and backward
+# correctness against an FP64 reference).
+
+
+def _ref_silu(x):
+    """Independent SiLU reference, dtype-preserving.
+
+    Pass fp32 tensors for a bitwise fp32 check, or ``.double()`` tensors for a
+    TF32-immune high-precision reference. Written from the definition rather
+    than reusing ``NativeSiLUOp``, so an error in the production formula cannot
+    cancel out.
+    """
+    return x * torch.sigmoid(x)
+
+
+def _ref_swiglu(gate, up):
+    """Independent SwiGLU reference, dtype-preserving. See ``_ref_silu``."""
+    return gate * torch.sigmoid(gate) * up
+
+
+@pytest.mark.parametrize("dtype", (torch.float32, torch.bfloat16, torch.float16))
+def test_native_silu_matches_fp64_reference_forward_and_backward(dtype: torch.dtype):
+    x = _rand((4, 2, 64), seed=30, dtype=dtype)
+    leaf = x.float().detach().requires_grad_(True)
+    out = NativeSiLUOp().forward_fp32(leaf)
+
+    # A random cotangent, not .sum(): an all-ones cotangent collapses the
+    # product rule in the SiLU derivative and can hide a wrong term.
+    gen = torch.Generator().manual_seed(31)
+    dy = torch.randn(out.shape, generator=gen, dtype=out.dtype)
+    out.backward(dy)
+
+    leaf_d = x.double().detach().requires_grad_(True)
+    _ref_silu(leaf_d).backward(dy.double())
+
+    torch.testing.assert_close(out.detach(), _ref_silu(leaf_d).detach().float(), **_FP64_TOL)
+    assert leaf.grad is not None
+    torch.testing.assert_close(leaf.grad, leaf_d.grad.float(), **_FP64_TOL)
+
+
+@pytest.mark.parametrize("dtype", (torch.float32, torch.bfloat16, torch.float16))
+def test_native_swiglu_matches_fp64_reference_forward_and_backward(dtype: torch.dtype):
+    gate = _rand((4, 2, 64), seed=32, dtype=dtype)
+    up = _rand((4, 2, 64), seed=33, dtype=dtype)
+    gate_leaf = gate.float().detach().requires_grad_(True)
+    up_leaf = up.float().detach().requires_grad_(True)
+    out = NativeSwiGLUOp().forward_fp32(gate_leaf, up_leaf)
+
+    gen = torch.Generator().manual_seed(34)
+    dy = torch.randn(out.shape, generator=gen, dtype=out.dtype)
+    out.backward(dy)
+
+    gate_d = gate.double().detach().requires_grad_(True)
+    up_d = up.double().detach().requires_grad_(True)
+    _ref_swiglu(gate_d, up_d).backward(dy.double())
+
+    torch.testing.assert_close(
+        out.detach(), _ref_swiglu(gate_d, up_d).detach().float(), **_FP64_TOL
+    )
+    for leaf, leaf_d in ((gate_leaf, gate_d), (up_leaf, up_d)):
+        assert leaf.grad is not None and leaf.grad.shape == leaf.shape
+        torch.testing.assert_close(leaf.grad, leaf_d.grad.float(), **_FP64_TOL)
+
+
+def test_swiglu_fp64_reference_detects_a_wrong_gradient_term():
+    """The FP64 check must fail on the classic SiLU-derivative mistake.
+
+    ``d/dg [g*sigmoid(g)] = s*(1 + g*(1 - s))``. Dropping the ``g*(1 - s)``
+    term leaves plain ``sigmoid(g)``, which is close for small ``|g|`` and
+    wrong elsewhere. Guards against the FP64 comparison being vacuous.
+    """
+    gate = _rand((64,), seed=35).double().requires_grad_(True)
+    up = _rand((64,), seed=36).double()
+    gen = torch.Generator().manual_seed(37)
+    dy = torch.randn(gate.shape, generator=gen, dtype=torch.float64)
+
+    _ref_swiglu(gate, up).backward(dy)
+    wrong = dy * up * torch.sigmoid(gate.detach())
+
+    assert not torch.allclose(gate.grad, wrong, **_FP64_TOL)
 
 
 # Axis A -- batch invariance, bitwise (the WS1 "aligned" property).
@@ -295,6 +383,145 @@ def _make_swiglu_op(impl: str):
     if impl == "triton":
         return TritonSwiGLUOp()
     raise ValueError(impl)
+
+
+# RFC #501 declarations. Muse-Glimmer-30B: hidden 6656, gate/up output 19968,
+# two separate projections, so the elementwise contract is over (rows, 19968).
+_MUSE_SHAPES = [
+    (1, _MUSEGLIMMER_INTERMEDIATE),
+    (8, _MUSEGLIMMER_INTERMEDIATE),
+    (64, _MUSEGLIMMER_INTERMEDIATE),
+    (2, 3, _MUSEGLIMMER_INTERMEDIATE),
+]
+
+
+@requires_cuda
+@pytest.mark.parametrize("impl", _silu_impls())
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16, torch.float16])
+@pytest.mark.parametrize("shape", _MUSE_SHAPES, ids=lambda s: "x".join(map(str, s)))
+def test_swiglu_matches_native_on_museglimmer_shapes(impl, dtype, shape):
+    """Muse-Glimmer intermediate width, forward and backward vs the native gold."""
+    if impl == "cuda" and not _HAS_CUDA_ACTIVATION:
+        pytest.skip("CUDA SwiGLU extension is not available")
+
+    gate_cpu = _rand(shape, seed=40, dtype=torch.float32)
+    up_cpu = _rand(shape, seed=41, dtype=torch.float32)
+    dy_cpu = _rand(shape, seed=42, dtype=torch.float32)
+
+    gate_ref = gate_cpu.to(dtype).float().detach().requires_grad_(True)
+    up_ref = up_cpu.to(dtype).float().detach().requires_grad_(True)
+    dy_ref = dy_cpu.to(dtype).float()
+    out_ref = NativeSwiGLUOp().forward_fp32(gate_ref, up_ref)
+    out_ref.backward(dy_ref)
+
+    gate_gpu = gate_cpu.to(device="cuda", dtype=dtype).detach().requires_grad_(True)
+    up_gpu = up_cpu.to(device="cuda", dtype=dtype).detach().requires_grad_(True)
+    out_gpu = _make_swiglu_op(impl).forward(gate_gpu, up_gpu)
+    out_gpu.backward(dy_cpu.to(device="cuda", dtype=dtype))
+
+    atol, rtol = _dtype_tolerance(dtype)
+    # The forward output is asserted, not just the gradients. A backend that
+    # swapped gate for up, or got the sigmoid wrong, can still produce gradients
+    # that pass at these tolerances, so dropping this check would let a wrong
+    # forward through at exactly the width this row exists to qualify.
+    torch.testing.assert_close(
+        out_gpu.detach().cpu().float(), out_ref.detach(), atol=atol, rtol=rtol
+    )
+    torch.testing.assert_close(
+        gate_gpu.grad.detach().cpu().float(), gate_ref.grad, atol=atol, rtol=rtol
+    )
+    torch.testing.assert_close(
+        up_gpu.grad.detach().cpu().float(), up_ref.grad, atol=atol, rtol=rtol
+    )
+
+
+@dataclass(frozen=True)
+class _SwiGLUResult:
+    """One backend's forward output and both input gradients, keyed by name.
+
+    A dataclass rather than a tuple on purpose: the two backends are compared
+    field by field, and a plain triple would let a reordered ``return`` pair
+    ``grad_gate`` against ``grad_up`` without any test failing.
+    """
+
+    out: torch.Tensor
+    grad_gate: torch.Tensor
+    grad_up: torch.Tensor
+
+
+def _run_cuda_and_triton_swiglu(dtype, shape):
+    """Forward and backward on both GPU backends from identical device tensors."""
+    gate = _rand(shape, seed=43, dtype=dtype, device="cuda").requires_grad_(True)
+    up = _rand(shape, seed=44, dtype=dtype, device="cuda").requires_grad_(True)
+    dy = _rand(shape, seed=45, dtype=dtype, device="cuda")
+
+    gate_c = gate.detach().clone().requires_grad_(True)
+    up_c = up.detach().clone().requires_grad_(True)
+    y_cuda = SwiGLUCudaOp().forward(gate_c, up_c)
+    y_cuda.backward(dy)
+
+    y_triton = TritonSwiGLUOp().forward(gate, up)
+    y_triton.backward(dy)
+
+    return (
+        _SwiGLUResult(out=y_cuda, grad_gate=gate_c.grad, grad_up=up_c.grad),
+        _SwiGLUResult(out=y_triton, grad_gate=gate.grad, grad_up=up.grad),
+    )
+
+
+_requires_both_gpu_backends = pytest.mark.skipif(
+    not (_HAS_CUDA_ACTIVATION and _HAS_TRITON_ACTIVATION),
+    reason="both CUDA and Triton SiLU/SwiGLU are required",
+)
+
+
+@requires_cuda
+@_requires_both_gpu_backends
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16, torch.float16])
+@pytest.mark.parametrize("shape", _MUSE_SHAPES + [(2, 8, _INTERMEDIATE)])
+def test_cuda_and_triton_swiglu_agree_within_contract(dtype, shape):
+    """CUDA and Triton agree within the WS1 elementwise tolerance on Muse shapes.
+
+    The two backends use different exponential primitives (``expf`` in the CUDA
+    kernel, ``tl.exp`` in Triton), so they are not expected to be bitwise equal;
+    see the companion xfail test. They must still agree within the same row of
+    the tolerance contract that each is held to against the native gold.
+    """
+    cuda_result, triton_result = _run_cuda_and_triton_swiglu(dtype, shape)
+    atol, rtol = _dtype_tolerance(dtype)
+    for spec in fields(_SwiGLUResult):
+        torch.testing.assert_close(
+            getattr(cuda_result, spec.name),
+            getattr(triton_result, spec.name),
+            atol=atol,
+            rtol=rtol,
+            msg=lambda built, name=spec.name: f"{name}: {built}",
+        )
+
+
+@requires_cuda
+@_requires_both_gpu_backends
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16, torch.float16])
+@pytest.mark.parametrize("shape", _MUSE_SHAPES + [(2, 8, _INTERMEDIATE)])
+def test_cuda_and_triton_swiglu_are_bitwise_equal(dtype, shape):
+    """RFC #501 acceptance item: the two GPU backends agree bit for bit.
+
+    This held only after the Triton kernel moved from ``tl.exp`` to
+    ``libdevice.exp``. ``tl.exp`` lowers to ``ex2.approx.f32``, the hardware
+    approximate exponential, which differs from the CUDA kernel's ``expf`` by a
+    few ULP on roughly 9% of elements. If this test starts failing, compare the
+    exponential each side compiles to before looking anywhere else: dump the
+    Triton PTX and check whether ``ex2.approx`` has come back.
+    """
+    cuda_result, triton_result = _run_cuda_and_triton_swiglu(dtype, shape)
+    for spec in fields(_SwiGLUResult):
+        actual = getattr(cuda_result, spec.name)
+        expected = getattr(triton_result, spec.name)
+        differing = int((actual != expected).sum())
+        assert differing == 0, (
+            f"{spec.name}: {differing} of {actual.numel()} elements differ, "
+            f"max {float((actual - expected).abs().max()):.3e}"
+        )
 
 
 @requires_cuda
@@ -757,8 +984,13 @@ def test_autograd_wrapper_contiguity_and_gradient_routing(monkeypatch, needs_gra
     result = getattr(ascend.SwiGLUAscendOp(), method)(gate, up)
     result.backward(grad_out.to(result.dtype))
 
-    ref_gate = gate.detach().clone().requires_grad_(needs_grad[0])
-    ref_up = up.detach().clone().requires_grad_(needs_grad[1])
+    # .contiguous(), not .clone(): clone preserves the transposed view's strides,
+    # so the reference would run a non-contiguous layout while the wrapper under
+    # test runs a contiguous copy. CPU bf16 sigmoid vectorizes differently across
+    # layouts, which breaks the rtol=0 comparison below on some random inputs.
+    # Same fix as #540 on main; this branch predates it.
+    ref_gate = gate.detach().contiguous().requires_grad_(needs_grad[0])
+    ref_up = up.detach().contiguous().requires_grad_(needs_grad[1])
     ref = getattr(NativeSwiGLUOp(), method)(ref_gate, ref_up)
     ref.backward(grad_out.to(ref.dtype))
     torch.testing.assert_close(result, ref, rtol=0, atol=0)
