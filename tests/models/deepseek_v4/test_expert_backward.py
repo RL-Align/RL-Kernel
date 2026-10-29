@@ -3,6 +3,7 @@
 
 from pathlib import Path
 from dataclasses import replace
+from copy import deepcopy
 
 import pytest
 import torch
@@ -36,6 +37,70 @@ def test_saved_plan_rejects_duplicate_or_unsorted_slots():
         SavedForwardRoute(**{**vars(route), "slots": (route.slots[0], route.slots[0])})
     with pytest.raises(ExpertBackwardError, match="order"):
         SavedForwardRoute(**{**vars(route), "slots": route.slots[::-1]})
+
+
+def test_real_p3_sealed_route_adapter():
+    pytest.importorskip("rl_engine.p3.recordings")
+    from rl_engine.p3.assembler import assemble, seal_forward_saved
+    from rl_engine.p3.contract import ENVELOPE_SCHEMA_V2, P3OpCtxHost, P3OpResult, P3Verdict
+    from rl_engine.p3.fixtures import catalog
+    from rl_engine.p3.mocks import OWNERSHIP
+    from rl_engine.p3.recordings import record_case
+
+    case = catalog()[0]
+    recording = record_case(case)
+    provenance = recording["provenance"]
+    score = P3OpResult(
+        P3Verdict.PASS, recording["operators"]["router_sqrt_softplus_fwd"]["payload"], provenance
+    )
+    route = P3OpResult(
+        P3Verdict.PASS,
+        recording["operators"][case.router_mode + "_route_fwd"]["payload"],
+        provenance,
+    )
+    token_set = sorted(case.global_token_id[case.row_active].tolist())
+    bundle = assemble(
+        case,
+        score,
+        route,
+        run_id="run-7",
+        rank=0,
+        envelope_version=ENVELOPE_SCHEMA_V2,
+        runtime={
+            "group": "cp1.ep2",
+            "topology": "two-rank",
+            "token_ownership": dict(OWNERSHIP),
+            "expected_token_set": token_set,
+        },
+    )
+    artifact = bundle["RoutePlan"]["route_artifact_fingerprint"]
+    ctx = P3OpCtxHost(
+        "run-7", "recorded", 0, case.row_active.copy(), artifact, invocation_id=(1 << 32) | 2
+    )
+    score_ctx = replace(ctx, invocation_id=(1 << 32) | 1)
+    sealed = seal_forward_saved(case, bundle, score, route, score_ctx, ctx)["route"]
+    owners = tuple(expert % 2 for expert in range(256))
+    kwargs = dict(
+        expert_owners=owners,
+        global_ranks=(0, 1),
+        source_rank=0,
+        local_tokens=len(case.z),
+        hidden_size=4096,
+        expected_token_set=token_set,
+        placement_version="identity.v1",
+    )
+    receipt = SavedForwardRoute.from_p3_forward(bundle, sealed, ctx, **kwargs)
+    assert receipt.run_id == "run-7"
+    assert receipt.topk_width == 6
+    assert receipt.forward_artifact_fingerprint == artifact
+    assert len(receipt.slots) == int(case.row_active.sum()) * 6
+    assert all(s.destination_rank == s.expert % 2 for s in receipt.slots)
+    with pytest.raises(ExpertBackwardError, match="invocation"):
+        SavedForwardRoute.from_p3_forward(bundle, sealed, replace(ctx, invocation_id=3), **kwargs)
+    changed = deepcopy(bundle)
+    changed["RoutePlan"]["core"][0]["route_weight"] += 1
+    with pytest.raises(ExpertBackwardError, match="invalid"):
+        SavedForwardRoute.from_p3_forward(changed, sealed, ctx, **kwargs)
 
 
 def _worker(rank, rendezvous, scenario):

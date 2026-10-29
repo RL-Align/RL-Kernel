@@ -3,9 +3,13 @@
 `SavedForwardRoute` records an immutable run/model version and the exact
 `(token, topk_slot, expert, destination_rank)` ordering produced by forward
 expert dispatch. It rejects duplicate slots and invalid rank/token placement.
-The forward owner must construct this receipt **from the route actually used**,
-not by rerunning the router during backward. Recompute may supply a second
-receipt, which must have the same fingerprint.
+`from_p3_forward` consumes P3 T05's validated RoutePlan and sealed forward
+route state, plus an explicit physical-expert-to-EP-rank placement. It checks
+the saved invocation, artifact fingerprint, Envelope v2 token ownership and
+placement version before constructing the receipt. This entry point requires
+P3 #565, which is not in `main` yet. It never reruns the router during
+backward. Recompute may supply a second receipt, which must have the same
+fingerprint; changed route weights/artifact identity are rejected.
 
 `ExpertBackwardRoundTrip` exchanges receipt metadata over the EP process group,
 then sends `dy` along the saved slots via PyTorch's existing

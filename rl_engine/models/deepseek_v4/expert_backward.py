@@ -41,6 +41,8 @@ class SavedForwardRoute:
     hidden_size: int
     topk_width: int
     slots: tuple[ForwardSlot, ...]
+    forward_artifact_fingerprint: str = ""
+    placement_version: str = ""
 
     def __post_init__(self):
         _require(bool(self.run_id) and bool(self.model_version), "run/model version required")
@@ -84,6 +86,113 @@ class SavedForwardRoute:
             len({(s.token, s.topk_slot) for s in self.slots}) == len(self.slots),
             "duplicate forward token/slot",
         )
+        _require(
+            isinstance(self.forward_artifact_fingerprint, str)
+            and isinstance(self.placement_version, str),
+            "invalid forward provenance",
+        )
+
+    @classmethod
+    def from_p3_forward(
+        cls,
+        bundle,
+        saved_route,
+        forward_ctx,
+        *,
+        expert_owners,
+        global_ranks,
+        source_rank,
+        local_tokens,
+        hidden_size,
+        expected_token_set,
+        placement_version,
+    ):
+        """Consume P3 T05's sealed forward, never recompute Top-K in backward."""
+        try:
+            from rl_engine.p3.checker import validate_plan
+            from rl_engine.p3.contract import SAVED_ROUTE_SCHEMA
+            from rl_engine.p3.provider import validate_saved
+        except ImportError as exc:
+            raise ExpertBackwardError("P3 RoutePlan provider is not installed") from exc
+        _require(
+            isinstance(expert_owners, (tuple, list))
+            and len(expert_owners) == 256
+            and all(rank in global_ranks for rank in expert_owners),
+            "complete physical expert placement required",
+        )
+        _require(
+            isinstance(expected_token_set, (tuple, list))
+            and list(expected_token_set) == sorted(set(expected_token_set)),
+            "explicit sorted source token set required",
+        )
+        try:
+            validate_plan(
+                bundle,
+                expected_placement_version=placement_version,
+                expected_runtime={
+                    "run_id": forward_ctx.run_id,
+                    "rank": source_rank,
+                    "expected_token_set": list(expected_token_set),
+                },
+            )
+            validate_saved(saved_route, SAVED_ROUTE_SCHEMA, forward_ctx)
+        except ValueError as exc:
+            raise ExpertBackwardError("P3 forward plan/saved state is invalid") from exc
+        plan = bundle["RoutePlan"]
+        envelopes = plan["envelope"]
+        _require(
+            bool(envelopes) and envelopes[0]["envelope_schema_version"] == "RoutePlanEnvelope.v2",
+            "P3 ownership envelope v2 required",
+        )
+        artifact = plan["route_artifact_fingerprint"]
+        _require(
+            forward_ctx.rank == source_rank
+            and forward_ctx.route_artifact_fingerprint == artifact
+            and saved_route.header["forward_invocation_id"] == forward_ctx.invocation_id
+            and saved_route.header["route_artifact_fingerprint"] == artifact,
+            "saved forward invocation/artifact mismatch",
+        )
+        _require(
+            type(local_tokens) is int and local_tokens == len(plan["core"]) // 6,
+            "P3 source row count differs from local tokens",
+        )
+        slots = []
+        for index, (core, envelope) in enumerate(zip(plan["core"], envelopes, strict=True)):
+            _require(
+                envelope["rank"] == source_rank and envelope["source_row"] == index // 6,
+                "P3 source rank/row mismatch",
+            )
+            if core["valid"]:
+                physical = envelope["physical_expert_id"]
+                _require(
+                    type(physical) is int and 0 <= physical < 256,
+                    "P3 physical expert outside placement",
+                )
+                slots.append(
+                    ForwardSlot(
+                        envelope["source_row"],
+                        core["topk_index"],
+                        physical,
+                        expert_owners[physical],
+                    )
+                )
+        identity = plan["identity"]
+        version = (
+            f"{identity['checkpoint_id']}:{identity['weight_id']}:{identity['weight_fingerprint']}"
+        )
+        return cls(
+            forward_ctx.run_id,
+            version,
+            tuple(global_ranks),
+            local_tokens,
+            hidden_size,
+            6,
+            tuple(
+                sorted(slots, key=lambda slot: (slot.destination_rank, slot.token, slot.topk_slot))
+            ),
+            artifact,
+            placement_version,
+        )
 
     @property
     def fingerprint(self):
@@ -95,6 +204,8 @@ class SavedForwardRoute:
             self.hidden_size,
             self.topk_width,
             tuple((s.token, s.topk_slot, s.expert, s.destination_rank) for s in self.slots),
+            self.forward_artifact_fingerprint,
+            self.placement_version,
         )
         return hashlib.sha256(json.dumps(payload).encode()).hexdigest()
 
