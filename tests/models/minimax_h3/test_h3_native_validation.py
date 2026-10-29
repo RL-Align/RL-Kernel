@@ -382,3 +382,123 @@ def test_row_gather_metadata_bounds_in_isolated_process(native_extension, metada
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "BOUNDS_ASSERT_CONFIRMED" in result.stdout
+
+
+def test_rmsnorm_rejects_modulation_rows_that_overlap(native_extension, native_case):
+    """A table of rows needs a row stride of at least N; an overlapping view is not one."""
+
+    table = torch.arange(32, dtype=torch.float32, device="cuda")
+    overlapping = table.as_strided((2, 8), (4, 1))
+    with pytest.raises(RuntimeError, match="row stride 4 is smaller than N=8"):
+        native_extension.h3_rmsnorm_forward(
+            native_case["x"], native_case["weight"], 1e-5, overlapping, overlapping,
+            native_case["index"],
+        )  # fmt: skip
+
+
+def test_rmsnorm_reads_a_view_of_a_wider_table_by_its_row_pitch(native_extension, native_case):
+    """``table.chunk(2, dim=-1)`` has row stride 2N; the kernel must index rows by it."""
+
+    g = torch.Generator(device="cpu").manual_seed(0)
+    views = torch.randn(2, 16, generator=g).cuda().chunk(2, dim=-1)
+    copies = tuple(v.contiguous() for v in views)
+    assert views[0].stride(0) == 16 and copies[0].stride(0) == 8
+    out = [
+        native_extension.h3_rmsnorm_forward(
+            native_case["x"], native_case["weight"], 1e-5, shift, scale, native_case["index"]
+        )[0]
+        for shift, scale in (views, copies)
+    ]
+    assert torch.equal(out[0], out[1])
+
+
+_BACKWARD_CHILD = """
+import sys
+import torch
+from rl_engine.backends.extension import _C
+
+kind, mutation = sys.argv[1:]
+x = torch.randn(4, 8, device="cuda")
+weight = torch.ones(8, device="cuda")
+gate = torch.ones(2, 8, device="cuda")
+index = torch.tensor([0, 1, 0, 1], dtype=torch.int64, device="cuda")
+i64 = dict(dtype=torch.int64, device="cuda")
+sorted_pos = torch.tensor([0, 2, 1, 3], **i64)
+begin, end = torch.tensor([0, 2], **i64), torch.tensor([2, 4], **i64)
+first = torch.tensor([0, 1, 2], **i64)
+if mutation == "tile_end_past_rows":
+    end = torch.tensor([2, 9], **i64)
+elif mutation == "position_past_rows":
+    sorted_pos = torch.tensor([0, 2, 1, 4], **i64)
+elif mutation == "segments_past_tiles":
+    first = torch.tensor([0, 1, 5], **i64)
+elif mutation == "index_past_table":
+    index = torch.tensor([0, 1, 0, 7], **i64)
+elif mutation == "index_negative":
+    index = torch.tensor([0, 1, 0, -1], **i64)
+if kind == "rmsnorm_backward":
+    _, rstd = _C.h3_rmsnorm_forward(x, weight, 1e-5)
+    shift, scale = torch.zeros(2, 16, device="cuda").chunk(2, dim=1)
+    _C.h3_rmsnorm_backward(torch.ones_like(x), x, weight, rstd, shift, scale, index, sorted_pos,
+                           begin, end, first)
+elif kind == "gate_backward":
+    _C.h3_gate_residual_backward(torch.ones_like(x), x, gate, index, sorted_pos, begin, end, first)
+elif kind == "gate_partials":  # sequence parallel: explicit row list and tiles
+    _C.h3_gate_grad_partials(torch.ones_like(x), x, sorted_pos, begin, end)
+elif kind == "gate_fold":
+    _C.h3_gate_grad_fold(torch.ones(2, 8, device="cuda"), first, torch.float32)
+elif kind == "rmsnorm_partials":
+    _, rstd = _C.h3_rmsnorm_forward(x, weight, 1e-5)
+    _C.h3_rmsnorm_backward_partials(torch.ones_like(x), x, weight, rstd, None, None, None,
+                                    sorted_pos, begin, end, None, None, None)
+elif kind == "rmsnorm_fold":
+    _C.h3_rmsnorm_fold_partials(torch.ones(2, 8, device="cuda"), weight,
+                                torch.ones(2, 16, device="cuda"), first)
+elif kind == "rmsnorm_partials_modulated":
+    # called without the dx entry point having run: the partials check the index values themselves
+    _, rstd = _C.h3_rmsnorm_forward(x, weight, 1e-5)
+    shift, scale = torch.zeros(2, 16, device="cuda").chunk(2, dim=1)
+    _C.h3_rmsnorm_backward_partials(torch.ones_like(x), x, weight, rstd, shift, scale, index,
+                                    sorted_pos, begin, end, sorted_pos, begin, end)
+torch.cuda.synchronize()
+"""
+
+_METADATA_CASES = {
+    "rmsnorm_backward": ("tile_end_past_rows", "position_past_rows", "segments_past_tiles"),
+    "gate_backward": ("tile_end_past_rows", "position_past_rows", "segments_past_tiles"),
+    "gate_partials": ("tile_end_past_rows", "position_past_rows"),
+    "gate_fold": ("segments_past_tiles",),
+    "rmsnorm_partials": ("tile_end_past_rows", "position_past_rows"),
+    "rmsnorm_partials_modulated": ("index_past_table", "index_negative"),
+    "rmsnorm_fold": ("segments_past_tiles",),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(_METADATA_CASES))
+def test_segment_metadata_that_does_not_describe_the_rows_ends_in_a_device_assert(
+    native_extension, kind
+):
+    """Every entry point that reads caller-built tile lists checks them before it reads."""
+
+    import os
+    import subprocess
+    import sys
+
+    if not hasattr(native_extension, "h3_gate_grad_partials"):
+        pytest.skip("rl_engine._C lacks the H3 SP entry points")
+
+    def run(mutation):
+        return subprocess.run(
+            [sys.executable, "-c", _BACKWARD_CHILD, kind, mutation],
+            env={**os.environ, "CUDA_LAUNCH_BLOCKING": "1"},
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+    control = run("none")
+    assert control.returncode == 0, control.stderr
+    for mutation in _METADATA_CASES[kind]:
+        done = run(mutation)
+        assert done.returncode != 0, (kind, mutation)
+        assert "device-side assert triggered" in done.stderr, (kind, mutation, done.stderr)
