@@ -327,6 +327,9 @@ def main():
                         "batch": batch,
                         "hidden": args.hidden,
                         "seed": seed,
+                        "validation_scope": (
+                            "reference_baseline" if backend == "pytorch" else "candidate_accuracy"
+                        ),
                         "passed": False,
                     }
                     report["cases"].append(row)
@@ -359,7 +362,13 @@ def main():
                         suite = run_operator_suite(
                             "timestep_embed_mlp",
                             candidates=[
-                                CandidateSpec(backend, op, backend=backend, provenance=provenance)
+                                CandidateSpec(
+                                    backend,
+                                    op,
+                                    backend=backend,
+                                    provenance=provenance,
+                                    reference_baseline=backend == "pytorch",
+                                )
                             ],
                             cases=[case],
                             check_grad=True,
@@ -403,6 +412,7 @@ def main():
                                     "dtype",
                                     "batch",
                                     "seed",
+                                    "validation_scope",
                                     "passed",
                                     "elapsed_seconds",
                                 )

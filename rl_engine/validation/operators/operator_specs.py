@@ -22,6 +22,7 @@ class OperatorSpec:
     gold_method: str
     candidate_paths: dict[str, str]
     grad_input_names: tuple[str, ...] = ()
+    reference_candidates: tuple[str, ...] = ()
 
 
 def _load_object(path: str) -> Any:
@@ -46,6 +47,7 @@ OP_SPECS = {
             ),
         },
         grad_input_names=("timestep", "weight1", "bias1", "weight2", "bias2"),
+        reference_candidates=("pytorch",),
     ),
     "rms_norm": OperatorSpec(
         name="rms_norm",
@@ -376,6 +378,7 @@ def make_candidate(args: argparse.Namespace) -> CandidateSpec:
             backend=candidate_name,
             arch_key=args.arch_key,
             fn=candidate_op,
+            reference_baseline=candidate_name in spec.reference_candidates,
         )
 
     supported = sorted([*spec.candidate_paths, "native"])

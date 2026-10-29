@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Regression checks for timestep evidence collection and supported boundaries."""
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -19,6 +20,45 @@ from tools.validation.operators.validate_timestep_official import (
     require_requested_backend,
     source_revision,
 )
+
+
+def test_cpu_report_separates_reference_baseline(tmp_path, monkeypatch):
+    from tools.validation.operators.validate_timestep_official import main
+
+    output = tmp_path / "baseline.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "validate_timestep_official.py",
+            "--device",
+            "cpu",
+            "--backends",
+            "pytorch",
+            "--dtypes",
+            "fp32",
+            "--hidden",
+            "17",
+            "--batches",
+            "1",
+            "--seeds",
+            "386",
+            "--output",
+            str(output),
+        ],
+    )
+    with pytest.raises(SystemExit) as result:
+        main()
+    assert result.value.code == 0
+    report = json.loads(output.read_text())
+    assert report["passed"]
+    (case,) = report["cases"]
+    assert case["validation_scope"] == "reference_baseline"
+    accuracy = case["accuracy"]
+    assert accuracy["total_candidates"] == accuracy["passed_candidates"] == 0
+    assert accuracy["pass_rate"] == 0.0 and accuracy["candidates"] == []
+    (baseline,) = accuracy["reference_baselines"]
+    assert baseline["passed"] and baseline["total_outputs"] == 6
 
 
 @pytest.mark.parametrize("backend", ["cuda", "triton"])
@@ -119,3 +159,54 @@ def test_cuda_rejects_unsafe_indexing_before_allocation():
         extension.timestep_grad(
             scalar.expand(2**23, 256), scalar.expand(2**23, 256), torch.ones(128, device="cuda")
         )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires NVIDIA CUDA")
+@pytest.mark.parametrize("backend", ["cuda", "triton"])
+@pytest.mark.parametrize("parameter_dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("timestep_dtype", [torch.float32, torch.int32, torch.int64])
+def test_gpu_sample_ids_without_mask_preserve_outputs_and_gradients(
+    backend, parameter_dtype, timestep_dtype
+):
+    from rl_engine.contracts.numerical import load_contract, resolve_tolerance
+    from rl_engine.reference.embedding.timestep_embed_mlp import NativeTimestepEmbedMLPOp
+
+    values = inputs(3, 17, parameter_dtype, "cpu", 386)
+    values["timestep"] = (
+        values["timestep"] if timestep_dtype.is_floating_point else torch.tensor([4, 1, 3])
+    ).to(timestep_dtype)
+    order = torch.tensor([1, 2, 0])  # Logical IDs [30, 10, 20], with no active_mask.
+    dy = torch.randn((3, 17), generator=torch.Generator().manual_seed(9386)).to(parameter_dtype)
+    names = tuple(k for k, x in values.items() if x.is_floating_point())
+
+    def evaluate(op, data, upstream, **kwargs):
+        leaves = {k: x.detach().clone().requires_grad_(k in names) for k, x in data.items()}
+        y = op(**leaves, **kwargs)
+        grads = torch.autograd.grad(y, [leaves[k] for k in names], upstream)
+        return [y.detach(), *[g.detach() for g in grads]]
+
+    canonical = dict(values, timestep=values["timestep"][order])
+    op = TimestepEmbedMLPOp(backend)
+    expected = evaluate(op, {k: x.cuda() for k, x in canonical.items()}, dy[order].cuda())
+    actual = evaluate(
+        op,
+        {k: x.cuda() for k, x in values.items()},
+        dy.cuda(),
+        sample_ids=torch.tensor([30, 10, 20], device="cuda"),
+        chunk_size=1,
+    )
+    assert op.last_trace.actual_backend == backend and op.last_trace.fallback_reason is None
+    actual[0] = actual[0][order.cuda()]
+    if "timestep" in names:
+        actual[1] = actual[1][order.cuda()]
+    for a, b in zip(actual, expected, strict=True):
+        assert torch.equal(a.contiguous().view(torch.uint8), b.contiguous().view(torch.uint8))
+    gold = evaluate(NativeTimestepEmbedMLPOp(), canonical, dy[order])
+    for i, (a, b) in enumerate(zip(actual, gold, strict=True)):
+        tol = resolve_tolerance(
+            load_contract(),
+            judgment="forward_accuracy" if i == 0 else "gradient_accuracy",
+            op_class="reduction",
+            dtype=parameter_dtype,
+        )
+        torch.testing.assert_close(a.cpu(), b, atol=tol.atol, rtol=tol.rtol)

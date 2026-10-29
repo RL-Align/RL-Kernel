@@ -72,9 +72,12 @@ def _select_device(value: str) -> torch.device:
 
 def _summarize(report: Any) -> None:
     print(f"suite={report.suite_name} passed={report.passed} pass_rate={report.pass_rate:.4f}")
-    for candidate in report.candidates:
+    for candidate, role in [
+        *((candidate, "candidate") for candidate in report.candidates),
+        *((baseline, "reference_baseline") for baseline in report.reference_baselines),
+    ]:
         print(
-            f"candidate={candidate.candidate_name} backend={candidate.backend} "
+            f"{role}={candidate.candidate_name} backend={candidate.backend} "
             f"passed={candidate.passed} pass_rate={candidate.pass_rate:.4f}"
         )
         for case in candidate.cases:

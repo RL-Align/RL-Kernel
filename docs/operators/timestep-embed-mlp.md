@@ -40,6 +40,16 @@ accuracy is tolerance-based; the gold does not promise bitwise permutation invar
 It does not invoke candidate primitives. A separate conventional `F.linear` path
 is used for semantic regression and performance comparison.
 
+The registered `pytorch` (alias `native`) entry is a reference/plumbing baseline.
+Validation reports place its comparisons under `reference_baselines`, exclude
+them from `total_candidates` and `passed_candidates`, and report zero candidate
+pass rate when only the baseline runs. A baseline-only `passed` result checks
+plumbing, not independent reference accuracy or GPU qualification. The dedicated
+validation CLI also labels these cases `validation_scope="reference_baseline"`.
+CUDA/Triton comparisons remain candidate accuracy checks against the independent
+reference; conventional-expression tests, finite differences and the separate
+FP32-phase audit provide the reference's independent checks.
+
 CUDA long dot products use compensated FP32 lane accumulation and a fixed warp
 tree; Triton uses a fixed compensated FP32 tree. Short reductions use ordered FMA.
 Neither backend uses atomic accumulation, TF32, tensor-core reduced precision, or
