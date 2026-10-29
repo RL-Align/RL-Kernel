@@ -492,29 +492,27 @@ def test_cuda_and_triton_swiglu_agree_within_contract(dtype, shape):
 
 @requires_cuda
 @_requires_both_gpu_backends
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "RFC #501 asks for CUDA == Triton bitwise. The CUDA kernel computes "
-        "sigmoid with expf and the Triton kernel with tl.exp; the two exponential "
-        "primitives round differently, so outputs and gradients differ by a few "
-        "ulp. No operator in this repository currently meets the bitwise bar "
-        "across the two backends. strict=True so that the day the two backends do "
-        "converge this test reports XPASS instead of passing silently. FP32 only: "
-        "under bf16/fp16 the final cast can round both sides onto the same grid "
-        "point, which makes the outcome a property of the data rather than of the "
-        "kernels. Deviations on those dtypes are covered by the "
-        "agree_within_contract test above, which must pass on every dtype."
-    ),
-)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16, torch.float16])
 @pytest.mark.parametrize("shape", _MUSE_SHAPES + [(2, 8, _INTERMEDIATE)])
-def test_cuda_and_triton_swiglu_are_bitwise_equal(shape):
-    """RFC #501 acceptance item, recorded as an expected failure. FP32 only."""
-    cuda_result, triton_result = _run_cuda_and_triton_swiglu(torch.float32, shape)
+def test_cuda_and_triton_swiglu_are_bitwise_equal(dtype, shape):
+    """RFC #501 acceptance item: the two GPU backends agree bit for bit.
+
+    This held only after the Triton kernel moved from ``tl.exp`` to
+    ``libdevice.exp``. ``tl.exp`` lowers to ``ex2.approx.f32``, the hardware
+    approximate exponential, which differs from the CUDA kernel's ``expf`` by a
+    few ULP on roughly 9% of elements. If this test starts failing, compare the
+    exponential each side compiles to before looking anywhere else: dump the
+    Triton PTX and check whether ``ex2.approx`` has come back.
+    """
+    cuda_result, triton_result = _run_cuda_and_triton_swiglu(dtype, shape)
     for spec in fields(_SwiGLUResult):
-        assert torch.equal(
-            getattr(cuda_result, spec.name), getattr(triton_result, spec.name)
-        ), spec.name
+        actual = getattr(cuda_result, spec.name)
+        expected = getattr(triton_result, spec.name)
+        differing = int((actual != expected).sum())
+        assert differing == 0, (
+            f"{spec.name}: {differing} of {actual.numel()} elements differ, "
+            f"max {float((actual - expected).abs().max()):.3e}"
+        )
 
 
 @requires_cuda
