@@ -9,8 +9,8 @@ import triton.language as tl
 from rl_engine.reference.norm.adaln_modulation import (
     _indexed_domain_reason,
     _int32_addressable,
-    _validate_select01,
-    _validate_select01_metadata,
+    _validate_indexed_inputs,
+    _validate_indexed_metadata,
 )
 
 from .adaln_modulation import _center_and_rstd, _sum_hidden
@@ -199,13 +199,13 @@ class _IndexedTriton(torch.autograd.Function):
 
 
 def indexed_forward(x, modulation, index, eps, num_warps, tile):
-    _validate_select01_metadata(x, modulation, index, eps)
+    _validate_indexed_metadata(x, modulation, index, eps)
     reason = _indexed_domain_reason(x, modulation, index, eps)
     if reason in {"int32 indexing", "B <= 65535"}:
         raise ValueError(f"indexed Triton requires {reason}")
     if reason is not None:
         raise RuntimeError(f"indexed Triton requires {reason}")
-    _validate_select01(x, modulation, index, eps)
+    _validate_indexed_inputs(x, modulation, index, eps)
     return _IndexedTriton.apply(
         x.contiguous(),
         modulation.contiguous(),

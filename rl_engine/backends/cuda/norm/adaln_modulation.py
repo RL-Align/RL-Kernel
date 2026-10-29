@@ -11,8 +11,8 @@ from rl_engine.reference.norm.adaln_modulation import (
     _indexed_domain_reason,
     _int32_addressable,
     _validate,
-    _validate_select01,
-    _validate_select01_metadata,
+    _validate_indexed_inputs,
+    _validate_indexed_metadata,
 )
 
 
@@ -79,13 +79,13 @@ class CudaAdaLNModulationOp:
 
     def forward(self, x, modulation, *, eps=1e-6, modulate_index=None):
         if modulate_index is not None:
-            _validate_select01_metadata(x, modulation, modulate_index, eps)
+            _validate_indexed_metadata(x, modulation, modulate_index, eps)
             reason = _indexed_domain_reason(x, modulation, modulate_index, eps)
             if reason in {"int32 indexing", "B <= 65535"}:
                 raise ValueError(f"indexed CUDA requires {reason}")
             if reason is not None:
                 raise RuntimeError(f"indexed CUDA requires {reason}")
-            _validate_select01(x, modulation, modulate_index, eps)
+            _validate_indexed_inputs(x, modulation, modulate_index, eps)
             if not self.indexed_available:
                 raise RuntimeError("indexed CUDA extension symbols are unavailable")
             return _AdaLNIndexedCuda.apply(

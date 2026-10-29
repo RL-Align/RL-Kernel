@@ -137,11 +137,11 @@ class AdaLNDispatch:
         if indexed:
             from rl_engine.reference.norm.adaln_modulation import (
                 _indexed_domain_reason,
-                _validate_select01,
-                _validate_select01_metadata,
+                _validate_indexed_inputs,
+                _validate_indexed_metadata,
             )
 
-            _validate_select01_metadata(x, modulation, modulate_index, eps)
+            _validate_indexed_metadata(x, modulation, modulate_index, eps)
             reason = _indexed_domain_reason(x, modulation, modulate_index, eps)
         else:
             from rl_engine.reference.norm.adaln_modulation import _int32_addressable, _validate
@@ -190,7 +190,7 @@ class AdaLNDispatch:
                 # Preserve input-error precedence on rejection. Successful calls
                 # delegate value validation to the public backend exactly once.
                 if indexed and reason not in {"int32 indexing", "B <= 65535"}:
-                    _validate_select01(x, modulation, modulate_index, eps)
+                    _validate_indexed_inputs(x, modulation, modulate_index, eps)
                 raise
         if indexed:
             if backend in {"cuda", "triton"}:

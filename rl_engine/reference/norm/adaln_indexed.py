@@ -8,6 +8,8 @@ No backend normalization or reduction helper is used.
 
 import torch
 
+from rl_engine.reference.norm.adaln_modulation import _eps_supported_fp32, _validate_indexed_inputs
+
 
 def _hidden_tree(values):
     width = 1 << (values.shape[-1] - 1).bit_length()
@@ -76,4 +78,9 @@ class IndexedAdaLNFixedReference:
             raise ValueError("indexed byte reference requires CPU tensors")
         if x.dtype not in (torch.float32, torch.bfloat16) or modulation.dtype != x.dtype:
             raise TypeError("indexed byte reference requires matching FP32 or BF16 inputs")
-        return _IndexedFixed.apply(x, modulation, modulate_index.cpu(), float(eps))
+        modulate_index = modulate_index.cpu()
+        eps = float(eps)
+        _validate_indexed_inputs(x, modulation, modulate_index, eps)
+        if not _eps_supported_fp32(eps):
+            raise ValueError("eps must remain finite FP32 without positive underflow")
+        return _IndexedFixed.apply(x, modulation, modulate_index, eps)

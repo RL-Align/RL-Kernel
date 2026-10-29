@@ -46,6 +46,52 @@ def test_indexed_byte_reference_matches_independent_small_fp32_case():
     check_small_case(IndexedAdaLNFixedReference(), "cpu")
 
 
+@pytest.mark.parametrize("shape", [(2, 6), (4, 3), (4, 9), (4, 2, 3)])
+def test_indexed_fixed_reference_rejects_invalid_modulation_shape(shape):
+    x = torch.zeros(2, 3, 2)
+    index = torch.zeros(2, 3, dtype=torch.int32)
+    with pytest.raises(ValueError, match=r"modulation must have shape \[2B, 3H\]"):
+        IndexedAdaLNFixedReference()(x, torch.zeros(shape), modulate_index=index)
+
+
+@pytest.mark.parametrize("shape", [(), (2, 2), (2, 1, 2, 1), (0, 3, 2), (2, 0, 2), (2, 3, 0)])
+def test_indexed_fixed_reference_rejects_invalid_x_shape(shape):
+    index = torch.zeros(2, 3, dtype=torch.int32)
+    with pytest.raises(ValueError, match=r"x must have nonempty shape \[B, S, H\]"):
+        IndexedAdaLNFixedReference()(torch.zeros(shape), torch.zeros(4, 6), modulate_index=index)
+
+
+@pytest.mark.parametrize("shape", [(3,), (2, 1), (1, 1), (3, 3), (2, 3, 1)])
+def test_indexed_fixed_reference_rejects_invalid_index_shape(shape):
+    index = torch.zeros(shape, dtype=torch.int32)
+    with pytest.raises(ValueError, match=r"modulate_index must have shape \[B, S\] or \[1, S\]"):
+        IndexedAdaLNFixedReference()(torch.zeros(2, 3, 2), torch.zeros(4, 6), modulate_index=index)
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64, torch.complex64])
+def test_indexed_fixed_reference_rejects_noninteger_index(dtype):
+    index = torch.zeros(2, 3, dtype=dtype)
+    with pytest.raises(TypeError, match="modulate_index must have boolean or integer dtype"):
+        IndexedAdaLNFixedReference()(torch.zeros(2, 3, 2), torch.zeros(4, 6), modulate_index=index)
+
+
+@pytest.mark.parametrize("value", [-1, 2])
+@pytest.mark.parametrize("broadcast", [False, True])
+def test_indexed_fixed_reference_rejects_out_of_range_index(value, broadcast):
+    index = torch.zeros(1 if broadcast else 2, 3, dtype=torch.int64)
+    index[0, -1] = value
+    with pytest.raises(ValueError, match="modulate_index values must be 0 or 1"):
+        IndexedAdaLNFixedReference()(torch.zeros(2, 3, 2), torch.zeros(4, 6), modulate_index=index)
+
+
+@pytest.mark.parametrize("eps", [-1.0, float("nan"), float("inf"), -float("inf"), 2**-150, 1e300])
+def test_indexed_fixed_reference_rejects_invalid_eps(eps):
+    x = torch.tensor([[[-3.0, 3.0]]])
+    index = torch.zeros(1, 1, dtype=torch.int32)
+    with pytest.raises(ValueError, match="eps must"):
+        IndexedAdaLNFixedReference()(x, torch.zeros(2, 6), modulate_index=index, eps=eps)
+
+
 @pytest.mark.parametrize(
     "eps,supported", [(0.0, True), (2**-149, True), (2**-150, False), (1e300, False)]
 )
