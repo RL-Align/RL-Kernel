@@ -24,6 +24,7 @@ import argparse
 import json
 import math
 import platform
+import statistics
 import subprocess
 import sys
 import time
@@ -217,6 +218,7 @@ def _environment(device, args, triton_version, shapes):
         "warmup": args.warmup,
         "clock_settle_seconds": CLOCK_SETTLE_SECONDS,
         "repeat": args.repeat,
+        "runs": args.runs,
         "seed": args.seed,
         "tolerance_contract_sha256": tolerance_contract_fingerprint(),
         "baseline": "eager NativeSwiGLUOp.forward on the same GPU; both sides emit the input dtype",
@@ -261,6 +263,156 @@ def _noise_note(report):
     )
 
 
+# Two-sided 95% critical values of Student's t by degrees of freedom. A speedup
+# measured once is not a result at these sizes: repeated passes over the same
+# commit and GPU moved the fp16 and bf16 figures by several points while fp32
+# barely moved, so the report states an interval and says which way, if any, it
+# resolves.
+_T95 = {
+    1: 12.706,
+    2: 4.303,
+    3: 3.182,
+    4: 2.776,
+    5: 2.571,
+    6: 2.447,
+    7: 2.365,
+    8: 2.306,
+    9: 2.262,
+    10: 2.228,
+    11: 2.201,
+    12: 2.179,
+    13: 2.160,
+    14: 2.145,
+    15: 2.131,
+    16: 2.120,
+    17: 2.110,
+    18: 2.101,
+    19: 2.093,
+    20: 2.086,
+}
+
+
+def _mean_ci95(values):
+    """Return (mean, low, high) for a 95% interval on the mean."""
+    mean = statistics.mean(values)
+    if len(values) < 2:
+        return mean, float("-inf"), float("inf")
+    sd = statistics.stdev(values)
+    t = _T95.get(len(values) - 1, 1.96)
+    half = t * sd / math.sqrt(len(values))
+    return mean, mean - half, mean + half
+
+
+def _verdict(low, high):
+    if low > 1.0:
+        return "faster"
+    if high < 1.0:
+        return "slower"
+    return "indeterminate"
+
+
+def _reproducibility(passes):
+    """Aggregate speedups across whole-matrix passes, grouped by dtype and mode.
+
+    One sample per pass, so the interval describes how much the reported figure
+    moves between runs, not how much individual iterations jitter inside one.
+    """
+    groups = {}
+    for rows in passes:
+        per_group = {}
+        for row in rows:
+            per_group.setdefault((row["dtype"], row["mode"]), []).append(row["speedup"])
+        for key, values in per_group.items():
+            groups.setdefault(key, []).append(statistics.mean(values))
+
+    summary = []
+    for (dtype, mode), per_pass in groups.items():
+        mean, low, high = _mean_ci95(per_pass)
+        summary.append(
+            {
+                "dtype": dtype,
+                "mode": mode,
+                "passes": len(per_pass),
+                "mean_speedup": mean,
+                "ci95_low": low,
+                "ci95_high": high,
+                "min_speedup": min(per_pass),
+                "max_speedup": max(per_pass),
+                "verdict": _verdict(low, high),
+            }
+        )
+    return summary
+
+
+def _determinism(passes):
+    """Count rows whose memory or accuracy figures moved between passes."""
+    if len(passes) < 2:
+        return {"compared_rows": 0, "memory_mismatches": 0, "accuracy_mismatches": 0}
+
+    def key(row):
+        return (row["dtype"], tuple(row["shape"]), row["mode"])
+
+    base = {key(row): row for row in passes[0]}
+    memory = accuracy = compared = 0
+    for rows in passes[1:]:
+        for row in rows:
+            reference = base[key(row)]
+            compared += 1
+            if (
+                row["native"]["peak_extra_gib"] != reference["native"]["peak_extra_gib"]
+                or row["triton"]["peak_extra_gib"] != reference["triton"]["peak_extra_gib"]
+            ):
+                memory += 1
+            if row["accuracy"] != reference["accuracy"]:
+                accuracy += 1
+    return {
+        "compared_rows": compared,
+        "memory_mismatches": memory,
+        "accuracy_mismatches": accuracy,
+    }
+
+
+def _reproducibility_lines(report):
+    """Headline table: what each figure does across whole-matrix passes."""
+    summary = report.get("reproducibility") or []
+    passes = summary[0]["passes"] if summary else 1
+    if passes < 2:
+        return [
+            "Single pass over the matrix. The speedup column below is one measurement, "
+            "not a result: re-run with `--runs 10` for an interval. At these sizes the "
+            "fp16 and bf16 figures move by several points between passes.",
+            "",
+        ]
+    det = report.get("determinism") or {}
+    lines = [
+        f"### Reproducibility across {passes} independent passes",
+        "",
+        "Each pass re-runs the whole matrix on the same commit and GPU. One sample per "
+        "pass, so the interval below describes how much the reported figure moves "
+        "between runs. A verdict is only given when the interval excludes parity.",
+        "",
+        "| Input | Mode | Mean speedup | 95% CI | Min | Max | Verdict |",
+        "| --- | --- | ---: | ---: | ---: | ---: | --- |",
+    ]
+    order = {"fp16": 0, "bf16": 1, "fp32": 2}
+    modes = {"forward": 0, "backward": 1, "forward_backward": 2}
+    for item in sorted(summary, key=lambda d: (order.get(d["dtype"], 9), modes.get(d["mode"], 9))):
+        lines.append(
+            f"| {item['dtype']} | {item['mode']} | {item['mean_speedup']:.3f}x | "
+            f"[{item['ci95_low']:.3f}, {item['ci95_high']:.3f}] | "
+            f"{item['min_speedup']:.3f}x | {item['max_speedup']:.3f}x | {item['verdict']} |"
+        )
+    if det.get("compared_rows"):
+        lines += [
+            "",
+            f"Memory and accuracy are deterministic here: across {det['compared_rows']} "
+            f"row comparisons between passes, {det['memory_mismatches']} peak-memory and "
+            f"{det['accuracy_mismatches']} accuracy figures differed. The detail table "
+            f"below is the last pass.",
+        ]
+    return lines + [""]
+
+
 def _markdown(report):
     env = report["environment"]
     lines = [
@@ -285,6 +437,7 @@ def _markdown(report):
         "",
         _noise_note(report),
         "",
+        *_reproducibility_lines(report),
         "| Input | Shape | Mode | Native ms | Triton ms | Speedup | Native GiB | Triton GiB |",
         "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |",
     ]
@@ -308,9 +461,58 @@ def build_arg_parser():
     )
     parser.add_argument("--warmup", type=_positive_int, default=10)
     parser.add_argument("--repeat", type=_positive_int, default=50)
+    parser.add_argument(
+        "--runs",
+        type=_positive_int,
+        default=3,
+        help=(
+            "independent passes over the whole matrix; one speedup sample each. "
+            "A single pass does not settle fp16/bf16 at these sizes. Use 10 for "
+            "a figure worth quoting."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=415)
     parser.add_argument("--output-dir", type=Path, default=Path("artifacts/benchmarks/swiglu"))
     return parser
+
+
+def _sweep(args, profiler, native, candidate, device):
+    """One pass over the dtype x shape x mode matrix. Returns the rows."""
+    rows = []
+    for dtype_name in args.dtypes:
+        dtype = DTYPES[dtype_name]
+        for shape in args.shapes:
+            generator = torch.Generator(device=device).manual_seed(args.seed)
+            gate = torch.randn(shape, device=device, generator=generator, dtype=torch.float32)
+            up = torch.randn(shape, device=device, generator=generator, dtype=torch.float32)
+            dy = torch.randn(shape, device=device, generator=generator, dtype=torch.float32)
+            gate, up = gate.to(dtype), up.to(dtype)
+            dy = dy.to(dtype)
+
+            accuracy = _check_accuracy(native, candidate, gate, up, dy)
+            for mode in MODES:
+                measurements = {}
+                for name, op in (("native", native), ("triton", candidate)):
+                    fn = _make_workload(op, gate, up, dy, mode)
+                    measurements[name] = _measure(profiler, fn)
+                    # fn is the last reference to its closure, so this frees the
+                    # backward-mode graph before the next backend is measured.
+                    del fn
+                rows.append(
+                    {
+                        "dtype": dtype_name,
+                        "shape": list(shape),
+                        "numel": gate.numel(),
+                        "mode": mode,
+                        "accuracy": accuracy,
+                        **measurements,
+                        "speedup": measurements["native"]["median_ms"]
+                        / measurements["triton"]["median_ms"],
+                    }
+                )
+                print(f"{dtype_name} {shape} {mode}: {rows[-1]['speedup']:.2f}x", flush=True)
+            del gate, up, dy
+    return rows
 
 
 def run_benchmark(args):
@@ -330,38 +532,16 @@ def run_benchmark(args):
             "environment": _environment(device, args, triton.__version__, args.shapes),
             "results": [],
         }
-        for dtype_name in args.dtypes:
-            dtype = DTYPES[dtype_name]
-            for shape in args.shapes:
-                generator = torch.Generator(device=device).manual_seed(args.seed)
-                gate = torch.randn(shape, device=device, generator=generator, dtype=torch.float32)
-                up = torch.randn(shape, device=device, generator=generator, dtype=torch.float32)
-                dy = torch.randn(shape, device=device, generator=generator, dtype=torch.float32)
-                gate, up = gate.to(dtype), up.to(dtype)
-                dy = dy.to(dtype)
-
-                accuracy = _check_accuracy(native, candidate, gate, up, dy)
-                for mode in MODES:
-                    measurements = {}
-                    for name, op in (("native", native), ("triton", candidate)):
-                        fn = _make_workload(op, gate, up, dy, mode)
-                        measurements[name] = _measure(profiler, fn)
-                        # fn is the last reference to its closure, so this frees the
-                        # backward-mode graph before the next backend is measured.
-                        del fn
-                    row = {
-                        "dtype": dtype_name,
-                        "shape": list(shape),
-                        "numel": gate.numel(),
-                        "mode": mode,
-                        "accuracy": accuracy,
-                        **measurements,
-                        "speedup": measurements["native"]["median_ms"]
-                        / measurements["triton"]["median_ms"],
-                    }
-                    report["results"].append(row)
-                    print(f"{dtype_name} {shape} {mode}: {row['speedup']:.2f}x", flush=True)
-                del gate, up, dy
+        passes = []
+        for index in range(args.runs):
+            rows = _sweep(args, profiler, native, candidate, device)
+            passes.append(rows)
+            print(f"--- pass {index + 1}/{args.runs} complete", flush=True)
+        # The detail table reports the last pass; memory and accuracy are
+        # deterministic, so only the speedup column benefits from aggregation.
+        report["results"] = passes[-1]
+        report["reproducibility"] = _reproducibility(passes)
+        report["determinism"] = _determinism(passes)
     return report
 
 
