@@ -80,7 +80,7 @@ class IndexedAdaLNQualification:
 def adaln_backend(op: Any) -> str | None:
     cls = type(op)
     entry = _BACKENDS.get(cls.__module__)
-    if entry and getattr(sys.modules[cls.__module__], entry[0], None) is cls:
+    if entry and getattr(sys.modules.get(cls.__module__), entry[0], None) is cls:
         return entry[1]
     return None
 

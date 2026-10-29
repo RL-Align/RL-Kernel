@@ -3,6 +3,7 @@
 """AdaLN dispatch policy and observations at the public resolver seam."""
 
 import os
+import sys
 from argparse import Namespace
 
 import pytest
@@ -43,6 +44,24 @@ def test_adaln_registry_trace_reports_selected_backend():
     assert trace["fallback"] is False
     assert trace["accumulator_dtype"] == "fp32"
     assert trace["split_k"] is False and trace["stream_k"] is False
+
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_adaln_dispatch_handles_missing_backend_module(monkeypatch, strict):
+    op, trace = KernelRegistry().get_adaln_modulation_op("cpu", hidden=2, strict=strict)
+    monkeypatch.delitem(sys.modules, NativeAdaLNModulationOp.__module__)
+    x = torch.tensor([[[-3.0, 3.0]]])
+    modulation = torch.zeros(1, 6)
+    if strict:
+        with pytest.raises(RuntimeError, match="no declared replay profile"):
+            op(x, modulation, eps=7.0)
+        assert trace["observation"] is None
+    else:
+        y, gate = op(x, modulation, eps=7.0)
+        torch.testing.assert_close(y, torch.tensor([[[-0.75, 0.75]]]), rtol=0, atol=0)
+        torch.testing.assert_close(gate, torch.zeros(1, 1, 2), rtol=0, atol=0)
+        assert trace["observation"] == "successful_forward"
+    assert trace["actual_backend"] is None
 
 
 def test_adaln_modulate_index_uses_explicit_native_fallback():
