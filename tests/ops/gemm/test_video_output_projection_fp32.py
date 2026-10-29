@@ -224,6 +224,227 @@ def test_canonical_bias_sharing_requires_matching_contributions(bias_uses, monke
         assert all(a[1] is not b[1] for i, a in enumerate(normalized) for b in normalized[i + 1 :])
 
 
+@pytest.fixture(
+    params=[
+        "cpu",
+        pytest.param(
+            "cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
+        ),
+    ]
+)
+def ordered_rows_device(request):
+    return request.param
+
+
+@pytest.fixture(params=[False, True], ids=["default", "deterministic"])
+def deterministic_row_copy(request):
+    enabled = torch.are_deterministic_algorithms_enabled()
+    warn_only = torch.is_deterministic_algorithms_warn_only_enabled()
+    torch.use_deterministic_algorithms(request.param, warn_only=False)
+    try:
+        yield
+    finally:
+        torch.use_deterministic_algorithms(enabled, warn_only=warn_only)
+
+
+@pytest.mark.parametrize(
+    "layout,dtype",
+    [
+        ("independent", torch.float32),
+        ("shared", torch.bfloat16),
+        ("strided", torch.float16),
+        ("empty_uses", torch.int64),
+        ("single", torch.float32),
+        ("mixed", torch.float16),
+    ],
+)
+def test_canonical_ordered_rows_matches_original(
+    layout, dtype, ordered_rows_device, deterministic_row_copy
+):
+    from rl_engine.ops.autograd.canonical_backward import CanonicalBackwardSession
+
+    source = torch.arange(45, device=ordered_rows_device, dtype=torch.int64).reshape(9, 5)
+    source = source.to(dtype)
+    parts = [source[:3], source[3:7], source[7:]]
+    if layout == "single":
+        values = [source]
+    elif layout == "shared":
+        values = parts
+    elif layout == "strided":
+        values = []
+        for part in parts:
+            backing = part.new_empty((2 * part.shape[0], 2 * part.shape[1]))
+            view = backing[::2, ::2]
+            view.copy_(part)
+            assert not view.is_contiguous()
+            values.append(view)
+    else:
+        values = [part.clone() for part in parts]
+        if layout == "empty_uses":
+            values = [source[:0], values[0], source[:0], *values[1:], source[:0]]
+        elif layout == "mixed":
+            # Even an excluded part contributes to torch.cat's dtype promotion.
+            values[1] = values[1].bfloat16()
+    # All rows of the middle nonempty use are padding. The active rows interleave
+    # the other uses, so a simple per-use concatenation cannot produce this order.
+    order = torch.tensor([7, 1, 8, 0], device=ordered_rows_device)
+    original = [value.clone() for value in values]
+    expected = torch.cat(values).index_select(0, order)
+    actual = CanonicalBackwardSession._ordered_rows(values, order)
+    assert actual.shape == expected.shape
+    assert actual.dtype == expected.dtype
+    assert actual.device == expected.device
+    assert actual.stride() == expected.stride()
+    assert torch.equal(actual.view(torch.uint8), expected.view(torch.uint8))
+    for value, before in zip(values, original, strict=True):
+        assert torch.equal(value.contiguous().view(torch.uint8), before.view(torch.uint8))
+
+
+def test_canonical_ordered_rows_preserves_float_bits(ordered_rows_device, deterministic_row_copy):
+    from rl_engine.ops.autograd.canonical_backward import CanonicalBackwardSession
+
+    # Include signed zero, subnormal values, infinities, and distinct NaN payloads.
+    bits = torch.tensor(
+        [
+            [0, -2147483648, 0x7FC00001],
+            [1, -2147483647, 0x7FC12345],
+            [0x7FA00001, -4194303, 0x7F800000],
+            [-8388608, 0x3F800000, -1082130432],
+        ],
+        dtype=torch.int32,
+        device=ordered_rows_device,
+    )
+    values = [bits[:2].view(torch.float32).clone(), bits[2:].view(torch.float32).clone()]
+    order = torch.tensor([2, 0, 3, 1], device=ordered_rows_device)
+    actual = CanonicalBackwardSession._ordered_rows(values, order)
+    assert torch.equal(actual.view(torch.int32), bits.index_select(0, order))
+
+
+def test_canonical_multi_use_rows_preserve_reducer_and_bias_sharing(
+    ordered_rows_device, deterministic_row_copy, monkeypatch
+):
+    from rl_engine.ops.autograd import canonical_backward
+
+    # Exercise the session with independent allocations and two parameter dtypes.
+    # Explicit expected indices avoid using the implementation's sorting as an oracle.
+    device = ordered_rows_device
+    if device == "cuda":
+        monkeypatch.setattr(canonical_backward, "_DIRECT_ROW_COPY_MIN_BYTES", 0)
+    keys = [
+        torch.tensor([[1, 2], [0, 1], [1, 0]], device=device),
+        torch.full((2, 2), -1, device=device, dtype=torch.int64),
+        torch.tensor([[0, 2], [0, 0], [1, 1]], device=device),
+    ]
+    order = torch.tensor([6, 1, 5, 2, 7, 0], device=device)
+    with canonical_backward_session() as session:
+        parameters = []
+        for index, dtype in enumerate((torch.float32, torch.bfloat16)):
+            name = f"weight.{index}"
+            source = torch.arange(40, device=device).reshape(8, 5).to(dtype) + 8 * index
+            grad = (
+                torch.arange(16, device=device, dtype=torch.float32).reshape(8, 2) + 16 * index
+            ) * 0.5
+            rows = [part.clone() for part in source.split((3, 2, 3))]
+            grads = [part.clone() for part in grad.split((3, 2, 3))]
+            for logical_keys in keys:
+                contribution = object()
+                session.register(name, logical_keys, contribution=contribution)
+                session.register(f"{name}.bias", logical_keys, contribution=contribution)
+            parameters.append((name, rows, grads, source, grad))
+
+        for name, rows, grads, source, grad in parameters:
+            expected_rows = source.index_select(0, order)
+            expected_grads = grad.index_select(0, order)
+            normalized_grads = []
+
+            def weight_reducer(ordered_rows, ordered_grads):
+                assert ordered_rows.dtype == source.dtype
+                assert torch.equal(ordered_rows.view(torch.uint8), expected_rows.view(torch.uint8))
+                _assert_bytes(ordered_grads, expected_grads)
+                normalized_grads.append(ordered_grads)
+                return (ordered_grads.unsqueeze(2) * ordered_rows.float().unsqueeze(1)).sum(0)
+
+            def bias_reducer(ordered_grads):
+                assert len(normalized_grads) == 1
+                assert ordered_grads is normalized_grads[0]
+                return ordered_grads.sum(0)
+
+            # The all-padding use arrives last; registration order defines row offsets.
+            for submission, slot in enumerate((2, 0, 1)):
+                dweight = session.submit_linear(name, slot, rows[slot], grads[slot], weight_reducer)
+                dbias = session.submit_rows(f"{name}.bias", slot, grads[slot], bias_reducer)
+                if submission < 2:
+                    assert dweight is None and dbias is None
+                else:
+                    expected_weight = (
+                        expected_grads.unsqueeze(2) * expected_rows.float().unsqueeze(1)
+                    ).sum(0)
+                    _assert_bytes(dweight, expected_weight)
+                    _assert_bytes(dbias, expected_grads.sum(0))
+            assert torch.equal(torch.cat(rows).view(torch.uint8), source.view(torch.uint8))
+            _assert_bytes(torch.cat(grads), grad)
+        session.validate_complete()
+        assert not session._normalized
+
+
+@pytest.mark.parametrize(
+    "device,uses,threshold_offset,expected_direct",
+    [
+        pytest.param("cpu", 2, 0, False, id="cpu-fallback"),
+        pytest.param("cuda", 2, 0, True, id="at-threshold"),
+        pytest.param("cuda", 2, 1, False, id="below-threshold"),
+        pytest.param("cuda", 1, 0, False, id="single-use-fallback"),
+        pytest.param("cuda", 2, None, False, id="default-small-fallback"),
+    ],
+)
+def test_canonical_direct_row_copy_routing(
+    device, uses, threshold_offset, expected_direct, monkeypatch
+):
+    from rl_engine.ops.autograd import canonical_backward
+
+    if device == "cuda" and (not torch.cuda.is_available() or torch.version.hip is not None):
+        pytest.skip("requires NVIDIA CUDA")
+    source = torch.arange(20, dtype=torch.float32, device=device).reshape(4, 5)
+    grad = torch.arange(8, dtype=torch.float32, device=device).reshape(4, 2)
+    keys = torch.tensor([[1, 1], [0, 1], [-1, -1], [0, 0]], device=device)
+    order = torch.tensor([3, 1, 0], device=device)
+    rows = [part.clone() for part in source.chunk(uses)]
+    grads = [part.clone() for part in grad.chunk(uses)]
+    if threshold_offset is not None:
+        # Count physical rows, including padding, without allocating a large input.
+        threshold = source.numel() * source.element_size() + threshold_offset
+        monkeypatch.setattr(canonical_backward, "_DIRECT_ROW_COPY_MIN_BYTES", threshold)
+    calls = []
+    original = canonical_backward.CanonicalBackwardSession._ordered_rows
+
+    def observe(values, selected_order):
+        calls.append(selected_order.clone())
+        return original(values, selected_order)
+
+    monkeypatch.setattr(
+        canonical_backward.CanonicalBackwardSession, "_ordered_rows", staticmethod(observe)
+    )
+
+    def reducer(ordered_rows, ordered_grads):
+        _assert_bytes(ordered_rows, source.index_select(0, order))
+        _assert_bytes(ordered_grads, grad.index_select(0, order))
+        return ordered_rows.clone()
+
+    with canonical_backward_session() as session:
+        slots = [session.register("weight", part) for part in keys.chunk(uses)]
+        for submission, slot in enumerate(reversed(slots)):
+            result = session.submit_linear("weight", slot, rows[slot], grads[slot], reducer)
+            if submission < uses - 1:
+                assert result is None
+        session.validate_complete()
+    _assert_bytes(result, source.index_select(0, order))
+    assert len(calls) == int(expected_direct)
+    if calls:
+        assert torch.equal(calls[0], order)
+    _assert_bytes(torch.cat(rows), source)
+    _assert_bytes(torch.cat(grads), grad)
+
+
 @pytest.mark.parametrize(
     "invalid,error_type,message",
     [

@@ -106,8 +106,15 @@ Forward has 5376 terms per output element. The canonical session collects
 parameter contributions and reduces them in logical-key order. It removes
 padding and uses stable sorting when needed. Large CUDA inputs already in
 canonical order reuse that order after a key check. A single forward use skips
-concatenation. When
-weight and bias have matching complete forward-contribution sequences, they
+concatenation. For multiple same-dtype CUDA inputs totaling at least 256 MiB,
+the session copies each input directly into canonical row positions with
+`index_copy_`. Smaller inputs and other platforms retain the original path.
+The CUDA path keeps
+padding in an unused tail and passes only active rows to the reducer. The
+destination has space for all physical rows; this removes the additional
+concatenated input buffer while preserving the existing logical order and
+reduction. Mixed-dtype inputs retain concatenation and its type promotion.
+When weight and bias have matching complete forward-contribution sequences, they
 share the sorted upstream gradient. Other parameter uses retain independent
 preparation. A layout comparison must preserve the same input
 values, logical keys, and upstream gradients. Adding genuine training samples
@@ -266,6 +273,12 @@ add bytewise `dW` and `dbias` comparisons for the same complete request set in
 one canonical session, alongside `Y` and `dX`. A gradient from one request alone
 is not compared with the gradient of several requests. Accuracy uses the
 independent reference with complete reduction lengths.
+
+Row-preparation tests compare the direct copy with the previous concatenation
+and selection byte for byte. They cover independent allocations, shared views,
+noncontiguous inputs, empty uses, padding-only uses, mixed dtypes, and CUDA
+deterministic algorithms enabled and disabled. Session tests also check that
+weight and bias continue to share matching upstream-gradient preparation.
 
 ### Commands
 

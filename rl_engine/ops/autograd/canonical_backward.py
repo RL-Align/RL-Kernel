@@ -18,6 +18,9 @@ WeightReducer = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 # Small inputs retain stable sorting to avoid the extra check and synchronization.
 # Larger, already ordered inputs can skip sorting and gradient gathering.
 _CANONICAL_ORDER_REUSE_MIN_ROWS = 4096
+# H20 measurements keep small copies on the original path, including when
+# CUDA deterministic algorithms add sorting overhead to index_copy_.
+_DIRECT_ROW_COPY_MIN_BYTES = 256 * 1024 * 1024
 
 
 def _keys_are_canonical(keys: torch.Tensor) -> bool:
@@ -82,6 +85,39 @@ class CanonicalBackwardSession:
     @staticmethod
     def _concatenate(values: list[torch.Tensor]) -> torch.Tensor:
         return values[0] if len(values) == 1 else torch.cat(values, dim=0)
+
+    @staticmethod
+    def _ordered_rows(values: list[torch.Tensor], order: torch.Tensor) -> torch.Tensor:
+        """Copy multiple inputs directly into the existing canonical row order."""
+        first = values[0]
+        if (
+            len(values) == 1
+            or any(value.dtype != first.dtype or value.device != first.device for value in values)
+            or first.device.type not in {"cpu", "cuda"}
+            or (first.device.type == "cuda" and torch.version.hip is not None)
+        ):
+            return CanonicalBackwardSession._concatenate(values).index_select(0, order)
+
+        total = sum(value.shape[0] for value in values)
+        active = order.numel()
+        if active < total:
+            # Put padding after the active prefix. Every physical row gets a
+            # unique destination, so each source can be copied without a gather.
+            padding = torch.ones(total, dtype=torch.bool, device=order.device)
+            padding.index_fill_(0, order, False)
+            destination = padding.cumsum(0, dtype=torch.int64).add_(active - 1)
+        else:
+            destination = torch.empty(total, dtype=torch.int64, device=order.device)
+        destination.index_copy_(
+            0, order, torch.arange(active, dtype=torch.int64, device=order.device)
+        )
+        ordered = first.new_empty((total, first.shape[1]))
+        offset = 0
+        for value in values:
+            count = value.shape[0]
+            ordered.index_copy_(0, destination[offset : offset + count], value)
+            offset += count
+        return ordered[:active]
 
     def _normalize(
         self, parameter_id: str, values: list[torch.Tensor]
@@ -152,7 +188,17 @@ class CanonicalBackwardSession:
         )
         if order.numel() == 0:
             raise RuntimeError(f"no active logical rows for {parameter_id}")
-        rows = self._concatenate([item.rows for item in entries if item.rows is not None])
+        values = [item.rows for item in entries if item.rows is not None]
+        if (
+            len(values) > 1
+            and values[0].device.type == "cuda"
+            and torch.version.hip is None
+            and sum(value.numel() * value.element_size() for value in values)
+            >= _DIRECT_ROW_COPY_MIN_BYTES
+        ):
+            rows = self._ordered_rows(values, order)
+            return reducer(rows, grads)
+        rows = self._concatenate(values)
         return reducer(rows.index_select(0, order), grads)
 
     def submit_rows(
