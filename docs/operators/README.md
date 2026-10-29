@@ -36,5 +36,6 @@ Every operator page should include:
 - [MiniMax-H3 FP32 Timestep MLP](h3-timestep-mlp.md)
 - [MiniMax-H3 AdaLN Projection](h3-adaln-projection.md)
 - [MiniMax-H3 AdaLN Row Gather](h3-adaln-row-gather.md)
+- [MiniMax-H3 RMSNorm and AdaLN Modulation](h3-rmsnorm.md)
 - [H3 Flash Attention (optional fast backend)](h3-flash-attention.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)

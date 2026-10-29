@@ -237,6 +237,7 @@ H3_OPS = (
     "timestep_mlp_fp32",
     "adaln_projection_3mod",
     "adaln_row_gather",
+    "h3_rmsnorm",
 )
 
 

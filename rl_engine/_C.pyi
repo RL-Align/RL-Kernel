@@ -421,3 +421,48 @@ def h3_adaln_row_gather_backward(
     inside ``sorted_pos``, segments that cut the tile list exactly and in order.
     """
     ...
+def h3_rmsnorm_forward(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    eps: float,
+    shift: torch.Tensor | None = None,
+    scale: torch.Tensor | None = None,
+    index: torch.Tensor | None = None,
+) -> list[torch.Tensor]:
+    """RMSNorm over the last dimension of a contiguous CUDA ``(M, N)`` tensor; return ``[y, rstd]``.
+
+    ``N`` is a multiple of 4 (and at most ``INT_MAX``); ``weight`` is ``(N,)`` in ``x``'s dtype
+    (FP32, FP16 or BF16). The reduction replays PyTorch's vectorized RMSNorm, so ``y`` is bitwise
+    ``nn.RMSNorm``. With ``shift``/``scale`` (views of one ``(R, N)`` table with unit column stride
+    and a row stride of at least ``N``) and ``index`` (``(S,)`` int64, ``M`` a multiple of ``S``),
+    row ``r`` also gets ``cast(cast(n * cast(1 + scale[i])) + shift[i])`` with
+    ``i = index[r % S]``; an index outside ``[0, R)`` stops with a device-side assert. ``rstd`` is
+    the FP32 ``(M,)`` statistic the backward reuses.
+    """
+    ...
+
+def h3_rmsnorm_backward(
+    grad: torch.Tensor,
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    rstd: torch.Tensor,
+    shift: torch.Tensor | None = None,
+    scale: torch.Tensor | None = None,
+    index: torch.Tensor | None = None,
+    sorted_pos: torch.Tensor | None = None,
+    tile_begin: torch.Tensor | None = None,
+    tile_end: torch.Tensor | None = None,
+    seg_first_tile: torch.Tensor | None = None,
+) -> list[torch.Tensor]:
+    """Deterministic backward of ``h3_rmsnorm_forward``; return ``[dx, dweight]`` in the input dtype.
+
+    ``grad`` and ``x`` are ``(M, N)``, ``rstd`` comes from the forward, and ``shift``/``scale``/
+    ``index`` are the forward's. ``dx`` is row-local; ``dweight`` sums fixed 256-row tiles in order.
+    With modulation the result continues with the FP32 ``(R, N)`` table gradients
+    ``[d_shift, d_scale]``, summed over stable-sorted tiles of rows per table row: pass
+    ``sorted_pos``, ``tile_begin``, ``tile_end`` and ``seg_first_tile`` as built by
+    ``adaln_row_gather._segment_tiles``; they are checked on the device before use. Without
+    modulation they must be omitted.
+    """
+    ...
+

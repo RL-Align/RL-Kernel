@@ -212,16 +212,16 @@ torch::Tensor h3_adaln_row_gather_backward(torch::Tensor grad, torch::Tensor sor
   TORCH_CHECK(grad.is_cuda() && grad.dim() == 3 && grad.is_contiguous(),
               "grad must be a contiguous (C, S, H) CUDA tensor");
   for (const auto* t : {&sorted_pos, &tile_begin, &tile_end, &seg_first_tile}) {
-    TORCH_CHECK(t->is_cuda() && t->dim() == 1 && t->is_contiguous() &&
-                    t->scalar_type() == at::kLong,
-                "tile metadata must be contiguous 1-D int64 CUDA tensors");
+    TORCH_CHECK(t->is_cuda() && t->device() == grad.device() && t->dim() == 1 &&
+                    t->is_contiguous() && t->scalar_type() == at::kLong,
+                "tile metadata must be contiguous 1-D int64 tensors on grad's device");
   }
+  TORCH_CHECK(seg_first_tile.numel() >= 1, "seg_first_tile must hold R + 1 entries");
   TORCH_CHECK(tile_begin.numel() == tile_end.numel(), "tile_begin/tile_end length mismatch");
   const int64_t chunks = grad.size(0);
   const int64_t seq = grad.size(1);
   const int64_t hidden = grad.size(2);
   const int64_t width = chunks * hidden;
-  TORCH_CHECK(seg_first_tile.numel() >= 1, "seg_first_tile must hold R + 1 entries");
   const int64_t num_rows = seg_first_tile.numel() - 1;
   const int64_t tiles = tile_begin.numel();
   TORCH_CHECK(sorted_pos.numel() == seq, "sorted_pos must have S entries");

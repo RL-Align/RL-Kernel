@@ -72,7 +72,7 @@ Measured on a B200 (torch 2.13.0+cu130):
 | --- | --- | --- |
 | Forward vs `index_select` | bitwise equal | |
 | `d_rows` repeat-bitwise | yes | no |
-| `d_rows` correctly rounded from the FP64 sum | 99.99931% | 7.8% |
+| `d_rows` correctly rounded from the FP64 sum | 99.99931% | 7.9% |
 | `d_rows` max abs error vs FP64 | 0.25 (1 ULP) | 4.99 |
 
 ### Fused modulation: `H3AdaLNModulationCudaOp`
@@ -113,40 +113,33 @@ B200, T = 3, H = 5376, BF16. "write BW" counts the 6·S·H outputs; the table st
 
 | S | CUDA forward | provider forward | CUDA backward | provider backward |
 | --- | --- | --- | --- | --- |
-| 4097 | 0.07 ms | 0.11 ms | 1.01 ms | 1.30 ms |
-| 32768 | 0.34 ms | 0.63 ms | 1.76 ms | 8.00 ms |
-| 131072 | 1.24 ms (6.8 TB/s write) | 2.40 ms | 5.59 ms | 32.2 ms |
+| 4097 | 0.07 ms | 0.11 ms | 0.88 ms | 1.28 ms |
+| 32768 | 0.33 ms | 0.62 ms | 1.75 ms | 8.04 ms |
+| 131072 | 1.17 ms | 2.42 ms | 5.62 ms | 32.45 ms |
 
-The backward columns time `autograd.backward` only: the forward pass and the graph construction run
-outside the timed region (`candidate_backward_setup` / `provider_backward_setup`), and the execution
-order alternates and is recorded.
-
-Backward-only peak memory (increment over the forward graph): 255, 2034 and 8130 MiB for the CUDA op
-at S = 4097, 32768 and 131072, against about 1 MiB for the provider. Autograd stacks the six
-output gradients into one `(6, S, H)` tensor for the CUDA op and the per-tile FP32 partials are
-materialised, while the provider's atomic scatter-add writes straight into the `(3T, 6H)` table
-gradient. The peak is the price of the deterministic FP32 segment sum.
+Backward timings and peak memory exclude leaf creation and the forward pass. The CUDA
+backward stacks the six output gradients and materialises per-tile FP32 partials, adding
+8130 MiB at S = 131072; the provider adds under 2 MiB. Candidate/provider execution order
+alternates each iteration and is recorded in the report.
 
 ## Evidence
 
-![adaln_row_gather on B200: latency and whole-chain gradient accuracy](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/999c0c75078605229ad74dc600dc963d89c7ed9e/pr486/reports/experiments/h3-adaln-row-gather-b200/figure.png)
+![adaln_row_gather on B200: latency and whole-chain gradient accuracy](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr487/reports/experiments/h3-adaln-row-gather-b200/figure.png)
 
 There are two data files:
 
-- [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/999c0c75078605229ad74dc600dc963d89c7ed9e/pr486/reports/experiments/h3-adaln-row-gather-b200/report.json): op timings, forward
+- [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr487/reports/experiments/h3-adaln-row-gather-b200/report.json): op timings, forward
   bitwise checks, op-level backward, and the chain-backward cases plotted above.
 - [`chain_replay.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr486/reports/experiments/h3-adaln-row-gather-b200/chain_replay.json): the full
   stage-wise forward replay and backward replay over T in {1, 2, 3, 4} × S in {3, 257, 4097, 32768}.
 
-`report.json` was rewritten from a clean tree at commit `c416a101` on an otherwise idle B200 (backward
-timings exclude the forward pass; the previous revision came from `a6c85451`), after the op-backward check
-was seeded (it previously took its rows and gradients from the process's default CUDA
-generator, so its fraction depended on how many draws the runner made before it; 99.99999% in
-the previous report). `chain_replay.json` was written from a clean tree at commit `61d23ade`.
-Both ran on an otherwise idle B200 and were regenerated
-after the AdaLN projection golden's declared cast was changed to round the FP32 SiLU (as the model
-does). Apart from the seeded op-backward fraction, every CUDA field and every pass/fail flag
-is unchanged; only timings and the diffusers backward errors, which vary from run to run, moved.
+`report.json` was regenerated from a clean tree at commit `29b07c5d` with backward-only
+timings and alternating execution order, and with the op-backward check's rows and gradients
+drawn from a seeded generator. Before, they came from the process's default CUDA generator,
+so the fraction depended on how many draws the runner made first (99.99965% at `d2a6546`).
+`chain_replay.json` was written from a clean tree at commit `61d23ade`. Both were regenerated
+after the AdaLN projection golden's declared cast was changed to round the FP32 SiLU, as the
+model does; every CUDA pass/fail flag is unchanged.
 
 ## Existing implementations (RFC #420 reuse rule)
 
