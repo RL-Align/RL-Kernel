@@ -302,10 +302,15 @@ _T95 = {
 
 
 def _mean_ci95(values):
-    """Return (mean, low, high) for a 95% interval on the mean."""
+    """Return (mean, low, high) for a 95% interval, bounds None below two samples.
+
+    None rather than an infinite bound: the report is written with
+    ``json.dumps(allow_nan=False)``, so an infinity meant a single-pass run
+    completed the whole matrix and then died serialising it.
+    """
     mean = statistics.mean(values)
     if len(values) < 2:
-        return mean, float("-inf"), float("inf")
+        return mean, None, None
     sd = statistics.stdev(values)
     t = _T95.get(len(values) - 1, 1.96)
     half = t * sd / math.sqrt(len(values))
@@ -313,6 +318,8 @@ def _mean_ci95(values):
 
 
 def _verdict(low, high):
+    if low is None or high is None:
+        return "single pass, no interval"
     if low > 1.0:
         return "faster"
     if high < 1.0:
@@ -401,6 +408,24 @@ def _determinism(passes):
     }
 
 
+def _interval(item):
+    """95% bounds, or a dash when a single pass leaves them undefined."""
+    if item["ci95_low"] is None or item["ci95_high"] is None:
+        return "n/a"
+    return f"[{item['ci95_low']:.3f}, {item['ci95_high']:.3f}]"
+
+
+def _ms(side):
+    """Median with its spread, or bare when a single repetition gives no spread.
+
+    ``PerformanceProfiler._time_kernel`` returns ``None`` for the deviation when
+    ``repeat`` is 1, and ``--repeat 1`` is reachable from the CLI.
+    """
+    if side["std_ms"] is None:
+        return f"{side['median_ms']:.6f}"
+    return f"{side['median_ms']:.6f} ± {side['std_ms']:.6f}"
+
+
 def _reproducibility_lines(report):
     """Headline table: what each figure does across whole-matrix passes."""
     summary = report.get("reproducibility") or []
@@ -428,7 +453,7 @@ def _reproducibility_lines(report):
     for item in sorted(summary, key=lambda d: (order.get(d["dtype"], 9), modes.get(d["mode"], 9))):
         lines.append(
             f"| {item['dtype']} | {item['mode']} | {item['mean_speedup']:.3f}x | "
-            f"[{item['ci95_low']:.3f}, {item['ci95_high']:.3f}] | "
+            f"{_interval(item)} | "
             f"{item['min_speedup']:.3f}x | {item['max_speedup']:.3f}x | {item['verdict']} |"
         )
     if det.get("compared_rows"):
@@ -485,8 +510,7 @@ def _markdown(report):
         n, t = row["native"], row["triton"]
         lines.append(
             f"| {row['dtype']} | {'x'.join(map(str, row['shape']))} | {row['mode']} | "
-            f"{n['median_ms']:.6f} ± {n['std_ms']:.6f} | "
-            f"{t['median_ms']:.6f} ± {t['std_ms']:.6f} | {row['speedup']:.2f}x | "
+            f"{_ms(n)} | {_ms(t)} | {row['speedup']:.2f}x | "
             f"{n['peak_extra_gib']:.4f} | {t['peak_extra_gib']:.4f} |"
         )
     return "\n".join(lines) + "\n"

@@ -411,13 +411,22 @@ def test_swiglu_matches_native_on_museglimmer_shapes(impl, dtype, shape):
     gate_ref = gate_cpu.to(dtype).float().detach().requires_grad_(True)
     up_ref = up_cpu.to(dtype).float().detach().requires_grad_(True)
     dy_ref = dy_cpu.to(dtype).float()
-    NativeSwiGLUOp().forward_fp32(gate_ref, up_ref).backward(dy_ref)
+    out_ref = NativeSwiGLUOp().forward_fp32(gate_ref, up_ref)
+    out_ref.backward(dy_ref)
 
     gate_gpu = gate_cpu.to(device="cuda", dtype=dtype).detach().requires_grad_(True)
     up_gpu = up_cpu.to(device="cuda", dtype=dtype).detach().requires_grad_(True)
-    _make_swiglu_op(impl).forward(gate_gpu, up_gpu).backward(dy_cpu.to(device="cuda", dtype=dtype))
+    out_gpu = _make_swiglu_op(impl).forward(gate_gpu, up_gpu)
+    out_gpu.backward(dy_cpu.to(device="cuda", dtype=dtype))
 
     atol, rtol = _dtype_tolerance(dtype)
+    # The forward output is asserted, not just the gradients. A backend that
+    # swapped gate for up, or got the sigmoid wrong, can still produce gradients
+    # that pass at these tolerances, so dropping this check would let a wrong
+    # forward through at exactly the width this row exists to qualify.
+    torch.testing.assert_close(
+        out_gpu.detach().cpu().float(), out_ref.detach(), atol=atol, rtol=rtol
+    )
     torch.testing.assert_close(
         gate_gpu.grad.detach().cpu().float(), gate_ref.grad, atol=atol, rtol=rtol
     )
