@@ -21,9 +21,11 @@ from rl_engine.backends.cuda.model_specific.minimax_h3.adaln_row_gather import (
     adaln_row_gather_available,
 )
 from rl_engine.backends.cuda.model_specific.minimax_h3.det_linear import (
+    ACT_NONE,
     det_linear_available,
     det_linear_backward_input,
     det_linear_backward_weight,
+    det_linear_device_supported,
     det_linear_forward,
     silu_backward_fp32,
 )
@@ -54,7 +56,7 @@ class _H3AdaLNModulationCuda(torch.autograd.Function):
     def forward(ctx, temb, weight, bias, timestep_indices, token_tags, hidden):
         temb = temb.contiguous()
         act = F.silu(temb).to(weight.dtype)
-        (table,) = det_linear_forward(act, weight, bias)
+        (table,) = det_linear_forward(act, weight, bias, activation=ACT_NONE)
         rows = table.view(-1, H3_ADALN_CHUNKS * hidden)
         packed = _C.h3_adaln_row_gather_forward(
             rows, timestep_indices, token_tags, H3_ADALN_CHUNKS, H3_MODALITY_NUM
@@ -74,7 +76,9 @@ class _H3AdaLNModulationCuda(torch.autograd.Function):
         d_table = d_rows.view(num_timesteps, width)
         d_temb = dw = db = None
         if need_weight or need_bias:
-            dw, db = det_linear_backward_weight(d_table, act, weight.dtype)
+            # The bias fold is skipped when only the weight needs a gradient.
+            dw, *rest = det_linear_backward_weight(d_table, act, weight.dtype, with_bias=need_bias)
+            db = rest[0] if need_bias else None
         if need_temb:
             d_temb = silu_backward_fp32(
                 det_linear_backward_input(d_table, weight, torch.float32), temb
@@ -108,12 +112,14 @@ class H3AdaLNModulationCudaOp:
     def __init__(self) -> None:
         if not (det_linear_available() and adaln_row_gather_available()):
             raise RuntimeError("rl_engine._C lacks the h3_det_linear_* / h3_adaln_row_gather_* ops")
+        if not det_linear_device_supported():
+            raise RuntimeError("the BF16 h3 det_linear forward needs SM80 or newer")
 
     def __call__(self, temb, weight, bias, timestep_indices, token_tags, *, check_range=True):
         hidden = validate_h3_adaln_projection(temb, weight, bias)
         if not temb.is_cuda:
             raise ValueError("H3AdaLNModulationCudaOp needs CUDA tensors")
-        _validate_indices(timestep_indices, token_tags, temb.shape[0], check_range)
+        _validate_indices(timestep_indices, token_tags, temb.shape[0], temb.device, check_range)
         packed = _H3AdaLNModulationCuda.apply(
             temb,
             weight,
@@ -125,9 +131,8 @@ class H3AdaLNModulationCudaOp:
         return tuple(packed.unbind(0))
 
 
-def _validate_indices(timestep_indices, token_tags, num_timesteps, check_range):
-    # Reuse the gather's checks against a stand-in of the right row count.
-    stand_in = torch.empty(
-        (num_timesteps * H3_MODALITY_NUM, H3_ADALN_CHUNKS), device=timestep_indices.device
-    )
+def _validate_indices(timestep_indices, token_tags, num_timesteps, device, check_range):
+    # Reuse the gather's checks against a stand-in of the right row count on temb's device, so
+    # indices on another device are rejected here.
+    stand_in = torch.empty((num_timesteps * H3_MODALITY_NUM, H3_ADALN_CHUNKS), device=device)
     validate_h3_adaln_row_gather(stand_in, timestep_indices, token_tags, check_range=check_range)

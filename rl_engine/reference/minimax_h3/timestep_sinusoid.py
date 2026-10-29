@@ -7,9 +7,11 @@ H3 builds ``Timesteps(num_channels=256, flip_sin_to_cos=True,
 downscale_freq_shift=0)`` and feeds it the *distinct* timestep values of the
 packed sequence, unscaled in ``[0, 1]`` (``t = 1 - sigma``)::
 
-    freq[k] = exp(-ln(10000) * k / 128)          k = 0..127, FP32
+    freq[k] = exp(-ln(10000) * k / half)         k = 0..half-1, half = num_channels // 2, FP32
     arg[t, k] = t * freq[k]                      FP32
-    out[t] = [cos(arg[t]) | sin(arg[t])]         (T, 256) FP32
+    out[t] = [cos(arg[t]) | sin(arg[t])]         (T, num_channels) FP32
+
+H3 pins ``num_channels = 256`` (``half = 128``).
 
 The output is always FP32: ``time_embedder`` is a ``_keep_in_fp32_modules``
 module in the checkpoint, so the features never pass through BF16.
@@ -34,7 +36,8 @@ def validate_h3_timesteps(
     ``check_range`` rejects values outside ``[0, 1]``: H3 consumes
     ``t = 1 - sigma`` unscaled, so a ``t * 1000`` caller (RFC probe H10) is a
     convention error, not a different valid input. It reads the tensor back
-    to the host, which is cheap for the handful of distinct timesteps.
+    to the host (one device-to-host sync per call), which is cheap for the handful of distinct
+    timesteps; ``check_range=False`` skips it and keeps the structural checks.
     """
 
     if not isinstance(timestep, torch.Tensor):
@@ -63,6 +66,10 @@ class NativeH3TimestepSinusoidOp:
     ``forward`` replays diffusers' ``get_timestep_embedding`` op for op on the
     input's device (the provider path). ``forward_fp32`` is the independent
     golden: the same formula evaluated in FP64 and rounded once to FP32.
+
+    bf16/fp16 timesteps are accepted and upcast to FP32 first (``timesteps[:, None].float()``), as
+    diffusers does; the features are then computed from the rounded low-precision value, so a caller
+    who needs a different input rounds it before the call. The CUDA op does the same.
     """
 
     op_class = "elementwise"
@@ -122,6 +129,8 @@ class NativeH3TimestepSinusoidOp:
     def frequencies_fp32(num_channels: int, device: torch.device | str) -> torch.Tensor:
         """The FP32 frequency table the provider path multiplies by."""
 
+        if num_channels <= 0 or num_channels % 2 != 0:
+            raise ValueError(f"num_channels must be a positive even number, got {num_channels}")
         half = num_channels // 2
         exponent = -math.log(H3_MAX_PERIOD) * torch.arange(
             start=0, end=half, dtype=torch.float32, device=device

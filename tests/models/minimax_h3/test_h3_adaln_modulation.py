@@ -56,15 +56,32 @@ def _leaf_grads(fn, temb, weight, bias, grads):
     return [leaf.grad for leaf in leaves]
 
 
+def test_pre_sm80_device_is_refused_at_construction_so_the_registry_can_fall_back(monkeypatch):
+    from rl_engine.backends.cuda.model_specific.minimax_h3 import adaln_modulation as module
+
+    monkeypatch.setattr(module, "det_linear_available", lambda: True)
+    monkeypatch.setattr(module, "adaln_row_gather_available", lambda: True)
+    monkeypatch.setattr(module, "det_linear_device_supported", lambda: False)
+    with pytest.raises(RuntimeError, match="SM80"):
+        module.H3AdaLNModulationCudaOp()
+
+
 @requires_cuda
 class TestFusedModulation:
+    def test_indices_on_another_device_than_temb_are_rejected(self):
+        fused, _, _ = _ops()
+        temb, weight, bias = _params(64, 2688)
+        ti, tags = h3_packed_layout(1000, 3)
+        with pytest.raises(ValueError, match="rows are on"):
+            fused(temb, weight, bias, ti.cpu(), tags.cpu(), check_range=False)
+
     def test_forward_bitwise_equal_to_separate_ops(self):
         fused, proj, gather = _ops()
         temb, weight, bias = _params(64, 2688)
         ti, tags = h3_packed_layout(1000, 3)
         ours = fused(temb, weight, bias, ti, tags)
         separate = gather.gather_chunks(proj(temb, weight, bias), ti, tags)
-        assert all(torch.equal(a, b) for a, b in zip(ours, separate))
+        assert all(torch.equal(a, b) for a, b in zip(ours, separate, strict=True))
 
     def test_backward_keeps_table_gradient_fp32(self, h3_weights_cpu):
         fused, proj, gather = _ops()
@@ -104,8 +121,27 @@ class TestFusedModulation:
         assert rel(ours[0], ref[0].grad) < 1e-5
         assert rel(ours[0], ref[0].grad) < rel(separate[0], ref[0].grad) / 100
         # dW, db: only their own final BF16 rounding remains.
-        for grad, golden in zip(ours[1:], (ref[1].grad, ref[2].grad)):
+        for grad, golden in zip(ours[1:], (ref[1].grad, ref[2].grad), strict=True):
             assert (grad == golden.to(torch.bfloat16)).float().mean() > 0.9999
+
+    @pytest.mark.parametrize("frozen", ["bias", "weight", "temb", "bias_and_temb"])
+    def test_frozen_inputs_get_no_gradient_and_the_others_are_unchanged(self, frozen):
+        fused, _, _ = _ops()
+        temb, weight, bias = _params(64, 2688, seed=5)
+        ti, tags = h3_packed_layout(1500, 3, seed=5)
+        grads = _grads(1500, 64, seed=5)
+        full = _leaf_grads(lambda t, w, b: fused(t, w, b, ti, tags), temb, weight, bias, grads)
+
+        leaves = [t.detach().clone() for t in (temb, weight, bias)]
+        names = ("temb", "weight", "bias")
+        for leaf, name in zip(leaves, names, strict=True):
+            leaf.requires_grad_(name not in frozen)
+        torch.autograd.backward(list(fused(*leaves, ti, tags)), grads)
+        for leaf, name, expected in zip(leaves, names, full, strict=True):
+            if name in frozen:
+                assert leaf.grad is None
+            else:
+                assert torch.equal(leaf.grad, expected)
 
     def test_backward_repeat_bitwise(self):
         fused, _, _ = _ops()
@@ -114,7 +150,7 @@ class TestFusedModulation:
         grads = _grads(3000, 64, seed=3)
         first = _leaf_grads(lambda t, w, b: fused(t, w, b, ti, tags), temb, weight, bias, grads)
         again = _leaf_grads(lambda t, w, b: fused(t, w, b, ti, tags), temb, weight, bias, grads)
-        assert all(torch.equal(a, b) for a, b in zip(first, again))
+        assert all(torch.equal(a, b) for a, b in zip(first, again, strict=True))
 
     def test_rejects_bad_indices(self):
         fused, _, _ = _ops()
