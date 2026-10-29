@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """DSV4 sealed collective plan and executable Gloo reference tests."""
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -57,6 +58,15 @@ def _rank_worker(rank, rendezvous, scenario):
     dist.init_process_group("gloo", init_method=f"file://{rendezvous}", rank=rank, world_size=4)
     try:
         plan = _contract()
+        if scenario == "empty":
+            plan = replace(
+                plan,
+                phases=(
+                    CollectivePhase("tp_empty", "tp", "all_gather", (0,), torch.float32),
+                    CollectivePhase("sp_empty", "sp", "all_reduce", (0,), torch.float32),
+                    CollectivePhase("dp_empty", "dp", "all_reduce", (0,), torch.float32),
+                ),
+            )
         groups = {}
         for dimension in ("tp", "sp", "dp"):
             for ranks in getattr(plan, f"{dimension}_groups"):
@@ -77,6 +87,12 @@ def _rank_worker(rank, rendezvous, scenario):
                     runtime.begin_step(8, model_version="checkpoint-42")
                 return
             runtime.begin_step(7, model_version="checkpoint-42")
+            if scenario == "empty":
+                for phase in plan.phases:
+                    result = runtime.execute(phase.name, torch.empty(0))
+                    assert tuple(result.shape) == (0,)
+                runtime.end_step()
+                return
             if scenario == "phase_mismatch":
                 with pytest.raises(Dsv4CollectiveError, match="mismatch"):
                     runtime.execute(
@@ -111,11 +127,16 @@ def _rank_worker(rank, rendezvous, scenario):
 
 
 @pytest.mark.parametrize(
-    "scenario", ["valid", "version_mismatch", "phase_mismatch", "shape_mismatch"]
+    "scenario", ["valid", "empty", "version_mismatch", "phase_mismatch", "shape_mismatch"]
 )
 def test_four_rank_gloo_plan(tmp_path: Path, scenario: str):
     rendezvous = str(tmp_path / f"{scenario}-rendezvous")
     mp.spawn(_rank_worker, args=(rendezvous, scenario), nprocs=4, join=True)
+
+
+def test_empty_plan_rejects_reduce_scatter():
+    with pytest.raises(Dsv4CollectiveError, match="empty reduce-scatter"):
+        CollectivePhase("empty_shard", "dp", "reduce_scatter", (0,), torch.float32)
 
 
 @pytest.mark.skipif(

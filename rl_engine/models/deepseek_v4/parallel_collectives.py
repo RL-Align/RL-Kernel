@@ -124,7 +124,18 @@ class Dsv4ParallelCollectives:
                 and value.is_contiguous(),
                 f"{phase.name} input differs from sealed layout",
             )
-            result = getattr(self._collectives[phase.group], phase.operation)(value)
+            if value.numel() == 0:
+                # The world-wide phase handshake already established an empty input
+                # on every rank, so no backend transport is necessary.
+                group_size = self._collectives[phase.group].world_size
+                rows = value.size(0)
+                if phase.operation == "all_gather":
+                    rows *= group_size
+                elif phase.operation == "reduce_scatter":
+                    rows //= group_size
+                result = value.new_empty((rows, *value.shape[1:]))
+            else:
+                result = getattr(self._collectives[phase.group], phase.operation)(value)
             if phase.denominator is not None:
                 result = result / phase.denominator
         except Exception:

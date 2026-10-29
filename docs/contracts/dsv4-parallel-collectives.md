@@ -24,7 +24,8 @@ infer it from local batches. A change to token accounting requires a new plan.
 
 The current profile explicitly rejects CUDA Graph capture and unsupported
 backend/group sizes/dtypes. Empty ReduceScatter and asynchronous overlap have
-not been signed off. Control-plane object gathers cost latency; eliminating
+not been signed off. Empty AllGather and AllReduce use the synchronized phase
+handshake and skip the data transport. Control-plane object gathers cost latency; eliminating
 them requires a separately validated static schedule and belongs to item 42.
 This adapter is not yet wired into a full DSV4 optimizer/training step.
 
