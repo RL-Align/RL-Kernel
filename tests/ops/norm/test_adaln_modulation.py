@@ -108,6 +108,35 @@ def test_adaln_modulation_bf16_cast_and_backward():
     _assert_bytes_equal(modulation.grad[0, 18:], torch.ones(9, dtype=torch.bfloat16))
 
 
+@pytest.mark.parametrize("upstream_dtype", [torch.bfloat16, torch.float32])
+@pytest.mark.parametrize(
+    "mode,expected_dx,expected_dm",
+    [
+        ("y", [7 / 128, -7 / 128], [2.0, 0.0, -1.5, 0.0, 0.0, 0.0]),
+        ("gate", [0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 2.0, 3.0]),
+        ("both", [7 / 128, -7 / 128], [2.0, 0.0, -1.5, 0.0, 2.0, 3.0]),
+    ],
+)
+def test_native_bf16_adaln_backward_dtypes_and_partial_outputs(
+    upstream_dtype, mode, expected_dx, expected_dm
+):
+    # Mean=0, variance+eps=16: norm=(-3/4,3/4), dX=(7/128,-7/128).
+    x = torch.tensor([[[-3.0, 3.0], [-3.0, 3.0]]], dtype=torch.bfloat16, requires_grad=True)
+    modulation = torch.zeros(1, 6, dtype=torch.bfloat16, requires_grad=True)
+    y, gate = NativeAdaLNModulationOp()(x, modulation, eps=7.0)
+    dy = torch.tensor([1.0, 0.0], dtype=upstream_dtype).expand_as(y)
+    dg = torch.tensor([[[2.0, 3.0]]], dtype=upstream_dtype)
+    outputs, upstreams = {
+        "y": ((y,), (dy,)),
+        "gate": ((gate,), (dg,)),
+        "both": ((y, gate), (dy, dg)),
+    }[mode]
+    dx, dm = torch.autograd.grad(outputs, (x, modulation), upstreams)
+    assert y.dtype == gate.dtype == dx.dtype == dm.dtype == torch.bfloat16
+    _assert_bytes_equal(dx, torch.tensor(expected_dx, dtype=torch.bfloat16).expand_as(x))
+    _assert_bytes_equal(dm, torch.tensor([expected_dm], dtype=torch.bfloat16))
+
+
 def test_adaln_modulation_accepts_qwen_six_chunk_view():
     x = torch.randn(2, 3, 8)
     full = torch.randn(2, 48, requires_grad=True)
