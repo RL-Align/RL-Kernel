@@ -977,8 +977,13 @@ def test_autograd_wrapper_contiguity_and_gradient_routing(monkeypatch, needs_gra
     result = getattr(ascend.SwiGLUAscendOp(), method)(gate, up)
     result.backward(grad_out.to(result.dtype))
 
-    ref_gate = gate.detach().clone().requires_grad_(needs_grad[0])
-    ref_up = up.detach().clone().requires_grad_(needs_grad[1])
+    # .contiguous(), not .clone(): clone preserves the transposed view's strides,
+    # so the reference would run a non-contiguous layout while the wrapper under
+    # test runs a contiguous copy. CPU bf16 sigmoid vectorizes differently across
+    # layouts, which breaks the rtol=0 comparison below on some random inputs.
+    # Same fix as #540 on main; this branch predates it.
+    ref_gate = gate.detach().contiguous().requires_grad_(needs_grad[0])
+    ref_up = up.detach().contiguous().requires_grad_(needs_grad[1])
     ref = getattr(NativeSwiGLUOp(), method)(ref_gate, ref_up)
     ref.backward(grad_out.to(ref.dtype))
     torch.testing.assert_close(result, ref, rtol=0, atol=0)
