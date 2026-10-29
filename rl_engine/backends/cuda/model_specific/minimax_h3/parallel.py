@@ -118,11 +118,18 @@ def _units_partial(x: torch.Tensor, w: torch.Tensor, tp: int) -> torch.Tensor:
     return tree_add(parts)
 
 
+def _cp_rows(t: torch.Tensor, cp_shard: SeqShard | None, cp_group) -> torch.Tensor:
+    """All CP ranks' rows of a per-row tensor (exact); ``t`` itself without context parallelism."""
+
+    return t if cp_shard is None else gather_packed(t, cp_shard, cp_group)
+
+
 class _RowParallel(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, x, w, collective, tp, scatter):
+    def forward(ctx, x, w, collective, tp, scatter, cp_shard, cp_group):
         ctx.save_for_backward(x, w)
         ctx.scatter, ctx.collective = scatter, collective
+        ctx.cp_shard, ctx.cp_group = cp_shard, cp_group
         partial = _units_partial(x, w, tp)
         if tp > 1:
             partial = (
@@ -137,21 +144,31 @@ class _RowParallel(torch.autograd.Function):
             grad = ctx.collective.all_gather(grad.contiguous())
         grad = grad.contiguous()
         dx = g.gemm(grad, w)  # reduction over N: independent of the shard
-        dw = g.gemm(grad, x, a_t=True)  # reduction over tokens: independent of the shard
-        return dx, dw, None, None, None
+        # reduction over tokens: with CP the rows of every CP rank, so the token sweep is the
+        # unsharded one (each CP rank computes the same dW; no partial sums are merged)
+        dw = g.gemm(
+            _cp_rows(grad, ctx.cp_shard, ctx.cp_group),
+            _cp_rows(x, ctx.cp_shard, ctx.cp_group),
+            a_t=True,
+        )
+        return dx, dw, None, None, None, None, None
 
 
-def row_parallel_linear(x, w_shard, collective=None, tp: int = 1, scatter: bool = False):
+def row_parallel_linear(
+    x, w_shard, collective=None, tp: int = 1, scatter: bool = False, cp_shard=None, cp_group=None
+):
     """``y = x @ W.T`` with ``x (T, K/tp)`` and ``w_shard (N, K/tp)``; ``y`` bitwise TP-invariant.
 
     ``scatter`` gives this rank's ``T/tp`` rows of ``y`` (sequence parallel) instead of all of it.
+    With context parallelism ``x`` holds this rank's rows only; passing ``cp_shard`` / ``cp_group``
+    makes ``dW`` the sweep over all CP ranks' rows (bitwise the unsharded gradient).
     """
 
     if x.dim() != 2 or w_shard.dim() != 2 or x.shape[1] != w_shard.shape[1]:
         raise ValueError("row_parallel_linear needs x (T, K/tp) and w (N, K/tp)")
     if tp > 1 and collective is None:
         raise ValueError("tp > 1 needs a collective")
-    return _RowParallel.apply(x.contiguous(), w_shard, collective, tp, scatter)
+    return _RowParallel.apply(x.contiguous(), w_shard, collective, tp, scatter, cp_shard, cp_group)
 
 
 # --- Column-parallel linear (backward reduces over the sharded axis) ------------------------------
@@ -159,9 +176,10 @@ def row_parallel_linear(x, w_shard, collective=None, tp: int = 1, scatter: bool 
 
 class _ColumnParallel(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, x, collective, tp, gather, *weights):
+    def forward(ctx, x, collective, tp, gather, cp_shard, cp_group, *weights):
         ctx.save_for_backward(x, *weights)
         ctx.collective, ctx.tp, ctx.gather = collective, tp, gather
+        ctx.cp_shard, ctx.cp_group = cp_shard, cp_group
         full_x = collective.all_gather(x) if gather else x
         ctx.full_x = full_x if gather else None
         return tuple(g.gemm(full_x, w, b_t=True) for w in weights)
@@ -192,23 +210,36 @@ class _ColumnParallel(torch.autograd.Function):
                 else ctx.collective.all_reduce(partial)
             )
         dx = partial.to(x.dtype)
-        dws = tuple(g.gemm(grad, full_x, a_t=True) for grad in grads)
-        return (dx, None, None, None, *dws)
+        rows_x = _cp_rows(full_x, ctx.cp_shard, ctx.cp_group)
+        dws = tuple(
+            g.gemm(_cp_rows(grad, ctx.cp_shard, ctx.cp_group), rows_x, a_t=True) for grad in grads
+        )
+        return (dx, None, None, None, None, None, *dws)
 
 
 def column_parallel_linear(
-    x, weights: Sequence[torch.Tensor], collective=None, tp: int = 1, gather: bool = False
+    x,
+    weights: Sequence[torch.Tensor],
+    collective=None,
+    tp: int = 1,
+    gather: bool = False,
+    cp_shard=None,
+    cp_group=None,
 ):
     """``[x @ w.T for w in weights]`` with each ``w`` a row shard ``(N/tp, K)``.
 
     The forward is the unsharded projection's columns (no collective). With ``gather``, ``x`` is
     this rank's rows of a sequence-parallel activation, gathered first (exact), and ``dX`` is
-    reduce-scattered back to rows. ``dX`` is the canonical 8-unit tree for every ``tp``.
+    reduce-scattered back to rows. ``dX`` is the canonical 8-unit tree for every ``tp``. With
+    context parallelism, ``cp_shard`` / ``cp_group`` make each ``dW`` the sweep over all CP ranks'
+    rows (bitwise the unsharded gradient).
     """
 
     if tp > 1 and collective is None:
         raise ValueError("tp > 1 needs a collective")
-    return _ColumnParallel.apply(x.contiguous(), collective, tp, gather, *weights)
+    return _ColumnParallel.apply(
+        x.contiguous(), collective, tp, gather, cp_shard, cp_group, *weights
+    )
 
 
 # --- Context parallelism (Ulysses) ---------------------------------------------------------------

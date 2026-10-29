@@ -125,7 +125,7 @@ def run_tp_block(
 
     if hidden.shape[0] != 1:
         raise ValueError("the parallel block takes one packed sequence (batch 1)")
-    tp, w = grid.tp, (lambda name: weights[f"{hb.BLOCK}.{name}"])
+    tp = grid.tp
     seq = seq_len or hidden.shape[1]
     shard = grid.seq_shard(seq)
     h = par.coshard(shard, hidden, dim=1)[0]
@@ -140,6 +140,33 @@ def run_tp_block(
         h_res, idx_res = h[:, lo:hi].contiguous(), idx[lo:hi].contiguous()
     else:
         h_res, idx_res = h, idx
+    return run_tp_block_rows(
+        weights, h_res, idx_res, cos, sin, temb, ops, grid, sp=sp, shard=shard, leaves=leaves
+    )
+
+
+def run_tp_block_rows(
+    weights: dict[str, torch.Tensor],
+    h_res: torch.Tensor,
+    idx_res: torch.Tensor,
+    cos: torch.Tensor,
+    sin: torch.Tensor,
+    temb: torch.Tensor,
+    ops: hb.CandidateOps,
+    grid: Grid,
+    *,
+    sp: bool,
+    shard: par.SeqShard,
+    leaves: dict[str, torch.Tensor] | None = None,
+) -> torch.Tensor:
+    """The block body for rows this rank already holds (what a chained model hands each block).
+
+    ``h_res`` / ``idx_res`` are this rank's residual rows (its CP rows, or its TP share of them
+    with ``sp``), ``cos`` / ``sin`` the rotary tables of its CP rows. Returns the residual rows.
+    """
+
+    tp, w = grid.tp, (lambda name: weights[f"{hb.BLOCK}.{name}"])
+    rows = shard.sizes[grid.cp_rank]
     coll = grid.tp_collective
 
     def leaf(name, tensor):
@@ -151,9 +178,12 @@ def run_tp_block(
 
     table = ops.projection(temb, w("adaln_proj.linear.weight"), w("adaln_proj.linear.bias"))
 
+    cp_shard = shard if grid.cp > 1 else None  # dW sweeps every CP rank's rows
+    cp_args = dict(cp_shard=cp_shard, cp_group=grid.cp_group)
+
     def proj_in(x, name_weights, gather):
         flat = x.reshape(-1, HIDDEN)
-        return par.column_parallel_linear(flat, name_weights, coll, tp, gather=gather)
+        return par.column_parallel_linear(flat, name_weights, coll, tp, gather=gather, **cp_args)
 
     x = ops.norm.forward_modulated(h_res, w("norm1.weight"), table[0], table[1], idx_res)
     q, k, v = proj_in(
@@ -189,6 +219,7 @@ def run_tp_block(
         coll,
         tp,
         scatter=sp,
+        **cp_args,
     )
     h1 = ops.gate(h_res, o.view(1, -1, HIDDEN), table[2], idx_res)
     x2 = ops.norm.forward_modulated(h1, w("norm2.weight"), table[3], table[4], idx_res)
@@ -209,6 +240,7 @@ def run_tp_block(
         coll,
         tp,
         scatter=sp,
+        **cp_args,
     )
     return ops.gate(h1, down.view(1, -1, HIDDEN), table[5], idx_res)
 

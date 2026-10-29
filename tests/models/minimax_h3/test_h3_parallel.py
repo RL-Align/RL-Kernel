@@ -228,21 +228,25 @@ def test_parallel_block_equals_single_gpu_bitwise(tp, cp, sp, length):
     assert torch.equal(out.cpu(), ref["out"].cpu()), "forward differs from the single-GPU block"
     dx, _ = _assemble(ranks, tp, cp, "dx")
     assert torch.equal(dx.cpu(), ref["dx"].cpu()), "input gradient differs"
-    if cp == 1:  # weight gradients: shards of the unsharded gradient
-        for name, axis in (
-            ("attn.to_out.0.weight", 1),
-            ("ff.net.2.weight", 1),
-            ("attn.to_q.weight", 0),
-            ("attn.to_k.weight", 0),
-            ("attn.to_v.weight", 0),
-            ("ff.hidden", 0),
-            ("ff.gate", 0),
-        ):
-            if sp:
-                continue  # SP shards sequence rows; dW is reduced over rows below
-            full = ref["dw." + name].cpu()
-            shards = [r["dw." + name].cpu() for r in sorted(ranks, key=lambda r: r["rank"])]
-            assert torch.equal(torch.cat(shards, dim=axis), full), f"dW {name} differs"
+    # weight gradients are shards of the unsharded gradient; with CP every CP rank of a TP column
+    # computes the same shard (the sweep over all rows), so the columns agree with each other
+    ordered = sorted(ranks, key=lambda r: r["rank"])
+    for name, axis in (
+        ("attn.to_out.0.weight", 1),
+        ("ff.net.2.weight", 1),
+        ("attn.to_q.weight", 0),
+        ("attn.to_k.weight", 0),
+        ("attn.to_v.weight", 0),
+        ("ff.hidden", 0),
+        ("ff.gate", 0),
+    ):
+        full = ref["dw." + name].cpu()
+        shards = [r["dw." + name].cpu() for r in ordered[:tp]]
+        assert torch.equal(torch.cat(shards, dim=axis), full), f"dW {name} differs"
+        for r in ordered:
+            assert torch.equal(
+                r["dw." + name].cpu(), shards[ordered.index(r) % tp]
+            ), f"dW {name} differs between CP ranks"
 
 
 @needs_gpu
