@@ -168,6 +168,38 @@ class TestShardArithmetic:
                 _TPAdaLNProjection.backward(node, bad.to(table.dtype))
         assert _TPAdaLNProjection.backward(node, grad.to(table.dtype))[0].shape == temb.shape
 
+    @pytest.mark.parametrize("frozen", [("weight",), ("bias",), ("weight", "bias")])
+    def test_backward_skips_the_gradients_of_a_frozen_shard(self, frozen):
+        _require_ext()
+        from rl_engine.backends.cuda.model_specific.minimax_h3.tp_adaln_projection import (
+            H3TPAdaLNProjectionCudaOp,
+            shard_adaln_projection,
+        )
+
+        one = SimpleNamespace(rank=0, world_size=1, backend_id="none", all_gather=lambda t: t)
+        temb, weight, bias, grad = _inputs(2, 3 * 6 * 256, 136)
+        op = H3TPAdaLNProjectionCudaOp(one, weight.shape[0])
+        w, b = shard_adaln_projection(weight, bias, 1, 0)
+        leaves = {
+            "temb": temb.clone().requires_grad_(True),
+            "weight": w.clone().requires_grad_("weight" not in frozen),
+            "bias": b.clone().requires_grad_("bias" not in frozen),
+        }
+        table = op.forward_table(*leaves.values())
+        got = table.grad_fn.apply(grad.to(table.dtype))
+        reference = {
+            name: leaf.detach().clone().requires_grad_(True) for name, leaf in leaves.items()
+        }
+        for name in leaves:
+            reference[name].requires_grad_(name not in frozen)
+        reference["temb"].requires_grad_(True)
+        op.forward_table(*reference.values()).backward(grad.to(table.dtype))
+        for name, value in zip(("temb", "weight", "bias"), got[:3], strict=True):
+            if name in frozen:
+                assert value is None
+            else:
+                assert torch.equal(value, reference[name].grad)
+
 
 @pytest.mark.parametrize("world", [2, 4, 8])
 @pytest.mark.skipif(int(os.environ.get("WORLD_SIZE", "1")) != 1, reason="owns its processes")
