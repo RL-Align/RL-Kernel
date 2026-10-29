@@ -86,8 +86,8 @@ def strict_add_rms_norm(
     return _strict_add_rms_norm(x, residual, weight, eps)
 
 
-def shape_invariant_rstd(x_f: torch.Tensor, eps: float) -> torch.Tensor:
-    """Shape-invariant per-row rstd (the shared RMSNorm statistic).
+def shape_invariant_meansq(x_f: torch.Tensor) -> torch.Tensor:
+    """Shape-invariant per-row mean of squares (the shared RMSNorm statistic).
 
     torch mean/sum select shape-dependent reduction kernels on NPU and flip
     single-ULP results between batch layouts (e.g. [1,7,H] vs [1,20,H]),
@@ -95,16 +95,24 @@ def shape_invariant_rstd(x_f: torch.Tensor, eps: float) -> torch.Tensor:
     in FIXED 32-wide chunks first, so the intermediate shapes -- and hence
     the reduction kernels -- never depend on the batch layout, and the
     result is bitwise identical for every layout on every device.
+
+    Split out from ``shape_invariant_rstd`` because the reciprocal square root
+    is not spelled the same way everywhere: Muse-Glimmer's fingerprint freezes
+    ``rsqrt`` for the decoder norms and ``pow_neg_half`` for the final norm, and
+    both have to share this reduction or batch invariance goes with it.
     """
     hidden = x_f.shape[-1]
     if hidden % 32 != 0:
-        var = x_f.pow(2).mean(dim=-1)
-        return torch.rsqrt(var + float(eps))
+        return x_f.pow(2).mean(dim=-1)
     sq = x_f.pow(2).reshape(*x_f.shape[:-1], -1, 32)
     partial = sq.sum(dim=-1)  # [*, C] — fixed 32-wide chunks
     sumsq = partial.sum(dim=-1)  # [*lead]
-    var = sumsq / float(hidden)
-    return torch.rsqrt(var + float(eps))
+    return sumsq / float(hidden)
+
+
+def shape_invariant_rstd(x_f: torch.Tensor, eps: float) -> torch.Tensor:
+    """Shape-invariant per-row rstd, ``rsqrt`` form."""
+    return torch.rsqrt(shape_invariant_meansq(x_f) + float(eps))
 
 
 class NativeRMSNormOp:
