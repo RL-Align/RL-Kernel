@@ -38,6 +38,22 @@ def _args(**overrides):
     return argparse.Namespace(**values)
 
 
+def test_video_input_projection_contract_and_logical_keys():
+    args = _args(batch=2, seq=3)
+    inputs = make_operator_inputs(
+        "video_input_projection_fp32", args, torch.float32, torch.device("cpu")
+    )
+    assert inputs["x"].shape == (2, 3, 96)
+    assert inputs["weight"].shape == (5376, 96)
+    assert inputs["bias"].shape == (5376,)
+    assert inputs["logical_keys"].tolist() == [[0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [1, 2]]
+    assert operator_shape_name("video_input_projection_fp32", args) == "2x3x96x5376"
+    with pytest.raises(TypeError, match="FP32"):
+        make_operator_inputs(
+            "video_input_projection_fp32", args, torch.bfloat16, torch.device("cpu")
+        )
+
+
 @pytest.mark.parametrize(
     "op_name",
     [
