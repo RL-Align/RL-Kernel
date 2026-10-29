@@ -14,6 +14,7 @@ Covers:
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass, fields
 from types import SimpleNamespace
 
 import pytest
@@ -425,6 +426,20 @@ def test_swiglu_matches_native_on_museglimmer_shapes(impl, dtype, shape):
     )
 
 
+@dataclass(frozen=True)
+class _SwiGLUResult:
+    """One backend's forward output and both input gradients, keyed by name.
+
+    A dataclass rather than a tuple on purpose: the two backends are compared
+    field by field, and a plain triple would let a reordered ``return`` pair
+    ``grad_gate`` against ``grad_up`` without any test failing.
+    """
+
+    out: torch.Tensor
+    grad_gate: torch.Tensor
+    grad_up: torch.Tensor
+
+
 def _run_cuda_and_triton_swiglu(dtype, shape):
     """Forward and backward on both GPU backends from identical device tensors."""
     gate = _rand(shape, seed=43, dtype=dtype, device="cuda").requires_grad_(True)
@@ -439,7 +454,10 @@ def _run_cuda_and_triton_swiglu(dtype, shape):
     y_triton = TritonSwiGLUOp().forward(gate, up)
     y_triton.backward(dy)
 
-    return (y_cuda, gate_c.grad, up_c.grad), (y_triton, gate.grad, up.grad)
+    return (
+        _SwiGLUResult(out=y_cuda, grad_gate=gate_c.grad, grad_up=up_c.grad),
+        _SwiGLUResult(out=y_triton, grad_gate=gate.grad, grad_up=up.grad),
+    )
 
 
 _requires_both_gpu_backends = pytest.mark.skipif(
@@ -460,33 +478,43 @@ def test_cuda_and_triton_swiglu_agree_within_contract(dtype, shape):
     see the companion xfail test. They must still agree within the same row of
     the tolerance contract that each is held to against the native gold.
     """
-    cuda_out, triton_out = _run_cuda_and_triton_swiglu(dtype, shape)
+    cuda_result, triton_result = _run_cuda_and_triton_swiglu(dtype, shape)
     atol, rtol = _dtype_tolerance(dtype)
-    for c, t in zip(cuda_out, triton_out, strict=True):
-        torch.testing.assert_close(c, t, atol=atol, rtol=rtol)
+    for spec in fields(_SwiGLUResult):
+        torch.testing.assert_close(
+            getattr(cuda_result, spec.name),
+            getattr(triton_result, spec.name),
+            atol=atol,
+            rtol=rtol,
+            msg=lambda built, name=spec.name: f"{name}: {built}",
+        )
 
 
 @requires_cuda
 @_requires_both_gpu_backends
 @pytest.mark.xfail(
-    strict=False,
+    strict=True,
     reason=(
         "RFC #501 asks for CUDA == Triton bitwise. The CUDA kernel computes "
         "sigmoid with expf and the Triton kernel with tl.exp; the two exponential "
         "primitives round differently, so outputs and gradients differ by a few "
-        "ulp before the cast to the input dtype. No operator in this repository "
-        "currently meets the bitwise bar across the two backends. strict=False "
-        "because a small case can coincide after the cast to bf16/fp16 by chance; "
-        "the agree_within_contract test above is the one that must pass."
+        "ulp. No operator in this repository currently meets the bitwise bar "
+        "across the two backends. strict=True so that the day the two backends do "
+        "converge this test reports XPASS instead of passing silently. FP32 only: "
+        "under bf16/fp16 the final cast can round both sides onto the same grid "
+        "point, which makes the outcome a property of the data rather than of the "
+        "kernels. Deviations on those dtypes are covered by the "
+        "agree_within_contract test above, which must pass on every dtype."
     ),
 )
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16, torch.float16])
 @pytest.mark.parametrize("shape", _MUSE_SHAPES + [(2, 8, _INTERMEDIATE)])
-def test_cuda_and_triton_swiglu_are_bitwise_equal(dtype, shape):
-    """RFC #501 acceptance item, recorded as an expected failure."""
-    cuda_out, triton_out = _run_cuda_and_triton_swiglu(dtype, shape)
-    for c, t in zip(cuda_out, triton_out, strict=True):
-        assert torch.equal(c, t)
+def test_cuda_and_triton_swiglu_are_bitwise_equal(shape):
+    """RFC #501 acceptance item, recorded as an expected failure. FP32 only."""
+    cuda_result, triton_result = _run_cuda_and_triton_swiglu(torch.float32, shape)
+    for spec in fields(_SwiGLUResult):
+        assert torch.equal(
+            getattr(cuda_result, spec.name), getattr(triton_result, spec.name)
+        ), spec.name
 
 
 @requires_cuda
