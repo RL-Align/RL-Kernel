@@ -12,6 +12,7 @@ from rl_engine.contracts.operators.attention import AttentionContractError
 C128_BACKEND_ID = "aiter.hca.c128.gfx942.fp32_pool.fixed8x64.norm_wave1.v1"
 MLITE_BACKWARD_SHA256 = "6a1e78ca89b83f56391b5e5ac409e765338f1e3a625251d0d4c877c1e80b4a68"
 AITer_HCA_SHA256 = "183136a19a0c76fe19fd99b084b9dca9631b5e1fcee0ff2a5c440c271eea07d8"
+AITer_HCA_LEGACY_SHA256 = "e7aaf267eb78dd16c24f2967c6f5f825781a8dbac81d837dad74f8218a2aad5a"
 
 
 class C128Error(AttentionContractError):

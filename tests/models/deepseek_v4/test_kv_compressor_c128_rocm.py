@@ -30,6 +30,19 @@ def backend():
     return AiterC128Backend()
 
 
+def test_unknown_hca_source_is_rejected_before_launch(backend, monkeypatch):
+    import rl_engine.backends.rocm.attention.kv_compressor_c128 as module
+
+    original = module.source_hash
+
+    def altered(path):
+        return "unvalidated-source" if str(path) == backend.hca.__file__ else original(path)
+
+    monkeypatch.setattr(module, "source_hash", altered)
+    with pytest.raises(C128Error, match="unvalidated aiter HCA"):
+        AiterC128Backend()
+
+
 def op(backend, **kwargs):
     return C128Compressor(C128Contract(**kwargs), backend=backend)
 
@@ -66,22 +79,37 @@ def test_native_forward_against_independent_fp64(backend, groups):
 def test_fixed_recipe_and_fp32_pool_are_bitwise_across_batch_sizes(backend, monkeypatch):
     operator = op(backend)
     x, ids, a, n, co, si = fixture(33 * 128, device="cuda")
-    pool = backend.hca.flydsl_hca_compress_forward
+    entrypoint = "flydsl_hca_compress_attn" if backend.legacy_hca else "flydsl_hca_compress_forward"
+    pool = getattr(backend.hca, entrypoint)
     compile_norm = backend.hca.compile_hca_norm_rope_scatter
     captured = []
 
     def capture(**kwargs):
         assert kwargs["k_split_num_waves"] == 8 and kwargs["slice_size"] == 64
+        if backend.legacy_hca:
+            scratch = torch.empty(
+                (kwargs["plan_gpu"].shape[0], 512),
+                dtype=torch.float32,
+                device=kwargs["kv_in"].device,
+            )
+            kwargs["kv_compressed_scratch"] = scratch
+            result = pool(**kwargs)
+            captured.append(scratch)
+            return result
         result = pool(**kwargs)
         captured.append(result)
         return result
 
     def norm(**kwargs):
-        assert kwargs["k_waves"] == 1
+        if backend.legacy_hca:
+            assert "k_waves" not in kwargs and backend.hca.BLOCK_THREADS == 64
+            assert kwargs["k_per_block"] == 1
+        else:
+            assert kwargs["k_waves"] == 1
         return compile_norm(**kwargs)
 
     with monkeypatch.context() as patch:
-        patch.setattr(backend.hca, "flydsl_hca_compress_forward", capture)
+        patch.setattr(backend.hca, entrypoint, capture)
         patch.setattr(backend.hca, "compile_hca_norm_rope_scatter", norm)
         full = operator(operator.bind(x, ids, version="v1"), a, n, co, si, version="v1").values
         full_pool = captured[-1]
@@ -204,7 +232,10 @@ def test_empty_native_never_launches_and_graph_is_rejected(backend, monkeypatch)
         raise AssertionError("native pool must not run for incomplete groups")
 
     with monkeypatch.context() as patch:
-        patch.setattr(backend.hca, "flydsl_hca_compress_forward", forbidden)
+        entrypoint = (
+            "flydsl_hca_compress_attn" if backend.legacy_hca else "flydsl_hca_compress_forward"
+        )
+        patch.setattr(backend.hca, entrypoint, forbidden)
         assert operator(b, a, n, co, si, version="v1").values.shape == (0, 512)
     graph = torch.cuda.CUDAGraph()
     with pytest.raises(C128Error, match="Graph"):
