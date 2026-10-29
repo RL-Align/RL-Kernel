@@ -6,19 +6,7 @@
 import torch
 
 from rl_engine.ops.gemm.video_output_projection_fp32 import validate_projection_inputs
-
-
-def _reference_matmul_fp32(a, b):
-    """Evaluate each CPU dot with independent FP32 products and torch.sum."""
-    a, bt = a.cpu().contiguous(), b.t().cpu().contiguous()
-    output = torch.empty((a.shape[0], bt.shape[0]), dtype=torch.float32)
-    # Tile only the output. Every torch.sum consumes the full logical K.
-    # This bounds temporary memory without copying a candidate's K partition.
-    for row in range(0, a.shape[0], 16):
-        for column in range(0, bt.shape[0], 16):
-            products = a[row : row + 16, None, :] * bt[None, column : column + 16, :]
-            output[row : row + 16, column : column + 16] = products.sum(dim=-1)
-    return output
+from rl_engine.reference.gemm.video_input_projection_fp32 import _reference_matmul_fp32
 
 
 class _ReferenceLinearFn(torch.autograd.Function):

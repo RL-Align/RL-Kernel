@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""Measure complete H3 FP32 projection calls after reference accuracy checks."""
+"""Measure H3 output projection on all mixed rows after accuracy and BI checks."""
 
 from __future__ import annotations
 
@@ -239,8 +239,8 @@ def main():
         raise ValueError("rows/samples must be positive and warmup must be non-negative")
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.manual_seed(args.seed)
-    weight = torch.randn(96, 5376, device="cuda") * 0.0625
-    bias = torch.randn(96, device="cuda") * 0.125
+    weight = torch.randn(96, 5376, device="cuda", dtype=torch.float32) * 0.0625
+    bias = torch.randn(96, device="cuda", dtype=torch.float32) * 0.125
     root = Path(__file__).resolve().parents[3]
     sources = [
         "benchmarks/operators/gemm/benchmark_video_output_projection_fp32.py",
@@ -249,6 +249,7 @@ def main():
         "rl_engine/ops/gemm/video_output_projection_fp32.py",
         "rl_engine/backends/shared/triton/gemm/det_gemm.py",
         "rl_engine/backends/shared/triton/gemm/video_output_projection_fp32.py",
+        "rl_engine/reference/gemm/video_input_projection_fp32.py",
         "rl_engine/reference/gemm/video_output_projection_fp32.py",
     ]
     # Source hashes also identify exported workspaces without Git metadata.
@@ -262,6 +263,15 @@ def main():
         "scope": "single H3 FP32 output projection; eager training and no-grad forward graph",
         "reference_id": NativeVideoOutputProjectionFP32Op.reference_id,
         "seed": args.seed,
+        "benchmark": {
+            "backends": args.backends,
+            "rows": args.rows,
+            "warmup": args.warmup,
+            "samples": args.samples,
+            "inputs": "seeded FP32 normal samples; x/bias scale 0.125, weight/grad scale 0.0625",
+            "timed_keys": "canonical row order; reversal BI is checked separately",
+            "throughput": "all projected mixed-sequence rows per eager forward/backward second",
+        },
         "environment": {
             "gpu": torch.cuda.get_device_name(),
             "torch": torch.__version__,
@@ -287,8 +297,8 @@ def main():
         "results": [],
     }
     for rows in args.rows:
-        x = torch.randn(rows, 5376, device="cuda") * 0.125
-        grad = torch.randn(rows, 96, device="cuda") * 0.0625
+        x = torch.randn(rows, 5376, device="cuda", dtype=torch.float32) * 0.125
+        grad = torch.randn(rows, 96, device="cuda", dtype=torch.float32) * 0.0625
         keys = torch.stack(
             (
                 torch.zeros(rows, dtype=torch.int64, device="cuda"),

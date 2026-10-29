@@ -119,6 +119,22 @@ class _CPUAdapter(VideoOutputProjectionFP32Op):
 
 
 @pytest.mark.parametrize("with_bias", [False, True])
+def test_cpu_reference_matches_fp64_linear(with_bias):
+    data = _data(3, "cpu")
+    if not with_bias:
+        data[2] = None
+    actual = _reference(data)
+    x, weight, bias, grad = [None if value is None else value.double() for value in data]
+    output = x @ weight.t()
+    if bias is not None:
+        output = output + bias
+    expected = (output, grad @ weight, grad.t() @ x, None if bias is None else grad.sum(0))
+    _assert_result_accuracy(
+        actual, tuple(None if value is None else value.float() for value in expected)
+    )
+
+
+@pytest.mark.parametrize("with_bias", [False, True])
 def test_cpu_reference_and_input_only_gradient(with_bias):
     data = _data(3, "cpu")
     x, weight, bias, grad = data
@@ -537,6 +553,25 @@ def test_projection_then_video_index_select(with_bias):
     _assert_bytes(weight.grad, explicit[2])
     _assert_bytes(None if bias is None else bias.grad, explicit[3])
 
+    # Move rows and their logical keys together. Remap video_indices so selection
+    # still returns the same logical video rows in the same order.
+    order = torch.randperm(17, generator=generator, device="cuda")
+    inverse = order.argsort()
+    px = x.detach().index_select(1, order).requires_grad_()
+    pw = weight.detach().clone().requires_grad_()
+    pb = None if bias is None else bias.detach().clone().requires_grad_()
+    permuted_keys = _keys(51, "cuda").reshape(3, 17, 2).index_select(1, order).reshape(51, 2)
+    with canonical_backward_session() as session:
+        projected = _op()(px, pw, pb, logical_keys=permuted_keys, parameter_id="proj_out")
+        permuted_selection = projected.index_select(1, inverse.index_select(0, video_indices))
+        permuted_selection.backward(selected_grad)
+        session.validate_complete()
+    _assert_bytes(permuted_selection, selected)
+    _assert_bytes(px.grad.index_select(1, inverse), x.grad)
+    _assert_bytes(pw.grad, weight.grad)
+    _assert_bytes(None if pb is None else pb.grad, None if bias is None else bias.grad)
+    assert torch.count_nonzero(px.grad[:, unused.index_select(0, order)]) == 0
+
 
 @requires_sm90
 def test_default_cuda_dispatch():
@@ -558,8 +593,11 @@ def test_projection_rejects_mixed_devices():
 
 def _layout(variant, frames, height, width, context_rows):
     """Build row counts and ranges from the pinned Diffusers 0.40.0 layout."""
+    assert frames % 17 == 5 and height % 32 == width % 32 == 0
     rows_per_frame = (height // 32) * (width // 32)
     latent_frames = (frames - 5) // 17 * 5 + 2
+    # Target audio uses the rounded latent grid; reference audio below instead
+    # uses the waveform length padded to the audio VAE's 800-sample hop.
     target_audio = 2 * round(frames / 24 * 40)
     target_video = latent_frames * rows_per_frame
     cursor, video_ranges = context_rows, []
@@ -594,30 +632,29 @@ def _tensor_digest(tensor, row_order=None):
             if row_order is None
             else value.index_select(0, row_order[start : start + 4096])
         )
-        digest.update(chunk.cpu().contiguous().view(torch.int32).numpy().tobytes())
+        chunk = chunk.cpu().contiguous()
+        assert torch.isfinite(chunk).all()
+        digest.update(chunk.view(torch.int32).numpy().tobytes())
     return digest.hexdigest()
 
 
 def _sampled_layout_accuracy(data, actual):
-    """Check sampled y/dX/dW and all dbias with independent full-K FP32 sums."""
+    """Check 32 y/dX rows, 16 dW input channels, and all dbias with full-K CPU sums."""
     x, weight, bias, grad = data
     rows = x.shape[0]
-    sample_rows = torch.tensor([0, 1, rows // 2, rows - 2, rows - 1], device=x.device)
-    input_columns = torch.tensor([0, 31, 95, 127, 1024, 4095, 5375], device=x.device)
-    output_columns = torch.tensor([0, 47, 95], device=x.device)
+    sample_rows = torch.linspace(0, rows - 1, 32, dtype=torch.int64, device=x.device)
+    input_columns = torch.linspace(0, 5375, 16, dtype=torch.int64, device=x.device)
     cx = x.detach().index_select(0, sample_rows).cpu()
     cw, cb = weight.detach().cpu(), bias.detach().cpu()
     cg = grad.index_select(0, sample_rows).cpu()
     expected_y = _reference_matmul_fp32(cx, cw.t()) + cb
     expected_dx = _reference_matmul_fp32(cg, cw)
-    expected_dw = _reference_matmul_fp32(
-        grad.index_select(1, output_columns).t(), x.detach().index_select(1, input_columns)
-    )
+    expected_dw = _reference_matmul_fp32(grad.t(), x.detach().index_select(1, input_columns))
     expected_dbias = grad.cpu().sum(dim=0)
     _assert_accuracy(actual[0].index_select(0, sample_rows), expected_y, "forward_accuracy")
     _assert_accuracy(actual[1].index_select(0, sample_rows), expected_dx, "gradient_accuracy")
     _assert_accuracy(
-        actual[2].index_select(0, output_columns).index_select(1, input_columns),
+        actual[2].index_select(1, input_columns),
         expected_dw,
         "gradient_accuracy",
     )
@@ -681,9 +718,7 @@ def _run_layout(rows, video_ranges, *, permuted_chunks):
         pytest.param("t2va", 243, 1344, 768, 1024, 74410, 72576, id="243f-768p"),
         pytest.param("t2va", 345, 768, 1344, 1024, 104990, 102816, id="345f-768p"),
         pytest.param("fl2va", 345, 576, 1856, 262144, 371870, 108576, id="fl2va-context-limit"),
-        pytest.param(
-            "ref2va", 345, 576, 1856, 262144, 629106, 364608, id="largest_supported_layout"
-        ),
+        pytest.param("ref2va", 345, 576, 1856, 262144, 629106, 364608, id="ref2va-context-limit"),
     ],
 )
 def test_task_layout_sampled_accuracy_and_full_bi(

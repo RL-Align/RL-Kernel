@@ -11,7 +11,7 @@ This operator owns the projection and its input, weight, and bias gradients.
 The model adapter owns final normalization, the FP32 cast, and video selection.
 The `packed_index_select` task in [#420](https://github.com/RL-Align/RL-Kernel/issues/420)
 provides the separate selection implementation. Composition tests use PyTorch
-`index_select` with unique video indices while that implementation is developed.
+`index_select` with unique video indices.
 
 The implementation extends the repository's deterministic GEMM infrastructure
 from [#180](https://github.com/RL-Align/RL-Kernel/pull/180), using the FP32 Triton
@@ -23,14 +23,10 @@ The FP32 input-projection work in
 tile configuration, shared weight/bias row preparation, and validation patterns.
 These paths are qualified separately for output shapes.
 
-The output adapter reuses the original full-K FP32 GEMM for reductions of at
-most 96 terms. Longer reductions use the fixed 128-term chunk helper developed
-for the input projection. The output-specific qualification found FP32 accuracy
-violations in the original long forward and weight-gradient reductions; the
-chunked candidate passed those cases. The shared default GEMM dispatch and its
-compiler fusion setting remain unchanged. Canonical backward retains stable
-sorting, combines padding removal and reordering into one gather, and shares
-the sorted upstream gradients between matching weight and bias contributions.
+The output adapter selects the existing full-K FP32 GEMM for reductions of at
+most 96 terms and the fixed 128-term chunk helper for longer reductions.
+It also reuses canonical row ordering and shared weight/bias gradient preparation
+from the input projection.
 
 ## Entry Point
 
@@ -55,7 +51,7 @@ same `parameter_id` across uses within a backward session.
 | Backend | Wrapper | Native symbol | Status |
 | --- | --- | --- | --- |
 | Triton on CUDA | `TritonVideoOutputProjectionFP32Op` | Shared FP32 deterministic GEMM kernels | Default CUDA implementation; qualification targets SM90 |
-| PyTorch reference | `NativeVideoOutputProjectionFP32Op` | CPU FP32 products and sums | CPU fallback and independent accuracy reference |
+| PyTorch reference | `NativeVideoOutputProjectionFP32Op` | CPU FP32 products and sums | Direct independent accuracy reference |
 | ROCm | None | None | Separate platform qualification required |
 
 ## Tensor Contract
@@ -76,11 +72,10 @@ before starting backward, then use a fresh session for the next graph.
 
 ## Dispatch Behavior
 
-`get_op` selects Triton for CUDA tensors and the independent reference for CPU
-tensors. The CUDA candidate checks Hopper SM90 eligibility. An unavailable CUDA
-candidate raises an error. ROCm, MUSA, and NPU calls are outside this contribution's
-qualified scope. The CPU reference provides mathematical results, not a strict
-GPU BI fallback.
+The registry exposes this operator for CUDA, where `get_op` selects Triton. The
+candidate checks Hopper SM90 eligibility. An unavailable candidate raises an error. Tests
+invoke the independent PyTorch reference directly; it is not a CPU registry
+fallback. ROCm, MUSA, and NPU calls are outside this contribution's qualified scope.
 
 `OP_SPECS` exposes `triton` and `pytorch` candidates. The shared validation runner
 keeps the canonical session active across candidate forward and backward, then
@@ -102,8 +97,10 @@ the workspace budget splits the product. Forward and transposed dW use
 `128 x 32` output tiles with four warps; their 128-term reduction is unchanged.
 
 Forward has 5376 terms per output element. The canonical session collects
-parameter contributions, removes padding, and sorts logical keys before the
-weight and bias reductions. A single forward use skips concatenation. When
+parameter contributions and reduces them in logical-key order. It removes
+padding and uses stable sorting when needed. Large CUDA inputs already in
+canonical order reuse that order after a key check. A single forward use skips
+concatenation. When
 weight and bias have matching complete forward-contribution sequences, they
 share the sorted upstream gradient. Other parameter uses retain independent
 preparation. A layout comparison must preserve the same input
@@ -160,6 +157,9 @@ including layout copies, bias, canonical collection, and launch gaps. The
 backward-only setup creates the forward graph before timing; each sample exits
 its backward session and releases graph references. Throughput is total mixed
 rows per second for eager forward/backward, not videos per second.
+Timed calls use logical keys in canonical row order. Reversed rows are checked
+for bytewise BI before timing. The ordinary PyTorch baseline is measured with
+the same tensors; its accuracy and BI results are reported separately.
 
 A separate warmed F+B call records incremental peak GPU allocation above the
 baseline after clearing input and parameter gradients. This includes outputs,
@@ -197,8 +197,8 @@ The default context budget is 1024 rows.
 | Landscape, 1344x768 | 124 | 37,296 | 414 | 1,024 | 38,734 |
 | Portrait, 768x1344 | 243 | 72,576 | 810 | 1,024 | 74,410 |
 | Landscape at target duration limit, 1344x768 | 345 | 102,816 | 1,150 | 1,024 | 104,990 |
-| FL2VA checkpoint context-limit profile | 345 | 108,576 | 1,150 | 262,144 | 371,870 |
-| Ref2VA checkpoint context-limit profile | 345 | 364,608 | 2,354 | 262,144 | 629,106 |
+| FL2VA context-limit stress profile | 345 | 108,576 | 1,150 | 262,144 | 371,870 |
+| Ref2VA context-limit stress profile | 345 | 364,608 | 2,354 | 262,144 | 629,106 |
 
 Spatial dimensions in this table are width by height. The row counts 1, 128,
 1024, 4096, and 13,104 are synthetic size cases. The other default sizes match
@@ -210,8 +210,9 @@ The two larger profiles use the 262,144-token limit declared by the pinned
 and
 [tokenizer](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/42ed227ee7df40d41602854ae760620d6eb651fe/processor/tokenizer_config.json).
 Context includes reference vision tokens as well as text. These are checkpoint
-context-limit profiles, rather than an unconditional bound on custom pipeline
-inputs.
+context-limit stress profiles. The standard pipeline uses the 1024-row context
+budget shown above; the larger profiles do not define its default maximum task
+layout or an unconditional bound on custom pipeline inputs.
 
 FL2VA adds two keyframes at the largest rounded video canvas, 1856x576. Ref2VA
 adds nine 8192x2048 images and three reference videos. The reference videos have
@@ -220,9 +221,9 @@ the last reference down to 243 frames, while its audio uses the full source
 duration. The visual references contribute 258,120 rows. Their soundtracks
 contribute 1204 audio rows, in addition to the target's 1150 audio rows.
 The audio counts follow the upstream
-[reference encoder](https://github.com/huggingface/diffusers/blob/v0.40.0/src/diffusers/modular_pipelines/minimax_h3/encoders.py#L729)
+[reference encoder](https://github.com/huggingface/diffusers/blob/v0.40.0/src/diffusers/modular_pipelines/minimax_h3/encoders.py#L729-L752)
 and
-[audio VAE](https://github.com/huggingface/diffusers/blob/v0.40.0/src/diffusers/models/autoencoders/autoencoder_kl_minimax_h3_audio.py#L585).
+[audio VAE](https://github.com/huggingface/diffusers/blob/v0.40.0/src/diffusers/models/autoencoders/autoencoder_kl_minimax_h3_audio.py#L607-L609).
 
 Run these larger profiles explicitly when the device has sufficient memory:
 
@@ -246,7 +247,7 @@ export OMP_NUM_THREADS=4
 python3.11 -m pytest tests/ops/gemm/test_video_output_projection_fp32.py -v
 python3.11 -m pytest tests/runtime/test_kernel_registry.py \
   tests/validation/operators/test_operator_inputs.py \
-  tests/validation/operators/test_op_checks.py -v
+  tests/validation/operators/test_op_checks.py -k video_output_projection -v
 python3.11 -m tools.validation.operators.check_operator \
   --op video_output_projection_fp32 --candidate triton --device cuda --dtype fp32 \
   --batch 1 --seq 129 --check-grad --grad-mode random

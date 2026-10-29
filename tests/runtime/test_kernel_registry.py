@@ -7,6 +7,26 @@ from rl_engine.runtime import registry as registry_module
 from rl_engine.runtime.registry import KernelRegistry, OpBackend
 
 
+def test_video_input_projection_default_and_strict_scope():
+    registry = KernelRegistry()
+    assert registry._priority_map["cuda"]["video_input_projection_fp32"] == [
+        OpBackend.TRITON_VIDEO_INPUT_PROJECTION_FP32
+    ]
+    desc = registry.semantic.backend_descriptor(
+        "video_input_projection_fp32", "triton-video-input-projection-fp32"
+    )
+    assert desc.supported_devices == frozenset({"cuda"})
+    assert desc.supported_dtypes == frozenset({"float32"})
+    assert desc.determinism_or_alignment_properties["dx_dw_tile"] == (128, 32, 32)
+    assert desc.determinism_or_alignment_properties["dx_dw_num_warps"] == 4
+    assert (
+        desc.determinism_or_alignment_properties["canonical_rows"]
+        == "live_strict_order_proof_or_stable_sort"
+    )
+    with pytest.raises(RuntimeError, match="SM90"):
+        registry.get_op("video_input_projection_fp32", device="cpu")
+
+
 def test_video_output_projection_dispatch_scope(monkeypatch):
     registry = KernelRegistry()
     assert registry._priority_map["cuda"]["video_output_projection_fp32"] == [
@@ -20,25 +40,20 @@ def test_video_output_projection_dispatch_scope(monkeypatch):
     assert desc.determinism_or_alignment_properties["input_width"] == 5376
     assert desc.determinism_or_alignment_properties["output_width"] == 96
 
-    reference = object()
     requested = []
 
     def load(backend):
         requested.append(backend)
-        return reference if backend == OpBackend.PYTORCH_VIDEO_OUTPUT_PROJECTION_FP32 else None
+        return None
 
     monkeypatch.setattr(registry, "_get_or_create_backend", load)
-    assert registry.get_op("video_output_projection_fp32", device="cpu") is reference
-    assert requested == [OpBackend.PYTORCH_VIDEO_OUTPUT_PROJECTION_FP32]
-
-    requested.clear()
     monkeypatch.setattr(registry, "_platform_for_device", lambda _device: "cuda")
     with pytest.raises(RuntimeError, match="No functional backend"):
         registry.get_op("video_output_projection_fp32", device="cuda")
     assert requested == [OpBackend.TRITON_VIDEO_OUTPUT_PROJECTION_FP32]
 
 
-@pytest.mark.parametrize("platform", ["rocm", "musa", "npu"])
+@pytest.mark.parametrize("platform", ["cpu", "rocm", "musa", "npu"])
 def test_video_output_projection_rejects_unqualified_platforms(monkeypatch, platform):
     registry = KernelRegistry()
     monkeypatch.setattr(registry, "_platform_for_device", lambda _device: platform)

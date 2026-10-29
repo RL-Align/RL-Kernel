@@ -73,6 +73,6 @@ class TritonVideoOutputProjectionFP32Op(VideoOutputProjectionFP32Op):
             "projection_tile": _PROJECTION_TILE,
             "weight_gradient": "transposed_product_when_k_gt_96",
             "triton_version": triton.__version__,
-            "canonical_rows": "stable_sort_shared_weight_bias",
+            "canonical_rows": "live_strict_order_proof_or_stable_sort",
             "tf32": False,
         }

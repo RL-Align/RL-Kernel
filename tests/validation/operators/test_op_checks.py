@@ -21,6 +21,20 @@ from rl_engine.validation.operators.operator_specs import (
 )
 
 
+def test_video_input_projection_reference_forward_and_backward():
+    args = _spec_args("video_input_projection_fp32")
+    case = make_operator_case(args, torch.float32, torch.device("cpu"))
+    report = run_operator_suite(
+        "video_input_projection_fp32",
+        candidates=[make_candidate(args)],
+        cases=[case],
+        check_grad=True,
+        grad_mode="random",
+    )
+    assert report.passed
+    assert case.grad_input_names == ("x", "weight", "bias")
+
+
 def test_video_output_projection_reference_forward_and_backward():
     args = _spec_args("video_output_projection_fp32")
     case = make_operator_case(args, torch.float32, torch.device("cpu"))
