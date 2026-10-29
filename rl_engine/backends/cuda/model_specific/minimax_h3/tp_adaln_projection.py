@@ -161,13 +161,22 @@ class _TPAdaLNProjection(torch.autograd.Function):
                 f"got {tuple(grad_table.shape)}"
             )
         grad_local = grad_table[:, shard.begin : shard.end].float().contiguous()
-        dw, db = det_linear_backward_weight(grad_local, act, weight.dtype)
+        # The weight and bias folds are local to this rank: skip them for a frozen shard. The input
+        # gradient below stays unconditional, because its gather is a collective every rank must
+        # reach, and ``temb`` is replicated.
+        _, need_weight, need_bias = ctx.needs_input_grad[:3]
+        dw = db = None
+        if need_weight or need_bias:
+            dw, *rest = det_linear_backward_weight(
+                grad_local, act, weight.dtype, with_bias=need_bias
+            )
+            db = rest[0] if need_bias else None
         partial = det_linear_backward_input_partials(grad_local, weight)
         d_act = det_linear_fold_chunks(gather_rows(ctx.collective, partial), torch.float32)
         record_backward(
             "tp_adaln_3mod", kernel_id=BACKWARD_KERNEL_ID, impl=BACKWARD_IMPL, family="cuda"
         )
-        return silu_backward_fp32(d_act, temb), dw, db, None, None
+        return silu_backward_fp32(d_act, temb), dw if need_weight else None, db, None, None
 
 
 class H3TPAdaLNProjectionCudaOp:
