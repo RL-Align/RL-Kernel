@@ -84,9 +84,12 @@ class NativeFusedAddNormOp(nn.Module):
     Returns ``(residual_out, pre_normed)``. ``residual_out`` is the updated
     residual stream and ``pre_normed`` is what the next sublayer consumes.
 
-    The residual add happens in the input dtype, not FP32. That follows from
-    ``weight_applied_before_cast``: the post-norm's cast is its last step, so the
-    value reaching the add is already narrow, which is also what eager HF does.
+    Two narrowing points, both matching eager HF rather than being incidental.
+    ``weight_applied_before_cast`` puts the post-norm's cast at its last step, so
+    the value entering the add is already narrow. The sum is then narrowed again
+    before the pre-norm reads it, because eager adds in the model dtype and the
+    next norm sees that rounded value. ``forward_fp32`` has neither narrowing,
+    which is why it is a different computation rather than a wider one.
     """
 
     def forward(
@@ -163,10 +166,13 @@ class NativeFusedAddNormOp(nn.Module):
         _validate_weight(pre_weight, width, "pre_weight")
 
         post = _centered_norm(hidden.float(), post_weight, post_eps)
-        # The cast is load-bearing, see the class docstring.
-        residual_out = residual.float() + post.to(output_dtype).float()
-        pre_normed = _centered_norm(residual_out, pre_weight, pre_eps)
-        return residual_out.to(output_dtype), pre_normed.to(output_dtype)
+        # Both casts are load-bearing, see the class docstring. The pre-norm reads
+        # the narrowed residual, not the FP32 sum: eager adds in the model dtype
+        # and the next norm sees that rounded value, so feeding the unrounded sum
+        # forward would quietly disagree with HF on the BF16 path.
+        residual_out = (residual.float() + post.to(output_dtype).float()).to(output_dtype)
+        pre_normed = _centered_norm(residual_out.float(), pre_weight, pre_eps)
+        return residual_out, pre_normed.to(output_dtype)
 
 
 class NativeFinalNormOp(nn.Module):

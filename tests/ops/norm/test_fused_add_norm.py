@@ -25,6 +25,7 @@ from rl_engine.reference.norm.fused_add_norm import (
     final_norm_backward,
     fused_add_norm_backward,
 )
+from rl_engine.reference.norm.rms_norm import shape_invariant_meansq
 
 _FP64_TOL = {"atol": 1e-6, "rtol": 1e-6}
 
@@ -313,3 +314,38 @@ def test_backward_row_reduction_is_batch_invariant():
         )
         for whole, part, name in zip(full, single, ("d_hidden", "d_residual", "d_post", "d_pre")):
             assert torch.equal(whole[sl], part), f"{name} drifted at row {row}"
+
+
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16])
+def test_forward_matches_an_eager_composition(dtype):
+    """``forward`` narrows in the same two places eager does.
+
+    Eager computes ``residual + post_norm(x)`` in the model dtype and hands that
+    rounded value to the next norm, so there are two narrowing points and both
+    change the answer. Composed here by hand, step by step, and required to match
+    bitwise. Run in the narrow dtypes because in FP32 both narrowings vanish and
+    the test would pass either way.
+
+    This shares the production statistic deliberately. What is under test is where
+    the casts land, not the reduction; swapping in a plain ``sum`` here would
+    change ``post`` by a ULP on one element in 53k and the comparison would start
+    failing for a reason that has nothing to do with casts. The statistic and the
+    formula are checked independently by the FP64 tests above.
+    """
+    shape = (8, HIDDEN_SIZE)
+    hidden = _rand(shape, seed=80, dtype=dtype)
+    residual = _rand(shape, seed=81, dtype=dtype)
+    post_w = _rand((HIDDEN_SIZE,), seed=82, dtype=dtype)
+    pre_w = _rand((HIDDEN_SIZE,), seed=83, dtype=dtype)
+
+    def centered(x, w, eps):
+        x_f = x.float()
+        rstd = torch.rsqrt(shape_invariant_meansq(x_f) + eps).unsqueeze(-1)
+        return ((x_f * rstd) * (1.0 + w.float())).to(dtype)
+
+    expected_residual = residual + centered(hidden, post_w, POST_NORM_EPS)
+    expected_pre = centered(expected_residual, pre_w, RMS_NORM_EPS)
+
+    got_residual, got_pre = NativeFusedAddNormOp().forward(hidden, residual, post_w, pre_w)
+    assert torch.equal(got_residual, expected_residual)
+    assert torch.equal(got_pre, expected_pre)
