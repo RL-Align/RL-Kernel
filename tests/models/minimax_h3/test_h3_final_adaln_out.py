@@ -130,6 +130,39 @@ class TestCuda:
             rel = ((g.double() - r).abs().max() / r.abs().max()).item()
             assert rel < 1e-2, (name, rel)  # BF16 output rounding and round(1 + scale) only
 
+    @pytest.mark.parametrize(
+        "frozen", ["x", "norm_weight", "temb", "weight", "bias", "weight_and_bias", "temb_and_bias"]
+    )
+    def test_frozen_inputs_get_no_gradient_and_the_others_are_unchanged(self, norm_out, frozen):
+        x, temb, ti = _inputs(1500, seed=6)
+        grad = torch.randn_like(x)
+        names = ("x", "norm_weight", "temb", "weight", "bias")
+        tensors = (x, norm_out[0], temb, *norm_out[1:])
+
+        def run(frozen_names):
+            leaves = [
+                t.detach().clone().requires_grad_(name not in frozen_names)
+                for name, t in zip(names, tensors)
+            ]
+            _cuda_op()(*leaves, ti).backward(grad)
+            return [leaf.grad for leaf in leaves]
+
+        full = run(())
+        partial = run(frozen.split("_and_") if "_and_" in frozen else [frozen])
+        frozen_set = frozen.split("_and_") if "_and_" in frozen else [frozen]
+        for name, got, expected in zip(names, partial, full):
+            if name in frozen_set:
+                assert got is None, name
+            else:
+                assert torch.equal(got, expected), name
+
+    def test_unsupported_device_is_refused_at_construction(self, monkeypatch):
+        from rl_engine.backends.cuda.model_specific.minimax_h3 import final_adaln_out as module
+
+        monkeypatch.setattr(module, "det_linear_device_supported", lambda *args: False)
+        with pytest.raises(RuntimeError, match="SM80"):
+            module.H3FinalAdaLNOutCudaOp()
+
     def test_report_backward_uses_fp64_golden(self, monkeypatch):
         from types import SimpleNamespace
 

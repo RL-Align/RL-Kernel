@@ -118,7 +118,12 @@ def dump(op: str, mode: str, parts: Path, megatron_src: str | None, fast_math: b
     torch.backends.cudnn.allow_tf32 = False
     cands = PA.candidates(op, mode)
     if fast_math and op == "timestep_sinusoid" and mode == "plain":
-        cands.append({"name": "rl_kernel_fast_math", **_fast_math_sinusoid(parts / "build")})
+        try:
+            cands.append({"name": "rl_kernel_fast_math", **_fast_math_sinusoid(parts / "build")})
+        except Exception as exc:  # noqa: BLE001
+            (parts / "rl_kernel_fast_math.unavailable").write_text(
+                f"{type(exc).__name__}: {exc}"[:300]
+            )
     for cand in cands:
         name = cand.pop("name")
         if "unavailable" in cand:
@@ -156,6 +161,31 @@ def _same(a: torch.Tensor | None, b: torch.Tensor | None) -> dict[str, Any] | No
     }
 
 
+def _compare_case(run: dict[str, Any], ref_run: dict[str, Any] | None) -> dict[str, Any]:
+    """Compare one case with the reference's run of it.
+
+    A case the reference never saved is unavailable.
+
+    A reference child can die after saving only some of its cases (an out-of-memory at the largest
+    size, say); the comparisons that did complete must still reach the report.
+    """
+
+    if ref_run is None:
+        return {"unavailable": "the reference run has no saved result for this case"}
+    if len(run["out"]) != len(ref_run["out"]):
+        # Outputs that have no counterpart are a difference, not something to drop: a zip would
+        # stop at the shorter list and could report the case as bitwise equal.
+        outs: list[dict[str, Any] | None] = [
+            {"equal": False, "note": f"{len(run['out'])} vs {len(ref_run['out'])} outputs"}
+        ]
+    else:
+        outs = [_same(a, b) for a, b in zip(run["out"], ref_run["out"], strict=True)]
+    return {
+        "out": outs,
+        "grads": {g: _same(run["grads"].get(g), ref_run["grads"].get(g)) for g in run["grads"]},
+    }
+
+
 def compare(parts: Path) -> dict[str, Any]:
     runs: dict[str, dict[str, Any]] = {}
     for f in sorted(parts.glob("*.pt")):
@@ -169,14 +199,7 @@ def compare(parts: Path) -> dict[str, Any]:
             if ref == name:
                 continue
             entry[f"vs {ref}"] = {
-                case: {
-                    "out": [_same(a, b) for a, b in zip(run["out"], runs[ref][case]["out"])],
-                    "grads": {
-                        g: _same(run["grads"].get(g), runs[ref][case]["grads"].get(g))
-                        for g in run["grads"]
-                    },
-                }
-                for case, run in by_case.items()
+                case: _compare_case(run, runs[ref].get(case)) for case, run in by_case.items()
             }
         out[name] = entry
     for f in parts.glob("*.unavailable"):

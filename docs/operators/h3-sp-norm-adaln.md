@@ -72,7 +72,7 @@ How many rows move depends on how the table rows interleave along the sequence:
 
 ![sp_norm_adaln on 8 x B200: byte equality, time, naive SP](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr494/reports/experiments/h3-sp-norm-adaln-b200/figure.png)
 
-The report is written by `tools/validation/models/h3_ws2_evidence.py` from a clean tree at commit `6c0d380`, with
+The report is written by `tools/validation/models/h3_ws2_evidence.py` from a clean tree at commit `ecde5bb`, with
 real NCCL processes on one 8 x B200 node, one GPU per rank. The region is
 `norm2(residual + gate_msa[row] * y)` with `shift_mlp`/`scale_mlp` modulation, H = 5376, BF16. It
 covers six cases: S = 4097 (block, interleaved, B = 2), 32768 (block, interleaved) and 131072

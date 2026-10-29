@@ -165,6 +165,79 @@ class TestBackwardRanks:
             )
             assert torch.equal(dgate, ws1_gate[1])
 
+    @pytest.mark.parametrize("sp, batch, seq", [(4, 2, 777), (3, 2, 1000), (8, 1, 40)])
+    def test_padding_of_the_exchange_and_partial_gathers_is_never_read(
+        self, monkeypatch, sp, batch, seq
+    ):
+        """Pad every send block and every partial gather with NaN: WS1 equality still holds.
+
+        ``recv_global`` is zero in the padding slots, which map to a real table row, so the
+        padding is only harmless because no tile list refers to it; a NaN would reach the sums
+        of any tile that did.
+        """
+
+        _require_ext()
+        from rl_engine import _C
+        from rl_engine.backends.cuda.model_specific.minimax_h3 import sp_norm_adaln as module
+        from rl_engine.backends.cuda.model_specific.minimax_h3.adaln_row_gather import (
+            _segment_tiles,
+        )
+
+        hidden = 256
+        c = sp_case(batch, seq, hidden, layout="interleaved", dtype=torch.float32, seed=sp + seq)
+        chunks = c["table"].chunk(6, dim=-1)
+        shift, scale, gate = chunks[3], chunks[4], chunks[2]
+        x2, g2, y2 = (c[k].view(-1, hidden) for k in ("residual", "grad", "y"))
+        idx, rows = c["index"], shift.shape[0]
+        tiles = _segment_tiles(idx.repeat(batch), rows)
+        _, rstd = _C.h3_rmsnorm_forward(x2, c["weight"], 1e-5, shift, scale, idx)
+        ws1_norm = _C.h3_rmsnorm_backward(g2, x2, c["weight"], rstd, shift, scale, idx, *tiles)
+        ws1_gate = _C.h3_gate_residual_backward(g2, y2, gate, idx, *tiles)
+        nan = float("nan")
+        gather_rows = module.gather_rows
+
+        def exchange(self, collective, *tensors):
+            out = []
+            for t in tensors:
+                if self.max_send == 0:
+                    out.append(t)
+                    continue
+                send = t.new_full((self.max_send, *t.shape[1:]), nan)  # padding is NaN
+                send[: self.send_local.numel()] = t[self.send_local]
+                out.append(torch.cat([t, gather_rows(collective, send)]))
+            return out
+
+        def gather_partials(self, collective, family, partial):
+            fam = self.families[family]
+            padded = partial.new_full((fam["width"], *partial.shape[1:]), nan)  # padding is NaN
+            padded[: partial.shape[0]] = partial
+            return gather_rows(collective, padded).index_select(0, fam["gather_index"]).contiguous()
+
+        monkeypatch.setattr(module._Plan, "exchange", exchange)
+        monkeypatch.setattr(module._Plan, "gather_partials", gather_partials)
+
+        def rank(coll):
+            lay = sp_row_layout(seq, batch, sp, coll.rank)
+            part = slice(lay.lo, lay.hi)
+            local = {
+                k: c[k][:, part].reshape(-1, hidden).contiguous() for k in ("residual", "grad", "y")
+            }
+            rs = rstd.view(batch, seq)[:, part].reshape(-1).contiguous()
+            plan = module.sp_plan(lay, idx, rows)
+            norm = module.sp_rmsnorm_backward(
+                local["grad"], local["residual"], c["weight"], rs, shift, scale, plan, coll
+            )
+            return norm, module.sp_gate_residual_backward(
+                local["grad"], local["y"], gate, plan, coll
+            )
+
+        for (dx, dw, dsh, dsc), (dy, dgate) in _ThreadGroup(sp).run(rank):
+            assert torch.isfinite(dx).all() and torch.isfinite(dy).all()
+            assert torch.equal(dw, ws1_norm[1])
+            assert torch.equal(dsh, ws1_norm[2].to(dsh.dtype))
+            assert torch.equal(dsc, ws1_norm[3].to(dsc.dtype))
+            assert torch.equal(dgate, ws1_gate[1])
+
     def test_plain_norm_ranks_reproduce_ws1(self):
         _require_ext()
         from rl_engine import _C
