@@ -71,6 +71,10 @@ jobs:
       - name: Check refactor packaging and compatibility
         run: python ci/run.py layout -q
 
+      - name: Run H3 Sigma Schedule Tests (CPU-safe)
+        run: |
+          python -m pytest tests/reference/minimax_h3 tests/runtime/test_h3_sigma_schedule_dispatch.py -q
+
       - name: Run Mocked Hardware Discovery Tests
         run: |
           python -m pytest tests/runtime/test_dispatch.py -v
