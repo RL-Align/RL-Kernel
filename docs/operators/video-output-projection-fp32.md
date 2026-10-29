@@ -153,7 +153,7 @@ Run from the repository root in the CI-aligned single-H20 environment:
 ```bash
 OMP_NUM_THREADS=4 python3.11 -m benchmarks.operators.gemm.benchmark_video_output_projection_fp32 \
   --backends pytorch triton \
-  --rows 1 128 1024 4096 13104 38734 74410 104990 \
+  --rows 1 128 1024 4096 13104 38734 74410 104990 110750 367986 \
   --seed 420 --warmup 5 --samples 40 \
   --output /tmp/h3-output-projection.json
 ```
@@ -181,21 +181,19 @@ reservations are outside the incremental measurement.
 
 ### Accuracy Coverage in the Benchmark
 
-For `M <= 128`, the independent reference covers every element. Larger layouts
-use the following bounded CPU reference:
+Every size uses the existing independent CPU FP32 reference and checks every
+element. Reference output rows and dW columns are processed in tiles to bound
+temporary CPU memory. Each dot product keeps its complete reduction axis.
 
 | Result | Compared elements | Reduction coverage |
 | --- | --- | --- |
-| `Y` | 32 evenly spaced rows, all 96 channels | All 5376 input features |
-| `dX` | Same 32 rows, all 5376 channels | All 96 output features |
-| `dW` | 16 evenly spaced input channels, all 96 output channels | All `M` rows |
+| `Y` | All rows and all 96 channels | All 5376 input features |
+| `dX` | All rows and all 5376 channels | All 96 output features |
+| `dW` | All 5376 input channels and all 96 output channels | All `M` rows |
 | `dbias` | All 96 channels | All `M` rows |
 
-The JSON marks sampled accuracy explicitly and stores selected indices and
-checked/total element counts. Every candidate element is scanned for NaN/Inf.
+The JSON records checked/total element counts, tolerance violations and NaN/Inf.
 Row-permutation BI compares every element of `Y`, `dX`, `dW`, and `dbias`.
-Sampling reduces reference CPU memory and time; it does not reduce the candidate
-workload or shorten the parameter-gradient reduction.
 
 ### H3 Mixed-Sequence Layouts
 
@@ -210,6 +208,8 @@ The default context budget is 1024 rows.
 | Landscape, 1344x768 | 124 | 37,296 | 414 | 1,024 | 38,734 |
 | Portrait, 768x1344 | 243 | 72,576 | 810 | 1,024 | 74,410 |
 | Landscape at target duration limit, 1344x768 | 345 | 102,816 | 1,150 | 1,024 | 104,990 |
+| FL2VA with default context budget | 345 | 108,576 | 1,150 | 1,024 | 110,750 |
+| Ref2VA with default context budget | 345 | 364,608 | 2,354 | 1,024 | 367,986 |
 | FL2VA context-limit stress profile | 345 | 108,576 | 1,150 | 262,144 | 371,870 |
 | Ref2VA context-limit stress profile | 345 | 364,608 | 2,354 | 262,144 | 629,106 |
 

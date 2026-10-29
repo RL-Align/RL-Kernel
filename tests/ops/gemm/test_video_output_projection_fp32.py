@@ -166,43 +166,64 @@ def test_frozen_parameter_registration(frozen):
 
 @pytest.mark.parametrize(
     "source,value",
-    [("candidate", float("nan")), ("candidate", float("inf")), ("reference", float("inf"))],
+    [
+        ("candidate", float("nan")),
+        ("candidate", float("inf")),
+        ("reference", float("inf")),
+    ],
 )
-def test_benchmark_accuracy_reports_sampled_non_finite(source, value):
+def test_benchmark_accuracy_rejects_non_finite(source, value):
     from benchmarks.operators.gemm.benchmark_video_output_projection_fp32 import _accuracy
 
     actual = [torch.ones(3, 2), torch.ones(3, 3), torch.ones(2, 3), torch.ones(2)]
-    row_ids, column_ids = torch.tensor([0, 2]), torch.tensor([0, 2])
-    gold = [actual[0][row_ids], actual[1][row_ids], actual[2][:, column_ids], actual[3].clone()]
+    gold = [tensor.clone() for tensor in actual]
     for tensor in actual if source == "candidate" else gold:
         tensor[(0,) * tensor.ndim] = value
-    report = _accuracy(actual, gold, row_ids, column_ids)
+    report = _accuracy(actual, gold)
     for name in ("y", "dx", "dw", "dbias"):
         assert report[name]["out_of_tolerance"] == 1
         assert report[name]["non_finite_elements"] == 1
-        assert report[name]["candidate_non_finite_elements"] == (source == "candidate")
         assert report[name]["max_abs_error"] is None
-    assert [report[name]["sampled"] for name in report] == [True, True, True, False]
+        assert report[name]["checked_elements"] == report[name]["total_elements"]
     json.dumps(report, allow_nan=False)
 
 
-def test_benchmark_accuracy_scans_unsampled_candidate_values():
+def test_benchmark_accuracy_checks_all_comparison_chunks():
     from benchmarks.operators.gemm.benchmark_video_output_projection_fp32 import _accuracy
 
     actual = [torch.ones(4097, 2), torch.ones(4097, 3), torch.ones(2, 3), torch.ones(2)]
-    row_ids, column_ids = torch.tensor([0, 4095]), torch.tensor([0, 2])
-    gold = [actual[0][row_ids], actual[1][row_ids], actual[2][:, column_ids], actual[3].clone()]
-    # Excluded rows cross the scanner's 4096-row boundary; dW excludes column 1.
+    gold = [tensor.clone() for tensor in actual]
+    # Cross the comparison's 4096-row boundary and include an interior dW column.
     actual[0][-1, 0] = float("nan")
     actual[1][-1, 2] = float("inf")
     actual[2][-1, 1] = -float("inf")
-    report = _accuracy(actual, gold, row_ids, column_ids)
+    report = _accuracy(actual, gold)
     for name in ("y", "dx", "dw", "dbias"):
-        assert report[name]["candidate_non_finite_elements"] == (name != "dbias")
-        assert report[name]["out_of_tolerance"] == 0
-        assert report[name]["non_finite_elements"] == 0
-        assert report[name]["max_abs_error"] == 0.0
+        assert report[name]["out_of_tolerance"] == (name != "dbias")
+        assert report[name]["non_finite_elements"] == (name != "dbias")
+        assert report[name]["max_abs_error"] == (0.0 if name == "dbias" else None)
+        assert report[name]["checked_elements"] == report[name]["total_elements"]
     json.dumps(report, allow_nan=False)
+
+
+@pytest.mark.parametrize("rows", [1, 129, 4097])
+def test_benchmark_reference_preserves_full_reductions(rows):
+    from benchmarks.operators.gemm.benchmark_video_output_projection_fp32 import _reference
+
+    generator = torch.Generator().manual_seed(420)
+    x = torch.randn(rows, 17, generator=generator)
+    weight = torch.randn(3, 17, generator=generator)
+    bias = torch.randn(3, generator=generator)
+    grad = torch.randn(rows, 3, generator=generator)
+    actual = _reference(x, weight, bias, grad)
+    expected = (
+        _reference_matmul_fp32(x, weight.t()) + bias,
+        _reference_matmul_fp32(grad, weight),
+        _reference_matmul_fp32(grad.t(), x),
+        grad.sum(dim=0),
+    )
+    for a, b in zip(actual, expected, strict=True):
+        _assert_bytes(a, b)
 
 
 @pytest.fixture(
@@ -840,28 +861,11 @@ def _tensor_digest(tensor, row_order=None):
     return digest.hexdigest()
 
 
-def _sampled_layout_accuracy(data, actual, *, sample_rows=None):
-    """Check selected y/dX rows, 16 dW input channels, and all dbias with full-K sums."""
-    x, weight, bias, grad = data
-    rows = x.shape[0]
-    if sample_rows is None:
-        sample_rows = torch.linspace(0, rows - 1, 32, dtype=torch.int64, device=x.device)
-    input_columns = torch.linspace(0, 5375, 16, dtype=torch.int64, device=x.device)
-    cx = x.detach().index_select(0, sample_rows).cpu()
-    cw, cb = weight.detach().cpu(), bias.detach().cpu()
-    cg = grad.index_select(0, sample_rows).cpu()
-    expected_y = _reference_matmul_fp32(cx, cw.t()) + cb
-    expected_dx = _reference_matmul_fp32(cg, cw)
-    expected_dw = _reference_matmul_fp32(grad.t(), x.detach().index_select(1, input_columns))
-    expected_dbias = grad.cpu().sum(dim=0)
-    _assert_accuracy(actual[0].index_select(0, sample_rows), expected_y, "forward_accuracy")
-    _assert_accuracy(actual[1].index_select(0, sample_rows), expected_dx, "gradient_accuracy")
-    _assert_accuracy(
-        actual[2].index_select(1, input_columns),
-        expected_dw,
-        "gradient_accuracy",
-    )
-    _assert_accuracy(actual[3], expected_dbias, "gradient_accuracy")
+def _layout_accuracy(data, actual):
+    """Check every result using the memory-bounded, full-K CPU reference."""
+    from benchmarks.operators.gemm.benchmark_video_output_projection_fp32 import _reference
+
+    _assert_result_accuracy(actual, _reference(*data))
 
 
 @requires_sm90
@@ -890,8 +894,8 @@ def test_packed_multi_request_accuracy_and_bi(profiles):
     data = _data(total_rows, seed=420)
     keys = torch.full((total_rows, 2), -1, device="cuda", dtype=torch.int64)
     video_mask = torch.zeros(total_rows, dtype=torch.bool, device="cuda")
-    request_indices, boundary_rows = [], []
-    cursor = active_cursor = 0
+    request_indices = []
+    cursor = 0
     for request_id, ((rows, video_ranges), padded) in enumerate(
         zip(requests, padded_lengths, strict=True)
     ):
@@ -899,11 +903,8 @@ def test_packed_multi_request_accuracy_and_bi(profiles):
         keys[cursor : cursor + rows, 1] = torch.arange(rows, device="cuda")
         for start, end in video_ranges:
             video_mask[cursor + start : cursor + end] = True
-            boundary_rows.extend((active_cursor + start, active_cursor + end - 1))
         request_indices.append(torch.arange(cursor, cursor + padded, device="cuda"))
-        boundary_rows.extend((active_cursor, active_cursor + rows - 1))
         cursor += padded
-        active_cursor += rows
     # Non-video rows and per-request padding receive no selected-video gradient.
     data[3][~video_mask] = 0
     active = torch.nonzero(keys[:, 0] >= 0, as_tuple=True)[0]
@@ -916,23 +917,20 @@ def test_packed_multi_request_accuracy_and_bi(profiles):
 
     op = _op()
     baseline = _run(op, data, keys)
-    selected_rows = torch.cat(
+    # Exclude padding from the reference and check every active output/gradient.
+    _layout_accuracy(
         (
-            torch.linspace(0, active.numel() - 1, 32, device="cuda", dtype=torch.int64),
-            torch.tensor(boundary_rows, device="cuda", dtype=torch.int64),
-        )
-    ).unique()
-    # Exclude padding from the reference, while retaining every active row in
-    # the dW/dbias sums. Sample both ends of every request in addition to the grid.
-    _sampled_layout_accuracy(
-        (data[0].index_select(0, active), data[1], data[2], data[3].index_select(0, active)),
+            data[0].index_select(0, active),
+            data[1],
+            data[2],
+            data[3].index_select(0, active),
+        ),
         (
             baseline[0].index_select(0, active),
             baseline[1].index_select(0, active),
             baseline[2],
             baseline[3],
         ),
-        sample_rows=selected_rows,
     )
     expected = result_digest(baseline, active)
     del baseline
@@ -1037,12 +1035,13 @@ def _run_layout(rows, video_ranges, *, permuted_chunks):
                 )
             )
         torch.autograd.backward(
-            outputs, [grad[start:end] for start, end in zip(cuts[:-1], cuts[1:], strict=True)]
+            outputs,
+            [grad[start:end] for start, end in zip(cuts[:-1], cuts[1:], strict=True)],
         )
         session.validate_complete()
     actual = (torch.cat(outputs), x.grad, weight.grad, bias.grad)
     if not permuted_chunks:
-        _sampled_layout_accuracy(data, actual)
+        _layout_accuracy(data, actual)
     inverse = None if order is None else order.argsort()
     return tuple(
         _tensor_digest(value, inverse if index < 2 else None) for index, value in enumerate(actual)
@@ -1056,11 +1055,13 @@ def _run_layout(rows, video_ranges, *, permuted_chunks):
         pytest.param("t2va", 124, 768, 1344, 1024, 38734, 37296, id="124f-768p"),
         pytest.param("t2va", 243, 1344, 768, 1024, 74410, 72576, id="243f-768p"),
         pytest.param("t2va", 345, 768, 1344, 1024, 104990, 102816, id="345f-768p"),
+        pytest.param("fl2va", 345, 576, 1856, 1024, 110750, 108576, id="fl2va-default"),
+        pytest.param("ref2va", 345, 576, 1856, 1024, 367986, 364608, id="ref2va-default"),
         pytest.param("fl2va", 345, 576, 1856, 262144, 371870, 108576, id="fl2va-context-limit"),
         pytest.param("ref2va", 345, 576, 1856, 262144, 629106, 364608, id="ref2va-context-limit"),
     ],
 )
-def test_task_layout_sampled_accuracy_and_full_bi(
+def test_task_layout_accuracy_and_bi(
     variant, frames, height, width, context_rows, expected_rows, expected_video_rows
 ):
     # L includes all conditioner rows, including reference vision tokens. The

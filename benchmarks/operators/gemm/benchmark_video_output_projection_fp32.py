@@ -60,43 +60,30 @@ def _vjp(op, x, weight, bias, grad, keys):
 
 
 def _reference(x, weight, bias, grad):
-    """Keep complete reduction axes while bounding CPU copies for large layouts."""
-    rows = x.shape[0]
-    sampled = rows > 128
-    row_ids = (
-        torch.linspace(0, rows - 1, 32, device=x.device).long().unique()
-        if sampled
-        else torch.arange(rows, device=x.device)
-    )
-    column_ids = (
-        torch.linspace(0, x.shape[1] - 1, 16, device=x.device).long().unique()
-        if sampled
-        else torch.arange(x.shape[1], device=x.device)
-    )
-    cpu_weight, cpu_bias = weight.cpu(), bias.cpu()
-    cpu_x_rows = x.index_select(0, row_ids).cpu()
-    cpu_grad = grad.cpu()
-    cpu_grad_rows = cpu_grad.index_select(0, row_ids.cpu())
-    gold = (
-        _reference_matmul_fp32(cpu_x_rows, cpu_weight.t()) + cpu_bias,
-        _reference_matmul_fp32(cpu_grad_rows, cpu_weight),
-        _reference_matmul_fp32(cpu_grad.t(), x.index_select(1, column_ids).cpu()),
-        cpu_grad.sum(dim=0),
-    )
-    coverage = {
-        "mode": "sampled" if sampled else "full",
-        "forward_and_dx_rows": row_ids.cpu().tolist(),
-        "forward_and_dx_channels": "all",
-        "dw_input_columns": column_ids.cpu().tolist(),
-        "dw_output_channels": "all",
-        "dw_reduction_rows": rows,
-        "dbias": "all channels, complete row reduction",
-        "reference": "independent CPU FP32; no candidate K partitions",
-    }
-    return gold, row_ids, column_ids, coverage
+    """Check all outputs with the existing CPU FP32 full-reduction reference."""
+    rows, features = x.shape
+    cpu_weight, cpu_bias = weight.detach().cpu(), bias.detach().cpu()
+    cpu_grad = grad.detach().cpu()
+    y = torch.empty((rows, weight.shape[0]), dtype=torch.float32)
+    dx = torch.empty((rows, features), dtype=torch.float32)
+    # Tile output rows to avoid a full CPU copy of the hidden states. Each
+    # reference dot still reduces all features with the existing torch.sum.
+    for start in range(0, rows, 4096):
+        stop = start + 4096
+        cpu_x = x[start:stop].detach().cpu()
+        y[start:stop] = _reference_matmul_fp32(cpu_x, cpu_weight.t()) + cpu_bias
+        dx[start:stop] = _reference_matmul_fp32(cpu_grad[start:stop], cpu_weight)
+    dw = torch.empty_like(cpu_weight)
+    grad_t = cpu_grad.t().contiguous()
+    # Tile dW's output columns, not its row-reduction axis. This keeps the
+    # reference independent of the candidate's 128-term reduction chunks.
+    for start in range(0, features, 16):
+        stop = start + 16
+        dw[:, start:stop] = _reference_matmul_fp32(grad_t, x[:, start:stop].detach().cpu())
+    return y, dx, dw, cpu_grad.sum(dim=0)
 
 
-def _accuracy(actual, gold, row_ids, column_ids):
+def _accuracy(actual, gold):
     judgments = load_contract()["judgments"]
     result = {}
     for i, (name, tensor, reference) in enumerate(
@@ -105,28 +92,29 @@ def _accuracy(actual, gold, row_ids, column_ids):
         policy = judgments["forward_accuracy" if i == 0 else "gradient_accuracy"]["by_op_class"][
             "reduction"
         ]["float32"]
-        if i < 2:
-            selected = tensor.index_select(0, row_ids)
-        elif i == 2:
-            selected = tensor.index_select(1, column_ids)
-        else:
-            selected = tensor
-        selected = selected.detach().cpu()
-        error = (selected - reference).abs()
-        finite = torch.isfinite(selected) & torch.isfinite(reference)
-        limit = policy["atol"] + policy["rtol"] * reference.abs()
-        # Scan every candidate value even when accuracy uses a sampled reference.
-        candidate_non_finite = 0
+        max_error, violations, non_finite, checked = 0.0, 0, 0, 0
+        finite_errors = True
+        if tensor.shape != reference.shape:
+            raise ValueError(f"{name} reference shape must match the candidate")
         for start in range(0, tensor.shape[0], 4096):
-            candidate_non_finite += int((~torch.isfinite(tensor[start : start + 4096])).sum())
+            ac = tensor[start : start + 4096].detach().cpu()
+            bc = reference[start : start + 4096].detach().cpu()
+            error = (ac - bc).abs()
+            finite = torch.isfinite(ac) & torch.isfinite(bc)
+            limit = policy["atol"] + policy["rtol"] * bc.abs()
+            if torch.isfinite(error).all():
+                max_error = max(max_error, error.max().item())
+            else:
+                finite_errors = False
+            violations += int(((error > limit) | ~finite).sum())
+            non_finite += int((~finite).sum())
+            checked += ac.numel()
         result[name] = {
-            "max_abs_error": error.max().item() if torch.isfinite(error).all() else None,
-            "out_of_tolerance": int(((error > limit) | ~finite).sum()),
-            "non_finite_elements": int((~finite).sum()),
-            "candidate_non_finite_elements": candidate_non_finite,
-            "checked_elements": selected.numel(),
+            "max_abs_error": max_error if finite_errors else None,
+            "out_of_tolerance": violations,
+            "non_finite_elements": non_finite,
+            "checked_elements": checked,
             "total_elements": tensor.numel(),
-            "sampled": selected.numel() != tensor.numel(),
             **policy,
         }
     return result
@@ -222,7 +210,7 @@ def main():
         "--rows",
         nargs="+",
         type=int,
-        default=[1, 128, 1024, 4096, 13104, 38734, 74410, 104990],
+        default=[1, 128, 1024, 4096, 13104, 38734, 74410, 104990, 110750, 367986],
     )
     parser.add_argument("--samples", type=int, default=20)
     parser.add_argument("--warmup", type=int, default=5)
@@ -306,15 +294,13 @@ def main():
             ),
             dim=1,
         )
-        gold, row_ids, column_ids, coverage = _reference(x, weight, bias, grad)
+        print(f"M={rows}: computing full CPU FP32 reference", flush=True)
+        gold = _reference(x, weight, bias, grad)
         for name in args.backends:
             op = _candidate(name)
             actual = _vjp(op, x, weight, bias, grad, keys)
-            accuracy = _accuracy(actual, gold, row_ids, column_ids)
-            if op is not None and any(
-                v["out_of_tolerance"] or v["candidate_non_finite_elements"]
-                for v in accuracy.values()
-            ):
+            accuracy = _accuracy(actual, gold)
+            if op is not None and any(v["out_of_tolerance"] for v in accuracy.values()):
                 raise RuntimeError(f"{name} failed FP32 accuracy at M={rows}: {accuracy}")
             order = torch.arange(rows - 1, -1, -1, device="cuda")
             permuted = _vjp(
@@ -331,7 +317,10 @@ def main():
             del actual, permuted
             with torch.no_grad():
                 forward = _sample(
-                    partial(_forward, op, x, weight, bias, keys), None, args.samples, args.warmup
+                    partial(_forward, op, x, weight, bias, keys),
+                    None,
+                    args.samples,
+                    args.warmup,
                 )
                 stream = torch.cuda.Stream()
                 stream.wait_stream(torch.cuda.current_stream())
@@ -349,7 +338,10 @@ def main():
                 del graph, output, expected
             tx, tw, tb = [t.detach().requires_grad_() for t in (x, weight, bias)]
             backward = _sample(
-                None, partial(_backward_call, op, tx, tw, tb, grad, keys), args.samples, args.warmup
+                None,
+                partial(_backward_call, op, tx, tw, tb, grad, keys),
+                args.samples,
+                args.warmup,
             )
             combined = _sample(
                 partial(_forward_backward, op, tx, tw, tb, grad, keys),
@@ -363,7 +355,7 @@ def main():
                 "backend": name,
                 "rows": rows,
                 "accuracy": accuracy,
-                "accuracy_sampling": coverage,
+                "accuracy_coverage": "all elements of y, dx, dw and dbias; complete reductions",
                 "permutation_bit_mismatches": mismatches,
                 "permutation_coverage": "all elements of y, dx, dw and dbias",
                 "actual_backend": (
@@ -392,7 +384,7 @@ def main():
                 f"peak delta={memory['incremental_peak_allocated_bytes'] / 2**20:.2f} MiB, "
                 f"throughput={item['throughput_rows_per_second']:.0f} rows/s"
             )
-        del gold, row_ids, column_ids, x, grad, keys
+        del gold, x, grad, keys
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
