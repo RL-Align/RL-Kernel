@@ -145,6 +145,7 @@ def test_weighted_evidence_requires_pinned_weights(monkeypatch, tmp_path, op, we
     "op, weight_source",
     [
         ("timestep_sinusoid_h3", "not_applicable"),
+        ("adaln_gate_residual", "not_applicable"),
         ("timestep_mlp_fp32", "pinned_checkpoint"),
         ("adaln_projection_3mod", "pinned_checkpoint"),
     ],
@@ -166,7 +167,7 @@ def test_evidence_records_weight_source(monkeypatch, tmp_path, op, weight_source
         lambda: {"rl_kernel_commit": "test_commit", "tracked_tree_dirty": False},
     )
     monkeypatch.setattr(h3_evidence, "environment", lambda: {})
-    monkeypatch.setitem(h3_evidence.ACCURACY, op, lambda registry: {})
+    monkeypatch.setitem(h3_evidence.ACCURACY, op, lambda registry: {"weights_source": "pinned"})
     monkeypatch.setitem(h3_evidence.PERF_CASES, op, lambda registry: [])
     out = tmp_path / "report.json"
     monkeypatch.setattr(sys, "argv", ["h3_evidence.py", "--op", op, "--out", str(out)])

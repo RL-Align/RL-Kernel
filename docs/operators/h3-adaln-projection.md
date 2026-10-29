@@ -7,7 +7,7 @@
 modulation tensors of one transformer block, for all three modalities:
 
 ```text
-act   = silu(temb).to(bf16)                         SiLU in FP32, one declared cast
+act   = silu(temb).to(W.dtype)                      SiLU in FP32, one declared cast (BF16 for the checkpoint weights)
 table = act @ W.T + b                               (T, 96768) BF16, W: (96768, 2688)
 rows  = table.view(3T, 32256)                       row t * 3 + m, m: 0 video, 1 text, 2 audio
 shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = rows.chunk(6, -1)   # (3T, 5376) each
@@ -127,7 +127,7 @@ dependence on T.
 ![adaln_projection_3mod on B200: latency and correctly rounded outputs](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr485/reports/experiments/h3-adaln-projection-b200/figure.png)
 
 The data is in [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr485/reports/experiments/h3-adaln-projection-b200/report.json),
-written by `tools/validation/models/h3_evidence.py` from a clean tree at commit `a0834552` on an
+written by `tools/validation/models/h3_evidence.py` from a clean tree at commit `579775f1` on an
 otherwise idle B200 (regenerated after the golden's declared cast was changed to round the FP32
 SiLU, as the model does; the accuracy fields are unchanged on the report's 20 draws). The report also
 records that a timestep's 18 modulation rows are bitwise identical whether it runs alone
@@ -177,7 +177,7 @@ gradient with diffusers' path and with this kernel.
 ![adaln_projection bitwise comparison](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr485/reports/experiments/h3-bitwise-reuse-b200/adaln_projection.png)
 
 This kernel's BF16 output differs from diffusers in 0.08-0.2% of elements (final-rounding flips of a different, fixed reduction order). Every mode (vLLM's settings, SGLang, Megatron) is bitwise equal to diffusers from T = 4 but not at T = 1 (0.1% differ), and differs from this kernel in 0.1-0.2%.
-[`adaln_projection.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr485/reports/experiments/h3-bitwise-reuse-b200/adaln_projection.json) was written from a clean tree at `0e476483` by
+[`adaln_projection.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr485/reports/experiments/h3-bitwise-reuse-b200/adaln_projection.json) was written from a clean tree at `50d1e924` by
 
 ```bash
 python tools/validation/models/h3_bitwise_reuse.py --op adaln_projection --megatron-src <Megatron-LM source tree> \
