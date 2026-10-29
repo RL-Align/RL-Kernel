@@ -155,20 +155,21 @@ out = gate_f * torch.sigmoid(gate_f) * up.float()
   kind to the `swiglu_ffn` work-item row of RFC #501. One node kind, one row, no
   deviations from the frozen semantics (`form: swiglu`, `activation: silu`,
   `order: down(silu(gate(x)) * up(x))`).
-- **CUDA vs Triton**: the two GPU backends are bitwise equal, which RFC #501 asks
-  for. Both compute sigmoid as `1 / (1 + exp(-x))` with IEEE round-to-nearest
-  division, and both backward paths evaluate `s * (1 + x * (1 - s))` in the same
-  association order. Getting there required one change: the Triton kernel calls
-  `libdevice.exp`, not `tl.exp`. On NVIDIA, `tl.exp` lowers to `ex2.approx.f32`,
-  the hardware approximate exponential, which differs from the CUDA kernel's `expf`
-  by a few ulp on roughly 9% of elements. `libdevice.exp` is the precise
-  implementation and reproduces `expf` exactly; it is a per-backend dispatcher, so
-  the ROCm path resolves to OCML with no architecture-specific kernel code. These
-  kernels are bandwidth-bound at the tested widths, so the precise exponential has
-  no measurable cost. Asserted across three dtypes and five shapes by
-  `test_cuda_and_triton_swiglu_are_bitwise_equal` in
-  `tests/ops/activation/test_swiglu.py`; if it ever fails, dump the Triton PTX and
-  check whether `ex2.approx` has come back before looking elsewhere.
+- **CUDA vs Triton**: bitwise equal on CUDA, which is what RFC #501 asks for. Both
+  compute `1 / (1 + exp(-x))` with round-to-nearest division, and both backward
+  paths evaluate `s * (1 + x * (1 - s))` in the same order. The one thing that had
+  to change is the exponential: `tl.exp` lowers to a `mul.f32` by log2(e) plus
+  `ex2.approx.f32` with no correction term, which differs from the CUDA kernel's
+  `expf` by a few ulp on about 9% of elements. `libdevice.exp` emits the same
+  FMA-based range reduction `expf` uses and reproduces it exactly, at no measurable
+  cost here because the kernels are bandwidth-bound. `rocm/gemm/swiglu_gemm.py`
+  already spells it that way. Asserted over three dtypes and five shapes by
+  `test_cuda_and_triton_swiglu_are_bitwise_equal`; if it ever fails, check the
+  Triton PTX for `ex2.approx` before looking anywhere else.
+- **CUDA vs ROCm**: not claimed. On AMD every spelling of the exponential lowers to
+  a bare `v_exp_f32`, which still differs from HIP's `expf`; the vendor-exact
+  sequences in `shared/triton/attention/deterministic_attn.py` show what closing
+  that costs. RFC #501 schedules CUDA-to-ROCm equality separately.
 
 ## Ground-truth harness
 

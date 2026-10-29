@@ -10,14 +10,22 @@ dtype on store — the same dual-path contract as the PyTorch references:
 
 Element-wise and row-independent, so Axis-A batch invariance holds bitwise.
 
-The sigmoid uses ``libdevice.exp``, not ``tl.exp``. ``tl.exp`` lowers to
-``ex2.approx.f32`` on NVIDIA, the hardware approximate exponential, which differs
-from the CUDA kernel's ``expf`` by a few ULP on roughly 9% of elements and so
-breaks the CUDA == Triton bitwise bar RFC #501 asks for. ``libdevice.exp`` is the
-precise implementation and reproduces ``expf`` exactly; it is also a per-backend
-dispatcher, resolving to ``__nv_expf`` on CUDA and OCML on HIP, so the ROCm path
-needs no architecture-specific code. At these widths the kernels are
-bandwidth-bound and the precise exponential costs nothing measurable.
+The sigmoid uses ``libdevice.exp``, not ``tl.exp``. On NVIDIA ``tl.exp`` lowers to
+one ``mul.f32`` by log2(e) followed by ``ex2.approx.f32``, with no correction term,
+and that differs from the CUDA kernel's ``expf`` by a few ULP on roughly 9% of
+elements. ``libdevice.exp`` emits the FMA-based range reduction ``expf`` uses and
+reproduces it exactly, which is what RFC #501's CUDA == Triton bitwise bar needs.
+``rocm/gemm/swiglu_gemm.py`` already spells the sigmoid this way, so this is the
+house style rather than a new choice.
+
+The bitwise claim is CUDA-only. On AMD all three spellings lower to a bare
+``v_exp_f32`` and still differ from HIP's ``expf``; see the comment above the
+vendor-exact sequences in ``shared/triton/attention/deterministic_attn.py`` for
+what matching the vendor costs there. Nothing here regresses ROCm, but nothing
+here buys CUDA-to-ROCm equality either, which RFC #501 schedules separately.
+
+At these widths the kernels are bandwidth-bound, so the precise exponential costs
+nothing measurable despite roughly doubling the instruction count.
 """
 
 from __future__ import annotations
