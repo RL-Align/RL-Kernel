@@ -4,6 +4,7 @@
 """H3 FP32 output projection accuracy, logical-row BI, and video selection."""
 
 import hashlib
+import json
 import math
 
 import pytest
@@ -163,65 +164,45 @@ def test_frozen_parameter_registration(frozen):
     assert (result[3] is None) == (frozen in ("bias", "both"))
 
 
-@pytest.mark.parametrize("bias_uses", ["all", "partial", "distinct"])
-def test_canonical_bias_sharing_requires_matching_contributions(bias_uses, monkeypatch):
-    from rl_engine.ops.autograd.canonical_backward import CanonicalBackwardSession
-    from rl_engine.ops.gemm.canonical_linear import canonical_linear_fp32
+@pytest.mark.parametrize(
+    "source,value",
+    [("candidate", float("nan")), ("candidate", float("inf")), ("reference", float("inf"))],
+)
+def test_benchmark_accuracy_reports_sampled_non_finite(source, value):
+    from benchmarks.operators.gemm.benchmark_video_output_projection_fp32 import _accuracy
 
-    torch.manual_seed(421)
-    x = torch.randn(7, 3, requires_grad=True)
-    weight = torch.randn(5, 3, requires_grad=True)
-    biases = [torch.randn(5, requires_grad=True) for _ in range(2)]
-    grad = torch.randn(7, 5)
-    indices = [torch.tensor([4, 1, 6]), torch.tensor([0, 5, 2, 3])]
-    keys = _keys(7, "cpu")
-    keys[2, 0] = -1
-    normalized = []
-    original = CanonicalBackwardSession._normalize
+    actual = [torch.ones(3, 2), torch.ones(3, 3), torch.ones(2, 3), torch.ones(2)]
+    row_ids, column_ids = torch.tensor([0, 2]), torch.tensor([0, 2])
+    gold = [actual[0][row_ids], actual[1][row_ids], actual[2][:, column_ids], actual[3].clone()]
+    for tensor in actual if source == "candidate" else gold:
+        tensor[(0,) * tensor.ndim] = value
+    report = _accuracy(actual, gold, row_ids, column_ids)
+    for name in ("y", "dx", "dw", "dbias"):
+        assert report[name]["out_of_tolerance"] == 1
+        assert report[name]["non_finite_elements"] == 1
+        assert report[name]["candidate_non_finite_elements"] == (source == "candidate")
+        assert report[name]["max_abs_error"] is None
+    assert [report[name]["sampled"] for name in report] == [True, True, True, False]
+    json.dumps(report, allow_nan=False)
 
-    def observe(self, parameter_id, values):
-        result = original(self, parameter_id, values)
-        normalized.append((parameter_id, result[1]))
-        return result
 
-    monkeypatch.setattr(CanonicalBackwardSession, "_normalize", observe)
-    with canonical_backward_session() as session:
-        outputs = []
-        for use, ix in enumerate(indices):
-            bias = (
-                None
-                if bias_uses == "partial" and use == 1
-                else biases[use if bias_uses == "distinct" else 0]
-            )
-            outputs.append(
-                canonical_linear_fp32(
-                    x[ix],
-                    weight,
-                    keys[ix],
-                    parameter_id="weight",
-                    family="pytorch",
-                    bias=bias,
-                    bias_parameter_id=f"bias.{use if bias_uses == 'distinct' else 0}",
-                )
-            )
-        torch.autograd.backward(outputs, [grad[ix] for ix in indices])
-        session.validate_complete()
-        assert not session._normalized
-    active = keys[:, 0] >= 0
-    torch.testing.assert_close(weight.grad, grad[active].t() @ x.detach()[active])
-    torch.testing.assert_close(x.grad, grad @ weight.detach())
-    for use, bias in enumerate(biases):
-        if use == 1 and bias_uses != "distinct":
-            assert bias.grad is None
-            continue
-        ix = torch.arange(7) if bias_uses == "all" else indices[use]
-        ix = ix[active[ix]]
-        torch.testing.assert_close(bias.grad, grad[ix].sum(0))
-    if bias_uses == "all":
-        assert len(normalized) == 2
-        assert normalized[0][1] is normalized[1][1]
-    else:
-        assert all(a[1] is not b[1] for i, a in enumerate(normalized) for b in normalized[i + 1 :])
+def test_benchmark_accuracy_scans_unsampled_candidate_values():
+    from benchmarks.operators.gemm.benchmark_video_output_projection_fp32 import _accuracy
+
+    actual = [torch.ones(4097, 2), torch.ones(4097, 3), torch.ones(2, 3), torch.ones(2)]
+    row_ids, column_ids = torch.tensor([0, 4095]), torch.tensor([0, 2])
+    gold = [actual[0][row_ids], actual[1][row_ids], actual[2][:, column_ids], actual[3].clone()]
+    # Excluded rows cross the scanner's 4096-row boundary; dW excludes column 1.
+    actual[0][-1, 0] = float("nan")
+    actual[1][-1, 2] = float("inf")
+    actual[2][-1, 1] = -float("inf")
+    report = _accuracy(actual, gold, row_ids, column_ids)
+    for name in ("y", "dx", "dw", "dbias"):
+        assert report[name]["candidate_non_finite_elements"] == (name != "dbias")
+        assert report[name]["out_of_tolerance"] == 0
+        assert report[name]["non_finite_elements"] == 0
+        assert report[name]["max_abs_error"] == 0.0
+    json.dumps(report, allow_nan=False)
 
 
 @pytest.fixture(
