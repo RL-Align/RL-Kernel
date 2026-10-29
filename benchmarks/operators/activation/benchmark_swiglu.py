@@ -208,28 +208,35 @@ NOISY_STD_FRACTION = 0.25
 
 
 def _noise_note(report):
-    """State the measured spread so the speedup column is not read as exact.
+    """State the measured spread and how to read it.
 
-    Each ms cell carries its own standard deviation, but a reader scanning the
-    speedup column needs one sentence telling them how much of that column is
-    noise. Computed from the data rather than written by hand.
+    Latencies are positive and the median is central, so a standard deviation
+    larger than the median can only come from a few extreme samples, not from
+    broad jitter. That distinction matters: the median stays usable, but the
+    standard deviation is not a confidence interval on it. Computed from the
+    results rather than written by hand, so it cannot drift from the data.
     """
     spreads = [
         side["std_ms"] / side["median_ms"]
         for row in report["results"]
         for side in (row["native"], row["triton"])
-        if side["median_ms"] > 0
+        if side["median_ms"] > 0 and side["std_ms"] is not None
     ]
     if not spreads:
         return "No timing samples were recorded."
     noisy = sum(1 for s in spreads if s > NOISY_STD_FRACTION)
+    heavy_tail = sum(1 for s in spreads if s > 1.0)
     worst = max(spreads)
+    repeat = report["environment"]["repeat"]
     return (
         f"Spread: {noisy} of {len(spreads)} timed samples have a standard deviation "
-        f"above {NOISY_STD_FRACTION:.0%} of their median, the worst at {worst:.0%}. "
-        "Medians are the stable figure; differences in the speedup column smaller "
-        "than that spread are not meaningful. These are launch-overhead-bound "
-        "sizes, so treat this as shape qualification rather than a performance claim."
+        f"above {NOISY_STD_FRACTION:.0%} of their median, the worst at {worst:.0%}, and "
+        f"{heavy_tail} exceed 100%. Since latencies are positive and the median is "
+        f"central, a standard deviation above 100% of the median means a handful of "
+        f"stalled iterations out of {repeat}, not broad jitter: each median stays "
+        f"usable, but do not read the standard deviation as a confidence interval on "
+        f"it. These are launch-overhead-bound sizes, so treat the table as shape "
+        f"qualification rather than a performance claim."
     )
 
 
