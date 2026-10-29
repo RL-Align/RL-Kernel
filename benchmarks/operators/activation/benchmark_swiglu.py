@@ -204,6 +204,35 @@ def _environment(device, args, triton_version, shapes):
     }
 
 
+NOISY_STD_FRACTION = 0.25
+
+
+def _noise_note(report):
+    """State the measured spread so the speedup column is not read as exact.
+
+    Each ms cell carries its own standard deviation, but a reader scanning the
+    speedup column needs one sentence telling them how much of that column is
+    noise. Computed from the data rather than written by hand.
+    """
+    spreads = [
+        side["std_ms"] / side["median_ms"]
+        for row in report["results"]
+        for side in (row["native"], row["triton"])
+        if side["median_ms"] > 0
+    ]
+    if not spreads:
+        return "No timing samples were recorded."
+    noisy = sum(1 for s in spreads if s > NOISY_STD_FRACTION)
+    worst = max(spreads)
+    return (
+        f"Spread: {noisy} of {len(spreads)} timed samples have a standard deviation "
+        f"above {NOISY_STD_FRACTION:.0%} of their median, the worst at {worst:.0%}. "
+        "Medians are the stable figure; differences in the speedup column smaller "
+        "than that spread are not meaningful. These are launch-overhead-bound "
+        "sizes, so treat this as shape qualification rather than a performance claim."
+    )
+
+
 def _markdown(report):
     env = report["environment"]
     lines = [
@@ -223,6 +252,8 @@ def _markdown(report):
         "Speedup = eager PyTorch / Triton; values below 1 mean Triton was slower. All "
         "reported cases passed the output and gradient tolerance checks first.",
         "",
+        _noise_note(report),
+        "",
         "| Input | Shape | Mode | Native ms | Triton ms | Speedup | Native GiB | Triton GiB |",
         "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |",
     ]
@@ -230,7 +261,8 @@ def _markdown(report):
         n, t = row["native"], row["triton"]
         lines.append(
             f"| {row['dtype']} | {'x'.join(map(str, row['shape']))} | {row['mode']} | "
-            f"{n['median_ms']:.6f} | {t['median_ms']:.6f} | {row['speedup']:.2f}x | "
+            f"{n['median_ms']:.6f} ± {n['std_ms']:.6f} | "
+            f"{t['median_ms']:.6f} ± {t['std_ms']:.6f} | {row['speedup']:.2f}x | "
             f"{n['peak_extra_gib']:.4f} | {t['peak_extra_gib']:.4f} |"
         )
     return "\n".join(lines) + "\n"
