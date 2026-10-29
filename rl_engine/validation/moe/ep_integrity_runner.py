@@ -33,16 +33,28 @@ def _exchange(
     if bool(torch.any(destinations < 0).item()) or bool(torch.any(destinations >= world).item()):
         raise ValueError("destinations must be in [0, world)")
     order = torch.argsort(destinations, stable=True)
+    # Each count describes this rank's local rows, partitioned by destination.
     send_counts = torch.bincount(destinations, minlength=world).to(torch.int64)
     receive_counts = torch.empty_like(send_counts)
+    # Exchange one count per peer: receive_counts is indexed by source rank.
     dist.all_to_all_single(receive_counts, send_counts)
     send = send_counts.cpu().tolist()
     receive = receive_counts.cpu().tolist()
     rows = sum(receive)
     output_routes = torch.empty((rows, routes.shape[1]), dtype=routes.dtype, device=routes.device)
     output_values = torch.empty((rows, values.shape[1]), dtype=values.dtype, device=values.device)
-    dist.all_to_all_single(output_routes, routes[order].contiguous(), receive, send)
-    dist.all_to_all_single(output_values, values[order].contiguous(), receive, send)
+    dist.all_to_all_single(
+        output_routes,
+        routes[order].contiguous(),
+        output_split_sizes=receive,
+        input_split_sizes=send,
+    )
+    dist.all_to_all_single(
+        output_values,
+        values[order].contiguous(),
+        output_split_sizes=receive,
+        input_split_sizes=send,
+    )
     return output_routes, output_values
 
 
@@ -88,6 +100,7 @@ def run_case(world: int, rank: int, device: torch.device, *, skew: bool) -> dict
     # Deliberately reverse physical arrival order before returning to each source.
     routed = routed.flip(0)
     expert_values = expert_values.flip(0)
+    # Return only the rows computed by this rank; global gathering happens later.
     returned, outputs = _exchange(routed, expert_values, routed[:, 0], world)
     # Gather only small diagnostic payloads after the actual device transfers.
     received: list = [None] * world
