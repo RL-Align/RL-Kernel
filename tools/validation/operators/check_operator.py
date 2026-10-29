@@ -74,10 +74,20 @@ def _summarize(report: Any) -> None:
     print(f"suite={report.suite_name} passed={report.passed} pass_rate={report.pass_rate:.4f}")
     for candidate in report.candidates:
         print(
-            f"candidate={candidate.candidate_name} backend={candidate.backend} "
+            f"candidate={candidate.candidate_name} requested_backend={candidate.backend} "
             f"passed={candidate.passed} pass_rate={candidate.pass_rate:.4f}"
         )
         for case in candidate.cases:
+            trace = case.backend_trace or {}
+            actual = trace.get("actual_backend") or "unknown"
+            fallback = trace.get("fallback")
+            if fallback is None:
+                fallback = "unknown"
+            reason = trace.get("fallback_reason")
+            print(
+                f"  case={case.case_name} actual_backend={actual} fallback={fallback}"
+                + (f" fallback_reason={reason}" if reason else "")
+            )
             for output in case.outputs:
                 label = f" {output.message}" if output.message else ""
                 print(
@@ -99,8 +109,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--candidate",
         default="pytorch",
-        help="Candidate backend to validate, for example pytorch, cuda, cuda-sm90, triton, "
-        "ascend.",
+        help="Candidate backend to validate, for example pytorch, cuda, cuda-sm90, triton, ascend.",
     )
     parser.add_argument("--dtype", choices=("fp32", "bf16", "fp16"), default="fp32")
     parser.add_argument("--device", default="auto")
@@ -144,7 +153,7 @@ def main() -> None:
     args = parse_args()
     dtype = _parse_dtype(args.dtype)
     device = _select_device(args.device)
-    candidate = make_candidate(args)
+    candidate = make_candidate(args, observe_backend=True)
     case = make_operator_case(args, dtype, device)
     report = run_operator_suite(
         args.op,

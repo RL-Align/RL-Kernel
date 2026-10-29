@@ -256,6 +256,19 @@ std::vector<torch::Tensor> swiglu_packed_backward_cuda(
     torch::Tensor dy,
     torch::Tensor gate_up);
 
+#if defined(RLK_ADALN_CUDA_ENABLED)
+std::vector<torch::Tensor> adaln_modulation_forward_cuda(
+    torch::Tensor x, torch::Tensor modulation, double eps, int threads);
+std::vector<torch::Tensor> adaln_modulation_backward_cuda(
+    torch::Tensor dy, torch::Tensor dg, torch::Tensor x,
+    torch::Tensor modulation, double eps, int threads);
+std::vector<torch::Tensor> adaln_indexed_forward_cuda(
+    torch::Tensor x, torch::Tensor modulation, torch::Tensor index, double eps, int threads);
+std::vector<torch::Tensor> adaln_indexed_backward_cuda(
+    c10::optional<torch::Tensor> dy, c10::optional<torch::Tensor> dg,
+    torch::Tensor x, torch::Tensor modulation, torch::Tensor index, double eps, int threads);
+#endif
+
 // RMSNorm Declarations & Wrappers
 
 void rmsnorm_forward_cuda(
@@ -737,6 +750,23 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Batch-invariant SwiGLU forward for [rows, 2 * intermediate]");
     m.def("swiglu_packed_backward", &swiglu_packed_backward,
           "Batch-invariant SwiGLU backward for [rows, 2 * intermediate]");
+#if defined(RLK_ADALN_CUDA_ENABLED)
+    m.def("adaln_modulation_forward", &adaln_modulation_forward_cuda,
+          "AdaLN modulation forward CUDA",
+          py::arg("x"), py::arg("modulation"), py::arg("eps"), py::arg("threads") = 256);
+    m.def("adaln_modulation_backward", &adaln_modulation_backward_cuda,
+          "AdaLN modulation backward CUDA",
+          py::arg("dy"), py::arg("dg"), py::arg("x"), py::arg("modulation"),
+          py::arg("eps"), py::arg("threads") = 256);
+    m.def("adaln_indexed_forward", &adaln_indexed_forward_cuda,
+          "Indexed AdaLN small FP32 CUDA slice",
+          py::arg("x"), py::arg("modulation"), py::arg("index"), py::arg("eps"),
+          py::arg("threads") = 256);
+    m.def("adaln_indexed_backward", &adaln_indexed_backward_cuda,
+          "Indexed AdaLN FP32 ascending-token VJP",
+          py::arg("dy"), py::arg("dg"), py::arg("x"), py::arg("modulation"),
+          py::arg("index"), py::arg("eps"), py::arg("threads") = 256);
+#endif
 
     // Deterministic standard-softmax attention (issue #147)
     m.def(
