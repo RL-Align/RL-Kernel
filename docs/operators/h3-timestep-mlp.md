@@ -56,8 +56,9 @@ Forward, for each output `y[t, n]`:
 - Each lane accumulates its chunks in ascending order, and the elements inside a chunk
   in ascending order, using `fmaf` into an FP32 accumulator that starts at 0.
 - The 32 lane sums are combined with an xor butterfly (16, 8, 4, 2, 1).
-- The bias is added once, then SiLU runs in FP32 as `v / (1 + expf(-v))`
-  (PyTorch's formula). The result is stored as FP32.
+- The bias is added once. In `linear_1` SiLU then runs in FP32 as `v / (1 + expf(-v))`
+  (PyTorch's formula); `linear_2` returns its biased linear output without an activation.
+  The result is stored as FP32.
 
 How many columns a warp owns, the row tile (1, 2 or 4), and how many chunks are
 loaded ahead change only when loads are issued, never the order in which a column
@@ -112,7 +113,7 @@ kernel time.
 ![timestep_mlp_fp32 on B200: latency and per-draw error vs FP64](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr484/reports/experiments/h3-timestep-mlp-b200/figure.png)
 
 The data is in [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr484/reports/experiments/h3-timestep-mlp-b200/report.json), written
-by `tools/validation/models/h3_evidence.py` from a clean tree at commit `65ef7f6`. It also records that a
+by `tools/validation/models/h3_evidence.py` from a clean tree at commit `418998c`. It also records that a
 timestep's row is bitwise identical whether it runs alone or in a batch of 9.
 
 ## Existing implementations (RFC #420 reuse rule)
@@ -154,7 +155,7 @@ gradient with diffusers' path and with this kernel.
 ![timestep_mlp bitwise comparison](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr484/reports/experiments/h3-bitwise-reuse-b200/timestep_mlp.png)
 
 No candidate reproduces this kernel's bits at any T (90.6-100% of the FP32 outputs differ). None is a bitwise drop-in for diffusers at H3's T = 1-4 either: vLLM's settings and Megatron te_native match diffusers at T = 1, 64 and 2048 but not at T = 4; SGLang/Megatron Triton with ieee match only from T = 64; the TF32 Triton modes never match.
-[`timestep_mlp.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr484/reports/experiments/h3-bitwise-reuse-b200/timestep_mlp.json) was written from a clean tree at `0df83a5a` by
+[`timestep_mlp.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr484/reports/experiments/h3-bitwise-reuse-b200/timestep_mlp.json) was written from a clean tree at `73939f2d` by
 
 ```bash
 python tools/validation/models/h3_bitwise_reuse.py --op timestep_mlp --megatron-src <Megatron-LM source tree> \
