@@ -53,8 +53,8 @@ the host synchronization. Pass `check_range=False` to `forward` or
 ## Numerics
 
 - **Operation order.** The kernel evaluates exactly the FP32 operations the provider
-  runs on CUDA: `(float)(-ln 10000) * k`, multiplied by the FP32 reciprocal of `128`
-  (PyTorch divides by a CPU scalar this way), `expf`, `t * freq`, `cosf` and `sinf`.
+  runs on CUDA: `(float)(-ln 10000) * k`, multiplied by the FP32 reciprocal of `num_channels / 2`
+  (128 for H3; PyTorch divides by a CPU scalar this way), `expf`, `t * freq`, `cosf` and `sinf`.
   The multiplies use `__fmul_rn`, so they are never fused into an FMA. The extension
   is built without `--use_fast_math`, so `expf`, `sinf` and `cosf` are the precise
   libdevice functions.
@@ -64,7 +64,7 @@ the host synchronization. Pass `check_range=False` to `forward` or
   bitwise identical across batch size, position, permutation and repeated runs.
 - **Backward.** `d/dt` is the analytic row-local VJP
   (`-f * sin(t f)` for the cos half, `f * cos(t f)` for the sin half). It is summed over
-  the 256 channels with a fixed pairwise tree (`tree_sum_lastdim_fp32`), so it does not
+  the `num_channels` channels (256 for H3) with a fixed pairwise tree (`tree_sum_lastdim_fp32`), so it does not
   depend on how many timesteps share the launch.
 
 Measured on a B200 (torch 2.13.0+cu130):
@@ -98,18 +98,18 @@ records that commit and the environment.
 
 ![timestep_sinusoid vs existing implementations](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr483/reports/experiments/h3-prior-art-b200/timestep_sinusoid.png)
 
-| Implementation | Batch-invariant | size 3: fwd err / worst grad err / fwd+bwd | size 256: fwd err / worst grad err / fwd+bwd | size 2048: fwd err / worst grad err / fwd+bwd |
+| Implementation | Batch-invariant | size 3: fwd err / worst grad err / fwd latency | size 256: fwd err / worst grad err / fwd latency | size 2048: fwd err / worst grad err / fwd latency |
 |---|---|---|---|---|
 | diffusers get_timestep_embedding (op-for-op replay) | yes | 6.7e-08 / — / 64 µs (fwd only) | 8.6e-08 / — / 64 µs (fwd only) | 9.9e-08 / — / 65 µs (fwd only) |
 | SGLang 0.5.21 timestep_embedding | yes | 6.7e-08 / — / 13 µs (fwd only) | 8.6e-08 / — / 12 µs (fwd only) | 9.9e-08 / — / 13 µs (fwd only) |
 | rl-kernel H3TimestepSinusoidCudaOp (check_range=False) | yes | 6.7e-08 / — / 16 µs (fwd only) | 8.6e-08 / — / 16 µs (fwd only) | 9.9e-08 / — / 16 µs (fwd only) |
 
 Errors are max|err| / max|ref| against the same computation in FP64; latency is the median
-forward + backward time on an otherwise idle B200. Batch invariance is bitwise and covers
+forward time (the prior-art candidates were benchmarked forward-only) on an otherwise idle B200. Batch invariance is bitwise and covers
 three checks: every row computed alone vs inside full batches of 64, 257 and 2048 rows; the full
 8192-timestep batch vs sub-batches that together cover every row; and a dense batch-size sweep. A
 "no" means that at least one row, sub-batch or gradient differed. [`timestep_sinusoid.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr483/reports/experiments/h3-prior-art-b200/timestep_sinusoid.json)
-was written from a clean tree at `7a82917` by
+was written from a clean tree at `0d3794de` (`7a82917` in the JSON, see the note before Tests) by
 
 ```bash
 python tools/validation/models/h3_prior_art.py --op timestep_sinusoid --out reports/experiments/h3-prior-art-b200/timestep_sinusoid.json
@@ -131,7 +131,7 @@ kernel compiled with `--use_fast_math`, which the build excludes (see Known Limi
 SGLang's `timestep_embedding`, diffusers' path and this kernel are bitwise identical on all
 2.22M timesteps (567.6M outputs). The fast-math build differs in 53.7–82.7% of outputs.
 [`timestep_sinusoid.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr483/reports/experiments/h3-bitwise-reuse-b200/timestep_sinusoid.json)
-was written from a clean tree at `0eb5ddd5` by
+was written from a clean tree at `be6a94ae` (`0eb5ddd5` in the JSON, see the note before Tests) by
 
 ```bash
 python tools/validation/models/h3_bitwise_reuse.py --op timestep_sinusoid --fast-math-variant \
@@ -140,6 +140,9 @@ python tools/validation/models/plot_h3_bitwise_reuse.py \
     reports/experiments/h3-bitwise-reuse-b200/timestep_sinusoid.json \
     --out reports/experiments/h3-bitwise-reuse-b200/timestep_sinusoid.png
 ```
+
+The JSON files record the commits as they were before the branch history was rewritten on 2026-10-23
+(`7a82917`, `0eb5ddd5`); `0d3794de` and `be6a94ae` are the same commits in the current history.
 
 ## Tests
 

@@ -3,19 +3,41 @@
 
 from __future__ import annotations
 
+import os
+import re
 import runpy
+import shutil
+import subprocess
+from pathlib import Path
 from typing import Any
 
+import pytest
 import setuptools
 import torch
 from torch.utils import cpp_extension
 
 from build_tools.extensions import (
+    _OPTIONS_FILE_MAX_BYTES,
     H3_BITWISE_SOURCES,
     H3_KERNELS_DEFINE,
+    _relaxed_math_reason,
     _resolve_package_data_source,
+    _tokens_relax_math,
     get_cmdclass,
 )
+
+_NVCC_ENV = ("NVCC_PREPEND_FLAGS", "NVCC_APPEND_FLAGS", "TORCH_NVCC_FLAGS")
+
+
+def _external_relaxed_math() -> bool:
+    return _relaxed_math_reason() is not None
+
+
+def _clear_nvcc_env(monkeypatch) -> None:
+    # The build reads these variables; a runner that sets one must not change what a test sees.
+    monkeypatch.delenv("KERNEL_ALIGN_USE_FAST_MATH", raising=False)
+    for name in _NVCC_ENV:
+        monkeypatch.delenv(name, raising=False)
 
 
 def _load_extension_config(monkeypatch, *, hip: str | None) -> dict[str, Any]:
@@ -91,7 +113,7 @@ def test_package_data_real_json_is_not_reinterpreted(tmp_path) -> None:
 
 
 def test_cuda_build_compiles_h3_kernels_without_fast_math(monkeypatch) -> None:
-    monkeypatch.delenv("KERNEL_ALIGN_USE_FAST_MATH", raising=False)
+    _clear_nvcc_env(monkeypatch)
     extension = _load_extension_config(monkeypatch, hip=None)
 
     assert set(H3_BITWISE_SOURCES) <= set(extension["sources"])
@@ -105,6 +127,7 @@ def test_fast_math_build_excludes_bitwise_h3_kernels(monkeypatch) -> None:
     # and enables FTZ, which breaks the H3 kernels' bitwise parity promise; nvcc
     # exposes no macro to reject it in-source, so the build drops the kernels
     # and their bindings.
+    _clear_nvcc_env(monkeypatch)
     monkeypatch.setenv("KERNEL_ALIGN_USE_FAST_MATH", "1")
     extension = _load_extension_config(monkeypatch, hip=None)
 
@@ -113,3 +136,320 @@ def test_fast_math_build_excludes_bitwise_h3_kernels(monkeypatch) -> None:
     assert not [s for s in extension["sources"] if s.startswith("csrc/cuda/h3/")]
     assert H3_KERNELS_DEFINE not in extension["extra_compile_args"]["cxx"]
     assert H3_KERNELS_DEFINE not in extension["extra_compile_args"]["nvcc"]
+
+
+@pytest.mark.parametrize("variable", _NVCC_ENV)
+@pytest.mark.parametrize(
+    "flags",
+    [
+        "-O2 --use_fast_math --ftz=true",
+        "--ftz true",
+        "-ftz=1",
+        "--prec-div false",
+        "-prec-sqrt=false",
+        "--use_fast_math;--prec-div=false",
+        "'-O2 --use_fast_math'",
+    ],
+)
+def test_relaxed_math_nvcc_flags_from_the_environment_exclude_bitwise_h3_kernels(
+    monkeypatch, variable, flags
+) -> None:
+    # The flags are appended after the ones built here, so a build with
+    # NVCC_APPEND_FLAGS='--use_fast_math' would otherwise ship H3 kernels with approximated math.
+    _clear_nvcc_env(monkeypatch)
+    assert _relaxed_math_reason() is None  # a leaked variable would fail the control, not the flags
+    control = _load_extension_config(monkeypatch, hip=None)
+    assert set(H3_BITWISE_SOURCES) <= set(control["sources"])  # the flags are the only difference
+
+    monkeypatch.setenv(variable, flags)
+    with pytest.warns(RuntimeWarning, match="bitwise MiniMax-H3 kernels"):
+        extension = _load_extension_config(monkeypatch, hip=None)
+
+    assert not [s for s in extension["sources"] if s.startswith("csrc/cuda/h3/")]
+    assert H3_KERNELS_DEFINE not in extension["extra_compile_args"]["cxx"]
+    assert H3_KERNELS_DEFINE not in extension["extra_compile_args"]["nvcc"]
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        "--use_fast_math",
+        "-use_fast_math",
+        "--use_fast_math=true",
+        "--ftz=true",
+        "-ftz=true",
+        "--ftz true",
+        "-ftz 1",
+        "--ftz",
+        "--prec-div=false",
+        "--prec-div false",
+        "-prec-div 0",
+        "--prec-sqrt=false",
+        "-prec-sqrt false",
+        "-O2;--use_fast_math",
+        "-O2 ; --prec-div=false",
+        "'-O2 --use_fast_math'",
+        "-lineinfo --ftz=true",
+    ],
+)
+def test_predicate_sees_every_spelling_of_relaxed_math(monkeypatch, flags) -> None:
+    _clear_nvcc_env(monkeypatch)
+    monkeypatch.setenv("NVCC_APPEND_FLAGS", flags)
+    assert _external_relaxed_math()
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        "",
+        "-lineinfo --fmad=true",
+        "--fmad=false",
+        "--ftz=false",
+        "--ftz false",
+        "--ftz=FALSE",
+        "--prec-div=true",
+        "--prec-div TRUE -O2",
+        "-O2 -gencode arch=compute_90,code=sm_90",
+        "--use_fast_mathematically",
+    ],
+)
+def test_predicate_keeps_the_h3_kernels_for_unrelated_flags(monkeypatch, flags) -> None:
+    _clear_nvcc_env(monkeypatch)
+    monkeypatch.setenv("NVCC_APPEND_FLAGS", flags)
+    assert not _external_relaxed_math()
+
+
+def test_predicate_reads_response_files_and_fails_closed(monkeypatch, tmp_path) -> None:
+    _clear_nvcc_env(monkeypatch)
+    relaxed = tmp_path / "relaxed.opts"
+    relaxed.write_text("-O2\n--use_fast_math\n")
+    plain = tmp_path / "plain.opts"
+    plain.write_text("-lineinfo\n")
+
+    monkeypatch.setenv("NVCC_APPEND_FLAGS", f"@{relaxed}")
+    assert _external_relaxed_math()
+    monkeypatch.setenv("NVCC_APPEND_FLAGS", f"@{plain}")
+    assert not _external_relaxed_math()
+    # Nothing is known about a file that cannot be read or a value that cannot be split.
+    monkeypatch.setenv("NVCC_APPEND_FLAGS", f"@{tmp_path / 'missing.opts'}")
+    assert _external_relaxed_math()
+    monkeypatch.setenv("NVCC_APPEND_FLAGS", "'unterminated")
+    assert _external_relaxed_math()
+
+
+_OPTION_FILES = {
+    "fast.opts": "--use_fast_math\n",
+    "ftz.opts": "-O2\n--ftz=true\n--prec-div=false\n",
+    "sqrt.opts": "--prec-sqrt=false",
+    "plain.opts": "-lineinfo\n--fmad=false\n",
+    "nested.opts": "-optf fast.opts\n",
+    # Names with a space or ';' are one word when double-quoted, as nvcc reads them. The decoys
+    # ``my`` and ``a`` are what a parser that split the quoted word would read instead.
+    "my opts.txt": "--use_fast_math\n",
+    "my": "-lineinfo\n",
+    "a;b.txt": "--ftz=true\n",
+    "a": "-lineinfo\n",
+    "plain opts.txt": "-lineinfo\n",
+    "plain": "--use_fast_math\n",
+}
+
+
+@pytest.mark.parametrize(
+    ("flags", "relaxed"),
+    [
+        ("-optf fast.opts", True),
+        ("--options-file fast.opts", True),
+        ("--options-file=fast.opts", True),
+        ("-options-file=ftz.opts", True),
+        ("--options-file plain.opts,sqrt.opts", True),
+        ("-optf=plain.opts,fast.opts", True),
+        ("-O2 -optf nested.opts", True),
+        ("-optf plain.opts", False),
+        ("--options-file=plain.opts,plain.opts", False),
+        ("@fast.opts", True),
+        ("@plain.opts", False),
+        ('--options-file "my opts.txt"', True),
+        ('-optf="my opts.txt"', True),
+        ('-optf "a;b.txt"', True),
+        ('-optf "plain opts.txt"', False),
+    ],
+)
+def test_predicate_reads_the_options_files_nvcc_reads(
+    monkeypatch, tmp_path, flags, relaxed
+) -> None:
+    # nvcc expands ``--options-file`` / ``-optf`` (a comma-separated list) wherever the option
+    # comes from, so ``NVCC_APPEND_FLAGS='--options-file flags.txt'`` can switch fast math on.
+    _clear_nvcc_env(monkeypatch)
+    for name, content in _OPTION_FILES.items():
+        (tmp_path / name).write_text(content)
+    monkeypatch.chdir(tmp_path)
+    for variable in _NVCC_ENV:
+        monkeypatch.setenv(variable, flags)
+        assert _external_relaxed_math() is relaxed, (variable, flags)
+        monkeypatch.delenv(variable)
+
+
+@pytest.mark.parametrize("flags", ["-optf", "--options-file -O2", "-optf missing.opts"])
+def test_options_files_nvcc_cannot_open_count_as_relaxed(monkeypatch, tmp_path, flags) -> None:
+    _clear_nvcc_env(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("NVCC_PREPEND_FLAGS", flags)
+    assert _external_relaxed_math()
+
+
+@pytest.mark.parametrize(
+    "flags",
+    ["--ftz=yes", "--ftz=0", "-ftz 1", "--prec-div=no", "--prec-div maybe", "-prec-sqrt=1"],
+)
+def test_values_nvcc_does_not_take_are_not_read_as_the_exact_spelling(monkeypatch, flags) -> None:
+    # nvcc stops on these; the build then fails, but the predicate must not call them safe.
+    _clear_nvcc_env(monkeypatch)
+    monkeypatch.setenv("NVCC_APPEND_FLAGS", flags)
+    reason = _relaxed_math_reason()
+    assert reason is not None, flags
+    assert "NVCC_APPEND_FLAGS contains" in reason, reason
+
+
+def test_options_files_that_are_not_ordinary_small_files_are_not_read(
+    monkeypatch, tmp_path
+) -> None:
+    # An options file is read whole before anything checks it. A device node (``/dev/zero`` never
+    # ends) or a FIFO would hang the configure step, and a huge file would exhaust memory.
+    _clear_nvcc_env(monkeypatch)
+    big = tmp_path / "big.opts"
+    big.write_text("-lineinfo\n" * (_OPTIONS_FILE_MAX_BYTES // 8))
+    fifo = tmp_path / "fifo.opts"
+    os.mkfifo(fifo)
+    for name, why in [
+        ("/dev/zero", "not a regular file"),
+        (str(fifo), "not a regular file"),
+        (str(tmp_path), "not a regular file"),
+        (str(big), "larger than"),
+    ]:
+        monkeypatch.setenv("NVCC_APPEND_FLAGS", f"-optf {name}")
+        reason = _relaxed_math_reason()
+        assert reason is not None and why in reason, (name, reason)
+
+
+def test_the_build_warning_names_the_variable_and_the_reason(monkeypatch, tmp_path) -> None:
+    _clear_nvcc_env(monkeypatch)
+    missing = str(tmp_path / "missing.opts")
+    for flags, reason in [
+        ("-O2 --ftz true", "NVCC_APPEND_FLAGS contains --ftz true"),
+        ("--prec-div", "NVCC_APPEND_FLAGS contains --prec-div without a value"),
+        ("--use_fast_math", "NVCC_APPEND_FLAGS contains --use_fast_math"),
+        (f"-optf {missing}", f"NVCC_APPEND_FLAGS: cannot read options file '{missing}'"),
+        ("'unterminated", "NVCC_APPEND_FLAGS cannot be parsed"),
+    ]:
+        monkeypatch.setenv("NVCC_APPEND_FLAGS", flags)
+        assert _relaxed_math_reason().startswith(reason), (flags, _relaxed_math_reason())
+        with pytest.warns(RuntimeWarning, match=re.escape(reason)):
+            _load_extension_config(monkeypatch, hip=None)
+    monkeypatch.delenv("NVCC_APPEND_FLAGS")
+    assert _relaxed_math_reason() is None
+
+
+def _nvcc() -> str | None:
+    for root in (os.environ.get("CUDA_HOME"), "/usr/local/cuda"):
+        if root and (Path(root) / "bin" / "nvcc").exists():
+            return str(Path(root) / "bin" / "nvcc")
+    return shutil.which("nvcc")
+
+
+_FLAG_SETS_THAT_RELAX = {
+    "--use_fast_math",
+    "-use_fast_math",
+    "--ftz=true",
+    "-ftz true",
+    "--prec-div=false",
+    "-prec-div false",
+    "--prec-sqrt=false",
+    "-optf fast.opts",
+    "--options-file=ftz.opts",
+    "--options-file plain.opts,sqrt.opts",
+    "-optf nested.opts",
+    '--options-file "my opts.txt"',
+    '-optf "a;b.txt"',
+}
+
+
+@pytest.mark.skipif(_nvcc() is None, reason="needs nvcc")
+@pytest.mark.parametrize(
+    "flags",
+    [
+        "",
+        "-lineinfo --fmad=false",
+        "--use_fast_math",
+        "-use_fast_math",
+        "--ftz=true",
+        "--ftz=false",
+        "-ftz true",
+        "--ftz false",
+        "--prec-div=false",
+        "--prec-div true",
+        "-prec-div false",
+        "--prec-sqrt=false",
+        "-prec-sqrt=true",
+        "-optf fast.opts",
+        "--options-file=ftz.opts",
+        "--options-file plain.opts,sqrt.opts",
+        "-optf plain.opts",
+        "-optf nested.opts",
+        '--options-file "my opts.txt"',
+        '-optf "a;b.txt"',
+        '-optf "plain opts.txt"',
+        "-O2 --ftz=false --prec-div=true --prec-sqrt=true",
+    ],
+)
+@pytest.mark.parametrize("variable", ["NVCC_PREPEND_FLAGS", "NVCC_APPEND_FLAGS"])
+def test_predicate_agrees_with_what_nvcc_compiles_with(
+    monkeypatch, tmp_path, flags, variable
+) -> None:
+    # The oracle is nvcc itself: ``--dryrun`` prints the cicc command it would run, whose
+    # -ftz / -prec_div / -prec_sqrt say whether the flags turned FP32 math into the fast variants.
+    # (nvcc takes only true / false for these options and stops on ``--ftz 1``; the predicate reads
+    # 1 / 0 as relaxed anyway, which is the safe side of a build that fails.)
+    _clear_nvcc_env(monkeypatch)
+    for name, content in _OPTION_FILES.items():
+        (tmp_path / name).write_text(content)
+    (tmp_path / "k.cu").write_text("__global__ void k(float* a) { a[0] = 1.0f / a[1]; }\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(variable, flags)
+
+    done = subprocess.run(
+        [_nvcc(), "-arch=compute_80", "-ptx", "k.cu", "-o", "k.ptx", "--dryrun"],
+        capture_output=True,
+        text=True,
+        env=os.environ.copy(),
+    )
+    assert done.returncode == 0, done.stderr
+    cicc = [line for line in done.stderr.splitlines() if "cicc" in line]
+    assert cicc, done.stderr
+    line = f" {cicc[0]} "
+    # The three options must be in the line at all, so a format change fails here and does not make
+    # every flag set look unrelaxed; and the sets that relax must be seen to relax.
+    assert all(f" {opt}=" in line for opt in ("-ftz", "-prec_div", "-prec_sqrt")), line
+    nvcc_relaxes = any(f" {opt} " in line for opt in ("-ftz=1", "-prec_div=0", "-prec_sqrt=0"))
+    assert nvcc_relaxes is (flags in _FLAG_SETS_THAT_RELAX), (flags, line)
+    assert _external_relaxed_math() is nvcc_relaxes, (variable, flags, line)
+
+
+def test_no_flag_built_here_relaxes_math_while_the_h3_define_is_set(monkeypatch) -> None:
+    # The predicate looks at the environment; this looks at the nvcc list that is handed to the
+    # compiler, so a relaxed flag added to the list later cannot ship together with the H3 define.
+    _clear_nvcc_env(monkeypatch)
+    default = _load_extension_config(monkeypatch, hip=None)["extra_compile_args"]["nvcc"]
+    assert H3_KERNELS_DEFINE in default and _tokens_relax_math(default) is None
+
+    monkeypatch.setenv("KERNEL_ALIGN_USE_FAST_MATH", "1")
+    fast = _load_extension_config(monkeypatch, hip=None)["extra_compile_args"]["nvcc"]
+    assert H3_KERNELS_DEFINE not in fast and _tokens_relax_math(fast) == "--use_fast_math"
+
+
+def test_unrelated_nvcc_flags_keep_the_h3_kernels(monkeypatch) -> None:
+    _clear_nvcc_env(monkeypatch)
+    monkeypatch.setenv("NVCC_APPEND_FLAGS", "-lineinfo --fmad=true")
+    extension = _load_extension_config(monkeypatch, hip=None)
+
+    assert set(H3_BITWISE_SOURCES) <= set(extension["sources"])
+    assert H3_KERNELS_DEFINE in extension["extra_compile_args"]["nvcc"]
