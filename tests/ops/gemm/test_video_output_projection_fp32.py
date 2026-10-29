@@ -638,11 +638,12 @@ def _tensor_digest(tensor, row_order=None):
     return digest.hexdigest()
 
 
-def _sampled_layout_accuracy(data, actual):
-    """Check 32 y/dX rows, 16 dW input channels, and all dbias with full-K CPU sums."""
+def _sampled_layout_accuracy(data, actual, *, sample_rows=None):
+    """Check selected y/dX rows, 16 dW input channels, and all dbias with full-K sums."""
     x, weight, bias, grad = data
     rows = x.shape[0]
-    sample_rows = torch.linspace(0, rows - 1, 32, dtype=torch.int64, device=x.device)
+    if sample_rows is None:
+        sample_rows = torch.linspace(0, rows - 1, 32, dtype=torch.int64, device=x.device)
     input_columns = torch.linspace(0, 5375, 16, dtype=torch.int64, device=x.device)
     cx = x.detach().index_select(0, sample_rows).cpu()
     cw, cb = weight.detach().cpu(), bias.detach().cpu()
@@ -659,6 +660,142 @@ def _sampled_layout_accuracy(data, actual):
         "gradient_accuracy",
     )
     _assert_accuracy(actual[3], expected_dbias, "gradient_accuracy")
+
+
+@requires_sm90
+@pytest.mark.parametrize(
+    "profiles",
+    [
+        pytest.param(("packed_62t",) * 2, id="two-equal-requests"),
+        pytest.param(("packed_62t",) * 4, id="four-equal-requests"),
+        pytest.param(("packed_62t", "345f"), id="two-different-length-requests"),
+    ],
+)
+def test_packed_multi_request_accuracy_and_bi(profiles):
+    # vLLM-Omni #5810, merged at d150a4fde77d15d466102323a4048b0a8631d74c:
+    # one DiT request has text=9, video=62*12*21 and stereo audio=348*2.
+    # Each request is padded independently to 64 rows before packed execution.
+    short_video, short_audio = 62 * 12 * 21, 348 * 2
+    short_rows = 9 + short_video + short_audio
+    assert short_rows == 16329 and math.ceil(short_rows / 64) * 64 == 16384
+    layouts = {
+        "packed_62t": (short_rows, [(9 + short_audio, short_rows)]),
+        "345f": _layout("t2va", 345, 768, 1344, 1024),
+    }
+    requests = [layouts[profile] for profile in profiles]
+    padded_lengths = [math.ceil(rows / 64) * 64 for rows, _ in requests]
+    total_rows = sum(padded_lengths)
+    data = _data(total_rows, seed=420)
+    keys = torch.full((total_rows, 2), -1, device="cuda", dtype=torch.int64)
+    video_mask = torch.zeros(total_rows, dtype=torch.bool, device="cuda")
+    request_indices, boundary_rows = [], []
+    cursor = active_cursor = 0
+    for request_id, ((rows, video_ranges), padded) in enumerate(
+        zip(requests, padded_lengths, strict=True)
+    ):
+        keys[cursor : cursor + rows, 0] = request_id
+        keys[cursor : cursor + rows, 1] = torch.arange(rows, device="cuda")
+        for start, end in video_ranges:
+            video_mask[cursor + start : cursor + end] = True
+            boundary_rows.extend((active_cursor + start, active_cursor + end - 1))
+        request_indices.append(torch.arange(cursor, cursor + padded, device="cuda"))
+        boundary_rows.extend((active_cursor, active_cursor + rows - 1))
+        cursor += padded
+        active_cursor += rows
+    # Non-video rows and per-request padding receive no selected-video gradient.
+    data[3][~video_mask] = 0
+    active = torch.nonzero(keys[:, 0] >= 0, as_tuple=True)[0]
+    assert active.numel() == sum(rows for rows, _ in requests)
+
+    def result_digest(result, active_rows):
+        return tuple(
+            _tensor_digest(value, active_rows if i < 2 else None) for i, value in enumerate(result)
+        )
+
+    op = _op()
+    baseline = _run(op, data, keys)
+    selected_rows = torch.cat(
+        (
+            torch.linspace(0, active.numel() - 1, 32, device="cuda", dtype=torch.int64),
+            torch.tensor(boundary_rows, device="cuda", dtype=torch.int64),
+        )
+    ).unique()
+    # Exclude padding from the reference, while retaining every active row in
+    # the dW/dbias sums. Sample both ends of every request in addition to the grid.
+    _sampled_layout_accuracy(
+        (data[0].index_select(0, active), data[1], data[2], data[3].index_select(0, active)),
+        (
+            baseline[0].index_select(0, active),
+            baseline[1].index_select(0, active),
+            baseline[2],
+            baseline[3],
+        ),
+        sample_rows=selected_rows,
+    )
+    expected = result_digest(baseline, active)
+    del baseline
+
+    # Independent no-grad requests must reproduce each request's forward rows.
+    # Parameter-gradient BI instead compares the same complete contribution set.
+    with torch.no_grad():
+        independent = torch.cat([op(data[0][ix], data[1], data[2]) for ix in request_indices])
+    assert _tensor_digest(independent, active) == expected[0]
+    del independent
+
+    # All request forwards register before backward within the same session.
+    per_request = _run(op, data, keys, chunks=request_indices)
+    assert result_digest(per_request, active) == expected
+    del per_request
+    generator = torch.Generator(device="cuda").manual_seed(421)
+    reordered_requests = [
+        ix[torch.randperm(ix.numel(), generator=generator, device="cuda")]
+        for ix in reversed(request_indices)
+    ]
+    for cuts in ([torch.cat(reordered_requests)], reordered_requests):
+        reordered = _run(op, data, keys, chunks=cuts)
+        assert result_digest(reordered, active) == expected
+        del reordered
+
+    # Add another 64 padding rows to every request, preserving active values,
+    # identities, and upstream gradients. Padding never contributes to dW/dbias.
+    padded_data = list(data)
+    for position, width in ((0, 5376), (3, 96)):
+        padded_data[position] = torch.cat(
+            [
+                torch.cat((data[position][ix], torch.zeros(64, width, device="cuda")))
+                for ix in request_indices
+            ]
+        )
+    padded_keys = torch.cat(
+        [
+            torch.cat((keys[ix], torch.full((64, 2), -1, device="cuda", dtype=torch.int64)))
+            for ix in request_indices
+        ]
+    )
+    padded_active = torch.nonzero(padded_keys[:, 0] >= 0, as_tuple=True)[0]
+    padded_result = _run(op, padded_data, padded_keys)
+    assert result_digest(padded_result, padded_active) == expected
+
+
+@pytest.mark.parametrize("gradient", ["weight", "bias"])
+def test_projection_rejects_oversized_parameter_reduction(monkeypatch, gradient):
+    pytest.importorskip("triton")
+    from rl_engine.backends.shared.triton.gemm import det_gemm
+    from rl_engine.backends.shared.triton.gemm.video_output_projection_fp32 import (
+        projection_gemm_fp32,
+    )
+
+    reduction = 2097153
+    rows, columns = (96, 5376) if gradient == "weight" else (1, 96)
+    a = torch.empty((rows, reduction), device="meta")
+    b = torch.empty((reduction, columns), device="meta")
+
+    def unexpected_allocation(*args, **kwargs):
+        raise AssertionError("oversized reduction must fail before workspace allocation")
+
+    monkeypatch.setattr(det_gemm.torch, "empty", unexpected_allocation)
+    with pytest.raises(ValueError, match=f"supports K <= 2097152; got K={reduction}"):
+        projection_gemm_fp32(a, b)
 
 
 def _run_layout(rows, video_ranges, *, permuted_chunks):

@@ -888,6 +888,11 @@ def _triton_chunked_gemm_fp32(
     m_size, k_size = a.shape
     n_size = b.shape[1]
     chunks = triton.cdiv(k_size, _FP32_CHUNK_K)
+    padded_chunks = triton.next_power_of_2(chunks)
+    merge_block_c = 64
+    if padded_chunks * merge_block_c > tl.TRITON_MAX_TENSOR_NUMEL:
+        max_k = (tl.TRITON_MAX_TENSOR_NUMEL // merge_block_c) * _FP32_CHUNK_K
+        raise ValueError(f"FP32 chunk GEMM supports K <= {max_k}; got K={k_size}")
     rows_per_chunk = _MAX_TREE_WORKSPACE_ELEMENTS // (chunks * n_size)
     if rows_per_chunk < 1:
         raise RuntimeError("FP32 chunk GEMM exceeds the workspace budget for one row")
@@ -928,13 +933,13 @@ def _triton_chunked_gemm_fp32(
         enable_fp_fusion=False,
         num_warps=num_warps,
     )
-    _det_gemm_fp32_chunk_merge_kernel[(triton.cdiv(m_size * n_size, 64),)](
+    _det_gemm_fp32_chunk_merge_kernel[(triton.cdiv(m_size * n_size, merge_block_c),)](
         partial,
         output,
         m_size * n_size,
         CHUNKS=chunks,
-        PADDED_CHUNKS=triton.next_power_of_2(chunks),
-        BLOCK_C=64,
+        PADDED_CHUNKS=padded_chunks,
+        BLOCK_C=merge_block_c,
         enable_fp_fusion=False,
         num_warps=4,
     )

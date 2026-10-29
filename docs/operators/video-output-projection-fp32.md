@@ -70,6 +70,12 @@ Active keys are unique across uses of one parameter. A negative first column
 marks padding for parameter-gradient collection. Register every forward use
 before starting backward, then use a fresh session for the next graph.
 
+The shared chunked GEMM supports at most 2,097,152 reduction rows with the
+current merge tile. For parameter gradients, this counts all active rows across
+uses of the parameter in one session. Larger reductions raise `ValueError`
+before the chunked GEMM allocates its workspace or launches its kernels.
+Available memory can impose a lower limit.
+
 ## Dispatch Behavior
 
 The registry exposes this operator for CUDA, where `get_op` selects Triton. The
@@ -235,6 +241,33 @@ OMP_NUM_THREADS=4 python3.11 -m benchmarks.operators.gemm.benchmark_video_output
 ```
 
 ## Tests
+
+### Packed Requests
+
+The multi-request tests follow the packed layout in merged
+[vLLM-Omni #5810](https://github.com/vllm-project/vllm-omni/pull/5810), pinned to
+`d150a4fde77d15d466102323a4048b0a8631d74c`.
+Its H3 step execution concatenates requests along the sequence dimension.
+Each request retains its own 64-row alignment padding; attention boundaries
+isolate requests, and projection outputs are split back by request offsets.
+See the upstream
+[packing implementation](https://github.com/vllm-project/vllm-omni/blob/d150a4fde77d15d466102323a4048b0a8631d74c/vllm_omni/diffusion/models/minimax_h3/batched_packing.py)
+and
+[independent-versus-batched tests](https://github.com/vllm-project/vllm-omni/blob/d150a4fde77d15d466102323a4048b0a8631d74c/tests/diffusion/models/minimax_h3/test_minimax_h3_step_execution.py#L155).
+
+The published 672x384, 209-frame profile has 15,624 video rows, 696 audio rows,
+and 9 text rows per request: 16,329 active rows, padded to 16,384. Tests use
+two and four such requests and a mixed-length pair. They compare a packed call
+with separate per-request calls, request reordering, row reordering, and extra
+padding. Logical keys retain the original request and row IDs.
+
+The upstream tests establish inference batching behavior. Our training checks
+add bytewise `dW` and `dbias` comparisons for the same complete request set in
+one canonical session, alongside `Y` and `dX`. A gradient from one request alone
+is not compared with the gradient of several requests. Accuracy uses the
+independent reference with complete reduction lengths.
+
+### Commands
 
 Follow the image and installation sequence in `ci/scripts/run_gpu_ci.sh`.
 The current CI image is
