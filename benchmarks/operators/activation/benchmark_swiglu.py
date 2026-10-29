@@ -21,6 +21,7 @@ speedup compares those two complete paths, not single kernels.
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import math
 import platform
@@ -172,6 +173,14 @@ def _measure(profiler, fn):
     # _time_kernel has already warmed the workload up. Take the live allocation
     # as the baseline, so persistent inputs and any retained graph are excluded,
     # then measure one more invocation above it.
+    #
+    # Collect first. The baseline is only a floor if nothing dies during the
+    # measured call: an autograd graph from an earlier cell can sit in a reference
+    # cycle that refcounting alone will not reclaim, get freed inside fn(), and
+    # leave the peak below where the baseline said it started. Across ten passes in
+    # one process that moved 113 of 243 rows, the worst by 9.5 MiB, which is one
+    # 64x19968 FP32 tensor.
+    gc.collect()
     profiler._sync()
     baseline = torch.cuda.memory_allocated(profiler.device)
     torch.cuda.reset_peak_memory_stats(profiler.device)
