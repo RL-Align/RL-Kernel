@@ -1,0 +1,182 @@
+{
+  "date": "2026-10-29",
+  "tests": {
+    "new_rocm": 44,
+    "repeat_autograd_worker_threading": "default",
+    "passed": 306,
+    "repeat_passed": 306,
+    "coverage_autograd_worker_threading": false,
+    "new_cpu": 26,
+    "skipped": 0
+  },
+  "coverage": {
+    "covered_lines": 306,
+    "num_statements": 306,
+    "percent_covered": 100.0,
+    "percent_covered_display": "100",
+    "missing_lines": 0,
+    "excluded_lines": 0,
+    "percent_statements_covered": 100.0,
+    "percent_statements_covered_display": "100",
+    "num_branches": 42,
+    "num_partial_branches": 0,
+    "covered_branches": 42,
+    "missing_branches": 0,
+    "percent_branches_covered": 100.0,
+    "percent_branches_covered_display": "100"
+  },
+  "prerequisite": "159b0592be933b65aac76ff8b9fe411fa3f27456",
+  "tested_sources": {
+    "benchmarks/benchmark_joint_backward.py": "17bf343405aabf65052338a14408c71cfec069d9b595e3060c1b9d90869061b6",
+    "rl_engine/backends/rocm/attention/joint_backward.py": "ed310c82f4847e5d042ac0a453ab5896b35ffcb082dfaeefb749c260d7368294",
+    "rl_engine/integrations/engines/train/megatron/joint_backward.py": "63888b5530b6d9e6b503e672266474a8df711e2796fb83775eb3d30529fa2b6e",
+    "rl_engine/models/deepseek_v4/joint_autograd.py": "e81497b9077917d2c48ea6dfa7b25ecd2f9906c147f99dc760011a4c8deb9830",
+    "rl_engine/models/deepseek_v4/joint_backward.py": "c67eedebdc81a9d18d4a7da76cbf00f641ecbfbc9d10306e6a79723c397f75ea",
+    "scripts/prepare_dsv4_sparse_provider.py": "7a3a358808b1749d58da659722392bcb29d887e013a986082b7897a06baf2d7f",
+    "tests/models/deepseek_v4/test_joint_autograd_rocm.py": "e7f458f968db70704b57b52d8898022701a1db57b43a5763b4dab85dae2cc837",
+    "tests/models/deepseek_v4/test_joint_backward.py": "0274c1c790050b280d95dc13629a94521a9525737f020b10e0caaf3e55307115",
+    "tests/models/deepseek_v4/test_joint_backward_rocm.py": "922686d302bf8715faeef57b85683eec237c5e37f5ca3a28c5ee1595aa4495ee"
+  },
+  "main": "8588158650aff58c9c1f527674de94bad06c3d10",
+  "benchmark": {
+    "records": [
+      {
+        "m": 7,
+        "h": 13,
+        "d": 128,
+        "selected": 6,
+        "native_workspace": 76892,
+        "timings": {
+          "native_pipeline": {
+            "event_us": 262.1288537979126,
+            "wall_us": 259.43799992091954
+          },
+          "graph_core": {
+            "event_us": 67.83044934272766,
+            "wall_us": 68.36190004833043
+          },
+          "checked_eager_vjp": {
+            "event_us": 470.9463119506836,
+            "wall_us": 476.9882500113454
+          },
+          "checked_graph_vjp": {
+            "event_us": 155.47200441360474,
+            "wall_us": 153.87005005322862
+          },
+          "canonical_forward_backward": {
+            "event_us": 3210.9046936035156,
+            "wall_us": 3206.0186997114215
+          }
+        },
+        "backward_implementation": "d5c2d6dbbde4c8b1c73dd4d31e837e8bef6d0562477c7c86c9bc9a896e5f92be"
+      },
+      {
+        "m": 7,
+        "h": 64,
+        "d": 512,
+        "selected": 6,
+        "native_workspace": 1041152,
+        "timings": {
+          "native_pipeline": {
+            "event_us": 257.578444480896,
+            "wall_us": 254.07960019947495
+          },
+          "graph_core": {
+            "event_us": 84.91135239601135,
+            "wall_us": 85.56780012440868
+          },
+          "checked_eager_vjp": {
+            "event_us": 496.49243354797363,
+            "wall_us": 493.7116500514094
+          },
+          "checked_graph_vjp": {
+            "event_us": 165.44870138168335,
+            "wall_us": 165.3426999837393
+          },
+          "canonical_forward_backward": {
+            "event_us": 3253.0506134033203,
+            "wall_us": 3294.047900271835
+          }
+        },
+        "backward_implementation": "8eee076b36349dc5af19969574b22a1f6a11615307350a05931893e5263b09a9"
+      },
+      {
+        "m": 65,
+        "h": 13,
+        "d": 128,
+        "selected": 6,
+        "native_workspace": 691924,
+        "timings": {
+          "native_pipeline": {
+            "event_us": 259.28030014038086,
+            "wall_us": 259.11009979608934
+          },
+          "graph_core": {
+            "event_us": 75.87475180625916,
+            "wall_us": 76.06385006511118
+          },
+          "checked_eager_vjp": {
+            "event_us": 493.6459541320801,
+            "wall_us": 502.4450998462271
+          },
+          "checked_graph_vjp": {
+            "event_us": 176.73439979553223,
+            "wall_us": 173.86789986630902
+          },
+          "canonical_forward_backward": {
+            "event_us": 3373.877716064453,
+            "wall_us": 3370.599200206925
+          }
+        },
+        "backward_implementation": "31ec5902dd0ed24d8d098e288dd241d885e4c815cd55c4ddc2457ffaa81637b3"
+      },
+      {
+        "m": 1,
+        "h": 128,
+        "d": 512,
+        "selected": 640,
+        "native_workspace": 3212800,
+        "timings": {
+          "native_pipeline": {
+            "event_us": 439.73121643066406,
+            "wall_us": 440.4608000186272
+          },
+          "graph_core": {
+            "event_us": 442.0745372772217,
+            "wall_us": 442.64515017857775
+          },
+          "checked_eager_vjp": {
+            "event_us": 601.7661571502686,
+            "wall_us": 596.1110502539668
+          },
+          "checked_graph_vjp": {
+            "event_us": 522.9747295379639,
+            "wall_us": 523.878199965111
+          },
+          "canonical_forward_backward": {
+            "event_us": 3960.8142852783203,
+            "wall_us": 3356.6880501894047
+          }
+        },
+        "backward_implementation": "73a70a42d91e6fc31e1f5b20a4aa23797eea428512b77374ab9efb58ab74104a"
+      }
+    ],
+    "provider": {
+      "profile": "aiter.326c.h16.k32.csr64.sink32.canonical_queries.v1",
+      "forward": {
+        "profile": "aiter.326c.single_split.h32.k32.bf16_p.fp32_lse.v1",
+        "arch": "gfx942",
+        "torch": "2.11.0+gitd0c8b1f",
+        "hip": "7.2.53211",
+        "triton": "3.6.0",
+        "aiter_commit": "326cffa38c9eda16bef19375ba55334e4d3acd59",
+        "kernel_sha256": "56db3b46c58f8fb30912d4564189b214e2c9a37fa2138a155b45a4ce51b5c844",
+        "cache_source_sha256": "0d65322289248b9062580f8bcee90997fedf6378de456f1af8a2203484fbaee3",
+        "adapter_sha256": "be7ad076d285563389258a9615fd47a242a6a7154fefdc9d21a1073c28679504"
+      },
+      "wrapper_sha256": "ede08814720b9c783c7375cab9f95ee38bf6212ca77ba23149e33309b72842ff",
+      "delta_source_sha256": "e9183920ca149205978c1aace8f07ff69a271c51104cb6de3d829e29632bc33e",
+      "adapter_sha256": "ed310c82f4847e5d042ac0a453ab5896b35ffcb082dfaeefb749c260d7368294"
+    }
+  }
+}
