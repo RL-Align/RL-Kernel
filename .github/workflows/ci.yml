@@ -79,7 +79,8 @@ jobs:
         run: |
           python -m pytest -q \
             tests/models/minimax_h3/test_h3_full_model.py \
-            tests/models/minimax_h3/test_h3_full_ensemble_rule.py
+            tests/models/minimax_h3/test_h3_full_ensemble_rule.py \
+            tests/models/minimax_h3/test_h3_generation_resume.py
 
       - name: Run Mocked Hardware Discovery Tests
         run: |
