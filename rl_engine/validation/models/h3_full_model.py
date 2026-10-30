@@ -11,7 +11,7 @@ not qualification of the reference/interim bindings as final RFC kernels.
 from __future__ import annotations
 
 from collections import Counter
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from types import MethodType
 
 import torch
@@ -264,8 +264,13 @@ def full_model_execution(
 PROVIDER_VARIANTS = ("default", "sdpa-flash", "sdpa-efficient", "sdpa-cudnn", "blas-cublaslt")
 
 
+@contextmanager
 def provider_variant_context(variant: str):
-    """Context manager forcing one SDPA backend, or a no-op (BLAS choice is set globally)."""
+    """Force one SDPA backend, or the cuBLASLt BLAS library, inside the ``with`` body only.
+
+    The BLAS choice is process-global, so it is put back on exit (also on an exception): code that
+    runs after the block, such as the VAE decode or the next seed, keeps the default library.
+    """
 
     from torch.nn.attention import SDPBackend, sdpa_kernel
 
@@ -275,8 +280,17 @@ def provider_variant_context(variant: str):
         "sdpa-cudnn": SDPBackend.CUDNN_ATTENTION,
     }
     if variant == "blas-cublaslt":
+        previous = torch.backends.cuda.preferred_blas_library()
         torch.backends.cuda.preferred_blas_library("cublaslt")
-    return sdpa_kernel([backends[variant]]) if variant in backends else nullcontext()
+        try:
+            yield
+        finally:
+            torch.backends.cuda.preferred_blas_library(previous)
+    elif variant in backends:
+        with sdpa_kernel([backends[variant]]):
+            yield
+    else:
+        yield
 
 
 class QueryChunkAttention:

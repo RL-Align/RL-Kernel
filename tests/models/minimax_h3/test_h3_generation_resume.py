@@ -447,7 +447,8 @@ def test_the_numerics_the_generation_runner_adds_are_inside_the_identified_model
 
     root = Path(__file__).resolve().parents[3]
     for obj in (QueryChunkAttention, provider_variant_context):
-        source = Path(inspect.getsourcefile(obj)).resolve().relative_to(root).as_posix()
+        source = Path(inspect.getsourcefile(inspect.unwrap(obj))).resolve()
+        source = source.relative_to(root).as_posix()
         assert any(
             source == path or source.startswith(path + "/") for path in resume_module.MODEL_PATHS
         ), source

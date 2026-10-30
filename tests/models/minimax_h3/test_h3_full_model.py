@@ -163,6 +163,60 @@ def test_the_trace_reports_the_nodes_a_diagnostic_hybrid_replayed_with_the_provi
     assert hybrid.validate()["diagnostic_provider_nodes"] == ["swiglu"]
 
 
+class _FakeBlas:
+    """Stands in for ``torch.backends.cuda.preferred_blas_library`` (getter and setter)."""
+
+    def __init__(self, current="default"):
+        self.current, self.calls = current, []
+
+    def __call__(self, backend=None):
+        if backend is None:
+            return self.current
+        self.calls.append(backend)
+        self.current = backend
+
+
+def test_the_cublaslt_variant_puts_the_blas_library_back_on_exit(monkeypatch):
+    from rl_engine.validation.models.h3_full_model import provider_variant_context
+
+    blas = _FakeBlas("default")
+    monkeypatch.setattr(torch.backends.cuda, "preferred_blas_library", blas)
+    with provider_variant_context("blas-cublaslt"):
+        assert blas.current == "cublaslt"
+    assert blas.current == "default"
+    assert blas.calls == ["cublaslt", "default"]
+
+
+def test_the_blas_library_is_restored_also_when_the_body_raises(monkeypatch):
+    from rl_engine.validation.models.h3_full_model import provider_variant_context
+
+    blas = _FakeBlas("cublas")
+    monkeypatch.setattr(torch.backends.cuda, "preferred_blas_library", blas)
+    with pytest.raises(RuntimeError, match="boom"):
+        with provider_variant_context("blas-cublaslt"):
+            raise RuntimeError("boom")
+    assert blas.current == "cublas"
+
+
+def test_the_default_variant_leaves_the_blas_library_alone(monkeypatch):
+    from rl_engine.validation.models.h3_full_model import provider_variant_context
+
+    blas = _FakeBlas("default")
+    monkeypatch.setattr(torch.backends.cuda, "preferred_blas_library", blas)
+    with provider_variant_context("default"):
+        pass
+    assert blas.calls == []
+
+
+def test_the_variant_context_is_also_correct_with_the_real_library():
+    from rl_engine.validation.models.h3_full_model import provider_variant_context
+
+    before = torch.backends.cuda.preferred_blas_library()
+    with provider_variant_context("blas-cublaslt"):
+        assert "cublaslt" in str(torch.backends.cuda.preferred_blas_library()).lower()
+    assert torch.backends.cuda.preferred_blas_library() == before
+
+
 def test_drift_order_follows_execution_instead_of_lexical_names():
     from tools.validation.models.h3_full_compare import drift_order
 
