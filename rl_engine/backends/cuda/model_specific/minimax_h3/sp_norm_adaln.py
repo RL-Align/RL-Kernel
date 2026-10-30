@@ -349,6 +349,10 @@ class H3SPNormAdaLNCudaOp:
         device = index.device if index is not None else torch.device(device or "cuda")
         if device.type == "cuda" and device.index is None:
             device = torch.device("cuda", torch.cuda.current_device())
+        if index is not None and index.is_inference():
+            # An inference tensor has no version counter (reading it raises), so an in-place edit
+            # could not be seen: build the plan every time instead of reusing a cached one.
+            return sp_plan(self.layout, index, num_rows, device=device)
         version = -1 if index is None else index._version
         for obj, ver, rows, cached_device, plan in self._plans:
             if obj is index and ver == version and rows == num_rows and cached_device == device:
