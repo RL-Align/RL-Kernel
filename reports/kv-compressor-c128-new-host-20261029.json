@@ -1,0 +1,78 @@
+{
+  "shared_contract": 142,
+  "rocm": 31,
+  "passed": 240,
+  "cpu_contract": 67,
+  "benchmark": {
+    "gpu": "",
+    "arch": "gfx942:sramecc+:xnack-",
+    "torch": "2.11.0+gitd0c8b1f",
+    "hip": "7.2.53211",
+    "triton": "3.6.0",
+    "backend": {
+      "backend": "aiter.hca.c128.gfx942.fp32_pool.fixed8x64.norm_wave1.v1",
+      "arch": "gfx942",
+      "torch": "2.11.0+gitd0c8b1f",
+      "hip": "7.2.53211",
+      "triton": "3.6.0",
+      "flydsl": "0.2.0",
+      "sources": {
+        "aiter.ops.flydsl.kernels.fused_compress_attn_hca": "e7aaf267eb78dd16c24f2967c6f5f825781a8dbac81d837dad74f8218a2aad5a",
+        "aiter.ops.flydsl.kernels.tensor_shim": "a11d02c7fc89a1b8452b8da30f9924a3168f36b893ee32eeed4469578af302fc"
+      },
+      "hca_abi": "packaged_composite",
+      "mlite_backward": "6a1e78ca89b83f56391b5e5ac409e765338f1e3a625251d0d4c877c1e80b4a68",
+      "adapter": "c73e635383b80c4c39c143aa2144ed48dc93e96264d069f533b2569fa28b689b"
+    },
+    "contract": "3ba3d57d9062925d484fa0673f871fb0811e3eac7237497e812035cc5034a5c7",
+    "implementation": "f4fc6a7b73394beecb47cf99a802359002862ce4d499f39abed586dd57af7f78",
+    "metric": "median unavailable; synchronized average over warmup+repeated loops, Python included",
+    "scope": "complete C128 forward; aiter pool and norm/RoPE; no cache commit, no full model",
+    "cases": [
+      {
+        "groups": 1,
+        "tokens": 128,
+        "input_bytes": 262144,
+        "output_bytes": 1024,
+        "bind_us": 317.2976668186796,
+        "forward_us": 445.87726685373735,
+        "pool_us": 63.487066654488444
+      },
+      {
+        "groups": 8,
+        "tokens": 1024,
+        "input_bytes": 2097152,
+        "output_bytes": 8192,
+        "bind_us": 946.8229000049178,
+        "forward_us": 434.2955333413556,
+        "pool_us": 60.560466711952664
+      },
+      {
+        "groups": 32,
+        "tokens": 4096,
+        "input_bytes": 8388608,
+        "output_bytes": 32768,
+        "bind_us": 6755.308333231369,
+        "forward_us": 443.3394332105915,
+        "pool_us": 61.721133291333295
+      },
+      {
+        "groups": 128,
+        "tokens": 16384,
+        "input_bytes": 33554432,
+        "output_bytes": 131072,
+        "bind_us": 20840.99323328701,
+        "forward_us": 501.3981998975699,
+        "pool_us": 68.35293340069863
+      }
+    ]
+  },
+  "date": "2026-10-29",
+  "repeat_passed": 240,
+  "skipped": 0,
+  "tested_sources": [
+    "c73e635383b80c4c39c143aa2144ed48dc93e96264d069f533b2569fa28b689b  rl_engine/backends/rocm/attention/kv_compressor_c128.py",
+    "f4b8a9f3494a983514c8616f02707f21dd27cfc069cbcc4e1d39af4e17da5f70  rl_engine/contracts/operators/kv_compressor_c128.py",
+    "bdbfe4466122f52db007ca044fb12f8b5d43a0a8da491800a5451f8866678f1f  tests/models/deepseek_v4/test_kv_compressor_c128_rocm.py"
+  ]
+}
