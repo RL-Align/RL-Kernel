@@ -459,7 +459,7 @@ def rmsnorm_residual_fwd(
     """RMSNorm with a fork of the *unnormalized* input as the residual branch.
 
     This is **not** ``x += residual`` followed by a norm. ``x``: BF16 [T, D],
-    ``gamma``: BF16 [D]. Returns ``(y BF16, residual BF16, saved)``:
+    ``gamma``: FP32 [D]. Returns ``(y BF16, residual BF16, saved)``:
 
     ``s = sum_d FP32(x[d])^2``; ``m = s / D``; ``r = rsqrt(m + eps)``;
     ``y[d] = (FP32(x[d]) * r) * FP32(gamma[d])``.
@@ -489,11 +489,12 @@ def rmsnorm_residual_fwd(
 def rmsnorm_residual_bwd(
     dy: torch.Tensor,
     d_residual: torch.Tensor,
-    x: torch.Tensor,
     gamma: torch.Tensor,
     saved: dict[str, Any],
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Returns ``(dX, dGamma)`` FP32.
+    """
+    dy: BF16[T, D], d_residual: BF16[T, D]
+    Returns ``(dX, dGamma)`` FP32.
 
     ``u[d] = dy[d]*gamma[d]``; ``q = sum_j u[j]*x[j]``;
     ``dx_norm[d] = (r*u[d]) - (((x[d]*r^3)*q)/D)``;
@@ -637,9 +638,18 @@ def mhc_block_backward(
     dr_old_post, dy, dc, dpost = ops.mhc_post_bwd(
         grads.d_r_new, batch.r_old, batch.y_sublayer, saved["c"], saved["post"]
     )
-    dhidden, dgamma = ops.rmsnorm_residual_bwd(
-        grads.d_normalized, grads.d_residual, saved["hidden"], batch.norm.gamma, saved["norm"]
-    )
+    if ops is sys.modules[__name__]:
+        dhidden, dgamma = rmsnorm_residual_bwd(
+            grads.d_normalized, grads.d_residual, batch.norm.gamma, saved["norm"]
+        )
+    else:
+        dhidden, dgamma = ops.rmsnorm_residual_bwd(
+            grads.d_normalized,
+            grads.d_residual,
+            saved["hidden"],
+            batch.norm.gamma,
+            saved["norm"],
+        )
     pre_grads = ops.mhc_pre_bwd(dhidden, dpost, dc, batch, saved, ops=ops)
     d_r_old = pre_grads["d_r_old"] + dr_old_post
 

@@ -1,0 +1,13 @@
+{
+ "digests": {
+  "canonical_tp4_on_tp1": "54e3d627f1340771559587159c6101687624a46adf4141617dfa21a6eb0d40e0",
+  "missing_rank_tp2": "8d0ca0c7e3adf4336ef8ab16f38238c80806208a9163d644f088ba23256a03b2",
+  "normal": "68b35fb1ff002a759d147176cadf142e45f4884a9557a0d67c6896f4e779ca71",
+  "packed_varlen_zigzag_cp2": "c07a6fbc2178e7626a8a043701b9c5784df79d497e0c21d9e7540856d8d5139a",
+  "padded_vocab_tp2": "ef7750c866b70ac9e846449778267b395ca77756fda49b02a654b583a1ba1311",
+  "weight_drift": "25476772be5410f6dcb71f247bf06da5c5ff10538b01f60a7d3b1d590ee652d2",
+  "wrong_shard_tp2": "18d5d4bc9ceeb441a6227233bb9bade4e936d616ffb3218634d655f113003567",
+  "zero_active": "fb13e3c395fc9ad60d50cbf3f5c7794d2ff40a3032df6faacac88fe7e6442f7c"
+ },
+ "schema_version": "test-double.t05_m10_fixture.v0"
+}
