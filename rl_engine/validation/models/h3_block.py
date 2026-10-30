@@ -607,7 +607,11 @@ def _backward(
     """Gradients of every leaf, and the gradient reaching each node's output, for one mode.
 
     The golden runs on FP32 copies of the leaves, so its gradients are not
-    rounded to the BF16 parameter dtype.
+    rounded to the BF16 parameter dtype. For the same reason the AdaLN input cast of the golden
+    forward (``silu(temb)`` rounded to the weight dtype) is a no-op here: the golden gradient is the
+    FP32 reference gradient, evaluated at the unrounded activation. On block 0's real weights
+    keeping the cast moves the golden gradients by 1e-3 to 3e-3 relative, against the 1e-2
+    candidate-to-golden error of the same leaves.
     """
 
     def leaf(t: torch.Tensor) -> torch.Tensor:
