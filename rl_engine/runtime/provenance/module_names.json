@@ -25,6 +25,7 @@
   "rl_engine.backends.cuda.logprob.batch_invariant_logp": "rl_engine.kernels.ops.cuda.loss.batch_invariant_logp",
   "rl_engine.backends.cuda.logprob.linear_logp": "rl_engine.kernels.ops.cuda.loss.linear_logp",
   "rl_engine.backends.cuda.logprob.logp": "rl_engine.kernels.ops.cuda.loss.logp",
+  "rl_engine.backends.cuda.logprob.nemotron_h_lm_head_logp": "rl_engine.kernels.ops.cuda.loss.nemotron_h_lm_head_logp",
   "rl_engine.backends.cuda.logprob.vocab_parallel_logp": "rl_engine.kernels.ops.cuda.loss.vocab_parallel_logp",
   "rl_engine.backends.cuda.norm.rmsnorm": "rl_engine.kernels.ops.cuda.norm.rmsnorm",
   "rl_engine.backends.cuda.rope.rope": "rl_engine.kernels.ops.cuda.rotary_embedding.rope",

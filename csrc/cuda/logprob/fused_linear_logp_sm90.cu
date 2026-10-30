@@ -6,10 +6,12 @@
 
 #include "../utils/tma_utils.cuh"
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAException.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <algorithm>
 #include <cctype>
 #include <climits>
+#include <cstdint>
 #include <cmath>
 #include <cstdlib>
 #include <cuda_bf16.h>
@@ -324,6 +326,11 @@ __global__ void fused_linear_logp_sm90_kernel(const __grid_constant__ CUtensorMa
     }
 }
 
+// kStrictEpilogue selects the strict-contract dlogits epilogue: IEEE expf,
+// the forward kernel's temperature rounding points, real-vocab masking, and a
+// single BF16 cast. The MMA main loop is shared, so the recomputed FP32 logits
+// are bitwise-identical to the ones the forward kernel reduced.
+template <bool kStrictEpilogue>
 __global__ void fused_linear_logp_logits_tile_bf16_mma_kernel(
     const __grid_constant__ CUtensorMap h_tmap,
     const __grid_constant__ CUtensorMap w_tmap,
@@ -338,7 +345,9 @@ __global__ void fused_linear_logp_logits_tile_bf16_mma_kernel(
     int64_t logits_stride0,
     int64_t dlogits_stride0,
     int vocab_start_index,
-    bool write_dlogits) {
+    bool write_dlogits,
+    const float *__restrict__ temperature,
+    int real_vocab_end) {
     const int tid = threadIdx.x;
     const int warp = tid / 32;
     const int lane = tid % 32;
@@ -468,11 +477,31 @@ __global__ void fused_linear_logp_logits_tile_bf16_mma_kernel(
             const float logit = sLogits[r * BN + c];
             if (write_dlogits) {
                 const int global_col = vocab_start_index + col;
-                float dz = -__expf(logit - lse[global_row]);
-                if (target[global_row] == global_col)
-                    dz += 1.0f;
+                float dz;
+                if constexpr (kStrictEpilogue) {
+                    // z = logit * (1/T) exactly as the forward kernel scales it;
+                    // masked lanes had exp() -> 0 in the forward LSE. __fmul_rn
+                    // keeps nvcc from contracting z * inv_t - lse into one FMA,
+                    // which would skip the product rounding the forward applies.
+                    const float inv_t =
+                        (temperature != nullptr) ? 1.0f / temperature[global_row] : 1.0f;
+                    float z = logit;
+                    if (temperature != nullptr)
+                        z = __fmul_rn(z, inv_t);
+                    dz = (col < real_vocab_end) ? -expf(z - lse[global_row]) : 0.0f;
+                    if (target[global_row] == global_col)
+                        dz += 1.0f;
+                    dz *= grad_logp[global_row];
+                    if (temperature != nullptr)
+                        dz *= inv_t;
+                } else {
+                    dz = -__expf(logit - lse[global_row]);
+                    if (target[global_row] == global_col)
+                        dz += 1.0f;
+                    dz *= grad_logp[global_row];
+                }
                 dlogits_bf16[(static_cast<int64_t>(global_row) * dlogits_stride0) + col] =
-                    __float2bfloat16(dz * grad_logp[global_row]);
+                    __float2bfloat16(dz);
             } else {
                 logits[(static_cast<int64_t>(global_row) * logits_stride0) + col] = logit;
             }
@@ -1423,17 +1452,17 @@ void launch_logits_tile_bf16_mma(torch::Tensor hidden,
     const int smem = STAGES * (BM * BK + BN * BK) * sizeof(nv_bfloat16) +
                      (BM * BN) * sizeof(float) + STAGES * 8;
     if (smem > 48 * 1024) {
-        cudaFuncSetAttribute(fused_linear_logp_logits_tile_bf16_mma_kernel,
+        cudaFuncSetAttribute(fused_linear_logp_logits_tile_bf16_mma_kernel<false>,
                              cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
     }
 
     const int row_blocks = (N + BM - 1) / BM;
     const int total_vtiles = (V + BN - 1) / BN;
     dim3 grid(row_blocks, total_vtiles);
-    fused_linear_logp_logits_tile_bf16_mma_kernel<<<
+    fused_linear_logp_logits_tile_bf16_mma_kernel<false><<<
         grid, WG_THREADS, smem, at::cuda::getCurrentCUDAStream()>>>(
         h_tmap, w_tmap, logits.data_ptr<float>(), nullptr, nullptr, nullptr, nullptr, N, D, V,
-        logits.stride(0), 0, 0, false);
+        logits.stride(0), 0, 0, false, nullptr, V);
 }
 
 void launch_dlogits_tile_bf16_mma(torch::Tensor hidden,
@@ -1470,19 +1499,63 @@ void launch_dlogits_tile_bf16_mma(torch::Tensor hidden,
     const int smem = STAGES * (BM * BK + BN * BK) * sizeof(nv_bfloat16) +
                      (BM * BN) * sizeof(float) + STAGES * 8;
     if (smem > 48 * 1024) {
-        cudaFuncSetAttribute(fused_linear_logp_logits_tile_bf16_mma_kernel,
+        cudaFuncSetAttribute(fused_linear_logp_logits_tile_bf16_mma_kernel<false>,
                              cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
     }
 
     const int row_blocks = (N + BM - 1) / BM;
     const int total_vtiles = (V + BN - 1) / BN;
     dim3 grid(row_blocks, total_vtiles);
-    fused_linear_logp_logits_tile_bf16_mma_kernel<<<
+    fused_linear_logp_logits_tile_bf16_mma_kernel<false><<<
         grid, WG_THREADS, smem, at::cuda::getCurrentCUDAStream()>>>(
         h_tmap, w_tmap, nullptr,
         reinterpret_cast<nv_bfloat16 *>(dlogits.data_ptr<at::BFloat16>()),
         target.data_ptr<int>(), grad_logp.data_ptr<float>(), lse.data_ptr<float>(), N, D, V, 0,
-        dlogits.stride(0), vocab_start_index, true);
+        dlogits.stride(0), vocab_start_index, true, nullptr, V);
+}
+
+// Strict-contract dlogits tile: recomputes the forward kernel's FP32 logits for
+// a [N, V_chunk] slice and writes BF16 dlogits = g * (onehot - p) / T. Every
+// output element depends only on its own (row, column), so the result is
+// independent of N, of the row/vocab chunking, and of the launch grid.
+void launch_strict_dlogits_tile_bf16_mma(torch::Tensor hidden,
+                                         torch::Tensor weight,
+                                         torch::Tensor dlogits,
+                                         torch::Tensor target,
+                                         torch::Tensor grad_logp,
+                                         torch::Tensor lse,
+                                         const float *temperature,
+                                         int vocab_start_index,
+                                         int real_vocab_end) {
+    const int N = hidden.size(0);
+    const int D = hidden.size(1);
+    const int V = weight.size(0);
+
+    CUtensorMap h_tmap, w_tmap;
+    init_tensor_map_noswizzle(
+        &h_tmap, reinterpret_cast<const nv_bfloat16 *>(hidden.data_ptr<at::BFloat16>()), N, D, BM,
+        BK);
+    init_tensor_map_noswizzle(
+        &w_tmap, reinterpret_cast<const nv_bfloat16 *>(weight.data_ptr<at::BFloat16>()), V, D, BN,
+        BK);
+
+    const int smem = STAGES * (BM * BK + BN * BK) * sizeof(nv_bfloat16) +
+                     (BM * BN) * sizeof(float) + STAGES * 8;
+    if (smem > 48 * 1024) {
+        cudaFuncSetAttribute(fused_linear_logp_logits_tile_bf16_mma_kernel<true>,
+                             cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+    }
+
+    const int row_blocks = (N + BM - 1) / BM;
+    const int total_vtiles = (V + BN - 1) / BN;
+    dim3 grid(row_blocks, total_vtiles);
+    fused_linear_logp_logits_tile_bf16_mma_kernel<true><<<
+        grid, WG_THREADS, smem, at::cuda::getCurrentCUDAStream()>>>(
+        h_tmap, w_tmap, nullptr,
+        reinterpret_cast<nv_bfloat16 *>(dlogits.data_ptr<at::BFloat16>()),
+        target.data_ptr<int>(), grad_logp.data_ptr<float>(), lse.data_ptr<float>(), N, D, V, 0,
+        dlogits.stride(0), vocab_start_index, true, temperature, real_vocab_end);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void launch_grad_weight_tile_wmma(torch::Tensor dlogits,
@@ -2523,4 +2596,80 @@ std::vector<torch::Tensor> fused_linear_logp_sm90_backward(torch::Tensor grad_lo
         grad_bias = dlogits.sum(0);
 
     return {grad_hidden, grad_weight, grad_bias};
+}
+
+// Strict-contract dlogits for one vocab slice of the LM head.
+//
+//   hidden [N, D] bf16, weight [Vc, D] bf16 (rows vocab_start .. vocab_start+Vc
+//   of the full LM head), target [N] global ids, grad_logp [N] f32, lse [N] f32
+//   from the forward kernel, optional temperature [N] f32.
+//
+// Returns dlogits [N, Vc] bf16 = grad_logp * (onehot(target) - p) / T, where
+// p = exp(z - lse) and z is the forward kernel's own FP32 logit (same MMA
+// tiling and K-slab order), scaled by 1/T at the same rounding point. The only
+// cast is the final BF16 store. No reduction crosses rows or columns.
+torch::Tensor fused_linear_logp_sm90_strict_dlogits(torch::Tensor hidden,
+                                                    torch::Tensor weight,
+                                                    torch::Tensor target,
+                                                    torch::Tensor grad_logp,
+                                                    torch::Tensor lse,
+                                                    torch::optional<torch::Tensor> temperature,
+                                                    int64_t vocab_start_index,
+                                                    int64_t real_vocab_size) {
+    TORCH_CHECK(hidden.is_cuda() && weight.is_cuda(), "hidden and weight must be CUDA tensors");
+    TORCH_CHECK(weight.device() == hidden.device(),
+                "weight must be on the same device as hidden");
+    TORCH_CHECK(hidden.scalar_type() == at::kBFloat16 && weight.scalar_type() == at::kBFloat16,
+                "strict dlogits requires bf16 hidden and weight");
+    TORCH_CHECK(hidden.dim() == 2 && weight.dim() == 2, "hidden/weight must be 2-D tensors");
+    TORCH_CHECK(hidden.is_contiguous() && weight.is_contiguous(),
+                "strict dlogits requires contiguous hidden and weight");
+    const int64_t N = hidden.size(0);
+    const int64_t D = hidden.size(1);
+    const int64_t V = weight.size(0);
+    TORCH_CHECK(weight.size(1) == D, "hidden/weight hidden-dim mismatch");
+    TORCH_CHECK(D % BK == 0, "D must be a multiple of ", BK, " for strict dlogits");
+    TORCH_CHECK(N <= INT_MAX && V <= INT_MAX, "strict dlogits shape exceeds int32 indexing");
+    TORCH_CHECK(reinterpret_cast<std::uintptr_t>(hidden.data_ptr()) % 16 == 0 &&
+                    reinterpret_cast<std::uintptr_t>(weight.data_ptr()) % 16 == 0,
+                "strict dlogits requires 16-byte aligned hidden and weight (TMA)");
+    TORCH_CHECK(target.device() == hidden.device() && grad_logp.device() == hidden.device() &&
+                    lse.device() == hidden.device(),
+                "target, grad_logp, and lse must be on the same device as hidden");
+    TORCH_CHECK(target.numel() == N && grad_logp.numel() == N && lse.numel() == N,
+                "target, grad_logp, and lse must have one value per hidden row");
+    TORCH_CHECK(grad_logp.scalar_type() == at::kFloat && lse.scalar_type() == at::kFloat,
+                "strict dlogits requires fp32 grad_logp and lse");
+    TORCH_CHECK(vocab_start_index >= 0 && vocab_start_index <= INT_MAX,
+                "vocab_start_index out of range");
+
+    c10::cuda::CUDAGuard device_guard(hidden.device());
+    auto dlogits = torch::empty({N, V}, hidden.options().dtype(at::kBFloat16));
+    if (N == 0 || V == 0)
+        return dlogits;
+
+    const float *temp_ptr = nullptr;
+    torch::Tensor temp_c;
+    if (temperature.has_value()) {
+        TORCH_CHECK(temperature->device() == hidden.device(),
+                    "temperature must be on the same device as hidden");
+        TORCH_CHECK(temperature->scalar_type() == at::kFloat, "temperature must be float32");
+        TORCH_CHECK(temperature->numel() == N, "temperature must have one value per token");
+        temp_c = temperature->contiguous();
+        temp_ptr = temp_c.data_ptr<float>();
+    }
+    // Same local masking boundary as the forward kernel.
+    const int real_vocab_end =
+        real_vocab_size < 0
+            ? static_cast<int>(V)
+            : static_cast<int>(std::min<int64_t>(
+                  std::max<int64_t>(real_vocab_size - vocab_start_index, 0), V));
+
+    auto target_i = target.to(torch::kInt32).contiguous();
+    auto grad_c = grad_logp.contiguous();
+    auto lse_c = lse.contiguous();
+    launch_strict_dlogits_tile_bf16_mma(hidden, weight, dlogits, target_i, grad_c, lse_c,
+                                        temp_ptr, static_cast<int>(vocab_start_index),
+                                        real_vocab_end);
+    return dlogits;
 }

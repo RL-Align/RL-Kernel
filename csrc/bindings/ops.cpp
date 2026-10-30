@@ -76,6 +76,14 @@ torch::Tensor linear_logp_logits_bf16_to_dlogits(torch::Tensor logits,
                                                  torch::Tensor grad_logp,
                                                  torch::Tensor lse,
                                                  int64_t vocab_start_index);
+torch::Tensor fused_linear_logp_sm90_strict_dlogits(torch::Tensor hidden,
+                                                    torch::Tensor weight,
+                                                    torch::Tensor target,
+                                                    torch::Tensor grad_logp,
+                                                    torch::Tensor lse,
+                                                    torch::optional<torch::Tensor> temperature,
+                                                    int64_t vocab_start_index,
+                                                    int64_t real_vocab_size);
 // RoPE (rotate-half) apply for SM90; cos/sin precomputed fp32, sin_sign = +1 fwd / -1 bwd.
 torch::Tensor rope_apply_sm90(torch::Tensor x, torch::Tensor cos, torch::Tensor sin, double sin_sign);
 torch::Tensor embedding_sm90_forward(torch::Tensor token_ids, torch::Tensor weight);
@@ -544,6 +552,12 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "In-place local bf16 probs -> TP dlogits for selected log-prob backward");
     m.def("linear_logp_logits_bf16_to_dlogits", &linear_logp_logits_bf16_to_dlogits,
           "Build bf16 dlogits from bf16 logits and fp32 lse");
+    m.def("fused_linear_logp_sm90_strict_dlogits", &fused_linear_logp_sm90_strict_dlogits,
+          "Strict-contract bf16 dlogits for one LM-head vocab slice, recomputing the "
+          "forward kernel's fp32 logits (IEEE expf, single cast), SM90",
+          py::arg("hidden"), py::arg("weight"), py::arg("target"), py::arg("grad_logp"),
+          py::arg("lse"), py::arg("temperature") = py::none(), py::arg("vocab_start_index") = 0,
+          py::arg("real_vocab_size") = -1);
     // RoPE rotate-half apply, SM90 (forward and backward share the kernel via sin_sign)
     m.def("rope_apply_sm90", &rope_apply_sm90, "RoPE rotate-half apply (GPT-NeoX), SM90");
     m.def("embedding_sm90_forward", &embedding_sm90_forward,

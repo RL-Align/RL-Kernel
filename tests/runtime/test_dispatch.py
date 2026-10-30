@@ -4,6 +4,7 @@
 import sys
 from types import ModuleType
 
+import pytest
 import torch
 
 import rl_engine.platforms.device as device_module
@@ -241,6 +242,18 @@ def test_npu_available_handles_runtime_failure(monkeypatch):
     monkeypatch.setattr(device_module.torch, "npu", BrokenNPU(), raising=False)
 
     assert device_module._npu_available() is False
+
+
+def test_nemotron_h_lm_head_logprob_has_no_fallback_backend():
+    registry = KernelRegistry()
+
+    for platform in ("rocm", "musa", "cpu", "npu"):
+        assert registry._priority_map[platform]["nemotron_h_lm_head_logprob"] == []
+    assert set(registry._priority_map["cuda"]["nemotron_h_lm_head_logprob"]) <= {
+        OpBackend.CUDA_NEMOTRON_H_LM_HEAD_LOGPROB_SM90
+    }
+    with pytest.raises(RuntimeError, match="No functional backend"):
+        registry.get_op("nemotron_h_lm_head_logprob", device="cpu")
 
 
 def test_executor_flow():
