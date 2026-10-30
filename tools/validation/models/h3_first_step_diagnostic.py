@@ -14,8 +14,8 @@ whether it did, which validates the replay itself. Diagnostic only: nothing here
 or rejects a candidate.
 
     python -m tools.validation.models.h3_first_step_diagnostic --checkpoint <dir> \\
-        --generation <generation-reference dir> --seed 43 --mode candidate \\
-        --provider-nodes attention --output out.json
+        --generation <generation-reference dir> --contract <generation-contract.json> \\
+        --seed 43 --mode candidate --provider-nodes attention --output out.json
 """
 
 from __future__ import annotations

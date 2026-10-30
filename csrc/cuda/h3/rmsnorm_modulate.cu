@@ -512,8 +512,8 @@ std::vector<torch::Tensor> h3_rmsnorm_backward_partials(
   check_rows(grad, "grad", x);
   TORCH_CHECK(grad.sizes() == x.sizes(), "grad must match x");
   TORCH_CHECK(rstd.is_cuda() && rstd.device() == x.device() && rstd.scalar_type() == at::kFloat &&
-                  rstd.numel() == x.size(0),
-              "rstd must be the forward's float32 (M,) statistics on x's device");
+                  rstd.dim() == 1 && rstd.is_contiguous() && rstd.size(0) == x.size(0),
+              "rstd must be contiguous float32 (M,) statistics on x's device");
   check_tiles(dw_rows, dw_begin, dw_end, x);
   const int64_t rows = x.size(0);
   const int64_t n = x.size(1);
@@ -633,8 +633,8 @@ torch::Tensor h3_rmsnorm_backward_dx(torch::Tensor grad, torch::Tensor x, torch:
   check_rows(grad, "grad", x);
   TORCH_CHECK(grad.sizes() == x.sizes(), "grad must match x");
   TORCH_CHECK(rstd.is_cuda() && rstd.device() == x.device() && rstd.scalar_type() == at::kFloat &&
-                  rstd.numel() == x.size(0),
-              "rstd must be the forward's float32 (M,) statistics on x's device");
+                  rstd.dim() == 1 && rstd.is_contiguous() && rstd.size(0) == x.size(0),
+              "rstd must be contiguous float32 (M,) statistics on x's device");
   const Modulation mod = make_modulation(shift, scale, index, x, x.size(1));
   const c10::cuda::CUDAGuard guard(x.device());
   auto dx = torch::empty_like(x);
