@@ -228,6 +228,23 @@ def test_rejects_invalid_rstd(native, inputs, defect, mode):
 
 
 @pytest.mark.cuda_only
+@pytest.mark.parametrize("defect", ["cpu", "dtype", "rank", "stride", "length"])
+@pytest.mark.parametrize("entrypoint", ["partials", "dx"])
+def test_sp_backward_entry_points_reject_invalid_rstd(native, inputs, defect, entrypoint):
+    rstd = _malformed(inputs["rstd"], defect)
+    args = (inputs["grad"], inputs["x"], inputs["weight"], rstd)
+    modulation = (inputs["shift"], inputs["scale"], inputs["index"])
+    with pytest.raises(RuntimeError, match="rstd must be contiguous float32"):
+        if entrypoint == "dx":
+            native.h3_rmsnorm_backward_dx(*args, *modulation)
+        else:
+            tile = torch.zeros(1, dtype=torch.int32, device=inputs["x"].device)
+            native.h3_rmsnorm_backward_partials(
+                *args, *modulation, tile, tile, tile, None, None, None
+            )
+
+
+@pytest.mark.cuda_only
 @pytest.mark.parametrize("name", TILE_NAMES)
 @pytest.mark.parametrize("defect", ["cpu", "dtype", "rank", "stride", "length"])
 def test_rejects_invalid_segment_tiles(native, inputs, name, defect):
@@ -286,8 +303,7 @@ def test_native_table_bounds_fail_in_isolated_process(native_extension, operatio
     import sys
     import textwrap
 
-    script = textwrap.dedent(
-        """
+    script = textwrap.dedent("""
         import sys
         import torch
         from rl_engine import _C
@@ -319,8 +335,7 @@ def test_native_table_bounds_fail_in_isolated_process(native_extension, operatio
                 sys.exit(0)
             raise
         raise AssertionError("invalid index reached native table lookup without an assertion")
-    """
-    )
+    """)
     result = subprocess.run(
         [sys.executable, "-c", script, operation, str(bad_index)],
         capture_output=True,
@@ -354,8 +369,7 @@ def test_row_gather_metadata_bounds_in_isolated_process(native_extension, metada
     import sys
     import textwrap
 
-    script = textwrap.dedent(
-        """
+    script = textwrap.dedent("""
         import sys
         import torch
         from rl_engine import _C
@@ -375,8 +389,7 @@ def test_row_gather_metadata_bounds_in_isolated_process(native_extension, metada
                 sys.exit(0)
             raise
         raise AssertionError("invalid metadata was not rejected")
-    """
-    )
+    """)
     result = subprocess.run(
         [sys.executable, "-c", script, metadata, bound], capture_output=True, text=True, timeout=60
     )
@@ -502,33 +515,3 @@ def test_segment_metadata_that_does_not_describe_the_rows_ends_in_a_device_asser
         done = run(mutation)
         assert done.returncode != 0, (kind, mutation)
         assert "device-side assert triggered" in done.stderr, (kind, mutation, done.stderr)
-
-
-@pytest.mark.parametrize("entry", ["backward_dx", "backward_partials"])
-@pytest.mark.parametrize("shape", ["strided", "expanded"])
-def test_sequence_parallel_norm_entries_reject_a_non_dense_rstd(
-    native_extension, native_case, shape, entry
-):
-    """``rstd`` is read as a dense (M,) array: a strided or stride-0 view must be rejected."""
-
-    name = f"h3_rmsnorm_{entry}"
-    if not hasattr(native_extension, name):
-        pytest.skip(f"rl_engine._C lacks {name}")
-    case = dict(native_case)
-    rows = case["x"].shape[0]
-    if shape == "strided":
-        bad = torch.stack([case["rstd"], case["rstd"]], dim=1)[:, 0]
-    else:
-        bad = torch.zeros(1, device=case["x"].device).expand(rows)
-    assert bad.numel() == rows and not bad.is_contiguous()
-    modulation = (case["shift"], case["scale"], case["index"])
-    tiles = (case["sorted_pos"], case["tile_begin"], case["tile_end"])
-    with pytest.raises(RuntimeError, match="rstd must be contiguous"):
-        if entry == "backward_dx":
-            native_extension.h3_rmsnorm_backward_dx(
-                case["grad"], case["x"], case["weight"], bad, *modulation
-            )
-        else:
-            native_extension.h3_rmsnorm_backward_partials(
-                case["grad"], case["x"], case["weight"], bad, *modulation, *tiles, *tiles
-            )
