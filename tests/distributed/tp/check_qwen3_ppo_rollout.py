@@ -362,8 +362,9 @@ def main():
     # span roles; the default NCCL group is never used for tensor collectives.
     rank = int(os.environ["RANK"])
     gpu = rank if args.gpu_layout == "dedicated" else rank % 2
-    if args.gpu_layout == "dedicated" and torch.cuda.device_count() < int(os.environ["WORLD_SIZE"]):
-        raise ValueError("dedicated layout needs one visible GPU per coordinator rank")
+    required = args.actor_tp + args.critic_tp + args.vllm_tp
+    if args.gpu_layout == "dedicated" and torch.cuda.device_count() < required:
+        raise ValueError(f"dedicated layout needs {required} visible GPUs (actor, critic and vLLM)")
     os.environ["LOCAL_RANK"] = str(gpu)
     torch.cuda.set_device(gpu)
     dist.init_process_group("nccl", timeout=timedelta(seconds=600 if args.vllm_python else 120))

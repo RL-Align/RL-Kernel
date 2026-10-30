@@ -209,6 +209,8 @@ class VllmPPOClient:
         )
         response = self._request({"op": "install", "filename": str(filename), "version": version})
         assert response["installed"] == version
+        # The sidecar only rereads the latest install file; drop the superseded one.
+        (self.directory / f"weights_v{version - 1}.pt").unlink(missing_ok=True)
         self.version = version
         self.installed.append(version)
         self.timings.append({"op": "install", **response})

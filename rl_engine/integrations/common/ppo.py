@@ -374,7 +374,7 @@ class PPOTrainingWorker:
 
         Targets stay frozen; TP-global clipping modifies the optimizer's actual
         gradient buffers. Empty batches perform no steps. Restore module modes
-        on exit and return update count, mean loss and mean pre-clip norm.
+        on exit and return update count, mean loss and max pre-clip norm.
         """
         error = None
         try:
