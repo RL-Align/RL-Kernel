@@ -37,7 +37,7 @@ class DivergenceRecord:
     axis_names: tuple[str, ...]
     expected_value: Any
     actual_value: Any
-    absolute_diff: float | None
+    absolute_diff: int | float | None
     relative_diff: float | None
     expected_shape: tuple[int, ...]
     actual_shape: tuple[int, ...]
@@ -222,7 +222,15 @@ def first_divergence(
         torch.isfinite(expected_cpu.reshape(-1)[flat_index])
         and torch.isfinite(actual_cpu.reshape(-1)[flat_index])
     )
-    absolute = abs(float(actual_value) - float(expected_value)) if finite_pair else None
+    if expected_cpu.dtype == torch.bool:
+        absolute = None
+    elif _uses_exact_comparison(expected_cpu):
+        # Python integers keep the difference exact for the full int64 range.
+        absolute = abs(int(actual_value) - int(expected_value))
+    elif finite_pair:
+        absolute = abs(float(actual_value) - float(expected_value))
+    else:
+        absolute = None
     record_reason = reason
     if not finite_pair:
         record_reason = "non_finite"
@@ -270,6 +278,10 @@ def _axes(ndim: int, names: Sequence[str] | None) -> tuple[str, ...]:
     return result
 
 
+def _uses_exact_comparison(value: torch.Tensor) -> bool:
+    return not value.is_floating_point() and not value.is_complex()
+
+
 def compute_mismatch_mask(
     expected: torch.Tensor,
     actual: torch.Tensor,
@@ -281,6 +293,8 @@ def compute_mismatch_mask(
 
     Matching signed infinities are equal; NaN and other non-finite pairs are
     mismatches. Signed zeros differ when the absolute threshold is zero.
+    Integer and boolean tensors are compared exactly without subtraction, so
+    they cannot overflow and require zero tolerances.
     This intentionally supersedes the old abs-difference-only predicate.
     Persisted diagnostics carry COMPARISON_SEMANTICS_VERSION, so attempts
     recorded with older semantics do not qualify for resume and are rerun.
@@ -297,6 +311,12 @@ def compute_mismatch_mask(
     ):
         raise ValueError("tolerances must be finite and non-negative")
     active = active_mask.to(dtype=torch.bool)
+    if _uses_exact_comparison(expected) or _uses_exact_comparison(actual):
+        if expected.dtype != actual.dtype:
+            raise ValueError("exact comparison requires matching dtypes")
+        if fixed_threshold != 0.0 or relative_tolerance != 0.0:
+            raise ValueError("integer and boolean tensors require zero tolerances")
+        return active & (expected != actual)
     finite = torch.isfinite(expected) & torch.isfinite(actual)
     same_infinity = torch.isinf(expected) & torch.isinf(actual) & (expected == actual)
     tolerance = fixed_threshold + relative_tolerance * torch.abs(expected)
