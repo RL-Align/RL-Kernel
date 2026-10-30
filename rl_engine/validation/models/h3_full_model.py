@@ -11,7 +11,7 @@ not qualification of the reference/interim bindings as final RFC kernels.
 from __future__ import annotations
 
 from collections import Counter
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from types import MethodType
 
 import torch
@@ -246,3 +246,44 @@ def full_model_execution(
             handle.remove()
         for block, original in originals:
             block.forward = original
+
+
+# --- Numerics shared with the generation runner --------------------------------------------------
+# They live here, not in ``tools/``, because this module is part of the model paths whose git trees
+# identify a generation run (``h3_generation_resume.MODEL_PATHS``): a change to either of them
+# changes the generated numbers and must invalidate saved steps and the numerical gate.
+
+# Provider passes that change only which kernels compute the same diffusers graph, to
+# measure how much an independent BF16 provider's errors move on their own. Each forces
+# one choice; an unavailable kernel raises instead of falling back.
+PROVIDER_VARIANTS = ("default", "sdpa-flash", "sdpa-efficient", "sdpa-cudnn", "blas-cublaslt")
+
+
+def provider_variant_context(variant: str):
+    """Context manager forcing one SDPA backend, or a no-op (BLAS choice is set globally)."""
+
+    from torch.nn.attention import SDPBackend, sdpa_kernel
+
+    backends = {
+        "sdpa-flash": SDPBackend.FLASH_ATTENTION,
+        "sdpa-efficient": SDPBackend.EFFICIENT_ATTENTION,
+        "sdpa-cudnn": SDPBackend.CUDNN_ATTENTION,
+    }
+    if variant == "blas-cublaslt":
+        torch.backends.cuda.preferred_blas_library("cublaslt")
+    return sdpa_kernel([backends[variant]]) if variant in backends else nullcontext()
+
+
+class QueryChunkAttention:
+    """Bound attention workspace; every query still attends to every key."""
+
+    def __init__(self, op, chunk):
+        self.op, self.chunk = op, chunk
+
+    def __call__(self, q, k, v, **kwargs):
+        if torch.is_grad_enabled():
+            raise ValueError("generation query chunking is inference only")
+        return torch.cat(
+            [self.op(part.contiguous(), k, v, **kwargs) for part in q.split(self.chunk, dim=2)],
+            dim=2,
+        )

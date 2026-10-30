@@ -21,29 +21,15 @@ import numpy as np
 import torch
 
 from rl_engine.validation.models.h3_block import CandidateOps
-from rl_engine.validation.models.h3_full_model import FullModelTrace, full_model_execution
-from rl_engine.validation.models.h3_generation_resume import ResumableRun, StepStore, model_trees
-from tools.validation.models.h3_full_model import (
+from rl_engine.validation.models.h3_full_model import (
     PROVIDER_VARIANTS,
-    digest,
+    FullModelTrace,
+    QueryChunkAttention,
+    full_model_execution,
     provider_variant_context,
-    verify_checkpoint,
 )
-
-
-class QueryChunkAttention:
-    """Bound attention workspace; every query still attends to every key."""
-
-    def __init__(self, op, chunk):
-        self.op, self.chunk = op, chunk
-
-    def __call__(self, q, k, v, **kwargs):
-        if torch.is_grad_enabled():
-            raise ValueError("generation query chunking is inference only")
-        return torch.cat(
-            [self.op(part.contiguous(), k, v, **kwargs) for part in q.split(self.chunk, dim=2)],
-            dim=2,
-        )
+from rl_engine.validation.models.h3_generation_resume import ResumableRun, StepStore, model_trees
+from tools.validation.models.h3_full_model import digest, verify_checkpoint
 
 
 def main():
@@ -173,9 +159,6 @@ def main():
 
     for seed in seeds:
         directory = args.output / str(seed)
-        if args.resume and (directory / "report.json").exists():
-            print(f"seed {seed} already complete; skipping", flush=True)
-            continue
         identity = run_identity(
             config_root,
             contract,
@@ -186,6 +169,9 @@ def main():
             settings=settings,
             provider_variant=args.provider_variant,
         )
+        if args.resume and (directory / "report.json").exists():
+            print(f"seed {seed} already complete; skipping", flush=True)
+            continue
         run = ResumableRun(
             StepStore(directory),
             identity,

@@ -398,3 +398,28 @@ def test_adoption_refuses_other_differences_and_dry_run_writes_nothing(repo, tmp
     adopt_identity(tmp_path / "run", identity, old[:8], cwd=repo)
     with pytest.raises(ResumeError, match="already"):
         adopt_identity(tmp_path / "run", identity, old[:8], cwd=repo)
+
+
+def test_the_numerics_the_generation_runner_adds_are_inside_the_identified_model_paths():
+    """QueryChunkAttention and the provider variant context decide the generated numbers, so the
+    files that define them must be covered by MODEL_PATHS (their git trees are in a run's identity).
+    """
+
+    from pathlib import Path
+
+    from rl_engine.validation.models.h3_full_model import (
+        QueryChunkAttention,
+        provider_variant_context,
+    )
+    from tools.validation.models import h3_full_generation, h3_full_model
+
+    root = Path(__file__).resolve().parents[3]
+    for obj in (QueryChunkAttention, provider_variant_context):
+        source = Path(inspect.getsourcefile(obj)).resolve().relative_to(root).as_posix()
+        assert any(
+            source == path or source.startswith(path + "/") for path in resume_module.MODEL_PATHS
+        ), source
+    # the runners use the same objects, not copies that could drift
+    assert h3_full_generation.QueryChunkAttention is QueryChunkAttention
+    assert h3_full_generation.provider_variant_context is provider_variant_context
+    assert h3_full_model.provider_variant_context is provider_variant_context
