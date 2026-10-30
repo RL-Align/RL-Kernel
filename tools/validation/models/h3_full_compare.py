@@ -29,7 +29,9 @@ def tensors(root):
         yield "parameter." + name, torch.load(path, map_location="cpu", weights_only=True)
 
 
-def compare(left, right):
+def compare(left, right, norms=None):
+    """Per tensor ``max_abs`` / ``relative_l2``; ``norms``, if given, gets each tensor L2 norms."""
+
     a, b = tensors(left), tensors(right)
     from itertools import zip_longest
 
@@ -45,6 +47,10 @@ def compare(left, right):
         ):
             raise ValueError(f"nonfinite/shape mismatch: {name}")
         delta = value.float() - other.float()
+        if norms is not None:
+            norms[name] = dict(
+                reference=value.double().norm().item(), other=other.double().norm().item()
+            )
         yield name, dict(
             max_abs=delta.abs().max().item(),
             relative_l2=(delta.double().norm() / value.double().norm().clamp_min(1e-12)).item(),
@@ -98,7 +104,8 @@ def main():
             raise ValueError("thresholds were not frozen before candidate execution")
     elif other["mode"] != "bf16-provider":
         raise ValueError("only independent provider can establish thresholds")
-    rows = dict(compare(args.reference, args.other))
+    norms: dict[str, dict[str, float]] = {}
+    rows = dict(compare(args.reference, args.other, norms if args.thresholds else None))
     report = dict(
         reference_report_sha256=reference_sha,
         other_report_sha256=digest(args.other / "report.json"),
@@ -116,6 +123,7 @@ def main():
             status="diagnostic_only" if hybrid else ("failed" if failures else "passed"),
             diagnostic_provider_nodes=hybrid,
             errors=rows,
+            tensor_l2=norms,
             failures=failures,
             first_drift=failures[0] if failures else None,
             thresholds_sha256=digest(args.thresholds),
