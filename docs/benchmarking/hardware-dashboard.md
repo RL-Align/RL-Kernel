@@ -52,7 +52,7 @@ A fallback backend result must not be presented as a fused-kernel result.
 Run the profiler from the repository root:
 
 ```bash
-python scripts/run_profile_suite.py \
+python tools/benchmarking/run_profile_suite.py \
   --device cuda \
   --dtype float16 \
   --batch-sizes 8,16,32 \

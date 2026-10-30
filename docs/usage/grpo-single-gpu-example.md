@@ -1,6 +1,6 @@
 # Single-GPU GRPO Example
 
-`examples/grpo_single_gpu.py` is a minimal, reproducible GRPO training script for one
+`examples/post_training/grpo_single_gpu.py` is a minimal, reproducible GRPO training script for one
 device. It uses a synthetic toy batch, so it does not require a dataset download,
 rollout service, distributed launcher, vLLM, Ray, or DeepSpeed.
 
@@ -23,7 +23,7 @@ MAX_JOBS=2 python setup.py build_ext --inplace
 Then run the strict A100/single-GPU path:
 
 ```bash
-python examples/grpo_single_gpu.py \
+python examples/post_training/grpo_single_gpu.py \
   --device cuda \
   --require-fused-logp \
   --steps 2 \
@@ -43,7 +43,7 @@ backend. This keeps the example honest when validating the RL-Kernel fused logp 
 The same script can run without CUDA for quick checks:
 
 ```bash
-python examples/grpo_single_gpu.py \
+python examples/post_training/grpo_single_gpu.py \
   --device cpu \
   --steps 2 \
   --num-prompts 1 \
@@ -75,8 +75,8 @@ The PR validation set used for this example:
 
 - CUDA extension build passed with `MAX_JOBS=2 python setup.py build_ext --inplace`.
 - Strict fused single-GPU run passed with `backend=FusedLogpGenericOp`.
-- CPU smoke tests passed with `python -m pytest tests/test_grpo_single_gpu_example.py`.
-- CI dispatch tests passed with `python -m pytest rl_engine/tests/test_dispatch.py -v`.
+- CPU smoke tests passed with `python -m pytest tests/e2e/test_grpo_single_gpu_example.py`.
+- CI dispatch tests passed with `python -m pytest tests/runtime/test_dispatch.py -v`.
 - Type checking passed with `python -m mypy --ignore-missing-imports rl_engine/`.
 - Docs build passed with `mkdocs build --strict -f mkdocs.yaml`.
 - Pre-commit equivalent checks passed with Black, isort, and flake8 using repository hook args.
@@ -86,7 +86,7 @@ The PR validation set used for this example:
 Run the example smoke tests with:
 
 ```bash
-python -m pytest tests/test_grpo_single_gpu_example.py
+python -m pytest tests/e2e/test_grpo_single_gpu_example.py
 ```
 
 The tests cover direct script execution on CPU and verify that strict fused mode rejects a

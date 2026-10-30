@@ -18,6 +18,8 @@ Every operator page should include:
 
 ## Current Pages
 
+- [MHC H Aggregate](mhc-pre-h-aggregate.md)
+
 - [SiLU / SwiGLU Activation](activation.md)
 - [Standard Attention](attention.md)
 - [Fused LogP](fused-logp.md)
@@ -33,4 +35,5 @@ Every operator page should include:
 - [Matmul](matmul.md)
 - [Sampling](sampling.md)
 - [Token Embedding](embedding.md)
+- [DSv4 MoE](dsv4-moe.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)

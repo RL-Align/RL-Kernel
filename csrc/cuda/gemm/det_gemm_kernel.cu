@@ -213,7 +213,10 @@ constexpr int M_TILES = WARP_M / MMA_M;   // 2
 constexpr int N_TILES = BN / MMA_N;       // 8
 constexpr int K_TILES = BK / MMA_K;       // 2
 constexpr int KK_GROUPS = BK / 32;        // 1
-constexpr int TREE_DEPTH = 16;
+// Online mid-tree reduction needs ceil(log2(K / BK)) live levels.  The
+// training contract caps a rank's GEMM K at 32768, so ten levels cover every
+// configured shape while avoiding six never-addressed per-thread stack slots.
+constexpr int TREE_DEPTH = 10;
 
 __device__ __forceinline__ int mid_tree_merge_count(int leaf, int n) {
   int lo = 0, hi = n, count = 0;
@@ -402,6 +405,7 @@ template <typename output_t, bool TRANSPOSE_OUTPUT>
 bool launch_sm90(const nv_bf16* A, const nv_bf16* Bt, output_t* C,
                  int M, int N, int K, cudaStream_t stream) {
   if (M % BM != 0 || N % BN != 0 || K % BK != 0) return false;  // fall back
+  if (K / BK > (1 << TREE_DEPTH)) return false;
 
   CUtensorMap a_tmap, bt_tmap;
   det_gemm::init_tmap_noswizzle(&a_tmap, A, M, K, BM, BK);

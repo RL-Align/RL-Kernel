@@ -12,7 +12,7 @@ logits --[ratio_kl op]--> (ratio, kl) --[clipped surrogate + beta*kl]--> loss
 
 ## Entry Point
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 ratio_kl = kernel_registry.get_op("ratio_kl")
 
@@ -64,12 +64,21 @@ On NVIDIA CUDA, FP16/BF16 backward writes directly in the policy dtype, with exp
 
 ## Accuracy
 
+Inactive tokens return `policy_ratio = 1` and `kl_penalty = 0`, with zero
+`policy_logits` gradients, including when their logits contain NaN or are all
+`-inf`. Their action IDs may be out of range. Active logits are not sanitized;
+invalid active distributions remain visible as non-finite results. The native
+operator rejects out-of-range action IDs at active positions.
+
 Reference semantics (`NativeRatioKLOp`, mask-before-exp matching `grpo_loss`):
 
 ```python
-logp_policy = log_softmax(policy_logits, -1).gather(-1, action_ids)   # selected token logp
+safe_ids = action_ids.masked_fill(~mask, 0).unsqueeze(-1)
+policy = policy_logits.masked_fill(~mask.unsqueeze(-1), 0.0)
+logp_policy = log_softmax(policy.float(), -1).gather(-1, safe_ids).squeeze(-1)
 with torch.no_grad():
-    logp_ref = log_softmax(ref_logits, -1).gather(-1, action_ids)
+    reference = ref_logits.masked_fill(~mask.unsqueeze(-1), 0.0)
+    logp_ref = log_softmax(reference.float(), -1).gather(-1, safe_ids).squeeze(-1)
 
 delta = (logp_policy - old_logps).masked_fill(~mask, 0.0)
 diff  = (logp_ref - logp_policy).masked_fill(~mask, 0.0)
@@ -83,10 +92,15 @@ The Triton op matches the native reference on `ratio` and `kl` (forward) and on 
 
 ## Performance Notes
 
+The native reference masks logits before normalization using full-size temporary
+copies in each input's dtype. This preserves fixed shapes and autograd for empty
+or all-inactive inputs without adding the device synchronization needed to compact
+active rows. It still normalizes every row; the Triton backend skips inactive rows.
+
 ```bash
-python benchmarks/benchmark_ratio_kl.py
-python benchmarks/benchmark_ratio_kl.py --g-sizes 8 --completion-lens 512 --vocab-sizes 32768,131072
-python benchmarks/benchmark_ratio_kl.py --backward-suite --smoke --dtype float16 \
+python benchmarks/operators/loss/benchmark_ratio_kl.py
+python benchmarks/operators/loss/benchmark_ratio_kl.py --g-sizes 8 --completion-lens 512 --vocab-sizes 32768,131072
+python benchmarks/operators/loss/benchmark_ratio_kl.py --backward-suite --smoke --dtype float16 \
   --warmup 10 --repeat 50
 ```
 
@@ -106,13 +120,13 @@ Indicative forward-only results (fp16, `B=16`, `T=512`):
 ## Tests
 
 ```bash
-python -m pytest tests/test_ratio_kl.py -v
+python -m pytest tests/ops/loss/test_ratio_kl.py -v
 ```
 
 ## Implementation Files
 
-- `rl_engine/kernels/ops/pytorch/loss/ratio_kl.py`
-- `rl_engine/kernels/ops/triton/loss/ratio_kl.py`
-- `rl_engine/kernels/registry.py`
-- `tests/test_ratio_kl.py`
-- `benchmarks/benchmark_ratio_kl.py`
+- `rl_engine/reference/loss/ratio_kl.py`
+- `rl_engine/backends/shared/triton/loss/ratio_kl.py`
+- `rl_engine/runtime/registry.py`
+- `tests/ops/loss/test_ratio_kl.py`
+- `benchmarks/operators/loss/benchmark_ratio_kl.py`

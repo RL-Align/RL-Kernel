@@ -1,0 +1,2008 @@
+{
+  "reference": "alltp8-t4-r4c1-v3",
+  "completed": 14,
+  "completed_runs": 14,
+  "all_passed": true,
+  "sampling": {
+    "temperature": 0.7,
+    "top_p": 0.95,
+    "top_k": -1,
+    "max_response_len": 128,
+    "steps": 2,
+    "kl_coef": 0.01
+  },
+  "scope": "Eight H100, Qwen3-8B; two real updates per topology, all responses truncated, PG=0. Finite matrix; ROCm and long training are not certified.",
+  "rows": [
+    {
+      "run": "alltp8-t1-r1c8-v6",
+      "training_tp": 1,
+      "training_cp": 8,
+      "rollout_tp": 1,
+      "rollout_cp": 8,
+      "status": "SUCCEEDED",
+      "validated": true,
+      "cross_topology_equal": true,
+      "comparison": {
+        "name": "alltp8-t1-r1c8-v6",
+        "weights": [
+          {
+            "version": "weight_v000003",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000002",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000001",
+            "equal": true,
+            "different_tensors": []
+          }
+        ],
+        "tokens_equal": true,
+        "norms_equal": {
+          "0": true,
+          "1": true
+        }
+      },
+      "logprob_check": {
+        "bitwise_equal": true,
+        "bitwise_mismatch_count": 0,
+        "element_count": 2048,
+        "errors": [],
+        "max_abs_diff": 0.0,
+        "mismatch_count": 0,
+        "mismatch_k3_kl": 0.0,
+        "mismatch_kl": 0.0,
+        "passed": true,
+        "require_exact": true,
+        "sample_count": 16,
+        "torch_equal": true,
+        "train_rollout_logprob_abs_diff": 0.0
+      },
+      "pcp_execution": {
+        "cp_rank_worker_counts": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "errors": [],
+        "expected_workers_per_cp_rank": 1,
+        "passed": true,
+        "required": true
+      },
+      "gradient_norms": {
+        "0": 0.05702933925260603,
+        "1": 0.0711779018075793
+      },
+      "step_seconds": [
+        122.91588592529297,
+        125.93977975845337
+      ],
+      "mean_step_seconds": 124.42783284187317,
+      "metrics": {
+        "0": {
+          "train/loss": 3.906373240170069e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.11042620241641998,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.003906372934579849,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.05702933925260603,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 0
+        },
+        "1": {
+          "train/loss": 2.7762205718318e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.08985952287912369,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.002776220440864563,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.0711779018075793,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 1
+        }
+      },
+      "perf": {
+        "0": {
+          "perf/sleep_time": 28.886922597885132,
+          "perf/wake_up_time": 3.757960557937622,
+          "perf/update_weights_time": 33.03117918968201,
+          "perf/data_preprocess_time": 0.0030951499938964844,
+          "perf/train_wait_time": 110.1331102848053,
+          "perf/ref_log_probs_time": 3.0428411960601807,
+          "perf/log_probs_time": 1.2708029747009277,
+          "perf/actor_train_time": 7.848167419433594,
+          "perf/train_time": 12.782775640487671,
+          "perf/log_probs_tflops": 3.19670948995382,
+          "perf/ref_log_probs_tflops": 1.3350640626096133,
+          "perf/actor_train_tflops": 1.5528674575782115,
+          "perf/actor_train_tok_per_s": 272.1654477847717,
+          "perf/step_time": 122.91588592529297,
+          "perf/wait_time_ratio": 0.896003876600158
+        },
+        "1": {
+          "perf/sleep_time": 9.615916728973389,
+          "perf/wake_up_time": 4.389890432357788,
+          "perf/update_weights_time": 36.614415884017944,
+          "perf/data_preprocess_time": 0.003058910369873047,
+          "perf/train_wait_time": 119.18095397949219,
+          "perf/ref_log_probs_time": 1.1862952709197998,
+          "perf/log_probs_time": 0.641533374786377,
+          "perf/actor_train_time": 4.314104080200195,
+          "perf/train_time": 6.758825778961182,
+          "perf/log_probs_tflops": 5.760432242513589,
+          "perf/ref_log_probs_tflops": 3.115168396399885,
+          "perf/actor_train_tflops": 2.5698333661411183,
+          "perf/actor_train_tok_per_s": 450.6149976589784,
+          "perf/step_time": 125.93977975845337,
+          "perf/wait_time_ratio": 0.9463328759830747
+        }
+      }
+    },
+    {
+      "run": "alltp8-t1-r4c1-v3",
+      "training_tp": 1,
+      "training_cp": 8,
+      "rollout_tp": 4,
+      "rollout_cp": 1,
+      "status": "SUCCEEDED",
+      "validated": true,
+      "cross_topology_equal": true,
+      "comparison": {
+        "name": "alltp8-t1-r4c1-v3",
+        "weights": [
+          {
+            "version": "weight_v000003",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000002",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000001",
+            "equal": true,
+            "different_tensors": []
+          }
+        ],
+        "tokens_equal": true,
+        "norms_equal": {
+          "0": true,
+          "1": true
+        }
+      },
+      "logprob_check": {
+        "bitwise_equal": true,
+        "bitwise_mismatch_count": 0,
+        "element_count": 2048,
+        "errors": [],
+        "max_abs_diff": 0.0,
+        "mismatch_count": 0,
+        "mismatch_k3_kl": 0.0,
+        "mismatch_kl": 0.0,
+        "passed": true,
+        "require_exact": true,
+        "sample_count": 16,
+        "torch_equal": true,
+        "train_rollout_logprob_abs_diff": 0.0
+      },
+      "pcp_execution": {
+        "errors": [],
+        "passed": true,
+        "required": false
+      },
+      "gradient_norms": {
+        "0": 0.05702933925260603,
+        "1": 0.0711779018075793
+      },
+      "step_seconds": [
+        48.87170624732971,
+        40.814088106155396
+      ],
+      "mean_step_seconds": 44.842897176742554,
+      "metrics": {
+        "0": {
+          "train/loss": 3.906373240170069e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.11042620241641998,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.003906372934579849,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.05702933925260603,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 0
+        },
+        "1": {
+          "train/loss": 2.7762205718318e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.08985952287912369,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.002776220440864563,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.0711779018075793,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 1
+        }
+      },
+      "perf": {
+        "0": {
+          "perf/update_weights_time": 27.750502824783325,
+          "perf/data_preprocess_time": 0.011228084564208984,
+          "perf/train_wait_time": 36.77781105041504,
+          "perf/ref_log_probs_time": 3.103057384490967,
+          "perf/log_probs_time": 1.2790584564208984,
+          "perf/actor_train_time": 7.089299917221069,
+          "perf/train_time": 12.093895196914673,
+          "perf/log_probs_tflops": 3.1760768311211525,
+          "perf/ref_log_probs_tflops": 1.3091565593958243,
+          "perf/actor_train_tflops": 1.7190927072586368,
+          "perf/actor_train_tok_per_s": 301.29914447705994,
+          "perf/step_time": 48.87170624732971,
+          "perf/wait_time_ratio": 0.7525378971687638
+        },
+        "1": {
+          "perf/update_weights_time": 27.36841106414795,
+          "perf/data_preprocess_time": 0.011683940887451172,
+          "perf/train_wait_time": 35.136491537094116,
+          "perf/ref_log_probs_time": 0.6575005054473877,
+          "perf/log_probs_time": 0.6429979801177979,
+          "perf/actor_train_time": 3.7618889808654785,
+          "perf/train_time": 5.677596569061279,
+          "perf/log_probs_tflops": 5.747311268522149,
+          "perf/ref_log_probs_tflops": 5.620542503238744,
+          "perf/actor_train_tflops": 2.9470642718843285,
+          "perf/actor_train_tok_per_s": 516.761661465287,
+          "perf/step_time": 40.814088106155396,
+          "perf/wait_time_ratio": 0.8608912551397906
+        }
+      }
+    },
+    {
+      "run": "alltp8-t2-r4c1-v4",
+      "training_tp": 2,
+      "training_cp": 4,
+      "rollout_tp": 4,
+      "rollout_cp": 1,
+      "status": "SUCCEEDED",
+      "validated": true,
+      "cross_topology_equal": true,
+      "comparison": {
+        "name": "alltp8-t2-r4c1-v4",
+        "weights": [
+          {
+            "version": "weight_v000003",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000002",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000001",
+            "equal": true,
+            "different_tensors": []
+          }
+        ],
+        "tokens_equal": true,
+        "norms_equal": {
+          "0": true,
+          "1": true
+        }
+      },
+      "logprob_check": {
+        "bitwise_equal": true,
+        "bitwise_mismatch_count": 0,
+        "element_count": 2048,
+        "errors": [],
+        "max_abs_diff": 0.0,
+        "mismatch_count": 0,
+        "mismatch_k3_kl": 0.0,
+        "mismatch_kl": 0.0,
+        "passed": true,
+        "require_exact": true,
+        "sample_count": 16,
+        "torch_equal": true,
+        "train_rollout_logprob_abs_diff": 0.0
+      },
+      "pcp_execution": {
+        "errors": [],
+        "passed": true,
+        "required": false
+      },
+      "gradient_norms": {
+        "0": 0.05702933925260603,
+        "1": 0.0711779018075793
+      },
+      "step_seconds": [
+        45.659247159957886,
+        40.97211980819702
+      ],
+      "mean_step_seconds": 43.315683484077454,
+      "metrics": {
+        "0": {
+          "train/loss": 3.906372876372188e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.11042620241641998,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.003906372934579849,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.05702933925260603,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 0
+        },
+        "1": {
+          "train/loss": 2.7762205718318e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.08985952287912369,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.002776220440864563,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.0711779018075793,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 1
+        }
+      },
+      "perf": {
+        "0": {
+          "perf/update_weights_time": 27.44197106361389,
+          "perf/data_preprocess_time": 0.011423826217651367,
+          "perf/train_wait_time": 36.18894839286804,
+          "perf/ref_log_probs_time": 2.480095624923706,
+          "perf/log_probs_time": 0.9902727603912354,
+          "perf/actor_train_time": 5.677483081817627,
+          "perf/train_time": 9.470298767089844,
+          "perf/log_probs_tflops": 4.102291905396891,
+          "perf/ref_log_probs_tflops": 1.6379964902413668,
+          "perf/actor_train_tflops": 2.146578617960816,
+          "perf/actor_train_tok_per_s": 376.223049759607,
+          "perf/step_time": 45.659247159957886,
+          "perf/wait_time_ratio": 0.7925874963747742
+        },
+        "1": {
+          "perf/update_weights_time": 27.418487787246704,
+          "perf/data_preprocess_time": 0.011552572250366211,
+          "perf/train_wait_time": 35.22965478897095,
+          "perf/ref_log_probs_time": 0.6383514404296875,
+          "perf/log_probs_time": 0.6353287696838379,
+          "perf/actor_train_time": 4.153909206390381,
+          "perf/train_time": 5.742465019226074,
+          "perf/log_probs_tflops": 5.81668848178718,
+          "perf/ref_log_probs_tflops": 5.789145763155914,
+          "perf/actor_train_tflops": 2.668938597225107,
+          "perf/actor_train_tok_per_s": 467.9928961878481,
+          "perf/step_time": 40.97211980819702,
+          "perf/wait_time_ratio": 0.8598445712326259
+        }
+      }
+    },
+    {
+      "run": "alltp8-t4-r1c1-v6",
+      "training_tp": 4,
+      "training_cp": 2,
+      "rollout_tp": 1,
+      "rollout_cp": 1,
+      "status": "SUCCEEDED",
+      "validated": true,
+      "cross_topology_equal": true,
+      "comparison": {
+        "name": "alltp8-t4-r1c1-v6",
+        "weights": [
+          {
+            "version": "weight_v000003",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000002",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000001",
+            "equal": true,
+            "different_tensors": []
+          }
+        ],
+        "tokens_equal": true,
+        "norms_equal": {
+          "0": true,
+          "1": true
+        }
+      },
+      "logprob_check": {
+        "bitwise_equal": true,
+        "bitwise_mismatch_count": 0,
+        "element_count": 2048,
+        "errors": [],
+        "max_abs_diff": 0.0,
+        "mismatch_count": 0,
+        "mismatch_k3_kl": 0.0,
+        "mismatch_kl": 0.0,
+        "passed": true,
+        "require_exact": true,
+        "sample_count": 16,
+        "torch_equal": true,
+        "train_rollout_logprob_abs_diff": 0.0
+      },
+      "pcp_execution": {
+        "errors": [],
+        "passed": true,
+        "required": false
+      },
+      "gradient_norms": {
+        "0": 0.05702933925260603,
+        "1": 0.0711779018075793
+      },
+      "step_seconds": [
+        50.588900566101074,
+        46.66252160072327
+      ],
+      "mean_step_seconds": 48.62571108341217,
+      "metrics": {
+        "0": {
+          "train/loss": 3.906372876372188e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.11042619496583939,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.003906372934579849,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.05702933925260603,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 0
+        },
+        "1": {
+          "train/loss": 2.7762202080339193e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.08985953032970428,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.002776220440864563,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.0711779018075793,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 1
+        }
+      },
+      "perf": {
+        "0": {
+          "perf/update_weights_time": 27.69325542449951,
+          "perf/data_preprocess_time": 0.01121068000793457,
+          "perf/train_wait_time": 42.30711889266968,
+          "perf/ref_log_probs_time": 2.09855055809021,
+          "perf/log_probs_time": 0.8908624649047852,
+          "perf/actor_train_time": 5.11951756477356,
+          "perf/train_time": 8.281781673431396,
+          "perf/log_probs_tflops": 4.560061837965286,
+          "perf/ref_log_probs_tflops": 1.93580655630474,
+          "perf/actor_train_tflops": 2.380529734114321,
+          "perf/actor_train_tok_per_s": 417.2268134594196,
+          "perf/step_time": 50.588900566101074,
+          "perf/wait_time_ratio": 0.8362925151415347
+        },
+        "1": {
+          "perf/update_weights_time": 27.530277490615845,
+          "perf/data_preprocess_time": 0.009261131286621094,
+          "perf/train_wait_time": 41.500365018844604,
+          "perf/ref_log_probs_time": 0.6014037132263184,
+          "perf/log_probs_time": 0.5608925819396973,
+          "perf/actor_train_time": 3.836705207824707,
+          "perf/train_time": 5.162156581878662,
+          "perf/log_probs_tflops": 6.588622591491703,
+          "perf/ref_log_probs_tflops": 6.144806650665487,
+          "perf/actor_train_tflops": 2.8895961534114627,
+          "perf/actor_train_tok_per_s": 506.6847450347085,
+          "perf/step_time": 46.66252160072327,
+          "perf/wait_time_ratio": 0.8893725327137347
+        }
+      }
+    },
+    {
+      "run": "alltp8-t4-r1c2-v6",
+      "training_tp": 4,
+      "training_cp": 2,
+      "rollout_tp": 1,
+      "rollout_cp": 2,
+      "status": "SUCCEEDED",
+      "validated": true,
+      "cross_topology_equal": true,
+      "comparison": {
+        "name": "alltp8-t4-r1c2-v6",
+        "weights": [
+          {
+            "version": "weight_v000003",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000002",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000001",
+            "equal": true,
+            "different_tensors": []
+          }
+        ],
+        "tokens_equal": true,
+        "norms_equal": {
+          "0": true,
+          "1": true
+        }
+      },
+      "logprob_check": {
+        "bitwise_equal": true,
+        "bitwise_mismatch_count": 0,
+        "element_count": 2048,
+        "errors": [],
+        "max_abs_diff": 0.0,
+        "mismatch_count": 0,
+        "mismatch_k3_kl": 0.0,
+        "mismatch_kl": 0.0,
+        "passed": true,
+        "require_exact": true,
+        "sample_count": 16,
+        "torch_equal": true,
+        "train_rollout_logprob_abs_diff": 0.0
+      },
+      "pcp_execution": {
+        "cp_rank_worker_counts": [
+          4,
+          4
+        ],
+        "errors": [],
+        "expected_workers_per_cp_rank": 4,
+        "passed": true,
+        "required": true
+      },
+      "gradient_norms": {
+        "0": 0.05702933925260603,
+        "1": 0.0711779018075793
+      },
+      "step_seconds": [
+        57.245049238204956,
+        52.52477693557739
+      ],
+      "mean_step_seconds": 54.884913086891174,
+      "metrics": {
+        "0": {
+          "train/loss": 3.906372876372188e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.11042619496583939,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.003906372934579849,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.05702933925260603,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 0
+        },
+        "1": {
+          "train/loss": 2.7762202080339193e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.08985953032970428,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.002776220440864563,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.0711779018075793,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 1
+        }
+      },
+      "perf": {
+        "0": {
+          "perf/update_weights_time": 27.560138940811157,
+          "perf/data_preprocess_time": 0.011485099792480469,
+          "perf/train_wait_time": 48.90938973426819,
+          "perf/ref_log_probs_time": 2.153376579284668,
+          "perf/log_probs_time": 0.8877286911010742,
+          "perf/actor_train_time": 5.120829343795776,
+          "perf/train_time": 8.335659503936768,
+          "perf/log_probs_tflops": 4.576159326392063,
+          "perf/ref_log_probs_tflops": 1.886519974336067,
+          "perf/actor_train_tflops": 2.379919924890595,
+          "perf/actor_train_tok_per_s": 417.11993440826245,
+          "perf/step_time": 57.245049238204956,
+          "perf/wait_time_ratio": 0.8543863685180726
+        },
+        "1": {
+          "perf/update_weights_time": 27.389793872833252,
+          "perf/data_preprocess_time": 0.011810302734375,
+          "perf/train_wait_time": 47.62924385070801,
+          "perf/ref_log_probs_time": 0.5513417720794678,
+          "perf/log_probs_time": 0.5643515586853027,
+          "perf/actor_train_time": 3.617114782333374,
+          "perf/train_time": 4.895533084869385,
+          "perf/log_probs_tflops": 6.54824015260444,
+          "perf/ref_log_probs_tflops": 6.702756300923535,
+          "perf/actor_train_tflops": 3.0650198507530257,
+          "perf/actor_train_tok_per_s": 537.4449297254371,
+          "perf/step_time": 52.52477693557739,
+          "perf/wait_time_ratio": 0.9067957377358528
+        }
+      }
+    },
+    {
+      "run": "alltp8-t4-r1c4-v6",
+      "training_tp": 4,
+      "training_cp": 2,
+      "rollout_tp": 1,
+      "rollout_cp": 4,
+      "status": "SUCCEEDED",
+      "validated": true,
+      "cross_topology_equal": true,
+      "comparison": {
+        "name": "alltp8-t4-r1c4-v6",
+        "weights": [
+          {
+            "version": "weight_v000003",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000002",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000001",
+            "equal": true,
+            "different_tensors": []
+          }
+        ],
+        "tokens_equal": true,
+        "norms_equal": {
+          "0": true,
+          "1": true
+        }
+      },
+      "logprob_check": {
+        "bitwise_equal": true,
+        "bitwise_mismatch_count": 0,
+        "element_count": 2048,
+        "errors": [],
+        "max_abs_diff": 0.0,
+        "mismatch_count": 0,
+        "mismatch_k3_kl": 0.0,
+        "mismatch_kl": 0.0,
+        "passed": true,
+        "require_exact": true,
+        "sample_count": 16,
+        "torch_equal": true,
+        "train_rollout_logprob_abs_diff": 0.0
+      },
+      "pcp_execution": {
+        "cp_rank_worker_counts": [
+          2,
+          2,
+          2,
+          2
+        ],
+        "errors": [],
+        "expected_workers_per_cp_rank": 2,
+        "passed": true,
+        "required": true
+      },
+      "gradient_norms": {
+        "0": 0.05702933925260603,
+        "1": 0.0711779018075793
+      },
+      "step_seconds": [
+        70.85922479629517,
+        65.27129006385803
+      ],
+      "mean_step_seconds": 68.0652574300766,
+      "metrics": {
+        "0": {
+          "train/loss": 3.906372876372188e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.11042619496583939,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.003906372934579849,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.05702933925260603,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 0
+        },
+        "1": {
+          "train/loss": 2.7762202080339193e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.08985953032970428,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.002776220440864563,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.0711779018075793,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 1
+        }
+      },
+      "perf": {
+        "0": {
+          "perf/update_weights_time": 28.99709701538086,
+          "perf/data_preprocess_time": 0.01773691177368164,
+          "perf/train_wait_time": 62.66554141044617,
+          "perf/ref_log_probs_time": 2.0900919437408447,
+          "perf/log_probs_time": 0.8763141632080078,
+          "perf/actor_train_time": 5.054697275161743,
+          "perf/train_time": 8.193683385848999,
+          "perf/log_probs_tflops": 4.635766600206967,
+          "perf/ref_log_probs_tflops": 1.943640776786662,
+          "perf/actor_train_tflops": 2.411057106654132,
+          "perf/actor_train_tok_per_s": 422.57723533634385,
+          "perf/step_time": 70.85922479629517,
+          "perf/wait_time_ratio": 0.884366736872947
+        },
+        "1": {
+          "perf/update_weights_time": 27.736430168151855,
+          "perf/data_preprocess_time": 0.010935068130493164,
+          "perf/train_wait_time": 60.335859060287476,
+          "perf/ref_log_probs_time": 0.5455343723297119,
+          "perf/log_probs_time": 0.6052279472351074,
+          "perf/actor_train_time": 3.6236186027526855,
+          "perf/train_time": 4.935431003570557,
+          "perf/log_probs_tflops": 6.105979662126275,
+          "perf/ref_log_probs_tflops": 6.774109431430098,
+          "perf/actor_train_tflops": 3.0595186264586753,
+          "perf/actor_train_tok_per_s": 536.4803013549049,
+          "perf/step_time": 65.27129006385803,
+          "perf/wait_time_ratio": 0.9243858823880762
+        }
+      }
+    },
+    {
+      "run": "alltp8-t4-r1c8-v4",
+      "training_tp": 4,
+      "training_cp": 2,
+      "rollout_tp": 1,
+      "rollout_cp": 8,
+      "status": "SUCCEEDED",
+      "validated": true,
+      "cross_topology_equal": true,
+      "comparison": {
+        "name": "alltp8-t4-r1c8-v4",
+        "weights": [
+          {
+            "version": "weight_v000003",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000002",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000001",
+            "equal": true,
+            "different_tensors": []
+          }
+        ],
+        "tokens_equal": true,
+        "norms_equal": {
+          "0": true,
+          "1": true
+        }
+      },
+      "logprob_check": {
+        "bitwise_equal": true,
+        "bitwise_mismatch_count": 0,
+        "element_count": 2048,
+        "errors": [],
+        "max_abs_diff": 0.0,
+        "mismatch_count": 0,
+        "mismatch_k3_kl": 0.0,
+        "mismatch_kl": 0.0,
+        "passed": true,
+        "require_exact": true,
+        "sample_count": 16,
+        "torch_equal": true,
+        "train_rollout_logprob_abs_diff": 0.0
+      },
+      "pcp_execution": {
+        "cp_rank_worker_counts": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "errors": [],
+        "expected_workers_per_cp_rank": 1,
+        "passed": true,
+        "required": true
+      },
+      "gradient_norms": {
+        "0": 0.05702933925260603,
+        "1": 0.0711779018075793
+      },
+      "step_seconds": [
+        110.08598232269287,
+        107.015132188797
+      ],
+      "mean_step_seconds": 108.55055725574493,
+      "metrics": {
+        "0": {
+          "train/loss": 3.906372876372188e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.11042619496583939,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.003906372934579849,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.05702933925260603,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 0
+        },
+        "1": {
+          "train/loss": 2.7762202080339193e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.08985953032970428,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.002776220440864563,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.0711779018075793,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 1
+        }
+      },
+      "perf": {
+        "0": {
+          "perf/update_weights_time": 27.61300778388977,
+          "perf/data_preprocess_time": 0.011569976806640625,
+          "perf/train_wait_time": 101.85474348068237,
+          "perf/ref_log_probs_time": 2.1814770698547363,
+          "perf/log_probs_time": 0.8866682052612305,
+          "perf/actor_train_time": 4.993817567825317,
+          "perf/train_time": 8.231238842010498,
+          "perf/log_probs_tflops": 4.581632571217705,
+          "perf/ref_log_probs_tflops": 1.8622189456974272,
+          "perf/actor_train_tflops": 2.4404503411948233,
+          "perf/actor_train_tok_per_s": 427.7288809591366,
+          "perf/step_time": 110.08598232269287,
+          "perf/wait_time_ratio": 0.9252290012920771
+        },
+        "1": {
+          "perf/update_weights_time": 27.525618314743042,
+          "perf/data_preprocess_time": 0.011382579803466797,
+          "perf/train_wait_time": 102.13341474533081,
+          "perf/ref_log_probs_time": 0.5497012138366699,
+          "perf/log_probs_time": 0.5577092170715332,
+          "perf/actor_train_time": 3.6116809844970703,
+          "perf/train_time": 4.8817174434661865,
+          "perf/log_probs_tflops": 6.62622998445802,
+          "perf/ref_log_probs_tflops": 6.7227603719027424,
+          "perf/actor_train_tflops": 3.069631193312,
+          "perf/actor_train_tok_per_s": 538.2535191631007,
+          "perf/step_time": 107.015132188797,
+          "perf/wait_time_ratio": 0.9543829237639606
+        }
+      }
+    },
+    {
+      "run": "alltp8-t4-r2c1-v6",
+      "training_tp": 4,
+      "training_cp": 2,
+      "rollout_tp": 2,
+      "rollout_cp": 1,
+      "status": "SUCCEEDED",
+      "validated": true,
+      "cross_topology_equal": true,
+      "comparison": {
+        "name": "alltp8-t4-r2c1-v6",
+        "weights": [
+          {
+            "version": "weight_v000003",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000002",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000001",
+            "equal": true,
+            "different_tensors": []
+          }
+        ],
+        "tokens_equal": true,
+        "norms_equal": {
+          "0": true,
+          "1": true
+        }
+      },
+      "logprob_check": {
+        "bitwise_equal": true,
+        "bitwise_mismatch_count": 0,
+        "element_count": 2048,
+        "errors": [],
+        "max_abs_diff": 0.0,
+        "mismatch_count": 0,
+        "mismatch_k3_kl": 0.0,
+        "mismatch_kl": 0.0,
+        "passed": true,
+        "require_exact": true,
+        "sample_count": 16,
+        "torch_equal": true,
+        "train_rollout_logprob_abs_diff": 0.0
+      },
+      "pcp_execution": {
+        "errors": [],
+        "passed": true,
+        "required": false
+      },
+      "gradient_norms": {
+        "0": 0.05702933925260603,
+        "1": 0.0711779018075793
+      },
+      "step_seconds": [
+        47.21352815628052,
+        42.65734839439392
+      ],
+      "mean_step_seconds": 44.93543827533722,
+      "metrics": {
+        "0": {
+          "train/loss": 3.906372876372188e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.11042619496583939,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.003906372934579849,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.05702933925260603,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 0
+        },
+        "1": {
+          "train/loss": 2.7762202080339193e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.08985953032970428,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.002776220440864563,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.0711779018075793,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 1
+        }
+      },
+      "perf": {
+        "0": {
+          "perf/update_weights_time": 27.507572650909424,
+          "perf/data_preprocess_time": 0.011548995971679688,
+          "perf/train_wait_time": 39.06953954696655,
+          "perf/ref_log_probs_time": 2.054391384124756,
+          "perf/log_probs_time": 0.8848764896392822,
+          "perf/actor_train_time": 5.031513929367065,
+          "perf/train_time": 8.143988609313965,
+          "perf/log_probs_tflops": 4.590909552523,
+          "perf/ref_log_probs_tflops": 1.9774167475973532,
+          "perf/actor_train_tflops": 2.4221663615263154,
+          "perf/actor_train_tok_per_s": 424.5243141498559,
+          "perf/step_time": 47.21352815628052,
+          "perf/wait_time_ratio": 0.827507307177792
+        },
+        "1": {
+          "perf/update_weights_time": 27.58127188682556,
+          "perf/data_preprocess_time": 0.010405778884887695,
+          "perf/train_wait_time": 37.80257964134216,
+          "perf/ref_log_probs_time": 0.5464980602264404,
+          "perf/log_probs_time": 0.5572197437286377,
+          "perf/actor_train_time": 3.587411403656006,
+          "perf/train_time": 4.854768753051758,
+          "perf/log_probs_tflops": 6.632050601867562,
+          "perf/ref_log_probs_tflops": 6.762164050933269,
+          "perf/actor_train_tflops": 3.0903978838349815,
+          "perf/actor_train_tok_per_s": 541.8949156538971,
+          "perf/step_time": 42.65734839439392,
+          "perf/wait_time_ratio": 0.8861915019150657
+        }
+      }
+    },
+    {
+      "run": "alltp8-t4-r2c2-v6",
+      "training_tp": 4,
+      "training_cp": 2,
+      "rollout_tp": 2,
+      "rollout_cp": 2,
+      "status": "SUCCEEDED",
+      "validated": true,
+      "cross_topology_equal": true,
+      "comparison": {
+        "name": "alltp8-t4-r2c2-v6",
+        "weights": [
+          {
+            "version": "weight_v000003",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000002",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000001",
+            "equal": true,
+            "different_tensors": []
+          }
+        ],
+        "tokens_equal": true,
+        "norms_equal": {
+          "0": true,
+          "1": true
+        }
+      },
+      "logprob_check": {
+        "bitwise_equal": true,
+        "bitwise_mismatch_count": 0,
+        "element_count": 2048,
+        "errors": [],
+        "max_abs_diff": 0.0,
+        "mismatch_count": 0,
+        "mismatch_k3_kl": 0.0,
+        "mismatch_kl": 0.0,
+        "passed": true,
+        "require_exact": true,
+        "sample_count": 16,
+        "torch_equal": true,
+        "train_rollout_logprob_abs_diff": 0.0
+      },
+      "pcp_execution": {
+        "cp_rank_worker_counts": [
+          4,
+          4
+        ],
+        "errors": [],
+        "expected_workers_per_cp_rank": 4,
+        "passed": true,
+        "required": true
+      },
+      "gradient_norms": {
+        "0": 0.05702933925260603,
+        "1": 0.0711779018075793
+      },
+      "step_seconds": [
+        55.01402950286865,
+        51.28588581085205
+      ],
+      "mean_step_seconds": 53.14995765686035,
+      "metrics": {
+        "0": {
+          "train/loss": 3.906372876372188e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.11042619496583939,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.003906372934579849,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.05702933925260603,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 0
+        },
+        "1": {
+          "train/loss": 2.7762202080339193e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.08985953032970428,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.002776220440864563,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.0711779018075793,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 1
+        }
+      },
+      "perf": {
+        "0": {
+          "perf/update_weights_time": 27.637248516082764,
+          "perf/data_preprocess_time": 0.011330366134643555,
+          "perf/train_wait_time": 46.739500999450684,
+          "perf/ref_log_probs_time": 2.0313937664031982,
+          "perf/log_probs_time": 0.9097559452056885,
+          "perf/actor_train_time": 5.161199569702148,
+          "perf/train_time": 8.274528503417969,
+          "perf/log_probs_tflops": 4.465360133666977,
+          "perf/ref_log_probs_tflops": 1.9998032859384498,
+          "perf/actor_train_tflops": 2.3613045034736597,
+          "perf/actor_train_tok_per_s": 413.85727700571516,
+          "perf/step_time": 55.01402950286865,
+          "perf/wait_time_ratio": 0.8495923934641708
+        },
+        "1": {
+          "perf/update_weights_time": 27.531531810760498,
+          "perf/data_preprocess_time": 0.008964061737060547,
+          "perf/train_wait_time": 46.320478677749634,
+          "perf/ref_log_probs_time": 0.5539965629577637,
+          "perf/log_probs_time": 0.5565049648284912,
+          "perf/actor_train_time": 3.692288875579834,
+          "perf/train_time": 4.965407133102417,
+          "perf/log_probs_tflops": 6.64056885441609,
+          "perf/ref_log_probs_tflops": 6.670636216654188,
+          "perf/actor_train_tflops": 3.0026168005511167,
+          "perf/actor_train_tok_per_s": 526.502683161462,
+          "perf/step_time": 51.28588581085205,
+          "perf/wait_time_ratio": 0.9031818003219174
+        }
+      }
+    },
+    {
+      "run": "alltp8-t4-r2c4-v4",
+      "training_tp": 4,
+      "training_cp": 2,
+      "rollout_tp": 2,
+      "rollout_cp": 4,
+      "status": "SUCCEEDED",
+      "validated": true,
+      "cross_topology_equal": true,
+      "comparison": {
+        "name": "alltp8-t4-r2c4-v4",
+        "weights": [
+          {
+            "version": "weight_v000003",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000002",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000001",
+            "equal": true,
+            "different_tensors": []
+          }
+        ],
+        "tokens_equal": true,
+        "norms_equal": {
+          "0": true,
+          "1": true
+        }
+      },
+      "logprob_check": {
+        "bitwise_equal": true,
+        "bitwise_mismatch_count": 0,
+        "element_count": 2048,
+        "errors": [],
+        "max_abs_diff": 0.0,
+        "mismatch_count": 0,
+        "mismatch_k3_kl": 0.0,
+        "mismatch_kl": 0.0,
+        "passed": true,
+        "require_exact": true,
+        "sample_count": 16,
+        "torch_equal": true,
+        "train_rollout_logprob_abs_diff": 0.0
+      },
+      "pcp_execution": {
+        "cp_rank_worker_counts": [
+          2,
+          2,
+          2,
+          2
+        ],
+        "errors": [],
+        "expected_workers_per_cp_rank": 2,
+        "passed": true,
+        "required": true
+      },
+      "gradient_norms": {
+        "0": 0.05702933925260603,
+        "1": 0.0711779018075793
+      },
+      "step_seconds": [
+        66.72004508972168,
+        62.61780381202698
+      ],
+      "mean_step_seconds": 64.66892445087433,
+      "metrics": {
+        "0": {
+          "train/loss": 3.906372876372188e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.11042619496583939,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.003906372934579849,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.05702933925260603,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 0
+        },
+        "1": {
+          "train/loss": 2.7762202080339193e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.08985953032970428,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.002776220440864563,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.0711779018075793,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 1
+        }
+      },
+      "perf": {
+        "0": {
+          "perf/update_weights_time": 27.686144590377808,
+          "perf/data_preprocess_time": 0.011733293533325195,
+          "perf/train_wait_time": 58.613070249557495,
+          "perf/ref_log_probs_time": 2.0509254932403564,
+          "perf/log_probs_time": 0.8790655136108398,
+          "perf/actor_train_time": 5.004491090774536,
+          "perf/train_time": 8.106974840164185,
+          "perf/log_probs_tflops": 4.621257308117321,
+          "perf/ref_log_probs_tflops": 1.9807584149093764,
+          "perf/actor_train_tflops": 2.4352453758445622,
+          "perf/actor_train_tok_per_s": 426.8166255581075,
+          "perf/step_time": 66.72004508972168,
+          "perf/wait_time_ratio": 0.8784926654461588
+        },
+        "1": {
+          "perf/update_weights_time": 27.696548461914062,
+          "perf/data_preprocess_time": 0.01165008544921875,
+          "perf/train_wait_time": 57.69498658180237,
+          "perf/ref_log_probs_time": 0.5467743873596191,
+          "perf/log_probs_time": 0.5534319877624512,
+          "perf/actor_train_time": 3.6588964462280273,
+          "perf/train_time": 4.922817230224609,
+          "perf/log_probs_tflops": 6.677441164377037,
+          "perf/ref_log_probs_tflops": 6.758746609572671,
+          "perf/actor_train_tflops": 3.0300197814379666,
+          "perf/actor_train_tok_per_s": 531.3077395245986,
+          "perf/step_time": 62.61780381202698,
+          "perf/wait_time_ratio": 0.9213831062328142
+        }
+      }
+    },
+    {
+      "run": "alltp8-t4-r4c1-v3",
+      "training_tp": 4,
+      "training_cp": 2,
+      "rollout_tp": 4,
+      "rollout_cp": 1,
+      "status": "SUCCEEDED",
+      "validated": true,
+      "cross_topology_equal": true,
+      "comparison": null,
+      "logprob_check": {
+        "bitwise_equal": true,
+        "bitwise_mismatch_count": 0,
+        "element_count": 2048,
+        "errors": [],
+        "max_abs_diff": 0.0,
+        "mismatch_count": 0,
+        "mismatch_k3_kl": 0.0,
+        "mismatch_kl": 0.0,
+        "passed": true,
+        "require_exact": true,
+        "sample_count": 16,
+        "torch_equal": true,
+        "train_rollout_logprob_abs_diff": 0.0
+      },
+      "pcp_execution": {
+        "errors": [],
+        "passed": true,
+        "required": false
+      },
+      "gradient_norms": {
+        "0": 0.05702933925260603,
+        "1": 0.0711779018075793
+      },
+      "step_seconds": [
+        44.254595041275024,
+        40.09118318557739
+      ],
+      "mean_step_seconds": 42.17288911342621,
+      "metrics": {
+        "0": {
+          "train/loss": 3.906372876372188e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.11042619496583939,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.003906372934579849,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.05702933925260603,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 0
+        },
+        "1": {
+          "train/loss": 2.7762202080339193e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.08985953032970428,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.002776220440864563,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.0711779018075793,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 1
+        }
+      },
+      "perf": {
+        "0": {
+          "perf/update_weights_time": 27.71545124053955,
+          "perf/data_preprocess_time": 0.010592937469482422,
+          "perf/train_wait_time": 36.03388237953186,
+          "perf/ref_log_probs_time": 2.1297523975372314,
+          "perf/log_probs_time": 0.8786730766296387,
+          "perf/actor_train_time": 5.0397021770477295,
+          "perf/train_time": 8.220712661743164,
+          "perf/log_probs_tflops": 4.623321275155332,
+          "perf/ref_log_probs_tflops": 1.9074461114754926,
+          "perf/actor_train_tflops": 2.4182309507827444,
+          "perf/actor_train_tok_per_s": 423.83456898067624,
+          "perf/step_time": 44.254595041275024,
+          "perf/wait_time_ratio": 0.8142404725639013
+        },
+        "1": {
+          "perf/update_weights_time": 27.69651222229004,
+          "perf/data_preprocess_time": 0.011267900466918945,
+          "perf/train_wait_time": 35.21714210510254,
+          "perf/ref_log_probs_time": 0.5441257953643799,
+          "perf/log_probs_time": 0.5572082996368408,
+          "perf/actor_train_time": 3.6087944507598877,
+          "perf/train_time": 4.8740410804748535,
+          "perf/log_probs_tflops": 6.632186812681254,
+          "perf/ref_log_probs_tflops": 6.791645550075899,
+          "perf/actor_train_tflops": 3.0720864714169465,
+          "perf/actor_train_tok_per_s": 538.6840471312132,
+          "perf/step_time": 40.09118318557739,
+          "perf/wait_time_ratio": 0.878426110351658
+        }
+      }
+    },
+    {
+      "run": "alltp8-t4-r4c2-v3",
+      "training_tp": 4,
+      "training_cp": 2,
+      "rollout_tp": 4,
+      "rollout_cp": 2,
+      "status": "SUCCEEDED",
+      "validated": true,
+      "cross_topology_equal": true,
+      "comparison": {
+        "name": "alltp8-t4-r4c2-v3",
+        "weights": [
+          {
+            "version": "weight_v000003",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000002",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000001",
+            "equal": true,
+            "different_tensors": []
+          }
+        ],
+        "tokens_equal": true,
+        "norms_equal": {
+          "0": true,
+          "1": true
+        }
+      },
+      "logprob_check": {
+        "bitwise_equal": true,
+        "bitwise_mismatch_count": 0,
+        "element_count": 2048,
+        "errors": [],
+        "max_abs_diff": 0.0,
+        "mismatch_count": 0,
+        "mismatch_k3_kl": 0.0,
+        "mismatch_kl": 0.0,
+        "passed": true,
+        "require_exact": true,
+        "sample_count": 16,
+        "torch_equal": true,
+        "train_rollout_logprob_abs_diff": 0.0
+      },
+      "pcp_execution": {
+        "cp_rank_worker_counts": [
+          4,
+          4
+        ],
+        "errors": [],
+        "expected_workers_per_cp_rank": 4,
+        "passed": true,
+        "required": true
+      },
+      "gradient_norms": {
+        "0": 0.05702933925260603,
+        "1": 0.0711779018075793
+      },
+      "step_seconds": [
+        51.99560809135437,
+        48.06762647628784
+      ],
+      "mean_step_seconds": 50.031617283821106,
+      "metrics": {
+        "0": {
+          "train/loss": 3.906372876372188e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.11042619496583939,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.003906372934579849,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.05702933925260603,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 0
+        },
+        "1": {
+          "train/loss": 2.7762202080339193e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.08985953032970428,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.002776220440864563,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.0711779018075793,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 1
+        }
+      },
+      "perf": {
+        "0": {
+          "perf/update_weights_time": 27.554563522338867,
+          "perf/data_preprocess_time": 0.01087188720703125,
+          "perf/train_wait_time": 43.832419633865356,
+          "perf/ref_log_probs_time": 2.0368356704711914,
+          "perf/log_probs_time": 0.8850269317626953,
+          "perf/actor_train_time": 5.069813013076782,
+          "perf/train_time": 8.163188457489014,
+          "perf/log_probs_tflops": 4.590129162506954,
+          "perf/ref_log_probs_tflops": 1.9944603229322997,
+          "perf/actor_train_tflops": 2.4038684968911346,
+          "perf/actor_train_tok_per_s": 421.3173137728207,
+          "perf/step_time": 51.99560809135437,
+          "perf/wait_time_ratio": 0.8430023465992245
+        },
+        "1": {
+          "perf/update_weights_time": 27.572540283203125,
+          "perf/data_preprocess_time": 0.011375188827514648,
+          "perf/train_wait_time": 43.171791553497314,
+          "perf/ref_log_probs_time": 0.549454927444458,
+          "perf/log_probs_time": 0.5560750961303711,
+          "perf/actor_train_time": 3.6270573139190674,
+          "perf/train_time": 4.895834922790527,
+          "perf/log_probs_tflops": 6.645702284609403,
+          "perf/ref_log_probs_tflops": 6.725773766295986,
+          "perf/actor_train_tflops": 3.056617982781449,
+          "perf/actor_train_tok_per_s": 535.9716794492808,
+          "perf/step_time": 48.06762647628784,
+          "perf/wait_time_ratio": 0.8981469383514145
+        }
+      }
+    },
+    {
+      "run": "alltp8-t4-r8c1-v6",
+      "training_tp": 4,
+      "training_cp": 2,
+      "rollout_tp": 8,
+      "rollout_cp": 1,
+      "status": "SUCCEEDED",
+      "validated": true,
+      "cross_topology_equal": true,
+      "comparison": {
+        "name": "alltp8-t4-r8c1-v6",
+        "weights": [
+          {
+            "version": "weight_v000003",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000002",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000001",
+            "equal": true,
+            "different_tensors": []
+          }
+        ],
+        "tokens_equal": true,
+        "norms_equal": {
+          "0": true,
+          "1": true
+        }
+      },
+      "logprob_check": {
+        "bitwise_equal": true,
+        "bitwise_mismatch_count": 0,
+        "element_count": 2048,
+        "errors": [],
+        "max_abs_diff": 0.0,
+        "mismatch_count": 0,
+        "mismatch_k3_kl": 0.0,
+        "mismatch_kl": 0.0,
+        "passed": true,
+        "require_exact": true,
+        "sample_count": 16,
+        "torch_equal": true,
+        "train_rollout_logprob_abs_diff": 0.0
+      },
+      "pcp_execution": {
+        "errors": [],
+        "passed": true,
+        "required": false
+      },
+      "gradient_norms": {
+        "0": 0.05702933925260603,
+        "1": 0.0711779018075793
+      },
+      "step_seconds": [
+        43.97749853134155,
+        40.307480335235596
+      ],
+      "mean_step_seconds": 42.142489433288574,
+      "metrics": {
+        "0": {
+          "train/loss": 3.906372876372188e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.11042619496583939,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.003906372934579849,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.05702933925260603,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 0
+        },
+        "1": {
+          "train/loss": 2.7762202080339193e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.08985953032970428,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.002776220440864563,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.0711779018075793,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 1
+        }
+      },
+      "perf": {
+        "0": {
+          "perf/update_weights_time": 27.748736143112183,
+          "perf/data_preprocess_time": 0.010041236877441406,
+          "perf/train_wait_time": 35.754355669021606,
+          "perf/ref_log_probs_time": 2.1010773181915283,
+          "perf/log_probs_time": 0.8989040851593018,
+          "perf/actor_train_time": 5.047789812088013,
+          "perf/train_time": 8.223142862319946,
+          "perf/log_probs_tflops": 4.519267401447032,
+          "perf/ref_log_probs_tflops": 1.9334785511770889,
+          "perf/actor_train_tflops": 2.4143564294375386,
+          "perf/actor_train_tok_per_s": 423.1554956755313,
+          "perf/step_time": 43.97749853134155,
+          "perf/wait_time_ratio": 0.8130147658021172
+        },
+        "1": {
+          "perf/update_weights_time": 27.515490531921387,
+          "perf/data_preprocess_time": 0.010199785232543945,
+          "perf/train_wait_time": 35.34765553474426,
+          "perf/ref_log_probs_time": 0.6105740070343018,
+          "perf/log_probs_time": 0.5562090873718262,
+          "perf/actor_train_time": 3.6301169395446777,
+          "perf/train_time": 4.959824800491333,
+          "perf/log_probs_tflops": 6.644101329285815,
+          "perf/ref_log_probs_tflops": 6.052516966318201,
+          "perf/actor_train_tflops": 3.054041727838821,
+          "perf/actor_train_tok_per_s": 535.5199384413864,
+          "perf/step_time": 40.307480335235596,
+          "perf/wait_time_ratio": 0.8769502643370243
+        }
+      }
+    },
+    {
+      "run": "alltp8-t8-r4c1-v4",
+      "training_tp": 8,
+      "training_cp": 1,
+      "rollout_tp": 4,
+      "rollout_cp": 1,
+      "status": "SUCCEEDED",
+      "validated": true,
+      "cross_topology_equal": true,
+      "comparison": {
+        "name": "alltp8-t8-r4c1-v4",
+        "weights": [
+          {
+            "version": "weight_v000003",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000002",
+            "equal": true,
+            "different_tensors": []
+          },
+          {
+            "version": "weight_v000001",
+            "equal": true,
+            "different_tensors": []
+          }
+        ],
+        "tokens_equal": true,
+        "norms_equal": {
+          "0": true,
+          "1": true
+        }
+      },
+      "logprob_check": {
+        "bitwise_equal": true,
+        "bitwise_mismatch_count": 0,
+        "element_count": 2048,
+        "errors": [],
+        "max_abs_diff": 0.0,
+        "mismatch_count": 0,
+        "mismatch_k3_kl": 0.0,
+        "mismatch_kl": 0.0,
+        "passed": true,
+        "require_exact": true,
+        "sample_count": 16,
+        "torch_equal": true,
+        "train_rollout_logprob_abs_diff": 0.0
+      },
+      "pcp_execution": {
+        "errors": [],
+        "passed": true,
+        "required": false
+      },
+      "gradient_norms": {
+        "0": 0.05702933925260603,
+        "1": 0.0711779018075793
+      },
+      "step_seconds": [
+        45.99890923500061,
+        38.620574951171875
+      ],
+      "mean_step_seconds": 42.30974209308624,
+      "metrics": {
+        "0": {
+          "train/loss": 3.906372876372188e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.11042621731758118,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.003906372934579849,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.05702933925260603,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 0
+        },
+        "1": {
+          "train/loss": 2.7762205718318e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.08985951542854309,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 128.0,
+          "train/kl_loss": 0.002776220440864563,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.0711779018075793,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 1
+        }
+      },
+      "perf": {
+        "0": {
+          "perf/update_weights_time": 30.987462282180786,
+          "perf/data_preprocess_time": 0.011212825775146484,
+          "perf/train_wait_time": 39.39871048927307,
+          "perf/ref_log_probs_time": 1.5750758647918701,
+          "perf/log_probs_time": 0.6680095195770264,
+          "perf/actor_train_time": 4.260600328445435,
+          "perf/train_time": 6.600198745727539,
+          "perf/log_probs_tflops": 6.081332391281254,
+          "perf/ref_log_probs_tflops": 2.5791696894706733,
+          "perf/actor_train_tflops": 2.860433471287538,
+          "perf/actor_train_tok_per_s": 501.337801093247,
+          "perf/step_time": 45.99890923500061,
+          "perf/wait_time_ratio": 0.8565140161909439
+        },
+        "1": {
+          "perf/update_weights_time": 27.36836576461792,
+          "perf/data_preprocess_time": 0.010560989379882812,
+          "perf/train_wait_time": 34.815091371536255,
+          "perf/ref_log_probs_time": 0.4047837257385254,
+          "perf/log_probs_time": 0.43824267387390137,
+          "perf/actor_train_time": 2.877342700958252,
+          "perf/train_time": 3.80548357963562,
+          "perf/log_probs_tflops": 8.432564323554066,
+          "perf/ref_log_probs_tflops": 9.129590202831317,
+          "perf/actor_train_tflops": 3.8530442017253677,
+          "perf/actor_train_tok_per_s": 675.6233796386446,
+          "perf/step_time": 38.620574951171875,
+          "perf/wait_time_ratio": 0.9014648646622453
+        }
+      }
+    }
+  ]
+}

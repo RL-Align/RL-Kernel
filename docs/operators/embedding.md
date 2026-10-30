@@ -13,7 +13,7 @@ are not shared.
 
 ## Entry Point
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 embedding = kernel_registry.get_op("embedding")
 
@@ -33,6 +33,7 @@ The op exposes the WS1 dual-path contract:
 | --- | --- | --- | --- |
 | PyTorch fallback | `NativeEmbeddingOp` | None | fp32 ground-truth reference; CPU and any GPU. |
 | CUDA SM90 (H200/Hopper) | `SM90EmbeddingOp` | `_C.embedding_sm90_forward` | Single-card batch-invariant forward backend; deterministic duplicate-id backward in the wrapper. |
+| Ascend NPU | `AscendEmbeddingOp` | `_C_npu.embedding_ascend` | Batch-invariant Ascend C forward (pure row copy); reuses the SM90 op's deterministic sorted-segment backward. |
 | Triton | `TritonEmbeddingOp` | `_embedding_fwd`, `_embedding_bwd` | CUDA gather with deterministic, atomic-free sorted-segment backward. |
 | ROCm | N/A | N/A | Falls back to the PyTorch native reference. |
 
@@ -54,6 +55,21 @@ CPU, ROCm, and CUDA devices without the SM90 extension, dispatch uses the PyTorc
 (`PYTORCH_NATIVE_EMBEDDING`). On H200/Hopper-class builds that expose `_C.embedding_sm90_forward`,
 the CUDA SM90 single-card batch-invariant backend is prepended and the native op remains
 the fallback.
+
+On `npu` the priority is:
+
+1. `ASCEND_EMBEDDING` — `AscendEmbeddingOp` (batch-invariant Ascend C forward, bf16/fp16/fp32).
+2. `PYTORCH_NATIVE_EMBEDDING` — `NativeEmbeddingOp` (fallback).
+
+The Ascend kernel implements the same semantics as the SM90 CUDA kernel: a pure row
+gather (`out[t, :] = weight[token_ids[t], :]`). Every token row is copied end-to-end by
+exactly one AI-core block with a fixed tile size, so the copy sequence for a row depends
+only on `hidden`, never on the token count or block assignment. Because the copy performs
+no arithmetic, the Ascend output is **bitwise identical** to the CUDA kernel (and to the
+PyTorch reference) for identical inputs at every supported dtype; the fp32-output path
+upcasts the gathered rows afterwards, which is exact for bf16/fp16. The backward reuses the
+SM90 op's deterministic sorted-segment dweight (stable-sorted ids, fixed addition order),
+so duplicate-id gradients match the CUDA op bit for bit.
 
 ## Accuracy
 
@@ -88,9 +104,10 @@ nondeterminism for repeated token ids at the cost of throughput.
 
 ```bash
 python -m pytest \
-  tests/test_embedding.py \
-  tests/test_triton_embedding.py \
-  tests/test_canonical_embedding.py -v
+  tests/ops/embedding/test_embedding.py \
+  tests/ops/embedding/test_triton_embedding.py \
+  tests/ops/embedding/test_canonical_embedding.py \
+  tests/backends/ascend/test_embedding_ascend.py -v
 ```
 
 Covers: correctness vs direct indexing (bitwise), dtype paths, non-int64 id tolerance,
@@ -102,15 +119,19 @@ Triton sorted-segment backward and canonical logical-row ordering.
 
 ## Implementation Files
 
-- `rl_engine/kernels/ops/pytorch/linear/embedding.py`
-- `rl_engine/kernels/ops/triton/linear/embedding.py`
-- `rl_engine/kernels/ops/cuda/linear/embedding.py`
-- `rl_engine/kernels/ops/canonical_embedding.py`
-- `csrc/cuda/embedding_lm_head_sm90.cu`
-- `rl_engine/kernels/registry.py`
-- `tests/test_embedding.py`
-- `tests/test_triton_embedding.py`
-- `tests/test_canonical_embedding.py`
+- `rl_engine/reference/embedding/embedding.py`
+- `rl_engine/backends/shared/triton/embedding/embedding.py`
+- `rl_engine/backends/cuda/embedding/embedding.py`
+- `rl_engine/ops/embedding/canonical_embedding.py`
+- `csrc/cuda/embedding/embedding_lm_head_sm90.cu`
+- `rl_engine/backends/ascend/embedding/embedding.py` — Ascend deterministic op
+- `csrc/ascend/embedding_ascend.asc` — Ascend C forward kernel
+- `csrc/ascend/npu_module.cpp` — shared pybind entry for `rl_engine._C_npu`
+- `rl_engine/runtime/registry.py`
+- `tests/ops/embedding/test_embedding.py`
+- `tests/ops/embedding/test_triton_embedding.py`
+- `tests/ops/embedding/test_canonical_embedding.py`
+- `tests/backends/ascend/test_embedding_ascend.py`
 
 ## Known Limitations
 
