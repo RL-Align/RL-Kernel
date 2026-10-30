@@ -773,6 +773,8 @@ if _TRITON_AVAILABLE:
         BLOCK_K: tl.constexpr,
         PROMOTE_INPUTS: tl.constexpr,
         HAS_BIAS: tl.constexpr,
+        INDEX_64: tl.constexpr = False,
+        COMPENSATED: tl.constexpr = False,
         CHUNK_K: tl.constexpr = 0,
         EVEN_K: tl.constexpr = False,
         EVEN_N: tl.constexpr = False,
@@ -792,9 +794,19 @@ if _TRITON_AVAILABLE:
         chunk = tl.program_id(2) if CHUNK_K else 0
         start_k = chunk * CHUNK_K
         offs_k = start_k + tl.arange(0, BLOCK_K)
+        if INDEX_64:
+            # Large H3 token matrices can exceed signed 32-bit element offsets.
+            offs_m = offs_m.to(tl.int64)
+            offs_n = offs_n.to(tl.int64)
+            offs_k = offs_k.to(tl.int64)
         a_ptrs = a_ptr + (offs_m[:, None] * stride_am + offs_k[None, :] * stride_ak)
         b_ptrs = b_ptr + (offs_k[:, None] * stride_bk + offs_n[None, :] * stride_bn)
         acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
+        # Chunked callers retain their existing two-half reduction. Compensation
+        # belongs to the NVIDIA full-K FP32-output helper only.
+        tl.static_assert(not COMPENSATED or CHUNK_K == 0)
+        if COMPENSATED:
+            correction = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
         reduction_size = CHUNK_K if CHUNK_K else K
         second_half = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
         for k in range(0, tl.cdiv(reduction_size, BLOCK_K)):
@@ -813,8 +825,29 @@ if _TRITON_AVAILABLE:
                 a = a.to(tl.float32)
                 b = b.to(tl.float32)
             dot = tl.dot(a, b, allow_tf32=False)
-            # Shorten the FP32 accumulation chain inside each fixed chunk.
-            if CHUNK_K != 0 and k >= tl.cdiv(CHUNK_K, 2 * BLOCK_K):
+            if COMPENSATED:
+                # Kahan addition across K tiles. Explicit rounding keeps the
+                # compiler from reassociating away the compensation or folding
+                # the running accumulator into the dot product.
+                # adjusted = partial - correction; updated = acc + adjusted;
+                # correction = (updated - acc) - adjusted; acc = updated.
+                acc, correction = tl.inline_asm_elementwise(
+                    asm="""{
+                        .reg .f32 adjusted, updated, error;
+                        sub.rn.f32 adjusted, $3, $4;
+                        add.rn.f32 updated, $2, adjusted;
+                        sub.rn.f32 error, updated, $2;
+                        sub.rn.f32 error, error, adjusted;
+                        mov.b32 $0, updated;
+                        mov.b32 $1, error;
+                    }""",
+                    constraints="=f,=f,f,f,f",
+                    args=[acc, dot, correction],
+                    dtype=(tl.float32, tl.float32),
+                    is_pure=True,
+                    pack=1,
+                )
+            elif CHUNK_K != 0 and k >= tl.cdiv(CHUNK_K, 2 * BLOCK_K):
                 second_half += dot
             else:
                 acc += dot
@@ -954,6 +987,8 @@ def _triton_gemm_fp32(
     """
 
     a, b = a.contiguous(), b.contiguous()
+    # The kernel's column-bias load assumes a unit element stride.
+    bias = bias.contiguous() if bias is not None else None
     M, K = a.shape
     _, N = b.shape
     c = torch.empty((M, N), device=a.device, dtype=torch.float32)
@@ -976,6 +1011,10 @@ def _triton_gemm_fp32(
         BLOCK_N=_BLOCK_N,
         BLOCK_K=_BLOCK_K,
         PROMOTE_INPUTS=True,
+        # The PTX compensation is specific to the NVIDIA FP32-output path.
+        # H3 direct callers and other devices retain their arithmetic contract.
+        COMPENSATED=a.device.type == "cuda" and torch.version.hip is None,
+        num_warps=8 if a.device.type == "cuda" and torch.version.hip is None else 4,
         HAS_BIAS=bias is not None,
         EVEN_K=aligned_tiles and K % _BLOCK_K == 0,
         EVEN_N=aligned_tiles and N % _BLOCK_N == 0,

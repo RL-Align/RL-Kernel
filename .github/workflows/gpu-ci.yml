@@ -2,7 +2,7 @@ name: GPU CI
 
 on:
   pull_request_target:
-    branches: [ main, test ]
+    branches: [ main, test, test-h3 ]
     paths:
       - 'csrc/**'
       - 'rl_engine/**'
@@ -15,6 +15,7 @@ on:
       - 'MANIFEST.in'
       - 'docker/Dockerfile.cuda'
       - 'ci/scripts/run_gpu_ci.sh'
+      - 'ci/scripts/run_h3_projections.sh'
       - '.github/workflows/gpu-ci.yml'
     types: [ opened, synchronize, reopened, labeled ]
 
@@ -32,9 +33,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { gpu_id: "NVIDIA RTX A4000",      target_sm: "8.6" }   # SM86
-          - { gpu_id: "NVIDIA H100 80GB HBM3", target_sm: "9.0", force_sm90: "1" }  # SM90
+        # H3 validation has one SM90 job; other targets retain both architectures.
+        include: ${{ fromJSON(github.base_ref == 'test-h3' &&
+          '[{"gpu_id":"NVIDIA H100 80GB HBM3","target_sm":"9.0","force_sm90":"1"}]' ||
+          '[{"gpu_id":"NVIDIA RTX A4000","target_sm":"8.6"},{"gpu_id":"NVIDIA H100 80GB HBM3","target_sm":"9.0","force_sm90":"1"}]') }}
 
     steps:
       - name: Checkout secure orchestrator script from base branch
@@ -79,6 +81,7 @@ jobs:
           PR_REPO_URL: ${{ github.event.pull_request.head.repo.clone_url }}
           PR_SHA: ${{ github.event.pull_request.head.sha }}
           GPU_ID: ${{ matrix.gpu_id }}
+          FALLBACK_GPU_ID: ${{ matrix.gpu_id }}
           TARGET_SM: ${{ matrix.target_sm }}
           KERNEL_ALIGN_FORCE_SM90: ${{ matrix.force_sm90 }}
         run: bash ci/scripts/run_gpu_ci.sh

@@ -133,6 +133,8 @@ class CanonicalBackwardSession:
         rows: torch.Tensor,
         grads: torch.Tensor,
         reducer: WeightReducer,
+        *,
+        allow_empty: bool = False,
     ) -> torch.Tensor | None:
         self.backward_started = True
         entries = self.uses.get(parameter_id)
@@ -150,7 +152,7 @@ class CanonicalBackwardSession:
         order, grads = self._normalize(
             parameter_id, [item.grads for item in entries if item.grads is not None]
         )
-        if order.numel() == 0:
+        if order.numel() == 0 and not allow_empty:
             raise RuntimeError(f"no active logical rows for {parameter_id}")
         rows = self._concatenate([item.rows for item in entries if item.rows is not None])
         return reducer(rows.index_select(0, order), grads)
