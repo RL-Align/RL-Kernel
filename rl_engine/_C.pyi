@@ -565,7 +565,9 @@ def h3_gate_grad_partials(
     """Sequence parallel: FP32 ``(tiles, N)`` partials of ``sum(grad * y)`` over tiles of ``rows``.
 
     ``rows`` is an int64 list of rows of ``grad``/``y`` and ``[tile_begin, tile_end)`` cut it into
-    tiles; the lists are checked on the device before use.
+    tiles; the lists are bounds-checked on the device before use. That the tiles cover ``rows`` in
+    order, with no gap and no repeated row, is the caller's contract and is not verified (unlike
+    ``h3_gate_residual_backward``): a gap silently drops rows from ``d_gate``.
     """
     ...
 
