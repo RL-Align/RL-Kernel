@@ -1,33 +1,24 @@
-"""The sole assembler_abi.v1 entry point for validated, deterministic handoffs."""
-
-from copy import deepcopy
+"""The sole assembler_abi.v1 stub. T05 replaces this module in place."""
 
 import numpy as np
 
 from .contract import (
     CAPACITY_POLICY,
     CORE_SCHEMA,
+    ENVELOPE_FIELDS,
     ENVELOPE_SCHEMA,
-    ENVELOPE_SCHEMA_V2,
-    EPSILON,
     MODEL_FIELDS,
-    SAVED_FIELDS,
-    SAVED_ROUTE_SCHEMA,
-    SAVED_SCORE_SCHEMA,
-    SCALE,
     SEED_SCHEMA,
     SLOT_FIELDS,
     TIE_POLICY,
     E,
     K,
     P3Verdict,
-    envelope_fields,
 )
 from .oracle import require, tensor
-from .serialization import canonical, checked_structure, fingerprint, ordered_record
+from .serialization import fingerprint
 
 
-@checked_structure
 def validate_case(case):
     T = len(case.z)
     tensor(case.z, "float32", (T, E))
@@ -70,138 +61,6 @@ def validate_case(case):
     )
 
 
-def _validate_payloads(active, score_result, route_result):
-    """Shared forward/saved consistency checks for both assembly and sealing."""
-    require(
-        score_result.verdict == route_result.verdict == P3Verdict.PASS,
-        P3Verdict.INCOMPLETE_ARTIFACT,
-        "assembler requires completed forward operators",
-    )
-    T = len(active)
-    score, route = score_result.payload, route_result.payload
-    tensor(score["s"], "float32", (T, E))
-    tensor(route["ids"], "int32", (T, K))
-    tensor(route["weights"], "float32", (T, K))
-    require(
-        active.any(), P3Verdict.ZERO_ACTIVE_TOKENS, "zero-active handoff has no plan or saved state"
-    )
-    for version, payload in (
-        (SAVED_SCORE_SCHEMA, score["saved_score"]),
-        (SAVED_ROUTE_SCHEMA, route["saved_route"]),
-    ):
-        require(
-            set(payload) == set(SAVED_FIELDS[version]), P3Verdict.SCHEMA_MISMATCH, "saved fields"
-        )
-        for name, value in payload.items():
-            shape = (T, E) if version == SAVED_SCORE_SCHEMA else (T, 1 if name == "Z" else K)
-            tensor(value, "int32" if name == "ids" else "float32", shape)
-            require(
-                np.isfinite(value[active]).all(), P3Verdict.NON_FINITE, "active saved nonfinite"
-            )
-    ids = route["ids"][active]
-    require(
-        ((ids >= 0) & (ids < E)).all(), P3Verdict.INVALID_DISCRETE_PLAN, "invalid logical expert"
-    )
-    for actual, expected in (
-        (score["saved_score"]["s"][active], score["s"][active]),
-        (route["saved_route"]["ids"][active], ids),
-        (route["saved_route"]["a"][active], np.take_along_axis(score["s"][active], ids, axis=1)),
-    ):
-        require(
-            canonical(actual) == canonical(expected),
-            P3Verdict.IDENTITY_DRIFT,
-            "saved/forward drift",
-        )
-    from . import bitmath
-
-    saved = route["saved_route"]
-    require(
-        (saved["Z"][active] > 0).all(), P3Verdict.NON_FINITE, "invalid normalization denominator"
-    )
-    for actual, expected in (
-        (saved["Z"][active], bitmath.sum6(saved["a"][active])[:, None] + EPSILON),
-        (saved["p"][active], saved["a"][active] / saved["Z"][active]),
-        (route["weights"][active], saved["p"][active] * SCALE),
-    ):
-        require(
-            canonical(actual) == canonical(expected),
-            P3Verdict.IDENTITY_DRIFT,
-            "normalization drift",
-        )
-    require(
-        np.isfinite(score["s"][active]).all() and np.isfinite(route["weights"][active]).all(),
-        P3Verdict.NON_FINITE,
-        "nonfinite active handoff",
-    )
-    return score, route, ids
-
-
-@checked_structure
-def validate_forward(case, score_result, route_result):
-    """Validate handoff consistency without rerunning score or Top-K kernels."""
-    from . import bitmath
-    from .checker import check_actual_provenance
-    from .contract import ROUND_POLICIES
-
-    validate_case(case)
-    active = case.row_active
-    score, route, ids = _validate_payloads(active, score_result, route_result)
-    require(
-        case.round_policy in ROUND_POLICIES, P3Verdict.LOGIT_ROUND_POINT_MISMATCH, "round policy"
-    )
-    for result in (score_result, route_result):
-        check_actual_provenance(result.provenance)
-        require(
-            result.provenance.get("round_policy", case.round_policy)
-            in (case.round_policy, "operator-input-or-sealed-forward"),
-            P3Verdict.LOGIT_ROUND_POINT_MISMATCH,
-            "forward round policy drift",
-        )
-    require(
-        score_result.provenance["backend_profile"] == route_result.provenance["backend_profile"],
-        P3Verdict.INVALID_PROFILE,
-        "score and route execution profiles differ",
-    )
-    expected_z = case.z[active]
-    if case.round_policy == "bf16_round_then_widen":
-        expected_z = bitmath.apply(expected_z, "bf16")
-    require(
-        canonical(score["saved_score"]["z_prime"][active]) == canonical(expected_z),
-        P3Verdict.IDENTITY_DRIFT,
-        "score saved logits differ from case and round policy",
-    )
-    if case.router_mode == "hash":
-        tokens = case.input_token_id[active]
-        require(
-            (tokens < len(case.table)).all(), P3Verdict.HASH_TABLE_INDEX_OUT_OF_RANGE, "table index"
-        )
-        require(
-            np.array_equal(ids, case.table[tokens]),
-            P3Verdict.TOPK_ORDER_MISMATCH,
-            "Hash must preserve table slots",
-        )
-    else:
-        require(np.isfinite(case.bias).all(), P3Verdict.NON_FINITE, "nonfinite bias")
-        if "q" in route:
-            tensor(route["q"], "float32", score["s"].shape)
-            require(
-                canonical(route["q"][active]) == canonical(score["s"][active] + case.bias),
-                P3Verdict.IDENTITY_DRIFT,
-                "selection buffer differs from post-bias scores",
-            )
-        selection = np.take_along_axis(score["s"][active], ids, axis=1) + case.bias[ids]
-        require(np.isfinite(selection).all(), P3Verdict.NON_FINITE, "nonfinite selection")
-        require(
-            all(len(set(row.tolist())) == K for row in ids)
-            and np.all(
-                (selection[:, :-1] > selection[:, 1:])
-                | ((selection[:, :-1] == selection[:, 1:]) & (ids[:, :-1] < ids[:, 1:]))
-            ),
-            P3Verdict.TOPK_ORDER_MISMATCH,
-            "Learned slots must retain deterministic selection order",
-        )
-
-
 def token_fingerprint(rows):
     first = rows[0]
     model = {k: first[k] for k in MODEL_FIELDS}
@@ -210,18 +69,6 @@ def token_fingerprint(rows):
     return fingerprint([model, [{k: row[k] for k in SLOT_FIELDS} for row in rows]])
 
 
-def artifact_fingerprint(case_id, rows, envelopes):
-    """Schema-ordered artifact identity; runtime stream handles are archive-only."""
-    body = []
-    for env in envelopes:
-        record = {k: env[k] for k in envelope_fields(env["envelope_schema_version"])}
-        if isinstance(record["stream"], (int, np.integer)):
-            record["stream"] = "archive-only.runtime-stream"
-        body.append(record)
-    return fingerprint({"case_id": case_id, "core": rows, "envelope": body})
-
-
-@checked_structure
 def assemble(
     case,
     score_result,
@@ -233,53 +80,41 @@ def assemble(
     rank=0,
     placement=None,
     placement_version="identity.v1",
-    envelope_version=ENVELOPE_SCHEMA,
-    runtime=None,
 ):
     """Receive case + PASS operator payloads; never compute routing in the assembler."""
-    validate_forward(case, score_result, route_result)
-    fields = envelope_fields(envelope_version)
-    runtime = deepcopy(runtime)
-    if envelope_version == ENVELOPE_SCHEMA_V2:
-        require(
-            isinstance(runtime, dict)
-            and set(runtime) == {"group", "topology", "token_ownership", "expected_token_set"},
-            P3Verdict.SCHEMA_MISMATCH,
-            "Envelope v2 requires explicit ownership and topology",
-        )
-        from .mocks import OWNERSHIP, validate_ownership_metadata
-
-        validate_ownership_metadata(runtime["token_ownership"], runtime["expected_token_set"])
-        runtime["token_ownership"] = {k: runtime["token_ownership"][k] for k in OWNERSHIP}
-        runtime["expected_token_set"] = sorted(runtime["expected_token_set"])
-    else:
-        require(runtime is None, P3Verdict.SCHEMA_MISMATCH, "runtime metadata requires Envelope v2")
-    runtime_envelope = (
-        None
-        if runtime is None
-        else {
-            **{k: v for k, v in runtime.items() if k != "expected_token_set"},
-            "expected_token_set_fingerprint": fingerprint(runtime["expected_token_set"]),
-        }
+    validate_case(case)
+    require(
+        score_result.verdict == route_result.verdict == P3Verdict.PASS,
+        P3Verdict.INCOMPLETE_ARTIFACT,
+        "assembler requires completed forward operators",
     )
     placement = list(range(E)) if placement is None else list(placement)
     require(
-        len(placement) == E
-        and all(type(e) is int for e in placement)
-        and sorted(placement) == list(range(E)),
+        len(placement) == E and sorted(placement) == list(range(E)),
         P3Verdict.INVALID_PLACEMENT_MAP,
         "placement must be a versioned bijection",
     )
     require(
-        isinstance(placement_version, str) and bool(placement_version),
+        bool(placement_version),
         P3Verdict.PLACEMENT_MAP_VERSION_MISMATCH,
         "placement version required",
     )
     s = score_result.payload["s"]
     ids, weights = route_result.payload["ids"], route_result.payload["weights"]
+    tensor(s, "float32", (len(case.z), E))
+    tensor(ids, "int32", (len(case.z), K))
+    tensor(weights, "float32", (len(case.z), K))
     active = case.row_active
-    provenance = route_result.provenance
-    recorded = provenance["actual_backend"] == "recorded-cpu"
+    require(
+        ((ids[active] >= 0) & (ids[active] < E)).all(),
+        P3Verdict.INVALID_DISCRETE_PLAN,
+        "invalid logical expert",
+    )
+    require(
+        np.isfinite(s[active]).all() and np.isfinite(weights[active]).all(),
+        P3Verdict.NON_FINITE,
+        "nonfinite active handoff",
+    )
     table_hash = fingerprint(case.table) if case.router_mode == "hash" else "00" * 32
     bias_hash = fingerprint(case.bias) if case.router_mode == "learned" else "00" * 32
     rows, envelopes, per_token = [], [], {}
@@ -326,7 +161,7 @@ def assemble(
             }
             token_rows.append(record)
             envelope = {
-                "envelope_schema_version": envelope_version,
+                "envelope_schema_version": ENVELOPE_SCHEMA,
                 "run_id": run_id,
                 "engine_id": engine_id,
                 "attempt_id": attempt_id,
@@ -337,32 +172,22 @@ def assemble(
                 "group": "local",
                 "topology": "synthetic.single_rank.v1",
                 "backend_profile": route_result.provenance.get("backend_profile", ""),
-                "kernel": provenance["kernel"],
-                "build": (
-                    "p3-start-kit.v1"
-                    if recorded
-                    else fingerprint([provenance["source_fingerprint"], provenance["build_flags"]])
-                ),
-                "device": provenance["device"],
-                "stream": provenance["stream"],
-                "event": "handoff" if recorded else provenance["event"],
+                "kernel": "recorded-cpu.oracle.v1",
+                "build": "p3-start-kit.v1",
+                "device": "cpu",
+                "stream": "synchronous",
+                "event": "handoff",
             }
-            if runtime_envelope is not None:
-                envelope.update(deepcopy(runtime_envelope))
-            envelopes.append({k: envelope[k] for k in fields})
+            envelopes.append({k: envelope[k] for k in ENVELOPE_FIELDS})
         semantic = token_fingerprint(token_rows) if valid else "00" * 32
         if valid:
             per_token[str(case.global_token_id[row])] = semantic
-        rows.extend(
-            ordered_record(CORE_SCHEMA, {**r, "route_semantic_fingerprint": semantic})
-            for r in token_rows
-        )
+        rows.extend({**r, "route_semantic_fingerprint": semantic} for r in token_rows)
     per_token = dict(sorted(per_token.items(), key=lambda item: int(item[0])))
     semantic_case = fingerprint([(int(k), v) for k, v in per_token.items()])
-    artifact_hash = artifact_fingerprint(case.case_id, rows, envelopes)
+    artifact_hash = fingerprint({"case_id": case.case_id, "core": rows, "envelope": envelopes})
     for env in envelopes:
         env["route_artifact_fingerprint"] = artifact_hash
-        ordered_record(envelope_version, env)
     plan = {
         "core": rows,
         "envelope": envelopes,
