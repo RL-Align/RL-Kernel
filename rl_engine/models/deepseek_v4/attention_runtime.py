@@ -3,6 +3,7 @@
 
 from collections import defaultdict
 from dataclasses import dataclass
+import hashlib
 from threading import RLock
 
 import torch
@@ -13,6 +14,12 @@ from rl_engine.models.deepseek_v4.joint_attention import JointAttentionPlan, Joi
 
 def _same_bytes(left, right):
     return torch.equal(left.contiguous().view(torch.uint8), right.contiguous().view(torch.uint8))
+
+
+def _fingerprint(tensor):
+    value = tensor.detach().contiguous().cpu()
+    raw = value.view(torch.uint8).numpy().tobytes()
+    return (tuple(value.shape), str(value.dtype), hashlib.sha256(raw).digest())
 
 
 @dataclass(frozen=True)
@@ -106,14 +113,14 @@ class AttentionRuntime:
                 for row, key in rows:
                     prior = self._training[key]
                     require(
-                        torch.equal(prior[2], metadata.kv_keys)
-                        and torch.equal(prior[3], metadata.indices[row]),
+                        prior[2] == _fingerprint(metadata.kv_keys)
+                        and prior[3] == _fingerprint(metadata.indices[row]),
                         f"recompute KV identity/selection mismatch at logical token {key}",
                     )
                     require(
-                        _same_bytes(prior[4], q[row])
-                        and _same_bytes(prior[5], canonical_kv)
-                        and _same_bytes(prior[6], sink),
+                        prior[4] == _fingerprint(q[row])
+                        and prior[5] == _fingerprint(canonical_kv)
+                        and prior[6] == _fingerprint(sink),
                         f"recompute Q/KV/sink input mismatch at logical token {key}",
                     )
             needs_grad = torch.is_grad_enabled() and any(
@@ -150,25 +157,23 @@ class AttentionRuntime:
                 )
                 output, lse = saved.output, saved.lse
             if mode == "train":
-                canonical_kv = kv.index_select(0, metadata.permutation).detach().clone()
-                saved_sink = sink.detach().clone()
-                saved_keys = metadata.kv_keys.clone()
+                canonical_kv = kv.index_select(0, metadata.permutation)
                 for row, key in rows:
                     self._training[key] = (
-                        output[row].detach().clone(),
-                        lse[row].detach().clone(),
-                        saved_keys,
-                        metadata.indices[row].clone(),
-                        q[row].detach().clone(),
-                        canonical_kv,
-                        saved_sink,
+                        _fingerprint(output[row]),
+                        _fingerprint(lse[row]),
+                        _fingerprint(metadata.kv_keys),
+                        _fingerprint(metadata.indices[row]),
+                        _fingerprint(q[row]),
+                        _fingerprint(canonical_kv),
+                        _fingerprint(sink),
                     )
             elif mode == "recompute":
                 for row, key in rows:
                     expected_o, expected_lse = self._training[key][:2]
                     require(
-                        _same_bytes(expected_o, output[row].detach())
-                        and _same_bytes(expected_lse, lse[row].detach()),
+                        expected_o == _fingerprint(output[row])
+                        and expected_lse == _fingerprint(lse[row]),
                         f"train/recompute byte mismatch at logical token {key}",
                     )
                 for key in keys:
