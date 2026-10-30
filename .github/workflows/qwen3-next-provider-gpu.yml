@@ -59,11 +59,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Report required trusted execution
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           echo "Fork code does not run on the self-hosted Qwen3-Next provider runner."
           echo "A maintainer must dispatch this workflow from a trusted upstream branch."
-          echo "source_repository=${{ github.event.pull_request.head.repo.full_name }}"
-          echo "source_sha=${{ github.event.pull_request.head.sha }}"
+          printf 'source_repository=%s\n' "$HEAD_REPO"
+          printf 'source_sha=%s\n' "$HEAD_SHA"
 
   provider:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository

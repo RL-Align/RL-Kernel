@@ -58,16 +58,23 @@ SOFTPLUS_THRESHOLD = 20.0
 _REDUCTION_CHUNK = 32
 
 
-def _validate_state_indices(indices, batch, blocks, device):
-    """Each active row owns one cache block; inactive sentinels may repeat."""
+def _validate_state_indices(indices, batch, blocks, device, *, skip_negative=True):
+    """Each active row owns one cache block; inactive sentinels may repeat.
+
+    ``skip_negative=True`` is the recurrent provider's rule: every index ``<= 0`` is
+    skipped. ``False`` is vLLM's conv rule: only ``NULL_BLOCK_ID`` is skipped, so a
+    negative index is an active row here and fails the range check.
+    """
     if indices.ndim != 1 or indices.shape[0] != batch:
         raise ValueError("state indices must be 1-D with one entry per sequence")
     if indices.dtype not in (torch.int32, torch.int64):
         raise ValueError("state indices must have int32 or int64 dtype")
     if indices.device != device:
         raise ValueError("state indices must be on the input device")
-    active = indices[indices > NULL_BLOCK_ID]
-    if bool((active >= blocks).any()):
+    active = (
+        indices[indices > NULL_BLOCK_ID] if skip_negative else indices[indices != NULL_BLOCK_ID]
+    )
+    if bool((active < 0).any()) or bool((active >= blocks).any()):
         raise ValueError("active state index is out of range")
     if active.unique().numel() != active.numel():
         raise ValueError("active state indices must be unique")
@@ -85,8 +92,10 @@ def _chunked_sum(x: torch.Tensor) -> torch.Tensor:
     tail = x.shape[-1]
     if tail % _REDUCTION_CHUNK != 0:
         # Zero-pad to the next chunk boundary instead of falling back to an
-        # unpinned ``sum``: exact zeros add nothing, so the result is the same
-        # fixed chunk order for every width.
+        # unpinned ``sum`` over the whole axis: exact zeros add nothing, so the chunk
+        # boundaries are the same for every width. The order inside one 32-wide chunk
+        # is that of ``sum`` over a length-32 axis; batch invariance of the whole
+        # contraction is checked bitwise at K = V = 128 (``test_golden_is_batch_invariant``).
         x = torch.nn.functional.pad(x, (0, _REDUCTION_CHUNK - tail % _REDUCTION_CHUNK))
         tail = x.shape[-1]
     return (
