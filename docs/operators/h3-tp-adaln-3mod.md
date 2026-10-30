@@ -28,10 +28,11 @@ op.readback()  # tp, rank, owned columns/slots, collective backend, kernel ids, 
 Rank `r` of `tp` owns the contiguous output columns `[r * N / tp, (r + 1) * N / tp)` of the
 `N = 3 x 6 x 5376` table, which are the same rows of `adaln_proj.linear.weight` and `bias`.
 `N / tp` must be a multiple of 64, the `d_input` chunk of contract `h3-det-linear-v1`, so a shard
-never splits a WS1 partial sum. TP 1, 2, 3, 4, 6, 7 and 8 pass this alignment check and anything
-else fails closed when the op is built. Only 1, 2, 4 and 8 can run: `DeterministicCollective`
-supports exactly those world sizes and rejects a 3-, 6- or 7-way group when it is constructed, so
-those sizes are covered by the ownership tests only.
+never splits a WS1 partial sum. Any TP size that divides `N / 64 = 1512` passes this alignment
+check (for example 1, 2, 3, 4, 6, 7, 8, 9, 12 and 14) and any other size fails closed when the op
+is built. Only TP 1, 2, 4 and 8 can run: `DeterministicCollective` supports exactly those world
+sizes and rejects any other group when it is constructed, so the other aligned sizes are covered by
+the ownership tests only.
 
 | TP | Columns per rank | Rank 0 owns |
 | --- | --- | --- |
