@@ -54,10 +54,18 @@ The implementation uses the Hugging Face rotate-half convention, pairing dimensi
 
 ```python
 half = x.shape[-1] // 2
-inv_freq = 1.0 / (theta ** (torch.arange(0, half, dtype=torch.float32) / half))
-freqs = positions.float()[..., None] * inv_freq
+inv_freq = 1.0 / (
+    theta ** (torch.arange(0, half, dtype=torch.float32, device=x.device) / half)
+)
+freqs = positions.to(device=x.device, dtype=torch.float32)[..., None] * inv_freq
 cos = torch.cat([freqs.cos(), freqs.cos()], dim=-1)
 sin = torch.cat([freqs.sin(), freqs.sin()], dim=-1)
+
+# Broadcast over heads for x shaped [B, H, S, D].
+if positions.ndim == 1:
+    cos, sin = cos[None, None, :, :], sin[None, None, :, :]
+else:
+    cos, sin = cos[:, None, :, :], sin[:, None, :, :]
 
 a, b = x.float()[..., :half], x.float()[..., half:]
 rotated = torch.cat([-b, a], dim=-1)
