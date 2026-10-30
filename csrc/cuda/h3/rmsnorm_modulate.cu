@@ -512,8 +512,8 @@ std::vector<torch::Tensor> h3_rmsnorm_backward_partials(
   check_rows(grad, "grad", x);
   TORCH_CHECK(grad.sizes() == x.sizes(), "grad must match x");
   TORCH_CHECK(rstd.is_cuda() && rstd.device() == x.device() && rstd.scalar_type() == at::kFloat &&
-                  rstd.numel() == x.size(0),
-              "rstd must be the forward's float32 (M,) statistics on x's device");
+                  rstd.dim() == 1 && rstd.is_contiguous() && rstd.size(0) == x.size(0),
+              "rstd must be contiguous float32 (M,) statistics on x's device");
   check_tiles(dw_rows, dw_begin, dw_end, x);
   const int64_t rows = x.size(0);
   const int64_t n = x.size(1);
@@ -524,7 +524,11 @@ std::vector<torch::Tensor> h3_rmsnorm_backward_partials(
   const int threads = 256;
   const unsigned col_blocks = static_cast<unsigned>((n + threads - 1) / threads);
   const int64_t tiles = dw_begin.numel();
-  TORCH_CHECK(2 * n <= std::numeric_limits<int>::max() && (2 * n + threads - 1) / threads <= 65535,
+  // Only the segment kernels of a modulated call launch over 2N columns (shift and scale partials
+  // side by side); a plain call launches the dweight kernel over N, so it gets the N bound.
+  const int64_t grid_columns = mod.index != nullptr ? 2 * n : n;
+  TORCH_CHECK(grid_columns <= std::numeric_limits<int>::max() &&
+                  (grid_columns + threads - 1) / threads <= 65535,
               "N=", n, " is too large for the kernels (int indices, grid.y limit of 65535)");
   auto dw_partial = torch::empty({tiles, n}, x.options().dtype(at::kFloat));
   // The row and tile lists are caller-built: every row must be a row of x and every tile must lie
@@ -633,8 +637,8 @@ torch::Tensor h3_rmsnorm_backward_dx(torch::Tensor grad, torch::Tensor x, torch:
   check_rows(grad, "grad", x);
   TORCH_CHECK(grad.sizes() == x.sizes(), "grad must match x");
   TORCH_CHECK(rstd.is_cuda() && rstd.device() == x.device() && rstd.scalar_type() == at::kFloat &&
-                  rstd.numel() == x.size(0),
-              "rstd must be the forward's float32 (M,) statistics on x's device");
+                  rstd.dim() == 1 && rstd.is_contiguous() && rstd.size(0) == x.size(0),
+              "rstd must be contiguous float32 (M,) statistics on x's device");
   const Modulation mod = make_modulation(shift, scale, index, x, x.size(1));
   const c10::cuda::CUDAGuard guard(x.device());
   auto dx = torch::empty_like(x);

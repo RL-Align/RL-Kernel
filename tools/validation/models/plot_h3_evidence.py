@@ -718,38 +718,73 @@ def plot_sp_norm(report: dict[str, Any]):
     sp_runs = [run for run in runs if run["sp"] > 1]
     ax = axes[1]
     _style(ax, f"Region fwd+bwd, S = {big['seq']}, block layout", "ms (slowest rank)")
-    _bars(
-        ax,
-        [f"SP{run['sp']}" for run in sp_runs],
-        [("SP", RL_KERNEL, [worst(run, "sp_forward_backward_us") for run in sp_runs])],
-        "{:.2f}",
-    )
-    ws1 = worst(runs[0], "ws1_forward_backward_us")
-    ax.axhline(
-        ws1, color=PROVIDER, linestyle="--", linewidth=1.4, zorder=1, label=f"WS1, 1 GPU: {ws1:.2f}"
-    )
-    ax.set_ylim(0, ws1 * 1.35)
-    ax.legend(frameon=False, fontsize=8, labelcolor=INK, loc="upper right")
+    if not sp_runs:
+        ax.text(
+            0.5,
+            0.5,
+            "no run with SP > 1 in this report",
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            fontsize=10,
+            color=MUTED,
+        )
+    else:
+        _bars(
+            ax,
+            [f"SP{run['sp']}" for run in sp_runs],
+            [("SP", RL_KERNEL, [worst(run, "sp_forward_backward_us") for run in sp_runs])],
+            "{:.2f}",
+        )
+        ws1 = worst(runs[0], "ws1_forward_backward_us")
+        ax.axhline(
+            ws1,
+            color=PROVIDER,
+            linestyle="--",
+            linewidth=1.4,
+            zorder=1,
+            label=f"WS1, 1 GPU: {ws1:.2f}",
+        )
+        # headroom above the slower of WS1 and the slowest SP bar: a run slower than WS1 must not
+        # be clipped, it is the thing this panel exists to show
+        slowest_sp = max(worst(run, "sp_forward_backward_us") for run in sp_runs)
+        ax.set_ylim(0, max(ws1, slowest_sp) * 1.35)
+        ax.legend(frameon=False, fontsize=8, labelcolor=INK, loc="upper right")
 
     # Right: what a naive SP reduction would do instead.
     naive = report["naive_sp"]
     ax = axes[2]
     _style(ax, f"Naive SP{naive['sp']} vs WS1 (S = 32768)", "% of elements that differ")
-    _bars(
-        ax,
-        ["d_norm_w", "d_table"],
-        [
-            ("naive, block", PROVIDER, [100 * naive["block"][k] for k in ("d_weight", "d_table")]),
-            (
-                "naive, interleaved",
-                PROVIDER,
-                [100 * naive["interleaved"][k] for k in ("d_weight", "d_table")],
-                "////",
-            ),
-            ("RL-Kernel SP", RL_KERNEL, [0.0, 0.0]),
-        ],
-        "{:.1f}",
-    )
+    # The RL-Kernel bars are 0 only if every recorded SP-vs-WS1 check of these two gradients was
+    # byte-equal (the left panel's flags); otherwise they are left out and the failure is stated.
+    unequal = [
+        label
+        for key, label in (("d_weight", "d_norm_w"), ("d_table", "d_table"))
+        if not all(c["equal"][key] for run in runs for r in run["ranks"] for c in r["cases"])
+    ]
+    series = [
+        ("naive, block", PROVIDER, [100 * naive["block"][k] for k in ("d_weight", "d_table")]),
+        (
+            "naive, interleaved",
+            PROVIDER,
+            [100 * naive["interleaved"][k] for k in ("d_weight", "d_table")],
+            "////",
+        ),
+    ]
+    if not unequal:
+        series.append(("RL-Kernel SP", RL_KERNEL, [0.0, 0.0]))
+    _bars(ax, ["d_norm_w", "d_table"], series, "{:.1f}")
+    if unequal:
+        ax.text(
+            0.5,
+            0.5,
+            f"RL-Kernel SP differs from WS1 in {', '.join(unequal)}\n(see the equality panel)",
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            fontsize=9,
+            color=PROVIDER,
+        )
     ax.text(
         0.98,
         0.62,
