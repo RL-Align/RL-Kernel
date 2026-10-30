@@ -3,6 +3,7 @@
 
 import importlib.util
 import os
+import shlex
 import sysconfig
 import warnings
 from distutils.errors import CompileError
@@ -13,6 +14,84 @@ from setuptools import Extension
 from setuptools.command.build_py import build_py as _BuildPy
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+_EXTERNAL_NVCC_FLAG_VARS = (
+    "NVCC_PREPEND_FLAGS",
+    "NVCC_APPEND_FLAGS",
+    "TORCH_NVCC_FLAGS",
+)
+_RELAXED_MATH_VALUE_FLAGS = {
+    "ftz": {"true", "1"},
+    "prec-div": {"false", "0"},
+    "prec-sqrt": {"false", "0"},
+}
+_EXACT_MATH_VALUES = {
+    "ftz": "false",
+    "prec-div": "true",
+    "prec-sqrt": "true",
+}
+_NVCC_OPTIONS_FILE_FLAGS = {"optf", "options-file"}
+
+
+def _nvcc_flag_tokens(text: str) -> list[str]:
+    """Split external flags using whitespace and TORCH_NVCC_FLAGS separators."""
+
+    lexer = shlex.shlex(text, posix=True)
+    lexer.whitespace_split = True
+    lexer.whitespace += ";"
+    lexer.commenters = ""
+    words = list(lexer)
+    tokens: list[str] = []
+    for word in words:
+        tokens.append(word)
+        pieces = word.replace(";", " ").split()
+        if len(pieces) > 1:
+            tokens.extend(pieces)
+    return tokens
+
+
+def _tokens_relax_math(tokens: list[str]) -> str | None:
+    """Return the first token that relaxes FP32 math or cannot be verified."""
+
+    for index, flag in enumerate(tokens):
+        if flag.startswith("@"):
+            return f"{flag} (options file cannot be checked)"
+        if not flag.startswith("-"):
+            continue
+        name, has_value, value = flag.lstrip("-").partition("=")
+        if name in _NVCC_OPTIONS_FILE_FLAGS:
+            return f"{flag} (options file cannot be checked)"
+        if name == "use_fast_math":
+            return flag
+        relaxed_values = _RELAXED_MATH_VALUE_FLAGS.get(name)
+        if relaxed_values is None:
+            continue
+        spelled = flag
+        if not has_value:
+            value = tokens[index + 1] if index + 1 < len(tokens) else ""
+            if not value or value.startswith("-"):
+                return f"{flag} without a value"
+            spelled = f"{flag} {value}"
+        normalized = value.lower()
+        if normalized in relaxed_values:
+            return spelled
+        if normalized != _EXACT_MATH_VALUES[name]:
+            return f"{spelled} with an unsupported value"
+    return None
+
+
+def _relaxed_math_reason() -> str | None:
+    """Describe external NVCC math flags; fail closed when they cannot be checked."""
+
+    for name in _EXTERNAL_NVCC_FLAG_VARS:
+        try:
+            tokens = _nvcc_flag_tokens(os.environ.get(name, ""))
+        except ValueError as exc:
+            return f"{name} cannot be parsed ({exc})"
+        relaxed = _tokens_relax_math(tokens)
+        if relaxed is not None:
+            return f"{name} contains {relaxed}"
+    return None
 
 
 def _resolve_package_data_source(
@@ -214,6 +293,18 @@ def get_extensions():
         )
 
     if is_rocm or torch.cuda.is_available():
+        use_fast_math = envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH)
+        relaxed_reason = None if is_rocm else _relaxed_math_reason()
+        relaxed_math_env = relaxed_reason is not None
+        if relaxed_math_env:
+            warnings.warn(
+                f"External NVCC flags relax FP32 math or cannot be checked "
+                f"({relaxed_reason}); the joint-attention softmax CUDA "
+                "bit reference is left out of this build and dispatch falls back to "
+                "another backend.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
         cuda_sources = [
             "csrc/bindings/ops.cpp",
             "csrc/cuda/logprob/fused_logp_kernel.cu",
@@ -223,6 +314,7 @@ def get_extensions():
             "csrc/cuda/activation/activation.cu",
             "csrc/cuda/attention/deterministic_attention.cu",
         ]
+        joint_attn_softmax_enabled = False
         if is_rocm:
             # ROCm-tuned WS2 vocab-parallel logprob kernels; the shared
             # deterministic_logp_kernel.cu keeps the SM90-tuned CUDA path.
@@ -236,12 +328,18 @@ def get_extensions():
             # CUDA IPC and the fixed-tree collective implementation are not
             # part of the ROCm extension.
             cuda_sources.append("csrc/cuda/collectives/deterministic_collective.cu")
+            # The issue #386 CUDA bit reference must never inherit fast-math.
+            # When fast-math is requested for other kernels, leave these
+            # symbols out so registry fallback remains explicit and truthful.
+            joint_attn_softmax_enabled = not use_fast_math and not relaxed_math_env
+            if joint_attn_softmax_enabled:
+                cuda_sources.append("csrc/cuda/attention/joint_attn_softmax.cu")
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
             cuda_sources.append("csrc/cuda/attention/prefix_shared_attention.cu")
 
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
-        if envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH):
+        if use_fast_math:
             nvcc_flags.append("--use_fast_math")
         if not is_rocm:
             cc_major, cc_minor = torch.cuda.get_device_capability()
@@ -324,6 +422,8 @@ def get_extensions():
 
         platform_define = "-DKERNEL_ALIGN_WITH_ROCM" if is_rocm else "-DKERNEL_ALIGN_WITH_CUDA"
         cxx_flags = ["-O3", "-std=c++17", platform_define]
+        if joint_attn_softmax_enabled:
+            cxx_flags.append("-DKERNEL_ALIGN_WITH_JOINT_ATTN_SOFTMAX")
         extra_link_args = list(torch_rpath)
         if os.name != "nt" and not is_rocm:
             # CUDA IPC metadata queries use the driver API (cuPointerGetAttribute).

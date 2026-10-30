@@ -7,7 +7,7 @@ on:
   push:
     branches: [ main, test ]
   pull_request:
-    branches: [ main, test ]
+    branches: [ main, test, test-qwenimage ]
 
 permissions:
   contents: read
@@ -84,6 +84,13 @@ jobs:
             tests/runtime/test_stateless_executor.py \
             tests/contracts/test_tolerance_contract.py \
             tests/runtime/test_kernel_registry.py
+
+      - name: Run Joint Attention Softmax CPU Contract Tests
+        run: |
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \
+            tests/reference/test_joint_attn_softmax.py \
+            tests/runtime/test_joint_attn_softmax_registry.py \
+            tests/build/test_build_platform_collectives.py
 
       - name: Run Attention Ground-Truth Tests (CPU-safe)
         run: |
