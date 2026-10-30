@@ -128,16 +128,16 @@ def test_tp_figure_for_reports_with_and_without_tp_above_one(worlds):
     plt.close(fig)
 
 
-def _sp_report(worlds: list[int]) -> dict:
+def _sp_report(worlds: list[int], *, sp_us: float = 2000.0, unequal: tuple[str, ...] = ()) -> dict:
     from plot_h3_evidence import SP_TENSORS
 
     case = {
         "layout": "block",
         "seq": 64,
         "batch": 1,
-        "sp_forward_backward_us": 2000.0,
+        "sp_forward_backward_us": sp_us,
         "ws1_forward_backward_us": 1900.0,
-        "equal": dict.fromkeys((key for key, _ in SP_TENSORS), True),
+        "equal": {key: key not in unequal for key, _ in SP_TENSORS},
     }
     naive = {"d_weight": 0.5, "d_table": 0.5}
     return {
@@ -158,4 +158,31 @@ def test_sp_figure_for_reports_with_and_without_sp_above_one(worlds):
     fig = plot_sp_norm(_sp_report(worlds))
     texts = [t.get_text() for ax in fig.axes for t in ax.texts]
     assert ("no run with SP > 1 in this report" in texts) == (worlds == [1])
+    plt.close(fig)
+
+
+def test_sp_timing_axis_keeps_a_run_slower_than_ws1_in_view():
+    import matplotlib.pyplot as plt
+    from plot_h3_evidence import plot_sp_norm
+
+    slow_us = 9000.0  # 4.7x the 1.9 ms WS1 time: past the old 1.35x ceiling
+    fig = plot_sp_norm(_sp_report([1, 2], sp_us=slow_us))
+    assert fig.axes[1].get_ylim()[1] >= slow_us / 1e3
+    plt.close(fig)
+
+
+@pytest.mark.parametrize("unequal", [(), ("d_weight",), ("d_weight", "d_table")])
+def test_sp_naive_panel_follows_the_recorded_equality_flags(unequal):
+    import matplotlib.pyplot as plt
+    from plot_h3_evidence import plot_sp_norm
+
+    fig = plot_sp_norm(_sp_report([1, 2], unequal=unequal))
+    right = fig.axes[2]
+    legend = [t.get_text() for t in right.get_legend().get_texts()]
+    notes = [t.get_text() for t in right.texts if "differs from WS1" in t.get_text()]
+    assert ("RL-Kernel SP" in legend) == (not unequal)
+    assert bool(notes) == bool(unequal)
+    if unequal:
+        labels = {"d_weight": "d_norm_w", "d_table": "d_table"}
+        assert all(labels[k] in notes[0] for k in unequal)
     plt.close(fig)
