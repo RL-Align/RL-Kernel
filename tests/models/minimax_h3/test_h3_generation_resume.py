@@ -191,6 +191,22 @@ def test_leftover_temporary_files_are_ignored(tmp_path):
     assert run.saved == 3
 
 
+def test_saved_steps_without_a_run_file_are_not_adopted(tmp_path):
+    """``run.json`` carries the identity; without it the steps' origin is unknown."""
+
+    with pytest.raises(KeyboardInterrupt):
+        denoise(tmp_path / "a", resume=False, stop_after=3)
+    (tmp_path / "a" / "run.json").unlink()
+    with pytest.raises(ResumeError, match="no run.json"):
+        ResumableRun(StepStore(tmp_path / "a"), IDENTITY, resume=True)
+    assert not (tmp_path / "a" / "run.json").exists()  # nothing was written for the refused run
+
+
+def test_an_empty_existing_directory_can_be_resumed(tmp_path):
+    (tmp_path / "a").mkdir()
+    assert ResumableRun(StepStore(tmp_path / "a"), IDENTITY, resume=True).saved == 0
+
+
 def test_a_run_without_initial_inputs_is_not_resumable(tmp_path):
     with pytest.raises(KeyboardInterrupt):
         denoise(tmp_path / "a", resume=False, stop_after=3)

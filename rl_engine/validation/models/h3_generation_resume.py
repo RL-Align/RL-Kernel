@@ -144,6 +144,14 @@ class StepStore:
             if stored["identity"] != identity:
                 raise ResumeError("saved run has a different identity; refusing to continue it")
         else:
+            # ``run.json`` is written before any step, so saved steps without it mean it was
+            # removed: their identity is unknown and they must not be adopted by this one.
+            orphans = sorted(path.name for path in self.directory.glob("step-*"))
+            if orphans:
+                raise ResumeError(
+                    f"{self.directory} holds saved steps ({orphans[0]}, ...) but no {RUN_FILE}; "
+                    "their identity is unknown, refusing to continue them"
+                )
             stored = {"identity": identity, "attempts": []}
         saved = self._complete_steps()
         stored["attempts"].append({"started": now, "saved_steps": saved})
