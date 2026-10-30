@@ -68,8 +68,10 @@ be identical on every TP rank, as it is when every rank applies the modulation t
 | backward | `(N / 64 / tp) x T x 2688` FP32 | 6.1 MB |
 
 `DeterministicCollective` copies all-gathers whose output is at most 256 KiB with a single-block
-byte loop, at about 4 µs per KiB on B200. `ws2_comm.gather_rows` pads such shards just past that
-size, where the multi-block path takes about 45 µs. This matters for the forward at small `T`.
+byte loop, at about 4 µs per KiB on B200. `ws2_comm.gather_rows` pads shards whose gathered output
+is above 8 KiB just past that size, where the multi-block path takes a flat 55-65 µs for 2 and 4 ranks
+(about 90 µs for 8; measured on 8 x B200). Smaller outputs are gathered unpadded, because the
+single-block loop is faster there. This matters for the forward at small `T`.
 
 ## Evidence
 
