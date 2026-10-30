@@ -16,8 +16,8 @@ import torch
 
 from rl_engine.backends.cuda.model_specific.minimax_h3 import parallel as par
 from rl_engine.distributed.algorithms.hierarchical import tree_add
+from rl_engine.validation.distributed.h3_ws2 import run_world
 from rl_engine.validation.models import h3_tp
-from rl_engine.validation.models.h3_ws2 import run_world
 
 needs_gpu = pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
 
