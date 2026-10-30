@@ -114,6 +114,7 @@ class FullModelTrace:
                 "proj_in",
                 "audio_proj_in",
                 "context_embedder",
+                "time_proj",
                 "token_refiner",
                 "time_embedder",
                 "norm_out",
@@ -123,7 +124,12 @@ class FullModelTrace:
         )
         missing = [name for name in required if not self.calls[name]]
         if backward:
-            missing += [name + ".backward" for name in required if not self.backward_calls[name]]
+            # ``time_proj`` has no parameters and its input carries no gradient: forward only.
+            missing += [
+                name + ".backward"
+                for name in required
+                if name != "time_proj" and not self.backward_calls[name]
+            ]
         if missing:
             raise ValueError(f"incomplete full-model execution: {missing}")
         if self.candidate:

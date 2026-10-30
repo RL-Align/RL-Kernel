@@ -103,6 +103,7 @@ def test_candidate_execution_requires_every_node():
         "proj_in",
         "audio_proj_in",
         "context_embedder",
+        "time_proj",
         "token_refiner",
         "time_embedder",
         "norm_out",
@@ -112,6 +113,41 @@ def test_candidate_execution_requires_every_node():
         trace.calls[name] = 1
     with pytest.raises(ValueError, match="candidate nodes did not execute"):
         trace.validate()
+
+
+BOUNDARIES = [
+    "proj_in",
+    "audio_proj_in",
+    "context_embedder",
+    "time_proj",
+    "token_refiner",
+    "time_embedder",
+    "norm_out",
+    "proj_out",
+    "audio_proj_out",
+]
+
+
+def _complete_trace(*, skip=(), backward_skip=("time_proj",)):
+    trace = FullModelTrace()
+    for name in [f"block.{i}" for i in range(50)] + ["refiner.0", "refiner.1"] + BOUNDARIES:
+        if name not in skip:
+            trace.calls[name] = 1
+        if name not in backward_skip:
+            trace.backward_calls[name] = 1
+    return trace
+
+
+def test_a_run_that_never_calls_time_proj_is_incomplete():
+    with pytest.raises(ValueError, match="time_proj"):
+        _complete_trace(skip=("time_proj",)).validate()
+
+
+def test_time_proj_is_required_forward_only():
+    trace = _complete_trace()  # no backward event for time_proj: it has no gradient
+    assert trace.validate(backward=True)["calls"]["time_proj"] == 1
+    with pytest.raises(ValueError, match=r"norm_out\.backward"):
+        _complete_trace(backward_skip=("time_proj", "norm_out")).validate(backward=True)
 
 
 def test_drift_order_follows_execution_instead_of_lexical_names():
