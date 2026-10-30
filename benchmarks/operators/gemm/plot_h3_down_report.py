@@ -59,6 +59,8 @@ def main():
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)
     cases = report["cases"]
+    backend = report.get("backend")
+    backend_label = f"Candidate ({backend})" if backend else "Candidate"
     # Render earlier native-midtree reports alongside the versioned FP32 candidate.
     for case in cases:
         case["benchmarks"] = {
@@ -80,7 +82,7 @@ def main():
         metadata = report["fixture"]["metadata"]
         lines += [f"Checkpoint fixture activation kind: **{metadata['activation_kind']}**.", ""]
     lines += [
-        "| Input | M | Checks passed | Total | Candidate fwd ms | torch BF16 fwd ms |",
+        f"| Input | M | Checks passed | Total | {backend_label} fwd ms | torch BF16 fwd ms |",
         "|---|---:|---:|---:|---:|---:|",
     ]
     for case in cases:
@@ -139,9 +141,9 @@ def main():
         fig, axes = plt.subplots(1, 2, figsize=(11, 4), constrained_layout=True)
         counts = [case["rows"] for case in subset]
         for key, label in (
-            ("candidate_forward", "Candidate forward"),
+            ("candidate_forward", f"{backend_label} forward"),
             ("torch_bf16_forward", "torch BF16 forward"),
-            ("candidate_forward_backward", "Candidate forward+backward"),
+            ("candidate_forward_backward", f"{backend_label} forward+backward"),
             ("torch_bf16_forward_backward", "torch BF16 forward+backward"),
         ):
             axes[0].plot(

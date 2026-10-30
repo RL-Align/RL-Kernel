@@ -3,7 +3,9 @@
 """Inspect rendered accuracy series, including real nonfinite comparison failures."""
 
 import importlib.util
+import json
 import math
+import sys
 from pathlib import Path
 
 import matplotlib
@@ -66,3 +68,57 @@ def test_measured_failure_keeps_error_ratio_and_missing_checks_are_unavailable()
         }
     finally:
         plt.close(fig)
+
+
+@pytest.mark.parametrize(
+    ("backend", "prefix"),
+    [
+        ("rlkernel.h3_ffn_down.triton.fp32_tiles.v1", "candidate"),
+        ("rlkernel.h3_ffn_down.sm90.midtree.v1", "native"),
+        (None, "candidate"),
+    ],
+)
+def test_report_preserves_backend_identity_in_table_and_plot(
+    tmp_path, monkeypatch, backend, prefix
+):
+    case = {
+        "input_family": "random",
+        "rows": 33,
+        "checks": [],
+        "benchmarks": {
+            f"{prefix}_forward": {"median_ms": 2.0},
+            f"{prefix}_forward_backward": {"median_ms": 6.0},
+            "torch_bf16_forward": {"median_ms": 1.0},
+            "torch_bf16_forward_backward": {"median_ms": 3.0},
+        },
+    }
+    payload = {"status": "failed", "cases": [case]}
+    if backend is not None:
+        payload["backend"] = backend
+    source = tmp_path / "report.json"
+    source.write_text(json.dumps(payload))
+    output = tmp_path / "rendered"
+    monkeypatch.setattr(
+        sys, "argv", ["plot_h3_down_report.py", str(source), "--output-dir", str(output)]
+    )
+    timing_series = []
+
+    def inspect_figure(figure, *args, **kwargs):
+        timing_series.extend(
+            (line.get_label(), list(line.get_ydata())) for line in figure.axes[0].lines
+        )
+
+    monkeypatch.setattr(plt.Figure, "savefig", inspect_figure)
+    report.main()
+
+    label = f"Candidate ({backend})" if backend else "Candidate"
+    summary = (output / "summary.md").read_text()
+    assert f"| {label} fwd ms |" in summary
+    assert "| random | 33 | 0 | 0 | 2.0000 | 1.0000 |" in summary
+    assert "Run status: **failed**." in summary
+    assert timing_series == [
+        (f"{label} forward", [2.0]),
+        ("torch BF16 forward", [1.0]),
+        (f"{label} forward+backward", [6.0]),
+        ("torch BF16 forward+backward", [3.0]),
+    ]
