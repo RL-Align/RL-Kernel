@@ -1,27 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 RL-Kernel Contributors
-"""Native PyTorch GEMM -- NON-deterministic reference baseline (WS1).
+"""Compatibility import; the canonical module is loaded below."""
 
-WARNING: torch.matmul (cuBLAS) does NOT guarantee batch-invariance -- cuBLAS
-selects kernels by shape and may use split-K. This op exists only as a
-correctness reference and benchmark target, NOT as a fallback. It is
-intentionally excluded from the det_gemm registry dispatch.
-"""
-import torch
+import importlib
+import sys
+from pathlib import Path
 
-from rl_engine.utils.logger import logger
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[5]))
 
+if __name__ == "__main__":
+    import runpy
 
-class NativeGemmOp:
-    """Plain torch.matmul. Non-deterministic; reference / benchmark use only."""
-
-    def __init__(self):
-        torch.backends.cuda.matmul.allow_tf32 = False
-        logger.info("NativeGemmOp ready (non-deterministic torch.matmul reference).")
-
-    def __call__(self, a, b):
-        return torch.matmul(a, b)
-
-
-def native_gemm(a, b):
-    return torch.matmul(a, b)
+    runpy.run_module("rl_engine.reference.gemm.det_gemm", run_name="__main__")
+else:
+    sys.modules[__name__] = importlib.import_module("rl_engine.reference.gemm.det_gemm")

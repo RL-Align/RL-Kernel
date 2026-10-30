@@ -1,0 +1,41 @@
+{
+  "round_count": 400,
+  "schema_version": "rlkernel.vime_qwen3_8b_tp4_cp2_200.results.v1",
+  "sealed_run_count": 2,
+  "summaries": [
+    {
+      "active_token_exposure": 9927045.0,
+      "actor_tokens_per_second_mean": 8576.64340160429,
+      "bitwise_mismatch_count": 5764529.0,
+      "bitwise_mismatch_rate": 0.5806893189262263,
+      "group": "G10",
+      "max_abs_dlogp": 1.1917808055877686,
+      "mean_abs_dlogp_token_weighted": 0.012566951307437265,
+      "phase": "convergence",
+      "raw_reward_mean": 0.379375,
+      "reward_mean": 4.842877388000488e-10,
+      "round_count": 200,
+      "run_count": 1,
+      "step_time_mean": 87.69379462599754,
+      "truncated_ratio_mean": 0.58,
+      "unweighted_mean_abs_dlogp": 0.012304821419529616
+    },
+    {
+      "active_token_exposure": 9806995.0,
+      "actor_tokens_per_second_mean": 5564.762254530005,
+      "bitwise_mismatch_count": 0.0,
+      "bitwise_mismatch_rate": 0.0,
+      "group": "G11",
+      "max_abs_dlogp": 0.0,
+      "mean_abs_dlogp_token_weighted": 0.0,
+      "phase": "convergence",
+      "raw_reward_mean": 0.395,
+      "reward_mean": 5.029141902923584e-10,
+      "round_count": 200,
+      "run_count": 1,
+      "step_time_mean": 122.63016048192978,
+      "truncated_ratio_mean": 0.561875,
+      "unweighted_mean_abs_dlogp": 0.0
+    }
+  ]
+}

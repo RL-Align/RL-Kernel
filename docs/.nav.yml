@@ -2,11 +2,14 @@ nav:
   - Home: README.md
   - Blog:
     - blog/README.md
+    - "RL-Kernel v0.1.0: Train-Rollout Bitwise Consistency": blog/2026-09-18-rl-kernel-amd-vime-qwen3-8b-train-rollout-bitwise-consistency.md
+    - "DSV4 Flash MoE Train-Inference Consistency Roadmap": blog/2026-08-09-dsv4-flash-moe-consistency-roadmap.md
     - Announcing RL-Kernel for vime: blog/2026-07-08-announcing-rl-kernel-linear-logp-for-vime.md
   - User Guide:
     - usage/README.md
     - usage/weight-sync-bridge.md
     - usage/grpo-single-gpu-example.md
+    - Qwen3-8B VIME Consistency: usage/qwen3-vime-consistency.md
     - Getting Started:
       - getting_started/quickstart.md
       - getting_started/installation.md
@@ -16,6 +19,7 @@ nav:
       - operators/README.md
       - operators/mhc-pre-h-aggregate.md
       - operators/activation.md
+      - operators/moe-merge.md
       - operators/attention.md
       - operators/fused-logp.md
       - operators/linear-logp.md
@@ -29,13 +33,27 @@ nav:
       - operators/det-gemm.md
       - operators/fp32-gemm-rms.md
       - operators/embedding.md
+      - operators/dsv4-moe.md
   - Developer Guide:
     - contributing/README.md
+    - Contributor Guide: contributing/contributor-guide.md
     - General:
-      - contributing/*
+      - contributing/documentation.md
+      - contributing/gtest-usage.md
+      - contributing/issue-108-session-log.md
+      - contributing/testing.md
+      - Automated PR Review: contributing/ocr-review.md
       - contributing/operator-doc-template.md
-    - Design Documents:
-      - design/*
+    - Architecture:
+      - architecture/*
+    - Numerical Contracts:
+      - contracts/*
+    - Integration Guides:
+      - integrations/**
+    - Validation:
+      - validation/*
+    - Design Archive:
+      - archive/design/*
   - Benchmarking:
     - benchmarking/README.md
     - benchmarking/hardware-dashboard.md
