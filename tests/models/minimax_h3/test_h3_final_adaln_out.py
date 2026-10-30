@@ -159,6 +159,10 @@ class TestCuda:
     def test_unsupported_device_is_refused_at_construction(self, monkeypatch):
         from rl_engine.backends.cuda.model_specific.minimax_h3 import final_adaln_out as module
 
+        # Pretend the kernels are built so the device check is the one that fires, also in a
+        # fast-math build, where the H3 kernels are left out and the constructor would stop earlier.
+        monkeypatch.setattr(module, "det_linear_available", lambda: True)
+        monkeypatch.setattr(module, "h3_rmsnorm_available", lambda: True)
         monkeypatch.setattr(module, "det_linear_device_supported", lambda *args: False)
         with pytest.raises(RuntimeError, match="SM80"):
             module.H3FinalAdaLNOutCudaOp()
