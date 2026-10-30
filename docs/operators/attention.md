@@ -21,7 +21,7 @@ v --/
 
 ## Entry Point
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 attn = kernel_registry.get_op("attention")
 
@@ -49,6 +49,7 @@ The op exposes the WS1 dual-path contract:
 | --- | --- | --- | --- |
 | PyTorch fallback | `NativeAttentionOp` | None | fp32 ground-truth reference; CPU and any GPU. |
 | CUDA deterministic | `DeterministicAttentionOp` | `_C.deterministic_attention_forward/backward` | Batch-invariant CUDA implementation (issue #147). |
+| Ascend NPU deterministic | `DeterministicAttentionAscendOp` | `_C_npu.deterministic_attention_ascend` | Batch-invariant Ascend C implementation (issue #147). |
 
 ## Tensor Contract
 
@@ -81,6 +82,20 @@ the inputs' device.
 1. `CUDA_DETERMINISTIC_ATTENTION` — `DeterministicAttentionOp` (batch-invariant, fixed-order).
 2. `PYTORCH_NATIVE_ATTENTION` — `NativeAttentionOp` (fallback).
 
+On `npu` the priority is:
+
+1. `ASCEND_DETERMINISTIC_ATTENTION` — `DeterministicAttentionAscendOp` (batch-invariant,
+   fixed-order Ascend C forward; bf16/fp16 inputs, head dim 128).
+2. `PYTORCH_NATIVE_ATTENTION` — `NativeAttentionOp` (fallback).
+
+The Ascend kernel implements the same algorithm as the Triton reference and the CUDA op:
+every `(b, q_head, row)` is processed end-to-end by exactly one AI-core block, streaming the
+keys in a fixed 64-key tile order with a two-pass (max, then sum-exp + P·V) reduction. There
+is **no split-K** and no second-pass merge of per-split `(m, l, u)` summaries, so the
+reduction tree for a row depends only on `Skv`, `D` and the masks — never on batch size or
+block assignment. The backward recomputes the native reference forward under autograd
+(Triton is unavailable on NPU), matching the Triton op's portable backward.
+
 Calling it (`__call__` -> `forward(...)`) computes in the input dtype; `forward_fp32(...)` is
 the explicit fp32 golden path (NativeAttentionOp only). The production `"attn"` op_type
 (SDPA-based `PYTORCH_ATTN`, FlashAttention, etc.) is a separate dispatch chain and is unaffected.
@@ -94,7 +109,7 @@ before selecting a backend. Legacy `get_op("attention")` behavior remains unchan
 
 Existing WS1 implementations do not yet export attention-domain LSE or implement deterministic
 CP merge, so they are declared incompatible with strict WS2 requests instead of being selected as
-a silent fallback. See [WS2 CP-aware Attention contract](../design/ws2-cp-attention-contract.md).
+a silent fallback. See [WS2 CP-aware Attention contract](../contracts/ws2-cp-attention-contract.md).
 
 Split-KV is part of that contract rather than a recorded backend extra. Strict runs allow
 `disabled` or a fixed logical KV chunk size, and must export the actual per-CP-owner block
@@ -105,8 +120,8 @@ validate the same actual plan.
 The rank-aware drift benchmark can emit a CPU smoke artifact or a torchrun-friendly GPU report:
 
 ```bash
-python benchmarks/benchmark_ws2_cp_attention_drift.py --smoke --json
-python benchmarks/benchmark_ws2_cp_attention_drift.py --smoke --tp-world-sizes 2 \
+python benchmarks/distributed/benchmark_ws2_cp_attention_drift.py --smoke --json
+python benchmarks/distributed/benchmark_ws2_cp_attention_drift.py --smoke --tp-world-sizes 2 \
   --cp-world-sizes 2 --kv-chunk-sizes none,1 --include-backward \
   --output artifacts/ws2-cp-attention-drift.json
 ```
@@ -162,8 +177,8 @@ memory.
 ## Tests
 
 ```bash
-python -m pytest tests/test_attention.py -v
-python -m pytest tests/test_cp_attention.py -v
+python -m pytest tests/ops/attention/test_attention.py -v
+python -m pytest tests/distributed/cp/test_cp_attention.py -v
 ```
 
 Covers: `forward_fp32` vs an independent fp32 reference (bitwise), strict-fp32 under hostile
@@ -175,12 +190,12 @@ GPU-only LARGE Qwen3-8B real-shape smoke test.
 
 ## Implementation Files
 
-- `rl_engine/kernels/ops/pytorch/attention/standard_attn.py` — ground-truth reference
-- `rl_engine/kernels/ops/cuda/attention/deterministic_attn.py` — CUDA deterministic op
+- `rl_engine/reference/attention/standard_attn.py` — ground-truth reference
+- `rl_engine/backends/cuda/attention/deterministic_attn.py` — CUDA deterministic op
 - `csrc/cuda/attention/deterministic_attention.cu` — CUDA kernels
-- `rl_engine/kernels/registry.py`
-- `tests/test_attention.py`
-- `tests/test_deterministic_attention_cuda.py`
+- `rl_engine/runtime/registry.py`
+- `tests/ops/attention/test_attention.py`
+- `tests/ops/attention/test_deterministic_attention_cuda.py`
 
 ## Fixed Reduction Order (CUDA Deterministic Backend)
 
@@ -245,7 +260,7 @@ Hooks:
 The first version materializes full FP32 `scores [B, Hq, Sq, Skv]` and `P [B, Hq, Sq, Skv]`.
 Memory cost: `4 * B * Hq * Sq * Skv` bytes per tensor. For Qwen3-8B at B=8, Sq=Skv=4096,
 Hq=32: each tensor is ~17 GB. This is acceptable for correctness verification and moderate
-sequence lengths but OOM-prone for long sequences. See `benchmarks/benchmark_deterministic_attention.py`
+sequence lengths but OOM-prone for long sequences. See `benchmarks/operators/attention/benchmark_deterministic_attention.py`
 for measured peak memory at representative shapes.
 
 ## Known Limitations

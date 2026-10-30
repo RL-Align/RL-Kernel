@@ -1,0 +1,2338 @@
+{
+  "parameter_count": 291,
+  "different_gradient_square_bins": [],
+  "small_gradient_tensor_count": 145,
+  "different_small_gradient_elements": 0,
+  "reference": {
+    "decoder.final_layernorm.weight": {
+      "norm": 0.00011059684271771429,
+      "bins_hash": "04fce2d3c5eeb7c102125e5150370cdde00ca71a63f4841a5ea5f95e97f5fea2"
+    },
+    "decoder.layers.0.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.00023047660401174483,
+      "bins_hash": "dad0372fce60d2bd2b9a0f390f7e35284ba16f237a2c17555827591aba7572af"
+    },
+    "decoder.layers.0.mlp.linear_fc1.weight": {
+      "norm": 0.0008639966866892898,
+      "bins_hash": "490bafb34eee3e36f03c553195d5f6d963a465b9621b0860b89d6dde0a0e3195"
+    },
+    "decoder.layers.0.mlp.linear_fc2.weight": {
+      "norm": 0.0015280732232319928,
+      "bins_hash": "836786b5175a04f591ab18f07e66d9987cb67a29264d4190a37ac44a67073c02"
+    },
+    "decoder.layers.0.self_attention.k_layernorm.weight": {
+      "norm": 2.9678306527301798e-05,
+      "bins_hash": "953dbbf2ab09e29441f5e5115cb9ea462115ec6a05a21504c8f1cdc1c5c1c514"
+    },
+    "decoder.layers.0.self_attention.linear_proj.weight": {
+      "norm": 0.0009149211526919969,
+      "bins_hash": "01c53a63a3498ec06a3cd59adf5f88c29dc56a93be65f228a303217d9448758e"
+    },
+    "decoder.layers.0.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.002788719408139392,
+      "bins_hash": "38cf24156c57084ec7441a270918129ede92c0c2ae6c49f2d43243905c94a316"
+    },
+    "decoder.layers.0.self_attention.linear_qkv.weight": {
+      "norm": 0.0011271092430757829,
+      "bins_hash": "ff11f8f179a2b48ac82d1dffa66417a5dc5c54b29b7a587f69c07f45edc3e37f"
+    },
+    "decoder.layers.0.self_attention.q_layernorm.weight": {
+      "norm": 4.957974987549918e-05,
+      "bins_hash": "533573d82a1a80a83622be34dec3b2475b3b638f6db80907bb206a6246ee088b"
+    },
+    "decoder.layers.1.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 9.099297280756497e-05,
+      "bins_hash": "ad09421d12f58d0448e04f386a20d459a5d1779cd2ab827d8267a07af5b1841f"
+    },
+    "decoder.layers.1.mlp.linear_fc1.weight": {
+      "norm": 0.0025955404966924132,
+      "bins_hash": "f24583c74778ce2f596f8f551b9bae0924091fbfcfcd5df5c768f9264304dcc0"
+    },
+    "decoder.layers.1.mlp.linear_fc2.weight": {
+      "norm": 0.0014491302718605413,
+      "bins_hash": "5e4dfd87c14d79784a5a03258ddfe64070fb155a8f8b3c156d8e54ca6a208397"
+    },
+    "decoder.layers.1.self_attention.k_layernorm.weight": {
+      "norm": 1.696984352026345e-05,
+      "bins_hash": "fc9461f4da8185c82e0bf3d2cfd58db76c19fbf8c80e886978e75b47b9e67d91"
+    },
+    "decoder.layers.1.self_attention.linear_proj.weight": {
+      "norm": 0.000658106627880828,
+      "bins_hash": "be302a570264b28a8bbc777339bb0ded98795eb93afc11a7edc9221c48ef2515"
+    },
+    "decoder.layers.1.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0005918032968958084,
+      "bins_hash": "c86943f7e4bba6e2e5519525ba4ae67c9f0e4f643d14e4078fabf742d652d8a6"
+    },
+    "decoder.layers.1.self_attention.linear_qkv.weight": {
+      "norm": 0.0011269616932473889,
+      "bins_hash": "594fe4dd51dffb017991ffd8216cc850be01af274b580a39ec15663b1c2f4889"
+    },
+    "decoder.layers.1.self_attention.q_layernorm.weight": {
+      "norm": 1.645237114860843e-05,
+      "bins_hash": "a8c68e0091755bb3bd773528efd0572a6fc9a5c67ee99b732c22bd42948caf44"
+    },
+    "decoder.layers.10.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.000367169768384324,
+      "bins_hash": "d0996ebf3dea0c412d0bdcd43dc3197ef5f1ccc64986800999423bd33d651bcb"
+    },
+    "decoder.layers.10.mlp.linear_fc1.weight": {
+      "norm": 0.0037886007330061333,
+      "bins_hash": "056993310650e554fba31d15320802720fc91bc209c63b55b30b9d25bb8aa9b1"
+    },
+    "decoder.layers.10.mlp.linear_fc2.weight": {
+      "norm": 0.0032861139982929676,
+      "bins_hash": "26d4d8997f86a54253b0f34b8a3c16a016b9f3ea5cca831abc8b2651d7bc7874"
+    },
+    "decoder.layers.10.self_attention.k_layernorm.weight": {
+      "norm": 0.0002018088421366232,
+      "bins_hash": "ffd7b52336e28a3e0788ee681d5efc50c09e651eb1561184dd2bcbaf648378f4"
+    },
+    "decoder.layers.10.self_attention.linear_proj.weight": {
+      "norm": 0.0021339634496100805,
+      "bins_hash": "85b6bdeb3503f60b32cfcd60c0239babc88e1706d162796167b08ad18b59b701"
+    },
+    "decoder.layers.10.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.00026325777330848184,
+      "bins_hash": "56d629734b3c44d872367a8c3c724cf29ebccd4ff507cee707347d46fbd01f49"
+    },
+    "decoder.layers.10.self_attention.linear_qkv.weight": {
+      "norm": 0.004752807335966861,
+      "bins_hash": "30a6c3dda747a68ee578704e35db642650458ae01f05ca2c7ca2cfc4c5230095"
+    },
+    "decoder.layers.10.self_attention.q_layernorm.weight": {
+      "norm": 0.00011012509417510465,
+      "bins_hash": "817fe9c252f27733406f061b8539f96e7eb60446a7236d1120c412b4fcd04000"
+    },
+    "decoder.layers.11.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.000358298978637732,
+      "bins_hash": "2fdbb362627055abd70d96c31d8f25f59bedc6c8e583a841906265cd7a8c778c"
+    },
+    "decoder.layers.11.mlp.linear_fc1.weight": {
+      "norm": 0.003908463829043324,
+      "bins_hash": "69def9afd466cb665447476bacbd20833df4f48241597693fdd1c3f44579a3d5"
+    },
+    "decoder.layers.11.mlp.linear_fc2.weight": {
+      "norm": 0.003466873416996164,
+      "bins_hash": "c86efdf01a22a3b344c92f7553fdc7c86c515c398abb89adf8f8fae8794a22b7"
+    },
+    "decoder.layers.11.self_attention.k_layernorm.weight": {
+      "norm": 0.00012935559320233287,
+      "bins_hash": "b575889cf34ec0f31867c12d69b6f6dc0941e68610b6cc4f664500f56e14b2e7"
+    },
+    "decoder.layers.11.self_attention.linear_proj.weight": {
+      "norm": 0.0019434857929900207,
+      "bins_hash": "1b1cbc43bcd7a07d20356a508b842330eb0a0f3773556672de305ce04981fb31"
+    },
+    "decoder.layers.11.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0004217207789893533,
+      "bins_hash": "6850027d2249ae0d69490be901b8bd207c1b00ea42e09bac20fa2172b855190f"
+    },
+    "decoder.layers.11.self_attention.linear_qkv.weight": {
+      "norm": 0.004325693530025142,
+      "bins_hash": "7af5be32e43c921eac1c31c2026d7ab0624ded5d2f06163d37a5345e60bed1a0"
+    },
+    "decoder.layers.11.self_attention.q_layernorm.weight": {
+      "norm": 0.00018350169835877248,
+      "bins_hash": "57d1d1c1aa32da08edee6beea96418373354ed2d00ef23b23b4f53f39d8748d3"
+    },
+    "decoder.layers.12.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0004558177983924848,
+      "bins_hash": "9d9c9873a2c98f5c4e50a56b455623aca5fff7495d33da4b3d66c2f9b99aab9d"
+    },
+    "decoder.layers.12.mlp.linear_fc1.weight": {
+      "norm": 0.00430057350967623,
+      "bins_hash": "1ae0afcf76b2f936d18b850f63abf4c928fcecf3568e9fbff1a89713574ce1a7"
+    },
+    "decoder.layers.12.mlp.linear_fc2.weight": {
+      "norm": 0.0036924718271418746,
+      "bins_hash": "33eabac8c919c7d6f1180ddab3526697884c49a19b9f134d8333f04eb1bb7333"
+    },
+    "decoder.layers.12.self_attention.k_layernorm.weight": {
+      "norm": 0.00013808157690615996,
+      "bins_hash": "a1ff99bd2c826ee8d3b3cf4bd16190ff4631b66e472b9bdfee4cfc1cc5280c98"
+    },
+    "decoder.layers.12.self_attention.linear_proj.weight": {
+      "norm": 0.0024141858839291683,
+      "bins_hash": "99cf0306fb20401c1e3ed3bf1f94dbdaba775df7e1fa4d4fedc016583b1340ab"
+    },
+    "decoder.layers.12.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.00033847909756914226,
+      "bins_hash": "26b001fabfc499d3f8abe6c1a0e976e2fcf2e02d9ec674ef6125b5f7c6c1da17"
+    },
+    "decoder.layers.12.self_attention.linear_qkv.weight": {
+      "norm": 0.00444364998888478,
+      "bins_hash": "ce8c7237ecdea9b3059782e8b1a1e30a44553f51af741d93d0a5c896f352f126"
+    },
+    "decoder.layers.12.self_attention.q_layernorm.weight": {
+      "norm": 0.00010563784296444027,
+      "bins_hash": "ef7c2cb30d37045d802acf629639ebf3040bb976e6fed7e037b4a0463b282a1d"
+    },
+    "decoder.layers.13.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.00041951715303197707,
+      "bins_hash": "de36bfb86df143e4c009c89c9b7d8c669ea64dee0a8cf975fa54bba59e088303"
+    },
+    "decoder.layers.13.mlp.linear_fc1.weight": {
+      "norm": 0.0045196731858321145,
+      "bins_hash": "deb915656b88e8e0486b6611de17f1ede65b9bf007e51ca7e77c716e341ae1a4"
+    },
+    "decoder.layers.13.mlp.linear_fc2.weight": {
+      "norm": 0.003483963574352077,
+      "bins_hash": "91fd6adf31925190569a2972e1cc3a5cb2a8831d7bf808baf059c625e3638c20"
+    },
+    "decoder.layers.13.self_attention.k_layernorm.weight": {
+      "norm": 9.74451693274354e-05,
+      "bins_hash": "ea70d7855db6bf973b6a0e5b2631bae4c04958d5e4ad472ee8cf98bcad8256c4"
+    },
+    "decoder.layers.13.self_attention.linear_proj.weight": {
+      "norm": 0.002252436222994412,
+      "bins_hash": "80b763127f03355a85aa8c7ea97c929d7919451260e9c35d4ae7df94ddabdc8a"
+    },
+    "decoder.layers.13.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.00044870324035937835,
+      "bins_hash": "dc6945e83099cf806c1abd9b5989ab155f393e4d443cef7738b88b4ff9f5f85f"
+    },
+    "decoder.layers.13.self_attention.linear_qkv.weight": {
+      "norm": 0.004433112521913117,
+      "bins_hash": "2fc1823c5ee08adc045a08b21fa313f3eae3007ddfd52b2e4d25ea953a4f6ff1"
+    },
+    "decoder.layers.13.self_attention.q_layernorm.weight": {
+      "norm": 7.321337199341362e-05,
+      "bins_hash": "e70c1d8b2d3f2c7a35df14243f83c3f9c1ede8834c1c45974baa572436544f50"
+    },
+    "decoder.layers.14.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0004419519643062748,
+      "bins_hash": "129707e0b3f70281605432057ca70bfcdadce77b9bb4c51df0adcbab37f469c9"
+    },
+    "decoder.layers.14.mlp.linear_fc1.weight": {
+      "norm": 0.0044928521797478835,
+      "bins_hash": "235b5b33c71d5534c4effb620f13605fe2848aba53c13cc50118bb84ba903d5d"
+    },
+    "decoder.layers.14.mlp.linear_fc2.weight": {
+      "norm": 0.0034999636900023743,
+      "bins_hash": "becb72b0907d6795a355b27cc27f3ac7502ad2a2bb9273b23df9a1cd3fc9dd5f"
+    },
+    "decoder.layers.14.self_attention.k_layernorm.weight": {
+      "norm": 0.00011368221192034579,
+      "bins_hash": "7c87e8742b08f074ad7caa5876b1eb17c6ec01cfcceb59d8babe2a86a0075708"
+    },
+    "decoder.layers.14.self_attention.linear_proj.weight": {
+      "norm": 0.003043216932029141,
+      "bins_hash": "75fee1bfcc3be0cf1ea8a55143c04b99c5ce89ad70f2078703d37276e9c6c4d2"
+    },
+    "decoder.layers.14.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0006439281353502312,
+      "bins_hash": "18581f58a09a4bc3c6a7ea89ab11d250cea2566fef477589f52d7fdac11dc006"
+    },
+    "decoder.layers.14.self_attention.linear_qkv.weight": {
+      "norm": 0.005219131283186797,
+      "bins_hash": "0b4d696084532f236aa322de64bd69c7b81ec37de01da690e83f6ea5cac90d23"
+    },
+    "decoder.layers.14.self_attention.q_layernorm.weight": {
+      "norm": 0.00021481308663775218,
+      "bins_hash": "4680915dcf47824e6e8735729e9a82d069b44b1b1deda4d69dc49f281f4c95cf"
+    },
+    "decoder.layers.15.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0003716492141694911,
+      "bins_hash": "f7e71e141bbd17cab0bebbf634e2fd8a65c6b1260ecc7175e548f198e12ef052"
+    },
+    "decoder.layers.15.mlp.linear_fc1.weight": {
+      "norm": 0.004343298700235488,
+      "bins_hash": "56a22feac6e196a368e4edc95a71c1e101895466cef77569eaadc7509b6779f3"
+    },
+    "decoder.layers.15.mlp.linear_fc2.weight": {
+      "norm": 0.003307608006957736,
+      "bins_hash": "959cc9c565a44e04880da29bbba255a3fe386daed0b0ecb5ba7cb14d02f2088e"
+    },
+    "decoder.layers.15.self_attention.k_layernorm.weight": {
+      "norm": 8.42798282246605e-05,
+      "bins_hash": "79bb509b67f61740f7b53abd9aa1bad1149904d15b29a85b1b8ee6ed90324efd"
+    },
+    "decoder.layers.15.self_attention.linear_proj.weight": {
+      "norm": 0.0032477630130685123,
+      "bins_hash": "460bad513d5b7aef88c7ce57da2ca2f4160a61506335c28e12d3034e5e15c375"
+    },
+    "decoder.layers.15.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.00040297586421357854,
+      "bins_hash": "8c6bdbdd95e689b3f50e68ca99009b202df0a7db38398c79669897b84869cd33"
+    },
+    "decoder.layers.15.self_attention.linear_qkv.weight": {
+      "norm": 0.005974418960325021,
+      "bins_hash": "35185b95cb3699910f51fb99a6228863db59d5b01fd5a2ec38fa887cf8012467"
+    },
+    "decoder.layers.15.self_attention.q_layernorm.weight": {
+      "norm": 0.00010524838925143912,
+      "bins_hash": "f3ba38c292b2b87815b0d27759efad3aa2eb44457871ae2e8f96d9c17bba446e"
+    },
+    "decoder.layers.16.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0003777901938552195,
+      "bins_hash": "f4983430c4b10c379e3be74795dc17b216a529bed9a5d5065106820f7fd73825"
+    },
+    "decoder.layers.16.mlp.linear_fc1.weight": {
+      "norm": 0.004213531290390073,
+      "bins_hash": "d3dde7eef103b03935c6ee1c401a03681d4236abc4f25e12577a74898db4b861"
+    },
+    "decoder.layers.16.mlp.linear_fc2.weight": {
+      "norm": 0.0032285072539398134,
+      "bins_hash": "6deedbc066e93526de90383de438a3f5db8d566311de925b189a460878a84f85"
+    },
+    "decoder.layers.16.self_attention.k_layernorm.weight": {
+      "norm": 7.193130022983536e-05,
+      "bins_hash": "4a1a9e17e19e1f0d64e95064444d4585c1f72b5b219eb344da1dc7c7a526285b"
+    },
+    "decoder.layers.16.self_attention.linear_proj.weight": {
+      "norm": 0.0030922297914106477,
+      "bins_hash": "68229062dc9d12e126acd525f672512f40fd701e645a820bef2a92c9a6b96702"
+    },
+    "decoder.layers.16.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0005034504292049288,
+      "bins_hash": "f29f820ece4eb7819354fcfd9ee7949b2c969457558f9714454a3b8e39d364ac"
+    },
+    "decoder.layers.16.self_attention.linear_qkv.weight": {
+      "norm": 0.0064405916229306045,
+      "bins_hash": "dbe8095039dfda789515855bc294b155d7b5c5324b2b79011261f1b2fe5fff98"
+    },
+    "decoder.layers.16.self_attention.q_layernorm.weight": {
+      "norm": 7.196591142861324e-05,
+      "bins_hash": "d1c6475e0f816098af556c2b4005b36574d434f7966687df8c5fc40c009c521f"
+    },
+    "decoder.layers.17.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.00039359641035423054,
+      "bins_hash": "d225dd99485b317d382f851beec73228f2ccdd7504effc6ecc62fb184bab52c0"
+    },
+    "decoder.layers.17.mlp.linear_fc1.weight": {
+      "norm": 0.004250863620892796,
+      "bins_hash": "9240e6b85a746648ef2c46c20be6dc06702fa7c33759ae05c5160caeb74d4fba"
+    },
+    "decoder.layers.17.mlp.linear_fc2.weight": {
+      "norm": 0.003195283481293867,
+      "bins_hash": "5e163c1c0da565c029cf502f6a1ac16420d6ca2f0aa0e3c87793e68ceba9c21f"
+    },
+    "decoder.layers.17.self_attention.k_layernorm.weight": {
+      "norm": 9.233840513210906e-05,
+      "bins_hash": "f52b52c8e1f451473a1926802968cfe26e406fe3606728b083ddb8f4879e81b9"
+    },
+    "decoder.layers.17.self_attention.linear_proj.weight": {
+      "norm": 0.0037374383373271767,
+      "bins_hash": "3a853ee2ced6407dcbaa8d75a976648de429ecb79d7223585ec66170e19be839"
+    },
+    "decoder.layers.17.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0003754695288811464,
+      "bins_hash": "1be340f3f62ae810a8b1c0ee52ca1346d2aa19f233bc298473998bc954ddddfb"
+    },
+    "decoder.layers.17.self_attention.linear_qkv.weight": {
+      "norm": 0.006270241383105909,
+      "bins_hash": "8ac96e7936462027c2c26e248d3969f0fb6d2ae45ca9509ed3f21839a8e11db3"
+    },
+    "decoder.layers.17.self_attention.q_layernorm.weight": {
+      "norm": 9.398342711479508e-05,
+      "bins_hash": "95fbec22553538af293f47ae9872b348cf47735b824f3361ea7b9025a014b610"
+    },
+    "decoder.layers.18.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0004749713441767859,
+      "bins_hash": "68e04680aa36ea9632b0f6ca2f62b4b65eed5f2d314a7acb3cdf2ab3fac65209"
+    },
+    "decoder.layers.18.mlp.linear_fc1.weight": {
+      "norm": 0.0042011943897535915,
+      "bins_hash": "0548db26f4904c1ee321570706d34fdb001c1144d90fe2d9ce4b4c240dd8ad3d"
+    },
+    "decoder.layers.18.mlp.linear_fc2.weight": {
+      "norm": 0.0030581627085765565,
+      "bins_hash": "c27c4be7c5e76fd63e914162903ad0144a411370f7460841b39cee2443aa3677"
+    },
+    "decoder.layers.18.self_attention.k_layernorm.weight": {
+      "norm": 0.00010395126008254873,
+      "bins_hash": "1f708ed776349140b5d5adb6162f46ca61ffd125ec9c2d5186f1dc546ce74d95"
+    },
+    "decoder.layers.18.self_attention.linear_proj.weight": {
+      "norm": 0.00427977936694961,
+      "bins_hash": "d62416fc339ad16098f1827afe21de1930942618ac9fa61e3380441ff213daf8"
+    },
+    "decoder.layers.18.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0002728584584757972,
+      "bins_hash": "09184f26c9bc37035375f73b791c4672ea6ad32bc1d2517763da748c963a85fd"
+    },
+    "decoder.layers.18.self_attention.linear_qkv.weight": {
+      "norm": 0.00735247301645742,
+      "bins_hash": "df6458b8f1d79af857065a6813d1f2e57ba3857d804825f27a41b4b2c4d49b1b"
+    },
+    "decoder.layers.18.self_attention.q_layernorm.weight": {
+      "norm": 0.00010792920811764482,
+      "bins_hash": "e3c99ffd4d7d7b2ab18f7e0e35a1d5432afdb0555387059372ea290b8be4bb32"
+    },
+    "decoder.layers.19.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0003130969067224419,
+      "bins_hash": "444482df88f29767e3f60bae528341946661229405ffa0d3c1ef6964c98a7370"
+    },
+    "decoder.layers.19.mlp.linear_fc1.weight": {
+      "norm": 0.0043090353093310505,
+      "bins_hash": "8248b77b59c03a45b180d13f4f58405cd0809195cc6ce284c45debb557915b67"
+    },
+    "decoder.layers.19.mlp.linear_fc2.weight": {
+      "norm": 0.003157371605921654,
+      "bins_hash": "c33a5f0bcb066bb500d416e33ef9a7fc238a32f74141be8b2de4f9e52c67f545"
+    },
+    "decoder.layers.19.self_attention.k_layernorm.weight": {
+      "norm": 8.652807216471315e-05,
+      "bins_hash": "cfd234b598b934313d49641717df830c447da2cc9fa105530fc9d4de3f0bc72b"
+    },
+    "decoder.layers.19.self_attention.linear_proj.weight": {
+      "norm": 0.003607217004413766,
+      "bins_hash": "c7bce389fb03fd38288fb27331696785cfcfe282d9cc40fa2ef6428e80870570"
+    },
+    "decoder.layers.19.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.00021969083064875026,
+      "bins_hash": "e693ae8c76f1fafb5637c328f0f05a6b7784732fe49981276ce4d52be421df51"
+    },
+    "decoder.layers.19.self_attention.linear_qkv.weight": {
+      "norm": 0.007482586516050459,
+      "bins_hash": "f1f4dd0eaedfb11303175e96bc59d009c40ca724f775822263db79773af47f29"
+    },
+    "decoder.layers.19.self_attention.q_layernorm.weight": {
+      "norm": 0.00011185794566413848,
+      "bins_hash": "da7d3116ca79fea5f0f816a33057abb1bc3f89e623de4b8ea1ca5de21fc60624"
+    },
+    "decoder.layers.2.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 4.890374009501967e-05,
+      "bins_hash": "750bf12e119f0cc77e81c9daf3a691237f0da4e621cf9ac6df4f24544d538214"
+    },
+    "decoder.layers.2.mlp.linear_fc1.weight": {
+      "norm": 0.0031291048151019228,
+      "bins_hash": "0f49db1f1f6febc8a517bc73022fb89bc3981064540349e57b7ea61750e73f9b"
+    },
+    "decoder.layers.2.mlp.linear_fc2.weight": {
+      "norm": 0.001777772824441056,
+      "bins_hash": "1557cf09520914290d41a8b5a8c17b8444e5ff3f6087dff2d59e245dd9af927d"
+    },
+    "decoder.layers.2.self_attention.k_layernorm.weight": {
+      "norm": 1.35732396477161e-05,
+      "bins_hash": "43cb65c6d95325be28a4875340bd18dbb2998e7820a34e419af26fbc5a02ae78"
+    },
+    "decoder.layers.2.self_attention.linear_proj.weight": {
+      "norm": 0.0006348093431500065,
+      "bins_hash": "71c929c93c59d27f0bbe0271f85d3a4e1e9dbc7f0c499a30cf94d0b39fbdbf13"
+    },
+    "decoder.layers.2.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0006003444389328937,
+      "bins_hash": "2d05dbf419f64aef977e6342fe87b22b65c9562acb4e2ead94a72214c8109388"
+    },
+    "decoder.layers.2.self_attention.linear_qkv.weight": {
+      "norm": 0.00086171091994067,
+      "bins_hash": "64124ac3886b0603490552eaf469c0771699db2df0f0eae8b9be3c7e87da470d"
+    },
+    "decoder.layers.2.self_attention.q_layernorm.weight": {
+      "norm": 1.1974590391934494e-05,
+      "bins_hash": "999a12934dfbf57e92ffe0674f54c1401ddc729669588f1c7b5eaa5192bececb"
+    },
+    "decoder.layers.20.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0003106731827735208,
+      "bins_hash": "e06c2d3be9b4b91b2bee5e6f0f0fbad931b81be7ddd213a6d71a3249cd957093"
+    },
+    "decoder.layers.20.mlp.linear_fc1.weight": {
+      "norm": 0.004212408333619601,
+      "bins_hash": "7df682ddabdcc3f62aea719be0866b450c657c47fc4fcb941adff4de10070376"
+    },
+    "decoder.layers.20.mlp.linear_fc2.weight": {
+      "norm": 0.0029230600520541365,
+      "bins_hash": "0d8233502cbb0fed8722f33582e6b3f599db66d52da014c7ba8697601839d5ca"
+    },
+    "decoder.layers.20.self_attention.k_layernorm.weight": {
+      "norm": 9.745799582039478e-05,
+      "bins_hash": "4326a4c153e8e42483eac99c90aa318356a3bcf0b9ab1ade51de1befb43c5b3c"
+    },
+    "decoder.layers.20.self_attention.linear_proj.weight": {
+      "norm": 0.003401272660344296,
+      "bins_hash": "6cf14c6c35127ee9d5743730f9f879d0fb8ad09015f255d3570d2cf77f543133"
+    },
+    "decoder.layers.20.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.00018187045808206237,
+      "bins_hash": "b7cecfe82d756e67b603001af220841e2ea6f3f519b1a203ca54906b02bf22b7"
+    },
+    "decoder.layers.20.self_attention.linear_qkv.weight": {
+      "norm": 0.007440138020493986,
+      "bins_hash": "34e0f8a959c570f5e6fd0b76bfec613f9dd98915dae0180dd45a0355de092035"
+    },
+    "decoder.layers.20.self_attention.q_layernorm.weight": {
+      "norm": 0.00010705374419911563,
+      "bins_hash": "0a6e563ac5def48b35189b73381ae02a873ae765c96d9f79e5be3ecda65b0602"
+    },
+    "decoder.layers.21.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.00025590238220934216,
+      "bins_hash": "6c69cee1d9db0292571422856ca392f65ca2de50269aa7aada70b354c275a159"
+    },
+    "decoder.layers.21.mlp.linear_fc1.weight": {
+      "norm": 0.004249109280447868,
+      "bins_hash": "beecbe266de01afa008087999004e4c5b52f43de1e809bf03a8346e0f45f1c82"
+    },
+    "decoder.layers.21.mlp.linear_fc2.weight": {
+      "norm": 0.0028311086716820743,
+      "bins_hash": "542ab06b598292226f4329890608901aab182cb07f293bbff27dbd6501fdaf5f"
+    },
+    "decoder.layers.21.self_attention.k_layernorm.weight": {
+      "norm": 0.00010671531677824582,
+      "bins_hash": "745b620a244987927d23c367b69caaf034fd9a18d4cc3ea29906777434f35935"
+    },
+    "decoder.layers.21.self_attention.linear_proj.weight": {
+      "norm": 0.00346361474101972,
+      "bins_hash": "fd2cd6bea21b5635fd55a81bb3aab3895a59b46487af162e389dec65a146e5cc"
+    },
+    "decoder.layers.21.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0001579531485217223,
+      "bins_hash": "b1cea1d1c85c6c5a2ce4b6231a55042812237514f4c326202d301b31e82f728f"
+    },
+    "decoder.layers.21.self_attention.linear_qkv.weight": {
+      "norm": 0.00893918197721606,
+      "bins_hash": "813b55667a50a1b76e244e7203c111b438a41c1e0abf0e65bbba938679e8513d"
+    },
+    "decoder.layers.21.self_attention.q_layernorm.weight": {
+      "norm": 0.00011393849858832512,
+      "bins_hash": "f1c513fe14bf9be5002f9fa2b61da955515c6f19abd93e6962785edd0947742d"
+    },
+    "decoder.layers.22.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.000242865079829047,
+      "bins_hash": "68d010f9427730df1cc44772d94fd92029db0eda125428d5df35b7d135dfa9d1"
+    },
+    "decoder.layers.22.mlp.linear_fc1.weight": {
+      "norm": 0.004476171319093597,
+      "bins_hash": "1c2b2a141c0077daf1d6259afe7b98db470ff1b304de22e26e5fc73d504cece1"
+    },
+    "decoder.layers.22.mlp.linear_fc2.weight": {
+      "norm": 0.003058834832606722,
+      "bins_hash": "82482b51a5f48684ea8613df7b05fdaecf77a5078a6c4a388bc6f0906e5a7534"
+    },
+    "decoder.layers.22.self_attention.k_layernorm.weight": {
+      "norm": 8.112316949556587e-05,
+      "bins_hash": "7d21762c2ee97a294b255f671977f4e1f0056dc1ebd0880dda84a61fc5ec131d"
+    },
+    "decoder.layers.22.self_attention.linear_proj.weight": {
+      "norm": 0.0035512655405740006,
+      "bins_hash": "f4dc4e4c396ecaee376f7f12ed86c07424addb9495725a179cc7dd37ee5ed287"
+    },
+    "decoder.layers.22.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.00014676093360256278,
+      "bins_hash": "cc3b75ee899101a643330ae2fee7350211d55c2351c38eff2d97a7af499d4abd"
+    },
+    "decoder.layers.22.self_attention.linear_qkv.weight": {
+      "norm": 0.007691876247860917,
+      "bins_hash": "fe582757eee1278a71c4bb56a18166acab7cba6046cdb6d2a60bce21ef519ced"
+    },
+    "decoder.layers.22.self_attention.q_layernorm.weight": {
+      "norm": 9.344374626492379e-05,
+      "bins_hash": "64e0e439a0d10d17625c380726655dfad3322ce52cefdd49c1db180e8aa97e65"
+    },
+    "decoder.layers.23.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0002921718736181235,
+      "bins_hash": "b98d969c2aefc3e542f2083e18300af919f47fdbbd2984d2c475652216ed1ed5"
+    },
+    "decoder.layers.23.mlp.linear_fc1.weight": {
+      "norm": 0.0041855744115340526,
+      "bins_hash": "dfc2782790cab41242a4c1d422be1254393de4d8f8568fc85c457a0715e00cb3"
+    },
+    "decoder.layers.23.mlp.linear_fc2.weight": {
+      "norm": 0.0029042663117097496,
+      "bins_hash": "ff3a26e1c5adeb51a153b9145479ee822307ab3989aadbf80f64c520180e6485"
+    },
+    "decoder.layers.23.self_attention.k_layernorm.weight": {
+      "norm": 0.00011147827035760094,
+      "bins_hash": "25c3e562b50b10d0b200bc46263b87b8c2b3f92ce1e0fbb7e14c0c936b6d1168"
+    },
+    "decoder.layers.23.self_attention.linear_proj.weight": {
+      "norm": 0.0030779329126022735,
+      "bins_hash": "c9679f509c9d457737cc90f25d9ea7aa7c7fdea8e5809168c20a50e916c42aed"
+    },
+    "decoder.layers.23.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.00014451064368847544,
+      "bins_hash": "1b6ef632b27341553aaf39058f3cbc1fb3b8c0e9595e172b57e157c1f365d963"
+    },
+    "decoder.layers.23.self_attention.linear_qkv.weight": {
+      "norm": 0.006422622044401771,
+      "bins_hash": "88712eb324695b3f474b6041b6d0e4ab969524948ed04d39a2b79dfc6f373301"
+    },
+    "decoder.layers.23.self_attention.q_layernorm.weight": {
+      "norm": 0.00010842638617449327,
+      "bins_hash": "13c8b491a9bd00656d22b84b7f06f71ec6bdcb2530fead8afa6cbee2364a0371"
+    },
+    "decoder.layers.24.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0001831531649908567,
+      "bins_hash": "179380697817f4a4f46f0bd0f2b33f3224ecac2729cdc348da3843f2b6d0fdea"
+    },
+    "decoder.layers.24.mlp.linear_fc1.weight": {
+      "norm": 0.0036787669868045777,
+      "bins_hash": "3fd219e33a23e1180d218de22150ed74317e034f9f356c815d04b3e5433a6bd5"
+    },
+    "decoder.layers.24.mlp.linear_fc2.weight": {
+      "norm": 0.0027631036168486245,
+      "bins_hash": "c4d6bb0a1351c736736429f59c0c2a9c9bc121e030e59771c19f8df1174a24ce"
+    },
+    "decoder.layers.24.self_attention.k_layernorm.weight": {
+      "norm": 0.00012473608843739756,
+      "bins_hash": "ca5c3f8df7f6add596d047eabaf771e181147e87d1cf732acdc24d58e5abe73b"
+    },
+    "decoder.layers.24.self_attention.linear_proj.weight": {
+      "norm": 0.0022699315113069627,
+      "bins_hash": "3353f2a890f96b73181101c044176890484121012227d07fbb08bf72cf5c9150"
+    },
+    "decoder.layers.24.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0001883044007183601,
+      "bins_hash": "daaaad45a53bb7ac5d186d986a0554c56307121075580de257134e92e0144fd6"
+    },
+    "decoder.layers.24.self_attention.linear_qkv.weight": {
+      "norm": 0.006153572855745514,
+      "bins_hash": "df997c6d9e7e071b41060a7184dc27927dc94acb6cd205f4576ae241700da669"
+    },
+    "decoder.layers.24.self_attention.q_layernorm.weight": {
+      "norm": 0.0001269425786583072,
+      "bins_hash": "88b7c11546159f4636ddf852e448e159f981ebaed03d051021bc54ce29e42268"
+    },
+    "decoder.layers.25.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.00017229394863043886,
+      "bins_hash": "985c2be3aba6478106ffa27a555d1b5d7c5a1a978bab9762a48b09fd05b9c7e9"
+    },
+    "decoder.layers.25.mlp.linear_fc1.weight": {
+      "norm": 0.0034782297722406536,
+      "bins_hash": "394c8255e2b9ad0bb0a99fed88d68d886860cbcbe860e5068c9cc92c235a9ca0"
+    },
+    "decoder.layers.25.mlp.linear_fc2.weight": {
+      "norm": 0.0023472706915301576,
+      "bins_hash": "a3ae26b1ef998c91d63e7a83a9b1fcbba3a9c1e3bda8ad5c59d661bc9191d4d4"
+    },
+    "decoder.layers.25.self_attention.k_layernorm.weight": {
+      "norm": 0.00015676504786431357,
+      "bins_hash": "d0377e4eca6e5ccc60b5e850d11eee21bb7df3379b3a3183a12ffc3caf0d023e"
+    },
+    "decoder.layers.25.self_attention.linear_proj.weight": {
+      "norm": 0.0016944975261039322,
+      "bins_hash": "0ce0cede813dcc7e59584e1c6ef9ad7a3cf84bd3ab6e01d7d2ce12e167ee62ec"
+    },
+    "decoder.layers.25.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 8.951007049618314e-05,
+      "bins_hash": "5ab1b70515992db13aeb5e862c2365f565c2e0011df45de462a7c12e3a82e86e"
+    },
+    "decoder.layers.25.self_attention.linear_qkv.weight": {
+      "norm": 0.004667294545020559,
+      "bins_hash": "42c02a2e15b8eff6dff453c96afad5ab93ea5cf39cb220f0490e689fe7056931"
+    },
+    "decoder.layers.25.self_attention.q_layernorm.weight": {
+      "norm": 0.00012860799718510512,
+      "bins_hash": "05a8c121cb58485ff46a1bf839fc8c86f801fb1e592988b0792ef46f5832450c"
+    },
+    "decoder.layers.26.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0001355658354311263,
+      "bins_hash": "6126ae4162ae8674a11b5f97f4a062a0c703bf441b4db5ddfbbbf0b8ec9ca542"
+    },
+    "decoder.layers.26.mlp.linear_fc1.weight": {
+      "norm": 0.0031044605403162803,
+      "bins_hash": "8ba5ad9fbf54bf727ace5b6979f7a83d826e6c565518bc2c10fed819e15bb9c4"
+    },
+    "decoder.layers.26.mlp.linear_fc2.weight": {
+      "norm": 0.0022401097789193614,
+      "bins_hash": "9047583c5e5b3fec6c46b5cc0b95de8b5b969073b78b3385650222fd870f9e09"
+    },
+    "decoder.layers.26.self_attention.k_layernorm.weight": {
+      "norm": 8.177770543198416e-05,
+      "bins_hash": "593389f83275383b79a6aed4a5f9848659b64bb84a52e9432050cf4a516a9b64"
+    },
+    "decoder.layers.26.self_attention.linear_proj.weight": {
+      "norm": 0.0013086905670504003,
+      "bins_hash": "11ac324326d820e5372b38b958c46bc64c389d5c8c28dc209d6cc922eb36500e"
+    },
+    "decoder.layers.26.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.00015341274477142448,
+      "bins_hash": "e33282dc8d078cd86a905be1585485dcc50ced6f7fc03b14e12268ec37a5a971"
+    },
+    "decoder.layers.26.self_attention.linear_qkv.weight": {
+      "norm": 0.00422796109228433,
+      "bins_hash": "9cb91a05def90cac4f0e79443da44270a33396fb649b219b6e195bf73082d965"
+    },
+    "decoder.layers.26.self_attention.q_layernorm.weight": {
+      "norm": 8.41784763647128e-05,
+      "bins_hash": "3a64990e448f58d2d57dba126d0dc1a2e68763fefad7f48cff2d89c482333dac"
+    },
+    "decoder.layers.27.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.00012087340301461004,
+      "bins_hash": "bb945b5fcad29c6b294e20eca594f574b43a69510e5c4a0653e8de10056fa49e"
+    },
+    "decoder.layers.27.mlp.linear_fc1.weight": {
+      "norm": 0.0030342647125590327,
+      "bins_hash": "eec66ac79b9095cfcc11f9b1c54fcf13df8e323a0324e15e666b15fcc7071fb6"
+    },
+    "decoder.layers.27.mlp.linear_fc2.weight": {
+      "norm": 0.0021649118060639364,
+      "bins_hash": "54406dc5cdc36f1d2ac1b7b5a2fb1e33e1ef72a0d18c60c1469268475544c5d5"
+    },
+    "decoder.layers.27.self_attention.k_layernorm.weight": {
+      "norm": 4.487739548907265e-05,
+      "bins_hash": "fe3cfe220d8f6117ee5ab112e02ea8bad518b0d5a3fe4bf79767bb822f5c39f9"
+    },
+    "decoder.layers.27.self_attention.linear_proj.weight": {
+      "norm": 0.0014377346056440243,
+      "bins_hash": "553f2e9fbc0b82d9b70af197bfb6a8aadf004f64db3639d6d4b64a23d73fba51"
+    },
+    "decoder.layers.27.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 5.706351374775115e-05,
+      "bins_hash": "01d4adf09f2ed8840876eb9e428a9dcd4aeb640831557afe0a949040a3a35279"
+    },
+    "decoder.layers.27.self_attention.linear_qkv.weight": {
+      "norm": 0.0035012987284811377,
+      "bins_hash": "a45e0eb14d126797b49cb16156edee211ac6a920f9086c8e2a8e45c89f5225aa"
+    },
+    "decoder.layers.27.self_attention.q_layernorm.weight": {
+      "norm": 4.663902364212907e-05,
+      "bins_hash": "92766aee278156e1dd2a733857a6331ef581c4f0b9323497da30048210d24d26"
+    },
+    "decoder.layers.28.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.00012257532308451944,
+      "bins_hash": "7473626b83efe771acca3258687605bbfd0f5c685a0f10160c6d81572560f081"
+    },
+    "decoder.layers.28.mlp.linear_fc1.weight": {
+      "norm": 0.003026780428893513,
+      "bins_hash": "82dba3778b046fa2c7a932604db45271beb2079f7f181b8dc773f68b999f7f53"
+    },
+    "decoder.layers.28.mlp.linear_fc2.weight": {
+      "norm": 0.0023632453970599803,
+      "bins_hash": "75bf07ab1c9da09f112ba57dd77b40849dc91aaad82a53a4bbde4a777e9e1163"
+    },
+    "decoder.layers.28.self_attention.k_layernorm.weight": {
+      "norm": 0.00031389109533335694,
+      "bins_hash": "dad09bfd4374563ba5102b9dfa55e0b78382839dd9a23318adc88b51b7d0f016"
+    },
+    "decoder.layers.28.self_attention.linear_proj.weight": {
+      "norm": 0.0013904992950804624,
+      "bins_hash": "7c463fb4a4a1aa7323f950eb2d76d69dc5aafac914f4b53a8bb1c5ff547a153a"
+    },
+    "decoder.layers.28.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 8.560519030163426e-05,
+      "bins_hash": "dd08df67a847524b2336698fe7cf77353aa9832bfaa6b6fa4f1c3625180d79df"
+    },
+    "decoder.layers.28.self_attention.linear_qkv.weight": {
+      "norm": 0.005563201248595218,
+      "bins_hash": "e9dd6faa85b6a1fcd80d2a96a86bbbb705bb6ed6319e389b836368a3f1389cb7"
+    },
+    "decoder.layers.28.self_attention.q_layernorm.weight": {
+      "norm": 9.329963839906941e-05,
+      "bins_hash": "8efefda73b474d7f1cfa28d67644141fd5ef30b57cf65fdd6060b149abd32c28"
+    },
+    "decoder.layers.29.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0001107767764524895,
+      "bins_hash": "76a1b73f83e479a9b260f2afde82363bc010d1aada9d9c9f15ca56f68edefb6c"
+    },
+    "decoder.layers.29.mlp.linear_fc1.weight": {
+      "norm": 0.0031316720143588746,
+      "bins_hash": "e2c7c11e3d4f3b0d2e1190933221043244c010f1a9a72e5167a880d87ebd4193"
+    },
+    "decoder.layers.29.mlp.linear_fc2.weight": {
+      "norm": 0.0019643338619734856,
+      "bins_hash": "de0261d4a2a04a79d669715f623c6fa01c142f963b3ee4d73c159378a45dd45c"
+    },
+    "decoder.layers.29.self_attention.k_layernorm.weight": {
+      "norm": 5.145250285429445e-05,
+      "bins_hash": "24ddf180ec83b3c358060e6da62e5bca335c2b95a530f8246e0302869721d551"
+    },
+    "decoder.layers.29.self_attention.linear_proj.weight": {
+      "norm": 0.0009670718430494959,
+      "bins_hash": "c453ba64bd65c3767ab393578f7ef73049d61f415d9057272d5a5bf814fa7f07"
+    },
+    "decoder.layers.29.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 5.896792184922862e-05,
+      "bins_hash": "9e15eeb9e9ef4a4f48c91743e26a8fadb103b7165f1072c387239788d78497a8"
+    },
+    "decoder.layers.29.self_attention.linear_qkv.weight": {
+      "norm": 0.0029783294516662327,
+      "bins_hash": "5f58d615a3ca23ea7b7557495dcf1af0cc5fcc762860719aebe96271e97ddac7"
+    },
+    "decoder.layers.29.self_attention.q_layernorm.weight": {
+      "norm": 5.2607918923225286e-05,
+      "bins_hash": "5548cee5b39060b22ad491c9ed4902f4b9577af04ecd611bd98c6aaad030f4c4"
+    },
+    "decoder.layers.3.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 6.356540437308218e-05,
+      "bins_hash": "4442e16eb63f2177401de2903d044f4cc919e2b4c2abb24ab0a7d6dfa8294e05"
+    },
+    "decoder.layers.3.mlp.linear_fc1.weight": {
+      "norm": 0.00358313335365185,
+      "bins_hash": "2ac98ccba6294171c7a67921d848ec69c9d4c14994d0503bc6499457a43dd775"
+    },
+    "decoder.layers.3.mlp.linear_fc2.weight": {
+      "norm": 0.0014638611596976276,
+      "bins_hash": "e3289c62b4916c8384ba0f6e2d491c32aad4836324fa4f9604e1e324027f676e"
+    },
+    "decoder.layers.3.self_attention.k_layernorm.weight": {
+      "norm": 3.2558945976832256e-05,
+      "bins_hash": "f35a5c9b4c4bb5cf7411f7ff56d3a674e66ac6cd9cea15cf271c042972762690"
+    },
+    "decoder.layers.3.self_attention.linear_proj.weight": {
+      "norm": 0.0006974740940538808,
+      "bins_hash": "2c73e60df292056c0ff9d8ad6bc50313bc7713337535f5690e0b5a12584b1a64"
+    },
+    "decoder.layers.3.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0005538571836934723,
+      "bins_hash": "66a000f937dc96268de08fefcb607dcca392721b6fb2e667dc43663190cb58ec"
+    },
+    "decoder.layers.3.self_attention.linear_qkv.weight": {
+      "norm": 0.0012202817499617192,
+      "bins_hash": "c65effd79486f122d3a2427c0b39a3585ac788fde15b0ef609c251a5a8a1d970"
+    },
+    "decoder.layers.3.self_attention.q_layernorm.weight": {
+      "norm": 3.28513475835237e-05,
+      "bins_hash": "fb408141b6c54837cc080f554576b178e1af5167d8c12144643bbdbac60fff28"
+    },
+    "decoder.layers.30.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 8.425119749296128e-05,
+      "bins_hash": "bb43ea88a875bd4c1990d10a5b2fb21cc64ab0320b51c9174c2d362fb7d31506"
+    },
+    "decoder.layers.30.mlp.linear_fc1.weight": {
+      "norm": 0.002554958584721426,
+      "bins_hash": "6b594755f596dcce1d34c8eb3a7b83834646c876973fd9de9ed45ef63ab30ab3"
+    },
+    "decoder.layers.30.mlp.linear_fc2.weight": {
+      "norm": 0.0018242560696804084,
+      "bins_hash": "d6703e90adbd1f2aff21411157624caa798d36ca978fc6e654a4ae7fca1a123a"
+    },
+    "decoder.layers.30.self_attention.k_layernorm.weight": {
+      "norm": 8.152398316606915e-05,
+      "bins_hash": "fd1fb5c4a0965a6eae0cc2be12921cf140fb9f68d811f9905eab2337ea4d43fa"
+    },
+    "decoder.layers.30.self_attention.linear_proj.weight": {
+      "norm": 0.0011258897651649571,
+      "bins_hash": "fad5f38820a87f5ea76cbcf293346e85e03a7cb02aadcd21b4d47c0605298e8b"
+    },
+    "decoder.layers.30.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 2.886558360315561e-05,
+      "bins_hash": "58635b8a41e7e135751e35a65cbce2ebb8457238b13ef1ad26c386a8486849d3"
+    },
+    "decoder.layers.30.self_attention.linear_qkv.weight": {
+      "norm": 0.0034836406617035896,
+      "bins_hash": "cf406a5d2dbd89e733915e91ae1038db66edb16cc6a1c64624eb9e29bcacd8bb"
+    },
+    "decoder.layers.30.self_attention.q_layernorm.weight": {
+      "norm": 8.945613192524112e-05,
+      "bins_hash": "ef1c4e3f8b8ec6d19c65e5b2277fdaf117ed7c25447b61bd57537b9fec20c49b"
+    },
+    "decoder.layers.31.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 7.834917267990139e-05,
+      "bins_hash": "28b5d3da6e7b3d88ab7f24bc34f8af089d5fcb0ea621dc1b424d70ff4ab888e5"
+    },
+    "decoder.layers.31.mlp.linear_fc1.weight": {
+      "norm": 0.0024581912398786185,
+      "bins_hash": "824dd884d0e126f05790372ec9350c2948d0602cc122be79ef2019aba6733c61"
+    },
+    "decoder.layers.31.mlp.linear_fc2.weight": {
+      "norm": 0.0017768273704880002,
+      "bins_hash": "5e3079e52b9784391cd8a4af3999774eb2281df88d8dd22d9dc4de8b276cda48"
+    },
+    "decoder.layers.31.self_attention.k_layernorm.weight": {
+      "norm": 5.700082451186955e-05,
+      "bins_hash": "3c344a4ba8811679f25cc1beeaaeaeb27c3bbb22d7e6112a77822e2b2aad11db"
+    },
+    "decoder.layers.31.self_attention.linear_proj.weight": {
+      "norm": 0.0008903170085437251,
+      "bins_hash": "c513ed0a217467d6be0df27a4ce1e97ea83399de9f338d2f8c5dccf7a1623f3b"
+    },
+    "decoder.layers.31.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 5.3317982191133924e-05,
+      "bins_hash": "c70bfa0b00e0d7690347edbbc08c2dbad9a37003c3590ea9b3cea23b968b27db"
+    },
+    "decoder.layers.31.self_attention.linear_qkv.weight": {
+      "norm": 0.0027550577085551733,
+      "bins_hash": "51502f41ae3f2ba47873ebf3a4d4b16d7dca13933b7ef426c80492c97a72957d"
+    },
+    "decoder.layers.31.self_attention.q_layernorm.weight": {
+      "norm": 6.675480038766121e-05,
+      "bins_hash": "d8b7879ec4f15d1e622cfcd512aa092823f6d8d40fb6d7174dbb9061967ef88c"
+    },
+    "decoder.layers.32.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 6.588215084444721e-05,
+      "bins_hash": "b869949ea91032eb3f0a7ff15300ce9cf48cd6d1b8c84ec360d203ade1c8bdca"
+    },
+    "decoder.layers.32.mlp.linear_fc1.weight": {
+      "norm": 0.002300923670322087,
+      "bins_hash": "154d0e93ce7b92a626689daf61c0e051f6d71e188df6ab8cd6068431e3afa7b8"
+    },
+    "decoder.layers.32.mlp.linear_fc2.weight": {
+      "norm": 0.0015865225606605643,
+      "bins_hash": "3cd43f366b932e1403ec977d3fd29b190579a71e3de7b6a18392d5c0394125e8"
+    },
+    "decoder.layers.32.self_attention.k_layernorm.weight": {
+      "norm": 5.906266078975902e-05,
+      "bins_hash": "b7620543dd2a944bd446f712a36b18c68ac1043083b85d1e70a998023751cc44"
+    },
+    "decoder.layers.32.self_attention.linear_proj.weight": {
+      "norm": 0.0009517356585284194,
+      "bins_hash": "67207f696c25d647bf9de712fb5c1afb5d5fc19291ac6da154f5d2e39b1fbbcd"
+    },
+    "decoder.layers.32.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 2.9772955685608567e-05,
+      "bins_hash": "f40ad851a45640f6d1c9c16eae5884ba20d812ae4127879705e51d749dd636e9"
+    },
+    "decoder.layers.32.self_attention.linear_qkv.weight": {
+      "norm": 0.0036342628607841237,
+      "bins_hash": "d6b3cd13fc756a63c7281d5645837e90a00c8406fd8675e899f632601d72c5e2"
+    },
+    "decoder.layers.32.self_attention.q_layernorm.weight": {
+      "norm": 7.139292733496885e-05,
+      "bins_hash": "18d424bd8cd7387af593c51c9304fad423d7f78f1e8e5be8894b896e6847370e"
+    },
+    "decoder.layers.33.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 6.765394923039075e-05,
+      "bins_hash": "ab07735262269e8b4ec1f3080623cb798c170ea1af5d15bd93a8823e6be5f428"
+    },
+    "decoder.layers.33.mlp.linear_fc1.weight": {
+      "norm": 0.002353616849507354,
+      "bins_hash": "3bf51fe575bc19981850a59b11433e8dd445dfee4b3aa8c6e8a1a6d2f26c16cf"
+    },
+    "decoder.layers.33.mlp.linear_fc2.weight": {
+      "norm": 0.0016931104400768084,
+      "bins_hash": "8067e0d172ac935c44397b9753601b8e1b175f34d83bd59f471ef477694621f8"
+    },
+    "decoder.layers.33.self_attention.k_layernorm.weight": {
+      "norm": 2.6316542989132515e-05,
+      "bins_hash": "89db6885b0f4e04371a6227148017107f037796986376f57fd780f5850c766b2"
+    },
+    "decoder.layers.33.self_attention.linear_proj.weight": {
+      "norm": 0.0007221905229268632,
+      "bins_hash": "7afb36ed6143e9f432bf6f04e794516dd3e1f3f3648c93088dc87d9ef1f299c6"
+    },
+    "decoder.layers.33.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 2.9605797784045025e-05,
+      "bins_hash": "099edc41fa706170bf10c7f4ac619895cbbe7724ad551077b0c1c253ceaf2847"
+    },
+    "decoder.layers.33.self_attention.linear_qkv.weight": {
+      "norm": 0.0022203180966652064,
+      "bins_hash": "b82fd568ecf41bd616e5b713776d78f0d023fcf0d16be09563facf6ced07e612"
+    },
+    "decoder.layers.33.self_attention.q_layernorm.weight": {
+      "norm": 3.707772852856362e-05,
+      "bins_hash": "40123fb3c394d6b6ab937aa102c21e2012560dbec48358f5e673e3424d503bcc"
+    },
+    "decoder.layers.34.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 6.230072159485561e-05,
+      "bins_hash": "4c18203a96c29f35ecbe93a7d80d11636017a12ec301f32d3448df6df13a86c6"
+    },
+    "decoder.layers.34.mlp.linear_fc1.weight": {
+      "norm": 0.003219120006879024,
+      "bins_hash": "efe147e207935ffee43c7bb5ff1abd9b24b4182e379fccd300356cc32381e9b8"
+    },
+    "decoder.layers.34.mlp.linear_fc2.weight": {
+      "norm": 0.002041763056269395,
+      "bins_hash": "d37dec61e5c28914fc1612f7bad69776e478f858c53331570a54a6bdf517ce15"
+    },
+    "decoder.layers.34.self_attention.k_layernorm.weight": {
+      "norm": 6.705042976034216e-05,
+      "bins_hash": "e18332d7407fae8fb92efb8b36ff44a5ad114b9c80a01302da7850bcf63a7afb"
+    },
+    "decoder.layers.34.self_attention.linear_proj.weight": {
+      "norm": 0.0011927436625718969,
+      "bins_hash": "29614453efc79c0d7cbbe2363782e8878e4e18844625874d80c873b4d78f7636"
+    },
+    "decoder.layers.34.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 2.605904241103365e-05,
+      "bins_hash": "13b3b82017cc8955320ed12ff5dacf75d5d38c143c40c0a437bb4ae3ccb4c234"
+    },
+    "decoder.layers.34.self_attention.linear_qkv.weight": {
+      "norm": 0.0026750331804585616,
+      "bins_hash": "91ea78a40c205a510cd3c70f8c936170afc739e566ed9500e3002532ecbe536d"
+    },
+    "decoder.layers.34.self_attention.q_layernorm.weight": {
+      "norm": 5.275942234761165e-05,
+      "bins_hash": "f304b6950013f90c7c6c21d7ef64e4bae77a15088b5ac119e134fc5cdea39a44"
+    },
+    "decoder.layers.35.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.00011242126748188755,
+      "bins_hash": "dd83ee9a3c99f7dc4c55a5a8a1bb7f1e89dbac44508444c0526066c45c7dd7a9"
+    },
+    "decoder.layers.35.mlp.linear_fc1.weight": {
+      "norm": 0.009000036894910598,
+      "bins_hash": "d813281db050b5906a0b1dd76ec64b58bde15f0482a30282de5142b018c5ac99"
+    },
+    "decoder.layers.35.mlp.linear_fc2.weight": {
+      "norm": 0.005714101154939597,
+      "bins_hash": "7ab3986d8541b936d083c4d0440a301d8a3a6d6472ebabc5c8bfe353d656755b"
+    },
+    "decoder.layers.35.self_attention.k_layernorm.weight": {
+      "norm": 3.955271411176164e-05,
+      "bins_hash": "4bb9e450586fba47e506e3f9035baecff5b69ccfed9d7b2977d74f3c331e716d"
+    },
+    "decoder.layers.35.self_attention.linear_proj.weight": {
+      "norm": 0.0011856552601971365,
+      "bins_hash": "604c2674da7e5d5bcf003418dfe5bfd41586096f0ff0bd428d21ef4e0853a091"
+    },
+    "decoder.layers.35.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 1.21948841115991e-05,
+      "bins_hash": "d9e89101199b8e5b78419100211002b91731dd9bdea06e6ddc25099a0a143d83"
+    },
+    "decoder.layers.35.self_attention.linear_qkv.weight": {
+      "norm": 0.002303165339120546,
+      "bins_hash": "c94a8e7762460d32fa71ed6149872d81d5b1bdf0e6d75c8a456f1be848267617"
+    },
+    "decoder.layers.35.self_attention.q_layernorm.weight": {
+      "norm": 3.683717460569127e-05,
+      "bins_hash": "011d61342a288a766a9287a27d89c84ca9a18ab184966cd005f2855bf99e037c"
+    },
+    "decoder.layers.4.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.00013394114918139927,
+      "bins_hash": "e3fc7c192f3b95b62e5e368a2621df3f34fb205cc5477f83b0d099e9eaff412f"
+    },
+    "decoder.layers.4.mlp.linear_fc1.weight": {
+      "norm": 0.004658721755676411,
+      "bins_hash": "d18292a7dcaec87eb62f313722e095d87de61afdc5e00f1292846357e96dc4cd"
+    },
+    "decoder.layers.4.mlp.linear_fc2.weight": {
+      "norm": 0.001975128306082608,
+      "bins_hash": "e5eb51c82c5fea96f0e203af32a52cfd56d883b178a9d78749f602264eaa070e"
+    },
+    "decoder.layers.4.self_attention.k_layernorm.weight": {
+      "norm": 3.830253025403105e-05,
+      "bins_hash": "463e937834587bda2b9a6b9be3a1696e61794bf79447692865903a06a5c9f748"
+    },
+    "decoder.layers.4.self_attention.linear_proj.weight": {
+      "norm": 0.0008671196933413362,
+      "bins_hash": "107dd76fa44a15ea8a30012a2839f7ed0482cf756de0aaae101210ab5e921d5b"
+    },
+    "decoder.layers.4.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.00045634580166604614,
+      "bins_hash": "4c85a7be8bcf3ebe7e0f51e879fbdf59a077f6bb8cecbcb61ffca33a991c20fb"
+    },
+    "decoder.layers.4.self_attention.linear_qkv.weight": {
+      "norm": 0.0011958467652237416,
+      "bins_hash": "cce30ed7eb46b54280e7b39b18b250ca482dcd77b15727d5505e13b8fe611254"
+    },
+    "decoder.layers.4.self_attention.q_layernorm.weight": {
+      "norm": 3.3086101774850566e-05,
+      "bins_hash": "7ba4fac958b42c17b92cd8dcf6280050546efb4db6884359d6033951c1aa8a24"
+    },
+    "decoder.layers.5.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.000245718228896674,
+      "bins_hash": "74f011518f8bdea13bb085b7c92c2f484f43a98482b1698984b5cf97625e2c8d"
+    },
+    "decoder.layers.5.mlp.linear_fc1.weight": {
+      "norm": 0.0048712237724323785,
+      "bins_hash": "fded21cd9ee4fbaf5a472670780ab9476b706246ee8a47b2581a8186026a8ba9"
+    },
+    "decoder.layers.5.mlp.linear_fc2.weight": {
+      "norm": 0.0023450965082155765,
+      "bins_hash": "99c487ce44a56b956b0c033b69d225cec4050d9b858e1a633a0b77af7361d523"
+    },
+    "decoder.layers.5.self_attention.k_layernorm.weight": {
+      "norm": 0.00010081668395123842,
+      "bins_hash": "acb3061676e03f572665291f395e5f04a49f96d2bc36787ff637f44437d1c08a"
+    },
+    "decoder.layers.5.self_attention.linear_proj.weight": {
+      "norm": 0.0010027664909407806,
+      "bins_hash": "056b1a5e443ba32165bec0c82ba4f02bd94e103f57b76ef97453741dc611ea59"
+    },
+    "decoder.layers.5.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0005595230537371533,
+      "bins_hash": "0307646f0ca51c136493d2d3c5bc35e1a8293e032bfdc83ad5ab0ed095bedbf4"
+    },
+    "decoder.layers.5.self_attention.linear_qkv.weight": {
+      "norm": 0.0016376199803575552,
+      "bins_hash": "6e86cfc9122db61d05a20f19fcf83f5736e377e54705d74d43a5dcb587064a10"
+    },
+    "decoder.layers.5.self_attention.q_layernorm.weight": {
+      "norm": 6.710012750952817e-05,
+      "bins_hash": "cde3b93d411a7c3d1ac63adedcfe3b2524b856fd52bf38ddcc0516648eeddfb6"
+    },
+    "decoder.layers.6.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0002475047665460893,
+      "bins_hash": "959e0aeb9c6f3daea52f49e40a1361c8748a581dd753455800b070ba2ec7699f"
+    },
+    "decoder.layers.6.mlp.linear_fc1.weight": {
+      "norm": 0.0056117046263614925,
+      "bins_hash": "552b374e0bacfcc3b0d6e34ab66dc84886294f039ae10ac45ffb1b81d1460b4e"
+    },
+    "decoder.layers.6.mlp.linear_fc2.weight": {
+      "norm": 0.034141644599889734,
+      "bins_hash": "1e672ddabc4b4382ca06766566a4cb0aecadd161f454b287aff05b4317c97175"
+    },
+    "decoder.layers.6.self_attention.k_layernorm.weight": {
+      "norm": 3.641236672040956e-05,
+      "bins_hash": "45b9a4df329f2cf1a04bcd1605abcce59ce0c557bc79a70fdc63429b3c77742b"
+    },
+    "decoder.layers.6.self_attention.linear_proj.weight": {
+      "norm": 0.001397111585300319,
+      "bins_hash": "58a3f4be4e505cdceff356bfc7ff5ac802fd1e5e23c5556eab0b8b0b150c9421"
+    },
+    "decoder.layers.6.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0004928726508572487,
+      "bins_hash": "a4840149f7319258b72df517cc454881bbf3ceba0f36a3d04f47bd26b33fca42"
+    },
+    "decoder.layers.6.self_attention.linear_qkv.weight": {
+      "norm": 0.0018141107950187603,
+      "bins_hash": "77655a9fe2061bce14aa91394ade21747a7e5b5fedd5099d3d6623ba1c685cbb"
+    },
+    "decoder.layers.6.self_attention.q_layernorm.weight": {
+      "norm": 2.8789800505419477e-05,
+      "bins_hash": "c690258458ca246463324e20f4ae6e86c487eb80ae35f6456f739e16fdc93c9e"
+    },
+    "decoder.layers.7.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0002588280996491602,
+      "bins_hash": "469e5b65756aeed71e0a9c2c9eb5d87538dbe8926ec888ef6d1211c99678cc6f"
+    },
+    "decoder.layers.7.mlp.linear_fc1.weight": {
+      "norm": 0.005581387107819794,
+      "bins_hash": "1c854229bb7b9fc7137ec0e92d9b572edd60af6ca9e63fe265849ffa5bcaca8e"
+    },
+    "decoder.layers.7.mlp.linear_fc2.weight": {
+      "norm": 0.0023433632958957057,
+      "bins_hash": "8b4afd421e6561498ba1b847199a8b9115e6942202c170bf37e7a9569d74e0b2"
+    },
+    "decoder.layers.7.self_attention.k_layernorm.weight": {
+      "norm": 7.453761864783186e-05,
+      "bins_hash": "b4f3ac9564c6e5a30f92f0fba1989afc8650eee2f841506df9b69e77b63463ac"
+    },
+    "decoder.layers.7.self_attention.linear_proj.weight": {
+      "norm": 0.0011764454483835876,
+      "bins_hash": "edb61a08dd9a18f1eb9429c50b210f491ee2871799d90c1184e2bdd256650d74"
+    },
+    "decoder.layers.7.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0005121097624603885,
+      "bins_hash": "d81eb658efd29f6ccfb35104cf7cadd3e7006dfa0a0e3ee900f738af6125a536"
+    },
+    "decoder.layers.7.self_attention.linear_qkv.weight": {
+      "norm": 0.002836092616872914,
+      "bins_hash": "bb04c7dbf9d8e6bce2c30e0aeca64028778ff95b4add05e9583391a40064211f"
+    },
+    "decoder.layers.7.self_attention.q_layernorm.weight": {
+      "norm": 8.968678754550613e-05,
+      "bins_hash": "b4fec2b965709427ae209afcb97908f31091a87724c57edacda1d3e4d734eefd"
+    },
+    "decoder.layers.8.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.00029808511964693967,
+      "bins_hash": "dadddcec1e15b7889359bd451ab01e16c7afbda838303e89bd5df202ec3820ab"
+    },
+    "decoder.layers.8.mlp.linear_fc1.weight": {
+      "norm": 0.003052739225731367,
+      "bins_hash": "0a0fd419444e777a6368e82a5866d80526d1f637df7c37c02c7c3bf7fc9eac7f"
+    },
+    "decoder.layers.8.mlp.linear_fc2.weight": {
+      "norm": 0.0027866109332268085,
+      "bins_hash": "d61a3eb1966224f756808c4b8139141ab42917e0ca9878fe81f9c88b2f307a73"
+    },
+    "decoder.layers.8.self_attention.k_layernorm.weight": {
+      "norm": 0.00011743515274467044,
+      "bins_hash": "b6c2a18c0d7a8f1630e02a44ce26d259583d2b0b5be61c732bea64304dcf87bd"
+    },
+    "decoder.layers.8.self_attention.linear_proj.weight": {
+      "norm": 0.0014002084364032677,
+      "bins_hash": "8c682ed7a7aedde25c2fab421a92e54f6db8c8be9ca54144235fb5b853e33da4"
+    },
+    "decoder.layers.8.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0003409547082909053,
+      "bins_hash": "e333bf66a79771bf0ae9452815e95e14dfa7e0f1872790b36d49cdb92b9db9cd"
+    },
+    "decoder.layers.8.self_attention.linear_qkv.weight": {
+      "norm": 0.003425098930172928,
+      "bins_hash": "3944167f1874234d85abe6a7dfad0831351f29313288e6d21ce6fdb73de0d624"
+    },
+    "decoder.layers.8.self_attention.q_layernorm.weight": {
+      "norm": 0.0002542311703579025,
+      "bins_hash": "7875162c9930fb1bca1abbfe2bacc5f51d34acde2ef6699ffc263b80208b8683"
+    },
+    "decoder.layers.9.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.00030140080787074904,
+      "bins_hash": "111616be1e9e213f4c5417ae89e6fa7c20466847463d1e644f6fe47bb260ea78"
+    },
+    "decoder.layers.9.mlp.linear_fc1.weight": {
+      "norm": 0.0034906643208183295,
+      "bins_hash": "768852f5a471f8de12bdc3e64dc4caa02fa7ab42b6797eed81fb71c98dd6a9b4"
+    },
+    "decoder.layers.9.mlp.linear_fc2.weight": {
+      "norm": 0.0031489598217994156,
+      "bins_hash": "96af2e016275fd22b7b32d7ecee9eb78a30de8bb4cf6664003bcfaac2f80094e"
+    },
+    "decoder.layers.9.self_attention.k_layernorm.weight": {
+      "norm": 9.517225878966398e-05,
+      "bins_hash": "e53059642e89f8ad7edf1a09fbc975e18be62ed08b4d888fc044353f5c6add61"
+    },
+    "decoder.layers.9.self_attention.linear_proj.weight": {
+      "norm": 0.0014281391100027258,
+      "bins_hash": "211400740a3aff9cf0119bb2e548d20c763adde0db2b765f7424a013cb33626e"
+    },
+    "decoder.layers.9.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0004033565564050118,
+      "bins_hash": "62ad99179fe2218e0f4c24d13193440e3c2b663b7e94e52339e720949c149d8f"
+    },
+    "decoder.layers.9.self_attention.linear_qkv.weight": {
+      "norm": 0.003485236613006549,
+      "bins_hash": "3406cafd22c07b67ee8150ecfc36b83f12cb4c3cb7e42ade63539e469865d59d"
+    },
+    "decoder.layers.9.self_attention.q_layernorm.weight": {
+      "norm": 6.919365702929277e-05,
+      "bins_hash": "ed07b98d9ede4c091f179abe9e695343fd3721bc3706d37ed395fe60ca280c6f"
+    },
+    "embedding.word_embeddings.weight": {
+      "norm": 0.0014051316412744136,
+      "bins_hash": "29d804211e8fbb2457ad9a8136b7cc133c6627eeda9195ab0171b31e2d63c9b4"
+    },
+    "output_layer.weight": {
+      "norm": 0.01559560120808288,
+      "bins_hash": "9e4d24771943c59d58cae3e2a8d989d8bde80e474e41bdf84bbbf47a9c11d840"
+    }
+  },
+  "fixed": {
+    "decoder.final_layernorm.weight": {
+      "norm": 0.00011059684271771429,
+      "bins_hash": "04fce2d3c5eeb7c102125e5150370cdde00ca71a63f4841a5ea5f95e97f5fea2"
+    },
+    "decoder.layers.0.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.00023047660401174483,
+      "bins_hash": "dad0372fce60d2bd2b9a0f390f7e35284ba16f237a2c17555827591aba7572af"
+    },
+    "decoder.layers.0.mlp.linear_fc1.weight": {
+      "norm": 0.0008639966866892898,
+      "bins_hash": "490bafb34eee3e36f03c553195d5f6d963a465b9621b0860b89d6dde0a0e3195"
+    },
+    "decoder.layers.0.mlp.linear_fc2.weight": {
+      "norm": 0.0015280732232319928,
+      "bins_hash": "836786b5175a04f591ab18f07e66d9987cb67a29264d4190a37ac44a67073c02"
+    },
+    "decoder.layers.0.self_attention.k_layernorm.weight": {
+      "norm": 2.9678306527301798e-05,
+      "bins_hash": "953dbbf2ab09e29441f5e5115cb9ea462115ec6a05a21504c8f1cdc1c5c1c514"
+    },
+    "decoder.layers.0.self_attention.linear_proj.weight": {
+      "norm": 0.0009149211526919969,
+      "bins_hash": "01c53a63a3498ec06a3cd59adf5f88c29dc56a93be65f228a303217d9448758e"
+    },
+    "decoder.layers.0.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.002788719408139392,
+      "bins_hash": "38cf24156c57084ec7441a270918129ede92c0c2ae6c49f2d43243905c94a316"
+    },
+    "decoder.layers.0.self_attention.linear_qkv.weight": {
+      "norm": 0.0011271092430757829,
+      "bins_hash": "ff11f8f179a2b48ac82d1dffa66417a5dc5c54b29b7a587f69c07f45edc3e37f"
+    },
+    "decoder.layers.0.self_attention.q_layernorm.weight": {
+      "norm": 4.957974987549918e-05,
+      "bins_hash": "533573d82a1a80a83622be34dec3b2475b3b638f6db80907bb206a6246ee088b"
+    },
+    "decoder.layers.1.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 9.099297280756497e-05,
+      "bins_hash": "ad09421d12f58d0448e04f386a20d459a5d1779cd2ab827d8267a07af5b1841f"
+    },
+    "decoder.layers.1.mlp.linear_fc1.weight": {
+      "norm": 0.0025955404966924132,
+      "bins_hash": "f24583c74778ce2f596f8f551b9bae0924091fbfcfcd5df5c768f9264304dcc0"
+    },
+    "decoder.layers.1.mlp.linear_fc2.weight": {
+      "norm": 0.0014491302718605413,
+      "bins_hash": "5e4dfd87c14d79784a5a03258ddfe64070fb155a8f8b3c156d8e54ca6a208397"
+    },
+    "decoder.layers.1.self_attention.k_layernorm.weight": {
+      "norm": 1.696984352026345e-05,
+      "bins_hash": "fc9461f4da8185c82e0bf3d2cfd58db76c19fbf8c80e886978e75b47b9e67d91"
+    },
+    "decoder.layers.1.self_attention.linear_proj.weight": {
+      "norm": 0.000658106627880828,
+      "bins_hash": "be302a570264b28a8bbc777339bb0ded98795eb93afc11a7edc9221c48ef2515"
+    },
+    "decoder.layers.1.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0005918032968958084,
+      "bins_hash": "c86943f7e4bba6e2e5519525ba4ae67c9f0e4f643d14e4078fabf742d652d8a6"
+    },
+    "decoder.layers.1.self_attention.linear_qkv.weight": {
+      "norm": 0.0011269616932473889,
+      "bins_hash": "594fe4dd51dffb017991ffd8216cc850be01af274b580a39ec15663b1c2f4889"
+    },
+    "decoder.layers.1.self_attention.q_layernorm.weight": {
+      "norm": 1.645237114860843e-05,
+      "bins_hash": "a8c68e0091755bb3bd773528efd0572a6fc9a5c67ee99b732c22bd42948caf44"
+    },
+    "decoder.layers.10.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.000367169768384324,
+      "bins_hash": "d0996ebf3dea0c412d0bdcd43dc3197ef5f1ccc64986800999423bd33d651bcb"
+    },
+    "decoder.layers.10.mlp.linear_fc1.weight": {
+      "norm": 0.0037886007330061333,
+      "bins_hash": "056993310650e554fba31d15320802720fc91bc209c63b55b30b9d25bb8aa9b1"
+    },
+    "decoder.layers.10.mlp.linear_fc2.weight": {
+      "norm": 0.0032861139982929676,
+      "bins_hash": "26d4d8997f86a54253b0f34b8a3c16a016b9f3ea5cca831abc8b2651d7bc7874"
+    },
+    "decoder.layers.10.self_attention.k_layernorm.weight": {
+      "norm": 0.0002018088421366232,
+      "bins_hash": "ffd7b52336e28a3e0788ee681d5efc50c09e651eb1561184dd2bcbaf648378f4"
+    },
+    "decoder.layers.10.self_attention.linear_proj.weight": {
+      "norm": 0.0021339634496100805,
+      "bins_hash": "85b6bdeb3503f60b32cfcd60c0239babc88e1706d162796167b08ad18b59b701"
+    },
+    "decoder.layers.10.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.00026325777330848184,
+      "bins_hash": "56d629734b3c44d872367a8c3c724cf29ebccd4ff507cee707347d46fbd01f49"
+    },
+    "decoder.layers.10.self_attention.linear_qkv.weight": {
+      "norm": 0.004752807335966861,
+      "bins_hash": "30a6c3dda747a68ee578704e35db642650458ae01f05ca2c7ca2cfc4c5230095"
+    },
+    "decoder.layers.10.self_attention.q_layernorm.weight": {
+      "norm": 0.00011012509417510465,
+      "bins_hash": "817fe9c252f27733406f061b8539f96e7eb60446a7236d1120c412b4fcd04000"
+    },
+    "decoder.layers.11.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.000358298978637732,
+      "bins_hash": "2fdbb362627055abd70d96c31d8f25f59bedc6c8e583a841906265cd7a8c778c"
+    },
+    "decoder.layers.11.mlp.linear_fc1.weight": {
+      "norm": 0.003908463829043324,
+      "bins_hash": "69def9afd466cb665447476bacbd20833df4f48241597693fdd1c3f44579a3d5"
+    },
+    "decoder.layers.11.mlp.linear_fc2.weight": {
+      "norm": 0.003466873416996164,
+      "bins_hash": "c86efdf01a22a3b344c92f7553fdc7c86c515c398abb89adf8f8fae8794a22b7"
+    },
+    "decoder.layers.11.self_attention.k_layernorm.weight": {
+      "norm": 0.00012935559320233287,
+      "bins_hash": "b575889cf34ec0f31867c12d69b6f6dc0941e68610b6cc4f664500f56e14b2e7"
+    },
+    "decoder.layers.11.self_attention.linear_proj.weight": {
+      "norm": 0.0019434857929900207,
+      "bins_hash": "1b1cbc43bcd7a07d20356a508b842330eb0a0f3773556672de305ce04981fb31"
+    },
+    "decoder.layers.11.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0004217207789893533,
+      "bins_hash": "6850027d2249ae0d69490be901b8bd207c1b00ea42e09bac20fa2172b855190f"
+    },
+    "decoder.layers.11.self_attention.linear_qkv.weight": {
+      "norm": 0.004325693530025142,
+      "bins_hash": "7af5be32e43c921eac1c31c2026d7ab0624ded5d2f06163d37a5345e60bed1a0"
+    },
+    "decoder.layers.11.self_attention.q_layernorm.weight": {
+      "norm": 0.00018350169835877248,
+      "bins_hash": "57d1d1c1aa32da08edee6beea96418373354ed2d00ef23b23b4f53f39d8748d3"
+    },
+    "decoder.layers.12.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0004558177983924848,
+      "bins_hash": "9d9c9873a2c98f5c4e50a56b455623aca5fff7495d33da4b3d66c2f9b99aab9d"
+    },
+    "decoder.layers.12.mlp.linear_fc1.weight": {
+      "norm": 0.00430057350967623,
+      "bins_hash": "1ae0afcf76b2f936d18b850f63abf4c928fcecf3568e9fbff1a89713574ce1a7"
+    },
+    "decoder.layers.12.mlp.linear_fc2.weight": {
+      "norm": 0.0036924718271418746,
+      "bins_hash": "33eabac8c919c7d6f1180ddab3526697884c49a19b9f134d8333f04eb1bb7333"
+    },
+    "decoder.layers.12.self_attention.k_layernorm.weight": {
+      "norm": 0.00013808157690615996,
+      "bins_hash": "a1ff99bd2c826ee8d3b3cf4bd16190ff4631b66e472b9bdfee4cfc1cc5280c98"
+    },
+    "decoder.layers.12.self_attention.linear_proj.weight": {
+      "norm": 0.0024141858839291683,
+      "bins_hash": "99cf0306fb20401c1e3ed3bf1f94dbdaba775df7e1fa4d4fedc016583b1340ab"
+    },
+    "decoder.layers.12.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.00033847909756914226,
+      "bins_hash": "26b001fabfc499d3f8abe6c1a0e976e2fcf2e02d9ec674ef6125b5f7c6c1da17"
+    },
+    "decoder.layers.12.self_attention.linear_qkv.weight": {
+      "norm": 0.00444364998888478,
+      "bins_hash": "ce8c7237ecdea9b3059782e8b1a1e30a44553f51af741d93d0a5c896f352f126"
+    },
+    "decoder.layers.12.self_attention.q_layernorm.weight": {
+      "norm": 0.00010563784296444027,
+      "bins_hash": "ef7c2cb30d37045d802acf629639ebf3040bb976e6fed7e037b4a0463b282a1d"
+    },
+    "decoder.layers.13.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.00041951715303197707,
+      "bins_hash": "de36bfb86df143e4c009c89c9b7d8c669ea64dee0a8cf975fa54bba59e088303"
+    },
+    "decoder.layers.13.mlp.linear_fc1.weight": {
+      "norm": 0.0045196731858321145,
+      "bins_hash": "deb915656b88e8e0486b6611de17f1ede65b9bf007e51ca7e77c716e341ae1a4"
+    },
+    "decoder.layers.13.mlp.linear_fc2.weight": {
+      "norm": 0.003483963574352077,
+      "bins_hash": "91fd6adf31925190569a2972e1cc3a5cb2a8831d7bf808baf059c625e3638c20"
+    },
+    "decoder.layers.13.self_attention.k_layernorm.weight": {
+      "norm": 9.74451693274354e-05,
+      "bins_hash": "ea70d7855db6bf973b6a0e5b2631bae4c04958d5e4ad472ee8cf98bcad8256c4"
+    },
+    "decoder.layers.13.self_attention.linear_proj.weight": {
+      "norm": 0.002252436222994412,
+      "bins_hash": "80b763127f03355a85aa8c7ea97c929d7919451260e9c35d4ae7df94ddabdc8a"
+    },
+    "decoder.layers.13.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.00044870324035937835,
+      "bins_hash": "dc6945e83099cf806c1abd9b5989ab155f393e4d443cef7738b88b4ff9f5f85f"
+    },
+    "decoder.layers.13.self_attention.linear_qkv.weight": {
+      "norm": 0.004433112521913117,
+      "bins_hash": "2fc1823c5ee08adc045a08b21fa313f3eae3007ddfd52b2e4d25ea953a4f6ff1"
+    },
+    "decoder.layers.13.self_attention.q_layernorm.weight": {
+      "norm": 7.321337199341362e-05,
+      "bins_hash": "e70c1d8b2d3f2c7a35df14243f83c3f9c1ede8834c1c45974baa572436544f50"
+    },
+    "decoder.layers.14.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0004419519643062748,
+      "bins_hash": "129707e0b3f70281605432057ca70bfcdadce77b9bb4c51df0adcbab37f469c9"
+    },
+    "decoder.layers.14.mlp.linear_fc1.weight": {
+      "norm": 0.0044928521797478835,
+      "bins_hash": "235b5b33c71d5534c4effb620f13605fe2848aba53c13cc50118bb84ba903d5d"
+    },
+    "decoder.layers.14.mlp.linear_fc2.weight": {
+      "norm": 0.0034999636900023743,
+      "bins_hash": "becb72b0907d6795a355b27cc27f3ac7502ad2a2bb9273b23df9a1cd3fc9dd5f"
+    },
+    "decoder.layers.14.self_attention.k_layernorm.weight": {
+      "norm": 0.00011368221192034579,
+      "bins_hash": "7c87e8742b08f074ad7caa5876b1eb17c6ec01cfcceb59d8babe2a86a0075708"
+    },
+    "decoder.layers.14.self_attention.linear_proj.weight": {
+      "norm": 0.003043216932029141,
+      "bins_hash": "75fee1bfcc3be0cf1ea8a55143c04b99c5ce89ad70f2078703d37276e9c6c4d2"
+    },
+    "decoder.layers.14.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0006439281353502312,
+      "bins_hash": "18581f58a09a4bc3c6a7ea89ab11d250cea2566fef477589f52d7fdac11dc006"
+    },
+    "decoder.layers.14.self_attention.linear_qkv.weight": {
+      "norm": 0.005219131283186797,
+      "bins_hash": "0b4d696084532f236aa322de64bd69c7b81ec37de01da690e83f6ea5cac90d23"
+    },
+    "decoder.layers.14.self_attention.q_layernorm.weight": {
+      "norm": 0.00021481308663775218,
+      "bins_hash": "4680915dcf47824e6e8735729e9a82d069b44b1b1deda4d69dc49f281f4c95cf"
+    },
+    "decoder.layers.15.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0003716492141694911,
+      "bins_hash": "f7e71e141bbd17cab0bebbf634e2fd8a65c6b1260ecc7175e548f198e12ef052"
+    },
+    "decoder.layers.15.mlp.linear_fc1.weight": {
+      "norm": 0.004343298700235488,
+      "bins_hash": "56a22feac6e196a368e4edc95a71c1e101895466cef77569eaadc7509b6779f3"
+    },
+    "decoder.layers.15.mlp.linear_fc2.weight": {
+      "norm": 0.003307608006957736,
+      "bins_hash": "959cc9c565a44e04880da29bbba255a3fe386daed0b0ecb5ba7cb14d02f2088e"
+    },
+    "decoder.layers.15.self_attention.k_layernorm.weight": {
+      "norm": 8.42798282246605e-05,
+      "bins_hash": "79bb509b67f61740f7b53abd9aa1bad1149904d15b29a85b1b8ee6ed90324efd"
+    },
+    "decoder.layers.15.self_attention.linear_proj.weight": {
+      "norm": 0.0032477630130685123,
+      "bins_hash": "460bad513d5b7aef88c7ce57da2ca2f4160a61506335c28e12d3034e5e15c375"
+    },
+    "decoder.layers.15.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.00040297586421357854,
+      "bins_hash": "8c6bdbdd95e689b3f50e68ca99009b202df0a7db38398c79669897b84869cd33"
+    },
+    "decoder.layers.15.self_attention.linear_qkv.weight": {
+      "norm": 0.005974418960325021,
+      "bins_hash": "35185b95cb3699910f51fb99a6228863db59d5b01fd5a2ec38fa887cf8012467"
+    },
+    "decoder.layers.15.self_attention.q_layernorm.weight": {
+      "norm": 0.00010524838925143912,
+      "bins_hash": "f3ba38c292b2b87815b0d27759efad3aa2eb44457871ae2e8f96d9c17bba446e"
+    },
+    "decoder.layers.16.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0003777901938552195,
+      "bins_hash": "f4983430c4b10c379e3be74795dc17b216a529bed9a5d5065106820f7fd73825"
+    },
+    "decoder.layers.16.mlp.linear_fc1.weight": {
+      "norm": 0.004213531290390073,
+      "bins_hash": "d3dde7eef103b03935c6ee1c401a03681d4236abc4f25e12577a74898db4b861"
+    },
+    "decoder.layers.16.mlp.linear_fc2.weight": {
+      "norm": 0.0032285072539398134,
+      "bins_hash": "6deedbc066e93526de90383de438a3f5db8d566311de925b189a460878a84f85"
+    },
+    "decoder.layers.16.self_attention.k_layernorm.weight": {
+      "norm": 7.193130022983536e-05,
+      "bins_hash": "4a1a9e17e19e1f0d64e95064444d4585c1f72b5b219eb344da1dc7c7a526285b"
+    },
+    "decoder.layers.16.self_attention.linear_proj.weight": {
+      "norm": 0.0030922297914106477,
+      "bins_hash": "68229062dc9d12e126acd525f672512f40fd701e645a820bef2a92c9a6b96702"
+    },
+    "decoder.layers.16.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0005034504292049288,
+      "bins_hash": "f29f820ece4eb7819354fcfd9ee7949b2c969457558f9714454a3b8e39d364ac"
+    },
+    "decoder.layers.16.self_attention.linear_qkv.weight": {
+      "norm": 0.0064405916229306045,
+      "bins_hash": "dbe8095039dfda789515855bc294b155d7b5c5324b2b79011261f1b2fe5fff98"
+    },
+    "decoder.layers.16.self_attention.q_layernorm.weight": {
+      "norm": 7.196591142861324e-05,
+      "bins_hash": "d1c6475e0f816098af556c2b4005b36574d434f7966687df8c5fc40c009c521f"
+    },
+    "decoder.layers.17.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.00039359641035423054,
+      "bins_hash": "d225dd99485b317d382f851beec73228f2ccdd7504effc6ecc62fb184bab52c0"
+    },
+    "decoder.layers.17.mlp.linear_fc1.weight": {
+      "norm": 0.004250863620892796,
+      "bins_hash": "9240e6b85a746648ef2c46c20be6dc06702fa7c33759ae05c5160caeb74d4fba"
+    },
+    "decoder.layers.17.mlp.linear_fc2.weight": {
+      "norm": 0.003195283481293867,
+      "bins_hash": "5e163c1c0da565c029cf502f6a1ac16420d6ca2f0aa0e3c87793e68ceba9c21f"
+    },
+    "decoder.layers.17.self_attention.k_layernorm.weight": {
+      "norm": 9.233840513210906e-05,
+      "bins_hash": "f52b52c8e1f451473a1926802968cfe26e406fe3606728b083ddb8f4879e81b9"
+    },
+    "decoder.layers.17.self_attention.linear_proj.weight": {
+      "norm": 0.0037374383373271767,
+      "bins_hash": "3a853ee2ced6407dcbaa8d75a976648de429ecb79d7223585ec66170e19be839"
+    },
+    "decoder.layers.17.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0003754695288811464,
+      "bins_hash": "1be340f3f62ae810a8b1c0ee52ca1346d2aa19f233bc298473998bc954ddddfb"
+    },
+    "decoder.layers.17.self_attention.linear_qkv.weight": {
+      "norm": 0.006270241383105909,
+      "bins_hash": "8ac96e7936462027c2c26e248d3969f0fb6d2ae45ca9509ed3f21839a8e11db3"
+    },
+    "decoder.layers.17.self_attention.q_layernorm.weight": {
+      "norm": 9.398342711479508e-05,
+      "bins_hash": "95fbec22553538af293f47ae9872b348cf47735b824f3361ea7b9025a014b610"
+    },
+    "decoder.layers.18.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0004749713441767859,
+      "bins_hash": "68e04680aa36ea9632b0f6ca2f62b4b65eed5f2d314a7acb3cdf2ab3fac65209"
+    },
+    "decoder.layers.18.mlp.linear_fc1.weight": {
+      "norm": 0.0042011943897535915,
+      "bins_hash": "0548db26f4904c1ee321570706d34fdb001c1144d90fe2d9ce4b4c240dd8ad3d"
+    },
+    "decoder.layers.18.mlp.linear_fc2.weight": {
+      "norm": 0.0030581627085765565,
+      "bins_hash": "c27c4be7c5e76fd63e914162903ad0144a411370f7460841b39cee2443aa3677"
+    },
+    "decoder.layers.18.self_attention.k_layernorm.weight": {
+      "norm": 0.00010395126008254873,
+      "bins_hash": "1f708ed776349140b5d5adb6162f46ca61ffd125ec9c2d5186f1dc546ce74d95"
+    },
+    "decoder.layers.18.self_attention.linear_proj.weight": {
+      "norm": 0.00427977936694961,
+      "bins_hash": "d62416fc339ad16098f1827afe21de1930942618ac9fa61e3380441ff213daf8"
+    },
+    "decoder.layers.18.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0002728584584757972,
+      "bins_hash": "09184f26c9bc37035375f73b791c4672ea6ad32bc1d2517763da748c963a85fd"
+    },
+    "decoder.layers.18.self_attention.linear_qkv.weight": {
+      "norm": 0.00735247301645742,
+      "bins_hash": "df6458b8f1d79af857065a6813d1f2e57ba3857d804825f27a41b4b2c4d49b1b"
+    },
+    "decoder.layers.18.self_attention.q_layernorm.weight": {
+      "norm": 0.00010792920811764482,
+      "bins_hash": "e3c99ffd4d7d7b2ab18f7e0e35a1d5432afdb0555387059372ea290b8be4bb32"
+    },
+    "decoder.layers.19.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0003130969067224419,
+      "bins_hash": "444482df88f29767e3f60bae528341946661229405ffa0d3c1ef6964c98a7370"
+    },
+    "decoder.layers.19.mlp.linear_fc1.weight": {
+      "norm": 0.0043090353093310505,
+      "bins_hash": "8248b77b59c03a45b180d13f4f58405cd0809195cc6ce284c45debb557915b67"
+    },
+    "decoder.layers.19.mlp.linear_fc2.weight": {
+      "norm": 0.003157371605921654,
+      "bins_hash": "c33a5f0bcb066bb500d416e33ef9a7fc238a32f74141be8b2de4f9e52c67f545"
+    },
+    "decoder.layers.19.self_attention.k_layernorm.weight": {
+      "norm": 8.652807216471315e-05,
+      "bins_hash": "cfd234b598b934313d49641717df830c447da2cc9fa105530fc9d4de3f0bc72b"
+    },
+    "decoder.layers.19.self_attention.linear_proj.weight": {
+      "norm": 0.003607217004413766,
+      "bins_hash": "c7bce389fb03fd38288fb27331696785cfcfe282d9cc40fa2ef6428e80870570"
+    },
+    "decoder.layers.19.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.00021969083064875026,
+      "bins_hash": "e693ae8c76f1fafb5637c328f0f05a6b7784732fe49981276ce4d52be421df51"
+    },
+    "decoder.layers.19.self_attention.linear_qkv.weight": {
+      "norm": 0.007482586516050459,
+      "bins_hash": "f1f4dd0eaedfb11303175e96bc59d009c40ca724f775822263db79773af47f29"
+    },
+    "decoder.layers.19.self_attention.q_layernorm.weight": {
+      "norm": 0.00011185794566413848,
+      "bins_hash": "da7d3116ca79fea5f0f816a33057abb1bc3f89e623de4b8ea1ca5de21fc60624"
+    },
+    "decoder.layers.2.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 4.890374009501967e-05,
+      "bins_hash": "750bf12e119f0cc77e81c9daf3a691237f0da4e621cf9ac6df4f24544d538214"
+    },
+    "decoder.layers.2.mlp.linear_fc1.weight": {
+      "norm": 0.0031291048151019228,
+      "bins_hash": "0f49db1f1f6febc8a517bc73022fb89bc3981064540349e57b7ea61750e73f9b"
+    },
+    "decoder.layers.2.mlp.linear_fc2.weight": {
+      "norm": 0.001777772824441056,
+      "bins_hash": "1557cf09520914290d41a8b5a8c17b8444e5ff3f6087dff2d59e245dd9af927d"
+    },
+    "decoder.layers.2.self_attention.k_layernorm.weight": {
+      "norm": 1.35732396477161e-05,
+      "bins_hash": "43cb65c6d95325be28a4875340bd18dbb2998e7820a34e419af26fbc5a02ae78"
+    },
+    "decoder.layers.2.self_attention.linear_proj.weight": {
+      "norm": 0.0006348093431500065,
+      "bins_hash": "71c929c93c59d27f0bbe0271f85d3a4e1e9dbc7f0c499a30cf94d0b39fbdbf13"
+    },
+    "decoder.layers.2.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0006003444389328937,
+      "bins_hash": "2d05dbf419f64aef977e6342fe87b22b65c9562acb4e2ead94a72214c8109388"
+    },
+    "decoder.layers.2.self_attention.linear_qkv.weight": {
+      "norm": 0.00086171091994067,
+      "bins_hash": "64124ac3886b0603490552eaf469c0771699db2df0f0eae8b9be3c7e87da470d"
+    },
+    "decoder.layers.2.self_attention.q_layernorm.weight": {
+      "norm": 1.1974590391934494e-05,
+      "bins_hash": "999a12934dfbf57e92ffe0674f54c1401ddc729669588f1c7b5eaa5192bececb"
+    },
+    "decoder.layers.20.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0003106731827735208,
+      "bins_hash": "e06c2d3be9b4b91b2bee5e6f0f0fbad931b81be7ddd213a6d71a3249cd957093"
+    },
+    "decoder.layers.20.mlp.linear_fc1.weight": {
+      "norm": 0.004212408333619601,
+      "bins_hash": "7df682ddabdcc3f62aea719be0866b450c657c47fc4fcb941adff4de10070376"
+    },
+    "decoder.layers.20.mlp.linear_fc2.weight": {
+      "norm": 0.0029230600520541365,
+      "bins_hash": "0d8233502cbb0fed8722f33582e6b3f599db66d52da014c7ba8697601839d5ca"
+    },
+    "decoder.layers.20.self_attention.k_layernorm.weight": {
+      "norm": 9.745799582039478e-05,
+      "bins_hash": "4326a4c153e8e42483eac99c90aa318356a3bcf0b9ab1ade51de1befb43c5b3c"
+    },
+    "decoder.layers.20.self_attention.linear_proj.weight": {
+      "norm": 0.003401272660344296,
+      "bins_hash": "6cf14c6c35127ee9d5743730f9f879d0fb8ad09015f255d3570d2cf77f543133"
+    },
+    "decoder.layers.20.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.00018187045808206237,
+      "bins_hash": "b7cecfe82d756e67b603001af220841e2ea6f3f519b1a203ca54906b02bf22b7"
+    },
+    "decoder.layers.20.self_attention.linear_qkv.weight": {
+      "norm": 0.007440138020493986,
+      "bins_hash": "34e0f8a959c570f5e6fd0b76bfec613f9dd98915dae0180dd45a0355de092035"
+    },
+    "decoder.layers.20.self_attention.q_layernorm.weight": {
+      "norm": 0.00010705374419911563,
+      "bins_hash": "0a6e563ac5def48b35189b73381ae02a873ae765c96d9f79e5be3ecda65b0602"
+    },
+    "decoder.layers.21.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.00025590238220934216,
+      "bins_hash": "6c69cee1d9db0292571422856ca392f65ca2de50269aa7aada70b354c275a159"
+    },
+    "decoder.layers.21.mlp.linear_fc1.weight": {
+      "norm": 0.004249109280447868,
+      "bins_hash": "beecbe266de01afa008087999004e4c5b52f43de1e809bf03a8346e0f45f1c82"
+    },
+    "decoder.layers.21.mlp.linear_fc2.weight": {
+      "norm": 0.0028311086716820743,
+      "bins_hash": "542ab06b598292226f4329890608901aab182cb07f293bbff27dbd6501fdaf5f"
+    },
+    "decoder.layers.21.self_attention.k_layernorm.weight": {
+      "norm": 0.00010671531677824582,
+      "bins_hash": "745b620a244987927d23c367b69caaf034fd9a18d4cc3ea29906777434f35935"
+    },
+    "decoder.layers.21.self_attention.linear_proj.weight": {
+      "norm": 0.00346361474101972,
+      "bins_hash": "fd2cd6bea21b5635fd55a81bb3aab3895a59b46487af162e389dec65a146e5cc"
+    },
+    "decoder.layers.21.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0001579531485217223,
+      "bins_hash": "b1cea1d1c85c6c5a2ce4b6231a55042812237514f4c326202d301b31e82f728f"
+    },
+    "decoder.layers.21.self_attention.linear_qkv.weight": {
+      "norm": 0.00893918197721606,
+      "bins_hash": "813b55667a50a1b76e244e7203c111b438a41c1e0abf0e65bbba938679e8513d"
+    },
+    "decoder.layers.21.self_attention.q_layernorm.weight": {
+      "norm": 0.00011393849858832512,
+      "bins_hash": "f1c513fe14bf9be5002f9fa2b61da955515c6f19abd93e6962785edd0947742d"
+    },
+    "decoder.layers.22.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.000242865079829047,
+      "bins_hash": "68d010f9427730df1cc44772d94fd92029db0eda125428d5df35b7d135dfa9d1"
+    },
+    "decoder.layers.22.mlp.linear_fc1.weight": {
+      "norm": 0.004476171319093597,
+      "bins_hash": "1c2b2a141c0077daf1d6259afe7b98db470ff1b304de22e26e5fc73d504cece1"
+    },
+    "decoder.layers.22.mlp.linear_fc2.weight": {
+      "norm": 0.003058834832606722,
+      "bins_hash": "82482b51a5f48684ea8613df7b05fdaecf77a5078a6c4a388bc6f0906e5a7534"
+    },
+    "decoder.layers.22.self_attention.k_layernorm.weight": {
+      "norm": 8.112316949556587e-05,
+      "bins_hash": "7d21762c2ee97a294b255f671977f4e1f0056dc1ebd0880dda84a61fc5ec131d"
+    },
+    "decoder.layers.22.self_attention.linear_proj.weight": {
+      "norm": 0.0035512655405740006,
+      "bins_hash": "f4dc4e4c396ecaee376f7f12ed86c07424addb9495725a179cc7dd37ee5ed287"
+    },
+    "decoder.layers.22.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.00014676093360256278,
+      "bins_hash": "cc3b75ee899101a643330ae2fee7350211d55c2351c38eff2d97a7af499d4abd"
+    },
+    "decoder.layers.22.self_attention.linear_qkv.weight": {
+      "norm": 0.007691876247860917,
+      "bins_hash": "fe582757eee1278a71c4bb56a18166acab7cba6046cdb6d2a60bce21ef519ced"
+    },
+    "decoder.layers.22.self_attention.q_layernorm.weight": {
+      "norm": 9.344374626492379e-05,
+      "bins_hash": "64e0e439a0d10d17625c380726655dfad3322ce52cefdd49c1db180e8aa97e65"
+    },
+    "decoder.layers.23.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0002921718736181235,
+      "bins_hash": "b98d969c2aefc3e542f2083e18300af919f47fdbbd2984d2c475652216ed1ed5"
+    },
+    "decoder.layers.23.mlp.linear_fc1.weight": {
+      "norm": 0.0041855744115340526,
+      "bins_hash": "dfc2782790cab41242a4c1d422be1254393de4d8f8568fc85c457a0715e00cb3"
+    },
+    "decoder.layers.23.mlp.linear_fc2.weight": {
+      "norm": 0.0029042663117097496,
+      "bins_hash": "ff3a26e1c5adeb51a153b9145479ee822307ab3989aadbf80f64c520180e6485"
+    },
+    "decoder.layers.23.self_attention.k_layernorm.weight": {
+      "norm": 0.00011147827035760094,
+      "bins_hash": "25c3e562b50b10d0b200bc46263b87b8c2b3f92ce1e0fbb7e14c0c936b6d1168"
+    },
+    "decoder.layers.23.self_attention.linear_proj.weight": {
+      "norm": 0.0030779329126022735,
+      "bins_hash": "c9679f509c9d457737cc90f25d9ea7aa7c7fdea8e5809168c20a50e916c42aed"
+    },
+    "decoder.layers.23.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.00014451064368847544,
+      "bins_hash": "1b6ef632b27341553aaf39058f3cbc1fb3b8c0e9595e172b57e157c1f365d963"
+    },
+    "decoder.layers.23.self_attention.linear_qkv.weight": {
+      "norm": 0.006422622044401771,
+      "bins_hash": "88712eb324695b3f474b6041b6d0e4ab969524948ed04d39a2b79dfc6f373301"
+    },
+    "decoder.layers.23.self_attention.q_layernorm.weight": {
+      "norm": 0.00010842638617449327,
+      "bins_hash": "13c8b491a9bd00656d22b84b7f06f71ec6bdcb2530fead8afa6cbee2364a0371"
+    },
+    "decoder.layers.24.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0001831531649908567,
+      "bins_hash": "179380697817f4a4f46f0bd0f2b33f3224ecac2729cdc348da3843f2b6d0fdea"
+    },
+    "decoder.layers.24.mlp.linear_fc1.weight": {
+      "norm": 0.0036787669868045777,
+      "bins_hash": "3fd219e33a23e1180d218de22150ed74317e034f9f356c815d04b3e5433a6bd5"
+    },
+    "decoder.layers.24.mlp.linear_fc2.weight": {
+      "norm": 0.0027631036168486245,
+      "bins_hash": "c4d6bb0a1351c736736429f59c0c2a9c9bc121e030e59771c19f8df1174a24ce"
+    },
+    "decoder.layers.24.self_attention.k_layernorm.weight": {
+      "norm": 0.00012473608843739756,
+      "bins_hash": "ca5c3f8df7f6add596d047eabaf771e181147e87d1cf732acdc24d58e5abe73b"
+    },
+    "decoder.layers.24.self_attention.linear_proj.weight": {
+      "norm": 0.0022699315113069627,
+      "bins_hash": "3353f2a890f96b73181101c044176890484121012227d07fbb08bf72cf5c9150"
+    },
+    "decoder.layers.24.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0001883044007183601,
+      "bins_hash": "daaaad45a53bb7ac5d186d986a0554c56307121075580de257134e92e0144fd6"
+    },
+    "decoder.layers.24.self_attention.linear_qkv.weight": {
+      "norm": 0.006153572855745514,
+      "bins_hash": "df997c6d9e7e071b41060a7184dc27927dc94acb6cd205f4576ae241700da669"
+    },
+    "decoder.layers.24.self_attention.q_layernorm.weight": {
+      "norm": 0.0001269425786583072,
+      "bins_hash": "88b7c11546159f4636ddf852e448e159f981ebaed03d051021bc54ce29e42268"
+    },
+    "decoder.layers.25.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.00017229394863043886,
+      "bins_hash": "985c2be3aba6478106ffa27a555d1b5d7c5a1a978bab9762a48b09fd05b9c7e9"
+    },
+    "decoder.layers.25.mlp.linear_fc1.weight": {
+      "norm": 0.0034782297722406536,
+      "bins_hash": "394c8255e2b9ad0bb0a99fed88d68d886860cbcbe860e5068c9cc92c235a9ca0"
+    },
+    "decoder.layers.25.mlp.linear_fc2.weight": {
+      "norm": 0.0023472706915301576,
+      "bins_hash": "a3ae26b1ef998c91d63e7a83a9b1fcbba3a9c1e3bda8ad5c59d661bc9191d4d4"
+    },
+    "decoder.layers.25.self_attention.k_layernorm.weight": {
+      "norm": 0.00015676504786431357,
+      "bins_hash": "d0377e4eca6e5ccc60b5e850d11eee21bb7df3379b3a3183a12ffc3caf0d023e"
+    },
+    "decoder.layers.25.self_attention.linear_proj.weight": {
+      "norm": 0.0016944975261039322,
+      "bins_hash": "0ce0cede813dcc7e59584e1c6ef9ad7a3cf84bd3ab6e01d7d2ce12e167ee62ec"
+    },
+    "decoder.layers.25.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 8.951007049618314e-05,
+      "bins_hash": "5ab1b70515992db13aeb5e862c2365f565c2e0011df45de462a7c12e3a82e86e"
+    },
+    "decoder.layers.25.self_attention.linear_qkv.weight": {
+      "norm": 0.004667294545020559,
+      "bins_hash": "42c02a2e15b8eff6dff453c96afad5ab93ea5cf39cb220f0490e689fe7056931"
+    },
+    "decoder.layers.25.self_attention.q_layernorm.weight": {
+      "norm": 0.00012860799718510512,
+      "bins_hash": "05a8c121cb58485ff46a1bf839fc8c86f801fb1e592988b0792ef46f5832450c"
+    },
+    "decoder.layers.26.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0001355658354311263,
+      "bins_hash": "6126ae4162ae8674a11b5f97f4a062a0c703bf441b4db5ddfbbbf0b8ec9ca542"
+    },
+    "decoder.layers.26.mlp.linear_fc1.weight": {
+      "norm": 0.0031044605403162803,
+      "bins_hash": "8ba5ad9fbf54bf727ace5b6979f7a83d826e6c565518bc2c10fed819e15bb9c4"
+    },
+    "decoder.layers.26.mlp.linear_fc2.weight": {
+      "norm": 0.0022401097789193614,
+      "bins_hash": "9047583c5e5b3fec6c46b5cc0b95de8b5b969073b78b3385650222fd870f9e09"
+    },
+    "decoder.layers.26.self_attention.k_layernorm.weight": {
+      "norm": 8.177770543198416e-05,
+      "bins_hash": "593389f83275383b79a6aed4a5f9848659b64bb84a52e9432050cf4a516a9b64"
+    },
+    "decoder.layers.26.self_attention.linear_proj.weight": {
+      "norm": 0.0013086905670504003,
+      "bins_hash": "11ac324326d820e5372b38b958c46bc64c389d5c8c28dc209d6cc922eb36500e"
+    },
+    "decoder.layers.26.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.00015341274477142448,
+      "bins_hash": "e33282dc8d078cd86a905be1585485dcc50ced6f7fc03b14e12268ec37a5a971"
+    },
+    "decoder.layers.26.self_attention.linear_qkv.weight": {
+      "norm": 0.00422796109228433,
+      "bins_hash": "9cb91a05def90cac4f0e79443da44270a33396fb649b219b6e195bf73082d965"
+    },
+    "decoder.layers.26.self_attention.q_layernorm.weight": {
+      "norm": 8.41784763647128e-05,
+      "bins_hash": "3a64990e448f58d2d57dba126d0dc1a2e68763fefad7f48cff2d89c482333dac"
+    },
+    "decoder.layers.27.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.00012087340301461004,
+      "bins_hash": "bb945b5fcad29c6b294e20eca594f574b43a69510e5c4a0653e8de10056fa49e"
+    },
+    "decoder.layers.27.mlp.linear_fc1.weight": {
+      "norm": 0.0030342647125590327,
+      "bins_hash": "eec66ac79b9095cfcc11f9b1c54fcf13df8e323a0324e15e666b15fcc7071fb6"
+    },
+    "decoder.layers.27.mlp.linear_fc2.weight": {
+      "norm": 0.0021649118060639364,
+      "bins_hash": "54406dc5cdc36f1d2ac1b7b5a2fb1e33e1ef72a0d18c60c1469268475544c5d5"
+    },
+    "decoder.layers.27.self_attention.k_layernorm.weight": {
+      "norm": 4.487739548907265e-05,
+      "bins_hash": "fe3cfe220d8f6117ee5ab112e02ea8bad518b0d5a3fe4bf79767bb822f5c39f9"
+    },
+    "decoder.layers.27.self_attention.linear_proj.weight": {
+      "norm": 0.0014377346056440243,
+      "bins_hash": "553f2e9fbc0b82d9b70af197bfb6a8aadf004f64db3639d6d4b64a23d73fba51"
+    },
+    "decoder.layers.27.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 5.706351374775115e-05,
+      "bins_hash": "01d4adf09f2ed8840876eb9e428a9dcd4aeb640831557afe0a949040a3a35279"
+    },
+    "decoder.layers.27.self_attention.linear_qkv.weight": {
+      "norm": 0.0035012987284811377,
+      "bins_hash": "a45e0eb14d126797b49cb16156edee211ac6a920f9086c8e2a8e45c89f5225aa"
+    },
+    "decoder.layers.27.self_attention.q_layernorm.weight": {
+      "norm": 4.663902364212907e-05,
+      "bins_hash": "92766aee278156e1dd2a733857a6331ef581c4f0b9323497da30048210d24d26"
+    },
+    "decoder.layers.28.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.00012257532308451944,
+      "bins_hash": "7473626b83efe771acca3258687605bbfd0f5c685a0f10160c6d81572560f081"
+    },
+    "decoder.layers.28.mlp.linear_fc1.weight": {
+      "norm": 0.003026780428893513,
+      "bins_hash": "82dba3778b046fa2c7a932604db45271beb2079f7f181b8dc773f68b999f7f53"
+    },
+    "decoder.layers.28.mlp.linear_fc2.weight": {
+      "norm": 0.0023632453970599803,
+      "bins_hash": "75bf07ab1c9da09f112ba57dd77b40849dc91aaad82a53a4bbde4a777e9e1163"
+    },
+    "decoder.layers.28.self_attention.k_layernorm.weight": {
+      "norm": 0.00031389109533335694,
+      "bins_hash": "dad09bfd4374563ba5102b9dfa55e0b78382839dd9a23318adc88b51b7d0f016"
+    },
+    "decoder.layers.28.self_attention.linear_proj.weight": {
+      "norm": 0.0013904992950804624,
+      "bins_hash": "7c463fb4a4a1aa7323f950eb2d76d69dc5aafac914f4b53a8bb1c5ff547a153a"
+    },
+    "decoder.layers.28.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 8.560519030163426e-05,
+      "bins_hash": "dd08df67a847524b2336698fe7cf77353aa9832bfaa6b6fa4f1c3625180d79df"
+    },
+    "decoder.layers.28.self_attention.linear_qkv.weight": {
+      "norm": 0.005563201248595218,
+      "bins_hash": "e9dd6faa85b6a1fcd80d2a96a86bbbb705bb6ed6319e389b836368a3f1389cb7"
+    },
+    "decoder.layers.28.self_attention.q_layernorm.weight": {
+      "norm": 9.329963839906941e-05,
+      "bins_hash": "8efefda73b474d7f1cfa28d67644141fd5ef30b57cf65fdd6060b149abd32c28"
+    },
+    "decoder.layers.29.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0001107767764524895,
+      "bins_hash": "76a1b73f83e479a9b260f2afde82363bc010d1aada9d9c9f15ca56f68edefb6c"
+    },
+    "decoder.layers.29.mlp.linear_fc1.weight": {
+      "norm": 0.0031316720143588746,
+      "bins_hash": "e2c7c11e3d4f3b0d2e1190933221043244c010f1a9a72e5167a880d87ebd4193"
+    },
+    "decoder.layers.29.mlp.linear_fc2.weight": {
+      "norm": 0.0019643338619734856,
+      "bins_hash": "de0261d4a2a04a79d669715f623c6fa01c142f963b3ee4d73c159378a45dd45c"
+    },
+    "decoder.layers.29.self_attention.k_layernorm.weight": {
+      "norm": 5.145250285429445e-05,
+      "bins_hash": "24ddf180ec83b3c358060e6da62e5bca335c2b95a530f8246e0302869721d551"
+    },
+    "decoder.layers.29.self_attention.linear_proj.weight": {
+      "norm": 0.0009670718430494959,
+      "bins_hash": "c453ba64bd65c3767ab393578f7ef73049d61f415d9057272d5a5bf814fa7f07"
+    },
+    "decoder.layers.29.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 5.896792184922862e-05,
+      "bins_hash": "9e15eeb9e9ef4a4f48c91743e26a8fadb103b7165f1072c387239788d78497a8"
+    },
+    "decoder.layers.29.self_attention.linear_qkv.weight": {
+      "norm": 0.0029783294516662327,
+      "bins_hash": "5f58d615a3ca23ea7b7557495dcf1af0cc5fcc762860719aebe96271e97ddac7"
+    },
+    "decoder.layers.29.self_attention.q_layernorm.weight": {
+      "norm": 5.2607918923225286e-05,
+      "bins_hash": "5548cee5b39060b22ad491c9ed4902f4b9577af04ecd611bd98c6aaad030f4c4"
+    },
+    "decoder.layers.3.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 6.356540437308218e-05,
+      "bins_hash": "4442e16eb63f2177401de2903d044f4cc919e2b4c2abb24ab0a7d6dfa8294e05"
+    },
+    "decoder.layers.3.mlp.linear_fc1.weight": {
+      "norm": 0.00358313335365185,
+      "bins_hash": "2ac98ccba6294171c7a67921d848ec69c9d4c14994d0503bc6499457a43dd775"
+    },
+    "decoder.layers.3.mlp.linear_fc2.weight": {
+      "norm": 0.0014638611596976276,
+      "bins_hash": "e3289c62b4916c8384ba0f6e2d491c32aad4836324fa4f9604e1e324027f676e"
+    },
+    "decoder.layers.3.self_attention.k_layernorm.weight": {
+      "norm": 3.2558945976832256e-05,
+      "bins_hash": "f35a5c9b4c4bb5cf7411f7ff56d3a674e66ac6cd9cea15cf271c042972762690"
+    },
+    "decoder.layers.3.self_attention.linear_proj.weight": {
+      "norm": 0.0006974740940538808,
+      "bins_hash": "2c73e60df292056c0ff9d8ad6bc50313bc7713337535f5690e0b5a12584b1a64"
+    },
+    "decoder.layers.3.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0005538571836934723,
+      "bins_hash": "66a000f937dc96268de08fefcb607dcca392721b6fb2e667dc43663190cb58ec"
+    },
+    "decoder.layers.3.self_attention.linear_qkv.weight": {
+      "norm": 0.0012202817499617192,
+      "bins_hash": "c65effd79486f122d3a2427c0b39a3585ac788fde15b0ef609c251a5a8a1d970"
+    },
+    "decoder.layers.3.self_attention.q_layernorm.weight": {
+      "norm": 3.28513475835237e-05,
+      "bins_hash": "fb408141b6c54837cc080f554576b178e1af5167d8c12144643bbdbac60fff28"
+    },
+    "decoder.layers.30.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 8.425119749296128e-05,
+      "bins_hash": "bb43ea88a875bd4c1990d10a5b2fb21cc64ab0320b51c9174c2d362fb7d31506"
+    },
+    "decoder.layers.30.mlp.linear_fc1.weight": {
+      "norm": 0.002554958584721426,
+      "bins_hash": "6b594755f596dcce1d34c8eb3a7b83834646c876973fd9de9ed45ef63ab30ab3"
+    },
+    "decoder.layers.30.mlp.linear_fc2.weight": {
+      "norm": 0.0018242560696804084,
+      "bins_hash": "d6703e90adbd1f2aff21411157624caa798d36ca978fc6e654a4ae7fca1a123a"
+    },
+    "decoder.layers.30.self_attention.k_layernorm.weight": {
+      "norm": 8.152398316606915e-05,
+      "bins_hash": "fd1fb5c4a0965a6eae0cc2be12921cf140fb9f68d811f9905eab2337ea4d43fa"
+    },
+    "decoder.layers.30.self_attention.linear_proj.weight": {
+      "norm": 0.0011258897651649571,
+      "bins_hash": "fad5f38820a87f5ea76cbcf293346e85e03a7cb02aadcd21b4d47c0605298e8b"
+    },
+    "decoder.layers.30.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 2.886558360315561e-05,
+      "bins_hash": "58635b8a41e7e135751e35a65cbce2ebb8457238b13ef1ad26c386a8486849d3"
+    },
+    "decoder.layers.30.self_attention.linear_qkv.weight": {
+      "norm": 0.0034836406617035896,
+      "bins_hash": "cf406a5d2dbd89e733915e91ae1038db66edb16cc6a1c64624eb9e29bcacd8bb"
+    },
+    "decoder.layers.30.self_attention.q_layernorm.weight": {
+      "norm": 8.945613192524112e-05,
+      "bins_hash": "ef1c4e3f8b8ec6d19c65e5b2277fdaf117ed7c25447b61bd57537b9fec20c49b"
+    },
+    "decoder.layers.31.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 7.834917267990139e-05,
+      "bins_hash": "28b5d3da6e7b3d88ab7f24bc34f8af089d5fcb0ea621dc1b424d70ff4ab888e5"
+    },
+    "decoder.layers.31.mlp.linear_fc1.weight": {
+      "norm": 0.0024581912398786185,
+      "bins_hash": "824dd884d0e126f05790372ec9350c2948d0602cc122be79ef2019aba6733c61"
+    },
+    "decoder.layers.31.mlp.linear_fc2.weight": {
+      "norm": 0.0017768273704880002,
+      "bins_hash": "5e3079e52b9784391cd8a4af3999774eb2281df88d8dd22d9dc4de8b276cda48"
+    },
+    "decoder.layers.31.self_attention.k_layernorm.weight": {
+      "norm": 5.700082451186955e-05,
+      "bins_hash": "3c344a4ba8811679f25cc1beeaaeaeb27c3bbb22d7e6112a77822e2b2aad11db"
+    },
+    "decoder.layers.31.self_attention.linear_proj.weight": {
+      "norm": 0.0008903170085437251,
+      "bins_hash": "c513ed0a217467d6be0df27a4ce1e97ea83399de9f338d2f8c5dccf7a1623f3b"
+    },
+    "decoder.layers.31.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 5.3317982191133924e-05,
+      "bins_hash": "c70bfa0b00e0d7690347edbbc08c2dbad9a37003c3590ea9b3cea23b968b27db"
+    },
+    "decoder.layers.31.self_attention.linear_qkv.weight": {
+      "norm": 0.0027550577085551733,
+      "bins_hash": "51502f41ae3f2ba47873ebf3a4d4b16d7dca13933b7ef426c80492c97a72957d"
+    },
+    "decoder.layers.31.self_attention.q_layernorm.weight": {
+      "norm": 6.675480038766121e-05,
+      "bins_hash": "d8b7879ec4f15d1e622cfcd512aa092823f6d8d40fb6d7174dbb9061967ef88c"
+    },
+    "decoder.layers.32.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 6.588215084444721e-05,
+      "bins_hash": "b869949ea91032eb3f0a7ff15300ce9cf48cd6d1b8c84ec360d203ade1c8bdca"
+    },
+    "decoder.layers.32.mlp.linear_fc1.weight": {
+      "norm": 0.002300923670322087,
+      "bins_hash": "154d0e93ce7b92a626689daf61c0e051f6d71e188df6ab8cd6068431e3afa7b8"
+    },
+    "decoder.layers.32.mlp.linear_fc2.weight": {
+      "norm": 0.0015865225606605643,
+      "bins_hash": "3cd43f366b932e1403ec977d3fd29b190579a71e3de7b6a18392d5c0394125e8"
+    },
+    "decoder.layers.32.self_attention.k_layernorm.weight": {
+      "norm": 5.906266078975902e-05,
+      "bins_hash": "b7620543dd2a944bd446f712a36b18c68ac1043083b85d1e70a998023751cc44"
+    },
+    "decoder.layers.32.self_attention.linear_proj.weight": {
+      "norm": 0.0009517356585284194,
+      "bins_hash": "67207f696c25d647bf9de712fb5c1afb5d5fc19291ac6da154f5d2e39b1fbbcd"
+    },
+    "decoder.layers.32.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 2.9772955685608567e-05,
+      "bins_hash": "f40ad851a45640f6d1c9c16eae5884ba20d812ae4127879705e51d749dd636e9"
+    },
+    "decoder.layers.32.self_attention.linear_qkv.weight": {
+      "norm": 0.0036342628607841237,
+      "bins_hash": "d6b3cd13fc756a63c7281d5645837e90a00c8406fd8675e899f632601d72c5e2"
+    },
+    "decoder.layers.32.self_attention.q_layernorm.weight": {
+      "norm": 7.139292733496885e-05,
+      "bins_hash": "18d424bd8cd7387af593c51c9304fad423d7f78f1e8e5be8894b896e6847370e"
+    },
+    "decoder.layers.33.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 6.765394923039075e-05,
+      "bins_hash": "ab07735262269e8b4ec1f3080623cb798c170ea1af5d15bd93a8823e6be5f428"
+    },
+    "decoder.layers.33.mlp.linear_fc1.weight": {
+      "norm": 0.002353616849507354,
+      "bins_hash": "3bf51fe575bc19981850a59b11433e8dd445dfee4b3aa8c6e8a1a6d2f26c16cf"
+    },
+    "decoder.layers.33.mlp.linear_fc2.weight": {
+      "norm": 0.0016931104400768084,
+      "bins_hash": "8067e0d172ac935c44397b9753601b8e1b175f34d83bd59f471ef477694621f8"
+    },
+    "decoder.layers.33.self_attention.k_layernorm.weight": {
+      "norm": 2.6316542989132515e-05,
+      "bins_hash": "89db6885b0f4e04371a6227148017107f037796986376f57fd780f5850c766b2"
+    },
+    "decoder.layers.33.self_attention.linear_proj.weight": {
+      "norm": 0.0007221905229268632,
+      "bins_hash": "7afb36ed6143e9f432bf6f04e794516dd3e1f3f3648c93088dc87d9ef1f299c6"
+    },
+    "decoder.layers.33.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 2.9605797784045025e-05,
+      "bins_hash": "099edc41fa706170bf10c7f4ac619895cbbe7724ad551077b0c1c253ceaf2847"
+    },
+    "decoder.layers.33.self_attention.linear_qkv.weight": {
+      "norm": 0.0022203180966652064,
+      "bins_hash": "b82fd568ecf41bd616e5b713776d78f0d023fcf0d16be09563facf6ced07e612"
+    },
+    "decoder.layers.33.self_attention.q_layernorm.weight": {
+      "norm": 3.707772852856362e-05,
+      "bins_hash": "40123fb3c394d6b6ab937aa102c21e2012560dbec48358f5e673e3424d503bcc"
+    },
+    "decoder.layers.34.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 6.230072159485561e-05,
+      "bins_hash": "4c18203a96c29f35ecbe93a7d80d11636017a12ec301f32d3448df6df13a86c6"
+    },
+    "decoder.layers.34.mlp.linear_fc1.weight": {
+      "norm": 0.003219120006879024,
+      "bins_hash": "efe147e207935ffee43c7bb5ff1abd9b24b4182e379fccd300356cc32381e9b8"
+    },
+    "decoder.layers.34.mlp.linear_fc2.weight": {
+      "norm": 0.002041763056269395,
+      "bins_hash": "d37dec61e5c28914fc1612f7bad69776e478f858c53331570a54a6bdf517ce15"
+    },
+    "decoder.layers.34.self_attention.k_layernorm.weight": {
+      "norm": 6.705042976034216e-05,
+      "bins_hash": "e18332d7407fae8fb92efb8b36ff44a5ad114b9c80a01302da7850bcf63a7afb"
+    },
+    "decoder.layers.34.self_attention.linear_proj.weight": {
+      "norm": 0.0011927436625718969,
+      "bins_hash": "29614453efc79c0d7cbbe2363782e8878e4e18844625874d80c873b4d78f7636"
+    },
+    "decoder.layers.34.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 2.605904241103365e-05,
+      "bins_hash": "13b3b82017cc8955320ed12ff5dacf75d5d38c143c40c0a437bb4ae3ccb4c234"
+    },
+    "decoder.layers.34.self_attention.linear_qkv.weight": {
+      "norm": 0.0026750331804585616,
+      "bins_hash": "91ea78a40c205a510cd3c70f8c936170afc739e566ed9500e3002532ecbe536d"
+    },
+    "decoder.layers.34.self_attention.q_layernorm.weight": {
+      "norm": 5.275942234761165e-05,
+      "bins_hash": "f304b6950013f90c7c6c21d7ef64e4bae77a15088b5ac119e134fc5cdea39a44"
+    },
+    "decoder.layers.35.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.00011242126748188755,
+      "bins_hash": "dd83ee9a3c99f7dc4c55a5a8a1bb7f1e89dbac44508444c0526066c45c7dd7a9"
+    },
+    "decoder.layers.35.mlp.linear_fc1.weight": {
+      "norm": 0.009000036894910598,
+      "bins_hash": "d813281db050b5906a0b1dd76ec64b58bde15f0482a30282de5142b018c5ac99"
+    },
+    "decoder.layers.35.mlp.linear_fc2.weight": {
+      "norm": 0.005714101154939597,
+      "bins_hash": "7ab3986d8541b936d083c4d0440a301d8a3a6d6472ebabc5c8bfe353d656755b"
+    },
+    "decoder.layers.35.self_attention.k_layernorm.weight": {
+      "norm": 3.955271411176164e-05,
+      "bins_hash": "4bb9e450586fba47e506e3f9035baecff5b69ccfed9d7b2977d74f3c331e716d"
+    },
+    "decoder.layers.35.self_attention.linear_proj.weight": {
+      "norm": 0.0011856552601971365,
+      "bins_hash": "604c2674da7e5d5bcf003418dfe5bfd41586096f0ff0bd428d21ef4e0853a091"
+    },
+    "decoder.layers.35.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 1.21948841115991e-05,
+      "bins_hash": "d9e89101199b8e5b78419100211002b91731dd9bdea06e6ddc25099a0a143d83"
+    },
+    "decoder.layers.35.self_attention.linear_qkv.weight": {
+      "norm": 0.002303165339120546,
+      "bins_hash": "c94a8e7762460d32fa71ed6149872d81d5b1bdf0e6d75c8a456f1be848267617"
+    },
+    "decoder.layers.35.self_attention.q_layernorm.weight": {
+      "norm": 3.683717460569127e-05,
+      "bins_hash": "011d61342a288a766a9287a27d89c84ca9a18ab184966cd005f2855bf99e037c"
+    },
+    "decoder.layers.4.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.00013394114918139927,
+      "bins_hash": "e3fc7c192f3b95b62e5e368a2621df3f34fb205cc5477f83b0d099e9eaff412f"
+    },
+    "decoder.layers.4.mlp.linear_fc1.weight": {
+      "norm": 0.004658721755676411,
+      "bins_hash": "d18292a7dcaec87eb62f313722e095d87de61afdc5e00f1292846357e96dc4cd"
+    },
+    "decoder.layers.4.mlp.linear_fc2.weight": {
+      "norm": 0.001975128306082608,
+      "bins_hash": "e5eb51c82c5fea96f0e203af32a52cfd56d883b178a9d78749f602264eaa070e"
+    },
+    "decoder.layers.4.self_attention.k_layernorm.weight": {
+      "norm": 3.830253025403105e-05,
+      "bins_hash": "463e937834587bda2b9a6b9be3a1696e61794bf79447692865903a06a5c9f748"
+    },
+    "decoder.layers.4.self_attention.linear_proj.weight": {
+      "norm": 0.0008671196933413362,
+      "bins_hash": "107dd76fa44a15ea8a30012a2839f7ed0482cf756de0aaae101210ab5e921d5b"
+    },
+    "decoder.layers.4.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.00045634580166604614,
+      "bins_hash": "4c85a7be8bcf3ebe7e0f51e879fbdf59a077f6bb8cecbcb61ffca33a991c20fb"
+    },
+    "decoder.layers.4.self_attention.linear_qkv.weight": {
+      "norm": 0.0011958467652237416,
+      "bins_hash": "cce30ed7eb46b54280e7b39b18b250ca482dcd77b15727d5505e13b8fe611254"
+    },
+    "decoder.layers.4.self_attention.q_layernorm.weight": {
+      "norm": 3.3086101774850566e-05,
+      "bins_hash": "7ba4fac958b42c17b92cd8dcf6280050546efb4db6884359d6033951c1aa8a24"
+    },
+    "decoder.layers.5.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.000245718228896674,
+      "bins_hash": "74f011518f8bdea13bb085b7c92c2f484f43a98482b1698984b5cf97625e2c8d"
+    },
+    "decoder.layers.5.mlp.linear_fc1.weight": {
+      "norm": 0.0048712237724323785,
+      "bins_hash": "fded21cd9ee4fbaf5a472670780ab9476b706246ee8a47b2581a8186026a8ba9"
+    },
+    "decoder.layers.5.mlp.linear_fc2.weight": {
+      "norm": 0.0023450965082155765,
+      "bins_hash": "99c487ce44a56b956b0c033b69d225cec4050d9b858e1a633a0b77af7361d523"
+    },
+    "decoder.layers.5.self_attention.k_layernorm.weight": {
+      "norm": 0.00010081668395123842,
+      "bins_hash": "acb3061676e03f572665291f395e5f04a49f96d2bc36787ff637f44437d1c08a"
+    },
+    "decoder.layers.5.self_attention.linear_proj.weight": {
+      "norm": 0.0010027664909407806,
+      "bins_hash": "056b1a5e443ba32165bec0c82ba4f02bd94e103f57b76ef97453741dc611ea59"
+    },
+    "decoder.layers.5.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0005595230537371533,
+      "bins_hash": "0307646f0ca51c136493d2d3c5bc35e1a8293e032bfdc83ad5ab0ed095bedbf4"
+    },
+    "decoder.layers.5.self_attention.linear_qkv.weight": {
+      "norm": 0.0016376199803575552,
+      "bins_hash": "6e86cfc9122db61d05a20f19fcf83f5736e377e54705d74d43a5dcb587064a10"
+    },
+    "decoder.layers.5.self_attention.q_layernorm.weight": {
+      "norm": 6.710012750952817e-05,
+      "bins_hash": "cde3b93d411a7c3d1ac63adedcfe3b2524b856fd52bf38ddcc0516648eeddfb6"
+    },
+    "decoder.layers.6.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0002475047665460893,
+      "bins_hash": "959e0aeb9c6f3daea52f49e40a1361c8748a581dd753455800b070ba2ec7699f"
+    },
+    "decoder.layers.6.mlp.linear_fc1.weight": {
+      "norm": 0.0056117046263614925,
+      "bins_hash": "552b374e0bacfcc3b0d6e34ab66dc84886294f039ae10ac45ffb1b81d1460b4e"
+    },
+    "decoder.layers.6.mlp.linear_fc2.weight": {
+      "norm": 0.034141644599889734,
+      "bins_hash": "1e672ddabc4b4382ca06766566a4cb0aecadd161f454b287aff05b4317c97175"
+    },
+    "decoder.layers.6.self_attention.k_layernorm.weight": {
+      "norm": 3.641236672040956e-05,
+      "bins_hash": "45b9a4df329f2cf1a04bcd1605abcce59ce0c557bc79a70fdc63429b3c77742b"
+    },
+    "decoder.layers.6.self_attention.linear_proj.weight": {
+      "norm": 0.001397111585300319,
+      "bins_hash": "58a3f4be4e505cdceff356bfc7ff5ac802fd1e5e23c5556eab0b8b0b150c9421"
+    },
+    "decoder.layers.6.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0004928726508572487,
+      "bins_hash": "a4840149f7319258b72df517cc454881bbf3ceba0f36a3d04f47bd26b33fca42"
+    },
+    "decoder.layers.6.self_attention.linear_qkv.weight": {
+      "norm": 0.0018141107950187603,
+      "bins_hash": "77655a9fe2061bce14aa91394ade21747a7e5b5fedd5099d3d6623ba1c685cbb"
+    },
+    "decoder.layers.6.self_attention.q_layernorm.weight": {
+      "norm": 2.8789800505419477e-05,
+      "bins_hash": "c690258458ca246463324e20f4ae6e86c487eb80ae35f6456f739e16fdc93c9e"
+    },
+    "decoder.layers.7.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.0002588280996491602,
+      "bins_hash": "469e5b65756aeed71e0a9c2c9eb5d87538dbe8926ec888ef6d1211c99678cc6f"
+    },
+    "decoder.layers.7.mlp.linear_fc1.weight": {
+      "norm": 0.005581387107819794,
+      "bins_hash": "1c854229bb7b9fc7137ec0e92d9b572edd60af6ca9e63fe265849ffa5bcaca8e"
+    },
+    "decoder.layers.7.mlp.linear_fc2.weight": {
+      "norm": 0.0023433632958957057,
+      "bins_hash": "8b4afd421e6561498ba1b847199a8b9115e6942202c170bf37e7a9569d74e0b2"
+    },
+    "decoder.layers.7.self_attention.k_layernorm.weight": {
+      "norm": 7.453761864783186e-05,
+      "bins_hash": "b4f3ac9564c6e5a30f92f0fba1989afc8650eee2f841506df9b69e77b63463ac"
+    },
+    "decoder.layers.7.self_attention.linear_proj.weight": {
+      "norm": 0.0011764454483835876,
+      "bins_hash": "edb61a08dd9a18f1eb9429c50b210f491ee2871799d90c1184e2bdd256650d74"
+    },
+    "decoder.layers.7.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0005121097624603885,
+      "bins_hash": "d81eb658efd29f6ccfb35104cf7cadd3e7006dfa0a0e3ee900f738af6125a536"
+    },
+    "decoder.layers.7.self_attention.linear_qkv.weight": {
+      "norm": 0.002836092616872914,
+      "bins_hash": "bb04c7dbf9d8e6bce2c30e0aeca64028778ff95b4add05e9583391a40064211f"
+    },
+    "decoder.layers.7.self_attention.q_layernorm.weight": {
+      "norm": 8.968678754550613e-05,
+      "bins_hash": "b4fec2b965709427ae209afcb97908f31091a87724c57edacda1d3e4d734eefd"
+    },
+    "decoder.layers.8.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.00029808511964693967,
+      "bins_hash": "dadddcec1e15b7889359bd451ab01e16c7afbda838303e89bd5df202ec3820ab"
+    },
+    "decoder.layers.8.mlp.linear_fc1.weight": {
+      "norm": 0.003052739225731367,
+      "bins_hash": "0a0fd419444e777a6368e82a5866d80526d1f637df7c37c02c7c3bf7fc9eac7f"
+    },
+    "decoder.layers.8.mlp.linear_fc2.weight": {
+      "norm": 0.0027866109332268085,
+      "bins_hash": "d61a3eb1966224f756808c4b8139141ab42917e0ca9878fe81f9c88b2f307a73"
+    },
+    "decoder.layers.8.self_attention.k_layernorm.weight": {
+      "norm": 0.00011743515274467044,
+      "bins_hash": "b6c2a18c0d7a8f1630e02a44ce26d259583d2b0b5be61c732bea64304dcf87bd"
+    },
+    "decoder.layers.8.self_attention.linear_proj.weight": {
+      "norm": 0.0014002084364032677,
+      "bins_hash": "8c682ed7a7aedde25c2fab421a92e54f6db8c8be9ca54144235fb5b853e33da4"
+    },
+    "decoder.layers.8.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0003409547082909053,
+      "bins_hash": "e333bf66a79771bf0ae9452815e95e14dfa7e0f1872790b36d49cdb92b9db9cd"
+    },
+    "decoder.layers.8.self_attention.linear_qkv.weight": {
+      "norm": 0.003425098930172928,
+      "bins_hash": "3944167f1874234d85abe6a7dfad0831351f29313288e6d21ce6fdb73de0d624"
+    },
+    "decoder.layers.8.self_attention.q_layernorm.weight": {
+      "norm": 0.0002542311703579025,
+      "bins_hash": "7875162c9930fb1bca1abbfe2bacc5f51d34acde2ef6699ffc263b80208b8683"
+    },
+    "decoder.layers.9.mlp.linear_fc1.layer_norm_weight": {
+      "norm": 0.00030140080787074904,
+      "bins_hash": "111616be1e9e213f4c5417ae89e6fa7c20466847463d1e644f6fe47bb260ea78"
+    },
+    "decoder.layers.9.mlp.linear_fc1.weight": {
+      "norm": 0.0034906643208183295,
+      "bins_hash": "768852f5a471f8de12bdc3e64dc4caa02fa7ab42b6797eed81fb71c98dd6a9b4"
+    },
+    "decoder.layers.9.mlp.linear_fc2.weight": {
+      "norm": 0.0031489598217994156,
+      "bins_hash": "96af2e016275fd22b7b32d7ecee9eb78a30de8bb4cf6664003bcfaac2f80094e"
+    },
+    "decoder.layers.9.self_attention.k_layernorm.weight": {
+      "norm": 9.517225878966398e-05,
+      "bins_hash": "e53059642e89f8ad7edf1a09fbc975e18be62ed08b4d888fc044353f5c6add61"
+    },
+    "decoder.layers.9.self_attention.linear_proj.weight": {
+      "norm": 0.0014281391100027258,
+      "bins_hash": "211400740a3aff9cf0119bb2e548d20c763adde0db2b765f7424a013cb33626e"
+    },
+    "decoder.layers.9.self_attention.linear_qkv.layer_norm_weight": {
+      "norm": 0.0004033565564050118,
+      "bins_hash": "62ad99179fe2218e0f4c24d13193440e3c2b663b7e94e52339e720949c149d8f"
+    },
+    "decoder.layers.9.self_attention.linear_qkv.weight": {
+      "norm": 0.003485236613006549,
+      "bins_hash": "3406cafd22c07b67ee8150ecfc36b83f12cb4c3cb7e42ade63539e469865d59d"
+    },
+    "decoder.layers.9.self_attention.q_layernorm.weight": {
+      "norm": 6.919365702929277e-05,
+      "bins_hash": "ed07b98d9ede4c091f179abe9e695343fd3721bc3706d37ed395fe60ca280c6f"
+    },
+    "embedding.word_embeddings.weight": {
+      "norm": 0.0014051316412744136,
+      "bins_hash": "29d804211e8fbb2457ad9a8136b7cc133c6627eeda9195ab0171b31e2d63c9b4"
+    },
+    "output_layer.weight": {
+      "norm": 0.01559560120808288,
+      "bins_hash": "9e4d24771943c59d58cae3e2a8d989d8bde80e474e41bdf84bbbf47a9c11d840"
+    }
+  }
+}
