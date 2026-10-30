@@ -83,6 +83,13 @@ def main():
     args = p.parse_args()
     if bool(args.reference_manifest) != bool(args.reference_root):
         raise ValueError("--reference-manifest and --reference-root must be given together")
+    if (
+        args.reference_root
+        and args.reference.resolve() != (args.reference_root / "fp32-reference").resolve()
+    ):
+        # The manifest verifies the files under the root; the tensors are read from --reference.
+        # Anything else could be compared against a run the manifest never verified.
+        raise ValueError("--reference must be <reference-root>/fp32-reference, the verified run")
     if args.output.exists():
         raise ValueError("never overwrite calibration or failed evidence")
     from tools.validation.models.h3_evidence_integrity import verify_inventory
