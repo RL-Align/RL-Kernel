@@ -112,6 +112,52 @@ def test_logp_native_candidate_suite_passes():
     assert all(case.passed for case in report.candidates[0].cases)
 
 
+@pytest.mark.parametrize("include_candidate", [False, True])
+@pytest.mark.parametrize("bad_baseline", [False, True])
+def test_reference_baselines_do_not_count_as_candidates(include_candidate, bad_baseline, capsys):
+    from tools.validation.operators.check_operator import _summarize
+
+    case = OperatorCase(
+        name="square",
+        op_class="elementwise",
+        dtype=torch.float32,
+        inputs={"x": torch.tensor([1.0, 2.0])},
+        gold_fn=lambda x: x.square(),
+        grad_input_names=("x",),
+    )
+    entries = [
+        CandidateSpec(
+            "reference",
+            lambda x: x.square() + int(bad_baseline),
+            reference_baseline=True,
+        )
+    ]
+    if include_candidate:
+        entries.append(CandidateSpec("actual", lambda x: x.square()))
+    report = run_operator_suite("square", candidates=entries, cases=[case], check_grad=True)
+    assert report.total_candidates == report.passed_candidates == int(include_candidate)
+    assert report.pass_rate == float(include_candidate)
+    assert report.passed == (not bad_baseline)
+    assert [c.candidate_name for c in report.candidates] == (
+        ["actual"] if include_candidate else []
+    )
+    baseline = report.to_dict()["reference_baselines"][0]
+    assert baseline["candidate_name"] == "reference"
+    assert baseline["total_outputs"] == 2
+    assert baseline["passed"] == (not bad_baseline)
+    _summarize(report)
+    output = capsys.readouterr().out
+    assert "reference_baseline=reference" in output
+    assert "candidate=reference" not in output
+
+
+@pytest.mark.parametrize("name", ["pytorch", "native"])
+def test_timestep_reference_aliases_are_baselines(name):
+    args = _spec_args("timestep_embed_mlp")
+    args.candidate = name
+    assert make_candidate(args).reference_baseline
+
+
 def test_embedding_native_candidate_suite_passes_issue_108_helper():
     report = run_operator_suite(
         "embedding",

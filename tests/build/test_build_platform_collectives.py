@@ -13,7 +13,9 @@ from torch.utils import cpp_extension
 from build_tools.extensions import _resolve_package_data_source, get_cmdclass
 
 
-def _load_extension_config(monkeypatch, *, hip: str | None) -> dict[str, Any]:
+def _load_extension_config(
+    monkeypatch, *, hip: str | None, extension_name: str = "rl_engine._C"
+) -> dict[str, Any]:
     captured: dict[str, Any] = {}
 
     def fake_setup(**kwargs: Any) -> None:
@@ -39,7 +41,7 @@ def _load_extension_config(monkeypatch, *, hip: str | None) -> dict[str, Any]:
         monkeypatch.setenv("PYTORCH_ROCM_ARCH", "gfx942")
 
     runpy.run_path("setup.py", run_name=f"rl_kernel_setup_probe_{hip or 'cuda'}")
-    return captured["ext_modules"][0]
+    return next(ext for ext in captured["ext_modules"] if ext["name"] == extension_name)
 
 
 def test_rocm_build_excludes_cuda_ipc_collective_and_driver(monkeypatch) -> None:
@@ -83,3 +85,11 @@ def test_package_data_real_json_is_not_reinterpreted(tmp_path) -> None:
 
     assert _resolve_package_data_source(source, project_root=tmp_path) == source
     assert "build_py" in get_cmdclass()
+
+
+def test_timestep_cuda_build_preserves_strict_flags(monkeypatch) -> None:
+    extension = _load_extension_config(
+        monkeypatch, hip=None, extension_name="rl_engine._timestep_cuda"
+    )
+    assert extension["sources"] == ["csrc/cuda/embedding/timestep_embed_mlp.cu"]
+    assert extension["extra_compile_args"] == {"cxx": ["-O3"], "nvcc": ["-O3", "--fmad=false"]}

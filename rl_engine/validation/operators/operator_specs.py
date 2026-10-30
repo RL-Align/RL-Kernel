@@ -22,6 +22,7 @@ class OperatorSpec:
     gold_method: str
     candidate_paths: dict[str, str]
     grad_input_names: tuple[str, ...] = ()
+    reference_candidates: tuple[str, ...] = ()
 
 
 def _load_object(path: str) -> Any:
@@ -32,6 +33,22 @@ def _load_object(path: str) -> Any:
 
 
 OP_SPECS = {
+    "timestep_embed_mlp": OperatorSpec(
+        name="timestep_embed_mlp",
+        op_class="reduction",
+        gold_path="rl_engine.reference.embedding.timestep_embed_mlp.NativeTimestepEmbedMLPOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.embedding.timestep_embed_mlp.NativeTimestepEmbedMLPOp",
+            "cuda": "rl_engine.backends.cuda.embedding.timestep_embed_mlp.CudaTimestepEmbedMLPOp",
+            "triton": (
+                "rl_engine.backends.cuda.embedding."
+                "timestep_embed_mlp_triton.TritonTimestepEmbedMLPOp"
+            ),
+        },
+        grad_input_names=("timestep", "weight1", "bias1", "weight2", "bias2"),
+        reference_candidates=("pytorch",),
+    ),
     "rms_norm": OperatorSpec(
         name="rms_norm",
         op_class="reduction",
@@ -361,6 +378,7 @@ def make_candidate(args: argparse.Namespace) -> CandidateSpec:
             backend=candidate_name,
             arch_key=args.arch_key,
             fn=candidate_op,
+            reference_baseline=candidate_name in spec.reference_candidates,
         )
 
     supported = sorted([*spec.candidate_paths, "native"])
