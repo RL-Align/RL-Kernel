@@ -21,6 +21,7 @@ Every operator page should include:
 - [SiLU / SwiGLU Activation](activation.md)
 - [Standard Attention](attention.md)
 - [Fused LogP](fused-logp.md)
+- [Softcapped Selected Logprob](softcapped-selected-logprob.md)
 - [Fused Linear LogP](linear-logp.md)
 - [Batch-Invariant LogP](batch-invariant-logp.md)
 - [Fused Linear LogP TP Test Runbook](linear-logp-tp-test.md)
