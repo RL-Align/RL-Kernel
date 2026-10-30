@@ -31,7 +31,6 @@ import json
 import math
 from pathlib import Path
 
-
 # ``h3_full_compare`` writes the first status without ``--thresholds`` (an independent provider
 # against the FP32 reference) and one of the others with the frozen thresholds (a candidate).
 PROVIDER_STATUS = "frozen_reference_bounds"
