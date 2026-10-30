@@ -315,8 +315,9 @@ def make_block_context(
         num_audio_latents=spec["num_audio_latents"],
     )
     seq_len = packed["position_ids"].shape[0]
-    timestep = h3_timesteps(NUM_TIMESTEPS, seed=seed)
     w = weights
+    device = w["time_embedder.linear_1.weight"].device  # every tensor of the context lives here
+    timestep = h3_timesteps(NUM_TIMESTEPS, seed=seed, device=device)
     with torch.no_grad():
         features = prov.provider_time_proj(timestep)
         temb = prov.provider_time_embedder(
@@ -330,7 +331,7 @@ def make_block_context(
         torch.randn((1, seq_len, HIDDEN), generator=torch.Generator().manual_seed(seed + 2 + b))
         for b in range(batch)
     ]
-    hidden = torch.cat(rows).to(torch.bfloat16).cuda()
+    hidden = torch.cat(rows).to(torch.bfloat16).to(device)
     return {
         "layout": layout,
         "seq_len": seq_len,
