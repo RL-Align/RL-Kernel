@@ -126,3 +126,38 @@ def test_tp_figure_for_reports_with_and_without_tp_above_one(worlds):
     texts = [t.get_text() for ax in fig.axes for t in ax.texts]
     assert ("no run with TP > 1 in this report" in texts) == (worlds == [1])
     plt.close(fig)
+
+
+def _sp_run(sp: int) -> dict:
+    case = {
+        "layout": "block",
+        "seq": 64,
+        "batch": 1,
+        "equal": dict.fromkeys(("out", "d_residual", "d_y", "d_weight", "d_table"), True),
+        "sp_forward_backward_us": 1500.0,
+        "ws1_forward_backward_us": 1900.0,
+    }
+    return {"sp": sp, "ranks": [{"rank": 0, "cases": [case]}]}
+
+
+def _sp_report(worlds: list[int]) -> dict:
+    naive = {"d_weight": 0.5, "d_table": 0.25}
+    return {
+        "op": "sp_norm_adaln",
+        "environment": {"gpu": "gpu", "gpus": 1, "torch": "t", "cuda": "c"},
+        "rl_kernel_commit": "0123456789",
+        "model_revision": "0123456789",
+        "runs": [_sp_run(sp) for sp in worlds],
+        "naive_sp": {"sp": max(worlds), "block": naive, "interleaved": naive},
+    }
+
+
+@pytest.mark.parametrize("worlds", [[1], [1, 2, 4], [2, 4]])
+def test_sp_figure_for_reports_with_and_without_sp_above_one(worlds):
+    import matplotlib.pyplot as plt
+    from plot_h3_evidence import plot_sp_norm
+
+    fig = plot_sp_norm(_sp_report(worlds))
+    texts = [t.get_text() for ax in fig.axes for t in ax.texts]
+    assert ("no run with SP > 1 in this report" in texts) == (worlds == [1])
+    plt.close(fig)
