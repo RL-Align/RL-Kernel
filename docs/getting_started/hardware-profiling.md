@@ -5,6 +5,10 @@ A30, and A10. It focuses on a repeatable process for validating the runtime
 environment, isolating the target GPU, running smoke-scale profiler checks, and
 promoting the same workflow to larger benchmark shapes.
 
+For NVIDIA B200 (Blackwell/SM100), follow the
+[B200 onboarding guide](b200-onboarding.md) for environment setup and the
+equivalent smoke workflow.
+
 Use this page as a profiling checklist, not as a static benchmark report. Avoid
 committing generated CSV, JSON, or notebook execution logs; regenerate those
 artifacts on the target machine when you need fresh measurements.
