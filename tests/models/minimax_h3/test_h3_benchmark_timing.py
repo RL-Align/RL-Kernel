@@ -136,9 +136,7 @@ def test_backward_perf_cases_prepare_fresh_cpu_graphs_before_events(
     def track(fn, leaves, *args):
         if leaves[0].requires_grad:
             assert not cuda_clock.active
-            prepared_leaves.append(
-                [leaf._base if leaf._base is not None else leaf for leaf in leaves]
-            )
+            prepared_leaves.append([leaf if leaf.is_leaf else leaf._base for leaf in leaves])
         cuda_clock.time += 1.0
         outputs = fn(*leaves, *args)
         return track_backward(outputs) if leaves[0].requires_grad else outputs
@@ -168,7 +166,7 @@ def test_backward_perf_cases_prepare_fresh_cpu_graphs_before_events(
 
         def inputs(seq):
             return (
-                torch.randn(3, 6 * 4),
+                torch.randn(3, 24),
                 torch.randn(1, seq, 4),
                 torch.randn(1, seq, 4),
                 torch.arange(seq) % 3,
@@ -177,7 +175,7 @@ def test_backward_perf_cases_prepare_fresh_cpu_graphs_before_events(
         provider = h3_report.provider_gate_residual
 
         def forward(residual, y, gate, index, **kwargs):
-            return track(lambda r, y_, g, i: provider(r, g, i, y_), [residual, y, gate], index)
+            return track(lambda r, y_, g: provider(r, g, index, y_), [residual, y, gate])
 
         monkeypatch.setattr(h3_report, "NORM_SEQ_LENS", (2, 3))
         monkeypatch.setattr(h3_report, "_gate_inputs", inputs)
@@ -198,10 +196,14 @@ def test_backward_perf_cases_prepare_fresh_cpu_graphs_before_events(
                 torch.arange(seq) % 3,
             )
 
-        provider = h3_report.provider_final_adaln_out
-
         def forward(x, nw, temb, w, b, ti):
-            return track(provider, [x, nw, temb, w, b], ti)
+            def compute(x, nw, temb, w, b):
+                rows = torch.nn.functional.linear(torch.nn.functional.silu(temb), w, b)
+                shift, scale = rows.chunk(2, dim=-1)
+                norm = torch.nn.functional.rms_norm(x, (4,), nw)
+                return norm * (1 + scale[ti]) + shift[ti]
+
+            return track(compute, [x, nw, temb, w, b])
 
         monkeypatch.setattr(h3_report, "NORM_SEQ_LENS", (2, 3))
         monkeypatch.setattr(h3_report, "_final_inputs", inputs)

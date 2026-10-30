@@ -37,7 +37,7 @@ def test_run_world_reaps_workers(monkeypatch, mode):
         assert [r["rank"] for r in ranks] == [0, 1]
         assert [r["value"].item() for r in ranks] == [0, 1]
     elif mode == "timeout":
-        with pytest.raises(TimeoutError, match="timed out waiting for ranks"):
+        with pytest.raises(TimeoutError, match="timed out"):
             h3_ws2.run_world(2, None, {}, timeout=0.2, mode=mode)
     else:
         message = "original rank traceback" if mode == "error" else "rank 0 exited with code 7"

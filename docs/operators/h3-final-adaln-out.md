@@ -62,7 +62,7 @@ python benchmarks/models/benchmark_h3_conditioning.py --op final_adaln_out
 B200, B = 1, T = 3, pinned `norm_out` weights. Backward timings exclude input
 and forward-graph setup:
 
-| S | CUDA fwd | diffusers fwd | CUDA bwd | diffusers bwd |
+| S | CUDA fwd | diffusers fwd | CUDA fwd+bwd | diffusers fwd+bwd |
 | --- | --- | --- | --- | --- |
 | 4097 | 0.19 ms | 0.21 ms | 1.37 ms | 0.83 ms |
 | 32768 | 0.42 ms | 0.82 ms | 2.53 ms | 4.45 ms |
@@ -70,6 +70,11 @@ and forward-graph setup:
 
 At small S the backward is dominated by fixed setup: the stable sort for the segment sums and the
 projection backward.
+
+The stored timing evidence includes forward graph setup in the columns labeled
+`fwd+bwd`; those values are not backward-only measurements. The current benchmark
+prepares the graph outside the timed backward region. Historical timings are retained
+with their original commit and corrected scope.
 
 ## Evidence
 

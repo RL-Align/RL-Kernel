@@ -445,7 +445,7 @@ class TestCudaBackward:
         ).to(out_dtype)
         assert torch.equal(got, expected)
 
-    def test_backward_with_no_table_rows_returns_an_empty_table_and_rejects_no_boundaries(self):
+    def test_backward_with_no_table_rows_or_no_boundaries_is_rejected(self):
         from rl_engine.backends.extension import _C
 
         _cuda_op()
@@ -453,8 +453,8 @@ class TestCudaBackward:
         zero = torch.zeros(0, dtype=torch.int64, device="cuda")
         pos = torch.arange(4, device="cuda")
         one = torch.zeros(1, dtype=torch.int64, device="cuda")  # R = 0
-        empty = _C.h3_adaln_row_gather_backward(grad, pos, zero, zero, one, torch.float32)
-        assert empty.shape == (0, 48)
+        with pytest.raises(RuntimeError, match="must be positive"):
+            _C.h3_adaln_row_gather_backward(grad, pos, zero, zero, one, torch.float32)
         with pytest.raises(RuntimeError, match="R \\+ 1 entries"):
             _C.h3_adaln_row_gather_backward(grad, pos, zero, zero, zero, torch.float32)
 

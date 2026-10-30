@@ -516,3 +516,81 @@ def h3_gate_residual_backward(
     checked on the device before use.
     """
     ...
+def h3_rmsnorm_backward_partials(
+    grad: torch.Tensor,
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    rstd: torch.Tensor,
+    shift: torch.Tensor | None,
+    scale: torch.Tensor | None,
+    index: torch.Tensor | None,
+    dw_rows: torch.Tensor,
+    dw_begin: torch.Tensor,
+    dw_end: torch.Tensor,
+    seg_rows: torch.Tensor | None = None,
+    seg_begin: torch.Tensor | None = None,
+    seg_end: torch.Tensor | None = None,
+) -> list[torch.Tensor]:
+    """Sequence parallel: FP32 tile partials of the rmsnorm weight (and table) gradients.
+
+    Same operands as ``h3_rmsnorm_backward`` plus explicit int64 row lists: ``dw_rows`` with tiles
+    ``[dw_begin, dw_end)`` over it, and with modulation ``seg_rows`` with ``[seg_begin, seg_end)``
+    tiles; ``index`` then has one entry per row of ``x``. Returns ``[dw_partial (tiles, N)]`` or
+    ``[dw_partial, seg_partial (seg_tiles, 2N)]``. Lists and index values are checked on the device
+    before use; ``h3_rmsnorm_fold_partials`` folds the gathered partials.
+    """
+    ...
+
+def h3_rmsnorm_fold_partials(
+    dw_partial: torch.Tensor,
+    weight: torch.Tensor,
+    seg_partial: torch.Tensor | None = None,
+    seg_first_tile: torch.Tensor | None = None,
+) -> list[torch.Tensor]:
+    """Fold gathered ``h3_rmsnorm_backward_partials`` in tile order.
+
+    Return ``[dweight]`` in ``weight``'s dtype, or ``[dweight, d_shift, d_scale]`` (FP32 ``(R, N)``)
+    when ``seg_partial`` and ``seg_first_tile`` (``R + 1`` entries) are given.
+    """
+    ...
+
+def h3_gate_grad_partials(
+    grad: torch.Tensor,
+    y: torch.Tensor,
+    rows: torch.Tensor,
+    tile_begin: torch.Tensor,
+    tile_end: torch.Tensor,
+) -> torch.Tensor:
+    """Sequence parallel: FP32 ``(tiles, N)`` partials of ``sum(grad * y)`` over tiles of ``rows``.
+
+    ``rows`` is an int64 list of rows of ``grad``/``y`` and ``[tile_begin, tile_end)`` cut it into
+    tiles; the lists are checked on the device before use.
+    """
+    ...
+
+def h3_gate_grad_fold(
+    partial: torch.Tensor, seg_first_tile: torch.Tensor, dtype: torch.dtype
+) -> torch.Tensor:
+    """Fold gathered ``h3_gate_grad_partials`` per table row; return ``(R, N)`` in ``dtype``.
+
+    ``seg_first_tile`` has ``R + 1`` entries into the tile axis of ``partial``, checked on the device.
+    """
+    ...
+
+def h3_rmsnorm_backward_dx(
+    grad: torch.Tensor,
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    rstd: torch.Tensor,
+    shift: torch.Tensor | None = None,
+    scale: torch.Tensor | None = None,
+    index: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """The row-local ``dx`` of ``h3_rmsnorm_backward`` alone, in ``x``'s dtype (sequence parallel)."""
+    ...
+
+def h3_gate_residual_backward_dy(
+    grad: torch.Tensor, gate: torch.Tensor, index: torch.Tensor
+) -> torch.Tensor:
+    """``d_y = grad * gate[index[r % S]]``, the exact part of ``h3_gate_residual_backward``."""
+    ...

@@ -607,11 +607,12 @@ def _gate_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
         gate = _gate_view(table)
         grad = torch.randn_like(residual)
 
-        def prepare_backward(fn, residual=residual, y=y, table=table):
+        def prepare_backward(fn, residual=residual, y=y, table=table, grad=grad):
             leaves = [t.detach().requires_grad_(True) for t in (residual, y, table)]
-            return fn(leaves[0], leaves[1], _gate_view(leaves[2]))
+            return fn(leaves[0], leaves[1], _gate_view(leaves[2])), grad
 
-        def backward(output, grad=grad):
+        def backward(state):
+            output, grad = state
             output.backward(grad)
 
         cases.append(
@@ -717,11 +718,12 @@ def _final_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
         x, nw, temb, w, b, ti = _final_inputs(seq)
         grad = torch.randn_like(x)
 
-        def prepare_backward(fn, tensors=(x, nw, temb, w, b)):
+        def prepare_backward(fn, tensors=(x, nw, temb, w, b), grad=grad):
             leaves = [t.detach().requires_grad_(True) for t in tensors]
-            return fn(*leaves)
+            return fn(*leaves), grad
 
-        def backward(output, grad=grad):
+        def backward(state):
+            output, grad = state
             output.backward(grad)
 
         cases.append(
