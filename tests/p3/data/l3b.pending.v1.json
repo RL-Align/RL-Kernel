@@ -1,0 +1,27 @@
+{
+  "schema": "p3-l3b-paired.v1",
+  "verdict": "MISSING_PROVENANCE",
+  "miles_router_anchor": {
+    "miles_commit": "PLACEHOLDER",
+    "router_kernel/build": "PLACEHOLDER",
+    "recorded_trace_checksum": "PLACEHOLDER",
+    "tie_break_source": "PLACEHOLDER",
+    "logit_round_point_source": "PLACEHOLDER"
+  },
+  "required_engines": [
+    "Megatron",
+    "Miles"
+  ],
+  "recorded_artifacts": [],
+  "required_fields": [
+    "case_id",
+    "checkpoint_id",
+    "weight_id",
+    "fixture_checksum",
+    "boundary_trace",
+    "actual_provenance",
+    "RoutePlan",
+    "torch_paired"
+  ],
+  "note": "Fill from sanitized real engine traces; synthetic pairs never certify L3b."
+}

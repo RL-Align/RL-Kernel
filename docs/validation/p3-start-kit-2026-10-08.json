@@ -1,0 +1,166 @@
+{
+  "schema_version": "p3-t01-validation.v2",
+  "date": "2026-10-08",
+  "scope": "T01_S0_DEVELOPMENT",
+  "contract_version": "p3-router-task-contract.v23",
+  "operator_abi": "p3-op-abi.v4",
+  "artifact_schema": "p3-start-kit-artifact.v2",
+  "contract_status": "anchor_pending",
+  "source_fingerprint": "f8f2b4e37544636106c58655498675a9a4f42f2f847220744c04beea33404e4d",
+  "bitmath_source_fingerprint": "ac5ecf9d3306783b0bfbf27252564a64292cb84f2fb74aee973cf7cbe1ae30ca",
+  "environment": {
+    "python": "3.11.17",
+    "numpy": "2.3.5",
+    "pytest": "9.1.1",
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "gpu": "NVIDIA H100 80GB HBM3",
+    "executed_gpu_count": 1
+  },
+  "pytest": {
+    "P3_H100": {
+      "tests": 194,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "passed": 194
+    },
+    "P3_and_related_CPU": {
+      "tests": 245,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 12,
+      "passed": 233
+    },
+    "acceptance_regressions_H100": {
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "passed": 9
+    }
+  },
+  "fixtures": {
+    "source_cases": 24,
+    "active_cases": 20,
+    "operator_recordings": 100,
+    "negative_fixtures": 30,
+    "cuda_topk_records": 80
+  },
+  "checks": {
+    "pre_commit": "PASS: every configured hook on the complete PR diff",
+    "documentation_build": {
+      "result": "BLOCKED_BY_UPSTREAM_BRANCH_BASELINE",
+      "baseline_commit": "b31fac988faae9de71ab1f683e4a5c9cc8578b84",
+      "baseline_broken_links": 8,
+      "new_broken_links": 0,
+      "p3_scoped_strict_build": "PASS"
+    },
+    "ruff_lint": "PASS",
+    "ruff_format": "PASS",
+    "python_3_10_syntax": "PASS",
+    "python_files_checked": 32,
+    "frozen_publications": "PASS",
+    "legacy_numerical_saved_byte_regression": "PASS",
+    "CPU_create_verify_resume": "PASS",
+    "CUDA_create_verify_resume": "PASS",
+    "all_nine_acceptance_regressions": "PASS",
+    "WS1_missing_anchor": "EXPECTED_REJECTION:MISSING_PROVENANCE",
+    "submitted_text_language": "English; no Han characters in staged text files",
+    "added_file_size_limit": "PASS: all files below 500 KB"
+  },
+  "evidence_matrix": [
+    {
+      "gate": "T01 CPU start kit",
+      "verdict": "CASE_PASS"
+    },
+    {
+      "gate": "CUDA stable_topk6",
+      "verdict": "PASS"
+    },
+    {
+      "gate": "Miles anchor / recorded L3b",
+      "verdict": "MISSING_PROVENANCE"
+    },
+    {
+      "gate": "Foundation approved binding",
+      "verdict": "NOT_CERTIFIED"
+    },
+    {
+      "gate": "T02\u2013T06 CUDA WS1",
+      "verdict": "NOT_CERTIFIED"
+    },
+    {
+      "gate": "WS2 multi-GPU",
+      "verdict": "NOT_CERTIFIED"
+    },
+    {
+      "gate": "P3 R0",
+      "verdict": "NOT_CERTIFIED"
+    },
+    {
+      "gate": "P4/P6/P7 live Integration",
+      "verdict": "NOT_CERTIFIED"
+    }
+  ],
+  "not_certified": [
+    "approved Foundation ABI and owner binding",
+    "real Miles anchor and Megatron/Miles L3b",
+    "other owner production CUDA operators",
+    "WS2 multi-GPU",
+    "P3-R0 and live integration",
+    "Ascend/ROCm",
+    "finite capacity/overflow",
+    "performance",
+    "reviewer approval"
+  ],
+  "not_run": [
+    "full repository regression",
+    "GitHub Actions"
+  ],
+  "golden_storage": {
+    "v1": {
+      "path": "tests/p3/data/golden.v1.json.gz",
+      "compressed_bytes": 116232,
+      "uncompressed_sha256": "c6590dbe6dc8114959680138fc06d32eebae1b6cc920d3cc1554c25e6a709c58"
+    },
+    "v2": {
+      "path": "tests/p3/data/golden.v2.json.gz",
+      "compressed_bytes": 163123,
+      "uncompressed_sha256": "f5a5f9b1e11088ea1ea01aceecbc8539a3983dd78a733833b6ff8284a0b22c72"
+    }
+  },
+  "reproduction": {
+    "cpu": "OMP_NUM_THREADS=1 PYTHONPATH=. python -m pytest tests/p3 -q",
+    "h100": "P3_RUN_GPU=1 OMP_NUM_THREADS=1 PYTHONPATH=. python -m pytest tests/p3 -q -ra",
+    "fixtures": "PYTHONPATH=. python scripts/generate_p3_fixtures.py --check",
+    "pre_commit": "pre-commit run --files <files changed by this PR>",
+    "docs": "mkdocs build --strict -f mkdocs.yaml"
+  },
+  "evidence_sha256": {
+    "acceptance.xml": "dfe7193f6ded69d3e85e526ec39f76df4a00098fa084e7b821a748f8a7ccdd4c",
+    "cpu-0.txt": "f3717bd6612c7821b9f72a5fe41699b9ba6afd466b16aab3d098a9714ce22587",
+    "cpu-1.txt": "7dfe42511118995ef85ee17bc796c1e4d9040590e583eda0720fadbe66c92dcd",
+    "cpu-2.txt": "ee79e7d9a695e217acc9d7f26291b7c20ce2c8ccc285898e4bee29c21767b98c",
+    "cpu-3.txt": "6330922fc01a0040858add1a0d10c45182e0dc60747351259103b7cb3518edab",
+    "cpu-4.txt": "14da4d78972d061a5a1ebc898fab66fc6c2f3a2106d2be070b1567347b12b66f",
+    "cpu-5.txt": "0f136439888e2b6c106c4ae409f9e364d565efa88a76d10cd3ffb721c67e1e4c",
+    "cpu-6.txt": "2de7f9ad40ad3fad47569098e6752e5479541754a14ea38b36b0e613cf519408",
+    "cpu-commands.json": "8c0bd33a4b2b35ca2ec5452ffd8dda65201015a08b18f0df6e899280d7f24d1e",
+    "cpu.xml": "aa28cf3fe81f2d3cf045fbc0902acd36e9640b52b845b2dd9a6b519dd728a3b4",
+    "docs-baseline.txt": "418365c71b5b4628133ac1350a1b2741f4fe559ada8ec97a29a2a7ee4de403a7",
+    "docs-build.txt": "8979fd104db7d4a8e278c1d85fe3eecda1261f6b869d0ceefbcf39531ab7e137",
+    "docs-p3-scoped.txt": "35b6810d3d8eb0b8051cec15444cc866e8bf1962a708281f5843ba801d2c646c",
+    "h100-0.txt": "0409528eb73b1301a9765a138951dbe4fc484a0b69dfd4b4bc0b96a5a93721b7",
+    "h100-1.txt": "6339db0cc8c6ca7306d78015815c054cd8e65ce8e997ef5a83efe852491d27f1",
+    "h100-2.txt": "4e7113cb7427c36b23eed5b0c78271c969fe4af4f1f7aeb9a0c5ccdb48be789c",
+    "h100-3.txt": "8d7d1089ac944509bc267f7ff87571ed10ab45267038f6549f254cc1a2a63db2",
+    "h100-4.txt": "b44db9fc0f756ea6ee6fbc6721a0d5b9c5b44e82df83f51613af34a1b7068fbd",
+    "h100-commands.json": "5d5da4029554cdc3f9ddd5ca34bec0732f4e5db224a1995f308fb03d8534be5f",
+    "h100.xml": "d866188d0d782a90590f27dfa50e6513bd56e30721c1b578bc176696981388da",
+    "pre-commit-final.txt": "64e95c9e7c3ff2d9beeeb5b4e253272f86fe10c19069f731bc742e238f73a26b",
+    "pre-commit.txt": "072b2c8d841cb3541d2a553b2c02a893f62f0aeaff00c93fbc6365a65a2d4f23"
+  },
+  "local_evidence_bundle": "p3-submission-evidence.tar.gz",
+  "base_commit": "b31fac988faae9de71ab1f683e4a5c9cc8578b84"
+}
