@@ -20,6 +20,8 @@ PY
 if [[ "$mode" == smoke ]]; then
     RL_KERNEL_REQUIRE_FP32_GPU=1 python -m pytest -q tests/ops/gemm/test_det_gemm_fp32.py
     python -m pytest -q tests/ops/gemm/test_h3_projections.py \
+        tests/backends/cuda/test_h3_projection_fp32.py \
+        tests/reference/gemm/test_h3_projections.py \
         tests/validation/operators/test_h3_projection_*.py
 fi
 args=(--output "$H3_EVIDENCE_DIR/$mode.json")

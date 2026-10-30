@@ -15,6 +15,7 @@ on:
       - 'MANIFEST.in'
       - 'docker/Dockerfile.cuda'
       - 'ci/scripts/run_gpu_ci.sh'
+      - 'ci/scripts/run_h3_projections.sh'
       - '.github/workflows/gpu-ci.yml'
     types: [ opened, synchronize, reopened, labeled ]
 

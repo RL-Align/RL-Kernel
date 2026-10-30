@@ -93,6 +93,8 @@ def _weight_gradient(extension, rows, grads):
     # Fix the token reduction extent from the SAME active logical row set.
     # Pad to BK=32 for a stable tail; also bypass legacy scalar/small-K routes.
     count = rows.shape[0]
+    if count == 0:
+        return rows.new_zeros((grads.shape[1], rows.shape[1]))
     padded = ((count + 31) // 32) * 32
     if padded != count:
         x_pad = rows.new_zeros((padded, rows.shape[1]))
@@ -147,6 +149,10 @@ class _H3ProjectionFn(torch.autograd.Function):
 
                 def reducer(rows, grads):
                     value = _weight_gradient(ctx.extension, rows, grads)
+                    ctx.trace["canonical_active_rows"] = rows.shape[0]
+                    if rows.shape[0] == 0:
+                        ctx.trace["weight_gradient_zero"] = True
+                        return value
                     executed.append(
                         getattr(
                             ctx.extension,
@@ -155,12 +161,13 @@ class _H3ProjectionFn(torch.autograd.Function):
                         )
                     )
                     ctx.trace["weight_gradient_executed"] = True
-                    ctx.trace["canonical_active_rows"] = rows.shape[0]
                     if hasattr(ctx.extension, "h3_last_launch"):
                         ctx.trace["weight_gradient_launch"] = ctx.extension.h3_last_launch
                     return value
 
-                dw = ctx.session.submit_linear(ctx.parameter_id, ctx.slot, x, grad, reducer)
+                dw = ctx.session.submit_linear(
+                    ctx.parameter_id, ctx.slot, x, grad, reducer, allow_empty=True
+                )
         if executed:
             record_backward(
                 ctx.trace["semantic_op"],
@@ -223,6 +230,7 @@ class H3ProjectionOp:
             "forward_executed": False,
             "input_gradient_executed": False,
             "weight_gradient_executed": False,
+            "weight_gradient_zero": False,
             "qualification": "pending_h3_gpu_evidence",
         }
         self.last_execution = trace

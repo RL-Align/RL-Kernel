@@ -169,6 +169,41 @@ def test_padding_only_first_chunk_and_3d_gradient_shape(cpu_orchestration, kind)
     assert raw_equal(w.grad, torch.ones_like(w))
 
 
+@pytest.mark.parametrize("chunks", [1, 3])
+@pytest.mark.parametrize("train_x", [False, True])
+def test_all_padding_session_returns_zero_gradients(cpu_orchestration, kind, chunks, train_x):
+    x = torch.arange(12, dtype=torch.bfloat16).reshape(3, 4).requires_grad_(train_x)
+    w = torch.ones(3, 4).bfloat16().requires_grad_(True)
+    keys = torch.full((3, 2), -1, dtype=torch.int64)
+    outputs, traces = [], []
+    with canonical_backward_session() as session:
+        for rows, row_keys in zip(x.chunk(chunks), keys.chunk(chunks), strict=True):
+            op = down.H3ProjectionOp(kind)
+            outputs.append(op(rows, w, logical_keys=row_keys))
+            traces.append(op.last_execution)
+        torch.autograd.backward(outputs, [torch.zeros_like(y) for y in outputs])
+        session.validate_complete()
+    assert raw_equal(w.grad, torch.zeros_like(w))
+    if train_x:
+        assert raw_equal(x.grad, torch.zeros_like(x))
+    else:
+        assert x.grad is None
+    assert cpu_orchestration.weight_reduction_inputs == []
+    assert sum(trace["weight_gradient_zero"] for trace in traces) == 1
+    assert not any(trace["weight_gradient_executed"] for trace in traces)
+    assert not any("weight_gradient_launch" in trace for trace in traces)
+
+
+def test_empty_linear_reduction_remains_opt_in():
+    with canonical_backward_session() as session:
+        slot = session.register("other.weight", torch.full((1, 2), -1, dtype=torch.int64))
+        with pytest.raises(RuntimeError, match="no active logical rows"):
+            session.submit_linear(
+                "other.weight", slot, torch.ones(1, 4), torch.zeros(1, 3),
+                lambda rows, grads: pytest.fail("default must reject empty reductions"),
+            )
+
+
 @pytest.mark.parametrize("mutated", ["x", "weight"])
 def test_strided_inputs_keep_autograd_version_checks(cpu_orchestration, mutated, kind):
     x = torch.ones(4, 2).bfloat16().t().requires_grad_(True)
@@ -360,3 +395,27 @@ def test_byte_mismatch_count_crosses_comparison_chunk_boundary():
     rhs[-1] = -0.0
     result = comparison(lhs, rhs, "forward_invariance")
     assert not result["passed"] and result["mismatched_bytes"] == 1
+
+
+@pytest.mark.cuda_only
+@requires_sm90
+@pytest.mark.parametrize("chunk_size", [1, 3])
+def test_full_width_all_padding_gradients_on_gpu(kind, chunk_size):
+    torch.backends.cuda.matmul.allow_tf32 = False
+    k, n = down.SPECS[kind]
+    x = torch.ones(3, k, device="cuda", dtype=torch.bfloat16).requires_grad_(True)
+    w = torch.ones(n, k, device="cuda", dtype=torch.bfloat16).requires_grad_(True)
+    keys = torch.full((3, 2), -1, device="cuda", dtype=torch.int64)
+    outputs, traces = [], []
+    with canonical_backward_session() as session:
+        for rows, row_keys in zip(x.split(chunk_size), keys.split(chunk_size), strict=True):
+            op = down.H3ProjectionOp(kind)
+            outputs.append(op(rows, w, logical_keys=row_keys))
+            traces.append(op.last_execution)
+        torch.autograd.backward(outputs, [torch.zeros_like(y) for y in outputs])
+        session.validate_complete()
+    assert raw_equal(x.grad, torch.zeros_like(x))
+    assert raw_equal(w.grad, torch.zeros_like(w))
+    assert sum(trace["weight_gradient_zero"] for trace in traces) == 1
+    assert not any(trace["weight_gradient_executed"] for trace in traces)
+    assert all(trace["input_gradient_executed"] for trace in traces)

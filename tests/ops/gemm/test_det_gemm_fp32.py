@@ -126,3 +126,34 @@ def test_shared_fp32_retains_small_terms_between_large_tiles(
     actual = det_gemm.TritonDetGemmOp().forward_fp32(a, b)
     torch.testing.assert_close(actual, expected, atol=0, rtol=0)
     assert default_index_launches == [False]
+
+
+@pytest.mark.parametrize("aligned", [False, True])
+@pytest.mark.parametrize("strided", [False, True])
+def test_shared_fp32_bias_and_aligned_loads(aligned, strided, default_index_launches):
+    m, k, n = (33, 128, 64) if aligned else (33, 129, 67)
+    generator = torch.Generator(device="cuda").manual_seed(421)
+    a = torch.randn((m, k), generator=generator, device="cuda")
+    b = torch.randn((k, n), generator=generator, device="cuda")
+    bias = torch.randn((n,), generator=generator, device="cuda")
+    if strided:
+        a = a.t().contiguous().t()
+        b = b.t().contiguous().t()
+        bias = bias.repeat_interleave(2)[::2]
+    actual = det_gemm._triton_gemm_fp32(a, b, bias=bias, aligned_tiles=aligned)
+    tolerance = load_contract()["accuracy"]["default"]["reduction"]["float32"]
+    torch.testing.assert_close(actual, a @ b + bias, **tolerance)
+    assert_same_bytes(actual, det_gemm._triton_gemm_fp32(
+        a, b, bias=bias, aligned_tiles=aligned))
+    assert default_index_launches == [False, False]
+
+
+@pytest.mark.parametrize("k", [129, 257])
+def test_upstream_chunked_fp32_reduction_keeps_tail_and_repeat(k):
+    generator = torch.Generator(device="cuda").manual_seed(422)
+    a = torch.randn((33, k), generator=generator, device="cuda")
+    b = torch.randn((k, 67), generator=generator, device="cuda")
+    actual = det_gemm._triton_chunked_gemm_fp32(a, b)
+    tolerance = load_contract()["accuracy"]["default"]["reduction"]["float32"]
+    torch.testing.assert_close(actual, (a.double() @ b.double()).float(), **tolerance)
+    assert_same_bytes(actual, det_gemm._triton_chunked_gemm_fp32(a, b))
