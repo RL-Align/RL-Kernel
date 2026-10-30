@@ -3,7 +3,7 @@
 
 """A heatmap cell counts every forward output of the operator, not only the first.
 
-Also: the TP evidence figure for a report that has no TP > 1 run.
+Also: the TP and SP evidence figures for a report that has no TP or SP > 1 run.
 """
 
 from __future__ import annotations
@@ -128,27 +128,25 @@ def test_tp_figure_for_reports_with_and_without_tp_above_one(worlds):
     plt.close(fig)
 
 
-def _sp_run(sp: int) -> dict:
+def _sp_report(worlds: list[int]) -> dict:
+    from plot_h3_evidence import SP_TENSORS
+
     case = {
         "layout": "block",
         "seq": 64,
         "batch": 1,
-        "equal": dict.fromkeys(("out", "d_residual", "d_y", "d_weight", "d_table"), True),
-        "sp_forward_backward_us": 1500.0,
+        "sp_forward_backward_us": 2000.0,
         "ws1_forward_backward_us": 1900.0,
+        "equal": dict.fromkeys((key for key, _ in SP_TENSORS), True),
     }
-    return {"sp": sp, "ranks": [{"rank": 0, "cases": [case]}]}
-
-
-def _sp_report(worlds: list[int]) -> dict:
-    naive = {"d_weight": 0.5, "d_table": 0.25}
+    naive = {"d_weight": 0.5, "d_table": 0.5}
     return {
         "op": "sp_norm_adaln",
-        "environment": {"gpu": "gpu", "gpus": 1, "torch": "t", "cuda": "c"},
+        "environment": {"gpu": "gpu", "gpus": 8, "torch": "t", "cuda": "c"},
         "rl_kernel_commit": "0123456789",
         "model_revision": "0123456789",
-        "runs": [_sp_run(sp) for sp in worlds],
-        "naive_sp": {"sp": max(worlds), "block": naive, "interleaved": naive},
+        "runs": [{"sp": sp, "ranks": [{"rank": 0, "cases": [case]}]} for sp in worlds],
+        "naive_sp": {"sp": 2, "block": naive, "interleaved": naive},
     }
 
 

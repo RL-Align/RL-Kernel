@@ -43,6 +43,15 @@ def _require_ext():
         pytest.skip("rl_engine._C lacks h3_det_linear_*")
 
 
+def _require_sm80():
+    from rl_engine.backends.cuda.model_specific.minimax_h3.det_linear import (
+        det_linear_device_supported,
+    )
+
+    if not det_linear_device_supported():
+        pytest.skip("the BF16 deterministic linear needs SM80 or newer")
+
+
 def _inputs(num_t, n_out, k, dtype=torch.bfloat16, seed=0):
     g = torch.Generator(device="cpu").manual_seed(seed)
     temb = (torch.randn(num_t, k, generator=g) * 2).cuda()
@@ -78,6 +87,7 @@ class TestShardArithmetic:
     @pytest.mark.parametrize("tp", [2, 4, 8])
     def test_pinned_shards_reproduce_ws1(self, h3_weights_cpu, tp):
         _require_ext()
+        _require_sm80()
         from rl_engine.backends.cuda.model_specific.minimax_h3 import det_linear as dl
 
         weight, bias = h3_weights_cpu[WEIGHT].cuda(), h3_weights_cpu[BIAS].cuda()
@@ -102,6 +112,7 @@ class TestShardArithmetic:
 
     def test_tp1_op_is_ws1(self):
         _require_ext()
+        _require_sm80()
         one = SimpleNamespace(rank=0, world_size=1, backend_id="none", all_gather=lambda t: t)
         temb, weight, bias, grad = _inputs(3, 3 * 6 * 256, 136)
         ws1 = ws1_projection(temb, weight, bias, grad)
