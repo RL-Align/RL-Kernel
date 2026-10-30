@@ -8,6 +8,7 @@ nav:
   - User Guide:
     - usage/README.md
     - usage/weight-sync-bridge.md
+    - TP Reward and Critic models: usage/tp-reward-critic.md
     - usage/grpo-single-gpu-example.md
     - Qwen3-8B VIME Consistency: usage/qwen3-vime-consistency.md
     - Getting Started:
