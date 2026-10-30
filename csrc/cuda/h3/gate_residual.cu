@@ -279,6 +279,7 @@ torch::Tensor h3_gate_grad_partials(torch::Tensor grad, torch::Tensor y, torch::
   }
   TORCH_CHECK(tile_begin.numel() == tile_end.numel(), "tile_begin and tile_end differ in length");
   const int64_t n = grad.size(1);
+  TORCH_CHECK(n > 0, "grad must have at least one column");
   const int64_t tiles = tile_begin.numel();
   const c10::cuda::CUDAGuard guard(grad.device());
   auto partial = torch::empty({tiles, n}, grad.options().dtype(at::kFloat));
@@ -289,7 +290,11 @@ torch::Tensor h3_gate_grad_partials(torch::Tensor grad, torch::Tensor y, torch::
               " column blocks, more than the grid.y limit of 65535");
   const unsigned col_blocks = static_cast<unsigned>(col_blocks64);
   // The row and tile lists are caller-built: every row must be a row of grad and every tile must
-  // lie inside the list before the kernel reads through them.
+  // lie inside the list before the kernel reads through them. That the tiles also partition the
+  // list in order (no gap, no repeated row) is the caller's contract and is NOT verified here,
+  // unlike h3_gate_residual_backward: a gap would drop rows from d_gate. The Python planner
+  // (sp_norm_adaln._segment_tiles) builds the lists, and the SP tests compare the folded result
+  // with WS1 bit for bit.
   h3_tiles::check_lists(at::cuda::getCurrentCUDAStream(), rows.data_ptr<int64_t>(), rows.numel(),
                         grad.size(0), tile_begin.data_ptr<int64_t>(), tile_end.data_ptr<int64_t>(),
                         tiles, nullptr, 0, 0);
