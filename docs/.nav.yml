@@ -18,6 +18,7 @@ nav:
     - Operators:
       - operators/README.md
       - operators/activation.md
+      - operators/moe-merge.md
       - operators/attention.md
       - operators/fused-logp.md
       - operators/linear-logp.md
@@ -30,6 +31,7 @@ nav:
       - operators/sampling.md
       - operators/det-gemm.md
       - operators/embedding.md
+      - operators/dsv4-moe.md
   - Developer Guide:
     - contributing/README.md
     - Contributor Guide: contributing/contributor-guide.md
