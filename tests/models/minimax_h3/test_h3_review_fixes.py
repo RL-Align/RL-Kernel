@@ -94,3 +94,14 @@ class TestBlockContextDevice:
         ctx = h3_block.make_block_context(h3_weights_cpu, layout="tiny", seed=0)
         assert ctx["hidden"].device.type == "cpu"
         assert ctx["temb"].device.type == "cpu"
+
+    @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="needs two CUDA devices")
+    def test_the_packed_layout_follows_weights_on_a_non_default_device(self, h3_weights_cpu):
+        weights = {k: v.to("cuda:1") for k, v in h3_weights_cpu.items()}
+        with torch.cuda.device(0):
+            ctx = h3_block.make_block_context(weights, layout="tiny", seed=0)
+        for name in ("hidden", "temb", "index", "position_ids"):
+            assert ctx[name].device == torch.device("cuda:1"), name
+        for name in ("rope", "rope_fp32"):
+            assert ctx[name], name  # all() of nothing would pass
+            assert all(t.device == torch.device("cuda:1") for t in ctx[name]), name

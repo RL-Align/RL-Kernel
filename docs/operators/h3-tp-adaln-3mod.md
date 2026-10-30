@@ -69,9 +69,10 @@ be identical on every TP rank, as it is when every rank applies the modulation t
 
 `DeterministicCollective` copies all-gathers whose output is at most 256 KiB with a single-block
 byte loop, at about 4 µs per KiB on B200. For a gathered output above 8 KiB (and at most 256 KiB),
-`ws2_comm.gather_rows` appends zero rows to each shard so that the gathered output is just over
-256 KiB, where the multi-block path takes a flat 55-65 µs for 2 and 4 ranks (about 90 µs for 8;
-measured on 8 x B200); the padding rows are dropped afterwards. Outputs of at most 8 KiB are gathered
+`ws2_comm.gather_rows` appends whole zero rows to each shard until the gathered output exceeds
+256 KiB, so the temporary buffer is larger than 256 KiB by up to one row of every rank. There the
+multi-block path takes a flat 55-65 µs for 2 and 4 ranks (about 90 µs for 8; measured on 8 x B200);
+the padding rows are dropped afterwards. Outputs of at most 8 KiB are gathered
 unpadded, because the single-block loop is faster there, and outputs already above 256 KiB need no
 padding. This matters for the forward at small `T`.
 

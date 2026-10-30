@@ -90,18 +90,25 @@ def _checks_panel(ax, report: dict[str, Any]) -> None:
     )
 
 
+# A node that matches the golden bitwise has error 0, which has no logarithm: it is drawn here.
+LOG_FLOOR = 1e-12
+
+
+def _log(value: float) -> float:
+    return math.log10(max(value, LOG_FLOOR))
+
+
 def _err_panel(ax, labels, cand, prov, title: str) -> None:
     xs = range(len(labels))
-    ax.plot(
-        xs, [math.log10(v) for v in cand], "o-", color=RL_KERNEL, lw=1.8, ms=5, label="RL-Kernel"
-    )
-    ax.plot(
-        xs, [math.log10(v) for v in prov], "s--", color=PROVIDER, lw=1.4, ms=4, label="diffusers"
-    )
+    ax.plot(xs, [_log(v) for v in cand], "o-", color=RL_KERNEL, lw=1.8, ms=5, label="RL-Kernel")
+    ax.plot(xs, [_log(v) for v in prov], "s--", color=PROVIDER, lw=1.4, ms=4, label="diffusers")
     ax.set_xticks(list(xs), labels, rotation=55, ha="right", fontsize=7, color=INK)
-    lo = math.floor(min(math.log10(v) for v in cand + prov))
-    hi = math.ceil(max(math.log10(v) for v in cand + prov))
-    ax.set_yticks(range(lo, hi + 1), [f"1e{v}" for v in range(lo, hi + 1)])
+    lo = math.floor(min(_log(v) for v in cand + prov))
+    hi = math.ceil(max(_log(v) for v in cand + prov))
+    floor_tick = round(math.log10(LOG_FLOOR))
+    exact = any(v <= LOG_FLOOR for v in cand + prov)  # drawn at the floor: say it is exact
+    labels_y = ["0" if exact and v == floor_tick else f"1e{v}" for v in range(lo, hi + 1)]
+    ax.set_yticks(range(lo, hi + 1), labels_y)
     ax.grid(axis="y", color=GRID, linewidth=0.8)
     ax.set_ylabel("max|err| / max|golden|", color=MUTED, fontsize=8)
     ax.legend(frameon=False, fontsize=7.5, labelcolor=INK, loc="upper left")
