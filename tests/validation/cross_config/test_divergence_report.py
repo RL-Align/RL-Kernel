@@ -8,7 +8,11 @@ import json
 import pytest
 import torch
 
-from rl_engine.validation.cross_config.divergence import first_divergence, runtime_identity
+from rl_engine.validation.cross_config.divergence import (
+    compute_mismatch_mask,
+    first_divergence,
+    runtime_identity,
+)
 
 
 def test_first_divergence_records_token_and_runtime_identity_deterministically():
@@ -114,6 +118,56 @@ def test_first_divergence_handles_tolerance_infinities_and_signed_zero():
             atol=1e-5,
             mismatch_mask=torch.zeros(1, dtype=torch.bool),
         )
+
+
+def test_first_divergence_compares_booleans_exactly():
+    expected = torch.tensor([True, False, True])
+
+    assert first_divergence(expected, expected.clone()).passed is True
+    report = first_divergence(expected, torch.tensor([True, True, True]))
+
+    assert report.passed is False
+    assert report.mismatch_count == 1
+    assert report.first is not None
+    assert report.first.flat_index == 1
+    assert (report.first.expected_value, report.first.actual_value) == (False, True)
+    assert report.first.absolute_diff is None
+    assert report.first.relative_diff is None
+    assert json.dumps(report.to_dict(), sort_keys=True, allow_nan=False)
+    assert compute_mismatch_mask(
+        expected,
+        torch.tensor([False, False, True]),
+        torch.ones(3, dtype=torch.bool),
+        0.0,
+    ).tolist() == [True, False, False]
+
+
+def test_first_divergence_compares_int64_without_subtraction_overflow():
+    int64 = torch.iinfo(torch.int64)
+    expected = torch.tensor([-1, int64.min, 2**62], dtype=torch.int64)
+    actual = torch.tensor([int64.max, int64.max, 2**62 + 1], dtype=torch.int64)
+
+    # Wrapped int64 subtraction makes the first pair look equal.
+    assert torch.abs(actual - expected)[0] <= 0
+    report = first_divergence(expected, actual)
+
+    assert report.passed is False
+    assert report.mismatch_count == 3
+    assert report.first is not None
+    assert report.first.flat_index == 0
+    assert report.first.absolute_diff == 2**63
+    assert first_divergence(expected[2:], actual[2:]).first.absolute_diff == 1
+    assert first_divergence(expected, expected.clone()).passed is True
+
+
+@pytest.mark.parametrize("dtype", [torch.bool, torch.int32, torch.int64])
+def test_exact_comparison_rejects_tolerances(dtype):
+    value = torch.ones(2, dtype=dtype)
+
+    with pytest.raises(ValueError, match="zero tolerances"):
+        first_divergence(value, value.clone(), atol=1.0)
+    with pytest.raises(ValueError, match="zero tolerances"):
+        first_divergence(value, value.clone(), rtol=0.5)
 
 
 def test_first_divergence_rejects_vacuous_samples_and_invalid_axis_metadata():
