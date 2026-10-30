@@ -149,6 +149,12 @@ results, reused without rerunning for this documentation update; they are not a
 GitHub CI result or production/performance qualification. Full evidence remains
 private pending separately authorized delivery.
 
+Subsequent integration of `test-h3` at
+`9efa2643e31626f8b5de4b514373dbfe94f7bd6e` brings upstream TP AdaLN
+changes. The tested projection/shared FP32 sources and their validation execution
+paths remain unchanged. This execution does not validate those upstream native/TP
+changes.
+
 Earlier executions and their limitations remain historical:
 
 | Historical execution | Outcome and scope |
