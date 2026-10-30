@@ -178,6 +178,26 @@ def test_the_reference_manifest_and_root_flags_go_together(tmp_path, monkeypatch
             cmp.main()
 
 
+def test_the_compared_reference_must_be_the_run_the_manifest_verified(tmp_path, monkeypatch):
+    from tools.validation.models import h3_full_compare as cmp
+
+    root = tmp_path / "root"
+    (tmp_path / "x").write_text(
+        "exists"
+    )  # an existing --output stops main after the checks of interest
+    args = ["h3_full_compare", "--other", "o", "--output", str(tmp_path / "x")]
+    args += ["--reference-manifest", "m.json", "--reference-root", str(root)]
+    # a reference elsewhere, or the root itself, is refused ...
+    for reference in (tmp_path / "elsewhere", root, root / "bf16-provider"):
+        monkeypatch.setattr("sys.argv", args + ["--reference", str(reference)])
+        with pytest.raises(ValueError, match="must be .*fp32-reference"):
+            cmp.main()
+    # ... the verified run passes this check and is stopped by the next one (the output exists)
+    monkeypatch.setattr("sys.argv", args + ["--reference", str(root / "fp32-reference")])
+    with pytest.raises(ValueError, match="never overwrite"):
+        cmp.main()
+
+
 def test_candidate_prepare_creates_a_nested_output_but_refuses_an_existing_one(
     tmp_path, monkeypatch
 ):
@@ -189,7 +209,7 @@ def test_candidate_prepare_creates_a_nested_output_but_refuses_an_existing_one(
         ["prep", "--checkpoint", str(tmp_path), "--reference-root", str(tmp_path)]
         + ["--output", str(target)],
     )
-    with pytest.raises(Exception):  # it fails later, on the missing reference evidence
+    with pytest.raises(FileNotFoundError, match="fp32-reference"):  # the missing evidence
         prep.main()
     assert target.is_dir()  # the nested output directory was created before that
     with pytest.raises(FileExistsError):
