@@ -91,6 +91,9 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
         "rl_engine.kernels.ops.rocm.attention.flash_attn.StrictRocmAiterCKAttentionCore"
     )
 
+    # Nemotron Nano single-device router; no reference fallback in strict dispatch.
+    TRITON_NEMOTRON_ROUTER = "rl_engine.backends.cuda.moe.nemotron_router.NemotronRouterOp"
+
     # GRPO loss (group reward normalization + clipped surrogate + KL)
     TRITON_GRPO_LOSS = "rl_engine.kernels.ops.triton.loss.grpo_loss.TritonGRPOLossOp"
     PYTORCH_GRPO_LOSS = "rl_engine.kernels.ops.pytorch.loss.grpo_loss.NativeGRPOLossOp"
@@ -539,6 +542,7 @@ class KernelRegistry:
 
         self._priority_map = {
             "cuda": {
+                "nemotron_router_dispatch": [OpBackend.TRITON_NEMOTRON_ROUTER],
                 "logp": [
                     OpBackend.CUDA_FUSED_LOGP_GENERIC,
                     OpBackend.FLASHINFER,
@@ -1055,6 +1059,8 @@ class KernelRegistry:
         """Select the best legacy operator for the requested device."""
 
         platform = self._platform_for_device(device)
+        if op_type == "nemotron_router_dispatch" and platform != "cuda":
+            raise RuntimeError("Nemotron router is qualified only for NVIDIA SM90 CUDA")
         candidates = self._priority_map.get(platform, {}).get(op_type, [OpBackend.PYTORCH_NATIVE])
 
         for backend in candidates:
