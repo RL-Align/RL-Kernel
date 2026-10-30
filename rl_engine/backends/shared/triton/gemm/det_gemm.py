@@ -987,6 +987,8 @@ def _triton_gemm_fp32(
     """
 
     a, b = a.contiguous(), b.contiguous()
+    # The kernel's column-bias load assumes a unit element stride.
+    bias = bias.contiguous() if bias is not None else None
     M, K = a.shape
     _, N = b.shape
     c = torch.empty((M, N), device=a.device, dtype=torch.float32)
