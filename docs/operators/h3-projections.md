@@ -128,10 +128,28 @@ is claimed. Local preparation does not enable or trigger remote jobs.
 
 ## Results and evidence status
 
-All GPU results below are historical, from before integration with `test-h3`
-at `59725d83bd045ebb1c56dc27ccd1be3163df7c7d`. The merged shared kernel and
-new all-padding path still require target-device validation. Old results do not
-certify the merged source, its generated kernels or current CI.
+Manual H100 validation on 2026-10-30 tested clean source
+`a7de8b2c21d20139b4846094e6f3eb7d9f4db514`, including integration with
+`test-h3` at `59725d83bd045ebb1c56dc27ccd1be3163df7c7d`. It used one
+NVIDIA H100 80GB HBM3 (SM90), Python 3.11.10, PyTorch 2.4.1+cu124,
+Triton 3.0.0 and driver 595.91.07.
+
+| Manual H100 selection | Outcome |
+| --- | --- |
+| Shared FP32 regression | 34 passed; zero failures or skips. Actual launches cover compensated default indexing, strided bias normalization, aligned loads and uncompensated chunk tails. |
+| H3 operator/adapter/reference/fixture/runner | 86 passed, including ten GPU tests; zero failures or skips. All-padding cases return zero dW without a dW GEMM. |
+| Operator matrices | Smoke 8/176, full 80/1886, replay 12/276, tasks 12/288, tasks replay 12/288 cases/checks; all 2914 checks passed. |
+| Fresh process/cache replay | Both comparisons matched all 36 y/dX/dW digests, 72 total. Worst error/tolerance ratio was 0.194678. |
+
+The original archive SHA256 is
+`11d129c9d6bd8d1b5327639c25d14740076c77a833c8583c36334af23a02f4ce`;
+all 780 file hashes were verified. Source manifests and captured launch/compiled
+artifacts bind the execution to the tested source. These are recorded manual
+results, reused without rerunning for this documentation update; they are not a
+GitHub CI result or production/performance qualification. Full evidence remains
+private pending separately authorized delivery.
+
+Earlier executions and their limitations remain historical:
 
 | Historical execution | Outcome and scope |
 | --- | --- |
