@@ -246,6 +246,16 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     )
     PYTORCH_H3_RMSNORM = "rl_engine.reference.minimax_h3.rmsnorm.NativeH3RMSNormOp"
     CUDA_H3_RMSNORM = "rl_engine.backends.cuda.model_specific.minimax_h3.rmsnorm.H3RMSNormCudaOp"
+    PYTORCH_H3_GATE_RESIDUAL = "rl_engine.reference.minimax_h3.gate_residual.NativeH3GateResidualOp"
+    CUDA_H3_GATE_RESIDUAL = (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.gate_residual.H3GateResidualCudaOp"
+    )
+    PYTORCH_H3_FINAL_ADALN_OUT = (
+        "rl_engine.reference.minimax_h3.final_adaln_out.NativeH3FinalAdaLNOutOp"
+    )
+    CUDA_H3_FINAL_ADALN_OUT = (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.final_adaln_out.H3FinalAdaLNOutCudaOp"
+    )
 
 
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
@@ -831,6 +841,14 @@ class KernelRegistry:
                     OpBackend.PYTORCH_H3_ADALN_ROW_GATHER,
                 ],
                 "h3_rmsnorm": [OpBackend.CUDA_H3_RMSNORM, OpBackend.PYTORCH_H3_RMSNORM],
+                "adaln_gate_residual": [
+                    OpBackend.CUDA_H3_GATE_RESIDUAL,
+                    OpBackend.PYTORCH_H3_GATE_RESIDUAL,
+                ],
+                "final_adaln_out": [
+                    OpBackend.CUDA_H3_FINAL_ADALN_OUT,
+                    OpBackend.PYTORCH_H3_FINAL_ADALN_OUT,
+                ],
             },
             "rocm": {
                 "logp": [
@@ -878,6 +896,8 @@ class KernelRegistry:
                 "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
                 "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
                 "h3_rmsnorm": [OpBackend.PYTORCH_H3_RMSNORM],
+                "adaln_gate_residual": [OpBackend.PYTORCH_H3_GATE_RESIDUAL],
+                "final_adaln_out": [OpBackend.PYTORCH_H3_FINAL_ADALN_OUT],
             },
             "musa": {
                 "logp": [
@@ -933,6 +953,8 @@ class KernelRegistry:
                 "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
                 "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
                 "h3_rmsnorm": [OpBackend.PYTORCH_H3_RMSNORM],
+                "adaln_gate_residual": [OpBackend.PYTORCH_H3_GATE_RESIDUAL],
+                "final_adaln_out": [OpBackend.PYTORCH_H3_FINAL_ADALN_OUT],
             },
             "cpu": {
                 "logp": [OpBackend.PYTORCH_NATIVE],
@@ -965,6 +987,8 @@ class KernelRegistry:
                 "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
                 "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
                 "h3_rmsnorm": [OpBackend.PYTORCH_H3_RMSNORM],
+                "adaln_gate_residual": [OpBackend.PYTORCH_H3_GATE_RESIDUAL],
+                "final_adaln_out": [OpBackend.PYTORCH_H3_FINAL_ADALN_OUT],
             },
             # Ascend NPU: op types without an entry fall back to their CPU
             # candidates (see the runtime override below), so only

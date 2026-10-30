@@ -465,4 +465,36 @@ def h3_rmsnorm_backward(
     modulation they must be omitted.
     """
     ...
+def h3_gate_residual_forward(
+    residual: torch.Tensor, y: torch.Tensor, gate: torch.Tensor, index: torch.Tensor
+) -> torch.Tensor:
+    """Return ``residual + gate[index[r % S]] * y`` for contiguous CUDA ``(M, N)`` tensors.
+
+    ``residual`` and ``y`` share a dtype (FP32, FP16 or BF16); ``gate`` is an ``(R, N)`` view of an
+    AdaLN table with unit column stride and a row stride of at least ``N``; ``index`` is a
+    contiguous int64 ``(S,)`` tensor with ``M`` a multiple of ``S``. The gate row is gathered in the
+    kernel and the two roundings (gate * y, then the add) are the eager expression's, so the result
+    is bitwise the eager one. An index outside ``[0, R)`` stops with a device-side assert.
+    """
+    ...
+
+def h3_gate_residual_backward(
+    grad: torch.Tensor,
+    y: torch.Tensor,
+    gate: torch.Tensor,
+    index: torch.Tensor,
+    sorted_pos: torch.Tensor,
+    tile_begin: torch.Tensor,
+    tile_end: torch.Tensor,
+    seg_first_tile: torch.Tensor,
+) -> list[torch.Tensor]:
+    """Return ``[d_y, d_gate]`` of ``h3_gate_residual_forward`` (``d_residual`` is ``grad`` itself).
+
+    ``d_y = grad * gate[index]`` is bitwise the eager VJP. ``d_gate`` is ``(R, N)`` in the gate
+    dtype: a deterministic FP32 sum over stable-sorted tiles of rows per table row, from
+    ``sorted_pos``, ``tile_begin``, ``tile_end`` and ``seg_first_tile`` as built by
+    ``adaln_row_gather._segment_tiles`` (``R`` is ``seg_first_tile.numel() - 1``); the metadata is
+    checked on the device before use.
+    """
+    ...
 

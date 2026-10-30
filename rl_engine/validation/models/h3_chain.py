@@ -33,6 +33,8 @@ from rl_engine.validation.models.h3_cases import h3_packed_layout, h3_timesteps
 from rl_engine.validation.models.h3_provider import (
     provider_adaln_modulation,
     provider_adaln_row_gather,
+    provider_final_adaln_out,
+    provider_gate_residual,
     provider_norm_modulate,
     provider_time_embedder,
     provider_time_proj,
@@ -150,6 +152,62 @@ STAGES.append(
     )
 )
 
+STAGES.append(
+    Stage(
+        name="adaln_gate_residual",
+        op_type="adaln_gate_residual",
+        # residual + gate_msa[row] * attention_output (the stand-in sublayer output).
+        candidate=lambda op, ctx, _up: op(
+            ctx["hidden"],
+            ctx["sublayer"],
+            ctx["history"]["adaln_projection_3mod"][2],
+            adaln_indices(ctx),
+        ),
+        provider=lambda ctx, _up: provider_gate_residual(
+            ctx["hidden"],
+            ctx["history"]["adaln_projection_3mod"][2],
+            adaln_indices(ctx),
+            ctx["sublayer"],
+        ),
+        golden=lambda op, ctx, _up: op.forward_fp32(
+            ctx["hidden"],
+            ctx["sublayer"],
+            ctx["history"]["adaln_projection_3mod"][2],
+            adaln_indices(ctx),
+        ),
+        provider_bitwise_isolated=True,  # eager rounding order, elementwise
+        golden_atol=5e-2,  # carries the gate's BF16 rounding (reduction / bfloat16)
+        golden_rtol=2e-2,
+    )
+)
+
+
+def _final(ctx: dict[str, Any], call):
+    weights = ctx["weights"]
+    history = ctx["history"]
+    return call(
+        history["adaln_gate_residual"],  # the residual stream after the gated sublayer
+        weights["norm_out.norm.weight"],
+        history["timestep_mlp_fp32"],  # temb
+        weights["norm_out.linear.weight"],
+        weights["norm_out.linear.bias"],
+        ctx["timestep_indices"],
+    )
+
+
+STAGES.append(
+    Stage(
+        name="final_adaln_out",
+        op_type="final_adaln_out",
+        candidate=lambda op, ctx, _up: _final(ctx, op),
+        provider=lambda ctx, _up: _final(ctx, provider_final_adaln_out),
+        golden=lambda op, ctx, _up: _final(ctx, op.forward_fp32),
+        provider_bitwise_isolated=False,  # shift/scale projection: tensor-core tree vs cuBLAS
+        golden_atol=5e-2,  # reduction / bfloat16
+        golden_rtol=2e-2,
+    )
+)
+
 # The backward replay covers the conditioning chain up to the row gather.
 CONDITIONING_STAGES = (
     "timestep_sinusoid_h3",
@@ -206,6 +264,14 @@ def make_context(weights, *, num_timesteps: int, seq_len: int, seed: int) -> dic
         # other RFC rows): BF16 (1, S, H), seeded.
         "hidden": torch.randn(
             (1, seq_len, HIDDEN), generator=torch.Generator().manual_seed(seed + 2)
+        )
+        .to(torch.bfloat16)
+        .cuda(),
+        # Stand-in for the attention output the gate multiplies (the attention
+        # rows belong to other contributors): BF16 (1, S, H), seeded.
+        "sublayer": (
+            torch.randn((1, seq_len, HIDDEN), generator=torch.Generator().manual_seed(seed + 3))
+            * 3.0
         )
         .to(torch.bfloat16)
         .cuda(),

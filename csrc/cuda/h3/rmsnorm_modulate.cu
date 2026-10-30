@@ -36,6 +36,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <utility>
 #include <vector>
 
 #include "tile_metadata.cuh"
@@ -282,12 +283,6 @@ void check_rows(const torch::Tensor& t, const char* name, const torch::Tensor& l
   TORCH_CHECK(t.scalar_type() == like.scalar_type(), name, " must have dtype ", like.scalar_type());
 }
 
-void check_index_tensor(const torch::Tensor& t, const char* name, const torch::Tensor& x) {
-  TORCH_CHECK(t.is_cuda() && t.device() == x.device() && t.scalar_type() == at::kLong &&
-                  t.dim() == 1 && t.is_contiguous(),
-              name, " must be a contiguous 1-D int64 CUDA tensor on x's device");
-}
-
 Modulation make_modulation(const c10::optional<torch::Tensor>& shift,
                            const c10::optional<torch::Tensor>& scale,
                            const c10::optional<torch::Tensor>& index, const torch::Tensor& x,
@@ -315,8 +310,9 @@ Modulation make_modulation(const c10::optional<torch::Tensor>& shift,
   // expanded or overlapping one (row_stride < N) is not a table of rows.
   TORCH_CHECK(sh.size(0) <= 1 || sh.stride(0) >= n, "shift/scale row stride ", sh.stride(0),
               " is smaller than N=", n);
-  check_index_tensor(ix, "row index", x);
-  TORCH_CHECK(ix.numel() > 0, "row index must be nonempty");
+  TORCH_CHECK(ix.is_cuda() && ix.device() == x.device() && ix.scalar_type() == at::kLong &&
+                  ix.dim() == 1 && ix.is_contiguous() && ix.numel() > 0,
+              "row index must be a non-empty contiguous int64 tensor on ", x.device());
   TORCH_CHECK(x.size(0) % ix.size(0) == 0, "x rows (", x.size(0), ") must be a multiple of S (",
               ix.size(0), ")");
   mod.shift = sh.data_ptr();
@@ -402,10 +398,15 @@ std::vector<torch::Tensor> h3_rmsnorm_backward(
     TORCH_CHECK(sorted_pos.has_value() && tile_begin.has_value() && tile_end.has_value() &&
                     seg_first_tile.has_value(),
                 "modulated backward needs the sorted segment tiles");
-    check_index_tensor(*sorted_pos, "sorted_pos", x);
-    check_index_tensor(*tile_begin, "tile_begin", x);
-    check_index_tensor(*tile_end, "tile_end", x);
-    check_index_tensor(*seg_first_tile, "seg_first_tile", x);
+    const std::pair<const torch::Tensor*, const char*> tiles[] = {{&*sorted_pos, "sorted_pos"},
+                                                                  {&*tile_begin, "tile_begin"},
+                                                                  {&*tile_end, "tile_end"},
+                                                                  {&*seg_first_tile, "seg_first_tile"}};
+    for (const auto& [t, name] : tiles) {
+      TORCH_CHECK(t->is_cuda() && t->device() == x.device() && t->scalar_type() == at::kLong &&
+                      t->dim() == 1 && t->is_contiguous(),
+                  name, ": tile metadata must be contiguous int64 tensors on ", x.device());
+    }
     TORCH_CHECK(sorted_pos->size(0) == rows, "sorted_pos must have M entries");
     TORCH_CHECK(seg_first_tile->size(0) == shift->size(0) + 1,
                 "seg_first_tile must have R + 1 entries");

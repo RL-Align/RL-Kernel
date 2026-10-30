@@ -330,6 +330,20 @@ def plot_gather(report: dict[str, Any]):
         "Whole-chain grads of the FP32 time embedder vs FP64",
         "max abs error / golden max",
     )
+    if not chain:
+        right.text(
+            0.5,
+            0.5,
+            report["accuracy"].get("chain_backward_skipped", "No chain measurements available"),
+            transform=right.transAxes,
+            ha="center",
+            va="center",
+            color=INK,
+            fontsize=9,
+            wrap=True,
+        )
+        right.set_axis_off()
+        return fig
     names = {
         "candidate": ("RL-Kernel, separate ops", THIRD, "o"),
         "candidate_fused": ("RL-Kernel, fused modulation", RL_KERNEL, "D"),
@@ -437,12 +451,101 @@ def plot_rmsnorm(report: dict[str, Any]):
     return fig
 
 
+def _latency_fwd_bwd(ax, perf: list[dict[str, Any]], provider: str) -> None:
+    _style(ax, "Forward and backward time (log, lower is better)", "ms")
+    _bars(
+        ax,
+        [row["case"] for row in perf],
+        [
+            ("CUDA fwd", RL_KERNEL, [row["candidate_us"] / 1e3 for row in perf]),
+            (f"{provider} fwd", PROVIDER, [row["provider_us"] / 1e3 for row in perf]),
+            ("CUDA bwd", RL_KERNEL, [row["candidate_backward_us"] / 1e3 for row in perf], "////"),
+            (
+                f"{provider} bwd",
+                PROVIDER,
+                [row["provider_backward_us"] / 1e3 for row in perf],
+                "////",
+            ),
+        ],
+        "{:.2f}",
+        log=True,
+    )
+
+
+def _backward_errors(ax, backward: dict[str, Any], keys: list[str], note: str) -> None:
+    _style(ax, "Backward vs FP64 golden (log, lower is better)", "max abs error / golden max")
+
+    def label(name: str, mode: str) -> str:
+        return (
+            f"{name} (repeat-bitwise: {'yes' if backward[mode]['repeat_bitwise_equal'] else 'no'})"
+        )
+
+    floor = 1e-9
+    _bars(
+        ax,
+        keys,
+        [
+            (
+                label("RL-Kernel CUDA", "cuda"),
+                RL_KERNEL,
+                [max(backward["cuda"]["rel_error"][k], floor) for k in keys],
+            ),
+            (
+                label("diffusers", "provider"),
+                PROVIDER,
+                [max(backward["provider"]["rel_error"][k], floor) for k in keys],
+            ),
+        ],
+        "{:.1e}",
+        log=True,
+    )
+    for text in ax.texts:
+        if text.get_text() == f"{floor:.1e}":
+            text.set_text("exact")
+    ax.set_ylim(floor / 3, 1e4)
+    ax.text(0.98, 0.80, note, transform=ax.transAxes, ha="right", fontsize=8, color=INK)
+
+
+def plot_gate_residual(report: dict[str, Any]):
+    fig, (left, right) = _figure(
+        report, "adaln_gate_residual  (residual + gate_msa[row] * y, H = 5376)"
+    )
+    _latency_fwd_bwd(left, report["perf"], "diffusers")
+    acc = report["accuracy"]
+    ok = all(acc["forward_bitwise_vs_diffusers"].values())
+    _backward_errors(
+        right,
+        acc["backward"],
+        ["d_residual", "d_sublayer", "d_gate"],
+        f"forward bitwise equal to diffusers (bf16/fp16/fp32): {'yes' if ok else 'NO'}",
+    )
+    return fig
+
+
+def plot_final(report: dict[str, Any]):
+    fig, (left, right) = _figure(
+        report, "final_adaln_out  (norm_out: projection + final norm, T = 3)"
+    )
+    _latency_fwd_bwd(left, report["perf"], "diffusers")
+    acc = report["accuracy"]
+    _backward_errors(
+        right,
+        acc["backward"],
+        ["dx", "d_norm_w", "d_temb", "dW", "db"],
+        f"forward equal to diffusers on {100 * acc['equal_to_diffusers_fraction']:.2f}% "
+        "of elements (projection 1-ULP ties)",
+    )
+    return fig
+
+
 PLOTS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "timestep_sinusoid_h3": plot_sinusoid,
     "timestep_mlp_fp32": plot_mlp,
     "adaln_projection_3mod": plot_projection,
     "adaln_row_gather": plot_gather,
     "h3_rmsnorm": plot_rmsnorm,
+    "adaln_gate_residual": plot_gate_residual,
+    "final_adaln_out": plot_final,
 }
 
 

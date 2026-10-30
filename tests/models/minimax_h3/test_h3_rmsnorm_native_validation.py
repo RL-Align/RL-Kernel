@@ -96,7 +96,7 @@ def test_valid_plain_and_modulated_backward(native, inputs):
 @pytest.mark.parametrize("entrypoint", ["forward", "backward"])
 def test_rejects_empty_row_index(native, inputs, entrypoint):
     inputs["index"] = inputs["index"][:0]
-    with pytest.raises(RuntimeError, match="row index must be nonempty"):
+    with pytest.raises(RuntimeError, match="row index must be a non-empty"):
         _call(native, inputs, entrypoint)
 
 
