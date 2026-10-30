@@ -524,7 +524,11 @@ std::vector<torch::Tensor> h3_rmsnorm_backward_partials(
   const int threads = 256;
   const unsigned col_blocks = static_cast<unsigned>((n + threads - 1) / threads);
   const int64_t tiles = dw_begin.numel();
-  TORCH_CHECK(2 * n <= std::numeric_limits<int>::max() && (2 * n + threads - 1) / threads <= 65535,
+  // Only the segment kernels of a modulated call launch over 2N columns (shift and scale partials
+  // side by side); a plain call launches the dweight kernel over N, so it gets the N bound.
+  const int64_t grid_columns = mod.index != nullptr ? 2 * n : n;
+  TORCH_CHECK(grid_columns <= std::numeric_limits<int>::max() &&
+                  (grid_columns + threads - 1) / threads <= 65535,
               "N=", n, " is too large for the kernels (int indices, grid.y limit of 65535)");
   auto dw_partial = torch::empty({tiles, n}, x.options().dtype(at::kFloat));
   // The row and tile lists are caller-built: every row must be a row of x and every tile must lie
