@@ -201,33 +201,37 @@ def merge_residual_gradient_after_rms(
     plan: MoEOutputCombinePlan,
     rms_input_gradient: torch.Tensor,
     residual_gradient: torch.Tensor,
+    *,
+    num_tokens: int,
 ) -> torch.Tensor:
     """Add external residual dH after P1 RMSNorm backward.
 
+    Both gradients must be 2-D ``[num_tokens, plan.hidden_size]`` tensors.
     The RMS gradient dtype determines the returned dtype.  Both inputs are
     accumulated in FP32 before the final conversion at this boundary.
     The residual branch bypasses the RMSNorm Jacobian; P1 must provide the
     already-transformed ``rms_input_gradient`` before this function is called.
     """
 
+    if isinstance(num_tokens, bool) or not isinstance(num_tokens, int) or num_tokens <= 0:
+        raise MoEOutputCombineContractError("num_tokens must be a positive integer")
     if plan.residual_mode != "external":
         raise MoEOutputCombineContractError("residual gradient requires residual_mode='external'")
     if plan.accumulation_dtype != "float32":
         raise MoEOutputCombineContractError("P6 gradient accumulation must be float32")
     if rms_input_gradient.device.type != "cpu" or residual_gradient.device.type != "cpu":
         raise MoEOutputCombineContractError("P6 reference gradients must be on CPU")
-    if rms_input_gradient.shape != residual_gradient.shape:
-        raise MoEOutputCombineContractError("residual_gradient must match the RMS gradient shape")
     for name, value in (
         ("rms_input_gradient", rms_input_gradient),
         ("residual_gradient", residual_gradient),
     ):
-        if not value.is_floating_point():
-            raise MoEOutputCombineContractError(f"{name} must use a floating-point dtype")
-        if value.dtype not in _SUPPORTED_GRADIENT_DTYPES:
-            raise MoEOutputCombineContractError(f"{name} uses an unsupported gradient dtype")
-        if not torch.isfinite(value).all():
-            raise MoEOutputCombineContractError(f"{name} must contain only finite values")
+        _validate_token_gradient(
+            name,
+            value,
+            num_tokens=num_tokens,
+            hidden_size=plan.hidden_size,
+            device=rms_input_gradient.device,
+        )
     return (rms_input_gradient.to(torch.float32) + residual_gradient.to(torch.float32)).to(
         rms_input_gradient.dtype
     )

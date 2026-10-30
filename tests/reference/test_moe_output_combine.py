@@ -417,6 +417,7 @@ def test_local_input_gradients_stop_before_rms_and_residual_merges_afterward():
         plan,
         rms_gradient,
         residual_gradient,
+        num_tokens=2,
     )
     assert torch.equal(
         after_rms, (rms_gradient.float() + residual_gradient.float()).to(torch.bfloat16)
@@ -548,6 +549,7 @@ def test_local_input_gradients_enforce_modes_and_mapping_run_id():
             plan,
             torch.ones(2, plan.hidden_size, dtype=torch.bfloat16),
             torch.ones(2, plan.hidden_size, dtype=torch.bfloat16),
+            num_tokens=2,
         )
 
     with pytest.raises(MoEOutputCombineContractError, match="separate tensors"):
@@ -560,6 +562,49 @@ def test_local_input_gradients_enforce_modes_and_mapping_run_id():
             gate_gradient=shared_gradient,
             num_tokens=2,
         )
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        pytest.param((), id="scalar"),
+        pytest.param((8,), id="flattened"),
+        pytest.param((2, 3), id="narrow-hidden"),
+        pytest.param((2, 5), id="wide-hidden"),
+        pytest.param((3, 4), id="extra-token"),
+        pytest.param((2, 4, 1), id="three-dimensional"),
+    ],
+)
+def test_residual_gradient_merge_rejects_non_token_hidden_shapes(shape):
+    plan = _plan(residual_mode="external")
+    valid = torch.ones(2, plan.hidden_size, dtype=torch.bfloat16)
+    invalid = torch.ones(shape, dtype=torch.bfloat16)
+
+    # The last case has matching shapes, which the old shape-equality check accepted.
+    for name, rms_gradient, residual_gradient in (
+        ("rms_input_gradient", invalid, valid),
+        ("residual_gradient", valid, invalid),
+        ("rms_input_gradient", invalid, invalid.clone()),
+    ):
+        with pytest.raises(
+            MoEOutputCombineContractError,
+            match=rf"{name} must have shape \[num_tokens, hidden_size\]",
+        ):
+            merge_residual_gradient_after_rms(
+                plan,
+                rms_gradient,
+                residual_gradient,
+                num_tokens=2,
+            )
+
+
+@pytest.mark.parametrize("num_tokens", [0, -1, True, 2.0])
+def test_residual_gradient_merge_requires_positive_num_tokens(num_tokens):
+    plan = _plan(residual_mode="external")
+    gradient = torch.ones(2, plan.hidden_size, dtype=torch.bfloat16)
+
+    with pytest.raises(MoEOutputCombineContractError, match="num_tokens"):
+        merge_residual_gradient_after_rms(plan, gradient, gradient, num_tokens=num_tokens)
 
 
 def test_gradient_combine_allows_missing_forward_shared_output():
