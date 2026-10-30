@@ -39,11 +39,12 @@ configure these values in the upstream repository, not a contributor's fork:
 | Variable, optional | `OCR_REVIEW_ENABLED` | Set to `false` to disable the job; any other value leaves it enabled |
 
 The workflow sends OpenCode Go chat completions a fixed body,
-`{"reasoning_effort":"none"}`, and the header
+`{"reasoning_effort":"low"}`, and the header
 `x-opencode-session: ocr-pr-<pull request number>`. Go requires that session
-header. `reasoning_effort: none` replaces the official DeepSeek `thinking`
-object; sending both fields makes the gateway return HTTP 400.
-`OCR_LLM_EXTRA_BODY` is not read. The endpoint in `OCR_LLM_URL` is
+header and returns HTTP 400 when it is missing. `reasoning_effort` replaces
+the official DeepSeek `thinking` object. This gateway accepts `low`, `high`,
+or `max`; `none` is rejected. `OCR_LLM_EXTRA_BODY` is not read. The endpoint
+in `OCR_LLM_URL` is
 `https://opencode.ai/inference/go/openai/v1/chat/completions`.
 
 Follow the provider's endpoint and request-body requirements. OCR sends selected
