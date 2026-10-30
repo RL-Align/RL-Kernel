@@ -191,6 +191,38 @@ def test_leftover_temporary_files_are_ignored(tmp_path):
     assert run.saved == 3
 
 
+def _finished_seed(directory, identity=IDENTITY):
+    denoise(directory, resume=False, identity=identity)
+    (directory / "report.json").write_text("{}")
+
+
+def test_a_finished_seed_of_the_same_identity_is_skipped_on_resume(tmp_path):
+    from tools.validation.models.h3_full_generation import finished_seed_is_reusable
+
+    _finished_seed(tmp_path / "a")
+    assert finished_seed_is_reusable(tmp_path / "a", IDENTITY, resume=True)
+    assert not finished_seed_is_reusable(tmp_path / "a", IDENTITY, resume=False)
+    assert not finished_seed_is_reusable(tmp_path / "missing", IDENTITY, resume=True)
+
+
+def test_a_finished_seed_of_another_identity_is_not_silently_reused(tmp_path):
+    from tools.validation.models.h3_full_generation import finished_seed_is_reusable
+
+    _finished_seed(tmp_path / "a")
+    other = dict(IDENTITY, commit="different model code")
+    with pytest.raises(ResumeError, match="different identity"):
+        finished_seed_is_reusable(tmp_path / "a", other, resume=True)
+
+
+def test_a_finished_seed_without_a_run_file_is_not_reused(tmp_path):
+    from tools.validation.models.h3_full_generation import finished_seed_is_reusable
+
+    _finished_seed(tmp_path / "a")
+    (tmp_path / "a" / "run.json").unlink()
+    with pytest.raises(ResumeError, match="no run.json"):
+        finished_seed_is_reusable(tmp_path / "a", IDENTITY, resume=True)
+
+
 def test_saved_steps_without_a_run_file_are_not_adopted(tmp_path):
     """``run.json`` carries the identity; without it the steps' origin is unknown."""
 

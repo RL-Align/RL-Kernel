@@ -158,6 +158,16 @@ class StepStore:
         _atomic_write(run_file, lambda p: p.write_text(json.dumps(stored, indent=2) + "\n"))
         return saved
 
+    def verify_identity(self, identity: dict[str, Any]) -> None:
+        """Raise unless this directory holds a run of exactly ``identity`` (a finished run is no
+        exception: its results are only reusable for the same numerics, inputs and settings)."""
+
+        run_file = self.directory / RUN_FILE
+        if not run_file.exists():
+            raise ResumeError(f"{self.directory} has no {RUN_FILE}; its run cannot be identified")
+        if json.loads(run_file.read_text())["identity"] != identity:
+            raise ResumeError("saved run has a different identity; refusing to reuse it")
+
     def attempts(self) -> list[dict[str, Any]]:
         return json.loads((self.directory / RUN_FILE).read_text())["attempts"]
 

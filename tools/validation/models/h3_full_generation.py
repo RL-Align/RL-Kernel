@@ -169,7 +169,7 @@ def main():
             settings=settings,
             provider_variant=args.provider_variant,
         )
-        if args.resume and (directory / "report.json").exists():
+        if finished_seed_is_reusable(directory, identity, resume=args.resume):
             print(f"seed {seed} already complete; skipping", flush=True)
             continue
         run = ResumableRun(
@@ -320,6 +320,16 @@ def run_identity(
         settings={k: settings[k] for k in ("num_frames", "height", "width")}
         | {"num_inference_steps": settings["num_inference_steps"]},
     )
+
+
+def finished_seed_is_reusable(directory: Path, identity: dict, *, resume: bool) -> bool:
+    """Whether ``--resume`` may skip this seed: it has finished, and was produced by exactly the
+    numerics, inputs and settings of ``identity``; a finished seed of anything else raises."""
+
+    if not (resume and (directory / "report.json").exists()):
+        return False
+    StepStore(directory).verify_identity(identity)
+    return True
 
 
 def failure_name(seeds):
