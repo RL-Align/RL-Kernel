@@ -159,9 +159,16 @@ def get_extensions():
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
             cuda_sources.append("csrc/cuda/attention/prefix_shared_attention.cu")
+            cuda_sources.append("csrc/cuda/mhc/mhc_pre_h_aggregate.cu")
 
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
-        if envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH):
+        use_fast_math = envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH)
+        if use_fast_math and not is_rocm:
+            raise RuntimeError(
+                "KERNEL_ALIGN_USE_FAST_MATH is incompatible with the deterministic "
+                "MHC H Aggregate CUDA contract"
+            )
+        if use_fast_math:
             nvcc_flags.append("--use_fast_math")
         if not is_rocm:
             cc_major, cc_minor = torch.cuda.get_device_capability()
