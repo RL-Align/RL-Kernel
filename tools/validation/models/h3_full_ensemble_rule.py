@@ -37,11 +37,12 @@ PROVIDER_STATUS = "frozen_reference_bounds"
 CANDIDATE_STATUSES = ("passed", "failed")
 
 
+def _is_gradient(name: str) -> bool:
+    return ".grad" in name or name.startswith("parameter.") or name.startswith("input_gradients.")
+
+
 def _floor(name: str) -> float:
-    gradient = (
-        ".grad" in name or name.startswith("parameter.") or name.startswith("input_gradients.")
-    )
-    return 5e-3 if gradient else 1e-3
+    return 5e-3 if _is_gradient(name) else 1e-3
 
 
 def _digest(path: Path) -> str:
@@ -125,9 +126,24 @@ def check(args) -> None:
     errors = report["errors"]
     if errors.keys() != rule["bounds_relative_l2"].keys():
         raise ValueError("tensor inventory differs from the rule")
-    failures = [
-        t for t in sorted(errors) if errors[t]["relative_l2"] > rule["bounds_relative_l2"][t]
-    ]
+    # Gradient bounds are above 1 (the BF16 providers' own gradients differ from FP32 by more than
+    # their norm), so a gradient that is all zero, whose relative error is exactly 1, would pass
+    # them. A gradient is rejected when it is exactly zero where the reference is not.
+    norms = report.get("tensor_l2")
+    if not isinstance(norms, dict) or norms.keys() != errors.keys():
+        raise ValueError(
+            "candidate comparison lacks the per-tensor norms needed to reject zeroed gradients; "
+            "regenerate it with the current h3_full_compare"
+        )
+    zeroed = sorted(
+        t
+        for t in errors
+        if _is_gradient(t) and norms[t]["other"] == 0 and norms[t]["reference"] > 0
+    )
+    failures = sorted(
+        {t for t in errors if errors[t]["relative_l2"] > rule["bounds_relative_l2"][t]}
+        | set(zeroed)
+    )
     ratios = {t: errors[t]["relative_l2"] / rule["bounds_relative_l2"][t] for t in errors}
     max_abs_ratio = {
         t: errors[t]["max_abs"] / rule["ensemble_max_abs"][t]
@@ -139,6 +155,7 @@ def check(args) -> None:
         "rule_sha256": _digest(args.rule),
         "candidate_comparison_sha256": _digest(args.candidate),
         "failures": failures,
+        "zeroed_gradients": zeroed,
         "worst_relative_l2_over_bound": sorted(ratios.items(), key=lambda x: -x[1])[:10],
         "outputs": {t: errors[t] for t in ("video", "audio") if t in errors},
         "max_abs_over_ensemble_max_reported": sorted(max_abs_ratio.items(), key=lambda x: -x[1])[

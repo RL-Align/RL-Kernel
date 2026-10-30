@@ -35,7 +35,10 @@ configurations with no candidate data (`tools/validation/models/h3_full_ensemble
 every tensor's `relative_l2` must be at most k × the largest provider error + floor,
 with k = 2.6 the smallest factor at which every provider configuration held out passes
 against the others; `max_abs` is reported but not gated, because held-out providers
-exceed the others' maximum by up to 4.1× on it. A full-model node-swap diagnostic
+exceed the others' maximum by up to 4.1× on it. Many gradient bounds are above 1, and a
+gradient that is exactly zero has a relative error of exactly 1, so the check also rejects any
+gradient that is exactly zero where the reference is not (the candidate comparison records both
+norms as `tensor_l2`; a comparison without them is refused). A full-model node-swap diagnostic
 (`--provider-nodes`) found no single node responsible for the candidate's high
 tensors: swapping any group moves which tensors land high rather than removing them.
 The single-configuration file is kept and still compared, as a record.
