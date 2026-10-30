@@ -100,7 +100,9 @@ def measure(case: dict[str, Any], warmup: int = 20, iters: int = 200) -> dict[st
     decimal GB/s from ``case['bytes']``, and peak allocated MiB per callable.
     """
 
-    row = {key: case[key] for key in ("op", "case", "backend", "bytes") if key in case}
+    row: dict[str, Any] = {
+        key: case[key] for key in ("op", "case", "backend", "bytes") if key in case
+    }
     keys = [key for key in TIMED_KEYS if key in case]
     if not keys:
         return row
@@ -116,7 +118,7 @@ def measure(case: dict[str, Any], warmup: int = 20, iters: int = 200) -> dict[st
         for key in orders[iteration % 2]:
             _prepared_call(case[key], case.get(f"{key}_setup"))()
     torch.cuda.synchronize()
-    samples = {key: [] for key in keys}
+    samples: dict[str, list[float]] = {key: [] for key in keys}
     for iteration in range(iters):
         for key in orders[iteration % 2]:
             samples[key].append(_sample_us(case[key], case.get(f"{key}_setup")))
@@ -163,6 +165,8 @@ def _sinusoid_accuracy(registry: KernelRegistry) -> dict[str, Any]:
     golden = registry._get_or_create_backend(
         registry._priority_map["cpu"]["timestep_sinusoid_h3"][-1]
     )
+    if golden is None:
+        raise RuntimeError("required H3 golden backend is unavailable")
     rows = []
     for num in (1, 2, 3, 7, 64, 1000, 4097):
         t = h3_timesteps(num, seed=num)
@@ -234,6 +238,8 @@ def _mlp_accuracy(registry: KernelRegistry, draws: int = 200) -> dict[str, Any]:
 
     op = registry.get_op("timestep_mlp_fp32", device="cuda")
     golden = registry._get_or_create_backend(registry._priority_map["cpu"]["timestep_mlp_fp32"][-1])
+    if golden is None:
+        raise RuntimeError("required H3 golden backend is unavailable")
     sinusoid = registry.get_op("timestep_sinusoid_h3", device="cuda")
     params = h3_params(MLP_NAMES, MLP_SHAPES)
     cuda_err, provider_err = [], []
@@ -309,6 +315,8 @@ def _projection_accuracy(registry: KernelRegistry, draws: int = 20) -> dict[str,
     golden = registry._get_or_create_backend(
         registry._priority_map["cpu"]["adaln_projection_3mod"][-1]
     )
+    if golden is None:
+        raise RuntimeError("required H3 golden backend is unavailable")
     weight, bias = _adaln_params()
     cuda_frac, provider_frac, early_frac = [], [], []
     for seed in range(draws):
@@ -397,6 +405,8 @@ def _gather_accuracy(registry: KernelRegistry) -> dict[str, Any]:
 
     op = registry.get_op("adaln_row_gather", device="cuda")
     golden = registry._get_or_create_backend(registry._priority_map["cpu"]["adaln_row_gather"][-1])
+    if golden is None:
+        raise RuntimeError("required H3 golden backend is unavailable")
     # Seeded so the op-backward fractions below are reproducible from this commit.
     gen = torch.Generator(device="cuda").manual_seed(0)
     rows = torch.randn(9, 6 * 5376, device="cuda", generator=gen).bfloat16()
@@ -560,7 +570,7 @@ def _norm_accuracy(registry: KernelRegistry) -> dict[str, Any]:
     backward = {}
     for name, fn in (
         ("cuda", lambda *t: op.forward_modulated(*t, index)),
-        ("provider", lambda *t: provider_norm_modulate(*t, index)),
+        ("provider", lambda *t: provider_norm_modulate(t[0], t[1], t[2], t[3], index)),
     ):
         first, second = grads(fn), grads(fn)
         backward[name] = {
@@ -734,14 +744,16 @@ def _final_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
                 # read x + norm_out.linear, write out
                 "bytes": 2 * seq * 5376 * 2 + w.numel() * 2,
                 "candidate": lambda t=(x, nw, temb, w, b), i=ti: op(*t, i),
-                "provider": lambda t=(x, nw, temb, w, b), i=ti: provider_final_adaln_out(*t, i),
+                "provider": lambda t=(x, nw, temb, w, b), i=ti: provider_final_adaln_out(
+                    t[0], t[1], t[2], t[3], t[4], i
+                ),
                 "candidate_backward": backward,
                 "provider_backward": backward,
                 "candidate_backward_setup": lambda bw=prepare_backward, i=ti: bw(
                     lambda *t: op(*t, i)
                 ),
                 "provider_backward_setup": lambda bw=prepare_backward, i=ti: bw(
-                    lambda *t: provider_final_adaln_out(*t, i)
+                    lambda *t: provider_final_adaln_out(t[0], t[1], t[2], t[3], t[4], i)
                 ),
             }
         )
@@ -753,6 +765,8 @@ def _final_accuracy(registry: KernelRegistry) -> dict[str, Any]:
     golden_op = registry._get_or_create_backend(
         registry._priority_map["cpu"]["final_adaln_out"][-1]
     )
+    if golden_op is None:
+        raise RuntimeError("required H3 golden backend is unavailable")
     x, nw, temb, w, b, ti = _final_inputs(4097, seed=1)
     ours = op(x, nw, temb, w, b, ti)
     theirs = provider_final_adaln_out(x, nw, temb, w, b, ti)
@@ -786,7 +800,7 @@ def _final_accuracy(registry: KernelRegistry) -> dict[str, Any]:
     backward = {}
     for name, fn in (
         ("cuda", lambda *t: op(*t, ti)),
-        ("provider", lambda *t: provider_final_adaln_out(*t, ti)),
+        ("provider", lambda *t: provider_final_adaln_out(t[0], t[1], t[2], t[3], t[4], ti)),
     ):
         first, second = grads(fn), grads(fn)
         backward[name] = {
