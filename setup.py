@@ -139,6 +139,7 @@ def get_extensions():
             "csrc/cuda/rmsnorm.cu",
             "csrc/cuda/activation.cu",
             "csrc/cuda/attention/deterministic_attention.cu",
+            "csrc/cuda/attention/mqa_joint_attention_sink.cu",
             "csrc/cuda/distributed/deterministic_collective.cu",
         ]
         if not is_rocm:

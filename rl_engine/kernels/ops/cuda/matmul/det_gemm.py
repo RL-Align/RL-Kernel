@@ -236,39 +236,45 @@ class _DetGemmFn(torch.autograd.Function):
 class _DetLinearFn(torch.autograd.Function):
     @staticmethod
     def forward(ctx, a, weight):
+        if a.device != weight.device:
+            raise RuntimeError("DetGemm linear inputs must be on the same CUDA device")
         ctx.save_for_backward(a, weight)
-        return det_gemm_linear(a, weight)
+        with torch.cuda.device(a.device):
+            return det_gemm_linear(a, weight)
 
     @staticmethod
     def backward(ctx, grad_out):
         a, weight = ctx.saved_tensors
-        grad_out = grad_out.contiguous()
-        if grad_out.dtype != torch.bfloat16:
-            grad_out = grad_out.to(torch.bfloat16)
-        da = (
-            det_gemm_linear_input_gradient(
-                grad_out,
-                weight,
-                native_op=_C.det_gemm_fwd,
+        if grad_out.device != a.device:
+            raise RuntimeError("DetGemm linear gradient must be on the input CUDA device")
+        with torch.cuda.device(a.device):
+            grad_out = grad_out.contiguous()
+            if grad_out.dtype != torch.bfloat16:
+                grad_out = grad_out.to(torch.bfloat16)
+            da = (
+                det_gemm_linear_input_gradient(
+                    grad_out,
+                    weight,
+                    native_op=_C.det_gemm_fwd,
+                )
+                if ctx.needs_input_grad[0]
+                else None
             )
-            if ctx.needs_input_grad[0]
-            else None
-        )
-        dweight = (
-            det_gemm_linear_weight_gradient(
-                a,
-                grad_out,
-                native_op=_C.det_gemm_db_transposed,
+            dweight = (
+                det_gemm_linear_weight_gradient(
+                    a,
+                    grad_out,
+                    native_op=_C.det_gemm_db_transposed,
+                )
+                if ctx.needs_input_grad[1]
+                else None
             )
-            if ctx.needs_input_grad[1]
-            else None
-        )
-        record_backward(
-            "det_gemm",
-            kernel_id=det_gemm_backend_id(),
-            impl="strict_det_gemm",
-            family="cuda",
-        )
+            record_backward(
+                "det_gemm",
+                kernel_id=det_gemm_backend_id(),
+                impl="strict_det_gemm",
+                family="cuda",
+            )
         return da, dweight
 
 
