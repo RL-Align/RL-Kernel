@@ -11,11 +11,12 @@ padded vocabulary. It does not run the model.
 
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
+
+from rl_engine.config.workload import manifest_identity_hash, weight_snapshot_hash
 
 _MANIFEST_PATH = Path(__file__).with_name("museglimmer_manifest.json")
 
@@ -405,27 +406,8 @@ def _validate_weight_snapshot(weight: Mapping[str, Any]) -> None:
         raise MuseGlimmerWorkloadError("weight_snapshot content_hash does not match shard records")
 
 
-def _manifest_identity_payload(raw: Mapping[str, Any]) -> dict[str, Any]:
-    # Hash every declared section so future manifest keys cannot escape identity.
-    return {k: v for k, v in raw.items() if k != "fixture_identity_sha256"}
-
-
-def manifest_identity_hash(raw: Mapping[str, Any]) -> str:
-    blob = json.dumps(
-        _manifest_identity_payload(raw), sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")
-    return hashlib.sha256(blob).hexdigest()
-
-
-def weight_snapshot_hash(shards: Sequence[Mapping[str, Any]]) -> str:
-    """Hash canonical filename/SHA-256/size records for all weight shards."""
-    records = sorted((str(s["filename"]), str(s["sha256"]), int(s["size_bytes"])) for s in shards)
-    blob = "".join(f"{name}\t{digest}\t{size}\n" for name, digest, size in records)
-    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
-
-
 def reference_payload(manifest: MuseGlimmerManifest | None = None) -> dict[str, Any]:
-    """Payload emitted by scripts/museglimmer_reference.py (no model forward)."""
+    """Payload emitted by tools/validation/models/museglimmer_reference.py (no model forward)."""
     m = manifest if manifest is not None else load_manifest()
     identity = m.model_identity
     return {

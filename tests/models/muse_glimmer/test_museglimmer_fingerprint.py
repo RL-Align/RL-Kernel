@@ -30,6 +30,7 @@ from rl_engine.models.muse_glimmer.operator_trace import (
 )
 
 REPO = Path(__file__).resolve().parents[3]
+REFERENCE_SCRIPT = REPO / "tools/validation/models/museglimmer_reference.py"
 
 
 @pytest.fixture()
@@ -375,7 +376,7 @@ def test_gemm_shapes_match_weight_schema():
 
 def test_reference_cli_emits_json():
     out = subprocess.run(
-        [sys.executable, str(REPO / "scripts/museglimmer_reference.py"), "--emit-json", "-"],
+        [sys.executable, str(REFERENCE_SCRIPT), "--emit-json", "-"],
         check=True,
         capture_output=True,
         text=True,

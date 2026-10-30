@@ -7,10 +7,10 @@
 No model forward is run.
 
 Example:
-  python scripts/museglimmer_reference.py
-  python scripts/museglimmer_reference.py --emit-json -
-  python scripts/museglimmer_reference.py --checkpoint /path/to/Muse-Glimmer-30B
-  python scripts/museglimmer_reference.py --checkpoint DIR --verify-shard-sha256
+  python tools/validation/models/museglimmer_reference.py
+  python tools/validation/models/museglimmer_reference.py --emit-json -
+  python tools/validation/models/museglimmer_reference.py --checkpoint /path/to/Muse-Glimmer-30B
+  python tools/validation/models/museglimmer_reference.py --checkpoint DIR --verify-shard-sha256
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from rl_engine.models.muse_glimmer import workload  # noqa: E402
 from rl_engine.models.muse_glimmer.loader import verify_checkpoint  # noqa: E402
