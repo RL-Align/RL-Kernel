@@ -909,6 +909,7 @@
     "tests/h3/test_h3_native_validation.py": "tests/models/minimax_h3/test_h3_native_validation.py",
     "tests/h3/test_h3_report.py": "tests/models/minimax_h3/test_h3_report.py",
     "tests/h3/test_h3_rmsnorm.py": "tests/models/minimax_h3/test_h3_rmsnorm.py",
+    "tests/h3/test_h3_rmsnorm_native_validation.py": "tests/models/minimax_h3/test_h3_rmsnorm_native_validation.py",
     "tests/h3/test_h3_sp_norm_adaln.py": "tests/distributed/sp/test_h3_sp_norm_adaln.py",
     "tests/h3/test_h3_timestep_mlp.py": "tests/models/minimax_h3/test_h3_timestep_mlp.py",
     "tests/h3/test_h3_timestep_sinusoid.py": "tests/models/minimax_h3/test_h3_timestep_sinusoid.py",

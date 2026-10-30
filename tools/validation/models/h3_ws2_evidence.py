@@ -105,6 +105,10 @@ def main() -> None:
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     worlds = [int(w) for w in args.worlds.split(",")]
+    if min(worlds) < 1:
+        parser.error(f"--worlds must be positive, got {args.worlds}")
+    if args.max_timesteps < 1:
+        parser.error(f"--max-timesteps must be positive, got {args.max_timesteps}")
     if torch.cuda.device_count() < max(worlds):
         raise SystemExit(f"needs {max(worlds)} GPUs, found {torch.cuda.device_count()}")
 
