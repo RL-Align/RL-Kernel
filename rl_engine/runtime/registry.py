@@ -114,6 +114,10 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     # Batch-invariant deterministic GEMM (WS1 #146)
     CUDA_DET_GEMM = "rl_engine.kernels.ops.cuda.matmul.det_gemm.DetGemmOp"
     TRITON_DET_GEMM = "rl_engine.kernels.ops.triton.matmul.det_gemm.TritonDetGemmOp"
+    TRITON_VIDEO_INPUT_PROJECTION_FP32 = (
+        "rl_engine.backends.shared.triton.gemm.video_input_projection_fp32."
+        "TritonVideoInputProjectionFP32Op"
+    )
     ASCEND_DET_GEMM = "rl_engine.kernels.ops.ascend.matmul.det_gemm.DetGemmAscendOp"
     # NON-deterministic reference (torch.matmul); reference/benchmark ONLY,
     # intentionally excluded from det_gemm dispatch (cuBLAS breaks invariance).
@@ -204,6 +208,55 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     CUDA_SM90_LM_HEAD = "rl_engine.kernels.ops.cuda.linear.lm_head.SM90LMHeadOp"
     CUDA_SM90_EMBEDDING = "rl_engine.kernels.ops.cuda.linear.embedding.SM90EmbeddingOp"
 
+    # MiniMax-H3 (RFC #420) scheduler grid. The PyTorch reference is the
+    # legacy ``get_op`` default on every platform; the Triton CUDA backend is
+    # opt-in only — select it through the semantic path with
+    # requested_backend="rlkernel.h3_sigma_schedule.triton", or construct
+    # H3SigmaScheduleCudaOp directly (default backend change per review,
+    # PR #566).
+    PYTORCH_H3_SIGMA_SCHEDULE = (
+        "rl_engine.reference.minimax_h3.sigma_schedule.NativeH3SigmaScheduleOp"
+    )
+    CUDA_H3_SIGMA_SCHEDULE = (
+        "rl_engine.backends.cuda.model_specific.minimax_h3." "sigma_schedule.H3SigmaScheduleCudaOp"
+    )
+    # MiniMax-H3 (RFC #420) conditioning path
+    PYTORCH_H3_TIMESTEP_SINUSOID = (
+        "rl_engine.reference.minimax_h3.timestep_sinusoid.NativeH3TimestepSinusoidOp"
+    )
+    CUDA_H3_TIMESTEP_SINUSOID = (
+        "rl_engine.backends.cuda.model_specific.minimax_h3."
+        "timestep_sinusoid.H3TimestepSinusoidCudaOp"
+    )
+    PYTORCH_H3_TIMESTEP_MLP = "rl_engine.reference.minimax_h3.timestep_mlp.NativeH3TimestepMLPOp"
+    CUDA_H3_TIMESTEP_MLP = (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.timestep_mlp.H3TimestepMLPCudaOp"
+    )
+    PYTORCH_H3_ADALN_PROJECTION = (
+        "rl_engine.reference.minimax_h3.adaln_projection.NativeH3AdaLNProjectionOp"
+    )
+    CUDA_H3_ADALN_PROJECTION = (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.adaln_projection.H3AdaLNProjectionCudaOp"
+    )
+    PYTORCH_H3_ADALN_ROW_GATHER = (
+        "rl_engine.reference.minimax_h3.adaln_row_gather.NativeH3AdaLNRowGatherOp"
+    )
+    CUDA_H3_ADALN_ROW_GATHER = (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.adaln_row_gather.H3AdaLNRowGatherCudaOp"
+    )
+    PYTORCH_H3_RMSNORM = "rl_engine.reference.minimax_h3.rmsnorm.NativeH3RMSNormOp"
+    CUDA_H3_RMSNORM = "rl_engine.backends.cuda.model_specific.minimax_h3.rmsnorm.H3RMSNormCudaOp"
+    PYTORCH_H3_GATE_RESIDUAL = "rl_engine.reference.minimax_h3.gate_residual.NativeH3GateResidualOp"
+    CUDA_H3_GATE_RESIDUAL = (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.gate_residual.H3GateResidualCudaOp"
+    )
+    PYTORCH_H3_FINAL_ADALN_OUT = (
+        "rl_engine.reference.minimax_h3.final_adaln_out.NativeH3FinalAdaLNOutOp"
+    )
+    CUDA_H3_FINAL_ADALN_OUT = (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.final_adaln_out.H3FinalAdaLNOutCudaOp"
+    )
+
 
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
     return (
@@ -262,6 +315,51 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             ),
             fallback_policy=OperatorFallbackPolicy.ERROR,
             version_or_build_fingerprint="h3-query-chunk-v1; binary profile checked at invocation",
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="video_input_projection_fp32",
+            backend_id="triton-video-input-projection-fp32",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"cuda"}),
+            supported_dtypes=frozenset({"float32"}),
+            supported_topologies={
+                "rollout": {
+                    "world_size": (1,),
+                    "tensor_parallel_size": (1,),
+                    "context_parallel_size": (1,),
+                },
+                "training": {"world_size": (1,), "sharding": ("unsharded",)},
+            },
+            determinism_or_alignment_properties={
+                "algorithm": "fixed_fp32_gemm_canonical_parameter_vjp",
+                "forward_bias": "fp32_epilogue",
+                "direct_gemm_fp_fusion": "compiler_default",
+                "chunked_gemm_fp_fusion": False,
+                "tree_gemm_fp_fusion": False,
+                "leaf_loop_bound": "max_logical_leaf_length",
+                "input_width": 96,
+                "output_width": 5376,
+                "cuda_sm": 90,
+                "batch_invariant": True,
+                "deterministic": True,
+                "strict_observable": True,
+                "training_mode": "eager",
+                "parameter_gradient_order": "logical_key",
+                "reduction": "fixed_128_chunks_balanced_fp32_merge",
+                "dx_dw_tile": (128, 32, 32),
+                "dx_dw_num_warps": 4,
+                "dx_dw_register_allocation": "compiler_default",
+                "dx_dw_chunk_accumulation": "two_64_term_halves",
+                "forward_aligned_tiles": True,
+                "canonical_rows": "live_strict_order_proof_or_stable_sort",
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=OpBackend.TRITON_VIDEO_INPUT_PROJECTION_FP32.value,
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint=(
+                "rlkernel-triton-ieee-fp32-dot-chunk128-halves64-tile128x32-merge64-"
+                "strided-aligned-forward-default-fusion-auto-canonical-proof-h3"
+            ),
         ),
         OperatorBackendDescriptor(
             semantic_op="video_patch_pack_unpack",
@@ -440,6 +538,51 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             fallback_policy=OperatorFallbackPolicy.RUNTIME_MANAGED,
             version_or_build_fingerprint="runtime-native-ffn-unresolved-v1",
         ),
+        # MiniMax-H3 sigma grid (RFC #420). Byte-frozen against the pinned
+        # upstream construction; see rl_engine/reference/minimax_h3/.
+        OperatorBackendDescriptor(
+            semantic_op="sigma_schedule_h3",
+            backend_id="rlkernel.h3_sigma_schedule.reference",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"cpu", "cuda", "rocm"}),
+            supported_dtypes=frozenset({"float32"}),
+            supported_topologies={"*": "*"},
+            determinism_or_alignment_properties={
+                "algorithm": "upstream MiniMaxH3Scheduler.set_timesteps, fp32 pinned",
+                "batch_invariant": True,
+                "deterministic": True,
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.ENGINE_CONSTRUCTION,
+            implementation_class_or_factory=(
+                "rl_engine.reference.minimax_h3.sigma_schedule.NativeH3SigmaScheduleOp"
+            ),
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="NativeH3SigmaScheduleOp-v1",
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="sigma_schedule_h3",
+            backend_id="rlkernel.h3_sigma_schedule.triton",
+            supported_targets=frozenset({"rollout", "training"}),
+            # NVIDIA-only backend (inline PTX div.rn.f32); HIP/ROCm stays
+            # on the reference — the kernels cannot run on AMD.
+            supported_devices=frozenset({"cuda"}),
+            supported_dtypes=frozenset({"float32"}),
+            supported_topologies={"*": "*"},
+            determinism_or_alignment_properties={
+                "algorithm": "device-side pinned law; ieee division, no FMA fusion",
+                "batch_invariant": True,
+                "deterministic": True,
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.ENGINE_CONSTRUCTION,
+            implementation_class_or_factory=(
+                "rl_engine.backends.cuda.model_specific.minimax_h3."
+                "sigma_schedule.H3SigmaScheduleCudaOp"
+            ),
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="H3SigmaScheduleTritonOp-v1",
+        ),
     )
 
 
@@ -530,6 +673,7 @@ class KernelRegistry:
     """
 
     def __init__(self):
+        """Initialize backend caches, capability contracts, and device-specific priorities."""
         self._instance_cache: Dict[str, Any] = {}
         self._failed_backends: Set[str] = set()
         self.semantic = SemanticOperatorCatalog(_default_semantic_descriptors())
@@ -677,6 +821,7 @@ class KernelRegistry:
                 "pack": [OpBackend.PYTORCH_PACK],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
                 "det_gemm": [OpBackend.CUDA_DET_GEMM, OpBackend.TRITON_DET_GEMM],
+                "video_input_projection_fp32": [OpBackend.TRITON_VIDEO_INPUT_PROJECTION_FP32],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
@@ -701,6 +846,37 @@ class KernelRegistry:
                     OpBackend.TRITON_ROPE,
                     OpBackend.PYTORCH_NATIVE_ROPE,
                 ],
+                # Reference only, like every other platform: the device-side
+                # Triton build is slower than CPU build + copy at typical H3
+                # sizes and nothing requires on-device construction. Triton is
+                # opt-in via the semantic path or direct construction (see
+                # docs/operators/h3-sigma-schedule.md).
+                "sigma_schedule_h3": [OpBackend.PYTORCH_H3_SIGMA_SCHEDULE],
+                "timestep_sinusoid_h3": [
+                    OpBackend.CUDA_H3_TIMESTEP_SINUSOID,
+                    OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID,
+                ],
+                "timestep_mlp_fp32": [
+                    OpBackend.CUDA_H3_TIMESTEP_MLP,
+                    OpBackend.PYTORCH_H3_TIMESTEP_MLP,
+                ],
+                "adaln_projection_3mod": [
+                    OpBackend.CUDA_H3_ADALN_PROJECTION,
+                    OpBackend.PYTORCH_H3_ADALN_PROJECTION,
+                ],
+                "adaln_row_gather": [
+                    OpBackend.CUDA_H3_ADALN_ROW_GATHER,
+                    OpBackend.PYTORCH_H3_ADALN_ROW_GATHER,
+                ],
+                "h3_rmsnorm": [OpBackend.CUDA_H3_RMSNORM, OpBackend.PYTORCH_H3_RMSNORM],
+                "adaln_gate_residual": [
+                    OpBackend.CUDA_H3_GATE_RESIDUAL,
+                    OpBackend.PYTORCH_H3_GATE_RESIDUAL,
+                ],
+                "final_adaln_out": [
+                    OpBackend.CUDA_H3_FINAL_ADALN_OUT,
+                    OpBackend.PYTORCH_H3_FINAL_ADALN_OUT,
+                ],
             },
             "rocm": {
                 "logp": [
@@ -724,6 +900,7 @@ class KernelRegistry:
                 "kv_cache_attention": [OpBackend.PYTORCH_NATIVE_KV_CACHE_ATTN],
                 "grpo_loss": [OpBackend.TRITON_GRPO_LOSS, OpBackend.PYTORCH_GRPO_LOSS],
                 "rope": [OpBackend.TRITON_ROPE, OpBackend.PYTORCH_NATIVE_ROPE],
+                "sigma_schedule_h3": [OpBackend.PYTORCH_H3_SIGMA_SCHEDULE],
                 "linear_logp": [
                     OpBackend.TRITON_LINEAR_LOGP,
                     OpBackend.PYTORCH_LINEAR_LOGP,
@@ -742,6 +919,13 @@ class KernelRegistry:
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
+                "timestep_sinusoid_h3": [OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID],
+                "timestep_mlp_fp32": [OpBackend.PYTORCH_H3_TIMESTEP_MLP],
+                "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
+                "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
+                "h3_rmsnorm": [OpBackend.PYTORCH_H3_RMSNORM],
+                "adaln_gate_residual": [OpBackend.PYTORCH_H3_GATE_RESIDUAL],
+                "final_adaln_out": [OpBackend.PYTORCH_H3_FINAL_ADALN_OUT],
             },
             "musa": {
                 "logp": [
@@ -767,6 +951,7 @@ class KernelRegistry:
                     OpBackend.PYTORCH_GRPO_LOSS,
                 ],
                 "rope": [OpBackend.TRITON_ROPE, OpBackend.PYTORCH_NATIVE_ROPE],
+                "sigma_schedule_h3": [OpBackend.PYTORCH_H3_SIGMA_SCHEDULE],
                 "linear_logp": [
                     OpBackend.TRITON_LINEAR_LOGP,
                     OpBackend.PYTORCH_LINEAR_LOGP,
@@ -791,6 +976,13 @@ class KernelRegistry:
                 ],
                 "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
+                "timestep_sinusoid_h3": [OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID],
+                "timestep_mlp_fp32": [OpBackend.PYTORCH_H3_TIMESTEP_MLP],
+                "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
+                "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
+                "h3_rmsnorm": [OpBackend.PYTORCH_H3_RMSNORM],
+                "adaln_gate_residual": [OpBackend.PYTORCH_H3_GATE_RESIDUAL],
+                "final_adaln_out": [OpBackend.PYTORCH_H3_FINAL_ADALN_OUT],
             },
             "cpu": {
                 "logp": [OpBackend.PYTORCH_NATIVE],
@@ -806,6 +998,7 @@ class KernelRegistry:
                 "kv_cache_attention": [OpBackend.PYTORCH_NATIVE_KV_CACHE_ATTN],
                 "grpo_loss": [OpBackend.PYTORCH_GRPO_LOSS],
                 "rope": [OpBackend.PYTORCH_NATIVE_ROPE],
+                "sigma_schedule_h3": [OpBackend.PYTORCH_H3_SIGMA_SCHEDULE],
                 "linear_logp": [OpBackend.PYTORCH_LINEAR_LOGP],
                 "ratio_kl": [OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
@@ -817,6 +1010,13 @@ class KernelRegistry:
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
+                "timestep_sinusoid_h3": [OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID],
+                "timestep_mlp_fp32": [OpBackend.PYTORCH_H3_TIMESTEP_MLP],
+                "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
+                "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
+                "h3_rmsnorm": [OpBackend.PYTORCH_H3_RMSNORM],
+                "adaln_gate_residual": [OpBackend.PYTORCH_H3_GATE_RESIDUAL],
+                "final_adaln_out": [OpBackend.PYTORCH_H3_FINAL_ADALN_OUT],
             },
             # Ascend NPU: op types without an entry fall back to their CPU
             # candidates (see the runtime override below), so only
@@ -1135,6 +1335,8 @@ class KernelRegistry:
         platform = self._platform_for_device(device)
         if op_type == "h3_full_attention" and platform != "cuda":
             raise RuntimeError("h3_full_attention requires NVIDIA CUDA; no fallback")
+        if op_type == "video_input_projection_fp32" and platform != "cuda":
+            raise RuntimeError("video input projection is qualified on CUDA SM90 only")
         candidates = self._priority_map.get(platform, {}).get(op_type, [OpBackend.PYTORCH_NATIVE])
 
         for backend in candidates:
