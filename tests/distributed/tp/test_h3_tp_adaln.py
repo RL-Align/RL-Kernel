@@ -62,7 +62,7 @@ def _inputs(num_t, n_out, k, dtype=torch.bfloat16, seed=0):
 
 
 class TestOwnership:
-    @pytest.mark.parametrize("tp", [1, 2, 3, 4, 6, 7, 8, 9])
+    @pytest.mark.parametrize("tp", [1, 2, 3, 4, 6, 7, 8, 9, 12, 14])
     def test_shards_tile_the_table_once(self, tp):
         shards = [adaln_column_shard(N_H3, tp, r) for r in range(tp)]
         assert [s.begin for s in shards] == [0, *[s.end for s in shards[:-1]]]

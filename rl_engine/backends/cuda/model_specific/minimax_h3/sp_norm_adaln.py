@@ -223,6 +223,8 @@ def sp_plan(
     families = [_dweight_tiles(layout.batch * layout.seq_len, device)]
     if index_full is None:
         return SPPlan(layout, _Plan(layout, families, device), None, None, None, None)
+    if num_rows is None:
+        raise ValueError("indexed SP plans require num_rows")
     *seg_tiles, seg_first_tile = _segment_tiles(index_full.repeat(layout.batch), num_rows)
     plan = _Plan(layout, [*families, tuple(seg_tiles)], device)
     local_index = index_full[layout.lo : layout.hi].clone(memory_format=torch.contiguous_format)
@@ -374,6 +376,8 @@ class H3SPNormAdaLNCudaOp:
                 f"index must be the full ({self.layout.seq_len},) row index, "
                 f"got {tuple(index.shape)}"
             )
+        if num_rows is None:
+            raise ValueError("indexed SP validation requires num_rows")
         if index.numel() and (int(index.min()) < 0 or int(index.max()) >= num_rows):
             raise IndexError(f"index must be in [0, {num_rows})")
 
@@ -388,7 +392,14 @@ class H3SPNormAdaLNCudaOp:
         self._check(x, index, shift.shape[0])
         validate_h3_rmsnorm(x, weight, eps)
         validate_h3_modulation(x, shift, scale, index[self.layout.lo : self.layout.hi])
-        if shift.stride(1) != 1 or scale.stride(1) != 1 or shift.stride(0) != scale.stride(0):
+        # As in the WS1 op: a table whose rows overlap (an expanded view, stride(0) below N) is
+        # copied, the native table views reject it.
+        if (
+            shift.stride(1) != 1
+            or scale.stride(1) != 1
+            or shift.stride(0) != scale.stride(0)
+            or (shift.shape[0] > 1 and shift.stride(0) < shift.shape[1])
+        ):
             shift, scale = shift.contiguous(), scale.contiguous()
         sp = self.plan(index, shift.shape[0])
         return _SPRMSNorm.apply(x, weight, shift, scale, sp, self.collective, eps)
@@ -396,7 +407,7 @@ class H3SPNormAdaLNCudaOp:
     def gate_residual(self, residual, y, gate, index) -> torch.Tensor:
         self._check(residual, index, gate.shape[0])
         validate_h3_gate_residual(residual, y, gate, index[self.layout.lo : self.layout.hi])
-        if gate.stride(1) != 1:
+        if gate.stride(1) != 1 or (gate.shape[0] > 1 and gate.stride(0) < gate.shape[1]):
             gate = gate.contiguous()
         sp = self.plan(index, gate.shape[0])
         return _SPGateResidual.apply(residual, y, gate, sp, self.collective)
