@@ -74,6 +74,7 @@ class FullModelTrace:
         self.capture = False
         self.actual_backends = {}
         self.candidate = False
+        self.provider_nodes: tuple[str, ...] = ()  # diagnostic hybrids only
         self.candidate_calls = Counter()
         self.forward_order = []
         self.backward_order = []
@@ -156,6 +157,9 @@ class FullModelTrace:
                 for n in h3_block.NODES
             },
             boundary_binding="provider/reference",
+            # not empty only for a diagnostic hybrid, whose nodes ran the provider replay: such a
+            # trace is localisation evidence, never a candidate result
+            diagnostic_provider_nodes=list(self.provider_nodes),
             full_transformer_blocks=50,
             refiner_layers=2,
         )
@@ -185,6 +189,7 @@ def full_model_execution(
     boundaries = validate_full_structure(model)
     originals, handles = [], []
     trace.candidate = candidate
+    trace.provider_nodes = tuple(sorted(provider_nodes))
     if candidate:
         ops = ops or h3_block.CandidateOps()
         if hasattr(ops, "backends"):

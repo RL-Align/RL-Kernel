@@ -81,6 +81,8 @@ def main():
     p.add_argument("--reference-manifest", type=Path)
     p.add_argument("--reference-root", type=Path)
     args = p.parse_args()
+    if bool(args.reference_manifest) != bool(args.reference_root):
+        raise ValueError("--reference-manifest and --reference-root must be given together")
     if args.output.exists():
         raise ValueError("never overwrite calibration or failed evidence")
     from tools.validation.models.h3_evidence_integrity import verify_inventory

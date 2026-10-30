@@ -75,39 +75,46 @@ def test_candidate_check_rejects_a_provider_comparison(tmp_path):
 
 
 def _check(tmp_path, report):
+    """Run ``rule.check``; return the written output and the process exit code (0 if it returns)."""
+
     rule_path = _calibrate(tmp_path, _providers())
     _write(tmp_path / "candidate.json", report)
     out = tmp_path / "out.json"
     args = argparse.Namespace(rule=rule_path, candidate=tmp_path / "candidate.json", output=out)
+    code = 0
     try:
         rule.check(args)
-    except SystemExit:
-        pass
-    return json.loads(out.read_text())
+    except SystemExit as exit_:
+        code = exit_.code
+    assert out.exists(), "check must write its output before it exits"
+    return json.loads(out.read_text()), code
 
 
 def test_a_zeroed_gradient_is_rejected_although_its_relative_error_is_within_the_bound(tmp_path):
     report = _comparison("passed", 0.9)
     report["errors"]["parameter.w"]["relative_l2"] = 1.0  # what an all-zero gradient measures
     report["tensor_l2"]["parameter.w"]["other"] = 0.0
-    out = _check(tmp_path, report)
+    out, code = _check(tmp_path, report)
     assert out["status"] == "failed"
     assert out["zeroed_gradients"] == ["parameter.w"]
     assert out["failures"] == ["parameter.w"]
+    assert code == 1  # the process-failure contract that CI consumes
 
 
 def test_the_same_error_with_a_nonzero_gradient_passes(tmp_path):
     report = _comparison("passed", 0.9)
     report["errors"]["parameter.w"]["relative_l2"] = 1.0
-    out = _check(tmp_path, report)
+    out, code = _check(tmp_path, report)
     assert out["status"] == "passed"
     assert out["zeroed_gradients"] == []
+    assert code == 0
 
 
 def test_a_gradient_that_is_zero_in_the_reference_too_is_not_a_zeroed_gradient(tmp_path):
     report = _comparison("passed", 0.9)
     report["tensor_l2"]["parameter.w"] = {"reference": 0.0, "other": 0.0}
-    assert _check(tmp_path, report)["zeroed_gradients"] == []
+    out, code = _check(tmp_path, report)
+    assert out["zeroed_gradients"] == [] and code == 0
 
 
 def test_a_comparison_without_tensor_norms_is_refused(tmp_path):
@@ -159,3 +166,31 @@ def test_compare_reports_the_norms_of_both_sides(tmp_path):
     assert norms["parameter.w"] == {"reference": pytest.approx(12**0.5), "other": 0.0}
     assert norms["video"]["reference"] == norms["video"]["other"] == 2.0
     assert dict(cmp.compare(tmp_path / "ref", tmp_path / "other")) == rows  # norms are optional
+
+
+def test_the_reference_manifest_and_root_flags_go_together(tmp_path, monkeypatch):
+    from tools.validation.models import h3_full_compare as cmp
+
+    base = ["h3_full_compare", "--reference", "r", "--other", "o", "--output", str(tmp_path / "x")]
+    for extra in (["--reference-manifest", "m.json"], ["--reference-root", "root"]):
+        monkeypatch.setattr("sys.argv", base + extra)
+        with pytest.raises(ValueError, match="given together"):
+            cmp.main()
+
+
+def test_candidate_prepare_creates_a_nested_output_but_refuses_an_existing_one(
+    tmp_path, monkeypatch
+):
+    from tools.validation.models import h3_candidate_prepare as prep
+
+    target = tmp_path / "evidence" / "run1" / "prepare"
+    monkeypatch.setattr(
+        "sys.argv",
+        ["prep", "--checkpoint", str(tmp_path), "--reference-root", str(tmp_path)]
+        + ["--output", str(target)],
+    )
+    with pytest.raises(Exception):  # it fails later, on the missing reference evidence
+        prep.main()
+    assert target.is_dir()  # the nested output directory was created before that
+    with pytest.raises(FileExistsError):
+        prep.main()

@@ -150,6 +150,19 @@ def test_time_proj_is_required_forward_only():
         _complete_trace(backward_skip=("time_proj", "norm_out")).validate(backward=True)
 
 
+def test_the_trace_reports_the_nodes_a_diagnostic_hybrid_replayed_with_the_provider():
+    assert _complete_trace().validate()["diagnostic_provider_nodes"] == []
+    trace = FullModelTrace()
+    with full_model_execution(
+        Model(), candidate=True, trace=trace, ops=object(), provider_nodes=("swiglu", "attention")
+    ):
+        assert trace.provider_nodes == ("attention", "swiglu")
+    hybrid = _complete_trace()
+    hybrid.provider_nodes = ("swiglu",)
+    # still a valid trace (the diagnostic has to complete), but marked as not a candidate result
+    assert hybrid.validate()["diagnostic_provider_nodes"] == ["swiglu"]
+
+
 def test_drift_order_follows_execution_instead_of_lexical_names():
     from tools.validation.models.h3_full_compare import drift_order
 
