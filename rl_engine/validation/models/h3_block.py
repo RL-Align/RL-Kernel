@@ -641,7 +641,11 @@ def _backward(
     """Gradients of every leaf, and the gradient reaching each node's output, for one mode.
 
     The golden runs on FP32 copies of the leaves, so its gradients are not
-    rounded to the BF16 parameter dtype.
+    rounded to the BF16 parameter dtype. For the same reason the AdaLN input cast of the golden
+    forward (``silu(temb)`` rounded to the weight dtype) is a no-op here: the golden gradient is the
+    FP32 reference gradient, evaluated at the unrounded activation. On block 0's real weights
+    keeping the cast moves the golden gradients by 1e-3 to 3e-3 relative, against the 1e-2
+    candidate-to-golden error of the same leaves.
     """
 
     def leaf(t: torch.Tensor) -> torch.Tensor:
@@ -653,13 +657,16 @@ def _backward(
     leaves["temb"] = leaf(ctx["temb"])
     weights = {**ctx["weights"], **{f"{BLOCK}.{k}": leaves[k] for k in PARAM_LEAVES}}
     run_ctx = {**ctx, "weights": weights, "hidden": leaves["hidden"], "temb": leaves["temb"]}
-    values = run_graph(mode, run_ctx, ops)
-    for node in NODES:
-        for t in _flat(values[node.name]):
-            if t.requires_grad:
-                t.retain_grad()
-    out = values[OUTPUT]
-    torch.autograd.backward(out, upstream.to(out.dtype))
+    # ``run_graph`` makes the forward strict FP32, but the backward runs after it returns: without
+    # this the golden gradients use TF32 matmuls whenever the caller enabled TF32.
+    with strict_fp32_matmul():
+        values = run_graph(mode, run_ctx, ops)
+        for node in NODES:
+            for t in _flat(values[node.name]):
+                if t.requires_grad:
+                    t.retain_grad()
+        out = values[OUTPUT]
+        torch.autograd.backward(out, upstream.to(out.dtype))
     node_grads = {
         node.name: [
             t.grad if t.grad is not None else torch.zeros_like(t) for t in _flat(values[node.name])
