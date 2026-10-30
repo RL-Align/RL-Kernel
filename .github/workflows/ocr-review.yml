@@ -82,7 +82,14 @@ jobs:
           llm_auth_token: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
           llm_model: ${{ vars.OCR_LLM_MODEL }}
           llm_use_anthropic: ${{ vars.OCR_LLM_USE_ANTHROPIC || 'false' }}
-          llm_extra_body: ${{ vars.OCR_LLM_EXTRA_BODY || '{}' }}
+          # OpenCode Go chat completions. Do not send DeepSeek's thinking
+          # object: the gateway returns HTTP 400 when it appears with
+          # reasoning_effort. none disables thinking so tool-call turns do
+          # not need reasoning_content replayed.
+          llm_extra_body: '{"reasoning_effort":"none"}'
+          # Go requires a stable session id on every request. One id per pull
+          # request keeps prompt caching inside that review.
+          llm_extra_headers: x-opencode-session=ocr-pr-${{ github.event.pull_request.number }}
           rule: .opencodereview/rule.json
           language: English
           effort: medium
