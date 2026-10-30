@@ -88,6 +88,12 @@
           "bfloat16": {"status": "applicable", "mode": "tolerance", "atol": 5.0e-2, "rtol": 2.0e-2},
           "float16": {"status": "optional", "mode": "tolerance", "atol": 1.0e-3, "rtol": 1.0e-3},
           "float8": {"status": "out_of_scope"}
+        },
+        "mhc_controller": {
+          "float32": {"status": "applicable", "mode": "bitwise", "atol": 0.0, "rtol": 0.0},
+          "bfloat16": {"status": "applicable", "mode": "bitwise", "atol": 0.0, "rtol": 0.0},
+          "float16": {"status": "optional", "mode": "bitwise", "atol": 0.0, "rtol": 0.0},
+          "float8": {"status": "out_of_scope"}
         }
       },
       "arch_overrides": {
@@ -117,6 +123,12 @@
           "float8": {"status": "out_of_scope"}
         },
         "attention": {
+          "float32": {"status": "applicable", "mode": "bitwise", "atol": 0.0, "rtol": 0.0},
+          "bfloat16": {"status": "applicable", "mode": "bitwise", "atol": 0.0, "rtol": 0.0},
+          "float16": {"status": "optional", "mode": "bitwise", "atol": 0.0, "rtol": 0.0},
+          "float8": {"status": "out_of_scope"}
+        },
+        "mhc_controller": {
           "float32": {"status": "applicable", "mode": "bitwise", "atol": 0.0, "rtol": 0.0},
           "bfloat16": {"status": "applicable", "mode": "bitwise", "atol": 0.0, "rtol": 0.0},
           "float16": {"status": "optional", "mode": "bitwise", "atol": 0.0, "rtol": 0.0},
@@ -155,6 +167,12 @@
           "bfloat16": {"status": "applicable", "mode": "tolerance", "atol": 5.0e-2, "rtol": 2.0e-2},
           "float16": {"status": "optional", "mode": "tolerance", "atol": 1.0e-3, "rtol": 1.0e-3},
           "float8": {"status": "out_of_scope"}
+        },
+        "mhc_controller": {
+          "float32": {"status": "applicable", "mode": "bitwise", "atol": 0.0, "rtol": 0.0},
+          "bfloat16": {"status": "applicable", "mode": "bitwise", "atol": 0.0, "rtol": 0.0},
+          "float16": {"status": "optional", "mode": "bitwise", "atol": 0.0, "rtol": 0.0},
+          "float8": {"status": "out_of_scope"}
         }
       },
       "arch_overrides": {
@@ -184,6 +202,12 @@
           "float8": {"status": "out_of_scope"}
         },
         "attention": {
+          "float32": {"status": "applicable", "mode": "bitwise", "atol": 0.0, "rtol": 0.0},
+          "bfloat16": {"status": "applicable", "mode": "bitwise", "atol": 0.0, "rtol": 0.0},
+          "float16": {"status": "optional", "mode": "bitwise", "atol": 0.0, "rtol": 0.0},
+          "float8": {"status": "out_of_scope"}
+        },
+        "mhc_controller": {
           "float32": {"status": "applicable", "mode": "bitwise", "atol": 0.0, "rtol": 0.0},
           "bfloat16": {"status": "applicable", "mode": "bitwise", "atol": 0.0, "rtol": 0.0},
           "float16": {"status": "optional", "mode": "bitwise", "atol": 0.0, "rtol": 0.0},
@@ -261,6 +285,11 @@
         "float32": {"atol": 1.0e-4, "rtol": 1.0e-4},
         "bfloat16": {"atol": 5.0e-2, "rtol": 2.0e-2},
         "float16": {"atol": 1.0e-3, "rtol": 1.0e-3}
+      },
+      "mhc_controller": {
+        "float32": {"atol": 0.0, "rtol": 0.0},
+        "bfloat16": {"atol": 0.0, "rtol": 0.0},
+        "float16": {"atol": 0.0, "rtol": 0.0}
       }
     },
     "arch_overrides": {

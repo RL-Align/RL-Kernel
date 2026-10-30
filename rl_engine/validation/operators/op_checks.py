@@ -29,6 +29,7 @@ class OperatorCase:
     inputs: Mapping[str, Any]
     gold_fn: Callable[..., Any]
     grad_input_names: tuple[str, ...] = ()
+    gold_backward_fn: Callable[..., Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -216,8 +217,11 @@ def _run_case_backward(
     if not case.grad_input_names:
         raise ValueError(f"case {case.name!r} does not declare gradient inputs")
 
-    candidate_inputs = _clone_inputs_for_backward(case.inputs, case.grad_input_names)
-    gold_inputs = _clone_inputs_for_backward(case.inputs, case.grad_input_names)
+    grad_names = case.grad_input_names
+    if case.gold_backward_fn is not None:
+        grad_names = ()
+    candidate_inputs = _clone_inputs_for_backward(case.inputs, grad_names)
+    gold_inputs = _clone_inputs_for_backward(case.inputs, grad_names)
     candidate_outputs = _flatten_tensors(_call_candidate(candidate.fn, candidate_inputs))
     gold_outputs = _flatten_tensors(case.gold_fn(**gold_inputs))
     # Candidate and gold must use the same upstream gradients; otherwise we
@@ -229,18 +233,27 @@ def _run_case_backward(
         grad.to(device=output.device, dtype=output.dtype)
         for grad, output in zip(grad_outputs, candidate_outputs, strict=True)
     ]
-    candidate_grads = _backward_grads(
-        candidate_outputs,
-        candidate_inputs,
-        case.grad_input_names,
-        grad_outputs=shared_upstreams,
-    )
-    gold_grads = _backward_grads(
-        gold_outputs,
-        gold_inputs,
-        case.grad_input_names,
-        grad_outputs=_match_grad_outputs(shared_upstreams, gold_outputs),
-    )
+    if case.gold_backward_fn is not None:
+        backward = getattr(candidate.fn, "backward_fp32", None)
+        if not callable(backward):
+            raise ValueError(f"candidate {candidate.name!r} has no explicit FP32 backward")
+        if len(shared_upstreams) != 1:
+            raise ValueError("explicit FP32 backward requires a single output")
+        candidate_grads = backward(shared_upstreams[0], **candidate_inputs)
+        gold_grads = case.gold_backward_fn(shared_upstreams[0], **gold_inputs)
+    else:
+        candidate_grads = _backward_grads(
+            candidate_outputs,
+            candidate_inputs,
+            case.grad_input_names,
+            grad_outputs=shared_upstreams,
+        )
+        gold_grads = _backward_grads(
+            gold_outputs,
+            gold_inputs,
+            case.grad_input_names,
+            grad_outputs=_match_grad_outputs(shared_upstreams, gold_outputs),
+        )
     output_checks = _compare_case_outputs(
         candidate,
         case,

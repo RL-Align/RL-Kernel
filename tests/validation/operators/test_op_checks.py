@@ -476,3 +476,40 @@ def test_random_grad_mode_catches_nonuniform_upstream_gradient_bug():
     assert not random_report.passed
     assert gradient_output.message == "gradient:x"
     assert gradient_output.max_abs_error > 0.0
+
+
+def test_explicit_fp32_backward_checks_unrounded_gradients():
+    # The explicit backward path preserves FP32 dR and detects incorrect dPRE.
+    from rl_engine.kernels.ops.pytorch.mhc import NativeMHCPreHAggregateOp
+
+    native = NativeMHCPreHAggregateOp()
+    case = OperatorCase(
+        name="mhc-explicit-backward", op_class="reduction", dtype=torch.bfloat16,
+        inputs={"residual": torch.randn(2, 4, 128, dtype=torch.bfloat16),
+                "pre": torch.randn(2, 4)},
+        gold_fn=native.forward_fp32, grad_input_names=("residual", "pre"),
+        gold_backward_fn=native.backward_fp32,
+    )
+
+    class CheckedCandidate(NativeMHCPreHAggregateOp):
+        def forward(self, residual, pre):
+            assert not residual.requires_grad and not pre.requires_grad
+            return super().forward(residual, pre)
+
+    class WrongBackward(CheckedCandidate):
+        def backward_fp32(self, grad_output, residual, pre):
+            dr, dp = super().backward_fp32(grad_output, residual, pre)
+            return dr, dp + 100
+
+    for op, expected in ((CheckedCandidate(), True), (WrongBackward(), False)):
+        report = run_operator_suite(
+            "explicit", candidates=[CandidateSpec(name="mhc", fn=op)], cases=[case],
+            check_grad=True,
+        )
+        assert report.passed == expected
+        checks = report.candidates[0].cases[0].outputs
+        assert checks[1].candidate_dtype == "torch.float32"
+        assert checks[2].passed == expected
+    with pytest.raises(ValueError, match="no explicit FP32 backward"):
+        run_operator_suite("missing", candidates=[CandidateSpec(name="missing", fn=native.forward)],
+                           cases=[case], check_grad=True)

@@ -246,9 +246,16 @@ def get_extensions():
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
             cuda_sources.append("csrc/cuda/attention/prefix_shared_attention.cu")
+            cuda_sources.append("csrc/cuda/mhc/mhc_pre_h_aggregate.cu")
 
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
-        if envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH):
+        use_fast_math = envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH)
+        if use_fast_math and not is_rocm:
+            raise RuntimeError(
+                "KERNEL_ALIGN_USE_FAST_MATH is incompatible with the deterministic "
+                "MHC H Aggregate CUDA contract"
+            )
+        if use_fast_math:
             nvcc_flags.append("--use_fast_math")
         if not is_rocm:
             cc_major, cc_minor = torch.cuda.get_device_capability()
@@ -394,6 +401,24 @@ def get_extensions():
                 extra_compile_args={
                     "cxx": cxx_flags,
                     "nvcc": nvcc_flags,
+                },
+                extra_link_args=extra_link_args,
+            )
+        )
+
+        # P1-2 fp32_gemm_rms: standalone strict-FP32 extension. Never built
+        # with fast-math, and FMA contraction is disabled so every multiply
+        # and add rounds separately (numeric profile oracle-fp32-mhc-v1).
+        mhc_nvcc_flags = [f for f in nvcc_flags if f != "--use_fast_math"]
+        mhc_nvcc_flags.append("-ffp-contract=off" if is_rocm else "-fmad=false")
+        extensions.append(
+            GpuExtension(
+                name="rl_engine._C_mhc",
+                sources=["csrc/cuda/mhc/fp32_gemm_rms.cu"],
+                include_dirs=[],
+                extra_compile_args={
+                    "cxx": cxx_flags,
+                    "nvcc": mhc_nvcc_flags,
                 },
                 extra_link_args=extra_link_args,
             )
