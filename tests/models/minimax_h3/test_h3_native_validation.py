@@ -502,3 +502,33 @@ def test_segment_metadata_that_does_not_describe_the_rows_ends_in_a_device_asser
         done = run(mutation)
         assert done.returncode != 0, (kind, mutation)
         assert "device-side assert triggered" in done.stderr, (kind, mutation, done.stderr)
+
+
+@pytest.mark.parametrize("entry", ["backward_dx", "backward_partials"])
+@pytest.mark.parametrize("shape", ["strided", "expanded"])
+def test_sequence_parallel_norm_entries_reject_a_non_dense_rstd(
+    native_extension, native_case, shape, entry
+):
+    """``rstd`` is read as a dense (M,) array: a strided or stride-0 view must be rejected."""
+
+    name = f"h3_rmsnorm_{entry}"
+    if not hasattr(native_extension, name):
+        pytest.skip(f"rl_engine._C lacks {name}")
+    case = dict(native_case)
+    rows = case["x"].shape[0]
+    if shape == "strided":
+        bad = torch.stack([case["rstd"], case["rstd"]], dim=1)[:, 0]
+    else:
+        bad = torch.zeros(1, device=case["x"].device).expand(rows)
+    assert bad.numel() == rows and not bad.is_contiguous()
+    modulation = (case["shift"], case["scale"], case["index"])
+    tiles = (case["sorted_pos"], case["tile_begin"], case["tile_end"])
+    with pytest.raises(RuntimeError, match="rstd must be contiguous"):
+        if entry == "backward_dx":
+            native_extension.h3_rmsnorm_backward_dx(
+                case["grad"], case["x"], case["weight"], bad, *modulation
+            )
+        else:
+            native_extension.h3_rmsnorm_backward_partials(
+                case["grad"], case["x"], case["weight"], bad, *modulation, *tiles, *tiles
+            )

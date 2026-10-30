@@ -2,10 +2,19 @@
 """Validate immutable reference inventories before consuming any tensor evidence."""
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
-from tools.validation.models.h3_full_model import digest
+
+def digest(path) -> str:
+    """sha256 of a file's bytes (the hash the evidence inventories record)."""
+
+    h = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for block in iter(lambda: stream.read(8 * 1024**2), b""):
+            h.update(block)
+    return h.hexdigest()
 
 
 def verify_inventory(root: Path, manifest: Path):

@@ -718,12 +718,24 @@ def plot_sp_norm(report: dict[str, Any]):
     sp_runs = [run for run in runs if run["sp"] > 1]
     ax = axes[1]
     _style(ax, f"Region fwd+bwd, S = {big['seq']}, block layout", "ms (slowest rank)")
-    _bars(
-        ax,
-        [f"SP{run['sp']}" for run in sp_runs],
-        [("SP", RL_KERNEL, [worst(run, "sp_forward_backward_us") for run in sp_runs])],
-        "{:.2f}",
-    )
+    if sp_runs:
+        _bars(
+            ax,
+            [f"SP{run['sp']}" for run in sp_runs],
+            [("SP", RL_KERNEL, [worst(run, "sp_forward_backward_us") for run in sp_runs])],
+            "{:.2f}",
+        )
+    else:  # a report made with --worlds 1 has no SP > 1 run to draw
+        ax.text(
+            0.5,
+            0.5,
+            "no run with SP > 1 in this report",
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            fontsize=10,
+            color=MUTED,
+        )
     ws1 = worst(runs[0], "ws1_forward_backward_us")
     ax.axhline(
         ws1, color=PROVIDER, linestyle="--", linewidth=1.4, zorder=1, label=f"WS1, 1 GPU: {ws1:.2f}"

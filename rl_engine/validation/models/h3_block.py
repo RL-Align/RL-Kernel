@@ -619,13 +619,16 @@ def _backward(
     leaves["temb"] = leaf(ctx["temb"])
     weights = {**ctx["weights"], **{f"{BLOCK}.{k}": leaves[k] for k in PARAM_LEAVES}}
     run_ctx = {**ctx, "weights": weights, "hidden": leaves["hidden"], "temb": leaves["temb"]}
-    values = run_graph(mode, run_ctx, ops)
-    for node in NODES:
-        for t in _flat(values[node.name]):
-            if t.requires_grad:
-                t.retain_grad()
-    out = values[OUTPUT]
-    torch.autograd.backward(out, upstream.to(out.dtype))
+    # ``run_graph`` makes the forward strict FP32, but the backward runs after it returns: without
+    # this the golden gradients use TF32 matmuls whenever the caller enabled TF32.
+    with strict_fp32_matmul():
+        values = run_graph(mode, run_ctx, ops)
+        for node in NODES:
+            for t in _flat(values[node.name]):
+                if t.requires_grad:
+                    t.retain_grad()
+        out = values[OUTPUT]
+        torch.autograd.backward(out, upstream.to(out.dtype))
     node_grads = {
         node.name: [
             t.grad if t.grad is not None else torch.zeros_like(t) for t in _flat(values[node.name])
