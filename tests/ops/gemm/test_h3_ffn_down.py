@@ -343,7 +343,7 @@ requires_sm90 = pytest.mark.skipif(
 
 @pytest.mark.cuda_only
 @requires_sm90
-@pytest.mark.parametrize("rows", [1, 33, 129])
+@pytest.mark.parametrize("rows", [1, 33, 129, 4097])
 def test_full_h3_accuracy_and_four_judgments_on_gpu(rows):
     torch.backends.cuda.matmul.allow_tf32 = False
     generator = torch.Generator(device="cuda").manual_seed(420)
@@ -352,7 +352,13 @@ def test_full_h3_accuracy_and_four_judgments_on_gpu(rows):
     dy = (torch.randn(rows, 5376, device="cuda", generator=generator) * 0.1).bfloat16()
     keys = logical_keys(rows, "cuda")
     op = down.H3FFNDownGemmOp()
-    actual, _ = training_projection(op, x, w, dy, keys)
+    actual, traces = training_projection(op, x, w, dy, keys)
+    assert len(traces) == 1
+    trace = traces[0]
+    assert trace["actual_backend"] == down.H3_DOWN_BACKEND
+    assert trace["forward_executed"] and trace["weight_gradient_executed"]
+    assert trace["input_gradient_kernel"] == trace["weight_gradient_kernel"] == trace["kernel_id"]
+    assert trace["forward_launch"]["cubin_sha256"]
     expected = reference_projection(x, w, dy)
     # The projection contract is exactly (forward, input gradient, weight gradient).
     assert len(actual) == len(expected) == 3
@@ -360,9 +366,25 @@ def test_full_h3_accuracy_and_four_judgments_on_gpu(rows):
         judgment = "forward_accuracy" if index == 0 else "gradient_accuracy"
         result = comparison(left, right, judgment)
         assert result["passed"], result
-    chunked, _ = training_projection(op, x, w, dy, keys, chunk_size=31)
+    chunked, _ = training_projection(op, x, w, dy, keys, chunk_size=31 if rows < 4096 else 2048)
     assert len(chunked) == 3
     for index, (left, right) in enumerate(zip(chunked, actual, strict=True)):
         judgment = "forward_invariance" if index == 0 else "gradient_invariance"
         result = comparison(left, right, judgment)
         assert result["passed"], result
+    if rows >= 4096:
+        # Exercise both the CUDA canonical-order reuse and the sorting/filtering
+        # paths after the shared reducer changed. Keep the logical row set fixed.
+        order = torch.randperm(rows, device="cuda", generator=generator)
+        permuted, _ = training_projection(op, x[order], w, dy[order], keys[order])
+        assert raw_equal(permuted[0], actual[0][order])
+        assert raw_equal(permuted[1], actual[1][order])
+        assert raw_equal(permuted[2], actual[2])
+        padded_x = torch.cat((x, torch.ones_like(x[:3])))
+        padded_dy = torch.cat((dy, torch.zeros_like(dy[:3])))
+        padded_keys = torch.cat((keys, torch.full_like(keys[:3], -1)))
+        padded, _ = training_projection(op, padded_x, w, padded_dy, padded_keys)
+        assert raw_equal(padded[0][:rows], actual[0])
+        assert raw_equal(padded[1][:rows], actual[1])
+        assert torch.count_nonzero(padded[1][rows:]) == 0
+        assert raw_equal(padded[2], actual[2])

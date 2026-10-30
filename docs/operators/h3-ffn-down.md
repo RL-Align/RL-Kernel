@@ -139,10 +139,25 @@ canonical autograd session or full dW invariance matrix. It remains prior art.
 summary, forward/dX/dW tolerances and worst errors, replay digests, representative
 timings, rejected native results and original bundle hashes. Full reports, samples,
 traces and raw originals are preserved privately. This is a selected derivative,
-not a lossless report or a new GPU run. Historical published copies remain in Git
-history; private archives do not establish public reproducibility. The historical
+not a lossless report or a new GPU run. The complete historical report derivatives
+are also available from the previously published immutable commit below. These
+downloads preserve every case, check, trace and timing sample, including rejected
+native results. Raw private originals are unchanged. The historical
 JSON retains its original FP32-dot trace wording; the corrected BF16 MMA / FP32
 accumulation description above applies to that unchanged device computation.
+
+| Historical report download | SHA256 |
+|---|---|
+| [Summary, real-weight fixture and rejected native results](https://raw.githubusercontent.com/zzf2024/RL-Kernel/d8ae6cf70eb3f18ae6f16c6f0771c5f9a2ea09c6/docs/operators/evidence/h3-down-h100-20261010/h100-summary.json) | `3a44e25a9397373010b75caee1ee321864e960fc83594772497f95bfeab15786` |
+| [Random matrix](https://raw.githubusercontent.com/zzf2024/RL-Kernel/d8ae6cf70eb3f18ae6f16c6f0771c5f9a2ea09c6/docs/operators/evidence/h3-down-h100-20261010/h100-random.json) | `66fcd857d26a57ea03ce0984f8bf20db1785336c61d302dce74dfd6a4cf213fb` |
+| [Synthetic SwiGLU-like matrix](https://raw.githubusercontent.com/zzf2024/RL-Kernel/d8ae6cf70eb3f18ae6f16c6f0771c5f9a2ea09c6/docs/operators/evidence/h3-down-h100-20261010/h100-swiglu-like.json) | `dcc64cf4360bbb9dca0211319f635cffed1cd91ebc6ddfd24052882a7201ba9d` |
+| [Cancellation matrix](https://raw.githubusercontent.com/zzf2024/RL-Kernel/d8ae6cf70eb3f18ae6f16c6f0771c5f9a2ea09c6/docs/operators/evidence/h3-down-h100-20261010/h100-cancellation.json) | `2088317c29cc9de80540f215f54b7d6d660044a568c1f50f6194449b2c9b4fba` |
+| [Cold-cache and compiler-version replays](https://raw.githubusercontent.com/zzf2024/RL-Kernel/d8ae6cf70eb3f18ae6f16c6f0771c5f9a2ea09c6/docs/operators/evidence/h3-down-h100-20261010/h100-replays.json) | `ee532d0a128eed4e978070fcc9fc6358c0cc0b72eafab50266c4645927cb438c` |
+
+[Original download checksum manifest](https://raw.githubusercontent.com/zzf2024/RL-Kernel/d8ae6cf70eb3f18ae6f16c6f0771c5f9a2ea09c6/docs/operators/evidence/h3-down-h100-20261010/SHA256SUMS)
+has SHA256 `9d37b26ba4192be72aded2e4278120811dd377246f57b2659a80f489d4997d19`.
+These are historical 2026-10-10 executions with portable path substitutions,
+not evidence that the current shared GEMM and canonical reducer have been qualified.
 
 - Operator: `rl_engine/ops/gemm/h3_ffn_down.py`.
 - Triton adapter: `rl_engine/backends/shared/triton/gemm/h3_down_fp32_backend.py`;
@@ -150,7 +165,9 @@ accumulation description above applies to that unchanged device computation.
 - Canonical gradients: `rl_engine/ops/autograd/canonical_backward.py`.
 - Native CUDA comparator: existing SM90 midpoint-tree backend; rejected for the
   accuracy failure above, never an automatic fallback.
-- Tests: `tests/ops/gemm/test_h3_ffn_down.py` and
+- Tests: `tests/ops/gemm/test_h3_ffn_down.py`,
+  `tests/backends/shared/triton/gemm/test_h3_down_backend.py`,
+  `tests/benchmarks/test_h3_down_report.py` and
   `tests/validation/operators/test_h3_down_{fixture,tooling}.py`.
 
 Historical local checks at `d8ae6cf` passed 58 tests with 13 GPU-dependent skips
@@ -173,6 +190,25 @@ the operator and tooling suites after strengthening actual-call assertions
 and testing unverified fixture labels. The earlier registry/layout results
 were reused; their runtime sources are unchanged. Follow-up lint and formatting
 checks passed. No GPU execution was repeated.
+
+## Shared-kernel compatibility update
+
+The adapter now supplies a null bias pointer and `HAS_BIAS=False` for the
+bias-aware shared GEMM signature. CPU regression tests bind the actual forward,
+dX and dW calls to the real JIT function signature, including transpose strides
+and launch settings. Accuracy charts leave missing/nonfinite ratios unavailable
+and mark failed checks explicitly; finite failed ratios remain visible.
+
+Focused checks on 2026-10-30 with torch 2.6.0+cpu and Triton 3.2.0:
+**46 passed, 4 SM90 tests skipped** across the backend, benchmark, operator, fixture
+and tooling suites. Lint and formatting passed. CPU binding uses a synthetic
+launcher and does not compile or execute a Triton kernel.
+
+The shared GEMM and canonical reducer changed in the later upstream merge;
+the 2026-10-10 H100 results do not qualify these current dependencies.
+Current SM90 execution is **not run**. The prepared GPU suite covers full-width
+forward/dX/dW at M=1,33,129,4097, chunking, and the large-row ordered/permuted/padded
+canonical paths. No current GPU acceptance or performance result is claimed.
 
 ## Reproduction and remaining qualification
 

@@ -6,7 +6,48 @@
 import argparse
 import csv
 import json
+import math
 from pathlib import Path
+
+
+def plot_reference_accuracy(axis, cases):
+    """Keep failed or unavailable accuracy checks visible without inventing errors."""
+    counts = [case["rows"] for case in cases]
+    for tensor in ("y", "dx", "dw"):
+        values, flagged = [], []
+        for case in cases:
+            checks = [
+                row
+                for row in case["checks"]
+                if row["tensor"] == tensor and row["transform"] == "fp32_reference"
+            ]
+            ratios = [row.get("max_error_over_tolerance") for row in checks]
+            available = bool(ratios) and all(
+                value is not None and math.isfinite(value) for value in ratios
+            )
+            values.append(max(ratios) if available else math.nan)
+            if not available or not all(row["passed"] for row in checks):
+                flagged.append(case["rows"])
+        (line,) = axis.plot(counts, values, marker="o", label=tensor)
+        if flagged:
+            # These markers use axes height, not the numerical error scale.
+            axis.scatter(
+                flagged,
+                [1.02] * len(flagged),
+                transform=axis.get_xaxis_transform(),
+                clip_on=False,
+                marker="x",
+                color=line.get_color(),
+                label=f"{tensor}: failed / unavailable",
+            )
+    axis.axhline(1, color="red", linestyle="--", label="shared tolerance boundary")
+    axis.set(
+        xlabel="Logical rows M",
+        ylabel="Max error / allowed error",
+        xscale="log",
+        title="Accuracy against independent FP32 reference",
+    )
+    axis.legend(fontsize=8)
 
 
 def main():
@@ -117,24 +158,7 @@ def main():
             title=family,
         )
         axes[0].legend(fontsize=8)
-        for tensor in ("y", "dx", "dw"):
-            values = [
-                max(
-                    row.get("max_error_over_tolerance", 0)
-                    for row in case["checks"]
-                    if row["tensor"] == tensor and row["transform"] == "fp32_reference"
-                )
-                for case in subset
-            ]
-            axes[1].plot(counts, values, marker="o", label=tensor)
-        axes[1].axhline(1, color="red", linestyle="--", label="shared tolerance boundary")
-        axes[1].set(
-            xlabel="Logical rows M",
-            ylabel="Max error / allowed error",
-            xscale="log",
-            title="Accuracy against independent FP32 reference",
-        )
-        axes[1].legend(fontsize=8)
+        plot_reference_accuracy(axes[1], subset)
         fig.savefig(output / f"{family}.png", dpi=180)
         plt.close(fig)
 
