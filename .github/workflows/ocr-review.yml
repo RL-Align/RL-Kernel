@@ -12,8 +12,23 @@ on:
     branches:
       - main
       - test
+      # Model qualification branches. Keep the family patterns for newly
+      # created qualification branches and list the roadmap branches below so
+      # the intended review coverage remains explicit and auditable.
       - test-*
+      - test-h3
+      - test-qwenimage
+      # DeepSeek-V4 roadmap branches (P1-P7) and the ROCm track.
       - dsv4-*
+      - dsv4-p1-dev
+      - dsv4-p2-dev
+      - dsv4-p3-dev
+      - dsv4-p4-dev
+      - dsv4-p5-dev
+      - dsv4-p6-dev
+      - dsv4-p7-dev
+      - dsv4-rocm
+      # Keep the existing P6 qualification family covered as well.
       - p6-*
     # Draft PRs are skipped by the job below. Include ready_for_review so the
     # first OCR run starts when a contributor marks a draft ready.
@@ -67,7 +82,13 @@ jobs:
           llm_auth_token: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
           llm_model: ${{ vars.OCR_LLM_MODEL }}
           llm_use_anthropic: ${{ vars.OCR_LLM_USE_ANTHROPIC || 'false' }}
-          llm_extra_body: ${{ vars.OCR_LLM_EXTRA_BODY || '{}' }}
+          # OpenCode Go chat completions. Do not send DeepSeek's thinking
+          # object. none is not an accepted effort on this gateway; low is
+          # the smallest value it documents (low, high, max).
+          llm_extra_body: '{"reasoning_effort":"low"}'
+          # Go requires a stable session id on every request. One id per pull
+          # request keeps prompt caching inside that review.
+          llm_extra_headers: x-opencode-session=ocr-pr-${{ github.event.pull_request.number }}
           rule: .opencodereview/rule.json
           language: English
           effort: medium

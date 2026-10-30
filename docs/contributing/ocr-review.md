@@ -3,11 +3,14 @@
 [Open Code Review (OCR)](https://github.com/alibaba/open-code-review) provides an
 automated first review of pull requests targeting `main`, `test`, any `test-*`
 qualification branch, any `dsv4-*` development branch, or any `p6-*` development
-branch. Opening, reopening, or pushing commits to a ready-for-review PR starts a
-review. Draft PRs are skipped; marking a draft ready for review starts its first
-OCR run. Fork PRs are reviewed when credentials are available. New pushes cancel
-older runs for the same PR; the latest head receives the review. Multiple commits
-in one push produce one review rather than one review per commit.
+branch. The configured roadmap targets include `dsv4-p1-dev` through
+`dsv4-p7-dev`, `dsv4-rocm`, `test-h3`, and `test-qwenimage`; the family patterns
+also cover newly created branches in those lines. Opening, reopening, or pushing
+commits to a ready-for-review PR starts a review. Draft PRs are skipped; marking a
+draft ready for review starts its first OCR run. Fork PRs are reviewed when
+credentials are available. New pushes cancel older runs for the same PR; the latest
+head receives the review. Multiple commits in one push produce one review rather
+than one review per commit.
 
 OCR posts actionable findings as GitHub review comments and maintains one summary
 comment per PR. High and critical findings normally appear inline; medium and low
@@ -33,8 +36,16 @@ configure these values in the upstream repository, not a contributor's fork:
 | Secret | `OCR_LLM_AUTH_TOKEN` | A credential for that endpoint |
 | Variable | `OCR_LLM_MODEL` | The model identifier supported by that endpoint |
 | Variable | `OCR_LLM_USE_ANTHROPIC` | `true` for Anthropic messages; `false` for OpenAI-compatible chat completions (default) |
-| Variable, optional | `OCR_LLM_EXTRA_BODY` | Provider-specific request-body JSON; defaults to `{}` |
 | Variable, optional | `OCR_REVIEW_ENABLED` | Set to `false` to disable the job; any other value leaves it enabled |
+
+The workflow sends OpenCode Go chat completions a fixed body,
+`{"reasoning_effort":"low"}`, and the header
+`x-opencode-session: ocr-pr-<pull request number>`. Go requires that session
+header and returns HTTP 400 when it is missing. `reasoning_effort` replaces
+the official DeepSeek `thinking` object. This gateway accepts `low`, `high`,
+or `max`; `none` is rejected. `OCR_LLM_EXTRA_BODY` is not read. The endpoint
+in `OCR_LLM_URL` is
+`https://opencode.ai/inference/go/openai/v1/chat/completions`.
 
 Follow the provider's endpoint and request-body requirements. OCR sends selected
 PR source and repository context to the configured provider and incurs that
