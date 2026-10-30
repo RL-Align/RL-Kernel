@@ -33,41 +33,54 @@ class Dsv4ParallelCollectives:
     ) -> None:
         require(isinstance(contract, Dsv4CollectiveContract), "sealed contract required")
         require(dist.is_available() and dist.is_initialized(), "process group required")
-        require(set(groups) == {"tp", "sp", "dp"}, "TP/SP/DP groups required")
-        require(
-            tuple(dist.get_process_group_ranks(world_group)) == contract.global_ranks,
-            "world group differs from sealed ranks",
-        )
-        rank = dist.get_rank()
-        require(rank in contract.global_ranks, "rank outside sealed group")
-        for dimension, group in groups.items():
-            expected = next(g for g in getattr(contract, f"{dimension}_groups") if rank in g)
-            require(
-                tuple(dist.get_process_group_ranks(group)) == expected,
-                f"{dimension} rank partition differs from sealed plan",
-            )
-        backend = str(dist.get_backend(world_group)).lower()
-        rocm = "nccl" in backend and bool(getattr(torch.version, "hip", None))
-        cpu = "gloo" in backend and allow_cpu_reference
-        require(rocm or cpu, "unvalidated DSV4 collective transport")
-        for dimension, group in groups.items():
-            require(
-                str(dist.get_backend(group)).lower() == backend,
-                f"{dimension} backend differs from world group",
-            )
         self.contract = contract
         self.world_group = world_group
-        self.device = (
-            torch.device("cuda", torch.cuda.current_device()) if rocm else torch.device("cpu")
-        )
-        self._agree(("construct", contract.fingerprint))
-        cls = RCCLDeterministicCollective if rocm else TorchDistributedDeterministicCollective
-        self._collectives = {
-            dimension: cls(
-                group=groups[dimension], device=self.device, max_size_bytes=contract.max_size_bytes
+        local_error = None
+        rocm = False
+        try:
+            require(set(groups) == {"tp", "sp", "dp"}, "TP/SP/DP groups required")
+            require(
+                tuple(dist.get_process_group_ranks(world_group)) == contract.global_ranks,
+                "world group differs from sealed ranks",
             )
-            for dimension in ("tp", "sp", "dp")
-        }
+            rank = dist.get_rank()
+            require(rank in contract.global_ranks, "rank outside sealed group")
+            for dimension, group in groups.items():
+                expected = next(g for g in getattr(contract, f"{dimension}_groups") if rank in g)
+                require(
+                    tuple(dist.get_process_group_ranks(group)) == expected,
+                    f"{dimension} rank partition differs from sealed plan",
+                )
+            backend = str(dist.get_backend(world_group)).lower()
+            rocm = "nccl" in backend and bool(getattr(torch.version, "hip", None))
+            cpu = "gloo" in backend and allow_cpu_reference
+            require(rocm or cpu, "unvalidated DSV4 collective transport")
+            for dimension, group in groups.items():
+                require(
+                    str(dist.get_backend(group)).lower() == backend,
+                    f"{dimension} backend differs from world group",
+                )
+            self.device = (
+                torch.device("cuda", torch.cuda.current_device()) if rocm else torch.device("cpu")
+            )
+        except Exception as exc:
+            local_error = exc
+            self.device = torch.device("cpu")
+        self._agree(("construct", contract.fingerprint), local_error is None)
+        if local_error is not None:
+            raise local_error
+        cls = RCCLDeterministicCollective if rocm else TorchDistributedDeterministicCollective
+        self._collectives = {}
+        try:
+            for dimension in ("tp", "sp", "dp"):
+                self._collectives[dimension] = cls(
+                    group=groups[dimension],
+                    device=self.device,
+                    max_size_bytes=contract.max_size_bytes,
+                )
+        except Exception:
+            self.close()
+            raise
         self._active = False
         self._poisoned = False
         self._closed = False
