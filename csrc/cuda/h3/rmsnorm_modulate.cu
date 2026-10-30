@@ -115,24 +115,8 @@ struct Modulation {
   int64_t row_stride;
   const int64_t* index;    // (S,) table row per sequence position
   int64_t seq;             // S: row r of x uses index[r % S]
-  int64_t rows;            // R: table rows; an index outside [0, R) is a caller error
+  int64_t num_rows;
 };
-
-// Table row of x row `r`. check_range=False callers skip the Python range check, so the native side
-// asserts the index before it is used as an offset (as the row-gather kernel does). Kernels that read
-// it once per row use this; the dweight partials read it inside their row loop, where an assert
-// costs about 11% of the backward, so they use the unchecked read and the entry points run
-// h3_tiles::check_index_range over the S index values before launching them.
-__device__ __forceinline__ int64_t modulation_row(const Modulation& mod, int64_t r) {
-  const int64_t i = mod.index[r % mod.seq];
-  CUDA_KERNEL_ASSERT(i >= 0 && i < mod.rows);
-  return i;
-}
-
-__device__ __forceinline__ int64_t modulation_row_checked_by_entry_point(const Modulation& mod,
-                                                                         int64_t r) {
-  return mod.index[r % mod.seq];
-}
 
 template <typename T>
 __global__ void __launch_bounds__(32 * kWarps)
@@ -145,7 +129,8 @@ __global__ void __launch_bounds__(32 * kWarps)
   const T* shift = nullptr;
   const T* scale = nullptr;
   if (mod.index != nullptr) {
-    const int64_t i = modulation_row(mod, r);
+    const int64_t i = mod.index[r % mod.seq];
+    CUDA_KERNEL_ASSERT(i >= 0 && i < mod.num_rows);
     shift = static_cast<const T*>(mod.shift) + i * mod.row_stride;
     scale = static_cast<const T*>(mod.scale) + i * mod.row_stride;
   }
@@ -182,9 +167,12 @@ __global__ void __launch_bounds__(32 * kWarps)
   const int64_t r = blockIdx.x;
   const T* xr = x + r * n;
   const T* gr = g + r * n;
-  const T* scale = mod.index != nullptr
-                       ? static_cast<const T*>(mod.scale) + modulation_row(mod, r) * mod.row_stride
-                       : nullptr;
+  const T* scale = nullptr;
+  if (mod.index != nullptr) {
+    const int64_t i = mod.index[r % mod.seq];
+    CUDA_KERNEL_ASSERT(i >= 0 && i < mod.num_rows);
+    scale = static_cast<const T*>(mod.scale) + i * mod.row_stride;
+  }
   const int numx = blockDim.x * blockDim.y;
   const int thrx = threadIdx.x + threadIdx.y * blockDim.x;
   float s = 0.0f;
@@ -219,10 +207,12 @@ __global__ void rmsnorm_dweight_partial_kernel(const T* __restrict__ g, const T*
   const int64_t r1 = min(r0 + kRowTile, rows);
   float acc = 0.0f;
   for (int64_t r = r0; r < r1; ++r) {
-    const T* scale = mod.index != nullptr
-                         ? static_cast<const T*>(mod.scale) +
-                               modulation_row_checked_by_entry_point(mod, r) * mod.row_stride
-                         : nullptr;
+    // Read unchecked: this loop is the kernel's whole cost, and an assert in it slows the backward by
+    // about 11%. The entry points run h3_tiles::check_index_range over the S index values first.
+    const T* scale = nullptr;
+    if (mod.index != nullptr) {
+      scale = static_cast<const T*>(mod.scale) + mod.index[r % mod.seq] * mod.row_stride;
+    }
     acc = fmaf(d_norm_out(g + r * n, scale, j), to_f(x[r * n + j]) * rstd[r], acc);
   }
   partial[static_cast<int64_t>(blockIdx.x) * n + j] = acc;
@@ -320,7 +310,7 @@ Modulation make_modulation(const c10::optional<torch::Tensor>& shift,
   mod.row_stride = sh.stride(0);
   mod.index = ix.data_ptr<int64_t>();
   mod.seq = ix.size(0);
-  mod.rows = sh.size(0);
+  mod.num_rows = sh.size(0);
   return mod;
 }
 
@@ -420,7 +410,7 @@ std::vector<torch::Tensor> h3_rmsnorm_backward(
   const c10::cuda::CUDAGuard guard(x.device());
   auto stream = at::cuda::getCurrentCUDAStream();
   // The dweight partials read the index inside their row loop: check its values first.
-  if (mod.index != nullptr) h3_tiles::check_index_range(stream, mod.index, mod.seq, mod.rows);
+  if (mod.index != nullptr) h3_tiles::check_index_range(stream, mod.index, mod.seq, mod.num_rows);
   auto dx = torch::empty_like(x);
   const int64_t tiles = (rows + kRowTile - 1) / kRowTile;
   auto partial = torch::empty({tiles, n}, x.options().dtype(at::kFloat));

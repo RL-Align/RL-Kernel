@@ -735,10 +735,10 @@ def _final_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
                 "provider": lambda t=(x, nw, temb, w, b), i=ti: provider_final_adaln_out(*t, i),
                 "candidate_backward": backward,
                 "provider_backward": backward,
-                "candidate_backward_setup": lambda b=prepare_backward, i=ti: b(
+                "candidate_backward_setup": lambda bw=prepare_backward, i=ti: bw(
                     lambda *t: op(*t, i)
                 ),
-                "provider_backward_setup": lambda b=prepare_backward, i=ti: b(
+                "provider_backward_setup": lambda bw=prepare_backward, i=ti: bw(
                     lambda *t: provider_final_adaln_out(*t, i)
                 ),
             }

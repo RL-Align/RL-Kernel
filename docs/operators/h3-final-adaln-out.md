@@ -40,7 +40,7 @@ out = op(x, norm_out_norm_w, temb, norm_out_linear_w, norm_out_linear_b, timeste
   summation tree versus cuBLAS. Rows are batch- and position-invariant.
 - **Backward.** One autograd node, so the table gradient (FP32 segment sums) goes straight into
   the projection backward without an extra BF16 rounding:
-  - `d_temb`, `dW` and `db` are 22–48× closer to FP64 in the recorded run than diffusers,
+  - `d_temb`, `dW` and `db` are 21–37× closer to FP64 in the recorded run than diffusers,
     whose error varies from run to run because it rounds the table gradient to BF16 and accumulates it with
     `index_select` atomics;
   - `dx` and `d_norm_w` are at the BF16 rounding level for both;
@@ -59,36 +59,36 @@ out = op(x, norm_out_norm_w, temb, norm_out_linear_w, norm_out_linear_b, timeste
 python benchmarks/models/benchmark_h3_conditioning.py --op final_adaln_out
 ```
 
-B200, B = 1, T = 3, pinned `norm_out` weights:
+B200, B = 1, T = 3, pinned `norm_out` weights. Backward timings exclude input
+and forward-graph setup:
 
 | S | CUDA fwd | diffusers fwd | CUDA bwd | diffusers bwd |
 | --- | --- | --- | --- | --- |
-| 4097 | 0.18 ms | 0.18 ms | 1.38 ms | 0.86 ms |
-| 32768 | 0.42 ms | 0.82 ms | 2.56 ms | 4.47 ms |
-| 131072 | 1.28 ms | 2.96 ms | 7.04 ms | 17.7 ms |
+| 4097 | 0.19 ms | 0.21 ms | 1.37 ms | 0.83 ms |
+| 32768 | 0.42 ms | 0.82 ms | 2.53 ms | 4.45 ms |
+| 131072 | 1.28 ms | 2.97 ms | 7.02 ms | 17.61 ms |
 
 At small S the backward is dominated by fixed setup: the stable sort for the segment sums and the
 projection backward.
 
 ## Evidence
 
-![final_adaln_out on B200: latency and backward accuracy](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/3848e6fcb227415ce8ad4d21ca120701f58aacf6/pr489/reports/experiments/h3-final-adaln-out-b200/figure.png)
+![final_adaln_out on B200: latency and backward accuracy](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr493/reports/experiments/h3-final-adaln-out-b200/figure.png)
 
 There are two data files:
 
-- [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/3848e6fcb227415ce8ad4d21ca120701f58aacf6/pr489/reports/experiments/h3-final-adaln-out-b200/report.json): op timings, the
+- [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr493/reports/experiments/h3-final-adaln-out-b200/report.json): op timings, the
   forward-equality fraction, row invariance and backward accuracy. Regenerated from a clean
-  tree at `1d26287f` on an otherwise idle B200 (backward timings exclude the leaf creation, the
-  forward pass and the graph construction; the previous revision came from `a4bc99f9`), with FP64 leaves and upstream gradients, after
+  tree at `ddca8f95` on an otherwise idle B200, with FP64 leaves and upstream gradients, after
   the golden's declared cast was changed to round the FP32 SiLU as the model does. The
   backward reference keeps only the SiLU and table roundings, so the errors include the BF16
   rounding of `norm(x)` and `1 + scale`.
 - [`chain_replay.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr489/reports/experiments/h3-final-adaln-out-b200/chain_replay.json): the
   whole conditioning chain (timestep → … → norm_out) replayed stage by stage over
   T in {1, 2, 3, 4} × S in {3, 257, 4097, 32768}, with the backward replay. Written from a clean
-  tree at `a4bc99f9`. Every CUDA pass/fail flag matches the previous replay; the `h3_rmsnorm`
-  stage's chained error against the golden is lower in all 16 cases (worst 0.0796 before,
-  0.0671 now).
+  tree at `a4bc99f9` (#489). Every CUDA pass/fail flag matches the previous replay; the
+  `h3_rmsnorm` stage's chained error against the golden is lower in all 16 cases (worst 0.0796
+  before, 0.0671 now).
 
 ## Existing implementations (RFC #420 reuse rule)
 

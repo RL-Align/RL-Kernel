@@ -512,5 +512,5 @@ class TestNativeBackwardMetadata:
 
         args = _backward_args()
         args[name] = args[name].to("cuda:1")
-        with pytest.raises(RuntimeError, match="grad's device"):
+        with pytest.raises(RuntimeError, match="tile metadata"):
             _C.h3_adaln_row_gather_backward(**args)
