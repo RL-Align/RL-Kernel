@@ -19,6 +19,7 @@ Every operator page should include:
 ## Current Pages
 
 - [SiLU / SwiGLU Activation](activation.md)
+- [Fused Add RMSNorm](fused-add-rmsnorm.md)
 - [Standard Attention](attention.md)
 - [Fused LogP](fused-logp.md)
 - [Fused Linear LogP](linear-logp.md)
