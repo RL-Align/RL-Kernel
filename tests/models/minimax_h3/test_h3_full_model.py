@@ -212,6 +212,12 @@ def test_the_variant_context_is_also_correct_with_the_real_library():
     from rl_engine.validation.models.h3_full_model import provider_variant_context
 
     before = torch.backends.cuda.preferred_blas_library()
+    try:  # a torch build without cuBLASLt (the CPU wheel in CI) refuses to select it
+        torch.backends.cuda.preferred_blas_library("cublaslt")
+    except RuntimeError as exc:
+        pytest.skip(str(exc))
+    finally:
+        torch.backends.cuda.preferred_blas_library(before)
     with provider_variant_context("blas-cublaslt"):
         assert "cublaslt" in str(torch.backends.cuda.preferred_blas_library()).lower()
     assert torch.backends.cuda.preferred_blas_library() == before
