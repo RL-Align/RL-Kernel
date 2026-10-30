@@ -14,6 +14,8 @@ import torch
 import triton
 import triton.language as tl
 
+from rl_engine.backends.shared.triton.autotuning import TunableKernel, pin_autotune
+
 # Tile width
 _MAX_BLOCK_V = 2048
 
@@ -127,6 +129,7 @@ def _ratio_kl_bwd_kernel(
             tl.store(grad_policy_ptr + row_off + cols, 0.0, mask=cols < V)
 
 
+@pin_autotune
 class _RatioKLFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, policy_logits, ref_logits, action_ids, attention_mask, old_logps):
@@ -217,3 +220,7 @@ class TritonRatioKLOp:
         return _RatioKLFunction.apply(
             policy_logits, ref_logits, action_ids, attention_mask, old_logps
         )
+
+
+_ratio_kl_fwd_kernel = TunableKernel(_ratio_kl_fwd_kernel, outputs=(5, 6, 7, 8))
+_ratio_kl_bwd_kernel = TunableKernel(_ratio_kl_bwd_kernel, outputs=(8,))
