@@ -718,18 +718,35 @@ def plot_sp_norm(report: dict[str, Any]):
     sp_runs = [run for run in runs if run["sp"] > 1]
     ax = axes[1]
     _style(ax, f"Region fwd+bwd, S = {big['seq']}, block layout", "ms (slowest rank)")
-    _bars(
-        ax,
-        [f"SP{run['sp']}" for run in sp_runs],
-        [("SP", RL_KERNEL, [worst(run, "sp_forward_backward_us") for run in sp_runs])],
-        "{:.2f}",
-    )
-    ws1 = worst(runs[0], "ws1_forward_backward_us")
-    ax.axhline(
-        ws1, color=PROVIDER, linestyle="--", linewidth=1.4, zorder=1, label=f"WS1, 1 GPU: {ws1:.2f}"
-    )
-    ax.set_ylim(0, ws1 * 1.35)
-    ax.legend(frameon=False, fontsize=8, labelcolor=INK, loc="upper right")
+    if not sp_runs:
+        ax.text(
+            0.5,
+            0.5,
+            "no run with SP > 1 in this report",
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            fontsize=10,
+            color=MUTED,
+        )
+    else:
+        _bars(
+            ax,
+            [f"SP{run['sp']}" for run in sp_runs],
+            [("SP", RL_KERNEL, [worst(run, "sp_forward_backward_us") for run in sp_runs])],
+            "{:.2f}",
+        )
+        ws1 = worst(runs[0], "ws1_forward_backward_us")
+        ax.axhline(
+            ws1,
+            color=PROVIDER,
+            linestyle="--",
+            linewidth=1.4,
+            zorder=1,
+            label=f"WS1, 1 GPU: {ws1:.2f}",
+        )
+        ax.set_ylim(0, ws1 * 1.35)
+        ax.legend(frameon=False, fontsize=8, labelcolor=INK, loc="upper right")
 
     # Right: what a naive SP reduction would do instead.
     naive = report["naive_sp"]

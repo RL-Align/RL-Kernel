@@ -228,6 +228,23 @@ def test_rejects_invalid_rstd(native, inputs, defect, mode):
 
 
 @pytest.mark.cuda_only
+@pytest.mark.parametrize("defect", ["cpu", "dtype", "rank", "stride", "length"])
+@pytest.mark.parametrize("entrypoint", ["partials", "dx"])
+def test_sp_backward_entry_points_reject_invalid_rstd(native, inputs, defect, entrypoint):
+    rstd = _malformed(inputs["rstd"], defect)
+    args = (inputs["grad"], inputs["x"], inputs["weight"], rstd)
+    modulation = (inputs["shift"], inputs["scale"], inputs["index"])
+    with pytest.raises(RuntimeError, match="rstd must be contiguous float32"):
+        if entrypoint == "dx":
+            native.h3_rmsnorm_backward_dx(*args, *modulation)
+        else:
+            tile = torch.zeros(1, dtype=torch.int32, device=inputs["x"].device)
+            native.h3_rmsnorm_backward_partials(
+                *args, *modulation, tile, tile, tile, None, None, None
+            )
+
+
+@pytest.mark.cuda_only
 @pytest.mark.parametrize("name", TILE_NAMES)
 @pytest.mark.parametrize("defect", ["cpu", "dtype", "rank", "stride", "length"])
 def test_rejects_invalid_segment_tiles(native, inputs, name, defect):
@@ -286,8 +303,7 @@ def test_native_table_bounds_fail_in_isolated_process(native_extension, operatio
     import sys
     import textwrap
 
-    script = textwrap.dedent(
-        """
+    script = textwrap.dedent("""
         import sys
         import torch
         from rl_engine import _C
@@ -319,8 +335,7 @@ def test_native_table_bounds_fail_in_isolated_process(native_extension, operatio
                 sys.exit(0)
             raise
         raise AssertionError("invalid index reached native table lookup without an assertion")
-    """
-    )
+    """)
     result = subprocess.run(
         [sys.executable, "-c", script, operation, str(bad_index)],
         capture_output=True,
@@ -354,8 +369,7 @@ def test_row_gather_metadata_bounds_in_isolated_process(native_extension, metada
     import sys
     import textwrap
 
-    script = textwrap.dedent(
-        """
+    script = textwrap.dedent("""
         import sys
         import torch
         from rl_engine import _C
@@ -375,8 +389,7 @@ def test_row_gather_metadata_bounds_in_isolated_process(native_extension, metada
                 sys.exit(0)
             raise
         raise AssertionError("invalid metadata was not rejected")
-    """
-    )
+    """)
     result = subprocess.run(
         [sys.executable, "-c", script, metadata, bound], capture_output=True, text=True, timeout=60
     )
