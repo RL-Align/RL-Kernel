@@ -96,7 +96,7 @@ and gains 1.7-1.8x at TP8. Each rank also holds only `1 / tp` of the weight and 
 
 ```bash
 export RL_KERNEL_H3_WEIGHTS=<dir written by tools/weights/prepare_h3_weights.py>
-python -m pytest tests/models/minimax_h3/test_h3_tp_adaln.py -v   # ownership, shard arithmetic, NCCL TP2/4/8
+python -m pytest tests/distributed/tp/test_h3_tp_adaln.py -v   # ownership, shard arithmetic, NCCL TP2/4/8
 python tools/validation/models/h3_ws2_evidence.py --op tp_adaln_3mod --worlds 1,2,4,8 \
     --out reports/experiments/h3-tp-adaln-3mod-b200/report.json
 python tools/validation/models/plot_h3_evidence.py reports/experiments/h3-tp-adaln-3mod-b200/report.json

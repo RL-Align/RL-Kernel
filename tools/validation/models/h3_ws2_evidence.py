@@ -24,12 +24,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 import torch  # noqa: E402
 
+from rl_engine.validation.distributed.h3_ws2 import run_world, tp_projection_sweep  # noqa: E402
 from rl_engine.validation.models.h3_chain import environment, git_state  # noqa: E402
 from rl_engine.validation.models.h3_weights import (  # noqa: E402
     load_h3_conditioning_weights,
     load_h3_manifest,
 )
-from rl_engine.validation.models.h3_ws2 import run_world, tp_projection_sweep  # noqa: E402
 
 WEIGHT = "transformer_blocks.0.adaln_proj.linear.weight"
 BIAS = "transformer_blocks.0.adaln_proj.linear.bias"

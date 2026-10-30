@@ -22,7 +22,7 @@ import torch
 import torch.nn.functional as F
 
 from rl_engine.backends.cuda.model_specific.minimax_h3.tp_adaln_projection import adaln_column_shard
-from rl_engine.validation.models.h3_ws2 import (
+from rl_engine.validation.distributed.h3_ws2 import (
     run_world,
     tp_matches_ws1,
     tp_projection_rank,
