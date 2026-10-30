@@ -10,7 +10,7 @@ import pytest
 import torch
 import torch.multiprocessing as mp
 
-from rl_engine.validation.models import h3_ws2
+from rl_engine.validation.distributed import h3_ws2
 
 
 def _worker(rank, world, init, queue, path, target, kwargs):
