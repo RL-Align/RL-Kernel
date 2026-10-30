@@ -29,7 +29,7 @@ JUDGMENTS = (
     "gradient_accuracy",
     "gradient_invariance",
 )
-OP_CLASSES = ("elementwise", "reduction", "logprob", "attention")
+OP_CLASSES = ("elementwise", "reduction", "logprob", "attention", "mhc_controller")
 MANDATORY_DTYPES = ("float32", "bfloat16")
 OPTIONAL_DTYPES = ("float16",)
 OUT_OF_SCOPE_DTYPES = ("float8",)

@@ -8,6 +8,8 @@ from typing import Any
 
 import torch
 
+from rl_engine.kernels.ops.pytorch.mhc import MHC_PRE_HIDDEN_SIZE
+
 DEFAULT_HIDDEN = 4096
 DEFAULT_N_HEADS = 32
 DEFAULT_N_KV_HEADS = 8
@@ -16,6 +18,7 @@ DEFAULT_INTERMEDIATE = 12288
 DEFAULT_VOCAB = 151936
 DEFAULT_ROPE_THETA = 1.0e6
 DEFAULT_RMS_EPS = 1.0e-6
+MHC_CONTROLLER_N = 24  # frozen P1 controller width (PRE 4 + POST 4 + COMB 16)
 
 
 def make_operator_inputs(
@@ -25,12 +28,14 @@ def make_operator_inputs(
     device: torch.device,
 ) -> dict[str, Any]:
     builders = {
+        "mhc_pre_h_aggregate": _make_mhc_pre_h_aggregate_inputs,
         "rms_norm": _make_rms_norm_inputs,
         "rmsnorm_residual": _make_rmsnorm_residual_inputs,
         "qk_norm": _make_qk_norm_inputs,
         "pack": _make_pack_inputs,
         "matmul": _make_matmul_inputs,
         "det_gemm": _make_det_gemm_inputs,
+        "fp32_gemm_rms": _make_fp32_gemm_rms_inputs,
         "attention": _make_attention_inputs,
         "cp_attention": _make_cp_attention_inputs,
         "logp": _make_logp_inputs,
@@ -53,6 +58,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
     batch, seq = _batch_seq(args)
     vocab = _arg_int(args, "vocab", DEFAULT_VOCAB)
     names = {
+        "mhc_pre_h_aggregate": f"{batch * seq}x4x{MHC_PRE_HIDDEN_SIZE}",
         "rms_norm": f"{batch}x{seq}x{_normalized_dim(args)}",
         "rmsnorm_residual": f"{batch}x{seq}x{_normalized_dim(args)}",
         "qk_norm": f"{batch}x{seq}x{_arg_int(args, 'n_heads', DEFAULT_N_HEADS)}x"
@@ -60,6 +66,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "pack": f"{batch}x{seq}x{_normalized_dim(args)}",
         "matmul": f"{batch}x{seq}x{_matmul_k(args)}x{_matmul_n(args)}",
         "det_gemm": f"{batch}x{seq}x{_matmul_k(args)}x{_matmul_n(args)}",
+        "fp32_gemm_rms": f"{batch * seq}x{_matmul_k(args)}x{MHC_CONTROLLER_N}",
         "attention": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}",
         "cp_attention": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}xcp2",
         "logp": f"{batch}x{seq}x{vocab}",
@@ -101,6 +108,19 @@ def _make_rmsnorm_residual_inputs(
         ),
         "gamma": _floating_tensor((normalized_dim,), args, torch.float32, device, offset=1),
         "eps": _arg_float(args, "eps", DEFAULT_RMS_EPS),
+    }
+
+
+def _make_mhc_pre_h_aggregate_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    batch, seq = _batch_seq(args)
+    num_tokens = batch * seq
+    return {
+        "residual": _floating_tensor(
+            (num_tokens, 4, MHC_PRE_HIDDEN_SIZE), args, dtype, device, offset=0
+        ),
+        "pre": _floating_tensor((num_tokens, 4), args, torch.float32, device, offset=1),
     }
 
 
@@ -157,6 +177,20 @@ def _make_det_gemm_inputs(
     return {
         "a": _floating_tensor((m_dim, k_dim), args, dtype, device, offset=0),
         "b": _floating_tensor((k_dim, n_dim), args, dtype, device, offset=1),
+    }
+
+
+def _make_fp32_gemm_rms_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    """P1-2 controller projection + RMS scale: X [T, K] FP32, W [24, K] FP32."""
+    batch, seq = _batch_seq(args)
+    k_dim = _matmul_k(args)
+    tokens = batch * seq
+    return {
+        "x_flat": _floating_tensor((tokens, k_dim), args, dtype, device, offset=0),
+        "weight": _floating_tensor((MHC_CONTROLLER_N, k_dim), args, dtype, device, offset=1),
+        "eps": _arg_float(args, "eps", DEFAULT_RMS_EPS),
     }
 
 

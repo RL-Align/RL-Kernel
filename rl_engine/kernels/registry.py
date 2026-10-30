@@ -150,6 +150,10 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
         "rl_engine.kernels.ops.pytorch.norm.rmsnorm_residual.NativeRMSNormResidualOp"
     )
 
+    CUDA_MHC_PRE_H_AGGREGATE = "rl_engine.kernels.ops.cuda.mhc.MHCPreHAggregateCudaOp"
+    TRITON_MHC_PRE_H_AGGREGATE = "rl_engine.kernels.ops.triton.mhc.MHCPreHAggregateTritonOp"
+    PYTORCH_MHC_PRE_H_AGGREGATE = "rl_engine.kernels.ops.pytorch.mhc.NativeMHCPreHAggregateOp"
+
     # Generic fallback
     TRITON_GENERIC = "rl_engine.kernels.ops.triton.generic.TritonOp"
     PYTORCH_ATTN = "rl_engine.kernels.ops.pytorch.attention.NativeAttentionOp"
@@ -516,6 +520,11 @@ class KernelRegistry:
 
         self._priority_map = {
             "cuda": {
+                "mhc_pre_h_aggregate": [
+                    OpBackend.CUDA_MHC_PRE_H_AGGREGATE,
+                    OpBackend.TRITON_MHC_PRE_H_AGGREGATE,
+                    OpBackend.PYTORCH_MHC_PRE_H_AGGREGATE,
+                ],
                 "logp": [
                     OpBackend.CUDA_FUSED_LOGP_GENERIC,
                     OpBackend.FLASHINFER,
@@ -597,6 +606,7 @@ class KernelRegistry:
                 ],
             },
             "rocm": {
+                "mhc_pre_h_aggregate": [OpBackend.PYTORCH_MHC_PRE_H_AGGREGATE],
                 "logp": [
                     OpBackend.ROCM_AITER,
                     OpBackend.TRITON_GENERIC,
@@ -638,6 +648,7 @@ class KernelRegistry:
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
             },
             "musa": {
+                "mhc_pre_h_aggregate": [OpBackend.PYTORCH_MHC_PRE_H_AGGREGATE],
                 "logp": [OpBackend.PYTORCH_NATIVE],
                 "logp_indexed": [OpBackend.PYTORCH_NATIVE],
                 "logp_online": [OpBackend.PYTORCH_NATIVE],
@@ -663,6 +674,7 @@ class KernelRegistry:
                 "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
             },
             "cpu": {
+                "mhc_pre_h_aggregate": [OpBackend.PYTORCH_MHC_PRE_H_AGGREGATE],
                 "logp": [OpBackend.PYTORCH_NATIVE],
                 "logp_deterministic": [OpBackend.PYTORCH_NATIVE],
                 "logp_deterministic_indexed": [OpBackend.PYTORCH_NATIVE],
