@@ -228,6 +228,23 @@ def test_rejects_invalid_rstd(native, inputs, defect, mode):
 
 
 @pytest.mark.cuda_only
+@pytest.mark.parametrize("defect", ["cpu", "dtype", "rank", "stride", "length"])
+@pytest.mark.parametrize("entrypoint", ["partials", "dx"])
+def test_sp_backward_entry_points_reject_invalid_rstd(native, inputs, defect, entrypoint):
+    rstd = _malformed(inputs["rstd"], defect)
+    args = (inputs["grad"], inputs["x"], inputs["weight"], rstd)
+    modulation = (inputs["shift"], inputs["scale"], inputs["index"])
+    with pytest.raises(RuntimeError, match="rstd must be contiguous float32"):
+        if entrypoint == "dx":
+            native.h3_rmsnorm_backward_dx(*args, *modulation)
+        else:
+            tile = torch.zeros(1, dtype=torch.int32, device=inputs["x"].device)
+            native.h3_rmsnorm_backward_partials(
+                *args, *modulation, tile, tile, tile, None, None, None
+            )
+
+
+@pytest.mark.cuda_only
 @pytest.mark.parametrize("name", TILE_NAMES)
 @pytest.mark.parametrize("defect", ["cpu", "dtype", "rank", "stride", "length"])
 def test_rejects_invalid_segment_tiles(native, inputs, name, defect):
@@ -502,3 +519,50 @@ def test_segment_metadata_that_does_not_describe_the_rows_ends_in_a_device_asser
         done = run(mutation)
         assert done.returncode != 0, (kind, mutation)
         assert "device-side assert triggered" in done.stderr, (kind, mutation, done.stderr)
+
+
+def _vector(*values, device="cuda"):
+    return torch.tensor(values, dtype=torch.int64, device=device)
+
+
+def test_plain_partials_are_limited_by_n_and_modulated_ones_by_two_n(native):
+    """The 2N grid bound belongs to the modulated call (shift and scale partials side by side)."""
+
+    if not hasattr(native, "h3_rmsnorm_backward_partials"):
+        pytest.skip("rl_engine._C lacks h3_rmsnorm_backward_partials")
+    n = 8_650_752  # (N + 255) / 256 = 33792 <= 65535 < 67584 = (2N + 255) / 256
+    x = torch.randn(2, n, device="cuda")
+    weight = torch.ones(n, device="cuda")
+    _, rstd = native.h3_rmsnorm_forward(x, weight, 1e-5)
+    rows, begin, end = _vector(0, 1), _vector(0), _vector(2)
+    (partial,) = native.h3_rmsnorm_backward_partials(
+        torch.ones_like(x), x, weight, rstd, None, None, None, rows, begin, end, None, None, None
+    )
+    assert partial.shape == (1, n) and torch.isfinite(partial).all()
+    shift, scale = torch.zeros(1, 2 * n, device="cuda").chunk(2, dim=1)
+    with pytest.raises(RuntimeError, match="too large for the kernels"):
+        native.h3_rmsnorm_backward_partials(
+            torch.ones_like(x),
+            x,
+            weight,
+            rstd,
+            shift,
+            scale,
+            _vector(0, 0),
+            rows,
+            begin,
+            end,
+            rows,
+            begin,
+            end,
+        )
+
+
+def test_gate_grad_partials_reject_a_zero_width_input(native):
+    if not hasattr(native, "h3_gate_grad_partials"):
+        pytest.skip("rl_engine._C lacks h3_gate_grad_partials")
+    grad = torch.zeros(4, 0, device="cuda")
+    with pytest.raises(RuntimeError, match="at least one column"):
+        native.h3_gate_grad_partials(
+            grad, grad.clone(), _vector(0, 1, 2, 3), _vector(0), _vector(4)
+        )
