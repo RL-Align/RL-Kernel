@@ -38,6 +38,9 @@ dev = ["pytest", "black", "isort", "ruff", "mypy", "pre-commit"]
 where = ["."]
 include = ["rl_engine*"]
 
+[tool.setuptools.package-data]
+"rl_engine.p3" = ["native/*.h", "native/*.cuh", "native/*.cpp", "native/*.cu"]
+
 [tool.ruff]
 line-length = 100
 
