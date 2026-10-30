@@ -226,6 +226,7 @@ def check_runtime_binding(
     *,
     model_class: str,
     attention_projection_grouping: Sequence[Sequence[str]],
+    mlp_projection_grouping: Sequence[Sequence[str]],
     speculative_decoding: bool,
 ) -> None:
     """Fail closed on a runtime binding strict mode does not support."""
@@ -234,12 +235,16 @@ def check_runtime_binding(
             f"model class {model_class!r} is not a native Muse Glimmer class; "
             "Transformers-fallback classes are not strict"
         )
-    grouping = [list(group) for group in attention_projection_grouping]
-    if grouping != OFFICIAL_PROJECTION_GROUPING["attention"]:
-        raise MuseGlimmerWorkloadError(
-            f"attention projection grouping {grouping!r} is not the pinned "
-            f"{OFFICIAL_PROJECTION_GROUPING['attention']!r}"
-        )
+    for name, groups in (
+        ("attention", attention_projection_grouping),
+        ("mlp", mlp_projection_grouping),
+    ):
+        grouping = [list(group) for group in groups]
+        if grouping != OFFICIAL_PROJECTION_GROUPING[name]:
+            raise MuseGlimmerWorkloadError(
+                f"{name} projection grouping {grouping!r} is not the pinned "
+                f"{OFFICIAL_PROJECTION_GROUPING[name]!r}"
+            )
     if speculative_decoding:
         raise MuseGlimmerWorkloadError(
             "speculative decoding is not supported in strict mode (RFC #501)"

@@ -281,31 +281,34 @@ def test_loader_rejects_fused_projection_and_unpinned_shard():
         verify_weight_map(unpinned, m)
 
 
-def test_runtime_binding_fails_closed():
-    grouping = w.OFFICIAL_PROJECTION_GROUPING["attention"]
-    check_runtime_binding(
-        model_class="MuseGlimmerForConditionalGeneration",
-        attention_projection_grouping=grouping,
-        speculative_decoding=False,
-    )
-    with pytest.raises(w.MuseGlimmerWorkloadError, match="Transformers-fallback"):
-        check_runtime_binding(
-            model_class="TransformersForCausalLM",
-            attention_projection_grouping=grouping,
-            speculative_decoding=False,
-        )
-    with pytest.raises(w.MuseGlimmerWorkloadError, match="grouping"):
-        check_runtime_binding(
-            model_class="MuseGlimmerForConditionalGeneration",
-            attention_projection_grouping=[["q_proj", "k_proj", "v_proj"], ["gate_proj"]],
-            speculative_decoding=False,
-        )
-    with pytest.raises(w.MuseGlimmerWorkloadError, match="speculative"):
-        check_runtime_binding(
-            model_class="MuseGlimmerForConditionalGeneration",
-            attention_projection_grouping=grouping,
-            speculative_decoding=True,
-        )
+_STRICT_BINDING = {
+    "model_class": "MuseGlimmerForConditionalGeneration",
+    "attention_projection_grouping": w.OFFICIAL_PROJECTION_GROUPING["attention"],
+    "mlp_projection_grouping": w.OFFICIAL_PROJECTION_GROUPING["mlp"],
+    "speculative_decoding": False,
+}
+
+
+def test_runtime_binding_accepts_strict_binding():
+    check_runtime_binding(**_STRICT_BINDING)
+
+
+@pytest.mark.parametrize(
+    "key,value,match",
+    [
+        ("model_class", "TransformersForCausalLM", "Transformers-fallback"),
+        (
+            "attention_projection_grouping",
+            [["q_proj", "k_proj", "v_proj"], ["gate_proj"]],
+            "attention projection grouping",
+        ),
+        ("mlp_projection_grouping", [["gate_proj", "up_proj"]], "mlp projection grouping"),
+        ("speculative_decoding", True, "speculative"),
+    ],
+)
+def test_runtime_binding_fails_closed(key, value, match):
+    with pytest.raises(w.MuseGlimmerWorkloadError, match=match):
+        check_runtime_binding(**{**_STRICT_BINDING, key: value})
 
 
 @pytest.mark.skipif(

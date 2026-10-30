@@ -229,6 +229,7 @@
       "form": "rmsnorm_times_weight",
       "compute_dtype": "float32",
       "rsqrt_form": "pow_neg_half",
+      "weight_applied_before_cast": true,
       "eps_source": "rms_norm_eps"
     },
     "post_norm_eps_governs": [
@@ -245,6 +246,10 @@
       "post_feedforward_layernorm",
       "residual_add"
     ],
+    "residual_add": {
+      "operand_dtype": "bfloat16",
+      "output_dtype": "bfloat16"
+    },
     "qk_norm": {
       "form": "weightless_rmsnorm_per_head",
       "applies_to": [
@@ -360,5 +365,5 @@
     },
     "kv_heads_per_canonical_rank": "replicated"
   },
-  "fixture_identity_sha256": "fdd998aafecd88bddc42dc83435c5dfd99e292ecae1c59a3f9d0df3a98c8e86f"
+  "fixture_identity_sha256": "5c9b44b73bdba67cac6b1156a6cb81f43e30ab423b3c5156a546638a01c66edb"
 }

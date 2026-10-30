@@ -84,6 +84,7 @@ OFFICIAL_FROZEN_SEMANTICS: dict[str, Any] = {
         "form": "rmsnorm_times_weight",
         "compute_dtype": "float32",
         "rsqrt_form": "pow_neg_half",
+        "weight_applied_before_cast": True,
         "eps_source": "rms_norm_eps",
     },
     "post_norm_eps_governs": ["post_attention_layernorm", "post_feedforward_layernorm"],
@@ -97,6 +98,7 @@ OFFICIAL_FROZEN_SEMANTICS: dict[str, Any] = {
         "post_feedforward_layernorm",
         "residual_add",
     ],
+    "residual_add": {"operand_dtype": "bfloat16", "output_dtype": "bfloat16"},
     "qk_norm": {
         "form": "weightless_rmsnorm_per_head",
         "applies_to": ["q", "k"],
@@ -147,8 +149,9 @@ OFFICIAL_FROZEN_SEMANTICS: dict[str, Any] = {
     },
 }
 
-# One projection grouping for both runtimes. The checkpoint stores four separate matrices;
-# Megatron Bridge fuses Q/K/V/gate and vLLM fuses Q/K/V, so both un-fuse in strict mode.
+# One projection grouping for both runtimes. The checkpoint stores Q/K/V/gate and MLP gate/up
+# as separate matrices; Megatron Bridge fuses Q/K/V/gate and gate/up, and vLLM fuses Q/K/V and
+# gate/up, so both un-fuse in strict mode.
 OFFICIAL_PROJECTION_GROUPING: dict[str, Any] = {
     "attention": [["q_proj"], ["k_proj"], ["v_proj"], ["gate_proj"]],
     "mlp": [["gate_proj"], ["up_proj"]],
