@@ -243,6 +243,28 @@ def test_fixed_threshold_uses_only_active_tokens_and_is_reproducible_offline():
     json.dumps(sanitized.to_dict(), allow_nan=False)
 
 
+@pytest.mark.parametrize("threshold", [0.0, 1e-5])
+def test_recompute_mismatch_mask_v2_nonfinite_and_signed_zero_rules(threshold):
+    rollout = torch.tensor(
+        [0.0, float("inf"), float("-inf"), 1.0, float("inf"), float("inf"), float("nan"), 1.0]
+    )
+    training = torch.tensor(
+        [
+            -0.0,
+            float("inf"),
+            float("-inf"),
+            float("inf"),
+            1.0,
+            float("-inf"),
+            float("nan"),
+            float("inf"),
+        ]
+    )
+    active = torch.tensor([True, True, True, True, True, True, True, False])
+    mismatch = recompute_mismatch_mask(rollout, training, active, threshold)
+    assert mismatch.tolist() == [threshold == 0.0, False, False, True, True, True, True, False]
+
+
 def test_zero_tokens_identity_mismatch_and_invalid_scores_are_not_numerical_failures():
     empty_identity = _identity(active_mask=((False, False, False),))
     empty = compare_score_artifacts(
@@ -278,6 +300,22 @@ def test_zero_tokens_identity_mismatch_and_invalid_scores_are_not_numerical_fail
             mismatch_mask=torch.zeros(1, dtype=torch.bool),
             fixed_threshold=float("nan"),
         )
+
+
+def test_sparse_runtime_provenance_returns_invalid_artifact_instead_of_raising():
+    rollout = _score(ScoreSide.ROLLOUT, torch.zeros((1, 3)))
+    training = _score(ScoreSide.TRAINING, torch.zeros((1, 3)))
+    sparse_provenance = replace(training.provenance, actual={})
+    training = replace(training, provenance=sparse_provenance)
+
+    result = compare_score_artifacts(rollout, training)
+
+    assert result.status is AlignmentStatus.INVALID_ARTIFACT
+    assert result.comparable is False
+    assert result.passed is False
+    assert result.mismatch_count == 0
+    assert result.artifact_errors
+    assert "logp" in result.artifact_errors[0]
 
 
 def test_planner_emits_one_stable_baseline_and_one_change_per_oat_case():
