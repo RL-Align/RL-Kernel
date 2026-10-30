@@ -43,6 +43,13 @@ include = ["rl_engine*"]
 [tool.setuptools.package-data]
 rl_engine = ["**/*.json", "**/*.jsonl", "**/*.sh", "**/*.patch", "*.pyi"]
 
+[tool.black]
+line-length = 100
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
 [tool.ruff]
 line-length = 100
 
