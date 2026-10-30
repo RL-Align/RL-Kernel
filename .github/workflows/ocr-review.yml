@@ -82,7 +82,8 @@ jobs:
           llm_auth_token: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
           llm_model: ${{ vars.OCR_LLM_MODEL }}
           llm_use_anthropic: ${{ vars.OCR_LLM_USE_ANTHROPIC || 'false' }}
-          llm_extra_body: ${{ vars.OCR_LLM_EXTRA_BODY || '{}' }}
+          llm_extra_body: '{"reasoning_effort":"none"}'
+          llm_extra_headers: x-opencode-session=ocr-pr-${{ github.event.pull_request.number }}
           rule: .opencodereview/rule.json
           language: English
           effort: medium
