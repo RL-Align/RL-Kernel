@@ -1,0 +1,119 @@
+[
+  {
+    "case_id": "P6-F-regular-tail-17.v1",
+    "evidence_scope": "synthetic_reference",
+    "input_sha256": "8a4d822fd6d04f3c37823d9bd05e21821fbbda1f4dae0f7c7c8d02050f44e265",
+    "operators": [
+      "canonical_unpermute_fwd",
+      "fixed_order_combine_fwd",
+      "shared_residual_merge_fwd",
+      "fused_moe_combine_fwd",
+      "fused_dx_fanin_bwd"
+    ],
+    "recipe": "regular-tail-17"
+  },
+  {
+    "case_id": "P6-F-mixed-invalid-overflow.v1",
+    "evidence_scope": "synthetic_reference",
+    "input_sha256": "a1ea0c532153cfd9a8db15ac40fd33f8f27351540767b186027bf1d140bd6716",
+    "operators": [
+      "canonical_unpermute_fwd",
+      "fixed_order_combine_fwd",
+      "shared_residual_merge_fwd",
+      "fused_moe_combine_fwd",
+      "fused_dx_fanin_bwd"
+    ],
+    "recipe": "mixed-invalid-overflow"
+  },
+  {
+    "case_id": "P6-F-zero-tokens.v1",
+    "evidence_scope": "synthetic_reference",
+    "input_sha256": "99da568b464b53ad7f8bf6118193a6412103254d6b43a04ddd84601e6bca8c9a",
+    "operators": [
+      "canonical_unpermute_fwd",
+      "fixed_order_combine_fwd",
+      "shared_residual_merge_fwd",
+      "fused_moe_combine_fwd",
+      "fused_dx_fanin_bwd"
+    ],
+    "recipe": "zero-tokens"
+  },
+  {
+    "case_id": "P6-F-zero-routes.v1",
+    "evidence_scope": "synthetic_reference",
+    "input_sha256": "ae474bd36030e33a301c794add0a279bc696575100c37f629ee428cf9e682209",
+    "operators": [
+      "canonical_unpermute_fwd",
+      "fixed_order_combine_fwd",
+      "shared_residual_merge_fwd",
+      "fused_moe_combine_fwd",
+      "fused_dx_fanin_bwd"
+    ],
+    "recipe": "zero-routes"
+  },
+  {
+    "case_id": "P6-F-one-token-tail-33.v1",
+    "evidence_scope": "synthetic_reference",
+    "input_sha256": "c2602a059f2efb7c1d2e7074f41f48d07fd944fa74fd6bab8e34bcdbb3548635",
+    "operators": [
+      "canonical_unpermute_fwd",
+      "fixed_order_combine_fwd",
+      "shared_residual_merge_fwd",
+      "fused_moe_combine_fwd",
+      "fused_dx_fanin_bwd"
+    ],
+    "recipe": "one-token-tail-33"
+  },
+  {
+    "case_id": "P6-F-batch-tail-65.v1",
+    "evidence_scope": "synthetic_reference",
+    "input_sha256": "623d823cceb2c9773ad682cb9f5d526f61d848b59e68d0ad2dfc6645d3985f55",
+    "operators": [
+      "canonical_unpermute_fwd",
+      "fixed_order_combine_fwd",
+      "shared_residual_merge_fwd",
+      "fused_moe_combine_fwd",
+      "fused_dx_fanin_bwd"
+    ],
+    "recipe": "batch-tail-65"
+  },
+  {
+    "case_id": "P6-F-cancellation-slot-order.v1",
+    "evidence_scope": "synthetic_reference",
+    "input_sha256": "15be52679f6d174e4775757161e7e7f40296465fc620e46e4cb67669a516668e",
+    "operators": [
+      "canonical_unpermute_fwd",
+      "fixed_order_combine_fwd",
+      "shared_residual_merge_fwd",
+      "fused_moe_combine_fwd",
+      "fused_dx_fanin_bwd"
+    ],
+    "recipe": "cancellation-slot-order"
+  },
+  {
+    "case_id": "P6-F-one-round-bf16-ties.v1",
+    "evidence_scope": "synthetic_reference",
+    "input_sha256": "9e68d5150285bf4f7ab80d1b0bd1310948267ce42fa49f34e2870df931d96416",
+    "operators": [
+      "canonical_unpermute_fwd",
+      "fixed_order_combine_fwd",
+      "shared_residual_merge_fwd",
+      "fused_moe_combine_fwd",
+      "fused_dx_fanin_bwd"
+    ],
+    "recipe": "one-round-bf16-ties"
+  },
+  {
+    "case_id": "P6-F-signed-zero.v1",
+    "evidence_scope": "synthetic_reference",
+    "input_sha256": "e89919e18c6fed0a63eb4bb6c8af1f92a1594d68f7692b56d7bed724e07c0a06",
+    "operators": [
+      "canonical_unpermute_fwd",
+      "fixed_order_combine_fwd",
+      "shared_residual_merge_fwd",
+      "fused_moe_combine_fwd",
+      "fused_dx_fanin_bwd"
+    ],
+    "recipe": "signed-zero"
+  }
+]

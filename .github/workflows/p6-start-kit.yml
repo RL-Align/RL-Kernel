@@ -1,0 +1,43 @@
+name: P6 start-kit CPU conformance
+
+on:
+  pull_request:
+    paths:
+      - "rl_engine/p6/**"
+      - "tests/p6/**"
+      - "docs/design/p6-start-kit.md"
+      - ".github/workflows/p6-start-kit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        python: ["3.10", "3.12"]
+    env:
+      OMP_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m pip install numpy pytest ruff
+      - run: python -m ruff check rl_engine/p6 tests/p6
+      - run: python -m ruff format --check rl_engine/p6 tests/p6
+      - run: python -m pytest tests/p6 -q --junitxml=p6-results.xml
+      - run: python -m rl_engine.p6 conformance --device torch-cpu --hidden-size 4096 --output p6-artifact
+      - run: python -m rl_engine.p6 verify p6-artifact
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: p6-start-kit-py${{ matrix.python }}
+          path: |
+            p6-results.xml
+            p6-artifact/
+          retention-days: 14
