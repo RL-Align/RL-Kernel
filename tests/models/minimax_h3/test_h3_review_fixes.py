@@ -103,4 +103,5 @@ class TestBlockContextDevice:
         for name in ("hidden", "temb", "index", "position_ids"):
             assert ctx[name].device == torch.device("cuda:1"), name
         for name in ("rope", "rope_fp32"):
+            assert ctx[name], name  # all() of nothing would pass
             assert all(t.device == torch.device("cuda:1") for t in ctx[name]), name
