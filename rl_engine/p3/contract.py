@@ -10,6 +10,7 @@ CONTRACT_VERSION = "p3-router-task-contract.v23"
 OP_ABI = "p3-op-abi.v4"
 CORE_SCHEMA = "RoutePlanCore.v1"
 ENVELOPE_SCHEMA = "RoutePlanEnvelope.v1"
+ENVELOPE_SCHEMA_V2 = "RoutePlanEnvelope.v2"
 SAVED_SCORE_SCHEMA = "SavedScoreSealedV1"
 SAVED_ROUTE_SCHEMA = "SavedRouteSealedV1"
 SEED_SCHEMA = "CombinePlanSeed.v1"
@@ -178,6 +179,48 @@ ENVELOPE_FIELDS = (
     "stream",
     "event",
 )
+# Additive development extension; the frozen T01 v23 manifest remains unchanged.
+ENVELOPE_V2_FIELDS = ENVELOPE_FIELDS + ("token_ownership", "expected_token_set_fingerprint")
+
+
+def envelope_fields(version):
+    if version == ENVELOPE_SCHEMA:
+        return ENVELOPE_FIELDS
+    if version == ENVELOPE_SCHEMA_V2:
+        return ENVELOPE_V2_FIELDS
+    raise P3Error(P3Verdict.SCHEMA_MISMATCH, "unsupported Envelope version")
+
+
+# Field types live with the ordered schema, shared by construction and checking.
+FIELD_TYPES = dict.fromkeys(CORE_FIELDS + ENVELOPE_V2_FIELDS, "str")
+FIELD_TYPES.update(
+    dict.fromkeys(
+        (
+            "absolute_layer",
+            "global_token_id",
+            "input_token_id",
+            "topk_index",
+            "logical_expert_id",
+            "capacity",
+            "attempt_id",
+            "source_row",
+            "physical_expert_id",
+            "rank",
+        ),
+        "int",
+    )
+)
+FIELD_TYPES.update(dict.fromkeys(("table_present", "bias_present", "valid"), "bool"))
+FIELD_TYPES.update(dict.fromkeys(("route_weight", "weight_score", "selection_score"), "f32"))
+FIELD_TYPES.update(token_ownership="dict", stream="int_or_str")
+
+
+def schema_fields(version):
+    if version == CORE_SCHEMA:
+        return CORE_FIELDS
+    return envelope_fields(version) + ("route_artifact_fingerprint",)
+
+
 SAVED_FIELDS = {SAVED_SCORE_SCHEMA: ("z_prime", "s"), SAVED_ROUTE_SCHEMA: ("ids", "a", "Z", "p")}
 SAVED_HEADER_FIELDS = (
     "version",
