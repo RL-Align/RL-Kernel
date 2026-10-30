@@ -140,7 +140,7 @@ summary, forward/dX/dW tolerances and worst errors, replay digests, representati
 timings, rejected native results and original bundle hashes. Full reports, samples,
 traces and raw originals are preserved privately. This is a selected derivative,
 not a lossless report or a new GPU run. The complete historical report derivatives
-are also available from the previously published immutable commit below. These
+are available with device UUIDs removed at the links below. These
 downloads preserve every case, check, trace and timing sample, including rejected
 native results. Raw private originals are unchanged. The historical
 JSON retains its original FP32-dot trace wording; the corrected BF16 MMA / FP32
@@ -148,16 +148,22 @@ accumulation description above applies to that unchanged device computation.
 
 | Historical report download | SHA256 |
 |---|---|
-| [Summary, real-weight fixture and rejected native results](https://raw.githubusercontent.com/zzf2024/RL-Kernel/d8ae6cf70eb3f18ae6f16c6f0771c5f9a2ea09c6/docs/operators/evidence/h3-down-h100-20261010/h100-summary.json) | `3a44e25a9397373010b75caee1ee321864e960fc83594772497f95bfeab15786` |
-| [Random matrix](https://raw.githubusercontent.com/zzf2024/RL-Kernel/d8ae6cf70eb3f18ae6f16c6f0771c5f9a2ea09c6/docs/operators/evidence/h3-down-h100-20261010/h100-random.json) | `66fcd857d26a57ea03ce0984f8bf20db1785336c61d302dce74dfd6a4cf213fb` |
-| [Synthetic SwiGLU-like matrix](https://raw.githubusercontent.com/zzf2024/RL-Kernel/d8ae6cf70eb3f18ae6f16c6f0771c5f9a2ea09c6/docs/operators/evidence/h3-down-h100-20261010/h100-swiglu-like.json) | `dcc64cf4360bbb9dca0211319f635cffed1cd91ebc6ddfd24052882a7201ba9d` |
-| [Cancellation matrix](https://raw.githubusercontent.com/zzf2024/RL-Kernel/d8ae6cf70eb3f18ae6f16c6f0771c5f9a2ea09c6/docs/operators/evidence/h3-down-h100-20261010/h100-cancellation.json) | `2088317c29cc9de80540f215f54b7d6d660044a568c1f50f6194449b2c9b4fba` |
-| [Cold-cache and compiler-version replays](https://raw.githubusercontent.com/zzf2024/RL-Kernel/d8ae6cf70eb3f18ae6f16c6f0771c5f9a2ea09c6/docs/operators/evidence/h3-down-h100-20261010/h100-replays.json) | `ee532d0a128eed4e978070fcc9fc6358c0cc0b72eafab50266c4645927cb438c` |
+| [Summary, real-weight fixture and rejected native results](https://gist.githubusercontent.com/zzf2024/2225006b9a7c25a05e7df4be423d1331/raw/87293a25635b4d92965cb2c8f1dd1d571c55ad29/h100-summary.json) | `d6011dd275ffa302abd33814a195d0b31b535da90a6d69988377ec9403bfef8d` |
+| [Random matrix](https://gist.githubusercontent.com/zzf2024/2225006b9a7c25a05e7df4be423d1331/raw/87293a25635b4d92965cb2c8f1dd1d571c55ad29/h100-random.json) | `66fcd857d26a57ea03ce0984f8bf20db1785336c61d302dce74dfd6a4cf213fb` |
+| [Synthetic SwiGLU-like matrix](https://gist.githubusercontent.com/zzf2024/2225006b9a7c25a05e7df4be423d1331/raw/87293a25635b4d92965cb2c8f1dd1d571c55ad29/h100-swiglu-like.json) | `dcc64cf4360bbb9dca0211319f635cffed1cd91ebc6ddfd24052882a7201ba9d` |
+| [Cancellation matrix](https://gist.githubusercontent.com/zzf2024/2225006b9a7c25a05e7df4be423d1331/raw/87293a25635b4d92965cb2c8f1dd1d571c55ad29/h100-cancellation.json) | `2088317c29cc9de80540f215f54b7d6d660044a568c1f50f6194449b2c9b4fba` |
+| [Cold-cache and compiler-version replays](https://gist.githubusercontent.com/zzf2024/2225006b9a7c25a05e7df4be423d1331/raw/87293a25635b4d92965cb2c8f1dd1d571c55ad29/h100-replays.json) | `31a40fa89e76b80f37b39b12fa2a16a98b3b4bf9d677be5387638ab1ca933cd5` |
 
-[Original download checksum manifest](https://raw.githubusercontent.com/zzf2024/RL-Kernel/d8ae6cf70eb3f18ae6f16c6f0771c5f9a2ea09c6/docs/operators/evidence/h3-down-h100-20261010/SHA256SUMS)
-has SHA256 `9d37b26ba4192be72aded2e4278120811dd377246f57b2659a80f489d4997d19`.
-These are historical 2026-10-10 executions with portable path substitutions,
+[Download checksum manifest](https://gist.githubusercontent.com/zzf2024/2225006b9a7c25a05e7df4be423d1331/raw/87293a25635b4d92965cb2c8f1dd1d571c55ad29/SHA256SUMS)
+has SHA256 `d1a268a31cb19458c30ef38f9bf2dc4e340bda2f35ab2525c93cb47d41a3f029`.
+These are historical 2026-10-10 executions with portable paths and device UUIDs redacted,
 not evidence that the current shared GEMM and canonical reducer have been qualified.
+
+[Transformation provenance](https://gist.githubusercontent.com/zzf2024/2225006b9a7c25a05e7df4be423d1331/raw/87293a25635b4d92965cb2c8f1dd1d571c55ad29/README.md),
+SHA256 `788a09f028a322ef54eef850fd6ba8394896ad89b8b97cbb52f9b64bf5c7c7a9`,
+records the source and derivative hashes. Across the five reports, only four
+device UUID occurrences changed; all measurements, failures and original
+artifact hashes remain.
 
 - Operator: `rl_engine/ops/gemm/h3_ffn_down.py`.
 - Triton adapter: `rl_engine/backends/shared/triton/gemm/h3_down_fp32_backend.py`;
@@ -209,6 +215,12 @@ the 2026-10-10 H100 results do not qualify these current dependencies.
 Current SM90 execution is **not run**. The prepared GPU suite covers full-width
 forward/dX/dW at M=1,33,129,4097, chunking, and the large-row ordered/permuted/padded
 canonical paths. No current GPU acceptance or performance result is claimed.
+
+Timing tables and chart legends now identify the recorded backend when available;
+reports without that field retain the generic candidate label. The report-label
+follow-up passed **12 report/tooling tests** on 2026-10-30; lint and formatting
+passed. The earlier compatibility results above are retained as a separate
+execution. No GPU execution was repeated.
 
 ## Reproduction and remaining qualification
 
