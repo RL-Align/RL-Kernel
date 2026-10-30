@@ -1,0 +1,19 @@
+{
+  "validation_date": "2026-10-03",
+  "date_timezone": "America/Los_Angeles",
+  "scope": "Standalone T06 arithmetic and finite differences; not official P3 acceptance",
+  "device": "NVIDIA H100 80GB HBM3",
+  "torch": "2.9.1+cu128",
+  "nvcc": "nvcc: NVIDIA (R) Cuda compiler driver\nCopyright (c) 2005-2025 NVIDIA Corporation\nBuilt on Fri_Feb_21_20:23:50_PST_2025\nCuda compilation tools, release 12.8, V12.8.93\nBuild cuda_12.8.r12.8/compiler.35583870_0",
+  "source_sha256": {
+    "csrc/cuda/moe/router_backward_core.cu": "e6e07cbb9434601e6b4f91cac4cd29176f68a36e302b6fbb1a2429855e6051bf",
+    "examples/p3_router_backward/bindings.cpp": "70a5c09338266f4b8363a869ce488e4ca80c00b2a8532e2c2999b704af12a70e",
+    "examples/p3_router_backward/prototype.py": "2441f178495d380586ea04362af2b094edd28a526982c99311ee7138b7086961",
+    "tests/test_p3_router_backward_core.py": "6846074018f05afb099f8ea5c4ba85e8ca691a0737883151ebda206cf7cdcbe8",
+    "benchmarks/benchmark_p3_router_backward_core.py": "e56501b6ce563bd2a8b9df72bfc99b6a072bb1ddd33b1cabdd22f3e7bb3ac6ca"
+  },
+  "tests": {
+    "exit_code": 0,
+    "output": "test_arithmetic_overflow_fails (test_p3_router_backward_core.CudaCoreTests.test_arithmetic_overflow_fails) ... ok\ntest_batch_and_row_permutation_invariance (test_p3_router_backward_core.CudaCoreTests.test_batch_and_row_permutation_invariance) ... ok\ntest_cuda_against_forward_finite_differences (test_p3_router_backward_core.CudaCoreTests.test_cuda_against_forward_finite_differences) ... ok\ntest_fixed_tree_and_duplicate_order_are_observable (test_p3_router_backward_core.CudaCoreTests.test_fixed_tree_and_duplicate_order_are_observable) ... ok\ntest_fp32_reference_multiple_sizes (test_p3_router_backward_core.CudaCoreTests.test_fp32_reference_multiple_sizes) ... ok\ntest_internal_binding_rejects_output_alias (test_p3_router_backward_core.CudaCoreTests.test_internal_binding_rejects_output_alias) ... ok\ntest_kernel_overwrites_dirty_output (test_p3_router_backward_core.CudaCoreTests.test_kernel_overwrites_dirty_output) ... ok\ntest_nondefault_stream (test_p3_router_backward_core.CudaCoreTests.test_nondefault_stream) ... ok\ntest_padding_is_never_used_in_arithmetic (test_p3_router_backward_core.CudaCoreTests.test_padding_is_never_used_in_arithmetic) ... ok\ntest_reject_bad_shapes_dtypes_layout_and_device (test_p3_router_backward_core.CudaCoreTests.test_reject_bad_shapes_dtypes_layout_and_device) ... ok\ntest_reject_nonfinite_and_invalid_active_values (test_p3_router_backward_core.CudaCoreTests.test_reject_nonfinite_and_invalid_active_values) ... ok\ntest_repeated_runs_and_launch_shape (test_p3_router_backward_core.CudaCoreTests.test_repeated_runs_and_launch_shape) ... ok\ntest_zero_active_and_empty_do_not_load_or_launch_extension (test_p3_router_backward_core.CudaCoreTests.test_zero_active_and_empty_do_not_load_or_launch_extension) ... ok\ntest_epsilon_at_observable_scale (test_p3_router_backward_core.ReferenceTests.test_epsilon_at_observable_scale) ... ok\ntest_formula_against_finite_differences (test_p3_router_backward_core.ReferenceTests.test_formula_against_finite_differences) ... ok\ntest_formula_against_independent_autograd (test_p3_router_backward_core.ReferenceTests.test_formula_against_independent_autograd) ... ok\n\n----------------------------------------------------------------------\nRan 16 tests in 37.394s\n\nOK\n"
+  }
+}

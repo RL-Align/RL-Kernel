@@ -1,0 +1,60 @@
+{
+  "schema": "p3-t06-core-benchmark.v1",
+  "created_at_utc": "2026-10-03T12:57:28.774762+00:00",
+  "scope": "Synthetic standalone arithmetic; not native Router or official P3 acceptance",
+  "environment": {
+    "device": "NVIDIA H100 80GB HBM3",
+    "compute_capability": [
+      9,
+      0
+    ],
+    "total_memory_bytes": 85019590656,
+    "torch": "2.9.1+cu128",
+    "torch_cuda": "12.8",
+    "python": "3.11.16"
+  },
+  "settings": {
+    "tokens": [
+      1,
+      33
+    ],
+    "threads": [
+      128,
+      256
+    ],
+    "warmup": 3,
+    "samples": 5,
+    "graph_batch": 8,
+    "padding_fraction": 0.5,
+    "seed": 106
+  },
+  "source_sha256": {
+    "csrc/cuda/moe/router_backward_core.cu": "e6e07cbb9434601e6b4f91cac4cd29176f68a36e302b6fbb1a2429855e6051bf",
+    "examples/p3_router_backward/bindings.cpp": "70a5c09338266f4b8363a869ce488e4ca80c00b2a8532e2c2999b704af12a70e",
+    "examples/p3_router_backward/prototype.py": "2441f178495d380586ea04362af2b094edd28a526982c99311ee7138b7086961",
+    "tests/test_p3_router_backward_core.py": "6846074018f05afb099f8ea5c4ba85e8ca691a0737883151ebda206cf7cdcbe8",
+    "benchmarks/benchmark_p3_router_backward_core.py": "e56501b6ce563bd2a8b9df72bfc99b6a072bb1ddd33b1cabdd22f3e7bb3ac6ca"
+  },
+  "timing_notes": {
+    "graph_device": "CUDA events / graph_batch; resident inputs; CPU allocation excluded",
+    "eager_wall": "One call plus completion sync; includes CPU dispatch and any allocation",
+    "core_out": "Preallocated output, metadata checks only; values prevalidated",
+    "harness": "Public experiment entry, output allocation and synchronous value checks",
+    "torch_fixed_order": "Eager GPU decomposition, ordered duplicates; not a native Router",
+    "p95": "Nearest-rank sample percentile; graph samples are per-replay averages"
+  },
+  "results": [
+    {"tokens":1,"duplicate":false,"active_tokens":1,"implementation":"cuda_core_out_128","byte_equal":true,"graph_device":{"median_us":2.116000046953559,"p95_us":2.5279999244958162,"min_us":2.0359999034553766,"samples_us":[2.5279999244958162,2.148000057786703,2.0359999034553766,2.116000046953559,2.1039999555796385]},"eager_wall":{"median_us":13.645,"p95_us":15.648,"min_us":12.392,"samples_us":[13.645,14.011,15.648,12.487,12.392]},"harness_wall":{"median_us":495.957,"p95_us":503.687,"min_us":487.758,"samples_us":[495.957,503.687,493.262,502.04,487.758]}},
+    {"tokens":1,"duplicate":false,"active_tokens":1,"implementation":"cuda_core_out_256","byte_equal":true,"graph_device":{"median_us":2.1559998858720064,"p95_us":2.443999983370304,"min_us":2.1520000882446766,"samples_us":[2.443999983370304,2.251999918371439,2.1520000882446766,2.1559998858720064,2.1559998858720064]},"eager_wall":{"median_us":12.02,"p95_us":12.247,"min_us":11.585,"samples_us":[12.247,11.844,12.02,11.585,12.118]},"harness_wall":{"median_us":500.91,"p95_us":502.29,"min_us":490.153,"samples_us":[490.153,502.29,498.449,501.454,500.91]}},
+    {"tokens":1,"duplicate":false,"active_tokens":1,"implementation":"torch_fixed_order","byte_equal":true,"graph_device":{"median_us":54.85599860548973,"p95_us":55.1999993622303,"min_us":54.8119992017746,"samples_us":[55.1999993622303,54.85999956727028,54.82399836182594,54.8119992017746,54.85599860548973]},"eager_wall":{"median_us":329.151,"p95_us":334.489,"min_us":327.486,"samples_us":[334.489,329.151,327.986,327.486,331.048]}},
+    {"tokens":1,"duplicate":true,"active_tokens":1,"implementation":"cuda_core_out_128","byte_equal":true,"graph_device":{"median_us":2.2360000293701887,"p95_us":2.4679999332875013,"min_us":2.1800000686198473,"samples_us":[2.4679999332875013,2.2559999488294125,2.2360000293701887,2.1800000686198473,2.2120000794529915]},"eager_wall":{"median_us":11.368,"p95_us":12.568,"min_us":10.919,"samples_us":[12.534,11.16,12.568,10.919,11.368]},"harness_wall":{"median_us":501.734,"p95_us":504.708,"min_us":496.073,"samples_us":[504.708,501.734,503.527,496.87,496.073]}},
+    {"tokens":1,"duplicate":true,"active_tokens":1,"implementation":"cuda_core_out_256","byte_equal":true,"graph_device":{"median_us":2.216000109910965,"p95_us":2.5080000050365925,"min_us":2.2120000794529915,"samples_us":[2.5080000050365925,2.2799998987466097,2.2120000794529915,2.216000109910965,2.2120000794529915]},"eager_wall":{"median_us":11.32,"p95_us":12.515,"min_us":10.651,"samples_us":[12.515,11.32,10.911,11.382,10.651]},"harness_wall":{"median_us":490.949,"p95_us":501.148,"min_us":487.513,"samples_us":[490.949,501.148,490.549,493.727,487.513]}},
+    {"tokens":1,"duplicate":true,"active_tokens":1,"implementation":"torch_fixed_order","byte_equal":true,"graph_device":{"median_us":54.83999848365784,"p95_us":55.17999827861786,"min_us":54.7959990799427,"samples_us":[55.17999827861786,54.90000173449516,54.83999848365784,54.7959990799427,54.83600124716759]},"eager_wall":{"median_us":322.434,"p95_us":330.304,"min_us":316.949,"samples_us":[322.434,330.304,317.748,316.949,323.118]}},
+    {"tokens":33,"duplicate":false,"active_tokens":17,"implementation":"cuda_core_out_128","byte_equal":true,"graph_device":{"median_us":2.2440000902861357,"p95_us":2.512000035494566,"min_us":2.2239999379962683,"samples_us":[2.512000035494566,2.29199999012053,2.240000059828162,2.2440000902861357,2.2239999379962683]},"eager_wall":{"median_us":10.833,"p95_us":12.281,"min_us":10.581,"samples_us":[12.281,10.957,10.833,10.581,10.809]},"harness_wall":{"median_us":496.956,"p95_us":499.686,"min_us":489.224,"samples_us":[499.419,490.654,499.686,489.224,496.956]}},
+    {"tokens":33,"duplicate":false,"active_tokens":17,"implementation":"cuda_core_out_256","byte_equal":true,"graph_device":{"median_us":2.2879999596625566,"p95_us":2.5080000050365925,"min_us":2.259999979287386,"samples_us":[2.5080000050365925,2.328000031411648,2.259999979287386,2.2879999596625566,2.283999929204583]},"eager_wall":{"median_us":11.914,"p95_us":12.859,"min_us":11.464,"samples_us":[12.859,12.23,11.464,11.914,11.654]},"harness_wall":{"median_us":498.258,"p95_us":510.457,"min_us":494.95,"samples_us":[498.672,498.258,510.457,498.184,494.95]}},
+    {"tokens":33,"duplicate":false,"active_tokens":17,"implementation":"torch_fixed_order","byte_equal":true,"graph_device":{"median_us":58.67199972271919,"p95_us":59.00400131940842,"min_us":58.65199863910675,"samples_us":[59.00400131940842,58.73600021004677,58.66000056266785,58.67199972271919,58.65199863910675]},"eager_wall":{"median_us":326.605,"p95_us":338.944,"min_us":322.815,"samples_us":[330.182,338.944,326.502,322.815,326.605]}},
+    {"tokens":33,"duplicate":true,"active_tokens":17,"implementation":"cuda_core_out_128","byte_equal":true,"graph_device":{"median_us":2.2559999488294125,"p95_us":2.4880000855773687,"min_us":2.2479998879134655,"samples_us":[2.4880000855773687,2.29199999012053,2.2559999488294125,2.2479998879134655,2.2479998879134655]},"eager_wall":{"median_us":11.801,"p95_us":12.097,"min_us":10.977,"samples_us":[11.801,12.097,12.035,10.977,11.298]},"harness_wall":{"median_us":492.226,"p95_us":496.426,"min_us":488.418,"samples_us":[492.226,496.426,493.873,491.17,488.418]}},
+    {"tokens":33,"duplicate":true,"active_tokens":17,"implementation":"cuda_core_out_256","byte_equal":true,"graph_device":{"median_us":2.2479998879134655,"p95_us":2.4560000747442245,"min_us":2.240000059828162,"samples_us":[2.4560000747442245,2.308000111952424,2.2479998879134655,2.2479998879134655,2.240000059828162]},"eager_wall":{"median_us":11.761,"p95_us":12.317,"min_us":11.204,"samples_us":[12.317,11.721,12.031,11.761,11.204]},"harness_wall":{"median_us":496.524,"p95_us":499.335,"min_us":487.418,"samples_us":[499.335,493.522,496.524,487.418,496.691]}},
+    {"tokens":33,"duplicate":true,"active_tokens":17,"implementation":"torch_fixed_order","byte_equal":true,"graph_device":{"median_us":58.09599906206131,"p95_us":58.448001742362976,"min_us":58.06000158190727,"samples_us":[58.448001742362976,58.132000267505646,58.076001703739166,58.09599906206131,58.06000158190727]},"eager_wall":{"median_us":327.194,"p95_us":331.539,"min_us":323.503,"samples_us":[327.194,331.539,323.503,323.95,327.298]}}
+  ]
+}
