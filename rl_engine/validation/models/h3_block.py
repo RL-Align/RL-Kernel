@@ -313,6 +313,7 @@ def make_block_context(
         latent_height=spec["latent_height"],
         latent_width=spec["latent_width"],
         num_audio_latents=spec["num_audio_latents"],
+        device=weights["time_embedder.linear_1.weight"].device,
     )
     seq_len = packed["position_ids"].shape[0]
     w = weights
@@ -580,7 +581,8 @@ def permutation_probe(
     keys in packed order, so a different key order may round differently.
     """
 
-    perm = torch.randperm(ctx["seq_len"], generator=torch.Generator().manual_seed(seed + 7)).cuda()
+    perm = torch.randperm(ctx["seq_len"], generator=torch.Generator().manual_seed(seed + 7))
+    perm = perm.to(ctx["hidden"].device)
     permuted = {
         **ctx,
         "hidden": ctx["hidden"][:, perm],
@@ -668,8 +670,9 @@ def run_block_backward(
     generator = torch.Generator().manual_seed(seed + 11)
     up_row0 = torch.randn((1, ctx["seq_len"], HIDDEN), generator=generator)
     up_row1 = torch.randn((1, ctx["seq_len"], HIDDEN), generator=generator)
-    upstream = up_row0.bfloat16().cuda()
-    upstream2 = torch.cat([up_row0, up_row1]).bfloat16().cuda()
+    device = ctx["hidden"].device
+    upstream = up_row0.bfloat16().to(device)
+    upstream2 = torch.cat([up_row0, up_row1]).bfloat16().to(device)
 
     golden, _ = _backward("golden", ctx, None, upstream)
     provider, _ = _backward("provider", ctx, None, upstream)
