@@ -15,9 +15,14 @@ fused ratio/KL kernel (logits → ratio/KL via online softmax), and the group-no
 logits --[ratio_kl op]--> (ratio, kl) --[group adv + clipped surrogate]--> loss
 ```
 
+The backends above consume dense `[B, T, V]` logits and reduce with a plain masked
+mean, so they are single-shard only. For vocab-parallel TP, or when the reduction
+must be bitwise reproducible across parallel degrees, see [Tensor and Data
+Parallel](#tensor-and-data-parallel) below.
+
 ## Entry Point
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 grpo_loss = kernel_registry.get_op("grpo_loss")
 
@@ -74,6 +79,117 @@ op mirrors this using `NativeRatioKLOp`.
 
 Gradients flow into `policy_logits` only (`ref_logits` is frozen; `old_logps` is cached).
 
+## Tensor and Data Parallel
+
+`DistributedGRPOLossOp`
+(`rl_engine/reference/loss/distributed_grpo_loss.py`)
+**Every TP × DP degree produces bit-identical loss, per-sequence totals, and
+gradients.** It is a reference backend on top of the deterministic
+[vocab-parallel logprob](batch-invariant-logp.md#tensor-parallel); the backends
+above stay the default single-GPU path.
+
+The objective is elementwise — ratio, clipping, reference KL and the group-relative
+advantage all act per token or per sequence — so the only place the parallel layout
+can change the answer is the final sum over tokens.
+
+1. Selected logprobs come from `VocabParallelLogprobOp`, so ratio and KL inherit
+   cross-TP bitwise equality for free. TP needs no further handling here: by the
+   time the objective sees a logprob, the vocabulary has already been reduced.
+2. A DP rank owns each of its sequences **whole**. `sequence_shard_bounds` is a
+   contiguous `[0, num_sequences)` partition in DP-rank order, exactly like
+   `ShardingSpec.vocab_shard_bounds` for the vocabulary.
+3. Two nested reductions, each with a contract-fixed extent: `padded_seq_len`
+   token slots → one sequence total (entirely local, since the rank owns the
+   whole sequence); `num_sequences` totals → the scalar numerator.
+4. Only per-sequence totals cross a rank boundary. They travel by `all_gather`
+   and are concatenated in DP-rank order into a `[num_sequences]` vector. The
+   collective moves bytes and placement is an exact copy, so every degree
+   performs identical arithmetic on identical inputs. `all_reduce` is excluded on
+   purpose: its combine order follows the collective's topology, not the declared
+   sequence order.
+5. Advantages are replicated, not merged — rewards are one scalar per sequence,
+   so every rank normalizes every group over the identical `[num_sequences]`
+   tensor and keeps its own slice. This is what lets an advantage group straddle
+   DP ranks with no extra machinery.
+6. The normalizer divides by a **global** active-token count, gathered as
+   integers so it is exact at every degree.
+
+Step 3 is why the determinism argument is short: because no sequence's token sum
+is ever split across ranks, there is no partial-sequence state to merge and no
+alignment rule to get wrong.
+
+```python
+sequence_shard_bounds = ((0, 8),)              # DP=1
+sequence_shard_bounds = ((0, 4), (4, 8))       # DP=2
+```
+
+### Context parallelism is out of scope
+
+`cp_world_size` must be 1; anything else raises `LossContractError` rather than
+silently reducing over a partial batch. CP is an attention-level concern — attention
+is the only op with a cross-token dependency — and this operator consumes logits, by
+which point CP has already been resolved upstream. Supporting it here would mean
+splitting a sequence's token sum across ranks and reducing over the very axis the
+logprob contract declares a *non-merge* axis. In a CP job that reduction belongs to
+the caller. `cp_rank`/`cp_world_size` are carried for provenance only, mirroring
+`ShardingSpec`.
+
+### Normalizer semantics
+
+`TokenNormalizer` makes the GRPO normalizer ambiguity explicit. The modes differ by
+more than a scale factor once sequence lengths vary, so the choice is part of the
+numerical identity and travels in the contract fingerprint.
+
+| Mode | Denominator | Notes |
+| --- | --- | --- |
+| `global_active_tokens` (default) | active tokens in the global batch | Matches `NativeGRPOLossOp`'s masked mean at DP=1. Long sequences weigh more. |
+| `per_sequence_then_mean` | per-sequence count, then mean over live sequences | Original GRPO form; sequences weigh equally. |
+| `fixed_constant` | declared constant | Dr.GRPO form; independent of the mask. |
+
+Usage goes through the contract-aware entry point:
+
+```python
+from rl_engine.runtime.registry import kernel_registry
+
+dispatched = kernel_registry.get_loss_op(contract)   # GRPOLossContract from
+result = dispatched.op.apply(                        # rl_engine.contracts.operators.loss
+    policy_local_logits,   # [n, local_vocab] differentiable
+    action_ids,            # [n]
+    old_logps,             # [n]
+    rewards,               # [local_num_sequences]
+    contract=contract,
+    ref_local_logits=ref_local_logits,   # required when beta > 0
+    tp_group=tp_group,     # vocab-parallel subgroup
+    dp_group=dp_group,     # data-parallel subgroup
+)
+result.loss.backward()     # gradients flow into policy_local_logits only
+
+loss, policy_loss, kl = result   # unpacks like the single-GPU op
+```
+
+A preflight `all_gather_object` runs on **both** the DP and TP axes before any other
+collective. Neither alone suffices: the loss is replicated across TP, so two TP
+siblings disagreeing on `beta` would compute different losses for one sharded model,
+and the logprob path's own preflight cannot see that because `beta` is not part of
+the logprob contract. Other loud failures, with no silent fallback: sequence bounds
+that are non-contiguous or leave a gap; a nested logprob contract whose token count
+disagrees with the owned sequences; a determinism scope stronger or weaker than the
+logprob path's; and population-std advantages over a singleton group.
+
+### Comparing configurations
+
+Compare `per_sequence_policy` / `per_sequence_kl`, not the scalar loss. Measured on
+this operator's test inputs, regrouping the token sum — a real change of the
+summation tree — moves the per-sequence vector in 12 of 12 seeds but the scalar loss
+in only 5 of 12: averaging `num_sequences` totals into one fp32 number rounds most
+reorderings away. A drift report that compares only the scalar will under-report
+reduction differences. `GRPOLossResult` exposes both, plus `advantages`,
+`per_sequence_active_tokens`, and a `provenance` dict.
+
+Bitwise here means *across parallel degrees on one PyTorch build and GPU model*. It
+rests on PyTorch's reduction kernels being deterministic for a fixed shape on a fixed
+device; cross-version and cross-architecture equality is neither tested nor claimed.
+
 ## Accuracy
 
 Reference semantics (`NativeGRPOLossOp`):
@@ -92,6 +208,11 @@ loss = masked_mean(policy, completion_mask) + beta * masked_mean(kl, completion_
 
 The Triton op matches the native reference (forward and backward) to `atol=1e-4`.
 
+For `DistributedGRPOLossOp`, the reference-equals-policy identity is exact rather
+than approximate: with `ref_logits is policy_logits` and `old_logps == logp_policy`
+the ratio is `exp(0) = 1` bitwise, so the result is invariant to the clip epsilon,
+and the KL is exactly `0.0`.
+
 ## Performance Notes
 
 The cost is dominated by the [`ratio_kl`](ratio-kl.md) stage (the vocab-dimension work);
@@ -99,8 +220,8 @@ reward normalization and the clipped-surrogate reduction operate on `[B, T]` ten
 negligible.
 
 ```bash
-python benchmarks/benchmark_grpo_loss.py
-python benchmarks/benchmark_grpo_loss.py --configs "4,8,256,32768;4,8,256,131072"
+python benchmarks/operators/loss/benchmark_grpo_loss.py
+python benchmarks/operators/loss/benchmark_grpo_loss.py --configs "4,8,256,32768;4,8,256,131072"
 ```
 
 Indicative results (RTX PRO 6000, SM120, fp16, B=32, T=256; native PyTorch vs Triton):
@@ -118,18 +239,31 @@ online — the forward peak is independent of `V`.
 ## Tests
 
 ```bash
-python -m pytest tests/test_grpo_loss.py -v
+python -m pytest tests/ops/loss/test_grpo_loss.py -v            # single-GPU backends
+python -m pytest tests/contracts/operators/test_grpo_loss_contract.py -v   # TP/DP/CP contract, CPU only
+python -m pytest tests/distributed/tp/test_distributed_grpo_loss.py -v
 ```
 
-Covers the native reference (group advantages + loss from logits), Triton forward/backward
-vs native, masked-token invariance, an SGD loss step, and registry dispatch. Triton tests
-skip without CUDA + Triton.
+`test_grpo_loss.py` covers the native reference (group advantages + loss from logits),
+Triton forward/backward vs native, masked-token invariance, an SGD loss step, and
+registry dispatch. Triton tests skip without CUDA + Triton.
+
+`test_distributed_grpo_loss.py` covers every `(TP, DP)` combination reachable with
+four ranks — `tp2`, `tp4`, `dp2`, `dp4`, `tp2xdp2` — each compared bitwise against a
+single-rank GPU baseline, plus the KL=0 identity, run-to-run stability, negative
+controls, and the DP- and TP-axis preflight guards. Larger degrees run unchanged on a
+bigger node. Multi-rank tests need one GPU per rank and skip otherwise; they are
+deliberately small (1000-token vocabulary, 8 sequences of 32 slots) and each worker
+caps itself with `torch.cuda.set_per_process_memory_fraction`, so the suite can share
+a node with a running training job.
 
 ## Implementation Files
 
-- `rl_engine/kernels/ops/pytorch/loss/grpo_loss.py`
-- `rl_engine/kernels/ops/triton/loss/grpo_loss.py`
-- `rl_engine/kernels/ops/triton/loss/ratio_kl.py`, `rl_engine/kernels/ops/pytorch/loss/ratio_kl.py`
-- `rl_engine/kernels/registry.py`
-- `tests/test_grpo_loss.py`
-- `benchmarks/benchmark_ratio_kl.py`
+- `rl_engine/reference/loss/grpo_loss.py`
+- `rl_engine/backends/shared/triton/loss/grpo_loss.py`
+- `rl_engine/backends/shared/triton/loss/ratio_kl.py`, `rl_engine/reference/loss/ratio_kl.py`
+- `rl_engine/reference/loss/distributed_grpo_loss.py`
+- `rl_engine/contracts/operators/loss.py`
+- `rl_engine/runtime/registry.py` (`register_loss_backend`, `get_loss_op`)
+- `tests/ops/loss/test_grpo_loss.py`, `tests/contracts/operators/test_grpo_loss_contract.py`, `tests/distributed/tp/test_distributed_grpo_loss.py`
+- `benchmarks/operators/loss/benchmark_ratio_kl.py`

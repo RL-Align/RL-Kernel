@@ -685,3 +685,196 @@ std::vector<torch::Tensor> deterministic_attention_backward(
 
   return {dQ, dK, dV};
 }
+
+#if defined(USE_ROCM)
+namespace {
+
+template <typename scalar_t>
+__global__ void deterministic_rope_kernel(
+    const scalar_t* __restrict__ x,
+    const float* __restrict__ cos,
+    const float* __restrict__ sin,
+    scalar_t* __restrict__ out,
+    int64_t n_rows,
+    int table_rows,
+    int half,
+    float sin_sign) {
+  const int64_t index = blockIdx.x * static_cast<int64_t>(blockDim.x) + threadIdx.x;
+  const int64_t count = n_rows * static_cast<int64_t>(half);
+  if (index >= count) {
+    return;
+  }
+
+  const int64_t row = index / half;
+  const int pair = static_cast<int>(index % half);
+  const int table_row = static_cast<int>(row % table_rows);
+  const float c = cos[table_row * half + pair];
+  const float s = sin[table_row * half + pair] * sin_sign;
+  const int64_t base = row * (2LL * half);
+  const float low = static_cast<float>(x[base + pair]);
+  const float high = static_cast<float>(x[base + pair + half]);
+
+  out[base + pair] = static_cast<scalar_t>(low * c - high * s);
+  out[base + pair + half] = static_cast<scalar_t>(high * c + low * s);
+}
+
+template <typename scalar_t>
+__global__ void deterministic_rope_token_major_kernel(
+    const scalar_t* __restrict__ x,
+    const int64_t* __restrict__ positions,
+    const float* __restrict__ cos,
+    const float* __restrict__ sin,
+    scalar_t* __restrict__ out,
+    int64_t tokens,
+    int64_t input_token_stride,
+    int heads,
+    int head_dim,
+    int half,
+    int table_rows,
+    float sin_sign) {
+  const int64_t index = blockIdx.x * static_cast<int64_t>(blockDim.x) + threadIdx.x;
+  const int64_t values_per_token = static_cast<int64_t>(heads) * half;
+  const int64_t count = tokens * values_per_token;
+  if (index >= count) {
+    return;
+  }
+
+  const int64_t token = index / values_per_token;
+  const int64_t head_pair = index % values_per_token;
+  const int head = static_cast<int>(head_pair / half);
+  const int pair = static_cast<int>(head_pair % half);
+  const int64_t position = positions[token];
+  if (position < 0 || position >= table_rows) {
+    return;
+  }
+  const float c = cos[position * half + pair];
+  const float s = sin[position * half + pair] * sin_sign;
+  const int64_t input_base = token * input_token_stride + head * head_dim;
+  const int64_t output_base = (token * heads + head) * static_cast<int64_t>(head_dim);
+  const float low = static_cast<float>(x[input_base + pair]);
+  const float high = static_cast<float>(x[input_base + pair + half]);
+
+  out[output_base + pair] = static_cast<scalar_t>(low * c - high * s);
+  out[output_base + pair + half] = static_cast<scalar_t>(high * c + low * s);
+}
+
+}  // namespace
+
+torch::Tensor deterministic_rope_apply_rocm(
+    torch::Tensor x,
+    torch::Tensor cos,
+    torch::Tensor sin,
+    double sin_sign) {
+  TORCH_CHECK(x.is_cuda(), "ROCm RoPE: x must be a GPU tensor");
+  TORCH_CHECK(x.dim() == 2 && x.is_contiguous(),
+              "ROCm RoPE: x must be contiguous [rows, head_dim]");
+  TORCH_CHECK(cos.is_cuda() && sin.is_cuda(),
+              "ROCm RoPE: cos and sin must be GPU tensors");
+  TORCH_CHECK(cos.scalar_type() == torch::kFloat32 &&
+                  sin.scalar_type() == torch::kFloat32,
+              "ROCm RoPE: cos and sin must be FP32");
+  TORCH_CHECK(cos.is_contiguous() && sin.is_contiguous(),
+              "ROCm RoPE: cos and sin must be contiguous");
+  TORCH_CHECK(cos.dim() == 2 && sin.sizes() == cos.sizes(),
+              "ROCm RoPE: cos and sin must have shape [table_rows, head_dim/2]");
+  TORCH_CHECK(x.size(1) % 2 == 0, "ROCm RoPE: head_dim must be even");
+  TORCH_CHECK(cos.size(0) > 0 && cos.size(1) == x.size(1) / 2,
+              "ROCm RoPE: invalid cos/sin table shape");
+  TORCH_CHECK(x.size(0) % cos.size(0) == 0,
+              "ROCm RoPE: row count must be divisible by the position table size");
+
+  const at::cuda::OptionalCUDAGuard guard(device_of(x));
+  auto out = torch::empty_like(x);
+  const int64_t n_rows = x.size(0);
+  const int half = static_cast<int>(x.size(1) / 2);
+  const int table_rows = static_cast<int>(cos.size(0));
+  const int64_t count = n_rows * static_cast<int64_t>(half);
+  constexpr int threads = 256;
+  const int64_t blocks = (count + threads - 1) / threads;
+  auto stream = at::cuda::getCurrentCUDAStream();
+
+  AT_DISPATCH_FLOATING_TYPES_AND2(
+      at::ScalarType::Half,
+      at::ScalarType::BFloat16,
+      x.scalar_type(),
+      "deterministic_rope_apply_rocm",
+      [&] {
+        deterministic_rope_kernel<scalar_t><<<blocks, threads, 0, stream>>>(
+            x.data_ptr<scalar_t>(),
+            cos.data_ptr<float>(),
+            sin.data_ptr<float>(),
+            out.data_ptr<scalar_t>(),
+            n_rows,
+            table_rows,
+            half,
+            static_cast<float>(sin_sign));
+      });
+  return out;
+}
+
+torch::Tensor deterministic_rope_apply_token_major_rocm(
+    torch::Tensor x,
+    torch::Tensor positions,
+    torch::Tensor cos,
+    torch::Tensor sin,
+    int64_t head_dim,
+    double sin_sign) {
+  TORCH_CHECK(x.is_cuda(), "ROCm token-major RoPE: x must be a GPU tensor");
+  TORCH_CHECK(x.dim() == 2 && x.stride(1) == 1,
+              "ROCm token-major RoPE: x must be [tokens, heads * head_dim] with unit inner stride");
+  TORCH_CHECK(head_dim > 0 && head_dim % 2 == 0 && x.size(1) % head_dim == 0,
+              "ROCm token-major RoPE: invalid head dimension");
+  TORCH_CHECK(positions.is_cuda() && positions.scalar_type() == torch::kInt64 &&
+                  positions.dim() == 1 && positions.size(0) == x.size(0) &&
+                  positions.is_contiguous(),
+              "ROCm token-major RoPE: positions must be contiguous GPU int64 [tokens]");
+  TORCH_CHECK(cos.is_cuda() && sin.is_cuda() && cos.scalar_type() == torch::kFloat32 &&
+                  sin.scalar_type() == torch::kFloat32 && cos.is_contiguous() &&
+                  sin.is_contiguous() && cos.dim() == 2 && sin.sizes() == cos.sizes(),
+              "ROCm token-major RoPE: cos/sin must be contiguous GPU FP32 tables");
+  TORCH_CHECK(cos.size(0) > 0 && cos.size(1) == head_dim / 2,
+              "ROCm token-major RoPE: invalid cos/sin table shape");
+  TORCH_CHECK(x.get_device() == positions.get_device() &&
+                  x.get_device() == cos.get_device() && x.get_device() == sin.get_device(),
+              "ROCm token-major RoPE: all tensors must share one device");
+
+  const at::cuda::OptionalCUDAGuard guard(device_of(x));
+  auto out = torch::empty({x.size(0), x.size(1)}, x.options());
+  const int64_t tokens = x.size(0);
+  const int heads = static_cast<int>(x.size(1) / head_dim);
+  const int half = static_cast<int>(head_dim / 2);
+  const int table_rows = static_cast<int>(cos.size(0));
+  const int64_t count = tokens * static_cast<int64_t>(heads) * half;
+  constexpr int threads = 256;
+  const int64_t blocks = (count + threads - 1) / threads;
+  auto stream = at::cuda::getCurrentCUDAStream();
+
+  AT_DISPATCH_FLOATING_TYPES_AND2(
+      at::ScalarType::Half,
+      at::ScalarType::BFloat16,
+      x.scalar_type(),
+      "deterministic_rope_apply_token_major_rocm",
+      [&] {
+        hipLaunchKernelGGL(
+            (deterministic_rope_token_major_kernel<scalar_t>),
+            dim3(blocks),
+            dim3(threads),
+            0,
+            stream,
+            x.data_ptr<scalar_t>(),
+            positions.data_ptr<int64_t>(),
+            cos.data_ptr<float>(),
+            sin.data_ptr<float>(),
+            out.data_ptr<scalar_t>(),
+            tokens,
+            x.stride(0),
+            heads,
+            static_cast<int>(head_dim),
+            half,
+            table_rows,
+            static_cast<float>(sin_sign));
+      });
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  return out;
+}
+#endif

@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 RL-Kernel Contributors
+"""Compatibility import; the canonical module is loaded below."""
 
-"""Vime adapter entry points without a Vime runtime dependency."""
+from importlib import import_module
 
-from .linear_logp_provider import LinearLogpProviderUnavailable, LinearLogpResult, provider
 
-__all__ = ["LinearLogpProviderUnavailable", "LinearLogpResult", "provider"]
+def __getattr__(name):
+    return getattr(import_module("rl_engine.integrations.orchestrators.vime.providers"), name)

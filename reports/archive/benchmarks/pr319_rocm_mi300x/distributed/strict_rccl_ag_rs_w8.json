@@ -1,0 +1,2262 @@
+{
+  "backend": "nccl",
+  "collective_version": [
+    2,
+    28,
+    9
+  ],
+  "cp_world_size": 2,
+  "device_name": "AMD Instinct MI300X",
+  "git_commit": "3247e3ef390ac2f55bf93864ffa70b0a1350ec4c",
+  "global_failure_count": 0,
+  "platform": "rocm",
+  "ranks": [
+    {
+      "accum_dtype": "fp32",
+      "atol": 0.0002,
+      "cp_rank": 0,
+      "cp_world_size": 2,
+      "device": "cuda:0",
+      "downcast_at": "final_write",
+      "dtype": "bf16",
+      "expected_block_manifest": [
+        {
+          "global_block_index": 0,
+          "kv_block_end": 4,
+          "kv_block_start": 0,
+          "owner_cp_rank": 0,
+          "owner_tp_rank": 0
+        },
+        {
+          "global_block_index": 1,
+          "kv_block_end": 8,
+          "kv_block_start": 4,
+          "owner_cp_rank": 0,
+          "owner_tp_rank": 0
+        },
+        {
+          "global_block_index": 2,
+          "kv_block_end": 12,
+          "kv_block_start": 8,
+          "owner_cp_rank": 1,
+          "owner_tp_rank": 0
+        },
+        {
+          "global_block_index": 3,
+          "kv_block_end": 16,
+          "kv_block_start": 12,
+          "owner_cp_rank": 1,
+          "owner_tp_rank": 0
+        }
+      ],
+      "final_out_max_abs": 0.00390625,
+      "final_output_dtype": "bfloat16",
+      "final_write_atol": 0.02,
+      "gathered_block_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "global_failure_count": 0,
+      "global_world_size": 8,
+      "local_block_indices": [
+        0,
+        1
+      ],
+      "lse_max_abs": 2.384185791015625e-07,
+      "out_max_abs": 7.152557373046875e-07,
+      "passed": true,
+      "protocol": "ag_query_local_kv_rs_out_lse",
+      "query_ag": "rccl_ag_rs",
+      "query_ag_max_abs": 0.0,
+      "query_range": [
+        0,
+        8
+      ],
+      "rank": 0,
+      "repeat_count": 3,
+      "repeat_lse_bitwise": true,
+      "repeat_manifest_bitwise": true,
+      "repeat_out_bitwise": true,
+      "repeat_query_bitwise": true,
+      "replica_count": 2,
+      "replica_index": 0,
+      "strict_protocol": "ag_qkv_positions_shared_core_rs_out_lse",
+      "strict_shared_core": {
+        "actual_backend": "aiter.rocm.ck_dense_mha",
+        "bitwise": {
+          "dk": true,
+          "dq": true,
+          "dv": true,
+          "lse": true,
+          "out": true
+        },
+        "communication_autograd": true,
+        "communication_backend": "rccl_ag_rs",
+        "executed": true,
+        "fallback": false,
+        "identity_errors": [],
+        "max_abs": {
+          "dk": 0.0,
+          "dq": 0.0,
+          "dv": 0.0,
+          "lse": 0.0,
+          "out": 0.0
+        },
+        "native_attention_arithmetic": true,
+        "passed": true,
+        "production_ready": true,
+        "repeat_lse_bitwise": true,
+        "repeat_out_bitwise": true,
+        "split_kv_policy": "disabled",
+        "strict_core_id": "rlkernel.attention.rocm.aiter_ck_dense_mha.v1",
+        "strict_mode": true,
+        "strict_provenance": {
+          "accum_dtype": "fp32",
+          "actual_backend": "aiter.rocm.ck_dense_mha",
+          "adapter_backend": "flashinfer",
+          "aiter_api_source": "aiter.ops.mha",
+          "aiter_source_sha256": "db61d7ce62a907c5079830622723f0abcc7fd35816d88006e381140cb6566ff4",
+          "arithmetic_plan_source": "aiter.ops.mha",
+          "arithmetic_semantics_verified": true,
+          "attention_backend": "aiter.rocm.ck_dense_mha",
+          "attention_mode": "prefill",
+          "batch_invariant_claim": "strict_runtime_verified",
+          "causal": true,
+          "communication_backend": "rccl_ag_rs",
+          "communication_overlap": "disabled",
+          "compute_communication": "decoupled",
+          "compute_order": [
+            0,
+            1
+          ],
+          "compute_schedule": "rlkernel.attention.strict_ring_state.v1",
+          "cp_comm_accum_dtype": "fp32",
+          "cp_comm_attention_numeric_reduction": false,
+          "cp_comm_backend": "rccl_ag_rs",
+          "cp_comm_compute_communication": "decoupled",
+          "cp_comm_contract": "partial_out_lse_global_block_index",
+          "cp_comm_expected_blocks": [
+            {
+              "global_block_index": 0,
+              "kv_block_end": 4,
+              "kv_block_start": 0,
+              "owner_cp_rank": 0,
+              "owner_tp_rank": 0
+            },
+            {
+              "global_block_index": 1,
+              "kv_block_end": 8,
+              "kv_block_start": 4,
+              "owner_cp_rank": 0,
+              "owner_tp_rank": 0
+            },
+            {
+              "global_block_index": 2,
+              "kv_block_end": 12,
+              "kv_block_start": 8,
+              "owner_cp_rank": 1,
+              "owner_tp_rank": 0
+            },
+            {
+              "global_block_index": 3,
+              "kv_block_end": 16,
+              "kv_block_start": 12,
+              "owner_cp_rank": 1,
+              "owner_tp_rank": 0
+            }
+          ],
+          "cp_comm_expected_kv_token_range": [
+            0,
+            16
+          ],
+          "cp_comm_merge_order": "global_block_index",
+          "cp_comm_merge_root_cp_rank": 0,
+          "cp_comm_pattern": "ag_rs",
+          "cp_comm_query_token_ranges": [
+            [
+              0,
+              8
+            ],
+            [
+              8,
+              16
+            ]
+          ],
+          "cp_comm_required": true,
+          "cp_comm_return_lse": true,
+          "cp_comm_runtime": "rccl",
+          "cp_comm_status": "implemented",
+          "cp_comm_strict_backward": "rs_out_backward_ag_then_ag_qkv_backward_rs",
+          "cp_comm_strict_contract": "ag_qkv_positions_shared_core_rs_out_lse",
+          "cp_comm_strict_kv_communication": "all_gather",
+          "cp_comm_strict_position_communication": "all_gather",
+          "cp_rank": 0,
+          "cp_world_size": 2,
+          "deterministic_backward": true,
+          "downcast_at": "final_write",
+          "fa_api_source": null,
+          "fa_package_version": null,
+          "fallback": false,
+          "fallback_reason": null,
+          "k_cache_rope_state": "post_rope",
+          "lse_domain": "attention",
+          "lse_dtype": "fp32",
+          "lse_exported": true,
+          "materialization": "ag_qkv_positions_shared_core_rs",
+          "merge_order_indices": [
+            0,
+            1
+          ],
+          "native_attention_arithmetic": true,
+          "num_splits": 1,
+          "platform": "rocm",
+          "production_ready": true,
+          "q_rope_state": "post_rope",
+          "reference_only": false,
+          "requested_backend": "flashinfer_layout_adapter",
+          "ring_partial_arithmetic": false,
+          "ring_schedule_default": true,
+          "rope_backend": "rlkernel.rocm.deterministic_rope",
+          "rope_fusion": false,
+          "rope_fusion_boundary": "rlkernel_rope_then_attention",
+          "rope_theta": 1000000.0,
+          "rotary_dim": null,
+          "softmax_scale": null,
+          "split_kv_control": "dense_non_split_api",
+          "strict_comm_autograd": true,
+          "strict_core_id": "rlkernel.attention.rocm.aiter_ck_dense_mha.v1",
+          "strict_core_row_plans": [
+            {
+              "actual_split_boundaries": [
+                [
+                  0,
+                  16
+                ]
+              ],
+              "actual_split_kv_count": 1,
+              "actual_split_kv_policy": "disabled",
+              "actual_split_kv_size": null,
+              "requested_split_kv_policy": "disabled",
+              "requested_split_kv_size": null,
+              "split_kv_accum_dtype": "fp32",
+              "split_kv_backend": "aiter.rocm.ck_dense_mha",
+              "split_kv_downcast_at": "final_write",
+              "split_kv_fallback": false,
+              "split_kv_fallback_reason": null,
+              "split_kv_merge_order": "global_block_index",
+              "split_kv_plan_source": "contract_exact"
+            },
+            {
+              "actual_split_boundaries": [
+                [
+                  0,
+                  16
+                ]
+              ],
+              "actual_split_kv_count": 1,
+              "actual_split_kv_policy": "disabled",
+              "actual_split_kv_size": null,
+              "requested_split_kv_policy": "disabled",
+              "requested_split_kv_size": null,
+              "split_kv_accum_dtype": "fp32",
+              "split_kv_backend": "aiter.rocm.ck_dense_mha",
+              "split_kv_downcast_at": "final_write",
+              "split_kv_fallback": false,
+              "split_kv_fallback_reason": null,
+              "split_kv_merge_order": "global_block_index",
+              "split_kv_plan_source": "contract_exact"
+            }
+          ],
+          "strict_full_qkv_all_gather": true,
+          "strict_local_kv_range": [
+            0,
+            8
+          ],
+          "strict_local_query_range": [
+            0,
+            8
+          ],
+          "strict_mode": true,
+          "strict_position_ids_all_gather": true,
+          "strict_schedule": "single_batch_aiter_ck_dense_mha_no_splitkv",
+          "strict_split_kv": "disabled",
+          "tp_rank": 0,
+          "tp_world_size": 2
+        },
+        "strict_schedule": "single_batch_aiter_ck_dense_mha_no_splitkv"
+      },
+      "tp_rank": 0,
+      "tp_world_size": 2,
+      "transport": "rccl_ag_rs"
+    },
+    {
+      "accum_dtype": "fp32",
+      "atol": 0.0002,
+      "cp_rank": 1,
+      "cp_world_size": 2,
+      "device": "cuda:1",
+      "downcast_at": "final_write",
+      "dtype": "bf16",
+      "expected_block_manifest": [
+        {
+          "global_block_index": 0,
+          "kv_block_end": 4,
+          "kv_block_start": 0,
+          "owner_cp_rank": 0,
+          "owner_tp_rank": 0
+        },
+        {
+          "global_block_index": 1,
+          "kv_block_end": 8,
+          "kv_block_start": 4,
+          "owner_cp_rank": 0,
+          "owner_tp_rank": 0
+        },
+        {
+          "global_block_index": 2,
+          "kv_block_end": 12,
+          "kv_block_start": 8,
+          "owner_cp_rank": 1,
+          "owner_tp_rank": 0
+        },
+        {
+          "global_block_index": 3,
+          "kv_block_end": 16,
+          "kv_block_start": 12,
+          "owner_cp_rank": 1,
+          "owner_tp_rank": 0
+        }
+      ],
+      "final_out_max_abs": 0.00390625,
+      "final_output_dtype": "bfloat16",
+      "final_write_atol": 0.02,
+      "gathered_block_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "global_failure_count": 0,
+      "global_world_size": 8,
+      "local_block_indices": [
+        2,
+        3
+      ],
+      "lse_max_abs": 4.76837158203125e-07,
+      "out_max_abs": 5.960464477539062e-07,
+      "passed": true,
+      "protocol": "ag_query_local_kv_rs_out_lse",
+      "query_ag": "rccl_ag_rs",
+      "query_ag_max_abs": 0.0,
+      "query_range": [
+        8,
+        16
+      ],
+      "rank": 1,
+      "repeat_count": 3,
+      "repeat_lse_bitwise": true,
+      "repeat_manifest_bitwise": true,
+      "repeat_out_bitwise": true,
+      "repeat_query_bitwise": true,
+      "replica_count": 2,
+      "replica_index": 0,
+      "strict_protocol": "ag_qkv_positions_shared_core_rs_out_lse",
+      "strict_shared_core": {
+        "actual_backend": "aiter.rocm.ck_dense_mha",
+        "bitwise": {
+          "dk": true,
+          "dq": true,
+          "dv": true,
+          "lse": true,
+          "out": true
+        },
+        "communication_autograd": true,
+        "communication_backend": "rccl_ag_rs",
+        "executed": true,
+        "fallback": false,
+        "identity_errors": [],
+        "max_abs": {
+          "dk": 0.0,
+          "dq": 0.0,
+          "dv": 0.0,
+          "lse": 0.0,
+          "out": 0.0
+        },
+        "native_attention_arithmetic": true,
+        "passed": true,
+        "production_ready": true,
+        "repeat_lse_bitwise": true,
+        "repeat_out_bitwise": true,
+        "split_kv_policy": "disabled",
+        "strict_core_id": "rlkernel.attention.rocm.aiter_ck_dense_mha.v1",
+        "strict_mode": true,
+        "strict_provenance": {
+          "accum_dtype": "fp32",
+          "actual_backend": "aiter.rocm.ck_dense_mha",
+          "adapter_backend": "flashinfer",
+          "aiter_api_source": "aiter.ops.mha",
+          "aiter_source_sha256": "db61d7ce62a907c5079830622723f0abcc7fd35816d88006e381140cb6566ff4",
+          "arithmetic_plan_source": "aiter.ops.mha",
+          "arithmetic_semantics_verified": true,
+          "attention_backend": "aiter.rocm.ck_dense_mha",
+          "attention_mode": "prefill",
+          "batch_invariant_claim": "strict_runtime_verified",
+          "causal": true,
+          "communication_backend": "rccl_ag_rs",
+          "communication_overlap": "disabled",
+          "compute_communication": "decoupled",
+          "compute_order": [
+            0,
+            1
+          ],
+          "compute_schedule": "rlkernel.attention.strict_ring_state.v1",
+          "cp_comm_accum_dtype": "fp32",
+          "cp_comm_attention_numeric_reduction": false,
+          "cp_comm_backend": "rccl_ag_rs",
+          "cp_comm_compute_communication": "decoupled",
+          "cp_comm_contract": "partial_out_lse_global_block_index",
+          "cp_comm_expected_blocks": [
+            {
+              "global_block_index": 0,
+              "kv_block_end": 4,
+              "kv_block_start": 0,
+              "owner_cp_rank": 0,
+              "owner_tp_rank": 0
+            },
+            {
+              "global_block_index": 1,
+              "kv_block_end": 8,
+              "kv_block_start": 4,
+              "owner_cp_rank": 0,
+              "owner_tp_rank": 0
+            },
+            {
+              "global_block_index": 2,
+              "kv_block_end": 12,
+              "kv_block_start": 8,
+              "owner_cp_rank": 1,
+              "owner_tp_rank": 0
+            },
+            {
+              "global_block_index": 3,
+              "kv_block_end": 16,
+              "kv_block_start": 12,
+              "owner_cp_rank": 1,
+              "owner_tp_rank": 0
+            }
+          ],
+          "cp_comm_expected_kv_token_range": [
+            0,
+            16
+          ],
+          "cp_comm_merge_order": "global_block_index",
+          "cp_comm_merge_root_cp_rank": 0,
+          "cp_comm_pattern": "ag_rs",
+          "cp_comm_query_token_ranges": [
+            [
+              0,
+              8
+            ],
+            [
+              8,
+              16
+            ]
+          ],
+          "cp_comm_required": true,
+          "cp_comm_return_lse": true,
+          "cp_comm_runtime": "rccl",
+          "cp_comm_status": "implemented",
+          "cp_comm_strict_backward": "rs_out_backward_ag_then_ag_qkv_backward_rs",
+          "cp_comm_strict_contract": "ag_qkv_positions_shared_core_rs_out_lse",
+          "cp_comm_strict_kv_communication": "all_gather",
+          "cp_comm_strict_position_communication": "all_gather",
+          "cp_rank": 1,
+          "cp_world_size": 2,
+          "deterministic_backward": true,
+          "downcast_at": "final_write",
+          "fa_api_source": null,
+          "fa_package_version": null,
+          "fallback": false,
+          "fallback_reason": null,
+          "k_cache_rope_state": "post_rope",
+          "lse_domain": "attention",
+          "lse_dtype": "fp32",
+          "lse_exported": true,
+          "materialization": "ag_qkv_positions_shared_core_rs",
+          "merge_order_indices": [
+            0,
+            1
+          ],
+          "native_attention_arithmetic": true,
+          "num_splits": 1,
+          "platform": "rocm",
+          "production_ready": true,
+          "q_rope_state": "post_rope",
+          "reference_only": false,
+          "requested_backend": "flashinfer_layout_adapter",
+          "ring_partial_arithmetic": false,
+          "ring_schedule_default": true,
+          "rope_backend": "rlkernel.rocm.deterministic_rope",
+          "rope_fusion": false,
+          "rope_fusion_boundary": "rlkernel_rope_then_attention",
+          "rope_theta": 1000000.0,
+          "rotary_dim": null,
+          "softmax_scale": null,
+          "split_kv_control": "dense_non_split_api",
+          "strict_comm_autograd": true,
+          "strict_core_id": "rlkernel.attention.rocm.aiter_ck_dense_mha.v1",
+          "strict_core_row_plans": [
+            {
+              "actual_split_boundaries": [
+                [
+                  0,
+                  16
+                ]
+              ],
+              "actual_split_kv_count": 1,
+              "actual_split_kv_policy": "disabled",
+              "actual_split_kv_size": null,
+              "requested_split_kv_policy": "disabled",
+              "requested_split_kv_size": null,
+              "split_kv_accum_dtype": "fp32",
+              "split_kv_backend": "aiter.rocm.ck_dense_mha",
+              "split_kv_downcast_at": "final_write",
+              "split_kv_fallback": false,
+              "split_kv_fallback_reason": null,
+              "split_kv_merge_order": "global_block_index",
+              "split_kv_plan_source": "contract_exact"
+            },
+            {
+              "actual_split_boundaries": [
+                [
+                  0,
+                  16
+                ]
+              ],
+              "actual_split_kv_count": 1,
+              "actual_split_kv_policy": "disabled",
+              "actual_split_kv_size": null,
+              "requested_split_kv_policy": "disabled",
+              "requested_split_kv_size": null,
+              "split_kv_accum_dtype": "fp32",
+              "split_kv_backend": "aiter.rocm.ck_dense_mha",
+              "split_kv_downcast_at": "final_write",
+              "split_kv_fallback": false,
+              "split_kv_fallback_reason": null,
+              "split_kv_merge_order": "global_block_index",
+              "split_kv_plan_source": "contract_exact"
+            }
+          ],
+          "strict_full_qkv_all_gather": true,
+          "strict_local_kv_range": [
+            8,
+            16
+          ],
+          "strict_local_query_range": [
+            8,
+            16
+          ],
+          "strict_mode": true,
+          "strict_position_ids_all_gather": true,
+          "strict_schedule": "single_batch_aiter_ck_dense_mha_no_splitkv",
+          "strict_split_kv": "disabled",
+          "tp_rank": 0,
+          "tp_world_size": 2
+        },
+        "strict_schedule": "single_batch_aiter_ck_dense_mha_no_splitkv"
+      },
+      "tp_rank": 0,
+      "tp_world_size": 2,
+      "transport": "rccl_ag_rs"
+    },
+    {
+      "accum_dtype": "fp32",
+      "atol": 0.0002,
+      "cp_rank": 0,
+      "cp_world_size": 2,
+      "device": "cuda:2",
+      "downcast_at": "final_write",
+      "dtype": "bf16",
+      "expected_block_manifest": [
+        {
+          "global_block_index": 0,
+          "kv_block_end": 4,
+          "kv_block_start": 0,
+          "owner_cp_rank": 0,
+          "owner_tp_rank": 1
+        },
+        {
+          "global_block_index": 1,
+          "kv_block_end": 8,
+          "kv_block_start": 4,
+          "owner_cp_rank": 0,
+          "owner_tp_rank": 1
+        },
+        {
+          "global_block_index": 2,
+          "kv_block_end": 12,
+          "kv_block_start": 8,
+          "owner_cp_rank": 1,
+          "owner_tp_rank": 1
+        },
+        {
+          "global_block_index": 3,
+          "kv_block_end": 16,
+          "kv_block_start": 12,
+          "owner_cp_rank": 1,
+          "owner_tp_rank": 1
+        }
+      ],
+      "final_out_max_abs": 0.001953125,
+      "final_output_dtype": "bfloat16",
+      "final_write_atol": 0.02,
+      "gathered_block_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "global_failure_count": 0,
+      "global_world_size": 8,
+      "local_block_indices": [
+        0,
+        1
+      ],
+      "lse_max_abs": 2.384185791015625e-07,
+      "out_max_abs": 7.152557373046875e-07,
+      "passed": true,
+      "protocol": "ag_query_local_kv_rs_out_lse",
+      "query_ag": "rccl_ag_rs",
+      "query_ag_max_abs": 0.0,
+      "query_range": [
+        0,
+        8
+      ],
+      "rank": 2,
+      "repeat_count": 3,
+      "repeat_lse_bitwise": true,
+      "repeat_manifest_bitwise": true,
+      "repeat_out_bitwise": true,
+      "repeat_query_bitwise": true,
+      "replica_count": 2,
+      "replica_index": 0,
+      "strict_protocol": "ag_qkv_positions_shared_core_rs_out_lse",
+      "strict_shared_core": {
+        "actual_backend": "aiter.rocm.ck_dense_mha",
+        "bitwise": {
+          "dk": true,
+          "dq": true,
+          "dv": true,
+          "lse": true,
+          "out": true
+        },
+        "communication_autograd": true,
+        "communication_backend": "rccl_ag_rs",
+        "executed": true,
+        "fallback": false,
+        "identity_errors": [],
+        "max_abs": {
+          "dk": 0.0,
+          "dq": 0.0,
+          "dv": 0.0,
+          "lse": 0.0,
+          "out": 0.0
+        },
+        "native_attention_arithmetic": true,
+        "passed": true,
+        "production_ready": true,
+        "repeat_lse_bitwise": true,
+        "repeat_out_bitwise": true,
+        "split_kv_policy": "disabled",
+        "strict_core_id": "rlkernel.attention.rocm.aiter_ck_dense_mha.v1",
+        "strict_mode": true,
+        "strict_provenance": {
+          "accum_dtype": "fp32",
+          "actual_backend": "aiter.rocm.ck_dense_mha",
+          "adapter_backend": "flashinfer",
+          "aiter_api_source": "aiter.ops.mha",
+          "aiter_source_sha256": "db61d7ce62a907c5079830622723f0abcc7fd35816d88006e381140cb6566ff4",
+          "arithmetic_plan_source": "aiter.ops.mha",
+          "arithmetic_semantics_verified": true,
+          "attention_backend": "aiter.rocm.ck_dense_mha",
+          "attention_mode": "prefill",
+          "batch_invariant_claim": "strict_runtime_verified",
+          "causal": true,
+          "communication_backend": "rccl_ag_rs",
+          "communication_overlap": "disabled",
+          "compute_communication": "decoupled",
+          "compute_order": [
+            0,
+            1
+          ],
+          "compute_schedule": "rlkernel.attention.strict_ring_state.v1",
+          "cp_comm_accum_dtype": "fp32",
+          "cp_comm_attention_numeric_reduction": false,
+          "cp_comm_backend": "rccl_ag_rs",
+          "cp_comm_compute_communication": "decoupled",
+          "cp_comm_contract": "partial_out_lse_global_block_index",
+          "cp_comm_expected_blocks": [
+            {
+              "global_block_index": 0,
+              "kv_block_end": 4,
+              "kv_block_start": 0,
+              "owner_cp_rank": 0,
+              "owner_tp_rank": 1
+            },
+            {
+              "global_block_index": 1,
+              "kv_block_end": 8,
+              "kv_block_start": 4,
+              "owner_cp_rank": 0,
+              "owner_tp_rank": 1
+            },
+            {
+              "global_block_index": 2,
+              "kv_block_end": 12,
+              "kv_block_start": 8,
+              "owner_cp_rank": 1,
+              "owner_tp_rank": 1
+            },
+            {
+              "global_block_index": 3,
+              "kv_block_end": 16,
+              "kv_block_start": 12,
+              "owner_cp_rank": 1,
+              "owner_tp_rank": 1
+            }
+          ],
+          "cp_comm_expected_kv_token_range": [
+            0,
+            16
+          ],
+          "cp_comm_merge_order": "global_block_index",
+          "cp_comm_merge_root_cp_rank": 0,
+          "cp_comm_pattern": "ag_rs",
+          "cp_comm_query_token_ranges": [
+            [
+              0,
+              8
+            ],
+            [
+              8,
+              16
+            ]
+          ],
+          "cp_comm_required": true,
+          "cp_comm_return_lse": true,
+          "cp_comm_runtime": "rccl",
+          "cp_comm_status": "implemented",
+          "cp_comm_strict_backward": "rs_out_backward_ag_then_ag_qkv_backward_rs",
+          "cp_comm_strict_contract": "ag_qkv_positions_shared_core_rs_out_lse",
+          "cp_comm_strict_kv_communication": "all_gather",
+          "cp_comm_strict_position_communication": "all_gather",
+          "cp_rank": 0,
+          "cp_world_size": 2,
+          "deterministic_backward": true,
+          "downcast_at": "final_write",
+          "fa_api_source": null,
+          "fa_package_version": null,
+          "fallback": false,
+          "fallback_reason": null,
+          "k_cache_rope_state": "post_rope",
+          "lse_domain": "attention",
+          "lse_dtype": "fp32",
+          "lse_exported": true,
+          "materialization": "ag_qkv_positions_shared_core_rs",
+          "merge_order_indices": [
+            0,
+            1
+          ],
+          "native_attention_arithmetic": true,
+          "num_splits": 1,
+          "platform": "rocm",
+          "production_ready": true,
+          "q_rope_state": "post_rope",
+          "reference_only": false,
+          "requested_backend": "flashinfer_layout_adapter",
+          "ring_partial_arithmetic": false,
+          "ring_schedule_default": true,
+          "rope_backend": "rlkernel.rocm.deterministic_rope",
+          "rope_fusion": false,
+          "rope_fusion_boundary": "rlkernel_rope_then_attention",
+          "rope_theta": 1000000.0,
+          "rotary_dim": null,
+          "softmax_scale": null,
+          "split_kv_control": "dense_non_split_api",
+          "strict_comm_autograd": true,
+          "strict_core_id": "rlkernel.attention.rocm.aiter_ck_dense_mha.v1",
+          "strict_core_row_plans": [
+            {
+              "actual_split_boundaries": [
+                [
+                  0,
+                  16
+                ]
+              ],
+              "actual_split_kv_count": 1,
+              "actual_split_kv_policy": "disabled",
+              "actual_split_kv_size": null,
+              "requested_split_kv_policy": "disabled",
+              "requested_split_kv_size": null,
+              "split_kv_accum_dtype": "fp32",
+              "split_kv_backend": "aiter.rocm.ck_dense_mha",
+              "split_kv_downcast_at": "final_write",
+              "split_kv_fallback": false,
+              "split_kv_fallback_reason": null,
+              "split_kv_merge_order": "global_block_index",
+              "split_kv_plan_source": "contract_exact"
+            },
+            {
+              "actual_split_boundaries": [
+                [
+                  0,
+                  16
+                ]
+              ],
+              "actual_split_kv_count": 1,
+              "actual_split_kv_policy": "disabled",
+              "actual_split_kv_size": null,
+              "requested_split_kv_policy": "disabled",
+              "requested_split_kv_size": null,
+              "split_kv_accum_dtype": "fp32",
+              "split_kv_backend": "aiter.rocm.ck_dense_mha",
+              "split_kv_downcast_at": "final_write",
+              "split_kv_fallback": false,
+              "split_kv_fallback_reason": null,
+              "split_kv_merge_order": "global_block_index",
+              "split_kv_plan_source": "contract_exact"
+            }
+          ],
+          "strict_full_qkv_all_gather": true,
+          "strict_local_kv_range": [
+            0,
+            8
+          ],
+          "strict_local_query_range": [
+            0,
+            8
+          ],
+          "strict_mode": true,
+          "strict_position_ids_all_gather": true,
+          "strict_schedule": "single_batch_aiter_ck_dense_mha_no_splitkv",
+          "strict_split_kv": "disabled",
+          "tp_rank": 1,
+          "tp_world_size": 2
+        },
+        "strict_schedule": "single_batch_aiter_ck_dense_mha_no_splitkv"
+      },
+      "tp_rank": 1,
+      "tp_world_size": 2,
+      "transport": "rccl_ag_rs"
+    },
+    {
+      "accum_dtype": "fp32",
+      "atol": 0.0002,
+      "cp_rank": 1,
+      "cp_world_size": 2,
+      "device": "cuda:3",
+      "downcast_at": "final_write",
+      "dtype": "bf16",
+      "expected_block_manifest": [
+        {
+          "global_block_index": 0,
+          "kv_block_end": 4,
+          "kv_block_start": 0,
+          "owner_cp_rank": 0,
+          "owner_tp_rank": 1
+        },
+        {
+          "global_block_index": 1,
+          "kv_block_end": 8,
+          "kv_block_start": 4,
+          "owner_cp_rank": 0,
+          "owner_tp_rank": 1
+        },
+        {
+          "global_block_index": 2,
+          "kv_block_end": 12,
+          "kv_block_start": 8,
+          "owner_cp_rank": 1,
+          "owner_tp_rank": 1
+        },
+        {
+          "global_block_index": 3,
+          "kv_block_end": 16,
+          "kv_block_start": 12,
+          "owner_cp_rank": 1,
+          "owner_tp_rank": 1
+        }
+      ],
+      "final_out_max_abs": 3.814697265625e-06,
+      "final_output_dtype": "bfloat16",
+      "final_write_atol": 0.02,
+      "gathered_block_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "global_failure_count": 0,
+      "global_world_size": 8,
+      "local_block_indices": [
+        2,
+        3
+      ],
+      "lse_max_abs": 4.76837158203125e-07,
+      "out_max_abs": 7.152557373046875e-07,
+      "passed": true,
+      "protocol": "ag_query_local_kv_rs_out_lse",
+      "query_ag": "rccl_ag_rs",
+      "query_ag_max_abs": 0.0,
+      "query_range": [
+        8,
+        16
+      ],
+      "rank": 3,
+      "repeat_count": 3,
+      "repeat_lse_bitwise": true,
+      "repeat_manifest_bitwise": true,
+      "repeat_out_bitwise": true,
+      "repeat_query_bitwise": true,
+      "replica_count": 2,
+      "replica_index": 0,
+      "strict_protocol": "ag_qkv_positions_shared_core_rs_out_lse",
+      "strict_shared_core": {
+        "actual_backend": "aiter.rocm.ck_dense_mha",
+        "bitwise": {
+          "dk": true,
+          "dq": true,
+          "dv": true,
+          "lse": true,
+          "out": true
+        },
+        "communication_autograd": true,
+        "communication_backend": "rccl_ag_rs",
+        "executed": true,
+        "fallback": false,
+        "identity_errors": [],
+        "max_abs": {
+          "dk": 0.0,
+          "dq": 0.0,
+          "dv": 0.0,
+          "lse": 0.0,
+          "out": 0.0
+        },
+        "native_attention_arithmetic": true,
+        "passed": true,
+        "production_ready": true,
+        "repeat_lse_bitwise": true,
+        "repeat_out_bitwise": true,
+        "split_kv_policy": "disabled",
+        "strict_core_id": "rlkernel.attention.rocm.aiter_ck_dense_mha.v1",
+        "strict_mode": true,
+        "strict_provenance": {
+          "accum_dtype": "fp32",
+          "actual_backend": "aiter.rocm.ck_dense_mha",
+          "adapter_backend": "flashinfer",
+          "aiter_api_source": "aiter.ops.mha",
+          "aiter_source_sha256": "db61d7ce62a907c5079830622723f0abcc7fd35816d88006e381140cb6566ff4",
+          "arithmetic_plan_source": "aiter.ops.mha",
+          "arithmetic_semantics_verified": true,
+          "attention_backend": "aiter.rocm.ck_dense_mha",
+          "attention_mode": "prefill",
+          "batch_invariant_claim": "strict_runtime_verified",
+          "causal": true,
+          "communication_backend": "rccl_ag_rs",
+          "communication_overlap": "disabled",
+          "compute_communication": "decoupled",
+          "compute_order": [
+            0,
+            1
+          ],
+          "compute_schedule": "rlkernel.attention.strict_ring_state.v1",
+          "cp_comm_accum_dtype": "fp32",
+          "cp_comm_attention_numeric_reduction": false,
+          "cp_comm_backend": "rccl_ag_rs",
+          "cp_comm_compute_communication": "decoupled",
+          "cp_comm_contract": "partial_out_lse_global_block_index",
+          "cp_comm_expected_blocks": [
+            {
+              "global_block_index": 0,
+              "kv_block_end": 4,
+              "kv_block_start": 0,
+              "owner_cp_rank": 0,
+              "owner_tp_rank": 1
+            },
+            {
+              "global_block_index": 1,
+              "kv_block_end": 8,
+              "kv_block_start": 4,
+              "owner_cp_rank": 0,
+              "owner_tp_rank": 1
+            },
+            {
+              "global_block_index": 2,
+              "kv_block_end": 12,
+              "kv_block_start": 8,
+              "owner_cp_rank": 1,
+              "owner_tp_rank": 1
+            },
+            {
+              "global_block_index": 3,
+              "kv_block_end": 16,
+              "kv_block_start": 12,
+              "owner_cp_rank": 1,
+              "owner_tp_rank": 1
+            }
+          ],
+          "cp_comm_expected_kv_token_range": [
+            0,
+            16
+          ],
+          "cp_comm_merge_order": "global_block_index",
+          "cp_comm_merge_root_cp_rank": 0,
+          "cp_comm_pattern": "ag_rs",
+          "cp_comm_query_token_ranges": [
+            [
+              0,
+              8
+            ],
+            [
+              8,
+              16
+            ]
+          ],
+          "cp_comm_required": true,
+          "cp_comm_return_lse": true,
+          "cp_comm_runtime": "rccl",
+          "cp_comm_status": "implemented",
+          "cp_comm_strict_backward": "rs_out_backward_ag_then_ag_qkv_backward_rs",
+          "cp_comm_strict_contract": "ag_qkv_positions_shared_core_rs_out_lse",
+          "cp_comm_strict_kv_communication": "all_gather",
+          "cp_comm_strict_position_communication": "all_gather",
+          "cp_rank": 1,
+          "cp_world_size": 2,
+          "deterministic_backward": true,
+          "downcast_at": "final_write",
+          "fa_api_source": null,
+          "fa_package_version": null,
+          "fallback": false,
+          "fallback_reason": null,
+          "k_cache_rope_state": "post_rope",
+          "lse_domain": "attention",
+          "lse_dtype": "fp32",
+          "lse_exported": true,
+          "materialization": "ag_qkv_positions_shared_core_rs",
+          "merge_order_indices": [
+            0,
+            1
+          ],
+          "native_attention_arithmetic": true,
+          "num_splits": 1,
+          "platform": "rocm",
+          "production_ready": true,
+          "q_rope_state": "post_rope",
+          "reference_only": false,
+          "requested_backend": "flashinfer_layout_adapter",
+          "ring_partial_arithmetic": false,
+          "ring_schedule_default": true,
+          "rope_backend": "rlkernel.rocm.deterministic_rope",
+          "rope_fusion": false,
+          "rope_fusion_boundary": "rlkernel_rope_then_attention",
+          "rope_theta": 1000000.0,
+          "rotary_dim": null,
+          "softmax_scale": null,
+          "split_kv_control": "dense_non_split_api",
+          "strict_comm_autograd": true,
+          "strict_core_id": "rlkernel.attention.rocm.aiter_ck_dense_mha.v1",
+          "strict_core_row_plans": [
+            {
+              "actual_split_boundaries": [
+                [
+                  0,
+                  16
+                ]
+              ],
+              "actual_split_kv_count": 1,
+              "actual_split_kv_policy": "disabled",
+              "actual_split_kv_size": null,
+              "requested_split_kv_policy": "disabled",
+              "requested_split_kv_size": null,
+              "split_kv_accum_dtype": "fp32",
+              "split_kv_backend": "aiter.rocm.ck_dense_mha",
+              "split_kv_downcast_at": "final_write",
+              "split_kv_fallback": false,
+              "split_kv_fallback_reason": null,
+              "split_kv_merge_order": "global_block_index",
+              "split_kv_plan_source": "contract_exact"
+            },
+            {
+              "actual_split_boundaries": [
+                [
+                  0,
+                  16
+                ]
+              ],
+              "actual_split_kv_count": 1,
+              "actual_split_kv_policy": "disabled",
+              "actual_split_kv_size": null,
+              "requested_split_kv_policy": "disabled",
+              "requested_split_kv_size": null,
+              "split_kv_accum_dtype": "fp32",
+              "split_kv_backend": "aiter.rocm.ck_dense_mha",
+              "split_kv_downcast_at": "final_write",
+              "split_kv_fallback": false,
+              "split_kv_fallback_reason": null,
+              "split_kv_merge_order": "global_block_index",
+              "split_kv_plan_source": "contract_exact"
+            }
+          ],
+          "strict_full_qkv_all_gather": true,
+          "strict_local_kv_range": [
+            8,
+            16
+          ],
+          "strict_local_query_range": [
+            8,
+            16
+          ],
+          "strict_mode": true,
+          "strict_position_ids_all_gather": true,
+          "strict_schedule": "single_batch_aiter_ck_dense_mha_no_splitkv",
+          "strict_split_kv": "disabled",
+          "tp_rank": 1,
+          "tp_world_size": 2
+        },
+        "strict_schedule": "single_batch_aiter_ck_dense_mha_no_splitkv"
+      },
+      "tp_rank": 1,
+      "tp_world_size": 2,
+      "transport": "rccl_ag_rs"
+    },
+    {
+      "accum_dtype": "fp32",
+      "atol": 0.0002,
+      "cp_rank": 0,
+      "cp_world_size": 2,
+      "device": "cuda:4",
+      "downcast_at": "final_write",
+      "dtype": "bf16",
+      "expected_block_manifest": [
+        {
+          "global_block_index": 0,
+          "kv_block_end": 4,
+          "kv_block_start": 0,
+          "owner_cp_rank": 0,
+          "owner_tp_rank": 0
+        },
+        {
+          "global_block_index": 1,
+          "kv_block_end": 8,
+          "kv_block_start": 4,
+          "owner_cp_rank": 0,
+          "owner_tp_rank": 0
+        },
+        {
+          "global_block_index": 2,
+          "kv_block_end": 12,
+          "kv_block_start": 8,
+          "owner_cp_rank": 1,
+          "owner_tp_rank": 0
+        },
+        {
+          "global_block_index": 3,
+          "kv_block_end": 16,
+          "kv_block_start": 12,
+          "owner_cp_rank": 1,
+          "owner_tp_rank": 0
+        }
+      ],
+      "final_out_max_abs": 1.52587890625e-05,
+      "final_output_dtype": "bfloat16",
+      "final_write_atol": 0.02,
+      "gathered_block_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "global_failure_count": 0,
+      "global_world_size": 8,
+      "local_block_indices": [
+        0,
+        1
+      ],
+      "lse_max_abs": 2.384185791015625e-07,
+      "out_max_abs": 7.152557373046875e-07,
+      "passed": true,
+      "protocol": "ag_query_local_kv_rs_out_lse",
+      "query_ag": "rccl_ag_rs",
+      "query_ag_max_abs": 0.0,
+      "query_range": [
+        0,
+        8
+      ],
+      "rank": 4,
+      "repeat_count": 3,
+      "repeat_lse_bitwise": true,
+      "repeat_manifest_bitwise": true,
+      "repeat_out_bitwise": true,
+      "repeat_query_bitwise": true,
+      "replica_count": 2,
+      "replica_index": 1,
+      "strict_protocol": "ag_qkv_positions_shared_core_rs_out_lse",
+      "strict_shared_core": {
+        "actual_backend": "aiter.rocm.ck_dense_mha",
+        "bitwise": {
+          "dk": true,
+          "dq": true,
+          "dv": true,
+          "lse": true,
+          "out": true
+        },
+        "communication_autograd": true,
+        "communication_backend": "rccl_ag_rs",
+        "executed": true,
+        "fallback": false,
+        "identity_errors": [],
+        "max_abs": {
+          "dk": 0.0,
+          "dq": 0.0,
+          "dv": 0.0,
+          "lse": 0.0,
+          "out": 0.0
+        },
+        "native_attention_arithmetic": true,
+        "passed": true,
+        "production_ready": true,
+        "repeat_lse_bitwise": true,
+        "repeat_out_bitwise": true,
+        "split_kv_policy": "disabled",
+        "strict_core_id": "rlkernel.attention.rocm.aiter_ck_dense_mha.v1",
+        "strict_mode": true,
+        "strict_provenance": {
+          "accum_dtype": "fp32",
+          "actual_backend": "aiter.rocm.ck_dense_mha",
+          "adapter_backend": "flashinfer",
+          "aiter_api_source": "aiter.ops.mha",
+          "aiter_source_sha256": "db61d7ce62a907c5079830622723f0abcc7fd35816d88006e381140cb6566ff4",
+          "arithmetic_plan_source": "aiter.ops.mha",
+          "arithmetic_semantics_verified": true,
+          "attention_backend": "aiter.rocm.ck_dense_mha",
+          "attention_mode": "prefill",
+          "batch_invariant_claim": "strict_runtime_verified",
+          "causal": true,
+          "communication_backend": "rccl_ag_rs",
+          "communication_overlap": "disabled",
+          "compute_communication": "decoupled",
+          "compute_order": [
+            0,
+            1
+          ],
+          "compute_schedule": "rlkernel.attention.strict_ring_state.v1",
+          "cp_comm_accum_dtype": "fp32",
+          "cp_comm_attention_numeric_reduction": false,
+          "cp_comm_backend": "rccl_ag_rs",
+          "cp_comm_compute_communication": "decoupled",
+          "cp_comm_contract": "partial_out_lse_global_block_index",
+          "cp_comm_expected_blocks": [
+            {
+              "global_block_index": 0,
+              "kv_block_end": 4,
+              "kv_block_start": 0,
+              "owner_cp_rank": 0,
+              "owner_tp_rank": 0
+            },
+            {
+              "global_block_index": 1,
+              "kv_block_end": 8,
+              "kv_block_start": 4,
+              "owner_cp_rank": 0,
+              "owner_tp_rank": 0
+            },
+            {
+              "global_block_index": 2,
+              "kv_block_end": 12,
+              "kv_block_start": 8,
+              "owner_cp_rank": 1,
+              "owner_tp_rank": 0
+            },
+            {
+              "global_block_index": 3,
+              "kv_block_end": 16,
+              "kv_block_start": 12,
+              "owner_cp_rank": 1,
+              "owner_tp_rank": 0
+            }
+          ],
+          "cp_comm_expected_kv_token_range": [
+            0,
+            16
+          ],
+          "cp_comm_merge_order": "global_block_index",
+          "cp_comm_merge_root_cp_rank": 0,
+          "cp_comm_pattern": "ag_rs",
+          "cp_comm_query_token_ranges": [
+            [
+              0,
+              8
+            ],
+            [
+              8,
+              16
+            ]
+          ],
+          "cp_comm_required": true,
+          "cp_comm_return_lse": true,
+          "cp_comm_runtime": "rccl",
+          "cp_comm_status": "implemented",
+          "cp_comm_strict_backward": "rs_out_backward_ag_then_ag_qkv_backward_rs",
+          "cp_comm_strict_contract": "ag_qkv_positions_shared_core_rs_out_lse",
+          "cp_comm_strict_kv_communication": "all_gather",
+          "cp_comm_strict_position_communication": "all_gather",
+          "cp_rank": 0,
+          "cp_world_size": 2,
+          "deterministic_backward": true,
+          "downcast_at": "final_write",
+          "fa_api_source": null,
+          "fa_package_version": null,
+          "fallback": false,
+          "fallback_reason": null,
+          "k_cache_rope_state": "post_rope",
+          "lse_domain": "attention",
+          "lse_dtype": "fp32",
+          "lse_exported": true,
+          "materialization": "ag_qkv_positions_shared_core_rs",
+          "merge_order_indices": [
+            0,
+            1
+          ],
+          "native_attention_arithmetic": true,
+          "num_splits": 1,
+          "platform": "rocm",
+          "production_ready": true,
+          "q_rope_state": "post_rope",
+          "reference_only": false,
+          "requested_backend": "flashinfer_layout_adapter",
+          "ring_partial_arithmetic": false,
+          "ring_schedule_default": true,
+          "rope_backend": "rlkernel.rocm.deterministic_rope",
+          "rope_fusion": false,
+          "rope_fusion_boundary": "rlkernel_rope_then_attention",
+          "rope_theta": 1000000.0,
+          "rotary_dim": null,
+          "softmax_scale": null,
+          "split_kv_control": "dense_non_split_api",
+          "strict_comm_autograd": true,
+          "strict_core_id": "rlkernel.attention.rocm.aiter_ck_dense_mha.v1",
+          "strict_core_row_plans": [
+            {
+              "actual_split_boundaries": [
+                [
+                  0,
+                  16
+                ]
+              ],
+              "actual_split_kv_count": 1,
+              "actual_split_kv_policy": "disabled",
+              "actual_split_kv_size": null,
+              "requested_split_kv_policy": "disabled",
+              "requested_split_kv_size": null,
+              "split_kv_accum_dtype": "fp32",
+              "split_kv_backend": "aiter.rocm.ck_dense_mha",
+              "split_kv_downcast_at": "final_write",
+              "split_kv_fallback": false,
+              "split_kv_fallback_reason": null,
+              "split_kv_merge_order": "global_block_index",
+              "split_kv_plan_source": "contract_exact"
+            },
+            {
+              "actual_split_boundaries": [
+                [
+                  0,
+                  16
+                ]
+              ],
+              "actual_split_kv_count": 1,
+              "actual_split_kv_policy": "disabled",
+              "actual_split_kv_size": null,
+              "requested_split_kv_policy": "disabled",
+              "requested_split_kv_size": null,
+              "split_kv_accum_dtype": "fp32",
+              "split_kv_backend": "aiter.rocm.ck_dense_mha",
+              "split_kv_downcast_at": "final_write",
+              "split_kv_fallback": false,
+              "split_kv_fallback_reason": null,
+              "split_kv_merge_order": "global_block_index",
+              "split_kv_plan_source": "contract_exact"
+            }
+          ],
+          "strict_full_qkv_all_gather": true,
+          "strict_local_kv_range": [
+            0,
+            8
+          ],
+          "strict_local_query_range": [
+            0,
+            8
+          ],
+          "strict_mode": true,
+          "strict_position_ids_all_gather": true,
+          "strict_schedule": "single_batch_aiter_ck_dense_mha_no_splitkv",
+          "strict_split_kv": "disabled",
+          "tp_rank": 0,
+          "tp_world_size": 2
+        },
+        "strict_schedule": "single_batch_aiter_ck_dense_mha_no_splitkv"
+      },
+      "tp_rank": 0,
+      "tp_world_size": 2,
+      "transport": "rccl_ag_rs"
+    },
+    {
+      "accum_dtype": "fp32",
+      "atol": 0.0002,
+      "cp_rank": 1,
+      "cp_world_size": 2,
+      "device": "cuda:5",
+      "downcast_at": "final_write",
+      "dtype": "bf16",
+      "expected_block_manifest": [
+        {
+          "global_block_index": 0,
+          "kv_block_end": 4,
+          "kv_block_start": 0,
+          "owner_cp_rank": 0,
+          "owner_tp_rank": 0
+        },
+        {
+          "global_block_index": 1,
+          "kv_block_end": 8,
+          "kv_block_start": 4,
+          "owner_cp_rank": 0,
+          "owner_tp_rank": 0
+        },
+        {
+          "global_block_index": 2,
+          "kv_block_end": 12,
+          "kv_block_start": 8,
+          "owner_cp_rank": 1,
+          "owner_tp_rank": 0
+        },
+        {
+          "global_block_index": 3,
+          "kv_block_end": 16,
+          "kv_block_start": 12,
+          "owner_cp_rank": 1,
+          "owner_tp_rank": 0
+        }
+      ],
+      "final_out_max_abs": 0.00048828125,
+      "final_output_dtype": "bfloat16",
+      "final_write_atol": 0.02,
+      "gathered_block_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "global_failure_count": 0,
+      "global_world_size": 8,
+      "local_block_indices": [
+        2,
+        3
+      ],
+      "lse_max_abs": 4.76837158203125e-07,
+      "out_max_abs": 9.5367431640625e-07,
+      "passed": true,
+      "protocol": "ag_query_local_kv_rs_out_lse",
+      "query_ag": "rccl_ag_rs",
+      "query_ag_max_abs": 0.0,
+      "query_range": [
+        8,
+        16
+      ],
+      "rank": 5,
+      "repeat_count": 3,
+      "repeat_lse_bitwise": true,
+      "repeat_manifest_bitwise": true,
+      "repeat_out_bitwise": true,
+      "repeat_query_bitwise": true,
+      "replica_count": 2,
+      "replica_index": 1,
+      "strict_protocol": "ag_qkv_positions_shared_core_rs_out_lse",
+      "strict_shared_core": {
+        "actual_backend": "aiter.rocm.ck_dense_mha",
+        "bitwise": {
+          "dk": true,
+          "dq": true,
+          "dv": true,
+          "lse": true,
+          "out": true
+        },
+        "communication_autograd": true,
+        "communication_backend": "rccl_ag_rs",
+        "executed": true,
+        "fallback": false,
+        "identity_errors": [],
+        "max_abs": {
+          "dk": 0.0,
+          "dq": 0.0,
+          "dv": 0.0,
+          "lse": 0.0,
+          "out": 0.0
+        },
+        "native_attention_arithmetic": true,
+        "passed": true,
+        "production_ready": true,
+        "repeat_lse_bitwise": true,
+        "repeat_out_bitwise": true,
+        "split_kv_policy": "disabled",
+        "strict_core_id": "rlkernel.attention.rocm.aiter_ck_dense_mha.v1",
+        "strict_mode": true,
+        "strict_provenance": {
+          "accum_dtype": "fp32",
+          "actual_backend": "aiter.rocm.ck_dense_mha",
+          "adapter_backend": "flashinfer",
+          "aiter_api_source": "aiter.ops.mha",
+          "aiter_source_sha256": "db61d7ce62a907c5079830622723f0abcc7fd35816d88006e381140cb6566ff4",
+          "arithmetic_plan_source": "aiter.ops.mha",
+          "arithmetic_semantics_verified": true,
+          "attention_backend": "aiter.rocm.ck_dense_mha",
+          "attention_mode": "prefill",
+          "batch_invariant_claim": "strict_runtime_verified",
+          "causal": true,
+          "communication_backend": "rccl_ag_rs",
+          "communication_overlap": "disabled",
+          "compute_communication": "decoupled",
+          "compute_order": [
+            0,
+            1
+          ],
+          "compute_schedule": "rlkernel.attention.strict_ring_state.v1",
+          "cp_comm_accum_dtype": "fp32",
+          "cp_comm_attention_numeric_reduction": false,
+          "cp_comm_backend": "rccl_ag_rs",
+          "cp_comm_compute_communication": "decoupled",
+          "cp_comm_contract": "partial_out_lse_global_block_index",
+          "cp_comm_expected_blocks": [
+            {
+              "global_block_index": 0,
+              "kv_block_end": 4,
+              "kv_block_start": 0,
+              "owner_cp_rank": 0,
+              "owner_tp_rank": 0
+            },
+            {
+              "global_block_index": 1,
+              "kv_block_end": 8,
+              "kv_block_start": 4,
+              "owner_cp_rank": 0,
+              "owner_tp_rank": 0
+            },
+            {
+              "global_block_index": 2,
+              "kv_block_end": 12,
+              "kv_block_start": 8,
+              "owner_cp_rank": 1,
+              "owner_tp_rank": 0
+            },
+            {
+              "global_block_index": 3,
+              "kv_block_end": 16,
+              "kv_block_start": 12,
+              "owner_cp_rank": 1,
+              "owner_tp_rank": 0
+            }
+          ],
+          "cp_comm_expected_kv_token_range": [
+            0,
+            16
+          ],
+          "cp_comm_merge_order": "global_block_index",
+          "cp_comm_merge_root_cp_rank": 0,
+          "cp_comm_pattern": "ag_rs",
+          "cp_comm_query_token_ranges": [
+            [
+              0,
+              8
+            ],
+            [
+              8,
+              16
+            ]
+          ],
+          "cp_comm_required": true,
+          "cp_comm_return_lse": true,
+          "cp_comm_runtime": "rccl",
+          "cp_comm_status": "implemented",
+          "cp_comm_strict_backward": "rs_out_backward_ag_then_ag_qkv_backward_rs",
+          "cp_comm_strict_contract": "ag_qkv_positions_shared_core_rs_out_lse",
+          "cp_comm_strict_kv_communication": "all_gather",
+          "cp_comm_strict_position_communication": "all_gather",
+          "cp_rank": 1,
+          "cp_world_size": 2,
+          "deterministic_backward": true,
+          "downcast_at": "final_write",
+          "fa_api_source": null,
+          "fa_package_version": null,
+          "fallback": false,
+          "fallback_reason": null,
+          "k_cache_rope_state": "post_rope",
+          "lse_domain": "attention",
+          "lse_dtype": "fp32",
+          "lse_exported": true,
+          "materialization": "ag_qkv_positions_shared_core_rs",
+          "merge_order_indices": [
+            0,
+            1
+          ],
+          "native_attention_arithmetic": true,
+          "num_splits": 1,
+          "platform": "rocm",
+          "production_ready": true,
+          "q_rope_state": "post_rope",
+          "reference_only": false,
+          "requested_backend": "flashinfer_layout_adapter",
+          "ring_partial_arithmetic": false,
+          "ring_schedule_default": true,
+          "rope_backend": "rlkernel.rocm.deterministic_rope",
+          "rope_fusion": false,
+          "rope_fusion_boundary": "rlkernel_rope_then_attention",
+          "rope_theta": 1000000.0,
+          "rotary_dim": null,
+          "softmax_scale": null,
+          "split_kv_control": "dense_non_split_api",
+          "strict_comm_autograd": true,
+          "strict_core_id": "rlkernel.attention.rocm.aiter_ck_dense_mha.v1",
+          "strict_core_row_plans": [
+            {
+              "actual_split_boundaries": [
+                [
+                  0,
+                  16
+                ]
+              ],
+              "actual_split_kv_count": 1,
+              "actual_split_kv_policy": "disabled",
+              "actual_split_kv_size": null,
+              "requested_split_kv_policy": "disabled",
+              "requested_split_kv_size": null,
+              "split_kv_accum_dtype": "fp32",
+              "split_kv_backend": "aiter.rocm.ck_dense_mha",
+              "split_kv_downcast_at": "final_write",
+              "split_kv_fallback": false,
+              "split_kv_fallback_reason": null,
+              "split_kv_merge_order": "global_block_index",
+              "split_kv_plan_source": "contract_exact"
+            },
+            {
+              "actual_split_boundaries": [
+                [
+                  0,
+                  16
+                ]
+              ],
+              "actual_split_kv_count": 1,
+              "actual_split_kv_policy": "disabled",
+              "actual_split_kv_size": null,
+              "requested_split_kv_policy": "disabled",
+              "requested_split_kv_size": null,
+              "split_kv_accum_dtype": "fp32",
+              "split_kv_backend": "aiter.rocm.ck_dense_mha",
+              "split_kv_downcast_at": "final_write",
+              "split_kv_fallback": false,
+              "split_kv_fallback_reason": null,
+              "split_kv_merge_order": "global_block_index",
+              "split_kv_plan_source": "contract_exact"
+            }
+          ],
+          "strict_full_qkv_all_gather": true,
+          "strict_local_kv_range": [
+            8,
+            16
+          ],
+          "strict_local_query_range": [
+            8,
+            16
+          ],
+          "strict_mode": true,
+          "strict_position_ids_all_gather": true,
+          "strict_schedule": "single_batch_aiter_ck_dense_mha_no_splitkv",
+          "strict_split_kv": "disabled",
+          "tp_rank": 0,
+          "tp_world_size": 2
+        },
+        "strict_schedule": "single_batch_aiter_ck_dense_mha_no_splitkv"
+      },
+      "tp_rank": 0,
+      "tp_world_size": 2,
+      "transport": "rccl_ag_rs"
+    },
+    {
+      "accum_dtype": "fp32",
+      "atol": 0.0002,
+      "cp_rank": 0,
+      "cp_world_size": 2,
+      "device": "cuda:6",
+      "downcast_at": "final_write",
+      "dtype": "bf16",
+      "expected_block_manifest": [
+        {
+          "global_block_index": 0,
+          "kv_block_end": 4,
+          "kv_block_start": 0,
+          "owner_cp_rank": 0,
+          "owner_tp_rank": 1
+        },
+        {
+          "global_block_index": 1,
+          "kv_block_end": 8,
+          "kv_block_start": 4,
+          "owner_cp_rank": 0,
+          "owner_tp_rank": 1
+        },
+        {
+          "global_block_index": 2,
+          "kv_block_end": 12,
+          "kv_block_start": 8,
+          "owner_cp_rank": 1,
+          "owner_tp_rank": 1
+        },
+        {
+          "global_block_index": 3,
+          "kv_block_end": 16,
+          "kv_block_start": 12,
+          "owner_cp_rank": 1,
+          "owner_tp_rank": 1
+        }
+      ],
+      "final_out_max_abs": 0.000244140625,
+      "final_output_dtype": "bfloat16",
+      "final_write_atol": 0.02,
+      "gathered_block_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "global_failure_count": 0,
+      "global_world_size": 8,
+      "local_block_indices": [
+        0,
+        1
+      ],
+      "lse_max_abs": 2.384185791015625e-07,
+      "out_max_abs": 7.152557373046875e-07,
+      "passed": true,
+      "protocol": "ag_query_local_kv_rs_out_lse",
+      "query_ag": "rccl_ag_rs",
+      "query_ag_max_abs": 0.0,
+      "query_range": [
+        0,
+        8
+      ],
+      "rank": 6,
+      "repeat_count": 3,
+      "repeat_lse_bitwise": true,
+      "repeat_manifest_bitwise": true,
+      "repeat_out_bitwise": true,
+      "repeat_query_bitwise": true,
+      "replica_count": 2,
+      "replica_index": 1,
+      "strict_protocol": "ag_qkv_positions_shared_core_rs_out_lse",
+      "strict_shared_core": {
+        "actual_backend": "aiter.rocm.ck_dense_mha",
+        "bitwise": {
+          "dk": true,
+          "dq": true,
+          "dv": true,
+          "lse": true,
+          "out": true
+        },
+        "communication_autograd": true,
+        "communication_backend": "rccl_ag_rs",
+        "executed": true,
+        "fallback": false,
+        "identity_errors": [],
+        "max_abs": {
+          "dk": 0.0,
+          "dq": 0.0,
+          "dv": 0.0,
+          "lse": 0.0,
+          "out": 0.0
+        },
+        "native_attention_arithmetic": true,
+        "passed": true,
+        "production_ready": true,
+        "repeat_lse_bitwise": true,
+        "repeat_out_bitwise": true,
+        "split_kv_policy": "disabled",
+        "strict_core_id": "rlkernel.attention.rocm.aiter_ck_dense_mha.v1",
+        "strict_mode": true,
+        "strict_provenance": {
+          "accum_dtype": "fp32",
+          "actual_backend": "aiter.rocm.ck_dense_mha",
+          "adapter_backend": "flashinfer",
+          "aiter_api_source": "aiter.ops.mha",
+          "aiter_source_sha256": "db61d7ce62a907c5079830622723f0abcc7fd35816d88006e381140cb6566ff4",
+          "arithmetic_plan_source": "aiter.ops.mha",
+          "arithmetic_semantics_verified": true,
+          "attention_backend": "aiter.rocm.ck_dense_mha",
+          "attention_mode": "prefill",
+          "batch_invariant_claim": "strict_runtime_verified",
+          "causal": true,
+          "communication_backend": "rccl_ag_rs",
+          "communication_overlap": "disabled",
+          "compute_communication": "decoupled",
+          "compute_order": [
+            0,
+            1
+          ],
+          "compute_schedule": "rlkernel.attention.strict_ring_state.v1",
+          "cp_comm_accum_dtype": "fp32",
+          "cp_comm_attention_numeric_reduction": false,
+          "cp_comm_backend": "rccl_ag_rs",
+          "cp_comm_compute_communication": "decoupled",
+          "cp_comm_contract": "partial_out_lse_global_block_index",
+          "cp_comm_expected_blocks": [
+            {
+              "global_block_index": 0,
+              "kv_block_end": 4,
+              "kv_block_start": 0,
+              "owner_cp_rank": 0,
+              "owner_tp_rank": 1
+            },
+            {
+              "global_block_index": 1,
+              "kv_block_end": 8,
+              "kv_block_start": 4,
+              "owner_cp_rank": 0,
+              "owner_tp_rank": 1
+            },
+            {
+              "global_block_index": 2,
+              "kv_block_end": 12,
+              "kv_block_start": 8,
+              "owner_cp_rank": 1,
+              "owner_tp_rank": 1
+            },
+            {
+              "global_block_index": 3,
+              "kv_block_end": 16,
+              "kv_block_start": 12,
+              "owner_cp_rank": 1,
+              "owner_tp_rank": 1
+            }
+          ],
+          "cp_comm_expected_kv_token_range": [
+            0,
+            16
+          ],
+          "cp_comm_merge_order": "global_block_index",
+          "cp_comm_merge_root_cp_rank": 0,
+          "cp_comm_pattern": "ag_rs",
+          "cp_comm_query_token_ranges": [
+            [
+              0,
+              8
+            ],
+            [
+              8,
+              16
+            ]
+          ],
+          "cp_comm_required": true,
+          "cp_comm_return_lse": true,
+          "cp_comm_runtime": "rccl",
+          "cp_comm_status": "implemented",
+          "cp_comm_strict_backward": "rs_out_backward_ag_then_ag_qkv_backward_rs",
+          "cp_comm_strict_contract": "ag_qkv_positions_shared_core_rs_out_lse",
+          "cp_comm_strict_kv_communication": "all_gather",
+          "cp_comm_strict_position_communication": "all_gather",
+          "cp_rank": 0,
+          "cp_world_size": 2,
+          "deterministic_backward": true,
+          "downcast_at": "final_write",
+          "fa_api_source": null,
+          "fa_package_version": null,
+          "fallback": false,
+          "fallback_reason": null,
+          "k_cache_rope_state": "post_rope",
+          "lse_domain": "attention",
+          "lse_dtype": "fp32",
+          "lse_exported": true,
+          "materialization": "ag_qkv_positions_shared_core_rs",
+          "merge_order_indices": [
+            0,
+            1
+          ],
+          "native_attention_arithmetic": true,
+          "num_splits": 1,
+          "platform": "rocm",
+          "production_ready": true,
+          "q_rope_state": "post_rope",
+          "reference_only": false,
+          "requested_backend": "flashinfer_layout_adapter",
+          "ring_partial_arithmetic": false,
+          "ring_schedule_default": true,
+          "rope_backend": "rlkernel.rocm.deterministic_rope",
+          "rope_fusion": false,
+          "rope_fusion_boundary": "rlkernel_rope_then_attention",
+          "rope_theta": 1000000.0,
+          "rotary_dim": null,
+          "softmax_scale": null,
+          "split_kv_control": "dense_non_split_api",
+          "strict_comm_autograd": true,
+          "strict_core_id": "rlkernel.attention.rocm.aiter_ck_dense_mha.v1",
+          "strict_core_row_plans": [
+            {
+              "actual_split_boundaries": [
+                [
+                  0,
+                  16
+                ]
+              ],
+              "actual_split_kv_count": 1,
+              "actual_split_kv_policy": "disabled",
+              "actual_split_kv_size": null,
+              "requested_split_kv_policy": "disabled",
+              "requested_split_kv_size": null,
+              "split_kv_accum_dtype": "fp32",
+              "split_kv_backend": "aiter.rocm.ck_dense_mha",
+              "split_kv_downcast_at": "final_write",
+              "split_kv_fallback": false,
+              "split_kv_fallback_reason": null,
+              "split_kv_merge_order": "global_block_index",
+              "split_kv_plan_source": "contract_exact"
+            },
+            {
+              "actual_split_boundaries": [
+                [
+                  0,
+                  16
+                ]
+              ],
+              "actual_split_kv_count": 1,
+              "actual_split_kv_policy": "disabled",
+              "actual_split_kv_size": null,
+              "requested_split_kv_policy": "disabled",
+              "requested_split_kv_size": null,
+              "split_kv_accum_dtype": "fp32",
+              "split_kv_backend": "aiter.rocm.ck_dense_mha",
+              "split_kv_downcast_at": "final_write",
+              "split_kv_fallback": false,
+              "split_kv_fallback_reason": null,
+              "split_kv_merge_order": "global_block_index",
+              "split_kv_plan_source": "contract_exact"
+            }
+          ],
+          "strict_full_qkv_all_gather": true,
+          "strict_local_kv_range": [
+            0,
+            8
+          ],
+          "strict_local_query_range": [
+            0,
+            8
+          ],
+          "strict_mode": true,
+          "strict_position_ids_all_gather": true,
+          "strict_schedule": "single_batch_aiter_ck_dense_mha_no_splitkv",
+          "strict_split_kv": "disabled",
+          "tp_rank": 1,
+          "tp_world_size": 2
+        },
+        "strict_schedule": "single_batch_aiter_ck_dense_mha_no_splitkv"
+      },
+      "tp_rank": 1,
+      "tp_world_size": 2,
+      "transport": "rccl_ag_rs"
+    },
+    {
+      "accum_dtype": "fp32",
+      "atol": 0.0002,
+      "cp_rank": 1,
+      "cp_world_size": 2,
+      "device": "cuda:7",
+      "downcast_at": "final_write",
+      "dtype": "bf16",
+      "expected_block_manifest": [
+        {
+          "global_block_index": 0,
+          "kv_block_end": 4,
+          "kv_block_start": 0,
+          "owner_cp_rank": 0,
+          "owner_tp_rank": 1
+        },
+        {
+          "global_block_index": 1,
+          "kv_block_end": 8,
+          "kv_block_start": 4,
+          "owner_cp_rank": 0,
+          "owner_tp_rank": 1
+        },
+        {
+          "global_block_index": 2,
+          "kv_block_end": 12,
+          "kv_block_start": 8,
+          "owner_cp_rank": 1,
+          "owner_tp_rank": 1
+        },
+        {
+          "global_block_index": 3,
+          "kv_block_end": 16,
+          "kv_block_start": 12,
+          "owner_cp_rank": 1,
+          "owner_tp_rank": 1
+        }
+      ],
+      "final_out_max_abs": 0.001953125,
+      "final_output_dtype": "bfloat16",
+      "final_write_atol": 0.02,
+      "gathered_block_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "global_failure_count": 0,
+      "global_world_size": 8,
+      "local_block_indices": [
+        2,
+        3
+      ],
+      "lse_max_abs": 4.76837158203125e-07,
+      "out_max_abs": 7.152557373046875e-07,
+      "passed": true,
+      "protocol": "ag_query_local_kv_rs_out_lse",
+      "query_ag": "rccl_ag_rs",
+      "query_ag_max_abs": 0.0,
+      "query_range": [
+        8,
+        16
+      ],
+      "rank": 7,
+      "repeat_count": 3,
+      "repeat_lse_bitwise": true,
+      "repeat_manifest_bitwise": true,
+      "repeat_out_bitwise": true,
+      "repeat_query_bitwise": true,
+      "replica_count": 2,
+      "replica_index": 1,
+      "strict_protocol": "ag_qkv_positions_shared_core_rs_out_lse",
+      "strict_shared_core": {
+        "actual_backend": "aiter.rocm.ck_dense_mha",
+        "bitwise": {
+          "dk": true,
+          "dq": true,
+          "dv": true,
+          "lse": true,
+          "out": true
+        },
+        "communication_autograd": true,
+        "communication_backend": "rccl_ag_rs",
+        "executed": true,
+        "fallback": false,
+        "identity_errors": [],
+        "max_abs": {
+          "dk": 0.0,
+          "dq": 0.0,
+          "dv": 0.0,
+          "lse": 0.0,
+          "out": 0.0
+        },
+        "native_attention_arithmetic": true,
+        "passed": true,
+        "production_ready": true,
+        "repeat_lse_bitwise": true,
+        "repeat_out_bitwise": true,
+        "split_kv_policy": "disabled",
+        "strict_core_id": "rlkernel.attention.rocm.aiter_ck_dense_mha.v1",
+        "strict_mode": true,
+        "strict_provenance": {
+          "accum_dtype": "fp32",
+          "actual_backend": "aiter.rocm.ck_dense_mha",
+          "adapter_backend": "flashinfer",
+          "aiter_api_source": "aiter.ops.mha",
+          "aiter_source_sha256": "db61d7ce62a907c5079830622723f0abcc7fd35816d88006e381140cb6566ff4",
+          "arithmetic_plan_source": "aiter.ops.mha",
+          "arithmetic_semantics_verified": true,
+          "attention_backend": "aiter.rocm.ck_dense_mha",
+          "attention_mode": "prefill",
+          "batch_invariant_claim": "strict_runtime_verified",
+          "causal": true,
+          "communication_backend": "rccl_ag_rs",
+          "communication_overlap": "disabled",
+          "compute_communication": "decoupled",
+          "compute_order": [
+            0,
+            1
+          ],
+          "compute_schedule": "rlkernel.attention.strict_ring_state.v1",
+          "cp_comm_accum_dtype": "fp32",
+          "cp_comm_attention_numeric_reduction": false,
+          "cp_comm_backend": "rccl_ag_rs",
+          "cp_comm_compute_communication": "decoupled",
+          "cp_comm_contract": "partial_out_lse_global_block_index",
+          "cp_comm_expected_blocks": [
+            {
+              "global_block_index": 0,
+              "kv_block_end": 4,
+              "kv_block_start": 0,
+              "owner_cp_rank": 0,
+              "owner_tp_rank": 1
+            },
+            {
+              "global_block_index": 1,
+              "kv_block_end": 8,
+              "kv_block_start": 4,
+              "owner_cp_rank": 0,
+              "owner_tp_rank": 1
+            },
+            {
+              "global_block_index": 2,
+              "kv_block_end": 12,
+              "kv_block_start": 8,
+              "owner_cp_rank": 1,
+              "owner_tp_rank": 1
+            },
+            {
+              "global_block_index": 3,
+              "kv_block_end": 16,
+              "kv_block_start": 12,
+              "owner_cp_rank": 1,
+              "owner_tp_rank": 1
+            }
+          ],
+          "cp_comm_expected_kv_token_range": [
+            0,
+            16
+          ],
+          "cp_comm_merge_order": "global_block_index",
+          "cp_comm_merge_root_cp_rank": 0,
+          "cp_comm_pattern": "ag_rs",
+          "cp_comm_query_token_ranges": [
+            [
+              0,
+              8
+            ],
+            [
+              8,
+              16
+            ]
+          ],
+          "cp_comm_required": true,
+          "cp_comm_return_lse": true,
+          "cp_comm_runtime": "rccl",
+          "cp_comm_status": "implemented",
+          "cp_comm_strict_backward": "rs_out_backward_ag_then_ag_qkv_backward_rs",
+          "cp_comm_strict_contract": "ag_qkv_positions_shared_core_rs_out_lse",
+          "cp_comm_strict_kv_communication": "all_gather",
+          "cp_comm_strict_position_communication": "all_gather",
+          "cp_rank": 1,
+          "cp_world_size": 2,
+          "deterministic_backward": true,
+          "downcast_at": "final_write",
+          "fa_api_source": null,
+          "fa_package_version": null,
+          "fallback": false,
+          "fallback_reason": null,
+          "k_cache_rope_state": "post_rope",
+          "lse_domain": "attention",
+          "lse_dtype": "fp32",
+          "lse_exported": true,
+          "materialization": "ag_qkv_positions_shared_core_rs",
+          "merge_order_indices": [
+            0,
+            1
+          ],
+          "native_attention_arithmetic": true,
+          "num_splits": 1,
+          "platform": "rocm",
+          "production_ready": true,
+          "q_rope_state": "post_rope",
+          "reference_only": false,
+          "requested_backend": "flashinfer_layout_adapter",
+          "ring_partial_arithmetic": false,
+          "ring_schedule_default": true,
+          "rope_backend": "rlkernel.rocm.deterministic_rope",
+          "rope_fusion": false,
+          "rope_fusion_boundary": "rlkernel_rope_then_attention",
+          "rope_theta": 1000000.0,
+          "rotary_dim": null,
+          "softmax_scale": null,
+          "split_kv_control": "dense_non_split_api",
+          "strict_comm_autograd": true,
+          "strict_core_id": "rlkernel.attention.rocm.aiter_ck_dense_mha.v1",
+          "strict_core_row_plans": [
+            {
+              "actual_split_boundaries": [
+                [
+                  0,
+                  16
+                ]
+              ],
+              "actual_split_kv_count": 1,
+              "actual_split_kv_policy": "disabled",
+              "actual_split_kv_size": null,
+              "requested_split_kv_policy": "disabled",
+              "requested_split_kv_size": null,
+              "split_kv_accum_dtype": "fp32",
+              "split_kv_backend": "aiter.rocm.ck_dense_mha",
+              "split_kv_downcast_at": "final_write",
+              "split_kv_fallback": false,
+              "split_kv_fallback_reason": null,
+              "split_kv_merge_order": "global_block_index",
+              "split_kv_plan_source": "contract_exact"
+            },
+            {
+              "actual_split_boundaries": [
+                [
+                  0,
+                  16
+                ]
+              ],
+              "actual_split_kv_count": 1,
+              "actual_split_kv_policy": "disabled",
+              "actual_split_kv_size": null,
+              "requested_split_kv_policy": "disabled",
+              "requested_split_kv_size": null,
+              "split_kv_accum_dtype": "fp32",
+              "split_kv_backend": "aiter.rocm.ck_dense_mha",
+              "split_kv_downcast_at": "final_write",
+              "split_kv_fallback": false,
+              "split_kv_fallback_reason": null,
+              "split_kv_merge_order": "global_block_index",
+              "split_kv_plan_source": "contract_exact"
+            }
+          ],
+          "strict_full_qkv_all_gather": true,
+          "strict_local_kv_range": [
+            8,
+            16
+          ],
+          "strict_local_query_range": [
+            8,
+            16
+          ],
+          "strict_mode": true,
+          "strict_position_ids_all_gather": true,
+          "strict_schedule": "single_batch_aiter_ck_dense_mha_no_splitkv",
+          "strict_split_kv": "disabled",
+          "tp_rank": 1,
+          "tp_world_size": 2
+        },
+        "strict_schedule": "single_batch_aiter_ck_dense_mha_no_splitkv"
+      },
+      "tp_rank": 1,
+      "tp_world_size": 2,
+      "transport": "rccl_ag_rs"
+    }
+  ],
+  "replica_count": 2,
+  "runtime_version": "7.14.60850",
+  "schema_version": "ws2_rccl_ag_rs_attention/v2",
+  "torch_version": "2.12.0+rocm7.14.0a20260608",
+  "tp_world_size": 2,
+  "transport": "rccl_ag_rs",
+  "world_size": 8
+}

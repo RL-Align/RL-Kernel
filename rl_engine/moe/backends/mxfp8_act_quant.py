@@ -4,7 +4,7 @@
 
 Each provider subclasses :class:`~rl_engine.moe.provider.ReferenceProvider` and
 overrides only the operators its backend delivers, per the start-kit protocol
-(``docs/design/dsv4_p5_expert_start_kit.md``); everything else stays on the
+(``docs/archive/design/dsv4_p5_expert_start_kit.md``); everything else stays on the
 FP32 oracle so ``scripts/check_p5.py`` runs end to end from day one.
 
 Both P5-1 backends are byte-equal with the oracle, so they inherit the oracle's
