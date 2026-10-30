@@ -16,6 +16,7 @@ nav:
       - operators/README.md
       - operators/activation.md
       - operators/moe-merge.md
+      - operators/p6-fused-combine.md
       - operators/attention.md
       - operators/fused-logp.md
       - operators/linear-logp.md

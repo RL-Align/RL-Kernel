@@ -19,6 +19,7 @@ Every operator page should include:
 ## Current Pages
 
 - [SiLU / SwiGLU Activation](activation.md)
+- [P6 T05 Fused MoE Combine](p6-fused-combine.md)
 - [Standard Attention](attention.md)
 - [Fused LogP](fused-logp.md)
 - [Fused Linear LogP](linear-logp.md)
