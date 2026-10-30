@@ -25,7 +25,7 @@ from rl_engine.backends.cuda.model_specific.minimax_h3.sp_norm_adaln import (
     SPRowLayout,
     sp_row_layout,
 )
-from rl_engine.validation.models.h3_ws2 import (
+from rl_engine.validation.distributed.h3_ws2 import (
     run_world,
     sp_case,
     sp_matches_ws1,
@@ -307,6 +307,51 @@ def test_plan_snapshots_caller_index():
     assert torch.equal(plan.index_buf, exchanged)
 
 
+@requires_cuda
+def test_inference_mode_index_is_planned_every_time_and_runs_both_ops():
+    """An index made under ``torch.inference_mode()`` has no version counter (reading it raises)."""
+
+    _require_ext()
+    from rl_engine.backends.cuda.model_specific.minimax_h3.sp_norm_adaln import H3SPNormAdaLNCudaOp
+
+    collective = SimpleNamespace(rank=0, world_size=1, all_gather=lambda x: x)
+    seq, hidden, rows = 4, 16, 2
+    gen = torch.Generator(device="cuda").manual_seed(0)
+
+    def bf16(*shape):
+        return torch.randn(*shape, device="cuda", generator=gen).bfloat16()
+
+    x, residual, y = bf16(1, seq, hidden), bf16(1, seq, hidden), bf16(1, seq, hidden)
+    weight, shift, scale, gate = (
+        bf16(hidden),
+        bf16(rows, hidden),
+        bf16(rows, hidden),
+        bf16(rows, hidden),
+    )
+    values = [0, 1, 0, 1]
+
+    op = H3SPNormAdaLNCudaOp(collective, seq, 1)
+    normal = torch.tensor(values, device="cuda")
+    want_norm = op.norm_modulated(x, weight, shift, scale, normal)
+    want_gate = op.gate_residual(residual, y, gate, normal)
+
+    with torch.inference_mode():
+        index = torch.tensor(values, device="cuda")
+        assert index.is_inference()
+        first = op.plan(
+            index, rows
+        )  # used to raise "Inference tensors do not track version counter"
+        got_norm = op.norm_modulated(x, weight, shift, scale, index)
+        got_gate = op.gate_residual(residual, y, gate, index)
+        index.copy_(torch.tensor([1, 1, 0, 0], device="cuda"))  # in place; no version to notice it
+        second = op.plan(index, rows)
+    assert torch.equal(got_norm, want_norm)
+    assert torch.equal(got_gate, want_gate)
+    assert second is not first
+    assert torch.equal(second.local_index, torch.tensor([1, 1, 0, 0], device="cuda"))
+    assert torch.equal(first.local_index, torch.tensor(values, device="cuda"))
+
+
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="needs two CUDA devices")
 def test_plain_norm_uses_activation_device_and_separate_cache():
     _require_ext()
@@ -360,7 +405,7 @@ def test_run_world_cleans_up_failed_workers(monkeypatch, mode):
 
     import torch.multiprocessing as mp
 
-    from rl_engine.validation.models import h3_ws2
+    from rl_engine.validation.distributed import h3_ws2
 
     workers = {
         "clean_exit": _worker_exit_without_result,
@@ -391,7 +436,7 @@ def _worker_reports_result(rank, world, init, queue, path, target, kwargs):
 
 
 def test_run_world_returns_rank_ordered_results(monkeypatch):
-    from rl_engine.validation.models import h3_ws2
+    from rl_engine.validation.distributed import h3_ws2
 
     monkeypatch.setattr(h3_ws2, "_bootstrap", _worker_reports_result)
     monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)

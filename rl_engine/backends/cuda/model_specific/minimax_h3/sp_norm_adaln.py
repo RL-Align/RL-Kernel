@@ -26,13 +26,13 @@ from dataclasses import dataclass
 
 import torch
 
-from rl_engine.ops.autograd.backward_runtime import record_backward
-from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 from rl_engine.backends.cuda.model_specific.minimax_h3.adaln_row_gather import (
     BACKWARD_TILE,
     _segment_tiles,
 )
 from rl_engine.backends.cuda.model_specific.minimax_h3.ws2_comm import gather_rows
+from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.reference.minimax_h3.gate_residual import validate_h3_gate_residual
 from rl_engine.reference.minimax_h3.rmsnorm import (
     H3_NORM_EPS,
@@ -347,6 +347,10 @@ class H3SPNormAdaLNCudaOp:
         device = index.device if index is not None else torch.device(device or "cuda")
         if device.type == "cuda" and device.index is None:
             device = torch.device("cuda", torch.cuda.current_device())
+        if index is not None and index.is_inference():
+            # An inference tensor has no version counter (reading it raises), so an in-place edit
+            # could not be seen: build the plan every time instead of reusing a cached one.
+            return sp_plan(self.layout, index, num_rows, device=device)
         version = -1 if index is None else index._version
         for obj, ver, rows, cached_device, plan in self._plans:
             if obj is index and ver == version and rows == num_rows and cached_device == device:
