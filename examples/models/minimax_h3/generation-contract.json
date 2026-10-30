@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "model_revision": "42ed227ee7df40d41602854ae760620d6eb651fe",
+  "provider_revision": "f53d552036a0d1bd5570782a39cd40cfabf112bc",
+  "workflow": "fl2va",
+  "seeds": [42, 43, 44],
+  "num_frames": 124,
+  "height": 768,
+  "width": 1344,
+  "fps": 24,
+  "sampling_rate": 32000,
+  "num_inference_steps": 50,
+  "preflight": {"num_frames": 124, "height": 128, "width": 128, "num_inference_steps": 2},
+  "quality_bounds": {"minimum_psnr_db": 30, "minimum_ssim": 0.99, "maximum_temporal_rmse": 0.01, "maximum_audio_relative_l2": 0.05},
+  "quality_bounds_policy": "Conservative absolute gates fixed before candidate generation; a failure remains a failure. Reference repeats must first satisfy these same bounds.",
+  "attention_query_chunk": 256,
+  "status": "unqualified_until_full_reference_and_candidate_runs_pass"
+}

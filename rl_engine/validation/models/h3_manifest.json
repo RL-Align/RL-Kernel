@@ -79,6 +79,40 @@
       "sha256": "3b12cdc7bbda772e7e31539ffa9a32f529dba7f4148273d2128bdc621fd27438"
     }
   },
+  "block_tensors": {
+    "transformer_blocks.0.attn.to_q.weight": {
+      "dtype": "bfloat16", "shape": [7168, 5376],
+      "sha256": "196f9120ad018784bcefd4224f0e08fae88ba1adf079ecdca18410a414a6a2a4"
+    },
+    "transformer_blocks.0.attn.to_k.weight": {
+      "dtype": "bfloat16", "shape": [7168, 5376],
+      "sha256": "8e9171f3b8cf894904d1ddbd96510739d7291d2992310de6a52e1d733ec895cd"
+    },
+    "transformer_blocks.0.attn.to_v.weight": {
+      "dtype": "bfloat16", "shape": [7168, 5376],
+      "sha256": "275bbc993b1ba738831e04d86f290c9988108d96fe8c97c3b576a043c7ff3fe1"
+    },
+    "transformer_blocks.0.attn.norm_q.weight": {
+      "dtype": "bfloat16", "shape": [128],
+      "sha256": "34a3f13557a2c0a9af260e48d431041e381779a0f61616cfe9800ec839693519"
+    },
+    "transformer_blocks.0.attn.norm_k.weight": {
+      "dtype": "bfloat16", "shape": [128],
+      "sha256": "8991949ddea3bc2136a0fcf0b980fa63bd0df760207e3116f7ce96df4e6ca058"
+    },
+    "transformer_blocks.0.attn.to_out.0.weight": {
+      "dtype": "bfloat16", "shape": [5376, 7168],
+      "sha256": "822cb426aaebe57d3d219b3c4f6855ca5c13821cb84ebe0a7474fe3a87869fd6"
+    },
+    "transformer_blocks.0.ff.net.0.proj.weight": {
+      "dtype": "bfloat16", "shape": [28672, 5376],
+      "sha256": "49587044f325aae73f046c4cda9637052670227ec3c2c289359d9d1ebf29f95d"
+    },
+    "transformer_blocks.0.ff.net.2.weight": {
+      "dtype": "bfloat16", "shape": [5376, 14336],
+      "sha256": "e19d4e1649e4b55b1931842e5cc4bb46892c2e635b9315b2996630a86284e88f"
+    }
+  },
   "reference_implementation": {
     "repo": "huggingface/diffusers",
     "commit": "f53d552036a0d1bd5570782a39cd40cfabf112bc",

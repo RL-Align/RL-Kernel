@@ -504,6 +504,19 @@ class TestNativeBackwardMetadata:
         with pytest.raises(RuntimeError, match="seg_first_tile"):
             _C.h3_adaln_row_gather_backward(**args)
 
+    def test_a_table_without_rows_is_rejected_not_answered_with_an_empty_result(self):
+        """Zero table rows cannot hold the positions of a non-empty sequence: fail closed, as the
+        RFC's per-operator gate asks of empty cases, instead of returning a ``(0, width)`` tensor.
+        """
+
+        _cuda_op()
+        from rl_engine.backends.extension import _C
+
+        args = _backward_args()
+        args["seg_first_tile"] = args["seg_first_tile"][:1]  # R + 1 = 1 entry: R = 0 rows
+        with pytest.raises(RuntimeError, match="table row count must be positive"):
+            _C.h3_adaln_row_gather_backward(**args)
+
     @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="needs two CUDA devices")
     @pytest.mark.parametrize("name", ["sorted_pos", "tile_begin", "tile_end", "seg_first_tile"])
     def test_metadata_on_another_device_than_grad_is_rejected(self, name):
