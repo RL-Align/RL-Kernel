@@ -5,6 +5,7 @@
 import hashlib
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -12,6 +13,80 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
+
+
+@pytest.mark.parametrize(
+    ("gpu_status", "validation_status", "plot_status", "expected"),
+    [(17, 23, 29, 17), (0, 23, 29, 23), (0, 0, 29, 29), (0, 0, 0, 0)],
+    ids=["gpu-failure", "validation-failure", "plot-failure", "success"],
+)
+def test_runbook_preserves_failure_priority_and_evidence_directory(
+    tmp_path, monkeypatch, gpu_status, validation_status, plot_status, expected
+):
+    commands = tmp_path / "commands"
+    commands.mkdir()
+    # Stub external commands; this exercises shell control flow without a GPU.
+    stub = (
+        f"#!{sys.executable}\n"
+        + """
+import os
+from pathlib import Path
+import sys
+
+command = Path(sys.argv[0]).name
+args = sys.argv[1:]
+if command == "nvcc":
+    print("simulated nvcc, release 12.4")
+elif command in ("nvidia-smi", "git"):
+    print("simulated " + command)
+elif args == ["-"]:
+    sys.stdin.read()
+elif args[:3] == ["-m", "pip", "freeze"]:
+    print("simulated-package==0")
+elif args[:2] == ["-m", "pytest"]:
+    if "-k" not in args:
+        print("simulated GPU test result")
+        sys.exit(int(os.environ["H3_TEST_GPU_STATUS"]))
+elif args[0] == "tools/validation/operators/validate_h3_ffn_down.py":
+    print("simulated validation result")
+    status = int(os.environ["H3_TEST_VALIDATION_STATUS"])
+    if not status:
+        Path(os.environ["H3_RESULT_DIR"], "report.json").write_text("{}")
+    sys.exit(status)
+elif args[0] == "benchmarks/operators/gemm/plot_h3_down_report.py":
+    print("simulated plot result")
+    sys.exit(int(os.environ["H3_TEST_PLOT_STATUS"]))
+else:
+    raise SystemExit("unexpected stub command: " + repr(args))
+"""
+    )
+    for name in ("python", "nvcc", "nvidia-smi", "git"):
+        path = commands / name
+        path.write_text(stub)
+        path.chmod(0o755)
+    result_dir = tmp_path / "evidence"
+    for name, value in {
+        "PATH": str(commands) + os.pathsep + os.environ["PATH"],
+        "H3_RESULT_DIR": str(result_dir),
+        "H3_BUILD_NATIVE": "0",
+        "H3_TEST_GPU_STATUS": str(gpu_status),
+        "H3_TEST_VALIDATION_STATUS": str(validation_status),
+        "H3_TEST_PLOT_STATUS": str(plot_status),
+    }.items():
+        monkeypatch.setenv(name, value)
+    result = subprocess.run(
+        ["bash", str(ROOT / "ci/scripts/run_h3_down_h100.sh"), "smoke"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == expected, result.stdout + result.stderr
+    assert f"Evidence directory: {result_dir}" in result.stdout
+    assert "simulated GPU test result" in (result_dir / "gpu-tests.txt").read_text()
+    assert "simulated validation result" in (result_dir / "validation.log").read_text()
+    assert "simulated plot result" in (result_dir / "plot.log").read_text()
+    if validation_status:
+        assert not (result_dir / "report.json").exists()
 
 
 def test_gpu_validator_refuses_cpu_and_preserves_error_evidence(tmp_path, monkeypatch):

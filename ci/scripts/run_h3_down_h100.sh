@@ -71,8 +71,10 @@ if [[ "${H3_COMPARE_VLLM:-0}" == 1 ]]; then args+=(--compare-vllm); fi
 set +e
 python tools/validation/operators/validate_h3_ffn_down.py "${args[@]}" 2>&1 | tee "$result_dir/validation.log"
 validation_status=${PIPESTATUS[0]}
+python benchmarks/operators/gemm/plot_h3_down_report.py "$result_dir/report.json" --output-dir "$result_dir" 2>&1 | tee "$result_dir/plot.log"
+plot_status=$?
 set -e
-python benchmarks/operators/gemm/plot_h3_down_report.py "$result_dir/report.json" --output-dir "$result_dir"
 echo "Evidence directory: $result_dir"
 if [[ "$gpu_test_status" -ne 0 ]]; then exit "$gpu_test_status"; fi
-exit "$validation_status"
+if [[ "$validation_status" -ne 0 ]]; then exit "$validation_status"; fi
+exit "$plot_status"

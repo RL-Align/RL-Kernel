@@ -26,6 +26,8 @@ using explicit operand strides; storage layout does not change logical K order.
 The historical forward/dX/dW matrix includes this path. Weight-gradient rows
 are sorted by logical identity
 and padded to a fixed 32-row extent before a single reduction.
+The 32768-row limit also applies to the cumulative active rows for one parameter
+across a backward session.
 
 The operator rejects invalid shapes, types, devices, TF32, duplicate active
 keys, inconsistent weight identity and nonzero padding gradients. Unsupported
@@ -217,12 +219,19 @@ forward/dX/dW at M=1,33,129,4097, chunking, and the large-row ordered/permuted/p
 canonical paths. No current GPU acceptance or performance result is claimed.
 
 Timing tables and chart legends now identify the recorded backend when available;
-reports without that field retain the generic candidate label. The report-label
-follow-up passed **12 report/tooling tests** on 2026-10-30; lint and formatting
-passed. The earlier compatibility results above are retained as a separate
+reports without that field retain the generic candidate label. The report and
+runbook checks passed **16 report/tooling tests** on 2026-10-30, including
+four CPU simulations of failure priority and evidence-directory output. Lint,
+formatting and Bash syntax checks passed. The earlier compatibility results above are retained as a separate
 execution. No GPU execution was repeated.
 
 ## Reproduction and remaining qualification
+
+The runbook preserves GPU-test, validation and plotting logs, always prints the
+evidence directory after plotting, and returns failures in that priority order.
+Its source patch captures tracked edits only; retain any executed untracked
+sources separately. Native comparisons also require matching build records;
+runtime provenance records the loaded binary hash but does not verify build flags.
 
 Use a dedicated non-MIG H100 80GB and a CUDA 12.4 development environment:
 
