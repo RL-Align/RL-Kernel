@@ -369,7 +369,7 @@ def run_world(world: int, target, inputs: dict[str, torch.Tensor], timeout: floa
         ]
         started = []
         deadline = time.monotonic() + timeout
-        status = {}
+        status: dict[int, object] = {}
         try:
             for proc in procs:
                 proc.start()
