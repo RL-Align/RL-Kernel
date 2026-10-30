@@ -171,6 +171,17 @@ local Qwen3-8B model. It does not download model weights or create a Python
 environment. Existing source directories must be clean because selecting a
 profile revision changes their checked-out commit.
 
+The strict tensor-parallel `linear_logp` route used by VIME training runs on the
+deterministic SM90 GEMM backend, which `pip install -e .` does not build by
+default. On Hopper, build the extension with the backend enabled; without it the
+strict TP route fails closed ("built without KERNEL_ALIGN_DET_GEMM_SM90=1;
+refusing naive fallback"). This build has been verified with CUDA 12.9:
+
+```bash
+KERNEL_ALIGN_FORCE_SM90=1 KERNEL_ALIGN_DET_GEMM_SM90=1 \
+  python3 -m pip install --no-build-isolation -e .
+```
+
 If Transformer Engine or CUDA Python lives outside the active environment,
 set these before `doctor` and `run`:
 

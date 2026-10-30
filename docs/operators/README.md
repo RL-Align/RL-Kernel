@@ -18,11 +18,14 @@ Every operator page should include:
 
 ## Current Pages
 
+- [MHC H Aggregate](mhc-pre-h-aggregate.md)
+
 - [SiLU / SwiGLU Activation](activation.md)
 - [Standard Attention](attention.md)
 - [Fused LogP](fused-logp.md)
 - [Fused Linear LogP](linear-logp.md)
 - [Batch-Invariant LogP](batch-invariant-logp.md)
+- [RMSNorm with a Residual Fork](rmsnorm-residual.md)
 - [Fused Linear LogP TP Test Runbook](linear-logp-tp-test.md)
 - [GRPO Loss](grpo-loss.md)
 - [RoPE](rope.md)
@@ -32,4 +35,5 @@ Every operator page should include:
 - [Matmul](matmul.md)
 - [Sampling](sampling.md)
 - [Token Embedding](embedding.md)
+- [DSv4 MoE](dsv4-moe.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)

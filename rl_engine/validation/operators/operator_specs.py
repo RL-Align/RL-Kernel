@@ -32,6 +32,18 @@ def _load_object(path: str) -> Any:
 
 
 OP_SPECS = {
+    "mhc_pre_h_aggregate": OperatorSpec(
+        name="mhc_pre_h_aggregate",
+        op_class="reduction",
+        gold_path=("rl_engine.kernels.ops.pytorch.mhc.NativeMHCPreHAggregateOp"),
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": ("rl_engine.kernels.ops.pytorch.mhc.NativeMHCPreHAggregateOp"),
+            "cuda": "rl_engine.kernels.ops.cuda.mhc.MHCPreHAggregateCudaOp",
+            "triton": "rl_engine.kernels.ops.triton.mhc.MHCPreHAggregateTritonOp",
+        },
+        grad_input_names=("residual", "pre"),
+    ),
     "rms_norm": OperatorSpec(
         name="rms_norm",
         op_class="reduction",
@@ -45,6 +57,18 @@ OP_SPECS = {
             "ascend": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
         },
         grad_input_names=("x", "weight"),
+    ),
+    "rmsnorm_residual": OperatorSpec(
+        name="rmsnorm_residual",
+        op_class="reduction",
+        gold_path="rl_engine.kernels.ops.pytorch.norm.rmsnorm_residual.NativeRMSNormResidualOp",
+        gold_method="forward",
+        candidate_paths={
+            "pytorch": "rl_engine.kernels.ops.pytorch.norm.rmsnorm_residual.NativeRMSNormResidualOp",
+            "cuda": "rl_engine.kernels.ops.cuda.norm.rmsnorm_residual.RMSNormResidualCudaOp",
+            "triton": "rl_engine.kernels.ops.triton.rmsnorm_residual_triton.RMSNormResidualTritonOp",
+        },
+        grad_input_names=("x", "gamma"),
     ),
     "qk_norm": OperatorSpec(
         name="qk_norm",
@@ -197,6 +221,18 @@ OP_SPECS = {
         },
         grad_input_names=("a", "b"),
     ),
+    "fp32_gemm_rms": OperatorSpec(
+        name="fp32_gemm_rms",
+        op_class="mhc_controller",
+        gold_path="rl_engine.mhc.fp32_gemm_rms_gtest.NativeGemmRMSOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.mhc.fp32_gemm_rms_gtest.NativeGemmRMSOp",
+            "cuda": "rl_engine.mhc.fp32_gemm_rms_gtest.CudaGemmRMSOp",
+            "triton": "rl_engine.mhc.fp32_gemm_rms_gtest.TritonGemmRMSOp",
+        },
+        grad_input_names=("x_flat", "weight"),
+    ),
     "rope": OperatorSpec(
         name="rope",
         op_class="elementwise",
@@ -345,6 +381,7 @@ def make_operator_case(
         inputs=make_operator_inputs(args.op, args, dtype, device),
         gold_fn=gold_fn,
         grad_input_names=spec.grad_input_names,
+        gold_backward_fn=getattr(gold_op, "backward_fp32", None),
     )
 
 

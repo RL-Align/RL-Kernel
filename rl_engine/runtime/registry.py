@@ -158,6 +158,17 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     # RMSNorm(pre-norm / QK-Norm) - pure Pytorch reference(ws1 ground-truth)
     TRITON_RMS_NORM = "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp"
     PYTORCH_NATIVE_RMS_NORM = "rl_engine.kernels.ops.pytorch.norm.rms_norm.NativeRMSNormOp"
+    CUDA_RMSNORM_RESIDUAL = "rl_engine.kernels.ops.cuda.norm.rmsnorm_residual.RMSNormResidualCudaOp"
+    TRITON_RMSNORM_RESIDUAL = (
+        "rl_engine.kernels.ops.triton.rmsnorm_residual_triton.RMSNormResidualTritonOp"
+    )
+    PYTORCH_RMSNORM_RESIDUAL = (
+        "rl_engine.kernels.ops.pytorch.norm.rmsnorm_residual.NativeRMSNormResidualOp"
+    )
+
+    CUDA_MHC_PRE_H_AGGREGATE = "rl_engine.kernels.ops.cuda.mhc.MHCPreHAggregateCudaOp"
+    TRITON_MHC_PRE_H_AGGREGATE = "rl_engine.kernels.ops.triton.mhc.MHCPreHAggregateTritonOp"
+    PYTORCH_MHC_PRE_H_AGGREGATE = "rl_engine.kernels.ops.pytorch.mhc.NativeMHCPreHAggregateOp"
 
     # Generic fallback
     TRITON_GENERIC = "rl_engine.kernels.ops.triton.generic.TritonOp"
@@ -204,6 +215,29 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
 
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
     return (
+        OperatorBackendDescriptor(
+            semantic_op="shared_residual_merge",
+            backend_id="rlkernel.moe.shared_residual_merge.reference.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"cpu", "cuda", "rocm"}),
+            # Primary (routed) input dtype; shared/residual may also be BF16.
+            supported_dtypes=frozenset({"float32"}),
+            # Local merge only; distributed topology requirements belong to the caller.
+            supported_topologies={},
+            determinism_or_alignment_properties={
+                "algorithm": "fixed_order_fp32_merge",
+                "batch_invariant": True,
+                "deterministic": True,
+                "reference_only": True,
+                "forward_only": True,
+                "strict_observable": True,
+                "gpu_launch_observable": False,
+            },
+            lifecycle=OperatorLifecycle.ENGINE_CONSTRUCTION,
+            implementation_class_or_factory=("rl_engine.kernels.ops.pytorch.moe.merge.MoeMergeOp"),
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="MoeMergeOp-v1",
+        ),
         OperatorBackendDescriptor(
             semantic_op="selected_logprob",
             backend_id="rlkernel.reference_logp",
@@ -536,6 +570,11 @@ class KernelRegistry:
 
         self._priority_map = {
             "cuda": {
+                "mhc_pre_h_aggregate": [
+                    OpBackend.CUDA_MHC_PRE_H_AGGREGATE,
+                    OpBackend.TRITON_MHC_PRE_H_AGGREGATE,
+                    OpBackend.PYTORCH_MHC_PRE_H_AGGREGATE,
+                ],
                 "logp": [
                     OpBackend.CUDA_FUSED_LOGP_GENERIC,
                     OpBackend.FLASHINFER,
@@ -591,6 +630,11 @@ class KernelRegistry:
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
                 ],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
+                "rmsnorm_residual": [
+                    OpBackend.CUDA_RMSNORM_RESIDUAL,
+                    OpBackend.TRITON_RMSNORM_RESIDUAL,
+                    OpBackend.PYTORCH_RMSNORM_RESIDUAL,
+                ],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [
@@ -612,6 +656,7 @@ class KernelRegistry:
                 ],
             },
             "rocm": {
+                "mhc_pre_h_aggregate": [OpBackend.PYTORCH_MHC_PRE_H_AGGREGATE],
                 "logp": [
                     OpBackend.ROCM_AITER,
                     OpBackend.TRITON_GENERIC,
@@ -646,12 +691,14 @@ class KernelRegistry:
                 ],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
+                "rmsnorm_residual": [OpBackend.PYTORCH_RMSNORM_RESIDUAL],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
             },
             "musa": {
+                "mhc_pre_h_aggregate": [OpBackend.PYTORCH_MHC_PRE_H_AGGREGATE],
                 "logp": [
                     OpBackend.MUSA_FUSED_LOGP_GENERIC,
                     OpBackend.TRITON_LOGP,
@@ -691,6 +738,7 @@ class KernelRegistry:
                     OpBackend.TRITON_RMS_NORM,
                     OpBackend.PYTORCH_NATIVE_RMS_NORM,
                 ],
+                "rmsnorm_residual": [OpBackend.PYTORCH_RMSNORM_RESIDUAL],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [
                     OpBackend.TRITON_EMBEDDING,
@@ -700,6 +748,7 @@ class KernelRegistry:
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
             },
             "cpu": {
+                "mhc_pre_h_aggregate": [OpBackend.PYTORCH_MHC_PRE_H_AGGREGATE],
                 "logp": [OpBackend.PYTORCH_NATIVE],
                 "logp_deterministic": [OpBackend.PYTORCH_NATIVE],
                 "logp_deterministic_indexed": [OpBackend.PYTORCH_NATIVE],
@@ -719,6 +768,7 @@ class KernelRegistry:
                 "batch_invariant_logp": [OpBackend.PYTORCH_BATCH_INVARIANT_LOGP],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
+                "rmsnorm_residual": [OpBackend.PYTORCH_RMSNORM_RESIDUAL],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
@@ -983,11 +1033,9 @@ class KernelRegistry:
     def _adjust_priority_for_hardware(self):
         """Adjust CUDA priorities for hardware-gated kernels."""
 
-        if device_ctx.device_type != "cuda":
+        if device_ctx.device_type != "cuda" or not torch.cuda.is_available():
             return
         try:
-            import torch
-
             from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 
             cc_major, cc_minor = torch.cuda.get_device_capability()

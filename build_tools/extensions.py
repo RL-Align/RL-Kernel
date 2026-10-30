@@ -226,6 +226,8 @@ def get_extensions():
             "csrc/cuda/gemm/det_gemm_kernel.cu",
             "csrc/cuda/norm/rmsnorm.cu",
             "csrc/cuda/activation/activation.cu",
+            "csrc/cuda/moe/sm90_fused_moe_mlp.cu",
+            "csrc/cuda/moe/fused_shared_expert_mlp.cu",
             "csrc/cuda/attention/deterministic_attention.cu",
         ]
         if is_rocm:
@@ -241,12 +243,20 @@ def get_extensions():
             # CUDA IPC and the fixed-tree collective implementation are not
             # part of the ROCm extension.
             cuda_sources.append("csrc/cuda/collectives/deterministic_collective.cu")
+            cuda_sources.append("csrc/cuda/mhc/rmsnorm_residual.cu")
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
             cuda_sources.append("csrc/cuda/attention/prefix_shared_attention.cu")
+            cuda_sources.append("csrc/cuda/mhc/mhc_pre_h_aggregate.cu")
 
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
-        if envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH):
+        use_fast_math = envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH)
+        if use_fast_math and not is_rocm:
+            raise RuntimeError(
+                "KERNEL_ALIGN_USE_FAST_MATH is incompatible with the deterministic "
+                "MHC H Aggregate CUDA contract"
+            )
+        if use_fast_math:
             nvcc_flags.append("--use_fast_math")
         if not is_rocm:
             cc_major, cc_minor = torch.cuda.get_device_capability()
@@ -366,6 +376,20 @@ def get_extensions():
                     extra_link_args.append("-lcuda")
                 nvcc_flags.append("-DRL_KERNEL_ENABLE_SM90")
                 cxx_flags.append("-DRL_KERNEL_ENABLE_SM90")
+            # SM90 fused MoE MLP (MXFP8 x MXFP4 grouped GEMM, FP8 WGMMA + TMA):
+            # csrc/cuda/moe/sm90_fused_moe_mlp.cu. Same gate style as det_gemm.
+            enable_moe_sm90 = os.environ.get("KERNEL_ALIGN_MOE_SM90") == "1"
+            if enable_moe_sm90:
+                tma_arch = f"{cc_major}{cc_minor}a"
+                arch_flag = f"-gencode=arch=compute_{tma_arch},code=sm_{tma_arch}"
+                if arch_flag not in nvcc_flags:
+                    nvcc_flags.append(arch_flag)
+                if "-lcuda" not in extra_link_args:
+                    extra_link_args.append("-lcuda")
+                if "-DRL_KERNEL_ENABLE_SM90" not in nvcc_flags:
+                    nvcc_flags.append("-DRL_KERNEL_ENABLE_SM90")
+                if "-DRL_KERNEL_ENABLE_SM90" not in cxx_flags:
+                    cxx_flags.append("-DRL_KERNEL_ENABLE_SM90")
 
         if is_rocm:
             nvcc_flags = _filter_rocm_incompatible_nvcc_flags(nvcc_flags)
@@ -378,6 +402,24 @@ def get_extensions():
                 extra_compile_args={
                     "cxx": cxx_flags,
                     "nvcc": nvcc_flags,
+                },
+                extra_link_args=extra_link_args,
+            )
+        )
+
+        # P1-2 fp32_gemm_rms: standalone strict-FP32 extension. Never built
+        # with fast-math, and FMA contraction is disabled so every multiply
+        # and add rounds separately (numeric profile oracle-fp32-mhc-v1).
+        mhc_nvcc_flags = [f for f in nvcc_flags if f != "--use_fast_math"]
+        mhc_nvcc_flags.append("-ffp-contract=off" if is_rocm else "-fmad=false")
+        extensions.append(
+            GpuExtension(
+                name="rl_engine._C_mhc",
+                sources=["csrc/cuda/mhc/fp32_gemm_rms.cu"],
+                include_dirs=[],
+                extra_compile_args={
+                    "cxx": cxx_flags,
+                    "nvcc": mhc_nvcc_flags,
                 },
                 extra_link_args=extra_link_args,
             )

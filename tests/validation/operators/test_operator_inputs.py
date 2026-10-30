@@ -41,7 +41,9 @@ def _args(**overrides):
 @pytest.mark.parametrize(
     "op_name",
     [
+        "mhc_pre_h_aggregate",
         "rms_norm",
+        "rmsnorm_residual",
         "qk_norm",
         "pack",
         "matmul",
@@ -72,6 +74,37 @@ def test_constant_logp_inputs_are_deterministic():
 
     assert torch.equal(inputs["logits"], torch.full((1, 2, 17), 0.5))
     assert torch.equal(inputs["token_ids"], torch.full((1, 2), 3, dtype=torch.long))
+
+
+def test_rmsnorm_residual_gamma_is_fp32():
+    inputs = make_operator_inputs(
+        "rmsnorm_residual", _args(input_mode="random"), torch.bfloat16, torch.device("cpu")
+    )
+    assert inputs["x"].dtype == torch.bfloat16
+    assert inputs["gamma"].dtype == torch.float32
+    assert not torch.equal(inputs["gamma"], inputs["gamma"].bfloat16().float())
+
+
+def test_mhc_pre_h_aggregate_inputs_match_mixed_precision_contract():
+    args = _args(input_mode="constant", batch=2, seq=3, normalized_dim=128)
+    inputs = make_operator_inputs("mhc_pre_h_aggregate", args, torch.bfloat16, torch.device("cpu"))
+
+    assert inputs["residual"].shape == (6, 4, 4096)
+    assert inputs["residual"].dtype is torch.bfloat16
+    assert inputs["pre"].shape == (6, 4)
+    assert inputs["pre"].dtype is torch.float32
+    assert operator_shape_name("mhc_pre_h_aggregate", args) == "6x4x4096"
+
+
+def test_mhc_pre_h_aggregate_operator_spec_registers_both_gradients():
+    args = _args(op="mhc_pre_h_aggregate", candidate="pytorch")
+
+    case = make_operator_case(args, torch.bfloat16, torch.device("cpu"))
+    candidate = make_candidate(args)
+
+    assert case.op_class == "reduction"
+    assert case.grad_input_names == ("residual", "pre")
+    assert candidate.name == "pytorch-mhc_pre_h_aggregate"
 
 
 def test_constant_batch_invariant_logp_inputs_match_operator_contract():
