@@ -19,6 +19,15 @@ bounds using the committed formula. It does not run a candidate. Candidate
 acceptance compares immutable reference artifacts and records the first failing
 tensor without changing bounds. Existing block-0 golden tolerances are unchanged.
 
+Generation uses the pinned public reference image identified in
+`generation-inputs.json`, the accompanying prompt and the three seeds/configuration
+in `generation-contract.json`. The preflight is explicitly lower resolution.
+Full generation keeps the official 124 frames, 1344×768, 24 fps and joint audio.
+Every initial packed input and predicted velocity is retained. The comparator
+checks identical initial noise, video/audio shape and quality gates and reports
+PSNR/SSIM, temporal RMSE and audio differences. Query chunking bounds candidate
+attention workspace while retaining all keys for each query; it is inference only.
+
 An independent reference run from `2681cadb` completed the FP32/BF16 full-model
 passes (638 parameter gradients each), three-seed generation and repeat comparisons.
 `reference-manifest.json` anchors its 1,635 evidence files; `full-model-thresholds.json`
@@ -62,11 +71,38 @@ thresholds `3064c7eb8924`, rule `2e2a4ac58471` and `fp32-reference/report.json` 
 all reference/checkpoint hashes, and runs block-0 golden tests without skips before
 full-model forward/backward. It requires calls to every candidate graph node in
 every block and rejects CUDA backend fallback. The comparator orders first drift
-by actual forward/backward execution. Generation is a separate job that may follow only a
-passing numerical comparison; it is not part of this change. Each GPU job uses one B200 and
-about 512 GB of host memory.
+by actual forward/backward execution. Only a passing numerical comparison permits
+the generation preflight (the end of `candidate.sbatch`) and full generation.
+
+Full candidate generation is its own job. With the candidate attention it takes
+about 20 hours per seed (about 1500 s per sampling step), longer than the three
+seeds fit in one 24-hour job, and a preemptible partition can evict a job every few
+hours. `generation.sbatch` therefore runs one seed per array task (`--array=0-2`)
+and `h3_full_generation --resume` continues after an eviction: every saved step is
+replayed from disk instead of recomputed and each replayed call's inputs are checked
+against their saved digest (`h3_generation_resume.py`). Recomputing the last saved step
+and requiring a bitwise match (`--verify-last-step`) costs a full step per restart, which
+on a heavily preempted partition is most of an attempt, so it is opt-in. A run is tied to
+the git trees of the model paths, not to a commit (`h3_generation_adopt.py` moves an older
+commit-based run over, only if those paths are identical). The task refuses
+to start unless the gates of `candidate.sbatch` passed (`<gate job id>` argument) at a commit whose
+model paths are byte-identical to this checkout's. After all seeds finish, `generation-compare.sbatch`
+runs the quality comparison. Each GPU job uses one B200 and about 512 GB of host
+memory.
 
 Status of the full-model qualification (evidence in `reports/experiments/h3-full-model-b200/`):
 numerical acceptance (50-block forward/backward under the provider-ensemble rule) has
-passed. Generation results are reported with the generation gate. No passed candidate
-result is claimed by CPU tests.
+passed; three-seed candidate generation has run, and its quality comparison has **not**
+passed the bounds fixed before generation (seed 44 passes, seeds 42 and 43 do not). The
+same bounds are also failed by the provider itself when one attention backend is forced
+(flash and memory-efficient: 0 of 3 seeds each), and the first denoising step differs
+from the provider's by the same amount (about 0.02 relative L2 on video) for the
+candidate as for those provider variants, so the bounds, which had only been checked
+against a bitwise-identical provider repeat, were never calibrated for a change of kernel.
+They are unchanged here. No passed candidate result is claimed by CPU tests.
+
+The generation environment must provide torchvision matching PyTorch (the B200
+reference environment uses torch 2.9.1+cu130 and torchvision 0.24.1+cu130).
+Qwen3VLProcessor needs its video processor even for the fixed image conditioning.
+The runner loads this processor locally before model weights and rejects missing
+required pipeline components instead of proceeding with a partially loaded pipeline.
