@@ -303,7 +303,8 @@ def test_native_table_bounds_fail_in_isolated_process(native_extension, operatio
     import sys
     import textwrap
 
-    script = textwrap.dedent("""
+    script = textwrap.dedent(
+        """
         import sys
         import torch
         from rl_engine import _C
@@ -335,7 +336,8 @@ def test_native_table_bounds_fail_in_isolated_process(native_extension, operatio
                 sys.exit(0)
             raise
         raise AssertionError("invalid index reached native table lookup without an assertion")
-    """)
+    """
+    )
     result = subprocess.run(
         [sys.executable, "-c", script, operation, str(bad_index)],
         capture_output=True,
@@ -369,7 +371,8 @@ def test_row_gather_metadata_bounds_in_isolated_process(native_extension, metada
     import sys
     import textwrap
 
-    script = textwrap.dedent("""
+    script = textwrap.dedent(
+        """
         import sys
         import torch
         from rl_engine import _C
@@ -389,7 +392,8 @@ def test_row_gather_metadata_bounds_in_isolated_process(native_extension, metada
                 sys.exit(0)
             raise
         raise AssertionError("invalid metadata was not rejected")
-    """)
+    """
+    )
     result = subprocess.run(
         [sys.executable, "-c", script, metadata, bound], capture_output=True, text=True, timeout=60
     )
