@@ -1,0 +1,253 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 RL-Kernel Contributors
+
+"""Regression coverage for real training/rollout provider comparisons."""
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+import torch
+
+from benchmarks import fused_logp_provider_evidence as evidence
+
+
+@pytest.mark.unit
+def test_importing_the_module_leaves_the_vllm_sampler_environment_alone():
+    """Importing the module in a clean process does not set ``VLLM_USE_FLASHINFER_SAMPLER``."""
+    env = {k: v for k, v in os.environ.items() if k != "VLLM_USE_FLASHINFER_SAMPLER"}
+    code = (
+        "import os; import benchmarks.fused_logp_provider_evidence; "
+        "print(repr(os.environ.get('VLLM_USE_FLASHINFER_SAMPLER')))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=Path(__file__).resolve().parents[2],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert result.stdout.strip().splitlines()[-1] == "None"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_comparison_counts_raw_bytes_and_rows_on_noncontiguous_tensors(dtype):
+    """On transposed inputs ``_comparison`` counts a +0/-0 flip as differing, by element and row."""
+    reference = torch.tensor([[0.0, 1.0], [2.0, 3.0]], dtype=dtype).T
+    candidate = torch.tensor([[-0.0, 1.0], [2.5, -3.25]], dtype=dtype).T
+    assert not reference.is_contiguous()
+    assert not candidate.is_contiguous()
+
+    result = evidence._comparison(candidate, reference)
+
+    assert result["elements_checked"] == 4
+    assert result["rows_checked"] == 2
+    # +0 and -0 compare equal numerically, but provider bitwise claims include
+    # their sign bit. Count changed elements once, regardless of changed bytes.
+    assert result["elements_differing"] == 3
+    assert result["rows_differing"] == 2
+    assert result["max_abs"] == 6.25
+
+
+@pytest.mark.unit
+def test_comparison_equal_inputs_reports_all_checked_rows():
+    """Identical 1-D inputs count each element as a checked row, with no differences or error."""
+    values = torch.tensor([-2.0, -0.0, 1.25])
+
+    result = evidence._comparison(values.clone(), values)
+
+    assert result["elements_checked"] == 3
+    assert result["rows_checked"] == 3
+    assert result["elements_differing"] == result["rows_differing"] == 0
+    assert result["max_abs"] == 0.0
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("mismatch", ["shape", "dtype"])
+def test_comparison_rejects_incomparable_boundaries(mismatch):
+    """``_comparison`` raises ``ValueError`` when the shapes or dtypes differ."""
+    reference = torch.ones(2, 3, dtype=torch.float32)
+    candidate = reference.reshape(3, 2) if mismatch == "shape" else reference.bfloat16()
+
+    with pytest.raises(ValueError):
+        evidence._comparison(candidate, reference)
+
+
+@pytest.fixture
+def passing_provider_case():
+    """Return the minimal ``run_case``-style case that ``_summary`` reads, with flash-attn executed.
+
+    Every comparison is a self-comparison, so all are bitwise equal and finite.
+    """
+    values = {"logp": torch.tensor([-2.0, -3.0]), "lse": torch.tensor([2.0, 3.0])}
+
+    def pair(prefix):
+        """Return self-comparisons of ``values`` keyed ``<prefix>_logp`` and ``<prefix>_lse``."""
+        return evidence._pair_comparisons(values, values, prefix)
+
+    return {
+        "configuration": {"tp_world_size": 2},
+        "comparisons": pair("vime_vs_vllm"),
+        "explicit_active_mask": {"comparisons": pair("train_vs_infer")},
+        "provider_active_compaction": {},
+        "layouts": {
+            "chunks_1": {
+                "vime_train": pair("layout_vs_full"),
+                "vllm_rollout": pair("layout_vs_full"),
+                "integration_train_vs_rollout": pair("vime_vs_vllm"),
+                "flash_train": pair("layout_vs_full"),
+                "flash_rollout": pair("layout_vs_full"),
+                "coordinated_flash_train_vs_rollout": pair("flash"),
+            }
+        },
+        "flash_attn": {
+            "status": "executed",
+            "same_provider_train_vs_no_grad": pair("flash"),
+            "replicated_tp1_train_vs_rollout_control": pair("flash"),
+            "coordinated_train_vs_rollout": pair("flash"),
+            "changed_implementation_vs_ws2": pair("flash_vs_ws2"),
+        },
+        "unsupported_requests": {"vime_top_p_replay": {"status": "rejected"}},
+    }
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("nonfinite", [float("nan"), float("inf"), -float("inf")])
+def test_same_bit_nonfinite_results_fail_summary_verdict(nonfinite, passing_provider_case):
+    """Bitwise-equal NaN/inf results fail the summary, the WS2 baseline and the flash verdict."""
+    values = torch.tensor([-2.0, nonfinite])
+    metric = evidence._comparison(values.clone(), values)
+
+    summary = evidence._summarize_comparisons([metric])
+
+    assert summary["all_bitwise_equal"] is True
+    assert summary["all_finite"] is False
+    assert summary["nonfinite_elements"] == 1
+    assert summary["passes"] is False
+    passing_provider_case["comparisons"]["vime_vs_vllm_logp"] = metric
+    passing_provider_case["flash_attn"]["coordinated_train_vs_rollout"]["flash_logp"] = metric
+    verdict = evidence._summary([passing_provider_case])
+    assert verdict["existing_ws2_provider_baseline"]["passes"] is False
+    assert (
+        verdict["flash_attn_candidate"]["coordinated_replacement_passes_sampled_contract"] is False
+    )
+
+
+@pytest.mark.unit
+def test_changed_implementation_drift_is_diagnostic_for_coordinated_replacement(
+    passing_provider_case,
+):
+    """Flash-vs-WS2 drift is reported as a diagnostic but does not fail the replacement verdict."""
+    passing_provider_case["flash_attn"]["changed_implementation_vs_ws2"]["flash_vs_ws2_logp"] = (
+        evidence._comparison(torch.tensor([-2.0, -3.25]), torch.tensor([-2.0, -3.0]))
+    )
+
+    verdict = evidence._summary([passing_provider_case])
+    candidate = verdict["flash_attn_candidate"]
+
+    assert verdict["existing_ws2_provider_baseline"]["passes"] is True
+    assert candidate["changed_implementation_vs_ws2_diagnostic"]["elements_differing"] == 1
+    assert candidate["changed_implementation_vs_ws2_diagnostic"]["passes"] is False
+    for gate in (
+        "same_provider_train_vs_no_grad",
+        "replicated_tp1_train_vs_rollout_control",
+        "fixed_topology_layout_invariance",
+        "coordinated_train_vs_rollout",
+    ):
+        assert candidate[gate]["passes"] is True
+    assert candidate["coordinated_replacement_passes_sampled_contract"] is True
+
+
+@pytest.mark.unit
+def test_coordinated_tp_train_rollout_drift_fails_even_when_layouts_pass(
+    passing_provider_case,
+):
+    """Coordinated flash train-vs-rollout drift fails the replacement while other gates pass."""
+    passing_provider_case["flash_attn"]["coordinated_train_vs_rollout"]["flash_logp"] = (
+        evidence._comparison(torch.tensor([-2.0, -3.25]), torch.tensor([-2.0, -3.0]))
+    )
+
+    verdict = evidence._summary([passing_provider_case])
+    candidate = verdict["flash_attn_candidate"]
+
+    assert verdict["existing_ws2_provider_baseline"]["passes"] is True
+    assert candidate["same_provider_train_vs_no_grad"]["passes"] is True
+    assert candidate["replicated_tp1_train_vs_rollout_control"]["passes"] is True
+    assert candidate["fixed_topology_layout_invariance"]["passes"] is True
+    assert candidate["coordinated_train_vs_rollout"]["elements_differing"] == 1
+    assert candidate["coordinated_train_vs_rollout"]["passes"] is False
+    assert candidate["coordinated_replacement_passes_sampled_contract"] is False
+
+
+@pytest.mark.cuda_only
+@pytest.mark.skipif(
+    not (torch.cuda.is_available() and torch.version.hip is None),
+    reason="a CUDA GPU is required",
+)
+@pytest.mark.parametrize(
+    ("dtype", "real_vocab", "temperature", "vocab_mask"),
+    [
+        (torch.bfloat16, None, 1.0, False),
+        (torch.float32, 233, 0.7, True),
+    ],
+)
+def test_real_vime_and_vllm_providers_compare_the_same_logit_boundary(
+    monkeypatch, dtype, real_vocab, temperature, vocab_mask
+):
+    """Real Vime and vLLM providers report the WS2 backend without fallback; checked pairs match.
+
+    Vime vs vLLM, Vime train vs no-grad and vLLM selected vs observed logp have no differing
+    bytes on any of the 5 rows. Also checks that ``run_case`` restores the caller's profile hook.
+    """
+    monkeypatch.setenv("VLLM_USE_FLASHINFER_SAMPLER", "0")
+    pytest.importorskip("vllm.v1.sample.sampler", reason="installed vLLM sampler is required")
+    previous_profiler = sys.getprofile()
+
+    result = evidence.run_case(
+        rows=5,
+        vocab=256,
+        seed=27,
+        dtype=dtype,
+        real_vocab=real_vocab,
+        temperature=temperature,
+        vocab_mask=vocab_mask,
+        layouts=False,
+    )
+
+    assert sys.getprofile() is previous_profiler
+    for provider in ("vime_train", "vllm_rollout"):
+        provenance = result["providers"][provider]["provenance"]
+        assert provenance["actual_backend"] == "pytorch-vocab-parallel-logp-ws2"
+        assert provenance["fallback"] is False
+        assert set(result["providers"][provider]["readback"]) >= {"logp", "lse"}
+    for boundary in (
+        "vime_vs_vllm_logp",
+        "vime_vs_vllm_lse",
+        "vime_train_vs_no_grad_logp",
+        "vime_train_vs_no_grad_lse",
+        "vllm_selected_vs_observed_logp",
+    ):
+        comparison = result["comparisons"][boundary]
+        assert comparison["rows_checked"] == 5, boundary
+        assert comparison["elements_checked"] == 5, boundary
+        assert comparison["rows_differing"] == 0, boundary
+        assert comparison["elements_differing"] == 0, boundary
+
+
+@pytest.mark.parametrize(
+    ("vocab", "real_vocab", "tp"), [(151_937, 151_930, 1), (151_936, 151_936, 3), (64, 65, 1)]
+)
+def test_vocab_layout_check_rejects_incompatible_shapes(vocab, real_vocab, tp):
+    """A vocab that the fixed tiles or TP degree cannot split fails before any rank starts."""
+    with pytest.raises(ValueError, match="incompatible"):
+        evidence._check_vocab_layout(vocab, real_vocab, tp)
+
+
+def test_vocab_layout_check_accepts_the_default_layout():
+    """The default padded vocab splits across 1 and 2 TP ranks and the fixed tiles."""
+    evidence._check_vocab_layout(151_936, 151_929, 1)
+    evidence._check_vocab_layout(151_936, 151_929, 2)
