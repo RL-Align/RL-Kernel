@@ -23,6 +23,7 @@ Every operator page should include:
 - [Fused LogP](fused-logp.md)
 - [Fused Linear LogP](linear-logp.md)
 - [Batch-Invariant LogP](batch-invariant-logp.md)
+- [DSv4 MoE](dsv4-moe.md)
 - [Fused Linear LogP TP Test Runbook](linear-logp-tp-test.md)
 - [GRPO Loss](grpo-loss.md)
 - [RoPE](rope.md)
