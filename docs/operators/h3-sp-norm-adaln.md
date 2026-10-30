@@ -97,7 +97,7 @@ or 21% (interleaved) of `d_table` elements.
 ## Tests
 
 ```bash
-python -m pytest tests/models/minimax_h3/test_h3_sp_norm_adaln.py -v   # layout, rank backward, NCCL SP2/4/8
+python -m pytest tests/distributed/sp/test_h3_sp_norm_adaln.py -v   # layout, rank backward, NCCL SP2/4/8
 python tools/validation/models/h3_ws2_evidence.py --op sp_norm_adaln --worlds 1,2,4,8 \
     --out reports/experiments/h3-sp-norm-adaln-b200/report.json
 python tools/validation/models/plot_h3_evidence.py reports/experiments/h3-sp-norm-adaln-b200/report.json
