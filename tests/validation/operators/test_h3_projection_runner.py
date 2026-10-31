@@ -64,6 +64,35 @@ def test_matrix_shapes_with_independent_cpu_reference(kind, monkeypatch):
     }
 
 
+@pytest.mark.parametrize("tensor", ("y", "dx", "dw"))
+def test_cpu_surrogate_detects_reference_failures(tensor, monkeypatch):
+    kind = "h3_attention_o_gemm"
+    monkeypatch.setitem(ops.SPECS, kind, (4, 6))
+
+    def inaccurate_projection(op, x, w, dy, keys, **kwargs):
+        values = list(reference_projection(x, w, dy))
+        values[("y", "dx", "dw").index(tensor)] += 1
+        return tuple(values), []
+
+    monkeypatch.setattr(runner, "training_projection", inaccurate_projection)
+    monkeypatch.setattr(
+        runner, "row_local", lambda op, x, w, dy: reference_projection(x, w, dy)[:2]
+    )
+    monkeypatch.setattr(runner, "timed", lambda fn, repeats: {"not_executed": True})
+    monkeypatch.setattr(runner, "_require_backend", lambda *args: None)
+    x = torch.ones(4, 4).bfloat16()
+    w = torch.ones(6, 4).bfloat16()
+    dy = torch.ones(4, 6).bfloat16()
+    case = runner.run_case(x, w, dy, "cpu_orchestration_only", 1, kind=kind)
+    assert not case["passed"]
+    reference_check = next(
+        check
+        for check in case["checks"]
+        if check["transform"] == "fp32_reference" and check["tensor"] == tensor
+    )
+    assert not reference_check["passed"] and reference_check["failing_elements"] > 0
+
+
 def test_replay_rejects_failed_sources_and_detects_drift():
     import copy
 

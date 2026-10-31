@@ -214,7 +214,7 @@ class H3ProjectionOp:
             "kernel_id": None,
             "fallback": False,
             "semantic_op": self.kind,
-            "arithmetic": "32-wide FP32 dot tiles, ordered FP32 additions, one BF16 cast",
+            "arithmetic": "32-wide BF16 multiply, FP32 accumulation and ordered sums, one BF16 cast",
             "tile": [64, 64, 32],
             "num_warps": 4,
             "num_stages": 2,

@@ -979,11 +979,14 @@ def _triton_gemm_fp32(
     *,
     bias: torch.Tensor | None = None,
     aligned_tiles: bool = False,
+    cuda_fp32_compensation: bool = True,
 ) -> torch.Tensor:
     """Compute a full-K FP32 GEMM with optional column bias.
 
     aligned_tiles permits omitting K/N load masks after divisibility checks.
-    The default keeps the existing masked loads and compiler options.
+    cuda_fp32_compensation controls the NVIDIA full-K correction and warp count.
+    Existing FP32 video projection callers can retain their four-warp arithmetic
+    by disabling it explicitly.
     """
 
     a, b = a.contiguous(), b.contiguous()
@@ -993,6 +996,7 @@ def _triton_gemm_fp32(
     _, N = b.shape
     c = torch.empty((M, N), device=a.device, dtype=torch.float32)
     grid = (triton.cdiv(M, _BLOCK_M), triton.cdiv(N, _BLOCK_N))
+    compensate = cuda_fp32_compensation and a.device.type == "cuda" and torch.version.hip is None
     _det_gemm_fp32_kernel[grid](
         a,
         b,
@@ -1011,10 +1015,10 @@ def _triton_gemm_fp32(
         BLOCK_N=_BLOCK_N,
         BLOCK_K=_BLOCK_K,
         PROMOTE_INPUTS=True,
-        # The PTX compensation is specific to the NVIDIA FP32-output path.
-        # H3 direct callers and other devices retain their arithmetic contract.
-        COMPENSATED=a.device.type == "cuda" and torch.version.hip is None,
-        num_warps=8 if a.device.type == "cuda" and torch.version.hip is None else 4,
+        # The PTX compensation is specific to opted-in NVIDIA FP32-output paths.
+        # H3 direct callers and the video projection retain their own contracts.
+        COMPENSATED=compensate,
+        num_warps=8 if compensate else 4,
         HAS_BIAS=bias is not None,
         EVEN_K=aligned_tiles and K % _BLOCK_K == 0,
         EVEN_N=aligned_tiles and N % _BLOCK_N == 0,

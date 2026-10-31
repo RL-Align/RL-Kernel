@@ -267,8 +267,8 @@ requires_sm90 = pytest.mark.skipif(
 @pytest.mark.cuda_only
 @requires_sm90
 @pytest.mark.parametrize("rows", [1, 33, 129])
-def test_full_h3_accuracy_and_four_judgments_on_gpu(rows, kind):
-    torch.backends.cuda.matmul.allow_tf32 = False
+def test_full_h3_accuracy_and_four_judgments_on_gpu(rows, kind, monkeypatch):
+    monkeypatch.setattr(torch.backends.cuda.matmul, "allow_tf32", False)
     generator = torch.Generator(device="cuda").manual_seed(420)
     input_dim, output_dim = down.SPECS[kind]
     x = torch.randn(rows, input_dim, device="cuda", generator=generator).bfloat16()
@@ -400,8 +400,8 @@ def test_byte_mismatch_count_crosses_comparison_chunk_boundary():
 @pytest.mark.cuda_only
 @requires_sm90
 @pytest.mark.parametrize("chunk_size", [1, 3])
-def test_full_width_all_padding_gradients_on_gpu(kind, chunk_size):
-    torch.backends.cuda.matmul.allow_tf32 = False
+def test_full_width_all_padding_gradients_on_gpu(kind, chunk_size, monkeypatch):
+    monkeypatch.setattr(torch.backends.cuda.matmul, "allow_tf32", False)
     k, n = down.SPECS[kind]
     x = torch.ones(3, k, device="cuda", dtype=torch.bfloat16).requires_grad_(True)
     w = torch.ones(n, k, device="cuda", dtype=torch.bfloat16).requires_grad_(True)

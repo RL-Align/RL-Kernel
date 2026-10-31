@@ -947,8 +947,8 @@ def test_forward_bias_fusion_preserves_fp32_rounding(rows):
     x, weight, bias, _ = _data(rows)
     gemm = _triton_gemm_fp32
     rhs = weight.t().contiguous()
-    expected = gemm(x, rhs) + bias
-    actual = gemm(x, rhs, bias=bias)
+    expected = gemm(x, rhs, cuda_fp32_compensation=False) + bias
+    actual = gemm(x, rhs, bias=bias, cuda_fp32_compensation=False)
     _assert_bytes(actual, expected)
     with torch.no_grad():
         _assert_bytes(_op()(x, weight, bias), expected)

@@ -12,12 +12,6 @@ def main():
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    matplotlib.rcParams.update({"svg.fonttype": "none", "svg.hashsalt": "h3-projections"})
     raw = args.evidence.read_bytes()
     bundle = json.loads(raw)
     unique_cases = {}
@@ -26,7 +20,17 @@ def main():
             for case in bundle["artifacts"][name]["content"]["cases"]:
                 key = (case["semantic_op"], case["input_family"], case["rows"])
                 unique_cases.setdefault(key, case)
+    required_ops = {"h3_ffn_gate_up_gemm", "h3_attention_o_gemm"}
+    missing_ops = required_ops - {key[0] for key in unique_cases if key[1] == "random"}
+    if missing_ops:
+        raise ValueError(f"evidence has no random cases for: {', '.join(sorted(missing_ops))}")
     report = {"cases": list(unique_cases.values())}
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    matplotlib.rcParams.update({"svg.fonttype": "none", "svg.hashsalt": "h3-projections"})
     fig, axes = plt.subplots(2, 3, figsize=(15, 8), constrained_layout=True)
     for row, (kind, title) in enumerate(
         [
@@ -52,8 +56,8 @@ def main():
         axes[row, 0].set(
             title=f"{title}: worst accuracy ratio",
             ylabel="Error / tolerance",
-            ylim=(0, 1.05),
         )
+        axes[row, 0].set_ylim(bottom=0)
         random_cases = sorted(
             [c for c in cases if c["input_family"] == "random"], key=lambda c: c["rows"]
         )

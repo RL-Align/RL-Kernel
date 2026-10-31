@@ -10,7 +10,7 @@ _BINARY_HASHES = {}
 
 
 class FixedFP32Backend:
-    """BF16 operands; FP32 dot tiles and ordered FP32 additions; one final cast.
+    """BF16 dot operands; FP32 accumulation and ordered tile sums; one final cast.
 
     Reuses `_det_gemm_fp32_kernel`, bypassing its FP32-input/output wrapper.
     Fixed 64x64x32 tiles, four warps, two stages, no tuning or split-K.
