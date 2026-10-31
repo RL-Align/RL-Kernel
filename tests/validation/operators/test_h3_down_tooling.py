@@ -1,0 +1,323 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 RL-Kernel Contributors
+"""CLI error evidence and report rendering checks without a GPU."""
+
+import hashlib
+import importlib.util
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[3]
+
+
+@pytest.mark.parametrize(
+    ("gpu_status", "validation_status", "plot_status", "tee_failure", "expected"),
+    [
+        (17, 23, 29, "", 17),
+        (0, 23, 29, "", 23),
+        (0, 0, 29, "", 29),
+        (0, 0, 0, "", 0),
+        (0, 0, 0, "gpu-tests.txt", 31),
+        (0, 0, 0, "validation.log", 31),
+        (17, 0, 0, "gpu-tests.txt", 17),
+        (0, 23, 0, "validation.log", 23),
+    ],
+    ids=[
+        "gpu-failure",
+        "validation-failure",
+        "plot-failure",
+        "success",
+        "gpu-log-failure",
+        "validation-log-failure",
+        "gpu-and-log-failure",
+        "validation-and-log-failure",
+    ],
+)
+def test_runbook_preserves_failure_priority_and_evidence_directory(
+    tmp_path, monkeypatch, gpu_status, validation_status, plot_status, tee_failure, expected
+):
+    commands = tmp_path / "commands"
+    commands.mkdir()
+    # Stub external commands; this exercises shell control flow without a GPU.
+    stub = (
+        f"#!{sys.executable}\n"
+        + """
+import os
+from pathlib import Path
+import sys
+
+command = Path(sys.argv[0]).name
+args = sys.argv[1:]
+if command == "nvcc":
+    print("simulated nvcc, release 12.4")
+elif command == "tee":
+    output = sys.stdin.read()
+    Path(args[-1]).write_text(output)
+    sys.stdout.write(output)
+    if Path(args[-1]).name == os.environ["H3_TEST_TEE_FAILURE"]:
+        sys.exit(31)
+elif command in ("nvidia-smi", "git"):
+    print("simulated " + command)
+elif args == ["-"]:
+    sys.stdin.read()
+elif args[:3] == ["-m", "pip", "freeze"]:
+    print("simulated-package==0")
+elif args[:2] == ["-m", "pytest"]:
+    if "-k" not in args:
+        print("simulated GPU test result")
+        sys.exit(int(os.environ["H3_TEST_GPU_STATUS"]))
+elif args[0] == "tools/validation/operators/validate_h3_ffn_down.py":
+    print("simulated validation result")
+    status = int(os.environ["H3_TEST_VALIDATION_STATUS"])
+    if not status:
+        Path(os.environ["H3_RESULT_DIR"], "report.json").write_text("{}")
+    sys.exit(status)
+elif args[0] == "benchmarks/operators/gemm/plot_h3_down_report.py":
+    print("simulated plot result")
+    sys.exit(int(os.environ["H3_TEST_PLOT_STATUS"]))
+else:
+    raise SystemExit("unexpected stub command: " + repr(args))
+"""
+    )
+    for name in ("python", "nvcc", "nvidia-smi", "git", "tee"):
+        path = commands / name
+        path.write_text(stub)
+        path.chmod(0o755)
+    result_dir = tmp_path / "evidence"
+    for name, value in {
+        "PATH": str(commands) + os.pathsep + os.environ["PATH"],
+        "H3_RESULT_DIR": str(result_dir),
+        "H3_BUILD_NATIVE": "0",
+        "H3_TEST_GPU_STATUS": str(gpu_status),
+        "H3_TEST_VALIDATION_STATUS": str(validation_status),
+        "H3_TEST_PLOT_STATUS": str(plot_status),
+        "H3_TEST_TEE_FAILURE": tee_failure,
+    }.items():
+        monkeypatch.setenv(name, value)
+    result = subprocess.run(
+        ["bash", str(ROOT / "ci/scripts/run_h3_down_h100.sh"), "smoke"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == expected, result.stdout + result.stderr
+    assert f"Evidence directory: {result_dir}" in result.stdout
+    assert (result_dir / "commit.txt").read_text().strip() == "simulated git"
+    assert "simulated GPU test result" in (result_dir / "gpu-tests.txt").read_text()
+    assert "simulated validation result" in (result_dir / "validation.log").read_text()
+    assert "simulated plot result" in (result_dir / "plot.log").read_text()
+    if validation_status:
+        assert not (result_dir / "report.json").exists()
+
+
+def test_gpu_validator_refuses_cpu_and_preserves_error_evidence(tmp_path, monkeypatch):
+    import torch
+
+    spec = importlib.util.spec_from_file_location(
+        "h3_validator_under_test", ROOT / "tools/validation/operators/validate_h3_ffn_down.py"
+    )
+    validator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(validator)
+    # Exercise the CPU branch without reinitializing this host's WSL CUDA driver.
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    report_path = tmp_path / "report.json"
+    status = validator.main(
+        [
+            "--rows",
+            "1",
+            "--families",
+            "random",
+            "--output",
+            str(report_path),
+        ],
+    )
+    assert status == 2
+    report = json.loads(report_path.read_text())
+    assert report["status"] == "error"
+    assert not report["acceptance_complete"]
+    assert not report["cases"]
+    assert "SM90 GPU is required" in report["error"]
+    assert report["provenance"]["contract_version"] == "ws1-c1-v2"
+    # Hash the real implementation after directory moves, never a compatibility shim.
+    from rl_engine.backends.shared.triton.gemm import det_gemm
+    from rl_engine.ops.autograd import canonical_backward
+    from rl_engine.runtime import registry
+
+    hashes = report["provenance"]["source_hashes"]
+    for module in (det_gemm, canonical_backward, registry):
+        path = Path(module.__file__).resolve()
+        source = path.read_bytes()
+        assert b"Compatibility import" not in source
+        assert hashes[str(path.relative_to(ROOT))] == hashlib.sha256(source).hexdigest()
+
+
+def test_failed_run_renders_summary_without_inventing_charts(tmp_path):
+    source = tmp_path / "report.json"
+    source.write_text(json.dumps({"status": "error", "cases": [], "error": "no SM90 GPU"}))
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "benchmarks/operators/gemm/plot_h3_down_report.py"),
+            str(source),
+            "--output-dir",
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "**error**" in (tmp_path / "summary.md").read_text()
+    assert "no SM90 GPU" in (tmp_path / "summary.md").read_text()
+    assert list(tmp_path.glob("*.png")) == []
+
+
+def test_plot_pipeline_with_explicitly_synthetic_test_data(tmp_path):
+    checks = [
+        {
+            "judgment": "forward_accuracy" if name == "y" else "gradient_accuracy",
+            "tensor": name,
+            "transform": "fp32_reference",
+            "passed": True,
+            "max_error_over_tolerance": 0.5,
+            "max_abs_error": 0.01,
+        }
+        for name in ("y", "dx", "dw")
+    ]
+    keys = (
+        "candidate_forward",
+        "candidate_forward_backward",
+        "torch_bf16_forward",
+        "torch_bf16_forward_backward",
+    )
+    source = tmp_path / "synthetic-test-report.json"
+    source.write_text(
+        json.dumps(
+            {
+                "status": "test_fixture",
+                "cases": [
+                    {
+                        "rows": 1,
+                        "input_family": "synthetic_test_data",
+                        "checks": checks,
+                        "benchmarks": {key: {"median_ms": 1.0} for key in keys},
+                    }
+                ],
+            }
+        )
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "benchmarks/operators/gemm/plot_h3_down_report.py"),
+            str(source),
+            "--output-dir",
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "synthetic_test_data.png").read_bytes().startswith(b"\x89PNG")
+    assert "synthetic_test_data" in (tmp_path / "checks.csv").read_text()
+
+
+@pytest.mark.parametrize("activation_kind", ["synthetic", "captured"])
+@pytest.mark.parametrize("probe_status", [None, "passed_probe", "failed_probe", "error"])
+def test_fixture_label_cannot_clear_capture_qualification(
+    tmp_path, monkeypatch, activation_kind, probe_status
+):
+    import torch
+
+    spec = importlib.util.spec_from_file_location(
+        "h3_fixture_metadata_under_test",
+        ROOT / "tools/validation/operators/validate_h3_ffn_down.py",
+    )
+    validator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(validator)
+
+    class FixtureTensor:
+        """Exercise report control flow without claiming device computation."""
+
+        dtype = torch.bfloat16
+
+        def to(self, device):
+            assert device == "cuda"
+            return self
+
+        def reshape(self, *shape):
+            return self
+
+    values = tuple(FixtureTensor() for _ in range(3))
+    metadata = {
+        "checkpoint_revision": validator.H3_CHECKPOINT_REVISION,
+        "weight_key": "test.down.weight",
+        "activation_source": "synthetic test fixture claiming a capture",
+        "activation_kind": activation_kind,
+        "capture_sha256": "0" * 64,
+    }
+    monkeypatch.setattr(validator, "provenance", lambda args: {})
+    monkeypatch.setattr(validator, "command", lambda args: "test device metadata")
+    monkeypatch.setattr(validator, "_require_backend", lambda *args: None)
+    monkeypatch.setattr(validator, "make_inputs", lambda *args: values)
+    case = {"passed": True}
+    if probe_status is not None:
+        case["vllm_comparison"] = {"status": probe_status}
+    monkeypatch.setattr(validator, "run_case", lambda *args, **kwargs: case.copy())
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "get_device_name", lambda: "test device")
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda: (9, 0))
+    monkeypatch.setattr(torch.version, "hip", None)
+    monkeypatch.setattr(torch, "set_float32_matmul_precision", lambda value: None)
+    monkeypatch.setattr(torch.backends.cuda.matmul, "allow_tf32", False)
+    monkeypatch.setattr(torch.backends.cuda.matmul, "allow_bf16_reduced_precision_reduction", False)
+    monkeypatch.setattr(
+        torch,
+        "load",
+        lambda *args, **kwargs: {
+            "x": values[0],
+            "weight": values[1],
+            "grad_output": values[2],
+            "metadata": metadata,
+        },
+    )
+    fixture_path = tmp_path / "fixture.pt"
+    fixture_path.write_bytes(b"synthetic control-flow fixture; tensor loading is mocked")
+    report_path = tmp_path / "report.json"
+    args = [
+        "--rows",
+        "1",
+        "--families",
+        "random",
+        "--fixture",
+        str(fixture_path),
+        "--output",
+        str(report_path),
+    ]
+    if probe_status is not None:
+        args.append("--compare-vllm")
+    status = validator.main(args)
+    report = json.loads(report_path.read_text())
+    expected_pass = probe_status in (None, "passed_probe")
+    assert status == (0 if expected_pass else 1)
+    assert report["status"] == ("passed" if expected_pass else "failed")
+    if probe_status is not None:
+        assert report["candidate_checks_passed"]
+        assert report["vllm_probe_status"] == probe_status
+    assert report["fixture"]["metadata"] == metadata
+    assert not report["fixture"]["activation_provenance_verified"]
+    assert not report["acceptance_complete"]
+    required = (
+        "real captured SwiGLU activations"
+        if activation_kind == "synthetic"
+        else "independent verification of captured SwiGLU activation provenance"
+    )
+    assert required in report["remaining_acceptance"]
