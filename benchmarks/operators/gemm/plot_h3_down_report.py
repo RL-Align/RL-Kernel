@@ -10,6 +10,26 @@ import math
 from pathlib import Path
 
 
+def normalize_benchmarks(benchmarks):
+    """Map historical native keys without losing an existing candidate result."""
+    normalized = {}
+    for key, value in benchmarks.items():
+        target = "candidate_" + key[len("native_") :] if key.startswith("native_") else key
+        if target in normalized:
+            raise ValueError(f"duplicate benchmark after native key mapping: {target}")
+        normalized[target] = value
+    required = (
+        "candidate_forward",
+        "torch_bf16_forward",
+        "candidate_forward_backward",
+        "torch_bf16_forward_backward",
+    )
+    missing = [key for key in required if key not in normalized]
+    if missing:
+        raise ValueError(f"report case lacks benchmark results: {', '.join(missing)}")
+    return normalized
+
+
 def plot_reference_accuracy(axis, cases):
     """Keep failed or unavailable accuracy checks visible without inventing errors."""
     counts = [case["rows"] for case in cases]
@@ -63,10 +83,7 @@ def main():
     backend_label = f"Candidate ({backend})" if backend else "Candidate"
     # Render earlier native-midtree reports alongside the versioned FP32 candidate.
     for case in cases:
-        case["benchmarks"] = {
-            key.replace("native_", "candidate_", 1): value
-            for key, value in case["benchmarks"].items()
-        }
+        case["benchmarks"] = normalize_benchmarks(case["benchmarks"])
     lines = [
         "# H3 down projection GPU evidence",
         "",

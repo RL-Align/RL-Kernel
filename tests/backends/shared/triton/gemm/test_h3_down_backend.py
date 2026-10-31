@@ -12,6 +12,14 @@ from rl_engine.backends.shared.triton.gemm import det_gemm
 from rl_engine.backends.shared.triton.gemm.h3_down_fp32_backend import FixedFP32Backend
 
 
+def test_h3_adapter_rejects_inner_dimension_mismatch_before_launch():
+    backend = object.__new__(FixedFP32Backend)
+    a = torch.empty((2, 3), dtype=torch.bfloat16, device="meta")
+    b = torch.empty((4, 5), dtype=torch.bfloat16, device="meta")
+    with pytest.raises(ValueError, match="GEMM inner dimensions differ: 3 != 4"):
+        backend.gemm(a, b)
+
+
 @pytest.mark.parametrize("role", ["forward", "dx", "dw"])
 def test_h3_launch_binds_current_shared_kernel_signature(role):
     if not det_gemm._TRITON_AVAILABLE:

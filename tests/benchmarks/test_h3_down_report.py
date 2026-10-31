@@ -25,6 +25,25 @@ report = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(report)
 
 
+def test_report_rejects_ambiguous_native_and_candidate_results():
+    benchmarks = {
+        "native_forward": {"median_ms": 1.0},
+        "candidate_forward": {"median_ms": 2.0},
+    }
+    with pytest.raises(ValueError, match="duplicate benchmark after native key mapping"):
+        report.normalize_benchmarks(benchmarks)
+
+
+def test_report_identifies_missing_benchmarks():
+    with pytest.raises(ValueError, match="candidate_forward_backward"):
+        report.normalize_benchmarks(
+            {
+                "candidate_forward": {"median_ms": 2.0},
+                "torch_bf16_forward": {"median_ms": 1.0},
+            }
+        )
+
+
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
 def test_nonfinite_failure_is_flagged_and_never_plotted_as_zero(value):
     failed = comparison(torch.tensor([value]), torch.zeros(1), "forward_accuracy")

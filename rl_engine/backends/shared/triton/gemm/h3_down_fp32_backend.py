@@ -31,6 +31,8 @@ class FixedFP32Backend:
 
     def gemm(self, a, b):
         m, k = a.shape
+        if b.shape[0] != k:
+            raise ValueError(f"GEMM inner dimensions differ: {k} != {b.shape[0]}")
         n = b.shape[1]
         output = torch.empty((m, n), dtype=torch.bfloat16, device=a.device)
         compiled = self.kernel[(self.triton.cdiv(m, 64), self.triton.cdiv(n, 64))](

@@ -103,8 +103,10 @@ The public evidence derivative records the full case/check matrix and source,
 environment, fixture, trace and timing provenance.
 Updated runbook control flow passed eight local shell simulations. The GPU
 test-harness edit passed static syntax inspection but was not rerun with pytest
-or on SM90. The recorded computation and validator source hashes still match
-the submitted code.
+or on SM90. The recorded computation and validator source hashes match the
+executed `92c98f0` code. A later adapter edit rejects mismatched GEMM inner
+dimensions before launch; its valid-shape launch path is unchanged. The
+submitted adapter revision has not been rerun on SM90.
 
 The report retains `acceptance_complete=false`: captured H3 activations,
 independent-environment replay, maintainer review of arithmetic and covered
