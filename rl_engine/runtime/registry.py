@@ -118,6 +118,10 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
         "rl_engine.backends.shared.triton.gemm.video_input_projection_fp32."
         "TritonVideoInputProjectionFP32Op"
     )
+    TRITON_VIDEO_OUTPUT_PROJECTION_FP32 = (
+        "rl_engine.backends.shared.triton.gemm.video_output_projection_fp32."
+        "TritonVideoOutputProjectionFP32Op"
+    )
     ASCEND_DET_GEMM = "rl_engine.kernels.ops.ascend.matmul.det_gemm.DetGemmAscendOp"
     # NON-deterministic reference (torch.matmul); reference/benchmark ONLY,
     # intentionally excluded from det_gemm dispatch (cuBLAS breaks invariance).
@@ -332,6 +336,36 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
                 "rlkernel-triton-ieee-fp32-dot-chunk128-halves64-tile128x32-merge64-"
                 "strided-aligned-forward-default-fusion-auto-canonical-proof-h3"
             ),
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="video_output_projection_fp32",
+            backend_id="triton-video-output-projection-fp32",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"cuda"}),
+            supported_dtypes=frozenset({"float32"}),
+            supported_topologies={
+                "rollout": {
+                    "world_size": (1,),
+                    "tensor_parallel_size": (1,),
+                    "context_parallel_size": (1,),
+                },
+                "training": {"world_size": (1,), "sharding": ("unsharded",)},
+            },
+            determinism_or_alignment_properties={
+                "algorithm": "fixed_fp32_gemm_canonical_parameter_vjp",
+                "input_width": 5376,
+                "output_width": 96,
+                "cuda_sm": 90,
+                "batch_invariant": True,
+                "deterministic": True,
+                "strict_observable": True,
+                "training_mode": "eager",
+                "parameter_gradient_order": "logical_key",
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=OpBackend.TRITON_VIDEO_OUTPUT_PROJECTION_FP32.value,
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="rlkernel-h3-video-output-projection-fp32-v1",
         ),
         OperatorBackendDescriptor(
             semantic_op="video_patch_pack_unpack",
@@ -794,6 +828,7 @@ class KernelRegistry:
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
                 "det_gemm": [OpBackend.CUDA_DET_GEMM, OpBackend.TRITON_DET_GEMM],
                 "video_input_projection_fp32": [OpBackend.TRITON_VIDEO_INPUT_PROJECTION_FP32],
+                "video_output_projection_fp32": [OpBackend.TRITON_VIDEO_OUTPUT_PROJECTION_FP32],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
@@ -1309,6 +1344,8 @@ class KernelRegistry:
             raise RuntimeError("h3_full_attention requires NVIDIA CUDA; no fallback")
         if op_type == "video_input_projection_fp32" and platform != "cuda":
             raise RuntimeError("video input projection is qualified on CUDA SM90 only")
+        if op_type == "video_output_projection_fp32" and platform != "cuda":
+            raise RuntimeError("video output projection is qualified on CUDA SM90 only")
         candidates = self._priority_map.get(platform, {}).get(op_type, [OpBackend.PYTORCH_NATIVE])
 
         for backend in candidates:
