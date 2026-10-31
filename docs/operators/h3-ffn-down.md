@@ -24,8 +24,8 @@ It computes `Y=X@W.T`, `dX=dY@W`, and canonical `dW=dY.T@X`. Strided tensors
 are normalized by copies. The adapter passes transposed weight/gradient views
 using explicit operand strides; storage layout does not change logical K order.
 The historical forward/dX/dW matrix includes this path. Weight-gradient rows
-are sorted by logical identity
-and padded to a fixed 32-row extent before a single reduction.
+are sorted by logical identity and padded to the next multiple of 32 rows before
+a single reduction.
 The 32768-row limit also applies to the cumulative active rows for one parameter
 across a backward session.
 
@@ -81,7 +81,7 @@ asynchronous execution guarantee or a measured speedup.
 
 ## H100 results
 
-### Current-head validation (2026-10-31)
+### H100 validation of `92c98f0` (2026-10-31)
 
 The clean `92c98f0792f2f26349210f5cff61f572dd15a3c3` source was validated on
 one non-MIG H100 80GB HBM3 (SM90) with Python 3.10.12, torch 2.6.0+cu124,
@@ -101,6 +101,10 @@ including wrapper work. No speedup or production qualification is claimed.
 The original report, failed setup attempts and logs are retained privately.
 The public evidence derivative records the full case/check matrix and source,
 environment, fixture, trace and timing provenance.
+Updated runbook control flow passed eight local shell simulations. The GPU
+test-harness edit passed static syntax inspection but was not rerun with pytest
+or on SM90. The recorded computation and validator source hashes still match
+the submitted code.
 
 The report retains `acceptance_complete=false`: captured H3 activations,
 independent-environment replay, maintainer review of arithmetic and covered
@@ -112,7 +116,7 @@ failed setup logs remain in the private archive. The provenance README explains
 the path and device-identifier replacements; the checksum manifest pins all
 other files.
 
-| Current-head evidence download | SHA256 |
+| 2026-10-31 evidence download | SHA256 |
 |---|---|
 | [README.md](https://gist.githubusercontent.com/zzf2024/a348109cb5f6510159cda306b8358d06/raw/157c0a10410b4e24b3fc51421d3fd988a04eacb0/README.md) | `a0075312e52846fc5fc7df27093cffc0fcd3fa6cae469179d8dd5db5e59ce4a4` |
 | [SHA256SUMS](https://gist.githubusercontent.com/zzf2024/a348109cb5f6510159cda306b8358d06/raw/157c0a10410b4e24b3fc51421d3fd988a04eacb0/SHA256SUMS) | `ce6b473fdf3e16439c74a1b8ab4d365f8e66f7f02037790954d561d725526f3d` |
@@ -262,7 +266,7 @@ launcher and does not compile or execute a Triton kernel.
 
 The shared GEMM and canonical reducer changed in the later upstream merge;
 the 2026-10-10 H100 results do not qualify these current dependencies.
-The current-head execution above covers the updated device path and its
+The 2026-10-31 execution above covers the updated device path and its
 full-width forward/dX/dW cases. Its scope remains operator-level qualification.
 
 Timing tables and chart legends now identify the recorded backend when available;

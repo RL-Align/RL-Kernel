@@ -16,12 +16,30 @@ ROOT = Path(__file__).resolve().parents[3]
 
 
 @pytest.mark.parametrize(
-    ("gpu_status", "validation_status", "plot_status", "expected"),
-    [(17, 23, 29, 17), (0, 23, 29, 23), (0, 0, 29, 29), (0, 0, 0, 0)],
-    ids=["gpu-failure", "validation-failure", "plot-failure", "success"],
+    ("gpu_status", "validation_status", "plot_status", "tee_failure", "expected"),
+    [
+        (17, 23, 29, "", 17),
+        (0, 23, 29, "", 23),
+        (0, 0, 29, "", 29),
+        (0, 0, 0, "", 0),
+        (0, 0, 0, "gpu-tests.txt", 31),
+        (0, 0, 0, "validation.log", 31),
+        (17, 0, 0, "gpu-tests.txt", 17),
+        (0, 23, 0, "validation.log", 23),
+    ],
+    ids=[
+        "gpu-failure",
+        "validation-failure",
+        "plot-failure",
+        "success",
+        "gpu-log-failure",
+        "validation-log-failure",
+        "gpu-and-log-failure",
+        "validation-and-log-failure",
+    ],
 )
 def test_runbook_preserves_failure_priority_and_evidence_directory(
-    tmp_path, monkeypatch, gpu_status, validation_status, plot_status, expected
+    tmp_path, monkeypatch, gpu_status, validation_status, plot_status, tee_failure, expected
 ):
     commands = tmp_path / "commands"
     commands.mkdir()
@@ -37,6 +55,12 @@ command = Path(sys.argv[0]).name
 args = sys.argv[1:]
 if command == "nvcc":
     print("simulated nvcc, release 12.4")
+elif command == "tee":
+    output = sys.stdin.read()
+    Path(args[-1]).write_text(output)
+    sys.stdout.write(output)
+    if Path(args[-1]).name == os.environ["H3_TEST_TEE_FAILURE"]:
+        sys.exit(31)
 elif command in ("nvidia-smi", "git"):
     print("simulated " + command)
 elif args == ["-"]:
@@ -60,7 +84,7 @@ else:
     raise SystemExit("unexpected stub command: " + repr(args))
 """
     )
-    for name in ("python", "nvcc", "nvidia-smi", "git"):
+    for name in ("python", "nvcc", "nvidia-smi", "git", "tee"):
         path = commands / name
         path.write_text(stub)
         path.chmod(0o755)
@@ -72,6 +96,7 @@ else:
         "H3_TEST_GPU_STATUS": str(gpu_status),
         "H3_TEST_VALIDATION_STATUS": str(validation_status),
         "H3_TEST_PLOT_STATUS": str(plot_status),
+        "H3_TEST_TEE_FAILURE": tee_failure,
     }.items():
         monkeypatch.setenv(name, value)
     result = subprocess.run(

@@ -58,7 +58,9 @@ if [[ "${H3_BUILD_NATIVE:-0}" == 1 ]]; then
 fi
 set +e
 python -m pytest -q tests/ops/gemm/test_h3_ffn_down.py | tee "$result_dir/gpu-tests.txt"
-gpu_test_status=${PIPESTATUS[0]}
+gpu_pipeline_status=("${PIPESTATUS[@]}")
+gpu_test_status=${gpu_pipeline_status[0]}
+if [[ "$gpu_test_status" -eq 0 ]]; then gpu_test_status=${gpu_pipeline_status[1]}; fi
 set -e
 
 args=(--output "$result_dir/report.json")
@@ -71,7 +73,9 @@ if [[ -n "${H3_FIXTURE:-}" ]]; then args+=(--fixture "$H3_FIXTURE"); fi
 if [[ "${H3_COMPARE_VLLM:-0}" == 1 ]]; then args+=(--compare-vllm); fi
 set +e
 python tools/validation/operators/validate_h3_ffn_down.py "${args[@]}" 2>&1 | tee "$result_dir/validation.log"
-validation_status=${PIPESTATUS[0]}
+validation_pipeline_status=("${PIPESTATUS[@]}")
+validation_status=${validation_pipeline_status[0]}
+if [[ "$validation_status" -eq 0 ]]; then validation_status=${validation_pipeline_status[1]}; fi
 python benchmarks/operators/gemm/plot_h3_down_report.py "$result_dir/report.json" --output-dir "$result_dir" 2>&1 | tee "$result_dir/plot.log"
 plot_status=$?
 set -e

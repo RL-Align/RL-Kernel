@@ -344,8 +344,8 @@ requires_sm90 = pytest.mark.skipif(
 @pytest.mark.cuda_only
 @requires_sm90
 @pytest.mark.parametrize("rows", [1, 33, 129, 4097])
-def test_full_h3_accuracy_and_four_judgments_on_gpu(rows):
-    torch.backends.cuda.matmul.allow_tf32 = False
+def test_full_h3_accuracy_and_four_judgments_on_gpu(rows, monkeypatch):
+    monkeypatch.setattr(torch.backends.cuda.matmul, "allow_tf32", False)
     generator = torch.Generator(device="cuda").manual_seed(420)
     x = torch.randn(rows, 14336, device="cuda", generator=generator).bfloat16()
     w = (torch.randn(5376, 14336, device="cuda", generator=generator) / 14336**0.5).bfloat16()
