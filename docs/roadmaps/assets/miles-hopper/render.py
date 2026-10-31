@@ -76,16 +76,16 @@ def architecture(f):
     f.node(38,24,280,79,[('Existing: vime integration',23,False),('integrations/orchestrators/vime',16,False)])
     f.node(495,24,500,79,[('New: miles integration',25,False),('integrations/orchestrators/miles',20,False)],True)
     f.arrow([(318,63),(495,63)],blue=True,dash=True,label='Reuse the approach',at=(405,82))
-    f.node(355,174,330,81,[('Extend: training integration',23,False),('Init hook + logprob provider',17,False),('engines/train/<backend>',17,False)],True)
+    f.node(355,174,330,81,[('Extend: Megatron training',23,False),('Init hook + logprob provider',17,False),('engines/train/megatron',17,False)],True)
     f.node(805,174,330,81,[('New: SGLang rollout adapter',23,False),('SGLang hooks / operator replacement',18,False),('engines/rollout/sglang',17,False)],True)
     f.node(370,330,750,59,[('Extend: shared operator integration',23,False),('integrations/common / engines/*/operators',19,False)],True)
-    f.node(370,414,750,59,[('Extend: ops interfaces, registry / plan',23,False),('New: selector / performance implementations',20,False)],True)
+    f.node(370,414,750,59,[('Extend: ops interfaces, registry / plan',23,False),('New: runtime/selector + runtime/performance',20,False)],True)
     f.node(38,174,225,112,[('New: hybrid MoE model',22,False),('models/qwen3_5_moe',18,False),('GDN / attention / MoE',19,False)],True)
-    f.node(38,356,225,110,[('Extend: contracts / platforms',18,False),('GDN / MoE numerical rules',19,False),('Hopper device capabilities',19,False)],True)
+    f.node(38,356,225,110,[('Extend: contracts / platforms',18,False),('GDN / MoE numerical rules',19,False),('Hopper / MUSA capabilities',19,False)],True)
     f.node(360,548,225,64,[('Extend: CUDA Hopper',22,False),('H100 / H200',18,False)],True)
-    f.node(640,548,215,64,[('Canonical reference',21,False),('Fixed-order baseline',18,False)],True)
+    f.node(640,548,215,64,[('MUSA: required roadmap',21,False),('MTT S5000',18,False)],True)
     f.node(910,548,215,64,[('Shared validated kernels',20,False),('backends/shared',18,False)])
-    for x,t in [(472,'csrc/cuda'),(747,'reference/'),(1017,'shared/triton')]:f.label(x,638,t,size=19)
+    for x,t in [(472,'csrc/cuda'),(747,'csrc/musa'),(1017,'shared/triton')]:f.label(x,638,t,size=19)
     f.arrow([(650,103),(650,174)])
     f.arrow([(840,103),(970,174)])
     f.arrow([(520,255),(520,286),(770,286),(770,330)])
@@ -103,7 +103,7 @@ def architecture(f):
 
 def dispatcher(f):
     f.group(18,22,1158,164,'Read configuration and registered kernels')
-    f.node(48,69,276,86,['Chip and software versions','H100 / H200 / CUDA stack'],True)
+    f.node(48,69,276,86,['Chip and software versions','H100 / H200 / S5000 / stack'],True)
     f.node(431,69,343,86,['Model, shape and phase','shape / dtype / profile'])
     f.node(880,69,263,86,['Registered kernels','registry / capability'])
     f.node(410,246,380,88,['Find compatible implementations','Check gradients, precision and consistency'])
@@ -129,7 +129,7 @@ def speculative_component_figure(f, lang='cn'):
     f.group(430,285,438,273,t('RL-Kernel 投机解码组件','RL-Kernel speculative component'))
     f.label(650,91,t('抽出共用的投机解码逻辑','Reusable speculative decoding'),24)
     f.label(650,136,t('共用协议 + sampling / packing','Common protocol + sampling / packing'),19)
-    f.label(650,179,'CUDA Hopper',20)
+    f.label(650,179,'Hopper baseline / required MUSA roadmap',20)
 
     f.node(78,94,280,62,[
         (t('保存本轮前缀状态','Save the round-start state'),22,False),
@@ -261,7 +261,8 @@ def pd_topology(f):
 def pd_combine(f):
     f.group(23,25,321,177,'Arrival order (example)')
     for x,t in [(48,'C2'),(120,'C0'),(192,'C3'),(264,'C1')]:f.node(x,81,61,47,[(t,22,True)])
-    f.label(181,166,'token / slot / expert in each message',16)
+    f.label(181,153,'Ci = gate[i] * expert_output[i]',15)
+    f.label(181,179,'token / slot / expert in each message',15)
     f.node(411,25,548,177,[],True)
     f.label(685,53,'Write to fixed buffer slots',23,True)
     for j in range(8):
@@ -290,7 +291,7 @@ FIGS={'architecture':architecture,'dispatcher':dispatcher,'speculative':speculat
 for name,fn in FIGS.items():
     path=ASSETS/f'{name}.pdf';c=canvas.Canvas(str(path),pagesize=(1200,660));fn(Figure(c));c.showPage();c.save()
     d=fitz.open(path);p=d[0];p.get_pixmap(matrix=fitz.Matrix(2,2),alpha=False).save(ASSETS/f'{name}.png')
-    im=Image.open(ASSETS/f'{name}.png')
+    im=Image.open(ASSETS/f'{name}.png');im.load();im=im.copy()
     im.quantize(colors=128,method=Image.Quantize.MEDIANCUT,dither=Image.Dither.NONE).save(ASSETS/f'{name}.png',optimize=True)
     (ASSETS/f'{name}.svg').write_text(p.get_svg_image(),encoding='utf-8');d.close()
 
