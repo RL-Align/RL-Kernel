@@ -53,6 +53,7 @@ nav:
   - Benchmarking:
     - benchmarking/README.md
     - benchmarking/hardware-dashboard.md
+    - benchmarking/ordered-reduction-h100.md
   - API Reference:
     - api/README.md
   - CLI Reference:
