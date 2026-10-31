@@ -81,6 +81,54 @@ asynchronous execution guarantee or a measured speedup.
 
 ## H100 results
 
+### Current-head validation (2026-10-31)
+
+The clean `92c98f0792f2f26349210f5cff61f572dd15a3c3` source was validated on
+one non-MIG H100 80GB HBM3 (SM90) with Python 3.10.12, torch 2.6.0+cu124,
+Triton 3.2.0 and CUDA toolkit 12.4. Smoke checks passed 28 CPU tests with four
+GPU cases deselected, then 32 SM90 tests and three validator cases. The SM90
+test suite includes the M=4097 ordered/permuted/padded canonical reduction.
+The explicit full matrix passed **49/49 cases and 1,141/1,141 comparisons**
+across the three input families and real checkpoint weights with synthetic
+activations. It covers forward, input gradient, canonical weight gradient and
+tail shapes. Execution traces include actual Triton JIT and cubin hashes; no
+fallback was used.
+
+All 49 measured candidate forward and forward-plus-backward cases were slower
+than ordinary torch BF16, with median time ratios of **4.897x** and **5.108x**.
+These are five-repeat synchronized wall timings for the whole operator path,
+including wrapper work. No speedup or production qualification is claimed.
+The original report, failed setup attempts and logs are retained privately.
+The public evidence derivative records the full case/check matrix and source,
+environment, fixture, trace and timing provenance.
+
+The report retains `acceptance_complete=false`: captured H3 activations,
+independent-environment replay, maintainer review of arithmetic and covered
+layouts, full-model/TP integration and a performance decision remain pending.
+
+The 12 files below were anonymously downloaded from the immutable Gist revision
+and byte-matched to the reviewed sanitized derivative. The original report and
+failed setup logs remain in the private archive. The provenance README explains
+the path and device-identifier replacements; the checksum manifest pins all
+other files.
+
+| Current-head evidence download | SHA256 |
+|---|---|
+| [README.md](https://gist.githubusercontent.com/zzf2024/a348109cb5f6510159cda306b8358d06/raw/157c0a10410b4e24b3fc51421d3fd988a04eacb0/README.md) | `a0075312e52846fc5fc7df27093cffc0fcd3fa6cae469179d8dd5db5e59ce4a4` |
+| [SHA256SUMS](https://gist.githubusercontent.com/zzf2024/a348109cb5f6510159cda306b8358d06/raw/157c0a10410b4e24b3fc51421d3fd988a04eacb0/SHA256SUMS) | `ce6b473fdf3e16439c74a1b8ab4d365f8e66f7f02037790954d561d725526f3d` |
+| [run-metadata.json](https://gist.githubusercontent.com/zzf2024/a348109cb5f6510159cda306b8358d06/raw/157c0a10410b4e24b3fc51421d3fd988a04eacb0/run-metadata.json) | `0cf9405763c4f36668814988880448e09e09d260c5ff885fd44f3ec611d0aa80` |
+| [smoke-report.json](https://gist.githubusercontent.com/zzf2024/a348109cb5f6510159cda306b8358d06/raw/157c0a10410b4e24b3fc51421d3fd988a04eacb0/smoke-report.json) | `229041f4f13161a0be4cbf1dd479bfd02c37cf23ca065e674639eaf242f00698` |
+| [h100-random.json](https://gist.githubusercontent.com/zzf2024/a348109cb5f6510159cda306b8358d06/raw/157c0a10410b4e24b3fc51421d3fd988a04eacb0/h100-random.json) | `d2c4d4471532db6c6167950a567bf790a31df3716fe3ae42ebd4a2f72afce310` |
+| [h100-swiglu-like.json](https://gist.githubusercontent.com/zzf2024/a348109cb5f6510159cda306b8358d06/raw/157c0a10410b4e24b3fc51421d3fd988a04eacb0/h100-swiglu-like.json) | `93dcdb230928c68964c0d8721c202f8c8ac1c82ccc272b842538da5dd49dbf2e` |
+| [h100-cancellation.json](https://gist.githubusercontent.com/zzf2024/a348109cb5f6510159cda306b8358d06/raw/157c0a10410b4e24b3fc51421d3fd988a04eacb0/h100-cancellation.json) | `c3799c6a173aae97699f42168a1ac21e72bbeac1c48919d77d925c6927450075` |
+| [h100-checkpoint-fixture.json](https://gist.githubusercontent.com/zzf2024/a348109cb5f6510159cda306b8358d06/raw/157c0a10410b4e24b3fc51421d3fd988a04eacb0/h100-checkpoint-fixture.json) | `c3c374dbe8f7b8ce89fb8dab9e9a6c6a6b28fda21986357e39d48d6e2b0e6f0a` |
+| [fixture-metadata.json](https://gist.githubusercontent.com/zzf2024/a348109cb5f6510159cda306b8358d06/raw/157c0a10410b4e24b3fc51421d3fd988a04eacb0/fixture-metadata.json) | `60dafdff4bd4d50cbef4f50bcaf8ffe8fd6b2fc883ef924cceafcec999f8ac6f` |
+| [smoke-cpu-tests.txt](https://gist.githubusercontent.com/zzf2024/a348109cb5f6510159cda306b8358d06/raw/157c0a10410b4e24b3fc51421d3fd988a04eacb0/smoke-cpu-tests.txt) | `f4e5bbfa2cb2d1427174429287fc5aa4e7ecd150c70886556c2a7e73bfd30d38` |
+| [smoke-gpu-tests.txt](https://gist.githubusercontent.com/zzf2024/a348109cb5f6510159cda306b8358d06/raw/157c0a10410b4e24b3fc51421d3fd988a04eacb0/smoke-gpu-tests.txt) | `0b2a18e7842d63f8dcbc886d8a664f99ed4a6980a50a839490a89b74a3054718` |
+| [full-validation.log](https://gist.githubusercontent.com/zzf2024/a348109cb5f6510159cda306b8358d06/raw/157c0a10410b4e24b3fc51421d3fd988a04eacb0/full-validation.log) | `86707b9c7fdeb99264e48a4c80760a602aa70de9004cb84ecf78917753b92696` |
+
+### Historical validation (2026-10-10)
+
 Measured on 2026-10-10: dedicated non-MIG H100 80GB HBM3, capability 9.0,
 81,559 MiB, driver 570.211.01, Ubuntu 22.04, Python 3.10.12, torch 2.6.0+cu124,
 CUDA 12.4 and primary Triton 3.2.0.
@@ -197,7 +245,7 @@ A follow-up to the same review passed **33 tests with 3 SM90 skips** across
 the operator and tooling suites after strengthening actual-call assertions
 and testing unverified fixture labels. The earlier registry/layout results
 were reused; their runtime sources are unchanged. Follow-up lint and formatting
-checks passed. No GPU execution was repeated.
+checks passed. No GPU execution was repeated in that 2026-10-26 review fix.
 
 ## Shared-kernel compatibility update
 
@@ -214,16 +262,16 @@ launcher and does not compile or execute a Triton kernel.
 
 The shared GEMM and canonical reducer changed in the later upstream merge;
 the 2026-10-10 H100 results do not qualify these current dependencies.
-Current SM90 execution is **not run**. The prepared GPU suite covers full-width
-forward/dX/dW at M=1,33,129,4097, chunking, and the large-row ordered/permuted/padded
-canonical paths. No current GPU acceptance or performance result is claimed.
+The current-head execution above covers the updated device path and its
+full-width forward/dX/dW cases. Its scope remains operator-level qualification.
 
 Timing tables and chart legends now identify the recorded backend when available;
 reports without that field retain the generic candidate label. The report and
 runbook checks passed **16 report/tooling tests** on 2026-10-30, including
 four CPU simulations of failure priority and evidence-directory output. Lint,
-formatting and Bash syntax checks passed. The earlier compatibility results above are retained as a separate
-execution. No GPU execution was repeated.
+formatting and Bash syntax checks passed. The earlier compatibility results
+above are retained as a separate execution. No GPU execution was repeated during
+those 2026-10-30 report/runbook checks.
 
 ## Reproduction and remaining qualification
 
@@ -233,7 +281,10 @@ Its source patch captures tracked edits only; retain any executed untracked
 sources separately. Native comparisons also require matching build records;
 runtime provenance records the loaded binary hash but does not verify build flags.
 
-Use a dedicated non-MIG H100 80GB and a CUDA 12.4 development environment:
+Use a dedicated non-MIG H100 80GB and a CUDA 12.4 development environment.
+Install matching Python 3.10 virtual-environment and development-header packages
+(for example, `python3.10-venv` and `python3.10-dev` on Ubuntu). Triton JIT
+compiles a CUDA helper even when the optional native extension is disabled:
 
 ```bash
 python3.10 -m venv .venv
@@ -249,9 +300,9 @@ python tools/validation/operators/validate_h3_ffn_down.py --seed 420 --repeats 5
 ```
 
 The default needs Triton, not the native extension. `H3_BUILD_NATIVE=1` optionally
-builds the legacy comparison with fast math disabled; that build requires matching
-Python development headers and nvcc 12.4. `--compare-vllm` is an explicit partial
-probe; use a separate Triton 3.4.0 environment without replacing the primary profile.
+builds the legacy comparison with fast math disabled; the runbook requires nvcc 12.4.
+`--compare-vllm` is an explicit partial probe; use a separate Triton 3.4.0
+environment without replacing the primary profile.
 
 This change is ready for **operator review**, with `acceptance_complete=false`.
 Captured H3 activations, review of arithmetic/covered layouts, formal runtime

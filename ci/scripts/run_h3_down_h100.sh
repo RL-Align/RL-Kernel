@@ -36,10 +36,11 @@ if torch.cuda.get_device_capability() != (9, 0):
 if torch.version.cuda != '12.4':
     raise SystemExit('This initial runbook pins a CUDA 12.4 PyTorch build')
 print(torch.__version__, torch.cuda.get_device_name(), torch.cuda.get_device_capability())
-if os.environ.get('H3_BUILD_NATIVE', '0') == '1' and not (
-    Path(sysconfig.get_path('include')) / 'Python.h'
-).is_file():
-    raise SystemExit('Python development headers are required; install the matching pythonX.Y-dev')
+if not (Path(sysconfig.get_path('include')) / 'Python.h').is_file():
+    raise SystemExit(
+        'Python development headers are required for Triton JIT; '
+        'install the matching pythonX.Y-dev'
+    )
 PY
 nvcc --version | tee "$result_dir/nvcc.txt"
 nvcc_version="$(< "$result_dir/nvcc.txt")"
