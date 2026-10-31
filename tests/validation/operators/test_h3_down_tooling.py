@@ -230,7 +230,10 @@ def test_plot_pipeline_with_explicitly_synthetic_test_data(tmp_path):
 
 
 @pytest.mark.parametrize("activation_kind", ["synthetic", "captured"])
-def test_fixture_label_cannot_clear_capture_qualification(tmp_path, monkeypatch, activation_kind):
+@pytest.mark.parametrize("probe_status", [None, "passed_probe", "failed_probe", "error"])
+def test_fixture_label_cannot_clear_capture_qualification(
+    tmp_path, monkeypatch, activation_kind, probe_status
+):
     import torch
 
     spec = importlib.util.spec_from_file_location(
@@ -264,7 +267,10 @@ def test_fixture_label_cannot_clear_capture_qualification(tmp_path, monkeypatch,
     monkeypatch.setattr(validator, "command", lambda args: "test device metadata")
     monkeypatch.setattr(validator, "_require_backend", lambda *args: None)
     monkeypatch.setattr(validator, "make_inputs", lambda *args: values)
-    monkeypatch.setattr(validator, "run_case", lambda *args, **kwargs: {"passed": True})
+    case = {"passed": True}
+    if probe_status is not None:
+        case["vllm_comparison"] = {"status": probe_status}
+    monkeypatch.setattr(validator, "run_case", lambda *args, **kwargs: case.copy())
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(torch.cuda, "get_device_name", lambda: "test device")
     monkeypatch.setattr(torch.cuda, "get_device_capability", lambda: (9, 0))
@@ -285,20 +291,26 @@ def test_fixture_label_cannot_clear_capture_qualification(tmp_path, monkeypatch,
     fixture_path = tmp_path / "fixture.pt"
     fixture_path.write_bytes(b"synthetic control-flow fixture; tensor loading is mocked")
     report_path = tmp_path / "report.json"
-    status = validator.main(
-        [
-            "--rows",
-            "1",
-            "--families",
-            "random",
-            "--fixture",
-            str(fixture_path),
-            "--output",
-            str(report_path),
-        ]
-    )
+    args = [
+        "--rows",
+        "1",
+        "--families",
+        "random",
+        "--fixture",
+        str(fixture_path),
+        "--output",
+        str(report_path),
+    ]
+    if probe_status is not None:
+        args.append("--compare-vllm")
+    status = validator.main(args)
     report = json.loads(report_path.read_text())
-    assert status == 0 and report["status"] == "passed"
+    expected_pass = probe_status in (None, "passed_probe")
+    assert status == (0 if expected_pass else 1)
+    assert report["status"] == ("passed" if expected_pass else "failed")
+    if probe_status is not None:
+        assert report["candidate_checks_passed"]
+        assert report["vllm_probe_status"] == probe_status
     assert report["fixture"]["metadata"] == metadata
     assert not report["fixture"]["activation_provenance_verified"]
     assert not report["acceptance_complete"]

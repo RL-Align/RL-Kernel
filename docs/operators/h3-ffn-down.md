@@ -70,7 +70,9 @@ microbatch weight gradients; call `validate_complete()` to detect missing branch
 Execution traces record requested/actual backend, kernel, arithmetic, schedule,
 topology, checkpoint, separate `input_gradient_kernel` / `weight_gradient_kernel`
 fields and actual JIT/cubin hashes. A deferred canonical weight reduction keeps
-its kernel field unset until that use executes the reduction.
+its kernel field unset until that use executes the reduction. This candidate
+requires the loaded Triton kernel to expose its hash and cubin for provenance;
+a build without those fields cannot run this profile.
 
 Each forward validates and constructs its backend once and retains it for
 backward. Padding row indices are snapshotted during forward registration;
@@ -104,9 +106,10 @@ environment, fixture, trace and timing provenance.
 Updated runbook control flow passed eight local shell simulations. The GPU
 test-harness edit passed static syntax inspection but was not rerun with pytest
 or on SM90. The recorded computation and validator source hashes match the
-executed `92c98f0` code. A later adapter edit rejects mismatched GEMM inner
-dimensions before launch; its valid-shape launch path is unchanged. The
-submitted adapter revision has not been rerun on SM90.
+executed `92c98f0` code. Later edits reject mismatched GEMM inner dimensions
+before launch and make a requested vLLM probe failure affect the CLI result.
+The adapter's valid-shape launch path is unchanged, and the recorded full run
+did not request the vLLM probe. These revisions have not been rerun on SM90.
 
 The report retains `acceptance_complete=false`: captured H3 activations,
 independent-environment replay, maintainer review of arithmetic and covered
@@ -308,7 +311,9 @@ python tools/validation/operators/validate_h3_ffn_down.py --seed 420 --repeats 5
 The default needs Triton, not the native extension. `H3_BUILD_NATIVE=1` optionally
 builds the legacy comparison with fast math disabled; the runbook requires nvcc 12.4.
 `--compare-vllm` is an explicit partial probe; use a separate Triton 3.4.0
-environment without replacing the primary profile.
+environment without replacing the primary profile. When requested, a failed or
+errored probe sets the overall report to `failed` and the CLI exits nonzero;
+`candidate_checks_passed` and `vllm_probe_status` distinguish the two outcomes.
 
 This change is ready for **operator review**, with `acceptance_complete=false`.
 Captured H3 activations, review of arithmetic/covered layouts, formal runtime

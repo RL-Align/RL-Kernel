@@ -399,7 +399,15 @@ def main(argv=None):
                 )
                 report["cases"].append(case)
                 save()
-                print(f"{family} M={count}: {'PASS' if case['passed'] else 'FAIL'}", flush=True)
+                probe = (
+                    f"; vLLM probe {case['vllm_comparison']['status']}" if args.compare_vllm else ""
+                )
+                result_name = "candidate " if args.compare_vllm else ""
+                print(
+                    f"{family} M={count}: {result_name}"
+                    f"{'PASS' if case['passed'] else 'FAIL'}{probe}",
+                    flush=True,
+                )
                 del values, case
         if args.fixture:
             fixture = torch.load(args.fixture, map_location="cpu", weights_only=True)
@@ -432,7 +440,23 @@ def main(argv=None):
                     backend=args.backend,
                 )
             )
-        passed = all(case["passed"] for case in report["cases"])
+        candidate_passed = all(case["passed"] for case in report["cases"])
+        probe_passed = True
+        if args.compare_vllm:
+            probe_statuses = [
+                case.get("vllm_comparison", {}).get("status") for case in report["cases"]
+            ]
+            probe_passed = bool(probe_statuses) and all(
+                status == "passed_probe" for status in probe_statuses
+            )
+            if probe_passed:
+                report["vllm_probe_status"] = "passed_probe"
+            elif any(status not in ("passed_probe", "failed_probe") for status in probe_statuses):
+                report["vllm_probe_status"] = "error"
+            else:
+                report["vllm_probe_status"] = "failed_probe"
+            report["candidate_checks_passed"] = candidate_passed
+        passed = candidate_passed and probe_passed
         report["status"] = "passed" if passed else "failed"
         report["acceptance_complete"] = False
         report["remaining_acceptance"] = [
