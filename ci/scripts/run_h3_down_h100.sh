@@ -9,6 +9,9 @@ mode="${1:-smoke}"
 case "$mode" in smoke|full) ;; *) echo 'Usage: bash ci/scripts/run_h3_down_h100.sh [smoke|full]' >&2; exit 2 ;; esac
 result_dir="${H3_RESULT_DIR:-$repo_dir/artifacts/h3-down/$(date -u +%Y%m%dT%H%M%SZ)}"
 mkdir -p "$result_dir"
+git rev-parse HEAD > "$result_dir/commit.txt"
+git status --short > "$result_dir/git-status.txt"
+git diff HEAD > "$result_dir/source.patch"
 export KERNEL_ALIGN_USE_FAST_MATH=0
 export KERNEL_ALIGN_DET_GEMM_SM90=1
 export KERNEL_ALIGN_FORCE_SM90=0
@@ -50,8 +53,6 @@ if [[ "$nvcc_version" != *"release 12.4"* ]]; then
 fi
 nvidia-smi -q > "$result_dir/nvidia-smi.txt"
 python -m pip freeze > "$result_dir/pip-freeze.txt"
-git status --short > "$result_dir/git-status.txt"
-git diff HEAD > "$result_dir/source.patch"
 python -m pytest -q tests/ops/gemm/test_h3_ffn_down.py -k 'not on_gpu' | tee "$result_dir/cpu-tests.txt"
 if [[ "${H3_BUILD_NATIVE:-0}" == 1 ]]; then
     python -m pip install --no-deps --no-build-isolation -v -e . 2>&1 | tee "$result_dir/build.log"

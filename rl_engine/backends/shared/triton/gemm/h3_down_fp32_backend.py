@@ -33,6 +33,10 @@ class FixedFP32Backend:
         m, k = a.shape
         if b.shape[0] != k:
             raise ValueError(f"GEMM inner dimensions differ: {k} != {b.shape[0]}")
+        if a.device != b.device:
+            raise ValueError("GEMM operands must share one device")
+        if a.dtype != torch.bfloat16 or b.dtype != torch.bfloat16:
+            raise TypeError("H3 down GEMM requires bfloat16 operands")
         n = b.shape[1]
         output = torch.empty((m, n), dtype=torch.bfloat16, device=a.device)
         compiled = self.kernel[(self.triton.cdiv(m, 64), self.triton.cdiv(n, 64))](

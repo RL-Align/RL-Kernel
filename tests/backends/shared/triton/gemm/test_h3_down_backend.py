@@ -20,6 +20,22 @@ def test_h3_adapter_rejects_inner_dimension_mismatch_before_launch():
         backend.gemm(a, b)
 
 
+def test_h3_adapter_rejects_cross_device_operands_before_launch():
+    backend = object.__new__(FixedFP32Backend)
+    a = torch.empty((2, 3), dtype=torch.bfloat16, device="meta")
+    b = torch.empty((3, 5), dtype=torch.bfloat16, device="cpu")
+    with pytest.raises(ValueError, match="GEMM operands must share one device"):
+        backend.gemm(a, b)
+
+
+def test_h3_adapter_rejects_non_bf16_operands_before_launch():
+    backend = object.__new__(FixedFP32Backend)
+    a = torch.empty((2, 3), dtype=torch.bfloat16, device="meta")
+    b = torch.empty((3, 5), dtype=torch.float32, device="meta")
+    with pytest.raises(TypeError, match="H3 down GEMM requires bfloat16 operands"):
+        backend.gemm(a, b)
+
+
 @pytest.mark.parametrize("role", ["forward", "dx", "dw"])
 def test_h3_launch_binds_current_shared_kernel_signature(role):
     if not det_gemm._TRITON_AVAILABLE:

@@ -107,6 +107,7 @@ else:
     )
     assert result.returncode == expected, result.stdout + result.stderr
     assert f"Evidence directory: {result_dir}" in result.stdout
+    assert (result_dir / "commit.txt").read_text().strip() == "simulated git"
     assert "simulated GPU test result" in (result_dir / "gpu-tests.txt").read_text()
     assert "simulated validation result" in (result_dir / "validation.log").read_text()
     assert "simulated plot result" in (result_dir / "plot.log").read_text()

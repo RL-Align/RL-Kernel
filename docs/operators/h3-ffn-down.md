@@ -107,7 +107,8 @@ Updated runbook control flow passed eight local shell simulations. The GPU
 test-harness edit passed static syntax inspection but was not rerun with pytest
 or on SM90. The recorded computation and validator source hashes match the
 executed `92c98f0` code. Later edits reject mismatched GEMM inner dimensions
-before launch and make a requested vLLM probe failure affect the CLI result.
+before launch, reject cross-device or non-BF16 GEMM operands, and make a
+requested vLLM probe failure affect the CLI result.
 The adapter's valid-shape launch path is unchanged, and the recorded full run
 did not request the vLLM probe. These revisions have not been rerun on SM90.
 
@@ -284,9 +285,10 @@ those 2026-10-30 report/runbook checks.
 
 ## Reproduction and remaining qualification
 
-The runbook preserves GPU-test, validation and plotting logs, always prints the
-evidence directory after plotting, and returns failures in that priority order.
-Its source patch captures tracked edits only; retain any executed untracked
+The runbook records the checked-out commit and working-tree patch before the
+GPU preflight, preserves GPU-test, validation and plotting logs, always prints
+the evidence directory after plotting, and returns failures in that priority
+order. Its source patch captures tracked edits only; retain any executed untracked
 sources separately. Native comparisons also require matching build records;
 runtime provenance records the loaded binary hash but does not verify build flags.
 
