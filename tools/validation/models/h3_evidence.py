@@ -37,6 +37,9 @@ from rl_engine.validation.models.h3_weights import (  # noqa: E402
     load_h3_manifest,
 )
 
+# Operators whose evidence runs on seeded inputs only and never reads the checkpoint.
+WEIGHT_FREE_OPS = frozenset({"timestep_sinusoid_h3", "adaln_gate_residual"})
+
 _NEEDS_PINNED_MLP = (
     "timestep_mlp_fp32 evidence needs the pinned time_embedder weights; set "
     "RL_KERNEL_H3_WEIGHTS (tools/weights/prepare_h3_weights.py) "
@@ -85,7 +88,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     require_pinned_weights(args.op, args.allow_random_weights)
-    uses_weights = args.op != "timestep_sinusoid_h3"
+    uses_weights = args.op not in WEIGHT_FREE_OPS
     smoke_run = args.allow_random_weights and args.op == "timestep_mlp_fp32"
     if uses_weights and h3_weights_dir() is None and not smoke_run:
         raise SystemExit(f"set {WEIGHTS_ENV} to the tools/weights/prepare_h3_weights.py output dir")

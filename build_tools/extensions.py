@@ -26,6 +26,7 @@ H3_BITWISE_SOURCES = (
     "csrc/cuda/h3/det_linear.cu",
     "csrc/cuda/h3/adaln_row_gather.cu",
     "csrc/cuda/h3/rmsnorm_modulate.cu",
+    "csrc/cuda/h3/gate_residual.cu",
 )
 H3_KERNELS_DEFINE = "-DKERNEL_ALIGN_WITH_H3_KERNELS"
 # nvcc options that relax FP32 math. They can also arrive through the environment, where PyTorch's

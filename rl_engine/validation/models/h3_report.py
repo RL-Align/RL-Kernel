@@ -20,11 +20,17 @@ from rl_engine.validation.models.h3_cases import h3_packed_layout, h3_timesteps
 from rl_engine.validation.models.h3_provider import (
     provider_adaln_modulation,
     provider_adaln_row_gather,
+    provider_final_adaln_out,
+    provider_gate_residual,
     provider_norm_modulate,
     provider_time_embedder,
     provider_time_proj,
 )
-from rl_engine.validation.models.h3_weights import h3_weights_dir, load_h3_conditioning_weights
+from rl_engine.validation.models.h3_weights import (
+    WEIGHTS_ENV,
+    h3_weights_dir,
+    load_h3_conditioning_weights,
+)
 
 # Keys of a perf case that hold a timed callable, in display order.
 TIMED_KEYS = (
@@ -94,7 +100,9 @@ def measure(case: dict[str, Any], warmup: int = 20, iters: int = 200) -> dict[st
     decimal GB/s from ``case['bytes']``, and peak allocated MiB per callable.
     """
 
-    row = {key: case[key] for key in ("op", "case", "backend", "bytes") if key in case}
+    row: dict[str, Any] = {
+        key: case[key] for key in ("op", "case", "backend", "bytes") if key in case
+    }
     keys = [key for key in TIMED_KEYS if key in case]
     if not keys:
         return row
@@ -110,7 +118,7 @@ def measure(case: dict[str, Any], warmup: int = 20, iters: int = 200) -> dict[st
         for key in orders[iteration % 2]:
             _prepared_call(case[key], case.get(f"{key}_setup"))()
     torch.cuda.synchronize()
-    samples = {key: [] for key in keys}
+    samples: dict[str, list[float]] = {key: [] for key in keys}
     for iteration in range(iters):
         for key in orders[iteration % 2]:
             samples[key].append(_sample_us(case[key], case.get(f"{key}_setup")))
@@ -157,6 +165,8 @@ def _sinusoid_accuracy(registry: KernelRegistry) -> dict[str, Any]:
     golden = registry._get_or_create_backend(
         registry._priority_map["cpu"]["timestep_sinusoid_h3"][-1]
     )
+    if golden is None:
+        raise RuntimeError("required H3 golden backend is unavailable")
     rows = []
     for num in (1, 2, 3, 7, 64, 1000, 4097):
         t = h3_timesteps(num, seed=num)
@@ -228,6 +238,8 @@ def _mlp_accuracy(registry: KernelRegistry, draws: int = 200) -> dict[str, Any]:
 
     op = registry.get_op("timestep_mlp_fp32", device="cuda")
     golden = registry._get_or_create_backend(registry._priority_map["cpu"]["timestep_mlp_fp32"][-1])
+    if golden is None:
+        raise RuntimeError("required H3 golden backend is unavailable")
     sinusoid = registry.get_op("timestep_sinusoid_h3", device="cuda")
     params = h3_params(MLP_NAMES, MLP_SHAPES)
     cuda_err, provider_err = [], []
@@ -303,6 +315,8 @@ def _projection_accuracy(registry: KernelRegistry, draws: int = 20) -> dict[str,
     golden = registry._get_or_create_backend(
         registry._priority_map["cpu"]["adaln_projection_3mod"][-1]
     )
+    if golden is None:
+        raise RuntimeError("required H3 golden backend is unavailable")
     weight, bias = _adaln_params()
     cuda_frac, provider_frac, early_frac = [], [], []
     for seed in range(draws):
@@ -388,10 +402,11 @@ def _gather_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
 
 def _gather_accuracy(registry: KernelRegistry) -> dict[str, Any]:
     from rl_engine.validation.models.h3_chain import run_backward_case
-    from rl_engine.validation.models.h3_weights import load_h3_conditioning_weights
 
     op = registry.get_op("adaln_row_gather", device="cuda")
     golden = registry._get_or_create_backend(registry._priority_map["cpu"]["adaln_row_gather"][-1])
+    if golden is None:
+        raise RuntimeError("required H3 golden backend is unavailable")
     # Seeded so the op-backward fractions below are reproducible from this commit.
     gen = torch.Generator(device="cuda").manual_seed(0)
     rows = torch.randn(9, 6 * 5376, device="cuda", generator=gen).bfloat16()
@@ -400,7 +415,9 @@ def _gather_accuracy(registry: KernelRegistry) -> dict[str, Any]:
         ti, tags = h3_packed_layout(seq, 3, seed=seq)
         ours = op(rows, ti, tags)
         theirs = provider_adaln_row_gather(rows.chunk(6, dim=-1), ti, tags)
-        forward_bitwise[str(seq)] = all(torch.equal(a, b) for a, b in zip(ours, theirs))
+        forward_bitwise[str(seq)] = all(
+            torch.equal(a, b) for a, b in zip(ours, theirs, strict=True)
+        )
 
     # Op-level backward: correctly rounded FP32 segment sums vs the atomic BF16 scatter-add.
     ti, tags = h3_packed_layout(4097, 3, seed=1)
@@ -425,16 +442,22 @@ def _gather_accuracy(registry: KernelRegistry) -> dict[str, Any]:
             "correctly_rounded_fraction": float((first == gold).float().mean()),
         }
 
-    weights = load_h3_conditioning_weights("cuda")
-    chain = [
-        run_backward_case(registry, weights, num_timesteps=t, seq_len=s)
-        for t, s in ((1, 257), (3, 257), (1, 4097), (3, 4097), (4, 32768))
-    ]
-    return {
+    result: dict[str, Any] = {
         "forward_bitwise_vs_index_select": forward_bitwise,
         "op_backward": backward,
-        "chain_backward": chain,
+        "chain_backward": [],
     }
+    if h3_weights_dir() is None:
+        result["chain_backward_skipped"] = (
+            f"{WEIGHTS_ENV} not set; run tools/weights/prepare_h3_weights.py for chain measurements"
+        )
+    else:
+        weights = load_h3_conditioning_weights("cuda")
+        result["chain_backward"] = [
+            run_backward_case(registry, weights, num_timesteps=t, seq_len=s)
+            for t, s in ((1, 257), (3, 257), (1, 4097), (3, 4097), (4, 32768))
+        ]
+    return result
 
 
 # --------------------------------------------------------------------------- #
@@ -497,15 +520,20 @@ def _norm_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
 
 def _norm_accuracy(registry: KernelRegistry) -> dict[str, Any]:
     op = registry.get_op("h3_rmsnorm", device="cuda")
-    weights = load_h3_conditioning_weights("cuda")
-    gen = torch.Generator(device="cuda").manual_seed(0)
-    plain = {}
-    for name in (
+    weight_source = "pinned_checkpoint" if h3_weights_dir() is not None else "synthetic"
+    names = [
         "transformer_blocks.0.norm1.weight",
         "transformer_blocks.0.norm2.weight",
         "token_refiner.final_norm.weight",
         "norm_out.norm.weight",
-    ):
+    ]
+    weights = {
+        name: weight.bfloat16()
+        for name, weight in zip(names, h3_params(names, [(5376,)] * len(names)), strict=True)
+    }
+    gen = torch.Generator(device="cuda").manual_seed(0)
+    plain = {}
+    for name in names:
         x = torch.randn(2, 777, 5376, device="cuda", generator=gen).bfloat16()
         ref = torch.nn.functional.rms_norm(x, (5376,), weights[name], 1e-5)
         plain[name] = bool(torch.equal(op(x, weights[name]), ref))
@@ -542,19 +570,250 @@ def _norm_accuracy(registry: KernelRegistry) -> dict[str, Any]:
     backward = {}
     for name, fn in (
         ("cuda", lambda *t: op.forward_modulated(*t, index)),
-        ("provider", lambda *t: provider_norm_modulate(*t, index)),
+        ("provider", lambda *t: provider_norm_modulate(t[0], t[1], t[2], t[3], index)),
     ):
         first, second = grads(fn), grads(fn)
         backward[name] = {
-            "repeat_bitwise_equal": all(torch.equal(a, b) for a, b in zip(first, second)),
+            "repeat_bitwise_equal": all(
+                torch.equal(a, b) for a, b in zip(first, second, strict=True)
+            ),
             "rel_error": {
                 key: float((g.double() - r).abs().max() / r.abs().max())
-                for key, g, r in zip(("dx", "dweight", "dshift", "dscale"), first, ref)
+                for key, g, r in zip(("dx", "dweight", "dshift", "dscale"), first, ref, strict=True)
             },
         }
     return {
+        "weight_source": weight_source,
         "plain_bitwise_vs_nn_rmsnorm": plain,
         "modulated_bitwise_vs_diffusers": modulated,
+        "rows_batch_invariant": invariant,
+        "backward": backward,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# adaln_gate_residual (gate_msa after attention)
+# --------------------------------------------------------------------------- #
+
+
+def _gate_inputs(seq: int, seed: int = 0, dtype=torch.bfloat16):
+    g = torch.Generator(device="cuda").manual_seed(seed)
+    table = (torch.randn(9, 6 * 5376, device="cuda", generator=g) * 0.5).to(dtype)
+    residual = torch.randn(1, seq, 5376, device="cuda", generator=g).to(dtype)
+    y = (torch.randn(1, seq, 5376, device="cuda", generator=g) * 3).to(dtype)
+    ti, tags = h3_packed_layout(seq, 3, seed=seed)
+    return table, residual, y, ti * 3 + tags
+
+
+def _gate_view(table):
+    return table.view(table.shape[0], 6, -1)[:, 2]
+
+
+def _gate_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
+    op = registry.get_op("adaln_gate_residual", device="cuda")
+    cases = []
+    for seq in NORM_SEQ_LENS:
+        table, residual, y, index = _gate_inputs(seq)
+        gate = _gate_view(table)
+        grad = torch.randn_like(residual)
+
+        def prepare_backward(fn, residual=residual, y=y, table=table, grad=grad):
+            leaves = [t.detach().requires_grad_(True) for t in (residual, y, table)]
+            return fn(leaves[0], leaves[1], _gate_view(leaves[2])), grad
+
+        def backward(state):
+            output, grad = state
+            output.backward(grad)
+
+        cases.append(
+            {
+                "op": "adaln_gate_residual",
+                "case": f"S={seq}",
+                "backend": type(op).__name__,
+                "bytes": 3 * seq * 5376 * 2,  # read residual and y, write out
+                "candidate": lambda r=residual, y=y, g=gate, i=index: op.forward(
+                    r, y, g, i, check_range=False
+                ),
+                "provider": lambda r=residual, y=y, g=gate, i=index: provider_gate_residual(
+                    r, g, i, y
+                ),
+                "candidate_backward": backward,
+                "provider_backward": backward,
+                "candidate_backward_setup": lambda b=prepare_backward, i=index: b(
+                    lambda r, y_, g: op.forward(r, y_, g, i, check_range=False)
+                ),
+                "provider_backward_setup": lambda b=prepare_backward, i=index: b(
+                    lambda r, y_, g: provider_gate_residual(r, g, i, y_)
+                ),
+            }
+        )
+    return cases
+
+
+def _gate_accuracy(registry: KernelRegistry) -> dict[str, Any]:
+    op = registry.get_op("adaln_gate_residual", device="cuda")
+    forward_bitwise = {}
+    for dtype in (torch.bfloat16, torch.float16, torch.float32):
+        table, residual, y, index = _gate_inputs(777, seed=1, dtype=dtype)
+        gate = _gate_view(table)
+        forward_bitwise[str(dtype).removeprefix("torch.")] = bool(
+            torch.equal(
+                op(residual, y, gate, index), provider_gate_residual(residual, gate, index, y)
+            )
+        )
+    table, residual, y, index = _gate_inputs(4097, seed=2)
+    invariant = bool(
+        torch.equal(
+            op(residual[:, 10:60], y[:, 10:60], _gate_view(table), index[10:60])[0],
+            op(residual, y, _gate_view(table), index)[0, 10:60],
+        )
+    )
+    grad = torch.randn(
+        residual.shape, device="cuda", generator=torch.Generator(device="cuda").manual_seed(7)
+    ).to(residual.dtype)
+
+    def grads(fn, dtype=None):
+        tensors = [t if dtype is None else t.to(dtype) for t in (residual, y, table)]
+        leaves = [t.detach().clone().requires_grad_(True) for t in tensors]
+        fn(leaves[0], leaves[1], _gate_view(leaves[2])).backward(
+            grad if dtype is None else grad.to(dtype)
+        )
+        return [leaf.grad for leaf in leaves]
+
+    ref = grads(lambda r, y_, g: provider_gate_residual(r, g, index, y_), torch.float64)
+    backward = {}
+    for name, fn in (
+        ("cuda", lambda r, y_, g: op(r, y_, g, index)),
+        ("provider", lambda r, y_, g: provider_gate_residual(r, g, index, y_)),
+    ):
+        first, second = grads(fn), grads(fn)
+        backward[name] = {
+            "repeat_bitwise_equal": all(
+                torch.equal(a, b) for a, b in zip(first, second, strict=True)
+            ),
+            "rel_error": {
+                key: float((g.double() - r).abs().max() / r.abs().max())
+                for key, g, r in zip(
+                    ("d_residual", "d_sublayer", "d_gate"), first, ref, strict=True
+                )
+            },
+        }
+    return {
+        "forward_bitwise_vs_diffusers": forward_bitwise,
+        "rows_batch_invariant": invariant,
+        "backward": backward,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# final_adaln_out (norm_out)
+# --------------------------------------------------------------------------- #
+
+FINAL_NAMES = ["norm_out.norm.weight", "norm_out.linear.weight", "norm_out.linear.bias"]
+
+
+def _final_inputs(seq: int, seed: int = 0):
+    norm_weight, weight, bias = h3_params(FINAL_NAMES, [(5376,), (10752, 2688), (10752,)])
+    g = torch.Generator(device="cuda").manual_seed(seed)
+    x = (torch.randn(1, seq, 5376, device="cuda", generator=g) * 2).bfloat16()
+    temb = torch.randn(3, 2688, device="cuda", generator=g) * 2
+    ti, _ = h3_packed_layout(seq, 3, seed=seed)
+    return x, norm_weight.bfloat16(), temb, weight.bfloat16(), bias.bfloat16(), ti
+
+
+def _final_perf(registry: KernelRegistry) -> list[dict[str, Any]]:
+    op = registry.get_op("final_adaln_out", device="cuda")
+    cases = []
+    for seq in NORM_SEQ_LENS:
+        x, nw, temb, w, b, ti = _final_inputs(seq)
+        grad = torch.randn_like(x)
+
+        def prepare_backward(fn, tensors=(x, nw, temb, w, b), grad=grad):
+            leaves = [t.detach().requires_grad_(True) for t in tensors]
+            return fn(*leaves), grad
+
+        def backward(state):
+            output, grad = state
+            output.backward(grad)
+
+        cases.append(
+            {
+                "op": "final_adaln_out",
+                "case": f"S={seq}",
+                "backend": type(op).__name__,
+                # read x + norm_out.linear, write out
+                "bytes": 2 * seq * 5376 * 2 + w.numel() * 2,
+                "candidate": lambda t=(x, nw, temb, w, b), i=ti: op(*t, i),
+                "provider": lambda t=(x, nw, temb, w, b), i=ti: provider_final_adaln_out(
+                    t[0], t[1], t[2], t[3], t[4], i
+                ),
+                "candidate_backward": backward,
+                "provider_backward": backward,
+                "candidate_backward_setup": lambda bw=prepare_backward, i=ti: bw(
+                    lambda *t: op(*t, i)
+                ),
+                "provider_backward_setup": lambda bw=prepare_backward, i=ti: bw(
+                    lambda *t: provider_final_adaln_out(t[0], t[1], t[2], t[3], t[4], i)
+                ),
+            }
+        )
+    return cases
+
+
+def _final_accuracy(registry: KernelRegistry) -> dict[str, Any]:
+    op = registry.get_op("final_adaln_out", device="cuda")
+    golden_op = registry._get_or_create_backend(
+        registry._priority_map["cpu"]["final_adaln_out"][-1]
+    )
+    if golden_op is None:
+        raise RuntimeError("required H3 golden backend is unavailable")
+    x, nw, temb, w, b, ti = _final_inputs(4097, seed=1)
+    ours = op(x, nw, temb, w, b, ti)
+    theirs = provider_final_adaln_out(x, nw, temb, w, b, ti)
+    golden = golden_op.forward_fp32(x, nw, temb, w, b, ti)
+    invariant = bool(
+        torch.equal(op(x[:, 100:160], nw, temb, w, b, ti[100:160])[0], ours[0, 100:160])
+    )
+    grad = torch.randn(
+        x.shape, device="cuda", generator=torch.Generator(device="cuda").manual_seed(7)
+    ).to(x.dtype)
+
+    def grads(fn, dtype=None):
+        tensors = [t if dtype is None else t.to(dtype) for t in (x, nw, temb, w, b)]
+        leaves = [t.detach().clone().requires_grad_(True) for t in tensors]
+        fn(*leaves).backward(grad if dtype is None else grad.to(dtype))
+        return [leaf.grad for leaf in leaves]
+
+    def golden_backward(x_, nw_, t_, w_, b_):
+        # Keep the declared BF16 boundaries with FP64 leaves and identity VJPs.
+        act = t_ * torch.sigmoid(t_)
+        # The declared cast rounds the FP32 SiLU, as the model computes it.
+        declared = torch.nn.functional.silu(t_.detach().float()).to(torch.bfloat16).double()
+        act = act + (declared - act).detach()
+        table = torch.nn.functional.linear(act, w_, b_)
+        table = table + (table.to(torch.bfloat16).double() - table).detach()
+        shift, scale = table.chunk(2, dim=-1)
+        n = x_ * torch.rsqrt(x_.square().mean(-1, keepdim=True) + 1e-5) * nw_
+        return n * (1.0 + scale.index_select(0, ti)) + shift.index_select(0, ti)
+
+    ref = grads(golden_backward, torch.float64)
+    backward = {}
+    for name, fn in (
+        ("cuda", lambda *t: op(*t, ti)),
+        ("provider", lambda *t: provider_final_adaln_out(t[0], t[1], t[2], t[3], t[4], ti)),
+    ):
+        first, second = grads(fn), grads(fn)
+        backward[name] = {
+            "repeat_bitwise_equal": all(torch.equal(a, c) for a, c in zip(first, second)),
+            "rel_error": {
+                key: float((g.double() - r).abs().max() / r.abs().max())
+                for key, g, r in zip(("dx", "d_norm_w", "d_temb", "dW", "db"), first, ref)
+            },
+        }
+    return {
+        "equal_to_diffusers_fraction": float((ours == theirs).float().mean()),
+        "max_abs_vs_golden": float((ours.float() - golden).abs().max()),
+        "provider_max_abs_vs_golden": float((theirs.float() - golden).abs().max()),
         "rows_batch_invariant": invariant,
         "backward": backward,
     }
@@ -566,6 +825,8 @@ PERF_CASES: dict[str, Callable[[KernelRegistry], list[dict[str, Any]]]] = {
     "adaln_projection_3mod": _projection_perf,
     "adaln_row_gather": _gather_perf,
     "h3_rmsnorm": _norm_perf,
+    "adaln_gate_residual": _gate_perf,
+    "final_adaln_out": _final_perf,
 }
 ACCURACY: dict[str, Callable[[KernelRegistry], dict[str, Any]]] = {
     "timestep_sinusoid_h3": _sinusoid_accuracy,
@@ -573,4 +834,6 @@ ACCURACY: dict[str, Callable[[KernelRegistry], dict[str, Any]]] = {
     "adaln_projection_3mod": _projection_accuracy,
     "adaln_row_gather": _gather_accuracy,
     "h3_rmsnorm": _norm_accuracy,
+    "adaln_gate_residual": _gate_accuracy,
+    "final_adaln_out": _final_accuracy,
 }
