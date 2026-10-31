@@ -81,9 +81,10 @@ class _SM90LMHeadFunction(torch.autograd.Function):
 class SM90LMHeadOp:
     """Single-card SM90 batch-invariant CUDA LM-head op.
 
-    The CUDA forward launches one CTA per output logit and performs the full K
-    reduction in that CTA. There is no Split-K and no cuBLAS algorithm selection
-    in the forward path, so a row's logits do not depend on batch layout.
+    The CUDA forward is a grid-stride loop in which each block reduces one output
+    logit at a time over the full K dimension. There is no Split-K and no cuBLAS
+    algorithm selection in the forward path, so a row's logits do not depend on
+    batch layout.
     Backward uses the declared CUDA deterministic GEMM (no torch.matmul).
     """
 

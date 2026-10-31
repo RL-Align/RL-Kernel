@@ -200,6 +200,7 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     )
     # WS1 pure-PyTorch ground-truth linear ops
     PYTORCH_NATIVE_LM_HEAD = "rl_engine.kernels.ops.pytorch.linear.lm_head.NativeLMHeadOp"
+    TRITON_LM_HEAD = "rl_engine.kernels.ops.triton.linear.lm_head.TritonLMHeadOp"
     # WS1 pure-PyTorch ground-truth embedding ops
     TRITON_EMBEDDING = "rl_engine.kernels.ops.triton.linear.embedding.TritonEmbeddingOp"
     PYTORCH_NATIVE_EMBEDDING = "rl_engine.kernels.ops.pytorch.linear.embedding.NativeEmbeddingOp"
@@ -655,7 +656,7 @@ class KernelRegistry:
                 ],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
-                "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
+                "lm_head": [OpBackend.TRITON_LM_HEAD, OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],

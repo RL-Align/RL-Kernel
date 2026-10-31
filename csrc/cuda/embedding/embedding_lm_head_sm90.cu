@@ -12,6 +12,7 @@
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/cuda/CUDAException.h>
 #include <cuda_runtime.h>
+#include <algorithm>
 #include <array>
 #include <limits>
 #include <mutex>
@@ -88,28 +89,27 @@ __global__ void lm_head_sm90_forward_kernel(const scalar_t *__restrict__ hidden,
                                             output_t *__restrict__ output,
                                             int64_t num_tokens, int64_t hidden_size,
                                             int64_t vocab_size) {
-    const int64_t out_idx = static_cast<int64_t>(blockIdx.x);
     const int64_t total = num_tokens * vocab_size;
-    if (out_idx >= total) {
-        return;
-    }
+    // Grid-stride loop: a fixed-size grid covers > INT_MAX logits, one block per logit at a time.
+    for (int64_t out_idx = blockIdx.x; out_idx < total; out_idx += gridDim.x) {
+        const int64_t token_row = out_idx / vocab_size;
+        const int64_t vocab_col = out_idx - token_row * vocab_size;
+        const scalar_t *hidden_row = hidden + token_row * hidden_size;
+        const scalar_t *weight_row = weight + vocab_col * hidden_size;
 
-    const int64_t token_row = out_idx / vocab_size;
-    const int64_t vocab_col = out_idx - token_row * vocab_size;
-    const scalar_t *hidden_row = hidden + token_row * hidden_size;
-    const scalar_t *weight_row = weight + vocab_col * hidden_size;
-
-    float acc = 0.0f;
-    for (int64_t k = threadIdx.x; k < hidden_size; k += blockDim.x) {
-        acc += to_float(hidden_row[k]) * to_float(weight_row[k]);
-    }
-    acc = block_sum<kThreads>(acc);
-
-    if (threadIdx.x == 0) {
-        if (bias != nullptr) {
-            acc += bias[vocab_col];
+        float acc = 0.0f;
+        for (int64_t k = threadIdx.x; k < hidden_size; k += blockDim.x) {
+            acc += to_float(hidden_row[k]) * to_float(weight_row[k]);
         }
-        output[out_idx] = from_float<output_t>(acc);
+        acc = block_sum<kThreads>(acc);
+
+        if (threadIdx.x == 0) {
+            if (bias != nullptr) {
+                acc += bias[vocab_col];
+            }
+            output[out_idx] = from_float<output_t>(acc);
+        }
+        __syncthreads();
     }
 }
 
@@ -270,21 +270,20 @@ torch::Tensor lm_head_sm90_forward_impl(torch::Tensor hidden, torch::Tensor weig
     }
 
     const int64_t total = num_tokens * vocab_size;
-    TORCH_CHECK(total <= std::numeric_limits<int>::max(),
-                "lm_head_sm90 launch size exceeds CUDA grid limit");
+    const int grid = static_cast<int>(std::min<int64_t>(total, std::numeric_limits<int>::max()));
     auto output_2d = output.reshape({num_tokens, vocab_size});
 
     AT_DISPATCH_FLOATING_TYPES_AND2(
         at::kHalf, at::kBFloat16, compute_dtype, "lm_head_sm90_forward", [&] {
             if (output_fp32) {
                 lm_head_sm90_forward_kernel<scalar_t, float>
-                    <<<static_cast<int>(total), kThreads, 0, at::cuda::getCurrentCUDAStream()>>>(
+                    <<<grid, kThreads, 0, at::cuda::getCurrentCUDAStream()>>>(
                         hidden_2d.data_ptr<scalar_t>(), weight_2d.data_ptr<scalar_t>(),
                         bias_ptr, output_2d.data_ptr<float>(), num_tokens, hidden_size,
                         vocab_size);
             } else {
                 lm_head_sm90_forward_kernel<scalar_t, scalar_t>
-                    <<<static_cast<int>(total), kThreads, 0, at::cuda::getCurrentCUDAStream()>>>(
+                    <<<grid, kThreads, 0, at::cuda::getCurrentCUDAStream()>>>(
                         hidden_2d.data_ptr<scalar_t>(), weight_2d.data_ptr<scalar_t>(),
                         bias_ptr, output_2d.data_ptr<scalar_t>(), num_tokens, hidden_size,
                         vocab_size);
