@@ -64,6 +64,14 @@ class TestSamplingNormalization:
             0.05,
         )
 
+    def test_directly_constructed_non_canonical_values_are_rejected(self):
+        with pytest.raises(ValueError):
+            CanonicalSamplingLayer(temperature=True)
+        with pytest.raises(ValueError):
+            CanonicalSamplingLayer(top_k=1.5)
+        with pytest.raises(ValueError):
+            CanonicalSamplingLayer(top_p="1.0")
+
     @pytest.mark.parametrize(
         "kwargs",
         [
@@ -186,6 +194,12 @@ class TestSamplingGate:
     def test_unhashable_fallback_entry_is_rejected(self):
         record = _record()
         record.provenance = {"fallback_layers": [["requested"]]}
+        with pytest.raises(ValueError):
+            evaluate_sampling_gate(record)
+
+    def test_unknown_fallback_layer_name_is_rejected(self):
+        record = _record()
+        record.provenance = {"fallback_layers": ("runtime",)}
         with pytest.raises(ValueError):
             evaluate_sampling_gate(record)
 

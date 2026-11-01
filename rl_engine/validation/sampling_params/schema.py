@@ -78,6 +78,22 @@ class CanonicalSamplingLayer(SerializableModel):
     source: Optional[str] = None
     raw: Optional[Any] = field(default=None, compare=False)
 
+    def __post_init__(self) -> None:
+        if isinstance(self.temperature, bool) or not isinstance(
+            self.temperature, (int, float)
+        ):
+            raise ValueError("temperature must be a real number")
+        if self.top_k is not None and (
+            isinstance(self.top_k, bool) or not isinstance(self.top_k, int)
+        ):
+            raise ValueError("top_k must be an integer or None")
+        for name in ("top_p", "min_p"):
+            value = getattr(self, name)
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, (int, float))
+            ):
+                raise ValueError(f"{name} must be a real number or None")
+
     def is_identity(self) -> bool:
         """True when the layer equals the canonical identity sentinel."""
         return (

@@ -199,15 +199,17 @@ def _fallback_layers(record: CanonicalSamplingRecord) -> tuple[Any, ...]:
         if not raw:
             raise SamplingParamsError("fallback_layers must not be an empty string")
         raw = (raw,)
-    elif isinstance(raw, SamplingLayerName):
-        raw = (raw,)
     elif isinstance(raw, (set, frozenset)):
         raw = sorted(raw, key=str)
     for item in raw:
-        if not isinstance(item, (str, SamplingLayerName)):
+        if not isinstance(item, str):
             raise SamplingParamsError(
                 f"fallback_layers entries must be layer names, got {type(item).__name__}"
             )
+        try:
+            SamplingLayerName(item)
+        except ValueError as exc:
+            raise SamplingParamsError(f"unknown fallback layer name {item!r}") from exc
     return tuple(raw)  # type: ignore[arg-type]
 
 
