@@ -177,6 +177,12 @@ class TestSamplingGate:
         with pytest.raises(ValueError):
             evaluate_sampling_gate(record)
 
+    def test_unhashable_fallback_entry_is_rejected(self):
+        record = _record()
+        record.provenance = {"fallback_layers": [["requested"]]}
+        with pytest.raises(ValueError):
+            evaluate_sampling_gate(record)
+
     def test_fallback_source_fails_closed(self):
         record = _record(requested=CanonicalSamplingLayer(source="fallback"))
         result = evaluate_sampling_gate(record)

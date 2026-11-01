@@ -294,6 +294,7 @@ kernel_contract   e.g. SM90_LINEAR_LOGP_CONTRACT_VERSION
 build             extension / library build identity
 dtype             hidden / weight / accumulator / output
 weight_id         weight fingerprint (including pre_update_weight_lock)
+pre_update_weight_lock_verified  whether a reference lock was supplied and compared
 vocab_shard       [vocab_start, vocab_end) + world_size
 reduction         BN constant + rank merge order
 collective        TP group / ordered merge collective (when applicable)

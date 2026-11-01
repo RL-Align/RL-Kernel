@@ -118,6 +118,19 @@ class TestM10ScoringCpuDouble:
         assert result.selected_logprob_active.shape[0] == result.active_token_count
         assert len(result.selected_logprob_bytes) == 4 * result.active_token_count
 
+    def test_weight_lock_verification_is_recorded(self, monkeypatch):
+        import rl_engine.validation.m10.score as score_mod
+
+        values = torch.arange(8, dtype=torch.float32)
+        inp = build_m10_stub(tokens=8, hidden=32, local_vocab=64)
+        monkeypatch.setattr(score_mod, "LinearLogpWrapper", lambda: self._FakeWrapper(values))
+        unverified = score_m10(inp)
+        assert unverified.provenance["pre_update_weight_lock_verified"] is False
+        verified = score_m10(
+            inp, expected_pre_update_weight_lock=inp.pre_update_weight_lock
+        )
+        assert verified.provenance["pre_update_weight_lock_verified"] is True
+
 
 @requires_sm90
 class TestM10Scoring:

@@ -189,6 +189,11 @@ def _fallback_layers(record: CanonicalSamplingRecord) -> tuple[Any, ...]:
         raw = (raw,)
     elif isinstance(raw, (set, frozenset)):
         raw = sorted(raw, key=str)
+    for item in raw:
+        if not isinstance(item, (str, SamplingLayerName)):
+            raise SamplingParamsError(
+                f"fallback_layers entries must be layer names, got {type(item).__name__}"
+            )
     return tuple(raw)  # type: ignore[arg-type]
 
 

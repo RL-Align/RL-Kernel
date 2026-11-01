@@ -132,6 +132,7 @@ def score_m10(
         "m10_schema_version": inp.schema_version,
         "weight_id": inp.weight_id,
         "pre_update_weight_lock": inp.pre_update_weight_lock,
+        "pre_update_weight_lock_verified": expected_pre_update_weight_lock is not None,
         "vocab_shard": [int(inp.vocab_start), int(inp.vocab_end)],
         "global_vocab_size": int(inp.global_vocab_size),
         "active_token_count": active_count,
