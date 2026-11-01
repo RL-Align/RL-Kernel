@@ -72,6 +72,18 @@ class TestSamplingNormalization:
         with pytest.raises(ValueError):
             CanonicalSamplingLayer(top_p="1.0")
 
+    def test_direct_construction_canonicalizes_raw_identity_forms(self):
+        layer = CanonicalSamplingLayer(top_k=0, top_p=1.0, min_p=0.0)
+        assert layer.is_identity()
+        assert layer.top_k is None
+        assert layer.top_p is None
+        assert layer.min_p is None
+
+    def test_direct_construction_keeps_non_identity_values(self):
+        layer = CanonicalSamplingLayer(top_k=50)
+        assert not layer.is_identity()
+        assert layer.top_k == 50
+
     @pytest.mark.parametrize(
         "kwargs",
         [
@@ -202,6 +214,16 @@ class TestSamplingGate:
         record.provenance = {"fallback_layers": ("runtime",)}
         with pytest.raises(ValueError):
             evaluate_sampling_gate(record)
+
+    def test_enum_and_string_fallback_entries_are_deduplicated(self):
+        record = _record()
+        record.provenance = {
+            "fallback_layers": (SamplingLayerName.REQUESTED, "requested")
+        }
+        result = evaluate_sampling_gate(record)
+        assert result.status is SamplingGateStatus.SILENT_FALLBACK
+        assert result.failing_layer == SamplingLayerName.REQUESTED.value
+        assert result.detail.count("requested") == 1
 
     def test_fallback_source_fails_closed(self):
         record = _record(requested=CanonicalSamplingLayer(source="fallback"))

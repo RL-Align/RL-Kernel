@@ -94,6 +94,14 @@ class CanonicalSamplingLayer(SerializableModel):
                 isinstance(value, bool) or not isinstance(value, (int, float))
             ):
                 raise ValueError(f"{name} must be a real number or None")
+        # Canonicalize framework-raw identity forms so a directly constructed
+        # layer cannot compare unequal to a normalized one.
+        if self.top_k in (0, -1):
+            object.__setattr__(self, "top_k", TOP_K_DISABLED)
+        if self.top_p == 1.0:
+            object.__setattr__(self, "top_p", TOP_P_IDENTITY)
+        if self.min_p == 0.0:
+            object.__setattr__(self, "min_p", MIN_P_DISABLED)
 
     def is_identity(self) -> bool:
         """True when the layer equals the canonical identity sentinel."""

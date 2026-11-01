@@ -61,13 +61,15 @@ def evaluate_m10_precheck(
         )
     try:
         gate = evaluate_sampling_gate(inp.sampling_record)
-        gate_status = M10Status(gate.status.value)
     except ValueError as exc:
         return _fail(
             M10Status.MISSING_PROVENANCE,
             "sampling_record",
             f"malformed canonical sampling record: {exc}",
         )
+    # An unmapped gate status is a code-level contract violation: let it surface
+    # instead of misclassifying it as a malformed record.
+    gate_status = M10Status(gate.status.value)
     if not gate.passed:
         field_name = "sampling_record"
         if gate.failing_layer:

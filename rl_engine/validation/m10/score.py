@@ -55,7 +55,10 @@ class M10ScoreResult:
         """
         if self.selected_logprob is None or self.active_token_mask is None:
             return None
-        return self.selected_logprob[self.active_token_mask]
+        mask = self.active_token_mask
+        if mask.device != self.selected_logprob.device:
+            mask = mask.to(self.selected_logprob.device)
+        return self.selected_logprob[mask]
 
     def selected_logprob_bytes_hex(self) -> str:
         return self.selected_logprob_bytes.hex()

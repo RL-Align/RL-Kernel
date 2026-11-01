@@ -210,7 +210,7 @@ def _fallback_layers(record: CanonicalSamplingRecord) -> tuple[Any, ...]:
             SamplingLayerName(item)
         except ValueError as exc:
             raise SamplingParamsError(f"unknown fallback layer name {item!r}") from exc
-    return tuple(raw)  # type: ignore[arg-type]
+    return tuple(_layer_name(item) for item in raw)  # type: ignore[arg-type]
 
 
 def evaluate_sampling_gate(record: CanonicalSamplingRecord) -> SamplingGateResult:
