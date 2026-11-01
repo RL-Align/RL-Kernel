@@ -243,6 +243,10 @@ frozen T01 manifest.
 | `first_mismatch` | On failure, keyed by `(absolute_layer, sublayer_site, pass, event_index)` + canonical token/rank |
 | `result_cube` | T02 fills only the case/engine/level dimensions; boundary/config dimensions belong to T10/WS2 |
 
+`selected_logprob` keeps the full `[N]` wrapper output, while `selected_logprob_bytes` covers
+the active rows only; consumers must mask before pairing them.
+`M10ScoreResult.selected_logprob_active` exposes the aligned slice.
+
 ### 5.2 Numerical path: reuse the existing `linear_logp`
 
 | Contract point | Real symbol / location |

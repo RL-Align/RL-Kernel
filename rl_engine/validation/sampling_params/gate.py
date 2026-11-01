@@ -171,15 +171,21 @@ def _fallback_layers(record: CanonicalSamplingRecord) -> tuple[Any, ...]:
     """
     if record.fallback_layers is not None:
         raw: Any = record.fallback_layers
+    elif "fallback_layers" in record.provenance:
+        raw = record.provenance["fallback_layers"]
     else:
-        raw = record.provenance.get("fallback_layers") or ()
+        raw = ()
     if isinstance(raw, Mapping) or not isinstance(
         raw, (str, SamplingLayerName, list, tuple, set, frozenset)
     ):
         raise SamplingParamsError(
             f"fallback_layers must be a sequence of layer names, got {type(raw).__name__}"
         )
-    if isinstance(raw, (str, SamplingLayerName)):
+    if isinstance(raw, str):
+        if not raw:
+            raise SamplingParamsError("fallback_layers must not be an empty string")
+        raw = (raw,)
+    elif isinstance(raw, SamplingLayerName):
         raw = (raw,)
     elif isinstance(raw, (set, frozenset)):
         raw = sorted(raw, key=str)
@@ -220,15 +226,16 @@ def evaluate_sampling_gate(record: CanonicalSamplingRecord) -> SamplingGateResul
 
     for name, layer in layers.items():
         assert layer is not None  # narrow for the type checker; missing handled above
-        field_name = _first_non_identity_field(layer)
-        if field_name is not None:
-            return _result(
-                record,
-                SamplingGateStatus.SAMPLING_PARAMS_MISMATCH,
-                failing_layer=name.value,
-                failing_field=field_name,
-                detail=f"{name.value}.{field_name} is not the identity sentinel",
-            )
+        if layer.is_identity():
+            continue
+        field_name = _first_non_identity_field(layer) or "unknown"
+        return _result(
+            record,
+            SamplingGateStatus.SAMPLING_PARAMS_MISMATCH,
+            failing_layer=name.value,
+            failing_field=field_name,
+            detail=f"{name.value}.{field_name} is not the identity sentinel",
+        )
 
     return _result(
         record,

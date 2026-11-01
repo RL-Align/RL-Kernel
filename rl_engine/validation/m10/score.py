@@ -41,6 +41,18 @@ class M10ScoreResult:
     selected_logprob_bytes: bytes
     provenance: Mapping[str, Any] = field(default_factory=dict)
     detail: str = ""
+    active_token_mask: Optional[torch.Tensor] = None
+
+    @property
+    def selected_logprob_active(self) -> Optional[torch.Tensor]:
+        """Active-row slice aligned with ``selected_logprob_bytes``.
+
+        ``selected_logprob`` keeps the full ``[N]`` wrapper output (contract §5.1);
+        consumers that pair it with the byte buffer must mask it first.
+        """
+        if self.selected_logprob is None or self.active_token_mask is None:
+            return None
+        return self.selected_logprob[self.active_token_mask]
 
     def selected_logprob_bytes_hex(self) -> str:
         return self.selected_logprob_bytes.hex()
@@ -136,5 +148,6 @@ def score_m10(
         selected_logprob=selected,
         selected_logprob_bytes=raw,
         provenance=provenance,
+        active_token_mask=mask.detach().to("cpu"),
         detail="strict SM90 linear_logp scored the active selected tokens",
     )

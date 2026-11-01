@@ -106,6 +106,18 @@ class TestM10ScoringCpuDouble:
         result = score_m10(build_m10_stub(tokens=8, hidden=32, local_vocab=64))
         assert result.provenance["vocab_reduction_tile"] == 64
 
+    def test_active_slice_matches_the_byte_buffer(self, monkeypatch):
+        import rl_engine.validation.m10.score as score_mod
+
+        values = torch.arange(8, dtype=torch.float32)
+        monkeypatch.setattr(score_mod, "LinearLogpWrapper", lambda: self._FakeWrapper(values))
+        result = score_m10(
+            build_m10_stub(tokens=8, hidden=32, local_vocab=64, active_ratio=0.5)
+        )
+        assert result.selected_logprob.shape[0] == 8
+        assert result.selected_logprob_active.shape[0] == result.active_token_count
+        assert len(result.selected_logprob_bytes) == 4 * result.active_token_count
+
 
 @requires_sm90
 class TestM10Scoring:
