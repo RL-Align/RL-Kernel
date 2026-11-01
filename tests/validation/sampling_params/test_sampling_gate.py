@@ -44,10 +44,16 @@ class TestSamplingNormalization:
         layer = normalize_sampling_layer(temperature=1.0, top_k=top_k, top_p=top_p, min_p=min_p)
         assert layer.is_identity()
 
-    def test_absent_temperature_fails_closed(self):
+    @pytest.mark.parametrize("missing", ["temperature", "top_k", "top_p", "min_p"])
+    def test_omitted_parameters_fail_closed(self, missing):
+        kwargs = {"temperature": 1.0, "top_k": None, "top_p": None, "min_p": None}
+        kwargs.pop(missing)
         with pytest.raises(SamplingParamsError):
-            normalize_sampling_layer()
-        assert normalize_sampling_layer(temperature=1.0).is_identity()
+            normalize_sampling_layer(**kwargs)
+
+    def test_explicit_none_parameters_normalize_to_identity(self):
+        layer = normalize_sampling_layer(temperature=1.0, top_k=None, top_p=None, min_p=None)
+        assert layer.is_identity()
 
     def test_enabled_values_are_preserved(self):
         layer = normalize_sampling_layer(temperature=0.7, top_k=50, top_p=0.9, min_p=0.05)

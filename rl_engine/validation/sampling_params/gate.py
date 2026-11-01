@@ -32,6 +32,9 @@ class SamplingParamsError(ValueError):
     """Raised when framework-raw sampling parameters are structurally invalid."""
 
 
+_UNSET: Any = object()
+
+
 def _finite_float(value: Any, field_name: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise SamplingParamsError(f"{field_name} must be a real number, got {value!r}")
@@ -86,17 +89,28 @@ def _normalize_min_p(value: Any) -> Optional[float]:
 
 def normalize_sampling_layer(
     *,
-    temperature: Any = None,
-    top_k: Any = None,
-    top_p: Any = None,
-    min_p: Any = None,
+    temperature: Any = _UNSET,
+    top_k: Any = _UNSET,
+    top_p: Any = _UNSET,
+    min_p: Any = _UNSET,
 ) -> CanonicalSamplingLayer:
     """Normalize one layer of framework-raw sampling parameters.
 
-    Structural errors raise :class:`SamplingParamsError`. The record builder must
-    surface such an error as a fail-closed case; it must never substitute a
-    sentinel and let an unnormalizable layer look like identity.
+    Every field must be supplied explicitly, because an omitted field is not the
+    same as a framework that reported ``None``. Structural errors raise
+    :class:`SamplingParamsError`. The record builder must surface such an error
+    as a fail-closed case; it must never substitute a sentinel and let an
+    unnormalizable layer look like identity.
     """
+    supplied = (
+        ("temperature", temperature),
+        ("top_k", top_k),
+        ("top_p", top_p),
+        ("min_p", min_p),
+    )
+    for name, value in supplied:
+        if value is _UNSET:
+            raise SamplingParamsError(f"{name} must be supplied explicitly")
     if temperature is None:
         raise SamplingParamsError(
             "temperature must be supplied explicitly; identity is 1.0, not a default"

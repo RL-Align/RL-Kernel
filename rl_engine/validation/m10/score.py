@@ -11,6 +11,7 @@ captures the active selected-token FP32 raw bytes that T09 compares.
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional
 
@@ -26,6 +27,8 @@ M10_VOCAB_REDUCTION_TILE = 64
 
 def fp32_raw_bytes(values: torch.Tensor) -> bytes:
     """Return raw little-endian FP32 bytes of a contiguous tensor."""
+    if sys.byteorder != "little":
+        raise RuntimeError("raw FP32 byte comparison requires a little-endian host")
     flat = values.detach().to(torch.float32).contiguous().reshape(-1)
     return flat.cpu().view(torch.uint8).numpy().tobytes()
 

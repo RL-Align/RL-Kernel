@@ -132,6 +132,16 @@ class TestM10ScoringCpuDouble:
         assert verified.provenance["pre_update_weight_lock_verified"] is True
 
 
+def test_raw_bytes_reject_a_big_endian_host(monkeypatch):
+    import sys
+
+    import rl_engine.validation.m10.score as score_mod
+
+    monkeypatch.setattr(sys, "byteorder", "big")
+    with pytest.raises(RuntimeError):
+        score_mod.fp32_raw_bytes(torch.zeros(1, dtype=torch.float32))
+
+
 @requires_sm90
 class TestM10Scoring:
     def _cuda_input(self, **kwargs):

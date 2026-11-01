@@ -141,7 +141,8 @@ The consistency-mode sentinel that every normalized layer must equal (`#L210-L21
 - Framework defaults (values not passed explicitly) must be expanded into explicit fields;
   "absent = don't care" is not allowed.
 - If a producer expresses `top_k`/`top_p` as a per-row tensor, every row must be the sentinel.
-- An absent `temperature` is a structural error (`SamplingParamsError`), never identity.
+- All four fields must be supplied explicitly by the producer; an omitted field is a
+  structural error (`SamplingParamsError`), not the same as a reported `None`.
   `None` is an allowed raw form only for `top_k` / `top_p` / `min_p`.
 
 **Cross-task naming and encoding conventions (must be unified before wiring T05/WS2):**
