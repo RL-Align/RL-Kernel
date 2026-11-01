@@ -44,11 +44,17 @@ def build_m10_stub(
     if not 0.0 <= active_ratio <= 1.0:
         raise ValueError("active_ratio must be within [0, 1]")
 
-    torch.manual_seed(seed)
-    rows = torch.randn(tokens, hidden, dtype=torch.float32).to(torch.bfloat16)
-    weight = torch.randn(local_vocab, hidden, dtype=torch.float32).to(torch.bfloat16)
+    generator = torch.Generator().manual_seed(seed)
+    rows = torch.randn(tokens, hidden, dtype=torch.float32, generator=generator).to(
+        torch.bfloat16
+    )
+    weight = torch.randn(local_vocab, hidden, dtype=torch.float32, generator=generator).to(
+        torch.bfloat16
+    )
     vocab_end = vocab_start + local_vocab
-    target = torch.randint(vocab_start, vocab_end, (tokens,), dtype=torch.int64)
+    target = torch.randint(
+        vocab_start, vocab_end, (tokens,), dtype=torch.int64, generator=generator
+    )
 
     active = torch.ones(tokens, dtype=torch.bool)
     if active_ratio < 1.0:

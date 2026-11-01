@@ -109,6 +109,7 @@ canonical_sampling_record:
     runtime_actual: <SamplingLayer>   # values read back at execution time (readback, not config)
   canonical_fingerprint: <hash(normalized four layers)>
   provenance:       <see §6>
+  fallback_layers:  <typed tuple of layer names that resolved through a fallback>
 ```
 
 Each `SamplingLayer` (contract `#L211`):
@@ -140,6 +141,8 @@ The consistency-mode sentinel that every normalized layer must equal (`#L210-L21
 - Framework defaults (values not passed explicitly) must be expanded into explicit fields;
   "absent = don't care" is not allowed.
 - If a producer expresses `top_k`/`top_p` as a per-row tensor, every row must be the sentinel.
+- An absent `temperature` is a structural error (`SamplingParamsError`), never identity.
+  `None` is an allowed raw form only for `top_k` / `top_p` / `min_p`.
 
 **Cross-task naming and encoding conventions (must be unified before wiring T05/WS2):**
 
@@ -166,7 +169,9 @@ In consistency mode (`#L209`):
 3. Semantic drift between the four layers (requested == sentinel but runtime_actual != sentinel,
    or vice versa) → `SAMPLING_PARAMS_MISMATCH` (this is "actual semantic drift").
 4. Any missing layer field / unreadable layer → `MISSING_PROVENANCE`.
-5. Hitting a framework fallback / undeclared backend branch → `SILENT_FALLBACK`.
+5. Hitting a framework fallback / undeclared backend branch → `SILENT_FALLBACK`. Fallbacks are
+   read from the typed `fallback_layers` field; the legacy
+   `provenance["fallback_layers"]` map is still accepted for producers that do not set it.
 
 **Key constraint:** a `configured value` must not masquerade as an `actual readback`
 (DoD `#L743`). `runtime_actual` must come from execution-side readback and must not reuse
@@ -198,6 +203,7 @@ frozen T01 manifest.
 | `failure_batch_context` | optional filter | no | run/checkpoint/sample/rank/module |
 | `pre_update_weight_lock` | immutable fingerprint | yes | Drift invalidates the case |
 | `vocab ownership` | `[vocab_start, vocab_end)` | yes | No gaps, overlaps or ambiguity |
+| `real_vocab_size` | int, optional | no (defaults to the padded width) | Real tokens; every target must be `< real_vocab_size` |
 | `rank/group/order` | versioned metadata | yes with TP | Required by ordered rank merge |
 | `sampling requested/actual` | canonical record | yes | See §3 |
 | `Foundation ABI versions` | five ABI version numbers | yes | SemanticTensor/RoutePlan/ExchangePlan/ExpertBatch/CombinePlan |
@@ -208,11 +214,14 @@ frozen T01 manifest.
 - **vocab ownership check**: `[vocab_start, vocab_end)` covers `[0, global_vocab)` with no
   gaps or overlaps (`#L29`, `#L719`). Otherwise → `INVALID_PROFILE` or `MISSING_PROVENANCE`
   (per the T01 manifest).
+- **single-device full vocabulary**: strict single-device scoring requires
+  `vocab_start == 0` and `vocab_end == global_vocab_size`. A vocabulary shard needs a TP
+  group, so shards are rejected here and belong to WS2.
 - **selected target ownership**: every active target is owned by exactly one rank with an
   owner count of 1 (`_validate_global_targets` / `owner_count`, `#L215`).
-- **padded vocab mask**: a target landing in the padded region
-  (`target >= global_vocab_size`) → fail-closed; it must not be treated as a valid target
-  (`#L215`).
+- **padded vocab mask**: every target row (active or not) must be `< real_vocab_size`; a
+  target in the padded region (`real_vocab_size <= target < global_vocab_size`) →
+  fail-closed. The strict wrapper validates all rows, not only the active ones (`#L215`).
 - **stop numerical attribution when the identity/profile gate fails** (`#L685`).
 
 ---

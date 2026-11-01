@@ -44,8 +44,10 @@ class TestSamplingNormalization:
         layer = normalize_sampling_layer(temperature=1.0, top_k=top_k, top_p=top_p, min_p=min_p)
         assert layer.is_identity()
 
-    def test_absent_parameters_normalize_to_identity(self):
-        assert normalize_sampling_layer().is_identity()
+    def test_absent_temperature_fails_closed(self):
+        with pytest.raises(SamplingParamsError):
+            normalize_sampling_layer()
+        assert normalize_sampling_layer(temperature=1.0).is_identity()
 
     def test_enabled_values_are_preserved(self):
         layer = normalize_sampling_layer(temperature=0.7, top_k=50, top_p=0.9, min_p=0.05)
@@ -62,6 +64,7 @@ class TestSamplingNormalization:
             {"temperature": 0.0},
             {"temperature": -1.0},
             {"temperature": float("nan")},
+            {"temperature": 10**400},
             {"top_k": -2},
             {"top_k": 1.5},
             {"top_k": True},
@@ -129,6 +132,27 @@ class TestSamplingGate:
         record.provenance = {"fallback_layers": (SamplingLayerName.REQUESTED.value,)}
         assert evaluate_sampling_gate(record).status is SamplingGateStatus.SILENT_FALLBACK
 
+    def test_scalar_string_fallback_is_reported_as_one_layer(self):
+        record = _record()
+        record.provenance = {"fallback_layers": "runtime_actual"}
+        result = evaluate_sampling_gate(record)
+        assert result.status is SamplingGateStatus.SILENT_FALLBACK
+        assert result.failing_layer == SamplingLayerName.RUNTIME_ACTUAL.value
+
+    def test_enum_fallback_is_reported_in_value_form(self):
+        record = _record()
+        record.provenance = {"fallback_layers": (SamplingLayerName.REQUESTED,)}
+        result = evaluate_sampling_gate(record)
+        assert result.status is SamplingGateStatus.SILENT_FALLBACK
+        assert result.failing_layer == SamplingLayerName.REQUESTED.value
+
+    def test_typed_fallback_field_fails_closed(self):
+        record = _record()
+        record.fallback_layers = (SamplingLayerName.MATERIALIZED.value,)
+        result = evaluate_sampling_gate(record)
+        assert result.status is SamplingGateStatus.SILENT_FALLBACK
+        assert result.failing_layer == SamplingLayerName.MATERIALIZED.value
+
 
 class TestCanonicalRecord:
     def test_fingerprint_is_stable_and_value_sensitive(self):
@@ -144,3 +168,9 @@ class TestCanonicalRecord:
         payload = _record().to_dict()
         assert payload["record_version"] == "p7-sampling-record-v1"
         assert json.loads(_record().to_json())["engine"] == "stub"
+
+    def test_foreign_record_version_is_rejected(self):
+        with pytest.raises(ValueError):
+            CanonicalSamplingRecord(
+                case_id="case-3", engine="stub", record_version="p7-sampling-record-v0"
+            )

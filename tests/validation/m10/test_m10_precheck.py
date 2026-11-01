@@ -59,6 +59,11 @@ class TestM10PrecheckPassing:
         )
         assert result.status is M10Status.PASS
 
+    def test_stub_does_not_touch_global_rng(self):
+        before = torch.random.get_rng_state()
+        _stub(seed=7)
+        assert torch.equal(torch.random.get_rng_state(), before)
+
 
 class TestM10PrecheckFailClosed:
     def test_missing_sampling_record_fails(self):
@@ -123,10 +128,41 @@ class TestM10PrecheckFailClosed:
         inp.global_vocab_size = inp.vocab_end - 1
         assert evaluate_m10_precheck(inp).status is M10Status.INVALID_PROFILE
 
+    def test_zero_global_vocab_fails(self):
+        inp = _stub()
+        inp.global_vocab_size = 0
+        assert evaluate_m10_precheck(inp).status is M10Status.INVALID_PROFILE
+
+    def test_inactive_row_out_of_vocab_target_fails(self):
+        inp = _stub(active_ratio=0.5)
+        inp.target_token_ids[-1] = -1
+        assert evaluate_m10_precheck(inp).status is M10Status.INVALID_PROFILE
+
+    def test_non_finite_weight_fails(self):
+        inp = _stub()
+        inp.lm_head_weight_local[0, 0] = float("nan")
+        assert evaluate_m10_precheck(inp).status is M10Status.NON_FINITE
+
     def test_padded_target_fails(self):
         inp = _stub()
-        inp.global_vocab_size = inp.vocab_end + 128
-        inp.target_token_ids[0] = inp.global_vocab_size + 1
+        inp.real_vocab_size = inp.vocab_end - 4
+        inp.target_token_ids[0] = inp.real_vocab_size + 1
+        assert evaluate_m10_precheck(inp).status is M10Status.INVALID_PROFILE
+
+    def test_real_vocab_smaller_than_padded_width_passes(self):
+        inp = _stub(tokens=8, hidden=32, local_vocab=64)
+        inp.real_vocab_size = 40
+        inp.target_token_ids = torch.arange(8, dtype=torch.int64)
+        assert evaluate_m10_precheck(inp).status is M10Status.PASS
+
+    def test_real_vocab_beyond_padded_width_fails(self):
+        inp = _stub()
+        inp.real_vocab_size = inp.global_vocab_size + 1
+        assert evaluate_m10_precheck(inp).status is M10Status.INVALID_PROFILE
+
+    def test_vocab_shard_is_rejected_in_single_device_mode(self):
+        inp = _stub(tokens=8, hidden=32, local_vocab=64)
+        inp.global_vocab_size = 128
         assert evaluate_m10_precheck(inp).status is M10Status.INVALID_PROFILE
 
     def test_zero_active_tokens_fails(self):

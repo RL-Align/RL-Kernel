@@ -23,6 +23,7 @@ from rl_engine.validation.sampling_params.schema import (
     CanonicalSamplingLayer,
     CanonicalSamplingRecord,
     SamplingGateStatus,
+    SamplingLayerName,
 )
 
 
@@ -33,7 +34,10 @@ class SamplingParamsError(ValueError):
 def _finite_float(value: Any, field_name: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise SamplingParamsError(f"{field_name} must be a real number, got {value!r}")
-    number = float(value)
+    try:
+        number = float(value)
+    except OverflowError as exc:
+        raise SamplingParamsError(f"{field_name} is out of range, got {value!r}") from exc
     if not math.isfinite(number):
         raise SamplingParamsError(f"{field_name} must be finite, got {value!r}")
     return number
@@ -92,9 +96,11 @@ def normalize_sampling_layer(
     surface such an error as a fail-closed case; it must never substitute a
     sentinel and let an unnormalizable layer look like identity.
     """
-    temp = (
-        TEMPERATURE_SENTINEL if temperature is None else _finite_float(temperature, "temperature")
-    )
+    if temperature is None:
+        raise SamplingParamsError(
+            "temperature must be supplied explicitly; identity is 1.0, not a default"
+        )
+    temp = _finite_float(temperature, "temperature")
     if temp <= 0.0:
         raise SamplingParamsError(f"temperature must be positive, got {temperature!r}")
     return CanonicalSamplingLayer(
@@ -149,6 +155,27 @@ def _result(
     )
 
 
+def _layer_name(value: Any) -> str:
+    """Render a layer identifier as the canonical ``value`` form."""
+    if isinstance(value, SamplingLayerName):
+        return value.value
+    return str(value)
+
+
+def _fallback_layers(record: CanonicalSamplingRecord) -> tuple[Any, ...]:
+    """Normalize the record's fallback provenance into a deterministic tuple.
+
+    The typed ``fallback_layers`` field wins; ``provenance["fallback_layers"]``
+    stays accepted for producers that only carry an untyped map.
+    """
+    raw: Any = record.fallback_layers or record.provenance.get("fallback_layers") or ()
+    if isinstance(raw, (str, SamplingLayerName)):
+        raw = (raw,)
+    elif isinstance(raw, (set, frozenset)):
+        raw = sorted(raw, key=str)
+    return tuple(raw)  # type: ignore[arg-type]
+
+
 def evaluate_sampling_gate(record: CanonicalSamplingRecord) -> SamplingGateResult:
     """Evaluate one canonical sampling record; never let a non-identity pass.
 
@@ -166,14 +193,14 @@ def evaluate_sampling_gate(record: CanonicalSamplingRecord) -> SamplingGateResul
             detail="missing sampling layer(s): " + ", ".join(name.value for name in missing),
         )
 
-    fallback = tuple(record.provenance.get("fallback_layers") or ())
+    fallback = _fallback_layers(record)
     if fallback:
         return _result(
             record,
             SamplingGateStatus.SILENT_FALLBACK,
-            failing_layer=str(fallback[0]),
+            failing_layer=_layer_name(fallback[0]),
             detail="sampling layer(s) resolved through a fallback: "
-            + ", ".join(str(name) for name in fallback),
+            + ", ".join(_layer_name(name) for name in fallback),
         )
 
     for name, layer in layers.items():

@@ -130,12 +130,37 @@ def evaluate_m10_precheck(
             f"vocab shard width {inp.vocab_end - inp.vocab_start} "
             f"does not match the local weight rows {inp.local_vocab_size}",
         )
-    if inp.global_vocab_size > 0 and inp.vocab_end > inp.global_vocab_size:
+    if inp.global_vocab_size <= 0:
+        return _fail(
+            M10Status.INVALID_PROFILE,
+            "global_vocab_size",
+            "global vocab size must be a positive real vocabulary size",
+        )
+    if inp.vocab_end > inp.global_vocab_size:
         return _fail(
             M10Status.INVALID_PROFILE,
             "vocab_ownership",
             f"vocab shard end {inp.vocab_end} exceeds the real vocab "
             f"{inp.global_vocab_size} (padded rows must not be owned as real)",
+        )
+
+    real_vocab = inp.effective_real_vocab_size
+    if real_vocab <= 0 or real_vocab > inp.global_vocab_size:
+        return _fail(
+            M10Status.INVALID_PROFILE,
+            "real_vocab_size",
+            f"real vocab size {real_vocab} must be within (0, {inp.global_vocab_size}]",
+        )
+
+    # Single-device strict scoring owns the complete, padded vocabulary. A
+    # vocabulary shard needs a TP group, which belongs to WS2.
+    if inp.vocab_start != 0 or inp.vocab_end != inp.global_vocab_size:
+        return _fail(
+            M10Status.INVALID_PROFILE,
+            "vocab_ownership",
+            "single-device strict scoring requires the full padded vocabulary "
+            f"(vocab [0, {inp.global_vocab_size})), got [{inp.vocab_start}, {inp.vocab_end}); "
+            "TP vocab shards belong to WS2",
         )
 
     if not bool(active.any()):
@@ -145,22 +170,25 @@ def evaluate_m10_precheck(
             "no active action tokens to score",
         )
 
-    if inp.global_vocab_size > 0:
-        active_targets = target[active]
-        if bool((active_targets < 0).any()) or bool(
-            (active_targets >= inp.global_vocab_size).any()
-        ):
-            return _fail(
-                M10Status.INVALID_PROFILE,
-                "target_token_ids",
-                "an active target lands outside the real vocab (padded vocab mask)",
-            )
+    if bool((target < 0).any()) or bool((target >= real_vocab).any()):
+        return _fail(
+            M10Status.INVALID_PROFILE,
+            "target_token_ids",
+            "a target lands outside the real vocab (padded vocab mask); the strict "
+            "wrapper validates every row, so inactive rows must use an in-vocab id too",
+        )
 
     if not bool(torch.isfinite(rows).all()):
         return _fail(
             M10Status.NON_FINITE,
             "final_decoder_rows",
             "final decoder rows contain non-finite values",
+        )
+    if not bool(torch.isfinite(weight).all()):
+        return _fail(
+            M10Status.NON_FINITE,
+            "lm_head_weight_local",
+            "LM head weight contains non-finite values",
         )
 
     return M10PrecheckResult(

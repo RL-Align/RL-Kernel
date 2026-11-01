@@ -61,8 +61,14 @@ class M10Input(SerializableModel):
     rank: int = 0
     group: str = "single"
     lm_head_lora: bool = False
+    real_vocab_size: Optional[int] = None
     schema_version: str = M10_INPUT_SCHEMA_VERSION
 
     @property
     def local_vocab_size(self) -> int:
         return int(self.lm_head_weight_local.size(0))
+
+    @property
+    def effective_real_vocab_size(self) -> int:
+        """Real vocabulary size; falls back to the padded width when unset."""
+        return int(self.global_vocab_size if self.real_vocab_size is None else self.real_vocab_size)

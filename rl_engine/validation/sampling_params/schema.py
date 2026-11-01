@@ -98,6 +98,14 @@ class CanonicalSamplingRecord(SerializableModel):
     runtime_actual: Optional[CanonicalSamplingLayer] = None
     record_version: str = SAMPLING_RECORD_VERSION
     provenance: Mapping[str, Any] = field(default_factory=dict)
+    fallback_layers: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.record_version != SAMPLING_RECORD_VERSION:
+            raise ValueError(
+                f"unsupported sampling record_version {self.record_version!r}, "
+                f"expected {SAMPLING_RECORD_VERSION!r}"
+            )
 
     def layer(self, name: SamplingLayerName) -> Optional[CanonicalSamplingLayer]:
         return getattr(self, name.value)

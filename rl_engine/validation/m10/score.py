@@ -100,8 +100,9 @@ def score_m10(
         weight,
         targets,
         None,
+        vocab_start_index=inp.vocab_start,
         global_vocab_size=inp.global_vocab_size,
-        real_vocab_size=inp.global_vocab_size,
+        real_vocab_size=inp.effective_real_vocab_size,
         target=target,
     )
     selected = logprob.detach().to(torch.float32).reshape(-1)
