@@ -333,7 +333,7 @@ def _environment(device, args, triton_version, block_v, target: GPUTargetInfo):
         "git_status": _command_output(["git", "status", "--short"]),
         "block_v": block_v,
         "reduction_group_size": REDUCTION_CONFIG.group_size,
-        "reduction_section_count": REDUCTION_CONFIG.section_count,
+        "reduction_tree": "adjacent groups, then one lower-half/upper-half tree",
         "warmup": args.warmup,
         "repeat": args.repeat,
         "seed": args.seed,

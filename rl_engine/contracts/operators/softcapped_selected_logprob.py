@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 
 import torch
 
+from rl_engine.contracts.operators.ordered_reduction import MAX_GROUP_SIZE, TILE_SIZE
+
 SUPPORTED_DTYPES = (torch.float16, torch.bfloat16, torch.float32)
 """Logits and upstream storage dtypes; arithmetic and forward output are FP32."""
 
@@ -28,31 +30,25 @@ qualification; those checks must run on the corresponding hardware.
 class SoftcappedLogprobReductionConfig:
     """Arithmetic shared by all schedules and the fixed-order reference.
 
-    Only the tile width is configurable. The sequential groups and four-section
-    tree define the current addition order, rather than hardware tuning knobs.
+    Only the tile width is configurable. Adjacent groups use the shared default,
+    followed by one lower-half/upper-half tree over all group totals. These
+    define arithmetic, rather than per-strategy hardware tuning knobs.
     Changing the width requires new numerical and performance qualification;
     bitwise equality is required across schedules using the same config, not
     across different widths. Configure this before importing either implementation.
     """
 
-    tile_size: int = 2**10
+    tile_size: int = TILE_SIZE
     """Positive power-of-two vocabulary width; masked tail lanes contribute zero."""
 
-    group_size: int = field(default=8, init=False)
+    group_size: int = field(default=MAX_GROUP_SIZE, init=False)
     """Fold up to eight adjacent values left to right, starting from the first value."""
-
-    section_count: int = field(default=4, init=False)
-    """Four equal sections; halve each section, then merge as (s0+s2)+(s1+s3).
-
-    Used when at least four groups exist. One group returns directly; two
-    groups add once. Every tree reduction therefore combines only two values.
-    """
 
     def __post_init__(self) -> None:
         """Reject invalid tile widths as soon as the configuration is constructed.
 
         Rely on the int annotation; check the value needed by both reduction
-        implementations. group_size and section_count are fixed, non-init fields.
+        implementations. group_size is a fixed, non-init field.
         """
         if self.tile_size <= 0 or self.tile_size & (self.tile_size - 1):
             raise ValueError("tile_size must be a positive power of two")

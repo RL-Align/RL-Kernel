@@ -1,30 +1,24 @@
-"""Eager references matching the Triton ordered-reduction package exports.
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 RL-Kernel Contributors
+"""Eager references for the Triton ordered-reduction package exports.
 
-sum_tile and product_tile reduce a power-of-two last dimension; callers supply
-neutral padding. compute_dtype=None uses values.dtype; an explicit dtype casts first.
-sum_vector and product_vector handle arbitrary lengths, tiling and padding;
-compute_dtype=None uses the input dtype. Leading dimensions batch independent
-reductions. Run eagerly and use no_grad when inputs require gradients.
+sum/product default to loaded-vector semantics: a power-of-two last dimension,
+optional suffix masking via length, and no extra seed. from_memory=True models
+Triton's scalar-pointer path with fixed tiles and an ascending seeded fold.
+Torch tensors cannot otherwise distinguish loaded values from pointer storage.
+compute_dtype=None retains input precision; leading dimensions batch reductions.
 
-sum_partials and product_partials merge stored tile results with only the tensor
-required. Operation, initial value and storage dtype are supplied by default.
-Generic stages and combiners live in ordered_reduce for diagnostic tests.
+sum_partials/product_partials merge stored tile results from zero/one in order.
+Run eagerly; differentiable operations support ordinary PyTorch autograd. The
+fixed-order guarantee covers forward arithmetic, not automatically generated
+backward reductions. Empty folds return their seed without reading the input.
+Independent native or higher-precision accuracy checks remain separate.
+
+reduce/reduce_partials expose the same implementations with caller-owned binary
+functions. sum/product and their partial helpers supply standard operations and
+neutral values. Custom operations need no registry or implementation-module import.
 """
 
-from .ordered_reduce import (
-    product_partials,
-    product_tile,
-    product_vector,
-    sum_partials,
-    sum_tile,
-    sum_vector,
-)
+from .ordered_reduce import product, product_partials, reduce, reduce_partials, sum, sum_partials
 
-__all__ = [
-    "sum_tile",
-    "product_tile",
-    "sum_vector",
-    "product_vector",
-    "sum_partials",
-    "product_partials",
-]
+__all__ = ["sum", "product", "sum_partials", "product_partials", "reduce", "reduce_partials"]

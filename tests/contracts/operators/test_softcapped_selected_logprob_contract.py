@@ -15,15 +15,14 @@ from rl_engine.contracts.operators.softcapped_selected_logprob import (
 from rl_engine.reference.logprob import softcapped_selected_logprob as reference
 
 
-def test_shared_defaults_preserve_the_existing_operator_contract():
-    """Keep the established API and 1024-element arithmetic after moving metadata."""
+def test_shared_defaults_preserve_the_operator_interface():
+    """Keep the public API, tile width and group size while adopting the shared tree."""
     assert SUPPORTED_DTYPES == (torch.float16, torch.bfloat16, torch.float32)
     assert TRITON_SUPPORTED_DEVICES == ("cuda", "hip", "xpu", "musa")
     assert (
         REDUCTION_CONFIG.tile_size,
         REDUCTION_CONFIG.group_size,
-        REDUCTION_CONFIG.section_count,
-    ) == (1024, 8, 4)
+    ) == (1024, 8)
     assert reference.SUPPORTED_DTYPES is SUPPORTED_DTYPES
     assert reference.REDUCTION_CONFIG is REDUCTION_CONFIG
     assert (
@@ -63,7 +62,8 @@ def test_native_reference_does_not_use_the_ordered_reduction(monkeypatch):
     def forbidden(*args, **kwargs):
         raise AssertionError("native accuracy reference called the fixed-order reference")
 
-    monkeypatch.setattr(reference, "ordered_reduce", forbidden)
+    monkeypatch.setattr(reference.ordered, "sum", forbidden)
+    monkeypatch.setattr(reference.ordered, "sum_partials", forbidden)
     monkeypatch.setattr(reference, "ordered_exp_sum", forbidden)
     monkeypatch.setattr(reference, "ordered_forward", forbidden)
     logits = torch.tensor([[1.5, -2.0, 0.5]], requires_grad=True)

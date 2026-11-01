@@ -17,6 +17,7 @@ from rl_engine.contracts.operators.softcapped_selected_logprob import (
 from rl_engine.reference.logprob.softcapped_selected_logprob import (
     gradient_from_probability,
     ordered_backward,
+    ordered_exp_sum,
     ordered_forward,
     selected_from_statistics,
 )
@@ -40,6 +41,24 @@ _CAPS = (
     64.0,
     70.0,
 )
+
+
+def test_exponential_partials_use_the_shared_halving_tree():
+    """Freeze operand pairs and the outer fold independently of the helper.
+
+    Eight groups first pair 0+4, 1+5, 2+6 and 3+7. The two half-ULP values
+    meet before the large value; the retired four-section tree loses them.
+    Include a second tile and a one-element tail to check the outer row fold.
+    """
+    values = torch.zeros((1, 129), dtype=torch.float32)
+    values[0, [0, 64]] = 1.0
+    values[0, [8, 24, 72, 88]] = 2**-24
+    values[0, 128] = 0.5
+    before = values.clone()
+    partials, total = ordered_exp_sum(values, tile_size=64)
+    assert_bitwise(partials, torch.tensor([[1.0 + 2**-23, 1.0 + 2**-23, 0.5]]))
+    assert_bitwise(total, torch.tensor([2.5 + 2**-22]))
+    assert_bitwise(values, before)
 
 
 @pytest.mark.parametrize("dtype", _DTYPES)
@@ -233,7 +252,6 @@ def _check_all_strategies_fixed_arithmetic(dtype, vocab, softcap, tile_size):
         BLOCK_V=tile_size,
         SOFTCAP=softcap,
         MAX_GROUP_SIZE=REDUCTION_CONFIG.group_size,
-        SECTION_COUNT=REDUCTION_CONFIG.section_count,
         num_warps=4,
         **math_options,
     )

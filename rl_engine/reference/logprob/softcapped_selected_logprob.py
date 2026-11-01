@@ -23,7 +23,7 @@ from rl_engine.contracts.operators.softcapped_selected_logprob import (
     REDUCTION_CONFIG,
     SUPPORTED_DTYPES,
 )
-from rl_engine.reference.reduction.ordered_reduce import ordered_reduce
+from rl_engine.reference import reduction as ordered
 
 
 def _validate_softcap(softcap: float, vocab_size: int) -> None:
@@ -130,17 +130,20 @@ def ordered_exp_sum(
         raise ValueError("exponentials must have shape [M, V] with V > 0")
     if exponentials.dtype != torch.float32:
         raise TypeError("exponentials must be FP32")
-    result = ordered_reduce(
-        exponentials,
-        block_size=tile_size,
+    if tile_size <= 0 or tile_size & (tile_size - 1):
+        raise ValueError("tile_size must be a positive power of two")
+    n_rows, vocab_size = exponentials.shape
+    n_tiles = (vocab_size + tile_size - 1) // tile_size
+    padded = torch.nn.functional.pad(exponentials, (0, n_tiles * tile_size - vocab_size))
+    tiles = padded.reshape(n_rows, n_tiles, tile_size)
+    # Each last-dimension vector models a loaded Triton tile, without a seed.
+    partials = ordered.sum(
+        tiles,
         max_group_size=REDUCTION_CONFIG.group_size,
-        section_count=REDUCTION_CONFIG.section_count,
-        combine_fn=torch.add,
-        identity=0.0,
-        initial=0.0,
         compute_dtype=torch.float32,
     )
-    return result.partials, result.total
+    # Keep inspectable stages here; the shared API returns only the reduction result.
+    return partials, ordered.sum_partials(partials)
 
 
 @dataclass(frozen=True)

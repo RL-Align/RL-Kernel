@@ -150,7 +150,6 @@ def test_triton_parallel_forward_scratch_and_output_bounds(dtype, vocab, merge_u
         REDUCTION_CONFIG.tile_size,
         SOFTCAP=30.0,
         MAX_GROUP_SIZE=REDUCTION_CONFIG.group_size,
-        SECTION_COUNT=REDUCTION_CONFIG.section_count,
         num_warps=4,
         **math_options,
     )
@@ -262,7 +261,6 @@ def test_triton_row_offsets_across_int32_boundary(dtype):
         BACKWARD: tl.constexpr,
         BLOCK: tl.constexpr,
         MAX_GROUP_SIZE: tl.constexpr,
-        SECTION_COUNT: tl.constexpr,
     ):
         if tl.program_id(0) >= START_ROW:
             base = tl.full((), START_ROW, tl.int64) * vocab
@@ -289,7 +287,6 @@ def test_triton_row_offsets_across_int32_boundary(dtype):
                     BLOCK,
                     SOFTCAP=30.0,
                     MAX_GROUP_SIZE=MAX_GROUP_SIZE,
-                    SECTION_COUNT=SECTION_COUNT,
                 )
 
     vocab = 65537
@@ -318,7 +315,6 @@ def test_triton_row_offsets_across_int32_boundary(dtype):
             BACKWARD=backward,
             BLOCK=REDUCTION_CONFIG.tile_size,
             MAX_GROUP_SIZE=REDUCTION_CONFIG.group_size,
-            SECTION_COUNT=REDUCTION_CONFIG.section_count,
             num_warps=4,
             **_math_launch_options(x.device),
         )

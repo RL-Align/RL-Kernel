@@ -1,37 +1,28 @@
-"""Ordered sum and product helpers to embed inside a Triton kernel.
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 RL-Kernel Contributors
+"""Ordered reductions to embed inside another Triton kernel.
 
-sum_tile and product_tile reduce already-loaded or computed power-of-two vectors.
-COMPUTE_DTYPE=None uses values.dtype; an explicit dtype converts values first.
-Mask invalid lanes with zero or one respectively.
-These helpers add no whole-vector seed and do not load from pointers.
+These helpers are for enclosing @triton.jit kernels. The optional gluon submodule
+exposes matching functions for @gluon.jit callers. Import it explicitly; importing
+this package does not load Gluon. Neither frontend selects the enclosing kernel.
 
-sum_vector and product_vector take a pointer and length, handling loads, tiles,
-tail padding and accumulation. COMPUTE_DTYPE=None uses the pointer's element type.
-All tiles run in the calling program; BLOCK_SIZE does not limit total length.
+sum/product accept either loaded numeric vectors or scalar pointers. Input type
+selects the path at compile time. Optional length masks a loaded prefix without
+resizing its tree; pointer input requires length and uses fixed-width tiles.
+COMPUTE_DTYPE=None retains input precision. Pointer-only BLOCK_SIZE and
+PIPELINE_STAGES configure loading; MAX_GROUP_SIZE sets the initial sequential groups.
+Group totals follow one fixed lower-half/upper-half tree to a scalar.
 
-sum_partials and product_partials take a pointer and count of already-computed
-tile results, then merge them in order. They supply the operation, initial value
-and storage dtype by default; callers need not configure a generic reducer.
+sum_partials/product_partials fold stored tile results in ascending order.
+All helpers return scalars without allocating, storing or launching kernels.
+Callers own scheduling, producer dependencies and compiler math settings.
+Generic stages live in ordered_reduce for custom integration and diagnostics.
 
-All helpers return a scalar for the caller to use or store. The enclosing
-operator owns allocation, launches and dependencies between producers and the
-merge. Generic stages and binary combiners stay in the implementation module.
+reduce/reduce_partials expose the same implementations with caller-owned binary
+functions. sum/product and their partial helpers supply standard operations and
+neutral values. Custom operations need no registry or implementation-module import.
 """
 
-from .ordered_reduce import (
-    product_partials,
-    product_tile,
-    product_vector,
-    sum_partials,
-    sum_tile,
-    sum_vector,
-)
+from .ordered_reduce import product, product_partials, reduce, reduce_partials, sum, sum_partials
 
-__all__ = [
-    "sum_tile",
-    "product_tile",
-    "sum_vector",
-    "product_vector",
-    "sum_partials",
-    "product_partials",
-]
+__all__ = ["sum", "product", "sum_partials", "product_partials", "reduce", "reduce_partials"]

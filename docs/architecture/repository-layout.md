@@ -101,6 +101,24 @@ model, engine, or platform. Existing MUSA dispatch through validated shared
 implementations is retained; a MUSA directory alone does not certify a native
 MUSA kernel. Docker images and CI jobs are added only when executable support exists.
 
+## Device-local reduction helpers
+
+Reusable embedded Triton reductions live in `backends/shared/triton/reduction`.
+The optional Gluon implementation lives alongside them in
+`backends/shared/triton/reduction/gluon.py`. Gluon is Triton's explicit-layout
+frontend, not an additional hardware platform. The shared arithmetic accepts
+the target's warp/wave width and execution settings. GPU correctness has been
+validated on H100 and A40; the reported performance measurements are from H100.
+Future device-specific algorithms may live under their platform, while
+layout tuning can reuse this shared implementation. Enclosing Gluon kernels
+require `@gluon.jit`; the upper layer chooses them explicitly instead of switching
+inside `@triton.jit`.
+Their eager fixed-order PyTorch counterparts live in `reference/reduction`, and
+shared arithmetic defaults live in `contracts/operators/ordered_reduction.py`.
+These helpers do not register standalone Tensor operators or distributed
+collectives. See [Ordered reductions](ordered-reduction.md) for the six public
+functions, caller-owned dispatch, arithmetic contract and validation boundaries.
+
 ## Where overlapping attention and GEMM implementations belong
 
 - `models/qwen3/spec.py` owns the Qwen3 topology and operator inventory. A model
@@ -113,15 +131,6 @@ MUSA kernel. Docker images and CI jobs are added only when executable support ex
 - `backends/shared/triton` owns a single implementation when the same source and
   contract are valid across devices. Register it for each supported platform;
   do not copy it into each platform directory.
-- Device-local reusable Triton reductions live in
-  `backends/shared/triton/reduction/`. The package exports `sum_tile`, `product_tile`,
-  `sum_vector`, `product_vector`, `sum_partials` and `product_partials`. The last
-  pair merges stored tile results without exposing generic reducer parameters.
-  They are in-kernel building blocks, not
-  standalone semantic operators or cross-device collectives. Calling operators
-  own allocation and kernel launches. Their eager arithmetic references live in `reference/reduction/`,
-  with shared defaults in `contracts/operators/ordered_reduction.py`; see
-  [ordered reductions](ordered-reduction.md).
 - A future truly model-specific fusion belongs under
   `backends/<platform>/model_specific/<model>/`, with its semantic requirements
   declared by that model. Create it when there is an implementation to own.

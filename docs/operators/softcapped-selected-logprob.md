@@ -183,12 +183,11 @@ Shared input and arithmetic configuration lives in
   supplied by the caller, not by shared configuration.
 - `TRITON_SUPPORTED_DEVICES` records device types accepted by Triton; the
   PyTorch references remain usable on CPU.
-- `REDUCTION_CONFIG` supplies the tile width, eight-value sequential groups and
-  four-section tree to Triton and the fixed-order PyTorch reference. Group size
-  and section count define the arithmetic; they are not per-strategy tuning knobs.
-  Construction rejects nonpositive and non-power-of-two tile widths.
-  Launchers pass group size and section count explicitly through the forward
-  kernels to `sum_tile`; this operator does not rely on the helper's defaults.
+- `REDUCTION_CONFIG` supplies the tile width and adjacent group size to Triton
+  and the fixed-order PyTorch reference, using the public reduction defaults.
+  Group size and tile width define arithmetic, not per-strategy tuning knobs.
+  Construction rejects nonpositive and non-power-of-two tile widths. Launchers
+  pass the group size explicitly to the shared `sum` function.
 - Strategy types, device keys, tuning ranges and cached selection are defined
   at the start of `backends/shared/triton/logprob/softcapped_selected_logprob.py`.
   Input validation, kernels, launchers and the public autograd Op follow in that order.
@@ -197,55 +196,50 @@ The contract contains no kernels or tensor computation. The native PyTorch
 `log_softmax`/autograd reference remains independent of the ordered reduction;
 the accuracy tests do not reuse the fixed-order helper.
 
-The configured arithmetic tile currently has 1024 elements. Masked lanes contribute negative
-infinity to maxima and positive zero to sums. Zero maxima are canonicalized to
-positive zero. `ordered_tile_reduce` with `COMBINE_FN=reduce_add` declares these addition pairs:
+The configured arithmetic tile currently has 1024 elements. Masked lanes contribute
+negative infinity to maxima and positive zero to sums. Zero maxima are canonicalized
+to positive zero. The shared reduction declares these addition pairs:
 
 1. Form 128 groups of eight adjacent values. Add each group left to right,
-   starting from the first value.
-2. Form four sections of 32 group totals. Pair lower and upper halves at
-   distances `16, 8, 4, 2, 1`.
-3. Merge section totals as `(s0 + s2) + (s1 + s3)`.
-4. Starting from positive zero, add tile totals in ascending vocabulary order.
+   starting from its first value, without a zero seed.
+2. Repeatedly pair the lower and upper halves of all group totals at distances
+   `64, 32, 16, 8, 4, 2, 1`, until one tile result remains.
+3. Starting from positive zero, add tile totals in ascending vocabulary order.
 
-Every addition rounds in FP32. Each tree step explicitly selects two operands
-and calls `reduce_add`. The groups describe arithmetic, not a physical warp layout. Forward
-uses four warps with FP fusion disabled; `V` and `softcap` are compile-time
-constants. Changing a cap can compile a separate specialization.
+Every addition rounds in FP32. The groups describe arithmetic, not a physical
+warp layout. Forward uses four warps with FP fusion disabled; `V` and `softcap`
+are compile-time constants. Changing a cap can compile a separate specialization.
 
-`ordered_tile_reduce` accepts any positive power-of-two vector width within
-Triton's resource limits. The width determines the tree at compile time:
-2048 adds a distance-32 stage before `16, 8, 4, 2, 1`; 1024 retains the original
-addition pairs. Widths below eight use one shorter sequential group. Widths
-8 and 16 yield one or two group totals, returned directly or added once. Width
-32 has exactly four groups and only needs the final section merge.
+This adopts the common tree from PR #595. The retired four-section tree used
+other pairs, so old bitwise outputs and GPU results do not qualify this revision.
+All three schedules and the PyTorch ordered reference now use the new tree;
+independent accuracy tolerances are unchanged. GPU conformance and complete
+operator benchmarks must be rerun before reporting new performance results.
 
-The generic `ordered_tile_reduce` does not impose a dtype or cast its input; the
-supplied combiner determines its arithmetic dtype behavior. This operator uses
-the `sum_tile` convenience wrapper with explicit FP32 computation, preserving
-its intermediate precision and public dtype contract.
+The shared helper accepts positive power-of-two loaded widths within Triton's
+resource limits. Width 2048 has 256 groups and starts at distance 128. Widths
+below eight form one shorter sequential group; one group returns directly.
+Changing width or group size can change rounding, so comparisons requiring equal
+bits must keep both fixed.
 
-The operator imports `sum_tile` and `sum_partials` from
-the single `rl_engine.backends.shared.triton.reduction` package entry point. Their
+The operator imports `sum` as `ordered_sum` and `sum_partials` from
+`rl_engine.backends.shared.triton.reduction`. Their
 [shared contract and reuse guide](../architecture/ordered-reduction.md) are
 independent of logprob:
 
 | Helper | Responsibility |
 | --- | --- |
-| `_softcapped_exp_tile_sum` (operator-local) | Load one tile, compute FP32 softcap and shifted exp, zero padded lanes, then call `sum_tile` |
-| `sum_tile` (shared) | Select addition and this operator's explicit FP32 compute dtype for `ordered_tile_reduce`; it performs no softcap or exp |
-| `sum_partials` (shared) | Fold parallel tile sums in ascending order from zero; infer FP32 from their storage |
-| `_store_softcapped_selected_logprob` (operator-local) | Compute the selected logprob and save the shifted log-sum, using identical arithmetic in both schedules |
+| `_softcapped_exp_tile_sum` (operator-local) | Load a tile, compute FP32 softcap and shifted exp, zero padded lanes, then call `ordered_sum` |
+| `sum` (shared, loaded-vector path) | Reduce those already-computed exponentials in explicit FP32, without another memory load or a tile seed |
+| `sum_partials` (shared) | Fold stored FP32 tile sums in ascending order from zero |
+| `_store_softcapped_selected_logprob` (operator-local) | Compute the selected logprob and save the shifted log-sum with identical arithmetic in every schedule |
 
-The local tile helper receives `BLOCK_V`, `SOFTCAP`, `MAX_GROUP_SIZE` and
-`SECTION_COUNT` explicitly, along with the row pointer, tile index and runtime
-row maximum. It passes the resulting vector to `sum_tile` with explicit FP32
-precision and the shared arithmetic configuration. ROW and ROW_PIPELINED own
-the ascending tile loop and
-accumulate from positive zero; PARALLEL stores each partial in its tile slot
-and calls `sum_partials`. The helper supplies addition and the same positive-zero seed
-once for the whole row, never for each partial. It adds partials left to right rather
-than treating them as another tile to be reduced.
+The local tile helper receives `BLOCK_V`, `SOFTCAP` and `MAX_GROUP_SIZE`, along
+with the row pointer, tile index and runtime row maximum. ROW and ROW_PIPELINED
+own the ascending tile loop; PARALLEL stores partial k in slot k and calls
+`sum_partials`. Do not replace this merge with `sum(partials)`, which would add
+a different tree. The ordinary Triton frontend is embedded here; opting into
+Gluon would require a separate enclosing `@gluon.jit` kernel and GPU qualification.
 
 The finalization helper receives row-relative pointers, the row maximum and
 the completed exponential sum. It computes the shifted log-sum with
@@ -265,30 +259,25 @@ left-to-right fold between tiles. It does not introduce a balanced tree across
 tile totals or claim that a fixed order eliminates rounding error. Changing
 that fold requires updating both schedules and the ordered reference together.
 
-The PyTorch-only `ordered_reduce` diagnostic collector in
-`rl_engine/reference/reduction/ordered_reduce.py` calls the same-named
-`ordered_reduce_partial` and `ordered_reduce_merge` references, then returns named
-`partials` and `total` fields. The operator's `tile_size` is passed as `block_size`,
-matching Triton's `BLOCK_SIZE`.
-`ordered_exp_sum` passes inspectable, already-computed exponentials directly.
-The independent native Op continues to use `log_softmax` and autograd. Tests
-cover FP32 conversion, tail masking, serial/pipelined/parallel equality and
-partial-buffer integrity. Embedded-helper tests also compute elementwise
-transforms in the caller before reducing their local tiles.
-Generic reduction checks live in `tests/reference/reduction` and
-`tests/backends/shared/triton/reduction`; operator-stage, accuracy and
-training/inference checks remain under the logprob test paths.
+The operator's `ordered_exp_sum` reference pads and reshapes already-computed
+exponentials to `[M, n_tiles, tile_size]`. Shared PyTorch `sum` reduces the last
+axis without a seed, and `sum_partials` merges the resulting `[M, n_tiles]` buffer
+in order. The inspectable tile sums remain operator-local; no duplicate generic
+collector is added to `reference/reduction`. The Native Op continues to use
+independent `log_softmax` and autograd.
 
-The PyTorch fixed-order helper accepts the same widths; its full-row reference
-takes an explicit `tile_size` when testing another configuration. Tests cover
-powers of two from 1 through 8192, nonassociative inputs, padded tails, the old
-1024 tree and GPU execution with four/eight warps. Cross-strategy consistency
-is required **at the same configured width**. Changing `REDUCTION_CONFIG.tile_size` changes both
-the row's addition grouping and the policy's tile counts; it requires fresh
-numerical and performance qualification, not equality with the old width.
-Change this configuration before importing the implementations, then restart
-the process for testing; reference tile-width defaults and the backward launcher's
-default block width are bound at import time.
+Generic reduction checks live in `tests/reference/reduction` and
+`tests/backends/shared/triton/reduction`. Operator tests retain FP32 accuracy,
+manual backward checks, saved-statistic integrity and bitwise equality across
+ROW, ROW_PIPELINED, PARALLEL and automatic selection, including configured widths
+and masked tails. A hand-calculated case distinguishes the new tree from the
+retired section tree without using the shared reference to obtain its expected value.
+
+Cross-strategy consistency is required **at the same configured width**. Changing
+`REDUCTION_CONFIG.tile_size` changes arithmetic grouping and the policy's tile
+counts; it requires numerical and performance qualification, not equality with
+the old width. Set the configuration before importing implementations: reference
+width defaults and the backward launcher's default block width bind at import time.
 
 | Strategy | Execution | Temporary global storage |
 | --- | --- | --- |
@@ -459,7 +448,8 @@ uses FP64 to construct the expected rounded quotient.
 The saved RTX A5000 report `softcapped-ordered-20261017-084233-NkJgr0` recorded
 1376 consistency passes and 1580 FP32 accuracy/API passes, with 48 two-GPU skips
 in each layer. FP64 recorded 1414 passes and 14 failures, all forward-output
-checks. These are **pre-cleanup GPU results**, not a GPU rerun of this layout.
+checks. These are **historical GPU results from the old reduction tree**, not
+qualification of the shared-tree migration.
 The optional FP64 command now excludes 30 division checks moved to regular
 acceptance. CPU results can differ with the host's native math implementation.
 

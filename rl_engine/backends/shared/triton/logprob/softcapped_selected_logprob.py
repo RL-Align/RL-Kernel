@@ -30,7 +30,8 @@ import triton
 import triton.language as tl
 from triton.language.extra import libdevice
 
-from rl_engine.backends.shared.triton.reduction import sum_partials, sum_tile
+from rl_engine.backends.shared.triton.reduction import sum as ordered_sum
+from rl_engine.backends.shared.triton.reduction import sum_partials
 from rl_engine.contracts.operators.softcapped_selected_logprob import (
     REDUCTION_CONFIG,
     SUPPORTED_DTYPES,
@@ -422,7 +423,6 @@ def _softcapped_exp_tile_sum(
     BLOCK_V: tl.constexpr,
     SOFTCAP: tl.constexpr,
     MAX_GROUP_SIZE: tl.constexpr,
-    SECTION_COUNT: tl.constexpr,
 ):
     """Compute one shifted-exponential tile and hand its values to the reducer.
 
@@ -437,11 +437,10 @@ def _softcapped_exp_tile_sum(
     softcapped = SOFTCAP * libdevice.tanh(scaled)
     exponentials = libdevice.exp(softcapped - row_max)
     exponentials = tl.where(mask, exponentials, 0.0)
-    return sum_tile(
+    return ordered_sum(
         exponentials,
         COMPUTE_DTYPE=tl.float32,
         MAX_GROUP_SIZE=MAX_GROUP_SIZE,
-        SECTION_COUNT=SECTION_COUNT,
     )
 
 
@@ -488,7 +487,6 @@ def _softcapped_selected_logprob_fwd_kernel(
     BLOCK_V: tl.constexpr,
     SOFTCAP: tl.constexpr,
     MAX_GROUP_SIZE: tl.constexpr,
-    SECTION_COUNT: tl.constexpr,
     PIPELINE_STAGES: tl.constexpr = None,
 ):
     """Scan raw logits for the maximum, then compute the ordered shifted-exp sum.
@@ -530,7 +528,6 @@ def _softcapped_selected_logprob_fwd_kernel(
             BLOCK_V=BLOCK_V,
             SOFTCAP=SOFTCAP,
             MAX_GROUP_SIZE=MAX_GROUP_SIZE,
-            SECTION_COUNT=SECTION_COUNT,
         )
         sum_exp = sum_exp + tile_sum_exp
 
@@ -603,7 +600,6 @@ def _softcapped_selected_logprob_fwd_partial_kernel(
     BLOCK_V: tl.constexpr,
     SOFTCAP: tl.constexpr,
     MAX_GROUP_SIZE: tl.constexpr,
-    SECTION_COUNT: tl.constexpr,
 ):
     """Store one FP32 shifted tile sum at [row, tile], using the completed row maximum."""
     row = tl.program_id(0).to(tl.int64)
@@ -618,7 +614,6 @@ def _softcapped_selected_logprob_fwd_partial_kernel(
         BLOCK_V=BLOCK_V,
         SOFTCAP=SOFTCAP,
         MAX_GROUP_SIZE=MAX_GROUP_SIZE,
-        SECTION_COUNT=SECTION_COUNT,
     )
 
     # Each program owns exactly one entry in the [M, n_tiles] scratch array.
@@ -805,7 +800,6 @@ def _launch_softcapped_selected_logprob_fwd(
             BLOCK_V=REDUCTION_CONFIG.tile_size,
             SOFTCAP=softcap,
             MAX_GROUP_SIZE=REDUCTION_CONFIG.group_size,
-            SECTION_COUNT=REDUCTION_CONFIG.section_count,
             PIPELINE_STAGES=pipeline_stages,
             num_warps=4,
             **math_options,
@@ -897,7 +891,6 @@ def _launch_softcapped_selected_logprob_fwd_parallel(
             BLOCK_V=REDUCTION_CONFIG.tile_size,
             SOFTCAP=softcap,
             MAX_GROUP_SIZE=REDUCTION_CONFIG.group_size,
-            SECTION_COUNT=REDUCTION_CONFIG.section_count,
             num_warps=4,
             **math_options,
         )

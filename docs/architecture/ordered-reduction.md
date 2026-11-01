@@ -1,323 +1,400 @@
 # Device-local ordered reductions
 
-Import the package and call one function inside your Triton kernel:
+These helpers let a fused kernel use a prescribed floating-point reduction tree.
+They are building blocks inside an enclosing GPU kernel, not Tensor operators or
+collectives. The caller owns allocation, launches, device/stream selection and
+producer dependencies. Elementwise transforms and masks also belong to the caller.
 
-```python
-import triton.language as tl
-from rl_engine.backends.shared.triton.reduction import sum_vector
+Fixed order and numerical accuracy are separate requirements. The same operands,
+tree, dtype, callback and rounding settings must be used when checking bits.
+Independent accuracy checks remain necessary: a same-tree reference can repeat
+an implementation's mistake.
 
-# Inside @triton.jit; ptr addresses a contiguous vector of length V.
-total = sum_vector(ptr, V)
-```
+## Ownership and frontends
 
-The function loads the whole vector in tiles, handles its final incomplete tile
-and returns a scalar. `V` can exceed the tile width and need not be a power of
-two. No combiner, partial buffer or merge call is required from ordinary callers.
-
-| Package export | Input | Result |
+| Component | Canonical location | Responsibility |
 | --- | --- | --- |
-| `sum_tile(values)` | Already-loaded/computed power-of-two vector; caller masks invalid lanes with zero | Tile sum, with no extra seed |
-| `product_tile(values)` | Already-loaded/computed power-of-two vector; caller masks invalid lanes with one | Tile product, with no extra seed |
-| `sum_vector(ptr, length, COMPUTE_DTYPE=None)` | Pointer and any nonnegative length | Sum of the whole vector; empty returns zero |
-| `product_vector(ptr, length, COMPUTE_DTYPE=None)` | Pointer and any nonnegative length | Product of the whole vector; empty returns one |
-| `sum_partials(ptr, n_tiles)` | Pointer to stored tile sums and their count | Left-to-right sum starting from zero; empty returns zero |
-| `product_partials(ptr, n_tiles)` | Pointer to stored tile products and their count | Left-to-right product starting from one; empty returns one |
+| Arithmetic defaults | `rl_engine/contracts/operators/ordered_reduction.py` | Tile width and initial group size; no backend imports |
+| Default implementation | `rl_engine/backends/shared/triton/reduction/` | Helpers embedded in `@triton.jit` kernels |
+| Gluon implementation | `rl_engine/backends/shared/triton/reduction/gluon.py` | Shared explicit-layout arithmetic embedded in `@gluon.jit` kernels |
+| Matching reference | `rl_engine/reference/reduction/` | Eager PyTorch translation of the same arithmetic |
+| Tests | `tests/reference/reduction/`, `tests/backends/shared/triton/reduction/` | Reference and both frontend conformance suites |
+| Performance comparison | `benchmarks/backends/shared/triton/benchmark_ordered_reduction.py` | Native baselines and enclosing kernels for both frontends |
 
-Tile helpers default to `values.dtype`, and vector helpers to the input pointer's
-element type, with no automatic widening. Pass `COMPUTE_DTYPE=tl.float32`, for
-example, to accumulate BF16 input in FP32. The tile/vector helpers
-have default tree parameters; callers need not choose a strategy or supply a combiner.
+Gluon is Triton's explicit-layout frontend, not another hardware platform. Both
+implementations share the arithmetic contract. The Gluon source parameterizes
+warp/wave width instead of assuming every device has NVIDIA's 32-lane warps.
+The caller supplies the compiler target's width and can tune batch size,
+vectorization and launch warps without copying the reduction algorithm.
+GPU correctness has been validated on H100 and A40; the reported performance
+measurements are from H100. Support for configuring an AMD wave layout is not a
+claim of validated ROCm execution or equal bits across different GPUs.
 
-For already-computed tile results, the partial helpers need only a pointer and
-count. They supply the operation and seed, infer the storage dtype, and merge
-in ascending tile order. Optional `MERGE_UNROLL=1` controls loop expansion.
-`COMPUTE_DTYPE=None` uses storage precision; if supplied, it must match the
-partial buffer dtype. Unlike vector helpers, these helpers add no new tile tree.
-For example, inside an operator's merge kernel:
+Both frontends expose the same six device functions. The upper layer chooses an
+entire enclosing kernel and its execution settings. Neither frontend automatically
+switches frontends. An ordinary Triton kernel cannot transparently call this Gluon
+implementation. Importing the default package does not import Gluon.
+
+The implementation was qualified with Triton 3.7.1. Its callback adapter uses
+`triton.constexpr_function`, which is absent from older installations such as
+3.4.0. Use the qualified compiler version or validate a new version explicitly.
+
+## Public API
 
 ```python
-from rl_engine.backends.shared.triton.reduction import sum_partials
+from rl_engine.backends.shared.triton import reduction as ordered
 
-total = sum_partials(partials_ptr, n_tiles)
+# Inside @triton.jit: values is an already-loaded one-dimensional vector.
+total = ordered.sum(values)
+prefix = ordered.sum(values, length=128)
+
+# input_ptr is a scalar device pointer; length is required for memory input.
+whole_vector = ordered.sum(input_ptr, length=2500)
+merged = ordered.sum_partials(partials_ptr, n_tiles)
 ```
 
-For values already computed inside a kernel, use a tile helper directly:
+| Function | Input | Result |
+| --- | --- | --- |
+| `sum` | Loaded vector, or scalar pointer plus length | Fixed-order sum |
+| `product` | Same two input forms | Fixed-order product |
+| `sum_partials` | Pointer to stored tile sums and count | Ascending left fold from zero |
+| `product_partials` | Pointer to stored tile products and count | Ascending left fold from one |
+| `reduce` | Loaded vector or pointer, plus `COMBINE_FN` and `IDENTITY` | Custom operation using the same tree |
+| `reduce_partials` | Stored partials, callback and `initial` | Custom ascending left fold |
 
-```python
-from rl_engine.backends.shared.triton.reduction import sum_tile
+All return a scalar device value for further computation or storage by the caller.
+They do not allocate outputs/workspaces, store results, launch another kernel or
+synchronize programs. There is no public Python Tensor wrapper or launchable
+`sum[grid]` kernel.
 
-# Inside @triton.jit, after loading a power-of-two vector:
-transformed = values.to(tl.float32) * 2.0 + 1.0
-transformed = tl.where(mask, transformed, 0.0)
-total = sum_tile(transformed)  # transformed is already FP32.
+Input **type** chooses loaded-vector versus pointer handling at compile time.
+`length` selects the participating prefix, not whether the helper loads memory:
+
+- A loaded vector has a positive power-of-two width. Optional `length` masks its
+  suffix with the identity without changing that width or tree. To select an
+  arbitrary subset, mask values before calling the helper.
+- A pointer addresses a contiguous vector. Its required nonnegative `length` is
+  compile-time metadata; the enclosing kernel may compute the pointer at runtime.
+  Empty memory input returns the identity without loading data.
+- `COMPUTE_DTYPE=None` retains input precision. Explicit precision converts inputs
+  before arithmetic. The callback owns arithmetic casts; there is no implicit
+  widening. Store partials in compute precision and merge in that same precision.
+
+Public JIT options accept named arguments. Their definitions do not use Python's
+keyword-only `*`, because the qualified Triton version does not bind it correctly.
+
+## Arithmetic contract
+
+Default pointer tiling uses `BLOCK_SIZE=1024` and `MAX_GROUP_SIZE=8`. Loaded input
+uses its existing width. Both sizes must be positive powers of two.
+
+For one tile:
+
+1. Let `G = min(width, MAX_GROUP_SIZE)`. Partition adjacent values into groups of G.
+2. Within each group, combine columns 0, 1, ..., G-1 sequentially, starting with
+   the first value. Do not insert an extra identity seed.
+3. Combine the lower and upper halves of the group totals repeatedly until one
+   value remains. Each tree operation has exactly two operands.
+
+For eight group totals, the tree is:
+
+```text
+a0 = combine(s0, s4)    a1 = combine(s1, s5)
+a2 = combine(s2, s6)    a3 = combine(s3, s7)
+b0 = combine(a0, a2)   b1 = combine(a1, a3)
+total = combine(b0, b1)
 ```
 
-This avoids storing transformed values just to load them again. A tile helper
-uses the supplied vector's width; it neither loads another tile nor adds a
-whole-vector seed. Use a vector helper when it should handle loading and tiling.
+The pair equations, including operand order, define the tree. This is not an
+adjacent-pair tree such as `(s0+s1)+(s2+s3)`.
 
-## Kernel usage and parallelism
+For a memory vector, pad its final arithmetic tile with the operation's identity,
+compute one unseeded result per tile, then fold in ascending tile order:
+
+```text
+total = combine(identity, partial[0])
+total = combine(total, partial[1])
+total = combine(total, partial[2])
+...
+```
+
+Serial and parallel producers must preserve these boundaries, partial precision
+and the final left fold. Producer completion order is irrelevant: store tile k
+in slot k. Do not use atomics, a different tree over the partials, or `sum(partials)`
+in place of `sum_partials`. Those would change the arithmetic.
+
+The identity for padding and the initial accumulator are distinct concepts.
+`reduce_partials` can take a nonidentity seed, applied exactly once. Custom
+callbacks must be pure, preserve shape/dtype, and implement a mathematically
+associative and commutative operation with a neutral padding identity on the
+supported domain. Floating-point rounding can still depend on order. Subtraction
+and division do not meet this contract.
+
+## Embedding and backend selection
+
+A default Triton caller can reduce a row without materializing partial storage:
 
 ```python
 import triton
 import triton.language as tl
-from rl_engine.backends.shared.triton.reduction import sum_vector
+from rl_engine.backends.shared.triton import reduction as ordered
 
 @triton.jit
-def row_sum_kernel(x_ptr, out_ptr, V: tl.constexpr):
+def row_sum(x, out, stride, length: tl.constexpr):
     row = tl.program_id(0).to(tl.int64)
-    total = sum_vector(x_ptr + row * V, V, COMPUTE_DTYPE=tl.float32)
-    tl.store(out_ptr + row, total)
+    total = ordered.sum(x + row * stride, length, COMPUTE_DTYPE=tl.float32)
+    tl.store(out + row, total)
 ```
 
-For contiguous `[M, V]` input, the operator launches this kernel with `M`
-programs and an `[M]` output. Different rows can execute concurrently. Within
-each program, tiles are processed sequentially; each tile's vector operations
-are distributed across the program's threads by Triton.
-
-The caller controls the grid and `num_warps`. `sum_vector` does not split one
-vector across multiple programs or launch additional kernels. Its `BLOCK_SIZE`
-is an arithmetic tile width, **not a limit on the whole vector length**.
-Allocation, device/stream selection and output storage belong to the operator.
-There is no standalone Tensor launcher in this Triton package.
-
-Both vector helpers also accept `PIPELINE_STAGES=None`. The default leaves
-the tile loop unhinted; an explicit value such as `PIPELINE_STAGES=3` is passed
-to `tl.range(num_stages=...)`. This is a loop scheduling hint, not the enclosing
-kernel's launch `num_stages`, and it does not change the tile tree or partial
-fold. Internal helpers receive the parameter explicitly, without a default.
-PyTorch needs no counterpart because its reference describes arithmetic rather
-than GPU scheduling.
-
-## Matching PyTorch reference
+A caller opting into Gluon supplies a separate enclosing kernel:
 
 ```python
 import torch
-from rl_engine.reference.reduction import sum_vector
+import triton
+from triton.experimental import gluon
+from triton.experimental.gluon import language as gl
+from rl_engine.backends.shared.triton.reduction import gluon as ordered_gluon
 
-with torch.no_grad():
-    expected = sum_vector(x, compute_dtype=torch.float32)
+@gluon.jit
+def gluon_row_sum(x, out, stride, length: gl.constexpr, WARP_SIZE: gl.constexpr):
+    row = gl.program_id(0).to(gl.int64)
+    total = ordered_gluon.sum(
+        x + row * stride, length, COMPUTE_DTYPE=gl.float32, WARP_SIZE=WARP_SIZE,
+        TILES_PER_BATCH=32, ELEMENTS_PER_THREAD=8,
+    )
+    gl.store(out + row, total)
+
+# Host code, after choosing the enclosing Gluon kernel:
+# torch.cuda is also PyTorch's device API for ROCm.
+with torch.cuda.device(x.device):
+    target = triton.runtime.driver.active.get_current_target()
+    gluon_row_sum[(x.shape[0],)](
+        x, out, x.stride(0), length, WARP_SIZE=target.warp_size,
+        num_warps=4, enable_fp_fusion=False,
+        **({"allow_flush_denorm": False} if torch.version.hip else {}),
+    )
 ```
 
-The reference accepts CPU or GPU tensors, including strided inputs. It reduces
-the last dimension and preserves leading dimensions: `[M, V]` becomes `[M]`,
-and `[V]` becomes a scalar. Omitting `compute_dtype`, or passing `None`, uses
-`x.dtype`, matching the Triton default. Run eagerly, under `no_grad` for gradient-requiring
-inputs. This reference checks forward arithmetic; its autograd does not define
-a custom Triton operator's backward order.
+The host chooses which kernel to launch using the **input device's** metadata and
+its own validated policy. A 32-lane or 64-lane target supplies that exact width;
+do not tune this value independently of the hardware. The public default remains
+32 to preserve existing NVIDIA callers. AMD callers must pass their actual
+target width, which is not necessarily the same across all AMD architectures.
+An explicitly selected backend's compilation or correctness
+failure must surface, rather than silently substituting a result from another
+backend. Callers providing only a Triton kernel remain supported.
 
-The PyTorch package exports the same names. `sum_tile` and `product_tile`
-also reduce the last dimension, which must be a positive power of two. They
-default to `values.dtype`; `compute_dtype` optionally overrides it. Fill any
-invalid lanes before calling them.
-`sum_partials(partials)` and `product_partials(partials)` likewise need only
-the tensor; its last dimension supplies the partial count. The optional
-`compute_dtype` and `merge_unroll` arguments mirror the Triton helpers.
-
-Keep native PyTorch or higher-precision checks separately for numerical
-accuracy. A reference with the same tree is not an independent mathematical
-oracle or a performance baseline.
-
-## Optional arithmetic configuration
-
-Defaults come from `contracts/operators/ordered_reduction.py`:
-
-| Triton parameter | PyTorch parameter | Default | Meaning |
-| --- | --- | ---: | --- |
-| `BLOCK_SIZE` | `block_size` | 1024 | Elements in each arithmetic tile |
-| `MAX_GROUP_SIZE` | `max_group_size` | 8 | Maximum adjacent values folded sequentially within each tile |
-| `SECTION_COUNT` | `section_count` | 4 | Maximum sections used to combine those group totals |
-
-Each size must be a positive power of two. For example, these calls use matching
-nondefault configurations:
+For many independent tiles but few rows, the caller may launch parallel producers:
 
 ```python
-# Inside a Triton kernel:
-total = sum_vector(
-    ptr, V, COMPUTE_DTYPE=tl.float32,
-    BLOCK_SIZE=2048, MAX_GROUP_SIZE=16, SECTION_COUNT=8,
+# Inside a producer: values holds one masked arithmetic tile, already in FP32.
+partial = ordered.sum(values, MAX_GROUP_SIZE=8)
+tl.store(partials_ptr + row * n_tiles + tile, partial)
+
+# Inside a subsequent merge kernel on the same stream:
+total = ordered.sum_partials(partials_ptr + row * n_tiles, n_tiles)
+tl.store(output_ptr + row, total)
+```
+
+Use the same frontend throughout each enclosing kernel. The Gluon API supports
+the same composition. `benchmarks/backends/shared/triton/ordered_reduction_gluon_kernels.py`
+provides complete examples, including target-width propagation to the merge.
+A single program processing more tiles does not spread those tiles across SMs;
+separate producer programs expose that parallelism. Cross-stream producers need
+an explicit dependency before merge. The helpers themselves do not synchronize.
+
+Custom reductions need no registry or operation-name switch:
+
+```python
+@triton.jit
+def xor_pair(left, right):
+    return left ^ right
+
+# Inside another @triton.jit kernel:
+flags = ordered.reduce(values, COMBINE_FN=xor_pair, IDENTITY=0)
+merged_flags = ordered.reduce_partials(
+    flags_ptr, n_tiles, COMBINE_FN=xor_pair, initial=0,
 )
 ```
 
+## Execution settings and preserved order
+
+Arithmetic settings (`BLOCK_SIZE`, `MAX_GROUP_SIZE`, precision, callback and math
+flags) must stay consistent across paths being compared. They are not backend
+scheduling knobs. Changing them can change rounding.
+
+| Execution setting | Frontend | Effect |
+| --- | --- | --- |
+| `num_warps` on the enclosing launch | Both | Threads assigned to the program |
+| `PIPELINE_STAGES` | Triton pointer path | Software-pipeline hint; default unhinted |
+| `TILE_UNROLL` | Triton pointer path | Loop expansion; default bounded automatic policy |
+| `MERGE_UNROLL` | Triton partial merge | Expansion of the ordered merge loop; default 1 |
+| `TILES_PER_BATCH` | Gluon pointer path | Independent tiles processed together; default 32, power of two up to 64 |
+| `ELEMENTS_PER_THREAD` | Gluon pointer path | Initial memory layout; default 8, positive power of two |
+| `WARP_SIZE` | All Gluon helpers | Hardware warp/wave width; default 32, must match the compilation target |
+
+To qualify another NVIDIA or AMD GPU, keep the arithmetic settings fixed and
+pass its target width. First run the shared conformance suite, including custom
+callbacks, same-tree reference checks, inference and Graph replay. Then measure
+execution settings on that device. Retain only configurations that pass those
+checks; callers own any hardware/shape dispatch table. A future architecture
+needing different instructions can add a separate implementation, while reusing
+the numerical contract and tests. No unmeasured AMD tuning table is provided.
+
+The final implementation avoids arithmetic changes while reducing overhead:
+
+- **Group extraction:** reshape/split selects the original value bits. The group
+  still folds columns left to right. Gluon explicitly keeps adjacent group
+  members in thread-local registers; ordinary Triton leaves layout to compilation.
+- **Compact tails:** the Triton pointer path loads fewer lanes for eligible short
+  tails but retains every original padding combine and rounding point. It does
+  not simply resize the tree to the number of valid values.
+- **Bounded unrolling:** automatic full expansion is limited to at most 16 tiles
+  and 64 KiB of logical compute values; larger loops remain unexpanded. This is
+  a code-size heuristic, not an allocation or hardware limit.
+- **Partial prefetch:** independent partial loads are batched in bounded windows,
+  while the accumulator consumes slots in ascending order. Window boundaries do
+  not reset the seed or insert extra neutral additions.
+
+These choices do not guarantee identical compiler layouts or speed on every GPU.
+Requalify correctness, compilation time and performance when changing hardware,
+compiler, layouts or execution settings. Use `enable_fp_fusion=False` for the
+fixed-reference comparisons; qualified ROCm callers also need matching denormal
+settings. The current helpers do not contain a performance dispatch map.
+
+## Matching PyTorch reference and invariance
+
 ```python
-# In eager PyTorch:
-expected = sum_vector(
-    x, compute_dtype=torch.float32,
-    block_size=2048, max_group_size=16, section_count=8,
-)
+import torch
+from rl_engine.reference import reduction as reference
+
+# Reduce the final dimension of an already-loaded, power-of-two-width Tensor.
+tile = reference.sum(values, compute_dtype=torch.float32)
+
+# Model pointer tiling, including its one outer identity seed.
+whole = reference.sum(values, from_memory=True, compute_dtype=torch.float32)
+merged = reference.sum_partials(partials)
 ```
 
-All three sizes affect the arithmetic tree and can change rounding. Preserve
-them, tile boundaries, precision and elementwise operations across paths that
-require identical bits. Fixed order does not prevent numerical error or
-establish reproducibility across hardware and compiler versions.
+The reference exports the same six names, uses lowercase option names, and
+supports leading batch dimensions and strided tensors. `from_memory=True` is
+reference-only: a Torch Tensor does not distinguish a loaded JIT value from a
+scalar pointer. Generic stages correspond to Triton's tile/partial/serial/merge
+stages. Tests inspect partials and totals through these stage references directly;
+there is no separate diagnostic collector API.
 
-`COMPUTE_DTYPE` selects input conversion, arithmetic, seed and result precision.
-All public helpers infer it when omitted or `None`; internal stages receive
-the resolved dtype explicitly. Tiles use the current values' dtype, and pointer
-helpers use the input storage dtype. Low-precision inputs are not promoted to FP32.
-There is no utility-specific dtype whitelist; both libraries and the selected
-backend must support the requested operations. Use an integer accumulator to
-count booleans, and a width sufficient for the result. No automatic accumulator
-widening is supplied. FP64 cannot restore bits lost before the input arrived.
+Reference operations preserve PyTorch autograd. Forward order does **not** promise
+that PyTorch-generated backward reductions use this tree. A fused operator that
+needs backward conformance must explicitly define and test its backward order.
+Empty serial and partial folds return independent, writable copies of the
+broadcast seed, retaining its autograd connection without sharing its storage.
 
-## Integration with softcapped selected logprob
+For prefix invariance, use the same effective values and arithmetic configuration
+when physical storage, batch membership or masked suffix length changes. Pointer
+input's fixed tiles isolate its arithmetic from the row's physical stride. Loaded
+input retains its loaded width; changing that width can change its tree. This is
+not an incremental sum state: adding a new valid token changes the input and may
+change the final result. Runtime per-row ragged lengths, paged KV-cache addressing
+and attention's tuple-valued online-softmax state are outside this API.
 
-The operator computes softcap and shifted exponentials inside its kernels.
-Its tile and merge helpers come from one package entry point:
+## Validation
 
-```python
-from rl_engine.backends.shared.triton.reduction import (
-    sum_partials,
-    sum_tile,
-)
-```
+Validation has separate layers:
 
-The PyTorch reference package exposes the same names. The convenience functions
-encapsulate operation, seed and defaults; callers do not need generic reducer
-parameters or imports from the implementation module.
+1. Fixed-tree conformance against the explicit PyTorch reference, including
+   cancellation, rounding boundaries, custom callbacks and nonidentity seeds.
+2. Same-input bitwise checks across schedules, prefix padding/batch placement,
+   inference mode and CUDA Graph replay. Inputs and poisoned suffixes are checked.
+3. Independent numerical accuracy against higher-precision or exact-arithmetic
+   references, using the repository's precision contract where applicable.
 
-| Helper | Role in logprob |
+Tests also cover extraction of signed zero, NaN payloads, subnormals and large
+integers; tail compression; merge-window boundaries; configuration validation;
+the JIT/interpreter callback adapter; and empty-fold storage independence with
+scalar, broadcast and shape-matched seeds. Same-tree equality does not replace
+independent accuracy, and helper-level tests do not qualify a full model or
+training/rollout engine integration. No cross-device/compiler bitwise guarantee
+is made.
+
+Each suite owns a different part of that coverage:
+
+| Suite | Responsibility |
 | --- | --- |
-| `sum_tile` | Reduce the already-computed exponentials in one tile, without writing them to global memory |
-| `sum_partials` | Merge stored tile sums in ascending tile order from zero, matching ROW's accumulation |
+| `tests/reference/reduction` | Explicit pairs and frozen expected values; public dtype/shape/custom-callback contracts and autograd |
+| Triton `test_ordered_reduce.py` | Internal extraction, compact-tail and merge-window boundaries; serial/parallel scheduling equivalence |
+| Triton `test_public_api.py` and `test_input_dispatch.py` | Caller options, loaded/pointer dispatch, independent accuracy and batch/padding invariance |
+| `test_public_compile.py` | CPU-side JIT compilation and interpreter checks, independent of GPU availability |
+| `test_gluon_ordered_reduction.py` | Gluon layouts, batching, same-tree bits and replay/inference equivalence |
+| `test_ordered_reduction_benchmark.py` | Planning, reporting, timeout/replay failure gates and real GPU benchmark smoke tests |
 
-`_softcapped_exp_tile_sum` loads one tile, computes FP32 softcap and shifted exp,
-clears padded lanes, and calls `sum_tile`. All three forward strategies use it:
+Shared dtype and boundary properties are tested at the public interface rather
+than repeated through every internal helper. Internal cases target distinct
+branches; scheduling tests vary execution settings while keeping arithmetic
+fixed. Historical GPU test counts in the H100 report refer to the recorded run,
+not the current collection after test consolidation.
 
-- ROW folds its tile sums from positive zero within one program.
-- ROW_PIPELINED uses the same loop and arithmetic with a pipeline hint.
-- PARALLEL writes each sum to its tile slot, then calls `sum_partials` in a
-  dependent merge kernel. Producer completion order does not affect addition order.
-
-The shared `_store_softcapped_selected_logprob` then finishes the logprob.
-Logprob passes its own `REDUCTION_CONFIG` explicitly, independently of the
-utility's defaults. All schedules keep the same FP32 arithmetic and cast points.
-Its native `log_softmax`/autograd reference remains independent.
-See the [operator documentation](../operators/softcapped-selected-logprob.md)
-for the full forward/backward contract and validation commands.
-
-The six package exports cover loaded tiles, complete vectors and stored partials.
-The generic merge and binary combiners remain in the implementation module.
-Ordinary callers need not assemble or configure those internal stages.
-
-<details>
-<summary>Internal stages and conformance checks</summary>
-
-### Files and responsibilities
-
-| File | Responsibility |
-| --- | --- |
-| `contracts/operators/ordered_reduction.py` | Shared arithmetic defaults; no Torch or Triton dependency |
-| `backends/shared/triton/reduction/ordered_reduce.py` | JIT helpers embedded in a caller's kernel |
-| `reference/reduction/ordered_reduce.py` | Eager PyTorch translation, with matching names, order and arithmetic |
-| Each package's `__init__.py` | Six sum/product helpers through one entry point; the only `__all__` list |
-| `tests/helpers/ordered_reduce_kernels.py` | Test-only launch adapters; no production operator dependencies |
-
-Existing reductions retain their own contracts: `reduce_rows_fp32` in
-`rl_engine/ops/autograd/vjp_fp32.py` folds dimension zero for parameter gradients;
-Attention and GEMM have specialized trees; distributed collectives live in
-`rl_engine/distributed/algorithms/collectives.py`. Replacing any of these with a
-different tree or axis is not a bitwise-equivalent substitution.
-
-### Internal helpers
-
-| Helper | Input and result |
-| --- | --- |
-| `reduce_add` / `reduce_multiply` | Pure pairwise `+` / `*` combiners |
-| `ordered_tile_reduce` | One loaded power-of-two vector → scalar; no seed or dtype cast |
-| `ordered_reduce_partial` | Vector pointer and tile index → one unseeded partial, with conversion and neutral tail padding |
-| `ordered_reduce_serial` | Full vector → scalar; fold tiles from `initial` within one program |
-| `ordered_reduce_merge` | Stored partials → scalar; fold ascending tile slots from `initial` |
-
-Triton's configurable `ordered_*` helpers require all their arithmetic
-arguments. The public tile helpers call `ordered_tile_reduce` directly;
-the public vector helpers call `ordered_reduce_serial` directly. Both supply
-the chosen operation and resolved configuration without another forwarding layer.
-The public partial helpers call `ordered_reduce_merge`, supplying addition/zero
-or multiplication/one and resolving storage precision. These wrappers define
-usable defaults; the generic helpers remain the single arithmetic implementation.
-The PyTorch counterparts use lowercase parameter
-names and infer lengths from tensors. Leading dimensions batch independent
-vectors. PyTorch omits the scheduling-only `PIPELINE_STAGES` option.
-
-The serial stage calls `ordered_reduce_partial` to load, cast and pad each tile,
-then `ordered_tile_reduce` determines its combine pairs. Separate producers can
-use the same partial stage, and `ordered_reduce_merge` folds their stored results.
-Each stage has a distinct role; the small `reduce_add`/`reduce_multiply` functions
-are the binary callbacks required by the shared tree and fold.
-
-The PyTorch-only `ordered_reduce` collector composes partial and merge helpers,
-returning `OrderedReduceResult.partials` and `.total` for stage diagnostics.
-Its last dimension must be nonempty. It does not implement another tree.
-
-### Fixed tile tree and partial fold
-
-1. Split a tile into adjacent groups of `min(BLOCK_SIZE, MAX_GROUP_SIZE)` values.
-   Fold each group left to right, starting from its first value.
-2. Split group totals into `min(N_GROUPS, SECTION_COUNT)` equal sections.
-   Repeatedly pair each section's lower and upper halves until one total remains.
-3. Merge section totals using the same halving-distance pairs. Four sections
-   produce `(s0 + s2) + (s1 + s3)` for addition.
-
-Each tree step explicitly selects its lower/upper operands and calls the binary
-combiner directly. Triton uses `permute`/`split`; PyTorch selects the same slices.
-A one-entry stage passes through without adding an identity. Neither delegates
-the tree to a native reduction.
-
-Across tiles, serial and parallel schedules both compute
-`(((initial + partial[0]) + partial[1]) + ...)` for addition. This is a left
-fold, not another tile tree. `MERGE_UNROLL` accepts any positive integer and
-expands loop steps without changing the pairs; incomplete tails preserve order.
-Zero partials return `initial`. **Do not use `sum_vector` to merge partials**:
-that would introduce another tile tree and change the arithmetic.
-
-`IDENTITY` and `initial` have distinct purposes. The identity fills padded lanes
-and must be neutral for the combiner; `initial` enters the whole-vector fold
-exactly once. For `10 + sum(x)`, use padding zero and initial ten. Partials must
-not contain the seed. Seeds may be runtime scalars; stored partials must already
-have the requested compute dtype.
-
-Custom combiners must preserve operand shape and dtype and have a valid padding
-identity. These helpers target mathematically associative, commutative operations;
-floating-point rounding still depends on the tree. Multi-field statistics and
-arbitrary pairwise subtraction or division require a different formulation.
-The built-in combiners simply apply `+` or `*`; explicit per-operation casts,
-NaN rules and signed-zero behavior belong to the chosen combiner.
-
-### Fused and parallel callers
-
-A fused caller uses the public tile helpers shown above. Apply neutral padding
-**after** the transformation, then use the returned scalar in further computation.
-
-For explicit cross-program parallelism, the operator allocates partial storage,
-launches producers into fixed tile slots, then launches a dependent merge.
-Use the same stream or an explicit dependency across streams. JIT helpers cannot
-synchronize independent programs. Partial storage and compute dtypes must match
-so the parallel path introduces no extra narrowing.
-
-Keep compiler settings consistent across paths. For composed arithmetic,
-`enable_fp_fusion=False` preserves separate multiply/add rounding; denormal and
-elementary-function settings remain the enclosing operator's responsibility.
-A long serial merge may be expensive. Replacing it with another arithmetic tree
-requires coordinated updates to every matching strategy and reference.
-
-### Tests
+Test launchers live beside the backend suite in `_kernels.py` and
+`_gluon_kernels.py` and are imported lazily. `tests/helpers/reduction_inputs.py`
+contains shared input data only; `tensor_checks.py` provides the byte comparison.
+Backend tests do not depend on benchmark launchers or another operator's tests.
 
 ```bash
-python -m pytest tests/reference/reduction tests/backends/shared/triton/reduction -q
+python -m pytest tests/reference/reduction tests/backends/shared/triton/reduction \
+  tests/benchmarks/test_ordered_reduction_benchmark.py -q
 ```
 
-Coverage includes frozen nonassociative examples, the original 1024/8/4 tree,
-small and large tiles, alternative group/section sizes, strided reference inputs,
-tails, empty vectors, custom seeds, compute precision, and serial/pipelined/parallel
-conformance. Integer, boolean and floating cases exercise their respective
-supported operations. Embedded tests check package imports, result use in further
-computation, input preservation, output bounds and different warp counts.
+GPU/Gluon tests skip when the required runtime or accelerator is absent. They use
+the selected target's width and are not restricted to H100. H100 correctness and
+measured performance are described in the [H100 report](../benchmarking/ordered-reduction-h100.md).
 
-Independent exact-math cases and native higher-precision comparisons supplement
-fixed-path checks. Sharing constants must not silently redefine expected results.
-GPU tests skip on CPU hosts; a CPU pass does not qualify Triton compilation,
-GPU numerical behavior or performance.
+## Performance comparison
 
-</details>
+The maintained benchmark compares **ordinary `torch.sum`**, **native `tl.sum`**,
+**ordered Triton**, and optionally **ordered Gluon**. The fixed-order PyTorch
+reference checks conformance; it is not the performance baseline.
+
+```bash
+# Inspect the exact plan without importing Triton/Gluon or initializing a GPU.
+python -m benchmarks.backends.shared.triton.benchmark_ordered_reduction --dry-run
+
+# Ordinary Triton, native Triton and PyTorch, with hard per-case timeouts.
+python -m benchmarks.backends.shared.triton.benchmark_ordered_reduction \
+  --timings graph --warps 4 --case-timeout 180
+
+# Add Gluon row and parallel callers on the selected CUDA/ROCm device.
+python -m benchmarks.backends.shared.triton.benchmark_ordered_reduction \
+  --include-gluon --timings graph --warps 1 --merge-warps 2 \
+  --shapes 128x8193 16x262144 --dtypes fp16 bf16 fp32 --case-timeout 180
+```
+
+Each run uses **one explicit configuration per schedule**, not a parameter grid
+or best-of-search selection. `--warps`, `--merge-warps`, `--pipeline-stages`,
+`--gluon-elements-per-thread` and `--gluon-tiles-per-batch` select one execution
+setting each; the arithmetic contract is fixed at 1024/8. The benchmark reads
+warp/wave width from the selected compilation target and records it in JSON.
+Backend API execution overrides remain available to callers. Experimental
+candidate implementations, compiler dumps and sweep drivers are not part of the
+maintained benchmark.
+
+All providers accumulate/output FP32 and reduce the same valid input prefix.
+Native row `tl.sum` is limited to 32768 elements to bound compilation; a two-stage
+native baseline also covers larger inputs. Reports retain each provider rather
+than hiding slower results. The two-stage ordered paths include both launches.
+
+Inputs, outputs and partial buffers are preallocated. Compilation, validation
+and Graph capture are excluded. All providers receive common warmup and shuffled
+round ordering; reports preserve the executed order for each round, samples,
+round medians, spread, environment, source hashes, scratch bytes and extra peak
+allocation. Raw samples appear once, in each result's `samples_ms[round][sample]`;
+`round_orders` records the provider and timing mode measured in each round.
+Inputs are reused without explicit cache eviction. Graph timing
+divides batched replay time by its call count; eager event timings may include
+host dispatch gaps. Compare timing modes separately. `torch.compile` is not used.
+
+Independent accuracy and same-tree checks run before timing; all rows are checked
+across ordered schedules and sampled rows against the CPU fixed reference. Graph
+replay must overwrite NaN-poisoned output and preserve the eager output bits.
+Each case runs in an isolated process with a hard timeout covering compilation,
+and partial reports survive failure. Local outputs default to
+`artifacts/benchmarks/`; measured evidence is published as PR attachments rather
+than committed to the source tree.
