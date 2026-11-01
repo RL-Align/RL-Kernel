@@ -12,14 +12,18 @@ providers (T05/T06) are not yet available.
 
 from rl_engine.validation.m10.precheck import M10PrecheckResult, evaluate_m10_precheck
 from rl_engine.validation.m10.schema import M10_INPUT_SCHEMA_VERSION, M10Input, M10Status
+from rl_engine.validation.m10.score import M10ScoreResult, fp32_raw_bytes, score_m10
 from rl_engine.validation.m10.stub import StubM10Provider, build_m10_stub
 
 __all__ = [
     "M10_INPUT_SCHEMA_VERSION",
     "M10Input",
     "M10PrecheckResult",
+    "M10ScoreResult",
     "M10Status",
     "StubM10Provider",
     "build_m10_stub",
     "evaluate_m10_precheck",
+    "fp32_raw_bytes",
+    "score_m10",
 ]
