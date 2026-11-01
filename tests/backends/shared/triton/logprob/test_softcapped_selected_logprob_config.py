@@ -33,10 +33,9 @@ _RANGE_CASES = [
 def _host_validation_and_dispatch_module():
     """Load production policy, validation and host dispatch when Triton is unavailable.
 
-    Execute the pre-kernel definitions, pipelined resolver and public Op class
-    without Triton/reduction imports. Policy and launchers share one module.
-    Tests replace dispatch before any kernel can run. GPU hosts import the
-    complete operator module instead.
+    Execute the pre-kernel definitions, pipelined resolver, autograd bridge and
+    public Op without Triton/reduction imports. Tests replace kernel launchers
+    before any GPU work can run. GPU hosts import the complete module instead.
     """
     path = (
         Path(__file__).resolve().parents[5]
@@ -73,6 +72,7 @@ def _host_validation_and_dispatch_module():
         in (
             "_ForwardResult",
             "_launch_softcapped_selected_logprob_fwd_pipelined",
+            "_SoftcappedSelectedLogprobTritonFunction",
             "TritonSoftcappedSelectedLogprobOp",
         )
     )
@@ -147,6 +147,56 @@ def test_public_input_errors_precede_device_lookup_and_dispatch(
     message = {"shape": "shape", "ids_shape": "shape", "ids_dtype": "int64", "softcap": "softcap"}
     with pytest.raises(error, match=message[invalid]):
         op(logits, ids, softcap=cap)
+
+
+def test_autograd_saves_prepared_inputs_for_each_graph(core, monkeypatch):
+    """Save the launcher's contiguous inputs once and retain each call's state for backward.
+
+    A simple linear CPU launcher isolates autograd ownership from GPU arithmetic,
+    which is covered by the operator's accuracy and bitwise consistency tests.
+    """
+    monkeypatch.setattr(core, "TRITON_SUPPORTED_DEVICES", ("cpu",))
+    states = {}
+
+    def launch(logits, token_ids, softcap):
+        assert not logits.is_contiguous() and not token_ids.is_contiguous()
+        prepared = logits.contiguous()
+        result = core._ForwardResult(
+            logits=prepared,
+            token_ids=token_ids.contiguous(),
+            selected_logprob=prepared[:, 0] * softcap,
+            row_max=torch.zeros(prepared.shape[0]),
+            log_sum_exp_shifted=torch.ones(prepared.shape[0]),
+        )
+        states[softcap] = result
+        return result
+
+    def backward(logits, token_ids, upstream, row_max, log_sum_exp_shifted, softcap):
+        state = states[softcap]
+        assert logits is state.logits and token_ids is state.token_ids
+        assert row_max is state.row_max and log_sum_exp_shifted is state.log_sum_exp_shifted
+        gradient = torch.zeros_like(logits)
+        gradient[:, 0] = upstream * softcap
+        return gradient
+
+    strategy = core.SoftcappedLogprobStrategy.ROW
+    monkeypatch.setattr(core, "_FORWARD_LAUNCHERS", {strategy: launch}, raising=False)
+    monkeypatch.setattr(core, "_launch_softcapped_selected_logprob_bwd", backward, raising=False)
+    op = core.TritonSoftcappedSelectedLogprobOp(forward_impl=strategy)
+    base = torch.arange(16.0).reshape(2, 8).requires_grad_(True)
+    logits, ids = base[:, ::2], torch.tensor([0, 0, 1, 0])[::2]
+    outputs = {cap: op(logits, ids, softcap=cap) for cap in (17.3, 30.0)}
+    # PyTorch rejects a malformed upstream before calling our backward launcher.
+    with pytest.raises(RuntimeError, match="Mismatch in shape"):
+        torch.autograd.grad(outputs[17.3], base, torch.ones(3))
+    for cap in (30.0, 17.3, 30.0):
+        output = outputs[cap]
+        torch.testing.assert_close(output, logits[:, 0] * cap, rtol=0, atol=0)
+        upstream = torch.tensor([0.25, 0.0, -2.0, 0.0])[::2]
+        (gradient,) = torch.autograd.grad(output, base, upstream, retain_graph=True)
+        expected = torch.zeros_like(base)
+        expected[:, 0] = upstream * cap
+        torch.testing.assert_close(gradient, expected, rtol=0, atol=0)
 
 
 @pytest.mark.parametrize("softcap", (0.0, -1.0, float("nan"), float("inf"), 1e-50, 100.0))

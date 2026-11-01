@@ -338,37 +338,6 @@ def _validate_inputs(logits: torch.Tensor, token_ids: torch.Tensor, softcap: flo
         raise TypeError("token_ids must have dtype int64 and be on the logits device.")
 
 
-def _validate_backward_inputs(
-    logits: torch.Tensor,
-    token_ids: torch.Tensor,
-    grad_selected_logprob: torch.Tensor,
-    row_max: torch.Tensor,
-    log_sum_exp_shifted: torch.Tensor,
-    softcap: float,
-) -> None:
-    """Validate the upstream and FP32 row statistics from the matching forward."""
-    _validate_inputs(logits, token_ids, softcap)
-    if grad_selected_logprob.shape != logits.shape[:1]:
-        raise ValueError("grad_selected_logprob must have shape [M].")
-    if grad_selected_logprob.device != logits.device:
-        raise ValueError("grad_selected_logprob must be on the logits device.")
-    if grad_selected_logprob.dtype not in SUPPORTED_DTYPES:
-        raise TypeError(
-            f"grad_selected_logprob must have dtype {SUPPORTED_DTYPES}, "
-            f"got {grad_selected_logprob.dtype}."
-        )
-    for name, statistic in (
-        ("row_max", row_max),
-        ("log_sum_exp_shifted", log_sum_exp_shifted),
-    ):
-        if statistic.shape != logits.shape[:1]:
-            raise ValueError(f"{name} must have shape [M].")
-        if statistic.device != logits.device:
-            raise ValueError(f"{name} must be on the logits device.")
-        if statistic.dtype != torch.float32:
-            raise TypeError(f"{name} must have dtype float32.")
-
-
 def _math_launch_options(device: torch.device) -> dict[str, bool]:
     """Return Triton compiler options that preserve the FP32 arithmetic contract.
 
@@ -719,11 +688,19 @@ def _softcapped_selected_logprob_bwd_kernel(
 
 @dataclass(frozen=True)
 class _ForwardResult:
-    """Forward output and the matching row statistics needed by backward.
+    """Forward output and the exact inputs/statistics needed by its backward.
 
-    All fields are FP32 [M] tensors on the logits device. This object only
-    groups tensor references; it does not copy or recompute their contents.
+    Launchers make strided inputs contiguous once, then return those same
+    tensors for autograd to save. This object only holds references; it does
+    not copy inputs or recompute statistics. Output and statistics are FP32
+    [M] tensors on the logits device, allocated separately for each call.
     """
+
+    logits: torch.Tensor
+    """Contiguous [M, V] logits actually read by forward, in the input dtype."""
+
+    token_ids: torch.Tensor
+    """Contiguous int64 [M] selected indices actually read by forward."""
 
     selected_logprob: torch.Tensor
     """One selected-token log-probability per row; returned by the public Op."""
@@ -780,6 +757,8 @@ def _launch_softcapped_selected_logprob_fwd(
     row_max = torch.empty((n_rows,), device=logits.device, dtype=torch.float32)
     log_sum_exp_shifted = torch.empty((n_rows,), device=logits.device, dtype=torch.float32)
     result = _ForwardResult(
+        logits=logits_c,
+        token_ids=token_ids_c,
         selected_logprob=output,
         row_max=row_max,
         log_sum_exp_shifted=log_sum_exp_shifted,
@@ -853,6 +832,8 @@ def _launch_softcapped_selected_logprob_fwd_parallel(
     row_max = torch.empty((n_rows,), device=logits.device, dtype=torch.float32)
     log_sum_exp_shifted = torch.empty((n_rows,), device=logits.device, dtype=torch.float32)
     result = _ForwardResult(
+        logits=logits_c,
+        token_ids=token_ids_c,
         selected_logprob=output,
         row_max=row_max,
         log_sum_exp_shifted=log_sum_exp_shifted,
@@ -926,8 +907,12 @@ def _launch_softcapped_selected_logprob_bwd(
     Keep them separate: reconstructing an unshifted log-sum would add rounding.
     The autograd wrapper supplies them together with the inputs and upstream gradient.
     As in forward, invalid token IDs produce NaN; valid IDs are a precondition.
-    The caller validates inputs. All forward strategies use this same backward
-    configuration, with the shared tile width and four warps.
+    Direct callers must supply valid metadata and matching forward state.
+    Autograd supplies its saved inputs/statistics and checks upstream metadata;
+    it does not repeat public input validation here. Keep contiguous conversion:
+    direct callers and saved-tensor unpack hooks can supply strided tensors.
+    All forward strategies use this same backward configuration, with the shared
+    tile width and four warps.
     """
     n_rows, vocab_size = logits.shape
     logits_c = logits.contiguous()
@@ -981,11 +966,11 @@ class _SoftcappedSelectedLogprobTritonFunction(torch.autograd.Function):
         strategy: SoftcappedLogprobStrategy,
         softcap: float,
     ) -> torch.Tensor:
-        logits_c = logits.contiguous()
-        token_ids_c = token_ids.contiguous()
         launch_forward = _FORWARD_LAUNCHERS[strategy]
-        result = launch_forward(logits_c, token_ids_c, softcap)
-        ctx.save_for_backward(logits_c, token_ids_c, result.row_max, result.log_sum_exp_shifted)
+        result = launch_forward(logits, token_ids, softcap)
+        ctx.save_for_backward(
+            result.logits, result.token_ids, result.row_max, result.log_sum_exp_shifted
+        )
         ctx.softcap = softcap
         return result.selected_logprob
 
@@ -994,9 +979,6 @@ class _SoftcappedSelectedLogprobTritonFunction(torch.autograd.Function):
         logits, token_ids, row_max, log_sum_exp_shifted = ctx.saved_tensors
         grad_logits = None
         if ctx.needs_input_grad[0]:
-            _validate_backward_inputs(
-                logits, token_ids, grad_selected_logprob, row_max, log_sum_exp_shifted, ctx.softcap
-            )
             grad_logits = _launch_softcapped_selected_logprob_bwd(
                 logits,
                 token_ids,

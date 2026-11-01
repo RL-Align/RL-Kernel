@@ -37,6 +37,14 @@ statistics are not modified. Noncontiguous inputs/upstreams are accepted and
 copied to contiguous storage. Autograd supports first-order gradients.
 There is no ignore-index or token-masking argument.
 
+Public forward validates inputs once and always calls the custom autograd
+Function; PyTorch determines whether backward state needs to be retained.
+The selected launcher prepares contiguous inputs once and returns those same
+tensors for autograd to save. Backward uses the saved state without repeating
+forward validation; it still accepts strided upstreams and tensors restored by
+saved-tensor hooks. Every call owns its output and temporary storage; buffers
+are not cached across graphs.
+
 `softcap` belongs to each forward call, not the Op's configuration. Autograd
 saves that call's value, so another call cannot change an outstanding graph.
 Both public Op interfaces and internal functions require an explicit cap.
@@ -492,6 +500,17 @@ and dispatch are included. Native divisor creation is included in forward.
 Forward uses `no_grad`; backward reuses a retained graph; forward+backward builds
 a fresh graph per call. Extra peak allocation excludes inputs/prebuilt graphs.
 Small cases can be dominated by host dispatch gaps.
+A 2026-11-01 regression on RTX PRO 4000 Blackwell 24GB, PyTorch 2.13.0+cu130
+and Triton 3.7.1 recorded 3720 passes and 96 two-GPU skips. Four public-interface
+benchmark runs completed all 45 comparisons and their accuracy/consistency gates.
+A same-process A/B follow-up used seven rotated rounds at cap 30, all three input
+dtypes, and shapes `[1, 1025]`, `[1, 32768]`, `[1, 262144]`, `[16, 262144]` and
+`[128, 262144]`. Median within-round latency ratios showed 3.4%-10.3% lower
+backward time after removing redundant bookkeeping; forward stayed within 1%.
+Short-case absolute timings varied between rounds. Single-row wide-vocabulary
+forward remained slower than Native. These small-GPU results do not qualify
+H100 dispatch choices. Public allocations and dispatch remain inside timing;
+raw measurements are kept in the accompanying validation artifacts.
 
 `--compare-strategies` times Native, AUTO, ROW, PARALLEL and ROW_PIPELINED at
 `--pipeline-stages 1 2 3 4 5 6 8` by default. These are 11 providers, including
