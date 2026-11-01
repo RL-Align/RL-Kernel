@@ -85,7 +85,6 @@ def score_m10(
     never reaches the kernel. The strict wrapper itself rejects non-CUDA or
     non-BF16 input rather than silently falling back.
     """
-    active_count = int(inp.active_token_mask.sum().item())
     precheck = evaluate_m10_precheck(
         inp, expected_pre_update_weight_lock=expected_pre_update_weight_lock
     )
@@ -93,11 +92,13 @@ def score_m10(
         return M10ScoreResult(
             status=precheck.status,
             passed=False,
-            active_token_count=active_count,
+            active_token_count=0,
             selected_logprob=None,
             selected_logprob_bytes=b"",
             detail=precheck.detail,
         )
+
+    active_count = int(inp.active_token_mask.sum().item())
 
     target_device = device if device is not None else inp.final_decoder_rows.device
     rows = inp.final_decoder_rows.to(target_device)

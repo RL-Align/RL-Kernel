@@ -45,6 +45,7 @@ class TestM10FailClosed:
         result = score_m10(build_m10_stub(lm_head_lora=True))
         assert result.status is M10Status.UNSUPPORTED_CAPABILITY
         assert not result.passed
+        assert result.active_token_count == 0
         assert result.selected_logprob is None
         assert result.selected_logprob_bytes == b""
 

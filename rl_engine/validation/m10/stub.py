@@ -81,6 +81,7 @@ def build_m10_stub(
         vocab_start=vocab_start,
         vocab_end=vocab_end,
         global_vocab_size=vocab_end if global_vocab_size is None else global_vocab_size,
+        real_vocab_size=vocab_end,
         pre_update_weight_lock=f"stub-lock-{case_id}",
         sampling_record=sampling_record,
         weight_id=f"stub-weight-{seed}",

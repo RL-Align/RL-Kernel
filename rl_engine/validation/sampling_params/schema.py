@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping as AbcMapping
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Mapping, Optional
@@ -128,6 +129,8 @@ class CanonicalSamplingRecord(SerializableModel):
     fallback_layers: Optional[tuple[str, ...]] = None
 
     def __post_init__(self) -> None:
+        if not isinstance(self.provenance, AbcMapping):
+            raise ValueError("provenance must be a mapping")
         if self.record_version != SAMPLING_RECORD_VERSION:
             raise ValueError(
                 f"unsupported sampling record_version {self.record_version!r}, "

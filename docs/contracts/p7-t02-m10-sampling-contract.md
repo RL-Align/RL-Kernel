@@ -205,7 +205,7 @@ frozen T01 manifest.
 | `failure_batch_context` | optional filter | no | run/checkpoint/sample/rank/module |
 | `pre_update_weight_lock` | immutable fingerprint | yes | Drift invalidates the case |
 | `vocab ownership` | `[vocab_start, vocab_end)` | yes | No gaps, overlaps or ambiguity |
-| `real_vocab_size` | int, optional | no (defaults to the padded width) | Real tokens; every target must be `< real_vocab_size` |
+| `real_vocab_size` | int | yes | Real tokens; every target must be `< real_vocab_size`; the padded width is never assumed |
 | `rank/group/order` | versioned metadata | yes with TP | Required by ordered rank merge |
 | `sampling requested/actual` | canonical record | yes | See §3 |
 | `Foundation ABI versions` | five ABI version numbers | yes | SemanticTensor/RoutePlan/ExchangePlan/ExpertBatch/CombinePlan |

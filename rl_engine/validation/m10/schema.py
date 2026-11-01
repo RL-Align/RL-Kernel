@@ -55,13 +55,13 @@ class M10Input(SerializableModel):
     vocab_start: int
     vocab_end: int
     global_vocab_size: int
+    real_vocab_size: int
     pre_update_weight_lock: str
     sampling_record: Optional[CanonicalSamplingRecord] = None
     weight_id: str = ""
     rank: int = 0
     group: str = "single"
     lm_head_lora: bool = False
-    real_vocab_size: Optional[int] = None
     schema_version: str = M10_INPUT_SCHEMA_VERSION
 
     @property
@@ -70,5 +70,5 @@ class M10Input(SerializableModel):
 
     @property
     def effective_real_vocab_size(self) -> int:
-        """Real vocabulary size; falls back to the padded width when unset."""
-        return int(self.global_vocab_size if self.real_vocab_size is None else self.real_vocab_size)
+        """Real vocabulary size; the padded width is never assumed."""
+        return int(self.real_vocab_size)

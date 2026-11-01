@@ -209,6 +209,16 @@ class TestSamplingGate:
         assert result.status is SamplingGateStatus.SILENT_FALLBACK
         assert result.failing_layer == SamplingLayerName.REQUESTED.value
 
+    def test_unknown_source_fails_closed(self):
+        record = _record(requested=CanonicalSamplingLayer(source="unknown"))
+        result = evaluate_sampling_gate(record)
+        assert result.status is SamplingGateStatus.SILENT_FALLBACK
+        assert result.failing_layer == SamplingLayerName.REQUESTED.value
+
+    def test_non_mapping_provenance_is_rejected(self):
+        with pytest.raises(ValueError):
+            CanonicalSamplingRecord(case_id="case-4", engine="stub", provenance=None)
+
 
 class TestCanonicalRecord:
     def test_fingerprint_is_stable_and_value_sensitive(self):

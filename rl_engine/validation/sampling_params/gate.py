@@ -233,7 +233,9 @@ def evaluate_sampling_gate(record: CanonicalSamplingRecord) -> SamplingGateResul
     source_fallbacks = tuple(
         name.value
         for name, layer in layers.items()
-        if layer is not None and layer.source == SamplingValueSource.FALLBACK.value
+        if layer is not None
+        and layer.source
+        in (SamplingValueSource.FALLBACK.value, SamplingValueSource.UNKNOWN.value)
     )
     fallback = tuple(dict.fromkeys((*_fallback_layers(record), *source_fallbacks)))
     if fallback:
