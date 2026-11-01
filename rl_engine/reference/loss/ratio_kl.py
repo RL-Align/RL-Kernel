@@ -47,9 +47,16 @@ class NativeRatioKLOp:
             )
         # Masked positions may hold out-of-range ids; clamp before gather to avoid a CUDA assert.
         safe_action_ids = action_ids.masked_fill(~mask, 0)
-        logp_policy = self._selected_logp(policy_logits, safe_action_ids)
+        # Mask before normalization: masking a NaN log-softmax result afterwards
+        # still leaves NaNs in its backward, even with a zero upstream gradient.
+        inactive_rows = ~mask.unsqueeze(-1)
+        logp_policy = self._selected_logp(
+            policy_logits.masked_fill(inactive_rows, 0.0), safe_action_ids
+        )
         with torch.no_grad():
-            logp_ref = self._selected_logp(ref_logits, safe_action_ids)
+            logp_ref = self._selected_logp(
+                ref_logits.masked_fill(inactive_rows, 0.0), safe_action_ids
+            )
 
         delta = (logp_policy - old_logps.float()).masked_fill(~mask, 0.0)
         diff = (logp_ref - logp_policy).masked_fill(~mask, 0.0)

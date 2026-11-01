@@ -97,21 +97,24 @@ inverse RMS and reuses the existing FP32 residual output for backward. Both
 forward and per-row backward use `enable_fp_fusion=False` and fixed row
 arithmetic independently of batch size.
 
-Both feature-axis reductions use the shared embedded Triton `sum_tile` helper:
+Both feature-axis reductions use the shared embedded Triton `sum` on loaded values:
 forward reduces `updated_residual * updated_residual`, while input backward
 reduces `grad_normalized * normalized`. Each entire padded row is one tile;
 the shared whole-vector default of 1024 does not restrict this tile's width.
-For D=2688, the 4096 lanes form 512 sequential eight-value groups, followed by
-four sections of 128 group totals and the final fixed section tree. Padding
-contributes zero, and both means still divide by the actual D=2688.
+For D=2688, the 4096 lanes form 512 sequential eight-value groups. One tree
+then pairs lower and upper halves of all group totals at distances
+256, 128, 64, 32, 16, 8, 4, 2 and 1. Padding contributes zero, and both means
+still divide by the actual D=2688. No intermediate feature buffer is written
+to global memory: squaring and multiplication stay inside the existing kernels.
 
 Changing M, gradient mode, or the weight-gradient strategy does not change D,
-the padded width, the group size (8), or the section count (4). These determine
+the padded width or the shared group size (8). These determine
 the same feature tree in every path. Changing D or the arithmetic configuration
 can change that tree and requires numerical requalification. Fixed order alone
 does not promise exact real arithmetic or cross-device/compiler bitwise equality.
-The old `tl.sum` tree may have rounded differently, so old output bits and
-performance figures are not evidence for this revision. `tl.rsqrt` is unchanged;
+The retired four-section helper and the earlier `tl.sum` may have rounded
+differently. Migrating to the public utility changes operand pairs, so old output
+bits and performance figures are not evidence for this revision. `tl.rsqrt` is unchanged;
 its accuracy is checked separately from reduction conformance.
 
 The weight gradient uses a single declared FP32 row fold, starting from positive
@@ -128,6 +131,11 @@ TILED's `block_rows` now controls loads only. It no longer accumulates independe
 row lanes or reduces their partial sums. Neither strategy uses floating-point
 atomics, locks, reassociation, or partial-result downcasts. Both use the same
 per-row backward kernel; dependent launches share the input device's stream.
+
+Weight gradients retain these operator-local kernels: their contributions are
+strided down columns of `[M, D]`, and their contract is a row-by-row left fold.
+The public pointer `sum` expects contiguous elements and applies a tile tree;
+substituting it here would change both memory interpretation and arithmetic.
 
 The previous PARALLEL and FUSED strategies were removed because their partial
 sums change addition grouping. A fixed group size makes repeated calls
@@ -216,7 +224,7 @@ GPU execution of the revised feature trees, TILED kernel, and new tests remains 
 
 The reference module also provides `ordered_forward`, `ordered_backward`, and
 named intermediate results for fixed-path diagnostics. `ordered_row_sum` pads
-to the same power of two and calls the PyTorch translation of `sum_tile`.
+to the same power of two and calls the PyTorch public `sum` on loaded values.
 Backward is hand-written: it uses the feature tree and a physical-row FP32
 left fold for weight gradients, without delegating reductions to autograd.
 Tensor division by a device FP32 scalar mirrors `tl.div_rn`; `torch.rsqrt`
@@ -233,8 +241,10 @@ Tests separate the two purposes:
   the ordered helpers. The ordered reference is not the benchmark baseline.
 
 The shared reduction package and its tests are reused unchanged from the
-softcapped-logprob work; this branch carries them as a shared dependency rather
-than an RMSNorm-specific copy of the algorithm.
+[ordered-reduction PR #595](https://github.com/RL-Align/RL-Kernel/pull/595).
+Triton and PyTorch import their corresponding public `sum` interfaces; no
+RMSNorm-specific copy of the feature tree remains. The optional Gluon frontend
+is not used by this `@triton.jit` operator.
 
 ```bash
 uv run --no-sync python -m pytest \

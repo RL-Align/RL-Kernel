@@ -76,7 +76,11 @@ def _musa_build_available(torch) -> bool:
         return False
     return bool(
         hasattr(torch, "musa")
-        and (torch.musa.is_available() or bool(os.environ.get("TORCH_MUSA_ARCH_LIST", "").strip()))
+        and (
+            torch.musa.is_available()
+            or bool(os.environ.get("TORCH_MUSA_ARCH_LIST", "").strip())
+            or envs.env_flag("FORCE_MUSA")
+        )
     )
 
 
@@ -189,6 +193,7 @@ def get_extensions():
                 sources=[
                     "csrc/musa/ops.cpp",
                     "csrc/musa/fused_logp_kernel.mu",
+                    "csrc/musa/det_gemm.mu",
                 ],
                 include_dirs=[],
                 extra_compile_args={

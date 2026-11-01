@@ -4,12 +4,15 @@
 from __future__ import annotations
 
 import runpy
+import sys
+from types import SimpleNamespace
 from typing import Any
 
 import setuptools
 import torch
 from torch.utils import cpp_extension
 
+from build_tools import extensions
 from build_tools.extensions import _resolve_package_data_source, get_cmdclass
 
 
@@ -59,6 +62,15 @@ def test_cuda_build_keeps_existing_ipc_collective(monkeypatch) -> None:
     assert "-DKERNEL_ALIGN_WITH_CUDA" in extension["extra_compile_args"]["cxx"]
     assert "-DKERNEL_ALIGN_WITH_ROCM" not in extension["extra_compile_args"]["cxx"]
     assert "-lcuda" in extension["extra_link_args"]
+
+
+def test_force_musa_enables_cross_compile_without_visible_device(monkeypatch) -> None:
+    fake_torch = SimpleNamespace(musa=SimpleNamespace(is_available=lambda: False))
+    monkeypatch.setitem(sys.modules, "torch_musa", SimpleNamespace())
+    monkeypatch.setenv("FORCE_MUSA", "1")
+    monkeypatch.delenv("TORCH_MUSA_ARCH_LIST", raising=False)
+
+    assert extensions._musa_build_available(fake_torch)
 
 
 def test_package_data_json_links_resolve_to_real_content(tmp_path) -> None:

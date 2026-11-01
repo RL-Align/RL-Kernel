@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import torch
 from torch import nn
 
-from rl_engine.reference.reduction import sum_tile
+from rl_engine.reference.reduction import sum as ordered_sum
 
 _SUPPORTED_DTYPES = (torch.float16, torch.bfloat16, torch.float32)
 
@@ -118,7 +118,7 @@ def ordered_row_sum(values: torch.Tensor) -> torch.Tensor:
     """Pad D to its next power of two and apply the shared FP32 feature tree.
 
     Leading dimensions are independent rows. The result has shape [..., 1]
-    for broadcasting. This mirrors sum_tile in the Triton row kernels; it
+    for broadcasting. This mirrors loaded-value sum in the Triton row kernels; it
     deliberately does not use torch.sum or change the tree with batch size.
     """
     if values.ndim == 0 or values.shape[-1] == 0:
@@ -126,7 +126,7 @@ def ordered_row_sum(values: torch.Tensor) -> torch.Tensor:
     n_cols = values.shape[-1]
     block_size = 1 << (n_cols - 1).bit_length()
     padded = torch.nn.functional.pad(values.float(), (0, block_size - n_cols))
-    return sum_tile(padded).unsqueeze(-1)
+    return ordered_sum(padded, compute_dtype=torch.float32).unsqueeze(-1)
 
 
 @torch.no_grad()

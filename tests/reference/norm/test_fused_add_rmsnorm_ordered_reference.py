@@ -26,6 +26,32 @@ def test_feature_sum_has_a_declared_order_not_an_exact_sum():
     assert_bitwise(forward.sum_squares, ordered_row_sum(values))
 
 
+def test_padded_feature_reductions_use_the_shared_halving_tree():
+    """The two half-ULP terms meet before the large value in the shared tree.
+
+    Pad 57 features to 64 lanes. Eight groups pair 0+4, 1+5, 2+6 and 3+7;
+    the retired four-section tree would lose both small terms. Check forward
+    squares and backward's correction sum against the hand-computed result.
+    """
+    values = torch.zeros((1, 57), dtype=torch.float32)
+    values[0, 0] = 1.0
+    values[0, [8, 24]] = 2**-24
+    expected = torch.tensor([[1.0 + 2**-23]], dtype=torch.float32)
+    assert_bitwise(ordered_row_sum(values), expected)
+    forward = ordered_forward(values.sqrt(), torch.zeros_like(values), torch.ones(57), eps=1e-5)
+    assert_bitwise(forward.sum_squares, expected)
+    backward = ordered_backward(
+        torch.ones_like(values),
+        torch.ones(1),
+        torch.ones(57),
+        values,
+        None,
+        x_dtype=torch.float32,
+        residual_dtype=torch.float32,
+    )
+    assert_bitwise(backward.correction_sum, expected)
+
+
 @pytest.mark.parametrize("shape", [(7,), (3, 7), (2, 3, 129), (2, 0, 7)])
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32])
 @pytest.mark.parametrize("branch", ["both", "y_only", "residual_only"])
@@ -125,7 +151,7 @@ def test_native_baseline_does_not_use_fixed_path_helpers(monkeypatch):
         raise AssertionError("Native must not call an ordered helper")
 
     monkeypatch.setattr(reference, "ordered_row_sum", forbidden)
-    monkeypatch.setattr(reference, "sum_tile", forbidden)
+    monkeypatch.setattr(reference, "ordered_sum", forbidden)
     x = torch.ones((2, 7), requires_grad=True)
     r = torch.zeros_like(x, requires_grad=True)
     w = torch.ones(7, requires_grad=True)

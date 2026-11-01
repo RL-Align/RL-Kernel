@@ -26,7 +26,7 @@ def policy(monkeypatch):
     def no_kernel(*args, **kwargs):
         raise AssertionError("Policy tests must not execute GPU reductions")
 
-    reduction.sum_tile = no_kernel
+    reduction.sum = no_kernel
     path = (
         Path(__file__).resolve().parents[5]
         / "rl_engine/backends/shared/triton/norm/fused_add_rmsnorm.py"

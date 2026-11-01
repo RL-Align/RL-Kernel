@@ -7,7 +7,7 @@ a contiguous weight vector [n_cols], and FP32 y/updated_residual output buffers.
 Forward also saves one FP32 inverse_rms per row for backward.
 Launch one program per row, with a fixed power-of-two BLOCK_SIZE >= n_cols > 0,
 fixed num_warps, and enable_fp_fusion=False.
-Both feature-axis reductions use the shared ordered sum_tile helper. Its
+Both feature-axis reductions use the shared ordered sum on loaded values. Its
 power-of-two width follows D, never the batch size or weight-gradient strategy.
 
 Backward reuses updated_residual and inverse_rms. Both strategies launch one
@@ -37,7 +37,7 @@ import torch
 import triton
 import triton.language as tl
 
-from rl_engine.backends.shared.triton.reduction import sum_tile
+from rl_engine.backends.shared.triton.reduction import sum as ordered_sum
 
 _SUPPORTED_DEVICES = ("cuda", "hip", "xpu", "musa")
 """Accepted device types; ROCm PyTorch also uses the CUDA namespace."""
@@ -353,11 +353,11 @@ def _resolve_weight_grad_plan(
 def _rmsnorm_row_statistics(updated_residual, n_cols: tl.constexpr, EPS: tl.constexpr):
     """Return the ordered FP32 squared sum and inverse RMS of one padded row.
 
-    Invalid columns must already be zero. sum_tile fixes the addition tree;
+    Invalid columns must already be zero. ordered_sum fixes the addition tree;
     divide by the real feature width, not the padded vector length. Return the
     sum as well so conformance tests can distinguish reduction from rsqrt error.
     """
-    sum_squares = sum_tile(updated_residual * updated_residual)
+    sum_squares = ordered_sum(updated_residual * updated_residual, COMPUTE_DTYPE=tl.float32)
     mean_square = tl.div_rn(sum_squares, n_cols)
     inverse_rms = tl.rsqrt(mean_square + EPS)
     return sum_squares, inverse_rms
@@ -370,7 +370,7 @@ def _rmsnorm_row_correction(grad_normalized, normalized, n_cols: tl.constexpr):
     Both vectors have the same padded width as forward. Padding contributes
     zero, and every weight-gradient strategy uses this identical row expression.
     """
-    correction_sum = sum_tile(grad_normalized * normalized)
+    correction_sum = ordered_sum(grad_normalized * normalized, COMPUTE_DTYPE=tl.float32)
     return correction_sum, tl.div_rn(correction_sum, n_cols)
 
 

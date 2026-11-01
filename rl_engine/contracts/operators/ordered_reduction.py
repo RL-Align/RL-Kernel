@@ -12,11 +12,4 @@ TILE_SIZE = 1024
 """Whole-vector arithmetic tile width, independent of the launch schedule."""
 
 MAX_GROUP_SIZE = 8
-"""Adjacent values folded sequentially before the section tree."""
-
-SECTION_COUNT = 4
-"""Default maximum section count, a positive power of two.
-
-The actual count is capped by the available group totals. Each tree operation
-combines exactly two operands; four sections retain (s0+s2)+(s1+s3) for addition.
-"""
+"""Adjacent values folded sequentially before the group totals are halved to one."""
