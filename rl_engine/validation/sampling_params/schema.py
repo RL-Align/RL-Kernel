@@ -98,7 +98,7 @@ class CanonicalSamplingRecord(SerializableModel):
     runtime_actual: Optional[CanonicalSamplingLayer] = None
     record_version: str = SAMPLING_RECORD_VERSION
     provenance: Mapping[str, Any] = field(default_factory=dict)
-    fallback_layers: tuple[str, ...] = ()
+    fallback_layers: Optional[tuple[str, ...]] = None
 
     def __post_init__(self) -> None:
         if self.record_version != SAMPLING_RECORD_VERSION:

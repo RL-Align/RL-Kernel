@@ -153,6 +153,18 @@ class TestSamplingGate:
         assert result.status is SamplingGateStatus.SILENT_FALLBACK
         assert result.failing_layer == SamplingLayerName.MATERIALIZED.value
 
+    def test_explicit_empty_typed_field_beats_stale_provenance(self):
+        record = _record()
+        record.fallback_layers = ()
+        record.provenance = {"fallback_layers": (SamplingLayerName.REQUESTED.value,)}
+        assert evaluate_sampling_gate(record).status is SamplingGateStatus.PASS
+
+    def test_mapping_fallback_is_rejected(self):
+        record = _record()
+        record.provenance = {"fallback_layers": {"requested": True}}
+        with pytest.raises(ValueError):
+            evaluate_sampling_gate(record)
+
 
 class TestCanonicalRecord:
     def test_fingerprint_is_stable_and_value_sensitive(self):

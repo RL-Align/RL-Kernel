@@ -18,7 +18,11 @@ from typing import Optional
 import torch
 
 from rl_engine.validation.cross_config.schema import SerializableModel
-from rl_engine.validation.m10.schema import M10Input, M10Status
+from rl_engine.validation.m10.schema import (
+    M10_INPUT_SCHEMA_VERSION,
+    M10Input,
+    M10Status,
+)
 from rl_engine.validation.sampling_params.gate import evaluate_sampling_gate
 
 
@@ -42,6 +46,13 @@ def evaluate_m10_precheck(
     expected_pre_update_weight_lock: Optional[str] = None,
 ) -> M10PrecheckResult:
     """Run every fail-closed pre-check for one M10 input."""
+    if inp.schema_version != M10_INPUT_SCHEMA_VERSION:
+        return _fail(
+            M10Status.INVALID_PROFILE,
+            "schema_version",
+            f"unsupported M10 schema version {inp.schema_version!r}, "
+            f"expected {M10_INPUT_SCHEMA_VERSION!r}",
+        )
     if inp.sampling_record is None:
         return _fail(
             M10Status.MISSING_PROVENANCE,

@@ -170,6 +170,17 @@ class TestM10PrecheckFailClosed:
         inp.active_token_mask[:] = False
         assert evaluate_m10_precheck(inp).status is M10Status.ZERO_ACTIVE_TOKENS
 
+    def test_zero_active_ratio_builds_a_zero_active_fixture(self):
+        result = evaluate_m10_precheck(_stub(active_ratio=0.0))
+        assert result.status is M10Status.ZERO_ACTIVE_TOKENS
+
+    def test_unsupported_schema_version_fails(self):
+        inp = _stub()
+        inp.schema_version = "p7-m10-input-v0"
+        result = evaluate_m10_precheck(inp)
+        assert result.status is M10Status.INVALID_PROFILE
+        assert result.failing_field == "schema_version"
+
     def test_non_finite_rows_fail(self):
         inp = _stub()
         inp.final_decoder_rows[0, 0] = float("inf")

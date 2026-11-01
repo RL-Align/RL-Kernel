@@ -211,6 +211,8 @@ frozen T01 manifest.
 
 ### 4.1 M10 pre-checks (before computing logprob)
 
+- **schema version**: `schema_version` must equal `p7-m10-input-v1`; a foreign version →
+  `INVALID_PROFILE` before any field is interpreted.
 - **vocab ownership check**: `[vocab_start, vocab_end)` covers `[0, global_vocab)` with no
   gaps or overlaps (`#L29`, `#L719`). Otherwise → `INVALID_PROFILE` or `MISSING_PROVENANCE`
   (per the T01 manifest).

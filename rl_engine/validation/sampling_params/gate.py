@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 from rl_engine.validation.cross_config.schema import SerializableModel
 from rl_engine.validation.sampling_params.schema import (
@@ -165,10 +165,15 @@ def _layer_name(value: Any) -> str:
 def _fallback_layers(record: CanonicalSamplingRecord) -> tuple[Any, ...]:
     """Normalize the record's fallback provenance into a deterministic tuple.
 
-    The typed ``fallback_layers`` field wins; ``provenance["fallback_layers"]``
-    stays accepted for producers that only carry an untyped map.
+    ``fallback_layers`` is ``None`` when unset, so an explicitly empty tuple is
+    authoritative and does not fall back to stale ``provenance`` data.
     """
-    raw: Any = record.fallback_layers or record.provenance.get("fallback_layers") or ()
+    if record.fallback_layers is not None:
+        raw: Any = record.fallback_layers
+    else:
+        raw = record.provenance.get("fallback_layers") or ()
+    if isinstance(raw, Mapping):
+        raise ValueError("fallback_layers must be a sequence of layer names, not a mapping")
     if isinstance(raw, (str, SamplingLayerName)):
         raw = (raw,)
     elif isinstance(raw, (set, frozenset)):

@@ -27,7 +27,7 @@ def _sm90_available() -> bool:
 
         if not (_EXT_AVAILABLE and hasattr(_C, "fused_linear_logp_sm90")):
             return False
-    except Exception:  # pragma: no cover
+    except ImportError:  # only an unavailable extension is expected to skip
         return False
     return torch.cuda.get_device_capability()[0] == 9
 
@@ -51,6 +51,41 @@ class TestM10FailClosed:
     def test_weight_lock_drift_returns_before_scoring(self):
         result = score_m10(build_m10_stub(), expected_pre_update_weight_lock="other-lock")
         assert result.status is M10Status.PRE_UPDATE_WEIGHT_DRIFT
+        assert result.selected_logprob_bytes == b""
+
+
+class TestM10ScoringCpuDouble:
+    """CPU-only coverage of the scoring pipeline with a fake strict wrapper."""
+
+    class _FakeWrapper:
+        provenance = {"backend": "fake"}
+
+        def __init__(self, values):
+            self._values = values
+
+        def __call__(self, hidden, weight, target_ids, bias=None, **kwargs):
+            return self._values
+
+    def test_finite_output_records_weight_provenance(self, monkeypatch):
+        import rl_engine.validation.m10.score as score_mod
+
+        values = torch.arange(8, dtype=torch.float32)
+        monkeypatch.setattr(score_mod, "LinearLogpWrapper", lambda: self._FakeWrapper(values))
+        result = score_m10(build_m10_stub(tokens=8, hidden=32, local_vocab=64))
+        assert result.passed
+        assert result.selected_logprob_bytes
+        assert result.provenance["weight_id"] == "stub-weight-0"
+        assert result.provenance["pre_update_weight_lock"] == "stub-lock-stub-case"
+        assert result.provenance["m10_schema_version"] == "p7-m10-input-v1"
+
+    def test_non_finite_output_fails_closed(self, monkeypatch):
+        import rl_engine.validation.m10.score as score_mod
+
+        values = torch.full((8,), float("nan"))
+        monkeypatch.setattr(score_mod, "LinearLogpWrapper", lambda: self._FakeWrapper(values))
+        result = score_m10(build_m10_stub(tokens=8, hidden=32, local_vocab=64))
+        assert result.status is M10Status.NON_FINITE
+        assert result.selected_logprob is None
         assert result.selected_logprob_bytes == b""
 
 

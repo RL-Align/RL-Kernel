@@ -58,7 +58,9 @@ def build_m10_stub(
 
     active = torch.ones(tokens, dtype=torch.bool)
     if active_ratio < 1.0:
-        keep = max(1, int(round(tokens * active_ratio)))
+        keep = int(round(tokens * active_ratio))
+        if active_ratio > 0.0:
+            keep = max(1, keep)
         active[keep:] = False
 
     identity = CanonicalSamplingLayer()

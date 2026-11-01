@@ -106,11 +106,22 @@ def score_m10(
         target=target,
     )
     selected = logprob.detach().to(torch.float32).reshape(-1)
+    if not bool(torch.isfinite(selected).all()):
+        return M10ScoreResult(
+            status=M10Status.NON_FINITE,
+            passed=False,
+            active_token_count=active_count,
+            selected_logprob=None,
+            selected_logprob_bytes=b"",
+            detail="strict linear_logp returned a non-finite selected logprob",
+        )
     raw = fp32_raw_bytes(selected[mask])
 
     provenance = {
         **dict(op.provenance),
         "m10_schema_version": inp.schema_version,
+        "weight_id": inp.weight_id,
+        "pre_update_weight_lock": inp.pre_update_weight_lock,
         "vocab_shard": [int(inp.vocab_start), int(inp.vocab_end)],
         "global_vocab_size": int(inp.global_vocab_size),
         "active_token_count": active_count,
