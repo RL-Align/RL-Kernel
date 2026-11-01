@@ -84,15 +84,11 @@ def score_m10(
             detail=precheck.detail,
         )
 
-    rows = inp.final_decoder_rows
-    weight = inp.lm_head_weight_local
-    targets = inp.target_token_ids
-    mask = inp.active_token_mask
-    if device is not None:
-        rows = rows.to(device)
-        weight = weight.to(device)
-        targets = targets.to(device)
-        mask = mask.to(device)
+    target_device = device if device is not None else inp.final_decoder_rows.device
+    rows = inp.final_decoder_rows.to(target_device)
+    weight = inp.lm_head_weight_local.to(target_device)
+    targets = inp.target_token_ids.to(target_device)
+    mask = inp.active_token_mask.to(target_device)
 
     op = LinearLogpWrapper()
     logprob = op(
@@ -117,6 +113,8 @@ def score_m10(
         )
     raw = fp32_raw_bytes(selected[mask])
 
+    arithmetic = dict(dict(op.provenance).get("arithmetic_contract") or {})
+    vocab_tile = int(arithmetic.get("vocab_group_width", M10_VOCAB_REDUCTION_TILE))
     provenance = {
         **dict(op.provenance),
         "m10_schema_version": inp.schema_version,
@@ -129,7 +127,7 @@ def score_m10(
             inp.sampling_record.canonical_fingerprint() if inp.sampling_record else None
         ),
         "selected_logprob_dtype": "fp32",
-        "vocab_reduction_tile": M10_VOCAB_REDUCTION_TILE,
+        "vocab_reduction_tile": vocab_tile,
     }
     return M10ScoreResult(
         status=M10Status.PASS,

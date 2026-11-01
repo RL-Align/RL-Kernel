@@ -170,8 +170,9 @@ In consistency mode (`#L209`):
    or vice versa) → `SAMPLING_PARAMS_MISMATCH` (this is "actual semantic drift").
 4. Any missing layer field / unreadable layer → `MISSING_PROVENANCE`.
 5. Hitting a framework fallback / undeclared backend branch → `SILENT_FALLBACK`. Fallbacks are
-   read from the typed `fallback_layers` field; the legacy
-   `provenance["fallback_layers"]` map is still accepted for producers that do not set it.
+   read from the typed `fallback_layers` field or from a layer whose `source` is `fallback`;
+   the legacy `provenance["fallback_layers"]` map is still accepted for producers that do
+   not set either.
 
 **Key constraint:** a `configured value` must not masquerade as an `actual readback`
 (DoD `#L743`). `runtime_actual` must come from execution-side readback and must not reuse

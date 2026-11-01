@@ -24,6 +24,7 @@ from rl_engine.validation.sampling_params.schema import (
     CanonicalSamplingRecord,
     SamplingGateStatus,
     SamplingLayerName,
+    SamplingValueSource,
 )
 
 
@@ -172,8 +173,12 @@ def _fallback_layers(record: CanonicalSamplingRecord) -> tuple[Any, ...]:
         raw: Any = record.fallback_layers
     else:
         raw = record.provenance.get("fallback_layers") or ()
-    if isinstance(raw, Mapping):
-        raise ValueError("fallback_layers must be a sequence of layer names, not a mapping")
+    if isinstance(raw, Mapping) or not isinstance(
+        raw, (str, SamplingLayerName, list, tuple, set, frozenset)
+    ):
+        raise SamplingParamsError(
+            f"fallback_layers must be a sequence of layer names, got {type(raw).__name__}"
+        )
     if isinstance(raw, (str, SamplingLayerName)):
         raw = (raw,)
     elif isinstance(raw, (set, frozenset)):
@@ -198,7 +203,12 @@ def evaluate_sampling_gate(record: CanonicalSamplingRecord) -> SamplingGateResul
             detail="missing sampling layer(s): " + ", ".join(name.value for name in missing),
         )
 
-    fallback = _fallback_layers(record)
+    source_fallbacks = tuple(
+        name.value
+        for name, layer in layers.items()
+        if layer is not None and layer.source == SamplingValueSource.FALLBACK.value
+    )
+    fallback = tuple(dict.fromkeys((*_fallback_layers(record), *source_fallbacks)))
     if fallback:
         return _result(
             record,

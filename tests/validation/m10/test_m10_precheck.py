@@ -181,6 +181,13 @@ class TestM10PrecheckFailClosed:
         assert result.status is M10Status.INVALID_PROFILE
         assert result.failing_field == "schema_version"
 
+    def test_malformed_fallback_provenance_fails_closed(self):
+        inp = _stub()
+        inp.sampling_record.provenance = {"fallback_layers": {"requested": True}}
+        result = evaluate_m10_precheck(inp)
+        assert result.status is M10Status.MISSING_PROVENANCE
+        assert result.failing_field == "sampling_record"
+
     def test_non_finite_rows_fail(self):
         inp = _stub()
         inp.final_decoder_rows[0, 0] = float("inf")

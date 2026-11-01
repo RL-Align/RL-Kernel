@@ -59,12 +59,20 @@ def evaluate_m10_precheck(
             "sampling_record",
             "M10 input carries no canonical sampling record",
         )
-    gate = evaluate_sampling_gate(inp.sampling_record)
+    try:
+        gate = evaluate_sampling_gate(inp.sampling_record)
+        gate_status = M10Status(gate.status.value)
+    except ValueError as exc:
+        return _fail(
+            M10Status.MISSING_PROVENANCE,
+            "sampling_record",
+            f"malformed canonical sampling record: {exc}",
+        )
     if not gate.passed:
         field_name = "sampling_record"
         if gate.failing_layer:
             field_name = f"sampling_record.{gate.failing_layer}"
-        return _fail(M10Status(gate.status.value), field_name, gate.detail)
+        return _fail(gate_status, field_name, gate.detail)
 
     if inp.lm_head_lora:
         return _fail(

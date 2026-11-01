@@ -88,6 +88,24 @@ class TestM10ScoringCpuDouble:
         assert result.selected_logprob is None
         assert result.selected_logprob_bytes == b""
 
+    def test_vocab_tile_follows_kernel_provenance(self, monkeypatch):
+        import rl_engine.validation.m10.score as score_mod
+
+        values = torch.arange(8, dtype=torch.float32)
+        fake = self._FakeWrapper(values)
+        fake.provenance = {"arithmetic_contract": {"vocab_group_width": 32}}
+        monkeypatch.setattr(score_mod, "LinearLogpWrapper", lambda: fake)
+        result = score_m10(build_m10_stub(tokens=8, hidden=32, local_vocab=64))
+        assert result.provenance["vocab_reduction_tile"] == 32
+
+    def test_vocab_tile_defaults_without_kernel_provenance(self, monkeypatch):
+        import rl_engine.validation.m10.score as score_mod
+
+        values = torch.arange(8, dtype=torch.float32)
+        monkeypatch.setattr(score_mod, "LinearLogpWrapper", lambda: self._FakeWrapper(values))
+        result = score_m10(build_m10_stub(tokens=8, hidden=32, local_vocab=64))
+        assert result.provenance["vocab_reduction_tile"] == 64
+
 
 @requires_sm90
 class TestM10Scoring:

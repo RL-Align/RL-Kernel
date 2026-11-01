@@ -75,6 +75,8 @@ class CanonicalSamplingLayer(SerializableModel):
     top_k: Optional[int] = TOP_K_DISABLED
     top_p: Optional[float] = TOP_P_IDENTITY
     min_p: Optional[float] = MIN_P_DISABLED
+    source: Optional[str] = None
+    raw: Optional[Any] = field(default=None, compare=False)
 
     def is_identity(self) -> bool:
         """True when the layer equals the canonical identity sentinel."""
@@ -84,6 +86,15 @@ class CanonicalSamplingLayer(SerializableModel):
             and self.top_p == TOP_P_IDENTITY
             and self.min_p == MIN_P_DISABLED
         )
+
+    def canonical_values(self) -> dict[str, Any]:
+        """Value-only view with canonical numeric types, used for hashing."""
+        return {
+            "temperature": float(self.temperature),
+            "top_k": None if self.top_k is None else int(self.top_k),
+            "top_p": None if self.top_p is None else float(self.top_p),
+            "min_p": None if self.min_p is None else float(self.min_p),
+        }
 
 
 @dataclass
@@ -120,6 +131,6 @@ class CanonicalSamplingRecord(SerializableModel):
             layer = self.layer(name)
             if layer is None:
                 return None
-            payload["layers"][name.value] = layer.to_dict()
+            payload["layers"][name.value] = layer.canonical_values()
         blob = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return hashlib.sha256(blob).hexdigest()

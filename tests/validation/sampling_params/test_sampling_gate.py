@@ -165,6 +165,12 @@ class TestSamplingGate:
         with pytest.raises(ValueError):
             evaluate_sampling_gate(record)
 
+    def test_fallback_source_fails_closed(self):
+        record = _record(requested=CanonicalSamplingLayer(source="fallback"))
+        result = evaluate_sampling_gate(record)
+        assert result.status is SamplingGateStatus.SILENT_FALLBACK
+        assert result.failing_layer == SamplingLayerName.REQUESTED.value
+
 
 class TestCanonicalRecord:
     def test_fingerprint_is_stable_and_value_sensitive(self):
@@ -186,3 +192,14 @@ class TestCanonicalRecord:
             CanonicalSamplingRecord(
                 case_id="case-3", engine="stub", record_version="p7-sampling-record-v0"
             )
+
+    def test_fingerprint_is_insensitive_to_numeric_type(self):
+        integer_layer = CanonicalSamplingLayer(temperature=1)
+        assert (
+            _record(requested=integer_layer).canonical_fingerprint()
+            == _record().canonical_fingerprint()
+        )
+
+    def test_layer_provenance_does_not_change_the_fingerprint(self):
+        tagged = CanonicalSamplingLayer(source="api", raw={"temperature": 1.0})
+        assert _record(requested=tagged).canonical_fingerprint() == _record().canonical_fingerprint()
