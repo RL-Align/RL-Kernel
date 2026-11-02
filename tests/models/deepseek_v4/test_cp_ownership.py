@@ -126,3 +126,69 @@ def test_rocm_one_rank_cp_exchange(tmp_path: Path):
             exchange.close()
     finally:
         dist.destroy_process_group()
+
+
+def _rocm_two_rank_worker(rank: int, rendezvous: str, scenario: str):
+    torch.cuda.set_device(rank)
+    dist.init_process_group("nccl", init_method=f"file://{rendezvous}", rank=rank, world_size=2)
+    try:
+        plan = replace(_plan(), total_tokens=1) if scenario != "valid" else _plan()
+        exchange = Dsv4CpKvExchange(plan, group=dist.group.WORLD)
+        try:
+            if scenario == "valid":
+                positions = (127, 126) if rank == 0 else (255, 128)
+                keys = torch.tensor([[7, 0, positions[0]], [7, 1, positions[1]]], device="cuda")
+                values = torch.tensor(
+                    [[rank + 1.0, rank + 2.0], [rank + 3.0, rank + 4.0]],
+                    dtype=torch.bfloat16,
+                    device="cuda",
+                )
+            else:
+                keys = (
+                    torch.tensor([[7, 1, 0]], device="cuda")
+                    if rank == 0 and scenario == "empty_rank"
+                    else torch.empty((0, 3), dtype=torch.int64, device="cuda")
+                )
+                values = torch.ones((keys.shape[0], 2), dtype=torch.bfloat16, device="cuda")
+            global_keys, global_kv = exchange.gather_kv(keys, values, model_version="checkpoint-42")
+            if scenario == "valid":
+                torch.testing.assert_close(
+                    global_keys,
+                    torch.tensor(
+                        [[7, 0, 127], [7, 0, 255], [7, 1, 126], [7, 1, 128]], device="cuda"
+                    ),
+                )
+                torch.testing.assert_close(
+                    global_kv,
+                    torch.tensor(
+                        [[1.0, 2.0], [2.0, 3.0], [3.0, 4.0], [4.0, 5.0]],
+                        dtype=torch.bfloat16,
+                        device="cuda",
+                    ),
+                )
+            else:
+                assert global_keys.shape == (1 if scenario == "empty_rank" else 0, 3)
+            local_dkv = exchange.return_dkv(
+                torch.ones_like(global_kv) * (rank + 1), model_version="checkpoint-42"
+            )
+            torch.testing.assert_close(local_dkv, torch.full_like(values, 3))
+        finally:
+            exchange.close()
+    finally:
+        dist.destroy_process_group()
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available() or not torch.version.hip or torch.cuda.device_count() < 2,
+    reason="two ROCm GPUs required",
+)
+@pytest.mark.parametrize("scenario", ["valid", "empty_rank", "no_rows"])
+def test_rocm_two_rank_cp_exchange(tmp_path: Path, scenario: str):
+    if dist.is_initialized():
+        pytest.skip("isolated process group required")
+    mp.spawn(
+        _rocm_two_rank_worker,
+        args=(str(tmp_path / f"rocm-{scenario}-init"), scenario),
+        nprocs=2,
+        join=True,
+    )

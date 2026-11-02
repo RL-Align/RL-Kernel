@@ -31,8 +31,12 @@ virtual PP and overlapping microbatches need separate ordering contracts.
 - Two-rank Gloo CP: global compressed/window ownership, canonical KV order,
   fixed dKV reduction/return, empty rank/all-empty, invalid owner and version.
 - One-rank MI300X RCCL: C128 row and dKV data path.
+- Two-rank MI300X RCCL: canonical KV order, BF16 dKV reduction, empty CP
+  rank and globally empty rows. Override the container's one-card default
+  with `ROCR_VISIBLE_DEVICES=0,1` for the isolated pytest process.
 - Two-rank Gloo PP2 protocol with a test P2P transport: layer boundaries,
   activation/gradient directions, stale version and wrong microbatch.
 - **Not item-41 signoff:** actual verl/VIME model adapters, training CP vs
   rollout DCP, cross-TP/CP gradient paths, Megatron ROCm PP2 and two-node PP4
-  remain untested/unwired. The `ljj` container exposes only one GPU.
+  remain untested/unwired. The container has access to eight MI300X cards when
+  the process visibility mask is overridden.
