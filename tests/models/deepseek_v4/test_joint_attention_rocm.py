@@ -23,6 +23,27 @@ def backend():
     return AiterJointAttentionBackend()
 
 
+@pytest.mark.parametrize("name", ["q", "kv", "sink", "indices", "out", "lse"])
+def test_backend_rejects_nonunit_inner_stride(name, backend):
+    contract = JointAttentionContract(8, 128, 1, 1, 1, 0)
+    inputs = dict(
+        q=torch.empty((1, 8, 128), dtype=torch.bfloat16, device="cuda"),
+        kv=torch.empty((1, 128), dtype=torch.bfloat16, device="cuda"),
+        sink=torch.empty((8,), dtype=torch.float32, device="cuda"),
+        indices=torch.empty((1, 1), dtype=torch.int32, device="cuda"),
+        out=torch.empty((1, 8, 128), dtype=torch.bfloat16, device="cuda"),
+        lse=torch.empty((1, 8), dtype=torch.float32, device="cuda"),
+    )
+    original = inputs[name]
+    inputs[name] = torch.empty(
+        (*original.shape[:-1], original.shape[-1] * 2),
+        dtype=original.dtype,
+        device=original.device,
+    )[..., ::2]
+    with pytest.raises(JointAttentionError, match="unit inner strides"):
+        backend.forward_into(**inputs, contract=contract)
+
+
 @pytest.mark.parametrize("m", [0, 1, 3, 7])
 @pytest.mark.parametrize("dim,heads", [(128, 8), (128, 13), (512, 64)])
 def test_native_reference_and_modes(m, dim, heads, backend):

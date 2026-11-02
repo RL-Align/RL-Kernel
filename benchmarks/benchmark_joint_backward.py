@@ -61,6 +61,7 @@ def main():
         plan = JointAttentionPlan(c, backend=backend)
         saved = plan.forward_record(q, kv, sink, metadata=meta, version="bench", mode="train")
         backward = JointBackwardPlan(plan, saved)
+        backward.dy.copy_(dy.index_select(0, backward.order))
         backward.capture()
         adapter = JointAttentionAutograd(plan, layer_id="bench", backend=backward.backend)
         timings = {
@@ -70,7 +71,7 @@ def main():
             "checked_graph_vjp": measure(
                 partial(backward.backward, dy, use_graph=True), args.repeats
             ),
-            "canonical_forward_backward": measure(
+            "canonical_forward_backward_validation": measure(
                 partial(step, adapter, q, kv, sink, meta, dy), args.repeats
             ),
         }
@@ -84,12 +85,19 @@ def main():
                     m, h, d, c.selected_capacity, len(kvkeys)
                 ),
                 timings=timings,
+                timing_scope={
+                    "native_pipeline": "backward_only",
+                    "graph_core": "backward_only",
+                    "checked_eager_vjp": "backward_only",
+                    "checked_graph_vjp": "backward_only",
+                    "canonical_forward_backward_validation": "forward_backward_validation",
+                },
                 backward_implementation=adapter.backward_implementation,
             )
         )
         print(json.dumps(records[-1]), flush=True)
     Path(args.output).write_text(
-        json.dumps(dict(records=records, provider=backward.backend.provenance), indent=2)
+        json.dumps(dict(records=records, provider=backward.backend.provenance), indent=2) + "\n"
     )
 
 

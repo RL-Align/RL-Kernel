@@ -4,6 +4,7 @@
 import hashlib
 import importlib
 import importlib.util
+import inspect
 import os
 from pathlib import Path
 import sys
@@ -51,6 +52,20 @@ class AiterJointAttentionBackend:
         self.triton = importlib.import_module("triton")
         cache = importlib.import_module("vllm.models.deepseek_v4.common.ops.cache_utils")
         self._gather_cache = cache.dequantize_and_gather_k_cache_triton
+        require(
+            tuple(inspect.signature(self._gather_cache).parameters)
+            == (
+                "out",
+                "k_cache",
+                "seq_lens",
+                "gather_lens",
+                "block_table",
+                "block_size",
+                "offset",
+                "use_fnuz",
+            ),
+            "vLLM cache gather ABI mismatch",
+        )
         self.provenance = {
             "profile": self.profile,
             "arch": arch,
@@ -65,6 +80,10 @@ class AiterJointAttentionBackend:
 
     def forward_into(self, q, kv, sink, indices, out, lse, contract):
         m, h, d = q.shape
+        require(
+            all(t.stride(-1) == 1 for t in (q, kv, sink, indices, out, lse)),
+            "joint attention kernel requires unit inner strides",
+        )
         if m == 0:
             return
         # Bypass upstream environment/config lookup, not the upstream kernel.
@@ -97,4 +116,13 @@ class AiterJointAttentionBackend:
         )
 
     def gather_packed_pages(self, cache, block_table, block_size, out, lengths, use_fnuz):
-        self._gather_cache(out, cache, lengths, None, block_table, block_size, 0, use_fnuz=use_fnuz)
+        self._gather_cache(
+            out=out,
+            k_cache=cache,
+            seq_lens=lengths,
+            gather_lens=None,
+            block_table=block_table,
+            block_size=block_size,
+            offset=0,
+            use_fnuz=use_fnuz,
+        )

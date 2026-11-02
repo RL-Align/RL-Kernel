@@ -116,6 +116,10 @@ The native-workspace budget includes delta, dQ, P/dP, per-query KV
 contributions and gradient buffers. It excludes saved input/record clones,
 CSR metadata, Graph pools and temporary Torch reduction allocations.
 
+The benchmark uses the same nonzero dO for native, Graph and checked VJP
+timings. Its canonical forward/backward/validation entry includes a forward
+pass and host-side session checks; it is not a backward-only overhead ratio.
+
 ## Boundaries
 
 Validated: item-24 MI300X profile, repeated/shared KV, partial head tiles,
