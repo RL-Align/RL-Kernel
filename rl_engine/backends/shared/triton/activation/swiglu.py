@@ -63,8 +63,11 @@ def _silu_bwd_kernel(dy_ptr, x_ptr, dx_ptr, n_elements, BLOCK: tl.constexpr):
     dy = tl.load(dy_ptr + offs, mask=mask, other=0.0).to(tl.float32)
     x = tl.load(x_ptr + offs, mask=mask, other=0.0).to(tl.float32)
     s = tl.div_rn(1.0, 1.0 + libdevice.exp(-x))
-    # silu'(x) = s * (1 + x * (1 - s))
-    dx = dy * s * (1.0 + x * (1.0 - s))
+    # silu'(x) = s * (1 + x * (1 - s)). The parentheses around the derivative are
+    # load-bearing: CUDA evaluates dy * silu_grad_f32(x), so the product has to be
+    # dy * (s * (...)), not (dy * s) * (...). Left-to-right would round differently
+    # on about a third of fp32 elements and break the bitwise bar.
+    dx = dy * (s * (1.0 + x * (1.0 - s)))
     tl.store(dx_ptr + offs, dx.to(dx_ptr.dtype.element_ty), mask=mask)
 
 

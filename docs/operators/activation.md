@@ -155,9 +155,12 @@ out = gate_f * torch.sigmoid(gate_f) * up.float()
   kind to the `swiglu_ffn` work-item row of RFC #501. One node kind, one row, no
   deviations from the frozen semantics (`form: swiglu`, `activation: silu`,
   `order: down(silu(gate(x)) * up(x))`).
-- **CUDA vs Triton**: bitwise equal on CUDA, which is what RFC #501 asks for. Both
-  compute `1 / (1 + exp(-x))` with round-to-nearest division, and both backward
-  paths evaluate `s * (1 + x * (1 - s))` in the same order. The one thing that had
+- **CUDA vs Triton**: bitwise equal on CUDA with the default build, which is what
+  RFC #501 asks for. Both compute `1 / (1 + exp(-x))` with round-to-nearest
+  division, and both backward paths evaluate `dy * (s * (1 + x * (1 - s)))` with
+  that grouping; `(dy * s) * (...)` rounds differently on about a third of fp32
+  elements. Building with `KERNEL_ALIGN_USE_FAST_MATH=1` compiles the CUDA side
+  with approximate math and the bitwise tests then fail by design. The one thing that had
   to change is the exponential: `tl.exp` lowers to a `mul.f32` by log2(e) plus
   `ex2.approx.f32` with no correction term, which differs from the CUDA kernel's
   `expf` by a few ulp on about 9% of elements. `libdevice.exp` emits the same

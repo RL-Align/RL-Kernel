@@ -434,6 +434,21 @@ def test_swiglu_matches_native_on_museglimmer_shapes(impl, dtype, shape):
         up_gpu.grad.detach().cpu().float(), up_ref.grad, atol=atol, rtol=rtol
     )
 
+    # And against the independent FP64 definition, which RFC #501 asks for. The
+    # FP32 gold above shares the production formula; ``_ref_swiglu`` is written
+    # from the definition in double precision, so a formula error cannot cancel.
+    # Same quantised inputs as the GPU saw, so this measures kernel error only.
+    gate_d = gate_cpu.to(dtype).double().detach().requires_grad_(True)
+    up_d = up_cpu.to(dtype).double().detach().requires_grad_(True)
+    _ref_swiglu(gate_d, up_d).backward(dy_cpu.to(dtype).double())
+    torch.testing.assert_close(
+        out_gpu.detach().cpu().double(), _ref_swiglu(gate_d, up_d).detach(), atol=atol, rtol=rtol
+    )
+    torch.testing.assert_close(
+        gate_gpu.grad.detach().cpu().double(), gate_d.grad, atol=atol, rtol=rtol
+    )
+    torch.testing.assert_close(up_gpu.grad.detach().cpu().double(), up_d.grad, atol=atol, rtol=rtol)
+
 
 @dataclass(frozen=True)
 class _SwiGLUResult:
@@ -466,6 +481,48 @@ def _run_cuda_and_triton_swiglu(dtype, shape):
     return (
         _SwiGLUResult(out=y_cuda, grad_gate=gate_c.grad, grad_up=up_c.grad),
         _SwiGLUResult(out=y_triton, grad_gate=gate.grad, grad_up=up.grad),
+    )
+
+
+@dataclass(frozen=True)
+class _SiLUResult:
+    """One backend's SiLU forward output and input gradient, keyed by name."""
+
+    out: torch.Tensor
+    grad_x: torch.Tensor
+
+
+def _run_cuda_and_triton_silu(dtype, shape):
+    """Forward and backward on both GPU SiLU backends from identical tensors."""
+    x = _rand(shape, seed=46, dtype=dtype, device="cuda").requires_grad_(True)
+    dy = _rand(shape, seed=47, dtype=dtype, device="cuda")
+
+    x_c = x.detach().clone().requires_grad_(True)
+    y_cuda = SiLUCudaOp().forward(x_c)
+    y_cuda.backward(dy)
+
+    y_triton = TritonSiLUOp().forward(x)
+    y_triton.backward(dy)
+
+    return _SiLUResult(out=y_cuda, grad_x=x_c.grad), _SiLUResult(out=y_triton, grad_x=x.grad)
+
+
+def _assert_bitwise_identical(actual: torch.Tensor, expected: torch.Tensor, name: str) -> None:
+    """Byte-level equality, so +0 and -0 count as different.
+
+    ``(a != b)`` treats +0.0 and -0.0 as equal and NaN as unequal to itself.
+    Neither is what an acceptance check for identical bits wants, so compare the
+    raw encodings. Shapes and dtypes are checked first so a mismatch there reads
+    as such rather than as a byte count.
+    """
+    assert actual.shape == expected.shape, f"{name}: shape {actual.shape} vs {expected.shape}"
+    assert actual.dtype == expected.dtype, f"{name}: dtype {actual.dtype} vs {expected.dtype}"
+    a = actual.detach().contiguous().view(torch.uint8)
+    b = expected.detach().contiguous().view(torch.uint8)
+    differing_bytes = int((a != b).sum())
+    assert differing_bytes == 0, (
+        f"{name}: {differing_bytes} of {a.numel()} bytes differ, "
+        f"max |diff| {float((actual.detach().float() - expected.detach().float()).abs().max()):.3e}"
     )
 
 
@@ -512,15 +569,36 @@ def test_cuda_and_triton_swiglu_are_bitwise_equal(dtype, shape):
     few ULP on roughly 9% of elements. If this test starts failing, compare the
     exponential each side compiles to before looking anywhere else: dump the
     Triton PTX and check whether ``ex2.approx`` has come back.
+
+    Default build only. With ``KERNEL_ALIGN_USE_FAST_MATH=1`` the CUDA extension
+    is compiled with approximate math and 14 of 15 cases here fail; that is the
+    flag doing what it says, not a regression in either kernel.
     """
     cuda_result, triton_result = _run_cuda_and_triton_swiglu(dtype, shape)
     for spec in fields(_SwiGLUResult):
-        actual = getattr(cuda_result, spec.name)
-        expected = getattr(triton_result, spec.name)
-        differing = int((actual != expected).sum())
-        assert differing == 0, (
-            f"{spec.name}: {differing} of {actual.numel()} elements differ, "
-            f"max {float((actual - expected).abs().max()):.3e}"
+        _assert_bitwise_identical(
+            getattr(cuda_result, spec.name), getattr(triton_result, spec.name), spec.name
+        )
+
+
+@requires_cuda
+@_requires_both_gpu_backends
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16, torch.float16])
+@pytest.mark.parametrize("shape", _MUSE_SHAPES + [(2, 8, _INTERMEDIATE)])
+def test_cuda_and_triton_silu_are_bitwise_equal(dtype, shape):
+    """Same bar for SiLU, which the SwiGLU test does not reach.
+
+    Added after review found the SiLU backward differing from CUDA on about a
+    third of fp32 elements while every SwiGLU case passed. The cause was
+    association order: Triton evaluated ``(dy * s) * (...)`` where CUDA evaluates
+    ``dy * (s * (...))``. SwiGLU's ``d_gate`` already matched because its FP32
+    ``silu_grad`` buffer fixes that grouping, so the shared ``s * (1 + x(1 - s))``
+    term was never exercised on its own. Same fast-math caveat as above.
+    """
+    cuda_result, triton_result = _run_cuda_and_triton_silu(dtype, shape)
+    for spec in fields(_SiLUResult):
+        _assert_bitwise_identical(
+            getattr(cuda_result, spec.name), getattr(triton_result, spec.name), spec.name
         )
 
 
