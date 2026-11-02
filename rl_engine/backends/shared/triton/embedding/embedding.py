@@ -1,7 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""Deterministic Triton embedding with an atomic-free sorted-segment backward."""
+"""Deterministic Triton embedding with an atomic-free sorted-segment backward.
+
+An optional fp32 ``scale`` serves the Gemma scaled embedding; ``1.0`` leaves every result
+bitwise unchanged.
+"""
 
 from __future__ import annotations
 
@@ -26,6 +30,15 @@ def _validate_embedding_inputs(token_ids: torch.Tensor, weight: torch.Tensor) ->
         raise TypeError("embedding token_ids must use an integer dtype")
     if token_ids.device != weight.device:
         raise RuntimeError("embedding token_ids and weight must be on the same device")
+
+
+def _require_accelerator_tensors(token_ids: torch.Tensor, weight: torch.Tensor, op: str) -> None:
+    supported_devices = ("cuda", "hip", "xpu", "musa")
+    if (
+        token_ids.device.type not in supported_devices
+        or weight.device.type not in supported_devices
+    ):
+        raise RuntimeError(f"{op} requires accelerator tensors (CUDA / ROCm / XPU / MUSA)")
 
 
 def _assert_valid_token_ids_async(ids: torch.Tensor, vocab_size: int) -> None:
@@ -85,6 +98,7 @@ def _embedding_grad_weight(
     *,
     weight_shape: tuple[int, int],
     weight_dtype: torch.dtype,
+    scale: float = 1.0,
 ) -> torch.Tensor:
     """Reduce rows in their supplied order after stable grouping by token id."""
 
@@ -110,9 +124,13 @@ def _embedding_grad_weight(
         grad_weight,
         ids.numel(),
         vocab,
+        scale,
         hidden=hidden,
         block_h=_BACKWARD_BLOCK_H,
         num_warps=4,
+        # No FMA: the multiply and the add round separately, so fp32 matches
+        # ``rows * scale`` in PyTorch followed by this reducer with scale 1.0.
+        enable_fp_fusion=False,
     )
     return grad_weight
 
@@ -124,6 +142,7 @@ def _embedding_fwd(
     out,
     n_tokens,
     vocab_size,
+    scale,
     hidden: tl.constexpr,
     block_h: tl.constexpr,
 ):
@@ -136,7 +155,10 @@ def _embedding_fwd(
         mask=valid_token & (offs < hidden),
         other=0.0,
     )
-    tl.store(out + row * hidden + offs, values, mask=offs < hidden)
+    # The fp32 product is exact for bf16/fp16 rows, so the cast back is the only
+    # rounding, the same single rounding PyTorch applies to ``bf16 * bf16``.
+    scaled = values.to(tl.float32) * scale
+    tl.store(out + row * hidden + offs, scaled.to(out.dtype.element_ty), mask=offs < hidden)
 
 
 @triton.jit
@@ -146,6 +168,7 @@ def _embedding_bwd(
     grad_weight,
     n_tokens,
     vocab_size,
+    scale,
     hidden: tl.constexpr,
     block_h: tl.constexpr,
 ):
@@ -172,7 +195,7 @@ def _embedding_bwd(
             mask=continuing & (columns < hidden),
             other=0.0,
         ).to(tl.float32)
-        accumulator += values
+        accumulator += values * scale
         row += 1
 
     tl.store(
@@ -184,7 +207,13 @@ def _embedding_bwd(
 
 class _TritonEmbeddingFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, token_ids: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
+    def forward(
+        ctx,
+        token_ids: torch.Tensor,
+        weight: torch.Tensor,
+        scale: float = 1.0,
+        kind: str = "embedding",
+    ) -> torch.Tensor:
         _validate_embedding_inputs(token_ids, weight)
         ids = token_ids.reshape(-1).to(dtype=torch.int64).contiguous()
         vocab, hidden = weight.shape
@@ -197,10 +226,13 @@ class _TritonEmbeddingFunction(torch.autograd.Function):
                 out,
                 ids.numel(),
                 vocab,
+                scale,
                 hidden=hidden,
                 block_h=triton.next_power_of_2(hidden),
             )
         ctx.save_for_backward(ids)
+        ctx.scale = scale
+        ctx.kind = kind
         ctx.weight_shape = tuple(weight.shape)
         ctx.weight_dtype = weight.dtype
         ctx.output_shape = tuple(token_ids.shape) + (hidden,)
@@ -218,14 +250,15 @@ class _TritonEmbeddingFunction(torch.autograd.Function):
                 grad_rows,
                 weight_shape=(vocab, hidden),
                 weight_dtype=ctx.weight_dtype,
+                scale=ctx.scale,
             )
         record_backward(
-            "embedding",
+            ctx.kind,
             kernel_id="rl_engine.backends.shared.triton.embedding.embedding._embedding_bwd",
             impl="triton_sorted_segment_bwd",
             family="triton",
         )
-        return None, grad_weight
+        return None, grad_weight, None, None
 
 
 class TritonEmbeddingOp:
@@ -238,14 +271,7 @@ class TritonEmbeddingOp:
         return self.forward(token_ids, weight)
 
     def forward(self, token_ids: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
-        supported_devices = ("cuda", "hip", "xpu", "musa")
-        if (
-            token_ids.device.type not in supported_devices
-            or weight.device.type not in supported_devices
-        ):
-            raise RuntimeError(
-                "TritonEmbeddingOp requires accelerator tensors " "(CUDA / ROCm / XPU / MUSA)"
-            )
+        _require_accelerator_tensors(token_ids, weight, "TritonEmbeddingOp")
         return _TritonEmbeddingFunction.apply(token_ids, weight)
 
     @staticmethod

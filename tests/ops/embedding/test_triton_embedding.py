@@ -26,6 +26,7 @@ class _FakeForwardKernel:
             out: torch.Tensor,
             n_tokens: int,
             vocab_size: int,
+            scale: float,
             *,
             hidden: int,
             block_h: int,
@@ -33,7 +34,7 @@ class _FakeForwardKernel:
             del vocab_size, block_h
             assert n_tokens == ids.numel()
             assert hidden == weight.size(1)
-            out.copy_(weight.index_select(0, ids))
+            out.copy_((weight.index_select(0, ids).float() * scale).to(out.dtype))
 
         return launch
 
@@ -51,12 +52,14 @@ class _FakeBackwardKernel:
             grad_weight: torch.Tensor,
             n_tokens: int,
             vocab_size: int,
+            scale: float,
             *,
             hidden: int,
             block_h: int,
             num_warps: int,
+            enable_fp_fusion: bool,
         ) -> None:
-            del block_h, num_warps
+            del block_h, num_warps, enable_fp_fusion
             assert n_tokens == sorted_ids.numel()
             assert hidden == sorted_grad_rows.size(1)
             for position in range(n_tokens):
@@ -68,7 +71,7 @@ class _FakeBackwardKernel:
                 accumulator = torch.zeros(hidden, dtype=torch.float32)
                 row = position
                 while row < n_tokens and int(sorted_ids[row]) == token:
-                    accumulator = accumulator + sorted_grad_rows[row].float()
+                    accumulator = accumulator + sorted_grad_rows[row].float() * scale
                     row += 1
                 grad_weight[token].copy_(accumulator.to(grad_weight.dtype))
 

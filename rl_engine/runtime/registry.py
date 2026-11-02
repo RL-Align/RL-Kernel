@@ -203,6 +203,13 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     # WS1 pure-PyTorch ground-truth embedding ops
     TRITON_EMBEDDING = "rl_engine.kernels.ops.triton.linear.embedding.TritonEmbeddingOp"
     PYTORCH_NATIVE_EMBEDDING = "rl_engine.kernels.ops.pytorch.linear.embedding.NativeEmbeddingOp"
+    # Gemma embedding lookup scaled by sqrt(hidden) rounded to the weight dtype (#415)
+    TRITON_SCALED_TOKEN_EMBEDDING = (
+        "rl_engine.kernels.ops.triton.linear.scaled_embedding.TritonScaledTokenEmbeddingOp"
+    )
+    PYTORCH_NATIVE_SCALED_TOKEN_EMBEDDING = (
+        "rl_engine.kernels.ops.pytorch.linear.scaled_embedding.NativeScaledTokenEmbeddingOp"
+    )
     CUDA_SM90_LM_HEAD = "rl_engine.kernels.ops.cuda.linear.lm_head.SM90LMHeadOp"
     CUDA_SM90_EMBEDDING = "rl_engine.kernels.ops.cuda.linear.embedding.SM90EmbeddingOp"
 
@@ -598,6 +605,10 @@ class KernelRegistry:
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
+                "scaled_token_embedding": [
+                    OpBackend.TRITON_SCALED_TOKEN_EMBEDDING,
+                    OpBackend.PYTORCH_NATIVE_SCALED_TOKEN_EMBEDDING,
+                ],
                 "silu": [
                     OpBackend.CUDA_SILU,
                     OpBackend.TRITON_SILU,
@@ -657,6 +668,10 @@ class KernelRegistry:
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
+                "scaled_token_embedding": [
+                    OpBackend.TRITON_SCALED_TOKEN_EMBEDDING,
+                    OpBackend.PYTORCH_NATIVE_SCALED_TOKEN_EMBEDDING,
+                ],
                 "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
                 "final_logit_softcap": [
@@ -709,6 +724,7 @@ class KernelRegistry:
                     OpBackend.TRITON_EMBEDDING,
                     OpBackend.PYTORCH_NATIVE_EMBEDDING,
                 ],
+                "scaled_token_embedding": [OpBackend.PYTORCH_NATIVE_SCALED_TOKEN_EMBEDDING],
                 "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
                 "final_logit_softcap": [OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP],
@@ -735,6 +751,7 @@ class KernelRegistry:
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
+                "scaled_token_embedding": [OpBackend.PYTORCH_NATIVE_SCALED_TOKEN_EMBEDDING],
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
                 "final_logit_softcap": [OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP],
