@@ -10,6 +10,11 @@ placement version before constructing the receipt. This entry point requires
 P3 #565, which is not in `main` yet. It never reruns the router during
 backward. Recompute may supply a second receipt, which must have the same
 fingerprint; changed route weights/artifact identity are rejected.
+`from_p4_forward` can also freeze the **returned** P4 #643 EP send plan,
+but only when `EpExchange(strict=True)` verified the forward echo. It checks
+the source/rank mapping, run tag and expert placement without rerunning Top-K.
+An optional P3 sealed receipt must match every route slot and version; if
+supplied, its stronger forward artifact fingerprint is retained.
 
 `ExpertBackwardRoundTrip` exchanges receipt metadata over the EP process group,
 then sends `dy` along the saved slots via PyTorch's existing
@@ -35,8 +40,8 @@ CPU/Gloo is an explicit test reference.
   reverse dX mapping, FP32 route-weight gradient, stale run/fingerprint,
   recomputation drift, and replay rejection.
 - One-rank MI300X RCCL: BF16 dy/dX data path and FP32 `dp_s`.
-- The forward dispatch owner (KLR #81 items 35-38) and a real DSV4 expert
-  autograd caller have **not** been wired. The route receipt is currently a
-  boundary interface. Multi-GPU ROCm and two-node execution remain untested
+- The P4 #643 forward route has an opt-in receipt adapter, tested in a
+  temporary merged tree. A real DSV4 expert autograd caller remains unwired;
+  this is still a boundary interface. Multi-GPU ROCm and two-node execution remain untested
   because the `ljj` container exposes a single GPU. No Graph or overlap
   guarantee is made. This is not item-39 full signoff.

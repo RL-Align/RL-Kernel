@@ -194,6 +194,77 @@ class SavedForwardRoute:
             placement_version,
         )
 
+    @classmethod
+    def from_p4_forward(cls, route, *, global_ranks, hidden_size, p3_receipt=None):
+        """Freeze the strict P4 forward exchange's returned send plan for backward."""
+        try:
+            from rl_engine.distributed.ep import EpRoute
+        except ImportError as exc:
+            raise ExpertBackwardError("P4 EP forward provider is not installed") from exc
+        _require(isinstance(route, EpRoute), "P4 forward route required")
+        _require(route.owner.strict and route.returned, "strict returned P4 forward required")
+        send = route.send
+        placement = route.owner.placement
+        ranks = tuple(global_ranks)
+        _require(
+            len(ranks) == send.num_ranks == placement.num_ranks == route.owner.transport.size
+            and send.source_rank == route.owner.transport.rank
+            and send.run_tag == route.recv.run_tag
+            and send.run_tag == send.identity.run_tag(placement, send.top_k),
+            "P4 route identity or rank mapping mismatch",
+        )
+        slots = tuple(
+            ForwardSlot(token, slot, expert, ranks[destination])
+            for token, slot, expert, destination in send.saved_route_slots()
+        )
+        owners = placement.expert_owner.tolist()
+        _require(
+            all(
+                0 <= slot.expert < len(owners)
+                and ranks[owners[slot.expert]] == slot.destination_rank
+                for slot in slots
+            ),
+            "P4 expert placement differs from returned route",
+        )
+        receipt = cls(
+            send.identity.run_id,
+            send.identity.model_version,
+            ranks,
+            send.num_tokens,
+            hidden_size,
+            send.top_k,
+            slots,
+            f"p4:{send.run_tag}:{placement.fingerprint}",
+            send.identity.placement_version,
+        )
+        if p3_receipt is not None:
+            _require(
+                isinstance(p3_receipt, cls)
+                and (
+                    receipt.run_id,
+                    receipt.model_version,
+                    receipt.global_ranks,
+                    receipt.local_tokens,
+                    receipt.hidden_size,
+                    receipt.topk_width,
+                    receipt.slots,
+                    receipt.placement_version,
+                )
+                == (
+                    p3_receipt.run_id,
+                    p3_receipt.model_version,
+                    p3_receipt.global_ranks,
+                    p3_receipt.local_tokens,
+                    p3_receipt.hidden_size,
+                    p3_receipt.topk_width,
+                    p3_receipt.slots,
+                    p3_receipt.placement_version,
+                ),
+                "P3 sealed route differs from P4 returned forward route",
+            )
+            return p3_receipt
+        return receipt
+
     @property
     def fingerprint(self):
         payload = (

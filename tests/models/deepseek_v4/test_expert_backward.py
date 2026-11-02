@@ -103,6 +103,48 @@ def test_real_p3_sealed_route_adapter():
         SavedForwardRoute.from_p3_forward(changed, sealed, ctx, **kwargs)
 
 
+def test_strict_p4_returned_route_adapter():
+    pytest.importorskip("rl_engine.distributed.ep")
+    from rl_engine.distributed.ep import EpExchange, EpIdentity, EpPlacement
+    from tests.distributed.ep.test_ep_exchange import run_ranks
+
+    placement = EpPlacement.from_owners([expert // 128 for expert in range(256)], 2)
+    identity = EpIdentity("run-7", "v1", "placement-v1")
+
+    def body(rank, transport):
+        exchange = EpExchange(None, placement, strict=True, transport=transport)
+        ids = torch.tensor(
+            [[0, 1, 2, 128, 129, 130]] if rank == 0 else [[128, 129, 130, 0, 1, 2]],
+            dtype=torch.int64,
+        )
+        route = exchange.build_route(ids, identity)
+        with pytest.raises(ExpertBackwardError, match="strict returned"):
+            SavedForwardRoute.from_p4_forward(route, global_ranks=(0, 1), hidden_size=8)
+        rows = exchange.dispatch_tokens(route, torch.ones((1, 8), dtype=torch.bfloat16))
+        exchange.return_outputs(route, rows)
+        receipt = SavedForwardRoute.from_p4_forward(route, global_ranks=(0, 1), hidden_size=8)
+        sealed = replace(receipt, forward_artifact_fingerprint="sealed-p3")
+        assert (
+            SavedForwardRoute.from_p4_forward(
+                route, global_ranks=(0, 1), hidden_size=8, p3_receipt=sealed
+            )
+            is sealed
+        )
+        with pytest.raises(ExpertBackwardError, match="P3 sealed route differs"):
+            SavedForwardRoute.from_p4_forward(
+                route,
+                global_ranks=(0, 1),
+                hidden_size=8,
+                p3_receipt=replace(sealed, model_version="stale"),
+            )
+        return receipt
+
+    receipts = run_ranks(2, body)
+    assert all(isinstance(receipt, SavedForwardRoute) for receipt in receipts), receipts
+    assert all(len(receipt.slots) == 6 for receipt in receipts)
+    assert all(receipt.topk_width == 6 for receipt in receipts)
+
+
 def _worker(rank, rendezvous, scenario):
     dist.init_process_group("gloo", init_method=f"file://{rendezvous}", rank=rank, world_size=2)
     try:
