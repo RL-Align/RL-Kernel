@@ -74,16 +74,23 @@ class Dsv4ParallelCollectives:
             raise
         cls = RCCLDeterministicCollective if rocm else TorchDistributedDeterministicCollective
         self._collectives = {}
-        try:
-            for dimension in ("tp", "sp", "dp"):
+        for dimension in ("tp", "sp", "dp"):
+            local_error = None
+            try:
                 self._collectives[dimension] = cls(
                     group=groups[dimension],
                     device=self.device,
                     max_size_bytes=contract.max_size_bytes,
                 )
-        except Exception:
-            self.close()
-            raise
+            except Exception as exc:
+                local_error = exc
+            try:
+                self._agree(("transport", dimension, contract.fingerprint), local_error is None)
+            except Exception as agreement_error:
+                self.close()
+                if local_error is not None:
+                    raise local_error from agreement_error
+                raise
         self._active = False
         self._poisoned = False
         self._closed = False

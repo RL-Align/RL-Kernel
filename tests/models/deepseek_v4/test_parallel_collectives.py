@@ -3,6 +3,7 @@
 
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import torch
@@ -15,6 +16,7 @@ from rl_engine.contracts.operators.dsv4_collectives import (
     Dsv4CollectiveError,
 )
 from rl_engine.models.deepseek_v4.parallel_collectives import Dsv4ParallelCollectives
+from rl_engine.distributed.transports.rccl import RCCLDeterministicCollective
 
 
 def _contract():
@@ -73,6 +75,76 @@ def _rank_worker(rank, rendezvous, scenario):
                 group = dist.new_group(ranks=list(ranks), backend="gloo")
                 if rank in ranks:
                     groups[dimension] = group
+        if scenario == "ipc_metadata_failure":
+            import rl_engine
+
+            class FakeNative:
+                def __getattr__(self, name):
+                    if name == "deterministic_collective_rocm_ipc_allocate":
+
+                        def allocate(_size):
+                            if rank == 0:
+                                raise RuntimeError("injected IPC allocation failure")
+                            return torch.empty(1)
+
+                        return allocate
+                    if name == "deterministic_collective_rocm_ipc_meta":
+                        return lambda _staging: ([0], 0)
+                    return lambda *args: 0
+
+            transport = RCCLDeterministicCollective.__new__(RCCLDeterministicCollective)
+            transport.world_size = 4
+            transport.rank = rank
+            transport.group = dist.group.WORLD
+            transport.max_size_bytes = 1024
+            with patch.object(rl_engine, "_C", FakeNative(), create=True):
+                with pytest.raises(RuntimeError, match="IPC metadata"):
+                    transport._initialize_ipc_transport()
+            return
+        if scenario == "transport_failure":
+            import rl_engine.models.deepseek_v4.parallel_collectives as module
+
+            class FailingTransport(module.TorchDistributedDeterministicCollective):
+                def __init__(self, *args, **kwargs):
+                    super().__init__(*args, **kwargs)
+                    if rank == 0:
+                        raise RuntimeError("injected transport failure")
+
+            with patch.object(module, "TorchDistributedDeterministicCollective", FailingTransport):
+                error_type = RuntimeError if rank == 0 else Dsv4CollectiveError
+                with pytest.raises(error_type, match="injected transport|invalid DSV4"):
+                    Dsv4ParallelCollectives(
+                        plan,
+                        world_group=dist.group.WORLD,
+                        groups=groups,
+                        allow_cpu_reference=True,
+                    )
+            return
+        if scenario == "transport_preflight":
+            import rl_engine.models.deepseek_v4.parallel_collectives as module
+
+            original = module.TorchDistributedDeterministicCollective._normalize_device
+
+            def normalize(device):
+                if rank == 0:
+                    raise RuntimeError("injected device validation failure")
+                return original(device)
+
+            with patch.object(
+                module.TorchDistributedDeterministicCollective,
+                "_normalize_device",
+                staticmethod(normalize),
+            ):
+                with pytest.raises((RuntimeError, ValueError, Dsv4CollectiveError)) as error:
+                    Dsv4ParallelCollectives(
+                        plan,
+                        world_group=dist.group.WORLD,
+                        groups=groups,
+                        allow_cpu_reference=True,
+                    )
+            if rank == 0:
+                assert "injected device validation failure" in str(error.value)
+            return
         if scenario == "construct_partition" and rank == 0:
             groups["tp"] = groups["dp"]
         if scenario == "construct_partition":
@@ -161,6 +233,9 @@ def _rank_worker(rank, rendezvous, scenario):
         "begin_active",
         "execute_inactive",
         "construct_partition",
+        "transport_failure",
+        "transport_preflight",
+        "ipc_metadata_failure",
     ],
 )
 def test_four_rank_gloo_plan(tmp_path: Path, scenario: str):
