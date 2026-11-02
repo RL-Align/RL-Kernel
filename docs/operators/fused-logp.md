@@ -71,8 +71,8 @@ fused-backward build or runtime validation is claimed.
 ## Backward evidence (generic CUDA op)
 
 [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr495/docs/usage/evidence/fused-logp-backward-b200/report.json) was written by
-`benchmarks/fused_logp_backward_evidence.py --flash-attn-src <flash-attention checkout>` from a
-clean tree at `f6d3a24`, on an otherwise idle B200 (torch 2.13.0+cu130, triton 3.7.1,
+`benchmarks/fused_logp_backward_evidence.py --flash-attn-src <flash-attention checkout>` (now
+`benchmarks/operators/logprob/fused_logp_backward_evidence.py`) from a clean tree at `f6d3a24`, on an otherwise idle B200 (torch 2.13.0+cu130, triton 3.7.1,
 liger-kernel 0.8.4, fla-core 0.5.2, flash-attention `94e22c9`). V = 151936, BF16 logits.
 These historical timing and memory measurements predate the device/indexing fixes.
 The accuracy comparison in that report used different effective upstream gradients for

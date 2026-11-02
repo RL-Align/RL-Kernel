@@ -26,13 +26,13 @@ batch-invariant:
 
 Writes one JSON report:
 
-    python benchmarks/fused_logp_backward_evidence.py --out report.json \
+    python benchmarks/operators/logprob/fused_logp_backward_evidence.py --out report.json \
         [--flash-attn-src /path/to/flash-attention]
-    python benchmarks/plot_fused_logp_backward_evidence.py report.json
+    python benchmarks/operators/logprob/plot_fused_logp_backward_evidence.py report.json
 
 For a correctness-only rerun on a shared GPU, omit timing and memory measurements:
 
-    python benchmarks/fused_logp_backward_evidence.py --out correctness.json \\
+    python benchmarks/operators/logprob/fused_logp_backward_evidence.py --out correctness.json \\
         --checks accuracy row-invariance batch-size-sweep train-rollout-invariance
 """
 
@@ -54,7 +54,7 @@ from typing import Any, Callable
 
 import torch
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 
 import rl_engine.backends.cuda.logprob.logp as logp_mod  # noqa: E402

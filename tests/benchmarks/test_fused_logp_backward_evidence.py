@@ -6,7 +6,7 @@
 import pytest
 import torch
 
-from benchmarks import fused_logp_backward_evidence as evidence
+from benchmarks.operators.logprob import fused_logp_backward_evidence as evidence
 
 pytestmark = pytest.mark.unit
 

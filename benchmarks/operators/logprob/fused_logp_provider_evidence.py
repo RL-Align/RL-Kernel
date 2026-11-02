@@ -9,8 +9,10 @@ needed: the real vLLM Sampler.forward samples from frozen caller-provided logits
 The return-frame observer reads actual provider LSE tensors without replacing any
 provider, registry, collective, or numerical kernel. No performance is measured.
 
-    python benchmarks/fused_logp_provider_evidence.py --out /tmp/providers-tp1.json
-    torchrun --standalone --nproc-per-node=2 benchmarks/fused_logp_provider_evidence.py \
+    python benchmarks/operators/logprob/fused_logp_provider_evidence.py \
+        --out /tmp/providers-tp1.json
+    torchrun --standalone --nproc-per-node=2 \
+        benchmarks/operators/logprob/fused_logp_provider_evidence.py \
         --out /tmp/providers-tp2.json --flash-attn-src /path/to/flash-attention
 """
 
@@ -35,7 +37,7 @@ from typing import Any, Callable
 import torch
 import torch.distributed as dist
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 
 from rl_engine.contracts.operators.logprob import (  # noqa: E402

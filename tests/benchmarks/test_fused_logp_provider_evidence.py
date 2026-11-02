@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from benchmarks import fused_logp_provider_evidence as evidence
+from benchmarks.operators.logprob import fused_logp_provider_evidence as evidence
 
 
 @pytest.mark.unit
@@ -19,7 +19,7 @@ def test_importing_the_module_leaves_the_vllm_sampler_environment_alone():
     """Importing the module in a clean process does not set ``VLLM_USE_FLASHINFER_SAMPLER``."""
     env = {k: v for k, v in os.environ.items() if k != "VLLM_USE_FLASHINFER_SAMPLER"}
     code = (
-        "import os; import benchmarks.fused_logp_provider_evidence; "
+        "import os; import benchmarks.operators.logprob.fused_logp_provider_evidence; "
         "print(repr(os.environ.get('VLLM_USE_FLASHINFER_SAMPLER')))"
     )
     result = subprocess.run(

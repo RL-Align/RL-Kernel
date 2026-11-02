@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""Plot a report from benchmarks/fused_logp_backward_evidence.py (writes figure.png beside it).
+"""Plot a report from ``fused_logp_backward_evidence.py`` (writes figure.png beside it).
 
-    python benchmarks/plot_fused_logp_backward_evidence.py report.json
+    python benchmarks/operators/logprob/plot_fused_logp_backward_evidence.py report.json
 """
 
 from __future__ import annotations
