@@ -116,6 +116,20 @@ class TestGeometryGateValues:
         validate_embedding_geometry(ids, _cpu(128, 64), spec=_SMALL_SPEC)
         validate_embedding_geometry(ids[:0], _cpu(128, 64), spec=_SMALL_SPEC)
 
+class TestGeometryGateDevices:
+    def test_rejects_target_ids_on_another_device(self):
+        hidden, weight = _meta(4, HIDDEN), _meta(VOCAB, HIDDEN)
+        with pytest.raises(NemotronHGeometryError, match="target_ids and hidden devices differ"):
+            validate_lm_head_logprob_geometry(hidden, weight, torch.zeros(4, dtype=torch.long))
+
+    @pytest.mark.parametrize("numel", [1, 4])
+    def test_rejects_temperature_on_another_device(self, numel):
+        hidden, weight, target = _meta(4, HIDDEN), _meta(VOCAB, HIDDEN), _meta(4, dtype=torch.long)
+        with pytest.raises(NemotronHGeometryError, match="temperature and hidden devices differ"):
+            validate_lm_head_logprob_geometry(
+                hidden, weight, target, temperature=torch.ones(numel, dtype=torch.float32)
+            )
+
 def _temperature(rows: int) -> torch.Tensor:
     return torch.linspace(0.6, 1.4, rows, device="cuda", dtype=torch.float32)
 

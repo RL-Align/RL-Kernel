@@ -127,6 +127,7 @@ def validate_lm_head_logprob_geometry(
     )
     _require(hidden.device == lm_head_weight.device, "hidden and lm_head_weight devices differ")
     _require_ids(target_ids, "target_ids")
+    _require(target_ids.device == hidden.device, "target_ids and hidden devices differ")
     _require(
         target_ids.numel() == hidden.numel() // spec.hidden_size,
         "target_ids must have one id per hidden row",
@@ -143,6 +144,7 @@ def validate_lm_head_logprob_geometry(
         )
     if temperature is not None:
         _require(temperature.dtype == torch.float32, "temperature must be float32")
+        _require(temperature.device == hidden.device, "temperature and hidden devices differ")
         _require(
             temperature.numel() in (1, target_ids.numel()),
             "temperature must be scalar or one value per token",
