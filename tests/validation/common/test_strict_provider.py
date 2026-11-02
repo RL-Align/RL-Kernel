@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 import json
+from copy import deepcopy
 
 import pytest
 
@@ -20,7 +20,6 @@ from rl_engine.validation.common.strict_provider import (
     build_expectation,
     validate_run,
 )
-
 from tests.helpers.strict_provider import Bundle
 
 

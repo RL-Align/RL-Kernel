@@ -653,14 +653,15 @@ def test_plan_cpu_label_cannot_override_gpu_completion_requirement(setup_session
     )
     session.bind("test_operator", "rollout", observation(gpu_lock))
     launches = []
-    completion = None
-    if completion_kind is not None:
 
-        def completion(output):
-            return CompletionReceipt(True, kind=completion_kind)
+    def completion(output):
+        return CompletionReceipt(True, kind=completion_kind)
 
+    completion_callback = completion if completion_kind is not None else None
     with pytest.raises(StrictProviderError) as error:
-        session.execute(fake_call(overridden_plan, launches, completion=completion), context())
+        session.execute(
+            fake_call(overridden_plan, launches, completion=completion_callback), context()
+        )
     assert error.value.code == "unobservable_completion"
     assert len(launches) == (0 if completion_kind is None else 1)
     with pytest.raises(StrictProviderError):

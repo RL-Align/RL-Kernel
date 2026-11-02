@@ -9,8 +9,8 @@ are produced only by reading actual loaded content through an adapter callback.
 from __future__ import annotations
 
 import hashlib
-import importlib.metadata
 import importlib.machinery
+import importlib.metadata
 import os
 import platform
 import sys

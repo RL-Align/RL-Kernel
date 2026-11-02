@@ -12,17 +12,17 @@ Evidence checks rely on trusted adapters; they do not establish GPU qualificatio
 
 from __future__ import annotations
 
-from collections import Counter
-from collections.abc import Mapping, Sequence
 import hashlib
 import json
-from pathlib import Path
 import re
+from collections import Counter
+from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 from rl_engine.contracts.strict_provider import (
-    CaseSpec,
     CallContext,
+    CaseSpec,
     KernelPlan,
     ProviderLock,
     ScopeSpec,
