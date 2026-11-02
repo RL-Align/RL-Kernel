@@ -290,3 +290,53 @@ def test_rocm_one_rank_strict_p4_forward_to_backward(tmp_path: Path):
         torch.testing.assert_close(dx, dy * 12)
     finally:
         dist.destroy_process_group()
+
+
+def _rocm_two_rank_p4_worker(rank: int, rendezvous: str):
+    from rl_engine.distributed.ep import EpExchange, EpIdentity, EpPlacement
+
+    torch.cuda.set_device(rank)
+    dist.init_process_group("nccl", init_method=f"file://{rendezvous}", rank=rank, world_size=2)
+    try:
+        placement = EpPlacement.from_owners([expert // 128 for expert in range(256)], 2)
+        exchange = EpExchange(dist.group.WORLD, placement, strict=True)
+        ids = (
+            torch.tensor([[0, 1, 2, 128, 129, 130]], device="cuda")
+            if rank == 0
+            else torch.empty((0, 6), dtype=torch.int64, device="cuda")
+        )
+        x = torch.ones((ids.shape[0], 8), device="cuda", dtype=torch.bfloat16)
+        route = exchange.build_route(ids, EpIdentity("run", "v1", "place-v1"))
+        received = exchange.dispatch_tokens(route, x)
+        exchange.return_outputs(route, received)
+        receipt = SavedForwardRoute.from_p4_forward(route, global_ranks=(0, 1), hidden_size=8)
+        runtime = ExpertBackwardRoundTrip(receipt, group=dist.group.WORLD)
+        expert_dy = runtime.dispatch_dy(
+            x, run_id="run", model_version="v1", forward_fingerprint=receipt.fingerprint
+        )
+        torch.testing.assert_close(expert_dy, torch.ones((3, 8), device="cuda", dtype=x.dtype))
+        dx = runtime.return_dx(
+            expert_dy * 2,
+            run_id="run",
+            model_version="v1",
+            forward_fingerprint=receipt.fingerprint,
+        )
+        torch.testing.assert_close(dx, x * 12)
+    finally:
+        dist.destroy_process_group()
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available() or not torch.version.hip or torch.cuda.device_count() < 2,
+    reason="two ROCm GPUs required",
+)
+def test_rocm_two_rank_strict_p4_forward_to_backward(tmp_path: Path):
+    pytest.importorskip("rl_engine.distributed.ep")
+    if dist.is_initialized():
+        pytest.skip("isolated process group required")
+    mp.spawn(
+        _rocm_two_rank_p4_worker,
+        args=(str(tmp_path / "p4-rocm-two-rank-init"),),
+        nprocs=2,
+        join=True,
+    )
