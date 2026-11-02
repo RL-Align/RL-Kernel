@@ -71,13 +71,17 @@ def main():
             plan.forward_record, q, kv, sink, metadata=meta, version="bench", mode="decode"
         )
         forward()
-        plan.capture()
         timing = {
             "eager_core": measure(plan._launch, args.repeats),
-            "captured_core": measure(plan._graph.replay, args.repeats),
             "eager_forward_record": measure(forward, args.repeats),
-            "graph_forward_record": measure(partial(forward, use_graph=True), args.repeats),
         }
+        plan.capture()
+        timing.update(
+            {
+                "captured_core": measure(plan._graph.replay, args.repeats),
+                "graph_forward_record": measure(partial(forward, use_graph=True), args.repeats),
+            }
+        )
         records.append(
             dict(
                 m=m,

@@ -62,7 +62,8 @@ percentage is historical.
 
 ## Timings
 
-November 3: 30 repetitions after warmup. HIP events and synchronized wall
+November 3: 30 repetitions after warmup. Eager measurements precede Graph
+capture; captured measurements follow it. HIP events and synchronized wall
 time are reported from the same pass. These are provider-call measurements,
 not isolated instruction timing; host/launch gaps can appear inside event
 intervals. The eager and captured core measurements now do equal work,
@@ -73,10 +74,10 @@ timings include finite admission checks, copies, event ownership and clones.
 
 | M | H | D | Selected | Eager core event µs | Captured core event µs | Checked eager wall µs | Checked Graph wall µs |
 |---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | 8 | 128 | 6 | 63.65 | 19.26 | 487.96 | 449.21 |
-| 32 | 64 | 512 | 6 | 68.87 | 33.16 | 502.51 | 412.79 |
-| 128 | 64 | 512 | 6 | 61.55 | 47.47 | 497.30 | 406.43 |
-| 1 | 128 | 512 | 640 | 95.27 | 99.79 | 491.20 | 401.34 |
+| 1 | 8 | 128 | 6 | 64.34 | 19.61 | 476.19 | 389.74 |
+| 32 | 64 | 512 | 6 | 63.36 | 32.56 | 533.71 | 442.26 |
+| 128 | 64 | 512 | 6 | 62.76 | 46.09 | 499.85 | 458.21 |
+| 1 | 128 | 512 | 640 | 95.93 | 99.23 | 591.24 | 473.84 |
 
 No baseline-engine speedup is claimed. Python/admission/snapshot costs
 dominate the checked API; the measurements deliberately keep those costs
