@@ -38,16 +38,20 @@ def main():
         (65, 13, 128, 2, 4),
         (1, 128, 512, 512, 128),
     ):
-        start = max(64, topk * 4 - 1)
-        qkeys = [[0, p] for p in range(start, start + m)]
-        kvkeys = [[0, 0, i * 4 + 3] for i in range(topk)]
-        kvkeys.extend([0, 1, p] for p in range(start - window + 1, start + m))
+        pos = max(64, topk * 4 - 1)
+        qkeys = [[request, pos] for request in range(m)]
+        kvkeys, selected = [], []
+        for request in range(m):
+            offset = len(kvkeys)
+            kvkeys.extend((request, 0, i * 4 + 3) for i in range(topk))
+            kvkeys.extend((request, 1, p) for p in range(pos - window + 1, pos + 1))
+            selected.append(list(range(offset, offset + topk)))
         c = JointAttentionContract(h, d, m, len(kvkeys), topk, window)
         meta = JointMetadata.bind(
             c,
             torch.tensor(qkeys, device="cuda"),
             torch.tensor(kvkeys, device="cuda"),
-            torch.arange(topk, dtype=torch.int32, device="cuda")[None].repeat(m, 1),
+            torch.tensor(selected, dtype=torch.int32, device="cuda"),
             version="bench",
         )
         q = torch.randn(m, h, d, device="cuda").bfloat16().requires_grad_()

@@ -1,0 +1,141 @@
+{
+  "records": [
+    {
+      "m": 7,
+      "h": 13,
+      "d": 128,
+      "selected": 6,
+      "native_workspace": 92252,
+      "timings": {
+        "native_pipeline": {
+          "event_us": 260.964298248291,
+          "wall_us": 306.5937489736825
+        },
+        "graph_core": {
+          "event_us": 69.09735202789307,
+          "wall_us": 70.21469937171787
+        },
+        "checked_eager_vjp": {
+          "event_us": 706.4348220825195,
+          "wall_us": 676.0891003068537
+        },
+        "checked_graph_vjp": {
+          "event_us": 194.34255361557007,
+          "wall_us": 191.48224964737892
+        },
+        "canonical_forward_backward": {
+          "event_us": 3444.921112060547,
+          "wall_us": 3363.1415019044653
+        }
+      },
+      "backward_implementation": "ac62fc217949aa06b8d59875606b531641c8a9054ef19d1e4345c806b552c9fe"
+    },
+    {
+      "m": 7,
+      "h": 64,
+      "d": 512,
+      "selected": 6,
+      "native_workspace": 1102592,
+      "timings": {
+        "native_pipeline": {
+          "event_us": 262.48180866241455,
+          "wall_us": 261.27470191568136
+        },
+        "graph_core": {
+          "event_us": 85.5568528175354,
+          "wall_us": 86.61354950163513
+        },
+        "checked_eager_vjp": {
+          "event_us": 501.62243843078613,
+          "wall_us": 492.9241520585492
+        },
+        "checked_graph_vjp": {
+          "event_us": 172.3986029624939,
+          "wall_us": 171.0245996946469
+        },
+        "canonical_forward_backward": {
+          "event_us": 3388.4159088134766,
+          "wall_us": 3336.4721486577764
+        }
+      },
+      "backward_implementation": "068e17918ad98d0839efcb28b3ffaec2aa314ec1306b52d34afb0a985442c2c7"
+    },
+    {
+      "m": 65,
+      "h": 13,
+      "d": 128,
+      "selected": 6,
+      "native_workspace": 855764,
+      "timings": {
+        "native_pipeline": {
+          "event_us": 260.3348970413208,
+          "wall_us": 259.94589959736913
+        },
+        "graph_core": {
+          "event_us": 71.87770009040833,
+          "wall_us": 72.78359844349325
+        },
+        "checked_eager_vjp": {
+          "event_us": 495.8252429962158,
+          "wall_us": 509.03905066661537
+        },
+        "checked_graph_vjp": {
+          "event_us": 211.9767427444458,
+          "wall_us": 206.08879858627915
+        },
+        "canonical_forward_backward": {
+          "event_us": 3457.809829711914,
+          "wall_us": 3477.4360014125705
+        }
+      },
+      "backward_implementation": "476fa6121302b870ddde1843b67a6b4b53dfff5d0318388127375c6eab71c835"
+    },
+    {
+      "m": 1,
+      "h": 128,
+      "d": 512,
+      "selected": 640,
+      "native_workspace": 3212800,
+      "timings": {
+        "native_pipeline": {
+          "event_us": 441.204833984375,
+          "wall_us": 442.2963014803827
+        },
+        "graph_core": {
+          "event_us": 445.0695991516113,
+          "wall_us": 445.9507006686181
+        },
+        "checked_eager_vjp": {
+          "event_us": 607.0324897766113,
+          "wall_us": 600.3458489431068
+        },
+        "checked_graph_vjp": {
+          "event_us": 526.5309810638428,
+          "wall_us": 529.6784482197836
+        },
+        "canonical_forward_backward": {
+          "event_us": 3464.0151977539062,
+          "wall_us": 3468.138800235465
+        }
+      },
+      "backward_implementation": "73a70a42d91e6fc31e1f5b20a4aa23797eea428512b77374ab9efb58ab74104a"
+    }
+  ],
+  "provider": {
+    "profile": "aiter.326c.h16.k32.csr64.sink32.canonical_queries.v1",
+    "forward": {
+      "profile": "aiter.326c.single_split.h32.k32.bf16_p.fp32_lse.v1",
+      "arch": "gfx942",
+      "torch": "2.11.0+gitd0c8b1f",
+      "hip": "7.2.53211",
+      "triton": "3.6.0",
+      "aiter_commit": "326cffa38c9eda16bef19375ba55334e4d3acd59",
+      "kernel_sha256": "56db3b46c58f8fb30912d4564189b214e2c9a37fa2138a155b45a4ce51b5c844",
+      "cache_source_sha256": "0d65322289248b9062580f8bcee90997fedf6378de456f1af8a2203484fbaee3",
+      "adapter_sha256": "be7ad076d285563389258a9615fd47a242a6a7154fefdc9d21a1073c28679504"
+    },
+    "wrapper_sha256": "ede08814720b9c783c7375cab9f95ee38bf6212ca77ba23149e33309b72842ff",
+    "delta_source_sha256": "e9183920ca149205978c1aace8f07ff69a271c51104cb6de3d829e29632bc33e",
+    "adapter_sha256": "ed310c82f4847e5d042ac0a453ab5896b35ffcb082dfaeefb749c260d7368294"
+  }
+}

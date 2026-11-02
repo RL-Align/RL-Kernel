@@ -38,6 +38,7 @@
     "tests/models/deepseek_v4/test_joint_backward_rocm.py": "922686d302bf8715faeef57b85683eec237c5e37f5ca3a28c5ee1595aa4495ee"
   },
   "main": "8588158650aff58c9c1f527674de94bad06c3d10",
+  "benchmark_validity": "Superseded by joint-backward-mi300x-20261102.json: multi-request KV keys and selected indices were invalid in the original benchmark.",
   "benchmark": {
     "records": [
       {
