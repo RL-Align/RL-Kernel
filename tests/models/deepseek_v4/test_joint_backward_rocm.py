@@ -1,10 +1,16 @@
 """Real native VJP acceptance; full autograd/session tests are still to follow."""
 
+import os
+from pathlib import Path
+
 import pytest
 import torch
 
 from rl_engine.backends.rocm.attention.joint_attention import AiterJointAttentionBackend
-from rl_engine.backends.rocm.attention.joint_backward import AiterJointBackwardBackend
+from rl_engine.backends.rocm.attention.joint_backward import (
+    AiterJointBackwardBackend,
+    load_upstream_csr,
+)
 from rl_engine.contracts.operators.joint_attention import JointAttentionError
 from rl_engine.models.deepseek_v4.joint_backward import JointBackwardPlan
 from .joint_attention_helpers import case, record, same_bytes
@@ -18,6 +24,15 @@ pytestmark = pytest.mark.skipif(
 @pytest.fixture(scope="module")
 def provider():
     return AiterJointAttentionBackend()
+
+
+def test_hash_pinned_upstream_csr_helper_executes():
+    source = Path(os.environ["RLK_AITER_DSV4_SPARSE_WRAPPER_SOURCE"])
+    build = load_upstream_csr(source)
+    indices = torch.tensor([[1, 0, 1], [-1, 0, -1]], dtype=torch.int32, device="cuda")
+    ptr, data = build(indices, 2)
+    assert ptr.tolist() == [0, 2, 4]
+    assert data.tolist() == [1, 4, 0, 2]
 
 
 def test_direct_backward_rejects_nonunit_inner_stride(provider):
@@ -67,6 +82,7 @@ def test_native_vjp_fp64_graph_repeat(m, h, d, provider):
     backward = JointBackwardPlan(plan, saved)
     dy = torch.randn_like(saved.output)
     grads = backward.backward(dy)
+    assert torch.equal(grads.kv_permutation, saved.metadata.permutation)
     expected = oracle(saved, dy, plan.contract.softmax_scale)
     for actual, want in zip((grads.dq, grads.dkv, grads.dsink), expected, strict=True):
         torch.testing.assert_close(actual.double(), want, rtol=0.04, atol=0.035)
@@ -87,7 +103,7 @@ def test_native_vjp_fp64_graph_repeat(m, h, d, provider):
         assert same_bytes(actual, want)
 
 
-@pytest.mark.parametrize("fault", ["saved", "csr", "budget", "dy", "graph"])
+@pytest.mark.parametrize("fault", ["saved", "csr", "budget", "dy", "dy_dtype", "graph"])
 def test_backward_guards(fault, provider):
     plan, q, kv, sink, meta, _ = case(backend=provider)
     saved = record(plan, q, kv, sink, meta)
@@ -104,6 +120,8 @@ def test_backward_guards(fault, provider):
         backward.ptr.add_(1)
     if fault == "dy":
         dy[0, 0, 0] = float("nan")
+    if fault == "dy_dtype":
+        dy = dy.float()
     with pytest.raises(JointAttentionError):
         backward.backward(dy, use_graph=fault == "graph")
 

@@ -56,7 +56,7 @@ def test_packed_cache_rejects_cpu_before_cuda_context():
 
 @pytest.mark.parametrize("m", [0, 1, 4])
 @pytest.mark.parametrize("window,topk", [(0, 0), (0, 2), (4, 0), (4, 2)])
-def test_reference_boundaries(m, window, topk):
+def test_reference_backend_plan_boundaries(m, window, topk):
     plan, q, kv, sink, meta, _ = case(m=m, window=window, topk=topk, padding=True)
     result = record(plan, q, kv, sink, meta)
     out, lse = reference(q, kv[meta.permutation], sink, meta.indices, plan.contract.softmax_scale)

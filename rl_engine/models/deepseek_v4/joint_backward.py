@@ -14,6 +14,7 @@ class JointGradients:
     dq: torch.Tensor
     dkv: torch.Tensor
     dsink: torch.Tensor
+    kv_permutation: torch.Tensor
 
 
 @dataclass(frozen=True)
@@ -133,14 +134,14 @@ class JointBackwardPlan:
         require(
             dy.shape == self.record.output.shape
             and dy.device == self.device
-            and dy.dtype in (torch.bfloat16, torch.float32)
+            and dy.dtype == torch.bfloat16
             and dy.is_contiguous(),
-            "dO must be contiguous BF16/FP32 in original query order",
+            "dO must be contiguous BF16 in original query order",
         )
         require(bool(torch.isfinite(dy).all()), "dO must be finite")
         require(not use_graph or self._graph is not None, "capture backward before replay")
         with self.forward_plan._transaction(), torch.inference_mode(False), torch.no_grad():
-            self.dy.copy_(dy.index_select(0, self.order).to(torch.bfloat16))
+            self.dy.copy_(dy.index_select(0, self.order))
             if use_graph:
                 self._graph.replay()
             else:
@@ -148,7 +149,7 @@ class JointBackwardPlan:
             tensors = tuple(
                 owned(t) for t in (self.dq_original, self.workspace.dkv, self.workspace.dsink)
             )
-        return JointGradients(*tensors)
+        return JointGradients(*tensors, kv_permutation=owned(self.record.metadata.permutation))
 
     @torch.no_grad()
     def local_parts(self, dy):
@@ -163,13 +164,13 @@ class JointBackwardPlan:
         require(
             dy.shape == self.record.output.shape
             and dy.device == self.device
-            and dy.dtype in (torch.bfloat16, torch.float32)
+            and dy.dtype == torch.bfloat16
             and dy.is_contiguous(),
             "dO ABI mismatch",
         )
         require(bool(torch.isfinite(dy).all()), "dO must be finite")
         with self.forward_plan._transaction(), torch.inference_mode(False), torch.no_grad():
-            self.dy.copy_(dy.index_select(0, self.order).bfloat16())
+            self.dy.copy_(dy.index_select(0, self.order))
             self.backend.local_parts_into(
                 self.q,
                 self.kv,

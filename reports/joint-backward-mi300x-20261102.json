@@ -1,4 +1,8 @@
 {
+  "date": "2026-11-02",
+  "main": "not recorded for this superseded run",
+  "tests": {"passed": 164, "coverage": "not collected"},
+  "benchmark_validity": "Superseded: native and Graph core measured zero dO; do not compare against November 3 timings.",
   "superseded_by": "joint-backward-mi300x-20261103.json",
   "records": [
     {
@@ -24,10 +28,17 @@
           "event_us": 194.34255361557007,
           "wall_us": 191.48224964737892
         },
-        "canonical_forward_backward": {
+        "canonical_forward_backward_validation": {
           "event_us": 3444.921112060547,
           "wall_us": 3363.1415019044653
         }
+      },
+      "timing_scope": {
+        "native_pipeline": "backward_only_zero_dO_invalid",
+        "graph_core": "backward_only_zero_dO_invalid",
+        "checked_eager_vjp": "backward_only",
+        "checked_graph_vjp": "backward_only",
+        "canonical_forward_backward_validation": "forward_backward_validation"
       },
       "backward_implementation": "ac62fc217949aa06b8d59875606b531641c8a9054ef19d1e4345c806b552c9fe"
     },
@@ -54,10 +65,17 @@
           "event_us": 172.3986029624939,
           "wall_us": 171.0245996946469
         },
-        "canonical_forward_backward": {
+        "canonical_forward_backward_validation": {
           "event_us": 3388.4159088134766,
           "wall_us": 3336.4721486577764
         }
+      },
+      "timing_scope": {
+        "native_pipeline": "backward_only_zero_dO_invalid",
+        "graph_core": "backward_only_zero_dO_invalid",
+        "checked_eager_vjp": "backward_only",
+        "checked_graph_vjp": "backward_only",
+        "canonical_forward_backward_validation": "forward_backward_validation"
       },
       "backward_implementation": "068e17918ad98d0839efcb28b3ffaec2aa314ec1306b52d34afb0a985442c2c7"
     },
@@ -84,10 +102,17 @@
           "event_us": 211.9767427444458,
           "wall_us": 206.08879858627915
         },
-        "canonical_forward_backward": {
+        "canonical_forward_backward_validation": {
           "event_us": 3457.809829711914,
           "wall_us": 3477.4360014125705
         }
+      },
+      "timing_scope": {
+        "native_pipeline": "backward_only_zero_dO_invalid",
+        "graph_core": "backward_only_zero_dO_invalid",
+        "checked_eager_vjp": "backward_only",
+        "checked_graph_vjp": "backward_only",
+        "canonical_forward_backward_validation": "forward_backward_validation"
       },
       "backward_implementation": "476fa6121302b870ddde1843b67a6b4b53dfff5d0318388127375c6eab71c835"
     },
@@ -114,10 +139,17 @@
           "event_us": 526.5309810638428,
           "wall_us": 529.6784482197836
         },
-        "canonical_forward_backward": {
+        "canonical_forward_backward_validation": {
           "event_us": 3464.0151977539062,
           "wall_us": 3468.138800235465
         }
+      },
+      "timing_scope": {
+        "native_pipeline": "backward_only_zero_dO_invalid",
+        "graph_core": "backward_only_zero_dO_invalid",
+        "checked_eager_vjp": "backward_only",
+        "checked_graph_vjp": "backward_only",
+        "canonical_forward_backward_validation": "forward_backward_validation"
       },
       "backward_implementation": "73a70a42d91e6fc31e1f5b20a4aa23797eea428512b77374ab9efb58ab74104a"
     }
