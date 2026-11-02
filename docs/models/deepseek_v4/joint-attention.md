@@ -112,11 +112,12 @@ its latency must not be reported as isolated attention-kernel latency.
 
 ## Packed cache boundary
 
-`gather_packed_joint_kv` accepts contiguous uint8
+`gather_packed_joint_kv` requires a D512 `JointAttentionContract` and accepts contiguous uint8
 `[physical_pages, block_bytes]`, block size 64 or 128, and explicit int64
 physical slots in the original logical KV input order. Block storage holds
-576 bytes/token of data and eight bytes/token of scales, with optional
-aligned trailing block padding. vLLM decodes only referenced pages;
+576 bytes/token of data and eight bytes/token of scales, with exact
+576-byte-aligned block padding. D128 plans cannot consume this cache layout.
+vLLM decodes only referenced pages;
 Torch gathers the requested rows from those decoded pages.
 
 The reader requires the encoder's actual `encoding="ocp"` or `"fnuz"`.

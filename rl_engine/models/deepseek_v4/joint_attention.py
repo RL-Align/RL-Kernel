@@ -356,24 +356,31 @@ class JointAttentionPlan:
 
 
 @torch.no_grad()
-def gather_packed_joint_kv(cache, slots, *, block_size, encoding, backend, max_bytes=1 << 30):
+def gather_packed_joint_kv(
+    cache, slots, *, contract, block_size, encoding, backend, max_bytes=1 << 30
+):
     """Read selected physical rows using vLLM's real DSv4 FP8 cache decoder.
 
     Slots must match the metadata's original KV row order. Caller owns cache
     writer/reader synchronization; this creates a detached BF16 snapshot.
     Native decoding visits only referenced pages, not the entire cache pool.
     """
+    require(
+        isinstance(contract, JointAttentionContract) and contract.head_dim == 512,
+        "packed FP8 cache requires a 512-dim joint attention contract",
+    )
     require(block_size in (64, 128) and encoding in ("ocp", "fnuz"), "unknown packed cache ABI")
     require(type(max_bytes) is int and max_bytes > 0, "packed gather budget must be positive")
     require(
         cache.ndim == 2
         and cache.dtype == torch.uint8
         and cache.is_contiguous()
-        and cache.shape[1] >= block_size * 584
+        and cache.shape[1] == ((block_size * 584 + 575) // 576) * 576
         and cache.stride(0) % 16 == 0
         and cache.device == backend.device,
-        "cache must be contiguous uint8 [pages, block_bytes]",
+        "cache must be contiguous uint8 [pages, exact block_bytes]",
     )
+    require(cache.device.type == "cuda", "packed cache gather requires CUDA/ROCm")
     require(
         slots.ndim == 1 and slots.dtype == torch.int64 and slots.device == cache.device,
         "physical slots must be int64 [rows] on the cache device",
