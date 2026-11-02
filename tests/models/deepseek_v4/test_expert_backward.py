@@ -362,3 +362,71 @@ def test_rocm_two_rank_strict_p4_forward_to_backward(tmp_path: Path):
         nprocs=2,
         join=True,
     )
+
+
+def _rocm_four_rank_p4_worker(rank: int, rendezvous: str):
+    from rl_engine.distributed.ep import EpExchange, EpIdentity, EpPlacement
+
+    torch.cuda.set_device(rank)
+    dist.init_process_group("nccl", init_method=f"file://{rendezvous}", rank=rank, world_size=4)
+    try:
+        placement = EpPlacement.from_owners([expert // 64 for expert in range(256)], 4)
+        exchange = EpExchange(dist.group.WORLD, placement, strict=True)
+        experts = {
+            0: [0, 1, 64, 65, 128, 129],
+            2: [0, 64, 128, 1, 65, 129],
+            3: [0, 1, 2, 64, 65, 66],
+        }
+        ids = (
+            torch.tensor([experts[rank]], device="cuda", dtype=torch.int64)
+            if rank in experts
+            else torch.empty((0, 6), device="cuda", dtype=torch.int64)
+        )
+        dy = torch.full((ids.shape[0], 8), rank + 1, device="cuda", dtype=torch.bfloat16)
+        route = exchange.build_route(ids, EpIdentity("ep4-run", "v1", "place-v1"))
+        received = exchange.dispatch_tokens(route, dy)
+        exchange.return_outputs(route, received)
+        receipt = SavedForwardRoute.from_p4_forward(route, global_ranks=(0, 1, 2, 3), hidden_size=8)
+        runtime = ExpertBackwardRoundTrip(receipt, group=dist.group.WORLD)
+        expert_dy = runtime.dispatch_dy(
+            dy,
+            run_id="ep4-run",
+            model_version="v1",
+            forward_fingerprint=receipt.fingerprint,
+        )
+        assert expert_dy.shape == (len(runtime.inbound_slots), 8)
+        for row, (source, _, _, expert) in enumerate(runtime.inbound_slots):
+            assert expert // 64 == rank
+            torch.testing.assert_close(expert_dy[row], torch.full_like(expert_dy[row], source + 1))
+        if rank == 3:
+            assert expert_dy.numel() == 0
+        dx = runtime.return_dx(
+            expert_dy * 2 + rank,
+            run_id="ep4-run",
+            model_version="v1",
+            forward_fingerprint=receipt.fingerprint,
+        )
+        destinations = sum(expert // 64 for expert in experts.get(rank, ()))
+        torch.testing.assert_close(dx, dy * 12 + destinations)
+        dp_s = runtime.route_weight_gradient(dy, torch.ones((len(receipt.slots), 8), device="cuda"))
+        torch.testing.assert_close(
+            dp_s, torch.full((len(ids), 6), 8 * (rank + 1), device="cuda", dtype=torch.float32)
+        )
+    finally:
+        dist.destroy_process_group()
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available() or not torch.version.hip or torch.cuda.device_count() < 4,
+    reason="four ROCm GPUs required",
+)
+def test_rocm_four_rank_strict_p4_forward_to_backward(tmp_path: Path):
+    pytest.importorskip("rl_engine.distributed.ep")
+    if dist.is_initialized():
+        pytest.skip("isolated process group required")
+    mp.spawn(
+        _rocm_four_rank_p4_worker,
+        args=(str(tmp_path / "p4-rocm-four-rank-init"),),
+        nprocs=4,
+        join=True,
+    )

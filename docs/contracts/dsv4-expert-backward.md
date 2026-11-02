@@ -47,8 +47,11 @@ CPU/Gloo is an explicit test reference.
 - Two-rank MI300X RCCL: strict P4 forward return through saved dy/dX,
   including an empty source rank. P4 exchange and fused expert forward also
   passed on eight MI300X ranks against a no-exchange reference.
+- Four-rank MI300X RCCL EP4: strict returned P4 route through saved dy/dX,
+  exact source/expert ownership, fixed-slot dX and FP32 route-weight gradient;
+  one rank has no source tokens and another receives no expert tokens.
 - A real DSV4 expert autograd caller remains unwired; this is still a boundary
-  interface. Expert backward on EP4 and wider, two-node execution, Graph and
-  overlap remain untested. The container can use eight MI300X cards with a
-  per-process visibility override.
+  interface. EP4 end-to-end training, wider backward, two-node execution,
+  Graph and overlap remain untested. The container can use eight MI300X cards
+  with a per-process visibility override.
   This is not item-39 full signoff.
