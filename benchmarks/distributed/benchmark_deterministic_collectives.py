@@ -9,9 +9,11 @@ Example:
       benchmarks/distributed/benchmark_deterministic_collectives.py \
       --output benchmarks/results/deterministic_collectives_b200.json
 
-``--size-bytes`` is the per-rank input. The default sweep straddles the
-single-block fast paths (64 KiB gathered output for ``all_gather``, 256 KiB
-for the ``reduce_scatter`` input and ``all_reduce``). NCCL rows are
+``--size-bytes`` is the per-rank input of ``all_gather`` and ``all_reduce`` and
+the per-rank output of ``reduce_scatter``, whose input is world size times that
+(the JSON ``input_bytes_per_rank`` field and the plots use the actual input).
+The default sweep straddles the single-block fast paths (64 KiB gathered output
+for ``all_gather``, 256 KiB for the ``reduce_scatter`` input and ``all_reduce``). NCCL rows are
 performance references only; they are not a correctness oracle.
 
 JSON timing samples are grouped by global rank, in collection order. The
