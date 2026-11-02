@@ -4,6 +4,7 @@ import pytest
 import torch
 
 from rl_engine.backends.rocm.attention.joint_attention import AiterJointAttentionBackend
+from rl_engine.backends.rocm.attention.joint_backward import AiterJointBackwardBackend
 from rl_engine.contracts.operators.joint_attention import JointAttentionError
 from rl_engine.models.deepseek_v4.joint_backward import JointBackwardPlan
 from .joint_attention_helpers import case, record, same_bytes
@@ -17,6 +18,30 @@ pytestmark = pytest.mark.skipif(
 @pytest.fixture(scope="module")
 def provider():
     return AiterJointAttentionBackend()
+
+
+def test_direct_backward_rejects_nonunit_inner_stride(provider):
+    backend = AiterJointBackwardBackend(provider)
+    q = torch.empty((1, 8, 128), device="cuda", dtype=torch.bfloat16)
+    kv = torch.empty((1, 256), device="cuda", dtype=torch.bfloat16)[:, ::2]
+    out, dy = q.clone(), q.clone()
+    indices = torch.zeros((1, 1), device="cuda", dtype=torch.int32)
+    lse = torch.zeros((1, 8), device="cuda")
+    sink = torch.zeros((8,), device="cuda")
+    ws = backend.allocate(m=1, h=8, d=128, selected=1, n_kv=1, max_bytes=1 << 20)
+    with pytest.raises(JointAttentionError, match="unit inner strides"):
+        backend.local_parts_into(q, kv, out, dy, indices, lse, sink, ws, 1.0)
+
+
+def test_direct_gather_rejects_nonunit_inner_stride(provider):
+    backend = AiterJointBackwardBackend(provider)
+    intermediate = torch.empty((1, 1, 256), device="cuda")[:, :, ::2]
+    indices = torch.zeros((1, 1), device="cuda", dtype=torch.int32)
+    ptr = torch.zeros((2,), device="cuda", dtype=torch.int32)
+    data = torch.zeros((1,), device="cuda", dtype=torch.int32)
+    dkv = torch.zeros((1, 128), device="cuda")
+    with pytest.raises(JointAttentionError, match="unit inner strides"):
+        backend.gather_intermediate_into(intermediate, indices, ptr, data, dkv)
 
 
 def oracle(saved, dy, scale):

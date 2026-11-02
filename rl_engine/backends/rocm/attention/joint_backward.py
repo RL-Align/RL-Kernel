@@ -104,6 +104,10 @@ class AiterJointBackwardBackend:
     def local_parts_into(self, q, kv, out, dy, indices, lse, sink, ws, scale):
         """One writer per dQ/query contribution; no reduction across queries here."""
         m, h, d = q.shape
+        require(
+            all(t.stride(-1) == 1 for t in (q, kv, out, dy, indices, lse, sink)),
+            "joint backward requires unit inner strides",
+        )
         k = indices.shape[1]
         if not m:
             return
@@ -195,6 +199,10 @@ class AiterJointBackwardBackend:
         )
 
     def gather_intermediate_into(self, intermediate, indices, ptr, data, dkv):
+        require(
+            all(t.stride(-1) == 1 for t in (intermediate, indices, ptr, data, dkv)),
+            "joint backward gather requires unit inner strides",
+        )
         m, k = indices.shape
         d = dkv.shape[1]
         if not m:

@@ -1,4 +1,13 @@
 {
+  "date": "2026-11-03",
+  "main": "d00d444b46858b5109acafd29b5e6af70ac73370",
+  "dsv4_rocm": "f947f7136690bae79ec6e6e8b8052f41800aa281",
+  "tests": {
+    "suite": "joint attention, autograd, and backward model/ROCm tests",
+    "passed": 177,
+    "skipped": 0,
+    "coverage": "not collected for this rerun"
+  },
   "records": [
     {
       "m": 7,
@@ -8,24 +17,24 @@
       "native_workspace": 92252,
       "timings": {
         "native_pipeline": {
-          "event_us": 249.275803565979,
-          "wall_us": 249.72049868665636
+          "event_us": 260.9663963317871,
+          "wall_us": 267.52789854072034
         },
         "graph_core": {
-          "event_us": 64.30450081825256,
-          "wall_us": 65.06245117634535
+          "event_us": 66.51149988174438,
+          "wall_us": 68.4530008584261
         },
         "checked_eager_vjp": {
-          "event_us": 447.5273609161377,
-          "wall_us": 452.6767006609589
+          "event_us": 463.17501068115234,
+          "wall_us": 470.1130499597639
         },
         "checked_graph_vjp": {
-          "event_us": 147.51805067062378,
-          "wall_us": 146.22934977523983
+          "event_us": 152.88619995117188,
+          "wall_us": 151.41495096031576
         },
         "canonical_forward_backward_validation": {
-          "event_us": 3677.5680541992188,
-          "wall_us": 3086.9156500557438
+          "event_us": 3216.9071197509766,
+          "wall_us": 3218.2727009058
         }
       },
       "timing_scope": {
@@ -35,7 +44,7 @@
         "checked_graph_vjp": "backward_only",
         "canonical_forward_backward_validation": "forward_backward_validation"
       },
-      "backward_implementation": "3425d4089bc841fd82cee86e3ca58febd3e82767ce8a1caaa9fe66d64d8c93d4"
+      "backward_implementation": "dd3f0794609573c66990c7a1a48125fe625a646037c2a42e84e38308bf4ce666"
     },
     {
       "m": 7,
@@ -45,24 +54,24 @@
       "native_workspace": 1102592,
       "timings": {
         "native_pipeline": {
-          "event_us": 247.72019386291504,
-          "wall_us": 246.23125209473073
+          "event_us": 288.06214332580566,
+          "wall_us": 288.0946994991973
         },
         "graph_core": {
-          "event_us": 85.29624938964844,
-          "wall_us": 85.79330169595778
+          "event_us": 87.20059990882874,
+          "wall_us": 87.92635053396225
         },
         "checked_eager_vjp": {
-          "event_us": 462.978458404541,
-          "wall_us": 458.13359902240336
+          "event_us": 491.784143447876,
+          "wall_us": 480.1522474735975
         },
         "checked_graph_vjp": {
-          "event_us": 160.91649532318115,
-          "wall_us": 159.55425042193383
+          "event_us": 163.80510330200195,
+          "wall_us": 163.84435002692044
         },
         "canonical_forward_backward_validation": {
-          "event_us": 3147.254753112793,
-          "wall_us": 3265.050900517963
+          "event_us": 3232.572555541992,
+          "wall_us": 3211.0178988659754
         }
       },
       "timing_scope": {
@@ -72,7 +81,7 @@
         "checked_graph_vjp": "backward_only",
         "canonical_forward_backward_validation": "forward_backward_validation"
       },
-      "backward_implementation": "196ff9175773e965ae8107bb28a22c51143d8cd8c8897770b16c71d02ee520b2"
+      "backward_implementation": "6fbe61ebb58060f4a440f2d4a3f92231f441d1dc78906b228fb859c2311136f3"
     },
     {
       "m": 65,
@@ -82,24 +91,24 @@
       "native_workspace": 855764,
       "timings": {
         "native_pipeline": {
-          "event_us": 240.8545970916748,
-          "wall_us": 242.79209901578724
+          "event_us": 351.1357545852661,
+          "wall_us": 409.0656992048025
         },
         "graph_core": {
-          "event_us": 70.6569492816925,
-          "wall_us": 69.45115164853632
+          "event_us": 74.45160150527954,
+          "wall_us": 75.23609965573996
         },
         "checked_eager_vjp": {
-          "event_us": 466.99962615966797,
-          "wall_us": 469.2934511695057
+          "event_us": 582.3403358459473,
+          "wall_us": 584.6544518135488
         },
         "checked_graph_vjp": {
-          "event_us": 161.18309497833252,
-          "wall_us": 161.69229929801077
+          "event_us": 183.23744535446167,
+          "wall_us": 182.0410485379398
         },
         "canonical_forward_backward_validation": {
-          "event_us": 3188.474655151367,
-          "wall_us": 3308.728549745865
+          "event_us": 3345.731735229492,
+          "wall_us": 3375.22930058185
         }
       },
       "timing_scope": {
@@ -109,7 +118,7 @@
         "checked_graph_vjp": "backward_only",
         "canonical_forward_backward_validation": "forward_backward_validation"
       },
-      "backward_implementation": "c75c0df67fa5b264e6ff9d425ae46ec1ea7da9ee947a345d73b75237e90c0c60"
+      "backward_implementation": "dd1aac53c9a69629f19c36892036dd0dd554e519d70fb6e2e15bea569d78b196"
     },
     {
       "m": 1,
@@ -119,24 +128,24 @@
       "native_workspace": 3212800,
       "timings": {
         "native_pipeline": {
-          "event_us": 442.8506374359131,
-          "wall_us": 443.917399388738
+          "event_us": 443.43199729919434,
+          "wall_us": 443.01045127213
         },
         "graph_core": {
-          "event_us": 443.0972099304199,
-          "wall_us": 443.7057999894023
+          "event_us": 445.96171379089355,
+          "wall_us": 446.3254503207281
         },
         "checked_eager_vjp": {
-          "event_us": 595.8732604980469,
-          "wall_us": 593.253000988625
+          "event_us": 604.2041301727295,
+          "wall_us": 600.0812019919977
         },
         "checked_graph_vjp": {
-          "event_us": 521.2091445922852,
-          "wall_us": 519.8536498937756
+          "event_us": 526.5091419219971,
+          "wall_us": 527.6968993712217
         },
         "canonical_forward_backward_validation": {
-          "event_us": 3185.529327392578,
-          "wall_us": 3287.9518024856225
+          "event_us": 3336.690139770508,
+          "wall_us": 3306.0991496313363
         }
       },
       "timing_scope": {
@@ -146,7 +155,7 @@
         "checked_graph_vjp": "backward_only",
         "canonical_forward_backward_validation": "forward_backward_validation"
       },
-      "backward_implementation": "5a5deee01c7cb5603cbf5656eaad140255e78adde2cb21fa83b1efc9120ad30b"
+      "backward_implementation": "fd24f81af072cf92f8ee4cf9e1e867585f078555f61e88920170017340406826"
     }
   ],
   "provider": {
@@ -164,6 +173,6 @@
     },
     "wrapper_sha256": "ede08814720b9c783c7375cab9f95ee38bf6212ca77ba23149e33309b72842ff",
     "delta_source_sha256": "e9183920ca149205978c1aace8f07ff69a271c51104cb6de3d829e29632bc33e",
-    "adapter_sha256": "ed310c82f4847e5d042ac0a453ab5896b35ffcb082dfaeefb749c260d7368294"
+    "adapter_sha256": "47baf75054fafadfa213e05514fa14b9d262fe23f3f524afd6df86c1b5c58a14"
   }
 }
