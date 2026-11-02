@@ -22,6 +22,15 @@ PR_SHA="${PR_SHA:-$(date +%s)}"
 POD_NAME="rl-kernel-ci-${PR_SHA:0:7}"
 READY_RETRIES=60
 
+if [ -z "${RUNPOD_API_KEY:-}" ]; then
+  echo "[ci] ERROR: RUNPOD_API_KEY is required before provisioning a pod" >&2
+  exit 1
+fi
+if ! runpodctl config --apiKey "$RUNPOD_API_KEY" >/dev/null; then
+  echo "[ci] ERROR: runpodctl authentication setup failed" >&2
+  exit 1
+fi
+
 POD_ID=""
 
 cleanup() {
