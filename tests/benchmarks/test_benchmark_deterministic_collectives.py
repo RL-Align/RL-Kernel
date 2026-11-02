@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from benchmarks import benchmark_deterministic_collectives as benchmark
+from benchmarks.distributed import benchmark_deterministic_collectives as benchmark
 
 
 @pytest.mark.parametrize("warmup", [0, 2])

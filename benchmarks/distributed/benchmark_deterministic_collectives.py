@@ -6,7 +6,7 @@
 Example:
 
     torchrun --standalone --nproc-per-node=8 \
-      benchmarks/benchmark_deterministic_collectives.py \
+      benchmarks/distributed/benchmark_deterministic_collectives.py \
       --output benchmarks/results/deterministic_collectives_b200.json
 
 ``--size-bytes`` is the per-rank input. The default sweep straddles the

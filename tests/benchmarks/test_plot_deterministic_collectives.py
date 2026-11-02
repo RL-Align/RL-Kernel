@@ -11,7 +11,7 @@ import pytest
 
 pytest.importorskip("matplotlib")
 
-from benchmarks import plot_deterministic_collectives as plotter  # noqa: E402
+from benchmarks.distributed import plot_deterministic_collectives as plotter  # noqa: E402
 
 
 def _write_report(path: Path, world_size: int, sizes: list[int], latency: float) -> None:

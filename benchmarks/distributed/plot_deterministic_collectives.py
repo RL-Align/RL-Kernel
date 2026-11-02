@@ -3,7 +3,7 @@
 
 """Plot before/after reports of ``benchmark_deterministic_collectives.py``.
 
-    python benchmarks/plot_deterministic_collectives.py \
+    python benchmarks/distributed/plot_deterministic_collectives.py \
       --before before_w2.json before_w8.json --after after_w2.json after_w8.json \
       --operation all_gather --output figure.png
 
