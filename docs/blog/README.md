@@ -4,7 +4,7 @@ Release notes and engineering writeups for RL-Kernel.
 
 <div class="grid cards" markdown>
 
--   **[Your First RL-Kernel Run: From Setup to a Consistency Check](2026-11-02-your-first-rl-kernel-run.md)**
+-   **[RL-Kernel: A Practical Guide to Train–Rollout Consistency](2026-11-02-your-first-rl-kernel-run.md)**
 
     ---
 

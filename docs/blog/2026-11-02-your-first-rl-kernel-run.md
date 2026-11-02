@@ -1,4 +1,4 @@
-# Your First RL-Kernel Run: From Setup to a Consistency Check
+# RL-Kernel: A Practical Guide to Train–Rollout Consistency
 
 RL-Kernel helps training and rollout agree on the numbers they compute. This
 guide walks through a small Qwen3-8B experiment with **vime for training and
