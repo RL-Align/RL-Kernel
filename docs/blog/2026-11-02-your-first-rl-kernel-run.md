@@ -1,12 +1,12 @@
-# RL-Kernel: A Practical Guide to Train–Rollout Consistency
+# RL-Kernel Train–Rollout Consistency: A Practical Guide
 
 RL-Kernel helps training and rollout agree on the numbers they compute. This
 guide walks through a small Qwen3-8B experiment with **vime for training and
 vLLM for rollout**. You will prepare the inputs, preview a command, run three
 steps, and read the validation result.
 
-You do not need to understand GPU kernels to follow the walkthrough. The goal
-is simple: **run a real experiment and know what its result means**.
+The guide covers environment configuration, execution, validation and a native
+baseline comparison. **Each step includes commands and the result to check.**
 
 ## What are we checking?
 
@@ -35,7 +35,7 @@ Choose **one** hardware path:
 | First run | Three training/rollout steps | Three training/rollout steps |
 | Ray startup | Start Ray before running | The launcher manages its own Ray instance |
 
-**This walkthrough starts inside a prepared GPU environment.** Installing
+**This guide starts inside a prepared GPU environment.** Installing
 RL-Kernel alone does not install the full training stack. A laptop, a CPU-only
 installation, or an arbitrary vLLM image is not enough for this experiment.
 
@@ -48,8 +48,8 @@ The recorded ROCm stack uses Python 3.12 and PyTorch 2.12 / ROCm 7.14;
 the patched vime, Megatron and vLLM sources are part of that setup.
 
 Reserve all eight GPUs for the run. Keep model files, converted checkpoints,
-datasets and output on a data disk with enough free space. Prepare downloads
-and builds before a live presentation.
+datasets and output on a data disk with enough free space. Complete downloads
+and builds before starting the experiment.
 
 ## 1. Get RL-Kernel and choose your paths
 
@@ -254,7 +254,7 @@ You only need a few settings for this first run:
 | `--steps 3` | Run three training/rollout steps instead of the default 200. |
 | `--max-response-len 6912` | Limit the number of generated tokens per answer. |
 | `--max-tokens-per-gpu 4096` | Set the training dynamic-batching token budget per GPU. |
-| `--lr 5e-7 --kl-coef 0.01` | Set the learning rate and reference-policy KL coefficient. Keep these fixed for the walkthrough. |
+| `--lr 5e-7 --kl-coef 0.01` | Set the learning rate and reference-policy KL coefficient. Keep these fixed for the guide. |
 
 The training and rollout workers share the node over the workflow; these
 settings do not request sixteen GPUs. Leave the topology unchanged for your
@@ -276,13 +276,9 @@ export RLK_DEMO_RUN_ID="first-consistency-$(date -u +%Y%m%dT%H%M%SZ)"
 ```
 
 The command waits for completion and performs validation. Model loading,
-compilation and warmup can take time; three steps are a small experiment,
-not a promise of a three-minute demo. On ROCm, detailed progress is written to
+compilation and warmup can take time. A three-step run limits the experiment
+size, but its total duration depends on the environment and generated answers. On ROCm, detailed progress is written to
 the run's `arms/r-r/launcher.log`, so the main terminal may be quiet.
-
-For a presentation, finish one rehearsal beforehand and keep its real result
-available. If the live job is still running, show that result and say it is
-from the rehearsal.
 
 ## 5. Read the result
 
@@ -379,44 +375,6 @@ temperature positive and top-k disabled (`-1`, the default). See the
 [support audit](../usage/cuda-rocm-consistency-audit.md) before changing these
 settings.
 
-## A short script for a live walkthrough
-
-Use this after setup is complete. The five passages can be read aloud while
-showing the corresponding parts of this page. Pause while commands run.
-
-**Introduce the goal**
-
-“Today I will show you how to run a small RL-Kernel example. We use Qwen3-8B,
-with vime for training and vLLM for rollout. Rollout means generating answers
-for training. We want both sides to agree on the scores for those answers.
-We have prepared the environment and downloaded the model before this session.”
-
-**Show the profile and plan**
-
-“First, we save the paths for this machine in one profile. We only need to do
-this once. Then we run the plan command. This shows what will run, but it does
-not start training. Here we can check the model path and the output folder.”
-
-**Start the short run**
-
-“Now we change plan to run. We use three steps for this example. Training
-computes the scores again, independently. It does not copy the scores from
-rollout. The command also checks the result when the job finishes.”
-
-**Show a completed report**
-
-“This is the validation report for a completed run. First, we check that the
-whole report passed. Then we look at the training and rollout comparison.
-For a passing consistency run, the checked scores match exactly. This result
-applies to this model, configuration and run on this machine.”
-
-**Close with the next step**
-
-“Once this works, we can try the native baseline or run more steps. Today we
-focused on getting started and reading the result. Our wider goal is to bring
-this consistency to more models, hardware platforms and post-training
-frameworks. The links below explain the current results and ongoing work.”
-
 ## Learn more and contribute
 
 - [Project results: Qwen3-8B training and rollout consistency](2026-09-18-rl-kernel-amd-vime-qwen3-8b-train-rollout-bitwise-consistency.md)
@@ -426,6 +384,6 @@ frameworks. The links below explain the current results and ongoing work.”
 - [DSV4 Flash MoE roadmap — work in progress](2026-08-09-dsv4-flash-moe-consistency-roadmap.md)
 - [Contributing to RL-Kernel](../contributing/contributor-guide.md)
 
-The command-first structure of this walkthrough takes inspiration from the
+The command-first structure of this guide takes inspiration from the
 [vLLM MoRIIOConnector usage guide](https://docs.vllm.ai/en/latest/features/moriio_connector_usage/).
-MoRIIOConnector is a separate feature; it is not required for this walkthrough.
+MoRIIOConnector is a separate feature; it is not required for this guide.
