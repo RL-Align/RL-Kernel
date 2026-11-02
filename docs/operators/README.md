@@ -39,4 +39,5 @@ Every operator page should include:
 - [Sampling](sampling.md)
 - [Token Embedding](embedding.md)
 - [Learned Router Weights and Capacity](learned-route.md)
+- [Router Backward and Result Records](router-training.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)
