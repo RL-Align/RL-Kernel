@@ -47,14 +47,21 @@ def test_nonzero_global_start_preserves_rope_position_and_ignores_partial_edges(
     byte_equal(op(b, a, n, co, si, version="v1").values, expected)
 
 
-@pytest.mark.parametrize("rank,expected", [(0, ()), (1, ((7, 0),)), (2, ((7, 1),))])
-def test_complete_cross_cp_groups_have_one_last_token_owner(rank, expected):
+@pytest.mark.parametrize(
+    "rank,expected,unowned",
+    [
+        (0, (), ((7, 0), (7, 1))),
+        (1, ((7, 0),), ((7, 1),)),
+        (2, ((7, 1),), ((7, 0),)),
+    ],
+)
+def test_complete_cross_cp_groups_have_one_last_token_owner(rank, expected, unowned):
     op = operator()
     x, ids, *_ = fixture()
     owners = torch.cat((torch.zeros(80), torch.ones(80), torch.full((96,), 2))).long()
     b = op.bind(x, ids, version="v1", owners=owners, cp_size=3, rank=rank)
     assert b.logical_keys == expected
-    assert len(b.logical_keys) + len(b.unowned_groups) == 2
+    assert b.unowned_groups == unowned
     missing = op.bind(
         x[80:160], ids[80:160], version="v1", owners=owners[80:160], cp_size=3, rank=rank
     )

@@ -5,6 +5,7 @@
   "cpu_contract": 67,
   "benchmark": {
     "gpu": "",
+    "gpu_name_note": "torch.cuda.get_device_name() returns an empty string on this ROCm container; the same process reports gfx942 through gcnArchName. This field is an observed runtime value, not a model-name assertion.",
     "arch": "gfx942:sramecc+:xnack-",
     "torch": "2.11.0+gitd0c8b1f",
     "hip": "7.2.53211",
