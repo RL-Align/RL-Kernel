@@ -251,3 +251,42 @@ def test_rocm_one_rank_saved_plan(tmp_path: Path):
         assert runtime.route_weight_gradient(dy, dy).dtype == torch.float32
     finally:
         dist.destroy_process_group()
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available() or not torch.version.hip, reason="ROCm GPU required"
+)
+def test_rocm_one_rank_strict_p4_forward_to_backward(tmp_path: Path):
+    pytest.importorskip("rl_engine.distributed.ep")
+    from rl_engine.distributed.ep import EpExchange, EpIdentity, EpPlacement
+
+    if dist.is_initialized():
+        pytest.skip("isolated process group required")
+    torch.cuda.set_device(0)
+    dist.init_process_group(
+        "nccl", init_method=f"file://{tmp_path / 'p4-rocm-init'}", rank=0, world_size=1
+    )
+    try:
+        placement = EpPlacement.from_owners([0] * 256, 1)
+        exchange = EpExchange(dist.group.WORLD, placement, strict=True)
+        ids = torch.tensor([[0, 1, 2, 3, 4, 5]], device="cuda")
+        route = exchange.build_route(ids, EpIdentity("run", "v1", "place-v1"))
+        x = torch.ones((1, 8), device="cuda", dtype=torch.bfloat16)
+        received = exchange.dispatch_tokens(route, x)
+        exchange.return_outputs(route, received)
+        receipt = SavedForwardRoute.from_p4_forward(route, global_ranks=(0,), hidden_size=8)
+        runtime = ExpertBackwardRoundTrip(receipt, group=dist.group.WORLD)
+        dy = torch.ones_like(x)
+        expert_dy = runtime.dispatch_dy(
+            dy, run_id="run", model_version="v1", forward_fingerprint=receipt.fingerprint
+        )
+        assert expert_dy.shape == (6, 8)
+        dx = runtime.return_dx(
+            expert_dy * 2,
+            run_id="run",
+            model_version="v1",
+            forward_fingerprint=receipt.fingerprint,
+        )
+        torch.testing.assert_close(dx, dy * 12)
+    finally:
+        dist.destroy_process_group()
