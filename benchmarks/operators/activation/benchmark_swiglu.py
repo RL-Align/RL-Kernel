@@ -223,7 +223,12 @@ def _environment(device, args, triton_version, shapes):
         "total_memory_gib": round(props.total_memory / 1024**3, 2),
         "multiprocessors": props.multi_processor_count,
         "shapes": ["x".join(map(str, s)) for s in shapes],
-        "intermediate_width": INTERMEDIATE,
+        # The widths actually run, not the constant. --shapes accepts any width,
+        # and a report that said 19968 while timing 1024 would be wrong about the
+        # one thing its title claims.
+        "widths_run": sorted({s[-1] for s in shapes}),
+        "muse_intermediate_width": INTERMEDIATE,
+        "all_shapes_at_muse_width": all(s[-1] == INTERMEDIATE for s in shapes),
         "warmup": args.warmup,
         "clock_settle_seconds": CLOCK_SETTLE_SECONDS,
         "repeat": args.repeat,
@@ -255,7 +260,11 @@ def _noise_note(report):
         if side["median_ms"] > 0 and side["std_ms"] is not None
     ]
     if not spreads:
-        return "No timing samples were recorded."
+        return (
+            "Spread: unavailable. Every measurement here is a single repetition "
+            "(--repeat 1), so there is a median but no deviation to report; the "
+            "latency cells below print the one sample bare."
+        )
     noisy = sum(1 for s in spreads if s > NOISY_STD_FRACTION)
     heavy_tail = sum(1 for s in spreads if s > 1.0)
     worst = max(spreads)
@@ -426,6 +435,17 @@ def _ms(side):
     return f"{side['median_ms']:.6f} ± {side['std_ms']:.6f}"
 
 
+def _title(env):
+    """Say Muse geometry only when every shape run is at the Muse width."""
+    if env["all_shapes_at_muse_width"]:
+        return "# SwiGLU on Muse-Glimmer-30B shapes"
+    widths = ", ".join(str(w) for w in env["widths_run"])
+    return (
+        f"# SwiGLU at widths {widths} (not the Muse-Glimmer-30B width "
+        f"{env['muse_intermediate_width']})"
+    )
+
+
 def _reproducibility_lines(report):
     """Headline table: what each figure does across whole-matrix passes."""
     summary = report.get("reproducibility") or []
@@ -481,7 +501,7 @@ def _reproducibility_lines(report):
 def _markdown(report):
     env = report["environment"]
     lines = [
-        "# SwiGLU on Muse-Glimmer-30B shapes",
+        _title(env),
         "",
         f"GPU: {env['gpu']}; PyTorch: {env['torch']}; Triton: {env['triton']}; "
         f"{env['backend']} runtime: {env['runtime']}.",
