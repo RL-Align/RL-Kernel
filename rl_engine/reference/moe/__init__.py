@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Reference implementations for DSV4 MoE semantic boundaries."""
+"""Explicit MoE diagnostic references; never used as production fallbacks."""
 
 from .gradient_combine import (
     combine_local_input_gradients,
