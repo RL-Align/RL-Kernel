@@ -38,6 +38,7 @@ nav:
       - operators/embedding.md
       - operators/learned-route.md
       - operators/router-training.md
+      - operators/router-aux-loss.md
   - Developer Guide:
     - contributing/README.md
     - Contributor Guide: contributing/contributor-guide.md
