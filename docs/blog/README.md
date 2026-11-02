@@ -4,6 +4,14 @@ Release notes and engineering writeups for RL-Kernel.
 
 <div class="grid cards" markdown>
 
+-   **[Your First RL-Kernel Run: From Setup to a Consistency Check](2026-11-02-your-first-rl-kernel-run.md)**
+
+    ---
+
+    Prepare a Qwen3-8B experiment, run a short training/rollout consistency
+    check on H100 or MI300X, and read the result. Includes a short live
+    walkthrough script.
+
 -   **[RL-Kernel v0.1.0: Achieving Bitwise Consistency Between Training and Rollout](2026-09-18-rl-kernel-amd-vime-qwen3-8b-train-rollout-bitwise-consistency.md)**
 
     ---
