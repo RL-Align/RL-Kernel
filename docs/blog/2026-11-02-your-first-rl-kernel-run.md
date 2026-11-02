@@ -75,9 +75,9 @@ The import should print the compiled extension's location. Save the Git
 revision with your results so that you know which source version you used.
 For build prerequisites, see [Installation](../getting_started/installation.md).
 
-`RLK_DEMO_MODEL` must contain the Hugging Face model files, including the
+RLK\_DEMO\_MODEL must contain the Hugging Face model files, including the
 weights, configuration and tokenizer. If you do not already have them, download
-them once using `huggingface_hub` from your environment:
+them once using huggingface\_hub from your environment:
 
 ```bash
 python - <<'PY'
@@ -91,12 +91,12 @@ PY
 ## 2. Save your machine configuration once
 
 A **profile** is a small JSON file holding your backend and local paths.
-Saving it as `.rlk-profile.json` lets `./rlk` find the right environment without
+Saving it as .rlk-profile.json lets ./rlk find the right environment without
 editing a training script. This file is ignored by Git.
 
 Choose the tab for your hardware. The snippets create a new local profile and
 refuse to overwrite an existing one. If you already have a working profile,
-keep it and skip profile creation. `RLK_REPRO_PROFILE`, when set, selects a
+keep it and skip profile creation. RLK\_REPRO\_PROFILE, when set, selects a
 different file; unset it below to use this checkout's local profile.
 
 === "NVIDIA H100 / CUDA"
@@ -128,7 +128,7 @@ different file; unset it below to use this checkout's local profile.
     ./rlk prepare --download-data --convert-checkpoint
     ```
 
-    `prepare` checks out the pinned vime and Megatron revisions, prepares
+    prepare checks out the pinned vime and Megatron revisions, prepares
     DAPO-Math-17k prompts, and converts the local model to the Megatron checkpoint
     format. It does not create a Python environment or download the model.
     Use a new workspace; existing companion checkouts must be clean because
@@ -136,7 +136,7 @@ different file; unset it below to use this checkout's local profile.
 
     Next, start Ray on your reserved node. The reference command allocates
     **200 GB** for the object store; reduce that value if necessary for your
-    host RAM and `/dev/shm`. Reuse a suitable Ray head you already own instead
+    host RAM and /dev/shm. Reuse a suitable Ray head you already own instead
     of starting a second one.
 
     ```bash
@@ -150,7 +150,7 @@ different file; unset it below to use this checkout's local profile.
     ./rlk doctor --mode consistency
     ```
 
-    Continue only when the final line says `Doctor: PASS`. If Transformer
+    Continue only when the final line says Doctor: PASS. If Transformer
     Engine or CUDA Python is installed outside this environment, configure
     the extra paths described in the
     [setup guide](../usage/qwen3-vime-consistency.md#prepare-once).
@@ -200,7 +200,7 @@ different file; unset it below to use this checkout's local profile.
     ```
 
     Prepare the data and reference checkpoint once. If you already have these
-    files, set `prompt_data` and `ref_load` in your local profile to their
+    files, set prompt\_data and ref\_load in your local profile to their
     existing locations and skip this block.
 
     ```bash
@@ -222,10 +222,10 @@ different file; unset it below to use this checkout's local profile.
     )
     ```
 
-    Do not run the CUDA `prepare` or `doctor` commands with this ROCm profile.
+    Do not run the CUDA prepare or doctor commands with this ROCm profile.
     The ROCm runner checks its inputs when starting and manages its own Ray
     instance. It refuses to stop an unrelated Ray cluster. Keep the profile's
-    Ray ports available, or choose free ones in its `defaults` section.
+    Ray ports available, or choose free ones in its defaults section.
 
 ## 3. Preview the command
 
@@ -239,7 +239,7 @@ directory:
   --max-response-len 6912 --max-tokens-per-gpu 4096 --steps 3
 ```
 
-`plan` prints JSON containing `paths` and `runner_command`. Check that the
+plan prints JSON containing paths and runner\_command. Check that the
 Python executable, model, companion repositories and output folder are yours.
 **It does not launch a GPU job or prove that the environment is ready.**
 
@@ -247,14 +247,14 @@ You only need a few settings for this first run:
 
 | Setting | Plain-language meaning |
 |---|---|
-| `--mode consistency` | Use RL-Kernel's consistency path. |
-| `--tp 4` | Split training model computation across four GPUs per TP group. Training CP is inferred as 2 on this eight-GPU setup. |
-| `--rollout-tp 4` | Use four GPUs per rollout engine; rollout CP stays at 1. |
-| `--temperature 0.7 --top-p 0.95` | Choose the sampling settings used to generate answers. |
-| `--steps 3` | Run three training/rollout steps instead of the default 200. |
-| `--max-response-len 6912` | Limit the number of generated tokens per answer. |
-| `--max-tokens-per-gpu 4096` | Set the training dynamic-batching token budget per GPU. |
-| `--lr 5e-7 --kl-coef 0.01` | Set the learning rate and reference-policy KL coefficient. Keep these fixed for the guide. |
+| --mode consistency | Use RL-Kernel's consistency path. |
+| --tp 4 | Split training model computation across four GPUs per TP group. Training CP is inferred as 2 on this eight-GPU setup. |
+| --rollout-tp 4 | Use four GPUs per rollout engine; rollout CP stays at 1. |
+| --temperature 0.7 --top-p 0.95 | Choose the sampling settings used to generate answers. |
+| --steps 3 | Run three training/rollout steps instead of the default 200. |
+| --max-response-len 6912 | Limit the number of generated tokens per answer. |
+| --max-tokens-per-gpu 4096 | Set the training dynamic-batching token budget per GPU. |
+| --lr 5e-7 --kl-coef 0.01 | Set the learning rate and reference-policy KL coefficient. Keep these fixed for the guide. |
 
 The training and rollout workers share the node over the workflow; these
 settings do not request sixteen GPUs. Leave the topology unchanged for your
@@ -262,7 +262,7 @@ first check.
 
 ## 4. Run three steps
 
-Replace `plan` with `run`. Give this attempt a unique name so its output is
+Replace plan with run. Give this attempt a unique name so its output is
 easy to find:
 
 ```bash
@@ -278,11 +278,11 @@ export RLK_DEMO_RUN_ID="first-consistency-$(date -u +%Y%m%dT%H%M%SZ)"
 The command waits for completion and performs validation. Model loading,
 compilation and warmup can take time. A three-step run limits the experiment
 size, but its total duration depends on the environment and generated answers. On ROCm, detailed progress is written to
-the run's `arms/r-r/launcher.log`, so the main terminal may be quiet.
+the run's arms/r-r/launcher.log, so the main terminal may be quiet.
 
 ## 5. Read the result
 
-The profiles above put outputs under `workspace/runs/<run-id>`. Use this
+The profiles above put outputs under workspace/runs/&lt;run-id&gt;. Use this
 snippet to find the current run and print its report. It reads your local
 profile, so it also works if you chose a different output folder there:
 
@@ -305,13 +305,13 @@ if report.get("passed") is not True:
 PY
 ```
 
-The report must have **`"passed": true`**. A finished training process alone
+The report must have **"passed": true**. A finished training process alone
 is not a passing consistency check.
 
 | Backend | What to inspect | Where to find details |
 |---|---|---|
-| CUDA | Top-level `passed`; `runtime_scalar_logprob.bitwise_zero` should be `true`. Review the other validation sections too. | `run-validation.json` and `run.log` |
-| ROCm | Top-level `passed`; `metrics.bitwise_equal` should be `true`, `metrics.bitwise_mismatch_count` should be `0`, and `frozen_sources_match` should be `true`. | `single-arm-summary.json`, `arms/r-r/validation.json`, and `arms/r-r/launcher.log` |
+| CUDA | Top-level passed; runtime\_scalar\_logprob.bitwise\_zero should be true. Review the other validation sections too. | run-validation.json and run.log |
+| ROCm | Top-level passed; metrics.bitwise\_equal should be true, metrics.bitwise\_mismatch\_count should be 0, and frozen\_sources\_match should be true. | single-arm-summary.json, arms/r-r/validation.json, and arms/r-r/launcher.log |
 
 The validation also checks evidence such as executed operators, compared
 samples and source records. Read the full report if anything fails; do not
@@ -334,7 +334,7 @@ on the same node. Change only the mode and run name:
 Native mode uses vime's native operators. Its validator can pass while
 training and rollout scores differ: zero mismatch is the requirement for
 **consistency mode**, not a requirement imposed on the native baseline.
-On ROCm, the native log is under `arms/p-p/launcher.log`.
+On ROCm, the native log is under arms/p-p/launcher.log.
 
 Do not treat this short pair as a performance benchmark. Warmup and generated
 answer lengths affect timing, and the two modes can generate different
@@ -360,18 +360,18 @@ attempt, not a guarantee that your machine reproduces a published timing.
 |---|---|
 | Extension import or build fails | Check that the active Python, PyTorch and CUDA/ROCm toolchain match. Follow the installation guide and rebuild. |
 | Profile creation says the file exists | Keep your existing profile, inspect its paths, and skip the creation block. |
-| `plan` shows another machine's paths | Check `.rlk-profile.json` and whether `RLK_REPRO_PROFILE` selects another file. |
-| CUDA `Doctor: FAIL` | Fix the named path, version or Ray connection check before launching. |
+| plan shows another machine's paths | Check .rlk-profile.json and whether RLK\_REPRO\_PROFILE selects another file. |
+| CUDA Doctor: FAIL | Fix the named path, version or Ray connection check before launching. |
 | ROCm reports missing companion integration | Check all three patched companion sources and their installed builds, including the compiled vLLM base change. |
 | ROCm finds an unrelated Ray cluster | Coordinate use of the node; do not stop another user's job. |
 | Output directory already exists | Generate a new run name. Outputs are not overwritten. |
 | No final report yet | Check the backend-specific run log. The job may still be running or may have failed before validation. |
-| Validation says `passed: false` | Read the errors and nested checks. Keep the log, profile and source revisions when reporting the problem. |
+| Validation says passed: false | Read the errors and nested checks. Keep the log, profile and source revisions when reporting the problem. |
 
-The ROCm profile currently supports `plan` and `run`, with validation included
-in `run`. `prepare`, `doctor`, `validate`, `report` and the weight-update
-`verify` workflow are CUDA-only. For the first ROCm run, keep rollout CP at 1,
-temperature positive and top-k disabled (`-1`, the default). See the
+The ROCm profile currently supports plan and run, with validation included
+in run. prepare, doctor, validate, report and the weight-update
+verify workflow are CUDA-only. For the first ROCm run, keep rollout CP at 1,
+temperature positive and top-k disabled (-1, the default). See the
 [support audit](../usage/cuda-rocm-consistency-audit.md) before changing these
 settings.
 
