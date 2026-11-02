@@ -135,13 +135,15 @@ def test_reduction_callbacks_reuse_outputs_and_report_samples(monkeypatch, tmp_p
 
         all_gather_many = all_gather
 
-        def reduce_scatter(self, value, *, out):
+        def reduce_scatter(self, value, *, out, validate_signature):
             """Write a two-rank reduction into the supplied output buffer."""
+            assert validate_signature is False
             outputs["reduce_scatter"].append(out)
             return out.copy_(value.view(2, -1).sum(dim=0))
 
-        def all_reduce(self, value, *, out):
+        def all_reduce(self, value, *, out, validate_signature):
             """Preserve the source while writing a simulated two-rank sum."""
+            assert validate_signature is False
             inputs.append(value.clone())
             assert out is not value
             outputs["all_reduce"].append(out)

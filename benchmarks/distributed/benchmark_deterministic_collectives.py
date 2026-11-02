@@ -141,23 +141,31 @@ def main(argv: Sequence[str] | None = None) -> None:
             deterministic_reduced = torch.empty_like(x)
             nccl_scattered = torch.empty_like(x)
             nccl_reduced = torch.empty_like(x)
+            # NCCL validates nothing per call, so skip the signature exchange here too;
+            # otherwise an uncached signature lands in the timed loop when --warmup is 0.
+            unchecked = {"validate_signature": False}
             cases: dict[str, tuple[Callable[[], object], Callable[[], object]]] = {
                 "all_gather": (
-                    partial(collective.all_gather, x, out=gathered),
+                    partial(collective.all_gather, x, out=gathered, **unchecked),
                     partial(dist.all_gather_into_tensor, gathered, x),
                 ),
                 "all_gather_many": (
-                    partial(collective.all_gather_many, (x,)),
+                    partial(collective.all_gather_many, (x,), **unchecked),
                     lambda out=gathered, src=x: dist.all_gather_into_tensor(
                         out.new_empty(out.shape), src
                     ),
                 ),
                 "reduce_scatter": (
-                    partial(collective.reduce_scatter, reduce_in, out=deterministic_scattered),
+                    partial(
+                        collective.reduce_scatter,
+                        reduce_in,
+                        out=deterministic_scattered,
+                        **unchecked,
+                    ),
                     partial(dist.reduce_scatter_tensor, nccl_scattered, reduce_in),
                 ),
                 "all_reduce": (
-                    partial(collective.all_reduce, x, out=deterministic_reduced),
+                    partial(collective.all_reduce, x, out=deterministic_reduced, **unchecked),
                     partial(dist.all_reduce, nccl_reduced),
                 ),
             }
