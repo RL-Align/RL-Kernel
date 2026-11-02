@@ -51,12 +51,14 @@ Coverage: **294/300 production statements (98.00%)**, **27/30 branches
 benchmark and provisioning script are not counted as runtime coverage.
 The FP64 backend is explicitly test-only; production fails closed.
 
-On November 3, **253 passed, 14 warnings, zero skipped** for
+On November 3, **254 passed, 14 warnings, zero skipped** for
 `tests/contracts/operators` and the two forward test modules, with
 `RLK_AITER_DSV4_SPARSE_KERNEL_SOURCE=/cache/dsv4/sparse_mla_dsv4_train.py`.
 Ruff check and format passed. This run covers the pinned-source TOCTOU guard,
-packed D512 admission, and forward buffer geometry added after the original
-coverage measurement; the October 29 coverage percentage is historical.
+packed D512 admission, independent caller-key selection oracle with an
+intentionally incorrect window-row regression, and forward buffer geometry
+added after the original coverage measurement; the October 29 coverage
+percentage is historical.
 
 ## Timings
 

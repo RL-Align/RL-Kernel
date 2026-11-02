@@ -18,7 +18,7 @@ from rl_engine.models.deepseek_v4.joint_attention import (
     JointMetadata,
     gather_packed_joint_kv,
 )
-from .joint_attention_helpers import case, record, reference, same_bytes
+from .joint_attention_helpers import case, case_reference, record, reference_from_keys, same_bytes
 
 pytestmark = pytest.mark.skipif(
     not torch.cuda.is_available() or torch.version.hip is None, reason="native MI300X acceptance"
@@ -101,9 +101,7 @@ def test_backend_rejects_short_direct_buffers(name, backend):
 def test_native_reference_and_modes(m, dim, heads, backend):
     plan, q, kv, sink, meta, _ = case(backend=backend, m=m, dim=dim, heads=heads, padding=True)
     out = record(plan, q, kv, sink, meta)
-    expected, expected_lse = reference(
-        q, kv[meta.permutation], sink, meta.indices, plan.contract.softmax_scale
-    )
+    expected, expected_lse = case_reference(plan, q, kv, sink, padding=True)
     if m:
         expected[-1] = 0
         expected_lse[-1] = float("-inf")
@@ -125,9 +123,7 @@ def test_empty_segments_and_sink(window, topk, ratio, sink_disabled, backend):
     if sink_disabled:
         sink.fill_(float("-inf"))
     out = record(plan, q, kv, sink, meta)
-    expected, expected_lse = reference(
-        q, kv[meta.permutation], sink, meta.indices, plan.contract.softmax_scale
-    )
+    expected, expected_lse = case_reference(plan, q, kv, sink)
     torch.testing.assert_close(out.output.double(), expected, rtol=0.025, atol=0.006)
     torch.testing.assert_close(out.lse.double(), expected_lse, rtol=1e-5, atol=2e-5)
 
@@ -251,7 +247,9 @@ def test_640_selected_rows_128_heads_and_packed_order(backend):
     sink = torch.randn(128, device="cuda")
     plan = JointAttentionPlan(c, backend=backend)
     out = record(plan, q, kv, sink, meta)
-    expected, expected_lse = reference(q, kv[meta.permutation], sink, meta.indices, c.softmax_scale)
+    expected, expected_lse = reference_from_keys(
+        q, kv, sink, qkeys, kvkeys, comp, c.window_size, c.softmax_scale
+    )
     torch.testing.assert_close(out.output.double(), expected, rtol=0.025, atol=0.006)
     torch.testing.assert_close(out.lse.double(), expected_lse, rtol=1e-5, atol=2e-5)
     plan.capture()
@@ -331,7 +329,9 @@ def test_real_compressed_group_boundaries(ratio, backend):
     )
     sink = torch.randn(13, device="cuda")
     out = record(plan, q, kv, sink, meta)
-    expected, expected_lse = reference(q, kv[meta.permutation], sink, meta.indices, c.softmax_scale)
+    expected, expected_lse = reference_from_keys(
+        q, kv, sink, keys, kvkeys, comp, c.window_size, c.softmax_scale
+    )
     torch.testing.assert_close(out.output.double(), expected, rtol=0.025, atol=0.006)
     torch.testing.assert_close(out.lse.double(), expected_lse, rtol=1e-5, atol=2e-5)
 

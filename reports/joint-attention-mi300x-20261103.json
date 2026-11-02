@@ -109,7 +109,7 @@
   "time_zone": "Asia/Shanghai",
   "base_main": "d00d444b46858b5109acafd29b5e6af70ac73370",
   "target": "dsv4-rocm",
-  "test_result": "253 passed, 14 warnings, zero skipped",
+  "test_result": "254 passed, 14 warnings, zero skipped",
   "test_scope": "tests/contracts/operators tests/models/deepseek_v4/test_joint_attention.py tests/models/deepseek_v4/test_joint_attention_rocm.py",
   "benchmark_validity": "Eager and captured core execute the same padded work. Each event and wall timing is from the same synchronized 30-call pass; HIP event windows include host and launch gaps. No baseline engine or full-model speedup claim.",
   "tested_sources_sha256": {
@@ -117,8 +117,9 @@
     "rl_engine/backends/rocm/attention/joint_attention.py": "cf0d34f027dd39119b37fb973cc2c01dc6a0c2a5cbe6db52a848c2715bdb78bd",
     "rl_engine/contracts/operators/joint_attention.py": "1b72d2491514cfa4bc1334c7cb5970bdc33df5a3261124b5102f6095cc2683ec",
     "rl_engine/models/deepseek_v4/joint_attention.py": "da5e542ea9ba39b61c2ff386b148fe1a2611498232fa5b7a5d8e9b3beefd7922",
-    "tests/models/deepseek_v4/test_joint_attention.py": "9923a68e9c61eed2c4a28fdff760ce8db7d6cfcffe23fe44a956a3cc3122ea86",
-    "tests/models/deepseek_v4/test_joint_attention_rocm.py": "c04683eb55f5e833a31ead9aaf8307db4873be0d2f9a63b9d823ef8c968a4d6a"
+    "tests/models/deepseek_v4/joint_attention_helpers.py": "4ec7d9c8e57a9aa2bb0edf58fd83ad11fe480a0976898fc18cba18151d125bda",
+    "tests/models/deepseek_v4/test_joint_attention.py": "66a86371931067f91258de7afd57efd9ae05483e4203685fff384faf34d477b9",
+    "tests/models/deepseek_v4/test_joint_attention_rocm.py": "862f0144c579123edc7a78e7325cb736690fad22c1568adadac8db86325b0525"
   },
   "provider": {
     "profile": "aiter.326c.single_split.h32.k32.bf16_p.fp32_lse.v1",
