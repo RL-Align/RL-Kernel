@@ -188,15 +188,19 @@ __global__ void fused_add_norm_bwd_kernel(
     const float dot_pre = block_reduce_sum(local) / static_cast<float>(H);
 
     // d_res_out is live on two paths: downstream cotangent plus the pre-norm's
-    // input gradient. Store it, and accumulate the post-norm dot in the same pass.
+    // input gradient. Accumulate them the way eager does: the residual output is
+    // a model-dtype tensor, so autograd rounds the arriving gradient to that dtype
+    // and adds in that dtype. In FP32 this is one ULP per element and puts the
+    // post-norm weight gradient 2.6-2.9x outside the contract row at 512 and 2048
+    // rows. Store it, and accumulate the post-norm dot in the same pass.
     local = 0.0f;
     for (int col = tid; col < H; col += blockDim.x) {
         const float gp = load_as_float<scalar_t>(g_pre + base + col);
         const float gain = 1.0f + load_as_float<weight_t>(pre_w + col);
         const float ro = load_as_float<scalar_t>(res_out + base + col);
         const float scaled = gp * gain;
-        const float d_ro = load_as_float<scalar_t>(g_res + base + col)
-                         + (rq * scaled - ro * rq * rq * rq * dot_pre);
+        const float d_from_pre = narrow_to<scalar_t>(rq * scaled - ro * rq * rq * rq * dot_pre);
+        const float d_ro = narrow_to<scalar_t>(load_as_float<scalar_t>(g_res + base + col) + d_from_pre);
         d_residual[base + col] = d_ro;
         partial_pre_w[base + col] = gp * ro * rq;
 

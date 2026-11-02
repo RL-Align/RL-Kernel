@@ -9,8 +9,9 @@ counts span a decode step, a small batch, and a prefill-sized chunk.
 All three sides are timed through the public ``forward``, which returns the input
 dtype everywhere, so the timed workloads write the same number of bytes. The
 accuracy gate runs on that same ``forward`` path and compares both outputs and all
-four input gradients against the native ``forward_fp32`` gold at the contract's
-``reduction`` rows before anything is timed.
+four input gradients against the native ``forward`` at the contract's ``reduction``
+rows before anything is timed; ``_check_accuracy`` records why ``forward`` rather
+than ``forward_fp32`` is the reference here.
 
 The Triton and CUDA backwards are one kernel each plus the FP32 row fold for the
 two weight gradients; the native backward is whatever autograd records over two
@@ -136,13 +137,21 @@ def _one_ulp(reference: torch.Tensor) -> float:
 
 
 def _check_accuracy(native, candidate, hidden, residual, post_w, pre_w, g_res, g_pre):
-    """Gate the timed ``forward`` of a candidate against the FP32 gold.
+    """Gate the timed ``forward`` of a candidate against the native ``forward``.
 
     Both outputs and all four input gradients, each at the contract's ``reduction``
-    row for its own dtype. FP16 is ``optional`` in the contract and is held to one
-    ULP of the reference instead of the declared floor, the same rule and for the
-    same measured reason as the test files: the kernels land on the far side of an
-    FP16 tie in the residual add on a handful of elements.
+    row for its own dtype. The reference is ``native.forward``, not
+    ``forward_fp32``, and that choice is load-bearing for this operator.
+    ``forward_fp32`` deliberately skips both narrowing points, so it is a different
+    computation, and the pre-norm weight gradient sums over rows a value that
+    differs by one BF16 ULP per element between the two: measured gold-against-gold
+    at bf16, ``d_pre_w`` differs by 0.0625 at 8 rows, 0.25 at 64, 0.5 at 512 and
+    1.0 at 2048, which is exactly the series the kernels showed against
+    ``forward_fp32`` and more than the 0.1 row allows from 512 rows on. Against
+    ``native.forward`` the same gradient is within 0.03 at every size. What gets
+    timed is ``forward``, so ``forward`` is the thing to be right about; formula
+    correctness against FP64 is the test files' job. FP16 is ``optional`` in the
+    contract and is held to one ULP of the reference for the reason recorded there.
     """
 
     def evaluate(fn):
@@ -152,7 +161,7 @@ def _check_accuracy(native, candidate, hidden, residual, post_w, pre_w, g_res, g
         grads = torch.autograd.grad(outs, leaves + weights, grad_outputs=(g_res, g_pre))
         return [o.detach() for o in outs] + list(grads)
 
-    expected = evaluate(native.forward_fp32)
+    expected = evaluate(native.forward)
     actual = evaluate(candidate.forward)
     contract = load_contract()
     errors = {}
@@ -273,7 +282,7 @@ def _environment(device, args, triton_version, shapes, candidates):
             "eager NativeFusedAddNormOp.forward on the same GPU; every side emits the input dtype"
         ),
         "accuracy": (
-            "candidate forward vs native forward_fp32 gold, reduction rows, "
+            "candidate forward vs native forward (same narrowing contract), reduction rows, "
             "both outputs and four gradients"
         ),
         "scope": "Public wrappers, including allocation and autograd dispatch; no graph capture",

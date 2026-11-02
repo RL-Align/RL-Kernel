@@ -35,7 +35,15 @@ requires_cuda_kernel = pytest.mark.skipif(
 )
 
 _CONTRACT = load_contract()
-SHAPES = [(1, HIDDEN_SIZE), (8, HIDDEN_SIZE), (64, HIDDEN_SIZE), (2, 3, HIDDEN_SIZE)]
+# 512 rows is the benchmark's largest default shape; weight gradients sum over
+# rows, so the row count is where accumulated error would show first.
+SHAPES = [
+    (1, HIDDEN_SIZE),
+    (8, HIDDEN_SIZE),
+    (64, HIDDEN_SIZE),
+    (512, HIDDEN_SIZE),
+    (2, 3, HIDDEN_SIZE),
+]
 DTYPES = [torch.float32, torch.bfloat16, torch.float16]
 _KW = {"post_eps": POST_NORM_EPS, "pre_eps": RMS_NORM_EPS}
 
@@ -102,8 +110,11 @@ def test_cuda_forward_matches_native(dtype, shape):
 
 @requires_cuda_kernel
 @pytest.mark.parametrize("dtype", DTYPES)
-def test_cuda_backward_matches_autograd_on_the_reference(dtype):
-    shape = (8, HIDDEN_SIZE)
+@pytest.mark.parametrize("rows", [8, 512], ids=lambda r: f"{r}rows")
+def test_cuda_backward_matches_autograd_on_the_reference(dtype, rows):
+    # 512 rows: weight gradients sum over rows, so the gradient-accumulation
+    # dtype only shows here; at 8 rows FP32 and eager accumulation both pass.
+    shape = (rows, HIDDEN_SIZE)
     hidden, residual, post_w, pre_w = _inputs(shape, dtype)
     g_res = _rand(shape, seed=210, dtype=dtype)
     g_pre = _rand(shape, seed=211, dtype=dtype)

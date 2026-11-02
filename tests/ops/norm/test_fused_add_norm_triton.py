@@ -120,7 +120,15 @@ def _assert_against_gold(judgment, dtype, got, want, label=""):
     )
 
 
-SHAPES = [(1, HIDDEN_SIZE), (8, HIDDEN_SIZE), (64, HIDDEN_SIZE), (2, 3, HIDDEN_SIZE)]
+# 512 rows is the benchmark's largest default shape; weight gradients sum over
+# rows, so the row count is where accumulated error would show first.
+SHAPES = [
+    (1, HIDDEN_SIZE),
+    (8, HIDDEN_SIZE),
+    (64, HIDDEN_SIZE),
+    (512, HIDDEN_SIZE),
+    (2, 3, HIDDEN_SIZE),
+]
 DTYPES = [torch.float32, torch.bfloat16, torch.float16]
 
 
@@ -158,13 +166,16 @@ def test_triton_forward_matches_native(dtype, shape):
 
 @requires_cuda
 @pytest.mark.parametrize("dtype", DTYPES)
-def test_triton_backward_matches_autograd_on_the_reference(dtype):
+@pytest.mark.parametrize("rows", [8, 512], ids=lambda r: f"{r}rows")
+def test_triton_backward_matches_autograd_on_the_reference(dtype, rows):
     """Gradients inside tolerance against autograd on the native forward.
 
     Both cotangents are random and non-zero, so neither the rstd term nor the
     second path into the residual output can hide.
     """
-    shape = (8, HIDDEN_SIZE)
+    # 512 rows: weight gradients sum over rows, so the gradient-accumulation
+    # dtype only shows here; at 8 rows FP32 and eager accumulation both pass.
+    shape = (rows, HIDDEN_SIZE)
     hidden, residual, post_w, pre_w = _inputs(shape, dtype)
     g_res = _rand(shape, seed=110, dtype=dtype)
     g_pre = _rand(shape, seed=111, dtype=dtype)

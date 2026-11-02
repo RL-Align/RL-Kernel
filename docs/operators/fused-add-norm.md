@@ -53,6 +53,16 @@ asserts the two disagree in BF16 so nobody collapses them later.
 The `1 +` has to reach the kernel as a parameter. Folding it into a BF16 weight
 beforehand rounds the offset away.
 
+The backward has one rule of its own, the mirror of the second narrowing. The
+residual output is a model-dtype tensor with two gradient consumers, and eager
+autograd accumulates both arrivals in that dtype: `round(g_res + round(d_from_pre))`.
+Both kernels do the same. Keeping that sum in FP32 is one ULP per element, which the
+post-norm weight gradient then sums over rows; measured at bf16 against the
+reference's own autograd it lands 2.6 to 2.9 times outside the contract row at 512
+and 2048 rows, a single rounding of the FP32 sum does not help, and the eager
+accumulation brings it to within 0.125 and then to 0. A reference test asserts both
+halves of that so the rounding cannot be removed as a simplification.
+
 ## Backends
 
 | Backend | Class | Notes |

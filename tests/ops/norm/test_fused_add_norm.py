@@ -349,3 +349,51 @@ def test_forward_matches_an_eager_composition(dtype):
     got_residual, got_pre = NativeFusedAddNormOp().forward(hidden, residual, post_w, pre_w)
     assert torch.equal(got_residual, expected_residual)
     assert torch.equal(got_pre, expected_pre)
+
+
+@pytest.mark.parametrize("rows", [8, 512, 2048])
+def test_closed_form_backward_accumulates_the_residual_gradient_like_eager(rows):
+    """The residual output's two incoming gradients are summed in the model dtype.
+
+    Eager autograd rounds what arrives at a bf16 tensor to bf16 and adds in bf16.
+    Keeping that sum in FP32 is one ULP per element, and the post-norm weight
+    gradient sums it over rows: measured against the reference's own autograd, the
+    FP32 variant sits 2.6 to 2.9 times outside the bf16 contract row at 512 and 2048
+    rows, a single rounding of the FP32 sum does not help, and the eager
+    accumulation brings it inside. This pins the closed form to autograd on
+    ``forward`` at bf16 at the row counts where the difference is visible, and
+    asserts the FP32-accumulated variant really does fail there, so the rounding
+    cannot be removed as a simplification.
+    """
+    dtype = torch.bfloat16
+    shape = (rows, HIDDEN_SIZE)
+    hidden = _rand(shape, seed=90, dtype=dtype)
+    residual = _rand(shape, seed=91, dtype=dtype)
+    post_w = _rand((HIDDEN_SIZE,), seed=92, dtype=dtype)
+    pre_w = _rand((HIDDEN_SIZE,), seed=93, dtype=dtype)
+    g_res = _rand(shape, seed=94, dtype=dtype)
+    g_pre = _rand(shape, seed=95, dtype=dtype)
+
+    leaves = [t.clone().requires_grad_(True) for t in (hidden, residual, post_w, pre_w)]
+    out_res, out_pre = NativeFusedAddNormOp().forward(*leaves)
+    torch.autograd.backward((out_res, out_pre), grad_tensors=(g_res, g_pre))
+    want = [t.grad.float() for t in leaves]
+
+    atol, rtol = 1e-1, 2e-2  # the contract's bf16 gradient_accuracy reduction row
+    lead = (0,)
+
+    eager = fused_add_norm_backward(g_res, g_pre, hidden, residual, post_w, pre_w)
+    got = [eager[0], eager[1], eager[2].sum(dim=lead), eager[3].sum(dim=lead)]
+    for g, w, name in zip(got, want, ("d_hidden", "d_residual", "d_post_w", "d_pre_w")):
+        torch.testing.assert_close(
+            g.to(dtype).float(), w, atol=atol, rtol=rtol, msg=lambda m, n=name: f"{n}: {m}"
+        )
+
+    if rows >= 512:
+        fp32 = fused_add_norm_backward(
+            g_res, g_pre, hidden, residual, post_w, pre_w, grad_dtype=torch.float32
+        )
+        with pytest.raises(AssertionError):
+            torch.testing.assert_close(
+                fp32[2].sum(dim=lead).to(dtype).float(), want[2], atol=atol, rtol=rtol
+            )

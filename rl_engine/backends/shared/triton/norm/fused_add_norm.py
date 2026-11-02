@@ -127,11 +127,16 @@ if _TRITON_AVAILABLE:
 
         # Pre-norm backward, then fold in the cotangent the residual output gets
         # from downstream. It is live on both paths; dropping either is silent.
+        # Accumulate the two the way eager does: the residual output is a
+        # model-dtype tensor, so autograd rounds the arriving gradient to that
+        # dtype and adds in that dtype. Keeping this in FP32 is one ULP per
+        # element and puts the post-norm weight gradient 2.6-2.9x outside the
+        # contract row at 512 and 2048 rows; see the reference's docstring.
+        narrow = G_RES.dtype.element_ty
         scaled_pre = g_pre * pre_gain
         dot_pre = tl.sum(scaled_pre * res_out, axis=0) / H
-        d_res_out = g_res + (
-            rstd_pre * scaled_pre - res_out * rstd_pre * rstd_pre * rstd_pre * dot_pre
-        )
+        d_from_pre = rstd_pre * scaled_pre - res_out * rstd_pre * rstd_pre * rstd_pre * dot_pre
+        d_res_out = (g_res + d_from_pre.to(narrow).to(tl.float32)).to(narrow).to(tl.float32)
 
         scaled_post = d_res_out * post_gain
         dot_post = tl.sum(scaled_post * hidden, axis=0) / H

@@ -236,8 +236,9 @@ def fused_add_norm_backward(
     *,
     post_eps: float = POST_NORM_EPS,
     pre_eps: float = RMS_NORM_EPS,
+    grad_dtype: torch.dtype | None = None,
 ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
-    """Gradients of ``NativeFusedAddNormOp.forward_fp32``.
+    """Gradients of ``NativeFusedAddNormOp.forward``, closed form.
 
     Returns ``(d_hidden, d_residual, d_post_weight_rows, d_pre_weight_rows)``. The
     two weight entries are per-row FP32 contributions, not sums, matching
@@ -248,22 +249,40 @@ def fused_add_norm_backward(
     reaching it is the sum of what comes back from downstream and what comes back
     through the pre-norm. Getting that wrong is invisible when the downstream
     cotangent is zero, which is why the tests drive both outputs.
+
+    That sum is accumulated in ``grad_dtype``, which defaults to the input dtype,
+    and this is the backward half of the forward's narrowing contract rather than
+    a convenience. In eager the residual output is a model-dtype tensor with two
+    gradient consumers, and autograd accumulates both arrivals in that dtype:
+    ``round(g_res + round(d_from_pre))``. Keeping the sum in FP32 instead looks
+    harmless per element, one ULP at most, but the post-norm weight gradient sums
+    it over rows and the discrepancy compounds. Measured at bf16 against the
+    reference's own autograd: FP32 accumulation puts ``d_post_w`` 2.6 to 2.9 times
+    outside the contract row at 512 and 2048 rows; a single rounding of the FP32
+    sum does not help; the eager accumulation brings it to 0.125 and then 0.000.
+    The forward narrowing is where the value is rounded; this is where its
+    gradient is. With ``grad_dtype=torch.float32`` both roundings are the
+    identity and this is the gradient of ``forward_fp32``.
     """
+    dtype = hidden.dtype if grad_dtype is None else grad_dtype
     hidden_f = hidden.float()
     residual_f = residual.float()
     post_gain = 1.0 + post_weight.float()
     pre_gain = 1.0 + pre_weight.float()
 
-    # Recompute the forward to recover both statistics and the intermediate.
+    # Recompute the forward, narrowing where it narrows, to recover both
+    # statistics and the intermediate the pre-norm actually saw.
     rstd_post = torch.rsqrt(shape_invariant_meansq(hidden_f) + float(post_eps)).unsqueeze(-1)
-    residual_out = residual_f + (hidden_f * rstd_post) * post_gain
+    post = ((hidden_f * rstd_post) * post_gain).to(dtype).float()
+    residual_out = (residual_f + post).to(dtype).float()
     rstd_pre = torch.rsqrt(shape_invariant_meansq(residual_out) + float(pre_eps)).unsqueeze(-1)
 
     d_from_pre, d_pre_weight_rows = _centered_backward(
         grad_pre_normed.float(), residual_out, pre_gain, rstd_pre
     )
-    # The residual output is live on two paths; add them before going further back.
-    d_residual_out = grad_residual_out.float() + d_from_pre
+    # The residual output is live on two paths; accumulate them the way eager
+    # does, in the model dtype, before going further back.
+    d_residual_out = (grad_residual_out.float() + d_from_pre.to(dtype).float()).to(dtype).float()
 
     d_hidden, d_post_weight_rows = _centered_backward(
         d_residual_out, hidden_f, post_gain, rstd_post
