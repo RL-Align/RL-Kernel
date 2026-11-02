@@ -34,9 +34,16 @@ This adapter is not yet wired into a full DSV4 optimizer/training step.
 - Four-rank Gloo reference: TP AllGather, SP AllReduce, DP FP32 mean,
   DP ReduceScatter, plus version/phase/shape mismatch rejection.
 - One-rank ROCm NCCL process group: all three operations on MI300X.
+- Four-rank ROCm NCCL: TP2/SP1/DP2 ordered phases, two successive steps,
+  FP32 DP normalization, ReduceScatter shards, and cross-rank stale-version
+  rejection on four MI300X cards. Run the isolated pytest with
+  `ROCR_VISIBLE_DEVICES=0,1,2,3` (the container's default is one card).
+- The underlying IPC transport passes the mixed eager/Graph check at TP1/2/4/8
+  on eight MI300X cards; this does **not** enable Graph for the DSV4 adapter,
+  whose object-gather control plane remains capture-incompatible.
 - Related distributed collective tests and lint should be run before merge.
-- Multi-GPU ROCm, 8+8 multi-node, fault recovery, and model-level throughput
-  are **not** validated: this container currently exposes one GPU.
+- The full DSV4 adapter on TP8, 8+8 multi-node, fault recovery, Graph, and
+  model-level throughput remain **unvalidated**.
 
 This PR is an incremental item-40 implementation, not full acceptance of KLR
 #81. It targets `dsv4-rocm` after the branch absorbs its needed `main` commits.

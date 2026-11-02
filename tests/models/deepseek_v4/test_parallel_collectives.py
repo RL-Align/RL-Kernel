@@ -284,3 +284,62 @@ def test_rocm_world_one(tmp_path: Path):
             runtime.end_step()
     finally:
         dist.destroy_process_group()
+
+
+def _rocm_four_rank_worker(rank: int, rendezvous: str):
+    torch.cuda.set_device(rank)
+    dist.init_process_group("nccl", init_method=f"file://{rendezvous}", rank=rank, world_size=4)
+    try:
+        plan = _contract()
+        groups = {}
+        for dimension in ("tp", "sp", "dp"):
+            for ranks in getattr(plan, f"{dimension}_groups"):
+                group = dist.new_group(ranks=list(ranks), backend="nccl")
+                if rank in ranks:
+                    groups[dimension] = group
+        with Dsv4ParallelCollectives(plan, world_group=dist.group.WORLD, groups=groups) as runtime:
+            for step in (0, 1):
+                runtime.begin_step(step, model_version="checkpoint-42")
+                value = torch.tensor([float(rank + 1 + step)], device="cuda")
+                torch.testing.assert_close(
+                    runtime.execute("tp_gather", value),
+                    torch.tensor(
+                        [rank // 2 * 2 + 1.0 + step, rank // 2 * 2 + 2.0 + step], device="cuda"
+                    ),
+                )
+                torch.testing.assert_close(runtime.execute("sp_sum", value), value)
+                torch.testing.assert_close(
+                    runtime.execute("dp_mean", value),
+                    torch.tensor([2.0 + rank % 2 + step], device="cuda"),
+                )
+                shard = runtime.execute(
+                    "dp_shard", torch.tensor([rank + 1.0 + step, rank + 11.0 + step], device="cuda")
+                )
+                expected = (
+                    (4.0 + 2 * step if rank == 0 else 24.0 + 2 * step)
+                    if rank % 2 == 0
+                    else (6.0 + 2 * step if rank == 1 else 26.0 + 2 * step)
+                )
+                torch.testing.assert_close(shard, torch.tensor([expected], device="cuda"))
+                runtime.end_step()
+            with pytest.raises(Dsv4CollectiveError, match="mismatch"):
+                runtime.begin_step(2, model_version="stale" if rank == 0 else "checkpoint-42")
+            with pytest.raises(Dsv4CollectiveError, match="poisoned"):
+                runtime.begin_step(3, model_version="checkpoint-42")
+    finally:
+        dist.destroy_process_group()
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available() or not torch.version.hip or torch.cuda.device_count() < 4,
+    reason="four ROCm GPUs required",
+)
+def test_rocm_four_rank_tp_sp_dp_plan(tmp_path: Path):
+    if dist.is_initialized():
+        pytest.skip("requires an isolated process group")
+    mp.spawn(
+        _rocm_four_rank_worker,
+        args=(str(tmp_path / "rocm-four-rank-rendezvous"),),
+        nprocs=4,
+        join=True,
+    )

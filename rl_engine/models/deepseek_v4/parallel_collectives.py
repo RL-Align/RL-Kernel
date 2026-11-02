@@ -132,7 +132,7 @@ class Dsv4ParallelCollectives:
         self._usable()
         try:
             layout = (
-                (tuple(value.shape), str(value.dtype), str(value.device), value.is_contiguous())
+                (tuple(value.shape), str(value.dtype), value.device.type, value.is_contiguous())
                 if isinstance(value, torch.Tensor)
                 else None
             )
