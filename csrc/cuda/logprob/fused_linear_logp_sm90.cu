@@ -2657,6 +2657,9 @@ torch::Tensor fused_linear_logp_sm90_strict_dlogits(torch::Tensor hidden,
         TORCH_CHECK(temperature->numel() == N, "temperature must have one value per token");
         temp_c = temperature->contiguous();
         temp_ptr = temp_c.data_ptr<float>();
+        // The epilogue computes 1/T; fail closed like the forward entry.
+        const float tmin = temp_c.min().item<float>();
+        TORCH_CHECK(tmin > 0.0f, "temperature must be strictly positive, got min ", tmin);
     }
     // Same local masking boundary as the forward kernel.
     const int real_vocab_end =

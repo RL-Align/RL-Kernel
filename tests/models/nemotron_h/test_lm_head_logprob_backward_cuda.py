@@ -270,3 +270,21 @@ def test_strict_dlogits_kernel_matches_torch_formula(strict_op, lm_head_weight):
     expected[hit.nonzero().squeeze(1), (target[hit] - start)] += 1.0
     expected = (expected * grad_logp[:, None] * inv_t).to(torch.bfloat16)
     assert torch.equal(dlogits, expected)
+
+
+@pytest.mark.parametrize("bad_value", [0.0, -1.0])
+def test_strict_dlogits_entry_rejects_non_positive_temperature(lm_head_weight, bad_value):
+    from rl_engine.backends.extension import _C
+
+    rows = 8
+    hidden = make_hidden(rows, seed=80)
+    target = make_targets(rows, seed=81)
+    grad_logp = _grad_logp(rows, seed=82)
+    lse = torch.zeros(rows, device="cuda", dtype=torch.float32)
+    temperature = torch.ones(rows, device="cuda", dtype=torch.float32)
+    temperature[3] = bad_value
+
+    with pytest.raises(RuntimeError, match="strictly positive"):
+        _C.fused_linear_logp_sm90_strict_dlogits(
+            hidden, lm_head_weight[:4096], target, grad_logp, lse, temperature, 0, -1
+        )
