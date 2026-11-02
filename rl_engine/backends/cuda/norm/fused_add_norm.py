@@ -16,6 +16,7 @@ from torch import Tensor
 from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.ops.autograd.vjp_fp32 import reduce_rows_fp32
+from rl_engine.reference.norm.fused_add_norm import POST_NORM_EPS, RMS_NORM_EPS
 
 _SUPPORTED_DTYPES = (torch.float16, torch.bfloat16, torch.float32)
 _REQUIRED_SYMBOLS = ("fused_add_norm_forward", "fused_add_norm_backward")
@@ -136,10 +137,28 @@ class CudaFusedAddNormOp:
 
     backward_impl = "cuda_fused_add_norm_declared_fp32_rowfold_dw"
 
-    def __call__(self, hidden, residual, post_weight, pre_weight, *, post_eps, pre_eps):
+    def __call__(
+        self,
+        hidden,
+        residual,
+        post_weight,
+        pre_weight,
+        *,
+        post_eps=POST_NORM_EPS,
+        pre_eps=RMS_NORM_EPS,
+    ):
         return self.forward(
             hidden, residual, post_weight, pre_weight, post_eps=post_eps, pre_eps=pre_eps
         )
 
-    def forward(self, hidden, residual, post_weight, pre_weight, *, post_eps, pre_eps):
+    def forward(
+        self,
+        hidden,
+        residual,
+        post_weight,
+        pre_weight,
+        *,
+        post_eps=POST_NORM_EPS,
+        pre_eps=RMS_NORM_EPS,
+    ):
         return _FusedAddNormCuda.apply(hidden, residual, post_weight, pre_weight, post_eps, pre_eps)

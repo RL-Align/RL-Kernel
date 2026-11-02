@@ -34,6 +34,7 @@ from torch import Tensor
 
 from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.ops.autograd.vjp_fp32 import reduce_rows_fp32
+from rl_engine.reference.norm.fused_add_norm import POST_NORM_EPS, RMS_NORM_EPS
 
 try:
     import triton
@@ -333,12 +334,30 @@ class TritonFusedAddNormOp:
 
     backward_impl = "triton_fused_add_norm_declared_fp32_rowfold_dw"
 
-    def __call__(self, hidden, residual, post_weight, pre_weight, *, post_eps, pre_eps):
+    def __call__(
+        self,
+        hidden,
+        residual,
+        post_weight,
+        pre_weight,
+        *,
+        post_eps=POST_NORM_EPS,
+        pre_eps=RMS_NORM_EPS,
+    ):
         return self.forward(
             hidden, residual, post_weight, pre_weight, post_eps=post_eps, pre_eps=pre_eps
         )
 
-    def forward(self, hidden, residual, post_weight, pre_weight, *, post_eps, pre_eps):
+    def forward(
+        self,
+        hidden,
+        residual,
+        post_weight,
+        pre_weight,
+        *,
+        post_eps=POST_NORM_EPS,
+        pre_eps=RMS_NORM_EPS,
+    ):
         return _FusedAddNormTriton.apply(
             hidden, residual, post_weight, pre_weight, post_eps, pre_eps
         )

@@ -46,6 +46,19 @@ OP_SPECS = {
         },
         grad_input_names=("x", "weight"),
     ),
+    "fused_post_norm_residual_pre_norm": OperatorSpec(
+        name="fused_post_norm_residual_pre_norm",
+        op_class="reduction",
+        gold_path="rl_engine.kernels.ops.pytorch.norm.fused_add_norm.NativeFusedAddNormOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.kernels.ops.pytorch.norm.fused_add_norm.NativeFusedAddNormOp",
+            "triton": "rl_engine.kernels.ops.triton.norm.fused_add_norm.TritonFusedAddNormOp",
+            "cuda": "rl_engine.kernels.ops.cuda.norm.fused_add_norm.CudaFusedAddNormOp",
+            "cuda-sm90": "rl_engine.kernels.ops.cuda.norm.fused_add_norm.CudaFusedAddNormOp",
+        },
+        grad_input_names=("hidden", "residual", "post_weight", "pre_weight"),
+    ),
     "qk_norm": OperatorSpec(
         name="qk_norm",
         op_class="reduction",
