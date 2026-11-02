@@ -1,0 +1,104 @@
+{
+  "source": {
+    "report": "PR #321 deterministic CUDA FFN performance report",
+    "pull_request": "https://github.com/RL-Align/RL-Kernel/pull/321",
+    "cuda_commit": "8576fa4bf449734ae99e9b50be8756bb282a8916",
+    "h100_triton_replay_commit": "e64abab904880b877d26d04c0cfad020b992aa51",
+    "note": "User-supplied measurements; cross-hardware values are context only and are not hardware-normalized.",
+    "official_h100_update": {
+      "source": "User-supplied H100 table on 2026-09-06",
+      "topologies": ["tp2", "tp2_sp", "tp4", "tp2_cp2", "tp2_cp2_sp", "tp8", "tp4_cp2", "tp4_cp2_sp"],
+      "directions": ["forward", "train_fwd_bwd"],
+      "fields": ["official_h100_ms", "official_h100_summary_ms"],
+      "git_commit": "98dcd38fb635e1e0eab9035aa4c4b40483cc36b8",
+      "gpu": "NVIDIA H100 80GB",
+      "torch": "2.13.0+cu130",
+      "cuda": "13.0",
+      "units": "ms",
+      "shape": {"tokens": 32, "hidden": 4096, "intermediate": 12288},
+      "dtype": "bfloat16",
+      "warmup": 5,
+      "samples": 20,
+      "training_samples": 10,
+      "timing": "synchronized wall clock; slowest rank per sample",
+      "baseline": "F.linear + NCCL at the same TP/CP/SP topology; TP=1 is used only for untimed RL-Kernel bitwise checks",
+      "validation": {"reference": "RL-Kernel CUDA TP=1", "output_mismatch": 0, "hidden_gradient_mismatch": 0, "weight_gradient_mismatch": 0, "repeat_mismatch": 0, "train_infer_mismatch": 0},
+      "environment_variables": {"NCCL_NVLS_ENABLE": "0", "NCCL_IB_DISABLE": "1", "RL_KERNEL_DET_GEMM_BACKEND": "sm90"},
+      "commands": [
+        "env PYTHONPATH=/tmp/rlk-head-98dcd38-build-GYkK6iE5/repo CUDA_VISIBLE_DEVICES=0,1 NCCL_NVLS_ENABLE=0 NCCL_IB_DISABLE=1 RL_KERNEL_DET_GEMM_BACKEND=sm90 FFN_WORLD_SIZE=2 FFN_WARMUP=5 FFN_SAMPLES=20 FFN_TRAINING_SAMPLES=10 /home/ellm/miniconda3/envs/hsr_env_rl_kernel/bin/python /tmp/rlk-head-98dcd38-build-GYkK6iE5/repo/run_h100_distributed_ffn_data.py",
+        "env PYTHONPATH=/tmp/rlk-head-98dcd38-build-GYkK6iE5/repo CUDA_VISIBLE_DEVICES=0,1,2,3 NCCL_NVLS_ENABLE=0 NCCL_IB_DISABLE=1 RL_KERNEL_DET_GEMM_BACKEND=sm90 FFN_WORLD_SIZE=4 FFN_WARMUP=5 FFN_SAMPLES=20 FFN_TRAINING_SAMPLES=10 /home/ellm/miniconda3/envs/hsr_env_rl_kernel/bin/python /tmp/rlk-head-98dcd38-build-GYkK6iE5/repo/run_h100_distributed_ffn_data.py"
+      ],
+      "note": "All 16 official distributed rows are updated from user-supplied H100 measurements. CUDA and other historical rows remain unchanged; top-level environment and methodology describe those historical data. All H100 world sizes used 5/20/10 warmup/forward/training settings. ROCm uses 10/50/20 CLI settings (its distributed training halves warmup to 5); shapes, topology and timing aggregation match, but sample counts differ. The user discarded H100 10/50/20 reruns contaminated by competing GPU 0-3 workloads. The supplied H100 runner and individual samples are not available in this repository."
+    }
+  },
+  "environment": {
+    "gpu": "NVIDIA H100 80GB HBM3",
+    "gpu_count": 8,
+    "architecture": "sm_90",
+    "cuda": "13.0",
+    "torch": "2.13.0+cu130",
+    "transformers": "5.13.1",
+    "python": "3.11.15",
+    "cpu": "Intel(R) Xeon(R) Platinum 8468",
+    "cpu_threads": 96,
+    "deterministic_compute": "native CUDA kernels",
+    "deterministic_transport": "fixed-order CUDA IPC"
+  },
+  "methodology": {
+    "tokens": [1, 8, 32],
+    "hidden": 4096,
+    "intermediate": 12288,
+    "dtype": "bfloat16",
+    "warmup": 3,
+    "samples": 10,
+    "training_samples": 5,
+    "cpu_timing": "wall clock with 96 PyTorch intra-op threads",
+    "gpu_timing": "GPU events for single GPU; synchronized slowest-rank wall clock for distributed"
+  },
+  "single_gpu": [
+    {"tokens": 1, "direction": "forward", "official_h100_ms": 0.1193, "cuda_h100_ms": 3.9988, "triton_h100_ms": 1.7381, "official_cpu_ms": 12.9558},
+    {"tokens": 1, "direction": "train_fwd_bwd", "official_h100_ms": 0.5184, "cuda_h100_ms": 9.0704, "triton_h100_ms": 4.2997, "official_cpu_ms": 58.5765},
+    {"tokens": 8, "direction": "forward", "official_h100_ms": 0.1239, "cuda_h100_ms": 3.9923, "triton_h100_ms": 1.8293, "official_cpu_ms": 12.7676},
+    {"tokens": 8, "direction": "train_fwd_bwd", "official_h100_ms": 0.5414, "cuda_h100_ms": 9.4500, "triton_h100_ms": 4.5028, "official_cpu_ms": 82.3669},
+    {"tokens": 32, "direction": "forward", "official_h100_ms": 0.1311, "cuda_h100_ms": 4.0277, "triton_h100_ms": 2.2529, "official_cpu_ms": 8.5392},
+    {"tokens": 32, "direction": "train_fwd_bwd", "official_h100_ms": 0.7842, "cuda_h100_ms": 9.1635, "triton_h100_ms": 5.4261, "official_cpu_ms": 65.9689}
+  ],
+  "distributed": [
+    {"name": "tp2", "direction": "forward", "official_h100_ms": 0.1653, "cuda_h100_ms": 2.7896, "official_h100_summary_ms": {"median_ms": 0.1653, "p95_ms": 0.2055, "min_ms": 0.1420, "max_ms": 0.3013}},
+    {"name": "tp2", "direction": "train_fwd_bwd", "official_h100_ms": 0.6347, "cuda_h100_ms": 7.8125, "official_h100_summary_ms": {"median_ms": 0.6347, "p95_ms": 0.6955, "min_ms": 0.5826, "max_ms": 0.6997}},
+    {"name": "tp2_sp", "direction": "forward", "official_h100_ms": 0.1974, "cuda_h100_ms": 3.3310, "official_h100_summary_ms": {"median_ms": 0.1974, "p95_ms": 0.2161, "min_ms": 0.1807, "max_ms": 0.2273}},
+    {"name": "tp2_sp", "direction": "train_fwd_bwd", "official_h100_ms": 0.7162, "cuda_h100_ms": 11.7695, "official_h100_summary_ms": {"median_ms": 0.7162, "p95_ms": 1.0543, "min_ms": 0.6713, "max_ms": 1.2747}},
+    {"name": "tp4", "direction": "forward", "official_h100_ms": 0.1742, "cuda_h100_ms": 2.1687, "official_h100_summary_ms": {"median_ms": 0.1742, "p95_ms": 0.8594, "min_ms": 0.1545, "max_ms": 1.4339}},
+    {"name": "tp4", "direction": "train_fwd_bwd", "official_h100_ms": 0.6460, "cuda_h100_ms": 9.3954, "official_h100_summary_ms": {"median_ms": 0.6460, "p95_ms": 0.7029, "min_ms": 0.5959, "max_ms": 0.7232}},
+    {"name": "tp2_cp2", "direction": "forward", "official_h100_ms": 0.1600, "cuda_h100_ms": 2.8261, "official_h100_summary_ms": {"median_ms": 0.1600, "p95_ms": 0.8807, "min_ms": 0.1411, "max_ms": 1.4457}},
+    {"name": "tp2_cp2", "direction": "train_fwd_bwd", "official_h100_ms": 1.2175, "cuda_h100_ms": 16.1722, "official_h100_summary_ms": {"median_ms": 1.2175, "p95_ms": 2.2282, "min_ms": 1.1868, "max_ms": 2.2589}},
+    {"name": "tp2_cp2_sp", "direction": "forward", "official_h100_ms": 0.2425, "cuda_h100_ms": 3.5814, "official_h100_summary_ms": {"median_ms": 0.2425, "p95_ms": 0.2821, "min_ms": 0.2271, "max_ms": 0.3538}},
+    {"name": "tp2_cp2_sp", "direction": "train_fwd_bwd", "official_h100_ms": 1.5878, "cuda_h100_ms": 16.7894, "official_h100_summary_ms": {"median_ms": 1.5878, "p95_ms": 1.6838, "min_ms": 1.4295, "max_ms": 1.7189}},
+    {"name": "tp8", "direction": "forward", "official_h100_ms": 0.3962, "cuda_h100_ms": 2.3206, "official_h100_summary_ms": {"median_ms": 0.3962, "p95_ms": 1.1780, "min_ms": 0.3521, "max_ms": 1.2054}},
+    {"name": "tp8", "direction": "train_fwd_bwd", "official_h100_ms": 1.2062, "cuda_h100_ms": 10.1375, "official_h100_summary_ms": {"median_ms": 1.2062, "p95_ms": 1.4400, "min_ms": 1.1445, "max_ms": 1.4588}},
+    {"name": "tp4_cp2", "direction": "forward", "official_h100_ms": 0.3806, "cuda_h100_ms": 2.2141, "official_h100_summary_ms": {"median_ms": 0.3806, "p95_ms": 1.4873, "min_ms": 0.3540, "max_ms": 2.5012}},
+    {"name": "tp4_cp2", "direction": "train_fwd_bwd", "official_h100_ms": 1.5640, "cuda_h100_ms": 16.5617, "official_h100_summary_ms": {"median_ms": 1.5640, "p95_ms": 2.7782, "min_ms": 1.4680, "max_ms": 2.9183}},
+    {"name": "tp4_cp2_sp", "direction": "forward", "official_h100_ms": 0.5009, "cuda_h100_ms": 3.2972, "official_h100_summary_ms": {"median_ms": 0.5009, "p95_ms": 0.5523, "min_ms": 0.4745, "max_ms": 0.5670}},
+    {"name": "tp4_cp2_sp", "direction": "train_fwd_bwd", "official_h100_ms": 1.7319, "cuda_h100_ms": 17.1457, "official_h100_summary_ms": {"median_ms": 1.7319, "p95_ms": 1.9220, "min_ms": 1.7104, "max_ms": 1.9283}}
+  ],
+  "dtype_accuracy": {
+    "tokens": 8,
+    "hidden": 4096,
+    "intermediate": 12288,
+    "candidate_dtype": "float16",
+    "reference_dtype": "float32",
+    "max_abs": 2.077e-6,
+    "mean_abs": 3.736e-7,
+    "relative_l2": 6.540e-4
+  },
+  "exactness": {
+    "reference": "deterministic CUDA TP=1",
+    "topologies": ["tp2", "tp2_sp", "tp4", "tp2_cp2", "tp2_cp2_sp", "tp8", "tp4_cp2", "tp4_cp2_sp"],
+    "forward_output_mismatch": 0,
+    "training_output_mismatch": 0,
+    "hidden_gradient_mismatch": 0,
+    "weight_gradient_mismatch": 0,
+    "repeat_mismatch": 0,
+    "train_infer_mismatch": 0
+  }
+}

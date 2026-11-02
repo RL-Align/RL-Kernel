@@ -1,0 +1,467 @@
+{
+  "platform_label": "cpu",
+  "environment": {
+    "cpu_count": 192,
+    "torch_threads": 192,
+    "gpu": "n/a (host execution)",
+    "architecture": "n/a",
+    "gpu_count": 0,
+    "hip": null,
+    "cuda": null,
+    "torch": "2.12.0+rocm7.14.0a20260608",
+    "triton": "n/a (host execution)",
+    "python": "3.12.3",
+    "extension_attention_symbols": [],
+    "native_collective": "n/a (single-process host run)"
+  },
+  "configuration": {
+    "batch": 1,
+    "q_heads": 32,
+    "kv_heads": 8,
+    "head_dim": 128,
+    "seq_lens": [
+      512,
+      1024,
+      2048
+    ],
+    "dtypes": [
+      "bf16",
+      "fp16"
+    ],
+    "warmup": 2,
+    "samples": 5,
+    "training_samples": 3
+  },
+  "unavailable_paths": {
+    "strict-aiter": "GPU-only path; not available on the host",
+    "strict-fa4": "GPU-only path; not available on the host",
+    "reference-native": "GPU-only path; not available on the host",
+    "triton-bitwise": "GPU-only path; not available on the host"
+  },
+  "single_gpu": {
+    "cases": [
+      {
+        "dtype": "bf16",
+        "seq_len": 512,
+        "batch": 1,
+        "q_heads": 32,
+        "kv_heads": 8,
+        "head_dim": 128,
+        "paths": {
+          "sdpa": {
+            "forward": {
+              "median_ms": 38.106778636574745,
+              "p95_ms": 43.23689788579941,
+              "min_ms": 28.195404447615147,
+              "max_ms": 44.51697692275047
+            },
+            "forward_samples": 5,
+            "forward_truncated": false,
+            "forward_peak_mib": 0.0859375,
+            "out_vs_fp64": {
+              "max_abs": 0.00860644332381133,
+              "relative_l2": 0.001973059990724691
+            },
+            "repeat_bitwise": true,
+            "train_fwd_bwd": {
+              "median_ms": 170.42051907628775,
+              "p95_ms": 175.48417346552014,
+              "min_ms": 132.9573979601264,
+              "max_ms": 176.0468017309904
+            },
+            "train_samples": 3,
+            "train_truncated": false,
+            "train_peak_mib": 7.4765625
+          },
+          "pytorch-native": {
+            "forward": {
+              "median_ms": 7.091020233929157,
+              "p95_ms": 9.047956205904484,
+              "min_ms": 4.163389094173908,
+              "max_ms": 9.431971237063408
+            },
+            "forward_samples": 5,
+            "forward_truncated": false,
+            "forward_peak_mib": 0.0,
+            "out_vs_fp64": {
+              "max_abs": 0.01947146352388973,
+              "relative_l2": 0.004330172876834844
+            },
+            "repeat_bitwise": true,
+            "train_fwd_bwd": {
+              "median_ms": 48.0204951018095,
+              "p95_ms": 156.25138729810712,
+              "min_ms": 43.106830678880215,
+              "max_ms": 168.27704198658466
+            },
+            "train_samples": 3,
+            "train_truncated": false,
+            "train_peak_mib": 64.8203125
+          }
+        }
+      },
+      {
+        "dtype": "bf16",
+        "seq_len": 1024,
+        "batch": 1,
+        "q_heads": 32,
+        "kv_heads": 8,
+        "head_dim": 128,
+        "paths": {
+          "sdpa": {
+            "forward": {
+              "median_ms": 174.75166637450457,
+              "p95_ms": 252.65235546976325,
+              "min_ms": 164.2555631697178,
+              "max_ms": 271.48198056966066
+            },
+            "forward_samples": 5,
+            "forward_truncated": false,
+            "forward_peak_mib": 109.82421875,
+            "out_vs_fp64": {
+              "max_abs": 0.008190526417996224,
+              "relative_l2": 0.002021095362635071
+            },
+            "repeat_bitwise": true,
+            "train_fwd_bwd": {
+              "median_ms": 297.35514242202044,
+              "p95_ms": 358.75966083258385,
+              "min_ms": 296.0860254243016,
+              "max_ms": 365.5823851004243
+            },
+            "train_samples": 3,
+            "train_truncated": false,
+            "train_peak_mib": 135.33203125
+          },
+          "pytorch-native": {
+            "forward": {
+              "median_ms": 58.55359323322773,
+              "p95_ms": 87.5402009114623,
+              "min_ms": 54.07743901014328,
+              "max_ms": 92.4938665702939
+            },
+            "forward_samples": 5,
+            "forward_truncated": false,
+            "forward_peak_mib": 130.1875,
+            "out_vs_fp64": {
+              "max_abs": 0.016100370761021,
+              "relative_l2": 0.004516966595870689
+            },
+            "repeat_bitwise": true,
+            "train_fwd_bwd": {
+              "median_ms": 267.11810380220413,
+              "p95_ms": 313.60761895775795,
+              "min_ms": 249.75966848433018,
+              "max_ms": 318.7731206417084
+            },
+            "train_samples": 3,
+            "train_truncated": false,
+            "train_peak_mib": 190.8046875
+          }
+        }
+      },
+      {
+        "dtype": "bf16",
+        "seq_len": 2048,
+        "batch": 1,
+        "q_heads": 32,
+        "kv_heads": 8,
+        "head_dim": 128,
+        "paths": {
+          "sdpa": {
+            "forward": {
+              "median_ms": 192.7009578794241,
+              "p95_ms": 232.47170187532902,
+              "min_ms": 168.04722882807255,
+              "max_ms": 234.8661571741104
+            },
+            "forward_samples": 5,
+            "forward_truncated": false,
+            "forward_peak_mib": 111.88671875,
+            "out_vs_fp64": {
+              "max_abs": 0.00931387262518557,
+              "relative_l2": 0.002037123315687043
+            },
+            "repeat_bitwise": true,
+            "train_fwd_bwd": {
+              "median_ms": 555.5966263636947,
+              "p95_ms": 569.2159625701606,
+              "min_ms": 521.6728867962956,
+              "max_ms": 570.7292221486568
+            },
+            "train_samples": 3,
+            "train_truncated": false,
+            "train_peak_mib": 112.91796875
+          },
+          "pytorch-native": {
+            "forward": {
+              "median_ms": 227.75637917220592,
+              "p95_ms": 307.34998527914286,
+              "min_ms": 209.55913793295622,
+              "max_ms": 317.96263344585896
+            },
+            "forward_samples": 5,
+            "forward_truncated": false,
+            "forward_peak_mib": 548.5625,
+            "out_vs_fp64": {
+              "max_abs": 0.0178950704113916,
+              "relative_l2": 0.004656276082238093
+            },
+            "repeat_bitwise": true,
+            "train_fwd_bwd": {
+              "median_ms": 489.23985194414854,
+              "p95_ms": 550.9883309714496,
+              "min_ms": 478.3158637583256,
+              "max_ms": 557.8492730855942
+            },
+            "train_samples": 3,
+            "train_truncated": false,
+            "train_peak_mib": 815.6015625
+          }
+        }
+      },
+      {
+        "dtype": "fp16",
+        "seq_len": 512,
+        "batch": 1,
+        "q_heads": 32,
+        "kv_heads": 8,
+        "head_dim": 128,
+        "paths": {
+          "sdpa": {
+            "forward": {
+              "median_ms": 31.751069240272045,
+              "p95_ms": 33.425997383892536,
+              "min_ms": 29.143651947379112,
+              "max_ms": 33.47691521048546
+            },
+            "forward_samples": 5,
+            "forward_truncated": false,
+            "forward_peak_mib": 0.0,
+            "out_vs_fp64": {
+              "max_abs": 0.0010446820342941976,
+              "relative_l2": 0.00025098233651414496
+            },
+            "repeat_bitwise": true,
+            "train_fwd_bwd": {
+              "median_ms": 204.98001947999,
+              "p95_ms": 242.03968066722155,
+              "min_ms": 192.74852704256773,
+              "max_ms": 246.15742079913616
+            },
+            "train_samples": 3,
+            "train_truncated": false,
+            "train_peak_mib": 0.0
+          },
+          "pytorch-native": {
+            "forward": {
+              "median_ms": 697.2642932087183,
+              "p95_ms": 707.5163403525949,
+              "min_ms": 684.5130370929837,
+              "max_ms": 709.9788626655936
+            },
+            "forward_samples": 5,
+            "forward_truncated": false,
+            "forward_peak_mib": 0.0,
+            "out_vs_fp64": {
+              "max_abs": 0.002810583458336957,
+              "relative_l2": 0.0005388467180647695
+            },
+            "repeat_bitwise": true,
+            "train_fwd_bwd": {
+              "median_ms": 2154.7386962920427,
+              "p95_ms": 2248.4102914109826,
+              "min_ms": 2068.0867824703455,
+              "max_ms": 2258.818246424198
+            },
+            "train_samples": 3,
+            "train_truncated": false,
+            "train_peak_mib": 0.0
+          }
+        }
+      },
+      {
+        "dtype": "fp16",
+        "seq_len": 1024,
+        "batch": 1,
+        "q_heads": 32,
+        "kv_heads": 8,
+        "head_dim": 128,
+        "paths": {
+          "sdpa": {
+            "forward": {
+              "median_ms": 96.15929331630468,
+              "p95_ms": 113.60393781214952,
+              "min_ms": 95.77664453536272,
+              "max_ms": 116.9054713100195
+            },
+            "forward_samples": 5,
+            "forward_truncated": false,
+            "forward_peak_mib": 79.91796875,
+            "out_vs_fp64": {
+              "max_abs": 0.0010750978941995726,
+              "relative_l2": 0.00025550971614830375
+            },
+            "repeat_bitwise": true,
+            "train_fwd_bwd": {
+              "median_ms": 386.77085004746914,
+              "p95_ms": 387.07391703501344,
+              "min_ms": 327.51816138625145,
+              "max_ms": 387.1075911447406
+            },
+            "train_samples": 3,
+            "train_truncated": false,
+            "train_peak_mib": 79.66015625
+          },
+          "pytorch-native": {
+            "forward": {
+              "median_ms": 2726.1935137212276,
+              "p95_ms": 2804.850871488452,
+              "min_ms": 2686.2719180062413,
+              "max_ms": 2823.695234954357
+            },
+            "forward_samples": 5,
+            "forward_truncated": false,
+            "forward_peak_mib": 65.7421875,
+            "out_vs_fp64": {
+              "max_abs": 0.002116843588507722,
+              "relative_l2": 0.0005576223691406817
+            },
+            "repeat_bitwise": true,
+            "train_fwd_bwd": {
+              "median_ms": 8579.253423959017,
+              "p95_ms": 12587.929507251827,
+              "min_ms": 8301.5665281564,
+              "max_ms": 13033.33796095103
+            },
+            "train_samples": 3,
+            "train_truncated": false,
+            "train_peak_mib": 189.20703125
+          }
+        }
+      },
+      {
+        "dtype": "fp16",
+        "seq_len": 2048,
+        "batch": 1,
+        "q_heads": 32,
+        "kv_heads": 8,
+        "head_dim": 128,
+        "paths": {
+          "sdpa": {
+            "forward": {
+              "median_ms": 250.57981442660093,
+              "p95_ms": 286.6925349459052,
+              "min_ms": 194.098518230021,
+              "max_ms": 291.58885311335325
+            },
+            "forward_samples": 5,
+            "forward_truncated": false,
+            "forward_peak_mib": 81.46484375,
+            "out_vs_fp64": {
+              "max_abs": 0.0010650871035631226,
+              "relative_l2": 0.0002589060030057917
+            },
+            "repeat_bitwise": true,
+            "train_fwd_bwd": {
+              "median_ms": 1122.4169470369816,
+              "p95_ms": 1212.3129985295236,
+              "min_ms": 1065.4740231111646,
+              "max_ms": 1222.3014486953616
+            },
+            "train_samples": 3,
+            "train_truncated": false,
+            "train_peak_mib": 79.66015625
+          },
+          "pytorch-native": {
+            "forward": {
+              "median_ms": 21112.273322418332,
+              "p95_ms": 21152.164766564965,
+              "min_ms": 20729.920755140483,
+              "max_ms": 21160.758836194873
+            },
+            "forward_samples": 5,
+            "forward_truncated": false,
+            "forward_peak_mib": 515.18359375,
+            "out_vs_fp64": {
+              "max_abs": 0.0021428477134313173,
+              "relative_l2": 0.0005852208464456109
+            },
+            "repeat_bitwise": true,
+            "train_fwd_bwd": {
+              "median_ms": 53718.04826427251,
+              "p95_ms": 54692.0300597325,
+              "min_ms": 53648.340058512986,
+              "max_ms": 54800.25025922805
+            },
+            "train_samples": 3,
+            "train_truncated": false,
+            "train_peak_mib": 764.57421875
+          }
+        }
+      }
+    ]
+  },
+  "backward_parity": [],
+  "batch_composition": [
+    {
+      "seq_len": 512,
+      "paths": {
+        "sdpa": {
+          "batch_gt1_rejected": false,
+          "out_bitwise": true,
+          "out_mismatched": 0,
+          "out_max_abs": 0.0,
+          "lse_bitwise": null
+        },
+        "pytorch-native": {
+          "batch_gt1_rejected": false,
+          "out_bitwise": true,
+          "out_mismatched": 0,
+          "out_max_abs": 0.0,
+          "lse_bitwise": null
+        }
+      }
+    },
+    {
+      "seq_len": 1024,
+      "paths": {
+        "sdpa": {
+          "batch_gt1_rejected": false,
+          "out_bitwise": true,
+          "out_mismatched": 0,
+          "out_max_abs": 0.0,
+          "lse_bitwise": null
+        },
+        "pytorch-native": {
+          "batch_gt1_rejected": false,
+          "out_bitwise": true,
+          "out_mismatched": 0,
+          "out_max_abs": 0.0,
+          "lse_bitwise": null
+        }
+      }
+    },
+    {
+      "seq_len": 2048,
+      "paths": {
+        "sdpa": {
+          "batch_gt1_rejected": false,
+          "out_bitwise": true,
+          "out_mismatched": 0,
+          "out_max_abs": 0.0,
+          "lse_bitwise": null
+        },
+        "pytorch-native": {
+          "batch_gt1_rejected": false,
+          "out_bitwise": true,
+          "out_mismatched": 0,
+          "out_max_abs": 0.0,
+          "lse_bitwise": null
+        }
+      }
+    }
+  ],
+  "tp_head_sensitivity": [],
+  "distributed": []
+}

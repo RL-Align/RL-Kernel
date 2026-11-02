@@ -1,0 +1,182 @@
+# Fused Linear LogP
+
+Fused Linear LogP computes per-token selected log-probabilities directly from
+hidden states and the LM-head weight `log_softmax(hidden @ Wᵀ + b)[target]`.
+The forward path avoids materializing the full `[N, V]` logits and targets
+large-vocabulary RL post-training, where the `[B, S, V]` logits activation
+dominates memory. Backward has multiple implementations: chunked paths recompute
+tiles to reduce memory, while the fused SM90 fast path may materialize local or
+tiled logits/dlogits workspaces to reduce Python dispatch and small GEMM overhead.
+It is differentiable w.r.t. `hidden`, `lm_head_weight`, and `bias`.
+
+This differs from [Fused LogP](fused-logp.md), which takes already-materialized
+logits as input. Here the LM-head projection is fused into the forward reduction,
+so the forward `[N, V]` tensor never lands in HBM.
+
+## Entry Point
+
+```python
+from rl_engine.runtime.registry import kernel_registry
+
+linear_logp = kernel_registry.get_op("linear_logp")
+
+logp = linear_logp(
+    hidden,         # [B, S, D] or [N, D]  (differentiable)
+    lm_head_weight, # [V, D]               (differentiable)
+    target_ids,     # [B, S] or [N]        int, in [0, V)
+    bias=None,      # [V] optional         (differentiable)
+    tp_group=None,  # optional torch.distributed ProcessGroup for vocab TP
+    vocab_start_index=0,    # first global vocab id owned by this rank
+    global_vocab_size=None, # optional global/padded vocab size
+)                   # -> [B, S] or [N], float32
+
+logp.sum().backward()  # gradients flow into hidden, lm_head_weight, bias
+```
+
+## Backends
+
+| Backend | Wrapper | Status |
+| --- | --- | --- |
+| CUDA SM90 (Hopper) | `FusedLinearLogpSM90Op` | TMA-streamed, Double Buffering, tensor-core forward (`mma.sync.m16n8k16`), online softmax in smem; chunked backward. Compiles for `sm_90a`; validated fp32-accurate on H100. Falls back to Triton/native for fp32/fp16 inputs or hidden dims not divisible by 32. |
+| CUDA / ROCm (Triton) | `TritonLinearLogpOp` | Triton online-softmax forward; Liger-style chunked backward (cuBLAS matmuls, deterministic). Phase 1. |
+| Ascend NPU | `FusedLinearLogpAscendOp` | Batch-invariant Ascend C forward mirroring the SM90 reduction contract: ascending vocab-row scan with the online rescale chain, per-row fp32 dots over a fixed D-tile order, `min(zt - lse, 0)` clamp; the shared chunked backward. Output fp32. |
+| PyTorch native | `NativeLinearLogpOp` | Naive `F.linear` + `log_softmax` + `gather` reference; CPU / Triton-less fallback. |
+
+The SM90 backend (`csrc/cuda/logprob/fused_linear_logp_sm90.cu`) streams hidden/weight
+tiles via TMA (`cp.async.bulk.tensor`, mbarrier-completed, double-buffered),
+contracts each `[BM, BN]` logit tile with the warp-level tensor-core MMA path
+(`ldmatrix` + `mma.sync.m16n8k16`, fp32 accumulation), folds it into a per-row
+online softmax in shared memory, and gathers the target logit — never
+materializing `[N, V]`. It is **build-guarded**: only compiled when the extension
+is built with `KERNEL_ALIGN_FORCE_SM90=1` on an SM90 device (TMA/`sm_90a`), and
+the registry only selects it when `cc_major == 9` and the symbol is present. The
+forward kernel requires bf16 hidden/weight with `D % 32 == 0`; for any other input
+the op transparently falls back to the Triton (else native) backend. The backward
+reuses the deterministic chunked path. The native op materializes the full `[N, V]`
+logits and is the correctness oracle.
+
+## Tensor Contract
+
+| Argument | Shape | Dtype | Requirements |
+| --- | --- | --- | --- |
+| `hidden` | `[N, D]` / `[B, S, D]` | bf16 / fp16 / fp32 | Differentiable; contiguous. |
+| `lm_head_weight` | `[V, D]` | bf16 / fp16 / fp32 | Differentiable; contiguous. |
+| `target_ids` | `[N]` / `[B, S]` | int | Token id per position, in `[0, V)`. |
+| `bias` | `[V]` | float | Optional; differentiable. |
+| Output | `[N]` / `[B, S]` | float32 | `z[target] − logsumexp(z)` per position. |
+
+Gradients flow into `hidden`, `lm_head_weight`, and `bias`; `target_ids` is
+integer and non-differentiable.
+
+## Tensor Parallel Vocab Shards
+
+For tensor-parallel LM heads sharded along the vocab dimension, pass each rank's
+local weight shard `[V_local, D]`, optional local bias shard `[V_local]`, the TP
+process group, and the shard's global vocab start:
+
+```python
+logp = linear_logp(
+    hidden,
+    local_lm_head_weight,
+    target_ids,                # global token ids, replicated across TP ranks
+    local_bias,
+    tp_group=tp_group,
+    vocab_start_index=vocab_start_index,
+    global_vocab_size=padded_vocab_size,
+)
+```
+
+The TP path streams local vocab chunks, computes local online-softmax state, then
+uses TP collectives to merge the global max, global sum, and selected target
+logit. Backward either recomputes local logits in chunks or uses fused/tiled
+local dlogits workspaces, then all-reduces `hidden.grad` across the TP group;
+`lm_head_weight.grad` and `bias.grad` remain local shards.
+Shard ranges must form a contiguous `[0, global_vocab_size)` partition.
+
+## Reference Semantics
+
+```python
+logits = torch.nn.functional.linear(
+    hidden.float(),
+    weight.float(),
+    None if bias is None else bias.float(),
+)  # [N, V]
+logp = torch.log_softmax(logits, dim=-1)
+out = logp.gather(-1, target_ids.long().unsqueeze(-1)).squeeze(-1)
+```
+
+The Triton kernel accumulates the matmul and softmax in float32, so it matches the
+float32 reference to `atol≈1e-3`. For bf16/fp16 inputs it matches the **fp32-upcast**
+reference (it is more accurate than a bf16 `F.linear`, which rounds the logits).
+
+## Performance
+
+```bash
+python benchmarks/operators/logprob/benchmark_linear_logp.py
+python benchmarks/operators/logprob/benchmark_linear_logp.py --configs "4096,2048,32768;4096,2048,131072"
+```
+
+Measured on an **NVIDIA H100 80GB** (SM90), bf16, N=4096, D=2048, CUDA 12.8.
+
+**Forward latency (ms) and peak forward VRAM:**
+
+| shape (N×D×V) | native | Triton | **SM90** | SM90 vs Triton | peak fwd VRAM (native → fused) |
+| --- | --- | --- | --- | --- | --- |
+| 4096×2048×32768 | 1.79 | 6.42 | **3.41** | **1.88×** | 1280 MB → **~0 MB** |
+| 4096×2048×50257 | 9.96 | 9.82 | **4.88** | **2.01×** | 1965 MB → **~0 MB** |
+| 4096×2048×131072 | 7.28 | 25.56 | **12.88** | **1.98×** | 5120 MB → **~0 MB** |
+
+**Forward + backward latency (ms):**
+
+| shape (N×D×V) | native | Triton | **SM90** |
+| --- | --- | --- | --- |
+| 4096×2048×32768 | 4.25 | 15.86 | 12.69 |
+| 4096×2048×50257 | 23.29 | 47.20 | 42.20 |
+| 4096×2048×131072 | 17.05 | 117.62 | 104.97 |
+
+**Memory**: the native path allocates the `[N, V]` logits (forward
+peak scales with `V`), while the fused forward streams them online -- its forward
+peak is just the per-CTA shared-memory tiles, **independent of `V`** (≈0 MB of
+activation). Backward memory depends on the selected path: chunked backward holds
+`chunk·V`, while fused SM90 backward may use local or tiled logits/dlogits
+workspaces to trade memory for lower dispatch overhead. That freed forward memory
+is what lets you grow the batch or the CoT length.
+
+**Latency**: the SM90 forward runs at **~2× the memory-free Triton baseline**
+across the vocab range — from TMA double-buffering, register-blocked `mma.sync`
+M-tiling (`BM=256`, so the weight matrix is re-read `N/BM` times), and split-V over
+the grid. It also beats the materializing native path at moderate vocab (2.0× at
+V=50257); at the extremes the native cuBLAS GEMM is still faster in raw ms, but only
+by paying the 1.3–5 GB forward `[N, V]` allocation the fused op avoids. The fused
+SM90 backward improves latency by moving dlogits and linear-gradient orchestration
+into CUDA/C++ and by reducing Python chunk loops and small matmul dispatches. A
+more fully streaming backward remains future work.
+
+## Tests
+
+```bash
+python -m pytest tests/ops/logprob/test_linear_logp.py -v
+```
+
+Covers the native reference vs the materialized definition, Triton forward (fp32 and
+bf16) vs native, Triton backward vs native autograd (with and without bias), leading-
+shape preservation, a large-vocab smoke test, and registry dispatch. Triton tests
+skip without CUDA + Triton.
+
+For 4-GPU tensor-parallel validation, use
+[Fused Linear LogP TP Test Runbook](linear-logp-tp-test.md).
+
+## Implementation Files
+
+- `rl_engine/backends/shared/triton/logprob/linear_logp.py`
+- `rl_engine/reference/logprob/linear_logp.py` — native reference, chunked backward, TP helpers
+- `rl_engine/backends/cuda/logprob/linear_logp.py` — CUDA fused implementation (SM90 wrapper + chunked backward)
+- `rl_engine/backends/ascend/logprob/linear_logp.py` — Ascend deterministic op
+- `csrc/cuda/logprob/fused_linear_logp_sm90.cu`, `csrc/bindings/ops.cpp`, `setup.py` — SM90 kernel + build
+- `csrc/ascend/fused_linear_logp_ascend.asc` — Ascend C forward kernel
+- `csrc/ascend/npu_module.cpp` — shared pybind entry for `rl_engine._C_npu`
+- `rl_engine/runtime/registry.py`
+- `tests/ops/logprob/test_linear_logp.py`
+- `tests/backends/ascend/test_linear_logp_ascend.py` — Ascend correctness + batch-invariance tests
+- `benchmarks/operators/logprob/benchmark_linear_logp.py`
+- `docs/design/fused-linear-logp.md`

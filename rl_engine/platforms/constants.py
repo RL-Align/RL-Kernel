@@ -7,6 +7,7 @@ from enum import Enum
 class DeviceType(Enum):
     CUDA = "cuda"  # NVIDIA GPU
     ROCM = "rocm"  # AMD GPU
+    MUSA = "musa"  # Moore Threads GPU
     NPU = "npu"  # Huawei Ascend
     TPU = "tpu"  # Google TPU
     XPU = "xpu"  # Intel GPU
@@ -17,6 +18,7 @@ class BackendLib(Enum):
     FLASHINFER = "flashinfer"
     AITER = "aiter"
     TRITON = "triton"
+    MUSA = "musa"  # Moore Threads MUSA stack
     CANN = "cann"  # Huawei NPU
     NATIVE = "native"  # PyTorch Default
 

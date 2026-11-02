@@ -1,0 +1,28 @@
+{
+  "common": {
+    "frozen_inputs_equal": true,
+    "frozen_sources_equal": true,
+    "steps": 200
+  },
+  "g10_pp": {
+    "element_count": 10912549,
+    "frozen_sources_match": true,
+    "launcher_returncode": 0,
+    "max_abs_diff": 52.60742139816293,
+    "mismatch_count": 8662719,
+    "sample_count": 1600,
+    "torch_equal": false,
+    "validation_passed": false,
+    "validation_note": "The native P/P arm completed 200/200 steps. Its validator only failed RL-Kernel operator-readback requirements that the native route does not emit."
+  },
+  "g11_rr": {
+    "element_count": 9400614,
+    "frozen_sources_match": true,
+    "launcher_returncode": 0,
+    "max_abs_diff": 0.0,
+    "mismatch_count": 0,
+    "sample_count": 1600,
+    "torch_equal": true,
+    "validation_passed": true
+  }
+}

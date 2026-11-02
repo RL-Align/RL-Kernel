@@ -1,0 +1,4 @@
+mkdocs<2.0.0
+mkdocs-awesome-nav
+mkdocs-git-revision-date-localized-plugin
+mkdocs-material

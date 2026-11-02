@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1080" viewBox="0 0 1600 1080">
+  <defs>
+    <style>
+      .title { font-family: Arial, Helvetica, sans-serif; font-size: 27px; font-weight: 700; fill: #173c34; }
+      .subtitle { font-family: Arial, Helvetica, sans-serif; font-size: 15px; fill: #51675f; }
+      .box { fill: #ffffff; stroke: #6c8f84; stroke-width: 1.4; }
+      .op { fill: #f5f9f7; stroke: #6c8f84; stroke-width: 1.3; }
+      .core { fill: #126f59; stroke: #126f59; stroke-width: 1.4; }
+      .ws2 { fill: #ffffff; stroke: #126f59; stroke-width: 1.5; stroke-dasharray: 7 5; }
+      .label { font-family: Arial, Helvetica, sans-serif; font-size: 16px; font-weight: 700; fill: #173c34; }
+      .body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; fill: #465e56; }
+      .small { font-family: Arial, Helvetica, sans-serif; font-size: 12px; fill: #526b62; }
+      .core1 { font-family: Arial, Helvetica, sans-serif; font-size: 17px; font-weight: 700; fill: #ffffff; }
+      .core2 { font-family: Arial, Helvetica, sans-serif; font-size: 13px; fill: #eef8f4; }
+      .green { font-family: Arial, Helvetica, sans-serif; font-size: 14px; font-weight: 700; fill: #126f59; }
+      .line { stroke: #58766b; stroke-width: 1.3; fill: none; }
+      .dash { stroke: #738f86; stroke-width: 1.1; stroke-dasharray: 6 5; fill: none; }
+    </style>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6.6" refY="4" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,8 L7,4 z" fill="#58766b" />
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1600" height="1080" fill="#ffffff" />
+  <text class="title" x="70" y="55">One MiniMax-H3 block — WS1 arithmetic boundaries and WS2 ownership</text>
+  <text class="subtitle" x="70" y="84">The same declared operator graph is used at TP1/CP1 and distributed scale; only tensor ownership and communication are added.</text>
+
+  <rect class="box" x="70" y="130" width="260" height="74" rx="9" ry="9" />
+  <text class="label" x="200" y="162" text-anchor="middle">Residual stream</text>
+  <text class="body" x="200" y="184" text-anchor="middle">[B, S, 5376] BF16</text>
+
+  <rect class="op" x="390" y="122" width="300" height="90" rx="9" ry="9" />
+  <text class="label" x="540" y="153" text-anchor="middle">RMSNorm + AdaLN-MSA</text>
+  <text class="body" x="540" y="177" text-anchor="middle">index_select shift / scale</text>
+  <text class="body" x="540" y="198" text-anchor="middle">fixed cast and broadcast order</text>
+
+  <rect class="op" x="750" y="112" width="350" height="110" rx="9" ry="9" />
+  <text class="label" x="925" y="143" text-anchor="middle">Q / K / V projection</text>
+  <text class="body" x="925" y="168" text-anchor="middle">3 × (5376 → 7168) · no bias</text>
+  <text class="body" x="925" y="190" text-anchor="middle">fixed-K GEMM · FP32 accumulation</text>
+  <text class="body" x="925" y="211" text-anchor="middle">TP column parallel</text>
+
+  <rect class="op" x="1160" y="112" width="350" height="110" rx="9" ry="9" />
+  <text class="label" x="1335" y="143" text-anchor="middle">Q/K norm + partial MM-RoPE</text>
+  <text class="body" x="1335" y="168" text-anchor="middle">56 heads, D=128, rotary D=96</text>
+  <text class="body" x="1335" y="190" text-anchor="middle">(t, h, w) coordinates co-sharded with S</text>
+  <text class="body" x="1335" y="211" text-anchor="middle">head-local under TP; sequence-local under CP</text>
+
+  <rect class="core" x="980" y="300" width="530" height="128" rx="12" ry="12" />
+  <text class="core1" x="1245" y="338" text-anchor="middle">Full bidirectional self-attention</text>
+  <text class="core2" x="1245" y="366" text-anchor="middle">QK · online softmax/LSE · AV · causal = false</text>
+  <text class="core2" x="1245" y="391" text-anchor="middle">no split-KV or unordered atomics in strict mode</text>
+  <text class="core2" x="1245" y="415" text-anchor="middle">CP: deterministic Ulysses or ring communication schedule</text>
+
+  <rect class="op" x="570" y="310" width="340" height="108" rx="9" ry="9" />
+  <text class="label" x="740" y="343" text-anchor="middle">Attention output projection</text>
+  <text class="body" x="740" y="369" text-anchor="middle">7168 → 5376 · no bias</text>
+  <text class="body" x="740" y="392" text-anchor="middle">TP row parallel + fixed all-reduce</text>
+
+  <rect class="op" x="150" y="310" width="350" height="108" rx="9" ry="9" />
+  <text class="label" x="325" y="343" text-anchor="middle">Gate + residual</text>
+  <text class="body" x="325" y="369" text-anchor="middle">x + gate_msa[row] * attn_out</text>
+  <text class="body" x="325" y="392" text-anchor="middle">elementwise, fixed epilogue cast</text>
+
+  <rect class="op" x="150" y="510" width="350" height="108" rx="9" ry="9" />
+  <text class="label" x="325" y="543" text-anchor="middle">RMSNorm + AdaLN-MLP</text>
+  <text class="body" x="325" y="569" text-anchor="middle">index_select shift / scale</text>
+  <text class="body" x="325" y="592" text-anchor="middle">same row ownership as hidden state</text>
+
+  <rect class="op" x="570" y="500" width="340" height="128" rx="9" ry="9" />
+  <text class="label" x="740" y="535" text-anchor="middle">Gate / up projection</text>
+  <text class="body" x="740" y="561" text-anchor="middle">5376 → 2 × 14336</text>
+  <text class="body" x="740" y="584" text-anchor="middle">TP column parallel, fixed-K GEMM</text>
+  <text class="body" x="740" y="607" text-anchor="middle">SwiGLU in FP32 math</text>
+
+  <rect class="op" x="980" y="510" width="340" height="108" rx="9" ry="9" />
+  <text class="label" x="1150" y="543" text-anchor="middle">Down projection</text>
+  <text class="body" x="1150" y="569" text-anchor="middle">14336 → 5376</text>
+  <text class="body" x="1150" y="592" text-anchor="middle">TP row parallel + fixed all-reduce</text>
+
+  <rect class="op" x="1160" y="700" width="350" height="108" rx="9" ry="9" />
+  <text class="label" x="1335" y="733" text-anchor="middle">Gate + residual</text>
+  <text class="body" x="1335" y="759" text-anchor="middle">x + gate_mlp[row] * ffn_out</text>
+  <text class="body" x="1335" y="782" text-anchor="middle">block output [B, S, 5376]</text>
+
+  <rect class="ws2" x="70" y="865" width="1440" height="145" rx="11" ry="11" />
+  <text class="green" x="95" y="898">WS2 distributed acceptance</text>
+  <text class="body" x="95" y="928">TP: shard 7168 attention inner dimension and 14336 FFN dimension; fixed rank-order all-reduce / reduce-scatter for row-parallel outputs.</text>
+  <text class="body" x="95" y="955">CP/SP: shard packed sequence together with token_tags, timestep_indices, position_ids, RoPE cos/sin and output-selection metadata.</text>
+  <text class="body" x="95" y="982">Every TP2/TP4/TP8 and CP/SP result must be byte-equal to the WS1 graph for the same logical packed rows; unsupported layouts fail closed.</text>
+
+  <path class="line" d="M330 167 L390 167" marker-end="url(#arrow)" />
+  <path class="line" d="M690 167 L750 167" marker-end="url(#arrow)" />
+  <path class="line" d="M1100 167 L1160 167" marker-end="url(#arrow)" />
+  <path class="line" d="M1335 222 L1335 300" marker-end="url(#arrow)" />
+  <path class="line" d="M980 364 L910 364" marker-end="url(#arrow)" />
+  <path class="line" d="M570 364 L500 364" marker-end="url(#arrow)" />
+  <path class="dash" d="M200 204 L200 282 L325 310" marker-end="url(#arrow)" />
+  <path class="line" d="M325 418 L325 510" marker-end="url(#arrow)" />
+  <path class="line" d="M500 564 L570 564" marker-end="url(#arrow)" />
+  <path class="line" d="M910 564 L980 564" marker-end="url(#arrow)" />
+  <path class="line" d="M1150 618 L1150 660 L1335 700" marker-end="url(#arrow)" />
+  <path class="dash" d="M325 418 L325 670 L1250 670 L1335 700" marker-end="url(#arrow)" />
+</svg>

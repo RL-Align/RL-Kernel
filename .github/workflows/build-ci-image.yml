@@ -1,0 +1,43 @@
+name: Build CI Image (NVIDIA/CUDA)
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docker/Dockerfile.cuda'
+      - 'pyproject.toml'
+      - 'setup.py'
+      - 'requirements*.txt'
+      - 'csrc/**'
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set lower case image name
+        run: |
+          REPO="${GITHUB_REPOSITORY,,}"
+          echo "IMAGE=ghcr.io/$REPO/rl-kernel-ci:cuda" >> "$GITHUB_ENV"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.cuda
+          push: true
+          tags: ${{ env.IMAGE }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

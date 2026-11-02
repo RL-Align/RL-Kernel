@@ -7,25 +7,38 @@ pressure at large group sizes.
 ## Entry Point
 
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 logp_op = kernel_registry.get_op("logp")
 output = logp_op(logits, token_ids)
 ```
 
+The PyTorch native reference also exposes the Issue #108 interface:
+
+```python
+from rl_engine.reference.logprob.logp import NativeLogpOp
+
+logp_ref = NativeLogpOp()
+output = logp_ref.forward(logits, token_ids)
+reference = logp_ref.forward_fp32(logits, token_ids)
+```
+
+`apply(...)` and `apply_fp32(...)` remain available as backward-compatible aliases.
+
 ## Backends
 
 | Backend | Wrapper | Native symbol | Notes |
 | --- | --- | --- | --- |
-| CUDA SM90 | `FusedLogpSM90Op` | `_C.fused_logp_sm90` | TMA-oriented path for Hopper-class GPUs. |
+| CUDA SM90 | `FusedLogpSM90Op` | `_C.fused_logp_sm90` | Experimental TMA-oriented path for 2D contiguous bf16 logits on Hopper-class GPUs. It is disabled by default and requires `RL_KERNEL_ENABLE_EXPERIMENTAL_SM90_LOGP=1`; otherwise the wrapper delegates to the CUDA generic fallback. |
 | CUDA generic | `FusedLogpGenericOp` | `_C.fused_logp` | Generic compiled extension fallback. |
-| PyTorch native | `NativeOp` | None | Baseline fallback path. |
+| Ascend NPU | `FusedLogpAscendOp` | `_C_npu.fused_logp_ascend` | Batch-invariant Ascend C forward: two-pass (row max, then sum-exp) fp32 reduction with a fixed tile order, mirroring the CUDA deterministic kernel. Output is fp32, matching `DeterministicLogpCUDAOp`'s contract; out-of-range targets yield 0.0. |
+| PyTorch native | `NativeLogpOp` | None | PyTorch baseline/reference path. |
 
 ## Tensor Contract
 
 | Argument | Shape | Dtype | Requirements |
 | --- | --- | --- | --- |
-| `logits` | `[N, V]` | `bfloat16` for SM90 path | Contiguous, on the target device. |
+| `logits` | `[N, V]` | `bfloat16` for the experimental SM90 fast path; fp16/fp32 use generic fallback | Contiguous, on the target device for the experimental SM90 fast path. |
 | `token_ids` / `labels` | `[N]` | Converted to `int32` | Same logical device as `logits`. |
 | Output | `[N]` | Backend-defined tensor dtype | One selected log probability per row. |
 
@@ -39,16 +52,25 @@ ref = torch.gather(ref, dim=-1, index=token_ids.unsqueeze(-1).long()).squeeze(-1
 ## Tests
 
 ```bash
-python tests/test_op_accuracy.py
+python -m pytest tests/ops/logprob/test_logp.py -q
+python -m pytest tests/ops/test_op_accuracy.py -q
 ```
 
-The current accuracy test compares the dispatched operator with a PyTorch reference and
-uses a dtype-dependent threshold.
+`tests/ops/logprob/test_logp.py` covers the PyTorch reference contract, dtype behavior,
+backward-compatible aliases, batch invariance, and registry dispatch. The existing
+operator accuracy tests continue to validate native/CUDA fused API compatibility.
 
 ## Implementation Files
 
-- `rl_engine/kernels/registry.py`
-- `rl_engine/kernels/ops/cuda.py`
-- `csrc/ops.cpp`
-- `csrc/fused_logp_kernel.cu`
-- `csrc/cuda/fused_logp_sm90.cu`
+- `rl_engine/runtime/registry.py`
+- `rl_engine/reference/logprob/logp.py` — PyTorch native reference
+- `rl_engine/backends/cuda/logprob/logp.py` — CUDA fused LogP (SM90 + generic)
+- `rl_engine/backends/ascend/logprob/logp.py` — Ascend deterministic op
+- `csrc/bindings/ops.cpp`
+- `csrc/cuda/logprob/fused_logp_kernel.cu`
+- `csrc/cuda/logprob/fused_logp_sm90.cu`
+- `csrc/cuda/logprob/deterministic_logp_kernel.cu` — CUDA deterministic kernel (reference reduction)
+- `csrc/ascend/fused_logp_ascend.asc` — Ascend C forward kernel
+- `csrc/ascend/npu_module.cpp` — shared pybind entry for `rl_engine._C_npu`
+- `tests/ops/logprob/test_logp.py`
+- `tests/backends/ascend/test_logp_ascend.py` — Ascend correctness + batch-invariance tests

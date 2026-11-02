@@ -1,0 +1,16 @@
+{
+  "cuda-h100-consistency.png": {
+    "source": "https://docs.google.com/document/d/1SUgisLRl_-9hZNWQ2qnAIBPCoS6yU3G2k-RpgF9hBwc/edit",
+    "export_media": "image21.png",
+    "sha256": "cc442b8d97c66532247b12a38d4693f793af28a369483487915ef54727edbcf1",
+    "bytes": 280974,
+    "transformation": "none"
+  },
+  "cuda-h100-mean-logp-diff.png": {
+    "source": "https://docs.google.com/document/d/1SUgisLRl_-9hZNWQ2qnAIBPCoS6yU3G2k-RpgF9hBwc/edit",
+    "export_media": "image31.png",
+    "sha256": "81e48c5577dbf82eae84e1de54ba5991883edfca25178d1866864a40bbd224d1",
+    "bytes": 288523,
+    "transformation": "none"
+  }
+}

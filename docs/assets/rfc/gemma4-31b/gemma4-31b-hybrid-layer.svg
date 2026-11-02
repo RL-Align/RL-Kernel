@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1080" viewBox="0 0 1600 1080">
+  <defs>
+    <style>
+      .title { font-family: Arial, Helvetica, sans-serif; font-size: 25px; font-weight: 700; fill: #1f3b2f; }
+      .subtitle { font-family: Arial, Helvetica, sans-serif; font-size: 15px; fill: #54675c; }
+      .box { fill: #ffffff; stroke: #6b8d7c; stroke-width: 1.5; }
+      .dashbox { fill: #ffffff; stroke: #7ea08d; stroke-width: 1.3; stroke-dasharray: 7 5; }
+      .core { fill: #16754f; stroke: #16754f; stroke-width: 1.5; }
+      .section { fill: #ffffff; stroke: #7a9789; stroke-width: 1.5; }
+      .label { font-family: Arial, Helvetica, sans-serif; font-size: 17px; font-weight: 700; fill: #1f3b2f; }
+      .body { font-family: Arial, Helvetica, sans-serif; font-size: 14px; fill: #4a5e54; }
+      .green { font-family: Arial, Helvetica, sans-serif; font-size: 15px; font-weight: 700; fill: #16754f; }
+      .core1 { font-family: Arial, Helvetica, sans-serif; font-size: 18px; font-weight: 700; fill: #ffffff; }
+      .core2 { font-family: Arial, Helvetica, sans-serif; font-size: 13px; fill: #ecf6f1; }
+      .line { stroke: #587565; stroke-width: 1.2; fill: none; }
+    </style>
+    <marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,7 L7,3.5 z" fill="#587565" />
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1600" height="1080" fill="#ffffff" />
+  <text class="title" x="75" y="58">One Gemma 4 text decoder layer — strict operator boundaries</text>
+  <text class="subtitle" x="75" y="84">Layer type is part of the runtime identity: sliding-attention and global-attention layers do not share one generic attention contract.</text>
+
+  <rect class="dashbox" x="570" y="120" width="460" height="66" rx="10" ry="10" />
+  <text class="label" x="800" y="159" text-anchor="middle">Input hidden states [T, 5376]</text>
+  <rect class="box" x="650" y="225" width="300" height="72" rx="10" ry="10" />
+  <text class="label" x="800" y="267" text-anchor="middle">Input RMSNorm</text>
+
+  <rect class="box" x="115" y="362" width="340" height="84" rx="10" ry="10" />
+  <text class="label" x="285" y="396" text-anchor="middle">Q projection</text>
+  <text class="body" x="285" y="421" text-anchor="middle">sliding: 5376→8192 · global: 5376→16384</text>
+  <rect class="box" x="630" y="362" width="340" height="84" rx="10" ry="10" />
+  <text class="label" x="800" y="396" text-anchor="middle">K projection</text>
+  <text class="body" x="800" y="421" text-anchor="middle">sliding: 5376→4096 · global geometry: 2048</text>
+  <rect class="box" x="1145" y="362" width="340" height="84" rx="10" ry="10" />
+  <text class="label" x="1315" y="396" text-anchor="middle">V projection</text>
+  <text class="body" x="1315" y="421" text-anchor="middle">global path freezes K = V parameter semantics</text>
+
+  <rect class="box" x="170" y="497" width="230" height="62" rx="10" ry="10" />
+  <text class="label" x="285" y="535" text-anchor="middle">Q RMSNorm</text>
+  <rect class="box" x="685" y="497" width="230" height="62" rx="10" ry="10" />
+  <text class="label" x="800" y="535" text-anchor="middle">K RMSNorm</text>
+
+  <rect class="section" x="85" y="620" width="600" height="160" rx="12" ry="12" />
+  <text class="green" x="385" y="658" text-anchor="middle">SLIDING ATTENTION LAYER</text>
+  <text class="body" x="385" y="689" text-anchor="middle">Q32 / KV16 · head dim 256 · causal window 1024</text>
+  <rect class="box" x="170" y="714" width="430" height="48" rx="9" ry="9" />
+  <text class="label" x="385" y="744" text-anchor="middle">Standard RoPE · θ = 10000</text>
+
+  <rect class="section" x="915" y="620" width="600" height="160" rx="12" ry="12" />
+  <text class="green" x="1215" y="658" text-anchor="middle">GLOBAL ATTENTION LAYER</text>
+  <text class="body" x="1215" y="689" text-anchor="middle">Q32 / KV4 · head dim 512 · full attention · K = V</text>
+  <rect class="box" x="995" y="714" width="440" height="48" rx="9" ry="9" />
+  <text class="label" x="1215" y="744" text-anchor="middle">Proportional p-RoPE · partial factor 0.25</text>
+
+  <rect class="core" x="535" y="840" width="530" height="88" rx="14" ry="14" />
+  <text class="core1" x="800" y="875" text-anchor="middle">Strict attention core</text>
+  <text class="core2" x="800" y="903" text-anchor="middle">fixed reduction / split policy · prefill / decode / KV-cache identity</text>
+
+  <rect class="box" x="125" y="970" width="220" height="58" rx="10" ry="10" />
+  <text class="label" x="235" y="1005" text-anchor="middle">O projection</text>
+  <rect class="box" x="405" y="970" width="220" height="58" rx="10" ry="10" />
+  <text class="label" x="515" y="1005" text-anchor="middle">Post-attn RMSNorm</text>
+  <rect class="box" x="685" y="970" width="220" height="58" rx="10" ry="10" />
+  <text class="label" x="795" y="1005" text-anchor="middle">Residual add</text>
+  <rect class="box" x="965" y="952" width="480" height="92" rx="10" ry="10" />
+  <text class="green" x="1205" y="983" text-anchor="middle">FFN PATH</text>
+  <text class="body" x="1205" y="1006" text-anchor="middle">pre-FFN RMSNorm</text>
+  <text class="body" x="1205" y="1024" text-anchor="middle">gate/up GEMM → GELU-tanh × up</text>
+  <text class="body" x="1205" y="1040" text-anchor="middle">down GEMM → post-FFN RMSNorm → residual</text>
+  <text class="subtitle" x="75" y="1060">WS1 qualifies each arithmetic boundary. WS2 wraps the same boundary with deterministic TP/CP/SP ownership and fixed communication/reduction order.</text>
+
+  <line class="line" x1="800" y1="186" x2="800" y2="225" marker-end="url(#arrow)" />
+  <line class="line" x1="800" y1="297" x2="800" y2="335" />
+  <line class="line" x1="285" y1="335" x2="1315" y2="335" />
+  <line class="line" x1="285" y1="335" x2="285" y2="362" marker-end="url(#arrow)" />
+  <line class="line" x1="800" y1="335" x2="800" y2="362" marker-end="url(#arrow)" />
+  <line class="line" x1="1315" y1="335" x2="1315" y2="362" marker-end="url(#arrow)" />
+  <line class="line" x1="285" y1="446" x2="285" y2="497" marker-end="url(#arrow)" />
+  <line class="line" x1="800" y1="446" x2="800" y2="497" marker-end="url(#arrow)" />
+
+  <line class="line" x1="285" y1="559" x2="285" y2="590" />
+  <line class="line" x1="800" y1="559" x2="800" y2="590" />
+  <line class="line" x1="1315" y1="446" x2="1315" y2="590" />
+  <line class="line" x1="285" y1="590" x2="1315" y2="590" />
+  <line class="line" x1="385" y1="590" x2="385" y2="620" marker-end="url(#arrow)" />
+  <line class="line" x1="1215" y1="590" x2="1215" y2="620" marker-end="url(#arrow)" />
+
+  <path class="line" d="M385 780 L385 812 L610 812 L610 840" marker-end="url(#arrow)" />
+  <path class="line" d="M1215 780 L1215 812 L990 812 L990 840" marker-end="url(#arrow)" />
+  <path class="line" d="M800 928 L800 946 L235 946 L235 970" marker-end="url(#arrow)" />
+  <line class="line" x1="345" y1="999" x2="405" y2="999" marker-end="url(#arrow)" />
+  <line class="line" x1="625" y1="999" x2="685" y2="999" marker-end="url(#arrow)" />
+  <line class="line" x1="905" y1="999" x2="965" y2="999" marker-end="url(#arrow)" />
+</svg>

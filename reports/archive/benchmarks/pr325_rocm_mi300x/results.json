@@ -1,0 +1,1296 @@
+{
+  "communication_contract": {
+    "forward": {
+      "all_gather": 1,
+      "reduce_scatter": 1,
+      "total": 2
+    },
+    "train_fwd_bwd": {
+      "all_gather": 7,
+      "collective_invocations": 9,
+      "logical_total": 10,
+      "reduce_scatter_logical_lanes": 3
+    }
+  },
+  "distributed_ffn": [
+    {
+      "cp_size": 1,
+      "direction": "forward",
+      "hidden": 4096,
+      "intermediate": 12288,
+      "latency_ratio_triton_vs_official_distributed": 3.0819895795813808,
+      "name": "tp2",
+      "official_distributed": {
+        "max_ms": 0.4664650186896324,
+        "median_ms": 0.2163875033147633,
+        "min_ms": 0.20921201212331653,
+        "p95_ms": 0.3178337909048423
+      },
+      "repeat_mismatch_count": 0,
+      "sequence_parallel": false,
+      "tokens": 32,
+      "tp1_mismatch": {
+        "forward_output": 0
+      },
+      "tp_size": 2,
+      "train_infer_mismatch_count": 0,
+      "triton": {
+        "max_ms": 0.8963949512690306,
+        "median_ms": 0.666904030367732,
+        "min_ms": 0.651060021482408,
+        "p95_ms": 0.8558208704926074
+      },
+      "weight_layout": "packed_forward_cache",
+      "world_size": 2
+    },
+    {
+      "cp_size": 1,
+      "direction": "train_fwd_bwd",
+      "hidden": 4096,
+      "intermediate": 12288,
+      "latency_ratio_triton_vs_official_distributed": 2.565423034622706,
+      "name": "tp2",
+      "official_distributed": {
+        "max_ms": 0.911829003598541,
+        "median_ms": 0.6532029947265983,
+        "min_ms": 0.6297890213318169,
+        "p95_ms": 0.880479981424287
+      },
+      "repeat_mismatch_count": 0,
+      "sequence_parallel": false,
+      "tokens": 32,
+      "tp1_mismatch": {
+        "hidden_gradient": 0,
+        "training_output": 0,
+        "weight_gradient": 0
+      },
+      "tp_size": 2,
+      "train_infer_mismatch_count": 0,
+      "triton": {
+        "max_ms": 1.919640984851867,
+        "median_ms": 1.6757420089561492,
+        "min_ms": 1.653273997362703,
+        "p95_ms": 1.91476940526627
+      },
+      "weight_layout": "packed_forward_cache",
+      "world_size": 2
+    },
+    {
+      "cp_size": 1,
+      "direction": "forward",
+      "hidden": 4096,
+      "intermediate": 12288,
+      "latency_ratio_triton_vs_official_distributed": 2.491084021205794,
+      "name": "tp2_sp",
+      "official_distributed": {
+        "max_ms": 0.6120420293882489,
+        "median_ms": 0.28252098127268255,
+        "min_ms": 0.27053296798840165,
+        "p95_ms": 0.45364995894487914
+      },
+      "repeat_mismatch_count": 0,
+      "sequence_parallel": true,
+      "tokens": 32,
+      "tp1_mismatch": {
+        "forward_output": 0
+      },
+      "tp_size": 2,
+      "train_infer_mismatch_count": 0,
+      "triton": {
+        "max_ms": 1.0910549899563193,
+        "median_ms": 0.7037835021037608,
+        "min_ms": 0.6829579942859709,
+        "p95_ms": 0.9322065598098561
+      },
+      "weight_layout": "packed_forward_cache",
+      "world_size": 2
+    },
+    {
+      "cp_size": 1,
+      "direction": "train_fwd_bwd",
+      "hidden": 4096,
+      "intermediate": 12288,
+      "latency_ratio_triton_vs_official_distributed": 2.078108717055042,
+      "name": "tp2_sp",
+      "official_distributed": {
+        "max_ms": 1.0751819936558604,
+        "median_ms": 0.8633609977550805,
+        "min_ms": 0.8363159722648561,
+        "p95_ms": 1.061795518035069
+      },
+      "repeat_mismatch_count": 0,
+      "sequence_parallel": true,
+      "tokens": 32,
+      "tp1_mismatch": {
+        "hidden_gradient": 0,
+        "training_output": 0,
+        "weight_gradient": 0
+      },
+      "tp_size": 2,
+      "train_infer_mismatch_count": 0,
+      "triton": {
+        "max_ms": 2.282280009239912,
+        "median_ms": 1.7941580154001713,
+        "min_ms": 1.7498169909231365,
+        "p95_ms": 2.036252798279748
+      },
+      "weight_layout": "packed_forward_cache",
+      "world_size": 2
+    },
+    {
+      "cp_size": 1,
+      "direction": "forward",
+      "hidden": 4096,
+      "intermediate": 12288,
+      "latency_ratio_triton_vs_official_distributed": 2.980595497031791,
+      "name": "tp4",
+      "official_distributed": {
+        "max_ms": 0.47576898941770196,
+        "median_ms": 0.2240189933218062,
+        "min_ms": 0.21787500008940697,
+        "p95_ms": 0.4700541991041973
+      },
+      "repeat_mismatch_count": 0,
+      "sequence_parallel": false,
+      "tokens": 32,
+      "tp1_mismatch": {
+        "forward_output": 0
+      },
+      "tp_size": 4,
+      "train_infer_mismatch_count": 0,
+      "triton": {
+        "max_ms": 0.9099859744310379,
+        "median_ms": 0.6677100027445704,
+        "min_ms": 0.6433079834096134,
+        "p95_ms": 0.8967982023023069
+      },
+      "weight_layout": "packed_forward_cache",
+      "world_size": 4
+    },
+    {
+      "cp_size": 1,
+      "direction": "train_fwd_bwd",
+      "hidden": 4096,
+      "intermediate": 12288,
+      "latency_ratio_triton_vs_official_distributed": 2.4507841825531296,
+      "name": "tp4",
+      "official_distributed": {
+        "max_ms": 0.9008519700728357,
+        "median_ms": 0.6778055103495717,
+        "min_ms": 0.6429579807445407,
+        "p95_ms": 0.8946675225161016
+      },
+      "repeat_mismatch_count": 0,
+      "sequence_parallel": false,
+      "tokens": 32,
+      "tp1_mismatch": {
+        "hidden_gradient": 0,
+        "training_output": 0,
+        "weight_gradient": 0
+      },
+      "tp_size": 4,
+      "train_infer_mismatch_count": 0,
+      "triton": {
+        "max_ms": 2.011897973716259,
+        "median_ms": 1.661155023612082,
+        "min_ms": 1.6400930471718311,
+        "p95_ms": 1.8894306500442326
+      },
+      "weight_layout": "packed_forward_cache",
+      "world_size": 4
+    },
+    {
+      "cp_size": 2,
+      "direction": "forward",
+      "hidden": 4096,
+      "intermediate": 12288,
+      "latency_ratio_triton_vs_official_distributed": 3.0189364393278644,
+      "name": "tp2_cp2",
+      "official_distributed": {
+        "max_ms": 0.47343497863039374,
+        "median_ms": 0.22607200662605464,
+        "min_ms": 0.21609198302030563,
+        "p95_ms": 0.435622059740126
+      },
+      "repeat_mismatch_count": 0,
+      "sequence_parallel": false,
+      "tokens": 32,
+      "tp1_mismatch": {
+        "forward_output": 0
+      },
+      "tp_size": 2,
+      "train_infer_mismatch_count": 0,
+      "triton": {
+        "max_ms": 0.9265610133297741,
+        "median_ms": 0.6824970187153667,
+        "min_ms": 0.6685259868390858,
+        "p95_ms": 0.918726235977374
+      },
+      "weight_layout": "packed_forward_cache",
+      "world_size": 4
+    },
+    {
+      "cp_size": 2,
+      "direction": "train_fwd_bwd",
+      "hidden": 4096,
+      "intermediate": 12288,
+      "latency_ratio_triton_vs_official_distributed": 0.486978322994483,
+      "name": "tp2_cp2",
+      "official_distributed": {
+        "max_ms": 4.347208014223725,
+        "median_ms": 4.031431977637112,
+        "min_ms": 3.9591389941051602,
+        "p95_ms": 4.243721647071652
+      },
+      "repeat_mismatch_count": 0,
+      "sequence_parallel": false,
+      "tokens": 32,
+      "tp1_mismatch": {
+        "hidden_gradient": 0,
+        "training_output": 0,
+        "weight_gradient": 0
+      },
+      "tp_size": 2,
+      "train_infer_mismatch_count": 0,
+      "triton": {
+        "max_ms": 2.2346400073729455,
+        "median_ms": 1.963219983736053,
+        "min_ms": 1.8437679973430932,
+        "p95_ms": 2.1102602826431394
+      },
+      "weight_layout": "packed_forward_cache",
+      "world_size": 4
+    },
+    {
+      "cp_size": 2,
+      "direction": "forward",
+      "hidden": 4096,
+      "intermediate": 12288,
+      "latency_ratio_triton_vs_official_distributed": 2.3647336647848283,
+      "name": "tp2_cp2_sp",
+      "official_distributed": {
+        "max_ms": 0.8284339564852417,
+        "median_ms": 0.298925006063655,
+        "min_ms": 0.28363202000036836,
+        "p95_ms": 0.6086287612561136
+      },
+      "repeat_mismatch_count": 0,
+      "sequence_parallel": true,
+      "tokens": 32,
+      "tp1_mismatch": {
+        "forward_output": 0
+      },
+      "tp_size": 2,
+      "train_infer_mismatch_count": 0,
+      "triton": {
+        "max_ms": 1.149271964095533,
+        "median_ms": 0.706878025084734,
+        "min_ms": 0.6899579893797636,
+        "p95_ms": 0.9988334029912947
+      },
+      "weight_layout": "packed_forward_cache",
+      "world_size": 4
+    },
+    {
+      "cp_size": 2,
+      "direction": "train_fwd_bwd",
+      "hidden": 4096,
+      "intermediate": 12288,
+      "latency_ratio_triton_vs_official_distributed": 0.4659099701126574,
+      "name": "tp2_cp2_sp",
+      "official_distributed": {
+        "max_ms": 4.578732012305409,
+        "median_ms": 4.211539984680712,
+        "min_ms": 4.1677289991639555,
+        "p95_ms": 4.504749839543365
+      },
+      "repeat_mismatch_count": 0,
+      "sequence_parallel": true,
+      "tokens": 32,
+      "tp1_mismatch": {
+        "hidden_gradient": 0,
+        "training_output": 0,
+        "weight_gradient": 0
+      },
+      "tp_size": 2,
+      "train_infer_mismatch_count": 0,
+      "triton": {
+        "max_ms": 2.256051986478269,
+        "median_ms": 1.9621984683908522,
+        "min_ms": 1.894902961794287,
+        "p95_ms": 2.1671605063602333
+      },
+      "weight_layout": "packed_forward_cache",
+      "world_size": 4
+    },
+    {
+      "cp_size": 1,
+      "direction": "forward",
+      "hidden": 4096,
+      "intermediate": 12288,
+      "latency_ratio_triton_vs_official_distributed": 3.3305188727841,
+      "name": "tp8",
+      "official_distributed": {
+        "max_ms": 0.5265750223770738,
+        "median_ms": 0.20057399524375796,
+        "min_ms": 0.18795003416016698,
+        "p95_ms": 0.4599942360073328
+      },
+      "repeat_mismatch_count": 0,
+      "sequence_parallel": false,
+      "tokens": 32,
+      "tp1_mismatch": {
+        "forward_output": 0
+      },
+      "tp_size": 8,
+      "train_infer_mismatch_count": 0,
+      "triton": {
+        "max_ms": 0.9437259868718684,
+        "median_ms": 0.6680154765490443,
+        "min_ms": 0.646052008960396,
+        "p95_ms": 0.8954497781815007
+      },
+      "weight_layout": "packed_forward_cache",
+      "world_size": 8
+    },
+    {
+      "cp_size": 1,
+      "direction": "train_fwd_bwd",
+      "hidden": 4096,
+      "intermediate": 12288,
+      "latency_ratio_triton_vs_official_distributed": 2.6553104389775055,
+      "name": "tp8",
+      "official_distributed": {
+        "max_ms": 0.8651090320199728,
+        "median_ms": 0.6639944913331419,
+        "min_ms": 0.6107499939389527,
+        "p95_ms": 0.8394304692046718
+      },
+      "repeat_mismatch_count": 0,
+      "sequence_parallel": false,
+      "tokens": 32,
+      "tp1_mismatch": {
+        "hidden_gradient": 0,
+        "training_output": 0,
+        "weight_gradient": 0
+      },
+      "tp_size": 8,
+      "train_infer_mismatch_count": 0,
+      "triton": {
+        "max_ms": 1.9813220133073628,
+        "median_ms": 1.7631115042604506,
+        "min_ms": 1.6018060268834233,
+        "p95_ms": 1.856191793922335
+      },
+      "weight_layout": "packed_forward_cache",
+      "world_size": 8
+    },
+    {
+      "cp_size": 2,
+      "direction": "forward",
+      "hidden": 4096,
+      "intermediate": 12288,
+      "latency_ratio_triton_vs_official_distributed": 2.9361465256107735,
+      "name": "tp4_cp2",
+      "official_distributed": {
+        "max_ms": 0.557270017452538,
+        "median_ms": 0.2377095224801451,
+        "min_ms": 0.22454396821558475,
+        "p95_ms": 0.4702101548900828
+      },
+      "repeat_mismatch_count": 0,
+      "sequence_parallel": false,
+      "tokens": 32,
+      "tp1_mismatch": {
+        "forward_output": 0
+      },
+      "tp_size": 4,
+      "train_infer_mismatch_count": 0,
+      "triton": {
+        "max_ms": 0.9553729905746877,
+        "median_ms": 0.697949988534674,
+        "min_ms": 0.6752759800292552,
+        "p95_ms": 0.9218062448780984
+      },
+      "weight_layout": "packed_forward_cache",
+      "world_size": 8
+    },
+    {
+      "cp_size": 2,
+      "direction": "train_fwd_bwd",
+      "hidden": 4096,
+      "intermediate": 12288,
+      "latency_ratio_triton_vs_official_distributed": 0.8270425369545604,
+      "name": "tp4_cp2",
+      "official_distributed": {
+        "max_ms": 2.754604967776686,
+        "median_ms": 2.437841991195455,
+        "min_ms": 2.3977020173333585,
+        "p95_ms": 2.7159105316968635
+      },
+      "repeat_mismatch_count": 0,
+      "sequence_parallel": false,
+      "tokens": 32,
+      "tp1_mismatch": {
+        "hidden_gradient": 0,
+        "training_output": 0,
+        "weight_gradient": 0
+      },
+      "tp_size": 4,
+      "train_infer_mismatch_count": 0,
+      "triton": {
+        "max_ms": 2.177905000280589,
+        "median_ms": 2.0161990250926465,
+        "min_ms": 1.8386300071142614,
+        "p95_ms": 2.136603739927523
+      },
+      "weight_layout": "packed_forward_cache",
+      "world_size": 8
+    },
+    {
+      "cp_size": 2,
+      "direction": "forward",
+      "hidden": 4096,
+      "intermediate": 12288,
+      "latency_ratio_triton_vs_official_distributed": 2.440941702768503,
+      "name": "tp4_cp2_sp",
+      "official_distributed": {
+        "max_ms": 1.010014966595918,
+        "median_ms": 0.3099615278188139,
+        "min_ms": 0.28650701278820634,
+        "p95_ms": 0.8037662366405118
+      },
+      "repeat_mismatch_count": 0,
+      "sequence_parallel": true,
+      "tokens": 32,
+      "tp1_mismatch": {
+        "forward_output": 0
+      },
+      "tp_size": 4,
+      "train_infer_mismatch_count": 0,
+      "triton": {
+        "max_ms": 1.0109160211868584,
+        "median_ms": 0.7565980195067823,
+        "min_ms": 0.7171489996835589,
+        "p95_ms": 0.9613319649361074
+      },
+      "weight_layout": "packed_forward_cache",
+      "world_size": 8
+    },
+    {
+      "cp_size": 2,
+      "direction": "train_fwd_bwd",
+      "hidden": 4096,
+      "intermediate": 12288,
+      "latency_ratio_triton_vs_official_distributed": 0.7057388970769427,
+      "name": "tp4_cp2_sp",
+      "official_distributed": {
+        "max_ms": 3.3931249636225402,
+        "median_ms": 2.8060810000170022,
+        "min_ms": 2.6044599944725633,
+        "p95_ms": 3.112885437440127
+      },
+      "repeat_mismatch_count": 0,
+      "sequence_parallel": true,
+      "tokens": 32,
+      "tp1_mismatch": {
+        "hidden_gradient": 0,
+        "training_output": 0,
+        "weight_gradient": 0
+      },
+      "tp_size": 4,
+      "train_infer_mismatch_count": 0,
+      "triton": {
+        "max_ms": 2.211904968135059,
+        "median_ms": 1.9803605100605637,
+        "min_ms": 1.918218971695751,
+        "p95_ms": 2.177845605183393
+      },
+      "weight_layout": "packed_forward_cache",
+      "world_size": 8
+    }
+  ],
+  "distributed_platform_comparison": {
+    "contract": "same M=32 workload, direction, and TP/CP/SP topology",
+    "note": "H100 CUDA values are preserved historical measurements; H100 official and MI300X distributed values are updated. Ratios are recomputed from these displayed columns, not taken from the user-supplied newer CUDA runs.",
+    "rows": [
+      {
+        "cp_size": 1,
+        "deterministic_mi300x_over_h100_ratio": 0.23906797761963436,
+        "direction": "forward",
+        "h100_deterministic_cuda_ms": 2.7896,
+        "h100_deterministic_over_official_ratio": 16.875983061101028,
+        "h100_official_distributed_ms": 0.1653,
+        "h100_official_distributed_summary_ms": {
+          "max_ms": 0.3013,
+          "median_ms": 0.1653,
+          "min_ms": 0.142,
+          "p95_ms": 0.2055
+        },
+        "mi300x_deterministic_over_official_ratio": 3.0819895795813808,
+        "mi300x_deterministic_triton_ms": 0.666904030367732,
+        "mi300x_official_distributed_ms": 0.2163875033147633,
+        "name": "tp2",
+        "sequence_parallel": false,
+        "tp_size": 2
+      },
+      {
+        "cp_size": 1,
+        "deterministic_mi300x_over_h100_ratio": 0.2144949771463871,
+        "direction": "train_fwd_bwd",
+        "h100_deterministic_cuda_ms": 7.8125,
+        "h100_deterministic_over_official_ratio": 12.308964865290688,
+        "h100_official_distributed_ms": 0.6347,
+        "h100_official_distributed_summary_ms": {
+          "max_ms": 0.6997,
+          "median_ms": 0.6347,
+          "min_ms": 0.5826,
+          "p95_ms": 0.6955
+        },
+        "mi300x_deterministic_over_official_ratio": 2.565423034622706,
+        "mi300x_deterministic_triton_ms": 1.6757420089561492,
+        "mi300x_official_distributed_ms": 0.6532029947265983,
+        "name": "tp2",
+        "sequence_parallel": false,
+        "tp_size": 2
+      },
+      {
+        "cp_size": 1,
+        "deterministic_mi300x_over_h100_ratio": 0.2112829486952149,
+        "direction": "forward",
+        "h100_deterministic_cuda_ms": 3.331,
+        "h100_deterministic_over_official_ratio": 16.87436676798379,
+        "h100_official_distributed_ms": 0.1974,
+        "h100_official_distributed_summary_ms": {
+          "max_ms": 0.2273,
+          "median_ms": 0.1974,
+          "min_ms": 0.1807,
+          "p95_ms": 0.2161
+        },
+        "mi300x_deterministic_over_official_ratio": 2.491084021205794,
+        "mi300x_deterministic_triton_ms": 0.7037835021037608,
+        "mi300x_official_distributed_ms": 0.28252098127268255,
+        "name": "tp2_sp",
+        "sequence_parallel": true,
+        "tp_size": 2
+      },
+      {
+        "cp_size": 1,
+        "deterministic_mi300x_over_h100_ratio": 0.15244131147458864,
+        "direction": "train_fwd_bwd",
+        "h100_deterministic_cuda_ms": 11.7695,
+        "h100_deterministic_over_official_ratio": 16.433258866238482,
+        "h100_official_distributed_ms": 0.7162,
+        "h100_official_distributed_summary_ms": {
+          "max_ms": 1.2747,
+          "median_ms": 0.7162,
+          "min_ms": 0.6713,
+          "p95_ms": 1.0543
+        },
+        "mi300x_deterministic_over_official_ratio": 2.078108717055042,
+        "mi300x_deterministic_triton_ms": 1.7941580154001713,
+        "mi300x_official_distributed_ms": 0.8633609977550805,
+        "name": "tp2_sp",
+        "sequence_parallel": true,
+        "tp_size": 2
+      },
+      {
+        "cp_size": 1,
+        "deterministic_mi300x_over_h100_ratio": 0.3078849092749437,
+        "direction": "forward",
+        "h100_deterministic_cuda_ms": 2.1687,
+        "h100_deterministic_over_official_ratio": 12.449483352468427,
+        "h100_official_distributed_ms": 0.1742,
+        "h100_official_distributed_summary_ms": {
+          "max_ms": 1.4339,
+          "median_ms": 0.1742,
+          "min_ms": 0.1545,
+          "p95_ms": 0.8594
+        },
+        "mi300x_deterministic_over_official_ratio": 2.980595497031791,
+        "mi300x_deterministic_triton_ms": 0.6677100027445704,
+        "mi300x_official_distributed_ms": 0.2240189933218062,
+        "name": "tp4",
+        "sequence_parallel": false,
+        "tp_size": 4
+      },
+      {
+        "cp_size": 1,
+        "deterministic_mi300x_over_h100_ratio": 0.1768051411980418,
+        "direction": "train_fwd_bwd",
+        "h100_deterministic_cuda_ms": 9.3954,
+        "h100_deterministic_over_official_ratio": 14.543962848297214,
+        "h100_official_distributed_ms": 0.646,
+        "h100_official_distributed_summary_ms": {
+          "max_ms": 0.7232,
+          "median_ms": 0.646,
+          "min_ms": 0.5959,
+          "p95_ms": 0.7029
+        },
+        "mi300x_deterministic_over_official_ratio": 2.4507841825531296,
+        "mi300x_deterministic_triton_ms": 1.661155023612082,
+        "mi300x_official_distributed_ms": 0.6778055103495717,
+        "name": "tp4",
+        "sequence_parallel": false,
+        "tp_size": 4
+      },
+      {
+        "cp_size": 2,
+        "deterministic_mi300x_over_h100_ratio": 0.24149783047852758,
+        "direction": "forward",
+        "h100_deterministic_cuda_ms": 2.8261,
+        "h100_deterministic_over_official_ratio": 17.663124999999997,
+        "h100_official_distributed_ms": 0.16,
+        "h100_official_distributed_summary_ms": {
+          "max_ms": 1.4457,
+          "median_ms": 0.16,
+          "min_ms": 0.1411,
+          "p95_ms": 0.8807
+        },
+        "mi300x_deterministic_over_official_ratio": 3.0189364393278644,
+        "mi300x_deterministic_triton_ms": 0.6824970187153667,
+        "mi300x_official_distributed_ms": 0.22607200662605464,
+        "name": "tp2_cp2",
+        "sequence_parallel": false,
+        "tp_size": 2
+      },
+      {
+        "cp_size": 2,
+        "deterministic_mi300x_over_h100_ratio": 0.12139473811454553,
+        "direction": "train_fwd_bwd",
+        "h100_deterministic_cuda_ms": 16.1722,
+        "h100_deterministic_over_official_ratio": 13.28312114989733,
+        "h100_official_distributed_ms": 1.2175,
+        "h100_official_distributed_summary_ms": {
+          "max_ms": 2.2589,
+          "median_ms": 1.2175,
+          "min_ms": 1.1868,
+          "p95_ms": 2.2282
+        },
+        "mi300x_deterministic_over_official_ratio": 0.486978322994483,
+        "mi300x_deterministic_triton_ms": 1.963219983736053,
+        "mi300x_official_distributed_ms": 4.031431977637112,
+        "name": "tp2_cp2",
+        "sequence_parallel": false,
+        "tp_size": 2
+      },
+      {
+        "cp_size": 2,
+        "deterministic_mi300x_over_h100_ratio": 0.19737477664732617,
+        "direction": "forward",
+        "h100_deterministic_cuda_ms": 3.5814,
+        "h100_deterministic_over_official_ratio": 14.768659793814432,
+        "h100_official_distributed_ms": 0.2425,
+        "h100_official_distributed_summary_ms": {
+          "max_ms": 0.3538,
+          "median_ms": 0.2425,
+          "min_ms": 0.2271,
+          "p95_ms": 0.2821
+        },
+        "mi300x_deterministic_over_official_ratio": 2.3647336647848283,
+        "mi300x_deterministic_triton_ms": 0.706878025084734,
+        "mi300x_official_distributed_ms": 0.298925006063655,
+        "name": "tp2_cp2_sp",
+        "sequence_parallel": true,
+        "tp_size": 2
+      },
+      {
+        "cp_size": 2,
+        "deterministic_mi300x_over_h100_ratio": 0.1168712680852712,
+        "direction": "train_fwd_bwd",
+        "h100_deterministic_cuda_ms": 16.7894,
+        "h100_deterministic_over_official_ratio": 10.574001763446278,
+        "h100_official_distributed_ms": 1.5878,
+        "h100_official_distributed_summary_ms": {
+          "max_ms": 1.7189,
+          "median_ms": 1.5878,
+          "min_ms": 1.4295,
+          "p95_ms": 1.6838
+        },
+        "mi300x_deterministic_over_official_ratio": 0.4659099701126574,
+        "mi300x_deterministic_triton_ms": 1.9621984683908522,
+        "mi300x_official_distributed_ms": 4.211539984680712,
+        "name": "tp2_cp2_sp",
+        "sequence_parallel": true,
+        "tp_size": 2
+      },
+      {
+        "cp_size": 1,
+        "deterministic_mi300x_over_h100_ratio": 0.2878632580147566,
+        "direction": "forward",
+        "h100_deterministic_cuda_ms": 2.3206,
+        "h100_deterministic_over_official_ratio": 5.857142857142858,
+        "h100_official_distributed_ms": 0.3962,
+        "h100_official_distributed_summary_ms": {
+          "max_ms": 1.2054,
+          "median_ms": 0.3962,
+          "min_ms": 0.3521,
+          "p95_ms": 1.178
+        },
+        "mi300x_deterministic_over_official_ratio": 3.3305188727841,
+        "mi300x_deterministic_triton_ms": 0.6680154765490443,
+        "mi300x_official_distributed_ms": 0.20057399524375796,
+        "name": "tp8",
+        "sequence_parallel": false,
+        "tp_size": 8
+      },
+      {
+        "cp_size": 1,
+        "deterministic_mi300x_over_h100_ratio": 0.17391975381114186,
+        "direction": "train_fwd_bwd",
+        "h100_deterministic_cuda_ms": 10.1375,
+        "h100_deterministic_over_official_ratio": 8.40449345050572,
+        "h100_official_distributed_ms": 1.2062,
+        "h100_official_distributed_summary_ms": {
+          "max_ms": 1.4588,
+          "median_ms": 1.2062,
+          "min_ms": 1.1445,
+          "p95_ms": 1.44
+        },
+        "mi300x_deterministic_over_official_ratio": 2.6553104389775055,
+        "mi300x_deterministic_triton_ms": 1.7631115042604506,
+        "mi300x_official_distributed_ms": 0.6639944913331419,
+        "name": "tp8",
+        "sequence_parallel": false,
+        "tp_size": 8
+      },
+      {
+        "cp_size": 2,
+        "deterministic_mi300x_over_h100_ratio": 0.3152296592451443,
+        "direction": "forward",
+        "h100_deterministic_cuda_ms": 2.2141,
+        "h100_deterministic_over_official_ratio": 5.81739358906989,
+        "h100_official_distributed_ms": 0.3806,
+        "h100_official_distributed_summary_ms": {
+          "max_ms": 2.5012,
+          "median_ms": 0.3806,
+          "min_ms": 0.354,
+          "p95_ms": 1.4873
+        },
+        "mi300x_deterministic_over_official_ratio": 2.9361465256107735,
+        "mi300x_deterministic_triton_ms": 0.697949988534674,
+        "mi300x_official_distributed_ms": 0.2377095224801451,
+        "name": "tp4_cp2",
+        "sequence_parallel": false,
+        "tp_size": 4
+      },
+      {
+        "cp_size": 2,
+        "deterministic_mi300x_over_h100_ratio": 0.12173865153291309,
+        "direction": "train_fwd_bwd",
+        "h100_deterministic_cuda_ms": 16.5617,
+        "h100_deterministic_over_official_ratio": 10.589322250639384,
+        "h100_official_distributed_ms": 1.564,
+        "h100_official_distributed_summary_ms": {
+          "max_ms": 2.9183,
+          "median_ms": 1.564,
+          "min_ms": 1.468,
+          "p95_ms": 2.7782
+        },
+        "mi300x_deterministic_over_official_ratio": 0.8270425369545604,
+        "mi300x_deterministic_triton_ms": 2.0161990250926465,
+        "mi300x_official_distributed_ms": 2.437841991195455,
+        "name": "tp4_cp2",
+        "sequence_parallel": false,
+        "tp_size": 4
+      },
+      {
+        "cp_size": 2,
+        "deterministic_mi300x_over_h100_ratio": 0.22946682624856918,
+        "direction": "forward",
+        "h100_deterministic_cuda_ms": 3.2972,
+        "h100_deterministic_over_official_ratio": 6.5825514074665605,
+        "h100_official_distributed_ms": 0.5009,
+        "h100_official_distributed_summary_ms": {
+          "max_ms": 0.567,
+          "median_ms": 0.5009,
+          "min_ms": 0.4745,
+          "p95_ms": 0.5523
+        },
+        "mi300x_deterministic_over_official_ratio": 2.440941702768503,
+        "mi300x_deterministic_triton_ms": 0.7565980195067823,
+        "mi300x_official_distributed_ms": 0.3099615278188139,
+        "name": "tp4_cp2_sp",
+        "sequence_parallel": true,
+        "tp_size": 4
+      },
+      {
+        "cp_size": 2,
+        "deterministic_mi300x_over_h100_ratio": 0.11550187569248054,
+        "direction": "train_fwd_bwd",
+        "h100_deterministic_cuda_ms": 17.1457,
+        "h100_deterministic_over_official_ratio": 9.899936485940298,
+        "h100_official_distributed_ms": 1.7319,
+        "h100_official_distributed_summary_ms": {
+          "max_ms": 1.9283,
+          "median_ms": 1.7319,
+          "min_ms": 1.7104,
+          "p95_ms": 1.922
+        },
+        "mi300x_deterministic_over_official_ratio": 0.7057388970769427,
+        "mi300x_deterministic_triton_ms": 1.9803605100605637,
+        "mi300x_official_distributed_ms": 2.8060810000170022,
+        "name": "tp4_cp2_sp",
+        "sequence_parallel": true,
+        "tp_size": 4
+      }
+    ],
+    "source": "cuda_cpu_comparison.json"
+  },
+  "environment": {
+    "NCCL_IB_DISABLE": "1",
+    "architecture": "gfx942:sramecc+:xnack-",
+    "deterministic_compute": "ROCm-native Triton",
+    "deterministic_transport": "fixed-tree HIP IPC with RCCL fallback on ROCm",
+    "distributed_speed_comparison": "four same-topology H100/MI300X paths",
+    "git_commit": "98dcd38fb635e1e0eab9035aa4c4b40483cc36b8",
+    "gpu": "AMD Instinct MI300X",
+    "gpu_count": 8,
+    "hip": "7.14.60850",
+    "python": "3.12.3",
+    "single_gpu_speed_context": "Hugging Face Transformers Qwen3MLP, TP=1",
+    "torch": "2.12.0+rocm7.14.0a20260608",
+    "transformers": "5.13.1"
+  },
+  "measurement_sources": {
+    "h100_cuda_distributed": {
+      "environment": {
+        "architecture": "sm_90",
+        "cpu": "Intel(R) Xeon(R) Platinum 8468",
+        "cpu_threads": 96,
+        "cuda": "13.0",
+        "deterministic_compute": "native CUDA kernels",
+        "deterministic_transport": "fixed-order CUDA IPC",
+        "gpu": "NVIDIA H100 80GB HBM3",
+        "gpu_count": 8,
+        "python": "3.11.15",
+        "torch": "2.13.0+cu130",
+        "transformers": "5.13.1"
+      },
+      "git_commit": "8576fa4bf449734ae99e9b50be8756bb282a8916",
+      "methodology": {
+        "cpu_timing": "wall clock with 96 PyTorch intra-op threads",
+        "dtype": "bfloat16",
+        "gpu_timing": "GPU events for single GPU; synchronized slowest-rank wall clock for distributed",
+        "hidden": 4096,
+        "intermediate": 12288,
+        "samples": 10,
+        "tokens": [
+          1,
+          8,
+          32
+        ],
+        "training_samples": 5,
+        "warmup": 3
+      },
+      "note": "Historical CUDA values preserved at the user's request; newer supplied CUDA values and ratios are not substituted.",
+      "source": "cuda_cpu_comparison.json:distributed[].cuda_h100_ms"
+    },
+    "h100_official_distributed": {
+      "baseline": "F.linear + NCCL at the same TP/CP/SP topology; TP=1 is used only for untimed RL-Kernel bitwise checks",
+      "commands": [
+        "env PYTHONPATH=/tmp/rlk-head-98dcd38-build-GYkK6iE5/repo CUDA_VISIBLE_DEVICES=0,1 NCCL_NVLS_ENABLE=0 NCCL_IB_DISABLE=1 RL_KERNEL_DET_GEMM_BACKEND=sm90 FFN_WORLD_SIZE=2 FFN_WARMUP=5 FFN_SAMPLES=20 FFN_TRAINING_SAMPLES=10 /home/ellm/miniconda3/envs/hsr_env_rl_kernel/bin/python /tmp/rlk-head-98dcd38-build-GYkK6iE5/repo/run_h100_distributed_ffn_data.py",
+        "env PYTHONPATH=/tmp/rlk-head-98dcd38-build-GYkK6iE5/repo CUDA_VISIBLE_DEVICES=0,1,2,3 NCCL_NVLS_ENABLE=0 NCCL_IB_DISABLE=1 RL_KERNEL_DET_GEMM_BACKEND=sm90 FFN_WORLD_SIZE=4 FFN_WARMUP=5 FFN_SAMPLES=20 FFN_TRAINING_SAMPLES=10 /home/ellm/miniconda3/envs/hsr_env_rl_kernel/bin/python /tmp/rlk-head-98dcd38-build-GYkK6iE5/repo/run_h100_distributed_ffn_data.py"
+      ],
+      "cuda": "13.0",
+      "directions": [
+        "forward",
+        "train_fwd_bwd"
+      ],
+      "dtype": "bfloat16",
+      "environment_variables": {
+        "NCCL_IB_DISABLE": "1",
+        "NCCL_NVLS_ENABLE": "0",
+        "RL_KERNEL_DET_GEMM_BACKEND": "sm90"
+      },
+      "fields": [
+        "official_h100_ms",
+        "official_h100_summary_ms"
+      ],
+      "git_commit": "98dcd38fb635e1e0eab9035aa4c4b40483cc36b8",
+      "gpu": "NVIDIA H100 80GB",
+      "note": "All 16 official distributed rows are updated from user-supplied H100 measurements. CUDA and other historical rows remain unchanged; top-level environment and methodology describe those historical data. All H100 world sizes used 5/20/10 warmup/forward/training settings. ROCm uses 10/50/20 CLI settings (its distributed training halves warmup to 5); shapes, topology and timing aggregation match, but sample counts differ. The user discarded H100 10/50/20 reruns contaminated by competing GPU 0-3 workloads. The supplied H100 runner and individual samples are not available in this repository.",
+      "samples": 20,
+      "shape": {
+        "hidden": 4096,
+        "intermediate": 12288,
+        "tokens": 32
+      },
+      "source": "User-supplied H100 table on 2026-09-06",
+      "timing": "synchronized wall clock; slowest rank per sample",
+      "topologies": [
+        "tp2",
+        "tp2_sp",
+        "tp4",
+        "tp2_cp2",
+        "tp2_cp2_sp",
+        "tp8",
+        "tp4_cp2",
+        "tp4_cp2_sp"
+      ],
+      "torch": "2.13.0+cu130",
+      "training_samples": 10,
+      "units": "ms",
+      "validation": {
+        "hidden_gradient_mismatch": 0,
+        "output_mismatch": 0,
+        "reference": "RL-Kernel CUDA TP=1",
+        "repeat_mismatch": 0,
+        "train_infer_mismatch": 0,
+        "weight_gradient_mismatch": 0
+      },
+      "warmup": 5
+    },
+    "mi300x_distributed": {
+      "effective_forward_warmup": 10,
+      "effective_training_warmup": 5,
+      "environment": {
+        "NCCL_IB_DISABLE": "1",
+        "architecture": "gfx942:sramecc+:xnack-",
+        "deterministic_compute": "ROCm-native Triton",
+        "deterministic_transport": "fixed-tree HIP IPC with RCCL fallback on ROCm",
+        "distributed_speed_comparison": "four same-topology H100/MI300X paths",
+        "git_commit": "98dcd38fb635e1e0eab9035aa4c4b40483cc36b8",
+        "gpu": "AMD Instinct MI300X",
+        "gpu_count": 8,
+        "hip": "7.14.60850",
+        "python": "3.12.3",
+        "single_gpu_speed_context": "Hugging Face Transformers Qwen3MLP, TP=1",
+        "torch": "2.12.0+rocm7.14.0a20260608",
+        "transformers": "5.13.1"
+      },
+      "methodology": {
+        "distributed_timing": "synchronized wall clock, slowest rank/sample",
+        "distributed_worker_cpu_affinity": "one NUMA-local CPU per GPU rank",
+        "operator_only": true,
+        "samples": 50,
+        "single_gpu_timing": "GPU events, median and p95",
+        "tp1_forward_cache_bytes": 301989888,
+        "training_samples": 20,
+        "triton_weight_layout": "packed_forward_cache_outside_timed_region",
+        "warmup": 10
+      },
+      "native_baseline_validation": {
+        "scope": "All eight TP/CP/SP layouts; output, dHidden, dGate, dUp and dDown checked against unsharded Hugging Face Qwen3MLP",
+        "fp64_shape": [32, 64, 512],
+        "fp64_max_relative_l2": 9.345613086441527e-16,
+        "bf16_shape": [32, 4096, 12288],
+        "bf16_vs_fp32_max_relative_l2": 0.005519561003893614,
+        "timing_repeats": 3,
+        "max_median_latency_change_percent_rounded": 6.7,
+        "note": "Independent local validation passed; numerical errors are tolerance checks of the native baseline, not bitwise equality claims."
+      },
+      "shared_server_note": "An unrelated process held about 180 GiB on GPU 7. All layouts completed; these are not exclusive-node measurements.",
+      "source": "MI300X rerun on 2026-09-06; measured summaries are embedded in this file under distributed_ffn"
+    },
+    "note": "Top-level environment and methodology describe the MI300X distributed rerun. Single-GPU and dtype observations are preserved historical data with separate provenance below.",
+    "single_gpu_and_dtype_observations": {
+      "environment": {
+        "NCCL_IB_DISABLE": "1",
+        "architecture": "gfx942:sramecc+:xnack-",
+        "deterministic_compute": "ROCm-native Triton",
+        "deterministic_transport": "fixed-tree HIP IPC with RCCL fallback on ROCm",
+        "distributed_speed_comparison": "four same-topology H100/MI300X paths",
+        "git_commit": "caef501101a3906c733076f31f3b5a9870169d16",
+        "gpu": "AMD Instinct MI300X",
+        "gpu_count": 8,
+        "hip": "7.14.60850",
+        "python": "3.12.3",
+        "single_gpu_speed_context": "Hugging Face Transformers Qwen3MLP, TP=1",
+        "torch": "2.12.0+rocm7.14.0a20260608",
+        "transformers": "5.10.4"
+      },
+      "methodology": {
+        "distributed_timing": "synchronized wall clock, slowest rank/sample",
+        "distributed_worker_cpu_affinity": "one NUMA-local CPU per GPU rank",
+        "operator_only": true,
+        "samples": 50,
+        "single_gpu_timing": "GPU events, median and p95",
+        "tp1_forward_cache_bytes": 301989888,
+        "training_samples": 20,
+        "triton_weight_layout": "packed_forward_cache_outside_timed_region",
+        "warmup": 10
+      },
+      "source": "Preserved original MI300X artifact"
+    }
+  },
+  "methodology": {
+    "distributed_timing": "synchronized wall clock, slowest rank/sample",
+    "distributed_worker_cpu_affinity": "one NUMA-local CPU per GPU rank",
+    "operator_only": true,
+    "samples": 50,
+    "single_gpu_timing": "GPU events, median and p95",
+    "tp1_forward_cache_bytes": 301989888,
+    "training_samples": 20,
+    "triton_weight_layout": "packed_forward_cache_outside_timed_region",
+    "warmup": 10
+  },
+  "previous_deterministic_comparison": {
+    "note": "Historical constants versus the current rerun; not a controlled attribution to PR #357.",
+    "rows": [
+      {
+        "current_ms": 0.666904030367732,
+        "direction": "forward",
+        "latency_reduction_ratio": 0.2622688997280703,
+        "name": "tp2",
+        "previous_ms": 0.9039933793246746
+      },
+      {
+        "current_ms": 1.6757420089561492,
+        "direction": "train_fwd_bwd",
+        "latency_reduction_ratio": 0.3792782839162665,
+        "name": "tp2",
+        "previous_ms": 2.6996671222150326
+      },
+      {
+        "current_ms": 0.7037835021037608,
+        "direction": "forward",
+        "latency_reduction_ratio": 0.33362658357888275,
+        "name": "tp2_sp",
+        "previous_ms": 1.0561398230493069
+      },
+      {
+        "current_ms": 1.7941580154001713,
+        "direction": "train_fwd_bwd",
+        "latency_reduction_ratio": 0.3948104100290333,
+        "name": "tp2_sp",
+        "previous_ms": 2.9646214097738266
+      },
+      {
+        "current_ms": 0.6677100027445704,
+        "direction": "forward",
+        "latency_reduction_ratio": 0.20119110656402106,
+        "name": "tp4",
+        "previous_ms": 0.8358820341527462
+      },
+      {
+        "current_ms": 1.661155023612082,
+        "direction": "train_fwd_bwd",
+        "latency_reduction_ratio": 0.38472971889177976,
+        "name": "tp4",
+        "previous_ms": 2.6998785324394703
+      },
+      {
+        "current_ms": 0.6824970187153667,
+        "direction": "forward",
+        "latency_reduction_ratio": 0.24300741807194692,
+        "name": "tp2_cp2",
+        "previous_ms": 0.9015901014208794
+      },
+      {
+        "current_ms": 1.963219983736053,
+        "direction": "train_fwd_bwd",
+        "latency_reduction_ratio": 0.4486253946836861,
+        "name": "tp2_cp2",
+        "previous_ms": 3.5605919547379017
+      },
+      {
+        "current_ms": 0.706878025084734,
+        "direction": "forward",
+        "latency_reduction_ratio": 0.3742248967971883,
+        "name": "tp2_cp2_sp",
+        "previous_ms": 1.1296039447188377
+      },
+      {
+        "current_ms": 1.9621984683908522,
+        "direction": "train_fwd_bwd",
+        "latency_reduction_ratio": 0.5085730967042195,
+        "name": "tp2_cp2_sp",
+        "previous_ms": 3.992859274148941
+      },
+      {
+        "current_ms": 0.6680154765490443,
+        "direction": "forward",
+        "latency_reduction_ratio": 0.38485854728140545,
+        "name": "tp8",
+        "previous_ms": 1.0859542526304722
+      },
+      {
+        "current_ms": 1.7631115042604506,
+        "direction": "train_fwd_bwd",
+        "latency_reduction_ratio": 0.3118228196729178,
+        "name": "tp8",
+        "previous_ms": 2.5620022788643837
+      },
+      {
+        "current_ms": 0.697949988534674,
+        "direction": "forward",
+        "latency_reduction_ratio": 0.33757634836066475,
+        "name": "tp4_cp2",
+        "previous_ms": 1.0536308400332928
+      },
+      {
+        "current_ms": 2.0161990250926465,
+        "direction": "train_fwd_bwd",
+        "latency_reduction_ratio": 0.381517106378663,
+        "name": "tp4_cp2",
+        "previous_ms": 3.259910736232996
+      },
+      {
+        "current_ms": 0.7565980195067823,
+        "direction": "forward",
+        "latency_reduction_ratio": 0.3656840639616845,
+        "name": "tp4_cp2_sp",
+        "previous_ms": 1.1927778832614422
+      },
+      {
+        "current_ms": 1.9803605100605637,
+        "direction": "train_fwd_bwd",
+        "latency_reduction_ratio": 0.4718741113129781,
+        "name": "tp4_cp2_sp",
+        "previous_ms": 3.7497887387871742
+      }
+    ],
+    "source": "previous checked MI300X benchmark before PR #357"
+  },
+  "single_gpu": {
+    "dtype_accuracy": [
+      {
+        "candidate_dtype": "float16",
+        "exact_fraction": 3.0517578125e-05,
+        "hidden": 4096,
+        "intermediate": 12288,
+        "max_abs": 2.046101144514978e-06,
+        "mean_abs": 3.7421963838824013e-07,
+        "name": "Official Qwen3MLP TP=1 FP16 vs FP32",
+        "reference_dtype": "float32",
+        "relative_l2": 0.0006544404313899577,
+        "tokens": 8
+      }
+    ],
+    "speed": [
+      {
+        "direction": "forward",
+        "dtype": "bfloat16",
+        "hidden": 4096,
+        "intermediate": 12288,
+        "latency_ratio_vs_official_tp1": 6.029729218534371,
+        "name": "(M,H,I)=(1,4096,12288), forward",
+        "official_tp1": {
+          "max_ms": 0.24884900450706482,
+          "median_ms": 0.10038900002837181,
+          "min_ms": 0.09506099671125412,
+          "p95_ms": 0.15199404805898656
+        },
+        "tokens": 1,
+        "triton": {
+          "max_ms": 0.7080109715461731,
+          "median_ms": 0.6053184866905212,
+          "min_ms": 0.5777779817581177,
+          "p95_ms": 0.6747872471809386
+        },
+        "weight_layout": "packed_forward_cache"
+      },
+      {
+        "direction": "train_fwd_bwd",
+        "dtype": "bfloat16",
+        "hidden": 4096,
+        "intermediate": 12288,
+        "latency_ratio_vs_official_tp1": 3.9212252358156867,
+        "name": "(M,H,I)=(1,4096,12288), forward+backward",
+        "official_tp1": {
+          "max_ms": 0.5410429835319519,
+          "median_ms": 0.43706849217414856,
+          "min_ms": 0.42226698994636536,
+          "p95_ms": 0.5354484349489211
+        },
+        "tokens": 1,
+        "triton": {
+          "max_ms": 1.910356044769287,
+          "median_ms": 1.7138440012931824,
+          "min_ms": 1.6589829921722412,
+          "p95_ms": 1.8108766913414003
+        },
+        "weight_layout": "packed_forward_cache"
+      },
+      {
+        "direction": "forward",
+        "dtype": "bfloat16",
+        "hidden": 4096,
+        "intermediate": 12288,
+        "latency_ratio_vs_official_tp1": 5.61974558812295,
+        "name": "(M,H,I)=(8,4096,12288), forward",
+        "official_tp1": {
+          "max_ms": 0.14878100156784058,
+          "median_ms": 0.10771999880671501,
+          "min_ms": 0.10279300063848495,
+          "p95_ms": 0.11455849818885325
+        },
+        "tokens": 8,
+        "triton": {
+          "max_ms": 0.6983559727668762,
+          "median_ms": 0.6053589880466461,
+          "min_ms": 0.5815439820289612,
+          "p95_ms": 0.6279941111803056
+        },
+        "weight_layout": "packed_forward_cache"
+      },
+      {
+        "direction": "train_fwd_bwd",
+        "dtype": "bfloat16",
+        "hidden": 4096,
+        "intermediate": 12288,
+        "latency_ratio_vs_official_tp1": 4.442236747459528,
+        "name": "(M,H,I)=(8,4096,12288), forward+backward",
+        "official_tp1": {
+          "max_ms": 0.7275599837303162,
+          "median_ms": 0.6475815176963806,
+          "min_ms": 0.5028650164604187,
+          "p95_ms": 0.672568279504776
+        },
+        "tokens": 8,
+        "triton": {
+          "max_ms": 3.3488519191741943,
+          "median_ms": 2.8767104148864746,
+          "min_ms": 2.6616709232330322,
+          "p95_ms": 3.018102836608887
+        },
+        "weight_layout": "packed_forward_cache"
+      },
+      {
+        "direction": "forward",
+        "dtype": "bfloat16",
+        "hidden": 4096,
+        "intermediate": 12288,
+        "latency_ratio_vs_official_tp1": 7.6426809923032115,
+        "name": "(M,H,I)=(32,4096,12288), forward",
+        "official_tp1": {
+          "max_ms": 0.16067799925804138,
+          "median_ms": 0.11462999880313873,
+          "min_ms": 0.11064399778842926,
+          "p95_ms": 0.11765709854662418
+        },
+        "tokens": 32,
+        "triton": {
+          "max_ms": 0.9773309826850891,
+          "median_ms": 0.8760805130004883,
+          "min_ms": 0.8697310090065002,
+          "p95_ms": 0.8829010009765625
+        },
+        "weight_layout": "packed_forward_cache"
+      },
+      {
+        "direction": "train_fwd_bwd",
+        "dtype": "bfloat16",
+        "hidden": 4096,
+        "intermediate": 12288,
+        "latency_ratio_vs_official_tp1": 5.544395107362785,
+        "name": "(M,H,I)=(32,4096,12288), forward+backward",
+        "official_tp1": {
+          "max_ms": 0.48680299520492554,
+          "median_ms": 0.41822099685668945,
+          "min_ms": 0.409527987241745,
+          "p95_ms": 0.4841772079467773
+        },
+        "tokens": 32,
+        "triton": {
+          "max_ms": 2.744915008544922,
+          "median_ms": 2.3187824487686157,
+          "min_ms": 2.2827088832855225,
+          "p95_ms": 2.4811455845832824
+        },
+        "weight_layout": "packed_forward_cache"
+      }
+    ]
+  }
+}

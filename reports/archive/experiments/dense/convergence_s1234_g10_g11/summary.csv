@@ -1,0 +1,3 @@
+phase,group,run_count,round_count,active_token_exposure,bitwise_mismatch_count,bitwise_mismatch_rate,mean_abs_dlogp_token_weighted,max_abs_dlogp,reward_mean,raw_reward_mean,truncated_ratio_mean,step_time_mean,actor_tokens_per_second_mean,unweighted_mean_abs_dlogp
+convergence,G10,1,200,9927045.0,5764529.0,0.5806893189262263,0.012566951307437265,1.1917808055877686,4.842877388000488e-10,0.379375,0.58,87.69379462599754,8576.64340160429,0.012304821419529616
+convergence,G11,1,200,9806995.0,0.0,0.0,0.0,0.0,5.029141902923584e-10,0.395,0.561875,122.63016048192978,5564.762254530005,0.0

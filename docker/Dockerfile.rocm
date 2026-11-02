@@ -1,0 +1,29 @@
+# docker/Dockerfile.rocm
+# base: docker build -f docker/Dockerfile.rocm_base -t rl-kernel:rocm-dev .
+# build: docker build -f docker/Dockerfile.rocm -t <registry>/rl-kernel-ci:rocm .
+# push: docker push <registry>/rl-kernel-ci:rocm
+
+FROM rl-kernel:rocm-dev
+
+# Build a portable extension by default. The list follows the multi-architecture
+# ROCm profile used by vLLM: MI200 (gfx90a), MI300/MI325 (gfx942), MI350/MI355
+# (gfx950), plus supported RDNA 3/4 targets. Override it at build time with
+# --build-arg PYTORCH_ROCM_ARCH=<targets>, or at run time with `docker run -e`.
+# Newer GPU targets need no setup.py change: pass the gfx target supported by the
+# installed PyTorch/ROCm pair.
+ARG PYTORCH_ROCM_ARCH=gfx90a;gfx942;gfx950;gfx1100;gfx1101;gfx1150;gfx1151;gfx1200;gfx1201
+ENV PYTORCH_ROCM_ARCH=${PYTORCH_ROCM_ARCH}
+ENV MAX_JOBS=8
+
+USER root
+WORKDIR /opt/rl-kernel
+
+COPY requirements.txt ./
+COPY requirements/ ./requirements/
+
+RUN pip install --no-cache-dir -U pip \
+ && pip install --no-cache-dir -r requirements.txt \
+ && pip install --no-cache-dir pytest
+
+USER rlkernel
+WORKDIR /workspace/RL-Kernel

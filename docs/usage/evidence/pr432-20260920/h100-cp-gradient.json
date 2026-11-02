@@ -1,0 +1,591 @@
+{
+  "runs": [
+    {
+      "run_id": "cpgrad-tp2cp4-r5",
+      "steps": {
+        "0": {
+          "train/loss": 3.9848928281571716e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.12023040652275085,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 512.0,
+          "train/kl_loss": 0.00398489274084568,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.022594607365076035,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 0
+        },
+        "1": {
+          "train/loss": 7.246405584737659e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.15511181950569153,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 512.0,
+          "train/kl_loss": 0.007246405817568302,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.03439536852782456,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 1
+        }
+      },
+      "performance": {
+        "0": {
+          "perf/update_weights_time": 27.520503759384155,
+          "perf/data_preprocess_time": 0.011134147644042969,
+          "perf/train_wait_time": 38.43356251716614,
+          "perf/ref_log_probs_time": 2.0215706825256348,
+          "perf/log_probs_time": 0.4188084602355957,
+          "perf/actor_train_time": 3.4440557956695557,
+          "perf/train_time": 6.259614706039429,
+          "perf/log_probs_tflops": 23.826277657950442,
+          "perf/ref_log_probs_tflops": 4.936085957976621,
+          "perf/actor_train_tflops": 8.69206010392064,
+          "perf/actor_train_tok_per_s": 1512.1706235271713,
+          "perf/step_time": 44.693177223205566,
+          "perf/wait_time_ratio": 0.8599424991698886
+        },
+        "1": {
+          "perf/update_weights_time": 27.544374227523804,
+          "perf/data_preprocess_time": 0.011069059371948242,
+          "perf/train_wait_time": 37.61604309082031,
+          "perf/ref_log_probs_time": 0.5046274662017822,
+          "perf/log_probs_time": 0.33281421661376953,
+          "perf/actor_train_time": 3.6114234924316406,
+          "perf/train_time": 4.819371938705444,
+          "perf/log_probs_tflops": 28.863948621269795,
+          "perf/ref_log_probs_tflops": 19.03648352927103,
+          "perf/actor_train_tflops": 7.979955108200179,
+          "perf/actor_train_tok_per_s": 1388.9260039737492,
+          "perf/step_time": 42.43541502952576,
+          "perf/wait_time_ratio": 0.8864304276191899
+        }
+      },
+      "tokens": {
+        "0": {
+          "sha256": "875d2f13205808479cc3ecbf518b8f5f066b7755547e6d5205e38f2ffd68a8ae",
+          "sample_count": 8,
+          "token_count": 5208
+        },
+        "1": {
+          "sha256": "10ee3cb81d196c791fd6a5ea0a14db968d4a54ae29ab21d73b263cb25b54bae1",
+          "sample_count": 8,
+          "token_count": 5016
+        }
+      },
+      "validation": {
+        "cudagraph": {
+          "checks": {
+            "capture_sizes": true,
+            "engine_mode": true,
+            "launcher_marker": true,
+            "not_eager": true
+          },
+          "expected_capture_sizes": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "passed": true
+        },
+        "errors": [],
+        "group": "consistency",
+        "offline_tensor_comparison": {
+          "artifact_count": 16,
+          "comparable_artifact_count": 16,
+          "reason": null,
+          "status": "available"
+        },
+        "passed": true,
+        "run_id": "cpgrad-tp2cp4-r5",
+        "runtime_readbacks": {
+          "errors": [],
+          "frameworks": {
+            "megatron/training": {
+              "modules": {
+                "attention": {
+                  "backend_ids": [
+                    "rlkernel.attention.deterministic.v1"
+                  ],
+                  "call_count": 2304,
+                  "case_id": "R/R",
+                  "expected_implementation": "rl_kernel",
+                  "implementations": [
+                    "rl_kernel"
+                  ],
+                  "installed_processes": 8
+                },
+                "ffn": {
+                  "backend_ids": [
+                    "rlkernel.ffn.qwen3.deterministic.v1"
+                  ],
+                  "call_count": 2304,
+                  "case_id": "R/R",
+                  "expected_implementation": "rl_kernel",
+                  "implementations": [
+                    "rl_kernel"
+                  ],
+                  "installed_processes": 8
+                },
+                "logp": {
+                  "backend_ids": [
+                    "rlkernel.linear_logp.bitwise.v1"
+                  ],
+                  "call_count": 48,
+                  "case_id": "R/R",
+                  "expected_implementation": "rl_kernel",
+                  "implementations": [
+                    "rl_kernel"
+                  ],
+                  "installed_processes": 8
+                }
+              },
+              "readback_count": 8
+            },
+            "vllm/rollout": {
+              "modules": {
+                "attention": {
+                  "backend_ids": [
+                    "rlkernel.attention.deterministic.v1"
+                  ],
+                  "call_count": 3168,
+                  "case_id": "R/R",
+                  "expected_implementation": "rl_kernel",
+                  "implementations": [
+                    "rl_kernel"
+                  ],
+                  "installed_processes": 13
+                },
+                "ffn": {
+                  "backend_ids": [
+                    "rlkernel.ffn.qwen3.deterministic.v1"
+                  ],
+                  "call_count": 3176,
+                  "case_id": "R/R",
+                  "expected_implementation": "rl_kernel",
+                  "implementations": [
+                    "rl_kernel"
+                  ],
+                  "installed_processes": 13
+                },
+                "logp": {
+                  "backend_ids": [
+                    "rlkernel.linear_logp.bitwise.v1"
+                  ],
+                  "call_count": 8,
+                  "case_id": "R/R",
+                  "expected_implementation": "rl_kernel",
+                  "implementations": [
+                    "rl_kernel"
+                  ],
+                  "installed_processes": 13
+                }
+              },
+              "readback_count": 13
+            }
+          },
+          "passed": true
+        },
+        "runtime_scalar_logprob": {
+          "bitwise_zero": true,
+          "errors": [],
+          "evidence_source": "VIME runtime torch.ne/max metrics; VIME reports sample means, converted to counts with global_batch_size",
+          "passed": true,
+          "rows": [
+            {
+              "active_token_count": 4096.0,
+              "bitwise_mismatch_count": 0.0,
+              "max_abs_dlogp": 0.0,
+              "mean_abs_dlogp": 0.0,
+              "step": 0,
+              "vime_mean_active_tokens_per_sample": 512.0,
+              "vime_mean_mismatch_count_per_sample": 0.0
+            },
+            {
+              "active_token_count": 4096.0,
+              "bitwise_mismatch_count": 0.0,
+              "max_abs_dlogp": 0.0,
+              "mean_abs_dlogp": 0.0,
+              "step": 1,
+              "vime_mean_active_tokens_per_sample": 512.0,
+              "vime_mean_mismatch_count_per_sample": 0.0
+            }
+          ],
+          "total_active_token_exposure": 8192.0
+        },
+        "schema_version": "rlkernel.vime_qwen3_8b_tp4_cp2_200.validation.v1",
+        "train_rollout_logprob": {
+          "artifacts": [
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp2cp4-r5/mismatch-sidecars/rank00000.call00000000.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp2cp4-r5/mismatch-sidecars/rank00000.call00000001.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp2cp4-r5/mismatch-sidecars/rank00001.call00000000.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp2cp4-r5/mismatch-sidecars/rank00001.call00000001.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp2cp4-r5/mismatch-sidecars/rank00002.call00000000.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp2cp4-r5/mismatch-sidecars/rank00002.call00000001.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp2cp4-r5/mismatch-sidecars/rank00003.call00000000.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp2cp4-r5/mismatch-sidecars/rank00003.call00000001.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp2cp4-r5/mismatch-sidecars/rank00004.call00000000.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp2cp4-r5/mismatch-sidecars/rank00004.call00000001.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp2cp4-r5/mismatch-sidecars/rank00005.call00000000.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp2cp4-r5/mismatch-sidecars/rank00005.call00000001.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp2cp4-r5/mismatch-sidecars/rank00006.call00000000.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp2cp4-r5/mismatch-sidecars/rank00006.call00000001.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp2cp4-r5/mismatch-sidecars/rank00007.call00000000.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp2cp4-r5/mismatch-sidecars/rank00007.call00000001.pt"
+          ],
+          "bitwise_equal": true,
+          "bitwise_mismatch_count": 0,
+          "element_count": 8192,
+          "errors": [],
+          "max_abs_diff": 0.0,
+          "mismatch_count": 0,
+          "mismatch_k3_kl": 0.0,
+          "mismatch_kl": 0.0,
+          "passed": true,
+          "require_exact": true,
+          "sample_count": 16,
+          "torch_equal": true,
+          "train_rollout_logprob_abs_diff": 0.0
+        }
+      }
+    },
+    {
+      "run_id": "cpgrad-tp4cp2-r5",
+      "steps": {
+        "0": {
+          "train/loss": 3.9848928281571716e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.12023040652275085,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 512.0,
+          "train/kl_loss": 0.00398489274084568,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.022594607365076035,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 0
+        },
+        "1": {
+          "train/loss": 7.246405584737659e-05,
+          "train/pg_loss": 0.0,
+          "train/entropy_loss": 0.15511181950569153,
+          "train/pg_clipfrac": 0.0,
+          "train/ppo_kl": 0.0,
+          "train/train_rollout_logprob_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_mismatch_count": 0.0,
+          "train/train_current_rollout_logprob_max_abs_diff": 0.0,
+          "train/train_current_rollout_logprob_numel": 512.0,
+          "train/kl_loss": 0.007246405817568302,
+          "train/ois": 1.0,
+          "train/tis": 1.0,
+          "train/tis_clipfrac": 0.0,
+          "train/tis_abs": 0.0,
+          "train/grad_norm": 0.03439536852782456,
+          "train/lr-pg_0": 5e-07,
+          "train/lr-pg_1": 5e-07,
+          "train/global_batch_size": 8,
+          "train/step": 1
+        }
+      },
+      "performance": {
+        "0": {
+          "perf/update_weights_time": 27.7245192527771,
+          "perf/data_preprocess_time": 0.010148048400878906,
+          "perf/train_wait_time": 39.17587208747864,
+          "perf/ref_log_probs_time": 1.6525583267211914,
+          "perf/log_probs_time": 0.4971926212310791,
+          "perf/actor_train_time": 3.4939475059509277,
+          "perf/train_time": 5.906228542327881,
+          "perf/log_probs_tflops": 20.069981397479843,
+          "perf/ref_log_probs_tflops": 6.038302247927573,
+          "perf/actor_train_tflops": 8.567942113105248,
+          "perf/actor_train_tok_per_s": 1490.5776320707969,
+          "perf/step_time": 45.08210062980652,
+          "perf/wait_time_ratio": 0.8689895000495405
+        },
+        "1": {
+          "perf/update_weights_time": 27.464809894561768,
+          "perf/data_preprocess_time": 0.011140823364257812,
+          "perf/train_wait_time": 37.27148199081421,
+          "perf/ref_log_probs_time": 0.4749336242675781,
+          "perf/log_probs_time": 0.39269542694091797,
+          "perf/actor_train_time": 3.2326793670654297,
+          "perf/train_time": 4.344621896743774,
+          "perf/log_probs_tflops": 24.462552374497854,
+          "perf/ref_log_probs_tflops": 20.22668423104906,
+          "perf/actor_train_tflops": 8.9148950681321,
+          "perf/actor_train_tok_per_s": 1551.6540400211227,
+          "perf/step_time": 41.61610388755798,
+          "perf/wait_time_ratio": 0.8956023872757899
+        }
+      },
+      "tokens": {
+        "0": {
+          "sha256": "875d2f13205808479cc3ecbf518b8f5f066b7755547e6d5205e38f2ffd68a8ae",
+          "sample_count": 8,
+          "token_count": 5208
+        },
+        "1": {
+          "sha256": "10ee3cb81d196c791fd6a5ea0a14db968d4a54ae29ab21d73b263cb25b54bae1",
+          "sample_count": 8,
+          "token_count": 5016
+        }
+      },
+      "validation": {
+        "cudagraph": {
+          "checks": {
+            "capture_sizes": true,
+            "engine_mode": true,
+            "launcher_marker": true,
+            "not_eager": true
+          },
+          "expected_capture_sizes": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "passed": true
+        },
+        "errors": [],
+        "group": "consistency",
+        "offline_tensor_comparison": {
+          "artifact_count": 16,
+          "comparable_artifact_count": 16,
+          "reason": null,
+          "status": "available"
+        },
+        "passed": true,
+        "run_id": "cpgrad-tp4cp2-r5",
+        "runtime_readbacks": {
+          "errors": [],
+          "frameworks": {
+            "megatron/training": {
+              "modules": {
+                "attention": {
+                  "backend_ids": [
+                    "rlkernel.attention.deterministic.v1"
+                  ],
+                  "call_count": 2304,
+                  "case_id": "R/R",
+                  "expected_implementation": "rl_kernel",
+                  "implementations": [
+                    "rl_kernel"
+                  ],
+                  "installed_processes": 8
+                },
+                "ffn": {
+                  "backend_ids": [
+                    "rlkernel.ffn.qwen3.deterministic.v1"
+                  ],
+                  "call_count": 2304,
+                  "case_id": "R/R",
+                  "expected_implementation": "rl_kernel",
+                  "implementations": [
+                    "rl_kernel"
+                  ],
+                  "installed_processes": 8
+                },
+                "logp": {
+                  "backend_ids": [
+                    "rlkernel.linear_logp.bitwise.v1"
+                  ],
+                  "call_count": 48,
+                  "case_id": "R/R",
+                  "expected_implementation": "rl_kernel",
+                  "implementations": [
+                    "rl_kernel"
+                  ],
+                  "installed_processes": 8
+                }
+              },
+              "readback_count": 8
+            },
+            "vllm/rollout": {
+              "modules": {
+                "attention": {
+                  "backend_ids": [
+                    "rlkernel.attention.deterministic.v1"
+                  ],
+                  "call_count": 3168,
+                  "case_id": "R/R",
+                  "expected_implementation": "rl_kernel",
+                  "implementations": [
+                    "rl_kernel"
+                  ],
+                  "installed_processes": 13
+                },
+                "ffn": {
+                  "backend_ids": [
+                    "rlkernel.ffn.qwen3.deterministic.v1"
+                  ],
+                  "call_count": 3176,
+                  "case_id": "R/R",
+                  "expected_implementation": "rl_kernel",
+                  "implementations": [
+                    "rl_kernel"
+                  ],
+                  "installed_processes": 13
+                },
+                "logp": {
+                  "backend_ids": [
+                    "rlkernel.linear_logp.bitwise.v1"
+                  ],
+                  "call_count": 8,
+                  "case_id": "R/R",
+                  "expected_implementation": "rl_kernel",
+                  "implementations": [
+                    "rl_kernel"
+                  ],
+                  "installed_processes": 13
+                }
+              },
+              "readback_count": 13
+            }
+          },
+          "passed": true
+        },
+        "runtime_scalar_logprob": {
+          "bitwise_zero": true,
+          "errors": [],
+          "evidence_source": "VIME runtime torch.ne/max metrics; VIME reports sample means, converted to counts with global_batch_size",
+          "passed": true,
+          "rows": [
+            {
+              "active_token_count": 4096.0,
+              "bitwise_mismatch_count": 0.0,
+              "max_abs_dlogp": 0.0,
+              "mean_abs_dlogp": 0.0,
+              "step": 0,
+              "vime_mean_active_tokens_per_sample": 512.0,
+              "vime_mean_mismatch_count_per_sample": 0.0
+            },
+            {
+              "active_token_count": 4096.0,
+              "bitwise_mismatch_count": 0.0,
+              "max_abs_dlogp": 0.0,
+              "mean_abs_dlogp": 0.0,
+              "step": 1,
+              "vime_mean_active_tokens_per_sample": 512.0,
+              "vime_mean_mismatch_count_per_sample": 0.0
+            }
+          ],
+          "total_active_token_exposure": 8192.0
+        },
+        "schema_version": "rlkernel.vime_qwen3_8b_tp4_cp2_200.validation.v1",
+        "train_rollout_logprob": {
+          "artifacts": [
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp4cp2-r5/mismatch-sidecars/rank00000.call00000000.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp4cp2-r5/mismatch-sidecars/rank00000.call00000001.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp4cp2-r5/mismatch-sidecars/rank00001.call00000000.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp4cp2-r5/mismatch-sidecars/rank00001.call00000001.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp4cp2-r5/mismatch-sidecars/rank00002.call00000000.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp4cp2-r5/mismatch-sidecars/rank00002.call00000001.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp4cp2-r5/mismatch-sidecars/rank00003.call00000000.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp4cp2-r5/mismatch-sidecars/rank00003.call00000001.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp4cp2-r5/mismatch-sidecars/rank00004.call00000000.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp4cp2-r5/mismatch-sidecars/rank00004.call00000001.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp4cp2-r5/mismatch-sidecars/rank00005.call00000000.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp4cp2-r5/mismatch-sidecars/rank00005.call00000001.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp4cp2-r5/mismatch-sidecars/rank00006.call00000000.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp4cp2-r5/mismatch-sidecars/rank00006.call00000001.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp4cp2-r5/mismatch-sidecars/rank00007.call00000000.pt",
+            "/data/ellm/vime_qwen3_8b_tp4_cp2_200_experiment/runs/configurable-20260919/cpgrad-tp4cp2-r5/mismatch-sidecars/rank00007.call00000001.pt"
+          ],
+          "bitwise_equal": true,
+          "bitwise_mismatch_count": 0,
+          "element_count": 8192,
+          "errors": [],
+          "max_abs_diff": 0.0,
+          "mismatch_count": 0,
+          "mismatch_k3_kl": 0.0,
+          "mismatch_kl": 0.0,
+          "passed": true,
+          "require_exact": true,
+          "sample_count": 16,
+          "torch_equal": true,
+          "train_rollout_logprob_abs_diff": 0.0
+        }
+      }
+    }
+  ],
+  "all_parameter_hash_comparisons": [
+    {
+      "version": "weight_v000001",
+      "sha256": [
+        "3496e2625f9638323127a3967e42cddcad168315eb7b4af78078b9f3a91fd326",
+        "3496e2625f9638323127a3967e42cddcad168315eb7b4af78078b9f3a91fd326"
+      ],
+      "tensor_count": 399,
+      "unequal_parameter_tensors": [],
+      "bitwise_equal": true
+    },
+    {
+      "version": "weight_v000002",
+      "sha256": [
+        "d40036d7a970154371e07c699dd0af284c531e72a7991608d8895be104d24045",
+        "d40036d7a970154371e07c699dd0af284c531e72a7991608d8895be104d24045"
+      ],
+      "tensor_count": 399,
+      "unequal_parameter_tensors": [],
+      "bitwise_equal": true
+    },
+    {
+      "version": "weight_v000003",
+      "sha256": [
+        "05a28e2f229df5154aac7ba194f11dedfddcd4b2abf3846856f0c64143655fae",
+        "05a28e2f229df5154aac7ba194f11dedfddcd4b2abf3846856f0c64143655fae"
+      ],
+      "tensor_count": 399,
+      "unequal_parameter_tensors": [],
+      "bitwise_equal": true
+    }
+  ],
+  "gradient_norm_comparisons": [
+    {
+      "step": 0,
+      "norms": [
+        0.022594607365076035,
+        0.022594607365076035
+      ],
+      "exactly_equal": true,
+      "relative_difference_percent": 0.0
+    },
+    {
+      "step": 1,
+      "norms": [
+        0.03439536852782456,
+        0.03439536852782456
+      ],
+      "exactly_equal": true,
+      "relative_difference_percent": 0.0
+    }
+  ],
+  "tokens_equal": true
+}

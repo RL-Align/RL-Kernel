@@ -8,9 +8,10 @@ __pycache__/
 
 # Distribution / packaging
 .Python
-build/
+/build/
+build_jit/
 develop-eggs/
-dist/
+/dist/
 downloads/
 eggs/
 .eggs/
@@ -95,10 +96,8 @@ ipython_config.py
 #Pipfile.lock
 
 # UV
-#   Similar to Pipfile.lock, it is generally recommended to include uv.lock in version control.
-#   This is especially recommended for binary packages to ensure reproducibility, and is more
-#   commonly ignored for libraries.
-#uv.lock
+# Keep generated lockfiles local to each development environment.
+uv.lock
 .uv-cache/
 
 # poetry
@@ -139,9 +138,9 @@ celerybeat.pid
 .env
 .envrc
 .venv
-env/
+/env/
 venv/
-ENV/
+/ENV/
 env.bak/
 venv.bak/
 
@@ -174,7 +173,7 @@ cython_debug/
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
-#.idea/
+.idea/
 
 # Abstra
 # Abstra is an AI-powered process automation framework.
@@ -206,3 +205,24 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Cross-configuration alignment local run artifacts
+/runs/
+
+# Local dev notes (not for upstream)
+_dev_notes/
+
+# Local C8 execute dumps; default output is under TMPDIR.
+ws1-c8-ci.json
+
+# hipify outputs generated during ROCm builds (sources live in csrc/*.cu, csrc/cuda/, csrc/hip/hip_*.hip)
+csrc/*.hip
+csrc/*_hip.cpp
+csrc/hip/**
+!csrc/hip/hip_*.hip
+csrc/hip/*_hip.hip
+
+# Per-machine launcher paths
+.rlk-profile.json
+
+/artifacts/

@@ -1,27 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 RL-Kernel Contributors
+"""Compatibility import; the canonical module is loaded below."""
 
-"""Testing helpers for RL-shaped kernel validation."""
+from importlib import import_module
 
-from .reference_ops import (
-    active_token_count,
-    compute_policy_ratio,
-    compute_reference_kl,
-    masked_mean,
-    masked_sum,
-    selected_logprobs_reference,
-    summarize_kernel_drift,
-)
-from .rl_batch import SyntheticRLKernelBatch, make_synthetic_rl_kernel_batch
 
-__all__ = [
-    "SyntheticRLKernelBatch",
-    "active_token_count",
-    "compute_policy_ratio",
-    "compute_reference_kl",
-    "make_synthetic_rl_kernel_batch",
-    "masked_mean",
-    "masked_sum",
-    "selected_logprobs_reference",
-    "summarize_kernel_drift",
-]
+def __getattr__(name):
+    return getattr(import_module("rl_engine.validation.common"), name)

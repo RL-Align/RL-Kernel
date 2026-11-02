@@ -2,6 +2,7 @@
 # Copyright (c) 2026 RL-Kernel Contributors
 
 import logging
+import os
 import sys
 from functools import lru_cache
 from types import MethodType
@@ -59,7 +60,8 @@ def init_logger(name: str) -> RLEngineLogger:
     # Configure handler if not already set
     if not logger.handlers:
         logger.setLevel(logging.INFO)
-        handler = logging.StreamHandler(sys.stdout)
+        stream = sys.stderr if os.environ.get("RL_KERNEL_LOG_STREAM") == "stderr" else sys.stdout
+        handler = logging.StreamHandler(stream)
         formatter = logging.Formatter(_DEFAULT_FORMAT, datefmt=_DATE_FORMAT)
         handler.setFormatter(formatter)
         logger.addHandler(handler)

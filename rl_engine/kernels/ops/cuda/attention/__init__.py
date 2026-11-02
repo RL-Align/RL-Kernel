@@ -1,9 +1,8 @@
-# File: rl_engine/kernels/ops/cuda/attention/__init__.py
+# SPDX-License-Identifier: Apache-2.0
+"""Compatibility import; the canonical module is loaded below."""
 
-from .flash_attn import FlashAttentionOp
-from .prefix_shared_attn import PrefixSharedAttentionOp
+from importlib import import_module
 
-__all__ = [
-    "FlashAttentionOp",
-    "PrefixSharedAttentionOp",
-]
+
+def __getattr__(name):
+    return getattr(import_module("rl_engine.backends.cuda.attention"), name)

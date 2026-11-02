@@ -4,31 +4,44 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "RL-Kernel"
-version = "0.1.0"
-description = "High-performance RL training engine focused on kernel fusion and memory efficiency."
+version = "0.1.1"
+description = "Building cross-hardware and multi-model RL post-training infrastructure for kernel-level train–inference consistency."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
 authors = [
     {name = "RL-Kernel Contributors"}
 ]
+
 dependencies = [
     "torch>=2.4.1",
     "tabulate",
     "numpy",
     "accelerate",
-    "transformers",
+    "transformers==5.13.1",
 ]
 
+[project.scripts]
+rlk = "rl_engine.entrypoints.repro:main"
+rlk-repro = "rl_engine.entrypoints.repro:main"
+rlk-drift-view = "rl_engine.validation.reports.viewer:main"
+
+[project.entry-points."vllm.general_plugins"]
+rl_kernel = "rl_engine.integrations.engines.rollout.vllm.runtime:register_vllm_plugin"
+
 [project.optional-dependencies]
-cuda = ["flashinfer>=0.1.6"]
+cuda = ["flashinfer-python>=0.6.0,<0.7", "nvidia-ml-py"]
 rocm = ["aiter"]
 vllm = ["vllm>=0.6.0"]
+drift-viewer = ["Pillow>=10", "PySide6>=6.6"]
 dev = ["pytest", "black", "isort", "ruff", "mypy", "pre-commit"]
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["rl_engine*"]
+
+[tool.setuptools.package-data]
+rl_engine = ["**/*.json", "**/*.jsonl", "**/*.sh", "**/*.patch", "*.pyi"]
 
 [tool.ruff]
 line-length = 100
@@ -43,3 +56,14 @@ ignore = []
 [tool.mypy]
 ignore_missing_imports = true
 follow_imports = "silent"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = [".git", ".venv", "site", "dist", "artifacts", "*.egg-info"]
+markers = [
+    "smoke_operator: temporary smoke-only operator plumbing tests",
+    "unit: CPU-safe unit tests",
+    "ws1: single-device operator and model-chain acceptance",
+    "ws2: distributed numerical acceptance",
+    "e2e: real rollout and training engine acceptance",
+]

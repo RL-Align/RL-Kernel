@@ -1,0 +1,7 @@
+# Launchers must stay executable by bash when checked out on Windows first.
+*.sh text eol=lf
+# Unified patches contain whitespace-only context lines by design.
+*.patch text eol=lf -whitespace
+
+# Archived evidence is relocated verbatim, including its original line endings.
+reports/archive/** -text -whitespace
