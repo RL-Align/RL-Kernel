@@ -80,13 +80,37 @@ def _require_id_range(ids: torch.Tensor, name: str, vocab_size: int) -> None:
     _require(not out_of_range, f"{name} must be in [0, {vocab_size})")
 
 
+def _view_root(t: torch.Tensor) -> torch.Tensor:
+    while t._base is not None:
+        t = t._base
+    return t
+
+
+def _byte_span(t: torch.Tensor) -> tuple[int, int]:
+    """Half-open byte range ``[start, end)`` addressed by ``t`` (empty if numel == 0)."""
+    start = t.data_ptr()
+    if t.numel() == 0:
+        return start, start
+    last = sum((size - 1) * abs(stride) for size, stride in zip(t.shape, t.stride()))
+    return start, start + (last + 1) * t.element_size()
+
+
 def _shares_storage(a: torch.Tensor, b: torch.Tensor) -> bool:
+    """True when ``a`` and ``b`` are the same weight (tied), not merely co-allocated."""
     if a is b:
         return True
     if a.device.type == "meta" or b.device.type == "meta":
-        # Meta tensors have no storage; only identity can prove tying.
+        # Meta tensors have no storage. HF ties weights by sharing one Parameter,
+        # so identity of the view root is the tie signal on the meta path.
+        return _view_root(a) is _view_root(b)
+    if a.device != b.device:
         return False
-    return a.untyped_storage().data_ptr() == b.untyped_storage().data_ptr()
+    if a.untyped_storage().data_ptr() != b.untyped_storage().data_ptr():
+        return False
+    # Same allocation: tied only if the addressed byte ranges overlap.
+    a_start, a_end = _byte_span(a)
+    b_start, b_end = _byte_span(b)
+    return a_start < b_end and b_start < a_end
 
 
 def validate_embedding_geometry(

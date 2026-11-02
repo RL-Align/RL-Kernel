@@ -130,6 +130,36 @@ class TestGeometryGateDevices:
                 hidden, weight, target, temperature=torch.ones(numel, dtype=torch.float32)
             )
 
+class TestUntiedWeightCheck:
+    def test_rejects_meta_view_of_lm_head_weight(self):
+        hidden, weight, target = _meta(4, HIDDEN), _meta(VOCAB, HIDDEN), _meta(4, dtype=torch.long)
+        with pytest.raises(NemotronHGeometryError, match="untied"):
+            validate_lm_head_logprob_geometry(
+                hidden, weight, target, embed_weight=weight.view(VOCAB, HIDDEN)
+            )
+
+    def _check(self, lm_head_weight, embed_weight):
+        validate_lm_head_logprob_geometry(
+            _cpu(4, 64),
+            lm_head_weight,
+            torch.zeros(4, dtype=torch.long),
+            embed_weight=embed_weight,
+            spec=_SMALL_SPEC,
+        )
+
+    def test_accepts_disjoint_views_of_one_allocation(self):
+        rows, cols = _SMALL_SPEC.vocab_size, _SMALL_SPEC.hidden_size
+        buf = _cpu(2 * rows * cols)
+        self._check(buf[: rows * cols].view(rows, cols), buf[rows * cols :].view(rows, cols))
+
+    def test_rejects_overlapping_views_of_one_allocation(self):
+        rows, cols = _SMALL_SPEC.vocab_size, _SMALL_SPEC.hidden_size
+        buf = _cpu(2 * rows * cols)
+        with pytest.raises(NemotronHGeometryError, match="untied"):
+            self._check(
+                buf[: rows * cols].view(rows, cols), buf[cols : cols + rows * cols].view(rows, cols)
+            )
+
 def _temperature(rows: int) -> torch.Tensor:
     return torch.linspace(0.6, 1.4, rows, device="cuda", dtype=torch.float32)
 
