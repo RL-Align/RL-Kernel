@@ -271,6 +271,30 @@ def test_implementation_control_reorders_linear_and_log_softmax(dtype):
     )
 
 
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_recomputed_control_keeps_only_inputs(dtype):
+    """The recomputed control keeps no FP32 chunk copies and gives bitwise the same gradients."""
+    from tools.validation.models.qwen3_ppo.hf_ppo_reference import (
+        recomputed_reordered_linear,
+        reordered_linear,
+    )
+
+    g = torch.Generator().manual_seed(7)
+    x = torch.randn(2, 7, 64, generator=g).to(dtype).requires_grad_()
+    w = torch.randn(10, 64, generator=g).to(dtype).requires_grad_()
+    x0, w0 = (t.detach().clone().requires_grad_() for t in (x, w))
+    saved = []
+    with torch.autograd.graph.saved_tensors_hooks(lambda t: saved.append(t) or t, lambda t: t):
+        y = recomputed_reordered_linear(x, w, None)
+    assert [t.dtype for t in saved if t.numel()] == [dtype, dtype]
+    y0 = reordered_linear(x0, w0, None)
+    upstream = torch.randn(y.shape, generator=g).to(dtype)
+    (y * upstream).sum().backward()
+    (y0 * upstream).sum().backward()
+    for got, want in [(y, y0), (x.grad, x0.grad), (w.grad, w0.grad)]:
+        assert torch.equal(got, want)
+
+
 def _fixed_run(root, values, **report):
     from tools.validation.models.qwen3_ppo.fixed_contract import save_report, write_tensor
 

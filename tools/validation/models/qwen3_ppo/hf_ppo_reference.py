@@ -10,6 +10,7 @@ import types
 from pathlib import Path
 
 import torch
+import torch.utils.checkpoint
 
 from tools.validation.models.qwen3_ppo.fixed_contract import (
     CONFIG,
@@ -62,6 +63,16 @@ def reordered_linear(x, weight, bias):
     return y.to(x.dtype).reshape(*x.shape[:-1], weight.shape[0])
 
 
+def recomputed_reordered_linear(x, weight, bias):
+    """Return :func:`reordered_linear` without keeping its FP32 chunk copies for backward.
+
+    Autograd keeps only the inputs and recomputes the same graph in backward, so gradients
+    are bitwise those of :func:`reordered_linear`. Keeping the FP32 copies of every BF16
+    weight (about 33 GB for Qwen3-8B) would not fit next to the optimizer state.
+    """
+    return torch.utils.checkpoint.checkpoint(reordered_linear, x, weight, bias, use_reentrant=False)
+
+
 def chunked_log_softmax_gather(logits, ids):
     """Return ``logits.log_softmax(-1).gather(-1, ids)`` with a chunk-merged logsumexp."""
     lse = torch.stack(
@@ -71,11 +82,11 @@ def chunked_log_softmax_gather(logits, ids):
 
 
 def use_reordered_linear(module):
-    """Make every ``nn.Linear`` under ``module`` run :func:`reordered_linear`."""
+    """Make every ``nn.Linear`` under ``module`` run :func:`recomputed_reordered_linear`."""
     for m in module.modules():
         if isinstance(m, torch.nn.Linear):
             m.forward = types.MethodType(
-                lambda self, x: reordered_linear(x, self.weight, self.bias), m
+                lambda self, x: recomputed_reordered_linear(x, self.weight, self.bias), m
             )
 
 
