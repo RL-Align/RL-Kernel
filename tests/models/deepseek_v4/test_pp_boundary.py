@@ -2,6 +2,7 @@
 """DSV4 PP2 contract and stage handoff with a CPU test transport."""
 
 from pathlib import Path
+from dataclasses import replace
 
 import pytest
 import torch
@@ -47,6 +48,17 @@ def test_global_layer_boundaries():
 def _worker(rank, rendezvous, scenario):
     dist.init_process_group("gloo", init_method=f"file://{rendezvous}", rank=rank, world_size=2)
     try:
+        if scenario == "construct_group":
+            plan = replace(_plan(), ranks=(0, 2)) if rank == 1 else _plan()
+            message = "PP group differs" if rank == 1 else "invalid PP plan"
+            with pytest.raises(PpBoundaryError, match=message):
+                Dsv4Pp2Boundary(
+                    plan,
+                    group=dist.group.WORLD,
+                    communicator=_ReferenceP2P(),
+                    allow_cpu_reference=True,
+                )
+            return
         bridge = Dsv4Pp2Boundary(
             _plan(), group=dist.group.WORLD, communicator=_ReferenceP2P(), allow_cpu_reference=True
         )
@@ -81,7 +93,7 @@ def _worker(rank, rendezvous, scenario):
         dist.destroy_process_group()
 
 
-@pytest.mark.parametrize("scenario", ["valid", "stale", "wrong_microbatch"])
+@pytest.mark.parametrize("scenario", ["valid", "stale", "wrong_microbatch", "construct_group"])
 def test_pp2_stage_round_trip(tmp_path: Path, scenario):
     mp.spawn(_worker, args=(str(tmp_path / f"{scenario}-init"), scenario), nprocs=2, join=True)
 
@@ -92,7 +104,17 @@ def _rocm_pp2_worker(rank: int, rendezvous: str, scenario: str):
     torch.cuda.set_device(rank)
     dist.init_process_group("nccl", init_method=f"file://{rendezvous}", rank=rank, world_size=2)
     try:
-        config = ModelParallelConfig(pipeline_model_parallel_size=2, pipeline_dtype=torch.float32)
+        config = ModelParallelConfig(
+            pipeline_model_parallel_size=2,
+            pipeline_dtype=torch.bfloat16
+            if scenario == "bad_config" and rank == 0
+            else torch.float32,
+        )
+        if scenario == "bad_config":
+            message = "matching dtype" if rank == 0 else "invalid PP plan"
+            with pytest.raises(PpBoundaryError, match=message):
+                Dsv4Pp2Boundary(_plan(), group=dist.group.WORLD, config=config)
+            return
         bridge = Dsv4Pp2Boundary(_plan(), group=dist.group.WORLD, config=config)
         value = torch.arange(6.0, dtype=torch.float32, device="cuda").view(2, 3)
         if scenario == "stale":
@@ -119,7 +141,7 @@ def _rocm_pp2_worker(rank: int, rendezvous: str, scenario: str):
     not torch.cuda.is_available() or not torch.version.hip or torch.cuda.device_count() < 2,
     reason="two ROCm GPUs required",
 )
-@pytest.mark.parametrize("scenario", ["valid", "stale"])
+@pytest.mark.parametrize("scenario", ["valid", "stale", "bad_config"])
 def test_rocm_megatron_pp2_stage_round_trip(tmp_path: Path, scenario: str):
     if dist.is_initialized():
         pytest.skip("isolated process group required")

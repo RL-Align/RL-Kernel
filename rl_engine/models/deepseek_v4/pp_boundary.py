@@ -84,15 +84,43 @@ class Dsv4Pp2Boundary:
     def __init__(
         self, plan: Dsv4Pp2Plan, *, group, communicator=None, config=None, allow_cpu_reference=False
     ):
-        _require(isinstance(plan, Dsv4Pp2Plan), "PP2 plan required")
         _require(dist.is_available() and dist.is_initialized(), "process group required")
-        _require(
-            tuple(dist.get_process_group_ranks(group)) == plan.ranks,
-            "PP group differs from layer map",
+        local_error = None
+        try:
+            _require(isinstance(plan, Dsv4Pp2Plan), "PP2 plan required")
+            _require(
+                tuple(dist.get_process_group_ranks(group)) == plan.ranks,
+                "PP group differs from layer map",
+            )
+            backend = str(dist.get_backend(group)).lower()
+            rocm = "nccl" in backend and bool(torch.version.hip)
+            _require(
+                rocm or ("gloo" in backend and allow_cpu_reference), "unvalidated PP transport"
+            )
+            if communicator is None:
+                _require(
+                    rocm and config is not None and config.pipeline_dtype == plan.dtype,
+                    "Megatron pipeline config and matching dtype required",
+                )
+                from megatron.core.pipeline_parallel.p2p_communication import P2PCommunicator
+
+                communicator = P2PCommunicator(group, config)
+            else:
+                _require(allow_cpu_reference and not rocm, "injected P2P communicator is test-only")
+        except Exception as exc:
+            local_error = exc
+        peers = [None] * dist.get_world_size(group)
+        dist.all_gather_object(
+            peers,
+            (plan.fingerprint if local_error is None else None, local_error is None),
+            group=group,
         )
-        backend = str(dist.get_backend(group)).lower()
-        rocm = "nccl" in backend and bool(torch.version.hip)
-        _require(rocm or ("gloo" in backend and allow_cpu_reference), "unvalidated PP transport")
+        if local_error is not None:
+            raise local_error
+        _require(all(valid for _, valid in peers), "invalid PP plan or transport on a rank")
+        _require(
+            all(fingerprint == plan.fingerprint for fingerprint, _ in peers), "PP plan mismatch"
+        )
         self.device = (
             torch.device("cuda", torch.cuda.current_device()) if rocm else torch.device("cpu")
         )
@@ -100,18 +128,7 @@ class Dsv4Pp2Boundary:
         self.stage = plan.ranks.index(dist.get_rank())
         self._phase = "forward"
         self._microbatch_id = None
-        if communicator is None:
-            _require(
-                rocm and config is not None and config.pipeline_dtype == plan.dtype,
-                "Megatron pipeline config and matching dtype required",
-            )
-            from megatron.core.pipeline_parallel.p2p_communication import P2PCommunicator
-
-            communicator = P2PCommunicator(group, config)
-        else:
-            _require(allow_cpu_reference and not rocm, "injected P2P communicator is test-only")
         self.communicator = communicator
-        self._agree(("construct", plan.fingerprint), True)
 
     def _agree(self, signature, valid):
         peers = [None, None]

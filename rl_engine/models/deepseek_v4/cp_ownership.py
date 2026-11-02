@@ -118,14 +118,33 @@ class Dsv4CpKvExchange:
     def __init__(
         self, plan: Dsv4CpPlan, *, group, allow_cpu_reference=False, max_size_bytes=64 * 1024 * 1024
     ):
-        _require(isinstance(plan, Dsv4CpPlan), "CP plan required")
         _require(dist.is_available() and dist.is_initialized(), "process group required")
-        _require(
-            tuple(dist.get_process_group_ranks(group)) == plan.ranks, "CP group differs from plan"
+        local_error = None
+        try:
+            _require(isinstance(plan, Dsv4CpPlan), "CP plan required")
+            _require(
+                tuple(dist.get_process_group_ranks(group)) == plan.ranks,
+                "CP group differs from plan",
+            )
+            backend = str(dist.get_backend(group)).lower()
+            rocm = "nccl" in backend and bool(torch.version.hip)
+            _require(
+                rocm or ("gloo" in backend and allow_cpu_reference), "unvalidated CP transport"
+            )
+        except Exception as exc:
+            local_error = exc
+        peers = [None] * dist.get_world_size(group)
+        dist.all_gather_object(
+            peers,
+            (plan.fingerprint if local_error is None else None, local_error is None),
+            group=group,
         )
-        backend = str(dist.get_backend(group)).lower()
-        rocm = "nccl" in backend and bool(torch.version.hip)
-        _require(rocm or ("gloo" in backend and allow_cpu_reference), "unvalidated CP transport")
+        if local_error is not None:
+            raise local_error
+        _require(all(valid for _, valid in peers), "invalid CP plan or transport on a rank")
+        _require(
+            all(fingerprint == plan.fingerprint for fingerprint, _ in peers), "CP plan mismatch"
+        )
         self.device = (
             torch.device("cuda", torch.cuda.current_device()) if rocm else torch.device("cpu")
         )
@@ -136,7 +155,6 @@ class Dsv4CpKvExchange:
         self._dtype = None
         self._local_keys = None
         self._global_keys = None
-        self._agree(("construct", plan.fingerprint), True)
         cls = RCCLDeterministicCollective if rocm else TorchDistributedDeterministicCollective
         self.collective = cls(group=group, device=self.device, max_size_bytes=max_size_bytes)
 

@@ -38,6 +38,12 @@ def _worker(rank, rendezvous, scenario):
         plan = _plan()
         if scenario in ("empty_rank", "no_rows"):
             plan = replace(plan, total_tokens=1)
+        if scenario == "construct_group":
+            plan = replace(plan, ranks=(0, 2)) if rank == 1 else plan
+            message = "CP group differs" if rank == 1 else "invalid CP plan"
+            with pytest.raises(CpOwnershipError, match=message):
+                Dsv4CpKvExchange(plan, group=dist.group.WORLD, allow_cpu_reference=True)
+            return
         exchange = Dsv4CpKvExchange(plan, group=dist.group.WORLD, allow_cpu_reference=True)
         try:
             if scenario in ("empty_rank", "no_rows"):
@@ -97,7 +103,9 @@ def _worker(rank, rendezvous, scenario):
         dist.destroy_process_group()
 
 
-@pytest.mark.parametrize("scenario", ["valid", "empty_rank", "no_rows", "wrong_owner", "stale"])
+@pytest.mark.parametrize(
+    "scenario", ["valid", "empty_rank", "no_rows", "wrong_owner", "stale", "construct_group"]
+)
 def test_two_rank_cp_exchange(tmp_path: Path, scenario):
     mp.spawn(_worker, args=(str(tmp_path / f"{scenario}-init"), scenario), nprocs=2, join=True)
 
