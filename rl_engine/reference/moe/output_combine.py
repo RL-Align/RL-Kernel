@@ -29,6 +29,19 @@ class PreparedMoEOutputCombine:
     provenance: MappingProxyType
 
 
+class MoEOutputCombineReferenceOp:
+    """Semantic-registry adapter for the validated P6 boundary."""
+
+    backend_id = "rlkernel.reference.moe_output_combine.v1"
+
+    def prepare(
+        self,
+        plan: MoEOutputCombinePlan,
+        inputs: MoEOutputCombineInputs,
+    ) -> PreparedMoEOutputCombine:
+        return prepare_output_combine(plan, inputs)
+
+
 def prepare_output_combine(
     plan: MoEOutputCombinePlan,
     inputs: MoEOutputCombineInputs,
@@ -41,6 +54,8 @@ def prepare_output_combine(
         raise MoEOutputCombineContractError("inputs must be a MoEOutputCombineInputs")
     if inputs.expert_output.device.type != "cpu":
         raise MoEOutputCombineContractError("P6 reference output-combine inputs must be on CPU")
+    if inputs.num_tokens is None:
+        raise MoEOutputCombineContractError("P6 reference preparation requires explicit num_tokens")
     if plan.plan_version != "p6-output-combine.v1":
         raise MoEOutputCombineContractError(f"unsupported P6 plan version: {plan.plan_version}")
 
@@ -62,4 +77,8 @@ def prepare_output_combine(
     )
 
 
-__all__ = ["PreparedMoEOutputCombine", "prepare_output_combine"]
+__all__ = [
+    "MoEOutputCombineReferenceOp",
+    "PreparedMoEOutputCombine",
+    "prepare_output_combine",
+]

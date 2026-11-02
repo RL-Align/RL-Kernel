@@ -243,6 +243,28 @@ def test_fixed_threshold_uses_only_active_tokens_and_is_reproducible_offline():
     json.dumps(sanitized.to_dict(), allow_nan=False)
 
 
+@pytest.mark.parametrize("threshold", [0.0, 1e-5])
+def test_recompute_mismatch_mask_v2_nonfinite_and_signed_zero_rules(threshold):
+    rollout = torch.tensor(
+        [0.0, float("inf"), float("-inf"), 1.0, float("inf"), float("inf"), float("nan"), 1.0]
+    )
+    training = torch.tensor(
+        [
+            -0.0,
+            float("inf"),
+            float("-inf"),
+            float("inf"),
+            1.0,
+            float("-inf"),
+            float("nan"),
+            float("inf"),
+        ]
+    )
+    active = torch.tensor([True, True, True, True, True, True, True, False])
+    mismatch = recompute_mismatch_mask(rollout, training, active, threshold)
+    assert mismatch.tolist() == [threshold == 0.0, False, False, True, True, True, True, False]
+
+
 def test_zero_tokens_identity_mismatch_and_invalid_scores_are_not_numerical_failures():
     empty_identity = _identity(active_mask=((False, False, False),))
     empty = compare_score_artifacts(
