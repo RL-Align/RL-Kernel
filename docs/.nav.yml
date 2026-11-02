@@ -36,6 +36,7 @@ nav:
       - operators/det-gemm.md
       - operators/router-gate.md
       - operators/embedding.md
+      - operators/learned-route.md
   - Developer Guide:
     - contributing/README.md
     - Contributor Guide: contributing/contributor-guide.md

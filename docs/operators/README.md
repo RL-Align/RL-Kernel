@@ -38,4 +38,5 @@ Every operator page should include:
 - [FP32 Router Gate Projection](router-gate.md)
 - [Sampling](sampling.md)
 - [Token Embedding](embedding.md)
+- [Learned Router Weights and Capacity](learned-route.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)
