@@ -197,6 +197,25 @@ def test_backward_preserves_signed_zero(implementation, dtype, negative_sine_zer
     assert_bits(dx, expected.to(device))
 
 
+@pytest.mark.parametrize("implementation", ["cuda", "triton"], indirect=True)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("subnormal_input", [False, True])
+def test_subnormal_values_are_not_flushed(implementation, dtype, subnormal_input):
+    op, device = implementation
+    normal_bits = {torch.float32: 1 << 23, torch.float16: 1 << 10, torch.bfloat16: 1 << 7}[dtype]
+    integer = torch.int32 if dtype == torch.float32 else torch.int16
+    bits = normal_bits // 2 if subnormal_input else normal_bits
+    x = torch.full((1, 1, 1, 128), bits, device=device, dtype=integer).view(dtype)
+    x.requires_grad_()
+    cos = torch.full((1, 64), 1.0 if subnormal_input else 0.5, device=device)
+    sin = torch.zeros_like(cos)
+    expected = torch.full(x.shape, normal_bits // 2, device=device, dtype=integer).view(dtype)
+    result = op(x, cos, sin)
+    dx = torch.autograd.grad(result, x, x.detach())[0]
+    assert_bits(result, expected)
+    assert_bits(dx, expected)
+
+
 @pytest.mark.parametrize("batch,seq", [(0, 7), (2, 0), (0, 0)])
 def test_empty_forward_backward(implementation, batch, seq):
     op, device = implementation

@@ -62,13 +62,17 @@ Contract ID: `qwenimage-interleaved-rope-fp32-v1`.
 For each adjacent pair `(a, b)`, compute `(a*c - b*s, b*c + a*s)` in FP32 with
 separate rounded multiplications and additions, followed by one output cast.
 There is no cross-element reduction, split-K, atomic accumulation or TF32.
-CUDA uses round-to-nearest arithmetic intrinsics; Triton disables FP contraction.
+CUDA uses explicit round-to-nearest scalar PTX without FTZ; Triton disables FP contraction.
 Backward uses the transpose rotation (negate sine), including recursive VJPs.
 
 Transpose negation flips the sine's sign bit, including `+0` and `-0`. The byte
 oracle for input VJPs is that explicitly rounded transpose. Generic PyTorch
 autograd can add zero-filled slice gradients and erase negative-zero signs;
 its numerically equivalent result is not a signed-zero byte oracle.
+
+The native scalar PTX preserves subnormal inputs/results even if the full build
+uses `--use_fast_math` for unrelated sources. This does not qualify other native
+operators under that flag; the full acceptance gate retains its pinned build profile.
 
 CUDA and Triton must agree in raw bytes within a pinned environment. Compare
 batch placement, token chunking, padding and graph replay the same way.
@@ -170,6 +174,13 @@ On Windows set `$env:RL_KERNEL_ROPE_ONLY='1'` in PowerShell and enter the matchi
 MSVC build environment. Select a CUDA toolkit matching `torch.version.cuda`.
 The operator profile does not certify the complete collection of unrelated
 native operators. CPU-only/ROCm builds reject this explicit CUDA wheel profile.
+
+Full and companion libraries built from the same source revision can coexist:
+registration checks process-wide dispatcher state and retains the first provider.
+To check both load orders, concurrent loading and Python imports, run the
+installed-package probe with `--companion-library /path/to/_rope_cuda.so` in
+addition to `--package-root` and `--output`. Each case uses a fresh subprocess
+and checks exact FP32/FP16/BF16 normal/subnormal/zero arithmetic.
 
 `multi_axis_rope` has an `OP_SPECS` entry, standard input builder and gradient
 adapter. `--ws1` runs the existing forward and gradient accuracy/invariance APIs

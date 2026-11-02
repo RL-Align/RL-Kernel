@@ -2,13 +2,13 @@
 
 Initial runs recorded 2026-10-28; self-review updated 2026-11-02 for
 [PR #623](https://github.com/RL-Align/RL-Kernel/pull/623).
-The rotation arithmetic is based on `ac17ab87e8d93dabe93dfdc134e9853d47de7af1`.
+The operator was introduced in `ac17ab87e8d93dabe93dfdc134e9853d47de7af1`.
 The [operator documentation](../../docs/operators/multi-axis-rope.md) defines the
 contract, upstream reuse, API and detailed reproduction commands.
 
 ## Environments
 
-Both profiles use one RTX 5080 (SM120, 16 GB), Windows driver 617.42,
+Both initial profiles use one RTX 5080 (SM120, 16 GB), Windows driver 617.42,
 PyTorch 2.9.1+cu128 and CUDA Toolkit 12.8. They are separate recorded runs,
 not a controlled Windows-versus-WSL performance comparison.
 
@@ -94,16 +94,34 @@ the benchmark now uses the explicit transpose as its byte oracle. CUDA/Triton
 retain strict byte checks; upstream baselines use numerical accuracy checks with
 raw byte differences recorded. NaN payload equality is not claimed.
 
+The next automated review exposed two native-provider bugs. Loading the full
+and companion libraries in either order aborted with duplicate registration.
+Registration now checks process-wide dispatcher state and reuses the first
+same-revision provider. Fresh subprocesses test both raw load orders, concurrent
+loading and both Python import orders. Each performs 18 byte comparisons across
+FP32/FP16/BF16, forward/transpose, subnormal values and signed zeros.
+
+A forced `--use_fast_math` build also reproduced FTZ differences: 96 output
+bytes for FP32 and 96 for BF16 in the subnormal probe (FP16 had zero).
+Explicit scalar PTX uses separate `.rn.f32` instructions without `.ftz`,
+and transpose negation flips the sine sign bit. The same probe now has zero
+differences in all three dtypes. This qualifies this translation unit under
+that flag, not unrelated native operators. Dispatch instantiates only the three
+supported dtypes. Twelve permanent GPU cases cover subnormal inputs/results
+and input gradients. The NPU diagnostic routing and backend-specific backward
+identity remain covered by the existing regression and WS1 checks.
+
 This run uses the same WSL/Python/PyTorch/Triton profile with driver **621.01**.
 The earlier driver-617.42 records above remain historical evidence.
 
 | Check | Result |
 | --- | --- |
 | Ordinary complete CUDA wheel and fresh installed eager/fullgraph forward/input gradient | Passed; BSD license present |
-| Operator suite and CUDA/Triton WS1 gates | 117 passed, 1 two-GPU skip; both gates passed |
+| Operator suite and CUDA/Triton WS1 gates | 129 passed, 1 two-GPU skip; both gates passed |
 | Related regressions / repository layout | 206 passed, 7 Ascend skips / 37 passed |
-| CPU-only Python 3.10/3.12 | Each: 80 passed, 76 expected GPU skips; installed reference forward/backward passed |
-| Expanded Compute Sanitizer subset | 64 passed, zero errors |
+| CPU-only Python 3.10/3.12 | Each: 80 passed, 88 expected GPU skips; installed reference forward/backward passed |
+| Expanded Compute Sanitizer subset | 76 passed, zero errors |
+| Full/companion coexistence, normal and forced-fast-math companion builds | Five subprocess modes per build, 180 byte comparisons passed; library fingerprints recorded |
 | Additional adversarial checks | 22 groups passed: extreme/subnormal/non-finite values, signed zeros, logical negative views and dynamic fullgraph forward/backward |
 | Standalone benchmark | 40 correctness comparisons passed; 80 measurements |
 | Changed-file checks and strict docs | Passed |
@@ -111,11 +129,11 @@ The earlier driver-617.42 records above remain historical evidence.
 Dynamic compilation checks isolate independent compiled functions' frame caches,
 then vary five shapes within each function, including empty batch/sequence.
 The full wheel SHA256 is
-`7827ee7796499c13e2019dd5ee4232ab63bee582a1b9efee2c65209a540cc885`.
+`1cb2771fcbb1153d1621b0011f33ccc9490c6b5ff732199f297aa1294663289f`.
 
 Latest BF16 [1,4096,24,128] packed-QKV graph medians, forward / forward+backward
-ms/call: CUDA 0.05869 / 0.13082; Triton 0.04731 / 0.12193;
-FlashAttention no-FMA 0.04670 / 0.12177; complex 0.24501 / 0.50083.
+ms/call: CUDA 0.07047 / 0.17434; Triton 0.05604 / 0.15270;
+FlashAttention no-FMA 0.04955 / 0.16105; complex 0.34074 / 0.70469.
 These are shared-GPU, unpinned-clock observations, not a controlled comparison
 with the older driver or evidence of an advantage over FlashAttention.
 
@@ -164,7 +182,7 @@ ROPE_PYTHON=python ROPE_WS1_OUTPUT=/tmp/rope-ws1 bash ci/scripts/run_qwenimage_r
 python ci/run.py layout -q -rs
 compute-sanitizer --tool memcheck --error-exitcode 1 python -m pytest \
   tests/ops/rope/test_multi_axis_rope.py -q \
-  -k "forward_backward_accuracy or noncontiguous_input_tables_and_gradient or empty_forward_backward or packed_qkv_and_independent_table_strides or native_entrypoint_checks"
+  -k "forward_backward_accuracy or noncontiguous_input_tables_and_gradient or arbitrary_head_dimension_stride_and_gradient or backward_preserves_signed_zero or subnormal_values_are_not_flushed or empty_forward_backward or packed_qkv_and_independent_table_strides or native_entrypoint_checks"
 ```
 
 The [GPU gate](../../ci/scripts/run_qwenimage_rope_ws1.sh) requires the full
