@@ -181,8 +181,19 @@ class MoEOutputCombineInputs:
     num_tokens: int | None = None
 
     def validate(self, plan: MoEOutputCombinePlan) -> None:
-        if self.expert_output.device.type == "meta":
-            raise MoEOutputCombineContractError("meta tensors are not supported by P6 validation")
+        for name, tensor in (
+            ("expert_output", self.expert_output),
+            ("token_indices", self.token_indices),
+            ("expert_indices", self.expert_indices),
+            ("slot_indices", self.slot_indices),
+            ("routing_weights", self.routing_weights),
+            ("shared_output", self.shared_output),
+            ("residual", self.residual),
+        ):
+            if tensor is not None and tensor.device.type == "meta":
+                raise MoEOutputCombineContractError(
+                    f"meta tensors are not supported by P6 validation ({name})"
+                )
         if self.expert_output.ndim != 2 or self.expert_output.shape[1] != plan.hidden_size:
             raise MoEOutputCombineContractError(
                 "expert_output must have shape [num_slots, hidden_size]"
