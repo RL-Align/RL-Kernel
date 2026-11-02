@@ -18,10 +18,10 @@
     "launch_options": {},
     "padding": "native state-phase negative-position masking",
     "mlite_backward": "6a1e78ca89b83f56391b5e5ac409e765338f1e3a625251d0d4c877c1e80b4a68",
-    "adapter": "804d6ca6bdc912da66feffec500934ec1464645accd44cc5bbb2b85e9c439f54"
+    "adapter": "50ca663811f42ca591585b0f402fefdc1af107fe43c897554629584fe4f9a7cb"
   },
   "contract": "ee5c6e327c2afe5ce9a7ecc45a41f2d89092ce543b55cacd99e2399050821651",
-  "implementation": "7f265d0000fd3d578171133e4c16007a0dc482163e1518d354686ef797ed32dd",
+  "implementation": "923a81eb10d1406ed7e0881a9d7ae2d2c3fa672e9b58474ad317b90922b089f5",
   "metric": "Warmed repetitions; same-pass HIP event and synchronized wall averages. Event intervals include host/launch gaps, not isolated kernel time.",
   "repeats": 30,
   "benchmark_validity": "Bind, checked forward, and raw provider calls have distinct scopes. Do not subtract provider from checked forward as dispatch overhead; no baseline engine speedup is claimed.",
@@ -33,16 +33,16 @@
       "input_bytes": 16384,
       "output_bytes": 1024,
       "bind_us": {
-        "event_us": 354.47222391764325,
-        "wall_us": 355.7813004590571
+        "event_us": 375.1797676086426,
+        "wall_us": 376.91489948580664
       },
       "forward_us": {
-        "event_us": 415.8667246500651,
-        "wall_us": 416.64610034786165
+        "event_us": 407.46672948201496,
+        "wall_us": 408.2809338190903
       },
       "provider_forward_us": {
-        "event_us": 67.61393547058105,
-        "wall_us": 68.28659873766203
+        "event_us": 62.6695990562439,
+        "wall_us": 63.37936695975562
       }
     },
     {
@@ -51,16 +51,16 @@
       "input_bytes": 131072,
       "output_bytes": 8192,
       "bind_us": {
-        "event_us": 537.0185216267904,
-        "wall_us": 537.8862008607636
+        "event_us": 567.1362559000651,
+        "wall_us": 568.028500614067
       },
       "forward_us": {
-        "event_us": 428.15596262613934,
-        "wall_us": 428.8699322690566
+        "event_us": 509.69715118408203,
+        "wall_us": 510.4484676849097
       },
       "provider_forward_us": {
-        "event_us": 78.82343133290608,
-        "wall_us": 79.4596989483883
+        "event_us": 80.10003566741943,
+        "wall_us": 80.76279967402418
       }
     },
     {
@@ -69,16 +69,16 @@
       "input_bytes": 1048576,
       "output_bytes": 65536,
       "bind_us": {
-        "event_us": 1715.8674875895183,
-        "wall_us": 1716.7572669374447
+        "event_us": 1938.5692596435547,
+        "wall_us": 1939.5934670077015
       },
       "forward_us": {
-        "event_us": 530.4930051167806,
-        "wall_us": 531.2375336264571
+        "event_us": 627.1516799926758,
+        "wall_us": 627.9802337909738
       },
       "provider_forward_us": {
-        "event_us": 195.81109682718912,
-        "wall_us": 196.58133387565613
+        "event_us": 205.739959081014,
+        "wall_us": 207.22406722294787
       }
     },
     {
@@ -87,22 +87,22 @@
       "input_bytes": 2097152,
       "output_bytes": 131072,
       "bind_us": {
-        "event_us": 3315.6689961751304,
-        "wall_us": 3316.5543999833367
+        "event_us": 3271.411387125651,
+        "wall_us": 3272.531666637709
       },
       "forward_us": {
-        "event_us": 676.781972249349,
-        "wall_us": 677.5613660768917
+        "event_us": 685.3005091349283,
+        "wall_us": 686.196166013057
       },
       "provider_forward_us": {
-        "event_us": 331.9891293843587,
-        "wall_us": 333.30223329054814
+        "event_us": 329.23771540323895,
+        "wall_us": 330.66226557518047
       }
     }
   ],
   "tested_sources": {
     "benchmarks/benchmark_kv_compressor_c4.py": "a29fb35ca28ec3817a17888d70bd83cb4f9a5da529cfb0a2b7a5bb456ec6cbc6",
-    "rl_engine/backends/rocm/attention/kv_compressor_c4.py": "804d6ca6bdc912da66feffec500934ec1464645accd44cc5bbb2b85e9c439f54",
+    "rl_engine/backends/rocm/attention/kv_compressor_c4.py": "50ca663811f42ca591585b0f402fefdc1af107fe43c897554629584fe4f9a7cb",
     "rl_engine/contracts/operators/kv_compressor_c4.py": "8a1261fda1de9e9408e0fa6a236bec041ebc339f3d95918d0b847ce5c843fc7b",
     "rl_engine/models/deepseek_v4/kv_compressor_c4.py": "a868e33eb8b1555d179330de75efbbd3e8f481b1204be14a8a384a097a056024"
   }

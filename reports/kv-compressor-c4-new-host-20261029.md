@@ -67,10 +67,10 @@ The ROCm image returns an empty `torch.cuda.get_device_name()` but reports
 
 | Groups | Bind event/wall us | Checked event/wall us | Provider event/wall us |
 |---:|---:|---:|---:|
-| 1 | 354.47 / 355.78 | 415.87 / 416.65 | 67.61 / 68.29 |
-| 8 | 537.02 / 537.89 | 428.16 / 428.87 | 78.82 / 79.46 |
-| 64 | 1715.87 / 1716.76 | 530.49 / 531.24 | 195.81 / 196.58 |
-| 128 | 3315.67 / 3316.55 | 676.78 / 677.56 | 331.99 / 333.30 |
+| 1 | 375.18 / 376.91 | 407.47 / 408.28 | 62.67 / 63.38 |
+| 8 | 567.14 / 568.03 | 509.70 / 510.45 | 80.10 / 80.76 |
+| 64 | 1938.57 / 1939.59 | 627.15 / 627.98 | 205.74 / 207.22 |
+| 128 | 3271.41 / 3272.53 | 685.30 / 686.20 | 329.24 / 330.66 |
 
-The November 3 targeted rerun passed 227 tests with one expected empty-Graph
+The November 3 targeted rerun passed 228 tests with one expected empty-Graph
 warning; the October 29 coverage evidence above is historical.

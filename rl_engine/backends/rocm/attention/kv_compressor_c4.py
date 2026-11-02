@@ -122,6 +122,10 @@ class AiterC4Backend:
         ).contiguous()
 
     def vjp(self, bound, ape, norm, cos, sin, grad, contract):
+        require(
+            grad.shape == (len(bound.logical_keys), contract.head_dim),
+            "C4 VJP cotangent geometry mismatch",
+        )
         contributions, ape_rows, norm_rows = [], [], []
         cache = torch.cat((cos, sin), dim=-1)
         with torch.inference_mode(False), torch.enable_grad():
@@ -145,6 +149,10 @@ class AiterC4Backend:
                     head_dim=512,
                     rope_dim=64,
                     eps=contract.rms_eps,
+                )
+                require(
+                    y.shape == (2 if group > 0 else 1, contract.head_dim),
+                    "pinned mLite C4 output ABI mismatch",
                 )
                 if group > 0:
                     grad_out = torch.cat((torch.zeros_like(y[:1]), grad[index : index + 1].float()))
