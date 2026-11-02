@@ -39,6 +39,24 @@ def numerical_close(actual, expected):
     assert bool(((actual.double() - expected).abs() <= (2 * ulp + 2e-5)).all())
 
 
+def test_direct_vjp_rejects_bad_cotangent_and_upstream_row_count(backend, monkeypatch):
+    operator = op(backend)
+    values, ids, ape, norm, cos, sin = fixture(2, device="cuda")
+    bound = operator.bind(values, ids, version="v1")
+    with pytest.raises(C4Error, match="cotangent geometry"):
+        backend.vjp(
+            bound, ape, norm, cos, sin, torch.zeros((1, 512), device="cuda"), operator.contract
+        )
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            backend, "functional", lambda *args, **kwargs: torch.zeros((3, 512), device="cuda")
+        )
+        with pytest.raises(C4Error, match="output ABI"):
+            backend.vjp(
+                bound, ape, norm, cos, sin, torch.zeros((2, 512), device="cuda"), operator.contract
+            )
+
+
 @pytest.mark.parametrize("groups", [1, 2, 3, 4, 7, 16, 33])
 def test_native_forward_independent_fp64_overlap_oracle(backend, groups):
     operator = op(backend)
