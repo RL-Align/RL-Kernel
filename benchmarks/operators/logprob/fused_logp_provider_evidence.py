@@ -314,8 +314,16 @@ def _pack_provider(value):
 
 
 def _check_vocab_layout(vocab: int, real_vocab: int, tp_world_size: int) -> None:
-    """Raise ``ValueError`` unless the padded vocab splits across the TP ranks and fixed tiles."""
-    if not 0 < real_vocab <= vocab or vocab % DEFAULT_NUM_VOCAB_TILES or vocab % tp_world_size:
+    """Raise ``ValueError`` unless the padded vocab splits across the TP ranks and fixed tiles.
+
+    Each TP shard must also start and end on a tile boundary, as the WS2 provider requires.
+    """
+    if (
+        not 0 < real_vocab <= vocab
+        or vocab % DEFAULT_NUM_VOCAB_TILES
+        or vocab % tp_world_size
+        or (vocab // tp_world_size) % (vocab // DEFAULT_NUM_VOCAB_TILES)
+    ):
         raise ValueError("real vocab, padded vocab, TP degree and fixed tiles are incompatible")
 
 

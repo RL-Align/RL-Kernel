@@ -239,7 +239,8 @@ def test_real_vime_and_vllm_providers_compare_the_same_logit_boundary(
 
 
 @pytest.mark.parametrize(
-    ("vocab", "real_vocab", "tp"), [(151_937, 151_930, 1), (151_936, 151_936, 3), (64, 65, 1)]
+    ("vocab", "real_vocab", "tp"),
+    [(151_937, 151_930, 1), (151_936, 151_936, 3), (64, 65, 1), (192, 192, 3)],
 )
 def test_vocab_layout_check_rejects_incompatible_shapes(vocab, real_vocab, tp):
     """A vocab that the fixed tiles or TP degree cannot split fails before any rank starts."""

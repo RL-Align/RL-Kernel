@@ -32,7 +32,7 @@ Writes one JSON report:
 
 For a correctness-only rerun on a shared GPU, omit timing and memory measurements:
 
-    python benchmarks/operators/logprob/fused_logp_backward_evidence.py --out correctness.json \\
+    python benchmarks/operators/logprob/fused_logp_backward_evidence.py --out correctness.json \
         --checks accuracy row-invariance batch-size-sweep train-rollout-invariance
 """
 
