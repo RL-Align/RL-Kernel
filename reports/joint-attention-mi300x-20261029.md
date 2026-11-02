@@ -60,10 +60,10 @@ timings include finite admission checks, copies, event ownership and clones.
 
 | M | H | D | Selected | Eager core event µs | Captured core event µs | Checked eager wall µs | Checked Graph wall µs |
 |---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | 8 | 128 | 6 | 69.43 | 19.43 | 484.66 | 385.36 |
-| 32 | 64 | 512 | 6 | 63.07 | 32.24 | 501.20 | 406.77 |
-| 128 | 64 | 512 | 6 | 62.86 | 46.63 | 504.15 | 405.82 |
-| 1 | 128 | 512 | 640 | 95.44 | 99.81 | 497.14 | 404.30 |
+| 1 | 8 | 128 | 6 | 70.76 | 18.24 | 473.25 | 379.49 |
+| 32 | 64 | 512 | 6 | 69.55 | 30.69 | 530.39 | 399.57 |
+| 128 | 64 | 512 | 6 | 61.73 | 45.24 | 489.48 | 394.91 |
+| 1 | 128 | 512 | 640 | 95.52 | 98.52 | 538.11 | 433.17 |
 
 No baseline-engine speedup is claimed. Python/admission/snapshot costs
 dominate the checked API; the measurements deliberately keep those costs

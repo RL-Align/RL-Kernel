@@ -76,6 +76,44 @@ def test_direct_gather_rejects_nonunit_inner_stride(provider):
         backend.gather_intermediate_into(intermediate, indices, ptr, data, dkv)
 
 
+@pytest.mark.parametrize("fault", ["ptr", "data", "dtype", "unbound"])
+def test_direct_gather_rejects_invalid_csr(fault, provider):
+    backend = AiterJointBackwardBackend(provider)
+    indices = torch.tensor([[0, 1]], device="cuda", dtype=torch.int32)
+    ptr, data = backend.build_csr(indices, 2)
+    intermediate = torch.zeros((1, 2, 128), device="cuda")
+    dkv = torch.zeros((2, 128), device="cuda")
+    if fault == "ptr":
+        ptr.add_(1)
+    elif fault == "data":
+        data.fill_(999)
+    elif fault == "dtype":
+        data = data.long()
+    else:
+        ptr = ptr.clone()
+    with pytest.raises(JointAttentionError):
+        backend.gather_intermediate_into(intermediate, indices, ptr, data, dkv)
+
+
+@pytest.mark.parametrize("fault", ["pointer", "position"])
+def test_csr_build_rejects_corrupt_upstream_output(fault, provider):
+    backend = AiterJointBackwardBackend(provider)
+    indices = torch.tensor([[0, 1]], device="cuda", dtype=torch.int32)
+    original = backend._build_csr
+
+    def corrupted(rows, n_kv):
+        ptr, data = original(rows, n_kv)
+        if fault == "pointer":
+            ptr[-1] = data.numel() + 1
+        else:
+            data[0] = rows.numel()
+        return ptr, data
+
+    backend._build_csr = corrupted
+    with pytest.raises(JointAttentionError, match="out of bounds"):
+        backend.build_csr(indices, 2)
+
+
 @pytest.mark.parametrize("fault", ["selected", "rows"])
 def test_direct_backward_rejects_workspace_mismatch(fault, provider):
     backend = AiterJointBackwardBackend(provider)

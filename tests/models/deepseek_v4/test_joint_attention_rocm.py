@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import sys
 
 import pytest
 import torch
@@ -35,6 +36,27 @@ def test_suffixless_pinned_source_fails_cleanly(tmp_path, backend):
     suffixless.write_bytes(source.read_bytes())
     with pytest.raises(JointAttentionError, match="not importable"):
         load_pinned_kernel(suffixless)
+
+
+def test_pinned_source_executes_verified_bytes_after_file_swap(tmp_path, monkeypatch):
+    from rl_engine.backends.rocm.attention import joint_attention
+
+    source = Path(os.environ["RLK_AITER_DSV4_SPARSE_KERNEL_SOURCE"])
+    swapped = tmp_path / "sparse_mla_dsv4_train.py"
+    swapped.write_bytes(source.read_bytes())
+    original_read = Path.read_bytes
+    name = "_rlk_aiter_sparse_" + joint_attention.KERNEL_SHA256
+    monkeypatch.delitem(sys.modules, name, raising=False)
+
+    def replace_after_read(path):
+        verified = original_read(path)
+        if path == swapped:
+            path.write_text("raise RuntimeError('unverified replacement executed')")
+        return verified
+
+    monkeypatch.setattr(Path, "read_bytes", replace_after_read)
+    module = load_pinned_kernel(swapped)
+    assert hasattr(module, "_sparse_mla_fwd_kernel")
 
 
 @pytest.mark.parametrize("name", ["q", "kv", "sink", "indices", "out", "lse"])

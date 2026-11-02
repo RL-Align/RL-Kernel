@@ -94,10 +94,10 @@ latencies or baseline-engine comparisons.
 
 | M | H | D | Selected | Graph core event µs | Checked Graph VJP wall µs | Canonical forward+backward wall µs |
 |---:|---:|---:|---:|---:|---:|---:|
-| 7 | 13 | 128 | 6 | 66.71 | 162.08 | 3192.23 |
-| 7 | 64 | 512 | 6 | 86.77 | 172.27 | 3219.84 |
-| 65 | 13 | 128 | 6 | 75.39 | 177.37 | 3289.47 |
-| 1 | 128 | 512 | 640 | 443.57 | 524.59 | 3316.60 |
+| 7 | 13 | 128 | 6 | 64.73 | 169.17 | 3221.82 |
+| 7 | 64 | 512 | 6 | 84.99 | 163.68 | 3248.66 |
+| 65 | 13 | 128 | 6 | 73.92 | 171.39 | 3420.79 |
+| 1 | 128 | 512 | 640 | 441.01 | 525.64 | 3476.56 |
 
 The checked canonical adapter has material Python/admission/allocation overhead.
 No full-engine speedup is inferred from the native-kernel measurements.

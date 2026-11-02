@@ -7,6 +7,7 @@ import hashlib
 import importlib
 import os
 from pathlib import Path
+import weakref
 
 import torch
 
@@ -59,7 +60,8 @@ class AiterJointBackwardBackend:
         self.triton = triton
         source = wrapper_source or os.environ.get("RLK_AITER_DSV4_SPARSE_WRAPPER_SOURCE", "")
         require(bool(source), "set RLK_AITER_DSV4_SPARSE_WRAPPER_SOURCE explicitly")
-        self.build_csr = load_upstream_csr(source)
+        self._build_csr = load_upstream_csr(source)
+        self._verified_csr = {}
         preprocessing = importlib.import_module(
             "aiter.ops.triton._triton_kernels.attention.mha_fused_bwd"
         )
@@ -73,6 +75,45 @@ class AiterJointBackwardBackend:
             "delta_source_sha256": delta_source_sha256,
             "adapter_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         }
+
+    def build_csr(self, indices, num_kv):
+        require(indices.ndim == 2 and indices.dtype == torch.int32, "CSR indices ABI mismatch")
+        require(
+            indices.device == self.device and type(num_kv) is int and num_kv >= 0,
+            "CSR device or KV geometry mismatch",
+        )
+        ptr, data = self._build_csr(indices, num_kv)
+        require(
+            ptr.dtype == data.dtype == torch.int32 and ptr.device == data.device == self.device,
+            "CSR dtype/device mismatch",
+        )
+        require(
+            ptr.shape == (num_kv + 1,)
+            and data.ndim == 1
+            and ptr.is_contiguous()
+            and data.is_contiguous(),
+            "CSR layout mismatch",
+        )
+        pointers = ptr.cpu().tolist()
+        positions = data.cpu().tolist()
+        require(
+            pointers[0] == 0
+            and pointers[-1] == len(positions)
+            and all(a <= b for a, b in zip(pointers, pointers[1:], strict=False))
+            and all(0 <= pos < indices.numel() for pos in positions),
+            "CSR row pointers or positions out of bounds",
+        )
+        key = id(ptr)
+        cache = self._verified_csr
+        cache[key] = (
+            weakref.ref(ptr, lambda _ref: cache.pop(key, None)),
+            weakref.ref(data),
+            ptr._version,
+            data._version,
+            indices.shape,
+            num_kv,
+        )
+        return ptr, data
 
     @staticmethod
     def workspace_bytes(m, h, d, selected, n_kv):
@@ -221,6 +262,21 @@ class AiterJointBackwardBackend:
         require(
             intermediate.shape == (m, k, d) and ptr.shape == (dkv.shape[0] + 1,) and data.ndim == 1,
             "joint backward CSR geometry mismatch",
+        )
+        require(
+            indices.dtype == ptr.dtype == data.dtype == torch.int32
+            and intermediate.dtype == dkv.dtype == torch.float32
+            and all(t.device == self.device for t in (intermediate, indices, ptr, data, dkv)),
+            "joint backward CSR dtype/device mismatch",
+        )
+        binding = self._verified_csr.get(id(ptr))
+        require(
+            binding is not None
+            and binding[0]() is ptr
+            and binding[1]() is data
+            and binding[2:4] == (ptr._version, data._version)
+            and binding[4:] == (indices.shape, dkv.shape[0]),
+            "CSR must be built and validated by this backend before gather",
         )
         if not m:
             dkv.zero_()

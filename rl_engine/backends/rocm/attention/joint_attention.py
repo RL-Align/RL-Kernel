@@ -5,9 +5,12 @@ import hashlib
 import importlib
 import importlib.util
 import inspect
+import io
+import linecache
 import os
 from pathlib import Path
 import sys
+import tokenize
 
 import torch
 
@@ -24,8 +27,9 @@ KERNEL_COMMIT = "326cffa38c9eda16bef19375ba55334e4d3acd59"
 def load_pinned_kernel(path):
     path = Path(path).resolve()
     require(path.is_file(), "set RLK_AITER_DSV4_SPARSE_KERNEL_SOURCE to the pinned upstream file")
+    source = path.read_bytes()
     require(
-        hashlib.sha256(path.read_bytes()).hexdigest() == KERNEL_SHA256,
+        hashlib.sha256(source).hexdigest() == KERNEL_SHA256,
         "aiter sparse source hash mismatch; no fallback or runtime download",
     )
     name = "_rlk_aiter_sparse_" + KERNEL_SHA256
@@ -35,9 +39,18 @@ def load_pinned_kernel(path):
         module = importlib.util.module_from_spec(spec)
         sys.modules[name] = module
         try:
-            spec.loader.exec_module(module)
+            encoding, _ = tokenize.detect_encoding(io.BytesIO(source).readline)
+            text = source.decode(encoding)
+            linecache.cache[str(path)] = (
+                len(source),
+                None,
+                text.splitlines(keepends=True),
+                str(path),
+            )
+            exec(compile(source, str(path), "exec"), module.__dict__)
         except Exception:
             sys.modules.pop(name, None)
+            linecache.cache.pop(str(path), None)
             raise
     return sys.modules[name]
 
