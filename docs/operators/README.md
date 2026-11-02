@@ -19,6 +19,7 @@ Every operator page should include:
 ## Current Pages
 
 - [SiLU / SwiGLU Activation](activation.md)
+- [Router Sqrt-Softplus](router-sqrt-softplus.md)
 - [Standard Attention](attention.md)
 - [DSV4 RMSNorm with Residual Fork (ROCm)](dsv4-rmsnorm-residual.md)
 - [Fused LogP](fused-logp.md)

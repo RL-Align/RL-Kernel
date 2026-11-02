@@ -18,6 +18,7 @@ nav:
     - Operators:
       - operators/README.md
       - operators/activation.md
+      - operators/router-sqrt-softplus.md
       - operators/dsv4-clamp-swiglu.md
       - operators/dsv4-rmsnorm-residual.md
       - operators/attention.md
