@@ -50,6 +50,10 @@ ranks reject a rank-local configuration error before any activation transfer.
   `P2PCommunicator`: real activation and gradient transfers, plus a
   cross-rank stale-version and rank-local communicator configuration rejection
   before transfer.
+- Four-rank MI300X RCCL CP2 x PP2: two CP groups and two PP lanes use the
+  existing fixed dKV collective and Megatron Core stage transfer together.
+  Both stages reproduce canonical KV bytes; PP backward gradients return to
+  each CP source in fixed order. This tests group composition, not a model step.
 - **Not item-41 signoff:** actual verl/VIME model adapters, training CP vs
   rollout DCP, cross-TP/CP gradient paths, end-to-end PP2 training and two-node PP4
   remain untested/unwired. The container has access to eight MI300X cards when
