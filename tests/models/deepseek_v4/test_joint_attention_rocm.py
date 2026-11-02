@@ -1,7 +1,13 @@
+import os
+from pathlib import Path
+
 import pytest
 import torch
 
-from rl_engine.backends.rocm.attention.joint_attention import AiterJointAttentionBackend
+from rl_engine.backends.rocm.attention.joint_attention import (
+    AiterJointAttentionBackend,
+    load_pinned_kernel,
+)
 from rl_engine.contracts.operators.joint_attention import (
     JointAttentionContract,
     JointAttentionError,
@@ -21,6 +27,14 @@ pytestmark = pytest.mark.skipif(
 @pytest.fixture(scope="module")
 def backend():
     return AiterJointAttentionBackend()
+
+
+def test_suffixless_pinned_source_fails_cleanly(tmp_path, backend):
+    source = Path(os.environ["RLK_AITER_DSV4_SPARSE_KERNEL_SOURCE"])
+    suffixless = tmp_path / "sparse_mla_dsv4_train"
+    suffixless.write_bytes(source.read_bytes())
+    with pytest.raises(JointAttentionError, match="not importable"):
+        load_pinned_kernel(suffixless)
 
 
 @pytest.mark.parametrize("name", ["q", "kv", "sink", "indices", "out", "lse"])
@@ -156,7 +170,12 @@ def test_native_packed_cache_and_contiguous_have_same_arithmetic(encoding, block
         kv, cache, slots, block_size=block_size, use_fnuz=encoding == "fnuz"
     )
     dequant = gather_packed_joint_kv(
-        cache, slots, block_size=block_size, encoding=encoding, backend=backend
+        cache,
+        slots,
+        contract=plan.contract,
+        block_size=block_size,
+        encoding=encoding,
+        backend=backend,
     )
     assert same_bytes(dequant[:, 448:], kv[:, 448:])
     torch.testing.assert_close(dequant[:, :448], kv[:, :448], rtol=0.13, atol=0.03)
@@ -166,7 +185,12 @@ def test_native_packed_cache_and_contiguous_have_same_arithmetic(encoding, block
         plan,
         q,
         gather_packed_joint_kv(
-            cache, slots, block_size=block_size, encoding=encoding, backend=backend
+            cache,
+            slots,
+            contract=plan.contract,
+            block_size=block_size,
+            encoding=encoding,
+            backend=backend,
         ),
         sink,
         meta,
@@ -197,11 +221,14 @@ def test_640_selected_rows_128_heads_and_packed_order(backend):
     assert same_bytes(other.output, out.output) and same_bytes(other.lse, out.lse)
 
 
-@pytest.mark.parametrize("fault", ["range", "dtype", "encoding", "size", "stride", "budget"])
+@pytest.mark.parametrize(
+    "fault", ["range", "dtype", "encoding", "size", "stride", "budget", "head_dim"]
+)
 def test_packed_cache_guards(fault, backend):
     cache = torch.zeros((2, 37440), dtype=torch.uint8, device="cuda")
     slots = torch.tensor([0, 127], device="cuda")
     encoding, size, budget = "ocp", 64, 1 << 30
+    contract = JointAttentionContract(8, 512, 1, 1, 1, 0)
     if fault == "range":
         slots[1] = 128
     if fault == "dtype":
@@ -214,9 +241,17 @@ def test_packed_cache_guards(fault, backend):
         cache = torch.zeros((2, 37441), dtype=torch.uint8, device="cuda")
     if fault == "budget":
         budget = 1
+    if fault == "head_dim":
+        contract = JointAttentionContract(8, 128, 1, 1, 1, 0)
     with pytest.raises(JointAttentionError):
         gather_packed_joint_kv(
-            cache, slots, block_size=size, encoding=encoding, backend=backend, max_bytes=budget
+            cache,
+            slots,
+            contract=contract,
+            block_size=size,
+            encoding=encoding,
+            backend=backend,
+            max_bytes=budget,
         )
 
 
@@ -224,7 +259,12 @@ def test_packed_empty_and_workspace_addresses_stable(backend):
     cache = torch.zeros((1, 37440), dtype=torch.uint8, device="cuda")
     slots = torch.empty(0, dtype=torch.int64, device="cuda")
     assert gather_packed_joint_kv(
-        cache, slots, block_size=64, encoding="ocp", backend=backend
+        cache,
+        slots,
+        contract=JointAttentionContract(8, 512, 1, 1, 1, 0),
+        block_size=64,
+        encoding="ocp",
+        backend=backend,
     ).shape == (0, 512)
     plan, q, kv, sink, meta, _ = case(backend=backend)
     plan.capture()

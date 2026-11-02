@@ -24,6 +24,8 @@ from .joint_attention_helpers import ReferenceBackend, case, record, reference, 
         {"window_size": -1},
         {"compressed_topk": 4097},
         {"compression_ratio": 8},
+        {"compression_ratio": 4.0},
+        {"compression_ratio": True},
         {"scale": 0.0},
         {"scale": float("inf")},
         {"scale": float("nan")},
@@ -35,6 +37,21 @@ from .joint_attention_helpers import ReferenceBackend, case, record, reference, 
 def test_contract_errors(change):
     with pytest.raises(JointAttentionError):
         replace(JointAttentionContract(8, 128, 8, 64, 2, 4), **change)
+
+
+def test_packed_cache_rejects_cpu_before_cuda_context():
+    from types import SimpleNamespace
+
+    from rl_engine.models.deepseek_v4.joint_attention import gather_packed_joint_kv
+
+    cache = torch.zeros((1, 37440), dtype=torch.uint8)
+    slots = torch.zeros((1,), dtype=torch.int64)
+    backend = SimpleNamespace(device=torch.device("cpu"))
+    contract = JointAttentionContract(8, 512, 1, 1, 1, 0)
+    with pytest.raises(JointAttentionError, match="requires CUDA/ROCm"):
+        gather_packed_joint_kv(
+            cache, slots, contract=contract, block_size=64, encoding="ocp", backend=backend
+        )
 
 
 @pytest.mark.parametrize("m", [0, 1, 4])

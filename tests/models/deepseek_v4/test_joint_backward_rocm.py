@@ -69,6 +69,7 @@ def test_backward_guards(fault, provider):
     if fault == "budget":
         with pytest.raises(JointAttentionError, match="budget"):
             JointBackwardPlan(plan, saved, max_workspace_bytes=1)
+        assert same_bytes(record(plan, q, kv, sink, meta).output, saved.output)
         return
     backward = JointBackwardPlan(plan, saved)
     dy = torch.ones_like(saved.output)

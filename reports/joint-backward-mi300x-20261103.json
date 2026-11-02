@@ -8,24 +8,24 @@
       "native_workspace": 92252,
       "timings": {
         "native_pipeline": {
-          "event_us": 259.697961807251,
-          "wall_us": 265.4101001098752
+          "event_us": 249.275803565979,
+          "wall_us": 249.72049868665636
         },
         "graph_core": {
-          "event_us": 66.40334725379944,
-          "wall_us": 67.55600043106824
+          "event_us": 64.30450081825256,
+          "wall_us": 65.06245117634535
         },
         "checked_eager_vjp": {
-          "event_us": 470.19972801208496,
-          "wall_us": 474.51379941776395
+          "event_us": 447.5273609161377,
+          "wall_us": 452.6767006609589
         },
         "checked_graph_vjp": {
-          "event_us": 153.13705205917358,
-          "wall_us": 151.8919481895864
+          "event_us": 147.51805067062378,
+          "wall_us": 146.22934977523983
         },
         "canonical_forward_backward_validation": {
-          "event_us": 3198.6827850341797,
-          "wall_us": 3206.183749716729
+          "event_us": 3677.5680541992188,
+          "wall_us": 3086.9156500557438
         }
       },
       "timing_scope": {
@@ -35,7 +35,7 @@
         "checked_graph_vjp": "backward_only",
         "canonical_forward_backward_validation": "forward_backward_validation"
       },
-      "backward_implementation": "2959f354adccefcca1a67a674bf2f14a2a262026ddcdd98a802f8182e105bc13"
+      "backward_implementation": "3425d4089bc841fd82cee86e3ca58febd3e82767ce8a1caaa9fe66d64d8c93d4"
     },
     {
       "m": 7,
@@ -45,24 +45,24 @@
       "native_workspace": 1102592,
       "timings": {
         "native_pipeline": {
-          "event_us": 268.3777093887329,
-          "wall_us": 259.81515063904226
+          "event_us": 247.72019386291504,
+          "wall_us": 246.23125209473073
         },
         "graph_core": {
-          "event_us": 84.0676486492157,
-          "wall_us": 84.7319490276277
+          "event_us": 85.29624938964844,
+          "wall_us": 85.79330169595778
         },
         "checked_eager_vjp": {
-          "event_us": 493.22614669799805,
-          "wall_us": 484.669252182357
+          "event_us": 462.978458404541,
+          "wall_us": 458.13359902240336
         },
         "checked_graph_vjp": {
-          "event_us": 163.54074478149414,
-          "wall_us": 160.0332499947399
+          "event_us": 160.91649532318115,
+          "wall_us": 159.55425042193383
         },
         "canonical_forward_backward_validation": {
-          "event_us": 3221.993637084961,
-          "wall_us": 3176.461299881339
+          "event_us": 3147.254753112793,
+          "wall_us": 3265.050900517963
         }
       },
       "timing_scope": {
@@ -72,7 +72,7 @@
         "checked_graph_vjp": "backward_only",
         "canonical_forward_backward_validation": "forward_backward_validation"
       },
-      "backward_implementation": "4393212a711bf2ee09c149d21a90c58065ce3894df9bf5038920148a8444d1c3"
+      "backward_implementation": "196ff9175773e965ae8107bb28a22c51143d8cd8c8897770b16c71d02ee520b2"
     },
     {
       "m": 65,
@@ -82,24 +82,24 @@
       "native_workspace": 855764,
       "timings": {
         "native_pipeline": {
-          "event_us": 256.30218982696533,
-          "wall_us": 253.51384829264134
+          "event_us": 240.8545970916748,
+          "wall_us": 242.79209901578724
         },
         "graph_core": {
-          "event_us": 71.25445008277893,
-          "wall_us": 71.86805014498532
+          "event_us": 70.6569492816925,
+          "wall_us": 69.45115164853632
         },
         "checked_eager_vjp": {
-          "event_us": 489.3674373626709,
-          "wall_us": 493.37609962094575
+          "event_us": 466.99962615966797,
+          "wall_us": 469.2934511695057
         },
         "checked_graph_vjp": {
-          "event_us": 169.33594942092896,
-          "wall_us": 169.07954995986074
+          "event_us": 161.18309497833252,
+          "wall_us": 161.69229929801077
         },
         "canonical_forward_backward_validation": {
-          "event_us": 3383.099365234375,
-          "wall_us": 3461.026499280706
+          "event_us": 3188.474655151367,
+          "wall_us": 3308.728549745865
         }
       },
       "timing_scope": {
@@ -109,7 +109,7 @@
         "checked_graph_vjp": "backward_only",
         "canonical_forward_backward_validation": "forward_backward_validation"
       },
-      "backward_implementation": "fb0c803b11c000868ced020b025c59d064e09f9b47518eadc3d2a0b9e729ce1c"
+      "backward_implementation": "c75c0df67fa5b264e6ff9d425ae46ec1ea7da9ee947a345d73b75237e90c0c60"
     },
     {
       "m": 1,
@@ -119,24 +119,24 @@
       "native_workspace": 3212800,
       "timings": {
         "native_pipeline": {
-          "event_us": 439.51568603515625,
-          "wall_us": 440.0976496981457
+          "event_us": 442.8506374359131,
+          "wall_us": 443.917399388738
         },
         "graph_core": {
-          "event_us": 444.20437812805176,
-          "wall_us": 444.95059992186725
+          "event_us": 443.0972099304199,
+          "wall_us": 443.7057999894023
         },
         "checked_eager_vjp": {
-          "event_us": 612.285566329956,
-          "wall_us": 598.4181014355272
+          "event_us": 595.8732604980469,
+          "wall_us": 593.253000988625
         },
         "checked_graph_vjp": {
-          "event_us": 526.2535095214844,
-          "wall_us": 525.3344512311742
+          "event_us": 521.2091445922852,
+          "wall_us": 519.8536498937756
         },
         "canonical_forward_backward_validation": {
-          "event_us": 3303.711700439453,
-          "wall_us": 3260.7352506602183
+          "event_us": 3185.529327392578,
+          "wall_us": 3287.9518024856225
         }
       },
       "timing_scope": {
@@ -146,7 +146,7 @@
         "checked_graph_vjp": "backward_only",
         "canonical_forward_backward_validation": "forward_backward_validation"
       },
-      "backward_implementation": "3aeba89459de61dfd4e79729d97117c49721d01d743480f1a846246f2358bca2"
+      "backward_implementation": "5a5deee01c7cb5603cbf5656eaad140255e78adde2cb21fa83b1efc9120ad30b"
     }
   ],
   "provider": {
@@ -160,7 +160,7 @@
       "aiter_commit": "326cffa38c9eda16bef19375ba55334e4d3acd59",
       "kernel_sha256": "56db3b46c58f8fb30912d4564189b214e2c9a37fa2138a155b45a4ce51b5c844",
       "cache_source_sha256": "0d65322289248b9062580f8bcee90997fedf6378de456f1af8a2203484fbaee3",
-      "adapter_sha256": "337f9d7419eb4514eaa93753ad0556cfbdaef26fb9e3bdc86f7f051bcf689488"
+      "adapter_sha256": "3ec7a32bd4494057f5356d254e9d4e7c5624f292119e22bf4d088f0b3ad3a3c0"
     },
     "wrapper_sha256": "ede08814720b9c783c7375cab9f95ee38bf6212ca77ba23149e33309b72842ff",
     "delta_source_sha256": "e9183920ca149205978c1aace8f07ff69a271c51104cb6de3d829e29632bc33e",

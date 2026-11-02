@@ -25,8 +25,9 @@ def load_pinned_kernel(path):
         "aiter sparse source hash mismatch; no fallback or runtime download",
     )
     name = "_rlk_aiter_sparse_" + KERNEL_SHA256
+    spec = importlib.util.spec_from_file_location(name, path)
+    require(spec is not None and spec.loader is not None, "pinned aiter source is not importable")
     if name not in sys.modules:
-        spec = importlib.util.spec_from_file_location(name, path)
         module = importlib.util.module_from_spec(spec)
         sys.modules[name] = module
         try:

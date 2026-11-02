@@ -48,9 +48,24 @@ class JointBackwardPlan:
         self.forward_plan, self.record, self.backend = forward_plan, record, backend
         self.device = forward_plan.device
         eager(self.device)
+        keys = record.metadata.query_keys.cpu().tolist()
+        order = sorted((i for i, key in enumerate(keys) if key[0] >= 0), key=lambda i: keys[i])
+        geometry = dict(
+            m=len(order),
+            h=record.q.shape[1],
+            d=record.q.shape[2],
+            selected=record.indices.shape[1],
+            n_kv=record.kv.shape[0],
+        )
+        require(
+            type(max_workspace_bytes) is int and max_workspace_bytes > 0,
+            "positive backward budget required",
+        )
+        require(
+            backend.workspace_bytes(**geometry) <= max_workspace_bytes,
+            "backward workspace budget exceeded",
+        )
         with forward_plan._transaction(), torch.inference_mode(False), torch.no_grad():
-            keys = record.metadata.query_keys.cpu().tolist()
-            order = sorted((i for i, key in enumerate(keys) if key[0] >= 0), key=lambda i: keys[i])
             self.order = torch.tensor(order, dtype=torch.int64, device=self.device)
             self.q = owned(record.q.index_select(0, self.order))
             self.kv = record.kv
@@ -61,14 +76,7 @@ class JointBackwardPlan:
             self.dy = torch.zeros_like(self.q)
             self.dq_original = torch.zeros_like(record.q, dtype=torch.float32)
             self.ptr, self.data = backend.build_csr(self.indices, record.kv.shape[0])
-            self.workspace = backend.allocate(
-                m=len(order),
-                h=record.q.shape[1],
-                d=record.q.shape[2],
-                selected=record.indices.shape[1],
-                n_kv=record.kv.shape[0],
-                max_bytes=max_workspace_bytes,
-            )
+            self.workspace = backend.allocate(**geometry, max_bytes=max_workspace_bytes)
             self._frozen = (
                 self.order,
                 self.q,

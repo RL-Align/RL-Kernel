@@ -94,16 +94,17 @@ latencies or baseline-engine comparisons.
 
 | M | H | D | Selected | Graph core event µs | Checked Graph VJP wall µs | Canonical forward+backward wall µs |
 |---:|---:|---:|---:|---:|---:|---:|
-| 7 | 13 | 128 | 6 | 69.10 | 191.48 | 3363.14 |
-| 7 | 64 | 512 | 6 | 85.56 | 171.02 | 3336.47 |
-| 65 | 13 | 128 | 6 | 71.88 | 206.09 | 3477.44 |
-| 1 | 128 | 512 | 640 | 445.07 | 529.68 | 3468.14 |
+| 7 | 13 | 128 | 6 | 64.30 | 146.23 | 3086.92 |
+| 7 | 64 | 512 | 6 | 85.30 | 159.55 | 3265.05 |
+| 65 | 13 | 128 | 6 | 70.66 | 161.69 | 3308.73 |
+| 1 | 128 | 512 | 640 | 443.10 | 519.85 | 3287.95 |
 
 The checked canonical adapter has material Python/admission/allocation overhead.
 No full-engine speedup is inferred from the native-kernel measurements.
 Corrected machine-readable timings and provider fingerprints are in
-`joint-backward-mi300x-20261102.json`. The original JSON is retained as
-historical test provenance but its benchmark section is superseded.
+`joint-backward-mi300x-20261103.json`. The October 29 and November 2 JSON
+files are retained as historical provenance; their benchmark timings are
+superseded because native and Graph paths previously used zero dO.
 
 ## Explicit non-claims
 

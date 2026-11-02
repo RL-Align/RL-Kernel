@@ -47,7 +47,10 @@ class JointAttentionContract:
             )
         require(self.head_dim in (128, 512), "validated head dimensions are 128 and 512")
         require(self.num_heads <= 128, "unvalidated head count")
-        require(self.compression_ratio in (4, 128), "compression ratio must be C4 or C128")
+        require(
+            type(self.compression_ratio) is int and self.compression_ratio in (4, 128),
+            "compression ratio must be C4 or C128",
+        )
         require(
             self.selected_capacity <= 640, "longer fixed-loop profiles require separate signoff"
         )
