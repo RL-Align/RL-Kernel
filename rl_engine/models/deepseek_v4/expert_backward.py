@@ -285,28 +285,39 @@ class ExpertBackwardRoundTrip:
     """One-shot dy dispatch and dX return, bound to the saved forward route."""
 
     def __init__(self, receipt: SavedForwardRoute, *, group, allow_cpu_reference=False):
-        _require(isinstance(receipt, SavedForwardRoute), "saved forward receipt required")
         _require(dist.is_available() and dist.is_initialized(), "process group required")
-        _require(
-            tuple(dist.get_process_group_ranks(group)) == receipt.global_ranks,
-            "saved route group differs from process group",
+        local_error = None
+        try:
+            _require(isinstance(receipt, SavedForwardRoute), "saved forward receipt required")
+            _require(
+                tuple(dist.get_process_group_ranks(group)) == receipt.global_ranks,
+                "saved route group differs from process group",
+            )
+            backend = str(dist.get_backend(group)).lower()
+            rocm = "nccl" in backend and bool(torch.version.hip)
+            _require(
+                rocm or ("gloo" in backend and allow_cpu_reference), "unvalidated expert transport"
+            )
+            device = (
+                torch.device("cuda", torch.cuda.current_device()) if rocm else torch.device("cpu")
+            )
+            _require(dist.get_rank() in receipt.global_ranks, "rank outside saved route")
+        except Exception as exc:
+            local_error = exc
+        peers = [None] * dist.get_world_size(group)
+        dist.all_gather_object(
+            peers, (receipt if local_error is None else None, local_error is None), group=group
         )
-        backend = str(dist.get_backend(group)).lower()
-        rocm = "nccl" in backend and bool(torch.version.hip)
-        _require(
-            rocm or ("gloo" in backend and allow_cpu_reference), "unvalidated expert transport"
-        )
-        self.device = (
-            torch.device("cuda", torch.cuda.current_device()) if rocm else torch.device("cpu")
-        )
+        if local_error is not None:
+            raise local_error
+        _require(all(valid for _, valid in peers), "invalid saved route on a rank")
+        self.device = device
         self.receipt = receipt
         self.group = group
         self.rank = dist.get_rank()
         self.world_size = len(receipt.global_ranks)
-        _require(self.rank in receipt.global_ranks, "rank outside saved route")
         self.local_index = receipt.global_ranks.index(self.rank)
-        peers = [None] * self.world_size
-        dist.all_gather_object(peers, receipt, group=group)
+        routes = [peer for peer, _ in peers]
         _require(
             all(
                 peer.global_ranks == receipt.global_ranks
@@ -314,7 +325,7 @@ class ExpertBackwardRoundTrip:
                 and peer.model_version == receipt.model_version
                 and peer.hidden_size == receipt.hidden_size
                 and peer.topk_width == receipt.topk_width
-                for peer in peers
+                for peer in routes
             ),
             "forward route metadata mismatch",
         )
@@ -322,11 +333,11 @@ class ExpertBackwardRoundTrip:
             sum(s.destination_rank == rank for s in receipt.slots) for rank in receipt.global_ranks
         ]
         self.recv_counts = [
-            sum(s.destination_rank == self.rank for s in peer.slots) for peer in peers
+            sum(s.destination_rank == self.rank for s in peer.slots) for peer in routes
         ]
         self.inbound_slots = tuple(
             (source, slot.token, slot.topk_slot, slot.expert)
-            for source, peer in zip(receipt.global_ranks, peers, strict=True)
+            for source, peer in zip(receipt.global_ranks, routes, strict=True)
             for slot in peer.slots
             if slot.destination_rank == self.rank
         )

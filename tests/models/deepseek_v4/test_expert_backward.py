@@ -149,6 +149,13 @@ def _worker(rank, rendezvous, scenario):
     dist.init_process_group("gloo", init_method=f"file://{rendezvous}", rank=rank, world_size=2)
     try:
         route = _receipt(rank)
+        if scenario == "construct_partition":
+            if rank == 1:
+                route = replace(route, global_ranks=(0, 2))
+            message = "saved route group" if rank == 1 else "invalid saved route"
+            with pytest.raises(ExpertBackwardError, match=message):
+                ExpertBackwardRoundTrip(route, group=dist.group.WORLD, allow_cpu_reference=True)
+            return
         runtime = ExpertBackwardRoundTrip(route, group=dist.group.WORLD, allow_cpu_reference=True)
         dy = torch.tensor([[1.0, 2.0], [3.0, 4.0]]) if rank == 0 else torch.empty((0, 2))
         if scenario == "stale":
@@ -221,7 +228,9 @@ def _worker(rank, rendezvous, scenario):
         dist.destroy_process_group()
 
 
-@pytest.mark.parametrize("scenario", ["valid", "stale", "fingerprint", "recompute_mismatch"])
+@pytest.mark.parametrize(
+    "scenario", ["valid", "stale", "fingerprint", "recompute_mismatch", "construct_partition"]
+)
 def test_two_rank_saved_round_trip(tmp_path: Path, scenario):
     mp.spawn(_worker, args=(str(tmp_path / f"{scenario}-init"), scenario), nprocs=2, join=True)
 

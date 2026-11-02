@@ -10,14 +10,17 @@ placement version before constructing the receipt. This entry point requires
 P3 #565, which is not in `main` yet. It never reruns the router during
 backward. Recompute may supply a second receipt, which must have the same
 fingerprint; changed route weights/artifact identity are rejected.
-`from_p4_forward` can also freeze the **returned** P4 #643 EP send plan,
+`from_p4_forward` can also freeze the **returned** P4 #643 EP send plan
+(now present on `dsv4-rocm`),
 but only when `EpExchange(strict=True)` verified the forward echo. It checks
 the source/rank mapping, run tag and expert placement without rerunning Top-K.
 An optional P3 sealed receipt must match every route slot and version; if
 supplied, its stronger forward artifact fingerprint is retained.
 
-`ExpertBackwardRoundTrip` exchanges receipt metadata over the EP process group,
-then sends `dy` along the saved slots via PyTorch's existing
+`ExpertBackwardRoundTrip` coordinates rank-local receipt validation before
+exchanging receipt metadata over the EP process group. A mismatched local group
+or saved route rejects every rank before dy transport, preserving the original
+error on the failing rank. It then sends `dy` along the saved slots via PyTorch's existing
 `all_to_all_single` transport. The returned `inbound_slots` identify each
 expert input. The caller computes expert dX in that order and passes it to
 `return_dx`; reverse AllToAll restores the local slot ordering. Repeated
@@ -38,10 +41,12 @@ CPU/Gloo is an explicit test reference.
 
 - Two-rank Gloo: duplicate token slots, empty source rank, expert destinations,
   reverse dX mapping, FP32 route-weight gradient, stale run/fingerprint,
-  recomputation drift, and replay rejection.
+  recomputation drift, replay rejection, and rank-local constructor failure.
 - One-rank MI300X RCCL: BF16 dy/dX data path and FP32 `dp_s`.
-- The P4 #643 forward route has an opt-in receipt adapter, tested in a
-  temporary merged tree. A real DSV4 expert autograd caller remains unwired;
-  this is still a boundary interface. Multi-GPU ROCm and two-node execution remain untested
-  because the `ljj` container exposes a single GPU. No Graph or overlap
-  guarantee is made. This is not item-39 full signoff.
+- Two-rank MI300X RCCL: strict P4 forward return through saved dy/dX,
+  including an empty source rank. P4 exchange and fused expert forward also
+  passed on eight MI300X ranks against a no-exchange reference.
+- A real DSV4 expert autograd caller remains unwired; this is still a boundary
+  interface. Two-node execution, Graph and overlap remain untested. The
+  container can use eight MI300X cards with a per-process visibility override.
+  This is not item-39 full signoff.
