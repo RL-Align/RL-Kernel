@@ -325,6 +325,7 @@ class ExpertBackwardRoundTrip:
                 and peer.model_version == receipt.model_version
                 and peer.hidden_size == receipt.hidden_size
                 and peer.topk_width == receipt.topk_width
+                and peer.placement_version == receipt.placement_version
                 for peer in routes
             ),
             "forward route metadata mismatch",

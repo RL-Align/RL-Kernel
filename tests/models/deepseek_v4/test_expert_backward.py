@@ -156,6 +156,11 @@ def _worker(rank, rendezvous, scenario):
             with pytest.raises(ExpertBackwardError, match=message):
                 ExpertBackwardRoundTrip(route, group=dist.group.WORLD, allow_cpu_reference=True)
             return
+        if scenario == "placement_version":
+            route = replace(route, placement_version="stale") if rank == 1 else route
+            with pytest.raises(ExpertBackwardError, match="metadata mismatch"):
+                ExpertBackwardRoundTrip(route, group=dist.group.WORLD, allow_cpu_reference=True)
+            return
         runtime = ExpertBackwardRoundTrip(route, group=dist.group.WORLD, allow_cpu_reference=True)
         dy = torch.tensor([[1.0, 2.0], [3.0, 4.0]]) if rank == 0 else torch.empty((0, 2))
         if scenario == "stale":
@@ -229,7 +234,15 @@ def _worker(rank, rendezvous, scenario):
 
 
 @pytest.mark.parametrize(
-    "scenario", ["valid", "stale", "fingerprint", "recompute_mismatch", "construct_partition"]
+    "scenario",
+    [
+        "valid",
+        "stale",
+        "fingerprint",
+        "recompute_mismatch",
+        "construct_partition",
+        "placement_version",
+    ],
 )
 def test_two_rank_saved_round_trip(tmp_path: Path, scenario):
     mp.spawn(_worker, args=(str(tmp_path / f"{scenario}-init"), scenario), nprocs=2, join=True)

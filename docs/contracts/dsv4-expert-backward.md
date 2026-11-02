@@ -31,7 +31,8 @@ FP32 `dp_s` by dotting local `dy` with each **unweighted** expert output in
 saved slot order. Discrete Top-K selection has no gradient.
 
 The adapter uses a one-shot lifecycle. Every rank must enter the same phase;
-control-plane handshakes reject stale run, changed forward fingerprint,
+control-plane handshakes reject stale run, changed forward fingerprint or
+placement version,
 recompute drift, dtype/layout mismatch, and replay before data transport.
 After failure, reconstruct from a fresh forward receipt. Empty-token ranks
 participate in all collectives. ROCm requires a NCCL/RCCL process group;
@@ -47,6 +48,7 @@ CPU/Gloo is an explicit test reference.
   including an empty source rank. P4 exchange and fused expert forward also
   passed on eight MI300X ranks against a no-exchange reference.
 - A real DSV4 expert autograd caller remains unwired; this is still a boundary
-  interface. Two-node execution, Graph and overlap remain untested. The
-  container can use eight MI300X cards with a per-process visibility override.
+  interface. Expert backward on EP4 and wider, two-node execution, Graph and
+  overlap remain untested. The container can use eight MI300X cards with a
+  per-process visibility override.
   This is not item-39 full signoff.
