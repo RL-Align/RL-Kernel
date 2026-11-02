@@ -58,6 +58,22 @@ def test_backend_rejects_nonunit_inner_stride(name, backend):
         backend.forward_into(**inputs, contract=contract)
 
 
+@pytest.mark.parametrize("name", ["out", "lse", "sink", "kv", "indices"])
+def test_backend_rejects_short_direct_buffers(name, backend):
+    contract = JointAttentionContract(8, 128, 1, 1, 1, 0)
+    inputs = dict(
+        q=torch.empty((1, 8, 128), dtype=torch.bfloat16, device="cuda"),
+        kv=torch.empty((1, 128), dtype=torch.bfloat16, device="cuda"),
+        sink=torch.empty((8,), dtype=torch.float32, device="cuda"),
+        indices=torch.empty((1, 1), dtype=torch.int32, device="cuda"),
+        out=torch.empty((1, 8, 128), dtype=torch.bfloat16, device="cuda"),
+        lse=torch.empty((1, 8), dtype=torch.float32, device="cuda"),
+    )
+    inputs[name] = inputs[name][..., :0]
+    with pytest.raises(JointAttentionError, match="geometry mismatch"):
+        backend.forward_into(**inputs, contract=contract)
+
+
 @pytest.mark.parametrize("m", [0, 1, 3, 7])
 @pytest.mark.parametrize("dim,heads", [(128, 8), (128, 13), (512, 64)])
 def test_native_reference_and_modes(m, dim, heads, backend):

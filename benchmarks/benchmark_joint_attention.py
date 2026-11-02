@@ -4,13 +4,18 @@ import argparse
 from functools import partial
 import json
 from pathlib import Path
+import sys
 import time
 
 import torch
 
-from rl_engine.backends.rocm.attention.joint_attention import AiterJointAttentionBackend
-from rl_engine.contracts.operators.joint_attention import JointAttentionContract
-from rl_engine.models.deepseek_v4.joint_attention import JointAttentionPlan, JointMetadata
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from rl_engine.backends.rocm.attention.joint_attention import AiterJointAttentionBackend  # noqa: E402
+from rl_engine.contracts.operators.joint_attention import JointAttentionContract  # noqa: E402
+from rl_engine.models.deepseek_v4.joint_attention import JointAttentionPlan, JointMetadata  # noqa: E402
 
 
 def measure(fn, repeats):
@@ -18,16 +23,13 @@ def measure(fn, repeats):
         fn()
     torch.cuda.synchronize()
     start, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+    begin = time.perf_counter()
     start.record()
     for _ in range(repeats):
         fn()
     end.record()
     end.synchronize()
     event = start.elapsed_time(end) * 1000 / repeats
-    begin = time.perf_counter()
-    for _ in range(repeats):
-        fn()
-    torch.cuda.synchronize()
     return dict(event_us=event, wall_us=(time.perf_counter() - begin) * 1e6 / repeats)
 
 

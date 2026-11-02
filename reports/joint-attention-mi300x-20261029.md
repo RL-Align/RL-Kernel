@@ -50,8 +50,8 @@ The FP64 backend is explicitly test-only; production fails closed.
 ## Timings
 
 30 repetitions after warmup. HIP events and synchronized wall time are
-reported separately. These are provider-call measurements, not isolated
-instruction timing; host/launch gaps can appear inside event intervals.
+reported from the same synchronized pass. These are provider-call measurements,
+not isolated instruction timing; host/launch gaps can appear inside event intervals.
 The November 3 comparison measures the same core work, including padding
 masks, in eager and captured modes. The original raw upstream-forward timing
 omitted the masks and is retained only as historical evidence.
@@ -60,10 +60,10 @@ timings include finite admission checks, copies, event ownership and clones.
 
 | M | H | D | Selected | Eager core event µs | Captured core event µs | Checked eager wall µs | Checked Graph wall µs |
 |---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | 8 | 128 | 6 | 71.02 | 19.39 | 469.75 | 387.78 |
-| 32 | 64 | 512 | 6 | 56.19 | 32.11 | 490.56 | 406.21 |
-| 128 | 64 | 512 | 6 | 56.29 | 46.85 | 487.70 | 440.67 |
-| 1 | 128 | 512 | 640 | 95.51 | 99.67 | 485.38 | 404.36 |
+| 1 | 8 | 128 | 6 | 69.43 | 19.43 | 484.66 | 385.36 |
+| 32 | 64 | 512 | 6 | 63.07 | 32.24 | 501.20 | 406.77 |
+| 128 | 64 | 512 | 6 | 62.86 | 46.63 | 504.15 | 405.82 |
+| 1 | 128 | 512 | 640 | 95.44 | 99.81 | 497.14 | 404.30 |
 
 No baseline-engine speedup is claimed. Python/admission/snapshot costs
 dominate the checked API; the measurements deliberately keep those costs

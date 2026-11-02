@@ -14,6 +14,7 @@ from rl_engine.contracts.operators.joint_attention import require
 
 BACKWARD_PROFILE = "aiter.326c.h16.k32.csr64.sink32.canonical_queries.v1"
 WRAPPER_SHA256 = "ede08814720b9c783c7375cab9f95ee38bf6212ca77ba23149e33309b72842ff"
+DELTA_SHA256 = "e9183920ca149205978c1aace8f07ff69a271c51104cb6de3d829e29632bc33e"
 
 
 def load_upstream_csr(path):
@@ -62,14 +63,14 @@ class AiterJointBackwardBackend:
         preprocessing = importlib.import_module(
             "aiter.ops.triton._triton_kernels.attention.mha_fused_bwd"
         )
+        delta_source_sha256 = hashlib.sha256(Path(preprocessing.__file__).read_bytes()).hexdigest()
+        require(delta_source_sha256 == DELTA_SHA256, "aiter delta source hash mismatch")
         self._delta = preprocessing._bwd_preprocess
         self.provenance = {
             "profile": self.profile,
             "forward": forward_backend.provenance,
             "wrapper_sha256": WRAPPER_SHA256,
-            "delta_source_sha256": hashlib.sha256(
-                Path(preprocessing.__file__).read_bytes()
-            ).hexdigest(),
+            "delta_source_sha256": delta_source_sha256,
             "adapter_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         }
 

@@ -4,16 +4,21 @@ import argparse
 from functools import partial
 import json
 from pathlib import Path
+import sys
 
 import torch
 
-from benchmarks.benchmark_joint_attention import measure
-from rl_engine.backends.rocm.attention.joint_attention import AiterJointAttentionBackend
-from rl_engine.contracts.operators.joint_attention import JointAttentionContract
-from rl_engine.models.deepseek_v4.joint_attention import JointAttentionPlan, JointMetadata
-from rl_engine.models.deepseek_v4.joint_autograd import JointAttentionAutograd
-from rl_engine.models.deepseek_v4.joint_backward import JointBackwardPlan
-from rl_engine.ops.autograd.canonical_backward import canonical_backward_session
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from benchmarks.benchmark_joint_attention import measure  # noqa: E402
+from rl_engine.backends.rocm.attention.joint_attention import AiterJointAttentionBackend  # noqa: E402
+from rl_engine.contracts.operators.joint_attention import JointAttentionContract  # noqa: E402
+from rl_engine.models.deepseek_v4.joint_attention import JointAttentionPlan, JointMetadata  # noqa: E402
+from rl_engine.models.deepseek_v4.joint_autograd import JointAttentionAutograd  # noqa: E402
+from rl_engine.models.deepseek_v4.joint_backward import JointBackwardPlan  # noqa: E402
+from rl_engine.ops.autograd.canonical_backward import canonical_backward_session  # noqa: E402
 
 
 def step(adapter, q, kv, sink, meta, dy):

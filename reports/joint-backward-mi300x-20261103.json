@@ -5,7 +5,7 @@
   "dsv4_rocm": "f947f7136690bae79ec6e6e8b8052f41800aa281",
   "tests": {
     "suite": "joint attention, autograd, and backward model/ROCm tests",
-    "passed": 183,
+    "passed": 189,
     "skipped": 0,
     "coverage": "not collected for this rerun"
   },
@@ -18,24 +18,24 @@
       "native_workspace": 92252,
       "timings": {
         "native_pipeline": {
-          "event_us": 263.67855072021484,
-          "wall_us": 264.8795518325642
+          "event_us": 265.7390594482422,
+          "wall_us": 267.6578995306045
         },
         "graph_core": {
-          "event_us": 96.67419791221619,
-          "wall_us": 73.55089765042067
+          "event_us": 66.71389937400818,
+          "wall_us": 68.79694992676377
         },
         "checked_eager_vjp": {
-          "event_us": 486.24539375305176,
-          "wall_us": 474.3588011479005
+          "event_us": 478.87229919433594,
+          "wall_us": 480.0180497113615
         },
         "checked_graph_vjp": {
-          "event_us": 179.60305213928223,
-          "wall_us": 169.87335111480206
+          "event_us": 161.1188530921936,
+          "wall_us": 162.07974986173213
         },
         "canonical_forward_backward_validation": {
-          "event_us": 3296.222686767578,
-          "wall_us": 3343.136451439932
+          "event_us": 3190.7726287841797,
+          "wall_us": 3192.2309019137174
         }
       },
       "timing_scope": {
@@ -45,7 +45,7 @@
         "checked_graph_vjp": "backward_only",
         "canonical_forward_backward_validation": "forward_backward_validation"
       },
-      "backward_implementation": "3cc698cea273add19e6a6c10f373523e1772fea3b16e3f7c58d29e4cc9e9225d"
+      "backward_implementation": "f7929157579bde397f652e0aa532c30d948e22b88ac2c85a4fa3c34a5440d443"
     },
     {
       "m": 7,
@@ -55,24 +55,24 @@
       "native_workspace": 1102592,
       "timings": {
         "native_pipeline": {
-          "event_us": 276.8726110458374,
-          "wall_us": 265.80565026961267
+          "event_us": 268.76394748687744,
+          "wall_us": 270.3564998228103
         },
         "graph_core": {
-          "event_us": 104.16524410247803,
-          "wall_us": 104.2012998368591
+          "event_us": 86.7735505104065,
+          "wall_us": 87.73294975981116
         },
         "checked_eager_vjp": {
-          "event_us": 508.66856575012207,
-          "wall_us": 504.4485500548035
+          "event_us": 501.56798362731934,
+          "wall_us": 502.85519973840564
         },
         "checked_graph_vjp": {
-          "event_us": 197.6942539215088,
-          "wall_us": 179.51064801309258
+          "event_us": 171.18375301361084,
+          "wall_us": 172.27359930984676
         },
         "canonical_forward_backward_validation": {
-          "event_us": 3406.0733795166016,
-          "wall_us": 3369.189050863497
+          "event_us": 3218.541717529297,
+          "wall_us": 3219.83884787187
         }
       },
       "timing_scope": {
@@ -82,7 +82,7 @@
         "checked_graph_vjp": "backward_only",
         "canonical_forward_backward_validation": "forward_backward_validation"
       },
-      "backward_implementation": "125b0cbc6840007724ea7613ee710de0d4b12422ec0b647c8fd50ad6284dcf74"
+      "backward_implementation": "b4c43707908c5f700a5a697c30fd6d6ee5a26d8c842b8fc5a4dbf95021185828"
     },
     {
       "m": 65,
@@ -92,24 +92,24 @@
       "native_workspace": 855764,
       "timings": {
         "native_pipeline": {
-          "event_us": 271.91123962402344,
-          "wall_us": 277.389949769713
+          "event_us": 261.9203567504883,
+          "wall_us": 263.2631512824446
         },
         "graph_core": {
-          "event_us": 79.00789976119995,
-          "wall_us": 78.03069893270731
+          "event_us": 75.39165019989014,
+          "wall_us": 76.35525253135711
         },
         "checked_eager_vjp": {
-          "event_us": 508.8931083679199,
-          "wall_us": 510.3833507746458
+          "event_us": 498.38476181030273,
+          "wall_us": 500.87334821000695
         },
         "checked_graph_vjp": {
-          "event_us": 178.18390130996704,
-          "wall_us": 184.73519885446876
+          "event_us": 176.39559507369995,
+          "wall_us": 177.37374873831868
         },
         "canonical_forward_backward_validation": {
-          "event_us": 3397.4029541015625,
-          "wall_us": 3353.279101429507
+          "event_us": 3288.1805419921875,
+          "wall_us": 3289.466749993153
         }
       },
       "timing_scope": {
@@ -119,7 +119,7 @@
         "checked_graph_vjp": "backward_only",
         "canonical_forward_backward_validation": "forward_backward_validation"
       },
-      "backward_implementation": "1560ab3789d573620a13b86fbcc74a04484575260533ed9fc304e50c4c8c021a"
+      "backward_implementation": "1b446a36e3df7b4449033989bcafaafdfcd3664ede111fed24d1d28235017baa"
     },
     {
       "m": 1,
@@ -129,24 +129,24 @@
       "native_workspace": 3212800,
       "timings": {
         "native_pipeline": {
-          "event_us": 505.04822731018066,
-          "wall_us": 513.6872525326908
+          "event_us": 439.47858810424805,
+          "wall_us": 441.14660122431815
         },
         "graph_core": {
-          "event_us": 531.446361541748,
-          "wall_us": 512.8674500156194
+          "event_us": 443.5739517211914,
+          "wall_us": 444.8555497219786
         },
         "checked_eager_vjp": {
-          "event_us": 703.8710594177246,
-          "wall_us": 668.3995015919209
+          "event_us": 600.0261306762695,
+          "wall_us": 602.2094516083598
         },
         "checked_graph_vjp": {
-          "event_us": 584.9381446838379,
-          "wall_us": 606.9398514227942
+          "event_us": 523.5761165618896,
+          "wall_us": 524.5860520517454
         },
         "canonical_forward_backward_validation": {
-          "event_us": 3890.333938598633,
-          "wall_us": 3990.799150778912
+          "event_us": 3315.2523040771484,
+          "wall_us": 3316.600152174942
         }
       },
       "timing_scope": {
@@ -156,7 +156,7 @@
         "checked_graph_vjp": "backward_only",
         "canonical_forward_backward_validation": "forward_backward_validation"
       },
-      "backward_implementation": "cb7cb7a2776e6517c319f946b7abe82e714d11cc5b39548f2259abef7d6a93a4"
+      "backward_implementation": "e911ce7b54fabbccac0a0f678318aa161dcb911d63ce62c24c131b16486a6938"
     }
   ],
   "provider": {
@@ -170,10 +170,10 @@
       "aiter_commit": "326cffa38c9eda16bef19375ba55334e4d3acd59",
       "kernel_sha256": "56db3b46c58f8fb30912d4564189b214e2c9a37fa2138a155b45a4ce51b5c844",
       "cache_source_sha256": "0d65322289248b9062580f8bcee90997fedf6378de456f1af8a2203484fbaee3",
-      "adapter_sha256": "3ec7a32bd4494057f5356d254e9d4e7c5624f292119e22bf4d088f0b3ad3a3c0"
+      "adapter_sha256": "3c6fb32f00da8a57415575f0fa8a20b57ba0b05d440e8c80513c78fc9f6a369f"
     },
     "wrapper_sha256": "ede08814720b9c783c7375cab9f95ee38bf6212ca77ba23149e33309b72842ff",
     "delta_source_sha256": "e9183920ca149205978c1aace8f07ff69a271c51104cb6de3d829e29632bc33e",
-    "adapter_sha256": "7e57d3e19267e2ebc096b00f8a7620c5355d02630f417a0b16dd24b19d7818c9"
+    "adapter_sha256": "2c535210e52724603563a85017146bafff44cf59e0e8e5b665f20430b7c99362"
   }
 }

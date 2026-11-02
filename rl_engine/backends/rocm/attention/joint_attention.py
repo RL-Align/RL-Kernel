@@ -11,7 +11,11 @@ import sys
 
 import torch
 
-from rl_engine.contracts.operators.joint_attention import JOINT_PROFILE, require
+from rl_engine.contracts.operators.joint_attention import (
+    JOINT_PROFILE,
+    JointAttentionContract,
+    require,
+)
 
 KERNEL_SHA256 = "56db3b46c58f8fb30912d4564189b214e2c9a37fa2138a155b45a4ce51b5c844"
 KERNEL_COMMIT = "326cffa38c9eda16bef19375ba55334e4d3acd59"
@@ -80,7 +84,28 @@ class AiterJointAttentionBackend:
         }
 
     def forward_into(self, q, kv, sink, indices, out, lse, contract):
+        require(q.ndim == 3, "joint forward Q geometry mismatch")
         m, h, d = q.shape
+        require(
+            isinstance(contract, JointAttentionContract)
+            and (h, d) == (contract.num_heads, contract.head_dim)
+            and m <= contract.max_queries
+            and kv.ndim == 2
+            and kv.shape[1] == d
+            and kv.shape[0] <= contract.max_kv
+            and out.shape == q.shape
+            and lse.shape == (m, h)
+            and sink.shape == (h,)
+            and indices.shape == (m, contract.selected_capacity),
+            "joint forward geometry mismatch",
+        )
+        require(
+            q.dtype == kv.dtype == out.dtype == torch.bfloat16
+            and sink.dtype == lse.dtype == torch.float32
+            and indices.dtype == torch.int32
+            and all(t.device == self.device for t in (q, kv, sink, indices, out, lse)),
+            "joint forward dtype/device mismatch",
+        )
         require(
             all(t.stride(-1) == 1 for t in (q, kv, sink, indices, out, lse)),
             "joint attention kernel requires unit inner strides",

@@ -35,6 +35,23 @@ def test_hash_pinned_upstream_csr_helper_executes():
     assert data.tolist() == [1, 4, 0, 2]
 
 
+def test_delta_source_hash_rejects_unpinned_package(provider, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from rl_engine.backends.rocm.attention import joint_backward
+
+    source = tmp_path / "changed_delta.py"
+    source.write_text("changed")
+    original = joint_backward.importlib.import_module
+    target = "aiter.ops.triton._triton_kernels.attention.mha_fused_bwd"
+    monkeypatch.setattr(
+        joint_backward.importlib,
+        "import_module",
+        lambda name: SimpleNamespace(__file__=str(source)) if name == target else original(name),
+    )
+    with pytest.raises(JointAttentionError, match="delta source hash mismatch"):
+        AiterJointBackwardBackend(provider)
+
+
 def test_direct_backward_rejects_nonunit_inner_stride(provider):
     backend = AiterJointBackwardBackend(provider)
     q = torch.empty((1, 8, 128), device="cuda", dtype=torch.bfloat16)

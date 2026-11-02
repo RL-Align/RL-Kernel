@@ -3,7 +3,7 @@
   "time_zone": "Asia/Shanghai",
   "main": "d00d444b46858b5109acafd29b5e6af70ac73370",
   "dsv4_rocm": "f947f7136690bae79ec6e6e8b8052f41800aa281",
-  "tests": {"passed": 183, "coverage": "not collected for this rerun"},
+  "tests": {"passed": 189, "coverage": "not collected for this rerun"},
   "records": [
     {
       "m": 1,
@@ -13,23 +13,23 @@
       "workspace": 5721,
       "timing": {
         "eager_core": {
-          "event_us": 71.02306683858235,
-          "wall_us": 62.049166687453784
+          "event_us": 69.42743460337321,
+          "wall_us": 70.4038655385375
         },
         "captured_core": {
-          "event_us": 19.386833906173706,
-          "wall_us": 19.76843341253698
+          "event_us": 19.426900148391724,
+          "wall_us": 20.19326590622465
         },
         "eager_forward_record": {
-          "event_us": 484.7159067789714,
-          "wall_us": 469.7452997788787
+          "event_us": 483.88182322184247,
+          "wall_us": 484.65960038204986
         },
         "graph_forward_record": {
-          "event_us": 385.6128692626953,
-          "wall_us": 387.77763256803155
+          "event_us": 384.64520772298175,
+          "wall_us": 385.35610074177384
         }
       },
-      "implementation": "ba3cb182aa02f6790971c66a0c5336ed469b38b05028ea2441d9393c3c322a7b"
+      "implementation": "a6169fc31ba095ec6abd529737b006e3b784e59e76831a00357de675ce9942bd"
     },
     {
       "m": 32,
@@ -39,23 +39,23 @@
       "workspace": 4400160,
       "timing": {
         "eager_core": {
-          "event_us": 56.1919649442037,
-          "wall_us": 56.28633274075886
+          "event_us": 63.06626796722412,
+          "wall_us": 63.914801770200334
         },
         "captured_core": {
-          "event_us": 32.107800245285034,
-          "wall_us": 32.37660081746677
+          "event_us": 32.24140008290609,
+          "wall_us": 32.87716729876896
         },
         "eager_forward_record": {
-          "event_us": 493.82734298706055,
-          "wall_us": 490.5645677354187
+          "event_us": 500.45013427734375,
+          "wall_us": 501.1987658993651
         },
         "graph_forward_record": {
-          "event_us": 406.98149998982746,
-          "wall_us": 406.2091330221544
+          "event_us": 405.96434275309247,
+          "wall_us": 406.7688675907751
         }
       },
-      "implementation": "f2555b05ee0113b1a4059c4df619905a6025b5d151ec27f607e21d03dcbe0261"
+      "implementation": "158f8f62e1200c9baeca745ebe7f5225103ea76407a3113e955072ffb926b6dd"
     },
     {
       "m": 128,
@@ -65,23 +65,23 @@
       "workspace": 17599872,
       "timing": {
         "eager_core": {
-          "event_us": 56.28550052642822,
-          "wall_us": 55.11190004957219
+          "event_us": 62.86313136418661,
+          "wall_us": 63.75879941818615
         },
         "captured_core": {
-          "event_us": 46.85203234354655,
-          "wall_us": 46.89286773403486
+          "event_us": 46.62883281707764,
+          "wall_us": 47.22033239280184
         },
         "eager_forward_record": {
-          "event_us": 492.05923080444336,
-          "wall_us": 487.70396582161385
+          "event_us": 503.4141540527344,
+          "wall_us": 504.1465997540702
         },
         "graph_forward_record": {
-          "event_us": 461.37739817301434,
-          "wall_us": 440.66859991289675
+          "event_us": 405.0622622172038,
+          "wall_us": 405.81986540928483
         }
       },
-      "implementation": "ac6f4a6971617058854b22eeda0d05cdf58e9472b02ec0b8493ec326fc377af3"
+      "implementation": "fc7309c11e15cfb8b23d57e67188305221d78a72e06679ca4cc9a40cb071cf70"
     },
     {
       "m": 1,
@@ -91,23 +91,23 @@
       "workspace": 921089,
       "timing": {
         "eager_core": {
-          "event_us": 95.5108642578125,
-          "wall_us": 95.59593357456227
+          "event_us": 95.43996651967366,
+          "wall_us": 96.2228999317934
         },
         "captured_core": {
-          "event_us": 99.67363675435384,
-          "wall_us": 100.20246651644509
+          "event_us": 99.80590343475342,
+          "wall_us": 100.45659922373791
         },
         "eager_forward_record": {
-          "event_us": 490.6360626220703,
-          "wall_us": 485.3777994867414
+          "event_us": 496.4329719543457,
+          "wall_us": 497.1444335145255
         },
         "graph_forward_record": {
-          "event_us": 403.23836008707684,
-          "wall_us": 404.35930131934583
+          "event_us": 403.0697186787923,
+          "wall_us": 404.29643316504854
         }
       },
-      "implementation": "69402923a9579030599c81bd4a91257bbc1c3faef434d03a07b7dcddfa080ad7"
+      "implementation": "7a155cfc6852b4251f143e77c9044824e465c5c24ea85c52293b082ab8284689"
     }
   ],
   "provider": {
@@ -119,6 +119,6 @@
     "aiter_commit": "326cffa38c9eda16bef19375ba55334e4d3acd59",
     "kernel_sha256": "56db3b46c58f8fb30912d4564189b214e2c9a37fa2138a155b45a4ce51b5c844",
     "cache_source_sha256": "0d65322289248b9062580f8bcee90997fedf6378de456f1af8a2203484fbaee3",
-    "adapter_sha256": "3ec7a32bd4494057f5356d254e9d4e7c5624f292119e22bf4d088f0b3ad3a3c0"
+    "adapter_sha256": "3c6fb32f00da8a57415575f0fa8a20b57ba0b05d440e8c80513c78fc9f6a369f"
   }
 }
