@@ -66,9 +66,12 @@ class Dsv4ParallelCollectives:
         except Exception as exc:
             local_error = exc
             self.device = torch.device("cpu")
-        self._agree(("construct", contract.fingerprint), local_error is None)
-        if local_error is not None:
-            raise local_error
+        try:
+            self._agree(("construct", contract.fingerprint), local_error is None)
+        except Exception as agreement_error:
+            if local_error is not None:
+                raise local_error from agreement_error
+            raise
         cls = RCCLDeterministicCollective if rocm else TorchDistributedDeterministicCollective
         self._collectives = {}
         try:

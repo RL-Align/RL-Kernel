@@ -73,6 +73,18 @@ def _rank_worker(rank, rendezvous, scenario):
                 group = dist.new_group(ranks=list(ranks), backend="gloo")
                 if rank in ranks:
                     groups[dimension] = group
+        if scenario == "construct_partition" and rank == 0:
+            groups["tp"] = groups["dp"]
+        if scenario == "construct_partition":
+            with pytest.raises(Dsv4CollectiveError) as error:
+                Dsv4ParallelCollectives(
+                    plan,
+                    world_group=dist.group.WORLD,
+                    groups=groups,
+                    allow_cpu_reference=True,
+                )
+            assert ("tp rank partition" if rank == 0 else "invalid DSV4") in str(error.value)
+            return
         runtime = Dsv4ParallelCollectives(
             plan,
             world_group=dist.group.WORLD,
@@ -148,6 +160,7 @@ def _rank_worker(rank, rendezvous, scenario):
         "shape_mismatch",
         "begin_active",
         "execute_inactive",
+        "construct_partition",
     ],
 )
 def test_four_rank_gloo_plan(tmp_path: Path, scenario: str):
