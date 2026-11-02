@@ -71,6 +71,15 @@ def _require_ids(ids: torch.Tensor, name: str) -> None:
     )
 
 
+def _require_id_range(ids: torch.Tensor, name: str, vocab_size: int) -> None:
+    # Meta tensors carry no values (checkpoint inspection); the range is checked
+    # whenever the ids are real. On CUDA this costs one host sync.
+    if ids.device.type == "meta" or ids.numel() == 0:
+        return
+    out_of_range = bool(((ids < 0) | (ids >= vocab_size)).any().item())
+    _require(not out_of_range, f"{name} must be in [0, {vocab_size})")
+
+
 def _shares_storage(a: torch.Tensor, b: torch.Tensor) -> bool:
     if a is b:
         return True
@@ -90,6 +99,7 @@ def validate_embedding_geometry(
     _require_weight(embed_weight, "embed_weight", spec)
     _require_ids(token_ids, "token_ids")
     _require(token_ids.device == embed_weight.device, "token_ids and embed_weight devices differ")
+    _require_id_range(token_ids, "token_ids", spec.vocab_size)
 
 
 def validate_lm_head_logprob_geometry(
@@ -137,3 +147,4 @@ def validate_lm_head_logprob_geometry(
             temperature.numel() in (1, target_ids.numel()),
             "temperature must be scalar or one value per token",
         )
+    _require_id_range(target_ids, "target_ids", spec.vocab_size)

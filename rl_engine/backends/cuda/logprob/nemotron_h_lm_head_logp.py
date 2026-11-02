@@ -44,7 +44,6 @@ from rl_engine.models.nemotron_h.lm_head_contract import (
     CHECKPOINT_ID,
     CHECKPOINT_REVISION,
     LM_HEAD_LOGPROB_CONTRACT_VERSION,
-    NEMOTRON_H_LM_HEAD_SPEC,
     NemotronHGeometryError,
     validate_embedding_geometry,
     validate_lm_head_logprob_geometry,
@@ -290,16 +289,6 @@ def _per_token_temperature(
     return temp
 
 
-def _require_target_range(target_ids: torch.Tensor) -> None:
-    if target_ids.numel() == 0:
-        return
-    vocab = NEMOTRON_H_LM_HEAD_SPEC.vocab_size
-    if bool(((target_ids < 0) | (target_ids >= vocab)).any().item()):
-        raise NemotronHGeometryError(
-            f"Nemotron-H lm_head_logprob strict contract: target_ids must be in [0, {vocab})"
-        )
-
-
 class NemotronHLMHeadLogprobSM90Op:
     """Strict SM90 embedding lookup and LM-head selected-token logprob for Nemotron-H.
 
@@ -343,7 +332,6 @@ class NemotronHLMHeadLogprobSM90Op:
             temperature=temperature,
         )
         _require_hopper(hidden)
-        _require_target_range(target_ids)
         rows = hidden.numel() // hidden.size(-1)
         return _per_token_temperature(temperature, rows, hidden.device)
 

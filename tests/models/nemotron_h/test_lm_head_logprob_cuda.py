@@ -12,11 +12,14 @@ The geometry-gate tests run on CPU with meta tensors.
 """
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 import torch
 
 from rl_engine.contracts.numerical import load_contract, resolve_tolerance
 from rl_engine.models.nemotron_h.lm_head_contract import (
+    NEMOTRON_H_LM_HEAD_SPEC,
     NemotronHGeometryError,
     validate_embedding_geometry,
     validate_lm_head_logprob_geometry,
@@ -83,6 +86,35 @@ class TestGeometryGate:
         with pytest.raises(NemotronHGeometryError, match="token_ids must be int"):
             validate_embedding_geometry(_meta(4, dtype=torch.float32), weight)
 
+
+# Same contract with a tiny vocab/hidden so value-level checks run on real CPU tensors.
+_SMALL_SPEC = dataclasses.replace(NEMOTRON_H_LM_HEAD_SPEC, hidden_size=64, vocab_size=128)
+
+
+def _cpu(*shape, dtype=torch.bfloat16):
+    return torch.zeros(*shape, dtype=dtype)
+
+
+class TestGeometryGateValues:
+    @pytest.mark.parametrize("bad_id", [-1, _SMALL_SPEC.vocab_size])
+    def test_rejects_out_of_range_target_ids(self, bad_id):
+        target = torch.tensor([0, 5, bad_id, 7])
+        with pytest.raises(NemotronHGeometryError, match=r"target_ids must be in \[0, 128\)"):
+            validate_lm_head_logprob_geometry(
+                _cpu(4, 64), _cpu(128, 64), target, spec=_SMALL_SPEC
+            )
+
+    @pytest.mark.parametrize("bad_id", [-1, _SMALL_SPEC.vocab_size])
+    def test_rejects_out_of_range_token_ids(self, bad_id):
+        token_ids = torch.tensor([[0, bad_id]], dtype=torch.int32)
+        with pytest.raises(NemotronHGeometryError, match=r"token_ids must be in \[0, 128\)"):
+            validate_embedding_geometry(token_ids, _cpu(128, 64), spec=_SMALL_SPEC)
+
+    def test_accepts_boundary_ids(self):
+        ids = torch.tensor([0, _SMALL_SPEC.vocab_size - 1])
+        validate_lm_head_logprob_geometry(_cpu(2, 64), _cpu(128, 64), ids, spec=_SMALL_SPEC)
+        validate_embedding_geometry(ids, _cpu(128, 64), spec=_SMALL_SPEC)
+        validate_embedding_geometry(ids[:0], _cpu(128, 64), spec=_SMALL_SPEC)
 
 def _temperature(rows: int) -> torch.Tensor:
     return torch.linspace(0.6, 1.4, rows, device="cuda", dtype=torch.float32)
