@@ -94,11 +94,13 @@ The base patch changes C++ code, so changing only the Python import path does
 not update an already-built vLLM extension.
 
 Build vLLM from this checkout in place (or install it editable with its ROCm
-build requirements), then confirm both the Python package and compiled extension
-resolve to this build before starting the ROCm launcher:
+build requirements). Set `PROFILE_PYTHON` to the launcher's profile `paths.python`;
+with that same interpreter, confirm the package, core extension and patched
+`cumem_allocator` extension resolve to this build before starting the launcher:
 
 ```bash
-python -c 'import vllm, vllm._C; print(vllm.__file__, vllm._C.__file__)'
+cd "$VLLM_ROOT"
+"$PROFILE_PYTHON" -c 'import vllm, vllm._C, vllm.cumem_allocator; print(vllm.__file__, vllm._C.__file__, vllm.cumem_allocator.__file__)'
 ```
 
 The vLLM entry in `sources.json` preserves the original `base`, `commit`,
