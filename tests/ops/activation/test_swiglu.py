@@ -609,8 +609,8 @@ def test_cuda_triton_swiglu_rejects_cross_device_inputs(impl):
 @requires_cuda
 @requires_triton_activation
 def test_triton_activation_kernels_index_past_int32_numel():
-    # Issue #640: an int32 pid * BLOCK wrapped negative past 2**31 elements,
-    # passed the mask and read/wrote outside the buffers.
+    """Issue #640: an int32 pid * BLOCK wrapped negative past 2**31 elements,
+    passed the mask and read/wrote outside the buffers."""
     from rl_engine.backends.shared.triton.activation import swiglu as triton_swiglu
 
     block = triton_swiglu._BLOCK
@@ -637,7 +637,8 @@ def test_triton_activation_kernels_index_past_int32_numel():
         full = launch(x)
         for actual, expected in zip(full, launch(x_tail), strict=True):
             assert torch.equal(actual[tail], expected), name
-        del full
+        # `actual` outlives the loop and would keep a full-size output alive.
+        del full, actual, expected
 
 
 # ---------------------------------------------------------------------------
