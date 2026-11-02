@@ -20,6 +20,8 @@ Every operator page should include:
 
 - [SiLU / SwiGLU Activation](activation.md)
 - [Hash Routing](hash-route.md)
+- [Stable Top-6 Expert Selection](stable-topk6.md)
+- [Router Sqrt-Softplus](router-sqrt-softplus.md)
 - [Standard Attention](attention.md)
 - [DSV4 RMSNorm with Residual Fork (ROCm)](dsv4-rmsnorm-residual.md)
 - [Fused LogP](fused-logp.md)

@@ -19,6 +19,8 @@ nav:
       - operators/README.md
       - operators/activation.md
       - operators/hash-route.md
+      - operators/stable-topk6.md
+      - operators/router-sqrt-softplus.md
       - operators/dsv4-clamp-swiglu.md
       - operators/dsv4-rmsnorm-residual.md
       - operators/attention.md
