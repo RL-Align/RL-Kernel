@@ -1,0 +1,124 @@
+{
+  "date": "2026-11-03",
+  "time_zone": "Asia/Shanghai",
+  "main": "d00d444b46858b5109acafd29b5e6af70ac73370",
+  "dsv4_rocm": "f947f7136690bae79ec6e6e8b8052f41800aa281",
+  "tests": {"passed": 183, "coverage": "not collected for this rerun"},
+  "records": [
+    {
+      "m": 1,
+      "heads": 8,
+      "dim": 128,
+      "selected": 6,
+      "workspace": 5721,
+      "timing": {
+        "eager_core": {
+          "event_us": 71.02306683858235,
+          "wall_us": 62.049166687453784
+        },
+        "captured_core": {
+          "event_us": 19.386833906173706,
+          "wall_us": 19.76843341253698
+        },
+        "eager_forward_record": {
+          "event_us": 484.7159067789714,
+          "wall_us": 469.7452997788787
+        },
+        "graph_forward_record": {
+          "event_us": 385.6128692626953,
+          "wall_us": 387.77763256803155
+        }
+      },
+      "implementation": "ba3cb182aa02f6790971c66a0c5336ed469b38b05028ea2441d9393c3c322a7b"
+    },
+    {
+      "m": 32,
+      "heads": 64,
+      "dim": 512,
+      "selected": 6,
+      "workspace": 4400160,
+      "timing": {
+        "eager_core": {
+          "event_us": 56.1919649442037,
+          "wall_us": 56.28633274075886
+        },
+        "captured_core": {
+          "event_us": 32.107800245285034,
+          "wall_us": 32.37660081746677
+        },
+        "eager_forward_record": {
+          "event_us": 493.82734298706055,
+          "wall_us": 490.5645677354187
+        },
+        "graph_forward_record": {
+          "event_us": 406.98149998982746,
+          "wall_us": 406.2091330221544
+        }
+      },
+      "implementation": "f2555b05ee0113b1a4059c4df619905a6025b5d151ec27f607e21d03dcbe0261"
+    },
+    {
+      "m": 128,
+      "heads": 64,
+      "dim": 512,
+      "selected": 6,
+      "workspace": 17599872,
+      "timing": {
+        "eager_core": {
+          "event_us": 56.28550052642822,
+          "wall_us": 55.11190004957219
+        },
+        "captured_core": {
+          "event_us": 46.85203234354655,
+          "wall_us": 46.89286773403486
+        },
+        "eager_forward_record": {
+          "event_us": 492.05923080444336,
+          "wall_us": 487.70396582161385
+        },
+        "graph_forward_record": {
+          "event_us": 461.37739817301434,
+          "wall_us": 440.66859991289675
+        }
+      },
+      "implementation": "ac6f4a6971617058854b22eeda0d05cdf58e9472b02ec0b8493ec326fc377af3"
+    },
+    {
+      "m": 1,
+      "heads": 128,
+      "dim": 512,
+      "selected": 640,
+      "workspace": 921089,
+      "timing": {
+        "eager_core": {
+          "event_us": 95.5108642578125,
+          "wall_us": 95.59593357456227
+        },
+        "captured_core": {
+          "event_us": 99.67363675435384,
+          "wall_us": 100.20246651644509
+        },
+        "eager_forward_record": {
+          "event_us": 490.6360626220703,
+          "wall_us": 485.3777994867414
+        },
+        "graph_forward_record": {
+          "event_us": 403.23836008707684,
+          "wall_us": 404.35930131934583
+        }
+      },
+      "implementation": "69402923a9579030599c81bd4a91257bbc1c3faef434d03a07b7dcddfa080ad7"
+    }
+  ],
+  "provider": {
+    "profile": "aiter.326c.single_split.h32.k32.bf16_p.fp32_lse.v1",
+    "arch": "gfx942",
+    "torch": "2.11.0+gitd0c8b1f",
+    "hip": "7.2.53211",
+    "triton": "3.6.0",
+    "aiter_commit": "326cffa38c9eda16bef19375ba55334e4d3acd59",
+    "kernel_sha256": "56db3b46c58f8fb30912d4564189b214e2c9a37fa2138a155b45a4ce51b5c844",
+    "cache_source_sha256": "0d65322289248b9062580f8bcee90997fedf6378de456f1af8a2203484fbaee3",
+    "adapter_sha256": "3ec7a32bd4494057f5356d254e9d4e7c5624f292119e22bf4d088f0b3ad3a3c0"
+  }
+}

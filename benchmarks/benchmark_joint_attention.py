@@ -70,18 +70,8 @@ def main():
         )
         forward()
         plan.capture()
-        native = partial(
-            backend.forward_into,
-            plan._q,
-            plan._kv,
-            plan._sink,
-            plan._indices,
-            plan._out,
-            plan._lse,
-            c,
-        )
         timing = {
-            "upstream_forward": measure(native, args.repeats),
+            "eager_core": measure(plan._launch, args.repeats),
             "captured_core": measure(plan._graph.replay, args.repeats),
             "eager_forward_record": measure(forward, args.repeats),
             "graph_forward_record": measure(partial(forward, use_graph=True), args.repeats),
@@ -99,7 +89,7 @@ def main():
         )
         print(json.dumps(records[-1]), flush=True)
     Path(args.output).write_text(
-        json.dumps(dict(records=records, provider=backend.provenance), indent=2)
+        json.dumps(dict(records=records, provider=backend.provenance), indent=2) + "\n"
     )
 
 

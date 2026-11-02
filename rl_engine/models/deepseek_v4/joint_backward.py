@@ -115,7 +115,10 @@ class JointBackwardPlan:
         self.dq_original.index_copy_(0, self.order, self.workspace.dq)
 
     def capture(self):
-        require(self.forward_plan.contract.graph, "Graph profile is disabled")
+        require(
+            self.forward_plan.contract.graph and self.device.type == "cuda",
+            "Graph profile is disabled",
+        )
         self._validate()
         eager(self.device)
         with self.forward_plan._transaction(), torch.no_grad():

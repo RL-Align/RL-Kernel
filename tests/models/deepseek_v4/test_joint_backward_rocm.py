@@ -59,6 +59,21 @@ def test_direct_gather_rejects_nonunit_inner_stride(provider):
         backend.gather_intermediate_into(intermediate, indices, ptr, data, dkv)
 
 
+@pytest.mark.parametrize("fault", ["selected", "rows"])
+def test_direct_backward_rejects_workspace_mismatch(fault, provider):
+    backend = AiterJointBackwardBackend(provider)
+    q = torch.empty((1, 8, 128), device="cuda", dtype=torch.bfloat16)
+    kv = torch.empty((1, 128), device="cuda", dtype=torch.bfloat16)
+    indices = torch.zeros(
+        (1, 2) if fault == "selected" else (2, 1), device="cuda", dtype=torch.int32
+    )
+    lse = torch.zeros((1, 8), device="cuda")
+    sink = torch.zeros((8,), device="cuda")
+    ws = backend.allocate(m=1, h=8, d=128, selected=1, n_kv=1, max_bytes=1 << 20)
+    with pytest.raises(JointAttentionError, match="workspace/geometry"):
+        backend.local_parts_into(q, kv, q.clone(), q.clone(), indices, lse, sink, ws, 1.0)
+
+
 def oracle(saved, dy, scale):
     q, kv, sink = [t.double().detach().requires_grad_() for t in (saved.q, saved.kv, saved.sink)]
     loss = (q.sum() + kv.sum() + sink.sum()) * 0

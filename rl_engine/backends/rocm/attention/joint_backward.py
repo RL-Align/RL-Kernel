@@ -109,6 +109,18 @@ class AiterJointBackwardBackend:
             "joint backward requires unit inner strides",
         )
         k = indices.shape[1]
+        require(
+            out.shape == dy.shape == q.shape
+            and kv.shape == (kv.shape[0], d)
+            and indices.shape == (m, ws.p.shape[2])
+            and lse.shape == ws.delta.shape == (m, h)
+            and sink.shape == ws.dsink.shape == ws.inactive_sink.shape == (h,)
+            and ws.dq.shape == (m, h, d)
+            and ws.dp.shape == ws.p.shape == (m, h, k)
+            and ws.intermediate.shape == (m, k, d)
+            and ws.dkv.shape == kv.shape,
+            "joint backward workspace/geometry mismatch",
+        )
         if not m:
             return
         self._delta[(self.triton.cdiv(m, 16), 1, h)](
@@ -205,6 +217,10 @@ class AiterJointBackwardBackend:
         )
         m, k = indices.shape
         d = dkv.shape[1]
+        require(
+            intermediate.shape == (m, k, d) and ptr.shape == (dkv.shape[0] + 1,) and data.ndim == 1,
+            "joint backward CSR geometry mismatch",
+        )
         if not m:
             dkv.zero_()
             return
