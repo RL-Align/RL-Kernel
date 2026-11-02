@@ -3,6 +3,11 @@
 
 import gc
 import math
+import os
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -323,6 +328,81 @@ def test_operator_wheel_load_error_propagates(exception_type, monkeypatch):
     assert caught.value is error
 
 
+def test_operator_wheel_probe_stops_after_registration(monkeypatch):
+    from rl_engine.backends.cuda.rope import multi_axis_rope as cuda_module
+
+    dispatcher = SimpleNamespace()
+    loads = []
+
+    def load(path):
+        loads.append(path)
+        dispatcher.multi_axis_rope = object()
+
+    monkeypatch.setattr(
+        cuda_module,
+        "torch",
+        SimpleNamespace(
+            version=SimpleNamespace(hip=None),
+            ops=SimpleNamespace(rl_kernel_native=dispatcher, load_library=load),
+        ),
+    )
+    monkeypatch.setattr(
+        cuda_module.importlib.util, "find_spec", lambda _: SimpleNamespace(origin="probe.so")
+    )
+    assert cuda_module.native_available()
+    assert cuda_module.native_available()
+    assert loads == ["probe.so"]
+
+
+def test_operator_wheel_probe_can_discover_late_library(monkeypatch):
+    from rl_engine.backends.cuda.rope import multi_axis_rope as cuda_module
+
+    dispatcher = SimpleNamespace()
+    library = None
+
+    def load(path):
+        dispatcher.multi_axis_rope = object()
+
+    monkeypatch.setattr(
+        cuda_module,
+        "torch",
+        SimpleNamespace(
+            version=SimpleNamespace(hip=None),
+            ops=SimpleNamespace(rl_kernel_native=dispatcher, load_library=load),
+        ),
+    )
+    monkeypatch.setattr(cuda_module.importlib.util, "find_spec", lambda _: library)
+    assert not cuda_module.native_available()
+    library = SimpleNamespace(origin="probe.so")
+    assert cuda_module.native_available()
+
+
+def test_operator_wheel_import_without_full_extension(tmp_path):
+    script = textwrap.dedent(
+        """
+        import importlib.abc
+        import sys
+
+        class MissingFullExtension(importlib.abc.MetaPathFinder):
+            def find_spec(self, fullname, path=None, target=None):
+                if fullname == 'rl_engine._C':
+                    raise ModuleNotFoundError('full extension intentionally absent', name=fullname)
+
+        sys.meta_path.insert(0, MissingFullExtension())
+        from rl_engine.backends.cuda.rope.multi_axis_rope import MultiAxisRoPECudaOp
+        from rl_engine.backends import extension
+        assert extension._C is None
+        assert not extension._EXT_AVAILABLE
+        assert MultiAxisRoPECudaOp.backend_id == 'rlkernel.cuda.qwenimage_multi_axis_rope.v1'
+    """
+    )
+    env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[3]))
+    result = subprocess.run(
+        [sys.executable, "-c", script], cwd=tmp_path, env=env, capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_cuda_registry_uses_native_when_present():
     from rl_engine.backends.cuda.rope.multi_axis_rope import native_available
     from rl_engine.runtime.registry import KernelRegistry
@@ -422,6 +502,30 @@ def test_cuda_triton_byte_parity_and_graph(dtype):
         expected_dx = torch.autograd.grad(expected, static_x, static_grad)[0]
         assert_bits(result, expected)
         assert_bits(derivative, expected_dx)
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("transpose", [False, True])
+@pytest.mark.parametrize("seq", [0, 7])
+def test_native_entrypoint_requires_autograd_wrapper(dtype, transpose, seq):
+    if not torch.cuda.is_available() or torch.version.hip is not None:
+        pytest.skip("NVIDIA CUDA required")
+    from rl_engine.backends.cuda.rope.multi_axis_rope import native_available
+
+    if not native_available():
+        pytest.skip("native multi_axis_rope extension required")
+    x, cos, sin = inputs("cuda", dtype, seq=seq)
+    x.requires_grad_()
+    native = torch.ops.rl_kernel_native.multi_axis_rope
+    with pytest.raises(RuntimeError, match="get_multi_axis_rope_op"):
+        native(x, cos, sin, transpose)
+    reference = get_multi_axis_rope_op("reference")
+    expected = reference(x.detach(), cos, -sin if transpose else sin)
+    for context in (torch.no_grad(), torch.inference_mode()):
+        with context:
+            result = native(x, cos, sin, transpose)
+        assert not result.requires_grad
+        assert_bits(result, expected)
 
 
 def test_native_entrypoint_checks_and_nondefault_stream():

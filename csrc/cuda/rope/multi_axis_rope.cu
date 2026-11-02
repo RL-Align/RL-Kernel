@@ -2,6 +2,7 @@
 // Qwen-Image adjacent-pair rotation. Reads strided BSHD inputs/tables directly.
 #include <ATen/ATen.h>
 #include <ATen/core/dispatch/Dispatcher.h>
+#include <c10/core/GradMode.h>
 #include <torch/library.h>
 #include <cuda_runtime.h>
 #include <c10/cuda/CUDAStream.h>
@@ -85,6 +86,11 @@ at::Tensor multi_axis_rope_apply(const at::Tensor& x, const at::Tensor& cos,
               (cos.dim() == 3 && cos.size(0) == x.size(0) && cos.size(1) == x.size(1) && cos.size(2) == kPairsPerHead),
               "multi_axis_rope: tables must be [S, 64] or [B, S, 64]");
   TORCH_CHECK(!cos.requires_grad() && !sin.requires_grad(), "multi_axis_rope: table gradients unsupported");
+  // The Python custom op supplies recursive VJPs and calls this primitive with
+  // grad mode disabled. Raw grad-enabled calls must not lose input gradients.
+  TORCH_CHECK(!c10::GradMode::is_enabled() || !x.requires_grad(),
+              "multi_axis_rope: use get_multi_axis_rope_op('cuda') for autograd; "
+              "the raw native entry requires torch.no_grad() for grad-carrying inputs");
   const c10::cuda::CUDAGuard guard(x.device());
   auto y = at::empty(x.sizes(), x.options());
   const int64_t n = x.numel() / 2;

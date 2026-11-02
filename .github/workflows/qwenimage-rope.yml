@@ -3,9 +3,14 @@ name: Qwen-Image RoPE
 
 on:
   pull_request:
-    branches: [test-qwenimage]
+    branches: [main, test, test-qwenimage]
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
+    inputs:
+      base_sha:
+        description: "Optional 40-character base commit SHA; omit to check all tracked files"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -66,17 +71,22 @@ jobs:
 
           with open(os.environ['GITHUB_EVENT_PATH'], encoding='utf-8') as stream:
               event = json.load(stream)
-          base = event.get('pull_request', {}).get('base', {}).get('sha')
+          base = (
+              event.get('pull_request', {}).get('base', {}).get('sha')
+              or event.get('inputs', {}).get('base_sha')
+          )
+          command = [sys.executable, '-m', 'pre_commit', 'run']
           if base:
-              assert re.fullmatch(r'[0-9a-f]{40}', base)
+              if not isinstance(base, str) or not re.fullmatch(r'[0-9a-f]{40}', base):
+                  raise ValueError('base_sha must be a 40-character commit SHA')
+              changed = subprocess.check_output([
+                  'git', 'diff', '--name-only', '--diff-filter=ACMR', '-z', base, 'HEAD'
+              ]).decode('utf-8').split('\0')
+              files = [('./' + path if path.startswith('-') else path) for path in changed if path]
+              if files:
+                  subprocess.check_call([*command, '--files', *files])
           else:
-              base = 'HEAD^'
-          changed = subprocess.check_output([
-              'git', 'diff', '--name-only', '--diff-filter=ACMR', '-z', base, 'HEAD'
-          ]).decode('utf-8').split('\0')
-          files = [('./' + path if path.startswith('-') else path) for path in changed if path]
-          if files:
-              subprocess.check_call([sys.executable, '-m', 'pre_commit', 'run', '--files', *files])
+              subprocess.check_call([*command, '--all-files'])
           PY
       - name: Build documentation
         run: mkdocs build --strict -f mkdocs.yaml

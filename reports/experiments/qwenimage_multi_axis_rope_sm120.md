@@ -111,16 +111,33 @@ supported dtypes. Twelve permanent GPU cases cover subnormal inputs/results
 and input gradients. The NPU diagnostic routing and backend-specific backward
 identity remain covered by the existing regression and WS1 checks.
 
+The following self-review closed the raw native entry's autograd boundary.
+Previously, a direct grad-enabled call could warn during backward and leave
+the input gradient absent. It now raises with the public API entry point;
+the Python custom op still supplies recursive VJPs, while explicit no-grad
+and inference calls remain valid. Twelve dtype/transpose/empty-input cases
+cover this boundary. Together with manual-workflow tests, the pre-fix run had
+15 failures; the expanded targeted post-fix run passed all 24 cases.
+
+The CPU/static workflow now targets `main`, `test` and `test-qwenimage`.
+Manual static checks use an explicit `base_sha` or all tracked files, rather
+than only the final commit. Tests execute the actual workflow script against
+a multi-commit temporary Git repository, including spaces and leading-dash
+filenames. Additional loader tests cover missing full `_C`, a single successful
+load and a library becoming available later; root-cause load errors still propagate.
+Fresh standalone-wheel installation also verifies both backends without `_C`.
+
 This run uses the same WSL/Python/PyTorch/Triton profile with driver **621.01**.
 The earlier driver-617.42 records above remain historical evidence.
 
 | Check | Result |
 | --- | --- |
 | Ordinary complete CUDA wheel and fresh installed eager/fullgraph forward/input gradient | Passed; BSD license present |
-| Operator suite and CUDA/Triton WS1 gates | 129 passed, 1 two-GPU skip; both gates passed |
-| Related regressions / repository layout | 206 passed, 7 Ascend skips / 37 passed |
-| CPU-only Python 3.10/3.12 | Each: 80 passed, 88 expected GPU skips; installed reference forward/backward passed |
-| Expanded Compute Sanitizer subset | 76 passed, zero errors |
+| Operator suite and CUDA/Triton WS1 gates | 144 passed, 1 two-GPU skip; both gates passed |
+| Related regressions / repository layout | 210 passed, 7 Ascend skips / 41 passed |
+| CPU-only Python 3.10/3.12 | Each: 87 passed, 100 expected GPU skips; installed reference forward/backward passed |
+| Expanded Compute Sanitizer subset | 88 passed, zero errors |
+| Fresh standalone wheel without full `_C`, and installed raw/public autograd boundary in both wheel profiles | Passed; CUDA/Triton eager/fullgraph forward/input gradients exact |
 | Full/companion coexistence, normal and forced-fast-math companion builds | Five subprocess modes per build, 180 byte comparisons passed; library fingerprints recorded |
 | Additional adversarial checks | 22 groups passed: extreme/subnormal/non-finite values, signed zeros, logical negative views and dynamic fullgraph forward/backward |
 | Standalone benchmark | 40 correctness comparisons passed; 80 measurements |
@@ -129,11 +146,11 @@ The earlier driver-617.42 records above remain historical evidence.
 Dynamic compilation checks isolate independent compiled functions' frame caches,
 then vary five shapes within each function, including empty batch/sequence.
 The full wheel SHA256 is
-`1cb2771fcbb1153d1621b0011f33ccc9490c6b5ff732199f297aa1294663289f`.
+`7bd95ff6462f8b80f88cc10332aa6e8eddd997962dd696fd96651c349c587c2e`.
 
 Latest BF16 [1,4096,24,128] packed-QKV graph medians, forward / forward+backward
-ms/call: CUDA 0.07047 / 0.17434; Triton 0.05604 / 0.15270;
-FlashAttention no-FMA 0.04955 / 0.16105; complex 0.34074 / 0.70469.
+ms/call: CUDA 0.06928 / 0.18138; Triton 0.06056 / 0.16448;
+FlashAttention no-FMA 0.05498 / 0.16717; complex 0.34606 / 0.70062.
 These are shared-GPU, unpinned-clock observations, not a controlled comparison
 with the older driver or evidence of an advantage over FlashAttention.
 
@@ -182,7 +199,7 @@ ROPE_PYTHON=python ROPE_WS1_OUTPUT=/tmp/rope-ws1 bash ci/scripts/run_qwenimage_r
 python ci/run.py layout -q -rs
 compute-sanitizer --tool memcheck --error-exitcode 1 python -m pytest \
   tests/ops/rope/test_multi_axis_rope.py -q \
-  -k "forward_backward_accuracy or noncontiguous_input_tables_and_gradient or arbitrary_head_dimension_stride_and_gradient or backward_preserves_signed_zero or subnormal_values_are_not_flushed or empty_forward_backward or packed_qkv_and_independent_table_strides or native_entrypoint_checks"
+  -k "forward_backward_accuracy or noncontiguous_input_tables_and_gradient or arbitrary_head_dimension_stride_and_gradient or backward_preserves_signed_zero or subnormal_values_are_not_flushed or native_entrypoint_requires_autograd_wrapper or empty_forward_backward or packed_qkv_and_independent_table_strides or native_entrypoint_checks"
 ```
 
 The [GPU gate](../../ci/scripts/run_qwenimage_rope_ws1.sh) requires the full

@@ -65,6 +65,12 @@ There is no cross-element reduction, split-K, atomic accumulation or TF32.
 CUDA uses explicit round-to-nearest scalar PTX without FTZ; Triton disables FP contraction.
 Backward uses the transpose rotation (negate sine), including recursive VJPs.
 
+Use `get_multi_axis_rope_op("cuda")` for input autograd. The underlying
+`torch.ops.rl_kernel_native.multi_axis_rope` is a no-grad primitive: direct
+grad-enabled calls with gradient-carrying inputs raise an error. The public
+custom op supplies the VJP and invokes the primitive with grad mode disabled;
+explicit `torch.no_grad()` and inference-mode calls remain supported.
+
 Transpose negation flips the sine's sign bit, including `+0` and `-0`. The byte
 oracle for input VJPs is that explicitly rounded transpose. Generic PyTorch
 autograd can add zero-filled slice gradients and erase negative-zero signs;
@@ -220,7 +226,9 @@ GNU linking of the package's CUDA driver calls may need
 `LIBRARY_PATH=/usr/lib/wsl/lib`. Record the WSL kernel and physical GPU in the
 evidence; a WSL2 profile does not qualify a bare-metal Linux server or another
 GPU architecture. The `Qwen-Image RoPE` workflow runs CPU contracts and changed-file
-checks for PRs targeting `test-qwenimage`; GPU qualification uses the gate above.
+checks for PRs targeting `main`, `test` and `test-qwenimage`. Manual runs check all
+tracked files by default; an optional `base_sha` selects the complete diff from
+that explicit 40-character commit SHA. GPU qualification uses the gate above.
 
 Tests cover independent forward/VJP accuracy, adjacent-pair layout, shared and
 batched positions, odd and rectangular grids, batch/padding/chunk invariance,
