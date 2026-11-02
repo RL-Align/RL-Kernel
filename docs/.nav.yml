@@ -18,6 +18,9 @@ nav:
     - Operators:
       - operators/README.md
       - operators/activation.md
+      - operators/hash-route.md
+      - operators/stable-topk6.md
+      - operators/router-sqrt-softplus.md
       - operators/dsv4-clamp-swiglu.md
       - operators/dsv4-rmsnorm-residual.md
       - operators/attention.md
@@ -31,7 +34,11 @@ nav:
       - operators/pack-and-pad.md
       - operators/sampling.md
       - operators/det-gemm.md
+      - operators/router-gate.md
       - operators/embedding.md
+      - operators/learned-route.md
+      - operators/router-training.md
+      - operators/router-aux-loss.md
   - Developer Guide:
     - contributing/README.md
     - Contributor Guide: contributing/contributor-guide.md
