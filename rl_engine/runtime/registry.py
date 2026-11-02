@@ -205,6 +205,31 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
     return (
         OperatorBackendDescriptor(
+            semantic_op="router_gate_projection",
+            backend_id="rlkernel.aiter_fixed_bf16_fp32.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"rocm"}),
+            supported_dtypes=frozenset({"bfloat16"}),
+            supported_topologies={
+                "training": {"tensor_parallel_size": (1,)},
+                "rollout": {"tensor_parallel_size": (1,)},
+            },
+            determinism_or_alignment_properties={
+                "batch_invariant": True,
+                "output_dtype": "float32",
+                "split_k": 1,
+                "graph": False,
+                "architectures": ("gfx942", "gfx950"),
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=(
+                "rl_engine.ops.moe.router_gate.RouterGateProjectionOp"
+            ),
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="rlkernel.aiter_fixed_bf16_fp32.v1",
+        ),
+        OperatorBackendDescriptor(
             semantic_op="selected_logprob",
             backend_id="rlkernel.reference_logp",
             supported_targets=frozenset({"rollout", "training"}),
@@ -293,6 +318,74 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             implementation_class_or_factory="rl_engine.ops.moe.learned_route.LearnedRouteOp",
             fallback_policy=OperatorFallbackPolicy.ERROR,
             version_or_build_fingerprint="rlkernel.learned_route.fp32.bias_selection.capacity_mask.v1",
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="hash_route",
+            backend_id="rlkernel.hash_route.fp32.slot_order.clamp_min.v1",
+            supported_targets=frozenset({"training", "rollout"}),
+            supported_devices=frozenset({"rocm"}),
+            supported_dtypes=frozenset({"float32"}),
+            supported_topologies={
+                "training": {"tensor_parallel_size": (1,)},
+                "rollout": {"tensor_parallel_size": (1,)},
+            },
+            determinism_or_alignment_properties={
+                "batch_invariant": True,
+                "output_dtype": "float32",
+                "graph": False,
+                "slot_order": "tid2eid_column_order",
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory="rl_engine.ops.moe.hash_route.HashRouteOp",
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="rlkernel.hash_route.fp32.slot_order.clamp_min.v1",
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="stable_topk6",
+            backend_id="rlkernel.stable_topk6.fp32.global_id.v1",
+            supported_targets=frozenset({"training", "rollout"}),
+            supported_devices=frozenset({"rocm"}),
+            supported_dtypes=frozenset({"float32"}),
+            supported_topologies={
+                "training": {"tensor_parallel_size": (1,)},
+                "rollout": {"tensor_parallel_size": (1,)},
+            },
+            determinism_or_alignment_properties={
+                "batch_invariant": True,
+                "output_dtype": "float32",
+                "graph": False,
+                "ordering": "score_descending.global_expert_id_ascending",
+                "complete_global_coverage": True,
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory="rl_engine.ops.moe.stable_topk6.StableTopK6Op",
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="rlkernel.stable_topk6.fp32.global_id.v1",
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="router_sqrt_softplus",
+            backend_id="rlkernel.router_sqrt_softplus.fp32.stable_tail.v1",
+            supported_targets=frozenset({"training", "rollout"}),
+            supported_devices=frozenset({"rocm"}),
+            supported_dtypes=frozenset({"float32"}),
+            supported_topologies={
+                "training": {"tensor_parallel_size": (1,)},
+                "rollout": {"tensor_parallel_size": (1,)},
+            },
+            determinism_or_alignment_properties={
+                "batch_invariant": True,
+                "graph": False,
+                "output_dtype": "float32",
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=(
+                "rl_engine.ops.moe.router_sqrt_softplus.RouterSqrtSoftplusOp"
+            ),
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="rlkernel.router_sqrt_softplus.fp32.stable_tail.v1",
         ),
         OperatorBackendDescriptor(
             semantic_op="attention",
