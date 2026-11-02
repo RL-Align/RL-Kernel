@@ -296,6 +296,78 @@ static void rmsnorm_check_input(const torch::Tensor& x, const char* name) {
   TORCH_CHECK(x.is_contiguous(), name, " must be contiguous");
 }
 
+// Muse-Glimmer [F1]: post-norm, residual add, pre-norm. csrc/cuda/norm/fused_add_norm.cu
+void fused_add_norm_forward_cuda(
+    torch::Tensor hidden, torch::Tensor residual,
+    torch::Tensor post_w, torch::Tensor pre_w,
+    torch::Tensor res_out, torch::Tensor pre_out,
+    torch::Tensor rstd_post, torch::Tensor rstd_pre,
+    double post_eps, double pre_eps);
+void fused_add_norm_backward_cuda(
+    torch::Tensor g_res, torch::Tensor g_pre,
+    torch::Tensor hidden, torch::Tensor res_out,
+    torch::Tensor post_w, torch::Tensor pre_w,
+    torch::Tensor rstd_post, torch::Tensor rstd_pre,
+    torch::Tensor d_hidden, torch::Tensor d_residual,
+    torch::Tensor partial_post_w, torch::Tensor partial_pre_w);
+
+static void fused_add_norm_check_pair(
+    const torch::Tensor& a, const char* an, const torch::Tensor& b, const char* bn) {
+  rmsnorm_check_input(a, an);
+  rmsnorm_check_input(b, bn);
+  TORCH_CHECK(a.sizes() == b.sizes(), an, " and ", bn, " must share shape");
+  TORCH_CHECK(a.scalar_type() == b.scalar_type(), an, " and ", bn, " must share dtype");
+}
+
+std::vector<torch::Tensor> fused_add_norm_forward(
+  torch::Tensor hidden, torch::Tensor residual,
+  torch::Tensor post_w, torch::Tensor pre_w,
+  double post_eps, double pre_eps)
+{
+  fused_add_norm_check_pair(hidden, "hidden", residual, "residual");
+  fused_add_norm_check_pair(post_w, "post_weight", pre_w, "pre_weight");
+  TORCH_CHECK(hidden.dim() == 2, "hidden must be 2D [T, H]");
+  TORCH_CHECK(post_w.dim() == 1, "post_weight must be 1D [H]");
+  TORCH_CHECK(hidden.size(1) == post_w.size(0), "hidden.size(1) must equal weight size");
+
+  auto T = hidden.size(0);
+  auto res_out = torch::empty_like(hidden);
+  auto pre_out = torch::empty_like(hidden);
+  auto f32 = hidden.options().dtype(torch::kFloat32);
+  auto rstd_post = torch::empty({T}, f32);
+  auto rstd_pre = torch::empty({T}, f32);
+
+  fused_add_norm_forward_cuda(hidden, residual, post_w, pre_w,
+                              res_out, pre_out, rstd_post, rstd_pre, post_eps, pre_eps);
+  return {res_out, pre_out, rstd_post, rstd_pre};
+}
+
+std::vector<torch::Tensor> fused_add_norm_backward(
+  torch::Tensor g_res, torch::Tensor g_pre,
+  torch::Tensor hidden, torch::Tensor res_out,
+  torch::Tensor post_w, torch::Tensor pre_w,
+  torch::Tensor rstd_post, torch::Tensor rstd_pre)
+{
+  fused_add_norm_check_pair(g_res, "grad_residual_out", g_pre, "grad_pre_normed");
+  fused_add_norm_check_pair(hidden, "hidden", res_out, "residual_out");
+  fused_add_norm_check_pair(post_w, "post_weight", pre_w, "pre_weight");
+  TORCH_CHECK(g_res.sizes() == hidden.sizes(), "cotangents and hidden must share shape");
+  TORCH_CHECK(hidden.dim() == 2, "hidden must be 2D [T, H]");
+  TORCH_CHECK(rstd_post.dim() == 1 && rstd_post.size(0) == hidden.size(0), "rstd_post must be [T]");
+  TORCH_CHECK(rstd_pre.dim() == 1 && rstd_pre.size(0) == hidden.size(0), "rstd_pre must be [T]");
+
+  auto f32 = hidden.options().dtype(torch::kFloat32);
+  auto d_hidden = torch::empty(hidden.sizes(), f32);
+  auto d_residual = torch::empty(hidden.sizes(), f32);
+  auto partial_post = torch::empty(hidden.sizes(), f32);
+  auto partial_pre = torch::empty(hidden.sizes(), f32);
+
+  fused_add_norm_backward_cuda(g_res, g_pre, hidden, res_out, post_w, pre_w,
+                               rstd_post, rstd_pre,
+                               d_hidden, d_residual, partial_post, partial_pre);
+  return {d_hidden, d_residual, partial_post, partial_pre};
+}
+
 std::vector<torch::Tensor> rmsnorm_forward(
   torch::Tensor x,
   torch::Tensor weight,
@@ -721,6 +793,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("rmsnorm_forward", &rmsnorm_forward, "Batch-invariant RMSNorm forward CUDA");
     m.def("rmsnorm_backward_dx", &rmsnorm_backward_dx, "Batch-invariant RMSNorm backward dx CUDA");
     m.def("rmsnorm_backward_dw", &rmsnorm_backward_dw, "Deterministic RMSNorm backward dweight CUDA");
+    m.def("fused_add_norm_forward", &fused_add_norm_forward,
+          "Muse-Glimmer post-norm + residual add + pre-norm forward CUDA");
+    m.def("fused_add_norm_backward", &fused_add_norm_backward,
+          "Muse-Glimmer post-norm + residual add + pre-norm backward CUDA");
 #if !defined(USE_ROCM)
     m.def(
         "reduce_rows_fp32_left_fold",
