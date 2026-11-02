@@ -53,3 +53,24 @@ Logs, JUnit XML, coverage and benchmark JSON are under the member's mounted
 `/outputs/c4-new-host-20261029/`, not the shared Docker writable layer.
 The task-19 limits remain: no RCCL/multi-GPU CP, Graph replay, live cache
 commit, full-model or end-to-end framework acceptance.
+
+## November 3 timing follow-up
+
+The current 30-repetition MI300X rerun is in
+`reports/kv-compressor-c4-mi300x-20261103.json`. Each HIP event and synchronized
+wall interval comes from the same pass; event intervals can include host
+launch gaps and are not isolated kernel time. Bind, checked operator, and
+raw provider calls have different scopes and must not be subtracted to claim
+dispatch overhead. The source hashes are generated from the measured files.
+The ROCm image returns an empty `torch.cuda.get_device_name()` but reports
+`gfx942` as its architecture. No full-engine speedup is claimed.
+
+| Groups | Bind event/wall us | Checked event/wall us | Provider event/wall us |
+|---:|---:|---:|---:|
+| 1 | 354.47 / 355.78 | 415.87 / 416.65 | 67.61 / 68.29 |
+| 8 | 537.02 / 537.89 | 428.16 / 428.87 | 78.82 / 79.46 |
+| 64 | 1715.87 / 1716.76 | 530.49 / 531.24 | 195.81 / 196.58 |
+| 128 | 3315.67 / 3316.55 | 676.78 / 677.56 | 331.99 / 333.30 |
+
+The November 3 targeted rerun passed 227 tests with one expected empty-Graph
+warning; the October 29 coverage evidence above is historical.
