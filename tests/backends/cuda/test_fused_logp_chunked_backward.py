@@ -235,6 +235,7 @@ def test_fused_backward_out_of_range_targets_and_masked_logits():
     vocab = 1031
     logits, labels, grad = _make_inputs(8, vocab, torch.float32, "cuda", seed=6)
     logits[:, 1000:] = float("-inf")  # padded / masked vocabulary tail
+    labels %= 1000  # a valid target inside the masked tail would get a nonzero gradient
     labels[2], labels[5] = -100, vocab
     actual = _C.fused_logp_backward(logits, labels, grad)
 

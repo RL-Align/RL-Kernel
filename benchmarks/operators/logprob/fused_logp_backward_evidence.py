@@ -245,7 +245,11 @@ def train_rollout_invariance(rows: int = 257, seeds=(3, 4, 5)) -> dict[str, Any]
 
     Test BF16 inputs and the FP32-upcast inputs used by selected_logprobs_with_operator.
     Cross-provider agreement and candidate-local batch invariance are separate gates.
-    This check does not exercise the separate vLLM WS2 rollout provider.
+    The three candidates built on ``_FusedLogpAutograd`` run the same ``_C.fused_logp``
+    forward as the BF16 rollout reference, so their ``same_provider_no_grad`` and
+    ``project_rollout_bf16`` rows only show that the autograd wrapper leaves the forward
+    unchanged. The FP32 rollout entrypoints and the other candidates are the independent
+    comparisons. This check does not exercise the separate vLLM WS2 rollout provider.
     """
 
     result = {}
