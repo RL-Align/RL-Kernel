@@ -2,8 +2,9 @@
 # Copyright (c) 2025, Tri Dao.
 # Adapted from Dao-AILab/flash-attention, revision
 # 98c1cee0ed59307833841cdbf567fe336ceec13a, flash_attn/ops/triton/rotary.py.
-# Changes: explicit shared/per-sample table strides. Launch policy is in the
-# sibling wrapper. See FLASH_ATTENTION_LICENSE for the retained BSD-3 terms.
+# Changes: explicit shared/per-sample table strides and sign-bit conjugation
+# preserving signed zero. Launch policy is in the sibling wrapper.
+# See FLASH_ATTENTION_LICENSE for the retained BSD-3 terms.
 
 import triton
 import triton.language as tl
@@ -87,7 +88,9 @@ def rotary_kernel(
     cos = tl.load(COS, mask=mask_cs, other=1.0).to(tl.float32)
     sin = tl.load(SIN, mask=mask_cs, other=0.0).to(tl.float32)
     if CONJUGATE:
-        sin = -sin
+        # Triton 3.5 lowers unary minus to 0 - x, which loses the sign of +0.
+        # Flip the FP32 sign bit to match CUDA's transpose, including +/-0.
+        sin = (sin.to(tl.uint32, bitcast=True) ^ 0x80000000).to(tl.float32, bitcast=True)
 
     if not INTERLEAVED:
         # Load the 1st and 2nd halves of X, do calculation, then store to 1st and 2nd halves of OUT

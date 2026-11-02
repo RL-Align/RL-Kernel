@@ -176,6 +176,27 @@ def test_arbitrary_head_dimension_stride_and_gradient(implementation, dtype, lay
     )
 
 
+@pytest.mark.parametrize("implementation", ["cuda", "triton"], indirect=True)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("negative_sine_zero", [False, True])
+def test_backward_preserves_signed_zero(implementation, dtype, negative_sine_zero):
+    op, device = implementation
+    x = torch.zeros(2, 1, 1, 128, device=device, dtype=dtype, requires_grad=True)
+    cos = torch.ones(1, 64, device=device)
+    sin = torch.full((1, 64), -0.0 if negative_sine_zero else 0.0, device=device)
+    grad = torch.zeros_like(x)
+    grad[0, ..., 0::2] = 1.0
+    grad[..., 1::2] = -0.0
+    dx = torch.autograd.grad(op(x, cos, sin), x, grad)[0]
+
+    # Use the declared, explicitly rounded transpose as the byte oracle.
+    # Generic slice autograd adds zero-filled buffers and can erase -0 signs.
+    reference = get_multi_axis_rope_op("reference")
+    expected = reference(grad.cpu(), cos.cpu(), -sin.cpu())
+    assert torch.all(torch.signbit(expected[..., 1::2]) == (not negative_sine_zero))
+    assert_bits(dx, expected.to(device))
+
+
 @pytest.mark.parametrize("batch,seq", [(0, 7), (2, 0), (0, 0)])
 def test_empty_forward_backward(implementation, batch, seq):
     op, device = implementation

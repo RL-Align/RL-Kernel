@@ -1,6 +1,7 @@
 # Qwen-Image multi-axis RoPE: SM120 validation
 
-Recorded 2026-10-28 for [PR #623](https://github.com/RL-Align/RL-Kernel/pull/623).
+Initial runs recorded 2026-10-28; self-review updated 2026-11-02 for
+[PR #623](https://github.com/RL-Align/RL-Kernel/pull/623).
 The rotation arithmetic is based on `ac17ab87e8d93dabe93dfdc134e9853d47de7af1`.
 The [operator documentation](../../docs/operators/multi-axis-rope.md) defines the
 contract, upstream reuse, API and detailed reproduction commands.
@@ -82,7 +83,43 @@ Non-CUDA routing tests exercise candidate selection with CPU tensors; they do
 not certify NPU/ROCm/MUSA hardware. The benchmark below retains its initial-run
 measurements; no new timing comparison was performed for this follow-up.
 
-## Standalone benchmark
+## 2026-11-02 self-review
+
+The CUDA/Triton byte contract exposed a signed-zero bug in Triton conjugation:
+in Triton 3.5.1, unary minus lowers to `0 - x`, so `+0` does not become `-0`.
+Conjugation now flips the FP32 sign bit directly. The twelve new dtype/sine-sign
+regressions went from three failures against the previous kernel to all passing.
+Generic slice autograd can erase negative-zero signs when merging gradients;
+the benchmark now uses the explicit transpose as its byte oracle. CUDA/Triton
+retain strict byte checks; upstream baselines use numerical accuracy checks with
+raw byte differences recorded. NaN payload equality is not claimed.
+
+This run uses the same WSL/Python/PyTorch/Triton profile with driver **621.01**.
+The earlier driver-617.42 records above remain historical evidence.
+
+| Check | Result |
+| --- | --- |
+| Ordinary complete CUDA wheel and fresh installed eager/fullgraph forward/input gradient | Passed; BSD license present |
+| Operator suite and CUDA/Triton WS1 gates | 117 passed, 1 two-GPU skip; both gates passed |
+| Related regressions / repository layout | 206 passed, 7 Ascend skips / 37 passed |
+| CPU-only Python 3.10/3.12 | Each: 80 passed, 76 expected GPU skips; installed reference forward/backward passed |
+| Expanded Compute Sanitizer subset | 64 passed, zero errors |
+| Additional adversarial checks | 22 groups passed: extreme/subnormal/non-finite values, signed zeros, logical negative views and dynamic fullgraph forward/backward |
+| Standalone benchmark | 40 correctness comparisons passed; 80 measurements |
+| Changed-file checks and strict docs | Passed |
+
+Dynamic compilation checks isolate independent compiled functions' frame caches,
+then vary five shapes within each function, including empty batch/sequence.
+The full wheel SHA256 is
+`7827ee7796499c13e2019dd5ee4232ab63bee582a1b9efee2c65209a540cc885`.
+
+Latest BF16 [1,4096,24,128] packed-QKV graph medians, forward / forward+backward
+ms/call: CUDA 0.05869 / 0.13082; Triton 0.04731 / 0.12193;
+FlashAttention no-FMA 0.04670 / 0.12177; complex 0.24501 / 0.50083.
+These are shared-GPU, unpinned-clock observations, not a controlled comparison
+with the older driver or evidence of an advantage over FlashAttention.
+
+## Initial standalone benchmark
 
 WSL2 BF16, batch 1, 24 heads, D=128. CUDA Graph medians in ms/call;
 each cell is **forward / forward+backward**.

@@ -65,6 +65,11 @@ There is no cross-element reduction, split-K, atomic accumulation or TF32.
 CUDA uses round-to-nearest arithmetic intrinsics; Triton disables FP contraction.
 Backward uses the transpose rotation (negate sine), including recursive VJPs.
 
+Transpose negation flips the sine's sign bit, including `+0` and `-0`. The byte
+oracle for input VJPs is that explicitly rounded transpose. Generic PyTorch
+autograd can add zero-filled slice gradients and erase negative-zero signs;
+its numerically equivalent result is not a signed-zero byte oracle.
+
 CUDA and Triton must agree in raw bytes within a pinned environment. Compare
 batch placement, token chunking, padding and graph replay the same way.
 Independent FP64 complex arithmetic provides an accuracy oracle. Upstream's GPU
@@ -230,4 +235,7 @@ python tools/validation/operators/validate_multi_axis_rope.py --benchmark \
 
 The normalized source checksums are enforced before loading the audited symbols.
 The default variant retains upstream arithmetic; `flash_no_fma` changes only the
-kernel launch contraction setting and must match the FP32 gold's output bytes.
+kernel launch contraction setting. Both upstream variants retain arithmetic sine
+negation and can differ in zero sign bits during backward. The benchmark checks
+their numerical accuracy and records raw byte differences; CUDA/Triton candidates
+must match the explicit FP32 forward/transpose byte oracle.

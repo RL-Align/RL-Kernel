@@ -189,12 +189,14 @@ def main():
                 )
             grad = torch.randn_like(x)
             gold = reference(x, cos, sin)
-            gold_dx = torch.autograd.grad(gold, x, grad)[0]
+            # The byte contract uses the explicit transpose; generic slice
+            # autograd can normalize -0 while merging zero-filled gradients.
+            gold_dx = reference(grad, cos, -sin)
             for name, op in ops.items():
                 result = op(x, cos, sin)
                 dx = torch.autograd.grad(result, x, grad)[0]
                 diff = [byte_differences(result, gold), byte_differences(dx, gold_dx)]
-                if name in ("cuda", "triton", "flash_no_fma"):
+                if name in ("cuda", "triton"):
                     assert diff == [0, 0], (name, layout, x.shape, diff)
                 else:
                     tol = {torch.float32: 2e-6, torch.float16: 0.004, torch.bfloat16: 0.04}[dtype]
@@ -277,8 +279,9 @@ def main():
             "no_fma_change": "only add enable_fp_fusion=False at the original kernel launch",
         },
         "trace": {name: op.trace() for name, op in ours.items()},
-        "qualification": "Exact bytes vs unfused FP32 gold for CUDA, Triton and flash_no_fma; "
-        "declared tolerance for upstream complex and default FlashAttention",
+        "qualification": "Exact bytes vs explicit FP32 forward/transpose gold for CUDA/Triton; "
+        "declared tolerance and recorded byte differences for upstream baselines, including "
+        "flash_no_fma, which retains upstream arithmetic negation and can differ at signed zero",
         "correctness": correctness,
         "results": rows,
     }
