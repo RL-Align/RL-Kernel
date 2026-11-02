@@ -58,6 +58,7 @@ def prepare_output_combine(
         raise MoEOutputCombineContractError("P6 reference preparation requires explicit num_tokens")
     if plan.plan_version != "p6-output-combine.v1":
         raise MoEOutputCombineContractError(f"unsupported P6 plan version: {plan.plan_version}")
+    provenance = inputs.provenance(plan)
 
     snapshot = replace(
         inputs,
@@ -71,7 +72,6 @@ def prepare_output_combine(
         shared_output=(inputs.shared_output.clone() if inputs.shared_output is not None else None),
         residual=(inputs.residual.clone() if inputs.residual is not None else None),
     )
-    provenance = snapshot.provenance(plan)
     return PreparedMoEOutputCombine(
         plan=plan, inputs=snapshot, provenance=MappingProxyType(provenance)
     )

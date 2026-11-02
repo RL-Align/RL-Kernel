@@ -245,6 +245,17 @@ def test_reference_entry_points_reject_non_cpu_inputs():
         inverse_map_expert_output(plan, inputs, num_tokens=2)
 
 
+def test_contract_rejects_meta_indices_when_expert_output_is_materialized():
+    plan = _plan()
+    inputs = _inputs(
+        plan,
+        token_indices=torch.zeros(4, dtype=torch.int64, device="meta"),
+    )
+
+    with pytest.raises(MoEOutputCombineContractError, match="token_indices"):
+        inputs.validate(plan)
+
+
 def _request(
     *, index_dtype=torch.int64, expert_output=None, tokens=None, slots=None, run_id="run-1"
 ):
@@ -471,6 +482,20 @@ def test_local_input_gradients_use_order_sensitive_values_and_recompute():
     assert reverse_order.item() == 1.0
     assert torch.equal(first, second)
     assert torch.equal(first[:, 0], torch.zeros(2, dtype=torch.bfloat16))
+
+
+@pytest.mark.parametrize("forward_rows", [3, 5])
+def test_local_input_gradients_reject_forward_slot_count_mismatch(forward_rows):
+    plan, inputs = _gradient_request()
+    # Mapping and gradient still cover the complete domain; only the forward
+    # tensor has an inconsistent row count, formerly hidden by _mapping_view.
+    inputs = replace(
+        inputs,
+        expert_output=torch.zeros(forward_rows, plan.hidden_size, dtype=torch.bfloat16),
+    )
+    gradient = torch.ones(4, plan.hidden_size, dtype=torch.float32)
+    with pytest.raises(MoEOutputCombineContractError, match="slot count must match"):
+        combine_local_input_gradients(plan, inputs, gradient, num_tokens=2)
 
 
 def test_local_input_gradients_apply_nonuniform_routing_weights():
