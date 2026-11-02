@@ -1,4 +1,7 @@
-"""Native fixed-record VJP and canonical autograd timings, without hidden setup."""
+"""Native fixed-record VJP and canonical autograd timings, without hidden setup.
+
+Run from the repository root with `python -m benchmarks.benchmark_joint_backward --output PATH`.
+"""
 
 import argparse
 from functools import partial

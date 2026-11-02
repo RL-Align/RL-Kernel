@@ -45,6 +45,10 @@ provider's API charges. Use a dedicated credential and the provider's spending
 limit if available. No separate GitHub personal access token is needed: the job
 uses `GITHUB_TOKEN` with `contents: read` and `pull-requests: write`. Repository or
 organization Actions policy must allow the pinned OCR action and PR comments.
+For public repositories, check Actions policy insights and the effective
+repository or organization event policy; explicitly allow `pull_request_target`.
+Without an applicable policy, GitHub's default blocks this event from
+December 2, 2026.
 
 If the endpoint, credential or model is missing, the job records that review was
 not performed in its Actions summary and makes no model call. This is not a clean

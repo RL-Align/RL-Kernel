@@ -40,7 +40,8 @@ No collective is performed by this item.
 
 The ROCm backend directly reuses aiter’s
 `flydsl_fused_compress_attn` with `overlap=True`, `ratio=4`, `head_dim=512`,
-BF16 output, and the fixed one-wave (`k_split_num_waves=1`) arithmetic path.
+BF16 output. The pinned current source uses `k_split_num_waves=1`;
+the legacy source runs without explicit launch options.
 The private output uses the provider’s real compressed-cache layout:
 `k_per_block=64`, a per-request block table, and cache rows selected by
 `group_id % 64`. This is important for correctness; treating every row as a
@@ -49,9 +50,9 @@ one-row block is not an accepted shortcut.
 The overlap input is materialized as eight direct input rows per plan row. This
 reuses aiter’s optimized online-softmax/norm/RoPE kernel while leaving live
 request state mutation and cache commit to item 21. The first group’s four
-predecessor scores use a finite BF16 floor below the admitted score range,
-avoiding the input-phase `-inf - (-inf)` case; the independent oracle retains
-the exact masked semantics.
+predecessor rows are zero-filled by `bind_complete_groups`. Plan column 3
+is set to 4, so aiter excludes those rows with its native state-phase
+negative-position mask; the independent oracle retains exact `-inf` masking.
 
 Backward reuses the pinned mLite/Megatron `compressed_compact_graph` ratio-4
 functional graph. One output’s VJP is evaluated against its previous/current
