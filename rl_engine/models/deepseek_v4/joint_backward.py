@@ -14,6 +14,7 @@ class JointGradients:
     dq: torch.Tensor
     dkv: torch.Tensor
     dsink: torch.Tensor
+    kv_permutation: torch.Tensor
 
 
 @dataclass(frozen=True)
@@ -48,9 +49,24 @@ class JointBackwardPlan:
         self.forward_plan, self.record, self.backend = forward_plan, record, backend
         self.device = forward_plan.device
         eager(self.device)
+        keys = record.metadata.query_keys.cpu().tolist()
+        order = sorted((i for i, key in enumerate(keys) if key[0] >= 0), key=lambda i: keys[i])
+        geometry = dict(
+            m=len(order),
+            h=record.q.shape[1],
+            d=record.q.shape[2],
+            selected=record.indices.shape[1],
+            n_kv=record.kv.shape[0],
+        )
+        require(
+            type(max_workspace_bytes) is int and max_workspace_bytes > 0,
+            "positive backward budget required",
+        )
+        require(
+            backend.workspace_bytes(**geometry) <= max_workspace_bytes,
+            "backward workspace budget exceeded",
+        )
         with forward_plan._transaction(), torch.inference_mode(False), torch.no_grad():
-            keys = record.metadata.query_keys.cpu().tolist()
-            order = sorted((i for i, key in enumerate(keys) if key[0] >= 0), key=lambda i: keys[i])
             self.order = torch.tensor(order, dtype=torch.int64, device=self.device)
             self.q = owned(record.q.index_select(0, self.order))
             self.kv = record.kv
@@ -61,14 +77,7 @@ class JointBackwardPlan:
             self.dy = torch.zeros_like(self.q)
             self.dq_original = torch.zeros_like(record.q, dtype=torch.float32)
             self.ptr, self.data = backend.build_csr(self.indices, record.kv.shape[0])
-            self.workspace = backend.allocate(
-                m=len(order),
-                h=record.q.shape[1],
-                d=record.q.shape[2],
-                selected=record.indices.shape[1],
-                n_kv=record.kv.shape[0],
-                max_bytes=max_workspace_bytes,
-            )
+            self.workspace = backend.allocate(**geometry, max_bytes=max_workspace_bytes)
             self._frozen = (
                 self.order,
                 self.q,
@@ -106,7 +115,10 @@ class JointBackwardPlan:
         self.dq_original.index_copy_(0, self.order, self.workspace.dq)
 
     def capture(self):
-        require(self.forward_plan.contract.graph, "Graph profile is disabled")
+        require(
+            self.forward_plan.contract.graph and self.device.type == "cuda",
+            "Graph profile is disabled",
+        )
         self._validate()
         eager(self.device)
         with self.forward_plan._transaction(), torch.no_grad():
@@ -125,14 +137,14 @@ class JointBackwardPlan:
         require(
             dy.shape == self.record.output.shape
             and dy.device == self.device
-            and dy.dtype in (torch.bfloat16, torch.float32)
+            and dy.dtype == torch.bfloat16
             and dy.is_contiguous(),
-            "dO must be contiguous BF16/FP32 in original query order",
+            "dO must be contiguous BF16 in original query order",
         )
         require(bool(torch.isfinite(dy).all()), "dO must be finite")
         require(not use_graph or self._graph is not None, "capture backward before replay")
         with self.forward_plan._transaction(), torch.inference_mode(False), torch.no_grad():
-            self.dy.copy_(dy.index_select(0, self.order).to(torch.bfloat16))
+            self.dy.copy_(dy.index_select(0, self.order))
             if use_graph:
                 self._graph.replay()
             else:
@@ -140,7 +152,7 @@ class JointBackwardPlan:
             tensors = tuple(
                 owned(t) for t in (self.dq_original, self.workspace.dkv, self.workspace.dsink)
             )
-        return JointGradients(*tensors)
+        return JointGradients(*tensors, kv_permutation=owned(self.record.metadata.permutation))
 
     @torch.no_grad()
     def local_parts(self, dy):
@@ -155,13 +167,13 @@ class JointBackwardPlan:
         require(
             dy.shape == self.record.output.shape
             and dy.device == self.device
-            and dy.dtype in (torch.bfloat16, torch.float32)
+            and dy.dtype == torch.bfloat16
             and dy.is_contiguous(),
             "dO ABI mismatch",
         )
         require(bool(torch.isfinite(dy).all()), "dO must be finite")
         with self.forward_plan._transaction(), torch.inference_mode(False), torch.no_grad():
-            self.dy.copy_(dy.index_select(0, self.order).bfloat16())
+            self.dy.copy_(dy.index_select(0, self.order))
             self.backend.local_parts_into(
                 self.q,
                 self.kv,

@@ -1,9 +1,16 @@
 """Real native VJP acceptance; full autograd/session tests are still to follow."""
 
+import os
+from pathlib import Path
+
 import pytest
 import torch
 
 from rl_engine.backends.rocm.attention.joint_attention import AiterJointAttentionBackend
+from rl_engine.backends.rocm.attention.joint_backward import (
+    AiterJointBackwardBackend,
+    load_upstream_csr,
+)
 from rl_engine.contracts.operators.joint_attention import JointAttentionError
 from rl_engine.models.deepseek_v4.joint_backward import JointBackwardPlan
 from .joint_attention_helpers import case, record, same_bytes
@@ -17,6 +24,109 @@ pytestmark = pytest.mark.skipif(
 @pytest.fixture(scope="module")
 def provider():
     return AiterJointAttentionBackend()
+
+
+def test_hash_pinned_upstream_csr_helper_executes():
+    source = Path(os.environ["RLK_AITER_DSV4_SPARSE_WRAPPER_SOURCE"])
+    build = load_upstream_csr(source)
+    indices = torch.tensor([[1, 0, 1], [-1, 0, -1]], dtype=torch.int32, device="cuda")
+    ptr, data = build(indices, 2)
+    assert ptr.tolist() == [0, 2, 4]
+    assert data.tolist() == [1, 4, 0, 2]
+
+
+def test_delta_source_hash_rejects_unpinned_package(provider, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from rl_engine.backends.rocm.attention import joint_backward
+
+    source = tmp_path / "changed_delta.py"
+    source.write_text("changed")
+    original = joint_backward.importlib.import_module
+    target = "aiter.ops.triton._triton_kernels.attention.mha_fused_bwd"
+    monkeypatch.setattr(
+        joint_backward.importlib,
+        "import_module",
+        lambda name: SimpleNamespace(__file__=str(source)) if name == target else original(name),
+    )
+    with pytest.raises(JointAttentionError, match="delta source hash mismatch"):
+        AiterJointBackwardBackend(provider)
+
+
+def test_direct_backward_rejects_nonunit_inner_stride(provider):
+    backend = AiterJointBackwardBackend(provider)
+    q = torch.empty((1, 8, 128), device="cuda", dtype=torch.bfloat16)
+    kv = torch.empty((1, 256), device="cuda", dtype=torch.bfloat16)[:, ::2]
+    out, dy = q.clone(), q.clone()
+    indices = torch.zeros((1, 1), device="cuda", dtype=torch.int32)
+    lse = torch.zeros((1, 8), device="cuda")
+    sink = torch.zeros((8,), device="cuda")
+    ws = backend.allocate(m=1, h=8, d=128, selected=1, n_kv=1, max_bytes=1 << 20)
+    with pytest.raises(JointAttentionError, match="unit inner strides"):
+        backend.local_parts_into(q, kv, out, dy, indices, lse, sink, ws, 1.0)
+
+
+def test_direct_gather_rejects_nonunit_inner_stride(provider):
+    backend = AiterJointBackwardBackend(provider)
+    intermediate = torch.empty((1, 1, 256), device="cuda")[:, :, ::2]
+    indices = torch.zeros((1, 1), device="cuda", dtype=torch.int32)
+    ptr = torch.zeros((2,), device="cuda", dtype=torch.int32)
+    data = torch.zeros((1,), device="cuda", dtype=torch.int32)
+    dkv = torch.zeros((1, 128), device="cuda")
+    with pytest.raises(JointAttentionError, match="unit inner strides"):
+        backend.gather_intermediate_into(intermediate, indices, ptr, data, dkv)
+
+
+@pytest.mark.parametrize("fault", ["ptr", "data", "dtype", "unbound"])
+def test_direct_gather_rejects_invalid_csr(fault, provider):
+    backend = AiterJointBackwardBackend(provider)
+    indices = torch.tensor([[0, 1]], device="cuda", dtype=torch.int32)
+    ptr, data = backend.build_csr(indices, 2)
+    intermediate = torch.zeros((1, 2, 128), device="cuda")
+    dkv = torch.zeros((2, 128), device="cuda")
+    if fault == "ptr":
+        ptr.add_(1)
+    elif fault == "data":
+        data.fill_(999)
+    elif fault == "dtype":
+        data = data.long()
+    else:
+        ptr = ptr.clone()
+    with pytest.raises(JointAttentionError):
+        backend.gather_intermediate_into(intermediate, indices, ptr, data, dkv)
+
+
+@pytest.mark.parametrize("fault", ["pointer", "position"])
+def test_csr_build_rejects_corrupt_upstream_output(fault, provider):
+    backend = AiterJointBackwardBackend(provider)
+    indices = torch.tensor([[0, 1]], device="cuda", dtype=torch.int32)
+    original = backend._build_csr
+
+    def corrupted(rows, n_kv):
+        ptr, data = original(rows, n_kv)
+        if fault == "pointer":
+            ptr[-1] = data.numel() + 1
+        else:
+            data[0] = rows.numel()
+        return ptr, data
+
+    backend._build_csr = corrupted
+    with pytest.raises(JointAttentionError, match="out of bounds"):
+        backend.build_csr(indices, 2)
+
+
+@pytest.mark.parametrize("fault", ["selected", "rows"])
+def test_direct_backward_rejects_workspace_mismatch(fault, provider):
+    backend = AiterJointBackwardBackend(provider)
+    q = torch.empty((1, 8, 128), device="cuda", dtype=torch.bfloat16)
+    kv = torch.empty((1, 128), device="cuda", dtype=torch.bfloat16)
+    indices = torch.zeros(
+        (1, 2) if fault == "selected" else (2, 1), device="cuda", dtype=torch.int32
+    )
+    lse = torch.zeros((1, 8), device="cuda")
+    sink = torch.zeros((8,), device="cuda")
+    ws = backend.allocate(m=1, h=8, d=128, selected=1, n_kv=1, max_bytes=1 << 20)
+    with pytest.raises(JointAttentionError, match="workspace/geometry"):
+        backend.local_parts_into(q, kv, q.clone(), q.clone(), indices, lse, sink, ws, 1.0)
 
 
 def oracle(saved, dy, scale):
@@ -42,6 +152,7 @@ def test_native_vjp_fp64_graph_repeat(m, h, d, provider):
     backward = JointBackwardPlan(plan, saved)
     dy = torch.randn_like(saved.output)
     grads = backward.backward(dy)
+    assert torch.equal(grads.kv_permutation, saved.metadata.permutation)
     expected = oracle(saved, dy, plan.contract.softmax_scale)
     for actual, want in zip((grads.dq, grads.dkv, grads.dsink), expected, strict=True):
         torch.testing.assert_close(actual.double(), want, rtol=0.04, atol=0.035)
@@ -62,13 +173,14 @@ def test_native_vjp_fp64_graph_repeat(m, h, d, provider):
         assert same_bytes(actual, want)
 
 
-@pytest.mark.parametrize("fault", ["saved", "csr", "budget", "dy", "graph"])
+@pytest.mark.parametrize("fault", ["saved", "csr", "budget", "dy", "dy_dtype", "graph"])
 def test_backward_guards(fault, provider):
     plan, q, kv, sink, meta, _ = case(backend=provider)
     saved = record(plan, q, kv, sink, meta)
     if fault == "budget":
         with pytest.raises(JointAttentionError, match="budget"):
             JointBackwardPlan(plan, saved, max_workspace_bytes=1)
+        assert same_bytes(record(plan, q, kv, sink, meta).output, saved.output)
         return
     backward = JointBackwardPlan(plan, saved)
     dy = torch.ones_like(saved.output)
@@ -78,6 +190,8 @@ def test_backward_guards(fault, provider):
         backward.ptr.add_(1)
     if fault == "dy":
         dy[0, 0, 0] = float("nan")
+    if fault == "dy_dtype":
+        dy = dy.float()
     with pytest.raises(JointAttentionError):
         backward.backward(dy, use_graph=fault == "graph")
 

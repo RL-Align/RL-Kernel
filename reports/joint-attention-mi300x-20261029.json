@@ -1,4 +1,6 @@
 {
+  "benchmark_validity": "Superseded: raw upstream forward omitted the two masking operations in captured_core; event windows can contain host launch gaps.",
+  "superseded_by": "joint-attention-mi300x-20261103.json",
   "main": "8588158650aff58c9c1f527674de94bad06c3d10",
   "coverage": {
     "covered_lines": 294,

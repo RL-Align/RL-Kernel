@@ -50,18 +50,20 @@ The FP64 backend is explicitly test-only; production fails closed.
 ## Timings
 
 30 repetitions after warmup. HIP events and synchronized wall time are
-reported separately. These are provider-call measurements, not isolated
-instruction timing; host/launch gaps can appear inside event intervals.
-The captured core includes padding masks; upstream forward alone does not.
+reported from the same synchronized pass. These are provider-call measurements,
+not isolated instruction timing; host/launch gaps can appear inside event intervals.
+The November 3 comparison measures the same core work, including padding
+masks, in eager and captured modes. The original raw upstream-forward timing
+omitted the masks and is retained only as historical evidence.
 Metadata binding and cache dequantization are excluded. Forward-record
 timings include finite admission checks, copies, event ownership and clones.
 
-| M | H | D | Selected | Upstream event µs | Captured core event µs | Checked eager wall µs | Checked Graph wall µs |
+| M | H | D | Selected | Eager core event µs | Captured core event µs | Checked eager wall µs | Checked Graph wall µs |
 |---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | 8 | 128 | 6 | 42.27 | 19.17 | 457.92 | 375.81 |
-| 32 | 64 | 512 | 6 | 24.91 | 32.49 | 483.44 | 401.94 |
-| 128 | 64 | 512 | 6 | 25.60 | 47.31 | 810.33 | 408.55 |
-| 1 | 128 | 512 | 640 | 86.32 | 99.49 | 483.25 | 399.74 |
+| 1 | 8 | 128 | 6 | 70.76 | 18.24 | 473.25 | 379.49 |
+| 32 | 64 | 512 | 6 | 69.55 | 30.69 | 530.39 | 399.57 |
+| 128 | 64 | 512 | 6 | 61.73 | 45.24 | 489.48 | 394.91 |
+| 1 | 128 | 512 | 640 | 95.52 | 98.52 | 538.11 | 433.17 |
 
 No baseline-engine speedup is claimed. Python/admission/snapshot costs
 dominate the checked API; the measurements deliberately keep those costs
@@ -69,8 +71,9 @@ visible instead of reporting the native kernel as the full integration.
 
 Evidence: `/outputs/item24-20261029/` contains JUnit, two complete test logs,
 coverage JSON, benchmark JSON, source SHA256 manifest and the initial
-native/Graph probe. A compact machine-readable report is committed beside
-this document.
+native/Graph probe. A compact machine-readable November 3 benchmark report
+is committed beside this document; the October 29 JSON retains its original
+test/coverage record.
 
 ## Non-claims
 
