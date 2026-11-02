@@ -10,15 +10,17 @@ from tools.validation.models.qwen3_ppo.fixed_contract import (
     load_targets,
     sha,
 )
+from tools.validation.models.qwen3_ppo.hf_ppo_reference import IMPLEMENTATION_CONTROL
 
 
 def main():
     """Write a frozen acceptance manifest of SHA-256s for the fixed HF reference inputs and bounds.
 
     Verifies the rollout and targets, then hashes them, the actor/critic FP32/BF16 reports of
-    repeats 0 and 1, and the bounds files; tensor artifact hashes are copied from the reports,
-    not recomputed. Also pins the behavior log-prob atol (actor cross-precision ``0/scores``)
-    and the test matrix. Raises ``ValueError`` if ``--output`` exists or a report is incomplete.
+    repeats 0 and 1 and of the implementation control (``-impl``), and the bounds files;
+    tensor artifact hashes are copied from the reports, not recomputed. Also pins the
+    behavior log-prob atol (actor cross-precision ``0/scores``), the control rule and the
+    test matrix. Raises ``ValueError`` if ``--output`` exists or a report is incomplete.
     """
     p = argparse.ArgumentParser()
     p.add_argument("--reference-root", type=Path, required=True)
@@ -38,12 +40,14 @@ def main():
         files[name] = sha(a.reference_root / name)
     for role in ["actor", "critic"]:
         for precision in ["fp32", "bf16"]:
-            for repeat in [0, 1]:
-                directory = f"{role}-{precision}-{repeat}"
+            for run in ["0", "1", "impl"]:
+                directory = f"{role}-{precision}-{run}"
                 path = a.reference_root / directory / "report.json"
                 report = json.loads(path.read_text())
                 if report["status"] != "fixed_reference_complete":
                     raise ValueError("reference incomplete")
+                if (report.get("implementation_control") is None) != (run != "impl"):
+                    raise ValueError(f"wrong implementation for control {directory}")
                 files[f"{directory}/report.json"] = sha(path)
                 for row in report["artifacts"].values():
                     files[f'{directory}/{row["path"]}'] = row["sha256"]
@@ -60,6 +64,15 @@ def main():
         targets_manifest_sha256=files["targets/targets.json"],
         fp32_reference_sha256=files["actor-fp32-0/report.json"],
         behavior_logprob={"atol": bounds["bounds"]["0/scores"]["max_abs"], "rtol": 0.0},
+        controls=dict(
+            repeat="the same HF run repeated (repeat 1 against repeat 0)",
+            implementation=IMPLEMENTATION_CONTROL,
+            rule=(
+                "same-precision bounds: 4 * max(repeat, implementation control) + floor; "
+                "cross-precision bounds: 4 * max(BF16 repeat 0, BF16 implementation control "
+                "against FP32 repeat 0) + floor"
+            ),
+        ),
         matrix={
             "frameworks": ["megatron", "deepspeed"],
             "precisions": ["fp32", "bf16"],

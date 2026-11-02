@@ -231,6 +231,103 @@ def test_independent_hf_targets_reject_a_row_without_action_tokens():
         independent_targets(packet, values, torch.zeros_like(rollout.behavior_logps))
 
 
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_implementation_control_reorders_linear_and_log_softmax(dtype):
+    """The control computes the same linear and log-softmax in a different reduction order.
+
+    Values and gradients stay close to the single-kernel result; FP32 values differ in at
+    least one bit, so the control really measures a different summation order.
+    """
+    from tools.validation.models.qwen3_ppo.hf_ppo_reference import (
+        chunked_log_softmax_gather,
+        reordered_linear,
+    )
+
+    g = torch.Generator().manual_seed(7)
+    x = torch.randn(2, 7, 64, generator=g).to(dtype).requires_grad_()
+    w = torch.randn(10, 64, generator=g).to(dtype).requires_grad_()
+    b = torch.randn(10, generator=g).to(dtype).requires_grad_()
+    x0, w0, b0 = (t.detach().clone().requires_grad_() for t in (x, w, b))
+    y = reordered_linear(x, w, b)
+    y0 = torch.nn.functional.linear(x0.float(), w0.float(), b0.float()).to(dtype)
+    upstream = torch.randn(y.shape, generator=g).to(dtype)
+    (y * upstream).sum().backward()
+    (y0 * upstream).sum().backward()
+    tol = dict(rtol=1e-5, atol=1e-5) if dtype == torch.float32 else dict(rtol=2e-2, atol=2e-2)
+    assert y.dtype == dtype and y.shape == (2, 7, 10)
+    for got, want in [(y, y0), (x.grad, x0.grad), (w.grad, w0.grad), (b.grad, b0.grad)]:
+        torch.testing.assert_close(got, want, **tol)
+    if dtype == torch.float32:
+        assert not torch.equal(y, y0)
+    # A one-output layer (the critic's scalar head) leaves empty output chunks.
+    head = reordered_linear(x.detach(), w.detach()[:1], None)
+    torch.testing.assert_close(head, torch.nn.functional.linear(x.detach(), w.detach()[:1]), **tol)
+
+    logits = torch.randn(3, 5, 11, generator=g) * 4
+    ids = torch.randint(0, 11, (3, 5, 1), generator=g)
+    torch.testing.assert_close(
+        chunked_log_softmax_gather(logits, ids),
+        logits.log_softmax(-1).gather(-1, ids).squeeze(-1),
+    )
+
+
+def _fixed_run(root, values, **report):
+    from tools.validation.models.qwen3_ppo.fixed_contract import save_report, write_tensor
+
+    root.mkdir()
+    artifacts = {name: write_tensor(root, name, value) for name, value in values.items()}
+    row = dict(
+        status="fixed_reference_complete",
+        role="actor",
+        rollout_manifest_sha256="r",
+        targets_manifest_sha256="t",
+        config={},
+        optimizer={},
+        model_revision="m",
+        artifacts=artifacts,
+    )
+    row.update(report)
+    save_report(root, row)
+    return root
+
+
+def test_bounds_take_the_largest_independent_control(tmp_path, monkeypatch):
+    """Each tensor's bound is 4x the larger of the repeat and implementation errors plus floor."""
+    import sys
+
+    from tools.validation.models.qwen3_ppo import compare_fixed
+
+    names = ("0/loss", "0/gradient/w")
+    reference = _fixed_run(tmp_path / "ref", {n: torch.zeros(3) for n in names})
+    repeat = _fixed_run(
+        tmp_path / "rep", {"0/loss": torch.tensor([0, 0, 0.5]), "0/gradient/w": torch.zeros(3)}
+    )
+    impl = _fixed_run(
+        tmp_path / "impl",
+        {"0/loss": torch.tensor([0, 0.25, 0]), "0/gradient/w": torch.tensor([0, 0, 2.0])},
+        implementation_control={"attention": "sdpa"},
+    )
+    out = tmp_path / "bounds.json"
+    argv = ["compare_fixed", "--reference", str(reference), "--other", str(repeat)]
+    argv += ["--extra-control", str(impl), "--output", str(out)]
+    monkeypatch.setattr(sys, "argv", argv)
+    compare_fixed.main()
+    result = json.loads(out.read_text())
+    assert result["bounds"]["0/loss"]["max_abs"] == 4 * 0.5 + 1e-6
+    assert result["bounds"]["0/gradient/w"]["max_abs"] == 4 * 2.0 + 1e-6
+    assert result["extra_controls"][0]["implementation_control"] == {"attention": "sdpa"}
+
+    # A candidate never contributes a control.
+    candidate = _fixed_run(
+        tmp_path / "cand", {n: torch.zeros(3) for n in names}, status="fixed_candidate_complete"
+    )
+    argv[-1] = str(tmp_path / "rejected.json")
+    argv[argv.index(str(impl))] = str(candidate)
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(ValueError, match="only independent HF controls"):
+        compare_fixed.main()
+
+
 def test_fixed_evidence_rejects_corruption_and_inventory_shape(tmp_path):
     """Evidence tensors round-trip; a wrong manifest shape or altered file bytes is rejected."""
     from tools.validation.models.qwen3_ppo.fixed_contract import read_tensor, write_tensor

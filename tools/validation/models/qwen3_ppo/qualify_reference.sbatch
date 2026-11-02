@@ -34,17 +34,21 @@ git rev-parse HEAD > "$result_dir/commit.txt"
   --rollout "$result_dir/rollout" --score-only --output "$result_dir/targets" > "$result_dir/targets.log" 2>&1
 for role in actor critic; do
   for precision in fp32 bf16; do
-    for repeat in 0 1; do
-      run="$result_dir/$role-$precision-$repeat"
+    for run in 0 1 impl; do
+      control=()
+      if [[ "$run" == impl ]]; then control=(--implementation-control); fi
       "$python_bin" -m tools.validation.models.qwen3_ppo.hf_ppo_reference --checkpoint "$checkpoint" \
         --rollout "$result_dir/rollout" --targets "$result_dir/targets" --role "$role" \
-        --precision "$precision" --output "$run" > "$run.log" 2>&1
+        --precision "$precision" ${control[@]+"${control[@]}"} --output "$result_dir/$role-$precision-$run" \
+        > "$result_dir/$role-$precision-$run.log" 2>&1
     done
     "$python_bin" -m tools.validation.models.qwen3_ppo.compare_fixed --reference "$result_dir/$role-$precision-0" \
-      --other "$result_dir/$role-$precision-1" --output "$result_dir/$role-$precision-repeat-bounds.json"
+      --other "$result_dir/$role-$precision-1" --extra-control "$result_dir/$role-$precision-impl" \
+      --output "$result_dir/$role-$precision-repeat-bounds.json"
   done
   "$python_bin" -m tools.validation.models.qwen3_ppo.compare_fixed --reference "$result_dir/$role-fp32-0" \
-    --other "$result_dir/$role-bf16-0" --output "$result_dir/$role-cross-precision-bounds.json"
+    --other "$result_dir/$role-bf16-0" --extra-control "$result_dir/$role-bf16-impl" \
+    --output "$result_dir/$role-cross-precision-bounds.json"
 done
 # Bounds and evidence manifests must be committed before any formal candidate.
 

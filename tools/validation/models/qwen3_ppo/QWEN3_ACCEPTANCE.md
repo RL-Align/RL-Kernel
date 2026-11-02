@@ -57,8 +57,16 @@ engine/precision/TP combinations for both roles, then runs both four-GPU topolog
 and the tiny-GPT regression. AdamW settings match in every precision. Evidence uses
 actual FP32 optimizer gradients, measured clipping norms and parameter deltas.
 
-The rule for max-absolute errors is four times the independent control difference
+The rule for max-absolute errors is four times the largest independent control difference
 plus 1e-5 for scores, 1e-6 for losses/gradients/norms, or 1e-7 for parameter updates.
+There are two controls. The repeat control runs the same HF update twice; on one GPU the two
+runs are usually bit-identical, which alone would demand bitwise agreement between
+implementations. The implementation control (`hf_ppo_reference --implementation-control`)
+runs the same HF update with `sdpa` attention, every linear layer split into token, output
+and input chunks summed in another order, and a vocabulary-chunked log-softmax: the same
+math with a different reduction order, without any candidate code. Same-precision bounds
+take the larger of the two per tensor. Cross-precision bounds compare the FP32 run with
+both the BF16 repeat and the BF16 implementation control.
 Relative L2 errors are also reported. Same-precision TP comparisons use independent
 same-precision repeat bounds. No candidate result may establish or widen a bound.
 Large per-parameter evidence stays outside Git; the committed manifests anchor its

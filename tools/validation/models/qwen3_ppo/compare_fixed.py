@@ -65,10 +65,12 @@ def same_inputs(a, b):
 def main():
     """Compare every evidence tensor of two fixed-rollout runs and write the result JSON.
 
-    Without ``--thresholds``, two HF reference runs freeze bounds of 4x their max error plus
-    a floor. With it, the other run passes or fails on ``max_abs`` against threshold bounds
-    pinned in the acceptance manifest, and the process exits with status 1 on any failure.
-    Raises ``ValueError`` if ``--output`` already exists.
+    Without ``--thresholds``, HF reference runs freeze bounds of 4x the max error plus a
+    floor. Each ``--extra-control`` is compared with ``--reference`` like ``--other``, and the
+    bound takes the larger error per tensor. With ``--thresholds``, the other run passes or
+    fails on ``max_abs`` against threshold bounds pinned in the acceptance manifest, and the
+    process exits with status 1 on any failure. Raises ``ValueError`` if ``--output`` already
+    exists.
     """
     p = argparse.ArgumentParser()
     p.add_argument("--reference", type=Path, required=True)
@@ -78,14 +80,18 @@ def main():
     p.add_argument("--acceptance-manifest", type=Path)
     p.add_argument("--reference-root", type=Path)
     p.add_argument("--tp-comparison", action="store_true")
+    p.add_argument("--extra-control", type=Path, action="append", default=[])
     a = p.parse_args()
     if a.output.exists():
         raise ValueError("never overwrite reference or failed comparison")
+    if a.thresholds and a.extra_control:
+        raise ValueError("controls establish tolerances; candidates are compared one at a time")
     left, right = report(a.reference), report(a.other)
-    same_inputs(left, right)
-    if not a.thresholds and (
-        left["status"] != "fixed_reference_complete"
-        or right["status"] != "fixed_reference_complete"
+    extra = [report(c) for c in a.extra_control]
+    for control in [right, *extra]:
+        same_inputs(left, control)
+    if not a.thresholds and any(
+        r["status"] != "fixed_reference_complete" for r in [left, right, *extra]
     ):
         raise ValueError("only independent HF controls may establish tolerances")
     contract = json.loads(a.thresholds.read_text()) if a.thresholds else None
@@ -114,10 +120,14 @@ def main():
             ):
                 raise ValueError("invalid same-precision TP comparison")
     rows = {}
+    control_rows: dict[str, dict] = {str(c): {} for c in a.extra_control}
     for name, item in left["artifacts"].items():
-        rows[name] = errors(
-            read_tensor(a.reference, item), read_tensor(a.other, right["artifacts"][name])
-        )
+        reference = read_tensor(a.reference, item)
+        rows[name] = errors(reference, read_tensor(a.other, right["artifacts"][name]))
+        for path, control in zip(a.extra_control, extra):
+            control_rows[str(path)][name] = errors(
+                reference, read_tensor(path, control["artifacts"][name])
+            )
     result = dict(
         reference_report_sha256=sha(a.reference / "report.json"),
         other_report_sha256=sha(a.other / "report.json"),
@@ -137,14 +147,27 @@ def main():
             thresholds_sha256=sha(a.thresholds),
         )
     else:
+        controls = [rows, *control_rows.values()]
         result.update(
             status="frozen_reference_bounds",
-            rule="4 * independent control max_abs error + metric floor",
+            rule="4 * largest independent control max_abs error + metric floor",
             bounds={
-                n: {"max_abs": 4 * r["max_abs"] + floor(n), "relative_l2_control": r["relative_l2"]}
-                for n, r in rows.items()
+                n: {
+                    "max_abs": 4 * max(c[n]["max_abs"] for c in controls) + floor(n),
+                    "relative_l2_control": max(c[n]["relative_l2"] for c in controls),
+                }
+                for n in rows
             },
         )
+        if a.extra_control:
+            result["extra_controls"] = [
+                dict(
+                    report_sha256=sha(path / "report.json"),
+                    implementation_control=control.get("implementation_control"),
+                    errors=control_rows[str(path)],
+                )
+                for path, control in zip(a.extra_control, extra)
+            ]
     a.output.write_text(json.dumps(result, indent=2) + "\n")
     if contract and failures:
         raise SystemExit(1)

@@ -6,6 +6,7 @@ import argparse
 import gc
 import json
 import time
+import types
 from pathlib import Path
 
 import torch
@@ -22,11 +23,69 @@ from tools.validation.models.qwen3_ppo.fixed_contract import (
     write_tensor,
 )
 
+CONTROL_CHUNKS = 3
+IMPLEMENTATION_CONTROL = dict(
+    attention="sdpa",
+    linear=(
+        f"tokens, output features and input features each split into {CONTROL_CHUNKS} chunks; "
+        "input-feature partials summed in reverse order in FP32"
+    ),
+    log_softmax=f"logsumexp merged over {CONTROL_CHUNKS} vocabulary chunks",
+)
+
+
+def reordered_linear(x, weight, bias):
+    """Return ``F.linear(x, weight, bias)`` computed with a different reduction order.
+
+    Tokens, output features and input features are each split into ``CONTROL_CHUNKS``
+    pieces. Input-feature partial products are computed in FP32 and summed in reverse order,
+    so the forward sum, the input-gradient sum (over output-feature chunks) and the
+    weight-gradient sum (over token chunks) all differ in order from one GEMM. The result is
+    cast back to ``x.dtype``, as a BF16 GEMM with FP32 accumulation would be.
+    """
+    tokens = x.reshape(-1, x.shape[-1])
+    rows = []
+    for t in tokens.tensor_split(CONTROL_CHUNKS, 0):
+        t_chunks = t.float().tensor_split(CONTROL_CHUNKS, 1)
+        columns = []
+        for w in weight.tensor_split(CONTROL_CHUNKS, 0):
+            w_chunks = w.float().tensor_split(CONTROL_CHUNKS, 1)
+            acc = None
+            for k in reversed(range(CONTROL_CHUNKS)):
+                part = t_chunks[k] @ w_chunks[k].T
+                acc = part if acc is None else acc + part
+            columns.append(acc)
+        rows.append(torch.cat(columns, 1))
+    y = torch.cat(rows, 0)
+    if bias is not None:
+        y = y + bias.float()
+    return y.to(x.dtype).reshape(*x.shape[:-1], weight.shape[0])
+
+
+def chunked_log_softmax_gather(logits, ids):
+    """Return ``logits.log_softmax(-1).gather(-1, ids)`` with a chunk-merged logsumexp."""
+    lse = torch.stack(
+        [c.logsumexp(-1) for c in logits.tensor_split(CONTROL_CHUNKS, -1)], -1
+    ).logsumexp(-1)
+    return logits.gather(-1, ids).squeeze(-1) - lse
+
+
+def use_reordered_linear(module):
+    """Make every ``nn.Linear`` under ``module`` run :func:`reordered_linear`."""
+    for m in module.modules():
+        if isinstance(m, torch.nn.Linear):
+            m.forward = types.MethodType(
+                lambda self, x: reordered_linear(x, self.weight, self.bias), m
+            )
+
 
 class HFModel(torch.nn.Module):
-    def __init__(self, checkpoint, role, dtype):
+    def __init__(self, checkpoint, role, dtype, implementation_control=False):
         """Load an HF actor (causal LM) or critic (backbone plus seeded scalar head) on CUDA.
 
+        With ``implementation_control``, the model uses ``sdpa`` attention instead of
+        ``eager``, :func:`reordered_linear` for every linear layer and a chunked log-softmax:
+        the same math in a different reduction order, used to measure implementation spread.
         Raises ``ValueError`` if the checkpoint has missing, unexpected or mismatched tensors
         (the critic's dropped ``lm_head.weight`` excepted) or a parameter is not ``dtype``.
         """
@@ -34,11 +93,12 @@ class HFModel(torch.nn.Module):
         from transformers import AutoModel, AutoModelForCausalLM
 
         cls = AutoModelForCausalLM if role == "actor" else AutoModel
+        self.implementation_control = implementation_control
         self.backbone, info = cls.from_pretrained(
             checkpoint,
             dtype=dtype,
             local_files_only=True,
-            attn_implementation="eager",
+            attn_implementation="sdpa" if implementation_control else "eager",
             output_loading_info=True,
         )
         # AutoModel deliberately drops the pretrained LM projection for scalar scoring.
@@ -60,6 +120,8 @@ class HFModel(torch.nn.Module):
                     * 0.01
                 )
                 self.score.bias.zero_()
+        if implementation_control:
+            use_reordered_linear(self)
         self.backbone.gradient_checkpointing_enable()
         self.cuda().eval()
         if {p.dtype for p in self.parameters()} != {dtype}:
@@ -74,6 +136,10 @@ class HFModel(torch.nn.Module):
             **{k: packet[k] for k in ("input_ids", "attention_mask", "position_ids")},
             use_cache=False,
         )
+        if self.role == "actor" and self.implementation_control:
+            return chunked_log_softmax_gather(
+                out.logits[:, :-1].float(), packet["input_ids"][:, 1:, None]
+            )
         if self.role == "actor":
             return (
                 out.logits[:, :-1]
@@ -166,6 +232,8 @@ def main():
     """Freeze HF FP32 PPO targets (``--score-only``) or run the HF reference PPO updates.
 
     ``--score-only`` always uses FP32 actor and critic models, ignoring role and precision.
+    ``--implementation-control`` trains the same update with :data:`IMPLEMENTATION_CONTROL`
+    (a different reduction order) and records it in the report.
     Training runs ``CONFIG.epochs`` AdamW steps, each accumulating per-row microbatch
     gradients into FP32 parameters (FP32 masters for BF16) and clipping to ``max_grad_norm``,
     and writes scores, loss, gradients, norms and parameter updates as evidence tensors.
@@ -180,11 +248,17 @@ def main():
     p.add_argument("--role", choices=["actor", "critic"], default="actor")
     p.add_argument("--precision", choices=["fp32", "bf16"], default="fp32")
     p.add_argument("--score-only", action="store_true")
+    p.add_argument("--implementation-control", action="store_true")
     a = p.parse_args()
+    if a.score_only and a.implementation_control:
+        raise ValueError("frozen targets always use the reference implementation")
     a.output.mkdir(parents=True, exist_ok=False)
     report = identity()
     report.update(
-        role=a.role, precision=a.precision, rollout_manifest_sha256=sha(a.rollout / "manifest.json")
+        role=a.role,
+        precision=a.precision,
+        rollout_manifest_sha256=sha(a.rollout / "manifest.json"),
+        implementation_control=IMPLEMENTATION_CONTROL if a.implementation_control else None,
     )
     started = time.perf_counter()
     try:
@@ -220,7 +294,7 @@ def main():
             targets = {k: v.cuda() for k, v in load_targets(a.targets).items()}
             report["targets_manifest_sha256"] = sha(a.targets / "targets.json")
             dtype = torch.float32 if a.precision == "fp32" else torch.bfloat16
-            model = HFModel(a.checkpoint, a.role, dtype)
+            model = HFModel(a.checkpoint, a.role, dtype, a.implementation_control)
             named = model.canonical()
             # Independent FP32 master optimizer for both precision controls.
             masters = (
