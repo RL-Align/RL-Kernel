@@ -48,10 +48,10 @@ def _scaled_values(softcap):
 def _evaluate(op, x, grad_y):
     """Evaluate an operator and return (fp32 output, input-dtype gradient).
 
-    The PyTorch reference exposes ``forward_fp32`` as the ground-truth path
-    while ``forward`` follows the input dtype. The Triton wrapper has a single
-    ``forward`` that already returns FP32, so fall back to it when
-    ``forward_fp32`` is absent.
+    Both backends return FP32 from ``forward`` now, so either entry point would
+    do. ``forward_fp32`` is still preferred where it exists because that is the
+    name ``OP_SPECS`` resolves for the gold path; the Triton wrapper has only
+    ``forward``.
     """
     leaf = x.detach().requires_grad_(True)
     fp32_entry = getattr(op, "forward_fp32", None)
@@ -381,3 +381,36 @@ def test_triton_training_and_inference_agree(triton_op, dtype, softcap):
     with torch.no_grad():
         without_grad = op(x.detach())
     _assert_bitwise_equal(with_grad.detach(), without_grad)
+
+
+@pytest.mark.parametrize("dtype", (torch.float32, torch.bfloat16, torch.float16))
+def test_forward_returns_fp32_logits_for_every_input_dtype(dtype, monkeypatch):
+    """``forward`` returns FP32 regardless of input dtype, through the registry too.
+
+    Added after review. The other elementwise references cast ``forward`` back to
+    the input dtype, and this one used to as well. That meant ``registry.get_op``
+    handed out BF16 logits on CPU, or anywhere Triton failed to import, while the
+    Triton path returned FP32, with a max error around 0.1 against the FP32 path
+    versus a few 1e-6 on CUDA. These values feed a logsumexp, so the two backends
+    have to agree on what they hand back. The gradient still follows the input
+    dtype; that is autograd's contract and is unchanged.
+    """
+    gen = torch.Generator().manual_seed(417)
+    x = (torch.randn(8, 64, generator=gen, dtype=torch.float32) * 20).to(dtype)
+    op = NativeFinalLogitSoftcapOp()
+
+    y = op.forward(x)
+    assert y.dtype == torch.float32
+    assert torch.equal(y, op.forward_fp32(x)), "forward and forward_fp32 must be one computation"
+
+    leaf = x.detach().requires_grad_(True)
+    op.forward(leaf).sum().backward()
+    assert leaf.grad is not None and leaf.grad.dtype == dtype
+
+    # The scenario from review: a CPU platform resolves to the reference. The
+    # logits it returns must be FP32, same as the Triton backend would give.
+    registry = KernelRegistry()
+    monkeypatch.setattr(registry, "_platform", lambda: "cpu")
+    via_registry = registry.get_op("final_logit_softcap")(x)
+    assert isinstance(registry.get_op("final_logit_softcap"), NativeFinalLogitSoftcapOp)
+    assert via_registry.dtype == torch.float32

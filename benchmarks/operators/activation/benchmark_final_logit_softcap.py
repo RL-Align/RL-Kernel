@@ -58,12 +58,13 @@ def _positive_int(value: str) -> int:
 
 
 class _FP32NativeBaseline:
-    """Drive the reference through its FP32 entry so both sides emit FP32.
+    """Drive the reference through ``forward_fp32`` so the entry point is explicit.
 
-    ``NativeFinalLogitSoftcapOp.forward`` casts back to the input dtype while the
-    Triton wrapper always returns FP32. Timing the two as-is would compare a
-    BF16/FP16 write path against an FP32 one, so the baseline goes through
-    ``forward_fp32`` and the byte volume matches on both sides.
+    Both ``forward`` and ``forward_fp32`` return FP32 on the reference now, so
+    this wrapper no longer changes what gets timed; it stays so the baseline
+    names the gold entry point ``OP_SPECS`` resolves, and so the report's
+    provenance line keeps saying what was run. Byte volume matches the Triton
+    side either way.
     """
 
     def __init__(self, op):
@@ -105,8 +106,8 @@ def _check_accuracy(native_cls, candidate_cls, softcap, x, grad_y):
 
     def evaluate(op):
         leaf = x.detach().requires_grad_(True)
-        # The reference exposes forward_fp32 as its FP32 gold path; the Triton
-        # wrapper's forward already returns FP32.
+        # Prefer forward_fp32 where it exists, since that is the OP_SPECS gold
+        # name; both backends return FP32 from forward as well.
         fp32_entry = getattr(op, "forward_fp32", None)
         y = fp32_entry(leaf) if fp32_entry is not None else op(leaf)
         (dx,) = torch.autograd.grad(y, leaf, grad_outputs=grad_y)

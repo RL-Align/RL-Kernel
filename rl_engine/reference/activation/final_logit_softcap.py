@@ -15,9 +15,16 @@ DEFAULT_SOFTCAP = 30.0
 class NativeFinalLogitSoftcapOp(nn.Module):
     """Compute ``c * tanh(x / c)``; autograd supplies input-dtype gradients.
 
-    ``forward`` computes in FP32 and casts back to the input dtype, matching
-    the dtype-behavior path used by other WS1 elementwise references.
-    ``forward_fp32`` is the ground-truth path: FP32 math and an FP32 result.
+    Both entry points compute in FP32 and return FP32. That departs from the
+    other WS1 elementwise references, where ``forward`` casts back to the input
+    dtype, and it is deliberate: these are logits on their way into a logsumexp,
+    and the Triton wrapper already commits to an FP32 result. If ``forward``
+    narrowed, ``registry.get_op`` would hand out BF16 logits on CPU or whenever
+    Triton failed to import, with a max error around 0.1 against the FP32 path
+    versus a few 1e-6 on CUDA, and callers could not tell which they had.
+
+    ``forward_fp32`` is kept as the name ``OP_SPECS`` resolves for the gold path;
+    it is the same computation as ``forward``.
     """
 
     op_class = "elementwise"
@@ -30,7 +37,7 @@ class NativeFinalLogitSoftcapOp(nn.Module):
         self.softcap = softcap
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self._softcap(x, output_dtype=x.dtype)
+        return self._softcap(x, output_dtype=torch.float32)
 
     def forward_fp32(self, x: torch.Tensor) -> torch.Tensor:
         """Ground-truth: compute in fp32 and force fp32 output."""
