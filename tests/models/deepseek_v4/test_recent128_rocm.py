@@ -16,6 +16,7 @@ from rl_engine.contracts.operators.recent128 import (
     CacheRequest,
     CacheVersion,
     Recent128Contract,
+    Recent128ContractError,
 )
 from rl_engine.integrations.engines.rollout.vllm.recent128 import (
     bind_recent128_metadata,
@@ -49,6 +50,15 @@ def native():
 @pytest.fixture(scope="module")
 def backend():
     return VllmRecent128Backend()
+
+
+def test_unpinned_allocating_index_abi_fails_closed(native, monkeypatch, tmp_path):
+    source = tmp_path / "unknown_cache_utils.py"
+    source.write_text("# changed private kernel ABI\n")
+    monkeypatch.setattr(native, "__file__", str(source))
+    monkeypatch.setattr(native, "combine_topk_swa_indices", lambda topk_indices: None)
+    with pytest.raises(Recent128ContractError, match="caller-owned outputs"):
+        VllmRecent128Backend()
 
 
 def rows(n, seed):
