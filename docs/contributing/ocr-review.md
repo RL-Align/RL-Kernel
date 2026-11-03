@@ -36,8 +36,16 @@ configure these values in the upstream repository, not a contributor's fork:
 | Secret | `OCR_LLM_AUTH_TOKEN` | A credential for that endpoint |
 | Variable | `OCR_LLM_MODEL` | The model identifier supported by that endpoint |
 | Variable | `OCR_LLM_USE_ANTHROPIC` | `true` for Anthropic messages; `false` for OpenAI-compatible chat completions (default) |
-| Variable, optional | `OCR_LLM_EXTRA_BODY` | Provider-specific request-body JSON; defaults to `{}` |
 | Variable, optional | `OCR_REVIEW_ENABLED` | Set to `false` to disable the job; any other value leaves it enabled |
+
+The workflow sends OpenCode Go chat completions a fixed body,
+`{"reasoning_effort":"low"}`, and the header
+`x-opencode-session: ocr-pr-<pull request number>`. Go requires that session
+header and returns HTTP 400 when it is missing. `reasoning_effort` replaces
+the official DeepSeek `thinking` object. This gateway accepts `low`, `high`,
+or `max`; `none` is rejected. `OCR_LLM_EXTRA_BODY` is not read. The endpoint
+in `OCR_LLM_URL` is
+`https://opencode.ai/inference/go/openai/v1/chat/completions`.
 
 Follow the provider's endpoint and request-body requirements. OCR sends selected
 PR source and repository context to the configured provider and incurs that
@@ -45,6 +53,9 @@ provider's API charges. Use a dedicated credential and the provider's spending
 limit if available. No separate GitHub personal access token is needed: the job
 uses `GITHUB_TOKEN` with `contents: read` and `pull-requests: write`. Repository or
 organization Actions policy must allow the pinned OCR action and PR comments.
+For public repositories, also verify that an applicable repository or
+organization event policy permits `pull_request_target`; action and token
+permissions alone do not enable a blocked event.
 
 If the endpoint, credential or model is missing, the job records that review was
 not performed in its Actions summary and makes no model call. This is not a clean
@@ -75,7 +86,7 @@ tests cannot establish GPU parity, and a static review cannot establish measured
 speedups or bitwise agreement. Existing CPU/GPU CI and CODEOWNER review remain
 the sources of execution evidence and merge decisions.
 
-The rules explicitly include `.cu`, `.cuh` and `.hip` sources and test/validation
+The rules explicitly include `.cu`, `.cuh`, `.hip` and `.asc` sources and test/validation
 files, which OCR's default extension or path filters can otherwise omit.
 Includes override those default filters; they are not an exclusive file list.
 Rules use first-match order, with focused directories before the catch-all.
@@ -85,7 +96,10 @@ equality and includes style suggestions; intentional exact comparisons enforcing
 RL-Kernel's numerical contracts must not generate such findings. Multiple project
 rules do not combine with one another.
 
-Every run reviews the full PR diff from its merge-base. `incremental: 'true'`
+Every run compares the PR diff from its merge-base, but not every changed file
+is dispatched for review. OCR 1.13.3 retains deleted files in the change list
+without dispatching them; deletion-only PRs can have no file review.
+`incremental: 'true'`
 suppresses overlapping inline comments; it does not reduce review scope or
 prove that an earlier finding was fixed. Cross-push checkpoints and automatic
 thread resolution are disabled. The model may return no findings even when
