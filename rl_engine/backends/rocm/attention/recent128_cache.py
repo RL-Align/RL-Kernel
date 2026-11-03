@@ -19,6 +19,7 @@ from rl_engine.contracts.operators.recent128 import (
 )
 
 _MODULE = "vllm.models.deepseek_v4.common.ops.cache_utils"
+_VLLM_026_CACHE_SHA256 = "0d65322289248b9062580f8bcee90997fedf6378de456f1af8a2203484fbaee3"
 
 
 class VllmRecent128Backend:
@@ -42,14 +43,22 @@ class VllmRecent128Backend:
         for function in (self._write, self._gather):
             if "use_fnuz" not in inspect.signature(function).parameters:
                 raise Recent128ContractError("vLLM writer/gather must expose explicit use_fnuz")
-        if "out" not in inspect.signature(self._indices).parameters:
-            raise Recent128ContractError("vLLM index builder must accept caller-owned outputs")
         source = Path(module.__file__)
+        source_sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
+        self._index_kernel = None
+        if "out" not in inspect.signature(self._indices).parameters:
+            # vLLM 0.26's wrapper allocates, but its existing Triton kernel accepts
+            # caller-owned output pointers. Pin that private ABI to its exact source.
+            if source_sha256 != _VLLM_026_CACHE_SHA256 or not hasattr(
+                module, "_combine_topk_swa_indices_kernel"
+            ):
+                raise Recent128ContractError("vLLM index builder must accept caller-owned outputs")
+            self._index_kernel = module._combine_topk_swa_indices_kernel
         self.provenance = {
             "backend": self.backend_id,
             "module": _MODULE,
             "source": str(source),
-            "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+            "source_sha256": source_sha256,
             "torch": torch.__version__,
             "hip": torch.version.hip,
         }
@@ -83,15 +92,33 @@ class VllmRecent128Backend:
         workspace.indices.fill_(-1)
         workspace.lengths.zero_()
         if batch.num_actual_tokens:
-            self._indices(
-                workspace.empty_topk,
-                batch.query_start_loc,
-                batch.seq_lens,
-                batch.gather_lens,
-                contract.window_size,
-                1,
-                0,
-                contract.workspace_width,
-                0,
-                out=(workspace.indices, workspace.lengths),
-            )
+            if self._index_kernel is None:
+                self._indices(
+                    workspace.empty_topk,
+                    batch.query_start_loc,
+                    batch.seq_lens,
+                    batch.gather_lens,
+                    contract.window_size,
+                    1,
+                    0,
+                    contract.workspace_width,
+                    0,
+                    out=(workspace.indices, workspace.lengths),
+                )
+            else:
+                self._index_kernel[(len(batch.requests), 128)](
+                    workspace.indices,
+                    workspace.indices.stride(0),
+                    workspace.lengths,
+                    workspace.empty_topk,
+                    workspace.empty_topk.stride(0),
+                    batch.query_start_loc,
+                    batch.seq_lens,
+                    batch.gather_lens,
+                    contract.workspace_width,
+                    0,
+                    TOP_K=0,
+                    COMPRESS_RATIO=1,
+                    WINDOW_SIZE=contract.window_size,
+                    PADDED_TOP_K=1,
+                )
