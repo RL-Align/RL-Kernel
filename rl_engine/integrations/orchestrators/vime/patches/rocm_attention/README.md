@@ -80,16 +80,28 @@ test "$(git write-tree)" = bea570245d926776ac49d2749f64881e7d209698
 git apply --check "$PATCH_DIR/vllm.patch"
 git apply --index "$PATCH_DIR/vllm.patch"
 test "$(git write-tree)" = c0bd64859e1ee1e1268732fef0f0541da5c80f13
+git commit -s -m "Reconstruct pinned ROCm vLLM source tree"
+test -z "$(git status --porcelain)"
 ```
 
-These commands leave both patches staged and `HEAD` at the public upstream
-parent. They reproduce the historical **source trees**, not the original
+These commands commit the reconstructed tree locally after checking both staged
+trees. They reproduce the historical **source trees**, not the original
 commit SHAs. A new local commit may have a different SHA because its metadata
 differs. Do not use `git rev-parse HEAD` as the tree-equality check, or reapply
 `vllm.patch` after completing these steps. Keep the patched sources when
 building/installing vLLM and point the profile's `vllm_root` at this checkout.
 The base patch changes C++ code, so changing only the Python import path does
 not update an already-built vLLM extension.
+
+Build vLLM from this checkout in place (or install it editable with its ROCm
+build requirements). Set `PROFILE_PYTHON` to the launcher's profile `paths.python`;
+with that same interpreter, confirm the package, core extension and patched
+`cumem_allocator` extension resolve to this build before starting the launcher:
+
+```bash
+cd "$VLLM_ROOT"
+"$PROFILE_PYTHON" -c 'import vllm, vllm._C, vllm.cumem_allocator; print(vllm.__file__, vllm._C.__file__, vllm.cumem_allocator.__file__)'
+```
 
 The vLLM entry in `sources.json` preserves the original `base`, `commit`,
 `tree` and companion `patch_sha256`. Its additional `upstream_repository`,

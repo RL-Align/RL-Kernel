@@ -29,6 +29,8 @@ class AiterCompressorStateBackend:
             writer = importlib.import_module(
                 "vllm.models.deepseek_v4.common.ops.save_partial_states"
             )
+            shim = importlib.import_module("aiter.ops.flydsl.kernels.tensor_shim")
+            triton = importlib.import_module("triton")
             self.compress = native.flydsl_fused_compress_attn
             self.save_partial = writer.save_partial_states
         except (ImportError, AttributeError) as exc:
@@ -42,15 +44,13 @@ class AiterCompressorStateBackend:
             "arch": arch,
             "torch": torch.__version__,
             "hip": torch.version.hip,
-            "triton": importlib.metadata.version("triton"),
+            "triton": triton.__version__,
             "flydsl": importlib.metadata.version("flydsl"),
             "compressor": h,
             "state_writer": source_hash(writer.__file__),
-            "tensor_shim": source_hash(
-                importlib.import_module("aiter.ops.flydsl.kernels.tensor_shim").__file__
-            ),
+            "tensor_shim": source_hash(shim.__file__),
             "bridge": source_hash(__file__),
-            "recipe": "fixed single-wave online FP32",
+            "recipe": "fixed single-wave online FP32" if self.options else "legacy native launch",
         }
 
     def execute(self, arena):
