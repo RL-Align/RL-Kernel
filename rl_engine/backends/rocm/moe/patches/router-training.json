@@ -1,0 +1,23 @@
+{
+  "aiter_revision": "326cffa38c9eda16bef19375ba55334e4d3acd59",
+  "patch_sha256": {
+    "router-sqrt-softplus.patch": "7ee39f746894895b2d17a434a2187177cbdf59d30f92c155366e159a24d87cd9",
+    "hash-route.patch": "4585a054073b1a7365089eb2a4614ef6e22ed98672cb59be70f206cb6d78acee",
+    "stable-topk6.patch": "820237c1f1897d29ae8b744a19e5e6f920fe40580e0bef55d3e55dd1088d721b",
+    "learned-route.patch": "7c17c9be9bb26d1ef02eebd1c1d983bd6872591f521e85a8a060f4a68529f22c",
+    "router-training.patch": "0b3c07a04b3e5697a08af4ac6cd6dbe4aece57abb5b3a22e1e7201a4b1eb7d9d"
+  },
+  "source_sha256": {
+    "aiter.ops.triton._triton_kernels.moe.moe_routing.topk": "fdfd3b2ae8466b8fd7b23fa31a95b9de85689835455f59ec3e222fa06f77d304",
+    "aiter.ops.triton.moe.moe_routing.topk": "cbb3c72bc923b4d50d675d8b1867d7c6025f38bcad315a100f0ef0289070cec9",
+    "aiter.ops.triton.moe.moe_routing.router_sqrt_softplus": "f9efd5e205cf3060e19e3b0c3b63c0aac7547ba018cbc6fc4ba66bd8964baf9e",
+    "aiter.ops.triton._triton_kernels.moe.moe_routing.hash_route": "596dae7232a4b56bf1550921bb116476fe32afeb7b62e2796642bbf28f361bb6",
+    "aiter.ops.triton.moe.moe_routing.hash_route": "fbc35963d2bcc67bd3873eb80b133af43add2cd3b0b9de6387d3221c3a131344",
+    "aiter.ops.triton._triton_kernels.moe.moe_routing.stable_topk6": "414d804af857f49c88e100ffd5e8d28714ccdda9c0878c6d092dca87a3801228",
+    "aiter.ops.triton.moe.moe_routing.stable_topk6": "e4b4314cfd7826719b709796481e50b336bf8392696f9403e8f08d434bf4880e",
+    "aiter.ops.triton.moe.moe_routing.learned_route": "1367332865f1f1356b371f429334b5ca624765af0aa92f63b0119c79bc8e21a5",
+    "aiter.ops.triton.moe.moe_routing.router_replay": "f4222ee38a5bc9603c05408d00ed61aaf8d410e97e111d1f7679578f65b37318",
+    "aiter.ops.triton.gemm.basic.gemm_a16w16": "ec00bdfcf72318524be249ef42943b35c799f40ffd420375772c49cfa14be4ef",
+    "aiter.ops.triton._triton_kernels.gemm.basic.gemm_a16w16": "4a05b1fdd2fe33e7268891bb057c637567394fa9d91b492162095bc37f7c5c79"
+  }
+}

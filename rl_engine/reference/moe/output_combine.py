@@ -11,7 +11,6 @@ same plan for those operations.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Any
 from types import MappingProxyType
 
 from rl_engine.contracts.operators.moe import (
@@ -54,17 +53,12 @@ def prepare_output_combine(
     if not isinstance(inputs, MoEOutputCombineInputs):
         raise MoEOutputCombineContractError("inputs must be a MoEOutputCombineInputs")
     if inputs.expert_output.device.type != "cpu":
-        raise MoEOutputCombineContractError(
-            "P6 reference output-combine inputs must be on CPU"
-        )
+        raise MoEOutputCombineContractError("P6 reference output-combine inputs must be on CPU")
     if inputs.num_tokens is None:
-        raise MoEOutputCombineContractError(
-            "P6 reference preparation requires explicit num_tokens"
-        )
+        raise MoEOutputCombineContractError("P6 reference preparation requires explicit num_tokens")
     if plan.plan_version != "p6-output-combine.v1":
-        raise MoEOutputCombineContractError(
-            f"unsupported P6 plan version: {plan.plan_version}"
-        )
+        raise MoEOutputCombineContractError(f"unsupported P6 plan version: {plan.plan_version}")
+    provenance = inputs.provenance(plan)
 
     snapshot = replace(
         inputs,
@@ -72,11 +66,12 @@ def prepare_output_combine(
         token_indices=inputs.token_indices.clone(),
         expert_indices=inputs.expert_indices.clone(),
         slot_indices=inputs.slot_indices.clone(),
-        routing_weights=(inputs.routing_weights.clone() if inputs.routing_weights is not None else None),
+        routing_weights=(
+            inputs.routing_weights.clone() if inputs.routing_weights is not None else None
+        ),
         shared_output=(inputs.shared_output.clone() if inputs.shared_output is not None else None),
         residual=(inputs.residual.clone() if inputs.residual is not None else None),
     )
-    provenance = snapshot.provenance(plan)
     return PreparedMoEOutputCombine(
         plan=plan, inputs=snapshot, provenance=MappingProxyType(provenance)
     )
@@ -87,4 +82,3 @@ __all__ = [
     "PreparedMoEOutputCombine",
     "prepare_output_combine",
 ]
-
