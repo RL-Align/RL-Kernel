@@ -293,14 +293,15 @@ def experiment_worker(specs, directory, mode, *, validate_only=False):
         finally:
             adapter._profile_candidates = original_profile
         torch.cuda.empty_cache()
+    identity = adapter._device_identity(torch.device("cuda:0"), False)
     return {
         "mode": mode,
         "status": "validation_only" if validate_only else "measured",
         "device": torch.cuda.get_device_name(),
         "torch": str(torch.__version__),
-        "triton": adapter.version("triton"),
+        "triton": identity["triton"],
         "runtime": torch.version.hip or torch.version.cuda,
-        "identity": adapter._device_identity(torch.device("cuda:0"), False),
+        "identity": identity,
         "cases": results,
     }
 

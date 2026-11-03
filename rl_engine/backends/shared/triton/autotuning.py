@@ -12,13 +12,21 @@ from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from functools import wraps
-from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
 import torch
 
-from rl_engine.platforms.autotuner import PersistentAutotuner, TuneConfig, autotune_enabled
+from rl_engine.platforms.autotuner import (
+    PersistentAutotuner,
+    TuneConfig,
+    autotune_enabled,
+    cache_key,
+)
+
+
+class _ProfilingDoesNotFit(Exception):
+    """Raised inside selection when the private output copies need more than free memory allows."""
 
 
 @dataclass
@@ -81,6 +89,8 @@ def _device_identity(device: torch.device, capture: bool) -> dict | None:
         return _DEVICES[key]
     if capture:
         return None
+    import triton
+
     props = torch.cuda.get_device_properties(index)
     driver_path = Path(
         "/sys/module/amdgpu/version" if torch.version.hip else "/proc/driver/nvidia/version"
@@ -109,7 +119,7 @@ def _device_identity(device: torch.device, capture: bool) -> dict | None:
         "pci_device_id": str(getattr(props, "pci_device_id", "")),
         "driver": driver,
         "torch": str(torch.__version__),
-        "triton": version("triton"),
+        "triton": triton.__version__,
         "runtime": torch.version.hip or torch.version.cuda,
     }
     _DEVICES[key] = identity
@@ -241,6 +251,18 @@ class TunableKernel:
         source = inspect.getsource(kernel_module) + inspect.getsource(tuner_module)
         self.revision = hashlib.sha256(source.encode()).hexdigest()
 
+    def _profiling_fits(self, args) -> bool:
+        """Return whether two private copies of every output fit in half the free memory.
+
+        Profiling clones each output twice (reference and scratch). The other half is headroom
+        for compilation, so a call that fits untuned is not turned into an out-of-memory error.
+        """
+        needed = 2 * sum(args[i].numel() * args[i].element_size() for i in self.outputs)
+        device = args[self.outputs[0]].device
+        free = torch.cuda.mem_get_info(device)[0]
+        free += torch.cuda.memory_reserved(device) - torch.cuda.memory_allocated(device)
+        return needed <= free // 2
+
     def __getitem__(self, grid):
         """Return a launcher for ``grid`` that uses the cached or newly selected config."""
 
@@ -319,6 +341,13 @@ class TunableKernel:
                     "grid": list(grid) if not callable(grid) else "config_grid",
                 }
 
+                try:
+                    cache_key(signature, candidates)
+                except (TypeError, ValueError):
+                    # An argument that cannot be hashed (a non-finite float, an arbitrary object)
+                    # has no cache entry: launch the fixed kernel instead of failing the call.
+                    return self.kernel[grid](*args, **kwargs)
+
                 def run(config, buffers):
                     """Launch ``config`` on private output buffers."""
                     options = {**kwargs, **config.to_dict()}
@@ -334,20 +363,26 @@ class TunableKernel:
                     """Time ``config``, or return None if its output bytes differ."""
                     nonlocal timings
                     if timings is None:
+                        if not self._profiling_fits(args):
+                            raise _ProfilingDoesNotFit
                         timings = _profile_candidates(
                             candidates, args, self.outputs, self.inout, run
                         )
                     return timings[config]
 
-                selected = _TUNER.select(
-                    signature,
-                    candidates,
-                    evaluate,
-                    persistent=bool(
-                        identity["driver"] and (identity["uuid"] or identity["pci_bus_id"])
-                    ),
-                    capture=capture,
-                )
+                try:
+                    selected = _TUNER.select(
+                        signature,
+                        candidates,
+                        evaluate,
+                        persistent=bool(
+                            identity["driver"] and (identity["uuid"] or identity["pci_bus_id"])
+                        ),
+                        capture=capture,
+                    )
+                except _ProfilingDoesNotFit:
+                    # Nothing was cached or persisted, so a later call with room can still tune.
+                    return self.kernel[grid](*args, **kwargs)
                 if not capture:
                     options = {**kwargs, **selected.config.to_dict()}
                     selected_grid = grid

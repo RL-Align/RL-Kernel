@@ -218,6 +218,68 @@ def test_output_passed_by_keyword_launches_the_fixed_kernel(monkeypatch):
     assert calls == [((1,), (x,), {"out": out})]
 
 
+def test_launch_skips_tuning_when_profiling_copies_do_not_fit(monkeypatch, tmp_path):
+    """Too little free memory for the private output copies launches the fixed kernel untuned."""
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("triton")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA/ROCm required")
+    from rl_engine.backends.shared.triton import autotuning
+
+    calls = []
+
+    class Jit:
+        fn = staticmethod(_stub_kernel_body)
+
+        def __getitem__(self, grid):
+            return lambda *args, **kwargs: calls.append((grid, args, kwargs))
+
+    monkeypatch.setattr(autotuning, "autotune_enabled", lambda: True)
+    monkeypatch.setattr(autotuning, "_TUNER", PersistentAutotuner(tmp_path))
+    monkeypatch.setattr(torch.cuda, "mem_get_info", lambda device=None: (1024, 1 << 40))
+    monkeypatch.setattr(
+        autotuning, "_profile_candidates", lambda *a, **kw: pytest.fail("profiled without room")
+    )
+    kernel = autotuning.TunableKernel(Jit(), outputs=(1,))
+    x = torch.zeros(4, device="cuda")
+    out = torch.zeros(1 << 26, dtype=torch.uint8, device="cuda")
+    kernel[(1,)](x, out)
+    assert calls == [((1,), (x, out), {})]
+    assert not list(tmp_path.glob("*.json"))
+    assert not autotuning._TUNER._memory
+
+
+@pytest.mark.parametrize("scale", [float("nan"), float("inf"), object()])
+def test_launch_with_an_unhashable_argument_runs_the_fixed_kernel(monkeypatch, tmp_path, scale):
+    """A launch argument the cache key cannot encode must not fail the call or be tuned."""
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("triton")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA/ROCm required")
+    from rl_engine.backends.shared.triton import autotuning
+
+    calls = []
+
+    class Jit:
+        fn = staticmethod(_stub_kernel_body)
+
+        def __getitem__(self, grid):
+            return lambda *args, **kwargs: calls.append((grid, args, kwargs))
+
+    monkeypatch.setattr(autotuning, "autotune_enabled", lambda: True)
+    monkeypatch.setattr(autotuning, "_TUNER", PersistentAutotuner(tmp_path))
+    monkeypatch.setattr(
+        autotuning,
+        "_profile_candidates",
+        lambda *a, **kw: pytest.fail("profiled an unkeyable launch"),
+    )
+    kernel = autotuning.TunableKernel(Jit(), outputs=(1,))
+    x, out = torch.zeros(4, device="cuda"), torch.zeros(4, device="cuda")
+    kernel[(1,)](x, out, scale)
+    assert calls == [((1,), (x, out, scale), {})]
+    assert not list(tmp_path.glob("*.json"))
+
+
 def test_backward_without_a_pinned_forward_uses_the_environment_policy(monkeypatch):
     """Calling ``backward`` on a context that never ran the pinned forward must not crash."""
     pytest.importorskip("triton")
