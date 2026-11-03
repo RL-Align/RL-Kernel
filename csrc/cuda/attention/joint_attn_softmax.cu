@@ -349,6 +349,13 @@ __global__ void validate_key_layout_values_kernel(
     if (physical_column < 0 || physical_column >= key_length) {
       atomicExch(invalid_layout, 1);
     }
+    if (logical_column > 0) {
+      const int32_t previous_physical_column =
+          logical_to_physical[key_map_offset + logical_column - 1];
+      if (physical_column <= previous_physical_column) {
+        atomicExch(invalid_layout, 1);
+      }
+    }
   }
 }
 
@@ -382,8 +389,8 @@ void validate_key_layout_values(
   C10_CUDA_CHECK(cudaStreamSynchronize(stream));
   TORCH_CHECK(
       invalid_layout_host == 0,
-      "joint_attn_softmax: key layout values are out of range; counts must "
-      "be in [0, K] and active indices must be in [0, K)");
+      "joint_attn_softmax: key layout values are invalid; counts must be in "
+      "[0, K] and active indices must be strictly increasing in [0, K)");
 }
 
 struct KeyLayoutView {

@@ -214,9 +214,16 @@ def test_masked_prompt_padding_is_batch_invariant():
 @pytest.mark.parametrize("entrypoint", ["forward", "backward"])
 @pytest.mark.parametrize(
     "invalid_layout",
-    ["negative_count", "oversized_count", "negative_index", "oversized_index"],
+    [
+        "negative_count",
+        "oversized_count",
+        "negative_index",
+        "oversized_index",
+        "duplicate_index",
+        "reordered_indices",
+    ],
 )
-def test_low_level_cuda_rejects_out_of_range_key_layout(entrypoint, invalid_layout):
+def test_low_level_cuda_rejects_invalid_key_layout(entrypoint, invalid_layout):
     from rl_engine.backends.extension import _C
 
     key_length = 4
@@ -232,11 +239,19 @@ def test_low_level_cuda_rejects_out_of_range_key_layout(entrypoint, invalid_layo
         valid_key_counts[0] = key_length + 1
     elif invalid_layout == "negative_index":
         logical_to_physical[0, 1] = -1
-    else:
+    elif invalid_layout == "oversized_index":
         logical_to_physical[0, 1] = key_length
+    elif invalid_layout == "duplicate_index":
+        logical_to_physical[0, 1] = 0
+    else:
+        logical_to_physical[0, :2] = torch.tensor(
+            [1, 0],
+            device="cuda",
+            dtype=torch.int32,
+        )
 
     values = torch.zeros((1, key_length), device="cuda", dtype=torch.float32)
-    with pytest.raises(RuntimeError, match="key layout values are out of range"):
+    with pytest.raises(RuntimeError, match="key layout values are invalid"):
         if entrypoint == "forward":
             _C.joint_attn_softmax_forward_fp32(
                 values,
@@ -276,6 +291,23 @@ def test_low_level_cuda_ignores_unused_key_mapping_suffix():
     assert probabilities[0, 1] == 0
     assert probabilities[0, 2] == 0
     assert probabilities[0, 0] + probabilities[0, 3] == 1
+
+
+def test_low_level_cuda_does_not_expose_validation_bypass():
+    from rl_engine.backends.extension import _C
+
+    scores = torch.zeros((1, 2), device="cuda")
+    logical_to_physical = torch.arange(2, device="cuda", dtype=torch.int32).unsqueeze(0)
+    valid_key_counts = torch.tensor([2], device="cuda", dtype=torch.int32)
+
+    with pytest.raises(TypeError):
+        _C.joint_attn_softmax_forward_fp32(
+            scores,
+            logical_to_physical,
+            valid_key_counts,
+            1,
+            True,
+        )
 
 
 @pytest.mark.parametrize(

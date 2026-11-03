@@ -56,12 +56,11 @@ class _JointAttnSoftmaxCudaFunction(torch.autograd.Function):
             probabilities = (
                 _C.joint_attn_softmax_forward_fp32(scores_contiguous)
                 if logical_to_physical is None
-                else _C.joint_attn_softmax_forward_fp32(
+                else _C._joint_attn_softmax_forward_fp32_trusted(
                     scores_contiguous,
                     logical_to_physical,
                     valid_key_counts,
                     rows_per_batch,
-                    assume_valid_key_layout=True,
                 )
             )
             saved_probabilities_fp32 = probabilities
@@ -69,12 +68,11 @@ class _JointAttnSoftmaxCudaFunction(torch.autograd.Function):
             probabilities, saved_probabilities_fp32 = (
                 _C.joint_attn_softmax_forward_with_state(scores_contiguous)
                 if logical_to_physical is None
-                else _C.joint_attn_softmax_forward_with_state(
+                else _C._joint_attn_softmax_forward_with_state_trusted(
                     scores_contiguous,
                     logical_to_physical,
                     valid_key_counts,
                     rows_per_batch,
-                    assume_valid_key_layout=True,
                 )
             )
         if logical_to_physical is None or valid_key_counts is None:
@@ -98,15 +96,21 @@ class _JointAttnSoftmaxCudaFunction(torch.autograd.Function):
         probabilities_fp32 = ctx.saved_tensors[0]
         logical_to_physical = ctx.saved_tensors[1] if ctx.has_key_layout else None
         valid_key_counts = ctx.saved_tensors[2] if ctx.has_key_layout else None
-        grad_scores = _C.joint_attn_softmax_backward(
-            probabilities_fp32,
-            grad_probabilities.contiguous(),
-            ctx.input_bf16,
-            logical_to_physical,
-            valid_key_counts,
-            ctx.rows_per_batch,
-            assume_valid_key_layout=ctx.has_key_layout,
-        )
+        if ctx.has_key_layout:
+            grad_scores = _C._joint_attn_softmax_backward_trusted(
+                probabilities_fp32,
+                grad_probabilities.contiguous(),
+                ctx.input_bf16,
+                logical_to_physical,
+                valid_key_counts,
+                ctx.rows_per_batch,
+            )
+        else:
+            grad_scores = _C.joint_attn_softmax_backward(
+                probabilities_fp32,
+                grad_probabilities.contiguous(),
+                ctx.input_bf16,
+            )
         return grad_scores, None, None, None, None
 
 
@@ -137,6 +141,10 @@ class JointAttnSoftmaxCudaOp:
             "joint_attn_softmax_forward_fp32",
             "joint_attn_softmax_forward_with_state",
             "joint_attn_softmax_backward",
+            "_joint_attn_softmax_forward_trusted",
+            "_joint_attn_softmax_forward_fp32_trusted",
+            "_joint_attn_softmax_forward_with_state_trusted",
+            "_joint_attn_softmax_backward_trusted",
         )
         if not _EXT_AVAILABLE or not all(hasattr(_C, name) for name in required_cuda_symbols):
             raise RuntimeError(
@@ -192,19 +200,23 @@ class JointAttnSoftmaxCudaOp:
         valid_key_counts = None if key_mapping is None else key_mapping.valid_key_counts
         rows_per_batch = 1 if key_mapping is None else key_mapping.rows_per_batch
         if not torch.is_grad_enabled() or not scores.requires_grad:
-            forward = (
-                _C.joint_attn_softmax_forward_fp32 if output_fp32 else _C.joint_attn_softmax_forward
-            )
-            return (
-                forward(scores.contiguous())
-                if key_mapping is None
-                else forward(
-                    scores.contiguous(),
-                    logical_to_physical,
-                    valid_key_counts,
-                    rows_per_batch,
-                    assume_valid_key_layout=True,
+            if key_mapping is None:
+                forward = (
+                    _C.joint_attn_softmax_forward_fp32
+                    if output_fp32
+                    else _C.joint_attn_softmax_forward
                 )
+                return forward(scores.contiguous())
+            trusted_forward = (
+                _C._joint_attn_softmax_forward_fp32_trusted
+                if output_fp32
+                else _C._joint_attn_softmax_forward_trusted
+            )
+            return trusted_forward(
+                scores.contiguous(),
+                logical_to_physical,
+                valid_key_counts,
+                rows_per_batch,
             )
         return _JointAttnSoftmaxCudaFunction.apply(
             scores,
