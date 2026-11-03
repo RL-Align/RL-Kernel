@@ -54,19 +54,25 @@ OP_SPECS = {
         # ``forward_fp32`` is a different computation rather than ``forward`` widened.
         # The frozen semantics narrow twice -- the post-norm casts before the residual
         # add, and the sum is cast again before the pre-norm reads it -- and
-        # ``forward_fp32`` deliberately skips both. Measured at 2x16x6656, candidate
-        # against each reference, worst absolute error over both outputs:
+        # ``forward_fp32`` deliberately skips both. Worst absolute error over all
+        # six outputs, both candidates, five shapes and four seeds:
         #
-        #     dtype   vs forward_fp32   vs forward
-        #     fp32    2.9e-06           2.9e-06
-        #     bf16    9.1e-02           0.0e+00
-        #     fp16    1.2e-02           3.9e-03   (one fp16 ULP at that magnitude)
+        #     dtype   vs forward_fp32   vs forward   differing vs forward
+        #     fp32    5.7e-06           5.7e-06      11.0M-13.3M of 32.9M
+        #     bf16    1.8e-01           3.1e-02      132-191 of 32.9M
+        #     fp16    2.0e-02           7.8e-03      1603-1808 of 32.9M
         #
-        # Against forward_fp32 the harness measures the narrowing contract, not the
-        # kernels, and goes red at fp16 for a reason no kernel change can fix. At
-        # fp32 the two references agree, which is why this was invisible until fp16
-        # was run. FP64-exactness of the frozen semantics is covered separately by
+        # Against forward_fp32 the harness measures the narrowing contract rather
+        # than the kernels. At fp32 the narrowing is a no-op and the two references
+        # agree, which is why this was invisible until a dtype that narrows was run.
+        # FP64-exactness of the frozen semantics is covered separately by
         # test_fused_add_norm.py's FP64 reference tests and their negative controls.
+        #
+        # An earlier version of this comment quoted one shape and one seed and read
+        # 0.0e+00 for bf16 against forward. That was not representative: the kernels
+        # are not bitwise equal to forward at bf16, they differ on roughly five
+        # elements per million. The conclusion is unchanged and the margin is wider
+        # than the single sample suggested.
         gold_method="forward",
         candidate_paths={
             "pytorch": "rl_engine.kernels.ops.pytorch.norm.fused_add_norm.NativeFusedAddNormOp",
