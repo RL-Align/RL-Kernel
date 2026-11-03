@@ -87,3 +87,10 @@ class TestEvidenceDigest:
                 else:
                     sys.modules[k] = v
             sys.modules.pop("tools.validation.models.h3_block_diagnostic", None)
+
+
+class TestBlockContextDevice:
+    def test_every_tensor_of_the_context_follows_the_weights(self, h3_weights_cpu):
+        ctx = h3_block.make_block_context(h3_weights_cpu, layout="tiny", seed=0)
+        assert ctx["hidden"].device.type == "cpu"
+        assert ctx["temb"].device.type == "cpu"
