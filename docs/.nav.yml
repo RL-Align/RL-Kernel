@@ -38,6 +38,7 @@ nav:
       - operators/router-gate.md
       - operators/dsv4-lora.md
       - operators/embedding.md
+      - operators/dsv4-expert-training.md
       - operators/learned-route.md
       - operators/router-training.md
       - operators/router-aux-loss.md
