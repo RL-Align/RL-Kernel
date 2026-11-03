@@ -350,7 +350,9 @@ namespace {
 #endif
 
 constexpr int kFusedLogpTwoPassBlockSize = FUSED_LOGP_TWOPASS_BLOCK_SIZE;
+#if !defined(__HIPCC__) && !defined(__HIP_PLATFORM_AMD__)
 constexpr int kFusedLogpBackwardUnroll = 8;
+#endif
 constexpr int kFusedLogpOnlineBlockSize = FUSED_LOGP_ONLINE_BLOCK_SIZE;
 constexpr int kFusedLogpOnlineSparseLargeVocabBlockSize =
     FUSED_LOGP_ONLINE_SPARSE_LARGE_VOCAB_BLOCK_SIZE;

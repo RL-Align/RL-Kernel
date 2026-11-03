@@ -19,12 +19,16 @@ def _loop_arithmetic_harness(source: str) -> str:
     The stride/tile declarations, loop types and steps, unrolled index lines and unroll factor
     come from ``source``; only the start moves to the last two tiles. The program exits non-zero
     if a loop variable goes negative, an unrolled index differs from its 64-bit value, or a walk
-    does not take exactly two steps. Raises ``AssertionError`` if ``source`` does not yield 2
-    declarations, 4 loops, 4 index lines and the unroll constant (patterns out of sync).
+    does not take exactly two steps. Raises ``AssertionError`` if ``source`` lacks the kernel
+    markers or does not yield 2 declarations, 4 loops, 4 index lines and the unroll constant.
     """
-    kernel = source.split("__global__ void fused_logp_backward_kernel(", 1)[1].split(
-        "template <typename scalar_t, typename output_t, int BlockSize>", 1
-    )[0]
+    start = "__global__ void fused_logp_backward_kernel("
+    end = "template <typename scalar_t, typename output_t, int BlockSize>"
+    assert start in source and end in source.split(start, 1)[1], (
+        "the INT_MAX harness cannot find the backward kernel in fused_logp_kernel.cu: update the "
+        "markers here, this is not an overflow regression"
+    )
+    kernel = source.split(start, 1)[1].split(end, 1)[0]
     # Reuse the real control-variable types, increments, and unrolled offsets.
     # Only the initialization changes: start at the last two tiles, so these
     # INT_MAX boundary cases take milliseconds and allocate no logits storage.

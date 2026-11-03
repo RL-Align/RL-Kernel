@@ -233,6 +233,7 @@ def accuracy(rows: int = 257, seed: int = 1) -> dict[str, Any]:
         err = (g.double() - ref_grad).abs()
         result[name] = {
             "output_dtype": str(out.dtype),
+            "grad_dtype": str(g.dtype),
             "logp_max_abs": (out.double() - ref_out).abs().max().item(),
             "grad_max_abs": err.max().item(),
             "grad_max_abs_over_absmax": err.max().item() / ref_absmax,

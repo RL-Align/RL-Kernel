@@ -100,7 +100,8 @@ def main() -> None:
         ha="right",
     )
     ax.set_yscale("log")
-    ax.set_ylim(top=max(vals) * 5)
+    # An all-zero (perfect) result has no positive maximum, which a log axis rejects.
+    ax.set_ylim(top=max((v for v in vals if v > 0), default=1.0) * 5)
     acc_rows = report.get("accuracy_contract", {}).get("rows", "?")
     ax.set_title(f"dlogits error vs FP64: max |err| / max |dlogits| ({acc_rows} rows)")
     ax.grid(True, axis="y", alpha=0.3)
