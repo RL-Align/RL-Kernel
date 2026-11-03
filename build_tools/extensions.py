@@ -219,6 +219,7 @@ def get_extensions():
             "csrc/cuda/logprob/fused_logp_kernel.cu",
             "csrc/cuda/logprob/deterministic_logp_kernel.cu",
             "csrc/cuda/gemm/det_gemm_kernel.cu",
+            "csrc/cuda/gemm/attn_out_bias_gemm.cu",  # frozen-tree bias GEMM (Qwen-Image WS1)
             "csrc/cuda/norm/rmsnorm.cu",
             "csrc/cuda/activation/activation.cu",
             "csrc/cuda/attention/deterministic_attention.cu",
