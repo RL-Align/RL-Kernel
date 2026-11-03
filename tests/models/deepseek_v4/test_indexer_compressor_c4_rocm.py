@@ -36,6 +36,33 @@ def operator(backend, precision="mxfp4"):
     return IndexerC4Compressor(IndexerC4Contract(precision=precision), backend=backend)
 
 
+def test_constructor_rejects_graph_capture_before_native_priming(monkeypatch):
+    monkeypatch.setattr(torch.cuda, "is_current_stream_capturing", lambda: True)
+    with pytest.raises(C4Error, match="construction cannot run during Graph capture"):
+        AiterIndexerC4Backend()
+
+
+def test_vjp_rejects_fp32_cotangent(backend):
+    op = operator(backend)
+    x, ids, ape, norm, cos, sin = fixture(1, device="cuda")
+    bound = op.bind(x, ids, version="v1")
+    with pytest.raises(C4Error, match="requires BF16 dY"):
+        backend.vjp(bound, ape, norm, cos, sin, torch.ones((1, 128), device="cuda"), op.contract)
+
+
+def test_gpu_implementation_pin_includes_indexer_provenance(backend, monkeypatch):
+    op = operator(backend)
+    IndexerC4Compressor(
+        op.contract, backend=backend, expected_implementation=op.implementation_fingerprint
+    )
+    with monkeypatch.context() as patch:
+        patch.setitem(backend.provenance, "indexer_bridge", "different-source")
+        with pytest.raises(C4Error, match="implementation fingerprint mismatch"):
+            IndexerC4Compressor(
+                op.contract, backend=backend, expected_implementation=op.implementation_fingerprint
+            )
+
+
 def assert_bf16_close(actual, exact):
     exponent = torch.floor(torch.log2(exact.abs().clamp_min(2.0**-126)))
     tolerance = 2 * torch.exp2(exponent - 7) + 1e-5
