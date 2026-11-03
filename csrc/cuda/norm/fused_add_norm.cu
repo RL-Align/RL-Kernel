@@ -19,6 +19,10 @@
 // Triton kernel's tl.sum lowers to, and this file does not claim CUDA ==
 // Triton bitwise for that reason (see the Triton module docstring).
 //
+// Both launchers take a CUDAGuard on the input's device before reading the
+// current stream, and check the launch, which rmsnorm.cu only does in its
+// row-fold helper.
+//
 // Element-wise expressions are written in the same association order as the
 // Triton kernel so that, when the two are compared, the reduction is the only
 // thing left to differ. FP contraction is left at the build's default like the
@@ -26,6 +30,8 @@
 
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAException.h>
+#include <c10/cuda/CUDAGuard.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
@@ -231,8 +237,16 @@ void fused_add_norm_forward_cuda(
 ) {
     const int T = hidden.size(0);
     const int H = hidden.size(1);
+    // A zero-row batch is a valid no-op -- the outputs are already empty -- but
+    // <<<0, ...>>> is not a valid launch. It returns cudaErrorInvalidConfiguration,
+    // which is sticky: with no launch check the wrapper returns normally and the
+    // error surfaces later against an unrelated call, leaving the whole CUDA
+    // context unusable for the rest of the process. Empty batches are routine in
+    // RL serving, so return before the launch rather than after the damage.
+    if (T == 0) return;
     const int threads = choose_threads(H);
     const size_t smem = threads * sizeof(float);
+    const c10::cuda::CUDAGuard device_guard(hidden.device());
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
 
     AT_DISPATCH_FLOATING_TYPES_AND2(at::kHalf, at::kBFloat16, hidden.scalar_type(), "fused_add_norm_forward_cuda", [&] {
@@ -245,6 +259,7 @@ void fused_add_norm_forward_cuda(
                 res_out.data_ptr<x_t>(), pre_out.data_ptr<x_t>(),
                 rstd_post.data_ptr<float>(), rstd_pre.data_ptr<float>(),
                 H, static_cast<float>(post_eps), static_cast<float>(pre_eps));
+            C10_CUDA_KERNEL_LAUNCH_CHECK();
         });
     });
 }
@@ -259,8 +274,10 @@ void fused_add_norm_backward_cuda(
 ) {
     const int T = hidden.size(0);
     const int H = hidden.size(1);
+    if (T == 0) return;  // see the forward launcher
     const int threads = choose_threads(H);
     const size_t smem = threads * sizeof(float);
+    const c10::cuda::CUDAGuard device_guard(hidden.device());
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
 
     AT_DISPATCH_FLOATING_TYPES_AND2(at::kHalf, at::kBFloat16, hidden.scalar_type(), "fused_add_norm_backward_cuda", [&] {
@@ -275,6 +292,7 @@ void fused_add_norm_backward_cuda(
                 d_hidden.data_ptr<float>(), d_residual.data_ptr<float>(),
                 partial_post_w.data_ptr<float>(), partial_pre_w.data_ptr<float>(),
                 H);
+            C10_CUDA_KERNEL_LAUNCH_CHECK();
         });
     });
 }

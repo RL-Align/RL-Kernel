@@ -68,7 +68,14 @@ if _TRITON_AVAILABLE:
         row = tl.program_id(0)
         offs = tl.arange(0, BLOCK_H)
         mask = offs < H
-        base = row * H
+        # int64 before the multiply, not after. tl.program_id is int32 and H is a
+        # constexpr int, so ``row * H`` is a 32-bit multiply that wraps at 2**31 and
+        # the generated PTX widens the already-wrapped product. At H=6656 that is
+        # row 322,639, about 17 GB of bf16 activations, reachable on one 80 GB card
+        # in a long-context or large-batch rollout, and it faults rather than
+        # returning wrong numbers. The CUDA kernel already casts to size_t before
+        # multiplying, so this was also a CUDA/Triton divergence.
+        base = row.to(tl.int64) * H
 
         hidden = tl.load(HIDDEN + base + offs, mask=mask, other=0.0).to(tl.float32)
         residual = tl.load(RESIDUAL + base + offs, mask=mask, other=0.0).to(tl.float32)
@@ -114,7 +121,14 @@ if _TRITON_AVAILABLE:
         row = tl.program_id(0)
         offs = tl.arange(0, BLOCK_H)
         mask = offs < H
-        base = row * H
+        # int64 before the multiply, not after. tl.program_id is int32 and H is a
+        # constexpr int, so ``row * H`` is a 32-bit multiply that wraps at 2**31 and
+        # the generated PTX widens the already-wrapped product. At H=6656 that is
+        # row 322,639, about 17 GB of bf16 activations, reachable on one 80 GB card
+        # in a long-context or large-batch rollout, and it faults rather than
+        # returning wrong numbers. The CUDA kernel already casts to size_t before
+        # multiplying, so this was also a CUDA/Triton divergence.
+        base = row.to(tl.int64) * H
 
         g_res = tl.load(G_RES + base + offs, mask=mask, other=0.0).to(tl.float32)
         g_pre = tl.load(G_PRE + base + offs, mask=mask, other=0.0).to(tl.float32)

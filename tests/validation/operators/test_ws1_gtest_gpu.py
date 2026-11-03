@@ -37,6 +37,7 @@ def test_all_ws1_single_ops_are_registered():
     assert {
         "rms_norm",
         "qk_norm",
+        "fused_post_norm_residual_pre_norm",
         "det_gemm",
         "attention",
         "logp",
@@ -57,6 +58,8 @@ def test_all_ws1_single_ops_are_registered():
     [
         ("rms_norm", "cuda"),
         ("qk_norm", "cuda"),
+        ("fused_post_norm_residual_pre_norm", "cuda"),
+        ("fused_post_norm_residual_pre_norm", "triton"),
         ("silu", "triton"),
         ("swiglu", "triton"),
         ("rope", "triton"),

@@ -279,3 +279,33 @@ def test_cuda_fails_closed(mutate, exc, match):
     args = _inputs((4, HIDDEN_SIZE), torch.float32)
     with pytest.raises(exc, match=match):
         fused_add_norm_cuda_forward(*mutate(*args), **_KW)
+
+
+@requires_cuda_kernel
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_cuda_zero_rows_does_not_poison_the_context(dtype):
+    """An empty batch is a no-op, not a launch error, and must not be sticky.
+
+    ``<<<0, threads>>>`` returns ``cudaErrorInvalidConfiguration``. With no launch
+    check the wrapper returned normally with plausible empty outputs and the error
+    surfaced later against an unrelated call, after which every CUDA call in the
+    process failed -- unrecoverable. Empty batches happen in RL serving whenever a
+    scheduler step has no tokens. The assertion that matters is the last one: an
+    unrelated kernel still runs afterwards.
+    """
+    hidden, residual, post_w, pre_w = _inputs((0, HIDDEN_SIZE), dtype)
+    res_out, pre_out = fused_add_norm_cuda_forward(hidden, residual, post_w, pre_w, **_KW)[:2]
+    torch.cuda.synchronize()
+    assert res_out.shape == (0, HIDDEN_SIZE)
+    assert pre_out.shape == (0, HIDDEN_SIZE)
+
+    leaves = [t.detach().clone().requires_grad_(True) for t in (hidden, residual)]
+    weights = [t.detach().clone().requires_grad_(True) for t in (post_w, pre_w)]
+    res, pre = CudaFusedAddNormOp().forward(*leaves, *weights, **_KW)
+    torch.autograd.backward((res, pre), grad_tensors=(torch.zeros_like(res), torch.zeros_like(pre)))
+    torch.cuda.synchronize()
+    for weight in weights:
+        assert torch.equal(weight.grad, torch.zeros_like(weight.grad))
+
+    probe = torch.ones(16, 16, device="cuda")
+    assert float(probe.sum()) == 256.0, "the CUDA context did not survive the empty launch"

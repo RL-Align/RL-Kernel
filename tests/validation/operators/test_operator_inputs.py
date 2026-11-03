@@ -43,6 +43,7 @@ def _args(**overrides):
     [
         "rms_norm",
         "qk_norm",
+        "fused_post_norm_residual_pre_norm",
         "pack",
         "matmul",
         "det_gemm",

@@ -12,6 +12,12 @@ implementation and does not depend on anyone else's float order.
 
 from __future__ import annotations
 
+import gc
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
+
 import pytest
 import torch
 
@@ -32,6 +38,52 @@ from rl_engine.backends.shared.triton.norm.fused_add_norm import (  # noqa: E402
 )
 
 requires_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
+
+
+def test_triton_ops_package_does_not_resolve_to_the_cuda_backend():
+    """The new ``kernels/ops/triton/norm`` shim must not hand back CUDA modules.
+
+    It did: its ``__getattr__`` imported ``rl_engine.backends.cuda.norm``, copied
+    from the CUDA shim beside it, where all seven sibling packages under
+    ``kernels/ops/triton/`` target ``rl_engine.backends.shared.triton.*``.
+
+    Measured reachability, which is why this runs in a subprocess with a pinned
+    import order: with the wrong target, ``pkg.fused_add_norm`` raises
+    ``AttributeError`` in a fresh interpreter, but in a process that has already
+    imported ``rl_engine.backends.cuda.norm.fused_add_norm`` -- which any CUDA test
+    run does -- the submodule is an attribute of that package and the Triton import
+    path silently returns the CUDA module. A comparison written that way would have
+    compared CUDA against itself and reported perfect agreement. In-process this is
+    unpinnable: whichever of the two packages is imported first wins, because the
+    parent ``kernels/ops/triton/__init__.py`` forwards unknown names to
+    ``rl_engine.backends.shared.triton``, which re-exports no subpackage names.
+    """
+    program = textwrap.dedent(
+        """
+        import rl_engine.backends.cuda.norm.fused_add_norm  # the order that hid it
+        import rl_engine.kernels.ops.triton.norm as pkg
+
+        module = pkg.fused_add_norm
+        op = pkg.TritonFusedAddNormOp
+        assert module.__name__ == "rl_engine.backends.shared.triton.norm.fused_add_norm", (
+            f"Triton shim resolved to {module.__name__}"
+        )
+        assert op.__module__ == "rl_engine.backends.shared.triton.norm.fused_add_norm", (
+            f"Triton op resolved to {op.__module__}"
+        )
+        print("ok")
+        """
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", program],
+        cwd=str(Path(__file__).resolve().parents[3]),
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "ok" in proc.stdout
+
 
 _CONTRACT = load_contract()
 
@@ -307,3 +359,71 @@ def test_eps_values_reach_the_kernel(dtype):
     )[:2]
     assert not torch.equal(base_pre, moved_pre), "pre_eps does not reach the kernel"
     assert torch.equal(base_res, same_res), "pre_eps leaked into the residual output"
+
+
+@requires_cuda
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_triton_zero_rows_is_a_no_op(dtype):
+    """Triton skips empty grids, so this is a parity test against the CUDA path.
+
+    The CUDA kernel had to be taught to return before the launch; this pins that
+    the two backends agree on an empty batch rather than one raising.
+    """
+    hidden, residual, post_w, pre_w = _inputs((0, HIDDEN_SIZE), dtype)
+    res_out, pre_out = fused_add_norm_triton_forward(
+        hidden, residual, post_w, pre_w, post_eps=POST_NORM_EPS, pre_eps=RMS_NORM_EPS
+    )[:2]
+    torch.cuda.synchronize()
+    assert res_out.shape == (0, HIDDEN_SIZE)
+    assert pre_out.shape == (0, HIDDEN_SIZE)
+
+    probe = torch.ones(16, 16, device="cuda")
+    assert float(probe.sum()) == 256.0
+
+
+_OVERFLOW_ROWS = 2**31 // HIDDEN_SIZE + 1  # 322,639 at H=6656: the first wrapping row
+_OVERFLOW_GIB = _OVERFLOW_ROWS * HIDDEN_SIZE * 2 * 4 / 1024**3
+
+
+@requires_cuda
+def test_triton_row_offset_does_not_wrap_at_two_billion_elements():
+    """``row * H`` has to be computed in int64, not widened after the fact.
+
+    ``tl.program_id`` is int32 and ``H`` is a constexpr int, so the product wrapped
+    at 2**31 and the kernel read out of bounds: measured as a CUDA illegal memory
+    access at exactly this row count, and correct results one thousand rows below
+    it. The CUDA kernel casts to ``size_t`` before multiplying, so this was a
+    backend divergence as well as a fault.
+
+    The skip is decided here rather than in a ``skipif``, after dropping the
+    caching allocator's blocks, because a collection-time check reads the free
+    memory of an idle card and this test needs about 16 GiB by the time it
+    actually runs. A ``skipif`` made it pass alone and fail inside a full session.
+    """
+    gc.collect()
+    torch.cuda.empty_cache()
+    free_gib = torch.cuda.mem_get_info()[0] / 1024**3
+    if free_gib < _OVERFLOW_GIB + 4.0:
+        pytest.skip(f"needs about {_OVERFLOW_GIB + 4.0:.0f} GiB free, {free_gib:.1f} available")
+
+    dtype = torch.bfloat16
+    post_w = torch.randn(HIDDEN_SIZE, device="cuda", dtype=dtype)
+    pre_w = torch.randn_like(post_w)
+    hidden = torch.randn(_OVERFLOW_ROWS, HIDDEN_SIZE, device="cuda", dtype=dtype)
+    residual = torch.randn_like(hidden)
+    try:
+        res_out = fused_add_norm_triton_forward(
+            hidden, residual, post_w, pre_w, post_eps=POST_NORM_EPS, pre_eps=RMS_NORM_EPS
+        )[0]
+        torch.cuda.synchronize()
+
+        # The last row is the one the wrapped offset would have missed.
+        hid = hidden[-1].float()
+        rstd = torch.rsqrt((hid * hid).mean() + POST_NORM_EPS)
+        post = (hid * rstd * (1.0 + post_w.float())).to(dtype).float()
+        want = (residual[-1].float() + post).to(dtype)
+        assert torch.equal(res_out[-1], want)
+    finally:
+        del hidden, residual
+        gc.collect()
+        torch.cuda.empty_cache()
