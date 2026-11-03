@@ -10,11 +10,12 @@ profile, not a backend-neutral canonical numerical contract.
 The provider targeted by the original comparison is ``causal_conv1d_update``,
 which vLLM calls once per decode token before the Gated DeltaNet recurrence.
 
-The incoming token is rounded to the cache dtype. Products are rounded in
-operand dtype before sequential FP32 accumulation, starting from bias (or zero).
-This matters for BF16 caches: promoting operands before multiplication loses the
-provider's product rounding. Activation may still differ at transcendental ULP
-scale; this reference does not establish model-level bitwise equality.
+The incoming token is rounded to the cache dtype; weights retain their dtype,
+as in vLLM 0.30.0. Products use the promoted cache/weight dtype before sequential
+FP32 accumulation, starting from bias (or zero). BF16 cache and BF16 weights
+therefore round each product to BF16, whereas FP32 weights produce FP32 products
+even with a BF16 cache. Activation may still differ at transcendental ULP scale;
+this reference does not establish model-level bitwise equality.
 
 """
 

@@ -112,6 +112,65 @@ def test_conv_bf16_products_round_before_fp32_accumulation():
     assert out.item() == 0.0
 
 
+@pytest.mark.parametrize("cache_dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("weight_dtype", [torch.float32, torch.bfloat16])
+def test_conv_mixed_dtype_preserves_provider_product_promotion(cache_dtype, weight_dtype):
+    # vLLM 0.30 casts the token, not the weights. An FP32 weight must not be
+    # narrowed even with a BF16 cache (PR #469, issuecomment-6429237865).
+    state = torch.zeros(2, 1, 1, dtype=cache_dtype)
+    state[1, 0, 0] = 1.0078125
+    before = state.clone()
+    x = torch.tensor([[-1.0157]])
+    weight = torch.tensor([[1.0079, 1.0]], dtype=weight_dtype)
+    bias = torch.tensor([0.125])
+    out, updated = CausalConv1dUpdateOp().forward_fp32(
+        x, state, weight, torch.tensor([1]), bias=bias, activation=None
+    )
+    product_dtype = torch.promote_types(cache_dtype, weight_dtype)
+    window = [state[1, 0, 0], x[0, 0].to(cache_dtype)]
+    expected = bias[0].clone()
+    for tap in range(2):
+        product = (window[tap].double() * weight[0, tap].double()).to(product_dtype)
+        expected = expected + product.float()
+    assert torch.equal(out[0, 0], expected)
+    assert torch.equal(state, before)
+    assert torch.equal(updated[0], before[0])
+    assert torch.equal(updated[1, 0, 0], x[0, 0].to(cache_dtype))
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("widen", [False, True])
+def test_gdn_returned_state_is_independent_and_differentiable(dtype, widen):
+    # Noncontiguous cache: both same-dtype copying and widening must preserve
+    # values, isolate writes, and carry gradients through untouched blocks.
+    state = torch.arange(24, dtype=torch.float32).reshape(3, 2, 2, 2)
+    state = state.transpose(-1, -2).to(dtype).detach().requires_grad_()
+    before = state.detach().clone()
+    op = GatedDeltaRuleRecurrentStepOp()
+    forward = op.forward_fp32 if widen else op.forward
+    out, updated = forward(
+        torch.ones(2, 12),
+        torch.zeros(2, 2),
+        torch.zeros(2, 2),
+        torch.zeros(2),
+        torch.zeros(2),
+        state,
+        torch.tensor([0, -1]),
+        scale=1.0,
+        num_k_heads=2,
+    )
+    target_dtype = torch.float32 if widen else dtype
+    assert updated.dtype == target_dtype
+    assert torch.equal(updated, before.to(target_dtype))
+    assert updated.data_ptr() != state.data_ptr()
+    assert torch.count_nonzero(out) == 0
+    updated.sum().backward()
+    assert torch.equal(state.grad, torch.ones_like(state))
+    with torch.no_grad():
+        updated[0] = -1
+    assert torch.equal(state, before)
+
+
 def test_softplus_large_branch_has_finite_gradient():
     from rl_engine.reference.linear_attn.gated_delta_rule import _softplus
 

@@ -7,6 +7,10 @@ This reusable PyTorch reference preserves the vLLM 0.30.0 decode arithmetic
 from PR #469; it does not define a backend-neutral canonical numerical profile.
 It needs neither vLLM nor a compiled extension and can run on CPU.
 
+Gates are evaluated per sequence to make scalar/vector tail selection independent
+of batch size. This can change CPU last bits relative to the batched #469 gates;
+it does not establish bitwise equality across CPU ISAs, devices, or PyTorch builds.
+
 The provider targeted by the original Qwen3-Next comparison is:
 ``fused_recurrent_gated_delta_rule_packed_decode``. That kernel -- not
 ``fused_sigmoid_gating_delta_rule_update`` -- is the path a pure RL rollout
@@ -316,29 +320,34 @@ class GatedDeltaRuleRecurrentStepOp:
         q = q[:, head_of, :]  # [B, HV, K]
         k = k[:, head_of, :]
 
-        # Fused gating, fp32, with the kernel's softplus branch.
-        decay = -torch.exp(A_log.float()) * _softplus(a.float() + dt_bias.float())
-        beta = torch.sigmoid(b.float())
-
         active = ssm_state_indices > NULL_BLOCK_ID
         out = torch.zeros(batch, 1, hv, v_dim, dtype=torch.float32, device=q.device)
         # The returned state carries `state_dtype`, not the caller's: forward_fp32
         # exists precisely to run the recurrence without the per-token rounding,
         # so it must be able to widen a bf16 cache to fp32.
-        new_state = state.to(state_dtype).clone()
+        new_state = state.to(dtype=state_dtype, copy=True)
         if not bool(active.any()):
             return out.to(output_dtype), new_state
 
         rows = torch.nonzero(active, as_tuple=False).flatten()
         blocks = ssm_state_indices[rows].long()
 
+        # CPU transcendental kernels can round differently in vector and scalar
+        # tails (notably AVX2 sigmoid). Keep every gate call's shape independent
+        # of batch size, retaining fp32 arithmetic and the softplus branch.
+        a_exp, bias = torch.exp(A_log.float()), dt_bias.float()
+        decay_factor = torch.stack(
+            [torch.exp(-a_exp * _softplus(row.float() + bias)) for row in a[rows]]
+        )
+        beta = torch.stack([torch.sigmoid(row.float()) for row in b[rows]])
+
         h = state[blocks].float()  # [R, HV, V, K]
-        h = h * torch.exp(decay[rows]).unsqueeze(-1).unsqueeze(-1)
+        h = h * decay_factor.unsqueeze(-1).unsqueeze(-1)
 
         k_sel, q_sel, v_sel = k[rows], q[rows], v[rows]
         # v -= h @ k, then v *= beta, then h += outer(v, k), then o = h @ q.
         v_sel = v_sel - _fixed_order_contract(h, k_sel.unsqueeze(-2))
-        v_sel = v_sel * beta[rows].unsqueeze(-1)
+        v_sel = v_sel * beta.unsqueeze(-1)
         h = h + v_sel.unsqueeze(-1) * k_sel.unsqueeze(-2)
         o = _fixed_order_contract(h, q_sel.unsqueeze(-2))
 

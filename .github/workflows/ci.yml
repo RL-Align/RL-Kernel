@@ -82,6 +82,18 @@ jobs:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \
             tests/ops/linear_attn/ tests/reference/linear_attn/
 
+      - name: Run GDN Batch-Invariance Regression Tests (AVX2)
+        env:
+          ATEN_CPU_CAPABILITY: avx2
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+        run: |
+          if ! grep -qw avx2 /proc/cpuinfo; then
+            echo "::warning::AVX2 is unavailable on this runner; skipping forced-AVX2 regression."
+            exit 0
+          fi
+          python -c "import torch; assert torch.backends.cpu.get_cpu_capability() == 'AVX2'"
+          python -m pytest -q tests/reference/linear_attn/test_gdn_reference.py -k gdn_batch_invariance
+
       - name: Run Cross-Configuration Contract Tests (CPU-safe)
         run: |
           PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \

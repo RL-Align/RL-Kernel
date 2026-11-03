@@ -113,6 +113,54 @@ def test_gdn_batch_invariance_and_repeated_state_cast(dtype, k, v):
         args[-2] = rounded
 
 
+@pytest.mark.parametrize("heads", [1, 4, 8, 16, 33])
+def test_gdn_batch_invariance_across_gate_vector_widths(heads):
+    generator = torch.Generator().manual_seed(469)
+
+    def rand(*shape):
+        return torch.randn(*shape, generator=generator)
+
+    # Cross scalar/vector gate boundaries, including a non-vector-aligned head count.
+    args = [
+        rand(5, 2 * 7 + heads * 3),
+        rand(5, heads),
+        rand(5, heads),
+        rand(heads),
+        rand(heads),
+        rand(6, heads, 3, 7) * 0.1,
+        torch.arange(1, 6),
+    ]
+    op = GatedDeltaRuleRecurrentStepOp()
+    full, state = op(*args, scale=7**-0.5, num_k_heads=1)
+    for rows in (torch.tensor([4, 0]), torch.tensor([2]), torch.arange(4, -1, -1)):
+        subset = [x[rows] if i in (0, 1, 2, 6) else x for i, x in enumerate(args)]
+        part, part_state = op(*subset, scale=7**-0.5, num_k_heads=1)
+        assert torch.equal(part, full[rows])
+        blocks = args[-1][rows]
+        assert torch.equal(part_state[blocks], state[blocks])
+        untouched = torch.ones(state.shape[0], dtype=torch.bool)
+        untouched[blocks] = False
+        assert torch.equal(part_state[untouched], args[-2][untouched])
+
+
+def test_gdn_backward_matches_independent_fp64_oracle():
+    args = tuple(
+        x.detach().requires_grad_() if x.is_floating_point() else x for x in _inputs(torch.float32)
+    )
+    op = GatedDeltaRuleRecurrentStepOp()
+    out, state = op(*args, scale=33**-0.5, num_k_heads=2)
+    expected_out, expected_state = _gdn_oracle(args, normalize=True)
+    inputs = args[:-1]
+    gradients = torch.autograd.grad(out.sum() + state.sum(), inputs)
+    expected_gradients = torch.autograd.grad(expected_out.sum() + expected_state.sum(), inputs)
+    for actual, expected in zip(gradients, expected_gradients):
+        assert torch.isfinite(actual).all()
+        torch.testing.assert_close(actual.double(), expected.double(), rtol=2e-5, atol=2e-6)
+    for gradient in gradients[:3]:
+        assert torch.count_nonzero(gradient[[1, 3]]) == 0
+    assert torch.equal(gradients[-1][[0, 2, 3, 5]], torch.ones_like(args[-2][[0, 2, 3, 5]]))
+
+
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.parametrize("dim_first", [True, False])
 @pytest.mark.parametrize("activation", [None, "silu", "swish"])
