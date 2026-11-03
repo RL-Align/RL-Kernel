@@ -239,6 +239,7 @@ def fused_add_norm_triton_forward(
         POST_EPS=float(post_eps),
         PRE_EPS=float(pre_eps),
         BLOCK_H=block,
+        enable_fp_fusion=False,
     )
     return (
         res_out.view_as(hidden),
@@ -294,6 +295,7 @@ def fused_add_norm_triton_backward(
         partial_pre,
         H=width,
         BLOCK_H=block,
+        enable_fp_fusion=False,
     )
     return d_hidden, d_residual, partial_post, partial_pre
 

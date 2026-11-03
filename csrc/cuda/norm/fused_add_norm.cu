@@ -24,9 +24,11 @@
 // row-fold helper.
 //
 // Element-wise expressions are written in the same association order as the
-// Triton kernel so that, when the two are compared, the reduction is the only
-// thing left to differ. FP contraction is left at the build's default like the
-// rest of csrc/cuda.
+// Triton kernel, with explicit round-to-nearest intrinsics so that neither side
+// contracts a multiply and an add into one FFMA, so that when the two are
+// compared the reduction is the only thing left to differ. The Triton side gets
+// the same guarantee from enable_fp_fusion=False, which both the NVIDIA and the
+// AMD Triton backends accept, so no platform-specific code is added for it.
 
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
@@ -39,6 +41,24 @@
 #include <assert.h>
 
 namespace {
+
+// Explicit round-to-nearest arithmetic, so nvcc cannot contract a multiply and
+// an add into one FFMA. The RFC forbids FP contraction of recomputed values, and
+// one contraction here is not merely a rounding difference: at the first
+// narrowing point the optimiser fused ``hidden * rstd * (1 + w)`` with
+// ``+ residual`` and the declared cast stopped happening. Measured on FP32 at
+// 256x32 with the residual on a 1/64 grid, before this change: 1757 of 8192
+// outputs differed from the contract's two-rounding form and 0 differed from the
+// single-rounding FFMA form. The narrow dtypes hid it because ``narrow_to``
+// is a real rounding there; FP32 is the dtype where the cast is a no-op and the
+// contraction is therefore invisible to every tolerance comparison.
+//
+// Per-expression intrinsics rather than ``--fmad=false``, because nvcc_flags in
+// build_tools/extensions.py is one list shared by every .cu in the extension and
+// would change the numerics of already-merged operators.
+__device__ __forceinline__ float mul_rn(float a, float b) { return __fmul_rn(a, b); }
+__device__ __forceinline__ float add_rn(float a, float b) { return __fadd_rn(a, b); }
+__device__ __forceinline__ float sub_rn(float a, float b) { return __fsub_rn(a, b); }
 
 template <typename scalar_t>
 __device__ __forceinline__ float load_as_float(const scalar_t* ptr) {
@@ -129,7 +149,7 @@ __global__ void fused_add_norm_fwd_kernel(
     float local = 0.0f;
     for (int col = tid; col < H; col += blockDim.x) {
         const float hv = load_as_float<scalar_t>(h_row + col);
-        local += hv * hv;
+        local = add_rn(local, mul_rn(hv, hv));
     }
     const float rp = rsqrtf(block_reduce_sum(local) / static_cast<float>(H) + post_eps);
     if (tid == 0) rstd_post[row] = rp;
@@ -139,9 +159,9 @@ __global__ void fused_add_norm_fwd_kernel(
     // needed between the write and the re-read.
     for (int col = tid; col < H; col += blockDim.x) {
         const float hv = load_as_float<scalar_t>(h_row + col);
-        const float gain = 1.0f + load_as_float<weight_t>(post_w + col);
-        const float post = narrow_to<scalar_t>(hv * rp * gain);
-        const float res = load_as_float<scalar_t>(r_row + col) + post;
+        const float gain = add_rn(1.0f, load_as_float<weight_t>(post_w + col));
+        const float post = narrow_to<scalar_t>(mul_rn(mul_rn(hv, rp), gain));
+        const float res = add_rn(load_as_float<scalar_t>(r_row + col), post);
         store_from_float<scalar_t>(ro_row + col, res);
     }
 
@@ -149,15 +169,15 @@ __global__ void fused_add_norm_fwd_kernel(
     local = 0.0f;
     for (int col = tid; col < H; col += blockDim.x) {
         const float rv = load_as_float<scalar_t>(ro_row + col);
-        local += rv * rv;
+        local = add_rn(local, mul_rn(rv, rv));
     }
     const float rq = rsqrtf(block_reduce_sum(local) / static_cast<float>(H) + pre_eps);
     if (tid == 0) rstd_pre[row] = rq;
 
     for (int col = tid; col < H; col += blockDim.x) {
         const float rv = load_as_float<scalar_t>(ro_row + col);
-        const float gain = 1.0f + load_as_float<weight_t>(pre_w + col);
-        store_from_float<scalar_t>(po_row + col, rv * rq * gain);
+        const float gain = add_rn(1.0f, load_as_float<weight_t>(pre_w + col));
+        store_from_float<scalar_t>(po_row + col, mul_rn(mul_rn(rv, rq), gain));
     }
 }
 
@@ -187,9 +207,9 @@ __global__ void fused_add_norm_bwd_kernel(
     float local = 0.0f;
     for (int col = tid; col < H; col += blockDim.x) {
         const float gp = load_as_float<scalar_t>(g_pre + base + col);
-        const float gain = 1.0f + load_as_float<weight_t>(pre_w + col);
+        const float gain = add_rn(1.0f, load_as_float<weight_t>(pre_w + col));
         const float ro = load_as_float<scalar_t>(res_out + base + col);
-        local += (gp * gain) * ro;
+        local = add_rn(local, mul_rn(mul_rn(gp, gain), ro));
     }
     const float dot_pre = block_reduce_sum(local) / static_cast<float>(H);
 
@@ -202,27 +222,32 @@ __global__ void fused_add_norm_bwd_kernel(
     local = 0.0f;
     for (int col = tid; col < H; col += blockDim.x) {
         const float gp = load_as_float<scalar_t>(g_pre + base + col);
-        const float gain = 1.0f + load_as_float<weight_t>(pre_w + col);
+        const float gain = add_rn(1.0f, load_as_float<weight_t>(pre_w + col));
         const float ro = load_as_float<scalar_t>(res_out + base + col);
-        const float scaled = gp * gain;
-        const float d_from_pre = narrow_to<scalar_t>(rq * scaled - ro * rq * rq * rq * dot_pre);
-        const float d_ro = narrow_to<scalar_t>(load_as_float<scalar_t>(g_res + base + col) + d_from_pre);
+        const float scaled = mul_rn(gp, gain);
+        const float d_from_pre = narrow_to<scalar_t>(sub_rn(
+            mul_rn(rq, scaled),
+            mul_rn(mul_rn(mul_rn(mul_rn(ro, rq), rq), rq), dot_pre)));
+        const float d_ro = narrow_to<scalar_t>(
+            add_rn(load_as_float<scalar_t>(g_res + base + col), d_from_pre));
         d_residual[base + col] = d_ro;
-        partial_pre_w[base + col] = gp * ro * rq;
+        partial_pre_w[base + col] = mul_rn(mul_rn(gp, ro), rq);
 
         const float hv = load_as_float<scalar_t>(hidden + base + col);
-        const float pgain = 1.0f + load_as_float<weight_t>(post_w + col);
-        local += (d_ro * pgain) * hv;
+        const float pgain = add_rn(1.0f, load_as_float<weight_t>(post_w + col));
+        local = add_rn(local, mul_rn(mul_rn(d_ro, pgain), hv));
     }
     const float dot_post = block_reduce_sum(local) / static_cast<float>(H);
 
     for (int col = tid; col < H; col += blockDim.x) {
         const float d_ro = d_residual[base + col];
         const float hv = load_as_float<scalar_t>(hidden + base + col);
-        const float pgain = 1.0f + load_as_float<weight_t>(post_w + col);
-        const float scaled = d_ro * pgain;
-        d_hidden[base + col] = rp * scaled - hv * rp * rp * rp * dot_post;
-        partial_post_w[base + col] = d_ro * hv * rp;
+        const float pgain = add_rn(1.0f, load_as_float<weight_t>(post_w + col));
+        const float scaled = mul_rn(d_ro, pgain);
+        d_hidden[base + col] = sub_rn(
+            mul_rn(rp, scaled),
+            mul_rn(mul_rn(mul_rn(mul_rn(hv, rp), rp), rp), dot_post));
+        partial_post_w[base + col] = mul_rn(mul_rn(d_ro, hv), rp);
     }
 }
 
