@@ -99,6 +99,11 @@ jobs:
         run: |
           python -m pytest tests/ops/attention/test_attention.py -v -k "not large and not gpu"
 
+      - name: Run DSV4 Route-Weight Gradient Tests (CPU-safe)
+        run: |
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \
+            tests/ops/moe/test_route_weight_grad.py
+
       - name: Run WS2 Attention Cross-Configuration Tests (CPU-safe)
         run: |
           PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \
@@ -111,6 +116,12 @@ jobs:
             tests/validation/ablation/test_rocm_e2e_ablation.py \
             tests/distributed/cp/test_cp_attention.py \
             tests/integrations/engines/train/megatron/test_cp_attention_transformer_engine.py
+
+      - name: Run DSV4 Output Combine Tests (CPU-safe)
+        run: |
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \
+            tests/reference/test_moe_output_combine.py \
+            tests/ops/moe/test_output_combine.py
 
       - name: Run KV-Cache Attention Ground-Truth Tests (CPU-safe)
         run: |
@@ -126,6 +137,9 @@ jobs:
             tests/backends/rocm/test_rocm_lm_head_weight_cache.py \
             -v
 
+      - name: Run DSV4 LoRA Math and Autograd Tests (CPU-safe)
+        run: python -m pytest tests/models/deepseek_v4/test_lora.py -q
+
       - name: Run WS2 Vocab-Parallel Logprob Tests (CPU-safe)
         run: python -m pytest tests/distributed/tp/test_vocab_parallel_logp.py -v
 
@@ -138,6 +152,12 @@ jobs:
             tests/benchmarks/test_rocm_collective_benchmark.py \
             tests/backends/rocm/test_rocm_paged_workspace.py \
             tests/distributed/collectives/test_collective_ipc_errors.py
+
+      - name: Run DSV4 Expert Training Module Tests (CPU-safe)
+        run: |
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \
+            tests/models/deepseek_v4/test_expert_training.py \
+            tests/backends/rocm/test_expert_training_binding.py
 
   docs:
     runs-on: ubuntu-latest

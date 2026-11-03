@@ -53,6 +53,9 @@ provider's API charges. Use a dedicated credential and the provider's spending
 limit if available. No separate GitHub personal access token is needed: the job
 uses `GITHUB_TOKEN` with `contents: read` and `pull-requests: write`. Repository or
 organization Actions policy must allow the pinned OCR action and PR comments.
+For public repositories, also verify that an applicable repository or
+organization event policy permits `pull_request_target`; action and token
+permissions alone do not enable a blocked event.
 
 If the endpoint, credential or model is missing, the job records that review was
 not performed in its Actions summary and makes no model call. This is not a clean
@@ -83,7 +86,7 @@ tests cannot establish GPU parity, and a static review cannot establish measured
 speedups or bitwise agreement. Existing CPU/GPU CI and CODEOWNER review remain
 the sources of execution evidence and merge decisions.
 
-The rules explicitly include `.cu`, `.cuh` and `.hip` sources and test/validation
+The rules explicitly include `.cu`, `.cuh`, `.hip` and `.asc` sources and test/validation
 files, which OCR's default extension or path filters can otherwise omit.
 Includes override those default filters; they are not an exclusive file list.
 Rules use first-match order, with focused directories before the catch-all.
@@ -93,7 +96,10 @@ equality and includes style suggestions; intentional exact comparisons enforcing
 RL-Kernel's numerical contracts must not generate such findings. Multiple project
 rules do not combine with one another.
 
-Every run reviews the full PR diff from its merge-base. `incremental: 'true'`
+Every run compares the PR diff from its merge-base, but not every changed file
+is dispatched for review. OCR 1.13.3 retains deleted files in the change list
+without dispatching them; deletion-only PRs can have no file review.
+`incremental: 'true'`
 suppresses overlapping inline comments; it does not reduce review scope or
 prove that an earlier finding was fixed. Cross-push checkpoints and automatic
 thread resolution are disabled. The model may return no findings even when

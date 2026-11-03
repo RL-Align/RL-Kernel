@@ -12,6 +12,7 @@ from rl_engine.contracts.operators.moe import (
     MoEOutputCombinePlan,
 )
 from rl_engine.reference.moe import (
+    MoEOutputCombineReferenceOp,
     combine_local_input_gradients,
     inverse_map_expert_output,
     inverse_mapping_provenance,
@@ -19,6 +20,8 @@ from rl_engine.reference.moe import (
     merge_residual_gradient_after_rms,
     prepare_output_combine,
 )
+from rl_engine.runtime.registry import kernel_registry
+from rl_engine.runtime.semantic_registry import OperatorRequirements, OperatorResolutionError
 
 
 def _plan(**kwargs):
@@ -381,6 +384,53 @@ def test_inverse_mapping_matches_declared_input_token_count():
     )
     with pytest.raises(MoEOutputCombineContractError, match="disagrees"):
         inverse_map_expert_output(plan, inputs, num_tokens=3)
+
+
+def test_p6_reference_backend_is_explicitly_registered():
+    descriptor = kernel_registry.semantic.backend_descriptor(
+        "moe_output_combine", "rlkernel.reference.moe_output_combine.v1"
+    )
+
+    assert descriptor is not None
+    assert descriptor.is_strictly_observable
+    assert descriptor.fallback_policy.value == "error"
+
+
+def test_p6_reference_backend_can_be_resolved_and_instantiated():
+    session = kernel_registry.semantic.session()
+    resolution = session.resolve(
+        semantic_op="moe_output_combine",
+        requested_backend="rlkernel.reference.moe_output_combine.v1",
+        target="training",
+        requirements=OperatorRequirements(
+            device="cpu",
+            dtype="bfloat16",
+            topology={"world_size": 1, "sharding": "unsharded"},
+        ),
+    )
+    instance = session.instantiate(resolution)
+
+    assert isinstance(instance, MoEOutputCombineReferenceOp)
+    assert instance.backend_id == "rlkernel.reference.moe_output_combine.v1"
+    plan, inputs = _request()
+    inputs = replace(inputs, num_tokens=2)
+    prepared = instance.prepare(plan, inputs)
+    assert prepared.provenance["plan_fingerprint"] == plan.fingerprint
+
+
+def test_p6_reference_backend_rejects_distributed_topology():
+    session = kernel_registry.semantic.session()
+    with pytest.raises(OperatorResolutionError, match="topology"):
+        session.resolve(
+            semantic_op="moe_output_combine",
+            requested_backend="rlkernel.reference.moe_output_combine.v1",
+            target="training",
+            requirements=OperatorRequirements(
+                device="cpu",
+                dtype="bfloat16",
+                topology={"world_size": 2, "sharding": "unsharded"},
+            ),
+        )
 
 
 def _gradient_request(*, shared=False, residual=False, run_id="run-1"):
