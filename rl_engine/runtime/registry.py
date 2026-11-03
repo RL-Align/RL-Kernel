@@ -205,6 +205,30 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
     return (
         OperatorBackendDescriptor(
+            semantic_op="moe_output_combine",
+            backend_id="rlkernel.reference.moe_output_combine.v1",
+            supported_targets=frozenset({"training"}),
+            supported_devices=frozenset({"cpu"}),
+            supported_dtypes=frozenset({"float32", "bfloat16", "float16"}),
+            supported_topologies={
+                "training": {
+                    "world_size": (1,),
+                    "sharding": ("unsharded",),
+                }
+            },
+            determinism_or_alignment_properties={
+                "algorithm": "validated_p6_request_preparation_only",
+                "deterministic": True,
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.PROCESS,
+            implementation_class_or_factory=(
+                "rl_engine.reference.moe.output_combine.MoEOutputCombineReferenceOp"
+            ),
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="MoEOutputCombineReferenceOp-p6-contract-v1",
+        ),
+        OperatorBackendDescriptor(
             semantic_op="router_gate_projection",
             backend_id="rlkernel.aiter_fixed_bf16_fp32.v1",
             supported_targets=frozenset({"rollout", "training"}),
