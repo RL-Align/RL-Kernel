@@ -26,17 +26,6 @@ def _accuracy_tolerance(dtype: torch.dtype, judgment: str) -> tuple[float, float
     return spec.rtol, spec.atol
 
 
-def test_benchmark_reports_unavailable_when_git_cannot_start(monkeypatch):
-    from benchmarks.operators.attention import benchmark_joint_attn_softmax as benchmark
-
-    def raise_missing_git(*_args, **_kwargs):
-        raise FileNotFoundError("git executable is unavailable")
-
-    monkeypatch.setattr(benchmark.subprocess, "run", raise_missing_git)
-
-    assert benchmark._git_commit() == "unavailable"
-
-
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_byte_comparator_distinguishes_signed_zero(dtype):
     positive_zero = torch.tensor([0.0], dtype=dtype)

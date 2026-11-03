@@ -188,6 +188,7 @@ python -m pytest -p no:cacheprovider \
   tests/reference/test_joint_attn_softmax.py \
   tests/backends/cuda/test_joint_attn_softmax_cuda.py \
   tests/backends/cuda/test_joint_attn_softmax_triton.py \
+  tests/benchmarks/test_benchmark_joint_attn_softmax.py \
   tests/runtime/test_joint_attn_softmax_registry.py \
   tests/ops/attention/test_joint_attn_softmax_full_shapes.py \
   tests/build/test_build_platform_collectives.py \
@@ -205,7 +206,7 @@ The performance measurements above used WSL Ubuntu, Python 3.12.13, PyTorch
 2.13.0+cu130, Triton 3.7.1, NVIDIA driver 591.86, CUDA toolkit/runtime 13.0,
 GCC 13.3.0, and an NVIDIA GeForce RTX 5060 (compute capability 12.0).
 
-On 2026-11-03, the seven-file suite was rerun from the current worktree on the
+On 2026-11-03, the eight-file suite was rerun from the current worktree on the
 same software and GPU with NVIDIA driver 610.88. It passed **206 tests, with 0
 skipped, 0 failures, and 0 errors**. All three `check_operator.py` runs passed with
 gradient checks. Registry dispatch selected the CUDA extension with fingerprint

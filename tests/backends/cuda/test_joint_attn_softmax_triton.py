@@ -397,38 +397,6 @@ def test_explicit_key_padding_mask_preserves_prompt_padding_bytes_across_backend
         assert torch.count_nonzero(gradients[:, text_key_count:image_start]) == 0
 
 
-def test_masked_benchmark_reports_prompt_layout():
-    from argparse import Namespace
-
-    from benchmarks.operators.attention.benchmark_joint_attn_softmax import run_benchmark
-
-    report = run_benchmark(
-        Namespace(
-            rows=2,
-            dtype="bf16",
-            backward=False,
-            warmup=0,
-            iterations=1,
-            backends=["cuda", "triton", "pytorch"],
-            cases={"synthetic": 513},
-            valid_text_keys=73,
-        )
-    )
-
-    assert report["schema_version"] == "rlkernel.joint_attn_softmax_benchmark.v3"
-    assert report["configuration"]["valid_text_keys"] == 73
-    assert report["configuration"]["warmup"] == 0
-    assert report["configuration"]["iterations"] == 1
-    assert report["environment"]["git_commit"] != "unavailable"
-    assert {record["backend"] for record in report["results"]} == {
-        "cuda",
-        "triton",
-        "pytorch",
-    }
-    assert all(record["masked_prompt_keys"] == 439 for record in report["results"])
-    assert all(record["byte_equal_to_cuda"] for record in report["results"])
-
-
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.parametrize("output_fp32", [False, True])
 def test_explicit_key_padding_mask_uses_each_batch_layout_across_backends(dtype, output_fp32):
