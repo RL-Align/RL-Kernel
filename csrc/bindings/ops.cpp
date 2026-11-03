@@ -256,6 +256,25 @@ std::vector<torch::Tensor> swiglu_packed_backward_cuda(
     torch::Tensor dy,
     torch::Tensor gate_up);
 
+// Fused shared-expert fc1 + SwiGLU (csrc/cuda/moe/fused_shared_expert_mlp.cu)
+torch::Tensor fused_shared_expert_fc1_swiglu(torch::Tensor x, torch::Tensor w_fc1);
+
+// SM90 fused routed-expert MLP (MXFP8 x MXFP4, FP8 WGMMA): csrc/cuda/moe/sm90_fused_moe_mlp.cu
+std::vector<torch::Tensor> sm90_moe_prepare_weight_ref(torch::Tensor w_scales);
+torch::Tensor sm90_moe_fc1_forward(torch::Tensor a_codes, torch::Tensor a_scales,
+                                   torch::Tensor w1_codes, torch::Tensor w1_scales,
+                                   torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets);
+std::vector<torch::Tensor> sm90_moe_fc1_swiglu_quant_forward(
+    torch::Tensor a_codes, torch::Tensor a_scales, torch::Tensor w1_codes,
+    torch::Tensor w1_scales, torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets, torch::Tensor p_s);
+torch::Tensor sm90_moe_fc3_forward(torch::Tensor h_codes, torch::Tensor h_scales,
+                                   torch::Tensor w2_codes, torch::Tensor w2_scales,
+                                   torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets);
+torch::Tensor sm90_moe_fused_mlp_forward(
+    torch::Tensor a_codes, torch::Tensor a_scales, torch::Tensor w1_codes, torch::Tensor w1_scales,
+    torch::Tensor w1_ref, torch::Tensor w1_res, torch::Tensor w2_codes, torch::Tensor w2_scales,
+    torch::Tensor w2_ref, torch::Tensor w2_res, torch::Tensor expert_offsets, torch::Tensor p_s);
+
 // RMSNorm Declarations & Wrappers
 
 void rmsnorm_forward_cuda(
@@ -289,6 +308,15 @@ int64_t rmsnorm_backward_dw_chunks_cuda(int64_t rows);
 void reduce_rows_fp32_left_fold_cuda(
   torch::Tensor rows,
   torch::Tensor output);
+
+torch::Tensor mhc_pre_h_aggregate_cuda(
+  torch::Tensor residual,
+  torch::Tensor pre);
+
+std::vector<torch::Tensor> mhc_pre_h_aggregate_backward_cuda(
+  torch::Tensor grad_output,
+  torch::Tensor residual,
+  torch::Tensor pre);
 #endif
 
 static void rmsnorm_check_input(const torch::Tensor& x, const char* name) {
@@ -500,6 +528,15 @@ at::Tensor prefix_shared_attention(
 #endif
 #endif
 
+#if defined(KERNEL_ALIGN_WITH_CUDA)
+std::vector<torch::Tensor> mhc_rmsnorm_residual_forward(torch::Tensor x, torch::Tensor gamma, double eps);
+std::vector<torch::Tensor> mhc_rmsnorm_residual_backward(torch::Tensor dy,
+                                                         torch::Tensor dr,
+                                                         torch::Tensor x,
+                                                         torch::Tensor gamma,
+                                                         torch::Tensor r);
+#endif
+
 // PyBind11 Module Registration
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.doc() = "RL-Kernel High-Performance Operator Extension Library";
@@ -507,6 +544,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("fused_logp", &fused_logp_forward, "Fused logp forward fallback");
 #if !defined(USE_ROCM) && !defined(KERNEL_ALIGN_WITH_ROCM)
     m.def("ordered_logp_merge", &ordered_logp_merge, "Rank-ordered FP32 logp merge");
+#endif
+
+#if defined(KERNEL_ALIGN_WITH_CUDA)
+    m.def("mhc_rmsnorm_residual_forward", &mhc_rmsnorm_residual_forward);
+    m.def("mhc_rmsnorm_residual_backward", &mhc_rmsnorm_residual_backward);
 #endif
 
 #if defined(__CUDACC__) || defined(KERNEL_ALIGN_WITH_SM90)
@@ -726,6 +768,14 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "reduce_rows_fp32_left_fold",
         &reduce_rows_fp32_left_fold,
         "Ascending-row FP32 left-fold reduction CUDA");
+    m.def(
+        "mhc_pre_h_aggregate",
+        &mhc_pre_h_aggregate_cuda,
+        "Batch-invariant MHC H Aggregate CUDA");
+    m.def(
+        "mhc_pre_h_aggregate_backward",
+        &mhc_pre_h_aggregate_backward_cuda,
+        "Batch-invariant MHC H Aggregate backward CUDA (FP32 dR and dPRE)");
 #endif
 
     // registry SiLU / SwiGLU (elementwise activation)
@@ -737,6 +787,20 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Batch-invariant SwiGLU forward for [rows, 2 * intermediate]");
     m.def("swiglu_packed_backward", &swiglu_packed_backward,
           "Batch-invariant SwiGLU backward for [rows, 2 * intermediate]");
+
+    // SM90 fused routed-expert MLP (profile p5-sm90-fused-mlp-v1)
+    m.def("fused_shared_expert_fc1_swiglu", &fused_shared_expert_fc1_swiglu,
+          "Fused shared-expert fc1 + SwiGLU (det_gemm K-tree, BF16 h out)");
+    m.def("sm90_moe_prepare_weight_ref", &sm90_moe_prepare_weight_ref,
+          "Per-column reference exponents + residuals for folded MXFP4 scales (fail-closed)");
+    m.def("sm90_moe_fc1_forward", &sm90_moe_fc1_forward,
+          "Grouped MXFP8 x MXFP4 fc1 -> FP32 z [M, 2F] (SM90 FP8 WGMMA)");
+    m.def("sm90_moe_fc1_swiglu_quant_forward", &sm90_moe_fc1_swiglu_quant_forward,
+          "fc1 + clamp-SwiGLU * p_s + MX re-quant fused epilogue -> (h codes, h scales)");
+    m.def("sm90_moe_fc3_forward", &sm90_moe_fc3_forward,
+          "Grouped MXFP8 x MXFP4 fc3 -> BF16 y [M, H]");
+    m.def("sm90_moe_fused_mlp_forward", &sm90_moe_fused_mlp_forward,
+          "Single-launch fc1 -> SwiGLU -> quant -> fc3 with h_q resident in shared memory");
 
     // Deterministic standard-softmax attention (issue #147)
     m.def(

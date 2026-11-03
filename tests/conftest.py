@@ -30,6 +30,13 @@ def _add_windows_dll_dirs():
 
 _add_windows_dll_dirs()
 
+# P7 helpers (p7_doubles, megatron_training_*.py) are imported as top-level
+# modules and also run as standalone scripts; appending keeps them from
+# shadowing anything already importable.
+_TESTS_DIR = str(pathlib.Path(__file__).resolve().parent)
+if _TESTS_DIR not in sys.path:
+    sys.path.append(_TESTS_DIR)
+
 
 def _is_rocm() -> bool:
     """Whether this interpreter is running a ROCm PyTorch build.

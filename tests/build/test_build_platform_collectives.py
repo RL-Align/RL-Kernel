@@ -16,7 +16,7 @@ from build_tools import extensions
 from build_tools.extensions import _resolve_package_data_source, get_cmdclass
 
 
-def _load_extension_config(monkeypatch, *, hip: str | None) -> dict[str, Any]:
+def _load_extension_config(monkeypatch, *, hip: str | None) -> list[dict[str, Any]]:
     captured: dict[str, Any] = {}
 
     def fake_setup(**kwargs: Any) -> None:
@@ -42,26 +42,35 @@ def _load_extension_config(monkeypatch, *, hip: str | None) -> dict[str, Any]:
         monkeypatch.setenv("PYTORCH_ROCM_ARCH", "gfx942")
 
     runpy.run_path("setup.py", run_name=f"rl_kernel_setup_probe_{hip or 'cuda'}")
-    return captured["ext_modules"][0]
+    return captured["ext_modules"]
 
 
 def test_rocm_build_excludes_cuda_ipc_collective_and_driver(monkeypatch) -> None:
-    extension = _load_extension_config(monkeypatch, hip="test")
+    extension, mhc_extension = _load_extension_config(monkeypatch, hip="test")
 
     assert "csrc/cuda/collectives/deterministic_collective.cu" not in extension["sources"]
     assert "csrc/rocm/collectives/deterministic_collective.hip" in extension["sources"]
     assert "-DKERNEL_ALIGN_WITH_ROCM" in extension["extra_compile_args"]["cxx"]
     assert "-DKERNEL_ALIGN_WITH_CUDA" not in extension["extra_compile_args"]["cxx"]
     assert "-lcuda" not in extension["extra_link_args"]
+    assert "csrc/cuda/mhc/mhc_pre_h_aggregate.cu" not in extension["sources"]
+    assert mhc_extension["name"] == "rl_engine._C_mhc"
+    assert "-ffp-contract=off" in mhc_extension["extra_compile_args"]["nvcc"]
+    assert "--use_fast_math" not in mhc_extension["extra_compile_args"]["nvcc"]
 
 
 def test_cuda_build_keeps_existing_ipc_collective(monkeypatch) -> None:
-    extension = _load_extension_config(monkeypatch, hip=None)
+    extension, mhc_extension = _load_extension_config(monkeypatch, hip=None)
 
     assert "csrc/cuda/collectives/deterministic_collective.cu" in extension["sources"]
     assert "-DKERNEL_ALIGN_WITH_CUDA" in extension["extra_compile_args"]["cxx"]
     assert "-DKERNEL_ALIGN_WITH_ROCM" not in extension["extra_compile_args"]["cxx"]
     assert "-lcuda" in extension["extra_link_args"]
+    assert "csrc/cuda/mhc/mhc_pre_h_aggregate.cu" in extension["sources"]
+    assert mhc_extension["name"] == "rl_engine._C_mhc"
+    assert mhc_extension["sources"] == ["csrc/cuda/mhc/fp32_gemm_rms.cu"]
+    assert "-fmad=false" in mhc_extension["extra_compile_args"]["nvcc"]
+    assert "--use_fast_math" not in mhc_extension["extra_compile_args"]["nvcc"]
 
 
 def test_force_musa_enables_cross_compile_without_visible_device(monkeypatch) -> None:

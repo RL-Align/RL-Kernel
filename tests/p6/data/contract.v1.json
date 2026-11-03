@@ -1,0 +1,229 @@
+{
+  "boundaries": [
+    {
+      "key": "M8.canonical",
+      "phase": "forward",
+      "predecessors": []
+    },
+    {
+      "key": "M8.slot_sum",
+      "phase": "forward",
+      "predecessors": [
+        "M8.canonical"
+      ]
+    },
+    {
+      "key": "M8.merge",
+      "phase": "forward",
+      "predecessors": [
+        "M8.slot_sum"
+      ]
+    },
+    {
+      "key": "M8.output",
+      "phase": "forward",
+      "predecessors": [
+        "M8.merge"
+      ]
+    },
+    {
+      "key": "M9.local",
+      "phase": "backward",
+      "predecessors": []
+    }
+  ],
+  "context_fields": [
+    "run_id",
+    "microbatch_id",
+    "forward_id",
+    "checkpoint_id"
+  ],
+  "contract_version": "p6-task-contract.proposed.v1",
+  "foundation_compatibility": "UNVERIFIED",
+  "operators": [
+    {
+      "boundary": "M8.canonical",
+      "inputs": [
+        "plan",
+        "rows",
+        "context"
+      ],
+      "name": "canonical_unpermute_fwd",
+      "outputs": [
+        "canonical_fp32"
+      ],
+      "owner": "T02",
+      "phase": "forward",
+      "shape": "BF16[P,H] -> FP32[T,6,H]; reference/debug materialization only"
+    },
+    {
+      "boundary": "M8.slot_sum",
+      "inputs": [
+        "plan",
+        "canonical_rows",
+        "context"
+      ],
+      "name": "fixed_order_combine_fwd",
+      "outputs": [
+        "slot_partials_fp32",
+        "routed_fp32"
+      ],
+      "owner": "T03",
+      "phase": "forward",
+      "shape": "FP32[T,6,H] -> FP32[T,H]; six ordered intermediate accumulators"
+    },
+    {
+      "boundary": "M8.merge",
+      "inputs": [
+        "plan",
+        "routed",
+        "shared",
+        "residual",
+        "context"
+      ],
+      "name": "shared_residual_merge_fwd",
+      "outputs": [
+        "after_shared_fp32",
+        "precast_fp32",
+        "output_bf16"
+      ],
+      "owner": "T04",
+      "phase": "forward",
+      "shape": "FP32[T,H] + BF16[T,H] + BF16[T,H] -> BF16[T,H]"
+    },
+    {
+      "boundary": "M8.output",
+      "inputs": [
+        "plan",
+        "rows",
+        "shared",
+        "residual",
+        "context"
+      ],
+      "name": "fused_moe_combine_fwd",
+      "outputs": [
+        "output_bf16",
+        "saved_forward",
+        "trace"
+      ],
+      "owner": "T05",
+      "phase": "forward",
+      "shape": "BF16[P,H] + branches -> BF16[T,H]; CPU oracle, not a fused kernel"
+    },
+    {
+      "boundary": "M9.local",
+      "inputs": [
+        "saved",
+        "dx_rows",
+        "dx_shared",
+        "context",
+        "expected_fingerprint",
+        "shared_boundary"
+      ],
+      "name": "fused_dx_fanin_bwd",
+      "outputs": [
+        "output_fp32",
+        "output_boundary",
+        "trace"
+      ],
+      "owner": "T06",
+      "phase": "backward",
+      "shape": "FP32[P,H] + FP32[T,H] -> FP32[T,H]; same expert-input boundary"
+    }
+  ],
+  "plan_fields": [
+    "schema",
+    "context",
+    "route_ref",
+    "exchange_ref",
+    "token_ids",
+    "valid_slots",
+    "inverse_map",
+    "hidden_size",
+    "gradient_boundary",
+    "policy_hash"
+  ],
+  "policy": {
+    "accumulator_dtype": "fp32",
+    "accumulator_initialization": "first-valid-slot-copy",
+    "backward_input_dtype": "fp32",
+    "backward_output_dtype": "fp32",
+    "backward_shared_boundary": "must-equal-expert-input-boundary",
+    "forward_input_dtype": "bf16",
+    "forward_merge": [
+      "routed",
+      "shared-once",
+      "residual-once"
+    ],
+    "forward_output_dtype": "bf16-rne",
+    "foundation_compatibility": "UNVERIFIED",
+    "invalid": "skip; all-invalid accumulator is positive-zero",
+    "non_finite": "reject-in-active-inputs-and-results",
+    "production_provider": "UNSUPPORTED_CAPABILITY",
+    "residual_gradient": "external-P1-fork-join; never-added-to-expert-input-dx",
+    "return_payload": "already-weighted-per-slot-rows",
+    "route_weight_applied_count": 1,
+    "scope": "recorded-reference-only",
+    "slot_order": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "subnormal": "unsupported-in-this-reference-profile",
+    "topk": 6,
+    "unfrozen_items": [
+      "Foundation concrete ABI/version adapter and owner approval",
+      "P1 residual and P3 gate-gradient wiring",
+      "P4/P5 backward payload dtype and all cast points",
+      "invalid-slot, signed-zero and first-valid semantics owner approval"
+    ]
+  },
+  "profile": "p6.synthetic-bf16.v1",
+  "saved_forward": [
+    "plan_json",
+    "fingerprint"
+  ],
+  "schema": "p6-start-kit.v1",
+  "statuses": [
+    "PASS",
+    "SCHEMA_MISMATCH",
+    "IDENTITY_DRIFT",
+    "INVALID_DISCRETE_PLAN",
+    "STALE_RUN_METADATA",
+    "CORRUPT_METADATA",
+    "GRADIENT_BOUNDARY_MISMATCH",
+    "DTYPE_MISMATCH",
+    "UNSUPPORTED_GEOMETRY",
+    "UNSUPPORTED_CAPABILITY",
+    "NON_FINITE",
+    "BYTE_MISMATCH",
+    "MISSING_PROVENANCE",
+    "SILENT_FALLBACK",
+    "CORRUPT_ARTIFACT",
+    "INCOMPLETE_ARTIFACT",
+    "OUTPUT_EXISTS",
+    "MISSING_RANK"
+  ],
+  "tasks": {
+    "T01": "contract/fixtures/oracle/stub",
+    "T02": "unpermute reference",
+    "T03": "ordered sum reference",
+    "T04": "branch merge reference",
+    "T05": "fused forward",
+    "T06": "fused backward fan-in",
+    "T07": "provider/autograd/lifetime",
+    "T08": "conformance matrix",
+    "T09": "trace/CI/performance/evidence"
+  },
+  "trace_schema": "p6-trace-envelope.v1",
+  "upstream_handoff": {
+    "P1": "residual tensor identity and backward fork join require live binding",
+    "P3": "opaque RoutePlan version/fingerprint + canonical token/slot/valid",
+    "P4": "opaque ExchangePlan version/fingerprint + per-slot rows/inverse_map",
+    "P5": "already-weighted rows; independent shared; same-boundary backward dX",
+    "P7": "versioned envelope, policy, boundary bytes/hashes and scoped verdict"
+  }
+}

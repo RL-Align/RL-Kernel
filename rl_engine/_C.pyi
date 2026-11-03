@@ -2,6 +2,15 @@
 # This file is a type stub for the compiled C++ extension module.
 import torch
 
+def mhc_pre_h_aggregate(
+    residual: torch.Tensor,
+    pre: torch.Tensor,
+) -> torch.Tensor: ...
+def mhc_pre_h_aggregate_backward(
+    grad_output: torch.Tensor,
+    residual: torch.Tensor,
+    pre: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]: ...  # (dR FP32, dPRE FP32)
 def deterministic_collective_ipc_meta(
     tensor: torch.Tensor,
 ) -> tuple[list[int], int]: ...
@@ -250,6 +259,25 @@ def det_gemm_fwd_rhs_transposed(
     a: torch.Tensor,
     bt: torch.Tensor,
 ) -> torch.Tensor: ...
+def fused_shared_expert_fc1_swiglu(x: torch.Tensor, w_fc1: torch.Tensor) -> torch.Tensor: ...
+def sm90_moe_prepare_weight_ref(w_scales: torch.Tensor) -> list[torch.Tensor]: ...
+def sm90_moe_fc1_forward(
+    a_codes: torch.Tensor, a_scales: torch.Tensor, w1_codes: torch.Tensor, w1_scales: torch.Tensor,
+    w_ref: torch.Tensor, w_res: torch.Tensor, expert_offsets: torch.Tensor,
+) -> torch.Tensor: ...
+def sm90_moe_fc1_swiglu_quant_forward(
+    a_codes: torch.Tensor, a_scales: torch.Tensor, w1_codes: torch.Tensor, w1_scales: torch.Tensor,
+    w_ref: torch.Tensor, w_res: torch.Tensor, expert_offsets: torch.Tensor, p_s: torch.Tensor,
+) -> list[torch.Tensor]: ...
+def sm90_moe_fc3_forward(
+    h_codes: torch.Tensor, h_scales: torch.Tensor, w2_codes: torch.Tensor, w2_scales: torch.Tensor,
+    w_ref: torch.Tensor, w_res: torch.Tensor, expert_offsets: torch.Tensor,
+) -> torch.Tensor: ...
+def sm90_moe_fused_mlp_forward(
+    a_codes: torch.Tensor, a_scales: torch.Tensor, w1_codes: torch.Tensor, w1_scales: torch.Tensor,
+    w1_ref: torch.Tensor, w1_res: torch.Tensor, w2_codes: torch.Tensor, w2_scales: torch.Tensor,
+    w2_ref: torch.Tensor, w2_res: torch.Tensor, expert_offsets: torch.Tensor, p_s: torch.Tensor,
+) -> torch.Tensor: ...
 def det_gemm_da(dc: torch.Tensor, b: torch.Tensor) -> torch.Tensor: ...
 def det_gemm_db(a: torch.Tensor, dc: torch.Tensor) -> torch.Tensor: ...
 def det_gemm_db_transposed(a: torch.Tensor, dc: torch.Tensor) -> torch.Tensor: ...
@@ -336,3 +364,13 @@ def deterministic_collective_rocm_ipc_all_gather_input(
     input: torch.Tensor,
     output: torch.Tensor,
 ) -> None: ...
+def mhc_rmsnorm_residual_forward(
+    x: torch.Tensor, gamma: torch.Tensor, eps: float
+) -> list[torch.Tensor]: ...
+def mhc_rmsnorm_residual_backward(
+    dy: torch.Tensor,
+    dr: torch.Tensor,
+    x: torch.Tensor,
+    gamma: torch.Tensor,
+    r: torch.Tensor,
+) -> list[torch.Tensor]: ...

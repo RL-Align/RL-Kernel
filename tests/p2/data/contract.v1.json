@@ -1,0 +1,414 @@
+{
+  "arithmetic": {
+    "candidate_order": "compressed_prefix_then_recent; sink_denominator_only",
+    "forbidden": [
+      "split_k",
+      "stream_k",
+      "split_kv",
+      "dynamic_num_splits",
+      "atomic_partial_accumulation",
+      "runtime_dependent_partition"
+    ],
+    "indexer_scale": "(u * fp32(64**-0.5)) * fp32(128**-0.5)",
+    "mxfp4_reference": {
+      "block": 32,
+      "element": "E2M1",
+      "packing": "even_element_low_nibble",
+      "quant_backward": "unsupported",
+      "rounding": "nearest_ties_even_saturate_6",
+      "scale": "UE8M0",
+      "scale_selection": "ceil(log2(max(amax,6*2**-126)/6)); clamp[-127,127]",
+      "version": "p2.mxfp4-reference.v1",
+      "zero_block_scale_byte": 1
+    },
+    "primitive_reuse": {
+      "gemm": "rl_engine.kernels.ops.cuda.matmul.det_gemm",
+      "rmsnorm": "rl_engine.kernels.ops.pytorch.norm.rms_norm",
+      "rope_extension": "rl_engine.kernels.ops.cuda.rotary_embedding.rope"
+    },
+    "reduction": "fp32-adjacent-pair-zero-pad-to-power-of-two.v1",
+    "rope": "gptj_interleaved_partial; caller_supplied_table_bytes; out_of_place_inverse",
+    "round_points": {
+      "normalized_input": "bf16",
+      "pool_and_partial_state": "fp32",
+      "production_fp8_layout_and_megatron_round_points": "requires_owner_profile",
+      "reference_completed_main": "fp32 (NOT production FP8)",
+      "reference_index": "fp32 prequant -> E2M1/UE8M0"
+    },
+    "topk": "finite_score_desc_global_id_asc; invalid_removed; pad_-1_to_512.v1"
+  },
+  "boundaries": [
+    "M2.attention",
+    "M2.compressor.index_c4",
+    "M2.compressor.main_c128",
+    "M2.compressor.main_c4",
+    "M2.indexer.icv",
+    "M2.indexer.projection",
+    "M2.indexer.q_repr",
+    "M2.indexer.score",
+    "M2.indexer.topk",
+    "M2.output_projection",
+    "M2.state.index",
+    "M2.state.main",
+    "M2.state.recent"
+  ],
+  "compression": {
+    "C0": {
+      "coff": 0,
+      "cr": 0,
+      "index": false,
+      "overlap": false
+    },
+    "C128": {
+      "coff": 1,
+      "cr": 128,
+      "index": false,
+      "overlap": false
+    },
+    "C4": {
+      "coff": 2,
+      "cr": 4,
+      "index": true,
+      "overlap": true
+    }
+  },
+  "contract_version": "p2-task-contract.v1",
+  "error_version": "p2-error.v1",
+  "evidence_levels": [
+    "synthetic_reference",
+    "live_ws1",
+    "live_ws2",
+    "integration"
+  ],
+  "foundation_abi": "foundation-attention-boundary.v1",
+  "model": {
+    "heads_per_group": 8,
+    "hidden_size": 4096,
+    "index_dim": 128,
+    "index_heads": 64,
+    "index_rotary_range": [
+      64,
+      128
+    ],
+    "main_dim": 512,
+    "main_kv_heads": 1,
+    "main_q_heads": 64,
+    "main_rotary_range": [
+      448,
+      512
+    ],
+    "o_lora_rank": 1024,
+    "output_groups": 8,
+    "recent_window": 128,
+    "rope_dim": 64,
+    "topk": 512
+  },
+  "modes": [
+    "training",
+    "prefill",
+    "eager_decode",
+    "graph_decode"
+  ],
+  "operators": [
+    {
+      "backward": "dw -> du",
+      "boundary": "M2.indexer.score",
+      "comparison": "strict_bytes; reference_fp32_is_not_production_certification",
+      "forward": "u:fp32[T,64] -> w:fp32[T,64]",
+      "name": "indexer_scale",
+      "owner": "T02",
+      "saved": [
+        "global_heads",
+        "head_dim",
+        "scale_bytes",
+        "association_version"
+      ]
+    },
+    {
+      "backward": "dy,saved -> dx",
+      "boundary": "M2.output_projection",
+      "comparison": "strict_bytes; reference_fp32_is_not_production_certification",
+      "forward": "x,cos,sin,global_position,rope_dim,inverse -> y",
+      "name": "rope_gptj_interleaved_partial",
+      "owner": "T02",
+      "saved": [
+        "table_hash",
+        "global_position",
+        "rotary_range",
+        "variant",
+        "inverse"
+      ]
+    },
+    {
+      "backward": "functional_scatter_only",
+      "boundary": "M2.state.recent",
+      "comparison": "strict_bytes; reference_fp32_is_not_production_certification",
+      "forward": "KV_t,logical_position,cache -> state_commit",
+      "name": "recent128_cache_update",
+      "owner": "T03",
+      "saved": [
+        "slot",
+        "page",
+        "generation",
+        "source_token",
+        "scatter_index"
+      ]
+    },
+    {
+      "backward": "dQ_I,du,saved -> dQ_r,dW_qI,dX,dW_w",
+      "boundary": "M2.indexer.projection",
+      "comparison": "strict_bytes; reference_fp32_is_not_production_certification",
+      "forward": "Q_r,X,W_qI,W_w -> Q_I,u",
+      "name": "indexer_projection",
+      "owner": "T05",
+      "saved": [
+        "inputs",
+        "weights",
+        "gemm_fingerprint",
+        "row_head_layout"
+      ]
+    },
+    {
+      "backward": "dI,saved -> dA,dw",
+      "boundary": "M2.indexer.score",
+      "comparison": "strict_bytes; reference_fp32_is_not_production_certification",
+      "forward": "A:fp32[T,64,N],w:fp32[T,64] -> I:fp32[T,N]",
+      "name": "indexer_relu_sum",
+      "owner": "T05",
+      "saved": [
+        "relu_mask_zero_derivative",
+        "fixed_head_tree",
+        "A",
+        "R",
+        "w"
+      ]
+    },
+    {
+      "backward": "reference_dQ_H,saved -> dQ_I",
+      "boundary": "M2.indexer.q_repr",
+      "comparison": "strict_bytes; reference_fp32_is_not_production_certification",
+      "forward": "Q_I -> q4_packed,ue8m0,Q_H_ref",
+      "name": "indexer_q_rope_hadamard_mxfp4",
+      "owner": "T05",
+      "saved": [
+        "Q_H",
+        "hadamard_version",
+        "rope_identity",
+        "packing_manifest"
+      ]
+    },
+    {
+      "backward": "dA -> dQ,dK",
+      "boundary": "M2.indexer.icv",
+      "comparison": "strict_bytes; reference_fp32_is_not_production_certification",
+      "forward": "Q:fp32[T,64,128],K:fp32[N,128] -> A:fp32[T,64,N]",
+      "name": "indexer_icv_matmul",
+      "owner": "T05",
+      "saved": [
+        "Q",
+        "K",
+        "block_scale",
+        "inner_tree",
+        "outer_tree"
+      ]
+    },
+    {
+      "backward": "non_differentiable",
+      "boundary": "M2.indexer.topk",
+      "comparison": "strict_bytes; reference_fp32_is_not_production_certification",
+      "forward": "I,valid,global_logical_index -> ids:int64[T,512],valid_count",
+      "name": "indexer_topk512",
+      "owner": "T05",
+      "saved": [
+        "raw_score_bytes",
+        "valid",
+        "global_ids",
+        "total_order"
+      ]
+    },
+    {
+      "backward": "drow,saved -> dK,dS,dAPE,dNorm",
+      "boundary": "M2.compressor.main_c128",
+      "comparison": "strict_bytes; reference_fp32_is_not_production_certification",
+      "forward": "K,S,APE,norm_w -> completed_row",
+      "name": "kv_compressor_c128",
+      "owner": "T04",
+      "saved": [
+        "A",
+        "m",
+        "alpha",
+        "P",
+        "norm",
+        "rope"
+      ]
+    },
+    {
+      "backward": "drow,saved -> dK_first,dK_second,dS_first,dS_second,dAPE,dNorm",
+      "boundary": "M2.compressor.main_c4",
+      "comparison": "strict_bytes; reference_fp32_is_not_production_certification",
+      "forward": "K_first,K_second,S_first,S_second,APE,norm_w -> completed_row",
+      "name": "kv_compressor_c4",
+      "owner": "T04",
+      "saved": [
+        "A_before_overlap",
+        "previous_current_map",
+        "alpha",
+        "P",
+        "inverse_overlap"
+      ]
+    },
+    {
+      "backward": "dK_index,saved -> dX,dW_kvI,dW_gI,dAPE_I,dNorm_I",
+      "boundary": "M2.compressor.index_c4",
+      "comparison": "strict_bytes; reference_fp32_is_not_production_certification",
+      "forward": "X,W_kvI,W_gI,APE_I,norm_I -> K_index",
+      "name": "index_compressor_c4",
+      "owner": "T05",
+      "saved": [
+        "independent_identities",
+        "c4_map",
+        "norm",
+        "rope",
+        "hadamard"
+      ]
+    },
+    {
+      "backward": "functional_tensors_and_saved_map_only",
+      "boundary": "M2.state.main",
+      "comparison": "strict_bytes; reference_fp32_is_not_production_certification",
+      "forward": "K_proj_t,S_proj_t,global_position,state,cache -> commit_record",
+      "name": "kv_compressor_state_cache_update",
+      "owner": "T03",
+      "saved": [
+        "generation",
+        "partial_fp32",
+        "page",
+        "format"
+      ]
+    },
+    {
+      "backward": "reference_prequant_only",
+      "boundary": "M2.state.index",
+      "comparison": "strict_bytes; reference_fp32_is_not_production_certification",
+      "forward": "K_I_t,S_I_t,global_position,state,index_cache -> commit_record",
+      "name": "index_compressor_state_cache_update_fp4",
+      "owner": "T05",
+      "saved": [
+        "prequant_row",
+        "fp4_bytes",
+        "scale",
+        "independent_page",
+        "generation"
+      ]
+    },
+    {
+      "backward": "dY,saved -> dO,dW_a,dW_b",
+      "boundary": "M2.output_projection",
+      "comparison": "strict_bytes; reference_fp32_is_not_production_certification",
+      "forward": "O:[T,64,512],W_a[8],W_b -> Y:[T,4096]",
+      "name": "o_proj_grouped",
+      "owner": "T06",
+      "saved": [
+        "O_tilde",
+        "Z_g",
+        "Z",
+        "group_order",
+        "gemm_identity",
+        "rope_identity"
+      ]
+    },
+    {
+      "backward": "dO,saved -> dQ,dKV,dsink",
+      "boundary": "M2.attention",
+      "comparison": "strict_bytes; reference_fp32_is_not_production_certification",
+      "forward": "Q,KV,sink,candidate_plan -> O",
+      "name": "mqa_joint_attention_sink",
+      "owner": "T06",
+      "saved": [
+        "candidate_plan",
+        "Q",
+        "K",
+        "V",
+        "m",
+        "Z",
+        "p",
+        "dequant_manifest"
+      ]
+    }
+  ],
+  "runtime_policy": {
+    "atomic_partial_accumulation": false,
+    "backend": "cpu",
+    "dynamic_partition": false,
+    "fallback": false,
+    "kernel_fingerprint": null,
+    "num_splits": 1,
+    "profile": "p2.synthetic-fp32.v1",
+    "readback_kind": "actual",
+    "round_points": {
+      "normalized_input": "bf16",
+      "pool_and_partial_state": "fp32",
+      "production_fp8_layout_and_megatron_round_points": "requires_owner_profile",
+      "reference_completed_main": "fp32 (NOT production FP8)",
+      "reference_index": "fp32 prequant -> E2M1/UE8M0"
+    },
+    "schema": "p2-runtime-policy.v1",
+    "split_k": false,
+    "split_kv": false,
+    "stream_k": false,
+    "tree": "fp32-adjacent-pair-zero-pad-to-power-of-two.v1"
+  },
+  "schema_version": "p2-start-kit.v1",
+  "state_schema": {
+    "commit": "one_recent_per_token; compressed_only_at_(position+1)%cr==0",
+    "compressed": "logical_row=(position+1)//cr-1; page=row//page_size",
+    "endian": "little",
+    "per_token": [
+      "position",
+      "generation",
+      "identity",
+      "recent",
+      "main",
+      "index"
+    ],
+    "recent": "slot=position%128; page=slot//page_size; generation=position//128+1",
+    "streams": [
+      "recent",
+      "main",
+      "index"
+    ],
+    "version": "p2-state.v1"
+  },
+  "statuses": [
+    "PASS",
+    "BYTE_MISMATCH",
+    "STATE_BYTES_MISMATCH",
+    "IDENTITY_DRIFT",
+    "INVALID_LAYER_TYPE",
+    "INVALID_COMPRESSION_PLAN",
+    "INVALID_GLOBAL_POSITION",
+    "INVALID_PAGE_OR_GENERATION",
+    "EARLY_OR_DUPLICATE_COMMIT",
+    "MAIN_INDEX_IDENTITY_ALIAS",
+    "INVALID_CANDIDATE_ORDER",
+    "MULTIPLE_SOFTMAX_DENOMINATORS",
+    "INVALID_SINK_SEMANTICS",
+    "INVALID_TOPK_ORDER",
+    "AMBIGUOUS_LOGICAL_INDEX",
+    "INVALID_ROPE_VARIANT",
+    "ROUND_POINT_MISMATCH",
+    "FORBIDDEN_SPLIT_REDUCTION",
+    "FORBIDDEN_ATOMIC_REDUCTION",
+    "MISSING_GLOBAL_VISIBILITY",
+    "DUPLICATE_LOGICAL_OWNER",
+    "MISSING_RANK",
+    "MISSING_PROVENANCE",
+    "SILENT_FALLBACK",
+    "UNSUPPORTED_CAPABILITY",
+    "NON_FINITE",
+    "SCHEMA_MISMATCH",
+    "INCOMPLETE_ARTIFACT",
+    "CORRUPT_ARTIFACT",
+    "NATURAL_ROUTE_MISMATCH"
+  ]
+}

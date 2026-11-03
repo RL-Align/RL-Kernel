@@ -1,0 +1,44 @@
+{
+  "base_commit": "55fce213c28115e8eaf045179df99f1b6c6d9f45",
+  "checks": {
+    "artifact_integrity_cpu_replay": "PASS",
+    "frozen_numerical_parity_with_initial_revision": "PASS: 9 cases, forward/backward/dy-gather",
+    "matching_complete_resume": "PASS",
+    "python310_parse": "PASS",
+    "ruff_check": "PASS",
+    "ruff_format": "PASS",
+    "torch_cpu_h4096": "PASS: 10 cases, 50 operator recordings, 20 tensor-layout checks"
+  },
+  "ci_matrix": "Python 3.10/3.12 configured; remote CI status is on the PR",
+  "cuda_available": false,
+  "execution_device": "cpu",
+  "foundation_compatibility": "UNVERIFIED",
+  "junit_counts": [
+    {
+      "errors": "0",
+      "failures": "0",
+      "skipped": "2",
+      "tests": "158"
+    }
+  ],
+  "not_run": [
+    "H100",
+    "CUDA Graph hardware execution",
+    "live P4/P5",
+    "full repository regression"
+  ],
+  "performance": "NOT_CERTIFIED",
+  "production_certified": false,
+  "python": "3.12.14",
+  "schema": "p6-validation.v1",
+  "scope": "P6 package and test suite using unchanged base rl_engine initializer and pytest configuration",
+  "source_sha256": "017dd43776e97a4ef3eb31fbea03ef7fb4c7140e24bd37f6fdcc1d8827090780",
+  "tests": {
+    "errors": 0,
+    "failures": 0,
+    "passed": 130,
+    "skipped": 2,
+    "subtests_passed": 26
+  },
+  "torch": "2.14.0+cu130"
+}
