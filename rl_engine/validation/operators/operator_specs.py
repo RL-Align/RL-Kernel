@@ -48,6 +48,22 @@ OP_SPECS = {
         },
         grad_input_names=("temb", "weight", "bias"),
     ),
+    "qwenimage_final_adaln_out": OperatorSpec(
+        name="qwenimage_final_adaln_out",
+        op_class="reduction",
+        gold_path=(
+            "rl_engine.reference.model_specific.qwenimage."
+            "final_adaln_out.QwenImageFinalAdaLNOutReference"
+        ),
+        gold_method="forward_fp32",
+        candidate_paths={
+            "cuda": (
+                "rl_engine.backends.cuda.model_specific.qwenimage."
+                "final_adaln_out.QwenImageFinalAdaLNOutCudaOp"
+            )
+        },
+        grad_input_names=("x", "temb", "weight", "bias"),
+    ),
     "rms_norm": OperatorSpec(
         name="rms_norm",
         op_class="reduction",

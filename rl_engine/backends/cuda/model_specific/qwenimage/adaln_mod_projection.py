@@ -18,6 +18,7 @@ _SYMBOLS = (
     "qwenimage_det_linear_backward_weight",
     # Introduced with v2; reject stale v1 extensions with uncompensated dW/db.
     "qwenimage_det_linear_backward_bias",
+    "qwenimage_token_sum",
     "qwenimage_strict_math_compiled",
 )
 
