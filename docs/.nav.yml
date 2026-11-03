@@ -3,6 +3,7 @@ nav:
   - Blog:
     - blog/README.md
     - "RL-Kernel v0.1.0: Train-Rollout Bitwise Consistency": blog/2026-09-18-rl-kernel-amd-vime-qwen3-8b-train-rollout-bitwise-consistency.md
+    - "DSV4 Flash MoE Train-Inference Consistency Roadmap": blog/2026-08-09-dsv4-flash-moe-consistency-roadmap.md
     - Announcing RL-Kernel for vime: blog/2026-07-08-announcing-rl-kernel-linear-logp-for-vime.md
   - User Guide:
     - usage/README.md
@@ -17,6 +18,11 @@ nav:
     - Operators:
       - operators/README.md
       - operators/activation.md
+      - operators/hash-route.md
+      - operators/stable-topk6.md
+      - operators/router-sqrt-softplus.md
+      - operators/dsv4-clamp-swiglu.md
+      - operators/dsv4-rmsnorm-residual.md
       - operators/attention.md
       - operators/fused-logp.md
       - operators/linear-logp.md
@@ -29,7 +35,11 @@ nav:
       - operators/pack-and-pad.md
       - operators/sampling.md
       - operators/det-gemm.md
+      - operators/router-gate.md
       - operators/embedding.md
+      - operators/learned-route.md
+      - operators/router-training.md
+      - operators/router-aux-loss.md
   - Developer Guide:
     - contributing/README.md
     - Contributor Guide: contributing/contributor-guide.md
@@ -38,6 +48,7 @@ nav:
       - contributing/gtest-usage.md
       - contributing/issue-108-session-log.md
       - contributing/testing.md
+      - Automated PR Review: contributing/ocr-review.md
       - contributing/operator-doc-template.md
     - Architecture:
       - architecture/*

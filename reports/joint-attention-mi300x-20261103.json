@@ -1,0 +1,131 @@
+{
+  "date": "2026-11-03",
+  "time_zone": "Asia/Shanghai",
+  "main": "d00d444b46858b5109acafd29b5e6af70ac73370",
+  "dsv4_rocm": "f947f7136690bae79ec6e6e8b8052f41800aa281",
+  "tests": {"passed": 196, "coverage": "not collected for this rerun"},
+  "benchmark_validity": "30 repetitions after warmup. HIP event and synchronized wall windows use the same pass; event windows include host launch gaps and are not isolated kernel instruction times. Core eager and captured paths perform equivalent padding-mask work. No baseline engine speedup is claimed.",
+  "tested_sources": {
+    "benchmarks/benchmark_joint_attention.py": "f86ddf383009f0a40e89d154b2a496ced6c0debb0d3167367e88db13c27b0743",
+    "rl_engine/backends/rocm/attention/joint_attention.py": "cf0d34f027dd39119b37fb973cc2c01dc6a0c2a5cbe6db52a848c2715bdb78bd",
+    "rl_engine/contracts/operators/joint_attention.py": "1b72d2491514cfa4bc1334c7cb5970bdc33df5a3261124b5102f6095cc2683ec",
+    "rl_engine/models/deepseek_v4/joint_attention.py": "da5e542ea9ba39b61c2ff386b148fe1a2611498232fa5b7a5d8e9b3beefd7922"
+  },
+  "records": [
+    {
+      "m": 1,
+      "heads": 8,
+      "dim": 128,
+      "selected": 6,
+      "workspace": 5721,
+      "timing": {
+        "eager_core": {
+          "event_us": 70.76000372568767,
+          "wall_us": 71.70333410613239
+        },
+        "captured_core": {
+          "event_us": 18.237600723902386,
+          "wall_us": 19.007733014101785
+        },
+        "eager_forward_record": {
+          "event_us": 472.586727142334,
+          "wall_us": 473.25306610825163
+        },
+        "graph_forward_record": {
+          "event_us": 378.80223592122394,
+          "wall_us": 379.48576694664854
+        }
+      },
+      "implementation": "3ecc6fc9974306091b58bd633689ad6e48f09e7010c421a48a6abf8d89428cc4"
+    },
+    {
+      "m": 32,
+      "heads": 64,
+      "dim": 512,
+      "selected": 6,
+      "workspace": 4400160,
+      "timing": {
+        "eager_core": {
+          "event_us": 69.55456733703613,
+          "wall_us": 70.39353367872536
+        },
+        "captured_core": {
+          "event_us": 30.685967206954956,
+          "wall_us": 31.308333079020183
+        },
+        "eager_forward_record": {
+          "event_us": 529.6728769938151,
+          "wall_us": 530.3882004227489
+        },
+        "graph_forward_record": {
+          "event_us": 398.92412821451825,
+          "wall_us": 399.5723673142493
+        }
+      },
+      "implementation": "6740d31a4ceaa1c770f921a0908f6ec5709cb1fc20f973bca3494f2ae38dba82"
+    },
+    {
+      "m": 128,
+      "heads": 64,
+      "dim": 512,
+      "selected": 6,
+      "workspace": 17599872,
+      "timing": {
+        "eager_core": {
+          "event_us": 61.727400620778404,
+          "wall_us": 62.53930041566491
+        },
+        "captured_core": {
+          "event_us": 45.24446725845337,
+          "wall_us": 45.81063403747976
+        },
+        "eager_forward_record": {
+          "event_us": 488.80497614542645,
+          "wall_us": 489.476965352272
+        },
+        "graph_forward_record": {
+          "event_us": 394.2547798156738,
+          "wall_us": 394.9064334544043
+        }
+      },
+      "implementation": "6dcdb94cfaf7ff0dfdb592318d68fbf749eb6beb49e42b97884739d0f1472624"
+    },
+    {
+      "m": 1,
+      "heads": 128,
+      "dim": 512,
+      "selected": 640,
+      "workspace": 921089,
+      "timing": {
+        "eager_core": {
+          "event_us": 95.51510016123454,
+          "wall_us": 96.4311669425418
+        },
+        "captured_core": {
+          "event_us": 98.51926962534587,
+          "wall_us": 99.21320015564561
+        },
+        "eager_forward_record": {
+          "event_us": 537.3931248982748,
+          "wall_us": 538.1111986935139
+        },
+        "graph_forward_record": {
+          "event_us": 432.4819564819336,
+          "wall_us": 433.16886682684225
+        }
+      },
+      "implementation": "5407a0f642087d16890803f50e4829efe0511feeb8c1044af94bc1fb8a1dc258"
+    }
+  ],
+  "provider": {
+    "profile": "aiter.326c.single_split.h32.k32.bf16_p.fp32_lse.v1",
+    "arch": "gfx942",
+    "torch": "2.11.0+gitd0c8b1f",
+    "hip": "7.2.53211",
+    "triton": "3.6.0",
+    "aiter_commit": "326cffa38c9eda16bef19375ba55334e4d3acd59",
+    "kernel_sha256": "56db3b46c58f8fb30912d4564189b214e2c9a37fa2138a155b45a4ce51b5c844",
+    "cache_source_sha256": "0d65322289248b9062580f8bcee90997fedf6378de456f1af8a2203484fbaee3",
+    "adapter_sha256": "cf0d34f027dd39119b37fb973cc2c01dc6a0c2a5cbe6db52a848c2715bdb78bd"
+  }
+}
