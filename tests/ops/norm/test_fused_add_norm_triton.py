@@ -210,24 +210,29 @@ def test_triton_forward_is_batch_invariant_bitwise(dtype):
     this kernel alone, so no other implementation's reduction order is involved.
     """
     width = HIDDEN_SIZE
-    big = 16
+    big = 64
     hidden, residual, post_w, pre_w = _inputs((big, width), dtype)
     full_res, full_pre = fused_add_norm_triton_forward(
         hidden, residual, post_w, pre_w, post_eps=POST_NORM_EPS, pre_eps=RMS_NORM_EPS
     )[:2]
 
-    for row in (0, 1, big // 2, big - 1):
-        sl = slice(row, row + 1)
-        part_res, part_pre = fused_add_norm_triton_forward(
-            hidden[sl],
-            residual[sl],
-            post_w,
-            pre_w,
-            post_eps=POST_NORM_EPS,
-            pre_eps=RMS_NORM_EPS,
-        )[:2]
-        assert torch.equal(full_res[sl], part_res), f"residual drifted at row {row}"
-        assert torch.equal(full_pre[sl], part_pre), f"pre-norm drifted at row {row}"
+    # Sub-batches wider than one row are the point of the sweep: a single-row slice
+    # launches one program and cannot show a reduction that reaches across rows or a
+    # grid-dependent tree.
+    for count in (1, 2, 7, 32, 63):
+        for start in (0, 1, big - count):
+            sl = slice(start, start + count)
+            part_res, part_pre = fused_add_norm_triton_forward(
+                hidden[sl],
+                residual[sl],
+                post_w,
+                pre_w,
+                post_eps=POST_NORM_EPS,
+                pre_eps=RMS_NORM_EPS,
+            )[:2]
+            where = f"rows [{start}, {start + count})"
+            assert torch.equal(full_res[sl], part_res), f"residual drifted at {where}"
+            assert torch.equal(full_pre[sl], part_pre), f"pre-norm drifted at {where}"
 
 
 @requires_cuda
@@ -248,11 +253,13 @@ def test_triton_backward_is_batch_invariant_bitwise():
         return [t.grad for t in leaves]
 
     full = run(slice(None))
-    for row in (0, 1, big - 1):
-        sl = slice(row, row + 1)
-        part = run(sl)
-        for whole, piece, name in zip(full, part, ("d_hidden", "d_residual"), strict=True):
-            assert torch.equal(whole[sl], piece), f"{name} drifted at row {row}"
+    # Only d_hidden and d_residual are row-local; the weight gradients sum over rows.
+    for count in (1, 2, 7, 15):
+        for start in (0, 1, big - count):
+            sl = slice(start, start + count)
+            for whole, piece, name in zip(full, run(sl), ("d_hidden", "d_residual"), strict=True):
+                where = f"rows [{start}, {start + count})"
+                assert torch.equal(whole[sl], piece), f"{name} drifted at {where}"
 
 
 @requires_cuda
