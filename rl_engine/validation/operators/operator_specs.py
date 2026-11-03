@@ -50,7 +50,24 @@ OP_SPECS = {
         name="fused_post_norm_residual_pre_norm",
         op_class="reduction",
         gold_path="rl_engine.kernels.ops.pytorch.norm.fused_add_norm.NativeFusedAddNormOp",
-        gold_method="forward_fp32",
+        # The only entry here whose gold is ``forward``, because for this operator
+        # ``forward_fp32`` is a different computation rather than ``forward`` widened.
+        # The frozen semantics narrow twice -- the post-norm casts before the residual
+        # add, and the sum is cast again before the pre-norm reads it -- and
+        # ``forward_fp32`` deliberately skips both. Measured at 2x16x6656, candidate
+        # against each reference, worst absolute error over both outputs:
+        #
+        #     dtype   vs forward_fp32   vs forward
+        #     fp32    2.9e-06           2.9e-06
+        #     bf16    9.1e-02           0.0e+00
+        #     fp16    1.2e-02           3.9e-03   (one fp16 ULP at that magnitude)
+        #
+        # Against forward_fp32 the harness measures the narrowing contract, not the
+        # kernels, and goes red at fp16 for a reason no kernel change can fix. At
+        # fp32 the two references agree, which is why this was invisible until fp16
+        # was run. FP64-exactness of the frozen semantics is covered separately by
+        # test_fused_add_norm.py's FP64 reference tests and their negative controls.
+        gold_method="forward",
         candidate_paths={
             "pytorch": "rl_engine.kernels.ops.pytorch.norm.fused_add_norm.NativeFusedAddNormOp",
             "triton": "rl_engine.kernels.ops.triton.norm.fused_add_norm.TritonFusedAddNormOp",
