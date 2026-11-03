@@ -102,19 +102,25 @@ gradients = backward.backward(d_output, use_graph=True)
 ```
 
 CSR preparation and canonical query sorting happen **outside** capture.
-Q/KV/O/LSE/index state is frozen for this plan; dO may change between replays.
+Q/KV/O/LSE/index state is frozen for this plan; BF16 dO may change between replays.
+FP32 dO is rejected rather than silently rounded to BF16.
 All returned tensors own storage. Shared forward-plan locks/events protect
 workspace reuse across streams, and immutable state/CSR mutation is rejected.
 A failed mutable workspace poisons its owning plan.
 
 Manual results are FP32: dQ is in the original query order, while dKV is in
 the **canonical logical KV order** of the saved record. To obtain the original
-loader order, use `dkv.index_select(0, argsort(saved.metadata.permutation))`.
+loader order, use `dkv.index_select(0, argsort(gradients.kv_permutation))`.
+The returned `kv_permutation` explicitly identifies this canonical-to-loader mapping.
 The autograd bridge performs this mapping and BF16 conversion for you.
 
 The native-workspace budget includes delta, dQ, P/dP, per-query KV
 contributions and gradient buffers. It excludes saved input/record clones,
 CSR metadata, Graph pools and temporary Torch reduction allocations.
+
+The benchmark uses the same nonzero dO for native, Graph and checked VJP
+timings. Its canonical forward/backward/validation entry includes a forward
+pass and host-side session checks; it is not a backward-only overhead ratio.
 
 ## Boundaries
 

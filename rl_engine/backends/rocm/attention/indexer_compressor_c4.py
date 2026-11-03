@@ -35,6 +35,9 @@ class AiterIndexerC4Backend(AiterC4Backend):
         modules["mxfp4_implementation"] = importlib.import_module(quant_impl.__module__)
         # Track the native rotation binary as well as Python glue. Priming the
         # actual native entrypoint happens before deriving the fingerprint.
+        with torch.cuda.device(self.device):
+            if torch.cuda.is_current_stream_capturing():
+                raise C4Error("Indexer C4 provider construction cannot run during Graph capture")
         dummy = torch.zeros((1, 128), dtype=torch.bfloat16, device=self.device)
         self._rotate(dummy)
         native = importlib.import_module("aiter.jit.module_dsv4_rotate_quant")
@@ -101,7 +104,8 @@ class AiterIndexerC4Backend(AiterC4Backend):
 
     def vjp(self, bound, ape, norm, cos, sin, grad, contract):
         # H is symmetric; reuse the same native transform for its transpose.
-        # The BF16 dY boundary is explicit and is tested separately from the
-        # continuous FP64 mathematical reference.
-        unrotated_grad = self._rotate(grad.to(torch.bfloat16))
+        # The BF16 dY boundary is explicit; never silently truncate FP32 dY.
+        if grad.dtype != torch.bfloat16 or grad.device != self.device:
+            raise C4Error("Indexer C4 VJP requires BF16 dY on the provider device")
+        unrotated_grad = self._rotate(grad)
         return super().vjp(bound, ape, norm, cos, sin, unrotated_grad, contract)

@@ -81,7 +81,11 @@ raise SystemExit(status)
 
 ## Timings
 
-20 repetitions after warmup. Native pipeline/core timings exclude admission,
+Corrected on 2026-11-02: the original benchmark assigned all compressed KV
+keys to request 0, so its multi-request measurements were not valid. The
+numbers below were rerun on the same MI300X with independent compressed keys,
+recent windows and Top-K indices for every request. All four shapes completed
+with 20 repetitions after warmup. Native pipeline/core timings exclude admission,
 CSR preparation and record construction. Checked VJP timings include input
 checks, dO copies, events and result clones. Canonical forward/backward timing
 includes the full checked forward and autograd collection/allocation/sorting.
@@ -90,15 +94,17 @@ latencies or baseline-engine comparisons.
 
 | M | H | D | Selected | Graph core event µs | Checked Graph VJP wall µs | Canonical forward+backward wall µs |
 |---:|---:|---:|---:|---:|---:|---:|
-| 7 | 13 | 128 | 6 | 67.83 | 153.87 | 3206.02 |
-| 7 | 64 | 512 | 6 | 84.91 | 165.34 | 3294.05 |
-| 65 | 13 | 128 | 6 | 75.87 | 173.87 | 3370.60 |
-| 1 | 128 | 512 | 640 | 442.07 | 523.88 | 3356.69 |
+| 7 | 13 | 128 | 6 | 64.73 | 169.17 | 3221.82 |
+| 7 | 64 | 512 | 6 | 84.99 | 163.68 | 3248.66 |
+| 65 | 13 | 128 | 6 | 73.92 | 171.39 | 3420.79 |
+| 1 | 128 | 512 | 640 | 441.01 | 525.64 | 3476.56 |
 
 The checked canonical adapter has material Python/admission/allocation overhead.
 No full-engine speedup is inferred from the native-kernel measurements.
-Machine-readable timings, provider fingerprints and tested source hashes are
-committed in the adjacent JSON report.
+Corrected machine-readable timings and provider fingerprints are in
+`joint-backward-mi300x-20261103.json`. The October 29 and November 2 JSON
+files are retained as historical provenance; their benchmark timings are
+superseded because native and Graph paths previously used zero dO.
 
 ## Explicit non-claims
 

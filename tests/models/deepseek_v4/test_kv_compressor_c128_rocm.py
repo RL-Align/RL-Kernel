@@ -127,6 +127,9 @@ def test_ragged_permuted_multi_request_padding_and_cp_bitwise(backend, seed):
     x, ids, a, n, co, si = fixture(4 * 128 + 63, seed=seed, device="cuda")
     baseline = operator(operator.bind(x, ids, version="v1"), a, n, co, si, version="v1").values
     other, other_ids, *_ = fixture(4 * 128 + 63, request=99, seed=seed + 10, device="cuda")
+    other_baseline = operator(
+        operator.bind(other, other_ids, version="v1"), a, n, co, si, version="v1"
+    ).values
     values = torch.cat(
         (x, other, torch.full((5, 1024), float("nan"), dtype=x.dtype, device="cuda"))
     )
@@ -144,6 +147,7 @@ def test_ragged_permuted_multi_request_padding_and_cp_bitwise(backend, seed):
     assert len(observed) == 8
     for group in range(4):
         byte_equal(observed[(7, group)], baseline[group])
+        byte_equal(observed[(99, group)], other_baseline[group])
 
 
 @pytest.mark.parametrize("content_scale,gate_scale", [(0, 1), (2.0**-25, 1), (2.0**20, 1), (1, 80)])
@@ -304,8 +308,10 @@ def test_independent_processes_and_real_two_rank_gloo_cp(backend, tmp_path):
     x, ids, a, n, co, si = fixture(384, device="cuda")
     expected = operator(operator.bind(x, ids, version="v1"), a, n, co, si, version="v1").values
     merged = {}
+    expected_owner = {0: [[7, 0]], 1: [[7, 1], [7, 2]]}
     for rank in range(2):
         record = torch.load(Path(str(output) + f".rank{rank}.pt"), weights_only=True)
+        assert record["ids"].tolist() == expected_owner[rank]
         for key, value in zip(record["ids"].tolist(), record["values"], strict=True):
             assert tuple(key) not in merged
             merged[tuple(key)] = value

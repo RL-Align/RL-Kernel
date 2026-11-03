@@ -48,6 +48,17 @@ def test_workspace_formula():
         backend.allocate(m=3, h=13, d=128, selected=6, n_kv=20, max_bytes=expected - 1)
 
 
+def test_backward_graph_capture_rejects_cpu():
+    from types import SimpleNamespace
+    from rl_engine.models.deepseek_v4.joint_backward import JointBackwardPlan
+
+    plan = object.__new__(JointBackwardPlan)
+    plan.forward_plan = SimpleNamespace(contract=SimpleNamespace(graph=True))
+    plan.device = torch.device("cpu")
+    with pytest.raises(JointAttentionError, match="Graph profile"):
+        plan.capture()
+
+
 def test_engine_exports_shared_vjp_classes():
     from rl_engine.integrations.engines.train.megatron.joint_backward import (
         JointAttentionAutograd,
@@ -88,3 +99,32 @@ def test_explicit_provider_provisioning(tmp_path, monkeypatch, mode):
     else:
         provision(target, "https://example.invalid/source", digest, "TEST_SOURCE")
         assert target.read_bytes() == payload
+
+
+def test_provider_provisioning_cleans_interrupted_atomic_write(tmp_path, monkeypatch):
+    import hashlib
+    import io
+    import os
+    from pathlib import Path
+    import runpy
+
+    provision = runpy.run_path(
+        str(Path(__file__).resolve().parents[3] / "scripts/prepare_dsv4_sparse_provider.py")
+    )["provision"]
+    payload = b"pinned example"
+    target = tmp_path / "source.py"
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: io.BytesIO(payload))
+
+    def interrupted(*args):
+        raise OSError("interrupted")
+
+    monkeypatch.setattr(os, "replace", interrupted)
+    with pytest.raises(OSError, match="interrupted"):
+        provision(
+            target,
+            "https://example.invalid/source",
+            hashlib.sha256(payload).hexdigest(),
+            "TEST_SOURCE",
+        )
+    assert not target.exists()
+    assert list(tmp_path.iterdir()) == []

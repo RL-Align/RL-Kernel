@@ -50,10 +50,17 @@ python3 -m pytest tests/contracts/operators tests/models/deepseek_v4 -q \
 Ruff checks pass. Artifacts and tested source hashes are under
 `/outputs/item18-compat-20261029/`.
 
+November 3 review follow-up: 98 focused C128 CPU/MI300X tests passed with
+explicit per-rank CP ownership and both requests checked against independent
+native single-request outputs. The October 29 counts and source manifest above
+remain historical evidence for that run, not hashes of these later test edits.
+
 ## Native provider and timings
 
 MI300X/gfx942, Torch `2.11.0+gitd0c8b1f`, HIP `7.2.53211`,
 Triton `3.6.0`, FlyDSL `0.2.0`.
+On this container, `torch.cuda.get_device_name()` returns an empty string
+while `gcnArchName` reports gfx942; the JSON preserves that observed value.
 
 * HCA source: `e7aaf267eb78dd16c24f2967c6f5f825781a8dbac81d837dad74f8218a2aad5a`.
 * Tensor shim: `a11d02c7fc89a1b8452b8da30f9924a3168f36b893ee32eeed4469578af302fc`.

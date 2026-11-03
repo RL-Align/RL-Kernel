@@ -4,7 +4,9 @@
 
 import argparse
 import hashlib
+import os
 from pathlib import Path
+import tempfile
 import urllib.request
 
 COMMIT = "326cffa38c9eda16bef19375ba55334e4d3acd59"
@@ -25,8 +27,21 @@ def provision(output, source, expected_hash, environment_name):
         if hashlib.sha256(data).hexdigest() != expected_hash:
             raise SystemExit("upstream hash mismatch; nothing was written")
         output.parent.mkdir(parents=True, exist_ok=True)
-        with output.open("xb") as stream:
-            stream.write(data)
+        tmp = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="wb",
+                dir=output.parent,
+                prefix=output.name + ".",
+                suffix=".partial",
+                delete=False,
+            ) as stream:
+                tmp = Path(stream.name)
+                stream.write(data)
+            os.replace(tmp, output)
+        finally:
+            if tmp is not None:
+                tmp.unlink(missing_ok=True)
     print(f"Verified unmodified aiter source: {output.resolve()}")
     print(f"{environment_name}={output.resolve()}")
 
