@@ -13,8 +13,10 @@ Example:
 the per-rank output of ``reduce_scatter``, whose input is world size times that
 (the JSON ``input_bytes_per_rank`` field and the plots use the actual input).
 The default sweep straddles the single-block fast paths (64 KiB gathered output
-for ``all_gather``, 256 KiB for the ``reduce_scatter`` input and ``all_reduce``). NCCL rows are
-performance references only; they are not a correctness oracle.
+for ``all_gather``, 256 KiB for the ``reduce_scatter`` input and ``all_reduce``). The
+``all_gather_many`` row passes one tensor of ``--size-bytes``, so it is a single-input control for
+that call and does not measure the multi-tensor case. NCCL rows are performance references only;
+they are not a correctness oracle.
 
 JSON timing samples are grouped by global rank, in collection order. The
 reported latency is the maximum of those ranks' median sample latencies.
