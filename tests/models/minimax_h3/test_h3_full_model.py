@@ -206,3 +206,49 @@ def test_strict_boundaries_apply_to_candidate_execution_only():
         "proj_out",
         "audio_proj_out",
     }
+
+
+def test_strict_boundaries_route_every_projection_through_its_row(monkeypatch):
+    from rl_engine.runtime.registry import KernelRegistry
+    from rl_engine.validation.models.h3_full_model import STRICT_BOUNDARY_ROWS
+
+    called = []
+
+    class Row:
+        def __init__(self, row, method):
+            self.row = row
+            if method:
+                self.forward = self._run
+
+        def _run(self, x, weight, bias):
+            called.append((self.row, tuple(x.shape)))
+            return torch.nn.functional.linear(x, weight, bias)
+
+        __call__ = _run
+
+    # the audio/text rows expose ``forward``; the video rows are plain callables
+    monkeypatch.setattr(
+        KernelRegistry,
+        "get_op",
+        lambda self, row, device=None: Row(row, not row.startswith("video_")),
+    )
+    model = Model()
+    names = [n for n in STRICT_BOUNDARY_ROWS if n != "token_refiner"]
+    for name in names:
+        setattr(model, name, torch.nn.Linear(4, 3))
+    with full_model_execution(
+        model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+    ) as trace:
+        for name in names:
+            out = getattr(model, name)(torch.ones(2, 5, 4))
+            assert out.shape == (2, 5, 3)
+        assert sorted(row for row, _ in called) == sorted(STRICT_BOUNDARY_ROWS[n] for n in names)
+        assert {shape for _, shape in called} == {(10, 4)}
+        assert trace.boundary_bindings["proj_in"] == dict(
+            row="video_input_projection_fp32", status="row"
+        )
+        assert trace.boundary_bindings["proj_out"]["status"] == "row"
+        assert trace.boundary_bindings["time_embedder"]["status"] == "provider"
+        assert trace.boundary_bindings["norm_out"]["status"] == "provider"
+    # leaving the context restores the provider forward
+    assert "forward" not in model.proj_in.__dict__

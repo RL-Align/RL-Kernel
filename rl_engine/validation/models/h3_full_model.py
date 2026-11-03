@@ -2,8 +2,8 @@
 # Copyright (c) 2026 RL-Kernel Contributors
 """Instrument the full pinned H3 provider with the actual RL-Kernel block graph.
 
-Input/output projections and both text-refiner layers retain provider arithmetic.
-Each of the 50 distinct blocks executes the existing candidate graph with its own
+Without ``strict_boundaries`` the projections and both text-refiner layers retain provider
+arithmetic. Each of the 50 distinct blocks executes the existing candidate graph with its own
 parameters. No weights are copied from block zero. This is integration evidence,
 not qualification of the reference/interim bindings as final RFC kernels.
 """
@@ -168,21 +168,22 @@ def require_candidate_cuda(ops):
 
 
 # Boundary modules bound to RL-Kernel rows by ``strict_boundaries``; the others keep provider
-# arithmetic and are reported as such (``proj_in``/``proj_out`` belong to the video-projection
-# rows claimed by another contributor; ``time_embedder``/``norm_out`` have their own rows
+# arithmetic and are reported as such (``time_embedder``/``norm_out`` have their own rows
 # but are not part of this binding yet).
 STRICT_BOUNDARY_ROWS = {
+    "proj_in": "video_input_projection_fp32",
+    "proj_out": "video_output_projection_fp32",
     "audio_proj_in": "audio_input_projection_fp32",
     "audio_proj_out": "audio_output_projection_fp32",
     "context_embedder": "text_context_projection",
     "token_refiner": "token_refiner_block",
 }
-PROVIDER_BOUNDARIES = ("proj_in", "proj_out", "time_embedder", "norm_out")
+PROVIDER_BOUNDARIES = ("time_embedder", "norm_out")
 
 
 @contextmanager
 def _strict_boundaries(model, trace, ops):
-    """Rebind the audio projections, the text projection and the whole token refiner to rows."""
+    """Rebind the video and audio projections, the text projection and the token refiner to rows."""
 
     from rl_engine.runtime.registry import KernelRegistry
     from rl_engine.validation.models import h3_refiner
@@ -197,10 +198,12 @@ def _strict_boundaries(model, trace, ops):
 
     def project(name):
         module, op = getattr(model, name), row_ops[name]
+        # the projection-row ops expose ``forward``; the video rows are callables
+        call = getattr(op, "forward", op)
 
         def forward(x):
             flat = x.reshape(-1, x.shape[-1])
-            out = op.forward(flat, module.weight, module.bias)
+            out = call(flat, module.weight, module.bias)
             return out.view(*x.shape[:-1], out.shape[-1])
 
         originals.append((module, module.forward))
