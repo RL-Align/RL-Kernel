@@ -295,6 +295,14 @@ out, state = CausalConv1dUpdateOp()(
     torch.ones(1, 1), torch.zeros(2, 1, 1), torch.ones(1, 2), torch.tensor([1])
 )
 assert out.count_nonzero() and state.count_nonzero()
+from rl_engine.contracts.operators.gdn import GDNContract
+from rl_engine.reference.linear_attn import gated_delta_rule_sequence
+out, state = gated_delta_rule_sequence(
+    torch.ones(2, 3), torch.zeros(2, 1), torch.zeros(2, 1), torch.zeros(1),
+    torch.zeros(1), torch.zeros(1, 1, 1, 1), torch.tensor([0]), torch.tensor([0, 2]),
+    contract=GDNContract(1, 1, 1, 1, scale=1.)
+)
+assert out.shape == (2, 1, 1) and out.count_nonzero() and state.count_nonzero()
 """
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
