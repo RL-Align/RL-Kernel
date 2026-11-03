@@ -151,15 +151,16 @@ def _add_external_candidates(flash_attn_src: Path | None) -> None:
         spec.loader.exec_module(module)
         name = "flash-attn cross_entropy (verl)"
         CANDIDATES[name] = (lambda x, y: -module.cross_entropy_loss(x, y)[0], CHUNKED)
-        commit = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=flash_attn_src,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
+        # Prefer the manifest. Git is trusted only when the source directory is itself the
+        # repository root, so a copy vendored inside another checkout cannot report that HEAD.
         manifest = flash_attn_src / "SOURCE.json"
-        if not commit and manifest.exists():
-            commit = json.loads(manifest.read_text())["commit"]
+        commit = ""
+        if manifest.exists():
+            commit = str(json.loads(manifest.read_text()).get("commit", ""))
+        elif _git("rev-parse", "--show-toplevel", cwd=flash_attn_src) == str(
+            flash_attn_src.resolve()
+        ):
+            commit = _git("rev-parse", "--short", "HEAD", cwd=flash_attn_src)
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         EXTERNAL_SOURCES[name] = (
             f"flash-attention source {commit or 'unknown'}, cross_entropy.py sha256 {digest}"
@@ -479,10 +480,12 @@ def _version(name: str) -> str | None:
         return None
 
 
-def _git(*args: str) -> str:
-    """Return the stripped output of ``git *args`` run in ``REPO_ROOT``, or ``""`` on failure."""
+def _git(*args: str, cwd: Path = REPO_ROOT) -> str:
+    """Return the stripped output of ``git *args`` run in ``cwd``, or ``""`` on failure."""
     try:
-        return subprocess.check_output(["git", *args], cwd=REPO_ROOT, text=True).strip()
+        return subprocess.check_output(
+            ["git", *args], cwd=cwd, text=True, stderr=subprocess.DEVNULL
+        ).strip()
     except (OSError, subprocess.CalledProcessError):
         return ""
 

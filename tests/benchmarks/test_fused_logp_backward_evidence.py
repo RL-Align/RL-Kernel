@@ -3,6 +3,9 @@
 
 """CPU regressions for comparing equal VJPs across benchmark output dtypes."""
 
+import shutil
+import subprocess
+
 import pytest
 import torch
 
@@ -68,3 +71,51 @@ def test_accuracy_rejects_upstream_changed_by_output_dtype(monkeypatch):
 
     with pytest.raises(AssertionError, match="output dtype changes the common upstream gradient"):
         evidence.accuracy(rows=2)
+
+
+def _flash_source(root, manifest_commit=None):
+    """Create a minimal flash-attention tree whose ``cross_entropy_loss`` returns its input."""
+    path = root / "flash_attn" / "ops" / "triton" / "cross_entropy.py"
+    path.parent.mkdir(parents=True)
+    path.write_text("def cross_entropy_loss(x, y):\n    return (x,)\n")
+    if manifest_commit is not None:
+        (root / "SOURCE.json").write_text(f'{{"commit": "{manifest_commit}"}}')
+    return root
+
+
+def _recorded_source(monkeypatch, source):
+    """Return the provenance string ``--flash-attn-src`` records for ``source``."""
+    monkeypatch.setattr(evidence, "CANDIDATES", dict(evidence.CANDIDATES))
+    monkeypatch.setattr(evidence, "EXTERNAL_SOURCES", {})
+    evidence._add_external_candidates(source)
+    return evidence.EXTERNAL_SOURCES["flash-attn cross_entropy (verl)"]
+
+
+def _init_repo(path):
+    """Commit everything under ``path`` in a new git repository and return its short HEAD."""
+    run = ["git", "-c", "user.name=t", "-c", "user.email=t@example.com"]
+    subprocess.run(["git", "init", "-q", str(path)], check=True)
+    subprocess.run([*run, "-C", str(path), "add", "-A"], check=True)
+    subprocess.run([*run, "-C", str(path), "commit", "-q", "-m", "x"], check=True)
+    return evidence._git("rev-parse", "--short", "HEAD", cwd=path)
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_flash_attn_provenance_ignores_enclosing_checkout(tmp_path, monkeypatch):
+    """A vendored tree inside another repository reports its manifest, not the outer HEAD."""
+    outer = tmp_path / "outer"
+    source = _flash_source(outer / "vendored", manifest_commit="94e22c9")
+    outer_head = _init_repo(outer)
+    assert "flash-attention source 94e22c9," in _recorded_source(monkeypatch, source)
+    (source / "SOURCE.json").unlink()
+    recorded = _recorded_source(monkeypatch, source)
+    assert "flash-attention source unknown," in recorded
+    assert outer_head not in recorded
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_flash_attn_provenance_uses_own_checkout(tmp_path, monkeypatch):
+    """A real clone with no manifest reports its own HEAD."""
+    source = _flash_source(tmp_path / "flash-attention")
+    head = _init_repo(source)
+    assert f"flash-attention source {head}," in _recorded_source(monkeypatch, source)
