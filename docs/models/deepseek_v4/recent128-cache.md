@@ -169,7 +169,15 @@ python benchmarks/benchmark_recent128_cache.py \
 ```
 
 ROCm tests fail, rather than skip, when the real GPU is present but the vLLM ABI
-is missing. Native Megatron source parity is a named skip if its source path was
+is missing. The tested vLLM 0.26.0 `cache_utils.py` SHA256
+`0d65322289248b9062580f8bcee90997fedf6378de456f1af8a2203484fbaee3`
+has an allocating `combine_topk_swa_indices` wrapper. For this exact source,
+RLK launches vLLM's existing `_combine_topk_swa_indices_kernel` into the
+validated caller-owned workspace; it does not copy or replace the numerical
+kernel. The original `out=` wrapper ABI remains supported. An unknown
+allocating wrapper/source is rejected before cache modification, because its
+private kernel ABI may differ. Stateful Graph capture is still unsupported.
+Native Megatron source parity is a named skip if its source path was
 not supplied. GPU tests check bytes for data, scales and untouched padding;
 window values and index order across full/chunked prefill and decode; mixed
 batch/reordering/page permutations; invalid suffix slots; page reuse; and
