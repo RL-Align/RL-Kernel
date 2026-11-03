@@ -9,11 +9,12 @@ This module applies those tables to ``[B, S, H, 128]`` Q or K tensors after
 QK RMSNorm. Channels ``i`` and ``i + 48`` rotate together; channels 96:128
 pass through unchanged. Q and K can reuse the same tables.
 
-Tables are cast to the activation dtype before multiplication. Products and
-outputs round at the same boundaries as the eager H3 expression. Backward
-uses the corresponding two local gradient contributions, without atomics or
-cross-token reductions. Only first derivatives with respect to Q/K are exposed;
-the position tables are constants in this operator's contract.
+Forward casts tables to the activation dtype and rounds products and outputs
+at the same boundaries as the eager H3 expression. Backward uses those same
+quantized coefficients, computes both local gradient contributions in FP32,
+and casts only the final input gradient. No atomics or cross-token reductions
+are needed. Only first derivatives with respect to Q/K are exposed; the
+position tables are constants in this operator's contract.
 """
 
 from __future__ import annotations
@@ -25,7 +26,10 @@ from torch import Tensor
 
 _HEAD_DIM = 128
 _ROTARY_DIM = 96
-_SUPPORTED_DTYPES = (torch.float16, torch.bfloat16, torch.float32)
+_SUPPORTED_DTYPES = (torch.bfloat16, torch.float32)
+_TABLE_DTYPE = torch.float32
+# Both CUDA and ROCm use the "cuda" device type in PyTorch.
+_SUPPORTED_DEVICES = ("cuda",)
 
 
 @triton.jit
@@ -34,34 +38,36 @@ def _h3_mm_rope_fwd_kernel(
     cos_ptr,
     sin_ptr,
     y_ptr,
-    sequence_length: tl.constexpr,
+    sequence_length,
     num_heads: tl.constexpr,
-    x_stride_batch: tl.constexpr,
-    x_stride_sequence: tl.constexpr,
-    x_stride_head: tl.constexpr,
-    x_stride_channel: tl.constexpr,
-    cos_stride_sequence: tl.constexpr,
-    cos_stride_channel: tl.constexpr,
-    sin_stride_sequence: tl.constexpr,
-    sin_stride_channel: tl.constexpr,
+    x_stride_batch,
+    x_stride_sequence,
+    x_stride_head,
+    x_stride_channel,
+    cos_stride_sequence,
+    cos_stride_channel,
+    sin_stride_sequence,
+    sin_stride_channel,
     HEAD_DIM: tl.constexpr,
     ROTARY_DIM: tl.constexpr,
     BLOCK_PAIRS: tl.constexpr,
 ):
     """Rotate the leading 96 channels of one token/head row and copy the tail.
 
-    Grid axes are ``(head, token, batch)``. Input strides describe
+    Grid axes are ``(token, head, batch)``. Input strides describe
     ``[B, S, H, D]``; output rows are contiguous. Both table halves are loaded
     explicitly. Products round to the activation dtype before the final
     addition/subtraction, matching H3's eager operations.
 
     ``sequence_length`` counts tokens; ``num_heads`` counts heads per token.
     Each ``*_stride_*`` is an element offset for a one-step move along that
-    tensor's axis. Shape and stride metadata specialize this kernel at compile
-    time; changing their values may compile another version.
+    tensor's axis. Token count and strides are runtime parameters: packed H3
+    lengths vary with the request, and even a contiguous batch stride depends
+    on that length. Head count and channel geometry specialize the kernel;
+    head shards may use fewer than the complete model's 56 heads.
     """
-    head = tl.program_id(0).to(tl.int64)
-    token = tl.program_id(1).to(tl.int64)
+    token = tl.program_id(0).to(tl.int64)
+    head = tl.program_id(1).to(tl.int64)
     batch = tl.program_id(2).to(tl.int64)
     row = (batch * sequence_length + token) * num_heads + head
     x_start = batch * x_stride_batch + token * x_stride_sequence + head * x_stride_head
@@ -72,38 +78,14 @@ def _h3_mm_rope_fwd_kernel(
     # 48 pairs occupy 64 lanes; padded lanes do not load or store any channels.
     pairs = tl.arange(0, BLOCK_PAIRS)
     valid = pairs < HALF
+    # fmt: off
     x_first = tl.load(x_ptr + x_start + pairs * x_stride_channel, valid, other=0).to(tl.float32)
-    x_second = tl.load(x_ptr + x_start + (pairs + HALF) * x_stride_channel, valid, other=0).to(
-        tl.float32
-    )
-    cos_first = (
-        tl.load(cos_ptr + token * cos_stride_sequence + pairs * cos_stride_channel, valid, other=0)
-        .to(dtype)
-        .to(tl.float32)
-    )
-    cos_second = (
-        tl.load(
-            cos_ptr + token * cos_stride_sequence + (pairs + HALF) * cos_stride_channel,
-            valid,
-            other=0,
-        )
-        .to(dtype)
-        .to(tl.float32)
-    )
-    sin_first = (
-        tl.load(sin_ptr + token * sin_stride_sequence + pairs * sin_stride_channel, valid, other=0)
-        .to(dtype)
-        .to(tl.float32)
-    )
-    sin_second = (
-        tl.load(
-            sin_ptr + token * sin_stride_sequence + (pairs + HALF) * sin_stride_channel,
-            valid,
-            other=0,
-        )
-        .to(dtype)
-        .to(tl.float32)
-    )
+    x_second = tl.load(x_ptr + x_start + (pairs + HALF) * x_stride_channel, valid, other=0).to(tl.float32)  # noqa: E501
+    cos_first = tl.load(cos_ptr + token * cos_stride_sequence + pairs * cos_stride_channel, valid, other=0).to(dtype).to(tl.float32)  # noqa: E501
+    cos_second = tl.load(cos_ptr + token * cos_stride_sequence + (pairs + HALF) * cos_stride_channel, valid, other=0).to(dtype).to(tl.float32)  # noqa: E501
+    sin_first = tl.load(sin_ptr + token * sin_stride_sequence + pairs * sin_stride_channel, valid, other=0).to(dtype).to(tl.float32)  # noqa: E501
+    sin_second = tl.load(sin_ptr + token * sin_stride_sequence + (pairs + HALF) * sin_stride_channel, valid, other=0).to(dtype).to(tl.float32)  # noqa: E501
+    # fmt: on
 
     # Round each product to the activation dtype before the final add/subtract,
     # matching H3's eager operations. The launch also disables FP fusion.
@@ -129,33 +111,35 @@ def _h3_mm_rope_bwd_kernel(
     cos_ptr,
     sin_ptr,
     grad_x_ptr,
-    sequence_length: tl.constexpr,
+    sequence_length,
     num_heads: tl.constexpr,
-    grad_y_stride_batch: tl.constexpr,
-    grad_y_stride_sequence: tl.constexpr,
-    grad_y_stride_head: tl.constexpr,
-    grad_y_stride_channel: tl.constexpr,
-    cos_stride_sequence: tl.constexpr,
-    cos_stride_channel: tl.constexpr,
-    sin_stride_sequence: tl.constexpr,
-    sin_stride_channel: tl.constexpr,
+    grad_y_stride_batch,
+    grad_y_stride_sequence,
+    grad_y_stride_head,
+    grad_y_stride_channel,
+    cos_stride_sequence,
+    cos_stride_channel,
+    sin_stride_sequence,
+    sin_stride_channel,
     HEAD_DIM: tl.constexpr,
     ROTARY_DIM: tl.constexpr,
     BLOCK_PAIRS: tl.constexpr,
 ):
     """Apply the transpose rotation to one row of upstream gradients.
 
-    Grid axes are ``(head, token, batch)``. Input strides belong to ``grad_y``;
+    Grid axes are ``(token, head, batch)``. Input strides belong to ``grad_y``;
     ``grad_x`` rows are contiguous. The saved table halves determine the
-    coefficients, including when the halves differ. The unrotated tail has an
-    identity derivative.
+    coefficients, including when the halves differ. Coefficients round to the
+    activation dtype as in forward; products and their sum stay FP32 until the
+    final gradient store. The unrotated tail has an identity derivative.
 
-    Shape counts and element strides are compile-time metadata, as in forward.
+    Token count and element strides are runtime parameters, as in forward.
+    Head count and channel geometry remain compile-time metadata.
     ``grad_y_stride_*`` describes the actual upstream gradient layout, including
     zero strides for broadcast gradients; it need not match x's forward layout.
     """
-    head = tl.program_id(0).to(tl.int64)
-    token = tl.program_id(1).to(tl.int64)
+    token = tl.program_id(0).to(tl.int64)
+    head = tl.program_id(1).to(tl.int64)
     batch = tl.program_id(2).to(tl.int64)
     row = (batch * sequence_length + token) * num_heads + head
     grad_y_start = (
@@ -167,46 +151,21 @@ def _h3_mm_rope_bwd_kernel(
 
     pairs = tl.arange(0, BLOCK_PAIRS)
     valid = pairs < HALF
-    grad_y_first = tl.load(
-        grad_y_ptr + grad_y_start + pairs * grad_y_stride_channel, valid, other=0
-    ).to(tl.float32)
-    grad_y_second = tl.load(
-        grad_y_ptr + grad_y_start + (pairs + HALF) * grad_y_stride_channel, valid, other=0
-    ).to(tl.float32)
-    cos_first = (
-        tl.load(cos_ptr + token * cos_stride_sequence + pairs * cos_stride_channel, valid, other=0)
-        .to(dtype)
-        .to(tl.float32)
-    )
-    cos_second = (
-        tl.load(
-            cos_ptr + token * cos_stride_sequence + (pairs + HALF) * cos_stride_channel,
-            valid,
-            other=0,
-        )
-        .to(dtype)
-        .to(tl.float32)
-    )
-    sin_first = (
-        tl.load(sin_ptr + token * sin_stride_sequence + pairs * sin_stride_channel, valid, other=0)
-        .to(dtype)
-        .to(tl.float32)
-    )
-    sin_second = (
-        tl.load(
-            sin_ptr + token * sin_stride_sequence + (pairs + HALF) * sin_stride_channel,
-            valid,
-            other=0,
-        )
-        .to(dtype)
-        .to(tl.float32)
-    )
+    # fmt: off
+    grad_y_first = tl.load(grad_y_ptr + grad_y_start + pairs * grad_y_stride_channel, valid, other=0).to(tl.float32)  # noqa: E501
+    grad_y_second = tl.load(grad_y_ptr + grad_y_start + (pairs + HALF) * grad_y_stride_channel, valid, other=0).to(tl.float32)  # noqa: E501
+    cos_first = tl.load(cos_ptr + token * cos_stride_sequence + pairs * cos_stride_channel, valid, other=0).to(dtype).to(tl.float32)  # noqa: E501
+    cos_second = tl.load(cos_ptr + token * cos_stride_sequence + (pairs + HALF) * cos_stride_channel, valid, other=0).to(dtype).to(tl.float32)  # noqa: E501
+    sin_first = tl.load(sin_ptr + token * sin_stride_sequence + pairs * sin_stride_channel, valid, other=0).to(dtype).to(tl.float32)  # noqa: E501
+    sin_second = tl.load(sin_ptr + token * sin_stride_sequence + (pairs + HALF) * sin_stride_channel, valid, other=0).to(dtype).to(tl.float32)  # noqa: E501
+    # fmt: on
 
-    # Each input receives two local gradient contributions, rounded before addition.
-    direct_first = (grad_y_first * cos_first).to(dtype).to(tl.float32)
-    direct_second = (grad_y_second * cos_second).to(dtype).to(tl.float32)
-    cross_first = (grad_y_second * sin_second).to(dtype).to(tl.float32)
-    cross_second = (grad_y_first * sin_first).to(dtype).to(tl.float32)
+    # Keep both contributions in FP32; only the final gradient store rounds.
+    # FP fusion is disabled at launch to keep the multiply/add boundaries fixed.
+    direct_first = grad_y_first * cos_first
+    direct_second = grad_y_second * cos_second
+    cross_first = grad_y_second * sin_second
+    cross_second = grad_y_first * sin_first
     grad_x_first = direct_first + cross_first
     grad_x_second = direct_second - cross_second
 
@@ -225,22 +184,29 @@ def _validate_inputs(x: Tensor, cos: Tensor, sin: Tensor) -> None:
     are accepted; empty inputs and trainable position tables are not supported.
     """
     if x.ndim != 4 or x.shape[-1] != _HEAD_DIM:
-        raise ValueError("x must have shape [B, S, H, 128].")
+        raise ValueError(f"x must have shape [B, S, H, {_HEAD_DIM}], got {tuple(x.shape)}.")
     if x.numel() == 0:
-        raise ValueError("x must have nonempty batch, sequence, and head dimensions.")
+        raise ValueError(
+            f"x must have nonempty batch, sequence, and head dimensions, got {tuple(x.shape)}."
+        )
     if x.dtype not in _SUPPORTED_DTYPES:
-        raise TypeError("x must have dtype float16, bfloat16, or float32.")
-    if x.device.type != "cuda":
-        raise ValueError("TritonH3MMRoPEOp requires CUDA or ROCm tensors.")
+        raise TypeError(f"x must have dtype in {_SUPPORTED_DTYPES}, got {x.dtype}.")
+    if x.device.type not in _SUPPORTED_DEVICES:
+        raise ValueError(f"x must have device type in {_SUPPORTED_DEVICES}, got {x.device}.")
+    expected_table_shape = (x.shape[1], _ROTARY_DIM)
     for name, table in (("cos", cos), ("sin", sin)):
-        if table.shape != (x.shape[1], _ROTARY_DIM):
-            raise ValueError(f"{name} must have shape [S, 96], matching x's sequence length.")
+        if table.shape != expected_table_shape:
+            raise ValueError(
+                f"{name} must have shape {expected_table_shape}, got {tuple(table.shape)}."
+            )
         if table.device != x.device:
-            raise ValueError(f"{name} must be on the same device as x.")
-        if table.dtype != torch.float32:
-            raise TypeError(f"{name} must be an FP32 H3 position table.")
+            raise ValueError(f"{name} must be on x.device ({x.device}), got {table.device}.")
+        if table.dtype != _TABLE_DTYPE:
+            raise TypeError(f"{name} must have dtype {_TABLE_DTYPE}, got {table.dtype}.")
         if table.requires_grad:
-            raise ValueError(f"{name} must not require gradients; position tables are constants.")
+            raise ValueError(
+                f"{name} must not require gradients, got requires_grad={table.requires_grad}."
+            )
 
 
 def _launch_h3_mm_rope_fwd(x: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
@@ -251,7 +217,9 @@ def _launch_h3_mm_rope_fwd(x: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
     """
     output = torch.empty(x.shape, dtype=x.dtype, device=x.device)
     batch_size, sequence_length, num_heads, _ = x.shape
-    grid = (num_heads, sequence_length, batch_size)
+    # Real H3 sequences can exceed CUDA's 65,535 limit for grid axes y/z.
+    # Put tokens on the x axis; keep heads and batch as separate grid axes.
+    grid = (sequence_length, num_heads, batch_size)
     # ROCm PyTorch uses the same torch.cuda device/stream API as CUDA PyTorch.
     with torch.cuda.device(x.device):
         _h3_mm_rope_fwd_kernel[grid](
@@ -286,7 +254,8 @@ def _launch_h3_mm_rope_bwd(grad_y: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
     """
     grad_x = torch.empty(grad_y.shape, dtype=grad_y.dtype, device=grad_y.device)
     batch_size, sequence_length, num_heads, _ = grad_y.shape
-    grid = (num_heads, sequence_length, batch_size)
+    # Use the same long-sequence-safe axis order as forward.
+    grid = (sequence_length, num_heads, batch_size)
     with torch.cuda.device(grad_y.device):
         _h3_mm_rope_bwd_kernel[grid](
             grad_y,
@@ -331,7 +300,7 @@ class TritonH3MMRoPEOp:
     """Apply H3 rotate-half to 96 of 128 channels of a Q or K tensor.
 
     Args:
-        x: FP16/BF16/FP32 activation of shape ``[B, S, H, 128]``. H3 normally
+        x: BF16/FP32 activation of shape ``[B, S, H, 128]``. H3 normally
             uses 56 heads; smaller head shards use the same per-head arithmetic.
         cos: Constant FP32 ``[S, 96]`` table for the packed token positions.
         sin: Constant FP32 ``[S, 96]`` table on the same device as ``x``.
@@ -339,8 +308,11 @@ class TritonH3MMRoPEOp:
     The caller constructs the H3 three-axis tables once and reuses them for Q
     and K. Tables are shared across the batch and heads. Output has the input
     shape/dtype and is contiguous; channels 96:128 pass through bit-for-bit.
-    This backend exposes first-order gradients for ``x`` only. GPU numerical
-    and performance qualification is required before registry integration.
+    Forward preserves H3's table/product rounding. Backward uses the same
+    quantized tables with FP32 products and addition, then rounds to x's dtype.
+    This backend exposes first-order gradients for ``x`` only. FP16 is not
+    supported. The block replay binds this candidate explicitly; GPU numerical
+    and performance qualification is still required before registry integration.
     """
 
     op_class = "elementwise"

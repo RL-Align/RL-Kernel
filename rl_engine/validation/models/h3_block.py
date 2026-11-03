@@ -76,8 +76,9 @@ class Node:
 class CandidateOps:
     """The operators bound to the block's nodes, resolved once per run.
 
-    The three rows of this stack are resolved through the registry, so the
-    report records what dispatch actually returned; the interim operators are
+    The three conditioning rows are resolved through the registry, so the
+    report records what dispatch actually returned. MM-RoPE binds its Triton
+    candidate directly for block-level qualification. The interim operators are
     named directly because their registry entries (``det_gemm``,
     ``attention``, ``swiglu``) prefer backends that are not available or not
     deterministic on every GPU this replay runs on.
@@ -87,11 +88,13 @@ class CandidateOps:
         from rl_engine.backends.cuda.activation.swiglu import SwiGLUCudaOp
         from rl_engine.backends.cuda.attention.deterministic_attn import DeterministicAttentionOp
         from rl_engine.backends.shared.triton.gemm.det_gemm import TritonDetGemmOp
+        from rl_engine.backends.shared.triton.rope.h3_mm_rope import TritonH3MMRoPEOp
 
         registry = registry or KernelRegistry()
         self.projection = registry.get_op("adaln_projection_3mod", device="cuda")
         self.norm = registry.get_op("h3_rmsnorm", device="cuda")
         self.gate = registry.get_op("adaln_gate_residual", device="cuda")
+        self.rope = TritonH3MMRoPEOp()
         self.gemm = TritonDetGemmOp()
         self.attention = DeterministicAttentionOp()
         self.swiglu = SwiGLUCudaOp()
@@ -205,8 +208,8 @@ def _rope_node(name: str, source: str) -> Node:
     return Node(
         name=name,
         inputs=(source,),
-        binding=Binding("h3_mm_rope_3axis_partial", "reference", "provider_apply_rotary"),
-        candidate=lambda ops, ctx, x: prov.provider_apply_rotary(x, *ctx["rope"]),
+        binding=Binding("h3_mm_rope_3axis_partial", "row", "TritonH3MMRoPEOp"),
+        candidate=lambda ops, ctx, x: ops.rope(x, *ctx["rope"]),
         provider=lambda ctx, x: prov.provider_apply_rotary(x, *ctx["rope"]),
         golden=lambda ctx, x: gold.golden_apply_rotary(x, *ctx["rope_fp32"]),
         provider_bitwise_isolated=True,

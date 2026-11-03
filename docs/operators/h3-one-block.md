@@ -8,7 +8,8 @@ is a fixed graph of 17 nodes, from the AdaLN projection to the second gated resi
 packed FL2VA layouts that are **bitwise equal to the pinned diffusers pipeline's** `position_ids`
 and modality tags.
 
-On one B200, at S = 264, 925 and 3160:
+The historical B200 run below used the original bindings, including provider-only MM-RoPE,
+at S = 264, 925 and 3160:
 
 - **Determinism.** Every node, every gradient reaching a node, and all 14 leaf gradients are
   bitwise repeatable.
@@ -20,11 +21,12 @@ On one B200, at S = 264, 925 and 3160:
 - **Accuracy.** The block output is exactly as close to the FP32 golden as diffusers' (relative
   error 5.2e-3 / 7.9e-3 / 9.0e-3).
 
-Five of the 17 nodes are bound to this stack's three row operators (AdaLN projection, modulated
-RMSNorm for `norm1` / `norm2`, gate residual for the two residual nodes). The other twelve use **interim**
-deterministic operators until their own rows land, or the provider replay where no kernel exists
-yet (see Bindings). The block-level promises above hold with whatever a node is bound to. Speed
-and the exact rounding of interim nodes belong to those operators, not to this row.
+The current graph binds seven of the 17 nodes to four row operators: AdaLN projection,
+modulated RMSNorm, gate residual, and the new Triton partial MM-RoPE. The other ten use
+**interim** deterministic operators until their own rows land (see Bindings). Speed and exact
+rounding of interim nodes belong to those operators, not to this row. The block-level tests
+apply to every binding, but **the new MM-RoPE binding still needs GPU block regression**;
+the historical measurements below do not qualify it.
 
 ## Entry Point
 
@@ -57,7 +59,7 @@ python tools/validation/models/plot_h3_block.py report.json
 | `norm1`, `norm2` | `h3_rmsnorm` | **row**: `H3RMSNormCudaOp.forward_modulated` (registry) |
 | `q_proj`, `k_proj`, `v_proj` | `h3_qkv_gemm` | interim: Triton FP32-accumulate GEMM, one BF16 rounding |
 | `q_norm`, `k_norm` | `h3_qk_rmsnorm_d128` | interim: `H3RMSNormCudaOp.forward` on the 128-wide heads |
-| `rope_q`, `rope_k` | `h3_mm_rope_3axis_partial` | reference: the provider replay (no kernel exists yet) |
+| `rope_q`, `rope_k` | `h3_mm_rope_3axis_partial` | **row**: `TritonH3MMRoPEOp` (explicit candidate; GPU qualification pending) |
 | `attention` | `h3_full_attention` | interim: `DeterministicAttentionOp(causal=False)` |
 | `o_proj` | `h3_attention_o_gemm` | interim: Triton FP32-accumulate GEMM |
 | `residual_attn`, `residual_mlp` | `adaln_gate_residual` | **row**: `H3GateResidualCudaOp` (registry) |
@@ -67,6 +69,11 @@ python tools/validation/models/plot_h3_block.py report.json
 
 When a row lands, replacing its node's `candidate` callable is the whole integration. The node's
 report entries then become that operator's block-level evidence.
+
+The [partial MM-RoPE candidate](h3-mm-rope.md) preserves the provider's forward cast points.
+Its backward uses the same quantized coefficients with FP32 products and addition, casting
+only the final input gradient. Forward provider parity and independent gradient accuracy
+remain separate checks. The provider and golden paths are unchanged.
 
 The interim GEMMs use `_triton_gemm_fp32`, one fixed-order FP32 K loop with no split-K, and round
 to BF16 once. They do not use `TritonDetGemmOp.__call__`, whose K tree has BF16 nodes. Measured on
@@ -106,7 +113,7 @@ other rows. Text rows use AdaLN table row 0 and media rows use row 1.
 ## Evidence
 
 [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr539/reports/experiments/h3-one-block-b200/report.json) was generated from a clean tree
-at `41e4293` on an otherwise idle B200 (torch 2.13.0+cu130):
+at `41e4293` on an otherwise idle B200 (torch 2.13.0+cu130), before the Triton MM-RoPE binding:
 
 ![one-block evidence](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr539/reports/experiments/h3-one-block-b200/figure.png)
 
@@ -151,6 +158,7 @@ at `41e4293` on an otherwise idle B200 (torch 2.13.0+cu130):
 - **CPU:**
   - the three layouts hash to the pinned diffusers `build_packed_sequence` output;
   - the graph is well formed;
+  - both MM-RoPE nodes call the candidate operator instead of bypassing it with the provider;
   - the partial MM-RoPE leaves channels 96–127 unchanged.
 - **GPU, `tiny` and `small` forward:**
   - every node repeats and is batch-row bitwise;
@@ -175,9 +183,10 @@ RL_KERNEL_H3_WEIGHTS=<dir> CUDA_VISIBLE_DEVICES=0,1 python -m pytest tests/model
 
 - **Single platform.** CUDA only. `DeterministicAttentionOp` and the Triton GEMM also build for
   ROCm, but the block has not been run there.
-- **Interim nodes.** Twelve of the 17 nodes (ten interim, two reference) are not bound to a row operator. Their speed and
-  rounding are not the owning rows' final ones, and the MM-RoPE nodes are the provider replay
-  itself, so they carry no RL-Kernel evidence until `h3_mm_rope_3axis_partial` lands.
+- **Interim nodes.** Ten of the 17 nodes use interim operators. Their speed and rounding are
+  not the owning rows' final ones.
+- **New MM-RoPE binding.** The Triton candidate is wired into forward and backward replay;
+  fresh GPU results are required before claiming its block-level parity, accuracy or speed.
 - **Stand-in inputs.** The block input is a seeded stand-in and `temb` is the provider's.
   Real packed projections arrive with the input-projection rows.
 - **Not covered here.** Block 0 only (`ws1_full_h3_transformer` covers 50 blocks and the refiner),
