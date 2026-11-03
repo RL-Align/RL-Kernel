@@ -328,6 +328,11 @@ def get_extensions():
             # CUDA IPC and the fixed-tree collective implementation are not
             # part of the ROCm extension.
             cuda_sources.append("csrc/cuda/collectives/deterministic_collective.cu")
+            cuda_sources.extend(
+                [
+                    "csrc/cuda/model_specific/qwenimage/det_linear.cu",
+                ]
+            )
             # The issue #386 CUDA bit reference must never inherit fast-math.
             # When fast-math is requested for other kernels, leave these
             # symbols out so registry fallback remains explicit and truthful.
