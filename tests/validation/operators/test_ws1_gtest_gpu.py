@@ -39,6 +39,7 @@ def test_all_ws1_single_ops_are_registered():
         "qk_norm",
         "det_gemm",
         "attention",
+        "joint_attn_softmax",
         "logp",
         "batch_invariant_logp",
         "embedding",
@@ -61,6 +62,7 @@ def test_all_ws1_single_ops_are_registered():
         ("swiglu", "triton"),
         ("rope", "triton"),
         ("pack", "pytorch"),
+        ("joint_attn_softmax", "cuda"),
     ],
 )
 def test_check_operator_runs_ported_ops(op, candidate):
