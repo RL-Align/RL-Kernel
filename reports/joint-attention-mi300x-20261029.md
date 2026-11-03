@@ -1,6 +1,6 @@
 # Item 24 MI300X acceptance — 2026-10-29
 
-Base: latest main `8588158650aff58c9c1f527674de94bad06c3d10`.
+Original October 29 base: main `8588158650aff58c9c1f527674de94bad06c3d10`.
 This task does not depend on pending item-13/23 implementation commits.
 The requested PR target remains `dsv4-rocm`, which predates that main.
 
@@ -8,6 +8,10 @@ Environment: MI300X/gfx942; Torch `2.11.0+gitd0c8b1f`, HIP `7.2.53211`,
 Triton `3.6.0`, aiter `0.1.16.post3`, vLLM `0.26.0+rocm723`.
 The pinned external aiter source and installed native vLLM cache source are
 fingerprinted in the JSON report. No new numerical GPU kernel was written.
+
+November 3 forward-only refresh: merged main `d00d444b46858b5109acafd29b5e6af70ac73370`
+and ported the forward fixes also used by the stacked item-25 branch. The
+target remains `dsv4-rocm`; these changes do not depend on item-25 backward.
 
 ## Acceptance
 
@@ -47,23 +51,33 @@ Coverage: **294/300 production statements (98.00%)**, **27/30 branches
 benchmark and provisioning script are not counted as runtime coverage.
 The FP64 backend is explicitly test-only; production fails closed.
 
+On November 3, **254 passed, 14 warnings, zero skipped** for
+`tests/contracts/operators` and the two forward test modules, with
+`RLK_AITER_DSV4_SPARSE_KERNEL_SOURCE=/cache/dsv4/sparse_mla_dsv4_train.py`.
+Ruff check and format passed. This run covers the pinned-source TOCTOU guard,
+packed D512 admission, independent caller-key selection oracle with an
+intentionally incorrect window-row regression, and forward buffer geometry
+added after the original coverage measurement; the October 29 coverage
+percentage is historical.
+
 ## Timings
 
-30 repetitions after warmup. HIP events and synchronized wall time are
-reported from the same synchronized pass. These are provider-call measurements,
-not isolated instruction timing; host/launch gaps can appear inside event intervals.
-The November 3 comparison measures the same core work, including padding
-masks, in eager and captured modes. The original raw upstream-forward timing
-omitted the masks and is retained only as historical evidence.
+November 3: 30 repetitions after warmup. Eager measurements precede Graph
+capture; captured measurements follow it. HIP events and synchronized wall
+time are reported from the same pass. These are provider-call measurements,
+not isolated instruction timing; host/launch gaps can appear inside event
+intervals. The eager and captured core measurements now do equal work,
+including the same padding masks; the original October 29 upstream-only
+measurement was not an equal-work comparison.
 Metadata binding and cache dequantization are excluded. Forward-record
 timings include finite admission checks, copies, event ownership and clones.
 
 | M | H | D | Selected | Eager core event µs | Captured core event µs | Checked eager wall µs | Checked Graph wall µs |
 |---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | 8 | 128 | 6 | 70.76 | 18.24 | 473.25 | 379.49 |
-| 32 | 64 | 512 | 6 | 69.55 | 30.69 | 530.39 | 399.57 |
-| 128 | 64 | 512 | 6 | 61.73 | 45.24 | 489.48 | 394.91 |
-| 1 | 128 | 512 | 640 | 95.52 | 98.52 | 538.11 | 433.17 |
+| 1 | 8 | 128 | 6 | 64.34 | 19.61 | 476.19 | 389.74 |
+| 32 | 64 | 512 | 6 | 63.36 | 32.56 | 533.71 | 442.26 |
+| 128 | 64 | 512 | 6 | 62.76 | 46.09 | 499.85 | 458.21 |
+| 1 | 128 | 512 | 640 | 95.93 | 99.23 | 591.24 | 473.84 |
 
 No baseline-engine speedup is claimed. Python/admission/snapshot costs
 dominate the checked API; the measurements deliberately keep those costs
@@ -71,9 +85,9 @@ visible instead of reporting the native kernel as the full integration.
 
 Evidence: `/outputs/item24-20261029/` contains JUnit, two complete test logs,
 coverage JSON, benchmark JSON, source SHA256 manifest and the initial
-native/Graph probe. A compact machine-readable November 3 benchmark report
-is committed beside this document; the October 29 JSON retains its original
-test/coverage record.
+native/Graph probe. A compact machine-readable report is committed beside
+this document. The November 3 JSON records the rerun and its tested source
+hashes, independently of the October 29 evidence directory.
 
 ## Non-claims
 

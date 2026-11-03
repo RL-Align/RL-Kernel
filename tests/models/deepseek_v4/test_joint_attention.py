@@ -8,7 +8,14 @@ from rl_engine.contracts.operators.joint_attention import (
     JointAttentionError,
 )
 from rl_engine.models.deepseek_v4.joint_attention import JointAttentionPlan, JointMetadata
-from .joint_attention_helpers import ReferenceBackend, case, record, reference, same_bytes
+from .joint_attention_helpers import (
+    ReferenceBackend,
+    case,
+    case_reference,
+    record,
+    reference,
+    same_bytes,
+)
 
 
 @pytest.mark.parametrize(
@@ -59,13 +66,25 @@ def test_packed_cache_rejects_cpu_before_cuda_context():
 def test_reference_backend_plan_boundaries(m, window, topk):
     plan, q, kv, sink, meta, _ = case(m=m, window=window, topk=topk, padding=True)
     result = record(plan, q, kv, sink, meta)
-    out, lse = reference(q, kv[meta.permutation], sink, meta.indices, plan.contract.softmax_scale)
+    out, lse = case_reference(plan, q, kv, sink, padding=True)
     if m:
         out[-1] = 0
         lse[-1] = float("-inf")
     assert same_bytes(result.output, out.bfloat16())
     assert same_bytes(result.lse, lse.float())
     result.validate_saved()
+
+
+def test_oracle_detects_wrong_bound_window_row():
+    plan, q, kv, sink, meta, _ = case()
+    q.zero_()
+    kv[:, 0] = torch.arange(kv.shape[0]).bfloat16()
+    sink.fill_(float("-inf"))
+    expected, _ = case_reference(plan, q, kv, sink)
+    wrong = meta.indices.clone()
+    wrong[0, -1] = wrong[0, -2]
+    bad, _ = reference(q, kv[meta.permutation], sink, wrong, plan.contract.softmax_scale)
+    assert expected[0, 0, 0] != bad[0, 0, 0]
 
 
 @pytest.mark.parametrize(

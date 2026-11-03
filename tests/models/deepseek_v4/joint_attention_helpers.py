@@ -22,6 +22,32 @@ def reference(q, kv, sink, indices, scale):
     return torch.stack(outputs), torch.stack(lses)
 
 
+def reference_from_keys(q, kv, sink, query_keys, kv_keys, compressed, window_size, scale):
+    """Select from caller-order keys, without reading bound metadata or its indices."""
+    queries = query_keys.cpu().tolist()
+    keys = kv_keys.cpu().tolist()
+    choices = compressed.cpu().tolist()
+    windows = {
+        (request, position): row for row, (request, kind, position) in enumerate(keys) if kind == 1
+    }
+    rows = []
+    for (request, position), topk in zip(queries, choices, strict=True):
+        if request < 0:
+            rows.append([])
+            continue
+        selected = sorted((row for row in topk if row >= 0), key=lambda row: tuple(keys[row]))
+        recent = [
+            windows[request, p] for p in range(max(0, position - window_size + 1), position + 1)
+        ]
+        rows.append(selected + recent)
+    indices = torch.full(
+        (len(rows), max(map(len, rows), default=0)), -1, dtype=torch.int64, device=q.device
+    )
+    for row, selected in enumerate(rows):
+        indices[row, : len(selected)] = torch.tensor(selected, device=q.device)
+    return reference(q, kv, sink, indices, scale)
+
+
 class ReferenceBackend:
     profile = JOINT_PROFILE
     device_type = "cpu"
@@ -34,11 +60,7 @@ class ReferenceBackend:
         lse.copy_(want_lse)
 
 
-def case(*, backend=None, m=4, heads=8, dim=128, window=4, topk=2, ratio=4, padding=False):
-    backend = backend or ReferenceBackend()
-    device = backend.device
-    torch.manual_seed(24)
-    c = JointAttentionContract(heads, dim, max(m, 8), 64, topk, window, compression_ratio=ratio)
+def fixture_keys(m, ratio, topk, padding, device):
     kh = []
     for request in (0, 1):
         kh.extend((request, 1, p) for p in range(16))
@@ -56,9 +78,26 @@ def case(*, backend=None, m=4, heads=8, dim=128, window=4, topk=2, ratio=4, padd
         candidates = candidates[-topk:] if topk else []
         chosen.append(candidates + [-1] * (topk - len(candidates)))
     comp = torch.tensor(chosen, dtype=torch.int32, device=device).reshape(m, topk)
+    return qkeys, kvkeys, comp
+
+
+def case_reference(plan, q, kv, sink, *, padding=False):
+    c = plan.contract
+    qkeys, kvkeys, comp = fixture_keys(
+        q.shape[0], c.compression_ratio, c.compressed_topk, padding, q.device
+    )
+    return reference_from_keys(q, kv, sink, qkeys, kvkeys, comp, c.window_size, c.softmax_scale)
+
+
+def case(*, backend=None, m=4, heads=8, dim=128, window=4, topk=2, ratio=4, padding=False):
+    backend = backend or ReferenceBackend()
+    device = backend.device
+    torch.manual_seed(24)
+    c = JointAttentionContract(heads, dim, max(m, 8), 64, topk, window, compression_ratio=ratio)
+    qkeys, kvkeys, comp = fixture_keys(m, ratio, topk, padding, device)
     meta = JointMetadata.bind(c, qkeys, kvkeys, comp, version="v1")
     q = torch.randn(m, heads, dim, device=device).bfloat16()
-    kv = torch.randn(len(kh), dim, device=device).bfloat16()
+    kv = torch.randn(kvkeys.shape[0], dim, device=device).bfloat16()
     sink = torch.randn(heads, device=device)
     plan = JointAttentionPlan(c, backend=backend)
     return plan, q, kv, sink, meta, comp
