@@ -199,9 +199,92 @@ def assemble(
         "identity": case.identity(),
         "placement_map": {"version": placement_version, "logical_to_physical": placement},
     }
-    return {"RoutePlan": plan, "CombinePlanSeed": combine_seed(plan)}
+    if runtime is not None:
+        plan["expected_token_set"] = runtime["expected_token_set"]
+    bundle = {"RoutePlan": plan, "CombinePlanSeed": combine_seed(plan)}
+    from .checker import validate_plan
+
+    validate_plan(bundle)
+    return bundle
 
 
+@checked_structure
+def seal_forward_saved(case, bundle, score_result, route_result, score_ctx, route_ctx):
+    """Bind raw forward state to the validated plan and actual forward invocations."""
+    from .checker import validate_plan
+    from .provider import seal_saved, validate_saved
+
+    validate_plan(bundle)
+    validate_forward(case, score_result, route_result)
+    plan = bundle["RoutePlan"]
+    require(
+        canonical(case.identity()) == canonical(plan["identity"]),
+        P3Verdict.IDENTITY_DRIFT,
+        "saved source case differs from assembled identity",
+    )
+    active = np.array([r["valid"] for r in plan["core"][::K]], dtype=np.bool_)
+    require(active.any(), P3Verdict.ZERO_ACTIVE_TOKENS, "zero-active handoff has no saved state")
+    s, ids, weights = (
+        score_result.payload["s"],
+        route_result.payload["ids"],
+        route_result.payload["weights"],
+    )
+    cores = [r for r in plan["core"] if r["valid"]]
+    expected_ids = np.array([r["logical_expert_id"] for r in cores], np.int32).reshape(-1, K)
+    require(
+        np.array_equal(ids[active], expected_ids)
+        and weights[active].tobytes()
+        == np.array([r["route_weight"] for r in cores], np.float32).tobytes()
+        and np.take_along_axis(s[active], expected_ids, axis=1).tobytes()
+        == np.array([r["weight_score"] for r in cores], np.float32).tobytes(),
+        P3Verdict.IDENTITY_DRIFT,
+        "forward results differ from sealed plan",
+    )
+    require(
+        score_ctx.invocation_id != route_ctx.invocation_id,
+        P3Verdict.CORRUPT_ARTIFACT,
+        "forward invocations must be distinct",
+    )
+    require(
+        isinstance(score_ctx.manifest_source, str)
+        and score_ctx.manifest_source
+        and score_ctx.manifest_source == route_ctx.manifest_source,
+        P3Verdict.IDENTITY_DRIFT,
+        "forward manifest sources differ",
+    )
+    saved = {}
+    for name, version, result, ctx in (
+        ("score", SAVED_SCORE_SCHEMA, score_result, score_ctx),
+        ("route", SAVED_ROUTE_SCHEMA, route_result, route_ctx),
+    ):
+        tensor(ctx.row_active, "bool", active.shape)
+        require(
+            type(ctx.invocation_id) is int
+            and 0 < ctx.invocation_id < 2**64
+            and ctx.invocation_id & 0xFFFFFFFF != 0,
+            P3Verdict.CORRUPT_ARTIFACT,
+            "invalid forward invocation counter",
+        )
+        require(
+            np.array_equal(ctx.row_active, active)
+            and ctx.backend_tag == result.provenance["actual_backend"]
+            and ctx.route_artifact_fingerprint == plan["route_artifact_fingerprint"]
+            and all(
+                [ctx.run_id, ctx.engine_id, ctx.rank, ctx.invocation_id >> 32]
+                == [e["run_id"], e["engine_id"], e["rank"], e["attempt_id"]]
+                for e in plan["envelope"]
+            ),
+            P3Verdict.IDENTITY_DRIFT,
+            "forward context differs from assembled identity",
+        )
+        raw = result.payload["saved_" + name]
+        state = seal_saved(version, raw, ctx, result)
+        validate_saved(state, version, ctx)
+        saved[name] = state
+    return saved
+
+
+@checked_structure
 def combine_seed(plan):
     tokens = {}
     for row in plan["core"]:
@@ -219,6 +302,13 @@ def combine_seed(plan):
         token["slots"].append(
             {k: row[k] for k in ("topk_index", "logical_expert_id", "route_weight", "valid")}
         )
+    require(
+        all(
+            [s["topk_index"] for s in token["slots"]] == list(range(K)) for token in tokens.values()
+        ),
+        P3Verdict.TOPK_ORDER_MISMATCH,
+        "seed requires exactly six ordered slots per token",
+    )
     return {
         "schema_version": SEED_SCHEMA,
         "tokens": [tokens[k] for k in sorted(tokens, key=int)],

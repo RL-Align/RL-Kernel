@@ -1,23 +1,15 @@
 """Input-bound recordings covering the seven interfaces across Hash/Learned cases."""
 
+from dataclasses import replace
+
 import numpy as np
 
 from . import oracle
-from .assembler import assemble, validate_case
+from .assembler import assemble, seal_forward_saved, validate_case
 from .checker import validate_events, validate_plan
-from .contract import (
-    EVENT_MANIFEST,
-    OP_ABI,
-    RECORDING_SCHEMA,
-    SAVED_ROUTE_SCHEMA,
-    SAVED_SCORE_SCHEMA,
-    P3OpCtxHost,
-    P3OpResult,
-    P3Verdict,
-)
+from .contract import EVENT_MANIFEST, OP_ABI, RECORDING_SCHEMA, P3OpCtxHost, P3OpResult, P3Verdict
 from .diagnostics import paired_diagnostics
 from .provenance import cpu_provenance
-from .provider import seal_saved
 from .reference import ReferenceProvider
 from .serialization import fingerprint
 from .torch_reference import forward as torch_forward
@@ -68,9 +60,10 @@ def record_case(case, *, engine_id="recorded", run_id="p3-synthetic", attempt_id
         bundle["RoutePlan"]["route_artifact_fingerprint"],
         invocation_id=attempt_id << 32 | 1,
     )
-    score_saved = seal_saved(SAVED_SCORE_SCHEMA, score["saved_score"], ctx, score_result)
+    score_ctx = replace(ctx)
     ctx.invocation_id += 1
-    route_saved = seal_saved(SAVED_ROUTE_SCHEMA, route["saved_route"], ctx, route_result)
+    saved = seal_forward_saved(case, bundle, score_result, route_result, score_ctx, ctx)
+    score_saved, route_saved = saved["score"], saved["route"]
     provider = ReferenceProvider()
     rb = provider.learned_route_bwd(ctx, case.dweights, route_saved)
     sb = provider.router_sqrt_softplus_bwd(ctx, rb.payload["ds"], score_saved)

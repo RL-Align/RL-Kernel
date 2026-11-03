@@ -33,6 +33,13 @@ def materialize_tokens(case, expected_token_set):
 
 
 def validate_ownership(plan, expected_token_set):
+    require(
+        isinstance(expected_token_set, (list, tuple, set, frozenset))
+        and all(type(t) is int and t >= 0 for t in expected_token_set)
+        and len(set(expected_token_set)) == len(expected_token_set),
+        P3Verdict.AMBIGUOUS_GLOBAL_TOKEN_MAPPING,
+        "expected tokens must be unique nonnegative integers",
+    )
     actual = [int(k) for k in plan["per_token_fingerprints"]]
     expected = set(expected_token_set)
     require(
@@ -51,3 +58,24 @@ OWNERSHIP = {
     "pp": "replica_by_layer",
     "ep": "not_a_token_dimension",
 }
+
+
+def validate_ownership_metadata(ownership, expected_token_set):
+    """Validate T07/T08 declarations; no partition planner or collective is added."""
+    require(
+        isinstance(ownership, dict)
+        and set(ownership) == set(OWNERSHIP)
+        and all(
+            ownership[k] == v if k != "tp" else ownership[k] in ("replica", "partition_by_sequence")
+            for k, v in OWNERSHIP.items()
+        ),
+        P3Verdict.SCHEMA_MISMATCH,
+        "unsupported token ownership declaration",
+    )
+    require(
+        isinstance(expected_token_set, list)
+        and all(type(t) is int and 0 <= t < 2**63 for t in expected_token_set)
+        and len(set(expected_token_set)) == len(expected_token_set),
+        P3Verdict.AMBIGUOUS_GLOBAL_TOKEN_MAPPING,
+        "expected rank token set must be explicit and unique",
+    )

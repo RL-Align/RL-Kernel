@@ -1,4 +1,6 @@
 # Launchers must stay executable by bash when checked out on Windows first.
 *.sh text eol=lf
+# P3 native source fingerprints must match across Windows and Linux checkouts.
+rl_engine/p3/native/* text eol=lf
 # Unified patches contain whitespace-only context lines by design.
 *.patch text eol=lf -whitespace

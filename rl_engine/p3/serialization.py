@@ -2,8 +2,49 @@
 
 import hashlib
 import struct
+from functools import wraps
 
 import numpy as np
+
+from .contract import FIELD_TYPES, P3Error, P3Verdict, schema_fields
+
+
+def checked_structure(fn):
+    @wraps(fn)
+    def checked(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except P3Error:
+            raise
+        except (KeyError, TypeError, ValueError, IndexError, AttributeError, OverflowError) as exc:
+            raise P3Error(P3Verdict.SCHEMA_MISMATCH, f"malformed {fn.__name__} input") from exc
+
+    return checked
+
+
+def ordered_record(version, values):
+    """Project and type-check records using the sole contract field definitions."""
+    fields = schema_fields(version)
+    if set(values) != set(fields):
+        raise P3Error(P3Verdict.SCHEMA_MISMATCH, "record field set mismatch")
+    result = {key: values[key] for key in fields}
+    for key, value in result.items():
+        kind = FIELD_TYPES.get(key, "str")
+        integer = isinstance(value, (int, np.integer)) and not isinstance(value, (bool, np.bool_))
+        valid = {
+            "str": isinstance(value, str),
+            "int": integer and -(2**63) <= int(value) < 2**63,
+            "bool": isinstance(value, (bool, np.bool_)),
+            "f32": type(value) in (float, np.float32),
+            "dict": isinstance(value, dict),
+            "list": isinstance(value, list),
+            "int_or_str": isinstance(value, str) or (integer and 0 <= int(value) < 2**64),
+        }[kind]
+        if not valid:
+            raise P3Error(P3Verdict.SCHEMA_MISMATCH, f"invalid {key} field type")
+        if kind == "f32" and np.isfinite(value) and float(np.float32(value)) != float(value):
+            raise P3Error(P3Verdict.SCHEMA_MISMATCH, f"{key} must retain FP32 precision")
+    return result
 
 
 def canonical(value):
