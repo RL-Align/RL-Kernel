@@ -13,7 +13,6 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from rl_engine.contracts.numerical import load_contract, resolve_tolerance
 from rl_engine.reference.embedding.scaled_embedding import (
     NativeScaledTokenEmbeddingOp,
     embedding_scale_for_dtype,
@@ -26,7 +25,6 @@ _DTYPES = (torch.float32, torch.bfloat16, torch.float16)
 _HIDDEN = 5376
 _EMBED_SCALE = _HIDDEN**0.5
 _GEMMA_VOCAB = 262144
-_CONTRACT = load_contract()
 # Three bf16 rows for one id whose fp32 products cancel: the contract sum rounds to
 # -7.90625, while rounding each product to bf16 first (HF) sums to -8.1875.
 _CANCELLING_ROWS = [[-0.85546875], [0.94140625], [-0.193359375]]
@@ -90,18 +88,6 @@ def _duplicate_heavy_ids(vocab, *, device="cpu"):
     ids[1, :8] = 7
     ids[2, ::2] = vocab - 1
     return ids
-
-
-def _assert_within_contract(actual, expected, judgment):
-    tolerance = resolve_tolerance(
-        _CONTRACT, judgment=judgment, op_class="elementwise", dtype=actual.dtype
-    )
-    torch.testing.assert_close(
-        actual.float(),
-        expected.to(actual.device).float(),
-        atol=tolerance.atol,
-        rtol=tolerance.rtol,
-    )
 
 
 def _max_ulp_gap(actual, expected):
@@ -462,7 +448,10 @@ def test_triton_rejects_cpu_tensors(triton_op):
 def _enough_gpu_memory(num_bytes):
     if not torch.cuda.is_available():
         return False
-    free, _ = torch.cuda.mem_get_info()
+    try:
+        free, _ = torch.cuda.mem_get_info()
+    except RuntimeError:
+        return False
     return free > int(num_bytes * 1.5)
 
 
@@ -471,7 +460,7 @@ def _enough_gpu_memory(num_bytes):
     reason="needs a GPU with room for the ~2.8 GB bf16 Gemma 4 embedding table",
 )
 def test_triton_real_gemma_shape_forward_matches_hf(triton_op):
-    """Forward only: the fp32 golden would copy a second 5.6 GB table."""
+    """Forward only: a backward would allocate a second full-size table."""
     generator = torch.Generator(device="cuda").manual_seed(0)
     weight = torch.randn(
         _GEMMA_VOCAB, _HIDDEN, generator=generator, device="cuda", dtype=torch.bfloat16

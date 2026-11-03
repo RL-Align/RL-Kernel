@@ -63,9 +63,10 @@ class NativeScaledTokenEmbeddingOp(torch.nn.Module):
         return _NativeScaledTokenEmbeddingFn.apply(token_ids.long(), weight, scale)
 
     def forward_fp32(self, token_ids: Tensor, weight: Tensor, embed_scale: float) -> Tensor:
-        # Upcast the table, not the gathered rows, so autograd reduces fp32 gradients and
-        # casts once (the backward contract) instead of rounding them to bf16 first.
-        rows = F.embedding(token_ids.long(), weight.float())
+        # Upcast a table of the touched rows, not the gathered rows, so autograd reduces
+        # fp32 gradients and casts once (the backward contract) without copying the vocab.
+        unique_ids, inverse = torch.unique(token_ids.long(), return_inverse=True)
+        rows = F.embedding(inverse, weight.index_select(0, unique_ids).float())
         return rows * embedding_scale_for_dtype(embed_scale, weight.dtype)
 
 

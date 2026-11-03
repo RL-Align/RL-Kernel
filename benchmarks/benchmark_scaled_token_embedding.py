@@ -9,10 +9,7 @@ repeats, because the deterministic sorted-segment reducer walks each segment ser
 from __future__ import annotations
 
 import argparse
-import json
-import math
 import platform
-import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +21,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from benchmarks.common.cli import (  # noqa: E402
+    command_output,
+    measure,
+    positive_int,
+    run_and_save_report,
+)
 from benchmarks.profiler import GPUTargetInfo, PerformanceProfiler  # noqa: E402
 from rl_engine.contracts.numerical import tolerance_contract_fingerprint  # noqa: E402
 
@@ -36,13 +39,6 @@ DEFAULT_TOKENS = (1, 2048, 32768)
 DEFAULT_VOCAB = 262144
 DEFAULT_HIDDEN = 5376
 PAD_ID = 0
-
-
-def _positive_int(value: str) -> int:
-    number = int(value)
-    if number < 1:
-        raise argparse.ArgumentTypeError("must be at least 1")
-    return number
 
 
 class HFScaledEmbedding:
@@ -102,35 +98,16 @@ def check_forward_bitwise(baseline, candidate, token_ids, weight):
 
 
 def backward_gap(baseline, candidate, token_ids, weight, grad_out):
-    def grad_weight(fn):
+    """Compare only the touched rows: every other row of both gradients is zero."""
+    touched = token_ids.unique()
+
+    def touched_grad(fn):
         leaf = weight.detach().requires_grad_(True)
         (grad,) = torch.autograd.grad(fn(token_ids, leaf), leaf, grad_outputs=grad_out)
-        return grad.float()
+        return grad.index_select(0, touched).float()
 
-    gap = (grad_weight(candidate) - grad_weight(baseline)).abs()
+    gap = (touched_grad(candidate) - touched_grad(baseline)).abs()
     return {"max_abs_gap_vs_hf": gap.max().item(), "mean_abs_gap_vs_hf": gap.mean().item()}
-
-
-def _measure(profiler, fn):
-    _, median_ms, std_ms = profiler._time_kernel(fn)
-    if not math.isfinite(median_ms) or median_ms <= 0:
-        raise RuntimeError(f"invalid accelerator-event latency: {median_ms}")
-    profiler._sync()
-    baseline = torch.cuda.memory_allocated(profiler.device)
-    torch.cuda.reset_peak_memory_stats(profiler.device)
-    fn()
-    profiler._sync()
-    peak = torch.cuda.max_memory_allocated(profiler.device) - baseline
-    return {"median_ms": median_ms, "std_ms": std_ms, "peak_extra_mib": peak / 1024**2}
-
-
-def _command_output(command):
-    try:
-        return subprocess.check_output(
-            command, cwd=REPO_ROOT, text=True, stderr=subprocess.DEVNULL, timeout=10
-        ).strip()
-    except (OSError, subprocess.SubprocessError):
-        return None
 
 
 def _environment(device, args, triton_version, blocks, target: GPUTargetInfo):
@@ -138,8 +115,8 @@ def _environment(device, args, triton_version, blocks, target: GPUTargetInfo):
     is_rocm = target.backend == "rocm"
     return {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-        "git_commit": _command_output(["git", "rev-parse", "HEAD"]),
-        "git_tracked_changes": _command_output(
+        "git_commit": command_output(["git", "rev-parse", "HEAD"]),
+        "git_tracked_changes": command_output(
             ["git", "status", "--porcelain", "--untracked-files=no"]
         ),
         "python": platform.python_version(),
@@ -151,7 +128,7 @@ def _environment(device, args, triton_version, blocks, target: GPUTargetInfo):
         "gpu": props.name,
         "architecture": target.architecture,
         "compute_capability": None if is_rocm else list(torch.cuda.get_device_capability(device)),
-        "gpu_name_driver": _command_output(
+        "gpu_name_driver": command_output(
             ["rocm-smi", "--showproductname", "--showdriverversion"]
             if is_rocm
             else ["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"]
@@ -215,13 +192,13 @@ def build_arg_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--dtypes", nargs="+", choices=DTYPES, default=list(DTYPES))
-    parser.add_argument("--tokens", nargs="+", type=_positive_int, default=list(DEFAULT_TOKENS))
-    parser.add_argument("--vocab", type=_positive_int, default=DEFAULT_VOCAB)
-    parser.add_argument("--hidden", type=_positive_int, default=DEFAULT_HIDDEN)
+    parser.add_argument("--tokens", nargs="+", type=positive_int, default=list(DEFAULT_TOKENS))
+    parser.add_argument("--vocab", type=positive_int, default=DEFAULT_VOCAB)
+    parser.add_argument("--hidden", type=positive_int, default=DEFAULT_HIDDEN)
     parser.add_argument("--patterns", nargs="+", choices=ID_PATTERNS, default=list(ID_PATTERNS))
     parser.add_argument("--modes", nargs="+", choices=MODES, default=list(MODES))
-    parser.add_argument("--warmup", type=_positive_int, default=10)
-    parser.add_argument("--repeat", type=_positive_int, default=50)
+    parser.add_argument("--warmup", type=positive_int, default=10)
+    parser.add_argument("--repeat", type=positive_int, default=50)
     parser.add_argument("--seed", type=int, default=415)
     parser.add_argument("--output-dir", type=Path, default=Path("reports/scaled-token-embedding"))
     return parser
@@ -276,7 +253,6 @@ def run_benchmark(args):
                         n_tokens, args.hidden, device=device, generator=generator
                     ).to(dtype)
                     check_forward_bitwise(baseline, candidate, token_ids, weight)
-                    gap = backward_gap(baseline, candidate, token_ids, weight, grad_out)
                     for mode in args.modes:
                         if mode == "forward" and pattern != ID_PATTERNS[0]:
                             # Forward cost does not depend on repeats; time it once.
@@ -284,18 +260,21 @@ def run_benchmark(args):
                         measurements = {}
                         for name, fn in (("hf", baseline), ("triton", candidate)):
                             workload = _make_workload(fn, token_ids, weight, grad_out, mode)
-                            measurements[name] = _measure(profiler, workload)
+                            measurements[name] = measure(profiler, workload)
                             del workload  # Release the retained graph before the next one.
                         row = {
                             "dtype": dtype_name,
                             "tokens": n_tokens,
                             "ids": pattern if mode == "backward" else "any",
                             "mode": mode,
-                            "backward_gap": gap,
                             **measurements,
                             "speedup": measurements["hf"]["median_ms"]
                             / measurements["triton"]["median_ms"],
                         }
+                        if mode == "backward":
+                            row["backward_gap"] = backward_gap(
+                                baseline, candidate, token_ids, weight, grad_out
+                            )
                         report["results"].append(row)
                         print(
                             f"{dtype_name} tokens={n_tokens} ids={row['ids']} {mode}: "
@@ -309,16 +288,7 @@ def run_benchmark(args):
 
 
 def main():
-    args = build_arg_parser().parse_args()
-    report = run_benchmark(args)
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    (args.output_dir / "results.json").write_text(
-        json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf-8"
-    )
-    markdown = _markdown(report)
-    (args.output_dir / "report.md").write_text(markdown, encoding="utf-8")
-    print(markdown)
-    print(f"Reports saved to {args.output_dir}")
+    run_and_save_report(build_arg_parser(), run_benchmark, _markdown)
 
 
 if __name__ == "__main__":

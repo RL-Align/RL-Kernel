@@ -9,6 +9,7 @@ from benchmarks.benchmark_scaled_token_embedding import (
     PAD_ID,
     HFScaledEmbedding,
     _make_workload,
+    backward_gap,
     build_arg_parser,
     check_forward_bitwise,
     make_token_ids,
@@ -53,6 +54,22 @@ def test_workload_reuses_inputs_without_accumulating_gradients(mode):
     assert fn() is None and fn() is None
     assert calls == ([False, False] if mode == "forward" else [True])
     assert weight.grad is None and not weight.requires_grad
+
+
+def test_backward_gap_averages_over_touched_rows_only():
+    weight = torch.zeros(4, 1)
+    token_ids = torch.tensor([1, 1, 3])
+    grad_out = torch.ones(3, 1)
+
+    gap = backward_gap(
+        HFScaledEmbedding(torch.tensor(2.0)),
+        HFScaledEmbedding(torch.tensor(3.0)),
+        token_ids,
+        weight,
+        grad_out,
+    )
+
+    assert gap == {"max_abs_gap_vs_hf": 2.0, "mean_abs_gap_vs_hf": 1.5}
 
 
 def test_forward_gate_rejects_an_unrounded_scale():
