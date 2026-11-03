@@ -216,6 +216,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         }
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(report, indent=2) + "\n")
+    # Destroy the group on the success path only. On a failing rank, destroy_process_group()
+    # first flushes this rank's queued NCCL work, so with a peer still inside a collective it
+    # blocks until the NCCL timeout instead of exiting and letting the launcher stop the peers.
     dist.destroy_process_group()
 
 

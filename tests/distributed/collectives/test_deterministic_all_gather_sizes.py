@@ -3,10 +3,11 @@
 
 """Deterministic all-gather is an exact rank-ordered copy at every size.
 
-The copy has a single-block path (gathered output <= 64 KiB) and a multi-block
-path, and moves 16-byte vectors when pointers allow. This sweeps byte counts
-across the threshold, odd sizes that leave a byte tail, and misaligned input and
-output pointers, and compares every result with NCCL's all-gather.
+The copy has a single-block path (gathered output <= 64 KiB, the C++
+``kAllGatherSingleBlockMaxBytes``) and a multi-block path, and moves 16-byte
+vectors when pointers allow. This sweeps byte counts across the threshold, odd
+sizes that leave a byte tail, and misaligned input and output pointers, and
+compares every result with NCCL's all-gather.
 """
 
 from __future__ import annotations
