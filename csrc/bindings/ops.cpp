@@ -454,24 +454,28 @@ torch::Tensor joint_attn_softmax_forward(
     torch::Tensor scores,
     torch::optional<torch::Tensor> logical_to_physical,
     torch::optional<torch::Tensor> valid_key_counts,
-    int64_t rows_per_batch);
+    int64_t rows_per_batch,
+    bool assume_valid_key_layout);
 torch::Tensor joint_attn_softmax_forward_fp32(
     torch::Tensor scores,
     torch::optional<torch::Tensor> logical_to_physical,
     torch::optional<torch::Tensor> valid_key_counts,
-    int64_t rows_per_batch);
+    int64_t rows_per_batch,
+    bool assume_valid_key_layout);
 std::vector<torch::Tensor> joint_attn_softmax_forward_with_state(
     torch::Tensor scores,
     torch::optional<torch::Tensor> logical_to_physical,
     torch::optional<torch::Tensor> valid_key_counts,
-    int64_t rows_per_batch);
+    int64_t rows_per_batch,
+    bool assume_valid_key_layout);
 torch::Tensor joint_attn_softmax_backward(
     torch::Tensor probabilities,
     torch::Tensor grad_probabilities,
     bool output_bf16,
     torch::optional<torch::Tensor> logical_to_physical,
     torch::optional<torch::Tensor> valid_key_counts,
-    int64_t rows_per_batch);
+    int64_t rows_per_batch,
+    bool assume_valid_key_layout);
 #endif
 
 #if defined(KERNEL_ALIGN_WITH_ROCM)
@@ -800,37 +804,49 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def(
         "joint_attn_softmax_forward",
         &joint_attn_softmax_forward,
-        "Joint-attention online softmax forward with one final dtype cast",
+        "Joint-attention online softmax forward with one final dtype cast. "
+        "Only set assume_valid_key_layout for mappings returned by "
+        "joint_attn_softmax_build_key_mapping.",
         py::arg("scores"),
         py::arg("logical_to_physical") = py::none(),
         py::arg("valid_key_counts") = py::none(),
-        py::arg("rows_per_batch") = 1);
+        py::arg("rows_per_batch") = 1,
+        py::arg("assume_valid_key_layout") = false);
     m.def(
         "joint_attn_softmax_forward_fp32",
         &joint_attn_softmax_forward_fp32,
-        "Joint-attention online softmax forward with FP32 output",
+        "Joint-attention online softmax forward with FP32 output. Only set "
+        "assume_valid_key_layout for mappings returned by "
+        "joint_attn_softmax_build_key_mapping.",
         py::arg("scores"),
         py::arg("logical_to_physical") = py::none(),
         py::arg("valid_key_counts") = py::none(),
-        py::arg("rows_per_batch") = 1);
+        py::arg("rows_per_batch") = 1,
+        py::arg("assume_valid_key_layout") = false);
     m.def(
         "joint_attn_softmax_forward_with_state",
         &joint_attn_softmax_forward_with_state,
-        "Joint-attention online softmax forward with saved FP32 probabilities",
+        "Joint-attention online softmax forward with saved FP32 probabilities. "
+        "Only set assume_valid_key_layout for mappings returned by "
+        "joint_attn_softmax_build_key_mapping.",
         py::arg("scores"),
         py::arg("logical_to_physical") = py::none(),
         py::arg("valid_key_counts") = py::none(),
-        py::arg("rows_per_batch") = 1);
+        py::arg("rows_per_batch") = 1,
+        py::arg("assume_valid_key_layout") = false);
     m.def(
         "joint_attn_softmax_backward",
         &joint_attn_softmax_backward,
-        "Joint-attention online softmax backward with a final dtype cast",
+        "Joint-attention online softmax backward with a final dtype cast. Only "
+        "set assume_valid_key_layout for mappings returned by "
+        "joint_attn_softmax_build_key_mapping.",
         py::arg("probabilities"),
         py::arg("grad_probabilities"),
         py::arg("output_bf16"),
         py::arg("logical_to_physical") = py::none(),
         py::arg("valid_key_counts") = py::none(),
-        py::arg("rows_per_batch") = 1);
+        py::arg("rows_per_batch") = 1,
+        py::arg("assume_valid_key_layout") = false);
 #endif
 #if defined(KERNEL_ALIGN_WITH_ROCM)
     m.def(

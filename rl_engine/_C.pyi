@@ -233,18 +233,21 @@ def joint_attn_softmax_forward(
     logical_to_physical: torch.Tensor | None = None,
     valid_key_counts: torch.Tensor | None = None,
     rows_per_batch: int = 1,
+    assume_valid_key_layout: bool = False,
 ) -> torch.Tensor: ...
 def joint_attn_softmax_forward_fp32(
     scores: torch.Tensor,
     logical_to_physical: torch.Tensor | None = None,
     valid_key_counts: torch.Tensor | None = None,
     rows_per_batch: int = 1,
+    assume_valid_key_layout: bool = False,
 ) -> torch.Tensor: ...
 def joint_attn_softmax_forward_with_state(
     scores: torch.Tensor,
     logical_to_physical: torch.Tensor | None = None,
     valid_key_counts: torch.Tensor | None = None,
     rows_per_batch: int = 1,
+    assume_valid_key_layout: bool = False,
 ) -> list[torch.Tensor]: ...
 def joint_attn_softmax_backward(
     probabilities: torch.Tensor,
@@ -253,6 +256,7 @@ def joint_attn_softmax_backward(
     logical_to_physical: torch.Tensor | None = None,
     valid_key_counts: torch.Tensor | None = None,
     rows_per_batch: int = 1,
+    assume_valid_key_layout: bool = False,
 ) -> torch.Tensor: ...
 def deterministic_rope_apply_rocm(
     x: torch.Tensor,

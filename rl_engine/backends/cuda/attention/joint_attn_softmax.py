@@ -61,6 +61,7 @@ class _JointAttnSoftmaxCudaFunction(torch.autograd.Function):
                     logical_to_physical,
                     valid_key_counts,
                     rows_per_batch,
+                    assume_valid_key_layout=True,
                 )
             )
             saved_probabilities_fp32 = probabilities
@@ -73,6 +74,7 @@ class _JointAttnSoftmaxCudaFunction(torch.autograd.Function):
                     logical_to_physical,
                     valid_key_counts,
                     rows_per_batch,
+                    assume_valid_key_layout=True,
                 )
             )
         if logical_to_physical is None or valid_key_counts is None:
@@ -103,6 +105,7 @@ class _JointAttnSoftmaxCudaFunction(torch.autograd.Function):
             logical_to_physical,
             valid_key_counts,
             ctx.rows_per_batch,
+            assume_valid_key_layout=ctx.has_key_layout,
         )
         return grad_scores, None, None, None, None
 
@@ -200,6 +203,7 @@ class JointAttnSoftmaxCudaOp:
                     logical_to_physical,
                     valid_key_counts,
                     rows_per_batch,
+                    assume_valid_key_layout=True,
                 )
             )
         return _JointAttnSoftmaxCudaFunction.apply(

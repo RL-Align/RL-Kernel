@@ -211,6 +211,73 @@ def test_masked_prompt_padding_is_batch_invariant():
     assert tensor_bytes_equal(batched_scores.grad[1], alone_scores.grad)
 
 
+@pytest.mark.parametrize("entrypoint", ["forward", "backward"])
+@pytest.mark.parametrize(
+    "invalid_layout",
+    ["negative_count", "oversized_count", "negative_index", "oversized_index"],
+)
+def test_low_level_cuda_rejects_out_of_range_key_layout(entrypoint, invalid_layout):
+    from rl_engine.backends.extension import _C
+
+    key_length = 4
+    logical_to_physical = torch.arange(
+        key_length,
+        device="cuda",
+        dtype=torch.int32,
+    ).unsqueeze(0)
+    valid_key_counts = torch.tensor([key_length], device="cuda", dtype=torch.int32)
+    if invalid_layout == "negative_count":
+        valid_key_counts[0] = -1
+    elif invalid_layout == "oversized_count":
+        valid_key_counts[0] = key_length + 1
+    elif invalid_layout == "negative_index":
+        logical_to_physical[0, 1] = -1
+    else:
+        logical_to_physical[0, 1] = key_length
+
+    values = torch.zeros((1, key_length), device="cuda", dtype=torch.float32)
+    with pytest.raises(RuntimeError, match="key layout values are out of range"):
+        if entrypoint == "forward":
+            _C.joint_attn_softmax_forward_fp32(
+                values,
+                logical_to_physical,
+                valid_key_counts,
+                1,
+            )
+        else:
+            _C.joint_attn_softmax_backward(
+                values,
+                torch.ones_like(values),
+                False,
+                logical_to_physical,
+                valid_key_counts,
+                1,
+            )
+
+
+def test_low_level_cuda_ignores_unused_key_mapping_suffix():
+    from rl_engine.backends.extension import _C
+
+    scores = torch.tensor([[0.0, -1.0, -2.0, 1.0]], device="cuda")
+    logical_to_physical = torch.tensor(
+        [[0, 3, -1, 4]],
+        device="cuda",
+        dtype=torch.int32,
+    )
+    valid_key_counts = torch.tensor([2], device="cuda", dtype=torch.int32)
+
+    probabilities = _C.joint_attn_softmax_forward_fp32(
+        scores,
+        logical_to_physical,
+        valid_key_counts,
+        1,
+    )
+
+    assert probabilities[0, 1] == 0
+    assert probabilities[0, 2] == 0
+    assert probabilities[0, 0] + probabilities[0, 3] == 1
+
+
 @pytest.mark.parametrize(
     "dtype,output_fp32",
     [(torch.float32, True), (torch.bfloat16, False), (torch.bfloat16, True)],

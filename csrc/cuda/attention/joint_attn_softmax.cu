@@ -326,6 +326,66 @@ int64_t validate_joint_attn_softmax_scores(const torch::Tensor& scores) {
   return key_length;
 }
 
+__global__ void validate_key_layout_values_kernel(
+    const int32_t* __restrict__ logical_to_physical,
+    const int32_t* __restrict__ valid_key_counts,
+    int32_t* __restrict__ invalid_layout,
+    int64_t key_length) {
+  const int64_t batch_index = blockIdx.x;
+  const int32_t valid_key_count = valid_key_counts[batch_index];
+  if (threadIdx.x == 0 &&
+      (valid_key_count < 0 || valid_key_count > key_length)) {
+    atomicExch(invalid_layout, 1);
+  }
+
+  const int64_t checked_key_count =
+      max(int64_t{0}, min(int64_t{valid_key_count}, key_length));
+  const int64_t key_map_offset = batch_index * key_length;
+  for (int64_t logical_column = threadIdx.x;
+       logical_column < checked_key_count;
+       logical_column += blockDim.x) {
+    const int32_t physical_column =
+        logical_to_physical[key_map_offset + logical_column];
+    if (physical_column < 0 || physical_column >= key_length) {
+      atomicExch(invalid_layout, 1);
+    }
+  }
+}
+
+void validate_key_layout_values(
+    const torch::Tensor& indices,
+    const torch::Tensor& counts,
+    int64_t key_length) {
+  if (counts.numel() == 0) {
+    return;
+  }
+
+  const at::cuda::OptionalCUDAGuard device_guard(at::device_of(indices));
+  auto invalid_layout = torch::empty({1}, counts.options());
+  auto stream = at::cuda::getCurrentCUDAStream();
+  C10_CUDA_CHECK(cudaMemsetAsync(
+      invalid_layout.data_ptr<int32_t>(), 0, sizeof(int32_t), stream));
+  validate_key_layout_values_kernel<<<counts.numel(), kTileK, 0, stream>>>(
+      indices.data_ptr<int32_t>(),
+      counts.data_ptr<int32_t>(),
+      invalid_layout.data_ptr<int32_t>(),
+      key_length);
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+  int32_t invalid_layout_host = 0;
+  C10_CUDA_CHECK(cudaMemcpyAsync(
+      &invalid_layout_host,
+      invalid_layout.data_ptr<int32_t>(),
+      sizeof(int32_t),
+      cudaMemcpyDeviceToHost,
+      stream));
+  C10_CUDA_CHECK(cudaStreamSynchronize(stream));
+  TORCH_CHECK(
+      invalid_layout_host == 0,
+      "joint_attn_softmax: key layout values are out of range; counts must "
+      "be in [0, K] and active indices must be in [0, K)");
+}
+
 struct KeyLayoutView {
   bool enabled;
   const int32_t* logical_to_physical;
@@ -337,7 +397,8 @@ KeyLayoutView validate_key_layout(
     const torch::Tensor& values,
     const torch::optional<torch::Tensor>& logical_to_physical,
     const torch::optional<torch::Tensor>& valid_key_counts,
-    int64_t rows_per_batch) {
+    int64_t rows_per_batch,
+    bool assume_valid_key_layout) {
   const bool has_indices = logical_to_physical.has_value();
   const bool has_counts = valid_key_counts.has_value();
   TORCH_CHECK(
@@ -373,6 +434,15 @@ KeyLayoutView validate_key_layout(
   TORCH_CHECK(
       counts.dim() == 1 && counts.size(0) == values.size(0),
       "joint_attn_softmax: key counts must have shape [B]");
+  TORCH_CHECK(
+      key_length <= std::numeric_limits<int32_t>::max(),
+      "joint_attn_softmax: key layout requires K to fit int32");
+
+  if (!assume_valid_key_layout) {
+    // Validate only the active mapping prefix: the builder intentionally leaves
+    // entries beyond each batch item's valid key count uninitialized.
+    validate_key_layout_values(indices, counts, key_length);
+  }
 
   int64_t expected_rows_per_batch = 1;
   for (int64_t dimension = 1; dimension + 1 < values.dim(); ++dimension) {
@@ -500,10 +570,15 @@ torch::Tensor joint_attn_softmax_forward_fp32(
     torch::Tensor scores,
     torch::optional<torch::Tensor> logical_to_physical,
     torch::optional<torch::Tensor> valid_key_counts,
-    int64_t rows_per_batch) {
+    int64_t rows_per_batch,
+    bool assume_valid_key_layout) {
   const int64_t key_length = validate_joint_attn_softmax_scores(scores);
   const auto key_layout = validate_key_layout(
-      scores, logical_to_physical, valid_key_counts, rows_per_batch);
+      scores,
+      logical_to_physical,
+      valid_key_counts,
+      rows_per_batch,
+      assume_valid_key_layout);
 
   const at::cuda::OptionalCUDAGuard device_guard(at::device_of(scores));
   auto probabilities = torch::empty(
@@ -541,14 +616,23 @@ torch::Tensor joint_attn_softmax_forward(
     torch::Tensor scores,
     torch::optional<torch::Tensor> logical_to_physical,
     torch::optional<torch::Tensor> valid_key_counts,
-    int64_t rows_per_batch) {
+    int64_t rows_per_batch,
+    bool assume_valid_key_layout) {
   if (scores.scalar_type() == at::kFloat) {
     return joint_attn_softmax_forward_fp32(
-        scores, logical_to_physical, valid_key_counts, rows_per_batch);
+        scores,
+        logical_to_physical,
+        valid_key_counts,
+        rows_per_batch,
+        assume_valid_key_layout);
   }
   const int64_t key_length = validate_joint_attn_softmax_scores(scores);
   const auto key_layout = validate_key_layout(
-      scores, logical_to_physical, valid_key_counts, rows_per_batch);
+      scores,
+      logical_to_physical,
+      valid_key_counts,
+      rows_per_batch,
+      assume_valid_key_layout);
 
   const at::cuda::OptionalCUDAGuard device_guard(at::device_of(scores));
   auto probabilities = torch::empty_like(scores);
@@ -574,15 +658,24 @@ std::vector<torch::Tensor> joint_attn_softmax_forward_with_state(
     torch::Tensor scores,
     torch::optional<torch::Tensor> logical_to_physical,
     torch::optional<torch::Tensor> valid_key_counts,
-    int64_t rows_per_batch) {
+    int64_t rows_per_batch,
+    bool assume_valid_key_layout) {
   if (scores.scalar_type() == at::kFloat) {
     auto probabilities = joint_attn_softmax_forward_fp32(
-        scores, logical_to_physical, valid_key_counts, rows_per_batch);
+        scores,
+        logical_to_physical,
+        valid_key_counts,
+        rows_per_batch,
+        assume_valid_key_layout);
     return {probabilities, probabilities};
   }
   const int64_t key_length = validate_joint_attn_softmax_scores(scores);
   const auto key_layout = validate_key_layout(
-      scores, logical_to_physical, valid_key_counts, rows_per_batch);
+      scores,
+      logical_to_physical,
+      valid_key_counts,
+      rows_per_batch,
+      assume_valid_key_layout);
 
   const at::cuda::OptionalCUDAGuard device_guard(at::device_of(scores));
   auto probabilities = torch::empty_like(scores);
@@ -612,7 +705,8 @@ torch::Tensor joint_attn_softmax_backward(
     bool output_bf16,
     torch::optional<torch::Tensor> logical_to_physical,
     torch::optional<torch::Tensor> valid_key_counts,
-    int64_t rows_per_batch) {
+    int64_t rows_per_batch,
+    bool assume_valid_key_layout) {
   TORCH_CHECK(
       probabilities.is_cuda() && grad_probabilities.is_cuda(),
       "joint_attn_softmax backward: tensors must be on CUDA");
@@ -639,7 +733,11 @@ torch::Tensor joint_attn_softmax_backward(
   const int64_t key_length = probabilities.size(-1);
   TORCH_CHECK(key_length > 0, "joint_attn_softmax backward: K must be non-empty");
   const auto key_layout = validate_key_layout(
-      probabilities, logical_to_physical, valid_key_counts, rows_per_batch);
+      probabilities,
+      logical_to_physical,
+      valid_key_counts,
+      rows_per_batch,
+      assume_valid_key_layout);
 
   const at::cuda::OptionalCUDAGuard device_guard(at::device_of(probabilities));
   auto grad_scores = torch::empty(

@@ -205,8 +205,8 @@ The performance measurements above used WSL Ubuntu, Python 3.12.13, PyTorch
 2.13.0+cu130, Triton 3.7.1, NVIDIA driver 591.86, CUDA toolkit/runtime 13.0,
 GCC 13.3.0, and an NVIDIA GeForce RTX 5060 (compute capability 12.0).
 
-On 2026-10-30, the seven-file suite was rerun from the current worktree on the
-same software and GPU with NVIDIA driver 610.88. It passed **192 tests, with 0
+On 2026-11-03, the seven-file suite was rerun from the current worktree on the
+same software and GPU with NVIDIA driver 610.88. It passed **201 tests, with 0
 skipped, 0 failures, and 0 errors**. All three `check_operator.py` runs passed with
 gradient checks. Registry dispatch selected the CUDA extension with fingerprint
 `joint-attn-softmax-v2-logical-mask-tile256-exp7` and no fallback. Separate BF16/FP32
