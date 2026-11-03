@@ -12,6 +12,8 @@ reasons in the Triton module docstring.
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 import torch
 
@@ -46,6 +48,37 @@ SHAPES = [
 ]
 DTYPES = [torch.float32, torch.bfloat16, torch.float16]
 _KW = {"post_eps": POST_NORM_EPS, "pre_eps": RMS_NORM_EPS}
+
+
+# The judgment each output is held to, keyed by name rather than by position in a
+# parallel tuple. A field added to _Outputs without a row here raises KeyError at
+# the comparison instead of silently inheriting its neighbour's tolerance row;
+# checking a gradient against the forward row is the mistake this prevents.
+_JUDGMENTS = {
+    "residual_out": "forward_accuracy",
+    "pre_normed": "forward_accuracy",
+    "d_hidden": "gradient_accuracy",
+    "d_residual": "gradient_accuracy",
+    "d_post_w": "gradient_accuracy",
+    "d_pre_w": "gradient_accuracy",
+}
+
+
+@dataclasses.dataclass(frozen=True)
+class _Outputs:
+    """Both forward outputs and all four gradients of one backend, named.
+
+    Frozen and non-iterable on purpose: the two backends are compared field by
+    field, so ``zip`` over two six-element lists -- and the silent truncation and
+    reordering it allows -- is not expressible here.
+    """
+
+    residual_out: torch.Tensor
+    pre_normed: torch.Tensor
+    d_hidden: torch.Tensor
+    d_residual: torch.Tensor
+    d_post_w: torch.Tensor
+    d_pre_w: torch.Tensor
 
 
 def _rand(shape, *, seed, dtype, device="cuda"):
@@ -88,7 +121,7 @@ def _assert_against_gold(judgment, dtype, got, want, label=""):
         atol = max(atol, _one_ulp(want))
     torch.testing.assert_close(
         got.cpu().float(),
-        want.float(),
+        want.cpu().float(),
         atol=atol,
         rtol=t.rtol,
         msg=lambda built: f"{label}{built}" if label else built,
@@ -130,7 +163,10 @@ def test_cuda_backward_matches_autograd_on_the_reference(dtype, rows):
     torch.autograd.backward((got_res, got_pre), grad_tensors=(g_res, g_pre))
 
     for got, want, name in zip(
-        leaves + weights, ref_leaves + ref_weights, ("hidden", "residual", "post_w", "pre_w")
+        leaves + weights,
+        ref_leaves + ref_weights,
+        ("hidden", "residual", "post_w", "pre_w"),
+        strict=True,
     ):
         _assert_against_gold("gradient_accuracy", dtype, got.grad, want.grad, f"{name}: ")
 
@@ -167,7 +203,7 @@ def test_cuda_backward_is_batch_invariant_bitwise():
     full = run(slice(None))
     for row in (0, 1, big - 1):
         sl = slice(row, row + 1)
-        for whole, piece, name in zip(full, run(sl), ("d_hidden", "d_residual")):
+        for whole, piece, name in zip(full, run(sl), ("d_hidden", "d_residual"), strict=True):
             assert torch.equal(whole[sl], piece), f"{name} drifted at row {row}"
 
 
@@ -193,14 +229,26 @@ def test_cuda_and_triton_agree_within_contract(dtype, shape):
         weights = [t.detach().clone().requires_grad_(True) for t in (post_w, pre_w)]
         res, pre = op_cls().forward(*leaves, *weights, **_KW)
         torch.autograd.backward((res, pre), grad_tensors=(g_res, g_pre))
-        return [res.detach(), pre.detach()] + [t.grad for t in leaves + weights]
+        return _Outputs(
+            residual_out=res.detach(),
+            pre_normed=pre.detach(),
+            d_hidden=leaves[0].grad,
+            d_residual=leaves[1].grad,
+            d_post_w=weights[0].grad,
+            d_pre_w=weights[1].grad,
+        )
 
     cuda_out = run(CudaFusedAddNormOp)
     triton_out = run(triton_mod.TritonFusedAddNormOp)
-    names = ("residual_out", "pre_normed", "d_hidden", "d_residual", "d_post_w", "d_pre_w")
-    judgments = ("forward_accuracy",) * 2 + ("gradient_accuracy",) * 4
-    for c, t, name, judgment in zip(cuda_out, triton_out, names, judgments):
-        _assert_against_gold(judgment, dtype, c, t.cpu(), f"{name}: ")
+    for field in dataclasses.fields(_Outputs):
+        name = field.name
+        _assert_against_gold(
+            _JUDGMENTS[name],
+            dtype,
+            getattr(cuda_out, name),
+            getattr(triton_out, name),
+            f"{name}: ",
+        )
 
 
 @requires_cuda_kernel

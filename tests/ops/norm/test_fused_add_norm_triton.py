@@ -113,7 +113,7 @@ def _assert_against_gold(judgment, dtype, got, want, label=""):
         atol = max(atol, _one_ulp(want))
     torch.testing.assert_close(
         got.cpu().float(),
-        want.float(),
+        want.cpu().float(),
         atol=atol,
         rtol=rtol,
         msg=lambda built: f"{label}{built}" if label else built,
@@ -193,7 +193,10 @@ def test_triton_backward_matches_autograd_on_the_reference(dtype, rows):
     torch.autograd.backward((got_res, got_pre), grad_tensors=(g_res, g_pre))
 
     for got, want, name in zip(
-        leaves + weights, ref_leaves + ref_weights, ("hidden", "residual", "post_w", "pre_w")
+        leaves + weights,
+        ref_leaves + ref_weights,
+        ("hidden", "residual", "post_w", "pre_w"),
+        strict=True,
     ):
         _assert_against_gold("gradient_accuracy", dtype, got.grad, want.grad, f"{name}: ")
 
@@ -248,7 +251,7 @@ def test_triton_backward_is_batch_invariant_bitwise():
     for row in (0, 1, big - 1):
         sl = slice(row, row + 1)
         part = run(sl)
-        for whole, piece, name in zip(full, part, ("d_hidden", "d_residual")):
+        for whole, piece, name in zip(full, part, ("d_hidden", "d_residual"), strict=True):
             assert torch.equal(whole[sl], piece), f"{name} drifted at row {row}"
 
 

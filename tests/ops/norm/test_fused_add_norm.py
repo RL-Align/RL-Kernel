@@ -312,7 +312,9 @@ def test_backward_row_reduction_is_batch_invariant():
         single = fused_add_norm_backward(
             g_residual[sl], g_pre[sl], hidden[sl], residual[sl], post_w, pre_w
         )
-        for whole, part, name in zip(full, single, ("d_hidden", "d_residual", "d_post", "d_pre")):
+        for whole, part, name in zip(
+            full, single, ("d_hidden", "d_residual", "d_post", "d_pre"), strict=True
+        ):
             assert torch.equal(whole[sl], part), f"{name} drifted at row {row}"
 
 
@@ -384,7 +386,9 @@ def test_closed_form_backward_accumulates_the_residual_gradient_like_eager(rows)
 
     eager = fused_add_norm_backward(g_res, g_pre, hidden, residual, post_w, pre_w)
     got = [eager[0], eager[1], eager[2].sum(dim=lead), eager[3].sum(dim=lead)]
-    for g, w, name in zip(got, want, ("d_hidden", "d_residual", "d_post_w", "d_pre_w")):
+    for g, w, name in zip(
+        got, want, ("d_hidden", "d_residual", "d_post_w", "d_pre_w"), strict=True
+    ):
         torch.testing.assert_close(
             g.to(dtype).float(), w, atol=atol, rtol=rtol, msg=lambda m, n=name: f"{n}: {m}"
         )
