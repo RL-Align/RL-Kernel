@@ -59,7 +59,15 @@ def _implementation():
 
 def fixed_gemm_execution(x: torch.Tensor) -> dict:
     _, options, sources = _implementation()
-    from aiter._version import __version__ as aiter_version
+    try:
+        from aiter._version import __version__ as aiter_version
+    except ModuleNotFoundError as exc:
+        if exc.name != "aiter._version":
+            raise
+        # Source archives omit the build-generated version module. Preserve
+        # honest provenance through source fingerprints, not an installed wheel
+        # version that may describe a different AITER checkout.
+        aiter_version = "unpackaged_source; see source_sha256"
     import triton
 
     props = torch.cuda.get_device_properties(x.device)

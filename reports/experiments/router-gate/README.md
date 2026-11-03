@@ -20,14 +20,21 @@ Focused verification:
 
 ```bash
 python -m pytest tests/ops/moe/test_router_gate.py \
-  tests/runtime/test_router_gate_dispatch.py tests/runtime/test_kernel_registry.py -q
+  tests/runtime/test_router_gate_dispatch.py tests/runtime/test_kernel_registry.py \
+  tests/validation/operators/test_router_gate_fixture.py -q
 ```
 
-Result: **45 passed, 1 skipped**. The skipped test is the NVIDIA-only mm/CuTe
+Result after fixture-validation hardening: **78 passed, 1 skipped** (the initial
+projection suite had 45 passed). The skipped test is the NVIDIA-only mm/CuTe
 comparison. The expected empty-graph warning comes from explicitly rejecting
 Graph capture. Tests cover near scores that BF16 would collapse, batch/stride/
 row-placement variation, FP32 mathematical accuracy, gradients, version updates,
 and unsupported inputs/backend failures. Ruff and the strict MkDocs build pass.
+
+The 33 added CPU regressions verify bounded HTTP ranges, tensor byte spans,
+checkpoint identity, and independent comparison with the frozen weight SHA256.
+Invalid downloads fail before saving, and invalid replay files fail before GPU
+selection. A fresh HTTP-range download passes the frozen SHA256 check.
 
 The installed AITER uses its older Triton-only API; the RFC-pinned multi-backend
 API is source-reviewed but not runtime-tested. MI355X, NVIDIA CUDA, framework

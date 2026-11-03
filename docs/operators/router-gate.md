@@ -85,13 +85,21 @@ Only this approximately 2 MB tensor is downloaded. Activations are synthetic,
 CPU-generator seed 28; no tokenizer, prompts, Preview weights, expert FP4
 conversion, or LoRA update is part of this operator fixture.
 
+Before fetching tensor bytes, the downloader requires nonnegative integer offsets
+with an exact 2,097,152-byte span. It checks the downloaded bytes against the frozen
+SHA256 before constructing or saving the tensor. Replay independently checks the
+model, revision, tensor name, shard, BF16 shape, and actual weight SHA256 before
+selecting a GPU. A replacement weight with its own matching checksum is rejected.
+
 ```bash
 python -m tools.weights.prepare_router_gate_weights \
   --output artifacts/router-gate/0731-layer0.pt
 python -m tools.validation.operators.check_router_gate \
   --weights artifacts/router-gate/0731-layer0.pt \
   --output artifacts/router-gate/replay.json
-python -m pytest tests/ops/moe/test_router_gate.py tests/runtime/test_router_gate_dispatch.py -q
+python -m pytest tests/ops/moe/test_router_gate.py \
+  tests/runtime/test_router_gate_dispatch.py \
+  tests/validation/operators/test_router_gate_fixture.py -q
 ```
 
 Tests compare raw FP32 bits at M=1/16/17 and larger batches, changing row
