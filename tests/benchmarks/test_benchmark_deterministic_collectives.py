@@ -163,6 +163,8 @@ def test_reduction_callbacks_reuse_outputs_and_report_samples(monkeypatch, tmp_p
         nccl_outputs["all_reduce"].append(value)
         value.mul_(2)
 
+    measured = []
+
     def measure(deterministic, nccl, warmup, iterations, *, prepare_nccl):
         """Invoke the real benchmark callbacks repeatedly without GPU timing."""
         assert (warmup, iterations) == (1, 2)
@@ -171,14 +173,14 @@ def test_reduction_callbacks_reuse_outputs_and_report_samples(monkeypatch, tmp_p
             if prepare_nccl is not None:
                 prepare_nccl()
             nccl()
-        return [7.0, 19.0], [19.0, 17.0]
+        # Offset the samples per call so each operation's row is distinguishable.
+        offset = 100.0 * len(measured)
+        measured.append(offset)
+        return [7.0 + offset, 19.0 + offset], [19.0 + offset, 17.0 + offset]
 
     def gather_samples(samples):
-        """Model different slowest ranks for deterministic and NCCL timings."""
-        if samples == [7.0, 19.0]:
-            return [samples, [20.0, 10.0]]
-        assert samples == [19.0, 17.0]
-        return [samples, [21.0, 13.0]]
+        """Model a second rank whose samples differ from this rank's."""
+        return [samples, [value + 1.0 for value in reversed(samples)]]
 
     cpu_torch = SimpleNamespace(
         cuda=SimpleNamespace(
@@ -237,11 +239,18 @@ def test_reduction_callbacks_reuse_outputs_and_report_samples(monkeypatch, tmp_p
     assert [row["operation"] for row in report["rows"]] == ["reduce_scatter", "all_reduce"]
     assert (report["warmup"], report["iterations"]) == (1, 2)
     assert [row["input_bytes_per_rank"] for row in report["rows"]] == [64, 32]
-    for row in report["rows"]:
-        assert row["deterministic_samples_us"] == [[7.0, 19.0], [20.0, 10.0]]
-        assert row["nccl_samples_us"] == [[19.0, 17.0], [21.0, 13.0]]
-        assert row["deterministic_us"] == 15.0
-        assert row["nccl_us"] == 18.0
+    for row, offset in zip(report["rows"], measured, strict=True):
+        assert row["deterministic_samples_us"] == [
+            [7.0 + offset, 19.0 + offset],
+            [20.0 + offset, 8.0 + offset],
+        ]
+        assert row["nccl_samples_us"] == [
+            [19.0 + offset, 17.0 + offset],
+            [18.0 + offset, 20.0 + offset],
+        ]
+        assert row["deterministic_us"] == 14.0 + offset
+        assert row["nccl_us"] == 19.0 + offset
+    assert measured == [0.0, 100.0]
 
 
 @pytest.mark.parametrize(

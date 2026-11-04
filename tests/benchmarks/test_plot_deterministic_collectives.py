@@ -81,6 +81,40 @@ def test_mismatched_reports_fail_before_plotting(
         plotter.main()
 
 
+@pytest.mark.parametrize("field", ["torch", "cuda", "dtype"])
+def test_environment_must_match_across_world_sizes(tmp_path, monkeypatch, field):
+    """Reject a multi-panel figure whose reports record different environments."""
+    paths = {name: tmp_path / f"{name}.json" for name in ("b2", "a2", "b4", "a4")}
+    for name, world_size in (("b2", 2), ("a2", 2), ("b4", 4), ("a4", 4)):
+        _write_report(paths[name], world_size, [1024, 2048], 10 if name[0] == "b" else 5)
+    report = json.loads(paths["a4"].read_text())
+    report[field] = "different"
+    paths["a4"].write_text(json.dumps(report))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "plot_deterministic_collectives.py",
+            "--before",
+            str(paths["b2"]),
+            str(paths["b4"]),
+            "--after",
+            str(paths["a2"]),
+            str(paths["a4"]),
+            "--output",
+            str(tmp_path / "figure.png"),
+        ],
+    )
+
+    def unexpected_subplots(*args, **kwargs):
+        """Fail if reports from different environments reach the plotting stage."""
+        pytest.fail("reports from different environments must be rejected")
+
+    monkeypatch.setattr(plotter.plt, "subplots", unexpected_subplots)
+    with pytest.raises(SystemExit, match=f"different {field} values"):
+        plotter.main()
+
+
 @pytest.mark.parametrize(
     ("before_operation", "after_operation"),
     [

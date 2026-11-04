@@ -74,6 +74,13 @@ def main() -> None:
                 f"{before_path} and {after_path} have different input sizes for "
                 f"{args.operation}: {before_sizes} != {after_sizes}"
             )
+        if reports:
+            for field in ("dtype", "torch", "cuda"):
+                if after_report[field] != reports[0][1][field]:
+                    raise SystemExit(
+                        f"{after_path} and {args.after[0]} have different {field} values: "
+                        f"{after_report[field]!r} != {reports[0][1][field]!r}"
+                    )
         reports.append((before, after_report, after))
 
     fig, axes = plt.subplots(
