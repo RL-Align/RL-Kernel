@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""CPU temporal recurrence using the retained PR #469 single-token arithmetic."""
+"""CPU temporal recurrence using #659's corrected single-token reference from #469."""
 
 import torch
 

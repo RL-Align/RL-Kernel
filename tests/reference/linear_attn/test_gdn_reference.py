@@ -153,7 +153,7 @@ def test_gdn_backward_matches_independent_fp64_oracle():
     inputs = args[:-1]
     gradients = torch.autograd.grad(out.sum() + state.sum(), inputs)
     expected_gradients = torch.autograd.grad(expected_out.sum() + expected_state.sum(), inputs)
-    for actual, expected in zip(gradients, expected_gradients):
+    for actual, expected in zip(gradients, expected_gradients, strict=True):
         assert torch.isfinite(actual).all()
         torch.testing.assert_close(actual.double(), expected.double(), rtol=2e-5, atol=2e-6)
     for gradient in gradients[:3]:

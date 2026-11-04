@@ -487,3 +487,31 @@ def test_decay_adds_bias_in_fp32_before_softplus():
     torch.testing.assert_close(
         state.flatten(), torch.tensor([0.5002499999791666]), atol=6e-8, rtol=0
     )
+
+
+@pytest.mark.parametrize("heads", [1, 4, 8, 16, 33])
+def test_sequence_agrees_with_batched_step_across_gate_vector_widths(heads):
+    from rl_engine.reference.linear_attn import GatedDeltaRuleRecurrentStepOp
+
+    generator = torch.Generator().manual_seed(469)
+
+    def rand(*shape):
+        return torch.randn(*shape, generator=generator)
+
+    # Every sequence has one token. This connects the shared sequence entry to
+    # grouped decode without assuming CPU vector/scalar tails round identically.
+    args = [
+        rand(5, 2 * 7 + heads * 3),
+        rand(5, heads),
+        rand(5, heads),
+        rand(heads),
+        rand(heads),
+        rand(6, heads, 3, 7) * 0.1,
+        torch.arange(1, 6),
+    ]
+    batched, bank = GatedDeltaRuleRecurrentStepOp()(*args, scale=7**-0.5, num_k_heads=1)
+    sequence, final = gated_delta_rule_sequence(
+        *args, torch.arange(6), contract=GDNContract(1, heads, 7, 3, scale=7**-0.5)
+    )
+    _bits_equal(sequence, batched[:, 0])
+    _bits_equal(final, bank)

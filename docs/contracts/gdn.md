@@ -2,7 +2,7 @@
 
 This is the CPU semantic baseline for [RFC #642 Task 20][rfc] under the
 [maintainer's accepted scope][scope]: shared numerical/state contract, reference
-and tests. It builds on #659, preserves #469's single-token reference, and does
+and tests. It builds on #659's corrected reference derived from #469, and does
 not qualify a device backend, engine, model, TP/CP layout or provider pair.
 
 ## Public boundary
@@ -83,6 +83,13 @@ beta or delta cast back to input dtype occurs. Output is read **before** the
 state store rounds. BF16 state storage rounds after **every token**, not just
 at a chunk boundary. Output rounding does not feed back into the recurrence.
 
+Gate calls operate on one active sequence's `[HV]` row at a time, as fixed in
+#659 at `73ee54e8`. Calling sigmoid/exp over an entire `[B,HV]` tensor can select
+different vector/scalar-tail paths when B changes on AVX2. The per-sequence
+schedule removes that batch dependence; it does not require AVX2 and AVX512 to
+produce identical bits. PR B already executes one sequence/token per step, but
+also tests exact agreement with the grouped single-step interface.
+
 `R32` pads the last axis to a multiple of 32, reshapes to length-32 groups,
 sums each group, then sums the group results. PyTorch supplies the within-axis
 sum implementation and elementary functions. This specifies the retained
@@ -97,11 +104,12 @@ guarantee of bitwise parameter-gradient accumulation order is introduced.
 
 ## Source pins and semantic comparison
 
-Investigation date: 2026-11-03 (Asia/Shanghai).
+Initial investigation: 2026-11-03; #659 refresh: 2026-11-04 (Asia/Shanghai).
 
 | Source | Fixed revision / status |
 | --- | --- |
-| PR B baseline / #659 | `10db999c366d29c0b633b34e3e75eac334190d6b`, open/unmerged when fixed; references unchanged from #469 |
+| PR B baseline / #659 | `8d5b8e2e37e972cef4a62c549a90048705bc58b2`, open/unmerged when fixed; includes per-sequence gate fix `73ee54e8` |
+| Superseded PR B baseline | `10db999c366d29c0b633b34e3e75eac334190d6b`; old local PR B preserved on `archive/gdn-task20-before-avx-update` |
 | #469 original | `2b64780b2e1be5d97e936405bb1e899fea14215c`; merged into test-qwennext at `d0541b87f991f91169027bcf8d4077c23d687b01` |
 | #507 | `d849e180adbe5655a29a45cdef3f0093719efedb`, open |
 | RFC RL-Kernel inspection anchor | `59f3ae01c76c5607a51a368ab1e8f6c00556cbc0`; historical anchor, not PR B base |
@@ -140,6 +148,13 @@ Primary source locations: [retained recurrence][step], [retained conv][conv],
 [FLA normalization][flan], [FlashQLA entry][qla], [FlashQLA Hopper arithmetic][qlah].
 No provider code is imported or copied by the new implementation.
 
+The #469 source links describe provenance. Current CPU gate scheduling is the
+[corrected #659 step][corrected-step], not an exact extraction of #469. The
+original batched reference fails two batch-invariance cases under AVX2 in the
+local PyTorch environment; AVX512 passes those cases. Historical #469 bitwise
+extraction evidence does not extend to the corrected reference. #507's older
+copy must be reconciled during integration; no GPU/provider fidelity is implied.
+
 Only one profile is implemented: #507 is a restricted configuration of the
 existing vLLM profile, not separate arithmetic. Miles' input-dtype beta and
 chunk arithmetic justify keeping it unqualified; an incomplete guessed miles
@@ -157,6 +172,13 @@ python -m pytest tests/reference/linear_attn tests/ops/linear_attn -q -rs
 python -m mypy rl_engine/contracts/operators/gdn.py rl_engine/reference/linear_attn
 python ci/run.py layout -q
 ```
+
+To qualify each CPU dispatch separately, set `ATEN_CPU_CAPABILITY=avx2` or
+`ATEN_CPU_CAPABILITY=avx512` before starting a fresh Python process, verify
+`torch.backends.cpu.get_cpu_capability()` reports that dispatch, then run the
+same suites. Only run a dispatch supported by the host. These are independent
+within-ISA checks, not a cross-ISA equality test. CI's existing AVX2 step also
+executes the sequence/grouped-step regression across gate head widths.
 
 `test_gdn_sequence.py` includes a hand-worked recurrence, an independent FP64
 per-head matrix oracle, normalization/head/width/dtype coverage, fixed beta,
@@ -192,6 +214,7 @@ references their respective ownership. This work does not close RFC #642.
 [guide]: https://github.com/radixark/miles/blob/65feb4a616bd935890cdac6ca06b1dca5cee28dd/docs/models/qwen/qwen3-6-moe.md
 [model]: https://github.com/radixark/miles/blob/65feb4a616bd935890cdac6ca06b1dca5cee28dd/scripts/models/qwen3.6-35B-A3B.py
 [step]: https://github.com/RL-Align/RL-Kernel/blob/2b64780b2e1be5d97e936405bb1e899fea14215c/rl_engine/reference/linear_attn/gated_delta_rule.py
+[corrected-step]: https://github.com/RL-Align/RL-Kernel/blob/8d5b8e2e37e972cef4a62c549a90048705bc58b2/rl_engine/reference/linear_attn/gated_delta_rule.py
 [conv]: https://github.com/RL-Align/RL-Kernel/blob/2b64780b2e1be5d97e936405bb1e899fea14215c/rl_engine/reference/linear_attn/causal_conv1d.py
 [bridge]: https://github.com/RL-Align/RL-Kernel/blob/d849e180adbe5655a29a45cdef3f0093719efedb/rl_engine/integrations/engines/train/vllm/qwen3_next_gdn.py
 [convbridge]: https://github.com/RL-Align/RL-Kernel/blob/d849e180adbe5655a29a45cdef3f0093719efedb/rl_engine/integrations/engines/train/vllm/qwen3_next_conv.py
