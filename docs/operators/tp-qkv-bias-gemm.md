@@ -118,7 +118,7 @@ They do not measure TP transport or multi-GPU throughput.
 For real single-host TP transport and throughput, use one process per GPU:
 
 ```bash
-PYTHONPATH=. OMP_NUM_THREADS=1 NCCL_NVLS_ENABLE=0 python3.11 \
+PYTHONPATH=. OMP_NUM_THREADS=1 python3.11 \
   benchmarks/distributed/tp/benchmark_qwenimage_qkv.py \
   --tp 1 2 4 8 --rows 1 129 4096 6032 6889 --dtype bfloat16 \
   --seed 386 --warmup 3 --samples 10 --output /tmp/qkv-real-tp.json
@@ -131,17 +131,14 @@ sample reports the slowest rank's elapsed time. Effective rows/second counts the
 replicated input rows once, and memory reports the largest per-rank allocation.
 The benchmark retains only local parameter and upstream shards during timing.
 
-On the measured H20 profile (driver 535.183.06, NCCL 2.20.5), NCCL's default NVLS
-initialization failed in a standalone PyTorch four-rank `all_gather`, before
-loading RL-Kernel. Adding `NCCL_NVLS_ENABLE=0` to the command environment allowed
-the standalone four/eight-rank probes and the tests below to execute. This is
-NVIDIA's existing [NVLS control](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/env.html#nccl-nvls-enable);
-use it for that runtime profile. The operator does not set it.
+The qualification environment follows the repository GPU CI installation steps:
+Python 3.11, PyTorch 2.4.1+cu124, Triton 3.0.0 and NCCL 2.20.5. The multi-GPU
+commands use the default NCCL configuration on H20.
 
 ## Tests
 
 ```bash
-PYTHONPATH=. OMP_NUM_THREADS=1 NCCL_NVLS_ENABLE=0 python3.11 -m pytest \
+PYTHONPATH=. OMP_NUM_THREADS=1 python3.11 -m pytest \
   tests/distributed/tp/test_qwenimage_tp_qkv_bias_gemm.py -q
 
 # Regress the existing #537 callers after exposing the two native stages.
