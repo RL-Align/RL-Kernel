@@ -251,6 +251,13 @@ def test_triton_backward_is_batch_invariant_bitwise(dtype):
         (lambda h, r, pw, vw: (h, r, pw[:-1], vw), ValueError, "post_weight must be 1-D"),
         (lambda h, r, pw, vw: (h, r, pw, vw[:-1]), ValueError, "pre_weight must be 1-D"),
         (lambda h, r, pw, vw: (h.cpu(), r.cpu(), pw, vw), RuntimeError, "GPU tensor"),
+        # Zero width used to surface as .view(-1, 0) complaining about an
+        # ambiguous unspecified dimension, which says nothing about the cause.
+        (
+            lambda h, r, pw, vw: (h[..., :0], r[..., :0], pw[:0], vw[:0]),
+            ValueError,
+            "non-zero last dimension",
+        ),
     ],
 )
 def test_triton_fails_closed(mutate, exc, match):

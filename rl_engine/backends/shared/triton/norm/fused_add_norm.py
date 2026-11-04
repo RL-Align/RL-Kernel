@@ -190,6 +190,12 @@ def _validate(hidden: Tensor, residual: Tensor, post_w: Tensor, pre_w: Tensor) -
             f"hidden and residual must share dtype, got {hidden.dtype} and {residual.dtype}."
         )
     width = hidden.shape[-1]
+    if width == 0:
+        # Otherwise the first thing that fails is .view(-1, 0), whose message is
+        # about an ambiguous unspecified dimension and says nothing about the real
+        # problem. A zero-width row has no statistic to compute, so there is no
+        # sensible answer to return either.
+        raise ValueError("hidden must have a non-zero last dimension, got width 0.")
     for name, w in (("post_weight", post_w), ("pre_weight", pre_w)):
         if w.dim() != 1 or w.shape[0] != width:
             raise ValueError(

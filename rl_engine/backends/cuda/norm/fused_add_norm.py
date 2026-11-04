@@ -58,6 +58,9 @@ def _validate(hidden: Tensor, residual: Tensor, post_w: Tensor, pre_w: Tensor) -
             f"hidden and residual must share dtype, got {hidden.dtype} and {residual.dtype}."
         )
     width = hidden.shape[-1]
+    if width == 0:
+        # See the Triton wrapper: .view(-1, 0) fails first and explains nothing.
+        raise ValueError("hidden must have a non-zero last dimension, got width 0.")
     for name, w in (("post_weight", post_w), ("pre_weight", pre_w)):
         if w.dim() != 1 or w.shape[0] != width:
             raise ValueError(
