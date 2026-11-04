@@ -146,7 +146,14 @@ if _TRITON_AVAILABLE:
         # dtype and adds in that dtype. Keeping this in FP32 is one ULP per
         # element and puts the post-norm weight gradient 2.6-2.9x outside the
         # contract row at 512 and 2048 rows; see the reference's docstring.
-        narrow = G_RES.dtype.element_ty
+        # From hidden, not from the cotangent. The reference derives it from the
+        # input (dtype = hidden.dtype) and the CUDA kernel from the dispatch on
+        # hidden.scalar_type(), so taking it from G_RES made an FP32 cotangent with
+        # BF16 hidden turn both narrowings into the identity and silently return
+        # the gradient of forward_fp32, a different computation. Autograd cannot
+        # reach that -- cotangents arrive at the output dtype -- but the public
+        # fused_add_norm_triton_backward can.
+        narrow = HIDDEN.dtype.element_ty
         scaled_pre = g_pre * pre_gain
         dot_pre = tl.sum(scaled_pre * res_out, axis=0) / H
         d_from_pre = rstd_pre * scaled_pre - res_out * rstd_pre * rstd_pre * rstd_pre * dot_pre
@@ -189,6 +196,20 @@ def _validate(hidden: Tensor, residual: Tensor, post_w: Tensor, pre_w: Tensor) -
                 f"{name} must be 1-D of size x.shape[-1]={width}, "
                 f"got tuple({name}.shape)={tuple(w.shape)}"
             )
+        # The weights were checked for rank and size only, while the CUDA binding
+        # checks their dtype and requires the two to agree (csrc/bindings/ops.cpp).
+        # So post_weight bf16 with pre_weight fp32 ran here and raised there: the
+        # same call changing behaviour with the backend, which is worse than either
+        # answer. Matching the stricter side.
+        if w.dtype not in _SUPPORTED_DTYPES:
+            raise TypeError(f"{name} must have dtype fp16, bf16, or fp32, got {w.dtype}.")
+        if not w.is_cuda:
+            raise RuntimeError(f"{name} must be a GPU tensor, got device '{w.device}'.")
+    if post_w.dtype != pre_w.dtype:
+        raise ValueError(
+            f"post_weight and pre_weight must share dtype, got {post_w.dtype} "
+            f"and {pre_w.dtype}."
+        )
     block = triton.next_power_of_2(width)
     if block > _MAX_BLOCK:
         raise ValueError(
@@ -266,8 +287,25 @@ def fused_add_norm_triton_backward(
     declared reduction order over rows is preserved.
     """
     _require_triton()
+    # This recomputed ``block`` inline and skipped _validate entirely, so the
+    # public backward had no dtype, device, shape or _MAX_BLOCK check while the
+    # CUDA path validates in C++. Mismatched cotangent shapes read and wrote the
+    # wrong rows instead of raising.
+    block = _validate(hidden, residual_out, post_weight, pre_weight)
     width = hidden.shape[-1]
-    block = triton.next_power_of_2(width)
+    for name, g in (("grad_residual_out", grad_residual_out), ("grad_pre_normed", grad_pre_normed)):
+        if g.shape != hidden.shape:
+            raise ValueError(
+                f"{name} must share hidden's shape, got {tuple(g.shape)} "
+                f"and {tuple(hidden.shape)}."
+            )
+    rows_expected = hidden.numel() // width
+    for name, r in (("rstd_post", rstd_post), ("rstd_pre", rstd_pre)):
+        if r.dim() != 1 or r.shape[0] != rows_expected:
+            raise ValueError(
+                f"{name} must be 1-D with one entry per row ({rows_expected}), "
+                f"got tuple({name}.shape)={tuple(r.shape)}"
+            )
 
     hidden_2d = hidden.contiguous().view(-1, width)
     res_out_2d = residual_out.contiguous().view(-1, width)

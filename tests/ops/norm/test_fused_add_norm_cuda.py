@@ -95,14 +95,62 @@ def _inputs(shape, dtype, *, seed=0):
     )
 
 
-def _one_ulp(reference: torch.Tensor) -> float:
-    peak = float(reference.abs().max())
-    if peak == 0.0:
+# FP16 reduction is ``optional`` in the contract and this operator does not meet
+# the declared row: the row sum over 6656 elements shows through a 10-bit mantissa.
+# The allowance is a fraction of one ULP at the tensor's peak. Measured over six
+# shapes, six seeds and both backends, the worst output needs 0.135 of one peak
+# ULP beyond the row, so 0.25 leaves about 1.9x headroom and is four times tighter
+# than the "one peak ULP" this started as.
+#
+# Why the peak and not each element's own magnitude, which would read tighter: the
+# residual add cancels. Measured, ``residual_out`` has an element at |value|
+# 1.56e-02 carrying an error of 1.95e-03, which is 128 ULPs of its own magnitude
+# but a quarter of one ULP at the row's scale, because the rounding comes from the
+# operands rather than the result. An elementwise bound calls that a failure and is
+# wrong to.
+#
+# The number is checked by injecting bugs, not by whether the tests pass; the
+# margins are in the PR.
+_FP16_PEAK_ULP_BUDGET = 0.25
+
+
+def _peak_ulp(reference: torch.Tensor, dtype: torch.dtype) -> float:
+    """One ULP of ``dtype`` at the reference tensor's peak magnitude."""
+    peak = torch.tensor(float(reference.abs().max()), dtype=dtype)
+    if float(peak) == 0.0:
         return 0.0
-    hi = torch.nextafter(
-        torch.tensor(peak, dtype=reference.dtype), torch.tensor(float("inf"), dtype=reference.dtype)
+    step = torch.nextafter(peak, torch.tensor(float("inf"), dtype=dtype)) - peak
+    return float(step)
+
+
+def _assert_within(judgment, dtype, got, want, label, contract, relax):
+    """Compare at the contract row, plus a measured budget where it is optional.
+
+    FP32 and BF16 are ``applicable`` for reduction judgments and are held to the
+    contract exactly: measured over the same sweep, they need zero extra allowance
+    on all six outputs, so ``relax`` is false for them and nothing is added.
+
+    ``torch.testing.assert_close`` only takes scalar tolerances and the rtol term
+    is elementwise, so the comparison is done by hand; the message reports the
+    worst offender as a ratio of its own allowance, which is the number to read
+    when it fails.
+    """
+    tolerance = resolve_tolerance(contract, judgment=judgment, op_class="reduction", dtype=dtype)
+    got_f = got.cpu().float()
+    want_f = want.cpu().float()
+    allowed = tolerance.atol + tolerance.rtol * want_f.abs()
+    if relax:
+        allowed = allowed + _FP16_PEAK_ULP_BUDGET * _peak_ulp(want_f, dtype)
+    error = (got_f - want_f).abs()
+    ratio = error / allowed
+    worst = int(ratio.argmax())
+    assert bool((error <= allowed).all()), (
+        f"{label}{judgment} outside the reduction row for {dtype}: "
+        f"{int((ratio > 1).sum())} of {error.numel()} elements, worst "
+        f"|error|={error.flatten()[worst]:.3e} against allowance "
+        f"{allowed.flatten()[worst]:.3e} at |reference|={want_f.abs().flatten()[worst]:.3e} "
+        f"(ratio {ratio.flatten()[worst]:.2f})"
     )
-    return float(hi - peak)
 
 
 def _assert_against_gold(judgment, dtype, got, want, label=""):
@@ -112,20 +160,10 @@ def _assert_against_gold(judgment, dtype, got, want, label=""):
     and the gold differ by one FP16 ULP on a handful of elements where the
     reduction order lands on the far side of a tie in the residual add.
     """
-    t = resolve_tolerance(_CONTRACT, judgment=judgment, op_class="reduction", dtype=dtype)
-    atol = t.atol
     support = resolve_tolerance_support(
         _CONTRACT, judgment=judgment, op_class="reduction", dtype=dtype
     )
-    if support.status != "applicable":
-        atol = max(atol, _one_ulp(want))
-    torch.testing.assert_close(
-        got.cpu().float(),
-        want.cpu().float(),
-        atol=atol,
-        rtol=t.rtol,
-        msg=lambda built: f"{label}{built}" if label else built,
-    )
+    _assert_within(judgment, dtype, got, want, label, _CONTRACT, support.status != "applicable")
 
 
 @requires_cuda_kernel
@@ -309,3 +347,38 @@ def test_cuda_zero_rows_does_not_poison_the_context(dtype):
 
     probe = torch.ones(16, 16, device="cuda")
     assert float(probe.sum()) == 256.0, "the CUDA context did not survive the empty launch"
+
+
+@requires_cuda_kernel
+def test_cuda_binding_rejects_fp64_instead_of_silently_narrowing():
+    """The extension boundary fails closed on FP64 rather than open.
+
+    ``AT_DISPATCH_FLOATING_TYPES_AND2`` instantiates ``double`` and the kernel's
+    generic load/store cast through ``float``, so a FP64 call used to return FP64
+    tensors carrying FP32 precision -- measured at about 7e-07 of error -- with
+    nothing raised. The Python wrapper rejects FP64 before this, so the only way in
+    is the binding itself, which is exactly the path a C++ or benchmark caller
+    takes. Failing open on precision is the wrong default for an operator whose
+    contract is about where the casts are.
+    """
+    from rl_engine import _C
+
+    kw = {"device": "cuda", "dtype": torch.float64}
+    hidden = torch.randn(4, 32, **kw)
+    residual = torch.randn_like(hidden)
+    post_w = torch.randn(32, **kw)
+    pre_w = torch.randn_like(post_w)
+
+    with pytest.raises(RuntimeError, match="fp16, bf16, or fp32"):
+        _C.fused_add_norm_forward(hidden, residual, post_w, pre_w, POST_NORM_EPS, RMS_NORM_EPS)
+
+    # The supported dtypes still go through.
+    out = _C.fused_add_norm_forward(
+        hidden.bfloat16(),
+        residual.bfloat16(),
+        post_w.bfloat16(),
+        pre_w.bfloat16(),
+        POST_NORM_EPS,
+        RMS_NORM_EPS,
+    )
+    assert out[0].dtype == torch.bfloat16

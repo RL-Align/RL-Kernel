@@ -29,10 +29,18 @@ from rl_engine.reference.norm.rms_norm import shape_invariant_meansq
 
 _FP64_TOL = {"atol": 1e-6, "rtol": 1e-6}
 
+# The chunked reductions in rms_norm.py exist to keep the statistic bitwise equal
+# across batch layouts on devices whose reduction kernel is shape-dependent. On CPU
+# plain torch.mean/torch.sum already are invariant, so a CPU-only invariance test
+# cannot fail for the mutation it names: replacing shape_invariant_meansq with
+# x.pow(2).mean(-1) leaves all 119 tests in this operator's three files green.
+# Every invariance test below therefore runs on CUDA as well, where it does fail.
+DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 
-def _rand(shape, *, seed: int, dtype=torch.float64) -> torch.Tensor:
+
+def _rand(shape, *, seed: int, dtype=torch.float64, device="cpu") -> torch.Tensor:
     gen = torch.Generator().manual_seed(seed)
-    return torch.randn(shape, generator=gen, dtype=torch.float64).to(dtype)
+    return torch.randn(shape, generator=gen, dtype=torch.float64).to(device=device, dtype=dtype)
 
 
 def _ref_meansq(x: torch.Tensor) -> torch.Tensor:
@@ -80,56 +88,115 @@ def test_final_norm_matches_fp64_definition(shape):
     torch.testing.assert_close(got.double(), expected, **_FP64_TOL)
 
 
-def test_fp64_check_rejects_a_missing_one_plus_offset():
+def test_production_pre_norm_is_not_the_missing_offset_form():
     """Guard: the decoder norm is (1+w), and dropping the 1 must be caught.
 
-    This is the mistake the fingerprint exists to prevent. Folding the offset into
-    a BF16 weight, or forgetting it, is silent at the API level.
+    This is the mistake the fingerprint exists to prevent, and it is silent at the
+    API level. The comparison is deliberately the wrong way round: the production
+    output is held *against the wrong FP64 form* and required to disagree. An
+    earlier version of this test compared ``_ref_centered`` with ``_ref_scaled``,
+    both defined in this file, so it asserted that two test-local expressions
+    differ -- arithmetic, not a property of the code under test. It passed with
+    ``_centered_norm`` replaced by a function returning zeros.
     """
     shape = (4, HIDDEN_SIZE)
-    x = _rand(shape, seed=26)
-    weight = _rand((shape[-1],), seed=27)
-    correct = _ref_centered(x, weight, RMS_NORM_EPS)
-    wrong = _ref_scaled(x, weight, RMS_NORM_EPS)  # w instead of (1 + w)
+    # FP32 is what the reference accepts, so the FP64 side starts from the same
+    # values rather than from the unrounded draw.
+    hidden = _rand(shape, seed=26).float()
+    residual = _rand(shape, seed=120).float()
+    post_w = _rand((shape[-1],), seed=27).float()
+    pre_w = _rand((shape[-1],), seed=121).float()
+
+    _, got_pre = NativeFusedAddNormOp().forward_fp32(
+        hidden, residual, post_w, pre_w, post_eps=POST_NORM_EPS, pre_eps=RMS_NORM_EPS
+    )
+    post = _ref_centered(hidden.double(), post_w.double(), POST_NORM_EPS)
+    residual_out = residual.double() + post
+    correct = _ref_centered(residual_out, pre_w.double(), RMS_NORM_EPS)
+    missing_offset = _ref_scaled(residual_out, pre_w.double(), RMS_NORM_EPS)  # w, not (1 + w)
+
+    torch.testing.assert_close(got_pre.double(), correct, **_FP64_TOL)
     with pytest.raises(AssertionError):
-        torch.testing.assert_close(wrong, correct, **_FP64_TOL)
+        torch.testing.assert_close(got_pre.double(), missing_offset, **_FP64_TOL)
 
 
-def test_fp64_check_rejects_swapped_eps():
+def test_production_eps_are_not_interchangeable():
     """Guard: post-norm eps is 1e-8 and pre-norm eps is 1e-5, not interchangeable.
 
-    Two orders of magnitude apart, but both tiny next to a unit-variance row, so a
-    loose tolerance would let the swap through. This pins the scale at which the
-    difference is still visible: rows scaled down so the eps term dominates.
+    Two orders of magnitude apart but both tiny next to a unit-variance row, so the
+    rows are scaled down until the eps term dominates, which is the only scale where
+    any comparison can see the difference. As above, the production output is the
+    left-hand side: it must match the FP64 form built with the eps it was given and
+    must not match the form built with them exchanged. The previous version compared
+    two test-local expressions at two eps values and never called the reference.
     """
     shape = (4, HIDDEN_SIZE)
-    x = _rand(shape, seed=28) * 1e-3
-    weight = _rand((shape[-1],), seed=29)
-    with_post = _ref_centered(x, weight, POST_NORM_EPS)
-    with_pre = _ref_centered(x, weight, RMS_NORM_EPS)
-    with pytest.raises(AssertionError):
-        torch.testing.assert_close(with_pre, with_post, **_FP64_TOL)
-
-
-def test_forward_keeps_the_narrow_cast_before_the_residual_add():
-    """The post-norm result is cast before the add, and that is observable.
-
-    ``weight_applied_before_cast`` in the fingerprint puts the cast at the end of
-    the norm, so in BF16 the value entering the add is already rounded. If a kernel
-    kept the post-norm in FP32 and added there, it would disagree with eager HF.
-    This test records that ``forward`` and ``forward_fp32`` are therefore not the
-    same computation widened, which is why both exist.
-    """
-    shape = (8, HIDDEN_SIZE)
-    hidden = _rand(shape, seed=30, dtype=torch.bfloat16)
-    residual = _rand(shape, seed=31, dtype=torch.bfloat16)
-    post_w = _rand((shape[-1],), seed=32, dtype=torch.bfloat16)
-    pre_w = _rand((shape[-1],), seed=33, dtype=torch.bfloat16)
+    scale = 1e-3
+    hidden = (_rand(shape, seed=28) * scale).float()
+    residual = (_rand(shape, seed=122) * scale).float()
+    post_w = _rand((shape[-1],), seed=29).float()
+    pre_w = _rand((shape[-1],), seed=123).float()
 
     op = NativeFusedAddNormOp()
-    narrow_residual, _ = op.forward(hidden, residual, post_w, pre_w)
-    wide_residual, _ = op.forward_fp32(hidden, residual, post_w, pre_w)
-    assert not torch.equal(narrow_residual.float(), wide_residual)
+    got_res, got_pre = op.forward_fp32(
+        hidden, residual, post_w, pre_w, post_eps=POST_NORM_EPS, pre_eps=RMS_NORM_EPS
+    )
+
+    def compose(post_eps, pre_eps):
+        post = _ref_centered(hidden.double(), post_w.double(), post_eps)
+        res = residual.double() + post
+        return res, _ref_centered(res, pre_w.double(), pre_eps)
+
+    want_res, want_pre = compose(POST_NORM_EPS, RMS_NORM_EPS)
+    swapped_res, swapped_pre = compose(RMS_NORM_EPS, POST_NORM_EPS)
+
+    torch.testing.assert_close(got_res.double(), want_res, **_FP64_TOL)
+    torch.testing.assert_close(got_pre.double(), want_pre, **_FP64_TOL)
+    with pytest.raises(AssertionError):
+        torch.testing.assert_close(got_res.double(), swapped_res, **_FP64_TOL)
+    with pytest.raises(AssertionError):
+        torch.testing.assert_close(got_pre.double(), swapped_pre, **_FP64_TOL)
+
+
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16])
+def test_forward_differs_from_the_composition_without_the_pre_add_cast(dtype):
+    """Negative control for the first narrowing point.
+
+    ``test_forward_matches_an_eager_composition`` above already pins, bitwise, that
+    ``forward`` *is* the narrowed composition. The half that was missing is that it
+    is not the un-narrowed one, and the test that was supposed to cover it only
+    asserted that ``forward`` and ``forward_fp32`` differ. Any narrowing anywhere
+    makes those two differ, including the final output cast, so it passed with this
+    cast removed and it passed with ``forward`` rewritten as
+    ``forward_fp32(...).to(dtype)`` -- the exact mistake its own docstring named.
+    Both measured before this was changed.
+
+    The composition is built with the production statistic for the same reason the
+    test above gives: what is under test is where the cast lands, not the
+    reduction. The only difference between the two expressions below is the
+    ``.to(dtype)`` on ``post``, and it moves 13.8k of 53k elements at BF16 and
+    13.7k at FP16, so the control is not vacuous at either dtype.
+    """
+    shape = (8, HIDDEN_SIZE)
+    hidden = _rand(shape, seed=30, dtype=dtype)
+    residual = _rand(shape, seed=31, dtype=dtype)
+    post_w = _rand((HIDDEN_SIZE,), seed=32, dtype=dtype)
+
+    x_f = hidden.float()
+    rstd = torch.rsqrt(shape_invariant_meansq(x_f) + POST_NORM_EPS).unsqueeze(-1)
+    post = (x_f * rstd) * (1.0 + post_w.float())
+
+    with_cast = residual + post.to(dtype)
+    without_cast = (residual.float() + post).to(dtype)
+    assert not torch.equal(with_cast, without_cast), "the control cannot fail at this dtype"
+
+    got_residual, _ = NativeFusedAddNormOp().forward(hidden, residual, post_w, post_w)
+    assert torch.equal(got_residual, with_cast)
+    assert not torch.equal(got_residual, without_cast), (
+        "forward matches the composition with the pre-add cast removed, so the cast "
+        "is not where the fingerprint puts it"
+    )
+
 
 
 @pytest.mark.parametrize(
@@ -290,32 +357,94 @@ def test_final_norm_backward_matches_fp64_definition(shape):
     torch.testing.assert_close(dw_rows.sum(dim=lead).double(), w_leaf.grad, atol=1e-4, rtol=1e-4)
 
 
-def test_backward_row_reduction_is_batch_invariant():
+@pytest.mark.parametrize("device", DEVICES)
+def test_backward_row_reduction_is_batch_invariant(device):
     """A row's gradient bytes do not change with batch size or position.
 
     Axis A applies to the backward too. The reduction inside the closed form is
-    the chunked row sum for exactly this reason; a plain sum would drift here while
-    the forward still looked invariant.
+    the chunked row sum for exactly this reason. Measured: with
+    ``shape_invariant_rowsum`` and ``shape_invariant_meansq`` replaced by plain
+    ``sum``/``mean``, this test passes on CPU and fails on CUDA on eleven
+    (row, gradient) pairs, which is why ``device`` is a parameter rather than a
+    default. All four gradients are compared because the reference returns the
+    weight gradients unreduced, so they are still per-row here.
     """
     width = HIDDEN_SIZE
     big = 16
-    hidden = _rand((big, width), seed=71, dtype=torch.float32)
-    residual = _rand((big, width), seed=72, dtype=torch.float32)
-    post_w = _rand((width,), seed=73, dtype=torch.float32)
-    pre_w = _rand((width,), seed=74, dtype=torch.float32)
-    g_residual = _rand((big, width), seed=75, dtype=torch.float32)
-    g_pre = _rand((big, width), seed=76, dtype=torch.float32)
+    kw = {"dtype": torch.float32, "device": device}
+    hidden = _rand((big, width), seed=71, **kw)
+    residual = _rand((big, width), seed=72, **kw)
+    post_w = _rand((width,), seed=73, **kw)
+    pre_w = _rand((width,), seed=74, **kw)
+    g_residual = _rand((big, width), seed=75, **kw)
+    g_pre = _rand((big, width), seed=76, **kw)
 
     full = fused_add_norm_backward(g_residual, g_pre, hidden, residual, post_w, pre_w)
-    for row in (0, 1, big // 2, big - 1):
-        sl = slice(row, row + 1)
-        single = fused_add_norm_backward(
-            g_residual[sl], g_pre[sl], hidden[sl], residual[sl], post_w, pre_w
-        )
-        for whole, part, name in zip(
-            full, single, ("d_hidden", "d_residual", "d_post", "d_pre"), strict=True
-        ):
-            assert torch.equal(whole[sl], part), f"{name} drifted at row {row}"
+    for count in (1, 2, 7, 15):
+        for start in (0, 1, big - count):
+            sl = slice(start, start + count)
+            part = fused_add_norm_backward(
+                g_residual[sl], g_pre[sl], hidden[sl], residual[sl], post_w, pre_w
+            )
+            for whole, piece, name in zip(
+                full, part, ("d_hidden", "d_residual", "d_post", "d_pre"), strict=True
+            ):
+                where = f"rows [{start}, {start + count}) on {device}"
+                assert torch.equal(whole[sl], piece), f"{name} drifted at {where}"
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_reference_forward_is_batch_invariant(device):
+    """The gold itself has to be batch invariant, not only the kernels.
+
+    The reference is what both GPU backends are measured against and is the
+    registered backend for cpu, musa and npu, so if its statistic moves with the
+    batch layout then every comparison against it moves too. The kernels had their
+    own invariance tests from the start; this one was missing.
+
+    The second half is the layout the chunked reduction was written for:
+    ``rms_norm.shape_invariant_meansq`` names ``[1,7,H]`` against ``[1,20,H]`` as
+    the case where torch picks a different reduction kernel. Both outputs are
+    compared, so the pre-norm's statistic over the narrowed sum is covered too.
+    """
+    width = HIDDEN_SIZE
+    big = 16
+    kw = {"dtype": torch.float32, "device": device}
+    hidden = _rand((big, width), seed=80, **kw)
+    residual = _rand((big, width), seed=81, **kw)
+    post_w = _rand((width,), seed=82, **kw)
+    pre_w = _rand((width,), seed=83, **kw)
+
+    op = NativeFusedAddNormOp()
+    full = op.forward_fp32(hidden, residual, post_w, pre_w)
+    for count in (1, 2, 7, 15):
+        for start in (0, 1, big - count):
+            sl = slice(start, start + count)
+            part = op.forward_fp32(hidden[sl], residual[sl], post_w, pre_w)
+            for whole, piece, name in zip(full, part, ("residual_out", "pre_normed"), strict=True):
+                where = f"rows [{start}, {start + count}) on {device}"
+                assert torch.equal(whole[sl], piece), f"{name} drifted at {where}"
+
+    # [1,7,H] against [1,20,H]: the same seven rows, two leading layouts.
+    wide = _rand((1, 20, width), seed=84, **kw)
+    wide_res = _rand((1, 20, width), seed=85, **kw)
+    narrow_out = op.forward_fp32(wide[:, :7], wide_res[:, :7], post_w, pre_w)
+    wide_out = op.forward_fp32(wide, wide_res, post_w, pre_w)
+    for whole, piece, name in zip(wide_out, narrow_out, ("residual_out", "pre_normed"), strict=True):
+        assert torch.equal(whole[:, :7], piece), f"{name} moved between [1,7,H] and [1,20,H]"
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_final_norm_is_batch_invariant(device):
+    """Same requirement for the final norm, which shares the chunked statistic."""
+    width = HIDDEN_SIZE
+    kw = {"dtype": torch.float32, "device": device}
+    x = _rand((1, 20, width), seed=86, **kw)
+    weight = _rand((width,), seed=87, **kw)
+
+    op = NativeFinalNormOp()
+    assert torch.equal(op.forward_fp32(x[:, :7], weight), op.forward_fp32(x, weight)[:, :7])
+    assert torch.equal(op.forward_fp32(x[:, 3:5], weight), op.forward_fp32(x, weight)[:, 3:5])
 
 
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16])
@@ -401,3 +530,98 @@ def test_closed_form_backward_accumulates_the_residual_gradient_like_eager(rows)
             torch.testing.assert_close(
                 fp32[2].sum(dim=lead).to(dtype).float(), want[2], atol=atol, rtol=rtol
             )
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_reference_uses_the_eps_it_is_given(device):
+    """Both eps have to reach the arithmetic, not just the signature.
+
+    Measured: with ``_run`` overwriting its ``post_eps``/``pre_eps`` arguments
+    with the module constants, the whole suite stayed green -- every reference test
+    used the defaults, so nothing distinguished a plumbed parameter from a
+    hardcoded one. The Triton file has ``test_eps_values_reach_the_kernel`` for the
+    same failure mode in the kernel; this is the reference's version of it.
+
+    The rows are scaled down so the eps term dominates, which is the only regime
+    where a comparison can see eps at all, and the two values are chosen far from
+    the defaults so a partial plumbing (one of the two) also shows up.
+    """
+    width = HIDDEN_SIZE
+    scale = 1e-3
+    kw = {"dtype": torch.float32, "device": device}
+    hidden = (_rand((4, width), seed=90, **kw) * scale).float()
+    residual = (_rand((4, width), seed=91, **kw) * scale).float()
+    post_w = _rand((width,), seed=92, **kw)
+    pre_w = _rand((width,), seed=93, **kw)
+
+    odd_post, odd_pre = 3e-4, 7e-2
+    op = NativeFusedAddNormOp()
+    got_res, got_pre = op.forward_fp32(
+        hidden, residual, post_w, pre_w, post_eps=odd_post, pre_eps=odd_pre
+    )
+
+    def compose(post_eps, pre_eps):
+        post = _ref_centered(hidden.double(), post_w.double(), post_eps)
+        res = residual.double() + post
+        return res, _ref_centered(res, pre_w.double(), pre_eps)
+
+    want_res, want_pre = compose(odd_post, odd_pre)
+    torch.testing.assert_close(got_res.double(), want_res, **_FP64_TOL)
+    torch.testing.assert_close(got_pre.double(), want_pre, **_FP64_TOL)
+
+    # And must not match the defaults, which is what a hardcoded eps would give.
+    default_res, default_pre = compose(POST_NORM_EPS, RMS_NORM_EPS)
+    with pytest.raises(AssertionError):
+        torch.testing.assert_close(got_res.double(), default_res, **_FP64_TOL)
+    with pytest.raises(AssertionError):
+        torch.testing.assert_close(got_pre.double(), default_pre, **_FP64_TOL)
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_final_norm_uses_the_eps_it_is_given(device):
+    """Same for the final norm, which takes a single eps."""
+    width = HIDDEN_SIZE
+    kw = {"dtype": torch.float32, "device": device}
+    x = (_rand((4, width), seed=94, **kw) * 1e-3).float()
+    weight = _rand((width,), seed=95, **kw)
+
+    odd = 5e-2
+    got = NativeFinalNormOp().forward_fp32(x, weight, eps=odd)
+    torch.testing.assert_close(
+        got.double(), _ref_scaled(x.double(), weight.double(), odd), **_FP64_TOL
+    )
+    with pytest.raises(AssertionError):
+        torch.testing.assert_close(
+            got.double(), _ref_scaled(x.double(), weight.double(), RMS_NORM_EPS), **_FP64_TOL
+        )
+
+
+def test_final_norm_uses_pow_neg_half_and_decoder_norms_use_rsqrt(monkeypatch):
+    """The fingerprint separates the two spellings, so the code has to as well.
+
+    No numerical test can tell them apart here: ``x ** -0.5`` and
+    ``torch.rsqrt(x)`` are bitwise equal over 42M FP32 inputs spanning twelve
+    decades, on both CPU and this GPU, which I measured before writing this. The
+    distinction exists because the fingerprint freezes it and because a device
+    whose ``pow`` and ``rsqrt`` differ would otherwise change the model silently.
+
+    So this pins it behaviourally instead: ``torch.rsqrt`` is replaced with a
+    counter. The decoder norms must go through it and the final norm must not.
+    Measured: with ``_scaled_norm``'s ``** -0.5`` replaced by ``torch.rsqrt``, the
+    suite was entirely green, and this test is now the one that fails.
+    """
+    calls = []
+    real_rsqrt = torch.rsqrt
+    monkeypatch.setattr(torch, "rsqrt", lambda x: (calls.append(1), real_rsqrt(x))[1])
+
+    width = HIDDEN_SIZE
+    hidden = _rand((4, width), seed=96).float()
+    residual = _rand((4, width), seed=97).float()
+    post_w = _rand((width,), seed=98).float()
+    pre_w = _rand((width,), seed=99).float()
+
+    NativeFinalNormOp().forward_fp32(hidden, post_w)
+    assert not calls, "the final norm is pow_neg_half in the fingerprint, not rsqrt"
+
+    NativeFusedAddNormOp().forward_fp32(hidden, residual, post_w, pre_w)
+    assert calls, "the decoder norms are rsqrt in the fingerprint"

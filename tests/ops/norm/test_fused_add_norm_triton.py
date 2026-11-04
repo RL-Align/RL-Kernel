@@ -34,6 +34,7 @@ triton = pytest.importorskip("triton")
 
 from rl_engine.backends.shared.triton.norm.fused_add_norm import (  # noqa: E402
     TritonFusedAddNormOp,
+    fused_add_norm_triton_backward,
     fused_add_norm_triton_forward,
 )
 
@@ -109,17 +110,61 @@ def _is_required(judgment: str, dtype: torch.dtype) -> bool:
     return support.status == "applicable"
 
 
-def _one_ulp(reference: torch.Tensor) -> float:
-    """One ULP at the reference's largest magnitude, in its own dtype."""
-    peak = float(reference.abs().max())
-    if peak == 0.0:
+# FP16 reduction is ``optional`` in the contract and this operator does not meet
+# the declared row: the row sum over 6656 elements shows through a 10-bit mantissa.
+# The allowance is a fraction of one ULP at the tensor's peak. Measured over six
+# shapes, six seeds and both backends, the worst output needs 0.135 of one peak
+# ULP beyond the row, so 0.25 leaves about 1.9x headroom and is four times tighter
+# than the "one peak ULP" this started as.
+#
+# Why the peak and not each element's own magnitude, which would read tighter: the
+# residual add cancels. Measured, ``residual_out`` has an element at |value|
+# 1.56e-02 carrying an error of 1.95e-03, which is 128 ULPs of its own magnitude
+# but a quarter of one ULP at the row's scale, because the rounding comes from the
+# operands rather than the result. An elementwise bound calls that a failure and is
+# wrong to.
+#
+# The number is checked by injecting bugs, not by whether the tests pass; the
+# margins are in the PR.
+_FP16_PEAK_ULP_BUDGET = 0.25
+
+
+def _peak_ulp(reference: torch.Tensor, dtype: torch.dtype) -> float:
+    """One ULP of ``dtype`` at the reference tensor's peak magnitude."""
+    peak = torch.tensor(float(reference.abs().max()), dtype=dtype)
+    if float(peak) == 0.0:
         return 0.0
-    return float(
-        torch.nextafter(
-            torch.tensor(peak, dtype=reference.dtype),
-            torch.tensor(float("inf"), dtype=reference.dtype),
-        )
-        - peak
+    step = torch.nextafter(peak, torch.tensor(float("inf"), dtype=dtype)) - peak
+    return float(step)
+
+
+def _assert_within(judgment, dtype, got, want, label, contract, relax):
+    """Compare at the contract row, plus a measured budget where it is optional.
+
+    FP32 and BF16 are ``applicable`` for reduction judgments and are held to the
+    contract exactly: measured over the same sweep, they need zero extra allowance
+    on all six outputs, so ``relax`` is false for them and nothing is added.
+
+    ``torch.testing.assert_close`` only takes scalar tolerances and the rtol term
+    is elementwise, so the comparison is done by hand; the message reports the
+    worst offender as a ratio of its own allowance, which is the number to read
+    when it fails.
+    """
+    tolerance = resolve_tolerance(contract, judgment=judgment, op_class="reduction", dtype=dtype)
+    got_f = got.cpu().float()
+    want_f = want.cpu().float()
+    allowed = tolerance.atol + tolerance.rtol * want_f.abs()
+    if relax:
+        allowed = allowed + _FP16_PEAK_ULP_BUDGET * _peak_ulp(want_f, dtype)
+    error = (got_f - want_f).abs()
+    ratio = error / allowed
+    worst = int(ratio.argmax())
+    assert bool((error <= allowed).all()), (
+        f"{label}{judgment} outside the reduction row for {dtype}: "
+        f"{int((ratio > 1).sum())} of {error.numel()} elements, worst "
+        f"|error|={error.flatten()[worst]:.3e} against allowance "
+        f"{allowed.flatten()[worst]:.3e} at |reference|={want_f.abs().flatten()[worst]:.3e} "
+        f"(ratio {ratio.flatten()[worst]:.2f})"
     )
 
 
@@ -160,16 +205,10 @@ def _assert_against_gold(judgment, dtype, got, want, label=""):
     narrowing is the one both miss, and it has its own bitwise test against an
     eager composition in ``test_fused_add_norm.py``.
     """
-    atol, rtol = _tol(judgment, dtype)
-    if not _is_required(judgment, dtype):
-        atol = max(atol, _one_ulp(want))
-    torch.testing.assert_close(
-        got.cpu().float(),
-        want.cpu().float(),
-        atol=atol,
-        rtol=rtol,
-        msg=lambda built: f"{label}{built}" if label else built,
+    support = resolve_tolerance_support(
+        _CONTRACT, judgment=judgment, op_class="reduction", dtype=dtype
     )
+    _assert_within(judgment, dtype, got, want, label, _CONTRACT, support.status != "applicable")
 
 
 # 512 rows is the benchmark's largest default shape; weight gradients sum over
@@ -427,3 +466,92 @@ def test_triton_row_offset_does_not_wrap_at_two_billion_elements():
         del hidden, residual
         gc.collect()
         torch.cuda.empty_cache()
+
+
+@requires_cuda
+@pytest.mark.parametrize(
+    "mutate, exc, match",
+    [
+        (
+            lambda kw: kw | {"grad_residual_out": kw["grad_residual_out"][..., :-1]},
+            ValueError,
+            "share hidden's shape",
+        ),
+        (
+            lambda kw: kw | {"grad_pre_normed": kw["grad_pre_normed"][:1]},
+            ValueError,
+            "share hidden's shape",
+        ),
+        (lambda kw: kw | {"rstd_post": kw["rstd_post"][:-1]}, ValueError, "one entry per row"),
+        (
+            lambda kw: kw | {"rstd_pre": kw["rstd_pre"].unsqueeze(0)},
+            ValueError,
+            "one entry per row",
+        ),
+        (
+            lambda kw: kw | {"post_weight": kw["post_weight"].to(torch.float32)},
+            ValueError,
+            "share dtype",
+        ),
+        (lambda kw: kw | {"hidden": kw["hidden"].cpu()}, RuntimeError, "GPU tensor"),
+    ],
+)
+def test_triton_backward_validates_its_inputs(mutate, exc, match):
+    """The public backward fails closed, like the CUDA binding does in C++.
+
+    It recomputed ``block`` inline and never called ``_validate``, so it had no
+    dtype, device, shape or ``_MAX_BLOCK`` check. A cotangent of the wrong shape
+    read and wrote the wrong rows rather than raising.
+    """
+    shape = (4, HIDDEN_SIZE)
+    dtype = torch.bfloat16
+    hidden, residual, post_w, pre_w = _inputs(shape, dtype)
+    res_out, _, rstd_post, rstd_pre = fused_add_norm_triton_forward(
+        hidden, residual, post_w, pre_w, post_eps=POST_NORM_EPS, pre_eps=RMS_NORM_EPS
+    )
+    kwargs = {
+        "grad_residual_out": torch.randn_like(res_out),
+        "grad_pre_normed": torch.randn_like(res_out),
+        "hidden": hidden,
+        "residual_out": res_out,
+        "post_weight": post_w,
+        "pre_weight": pre_w,
+        "rstd_post": rstd_post,
+        "rstd_pre": rstd_pre,
+    }
+    with pytest.raises(exc, match=match):
+        fused_add_norm_triton_backward(**mutate(kwargs))
+
+
+@requires_cuda
+def test_triton_backward_narrowing_follows_hidden_not_the_cotangent():
+    """The accumulation dtype comes from the input, as the reference defines it.
+
+    The kernel read ``G_RES.dtype.element_ty``, so an FP32 cotangent against BF16
+    ``hidden`` turned both narrowings into the identity and returned the gradient
+    of ``forward_fp32`` instead -- a different computation, whose ``d_post_w`` the
+    reference measures as 2.6-2.9x outside the contract row. Autograd never does
+    this because cotangents arrive at the output dtype, but the public function
+    can, and the CUDA path takes the dtype from ``hidden``.
+    """
+    shape = (8, HIDDEN_SIZE)
+    dtype = torch.bfloat16
+    hidden, residual, post_w, pre_w = _inputs(shape, dtype)
+    res_out, _, rstd_post, rstd_pre = fused_add_norm_triton_forward(
+        hidden, residual, post_w, pre_w, post_eps=POST_NORM_EPS, pre_eps=RMS_NORM_EPS
+    )
+    g_res = _rand(shape, seed=240, dtype=dtype)
+    g_pre = _rand(shape, seed=241, dtype=dtype)
+
+    narrow = fused_add_norm_triton_backward(
+        g_res, g_pre, hidden, res_out, post_w, pre_w, rstd_post, rstd_pre
+    )
+    wide = fused_add_norm_triton_backward(
+        g_res.float(), g_pre.float(), hidden, res_out, post_w, pre_w, rstd_post, rstd_pre
+    )
+    # Same mathematical inputs, only the cotangent's storage dtype differs, so the
+    # narrowing must land in the same place and the results must be identical.
+    for got, want, name in zip(
+        wide, narrow, ("d_hidden", "d_residual", "partial_post_w", "partial_pre_w"), strict=True
+    ):
+        assert torch.equal(got, want), f"{name} changed with the cotangent's dtype"

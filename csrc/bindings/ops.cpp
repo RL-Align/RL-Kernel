@@ -311,10 +311,25 @@ void fused_add_norm_backward_cuda(
     torch::Tensor d_hidden, torch::Tensor d_residual,
     torch::Tensor partial_post_w, torch::Tensor partial_pre_w);
 
+// FP64 has to be rejected here. AT_DISPATCH_FLOATING_TYPES_AND2 instantiates
+// double, and the kernel's generic load/store cast through float, so a FP64 call
+// returned FP64 tensors carrying FP32 precision -- about 7e-07 of error -- with no
+// error raised. The Python wrappers reject FP64 first, so this is only reachable
+// by calling the binding directly, but failing open on precision is the wrong
+// default for an operator whose whole contract is about where the casts are.
+static void fused_add_norm_check_dtype(const torch::Tensor& t, const char* name) {
+  TORCH_CHECK(
+      t.scalar_type() == torch::kFloat32 || t.scalar_type() == torch::kFloat16 ||
+          t.scalar_type() == torch::kBFloat16,
+      name, " must have dtype fp16, bf16, or fp32, got ", t.scalar_type());
+}
+
 static void fused_add_norm_check_pair(
     const torch::Tensor& a, const char* an, const torch::Tensor& b, const char* bn) {
   rmsnorm_check_input(a, an);
   rmsnorm_check_input(b, bn);
+  fused_add_norm_check_dtype(a, an);
+  fused_add_norm_check_dtype(b, bn);
   TORCH_CHECK(a.sizes() == b.sizes(), an, " and ", bn, " must share shape");
   TORCH_CHECK(a.scalar_type() == b.scalar_type(), an, " and ", bn, " must share dtype");
 }
