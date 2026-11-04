@@ -112,8 +112,9 @@ def test_partial_rope_rotates_96_of_128_channels():
         assert not torch.equal(out[..., :96].float(), x[..., :96].float())
 
 
-@pytest.fixture(scope="module")
-def ops():
+@pytest.fixture
+def ops(require_h3_kernels):
+    """Check optional extensions before constructing any candidate backend."""
     return h3_block.CandidateOps()
 
 

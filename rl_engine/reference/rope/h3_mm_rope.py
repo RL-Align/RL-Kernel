@@ -120,3 +120,21 @@ class NativeH3MMRoPEOp:
         """Apply H3's forward rounding with the explicit FP32 backward."""
         _validate_inputs(x, cos, sin)
         return _H3MMRoPENativeFunction.apply(x, cos, sin)
+
+    def forward_fp32(self, x: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
+        """Independent accuracy reference with original FP32 tables and FP32 math.
+
+        This deliberately omits the model's BF16 coefficient/product rounding.
+        Autograd differentiates this expression for the unified operator checker;
+        it does not reuse the candidate's handwritten backward. Model-path parity
+        is tested separately against ``forward`` and the pinned H3 provider.
+        """
+        _validate_inputs(x, cos, sin)
+        # No matmul/TF32 path is used; disable an enclosing autocast context too.
+        with torch.autocast(device_type=x.device.type, enabled=False):
+            x = x.float()
+            first, second = x[..., :_ROTARY_DIM].chunk(2, dim=-1)
+            rotated = torch.cat((-second, first), dim=-1)
+            result = x[..., :_ROTARY_DIM] * cos[None, :, None, :]
+            result = result + rotated * sin[None, :, None, :]
+            return torch.cat((result, x[..., _ROTARY_DIM:]), dim=-1)

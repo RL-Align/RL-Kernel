@@ -46,6 +46,7 @@ def make_operator_inputs(
         "linear_logp": _make_linear_logp_inputs,
         "batch_invariant_logp": _make_batch_invariant_logp_inputs,
         "rope": _make_rope_inputs,
+        "h3_mm_rope_3axis_partial": _make_h3_mm_rope_inputs,
         "silu": _make_silu_inputs,
         "swiglu": _make_swiglu_inputs,
         "embedding": _make_embedding_inputs,
@@ -90,6 +91,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "linear_logp": f"{batch}x{seq}x{_normalized_dim(args)}x{vocab}",
         "batch_invariant_logp": f"{batch}x{seq}x{vocab}",
         "rope": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}",
+        "h3_mm_rope_3axis_partial": f"{batch}x{seq}x{_arg_int(args, 'n_heads', 56)}x128",
         "silu": f"{batch}x{seq}x{DEFAULT_INTERMEDIATE}",
         "swiglu": f"{batch}x{seq}x{DEFAULT_INTERMEDIATE}",
         "embedding": f"{batch}x{seq}x{vocab}x{_normalized_dim(args)}",
@@ -382,6 +384,28 @@ def _make_rope_inputs(
         ),
         "positions": torch.arange(seq, device=device, dtype=torch.long),
         "theta": _arg_float(args, "theta", DEFAULT_ROPE_THETA),
+    }
+
+
+def _make_h3_mm_rope_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    """Build BSHD activations and constant FP32 H3 three-axis position tables.
+
+    The generic CLI uses seeded synthetic positions; the operator benchmark and
+    block replay cover actual packed FL2VA layouts. Tables retain FP32 even for
+    BF16 activations, so the independent gold path can detect coefficient rounding.
+    """
+    from rl_engine.validation.models.h3_provider import provider_rope
+
+    batch, seq = _batch_seq(args)
+    heads = _arg_int(args, "n_heads", 56)
+    positions = _floating_tensor((seq, 3), args, torch.float64, device, offset=1)
+    cos, sin = provider_rope(positions)
+    return {
+        "x": _floating_tensor((batch, seq, heads, 128), args, dtype, device, offset=0),
+        "cos": cos,
+        "sin": sin,
     }
 
 

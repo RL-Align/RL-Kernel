@@ -96,6 +96,139 @@ def test_forward_provider_parity_and_backward_contract(
     _assert_bits(grad[..., 96:], upstream[..., 96:])
 
 
+@pytest.mark.parametrize(
+    "invalid,exception,message",
+    [
+        ("rank", ValueError, "x must have shape"),
+        ("channels", ValueError, "x must have shape"),
+        ("empty", ValueError, "nonempty"),
+        ("cos_shape", ValueError, "cos must have shape"),
+        ("sin_dtype", TypeError, "sin must have dtype"),
+        ("cos_device", ValueError, "cos must be on x.device"),
+        ("sin_trainable", ValueError, "sin must not require gradients"),
+    ],
+)
+def test_input_contract_rejects_invalid_metadata(implementation, invalid, exception, message):
+    op, device = implementation
+    x = torch.ones(1, 2, 1, 128, device=device, dtype=torch.bfloat16)
+    cos = torch.ones(2, 96, device=device)
+    sin = torch.zeros_like(cos)
+    if invalid == "rank":
+        x = x.squeeze(0)
+    elif invalid == "channels":
+        x = x[..., :64]
+    elif invalid == "empty":
+        x = x[:, :0]
+    elif invalid == "cos_shape":
+        cos = cos[:, :48]
+    elif invalid == "sin_dtype":
+        sin = sin.bfloat16()
+    elif invalid == "cos_device":
+        cos = cos.to("meta")
+    elif invalid == "sin_trainable":
+        sin.requires_grad_(True)
+    with pytest.raises(exception, match=message):
+        op(x, cos, sin)
+
+
+@needs_gpu
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_triton_nondefault_stream_and_graph_replay(dtype, positions):
+    """Keep forward and backward on the caller's stream, including graph replay."""
+    from rl_engine.backends.shared.triton.rope.h3_mm_rope import TritonH3MMRoPEOp
+
+    stream = torch.cuda.Stream()
+    stream.wait_stream(torch.cuda.current_stream())
+    with torch.cuda.stream(stream):
+        cos, sin = provider_rope(positions[:17].cuda())
+        x = torch.randn(1, 17, 14, 128, device="cuda", dtype=dtype, requires_grad=True)
+        upstream = torch.randn_like(x)
+        op = TritonH3MMRoPEOp()
+        for _ in range(3):
+            output = op(x, cos, sin)
+            torch.autograd.grad(output, x, upstream)
+        graph = torch.cuda.CUDAGraph()
+        with torch.cuda.graph(graph, stream=stream):
+            output = op(x, cos, sin)
+            gradient = torch.autograd.grad(output, x, upstream)[0]
+        for scale in (1.0, -0.5):
+            with torch.no_grad():
+                x.mul_(scale)
+                upstream.mul_(scale)
+            graph.replay()
+            expected, expected_grad = _forward_backward(NativeH3MMRoPEOp(), x, cos, sin, upstream)
+            _assert_bits(output, expected)
+            _assert_bits(gradient, expected_grad)
+    stream.synchronize()
+
+
+@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires two GPUs")
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_triton_uses_input_device_and_restores_current_device(positions, dtype):
+    from rl_engine.backends.shared.triton.rope.h3_mm_rope import TritonH3MMRoPEOp
+
+    with torch.cuda.device(0):
+        cos, sin = provider_rope(positions[:17].to("cuda:1"))
+        x = torch.randn(1, 17, 14, 128, device="cuda:1", dtype=dtype)
+        upstream = torch.randn_like(x)
+        actual, grad = _forward_backward(TritonH3MMRoPEOp(), x, cos, sin, upstream)
+        assert torch.cuda.current_device() == 0
+        expected, expected_grad = _forward_backward(NativeH3MMRoPEOp(), x, cos, sin, upstream)
+        _assert_bits(actual, expected)
+        _assert_bits(grad, expected_grad)
+
+
+def test_registry_exposes_h3_rope_with_reference_fallback():
+    from rl_engine.runtime.registry import KernelRegistry, OpBackend
+
+    registry = KernelRegistry()
+    name = "h3_mm_rope_3axis_partial"
+    assert registry._priority_map["cuda"][name] == [
+        OpBackend.TRITON_H3_MM_ROPE,
+        OpBackend.PYTORCH_H3_MM_ROPE,
+    ]
+    for device in ("cpu", "rocm", "musa", "npu"):
+        assert registry._priority_map[device][name] == [OpBackend.PYTORCH_H3_MM_ROPE]
+    assert isinstance(registry.get_op(name, device="cpu"), NativeH3MMRoPEOp)
+    if torch.cuda.is_available() and torch.version.hip is None:
+        from rl_engine.backends.shared.triton.rope.h3_mm_rope import TritonH3MMRoPEOp
+
+        assert isinstance(registry.get_op(name, device="cuda"), TritonH3MMRoPEOp)
+
+
+def test_semantic_entry_reports_arithmetic_and_rejects_unsupported_profiles():
+    from rl_engine.runtime.registry import KernelRegistry
+    from rl_engine.runtime.semantic_registry import OperatorRequirements, OperatorResolutionError
+
+    session = KernelRegistry().semantic.session()
+    request = dict(
+        semantic_op="h3_mm_rope_3axis_partial",
+        requested_backend="rlkernel.h3_mm_rope.triton",
+        target="training",
+    )
+    resolution = session.resolve(
+        **request,
+        requirements=OperatorRequirements(
+            device="cuda",
+            dtype="bfloat16",
+            topology={"world_size": 1, "tensor_parallel_size": 1, "context_parallel_size": 1},
+        ),
+    )
+    assert resolution.trace.concrete_backend == "rlkernel.h3_mm_rope.triton"
+    assert resolution.descriptor.determinism_or_alignment_properties["fp_fusion"] is False
+    for requirement in (
+        OperatorRequirements(device="cuda", dtype="float16"),
+        OperatorRequirements(device="rocm", dtype="bfloat16"),
+        OperatorRequirements(device="cuda", dtype="bfloat16", topology={"world_size": 2}),
+    ):
+        with pytest.raises(OperatorResolutionError):
+            session.resolve(**request, requirements=requirement)
+    if torch.cuda.is_available() and torch.version.hip is None:
+        op = session.instantiate(resolution)
+        provenance = session.instance_provenance(resolution, op)
+        assert provenance.concrete_implementation.endswith("TritonH3MMRoPEOp")
+
+
 def test_backward_rounds_once_using_forward_coefficients(implementation):
     """Pin both decisions: keep coefficient quantization, remove product quantization.
 
@@ -152,6 +285,67 @@ def test_accuracy_against_independent_fp32(implementation, positions, dtype, see
         torch.testing.assert_close(
             result.float(), reference, atol=tolerance.atol, rtol=tolerance.rtol
         )
+
+
+@pytest.fixture
+def captured_rounding_case(implementation):
+    """Two BF16 cancellation pairs saved from the long-layout A6000 benchmark.
+
+    Original [token, head, channel] coordinates are [36201, 13, 38] and
+    [48538, 3, 11] in [1, 73426, 14, 128], seed 656. Each pair is independent,
+    so this exact-value fixture needs neither the full allocation nor a GPU RNG.
+    """
+    _, device = implementation
+    x = torch.zeros((1, 2, 1, 128), dtype=torch.bfloat16, device=device)
+    x[0, :, 0, 0] = torch.tensor([3.296875, 3.046875], device=device)
+    x[0, :, 0, 48] = torch.tensor([3.609375, 4.5], device=device)
+    cos = torch.ones((2, 96), device=device)
+    sin = torch.zeros_like(cos)
+    for channel in (0, 48):
+        cos[:, channel] = torch.tensor([0.7241835594177246, 0.8580111265182495], device=device)
+        sin[:, channel] = torch.tensor([0.6896072626113892, 0.5136311054229736], device=device)
+    upstream = torch.zeros_like(x)
+    upstream[0, :, 0, 0] = torch.tensor([0.045166015625, -1.3203125], device=device)
+    upstream[0, :, 0, 48] = torch.tensor([0.298828125, -1.65625], device=device)
+    return x, cos, sin, upstream
+
+
+def test_captured_bf16_pairs_preserve_model_and_backward(implementation, captured_rounding_case):
+    """Model-path correctness remains a hard check even while accuracy is unresolved."""
+    op, _ = implementation
+    x, cos, sin, upstream = captured_rounding_case
+    actual, grad = _forward_backward(op, x, cos, sin, upstream)
+    _assert_bits(actual, provider_apply_rotary(x, cos, sin))
+    _assert_bits(grad, _gradient_reference(x, cos, sin, upstream))
+    assert actual[0, :, 0, 0].tolist() == [-0.125, 0.328125]
+    _, expected_grad = _forward_backward(golden_apply_rotary, x.float(), cos, sin, upstream.float())
+    tolerance = resolve_tolerance(
+        load_contract(), judgment="gradient_accuracy", op_class="elementwise", dtype=x.dtype
+    )
+    torch.testing.assert_close(
+        grad.float(), expected_grad, atol=tolerance.atol, rtol=tolerance.rtol
+    )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="Open H3 BF16 contract issue: original table/product rounding exceeds FP32 tolerance",
+)
+def test_captured_bf16_pairs_independent_fp32_accuracy(implementation, captured_rounding_case):
+    """Keep the failing accuracy check visible; a future fix must retire this xfail.
+
+    Only the documented accuracy assertion is expected to fail. Compilation or
+    runtime errors remain failures; model parity is a separate non-xfail test.
+    """
+    op, _ = implementation
+    x, cos, sin, _ = captured_rounding_case
+    actual = op(x, cos, sin)
+    reference = NativeH3MMRoPEOp().forward_fp32(x, cos, sin)
+    tolerance = resolve_tolerance(
+        load_contract(), judgment="forward_accuracy", op_class="elementwise", dtype=x.dtype
+    )
+    torch.testing.assert_close(actual.float(), reference, atol=tolerance.atol, rtol=tolerance.rtol)
 
 
 @pytest.mark.parametrize("dtype", DTYPES)
@@ -217,3 +411,35 @@ def test_triton_long_h3_sequences(length):
     actual, grad = _forward_backward(TritonH3MMRoPEOp(), x, cos, sin, upstream)
     _assert_bits(actual, provider_apply_rotary(x, cos, sin))
     _assert_bits(grad, _gradient_reference(x, cos, sin, upstream))
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_packed_permutation_head_shards_and_checkpoint(implementation, positions, dtype):
+    """Logical rows keep their bytes when their positions move with them."""
+    from torch.utils.checkpoint import checkpoint
+
+    op, device = implementation
+    generator = torch.Generator().manual_seed(656)
+    x = torch.randn(2, 17, 14, 128, generator=generator).to(device=device, dtype=dtype)
+    upstream = torch.randn(x.shape, generator=generator).to(device=device, dtype=dtype)
+    cos, sin = provider_rope(positions[:17].to(device))
+    expected, expected_grad = _forward_backward(op, x, cos, sin, upstream)
+    permutation = torch.randperm(17, generator=generator).to(device)
+    actual, grad = _forward_backward(
+        op, x[:, permutation], cos[permutation], sin[permutation], upstream[:, permutation]
+    )
+    _assert_bits(actual, expected[:, permutation])
+    _assert_bits(grad, expected_grad[:, permutation])
+    actual, grad = _forward_backward(op, x[:, :, :7], cos, sin, upstream[:, :, :7])
+    _assert_bits(actual, expected[:, :, :7])
+    _assert_bits(grad, expected_grad[:, :, :7])
+    changed = x.clone()
+    changed[1].mul_(2)
+    actual, grad = _forward_backward(op, changed, cos, sin, upstream)
+    _assert_bits(actual[0], expected[0])
+    _assert_bits(grad[0], expected_grad[0])
+    leaf = x.detach().requires_grad_(True)
+    output = checkpoint(op, leaf, cos, sin, use_reentrant=False)
+    gradient = torch.autograd.grad(output, leaf, upstream)[0]
+    _assert_bits(output, expected)
+    _assert_bits(gradient, expected_grad)

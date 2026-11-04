@@ -59,7 +59,7 @@ python tools/validation/models/plot_h3_block.py report.json
 | `norm1`, `norm2` | `h3_rmsnorm` | **row**: `H3RMSNormCudaOp.forward_modulated` (registry) |
 | `q_proj`, `k_proj`, `v_proj` | `h3_qkv_gemm` | interim: Triton FP32-accumulate GEMM, one BF16 rounding |
 | `q_norm`, `k_norm` | `h3_qk_rmsnorm_d128` | interim: `H3RMSNormCudaOp.forward` on the 128-wide heads |
-| `rope_q`, `rope_k` | `h3_mm_rope_3axis_partial` | **row**: `TritonH3MMRoPEOp` (explicit candidate; GPU qualification pending) |
+| `rope_q`, `rope_k` | `h3_mm_rope_3axis_partial` | **row**: `TritonH3MMRoPEOp` (explicit candidate; full-block qualification pending) |
 | `attention` | `h3_full_attention` | interim: `DeterministicAttentionOp(causal=False)` |
 | `o_proj` | `h3_attention_o_gemm` | interim: Triton FP32-accumulate GEMM |
 | `residual_attn`, `residual_mlp` | `adaln_gate_residual` | **row**: `H3GateResidualCudaOp` (registry) |

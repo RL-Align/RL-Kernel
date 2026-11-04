@@ -33,6 +33,17 @@ def _load_object(path: str) -> Any:
 
 
 OP_SPECS = {
+    "h3_mm_rope_3axis_partial": OperatorSpec(
+        name="h3_mm_rope_3axis_partial",
+        op_class="elementwise",
+        gold_path="rl_engine.reference.rope.h3_mm_rope.NativeH3MMRoPEOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.rope.h3_mm_rope.NativeH3MMRoPEOp",
+            "triton": "rl_engine.backends.shared.triton.rope.h3_mm_rope.TritonH3MMRoPEOp",
+        },
+        grad_input_names=("x",),
+    ),
     "h3_full_attention": OperatorSpec(
         name="h3_full_attention",
         op_class="attention",

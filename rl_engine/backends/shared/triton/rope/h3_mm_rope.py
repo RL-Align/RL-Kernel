@@ -311,8 +311,9 @@ class TritonH3MMRoPEOp:
     Forward preserves H3's table/product rounding. Backward uses the same
     quantized tables with FP32 products and addition, then rounds to x's dtype.
     This backend exposes first-order gradients for ``x`` only. FP16 is not
-    supported. The block replay binds this candidate explicitly; GPU numerical
-    and performance qualification is still required before registry integration.
+    supported. The block replay binds this candidate explicitly. Strict semantic
+    registration exposes the CUDA, single-device profile; other platforms require
+    separate qualification before that registry profile can be extended.
     """
 
     op_class = "elementwise"
