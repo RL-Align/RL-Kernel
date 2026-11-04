@@ -63,14 +63,11 @@ def _write_atomic(path: Path, data: dict[str, Any]) -> None:
             Path(temporary).unlink(missing_ok=True)
 
 
-def _early_path(argv: list[str], option: str) -> Path | None:
-    output: Path | None = None
-    for index, value in enumerate(argv):
-        if value.startswith(option + "="):
-            output = Path(value.split("=", 1)[1])
-        elif value == option and index + 1 < len(argv):
-            output = Path(argv[index + 1])
-    return output
+def _validate_paths(input_path: Path, output_path: Path) -> None:
+    if input_path.resolve() == output_path.resolve() or (
+        input_path.exists() and output_path.exists() and input_path.samefile(output_path)
+    ):
+        raise _UsageError("--input and --output must be different files")
 
 
 def _failure(error: dict[str, Any]) -> dict[str, Any]:
@@ -86,38 +83,31 @@ def _failure(error: dict[str, Any]) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    output = _early_path(argv, "--output")
+    output: Path | None = None
     try:
-        early_input = _early_path(argv, "--input")
-        if (
-            output is not None
-            and early_input is not None
-            and (output.resolve() == early_input.resolve())
-        ):
-            # Preserve the input; there is no distinct result path to invalidate.
-            output = None
-            raise _UsageError("--input and --output must be different files")
-        # Invalidate a previous successful result before parsing/loading inputs.
-        if output is not None:
-            _write_atomic(
-                output,
-                {
-                    "schema_version": RESULT_SCHEMA,
-                    "status": "incomplete",
-                    "manifest_enforcement": "not_evaluated",
-                    "numerical_parity": "not_evaluated",
-                    "hardware_validation": "not_evaluated",
-                },
-            )
-        parser = _Parser(description=__doc__)
+        parser = _Parser(description=__doc__, allow_abbrev=False)
         parser.add_argument("operation", choices=("collect", "seal", "validate", "enforce"))
         parser.add_argument("--input", required=True, type=Path)
         parser.add_argument("--output", required=True, type=Path)
         parser.add_argument("--evidence-root", type=Path)
-        args = parser.parse_args(argv)
+        args, unknown = parser.parse_known_args(argv)
+        # Select a failure-result destination only after both paths are safe.
+        # Even argument errors must never write over the input evidence.
+        _validate_paths(args.input, args.output)
         output = args.output
-        if args.input.resolve() == output.resolve():
-            raise _UsageError("--input and --output must be different files")
+        if unknown:
+            raise _UsageError("unrecognized arguments: " + " ".join(unknown))
+        # Invalidate a previous successful result before loading any evidence.
+        _write_atomic(
+            output,
+            {
+                "schema_version": RESULT_SCHEMA,
+                "status": "incomplete",
+                "manifest_enforcement": "not_evaluated",
+                "numerical_parity": "not_evaluated",
+                "hardware_validation": "not_evaluated",
+            },
+        )
         if args.operation == "enforce":
             raise StrictProviderError(
                 "execution_adapter_required",
