@@ -26,6 +26,7 @@ from rl_engine.reference.norm.fused_add_norm import (
     fused_add_norm_backward,
 )
 from rl_engine.reference.norm.rms_norm import shape_invariant_meansq
+from tests.helpers.fused_add_norm_tolerance import assert_within
 
 _FP64_TOL = {"atol": 1e-6, "rtol": 1e-6}
 
@@ -196,7 +197,6 @@ def test_forward_differs_from_the_composition_without_the_pre_add_cast(dtype):
         "forward matches the composition with the pre-add cast removed, so the cast "
         "is not where the fingerprint puts it"
     )
-
 
 
 @pytest.mark.parametrize(
@@ -430,7 +430,9 @@ def test_reference_forward_is_batch_invariant(device):
     wide_res = _rand((1, 20, width), seed=85, **kw)
     narrow_out = op.forward_fp32(wide[:, :7], wide_res[:, :7], post_w, pre_w)
     wide_out = op.forward_fp32(wide, wide_res, post_w, pre_w)
-    for whole, piece, name in zip(wide_out, narrow_out, ("residual_out", "pre_normed"), strict=True):
+    for whole, piece, name in zip(
+        wide_out, narrow_out, ("residual_out", "pre_normed"), strict=True
+    ):
         assert torch.equal(whole[:, :7], piece), f"{name} moved between [1,7,H] and [1,20,H]"
 
 
@@ -482,8 +484,9 @@ def test_forward_matches_an_eager_composition(dtype):
     assert torch.equal(got_pre, expected_pre)
 
 
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16])
 @pytest.mark.parametrize("rows", [8, 512, 2048])
-def test_closed_form_backward_accumulates_the_residual_gradient_like_eager(rows):
+def test_closed_form_backward_accumulates_the_residual_gradient_like_eager(rows, dtype):
     """The residual output's two incoming gradients are summed in the model dtype.
 
     Eager autograd rounds what arrives at a bf16 tensor to bf16 and adds in bf16.
@@ -496,7 +499,6 @@ def test_closed_form_backward_accumulates_the_residual_gradient_like_eager(rows)
     asserts the FP32-accumulated variant really does fail there, so the rounding
     cannot be removed as a simplification.
     """
-    dtype = torch.bfloat16
     shape = (rows, HIDDEN_SIZE)
     hidden = _rand(shape, seed=90, dtype=dtype)
     residual = _rand(shape, seed=91, dtype=dtype)
@@ -510,7 +512,9 @@ def test_closed_form_backward_accumulates_the_residual_gradient_like_eager(rows)
     torch.autograd.backward((out_res, out_pre), grad_tensors=(g_res, g_pre))
     want = [t.grad.float() for t in leaves]
 
-    atol, rtol = 1e-1, 2e-2  # the contract's bf16 gradient_accuracy reduction row
+    # The shared policy rather than numbers written in here: this test used to
+    # hardcode 1e-1 / 2e-2, which happened to match the bf16 row and said nothing
+    # about fp16. See tests/helpers/fused_add_norm_tolerance.py.
     lead = (0,)
 
     eager = fused_add_norm_backward(g_res, g_pre, hidden, residual, post_w, pre_w)
@@ -518,17 +522,26 @@ def test_closed_form_backward_accumulates_the_residual_gradient_like_eager(rows)
     for g, w, name in zip(
         got, want, ("d_hidden", "d_residual", "d_post_w", "d_pre_w"), strict=True
     ):
-        torch.testing.assert_close(
-            g.to(dtype).float(), w, atol=atol, rtol=rtol, msg=lambda m, n=name: f"{n}: {m}"
-        )
+        assert_within("gradient_accuracy", dtype, g.to(dtype), w, f"{name}: ")
 
     if rows >= 512:
+        # And the FP32-accumulated variant must still fail, so the rounding cannot
+        # be dropped as a simplification. Measured separation between the two, as a
+        # ratio of the allowance on d_post_w: bf16 0.16 against 1.98 at 512 rows and
+        # 0.17 against 3.85 at 2048; fp16 0.64 against 22.6 and 0.74 against 40.6.
+        # FP16 is the stronger discriminator of the two, which is why it is
+        # parametrised here rather than left out.
         fp32 = fused_add_norm_backward(
             g_res, g_pre, hidden, residual, post_w, pre_w, grad_dtype=torch.float32
         )
         with pytest.raises(AssertionError):
-            torch.testing.assert_close(
-                fp32[2].sum(dim=lead).to(dtype).float(), want[2], atol=atol, rtol=rtol
+            assert_within(
+                "gradient_accuracy",
+                dtype,
+                fp32[2].sum(dim=lead).to(dtype),
+                want[2],
+                "d_post_w: ",
+                budget=False,
             )
 
 
@@ -625,3 +638,44 @@ def test_final_norm_uses_pow_neg_half_and_decoder_norms_use_rsqrt(monkeypatch):
 
     NativeFusedAddNormOp().forward_fp32(hidden, residual, post_w, pre_w)
     assert calls, "the decoder norms are rsqrt in the fingerprint"
+
+
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16])
+def test_final_norm_narrow_path_matches_the_fp32_path_rounded(dtype):
+    """``NativeFinalNormOp.forward`` had only a dtype assertion on it.
+
+    The final norm has no narrowing inside it -- unlike the fused operator, where
+    the two casts are the contract -- so ``forward`` is exactly ``forward_fp32``
+    rounded once at the end, and that is worth asserting bitwise rather than
+    assuming. It is the reference-only row, so nothing else covers it.
+    """
+    x = _rand((8, HIDDEN_SIZE), seed=100, dtype=dtype)
+    weight = _rand((HIDDEN_SIZE,), seed=101, dtype=dtype)
+
+    op = NativeFinalNormOp()
+    assert torch.equal(op.forward(x, weight), op.forward_fp32(x, weight).to(dtype))
+
+
+@pytest.mark.parametrize("shape", SHAPES, ids=lambda s: "x".join(map(str, s)))
+def test_final_norm_backward_matches_autograd_on_the_production_forward(shape):
+    """The closed form is checked against the module it is the backward of.
+
+    ``test_final_norm_backward_matches_fp64_definition`` compares it to a
+    test-local FP64 forward, which catches a wrong formula but not a forward and
+    backward that disagree with each other -- a statistic spelled one way in one
+    and another way in the other would pass both. This closes the loop by
+    differentiating ``NativeFinalNormOp`` itself.
+    """
+    x = _rand(shape, seed=102).float()
+    weight = _rand((shape[-1],), seed=103).float()
+    cotangent = _rand(shape, seed=104).float()
+
+    leaf = x.clone().requires_grad_(True)
+    weight_leaf = weight.clone().requires_grad_(True)
+    out = NativeFinalNormOp().forward_fp32(leaf, weight_leaf)
+    out.backward(cotangent)
+
+    dx, dw_rows = final_norm_backward(cotangent, x, weight)
+    lead = tuple(range(x.dim() - 1))
+    torch.testing.assert_close(dx, leaf.grad, atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(dw_rows.sum(dim=lead), weight_leaf.grad, atol=1e-4, rtol=1e-4)

@@ -21,14 +21,13 @@ from pathlib import Path
 import pytest
 import torch
 
-from rl_engine.contracts.numerical import resolve_tolerance_support
-from rl_engine.kernels.gtest.tolerance import load_contract, resolve_tolerance
 from rl_engine.reference.norm.fused_add_norm import (
     HIDDEN_SIZE,
     POST_NORM_EPS,
     RMS_NORM_EPS,
     NativeFusedAddNormOp,
 )
+from tests.helpers.fused_add_norm_tolerance import assert_within
 
 triton = pytest.importorskip("triton")
 
@@ -86,129 +85,19 @@ def test_triton_ops_package_does_not_resolve_to_the_cuda_backend():
     assert "ok" in proc.stdout
 
 
-_CONTRACT = load_contract()
-
-
-def _tol(judgment: str, dtype: torch.dtype) -> tuple[float, float]:
-    """Tolerance from the contract, ``reduction`` class, for the required dtypes.
-
-    A norm is a reduction, not an elementwise op: ``OP_SPECS["rms_norm"]`` sets
-    ``op_class="reduction"`` and those rows are looser, because a row sum over
-    6656 elements plus the cancellation in the backward is not the error budget of
-    a pointwise multiply. Read from the contract rather than copied, so a
-    recalibration cannot leave this test asserting a stale number.
-    """
-    t = resolve_tolerance(_CONTRACT, judgment=judgment, op_class="reduction", dtype=dtype)
-    return t.atol, t.rtol
-
-
-def _is_required(judgment: str, dtype: torch.dtype) -> bool:
-    """Whether the contract makes this dtype a required bar for this judgment."""
-    support = resolve_tolerance_support(
-        _CONTRACT, judgment=judgment, op_class="reduction", dtype=dtype
-    )
-    return support.status == "applicable"
-
-
-# FP16 reduction is ``optional`` in the contract and this operator does not meet
-# the declared row: the row sum over 6656 elements shows through a 10-bit mantissa.
-# The allowance is a fraction of one ULP at the tensor's peak. Measured over six
-# shapes, six seeds and both backends, the worst output needs 0.135 of one peak
-# ULP beyond the row, so 0.25 leaves about 1.9x headroom and is four times tighter
-# than the "one peak ULP" this started as.
-#
-# Why the peak and not each element's own magnitude, which would read tighter: the
-# residual add cancels. Measured, ``residual_out`` has an element at |value|
-# 1.56e-02 carrying an error of 1.95e-03, which is 128 ULPs of its own magnitude
-# but a quarter of one ULP at the row's scale, because the rounding comes from the
-# operands rather than the result. An elementwise bound calls that a failure and is
-# wrong to.
-#
-# The number is checked by injecting bugs, not by whether the tests pass; the
-# margins are in the PR.
-_FP16_PEAK_ULP_BUDGET = 0.25
-
-
-def _peak_ulp(reference: torch.Tensor, dtype: torch.dtype) -> float:
-    """One ULP of ``dtype`` at the reference tensor's peak magnitude."""
-    peak = torch.tensor(float(reference.abs().max()), dtype=dtype)
-    if float(peak) == 0.0:
-        return 0.0
-    step = torch.nextafter(peak, torch.tensor(float("inf"), dtype=dtype)) - peak
-    return float(step)
-
-
-def _assert_within(judgment, dtype, got, want, label, contract, relax):
-    """Compare at the contract row, plus a measured budget where it is optional.
-
-    FP32 and BF16 are ``applicable`` for reduction judgments and are held to the
-    contract exactly: measured over the same sweep, they need zero extra allowance
-    on all six outputs, so ``relax`` is false for them and nothing is added.
-
-    ``torch.testing.assert_close`` only takes scalar tolerances and the rtol term
-    is elementwise, so the comparison is done by hand; the message reports the
-    worst offender as a ratio of its own allowance, which is the number to read
-    when it fails.
-    """
-    tolerance = resolve_tolerance(contract, judgment=judgment, op_class="reduction", dtype=dtype)
-    got_f = got.cpu().float()
-    want_f = want.cpu().float()
-    allowed = tolerance.atol + tolerance.rtol * want_f.abs()
-    if relax:
-        allowed = allowed + _FP16_PEAK_ULP_BUDGET * _peak_ulp(want_f, dtype)
-    error = (got_f - want_f).abs()
-    ratio = error / allowed
-    worst = int(ratio.argmax())
-    assert bool((error <= allowed).all()), (
-        f"{label}{judgment} outside the reduction row for {dtype}: "
-        f"{int((ratio > 1).sum())} of {error.numel()} elements, worst "
-        f"|error|={error.flatten()[worst]:.3e} against allowance "
-        f"{allowed.flatten()[worst]:.3e} at |reference|={want_f.abs().flatten()[worst]:.3e} "
-        f"(ratio {ratio.flatten()[worst]:.2f})"
-    )
-
-
 def _assert_against_gold(judgment, dtype, got, want, label=""):
-    """Compare to the gold at the contract bar, with one documented exception.
+    """Contract reduction row, plus the shared FP16 budget where it applies.
 
-    FP32 and BF16 are ``applicable`` for reduction judgments and are held to the
-    contract exactly. FP16 is ``optional``, and it cannot be held to the declared
-    1e-3: measured at 64x6656 the kernel and the gold differ on 7 elements in
-    425984 by 3.91e-3, which is one FP16 ULP at the 5.5 magnitude where it lands.
-    The cause is the reduction order, per the kernel module's docstring, surfacing
-    through an FP16 tie in the residual add.
-
-    What a gold comparison cannot do, at any dtype, is police the eps values. I
-    measured the worst violation ratio at 64x6656, where 1.0 is the bar:
-
-        dtype   correct kernel   post_eps and pre_eps exchanged
-        fp32    0.01             0.24
-        bf16    0.17             0.36
-        fp16    1.92             1.92   (against the unrelaxed row)
-
-    Swapping 1e-5 for 1e-8 moves a unit-variance row far less than any declared
-    row allows, so no tolerance comparison here would notice. That check belongs
-    where the signal is visible: ``test_fp64_check_rejects_swapped_eps`` in
-    ``test_fused_add_norm.py`` scales rows down until the eps term dominates.
-    ``test_eps_values_reach_the_kernel`` below covers the cruder failure of eps
-    being ignored or hardcoded, which is detectable bitwise.
-
-    The FP16 relaxation costs nothing measurable. Injecting three plausible kernel
-    bugs and asking whether the comparison notices:
-
-        injected bug                  fp16 relaxed   bf16 at contract
-        dropped the (1 + w) offset    caught         caught
-        post and pre weights swapped  caught         caught
-        lost the mid narrowing        missed         missed
-
-    So the relaxed FP16 bar sees exactly what the required BF16 bar sees. The
-    narrowing is the one both miss, and it has its own bitwise test against an
-    eager composition in ``test_fused_add_norm.py``.
+    The policy and the measurements behind it live in
+    ``tests/helpers/fused_add_norm_tolerance.py``. What a gold comparison cannot do
+    at any dtype is police the eps values: measured at 64x6656 the worst violation
+    ratio is 0.24 at fp32 and 0.36 at bf16 against a bar of 1.0, so no tolerance
+    here would notice a swap. That belongs where the signal is visible, in
+    ``test_production_eps_are_not_interchangeable`` in ``test_fused_add_norm.py``,
+    and ``test_eps_values_reach_the_kernel`` below covers the cruder failure of eps
+    being ignored, which is detectable bitwise.
     """
-    support = resolve_tolerance_support(
-        _CONTRACT, judgment=judgment, op_class="reduction", dtype=dtype
-    )
-    _assert_within(judgment, dtype, got, want, label, _CONTRACT, support.status != "applicable")
+    assert_within(judgment, dtype, got, want, label)
 
 
 # 512 rows is the benchmark's largest default shape; weight gradients sum over
@@ -327,10 +216,10 @@ def test_triton_forward_is_batch_invariant_bitwise(dtype):
 
 
 @requires_cuda
-def test_triton_backward_is_batch_invariant_bitwise():
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_triton_backward_is_batch_invariant_bitwise(dtype):
     """Axis A applies to gradients too, not just the forward."""
     width, big = HIDDEN_SIZE, 16
-    dtype = torch.float32
     hidden, residual, post_w, pre_w = _inputs((big, width), dtype)
     g_res = _rand((big, width), seed=120, dtype=dtype)
     g_pre = _rand((big, width), seed=121, dtype=dtype)
