@@ -182,6 +182,56 @@ def deterministic_logp_forward_indexed_fp32(
     token_ids: torch.Tensor,
     row_indices: torch.Tensor,
 ) -> torch.Tensor: ...
+def deterministic_logp_forward_fp64(
+    logits: torch.Tensor,
+    token_ids: torch.Tensor,
+    row_indices: torch.Tensor | None = None,
+    save_lse: bool = False,
+) -> list[torch.Tensor]: ...
+def deterministic_logp_backward_fp64(
+    logits: torch.Tensor,
+    lse: torch.Tensor,
+    g: torch.Tensor,
+    labels: torch.Tensor,
+) -> torch.Tensor: ...
+def deterministic_logp_probability(
+    logits: torch.Tensor,
+    lse: torch.Tensor,
+    active: torch.Tensor,
+) -> torch.Tensor: ...
+def deterministic_logp_row_sum(values: torch.Tensor) -> torch.Tensor: ...
+def deterministic_logp_selection(indices: torch.Tensor, rows: int) -> torch.Tensor: ...
+def deterministic_logp_triple_backward(
+    logits: torch.Tensor,
+    lse: torch.Tensor,
+    g: torch.Tensor,
+    labels: torch.Tensor,
+    h: torch.Tensor,
+    a: torch.Tensor,
+    b: torch.Tensor,
+) -> list[torch.Tensor]: ...
+def deterministic_logp_double_backward(
+    logits: torch.Tensor,
+    lse: torch.Tensor,
+    g: torch.Tensor,
+    labels: torch.Tensor,
+    h: torch.Tensor,
+) -> list[torch.Tensor]: ...
+def deterministic_logp_forward_with_lse(
+    logits: torch.Tensor,
+    token_ids: torch.Tensor,
+    row_indices: torch.Tensor | None = None,
+) -> list[torch.Tensor]: ...
+def deterministic_logp_backward(
+    logits: torch.Tensor,
+    lse: torch.Tensor,
+    coef_logp: torch.Tensor,
+    coef_lse: torch.Tensor,
+    target_local: torch.Tensor,
+    vocab_start: int,
+    real_vocab: int,
+    has_lse_grad: bool,
+) -> torch.Tensor: ...
 def deterministic_logp_tile_stats(
     logits: torch.Tensor,
     vocab_start: int,
