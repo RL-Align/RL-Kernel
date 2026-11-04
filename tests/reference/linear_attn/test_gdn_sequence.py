@@ -111,6 +111,58 @@ def _bits_equal(left, right):
     assert torch.equal(left.contiguous().view(torch.uint8), right.contiguous().view(torch.uint8))
 
 
+def test_logical_layout_matches_strided_qkv_and_v_major_view_of_k_major_storage():
+    contract, args = _case(k=3, v=5)
+    before = [tensor.clone() for tensor in args]
+    qkv_storage = args[0].new_full((args[0].shape[0], 2 * args[0].shape[1]), 123)
+    strided_qkv = qkv_storage[:, ::2]
+    strided_qkv.copy_(args[0])
+    k_major_state = args[5].transpose(-1, -2).contiguous()
+    logical_state = k_major_state.transpose(-1, -2)
+    assert not strided_qkv.is_contiguous() and not logical_state.is_contiguous()
+    strided_args = [strided_qkv, *args[1:5], logical_state, *args[6:]]
+    for contiguous, strided in zip(args, strided_args, strict=True):
+        _bits_equal(contiguous, strided)
+
+    expected = gated_delta_rule_sequence(*args, contract=contract)
+    actual = gated_delta_rule_sequence(*strided_args, contract=contract)
+    for contiguous, strided in zip(expected, actual, strict=True):
+        _bits_equal(contiguous, strided)
+    for contiguous, strided, original in zip(args, strided_args, before, strict=True):
+        _bits_equal(contiguous, original)
+        _bits_equal(strided, original)
+
+
+@pytest.mark.parametrize("state_dtype", [torch.float32, torch.bfloat16])
+def test_state_bank_capacity_and_slot_do_not_change_active_recurrence(state_dtype):
+    contract, args = _case(dtype=torch.bfloat16, state_dtype=state_dtype)
+    minimal = args[5][:1].clone()
+    larger = torch.full((100, *minimal.shape[1:]), 0.25, dtype=state_dtype)
+    active_slot = 37
+    larger[active_slot] = minimal[0]
+    before = [minimal.clone(), larger.clone()]
+    offsets = torch.tensor([0, args[0].shape[0]], dtype=torch.int32)
+
+    small_out, small_state = gated_delta_rule_sequence(
+        *args[:5], minimal, torch.tensor([0]), offsets, contract=contract
+    )
+    large_out, large_state = gated_delta_rule_sequence(
+        *args[:5], larger, torch.tensor([active_slot]), offsets, contract=contract
+    )
+    _bits_equal(small_out, large_out)
+    _bits_equal(small_state[0], large_state[active_slot])
+    inactive = torch.arange(100) != active_slot
+    _bits_equal(large_state[inactive], before[1][inactive])
+    for updated, initial, original in zip(
+        (small_state, large_state), (minimal, larger), before, strict=True
+    ):
+        assert updated.shape == initial.shape
+        _bits_equal(initial, original)
+        assert updated.data_ptr() != initial.data_ptr()
+        updated.fill_(123)
+        _bits_equal(initial, original)
+
+
 @pytest.mark.parametrize("cuts", [[0, 5], [0, 0, 2, 2, 5], [0, 1, 2, 3, 4, 5]])
 @pytest.mark.parametrize("state_dtype", [torch.float32, torch.bfloat16])
 def test_temporal_chunks_preserve_outputs_complete_bank_and_graph(cuts, state_dtype):

@@ -25,8 +25,19 @@ model/provider head widths; HV must be divisible by H.
 | `cu_seqlens` | CPU int32/int64 `[B+1]`, nondecreasing, starts at 0, ends at T |
 | `contract` | Keyword-only `GDNContract(H, HV, K, V, scale=..., use_qk_l2norm=True)` |
 
-All data tensors and indices share a device; `GDNContract.validate` describes
-device-neutral metadata. The execution entry explicitly accepts CPU only.
+State `[blocks, HV, V, K]` is the reference's logical V-major representation.
+Backends may use K-major, tiled or other physical storage; adapters own layout
+conversion and must preserve logical state meaning. K=V can hide axis swaps,
+so shape equality alone is insufficient. Packed `q|k|v` is this reference's input
+schema, not a required physical projection layout. Miles/group-major projection
+channels need explicit reordering, with consistent convolution weight and cache
+channel order.
+
+All data tensors and indices share a device. `GDNContract.validate()` validates
+this normalized reference invocation; its CPU offsets and host boundary
+extraction do not define a universal GPU/MUSA launch interface. Backend launch
+metadata and validation may differ while preserving the same logical semantics.
+The execution entry explicitly accepts CPU only.
 Strided tensors are allowed. Bad geometry, nonfinite scale, unknown profile,
 wrong shapes/dtypes/devices, offsets or duplicate/out-of-range slots raise
 `ValueError`, including when all sequences are empty. Tensor values are not
@@ -43,6 +54,9 @@ in this sequence API. Internally a private dummy slot translates logical slots
 to the existing step's positive slots. The old `GatedDeltaRuleRecurrentStepOp`
 API continues to skip indices <=0; `CausalConv1dUpdateOp` continues to skip only
 0 and reject negatives. These legacy policies are not universal state rules.
+An adapter calling legacy convolution must also translate logical slot0;
+passing zero directly would skip its update. The dummy-slot convention is
+private to this CPU sequence reference, not required of GPU/MUSA backends.
 Initialize by passing an explicitly zeroed bank; continuation passes the entire
 returned bank and the corresponding logical indices without detaching it.
 
@@ -76,8 +90,9 @@ output = R32(U * q).to(qkv.dtype)
 S_next = U.to(state.dtype)
 ```
 
-All products, normalization, elementary functions, contractions and accumulators
-above are FP32. `softplus20(x)` is `log1p(exp(x))` for x<=20, x otherwise;
+For `vllm_decode_v1`, all products, normalization, elementary functions,
+contractions and accumulators above are FP32. `softplus20(x)` is
+`log1p(exp(x))` for x<=20, x otherwise;
 the unused exponential branch is made finite for backward. No normalized-Q/K,
 beta or delta cast back to input dtype occurs. Output is read **before** the
 state store rounds. BF16 state storage rounds after **every token**, not just
@@ -108,6 +123,9 @@ Only `vllm_decode_v1` is implemented. Its [single-step reference][corrected-step
 derives from #469 and includes #659's per-sequence CPU gate correction. This
 preserves the documented recurrence and rounding schedule, not exact bitwise
 extraction fidelity to the original batched #469 reference.
+The schedule above is specific to this profile. Future profiles need explicitly implemented and
+validated execution paths; accepting a new profile string alone is insufficient.
+Extending profiles must preserve the existing profile's semantics.
 
 [#507's interface][author] uses a restricted configuration of this profile:
 BF16 QKV/a/b, FP32 parameters and state, K=V=128, and positive state slots.
@@ -116,8 +134,10 @@ be reconciled during integration before claiming provider agreement.
 
 The [miles recurrence][miles] computes beta in input dtype and calls chunked
 kernels with a different arithmetic schedule. It is not a supported profile.
-CPU accuracy or within-dispatch invariance does not certify vLLM, miles,
-GPU/TP4, cross-ISA or cross-PyTorch-version agreement.
+Mathematical equivalence alone does not establish bitwise agreement with
+optimized chunk/device implementations. CPU accuracy or within-dispatch
+invariance does not certify vLLM, miles, GPU/TP4, cross-ISA or
+cross-PyTorch-version agreement.
 
 ## Validation and scope
 
