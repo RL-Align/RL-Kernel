@@ -308,7 +308,8 @@ def test_long_sequence_backward_workspace_is_bounded(n_rows, impl):
     """BF16 backward with a 151,936 vocab and 8k-32k rows keeps peak transient memory bounded.
 
     The fused kernel allocates nothing beyond its output; the chunked fallback stays within
-    two FP32 row chunks plus 64 bytes per row and 8 MiB of slack. Skips without enough memory.
+    two FP32 row chunks plus 64 bytes per row and 8 MiB of slack. Three sampled rows, the last
+    past INT_MAX elements for the larger cases, match the reference. Skips without enough memory.
     """
     vocab = 151_936  # Qwen2/Qwen3 vocabulary
     dtype = torch.bfloat16
@@ -341,3 +342,8 @@ def test_long_sequence_backward_workspace_is_bounded(n_rows, impl):
         rows = fused_logp_backward_rows_per_chunk(vocab)
         assert transient <= 2 * rows * vocab * 4 + 64 * n_rows + (8 << 20)
     assert torch.isfinite(out[:: max(1, n_rows // 64)].float()).all()
+    # The last rows sit at element offsets above INT_MAX for the larger cases, so compare
+    # their values with the reference rather than only checking that they are finite.
+    sample = torch.tensor([0, n_rows // 2, n_rows - 1], device="cuda")
+    expected = _reference_grad(logits[sample].cpu(), labels[sample].cpu(), grad[sample].cpu())
+    torch.testing.assert_close(out[sample].cpu(), expected.to(dtype), atol=1e-5, rtol=1.6e-2)

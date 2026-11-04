@@ -146,6 +146,10 @@ def _add_external_candidates(flash_attn_src: Path | None) -> None:
         pass
     if flash_attn_src is not None:
         path = flash_attn_src / "flash_attn" / "ops" / "triton" / "cross_entropy.py"
+        if not path.is_file():
+            raise SystemExit(
+                f"--flash-attn-src has no flash_attn/ops/triton/cross_entropy.py: {path}"
+            )
         spec = importlib.util.spec_from_file_location("flash_attn_triton_cross_entropy", path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)

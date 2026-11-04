@@ -4,7 +4,7 @@
 
 """Plot a report from ``fused_logp_backward_evidence.py`` (writes figure.png beside it).
 
-    python benchmarks/operators/logprob/plot_fused_logp_backward_evidence.py report.json
+python benchmarks/operators/logprob/plot_fused_logp_backward_evidence.py report.json
 """
 
 from __future__ import annotations
@@ -38,6 +38,9 @@ def main() -> None:
     """
     path = Path(sys.argv[1])
     report = json.loads(path.read_text())
+    missing = [key for key in ("accuracy", "row_invariance") if key not in report]
+    if missing:
+        raise SystemExit(f"{path} has no {' or '.join(missing)}; rerun with those checks to plot")
     names = list(report["row_invariance"])
     perf = report.get("performance")
     fig, axes = plt.subplots(2, 2, figsize=(16, 11), layout="constrained")
