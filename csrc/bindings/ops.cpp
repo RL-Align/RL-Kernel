@@ -243,6 +243,55 @@ torch::Tensor det_gemm_fwd_rhs_transposed(torch::Tensor a, torch::Tensor bt);
 torch::Tensor det_gemm_da(torch::Tensor dc, torch::Tensor b);
 torch::Tensor det_gemm_db(torch::Tensor a, torch::Tensor dc);
 torch::Tensor det_gemm_db_transposed(torch::Tensor a, torch::Tensor dc);
+#if !defined(USE_ROCM)
+// Nemotron Nano grouped expert MLP + fixed-order weighted combine (SM90 CUDA).
+// csrc/cuda/moe/nemotron_experts.cu is not hipified: ROCm uses the shared
+// Triton provider instead, so these symbols exist only in CUDA builds.
+bool nemotron_experts_compiled();
+const char* nemotron_experts_preferred_path();
+std::tuple<
+    torch::Tensor,
+    torch::Tensor,
+    torch::Tensor,
+    torch::Tensor,
+    torch::Tensor,
+    c10::optional<torch::Tensor>,
+    c10::optional<torch::Tensor>,
+    c10::optional<torch::Tensor>>
+nemotron_experts_forward(
+    torch::Tensor packed,
+    c10::optional<torch::Tensor> x,
+    torch::Tensor weights,
+    torch::Tensor permutation,
+    torch::Tensor offsets,
+    torch::Tensor w_up,
+    torch::Tensor w_down,
+    c10::optional<torch::Tensor> w_sh1,
+    c10::optional<torch::Tensor> w_sh2);
+std::vector<torch::Tensor> nemotron_experts_backward(
+    torch::Tensor grad_out,
+    torch::Tensor packed,
+    c10::optional<torch::Tensor> x,
+    torch::Tensor weights,
+    torch::Tensor permutation,
+    torch::Tensor offsets,
+    torch::Tensor up,
+    torch::Tensor z,
+    torch::Tensor down,
+    torch::Tensor inverse,
+    torch::Tensor w_up,
+    torch::Tensor w_down,
+    c10::optional<torch::Tensor> w_sh1,
+    c10::optional<torch::Tensor> w_sh2,
+    c10::optional<torch::Tensor> shared_up,
+    c10::optional<torch::Tensor> shared_z,
+    c10::optional<torch::Tensor> shared_down,
+    bool need_packed,
+    bool need_x,
+    bool need_weights,
+    bool need_weight_grad,
+    bool need_shared_weight_grad);
+#endif
 // SiLU / SwiGLU Declarations (elementwise activation, general CUDA)
 torch::Tensor silu_forward_cuda(torch::Tensor x);
 torch::Tensor silu_backward_cuda(torch::Tensor dy, torch::Tensor x);
@@ -717,6 +766,17 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "det_gemm_db_transposed",
         &det_gemm_db_transposed,
         "Batch-invariant deterministic GEMM backward in canonical [N,K] layout");
+#if !defined(USE_ROCM)
+    // registry Nemotron grouped expert MLP + fixed-order weighted combine
+    m.def("nemotron_experts_compiled", &nemotron_experts_compiled,
+          "Whether the extension contains the SM90 Nemotron expert implementation");
+    m.def("nemotron_experts_preferred_path", &nemotron_experts_preferred_path,
+          "Instruction path the next launch takes: sm90_v1, sm90_v2 or none");
+    m.def("nemotron_experts_forward", &nemotron_experts_forward,
+          "Grouped expert up/relu2/down + fixed-order combine + shared expert");
+    m.def("nemotron_experts_backward", &nemotron_experts_backward,
+          "Grouped expert backward: dPacked, dX, dWeights, dW_up, dW_down, dW_shared");
+#endif
     // registry RMSNorm
     m.def("rmsnorm_forward", &rmsnorm_forward, "Batch-invariant RMSNorm forward CUDA");
     m.def("rmsnorm_backward_dx", &rmsnorm_backward_dx, "Batch-invariant RMSNorm backward dx CUDA");

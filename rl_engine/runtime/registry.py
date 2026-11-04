@@ -94,6 +94,14 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     # Nemotron Nano single-device router; no reference fallback in strict dispatch.
     TRITON_NEMOTRON_ROUTER = "rl_engine.backends.cuda.moe.nemotron_router.NemotronRouterOp"
 
+    # Nemotron Nano grouped expert MLP + fixed-order combine (RFC #434). The
+    # native SM90 provider is CUDA-only; the shared Triton provider is the ROCm
+    # implementation and the CUDA fallback when the SM90 build flag is absent.
+    CUDA_NEMOTRON_EXPERTS = "rl_engine.backends.cuda.moe.nemotron_experts.NemotronExpertsOp"
+    TRITON_NEMOTRON_EXPERTS = (
+        "rl_engine.backends.shared.triton.moe.nemotron_experts.TritonNemotronExpertsOp"
+    )
+
     # GRPO loss (group reward normalization + clipped surrogate + KL)
     TRITON_GRPO_LOSS = "rl_engine.kernels.ops.triton.loss.grpo_loss.TritonGRPOLossOp"
     PYTORCH_GRPO_LOSS = "rl_engine.kernels.ops.pytorch.loss.grpo_loss.NativeGRPOLossOp"
@@ -539,6 +547,10 @@ class KernelRegistry:
         self._priority_map = {
             "cuda": {
                 "nemotron_router_dispatch": [OpBackend.TRITON_NEMOTRON_ROUTER],
+                "moe_experts_combine": [
+                    OpBackend.CUDA_NEMOTRON_EXPERTS,
+                    OpBackend.TRITON_NEMOTRON_EXPERTS,
+                ],
                 "logp": [
                     OpBackend.CUDA_FUSED_LOGP_GENERIC,
                     OpBackend.FLASHINFER,
@@ -615,6 +627,9 @@ class KernelRegistry:
                 ],
             },
             "rocm": {
+                # Nemotron experts: the shared Triton provider is the only ROCm
+                # implementation, so the row has no fallback below it.
+                "moe_experts_combine": [OpBackend.TRITON_NEMOTRON_EXPERTS],
                 "logp": [
                     OpBackend.ROCM_AITER,
                     OpBackend.TRITON_GENERIC,
@@ -1044,6 +1059,8 @@ class KernelRegistry:
         platform = self._platform_for_device(device)
         if op_type == "nemotron_router_dispatch" and platform != "cuda":
             raise RuntimeError("Nemotron router is qualified only for NVIDIA SM90 CUDA")
+        if op_type == "moe_experts_combine" and platform not in ("cuda", "rocm"):
+            raise RuntimeError("Nemotron experts require NVIDIA SM90 CUDA or ROCm")
         candidates = self._priority_map.get(platform, {}).get(op_type, [OpBackend.PYTORCH_NATIVE])
 
         for backend in candidates:

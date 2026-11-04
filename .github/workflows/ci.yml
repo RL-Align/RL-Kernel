@@ -85,10 +85,16 @@ jobs:
             tests/contracts/test_tolerance_contract.py \
             tests/runtime/test_kernel_registry.py
 
-      - name: Run Nemotron Router Contract Tests (CPU-safe)
+      - name: Run Nemotron Contract Tests (CPU-safe)
+        # Only CPU-executable suites here: the provider suites under
+        # tests/backends/{cuda,rocm} are hardware-marked and skip wholesale on
+        # ubuntu-latest, so listing them would report a green run that executed
+        # nothing. They run on the GPU CI jobs and in the operator PR's own
+        # verification record.
         run: |
           PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \
             tests/reference/test_nemotron_router_reference.py \
+            tests/reference/test_nemotron_experts_reference.py \
             tests/backends/cuda/test_nemotron_router_cuda.py
 
       - name: Run Attention Ground-Truth Tests (CPU-safe)
