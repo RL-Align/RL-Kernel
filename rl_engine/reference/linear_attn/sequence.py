@@ -1,7 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""CPU temporal recurrence using #659's corrected single-token reference from #469."""
+"""CPU temporal recurrence using #659's corrected single-token reference from #469.
+
+Correctness-oriented CPU reference. Reuses the single-step implementation and
+copies the state bank per token; not intended for performance-sensitive execution.
+"""
 
 import torch
 
