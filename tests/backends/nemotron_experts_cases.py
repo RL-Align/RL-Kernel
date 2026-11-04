@@ -146,6 +146,14 @@ def run(provider, case, cotangent=None):
         return out, {}
     names = gradient_names(case)
     grads = torch.autograd.grad(out, [leaves[name] for name in names], cotangent)
+    for name, gradient in zip(names, grads):
+        # A gradient must be shaped like its input: autograd broadcasts a stray
+        # leading dimension away instead of raising, which would hand callers a
+        # `[1, ...]` `.grad` for a rank-two parameter.
+        assert gradient.shape == leaves[name].shape, (
+            f"{name} gradient shape {tuple(gradient.shape)} != input "
+            f"{tuple(leaves[name].shape)}"
+        )
     return out, dict(zip(names, grads))
 
 

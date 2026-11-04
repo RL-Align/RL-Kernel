@@ -62,6 +62,12 @@ __host__ __device__ constexpr int cdiv(int a, int b) { return (a + b - 1) / b; }
 
 // Must match det_gemm's SM90 BK so a leaf is the same 32 K values.
 constexpr int K_TREE_LEAF = 32;
+// Merge-tree stack slots. The binary-counter merge holds one slot per level, so
+// `TREE_DEPTH` covers `kd <= 1 << TREE_DEPTH` leaves; 14 covers the operator's
+// whole domain (a segment can hold up to 6 * MAX_TOKENS = 393216 packed rows,
+// i.e. kd = 12288) and `run_grouped` raises instead of overflowing if a caller
+// ever exceeds it. det_gemm's own kernel keeps 12 because it caps K at 32768.
+constexpr int TREE_DEPTH = 14;
 
 template <typename output_t>
 __device__ __forceinline__ output_t cast_output(float value);
@@ -229,7 +235,6 @@ constexpr int M_TILES = WARP_M / MMA_M;
 constexpr int N_TILES = BN / MMA_N;
 constexpr int K_TILES = BK / MMA_K;
 constexpr int KK_GROUPS = BK / 32;
-constexpr int TREE_DEPTH = 12;
 
 // Operand modes.  The A/B tile layouts are the only things that change; the
 // leaf and tree arithmetic is shared by v1 and v2.
@@ -1020,6 +1025,13 @@ void run_grouped(const nv_bf16* a_ptr, uint64_t a_height, uint64_t a_width,
                  const nv_bf16* b_ptr, uint64_t b_height, uint64_t b_width, output_t* c_ptr,
                  nv_bf16* z_ptr, const nv_bf16* aux_ptr, const int64_t* offsets, int nseg, int M,
                  int N, int K, int rows, cudaStream_t stream) {
+  // A weight gradient reconciles one leaf per 32 rows of an expert segment, and
+  // the merge stack holds one slot per level: fail closed rather than write past
+  // `tree_stk` when a segment is longer than the tree can cover. The check uses
+  // the row count, not `offsets`, so the host still never reads the routing table.
+  TORCH_CHECK(cdiv(rows, K_TREE_LEAF) <= (1 << TREE_DEPTH),
+              "nemotron experts: reduction depth exceeds the merge tree (",
+              cdiv(rows, K_TREE_LEAF), " > ", (1 << TREE_DEPTH), " leaves)");
   // v2 handles every geometry the operator accepts (its weight-gradient K is
   // padded); the width check below only guards a hand-built call.
   const bool v2_shape = N % 64 == 0 && M > 0 && (MODE == MODE_WGRAD || K % K_TREE_LEAF == 0);
@@ -1043,6 +1055,17 @@ bool nemotron_experts_compiled() {
   return true;
 #else
   return false;
+#endif
+}
+
+// Which instruction path the next launch takes: the env-selected preference,
+// before the per-shape gate. Provenance for route reporting and for the test
+// that compares the two paths; "none" means the operator is not compiled.
+const char* nemotron_experts_preferred_path() {
+#if !defined(RL_KERNEL_ENABLE_SM90)
+  return "none";
+#else
+  return experts_prefer_v2() ? "sm90_v2" : "sm90_v1";
 #endif
 }
 
@@ -1307,8 +1330,11 @@ std::vector<torch::Tensor> nemotron_experts_backward(
     }
     if (need_shared_weight_grad) {
       auto shared_x_t = aligned16(*x);
-      d_w_sh1 = torch::empty({1, shared_width, width}, options);
-      d_w_sh2 = torch::empty({1, width, shared_width}, options);
+      // `w_sh1`/`w_sh2` are rank two, so their gradients must be rank two as
+      // well: the WGRAD kernel writes `[M, N]` from offset zero, so a 2-D
+      // allocation holds exactly the same bytes.
+      d_w_sh1 = torch::empty({shared_width, width}, options);
+      d_w_sh2 = torch::empty({width, shared_width}, options);
       run_grouped<nv_bf16, MODE_WGRAD, false>(
           bf16_ptr(d_shared_up), tokens, shared_width, bf16_ptr(shared_x_t), tokens, width,
           bf16_mut(d_w_sh1), nullptr, nullptr, nullptr, 1, shared_width, width, 0, tokens,

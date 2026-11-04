@@ -13,7 +13,9 @@ idealized composition.  BF16/FP32 inputs follow the operator cast table: the
 up-projection leaf rounds to BF16, the relu-square gate rounds to BF16, the
 down-projection and the combine stay FP32, and the operator has exactly one
 exit cast.  Accumulation is whatever `torch.matmul` chooses, so this is a
-numerical baseline, not a bitwise contract.
+numerical baseline, not a bitwise contract.  The operator's own pairing - a BF16
+payload with FP32 route weights - is accepted; other combinations must share the
+payload dtype, so the oracle's precision is unambiguous.
 
 Ordering, matching the kernel contract:
 
@@ -161,8 +163,17 @@ def experts_reference(
     shared = None
     if w_sh1 is not None or w_sh2 is not None:
         shared = _check_shared(width, w_sh1, w_sh2)
-    if weights.dtype != hidden_states.dtype or w_up.dtype != hidden_states.dtype:
-        raise ValueError("hidden states, weights and stacked weights must share a dtype")
+    if weights.dtype != hidden_states.dtype and not (
+        hidden_states.dtype == torch.bfloat16 and weights.dtype == torch.float32
+    ):
+        # The operator's canonical pairing is a BF16 payload with FP32 route
+        # weights; anything else must match the payload so the oracle's precision
+        # is unambiguous (FP64 in, FP64 out).
+        raise ValueError(
+            "weights must be float32 with a bfloat16 payload, or match the payload dtype"
+        )
+    if w_up.dtype != hidden_states.dtype:
+        raise ValueError("hidden states and stacked weights must share a dtype")
 
     exact = hidden_states.dtype == torch.float64
     compute = torch.float64 if exact else torch.float32

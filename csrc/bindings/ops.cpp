@@ -248,6 +248,7 @@ torch::Tensor det_gemm_db_transposed(torch::Tensor a, torch::Tensor dc);
 // csrc/cuda/moe/nemotron_experts.cu is not hipified: ROCm uses the shared
 // Triton provider instead, so these symbols exist only in CUDA builds.
 bool nemotron_experts_compiled();
+const char* nemotron_experts_preferred_path();
 std::tuple<
     torch::Tensor,
     torch::Tensor,
@@ -769,6 +770,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     // registry Nemotron grouped expert MLP + fixed-order weighted combine
     m.def("nemotron_experts_compiled", &nemotron_experts_compiled,
           "Whether the extension contains the SM90 Nemotron expert implementation");
+    m.def("nemotron_experts_preferred_path", &nemotron_experts_preferred_path,
+          "Instruction path the next launch takes: sm90_v1, sm90_v2 or none");
     m.def("nemotron_experts_forward", &nemotron_experts_forward,
           "Grouped expert up/relu2/down + fixed-order combine + shared expert");
     m.def("nemotron_experts_backward", &nemotron_experts_backward,

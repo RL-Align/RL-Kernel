@@ -19,6 +19,7 @@ def _toy(
     experts=4,
     slots=3,
     dtype=torch.float64,
+    weight_dtype=None,
 ):
     generator = torch.Generator().manual_seed(seed)
     exact = torch.float64
@@ -42,7 +43,7 @@ def _toy(
     return (
         x.to(dtype),
         ids,
-        weights.to(dtype),
+        weights.to(dtype if weight_dtype is None else weight_dtype),
         w_up.to(dtype),
         w_down.to(dtype),
         w_sh1.to(dtype),
@@ -133,11 +134,12 @@ def test_single_expert_matches_row_local_oracle():
     torch.testing.assert_close(actual, expected, atol=1e-13, rtol=1e-13)
 
 
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
-def test_cast_points_round_leaves_and_exit_only(dtype):
-    x, ids, weights, w_up, w_down, w_sh1, w_sh2 = _toy(dtype=dtype)
+def _cast_point_error(payload_dtype, weight_dtype=None):
+    """Relative L2 of the reference against the scalar oracle for one pairing."""
+    x, ids, weights, w_up, w_down, w_sh1, w_sh2 = _toy(
+        dtype=payload_dtype, weight_dtype=weight_dtype
+    )
     actual = experts_reference(x, ids, weights, w_up, w_down, w_sh1, w_sh2)
-    assert actual.dtype == torch.bfloat16
     exact = _scalar_oracle(
         x.double(),
         ids,
@@ -147,10 +149,49 @@ def test_cast_points_round_leaves_and_exit_only(dtype):
         w_sh1.double(),
         w_sh2.double(),
     )
-    error = (actual.double() - exact).norm() / exact.norm()
-    # BF16 leaves and the single exit cast dominate; an unrounded FP32 path
-    # would stay below 1e-7.
+    assert actual.dtype == torch.bfloat16
+    return (actual.double() - exact).norm() / exact.norm()
+
+
+@pytest.mark.parametrize(
+    "payload_dtype, weight_dtype",
+    [
+        pytest.param(torch.bfloat16, torch.float32, id="canonical-bf16-fp32-routes"),
+        pytest.param(torch.bfloat16, None, id="bf16-payload-bf16-routes"),
+        pytest.param(torch.float32, torch.float32, id="fp32-payload"),
+    ],
+)
+def test_cast_points_round_leaves_and_exit_only(payload_dtype, weight_dtype):
+    error = _cast_point_error(payload_dtype, weight_dtype)
+    # The BF16 rounding points (up result, gate, exit cast) are dtype-independent:
+    # the payload dtype only decides the matmul precision, so every accepted
+    # pairing sits in the same 1e-3 band.  An unrounded path would be at 1e-13
+    # (that is what the FP64 cases assert), hence the two-sided bound.
     assert 1e-5 < error < 5e-3
+
+
+def test_payload_dtype_does_not_move_the_rounding_band():
+    """BF16 and FP32 payloads agree to well within the bound, unlike FP64.
+
+    Measured on the toy geometry: FP32 payload 3.1e-3, BF16 payload 2.4e-3, FP64
+    payload 1e-13.  A change that dropped a `_leaf_round` would move a BF16/FP32
+    case towards the FP64 figure, so the band is what pins the cast points.
+    """
+    fp32_payload = _cast_point_error(torch.float32, torch.float32)
+    bf16_payload = _cast_point_error(torch.bfloat16, torch.float32)
+    assert max(fp32_payload, bf16_payload) < 3 * min(fp32_payload, bf16_payload)
+    x, ids, weights, w_up, w_down, w_sh1, w_sh2 = _toy()
+    exact = _scalar_oracle(x, ids, weights, w_up, w_down, w_sh1, w_sh2)
+    fp64 = experts_reference(x, ids, weights, w_up, w_down, w_sh1, w_sh2).double()
+    assert (fp64 - exact).norm() / exact.norm() < 1e-12
+
+
+def test_rejects_a_payload_weight_dtype_mismatch():
+    x, ids, weights, w_up, w_down, w_sh1, w_sh2 = _toy(dtype=torch.bfloat16)
+    with pytest.raises(ValueError, match="share dtype and device"):
+        experts_reference(x, ids, weights, w_up.double(), w_down, w_sh1, w_sh2)
+    with pytest.raises(ValueError, match="weights must be float32"):
+        experts_reference(x, ids, weights.double(), w_up, w_down, w_sh1, w_sh2)
 
 
 def test_token_permutation_invariance():

@@ -143,6 +143,17 @@ fixed ascending order are all preserved and every kernel folds the same way, so
 batch invariance is unaffected; only the association of the leaf sums differs
 from the native tree. `dWeights` folds 32-wide FP32 leaves the same way.
 
+* **Weight-gradient reduction depth is bounded.** A weight gradient reconciles one
+  32-wide leaf per 32 rows of an expert segment, and the midpoint tree keeps one
+  merge slot per level, so `TREE_DEPTH = 14` covers `kd <= 16384` leaves. The
+  operator's own bound (`rows <= 6 * MAX_TOKENS = 393216`, i.e. `kd <= 12288`) is
+  inside it, and a hand-built call beyond it raises instead of writing past the
+  merge stack. The guard uses the row count, never `offsets`, so the host still
+  does not read the routing table and CUDA Graph capture stays legal.
+* **Gradients are shaped like their inputs.** `dW_sh1`/`dW_sh2` are `[F,H]`/`[H,F]`
+  (not `[1,F,H]`), and the shared suite asserts the shape of every gradient
+  against its input.
+
 ## Ordering policy
 
 * **Experts ascend.** A CTA resolves its `(expert, row tile)` by walking the 129
@@ -154,6 +165,16 @@ from the native tree. `dWeights` folds 32-wide FP32 leaves the same way.
 * **`dW` visits grouped rows ascending.** One pass per expert writes the whole
   weight-gradient tile; empty experts write exact zeros, which is why no
   full-tensor memset is needed.
+
+## Fail-closed gates
+
+Non-SM90 device, a build without `KERNEL_ALIGN_DET_GEMM_SM90=1`, a dtype, rank or
+contiguity mismatch, widths not 64-aligned, `tokens > 65536`, an `offsets` table
+that is not `experts + 1` long, unpaired shared weights and a reduction depth
+beyond the merge tree all raise. `permutation`/`offsets` *values* are trusted as
+the router's contract rather than validated on device - a device-side check would
+force a host synchronization and break graph capture - so a hand-built dispatch
+must supply a bijection and its exclusive prefix sums.
 
 ## Qualification boundary
 
@@ -550,6 +571,15 @@ PyTorch 2.11.0+cu130, `KERNEL_ALIGN_FORCE_SM90=1 KERNEL_ALIGN_DET_GEMM_SM90=1`:
 * `black --check --line-length 100` is clean on the three python files touched and
   `mypy --ignore-missing-imports` is clean on the wrapper; `mkdocs build --strict`
   succeeds.
+
+Re-validation after the review fixes (`H100 80GB HBM3`, CUDA 13.0, PyTorch
+2.12.0+cu130, same build flags): operator + reference suites 45 passed; the
+`det_gemm` / router / wrapper / registry / ROCm neighbours 135 passed, 54 skipped;
+`black --check`, `mypy --ignore-missing-imports` and `mkdocs --strict` clean. The
+instruction-path ratio does not move on that card (T=4096 forward+backward: wgmma
+27.5 ms against mma.sync 43.5 ms, 1.58x against the 1.57-1.61x above), so the
+wider merge stack (`TREE_DEPTH` 12 -> 14) costs nothing measurable. The absolute
+latencies in the tables remain the H100 NVL figures.
 
 The ROCm column has no hardware record: the same Triton source runs on CUDA, but
 a gfx9xx host must re-qualify it before those numbers are quoted. The same applies

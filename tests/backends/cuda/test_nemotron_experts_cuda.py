@@ -241,14 +241,21 @@ def test_instruction_paths_agree_bitwise(monkeypatch, geometry, tokens):
     """
     if not _native_compiled():
         pytest.skip("native SM90 experts extension is not built")
-    provider = _provider("native")
+    from rl_engine.backends.extension import _C
+
     case = cases.build_case(tokens, "cuda", **geometry)
     cotangent = cases.cotangent_for(case, seed=11)
 
+    # Resolve a fresh provider inside each environment scope, and check that the
+    # operator really reports the path the test thinks it is exercising: a cached
+    # selection would turn this into a self-comparison that can never fail.
     monkeypatch.setenv("RL_KERNEL_NEMOTRON_EXPERTS_BACKEND", "sm90_v1")
-    reference, reference_grads = cases.run(provider, case, cotangent)
+    assert _C.nemotron_experts_preferred_path() == "sm90_v1"
+    reference, reference_grads = cases.run(_provider("native"), case, cotangent)
+
     monkeypatch.setenv("RL_KERNEL_NEMOTRON_EXPERTS_BACKEND", "sm90_v2")
-    actual, actual_grads = cases.run(provider, case, cotangent)
+    assert _C.nemotron_experts_preferred_path() == "sm90_v2"
+    actual, actual_grads = cases.run(_provider("native"), case, cotangent)
 
     cases.bits(actual, reference)
     for label in cases.gradient_names(case):
@@ -371,13 +378,11 @@ def test_autocast_invariance(name):
 
 
 @_SM90
-@pytest.mark.parametrize("name", ["native", "triton"])
-def test_reject_bad_geometry(name):
+def test_reject_bad_geometry():
+    """Input validation is hardware-independent, so it is exercised once."""
     from rl_engine.ops.moe.nemotron_experts import MAX_TOKENS, nemotron_experts
 
-    provider = _provider(name)
     case = _small_case()
-    assert provider is not None
 
     def run(**overrides):
         arguments = dict(case)
@@ -422,18 +427,19 @@ def test_reject_bad_geometry(name):
 @_SM90
 @pytest.mark.parametrize("name", ["native", "triton"])
 def test_empty_batch(name):
-    from rl_engine.ops.moe.nemotron_experts import nemotron_experts
-
-    _provider(name)
+    provider = _provider(name)
     case = _small_case()
     empty = dict(case)
     for label, rows in (("packed", 0), ("x", 0), ("weights", 0), ("permutation", 0)):
         empty[label] = case[label][:rows]
+    # A zero-token batch also needs a routing table that describes zero rows,
+    # otherwise `offsets` still claims the 17-token workload.
+    empty["offsets"] = torch.zeros_like(case["offsets"])
     leaves = {
         label: empty[label].requires_grad_(label in ("packed", "x", "weights"))
         for label in ("packed", "x", "weights")
     }
-    out = nemotron_experts(
+    out = provider(
         leaves["packed"],
         leaves["x"],
         leaves["weights"],
