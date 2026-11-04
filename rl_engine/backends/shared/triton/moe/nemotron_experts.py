@@ -385,12 +385,32 @@ def _rows_gemm(
     )
 
 
+def _check_leaf_alignment(**widths):
+    """Refuse a reduction width the leaf loop would truncate.
+
+    `_rows_gemm` and `_dweights_kernel` step the reduction in whole `LEAF`-wide
+    leaves without a tail mask (the masked `_wgrad_kernel` covers the one place
+    where the reduction length is arbitrary). The operator's validator already
+    requires 64-aligned widths, so this only rejects a hand-built provider call -
+    but silently dropping the tail leaf would be a wrong answer, not a slow one.
+    """
+    for name, value in widths.items():
+        if value % LEAF:
+            raise ValueError(
+                f"nemotron experts (triton): {name}={value} is not a multiple of the "
+                f"{LEAF}-wide leaf"
+            )
+
+
 def _forward(packed, x, weights, permutation, offsets, w_up, w_down, w_sh1, w_sh2):
     rows, width = packed.shape
     tokens = rows // 6
     experts, intermediate = w_up.shape[0], w_up.shape[1]
     device = packed.device
     dtype = packed.dtype
+    _check_leaf_alignment(width=width, intermediate=intermediate)
+    if w_sh1 is not None:
+        _check_leaf_alignment(shared_width=w_sh1.shape[0])
     up = torch.empty((rows, intermediate), device=device, dtype=dtype)
     down = torch.empty((rows, width), device=device, dtype=torch.float32)
     inverse = torch.empty((rows,), device=device, dtype=torch.int64)
@@ -497,9 +517,28 @@ def _backward(
     experts, intermediate = w_up.shape[0], w_up.shape[1]
     device = packed.device
     dtype = packed.dtype
-    empty = torch.empty((0,), device=device, dtype=dtype)
+    _check_leaf_alignment(width=width, intermediate=intermediate)
+    if w_sh1 is not None:
+        _check_leaf_alignment(shared_width=w_sh1.shape[0])
     if tokens == 0:
-        return [empty] * 7
+        # An expert-parallel rank may hold no tokens. Every returned gradient
+        # still has to be shaped like its input: an empty-row payload gets an
+        # empty payload gradient, and a weight gradient is exactly zero (not
+        # absent), so an optimizer step and a DDP all-reduce stay well defined.
+        shared_grad = need_shared_weight_grad and w_sh1 is not None and w_sh2 is not None
+        return [
+            torch.zeros((rows, width), device=device, dtype=dtype) if need_packed else None,
+            torch.zeros((tokens, width), device=device, dtype=dtype) if need_x else None,
+            (
+                torch.zeros((tokens, 6), device=device, dtype=torch.float32)
+                if need_weights
+                else None
+            ),
+            torch.zeros_like(w_up) if need_weight_grad else None,
+            torch.zeros_like(w_down) if need_weight_grad else None,
+            torch.zeros_like(w_sh1) if shared_grad else None,
+            torch.zeros_like(w_sh2) if shared_grad else None,
+        ]
     dy = torch.empty((rows, width), device=device, dtype=dtype)
     _dy_kernel[(rows, triton.cdiv(width, _ELEMENT_BLOCK))](
         dy,
@@ -624,8 +663,10 @@ def _backward(
                 transpose_weights=True,
             )
         if need_shared_weight_grad:
-            d_w_sh1 = torch.empty((1, shared_width, width), device=device, dtype=dtype)
-            d_w_sh2 = torch.empty((1, width, shared_width), device=device, dtype=dtype)
+            # Same shape as the inputs: `_wgrad_kernel` writes `[M, N]` from the
+            # group offset, which is byte-identical for a 2-D allocation.
+            d_w_sh1 = torch.empty((shared_width, width), device=device, dtype=dtype)
+            d_w_sh2 = torch.empty((width, shared_width), device=device, dtype=dtype)
             _wgrad_kernel[(triton.cdiv(shared_width, BLOCK_M), triton.cdiv(width, BLOCK_N), 1)](
                 d_shared_up,
                 x,

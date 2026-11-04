@@ -1246,8 +1246,22 @@ std::vector<torch::Tensor> nemotron_experts_backward(
   auto float_options = options.dtype(torch::kFloat32);
   torch::Tensor empty;
   torch::Tensor d_packed, d_x, d_weights, d_w_up, d_w_down, d_w_sh1, d_w_sh2;
-  if (tokens == 0)
-    return {empty, empty, torch::zeros({tokens, 6}, float_options), empty, empty, empty, empty};
+  if (tokens == 0) {
+    // An expert-parallel rank may hold no tokens. Every returned gradient is
+    // still shaped like its input: empty rows give empty payload gradients, and
+    // a weight gradient is exactly zero rather than absent, so an optimizer step
+    // and an all-reduce stay well defined.
+    const bool shared_grad = shared && need_shared_weight_grad;
+    return {
+        need_packed ? torch::zeros({rows, width}, options) : empty,
+        need_x ? torch::zeros({tokens, width}, options) : empty,
+        torch::zeros({tokens, 6}, float_options),
+        need_weight_grad ? torch::zeros_like(w_up) : empty,
+        need_weight_grad ? torch::zeros_like(w_down) : empty,
+        shared_grad ? torch::zeros_like(*w_sh1) : empty,
+        shared_grad ? torch::zeros_like(*w_sh2) : empty,
+    };
+  }
   if (!need_packed && !need_x && !need_weights && !need_weight_grad &&
       !(shared && need_shared_weight_grad))
     return {empty, empty, empty, empty, empty, empty, empty};

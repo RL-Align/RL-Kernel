@@ -435,9 +435,11 @@ def test_empty_batch(name):
     # A zero-token batch also needs a routing table that describes zero rows,
     # otherwise `offsets` still claims the 17-token workload.
     empty["offsets"] = torch.zeros_like(case["offsets"])
+    weight_names = ["w_up", "w_down"] + (["w_sh1", "w_sh2"] if "w_sh1" in empty else [])
+    differentiable = ["packed", "x", "weights", *weight_names]
     leaves = {
-        label: empty[label].requires_grad_(label in ("packed", "x", "weights"))
-        for label in ("packed", "x", "weights")
+        label: empty[label].detach().clone().requires_grad_(label in differentiable)
+        for label in differentiable
     }
     out = provider(
         leaves["packed"],
@@ -445,13 +447,32 @@ def test_empty_batch(name):
         leaves["weights"],
         empty["permutation"],
         empty["offsets"],
-        empty["w_up"],
-        empty["w_down"],
-        empty["w_sh1"],
-        empty["w_sh2"],
+        leaves["w_up"],
+        leaves["w_down"],
+        leaves.get("w_sh1"),
+        leaves.get("w_sh2"),
     )
     assert out.shape == (0, cases.CORE["width"]) and out.dtype == torch.bfloat16
-    # The batch is empty, so backward must produce empty (or absent) gradients.
+    # Zero tokens still has to produce gradients shaped like their inputs, with
+    # exact zeros for the weights: an expert-parallel rank can hold no tokens and
+    # must not hand the optimizer an absent (or 1-D) gradient.
+    names = ["x", *weight_names]
     grad_out = torch.zeros((0, cases.CORE["width"]), device="cuda", dtype=torch.bfloat16)
-    grads = torch.autograd.grad(out, (leaves["x"],), grad_out, allow_unused=True)
-    assert grads[0] is None or grads[0].numel() == 0
+    grads = torch.autograd.grad(out, [leaves[name] for name in names], grad_out, allow_unused=True)
+    for name, gradient in zip(names, grads):
+        if name in weight_names:
+            # A weight gradient is nonzero-shaped, so "absent" is never legitimate:
+            # it must be present, shaped like the weight, and exactly zero.
+            assert gradient is not None, f"{name} gradient is absent for a zero-token batch"
+            assert gradient.shape == leaves[name].shape, (
+                f"{name} gradient shape {tuple(gradient.shape)} != "
+                f"input shape {tuple(leaves[name].shape)}"
+            )
+            assert not gradient.any(), f"{name} gradient is not zero"
+        else:
+            # Row-shaped gradients are empty, and `_optional` reports a
+            # zero-element tensor as absent; either is fine, a flat `(0,)` is not.
+            assert gradient is None or gradient.shape == leaves[name].shape, (
+                f"{name} gradient shape {tuple(gradient.shape)} != "
+                f"input shape {tuple(leaves[name].shape)}"
+            )

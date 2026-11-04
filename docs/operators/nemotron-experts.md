@@ -153,6 +153,10 @@ from the native tree. `dWeights` folds 32-wide FP32 leaves the same way.
 * **Gradients are shaped like their inputs.** `dW_sh1`/`dW_sh2` are `[F,H]`/`[H,F]`
   (not `[1,F,H]`), and the shared suite asserts the shape of every gradient
   against its input.
+* **A zero-token rank still returns shaped gradients.** An expert-parallel rank
+  can hold no tokens; `out` is then `[0,H]`, payload gradients are empty rows, and
+  every requested weight gradient is an exact zero of the weight's shape rather
+  than an absent tensor. Both providers implement this and the suite asserts it.
 
 ## Ordering policy
 
