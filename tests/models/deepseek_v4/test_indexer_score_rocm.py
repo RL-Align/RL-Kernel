@@ -2,6 +2,11 @@
 """Real-kernel Indexer score acceptance: byte-level BI and accuracy are checked separately."""
 
 from dataclasses import replace
+import json
+import os
+import subprocess
+import sys
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -132,3 +137,34 @@ def test_rejects_cpu_tensors_and_graph_capture(op):
     with pytest.raises(IndexerScoreError, match="Graph"):
         with torch.cuda.graph(graph):
             op.forward(icv, w)
+
+
+def test_unvalidated_architecture_is_rejected(monkeypatch):
+    monkeypatch.setattr(
+        torch.cuda, "get_device_properties", lambda *_: SimpleNamespace(gcnArchName="gfx942")
+    )
+    with pytest.raises(IndexerScoreError, match="unvalidated architecture gfx942"):
+        AiterIndexerScoreBackend()
+
+
+def test_fresh_processes_with_distinct_jit_caches_produce_identical_bytes(tmp_path):
+    outputs = []
+    for run in range(2):
+        output = tmp_path / f"run{run}.json"
+        env = dict(os.environ, TRITON_CACHE_DIR=str(tmp_path / f"triton{run}"))
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "tests.models.deepseek_v4.score_process_probe",
+                "--output",
+                str(output),
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=180,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        outputs.append(json.loads(output.read_text()))
+    assert outputs[0] == outputs[1]

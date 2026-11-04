@@ -26,7 +26,7 @@ class AiterIndexerScoreBackend:
         require(torch.version.hip is not None and torch.cuda.is_available(), "requires a ROCm GPU")
         self.device = torch.device("cuda", torch.cuda.current_device())
         arch = torch.cuda.get_device_properties(self.device).gcnArchName.split(":")[0]
-        require(arch in ("gfx942", "gfx950"), f"unvalidated architecture {arch}")
+        require(arch == "gfx950", f"unvalidated architecture {arch}")
         try:
             self.triton = importlib.import_module("triton")
             module = importlib.import_module(ROW_DOT_MODULE)
