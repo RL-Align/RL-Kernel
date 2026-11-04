@@ -34,7 +34,7 @@ before backward starts. Use a different parameter ID for each layer and stream.
 
 | Backend | Implementation | Status |
 | --- | --- | --- |
-| CUDA | #537 native Linear, compensated partials and fold | TP1 and simulated TP qualification on H20 |
+| CUDA | #537 native Linear, compensated partials and fold | TP1 and real TP2/4/8 qualification on H20 |
 | CPU | Independent PyTorch Linear | Accuracy reference only |
 | ROCm / Ascend / MUSA | No candidate registered | Unsupported |
 
@@ -115,10 +115,33 @@ The benchmark disables TF32 and BF16 reduced-precision reduction for the PyTorch
 control to retain FP32 accumulation.
 They do not measure TP transport or multi-GPU throughput.
 
+For real single-host TP transport and throughput, use one process per GPU:
+
+```bash
+PYTHONPATH=. OMP_NUM_THREADS=1 NCCL_NVLS_ENABLE=0 python3.11 \
+  benchmarks/distributed/tp/benchmark_qwenimage_qkv.py \
+  --tp 1 2 4 8 --rows 1 129 4096 6032 6889 --dtype bfloat16 \
+  --seed 386 --warmup 3 --samples 10 --output /tmp/qkv-real-tp.json
+```
+
+Repeat with `--dtype float32`. This command checks Y/dX/dW/dbias bytes against
+native TP1 before timing. Forward and forward+backward include the public adapter;
+backward includes CUDA IPC transport and canonical parameter reduction. Each
+sample reports the slowest rank's elapsed time. Effective rows/second counts the
+replicated input rows once, and memory reports the largest per-rank allocation.
+The benchmark retains only local parameter and upstream shards during timing.
+
+On the measured H20 profile (driver 535.183.06, NCCL 2.20.5), NCCL's default NVLS
+initialization failed in a standalone PyTorch four-rank `all_gather`, before
+loading RL-Kernel. Adding `NCCL_NVLS_ENABLE=0` to the command environment allowed
+the standalone four/eight-rank probes and the tests below to execute. This is
+NVIDIA's existing [NVLS control](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/env.html#nccl-nvls-enable);
+use it for that runtime profile. The operator does not set it.
+
 ## Tests
 
 ```bash
-PYTHONPATH=. OMP_NUM_THREADS=4 python3.11 -m pytest \
+PYTHONPATH=. OMP_NUM_THREADS=1 NCCL_NVLS_ENABLE=0 python3.11 -m pytest \
   tests/distributed/tp/test_qwenimage_tp_qkv_bias_gemm.py -q
 
 # Regress the existing #537 callers after exposing the two native stages.
@@ -135,12 +158,22 @@ The single-rank IPC integration test also constructs the existing CUDA collectiv
 and executes its native `all_gather`; it does not establish cross-GPU transport.
 Simulation runs the actual shard kernels on one GPU and concatenates peer partials
 in a test transport. It establishes arithmetic and mapping, not real IPC or
-multi-process correctness. `implementation_info()` reports configuration;
+multi-process correctness.
+
+The `test_real_tp_matches_native_all_gradients` cases require 2/4/8 physical GPUs
+and run separate NCCL ranks with the native CUDA IPC collective. Each TP size
+checks all six row counts, both dtypes and seeds, both stream parameter sets,
+reverse order, microbatching, padding, repeat execution and inference. Every rank
+compares complete Y/dX/dW/dbias bytes with native TP1, including the communicated
+global dX. With fewer GPUs, only the unavailable TP sizes are skipped.
+
+`implementation_info()` reports configuration;
 backward runtime records only native entries used by that backward call.
 
 ## Known Limitations
 
-- Real multi-GPU TP2/4/8 transport qualification is a separate required step.
+- TP2/4/8 transport qualification covers a single host with CUDA IPC; inter-host
+  transport is outside this operator's tested scope.
 - The reused #537 dW reducer is costly for long input sequences. This adapter
   preserves its arithmetic rather than substituting the faster vLLM candidate.
 - No SP, CFG-parallel, LoRA-specific integration, or full-model binding is added.

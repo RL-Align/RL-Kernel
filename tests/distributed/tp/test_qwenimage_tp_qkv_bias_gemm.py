@@ -1,11 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""QKV accuracy and row/topology invariance, with single-device TP simulation."""
+"""QKV accuracy, row invariance and simulated/real CUDA TP topologies."""
 
+import json
+import queue
+import traceback
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
 import torch
+import torch.multiprocessing as mp
 
 from rl_engine.backends.cuda.model_specific.qwenimage import tp_qkv_bias_gemm as module
 from rl_engine.backends.extension import _C
@@ -106,7 +111,9 @@ def keys_for(x):
     )
 
 
-def evaluate(x, w, b, grad, *, keys=None, cuts=None, collective=None, frozen=()):
+def evaluate(
+    x, w, b, grad, *, keys=None, cuts=None, collective=None, frozen=(), parameter_id="image.qkv"
+):
     values = [
         v.detach().requires_grad_(name not in frozen) if v is not None else None
         for name, v in zip(("x", "weight", "bias"), (x, w, b))
@@ -117,7 +124,7 @@ def evaluate(x, w, b, grad, *, keys=None, cuts=None, collective=None, frozen=())
     op = module.QwenImageTPQKVBiasGemmCudaOp(collective)
     with canonical_backward_session() as session:
         ys = [
-            op(xx[s:e], ww, bb, logical_keys=keys[s:e], parameter_id="image.qkv") for s, e in cuts
+            op(xx[s:e], ww, bb, logical_keys=keys[s:e], parameter_id=parameter_id) for s, e in cuts
         ]
         torch.autograd.backward(list(reversed(ys)), [grad[s:e] for s, e in reversed(cuts)])
     session.validate_complete()
@@ -335,3 +342,150 @@ def test_inference_no_bias_registry_and_fail_closed(monkeypatch):
     monkeypatch.delattr(_C, "qwenimage_det_linear_input_partials")
     with pytest.raises(RuntimeError, match="rebuild"):
         module.QwenImageTPQKVBiasGemmCudaOp()
+
+
+def _real_tp_worker(rank, world, init_method, result_queue):
+    import torch.distributed as dist
+
+    from rl_engine.distributed import create_deterministic_collective
+
+    torch.set_num_threads(1)
+    torch.cuda.set_device(rank)
+    cases = []
+    try:
+        dist.init_process_group(
+            "nccl",
+            init_method=init_method,
+            rank=rank,
+            world_size=world,
+            timeout=timedelta(minutes=5),
+        )
+        with create_deterministic_collective(device=torch.device("cuda", rank)) as collective:
+            for dtype in (torch.bfloat16, torch.float32):
+                for seed in (386, 387):
+                    for rows in (1, 17, 129, 4096, 6032, 6889):
+                        x, w, b, grad = make_inputs(rows, dtype, seed)
+                        idx = indices(world, rank, x.device)
+                        local_w, local_b = shard_qkv_parameters(w, b, tp_world=world, tp_rank=rank)
+                        local_grad = grad.index_select(1, idx)
+                        stream = "image.qkv" if seed == 386 else "text.qkv"
+                        gold_y = _C.qwenimage_det_linear_forward(x, w, b, 0, False)[0][:, idx]
+                        gold_dx = _C.qwenimage_det_linear_backward_input(grad.float(), w, dtype)
+                        gold_dw, gold_db = _C.qwenimage_det_linear_backward_weight(
+                            grad.float(), x, dtype, True
+                        )
+                        gold = (gold_y, gold_dx, gold_dw[idx], gold_db[idx])
+                        del gold_dw, gold_db
+
+                        def check(xx, gg, kk, cuts=None, inverse=None, active_rows=None):
+                            y, grads = evaluate(
+                                xx,
+                                local_w,
+                                local_b,
+                                gg,
+                                keys=kk,
+                                cuts=cuts,
+                                collective=collective,
+                                parameter_id=stream,
+                            )
+                            dx, dw, db = grads
+                            if inverse is not None:
+                                y, dx = y[inverse], dx[inverse]
+                            if active_rows is not None:
+                                y, dx = y[:active_rows], dx[:active_rows]
+                            for name, value, expected in zip(
+                                ("Y", "dX", "dW", "dbias"), (y, dx, dw, db), gold
+                            ):
+                                assert equal_bytes(value, expected), (
+                                    world,
+                                    rank,
+                                    dtype,
+                                    seed,
+                                    rows,
+                                    name,
+                                )
+
+                        keys = keys_for(x)
+                        check(x, local_grad, keys)
+                        # All ranks execute the same logical layout and collective order.
+                        order = torch.arange(rows - 1, -1, -1, device=x.device)
+                        check(x[order], local_grad[order], keys[order], inverse=order)
+                        if rows > 1:
+                            check(x, local_grad, keys, cuts=[(0, rows // 2), (rows // 2, rows)])
+                        pad_x = torch.cat((x, torch.ones_like(x[:1])))
+                        pad_g = torch.cat((local_grad, torch.ones_like(local_grad[:1])))
+                        pad_keys = torch.cat((keys, torch.full_like(keys[:1], -1)))
+                        check(pad_x, pad_g, pad_keys, active_rows=rows)
+                        check(x, local_grad, keys)
+                        with torch.no_grad():
+                            inference = module.QwenImageTPQKVBiasGemmCudaOp(collective)(
+                                x, local_w, local_b
+                            )
+                        assert equal_bytes(inference, gold_y)
+                        cases.append(
+                            {
+                                "dtype": str(dtype),
+                                "seed": seed,
+                                "rows": rows,
+                                "layouts": ["base", "reverse"]
+                                + (["microbatch"] if rows > 1 else [])
+                                + ["padding", "repeat"],
+                                "outputs": ["Y", "dX", "dW", "dbias"],
+                                "byte_equal": True,
+                            }
+                        )
+                        if rank == 0:
+                            print(
+                                f"TP{world} {dtype} seed={seed} M={rows}: bytes passed", flush=True
+                            )
+                        del x, w, b, grad, local_grad
+                        dist.barrier()
+        dist.destroy_process_group()
+        result_queue.put({"ok": True, "rank": rank, "cases": cases})
+    except Exception:
+        result_queue.put({"ok": False, "rank": rank, "traceback": traceback.format_exc()})
+        raise
+
+
+@cuda
+@pytest.mark.parametrize("world", [2, 4, 8])
+def test_real_tp_matches_native_all_gradients(world, tmp_path):
+    if not torch.distributed.is_nccl_available() or torch.cuda.device_count() < world:
+        pytest.skip(f"requires {world} NVIDIA GPUs and NCCL")
+    if torch.distributed.is_initialized():
+        pytest.skip("this test owns its multi-rank process group")
+    torch.cuda.empty_cache()
+    ctx = mp.get_context("spawn")
+    results_queue = ctx.Queue()
+    init_method = (tmp_path / "nccl-group").as_uri()
+    processes = [
+        ctx.Process(target=_real_tp_worker, args=(rank, world, init_method, results_queue))
+        for rank in range(world)
+    ]
+    for process in processes:
+        process.start()
+    results = []
+    try:
+        for _ in processes:
+            result = results_queue.get(timeout=900)
+            results.append(result)
+            if not result["ok"]:
+                break
+    except queue.Empty:
+        pytest.fail(f"timed out waiting for TP{world} QKV workers")
+    finally:
+        for process in processes:
+            if len(results) != world or any(not r["ok"] for r in results):
+                if process.is_alive():
+                    process.terminate()
+            process.join(timeout=30)
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=30)
+        results_queue.close()
+        results_queue.join_thread()
+        (tmp_path / f"real-tp{world}.json").write_text(json.dumps(results, indent=2) + "\n")
+    for result in results:
+        assert result["ok"], result.get("traceback")
+    assert len(results) == world
+    assert all(process.exitcode == 0 for process in processes)
