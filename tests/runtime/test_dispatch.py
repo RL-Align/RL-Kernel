@@ -4,6 +4,7 @@
 import sys
 from types import ModuleType
 
+import pytest
 import torch
 
 import rl_engine.platforms.device as device_module
@@ -235,6 +236,26 @@ def test_npu_registry_preserves_per_operator_cpu_fallbacks(monkeypatch):
         OpBackend.ASCEND_FUSED_LINEAR_LOGP,
         OpBackend.PYTORCH_LINEAR_LOGP,
     ]
+
+
+@pytest.mark.parametrize(
+    "platform,op_type",
+    [
+        (platform, op_type)
+        for platform in ("cuda", "musa", "npu")
+        for op_type in ("mhc_pre", "mhc_post", "mhc_head")
+    ],
+)
+def test_ops_without_a_backend_raise(monkeypatch, platform, op_type):
+    registry = KernelRegistry()
+    loaded = []
+    monkeypatch.setattr(registry, "_load_backend", loaded.append)
+    monkeypatch.setattr(registry, "_platform_for_device", lambda device: platform)
+
+    assert registry._priority_map[platform][op_type] == []
+    with pytest.raises(RuntimeError, match=f"No functional backend found for {op_type}"):
+        registry.get_op(op_type, device=platform)
+    assert loaded == []
 
 
 def test_npu_available_handles_runtime_failure(monkeypatch):

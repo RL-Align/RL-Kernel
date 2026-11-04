@@ -159,6 +159,11 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     TRITON_RMS_NORM = "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp"
     PYTORCH_NATIVE_RMS_NORM = "rl_engine.kernels.ops.pytorch.norm.rms_norm.NativeRMSNormOp"
 
+    # DeepSeek-V4 mHC pre, post and head: fp32 PyTorch references
+    PYTORCH_NATIVE_MHC_PRE = "rl_engine.reference.mhc.mhc.NativeMHCPreOp"
+    PYTORCH_NATIVE_MHC_POST = "rl_engine.reference.mhc.mhc.NativeMHCPostOp"
+    PYTORCH_NATIVE_MHC_HEAD = "rl_engine.reference.mhc.mhc.NativeMHCHeadOp"
+
     # Generic fallback
     TRITON_GENERIC = "rl_engine.kernels.ops.triton.generic.TritonOp"
     PYTORCH_ATTN = "rl_engine.kernels.ops.pytorch.attention.NativeAttentionOp"
@@ -597,6 +602,11 @@ class KernelRegistry:
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
                 ],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
+                # No mHC backend: an empty list makes get_op raise instead of
+                # falling back to the default PYTORCH_NATIVE (logp) op.
+                "mhc_pre": [],
+                "mhc_post": [],
+                "mhc_head": [],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [
@@ -705,6 +715,10 @@ class KernelRegistry:
                     OpBackend.TRITON_RMS_NORM,
                     OpBackend.PYTORCH_NATIVE_RMS_NORM,
                 ],
+                # No mHC backend; see the CUDA entries.
+                "mhc_pre": [],
+                "mhc_post": [],
+                "mhc_head": [],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [
                     OpBackend.TRITON_EMBEDDING,
@@ -734,6 +748,9 @@ class KernelRegistry:
                 "batch_invariant_logp": [OpBackend.PYTORCH_BATCH_INVARIANT_LOGP],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
+                "mhc_pre": [OpBackend.PYTORCH_NATIVE_MHC_PRE],
+                "mhc_post": [OpBackend.PYTORCH_NATIVE_MHC_POST],
+                "mhc_head": [OpBackend.PYTORCH_NATIVE_MHC_HEAD],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
@@ -802,6 +819,9 @@ class KernelRegistry:
         self._priority_map["npu"]["det_gemm"] = [
             OpBackend.ASCEND_DET_GEMM,
         ]
+        # No mHC backend on NPU; the CPU references are not copied over.
+        for op_type in ("mhc_pre", "mhc_post", "mhc_head"):
+            self._priority_map["npu"][op_type] = []
         logger.info(f"KernelRegistry initialized for {device_ctx.device_type}")
         self._adjust_priority_for_hardware()
         self._adjust_priority_from_env()
