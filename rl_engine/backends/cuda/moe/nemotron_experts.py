@@ -66,7 +66,7 @@ class _ExpertsCombine(torch.autograd.Function):
         w_sh1,
         w_sh2,
     ):
-        out, up, down, inverse, shared_up, shared_down = _C.nemotron_experts_forward(
+        out, up, z, down, inverse, shared_up, shared_z, shared_down = _C.nemotron_experts_forward(
             packed, x, weights, permutation, offsets, w_up, w_down, w_sh1, w_sh2
         )
         ctx.save_for_backward(
@@ -76,6 +76,7 @@ class _ExpertsCombine(torch.autograd.Function):
             permutation,
             offsets,
             up,
+            z,
             down,
             inverse,
             w_up,
@@ -83,6 +84,7 @@ class _ExpertsCombine(torch.autograd.Function):
             w_sh1,
             w_sh2,
             shared_up,
+            shared_z,
             shared_down,
         )
         ctx.mark_non_differentiable(permutation, offsets)
@@ -98,6 +100,7 @@ class _ExpertsCombine(torch.autograd.Function):
             permutation,
             offsets,
             up,
+            z,
             down,
             inverse,
             w_up,
@@ -105,6 +108,7 @@ class _ExpertsCombine(torch.autograd.Function):
             w_sh1,
             w_sh2,
             shared_up,
+            shared_z,
             shared_down,
         ) = ctx.saved_tensors
         needs = ctx.needs_input_grad
@@ -130,6 +134,7 @@ class _ExpertsCombine(torch.autograd.Function):
             permutation,
             offsets,
             up,
+            z,
             down,
             inverse,
             w_up,
@@ -137,6 +142,7 @@ class _ExpertsCombine(torch.autograd.Function):
             w_sh1,
             w_sh2,
             shared_up,
+            shared_z,
             shared_down,
             bool(needs[0]),
             shared and bool(needs[1]),

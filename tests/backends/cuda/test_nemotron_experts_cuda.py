@@ -73,7 +73,7 @@ def test_matches_det_gemm_bitwise(tokens):
     from rl_engine.backends.extension import _C
 
     case = cases.build_case(tokens, "cuda", **cases.REAL)
-    _, up, down, _, shared_up, _ = _C.nemotron_experts_forward(
+    _, up, z, down, _, shared_up, _, _ = _C.nemotron_experts_forward(
         case["packed"],
         case["x"],
         case["weights"],
@@ -89,8 +89,10 @@ def test_matches_det_gemm_bitwise(tokens):
         packed = case["packed"][lo:hi].contiguous()
         expected = _C.det_gemm_fwd_rhs_transposed(packed, case["w_up"][expert].contiguous())
         cases.bits(up[lo:hi], expected)
-        # The down projection stores the BF16 tree value widened to FP32.
+        # The down projection stores the BF16 tree value widened to FP32, and the
+        # up epilogue materializes its relu-square operand.
         gate = torch.relu(up[lo:hi].float()).square().to(torch.bfloat16)
+        cases.bits(z[lo:hi], gate)
         expected_down = _C.det_gemm_fwd_rhs_transposed(gate, case["w_down"][expert].contiguous())
         assert torch.equal(down[lo:hi], expected_down.float())
         checked += 1
@@ -137,7 +139,7 @@ def test_dpacked_matches_det_gemm_bitwise():
         case["w_sh2"],
     )
     d_packed = torch.autograd.grad(out, packed, grad_out)[0]
-    _, up, _, _, _, _ = _C.nemotron_experts_forward(
+    _, up, _, _, _, _, _, _ = _C.nemotron_experts_forward(
         case["packed"],
         case["x"],
         case["weights"],
@@ -192,7 +194,7 @@ def test_weight_gradients_match_det_gemm(tokens):
         case["w_sh2"],
     )
     d_w_up, d_w_down = torch.autograd.grad(out, (leaves["w_up"], leaves["w_down"]), grad_out)
-    _, up, _, _, _, _ = _C.nemotron_experts_forward(
+    _, up, _, _, _, _, _, _ = _C.nemotron_experts_forward(
         case["packed"],
         case["x"],
         case["weights"],
@@ -217,6 +219,40 @@ def test_weight_gradients_match_det_gemm(tokens):
             d_w_down[expert],
             _C.det_gemm_db_transposed(dy[lo:hi].contiguous(), gate).t(),
         )
+
+
+@_SM90
+@pytest.mark.parametrize(
+    "geometry, tokens",
+    [
+        pytest.param(dict(cases.CORE), 17, id="core-unaligned"),
+        pytest.param(dict(cases.CORE), 129, id="core-tiles"),
+        pytest.param(dict(cases.REAL), 64, id="nemotron-real"),
+    ],
+)
+def test_instruction_paths_agree_bitwise(monkeypatch, geometry, tokens):
+    """The wgmma path and the mma.sync path are two spellings of one contract.
+
+    Same leaf width, same leaf rounding, same midpoint tree, so every output and
+    every gradient must match bit for bit on both.  `tokens=17` and `tokens=129`
+    give per-expert segment lengths that are not multiples of the 32-wide leaf,
+    which is where the weight gradient pads its last reduction tile, and the
+    Nemotron geometry exercises truncated 128-wide column tiles (`N=1856`).
+    """
+    if not _native_compiled():
+        pytest.skip("native SM90 experts extension is not built")
+    provider = _provider("native")
+    case = cases.build_case(tokens, "cuda", **geometry)
+    cotangent = cases.cotangent_for(case, seed=11)
+
+    monkeypatch.setenv("RL_KERNEL_NEMOTRON_EXPERTS_BACKEND", "sm90_v1")
+    reference, reference_grads = cases.run(provider, case, cotangent)
+    monkeypatch.setenv("RL_KERNEL_NEMOTRON_EXPERTS_BACKEND", "sm90_v2")
+    actual, actual_grads = cases.run(provider, case, cotangent)
+
+    cases.bits(actual, reference)
+    for label in cases.gradient_names(case):
+        cases.bits(actual_grads[label], reference_grads[label])
 
 
 @_SM90

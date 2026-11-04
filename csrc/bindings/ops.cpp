@@ -253,6 +253,8 @@ std::tuple<
     torch::Tensor,
     torch::Tensor,
     torch::Tensor,
+    torch::Tensor,
+    c10::optional<torch::Tensor>,
     c10::optional<torch::Tensor>,
     c10::optional<torch::Tensor>>
 nemotron_experts_forward(
@@ -273,6 +275,7 @@ std::vector<torch::Tensor> nemotron_experts_backward(
     torch::Tensor permutation,
     torch::Tensor offsets,
     torch::Tensor up,
+    torch::Tensor z,
     torch::Tensor down,
     torch::Tensor inverse,
     torch::Tensor w_up,
@@ -280,6 +283,7 @@ std::vector<torch::Tensor> nemotron_experts_backward(
     c10::optional<torch::Tensor> w_sh1,
     c10::optional<torch::Tensor> w_sh2,
     c10::optional<torch::Tensor> shared_up,
+    c10::optional<torch::Tensor> shared_z,
     c10::optional<torch::Tensor> shared_down,
     bool need_packed,
     bool need_x,

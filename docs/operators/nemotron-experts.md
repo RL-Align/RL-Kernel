@@ -21,6 +21,11 @@ ROCm column lists only the Triton provider, which is its sole implementation.
 reports the provider that would run, and the first call prints one
 `[RL-Kernel][route] ... provider=<id>` line when route reporting is enabled.
 
+The native provider carries two instruction paths behind one contract (see
+[Instruction paths](#instruction-paths)): an `mma.sync` path and, by default, a
+`wgmma` path. They are bitwise identical, so the provider id and the contract
+version do not change with the path.
+
 The router row is separate: `nemotron_router_dispatch` produces `packed`,
 `permutation` and `offsets`, this operator consumes them.
 
@@ -58,20 +63,19 @@ returns an empty output without launching a kernel. Validation raises
 ## Fixed arithmetic
 
 The grouped GEMMs are the [det_gemm](det-gemm.md) contract, copied on purpose:
-`BK = K_TREE_LEAF = 32` is one TMA tile and one FP32 leaf, each leaf is two
-`mma.sync.m16n8k16` calls accumulated in FP32 and rounded once to BF16, and
-leaves merge with the canonical midpoint tree. No split-K, no atomics, no TF32,
-no autotuning. `tests/backends/cuda/test_nemotron_experts_cuda.py` pins the up
-and down projections bitwise against `_C.det_gemm_*`, and the same file pins
-`dPacked` and both weight gradients.
+`BK = K_TREE_LEAF = 32` is one FP32 leaf, each leaf is two `k16` MMA steps
+accumulated in FP32 and rounded once to BF16, and leaves merge with the
+canonical midpoint tree. No split-K, no atomics, no TF32, no autotuning.
+`tests/backends/cuda/test_nemotron_experts_cuda.py` pins the up and down
+projections bitwise against `_C.det_gemm_*`, and the same file pins `dPacked`
+and both weight gradients.
 
-Weights are stacked as `[E,N,K]`/`[E,K,N]`, so one tensor map covers all experts
-and expert `e` owns rows `[e*N, (e+1)*N)`. Two tensor maps are built per GEMM.
+Weights are stacked as `[E,F,H]`/`[E,H,F]`, so one tensor map covers all experts
+and expert `e` owns rows `[e*F, (e+1)*F)`. Two tensor maps are built per GEMM.
 
 | Stage | Output | Cast |
 | --- | --- | --- |
-| up | `U [6T,1856]` BF16 | leaf and tree rounding |
-| relu square | `Z` BF16, never materialized | `bf16(relu(fp32(U))**2)` |
+| up | `U [6T,1856]` BF16 and `Z = bf16(relu(U)**2)` | leaf and tree rounding; `Z` in two packed instructions |
 | down | `Y [6T,2688]` FP32 | BF16 tree value widened, one rounding |
 | shared | `sh_out [T,2688]` FP32 | same up/down rules, `E=1` |
 | combine + exit | `out = bf16(sum_slots w*Y + sh_out)` | the operator's only cast |
@@ -80,10 +84,54 @@ and expert `e` owns rows `[e*N, (e+1)*N)`. Two tensor maps are built per GEMM.
 | dW | BF16 | grouped rows ascending |
 | dWeights | `[T,6]` FP32 | 32-wide leaf, fixed FP32 tree |
 
-`relu(x)**2` is applied to BF16 fragments. A BF16 product is exact in FP32, so
-`bf16(relu(fp32(x))**2)` and `__hmul2` after `__hmax2` produce identical bits.
+`relu(x)**2` is a BF16 operation on the up projection's already-rounded value. A
+BF16 product is exact in FP32, so `bf16(relu(fp32(x))**2)` and `__hmul2` after
+`__hmax2` produce identical bits. The up epilogue therefore materializes `Z`
+itself - the down projection and `dW_down` consume it as an operand - instead of
+each of them transforming every operand tile it loads. The transform is then
+paid once per element rather than once per element per 128-wide output tile.
 The relu-square derivative in the backward epilogue is `2 * relu(U)` multiplied
 once and rounded once.
+
+## Instruction paths
+
+Both paths compute the arithmetic above and are **bitwise identical**; the choice
+is an instruction-path decision, not a numerical one.
+
+| | v1 (`sm90_v1`) | v2 (`sm90_v2`, default) |
+| --- | --- | --- |
+| Tile | `BM=128`, `BN=64`, `BK=32` | `BM=64`, `BN=128`, `KT=64` (two leaves) |
+| MMA | two `mma.sync.m16n8k16` per 32-wide leaf, per warp tile | two `wgmma.mma_async.m64n128k16` per 32-wide leaf, per CTA |
+| Shared-memory layout | row-major, TMA swizzle none | TMA `SWIZZLE_128B`, wgmma descriptors |
+| Operands | `ldmatrix` / `ldmatrix.trans` | read straight from shared memory by wgmma |
+| Pipeline | 2 TMA stages, `__syncthreads` in the K loop | 3 stages, producer warp + 4-warp consumer warpgroup, mbarriers only |
+| SASS | `HMMA 32`, `LDSM 12`, `REG 66-82`, `STACK 1552` | `HGMMA 6`, `LDSM 0`, `REG 135` (`170` dW), `STACK 1568` |
+| Dynamic shared memory | 24.6 KB | 73.7 KB |
+| Occupancy ceiling | 5 CTAs/SM by registers (31% of warp slots) | 3 CTAs/SM (`2` for dW) by registers and shared memory (23%, 16%) |
+
+`RL_KERNEL_NEMOTRON_EXPERTS_BACKEND=sm90_v1|sm90_v2|auto` selects the path
+(`auto` is v2) and is read per launch, so one process can measure both. v2 is a
+warp-specialised wgmma pipeline applied per expert segment, self-contained in
+`csrc/cuda/moe/nemotron_experts.cu` (its descriptor encoding, wgmma wrappers,
+swizzled tensor map and barrier primitives are that file's own), with three
+grouped additions:
+
+* **Operand majors.** A wgmma operand is K-major when K is contiguous and
+  MN-major otherwise, and the kernel derives the descriptor start offsets and the
+  instruction's `imm-trans` flag from the mode: the up/down projections are
+  K-major on both sides, `DX` reads the stacked weights as an MN-major `[K,N]`
+  operand, and a weight gradient is MN-major on both sides (`[rows,M]` and
+  `[rows,N]`). An MN-major 128-wide B operand occupies two 64-wide blocks one
+  8 KB block apart, which is the descriptor's leading byte offset; the stride
+  byte offset is 1024 B for both majors, because in both cases a core matrix is
+  eight 128-byte rows.
+* **Segment resolution is unchanged.** The CTA still resolves its
+  `(expert, row tile)` from the 129 prefix sums in shared memory.
+* **Weight-gradient tail padding.** A segment length is not a multiple of the
+  32-wide leaf, so the last reduction tile zeroes the rows past the segment end in
+  shared memory before the wgmma reads it, with a generic-to-async proxy fence
+  and a warpgroup barrier. Rows past the segment belong to the next expert and
+  must not join the reduction.
 
 The Triton provider folds leaves in ascending order instead of merging them with
 the midpoint tree. Its frontend rejects plain-Python helpers inside a kernel, and
@@ -113,9 +161,14 @@ Within one provider, an identical token row and its upstream gradient keep the
 same bits across batch sizes and positions, for `out`, `dPacked`, `dX` and
 `dWeights`. `dW` repeats for an identical ordered token set; adding
 independently computed microbatch `dW` is not a bitwise full-batch equivalence
-claim. The two providers do **not** claim bitwise equality: each is qualified
-against FP64 on its own selected branch, exactly as the CUDA and Triton
-`det_gemm` implementations coexist.
+claim. The two native instruction paths *are* bitwise equal to each other on
+every output and gradient - they differ in how the tile is computed, not in how
+it is reduced - which
+`test_instruction_paths_agree_bitwise` asserts on the core geometry (including
+per-expert segment lengths that are not multiples of the leaf) and on the
+Nemotron geometry. The two providers do **not** claim bitwise equality: each is
+qualified against FP64 on its own selected branch, exactly as the CUDA and
+Triton `det_gemm` implementations coexist.
 
 Measured relative L2 against an unrounded FP64 pipeline, 17 tokens, shared expert
 on, worst gradient per provider:
@@ -147,6 +200,8 @@ geometry, empty experts, the token-count bound, cast points, token permutation
 and FP64 `gradcheck`. The provider suites compare against an FP64 emulation of
 the same pipeline, assert raw-bit batch and relocation invariance, repeatability,
 CUDA Graph replay, autocast invariance and geometry rejection.
+`test_instruction_paths_agree_bitwise` runs both native instruction paths in one
+process and compares every output and gradient with `torch.equal`.
 
 ## Performance reproduction
 
@@ -156,73 +211,146 @@ list is read once outside the timed region. The candidate rows are the provider
 objects themselves, so the public validation wrapper is outside both sides of the
 comparison.
 
+**The production grouped-GEMM path is measured for the forward, and it is 1.7-2.8x
+faster than this operator.** `torch._grouped_mm` - the cuBLAS/CUTLASS grouped GEMM
+a serving stack calls - is in the tables below as `grouped_mm`, measured in the
+same paired run with the stacked weights pre-transposed outside the timed region
+and the same slot-ascending combine. That gap is not an implementation defect and
+is not addressed by any schedule change: the grouped GEMM keeps an FP32
+accumulator and casts once per output element, while the contract rounds and
+tree-merges every 32-wide leaf, which is `K/32` extra SIMT passes per element. See
+[Why v2 is the contract's ceiling](#why-v2-is-the-contracts-ceiling).
+
+What is **not** measured: Transformer Engine `GroupedLinear` (the repository pins
+`transformer_engine==2.19.0`; it is not installed and does not build against this
+container's CUDA 13.0 + PyTorch 2.11.0+cu130), vLLM's fused MoE (not installed),
+and a production *training* baseline - `torch._grouped_mm` groups over token rows
+only, so the weight gradients (`dW_up[e] = dU_eᵀ·packed_e`, whose reduction length
+differs per expert) are not expressible with it, and the forward+backward tables
+therefore still compare against the eager formulation.
+
 ```bash
+# forward: the two native paths, Triton, the eager formulation and the
+# production grouped-GEMM path, in one paired run
 PYTHONPATH=. python benchmarks/operators/moe/benchmark_nemotron_experts_training.py \
-  --tokens 1 16 128 513 1024 4096 8192 32768 --dtype bf16 \
-  --providers native triton --distributions random concentrated \
-  --qualify-max-tokens 128 --output /tmp/experts-bf16.json
+  --tokens 1 16 128 513 1024 4096 8192 --dtype bf16 \
+  --providers native triton --baselines eager grouped_mm --phases forward \
+  --distributions random concentrated --native-backend sm90_v2 \
+  --output /tmp/experts-fwd-v2.json
+# same sweep with the mma.sync path:
+PYTHONPATH=. python benchmarks/operators/moe/benchmark_nemotron_experts_training.py \
+  --tokens 1 16 128 513 1024 4096 8192 --dtype bf16 --providers native triton \
+  --baselines eager grouped_mm --phases forward \
+  --native-backend sm90_v1 --output /tmp/experts-fwd-v1.json
+# forward+backward (the eager formulation only: a grouped weight gradient needs a
+# grouped wgrad kernel, which torch._grouped_mm does not expose)
+PYTHONPATH=. python benchmarks/operators/moe/benchmark_nemotron_experts_training.py \
+  --tokens 1 16 128 513 1024 4096 8192 --dtype bf16 --providers native triton \
+  --baselines eager --phases forward_backward --distributions random concentrated \
+  --native-backend sm90_v2 --qualify-max-tokens 128 --output /tmp/experts-bwd-v2.json
 ```
 
-Forward and forward+backward are measured separately: 20 alternating paired
-samples of five executions, median reported, CUDA Graph replay, cotangents
-prepared outside timing. `--reverse` repeats the sweep with the reversed initial
-provider order; the two orders agree to a median 0.4% difference (worst sampled
-cell 2.8%), so the tables below show the normal order only. The script refuses to
-overwrite an existing output file. The 32768-token rows are run as a separate
-invocation because three providers plus the FP32 baseline peak near 20 GiB.
+`--baselines grouped_mm` is `torch._grouped_mm`, the cuBLAS/CUTLASS grouped GEMM a
+serving stack calls: 2D operand plus a `[E,N,K]` stack and the group ends, with the
+stacked weights materialized in the layout each projection needs outside the timed
+region. It is the *production* comparison RFC #434 §4.1 asks for, it is
+**forward only** (its weight gradients would need a grouped wgrad kernel), and it
+does not implement the leaf-rounding contract, so it measures what the contract
+costs rather than a better implementation of it. Transformer Engine
+`GroupedLinear` (pinned 2.19.0) and vLLM's fused MoE are not installed in this
+container and were not run. Forward and
+forward+backward are measured separately: 20 alternating paired samples of five
+executions, median reported, CUDA Graph replay, cotangents prepared outside
+timing. `--reverse` repeats the sweep with the reversed initial provider order;
+the two orders agree to a median 0.4% difference (worst sampled cell 2.8%), so the
+tables below show the normal order only. The script refuses to overwrite an
+existing output file. Every column of every table below comes from one sequential
+session on an idle device at its boost clock (`clocks.sm` 1785 MHz of 1785); the
+32768-token rows are a separate invocation because four candidates at that size
+exceed the memory budget, and their baselines agree with the 1-8192 run to 1%.
 
 ### Forward, random routing, median ms
 
-| T | baseline | native | Triton | baseline/native | baseline/Triton | native/Triton |
-| --- | --- | --- | --- | --- | --- | --- |
-| 1 | 0.452 | 0.785 | 0.475 | 0.58x | 0.95x | 1.65x |
-| 16 | 4.297 | 3.530 | 1.825 | 1.22x | 2.35x | 1.93x |
-| 128 | 10.463 | 5.940 | 3.392 | 1.76x | 3.08x | 1.75x |
-| 513 | 12.207 | 6.382 | 3.753 | 1.91x | 3.25x | 1.70x |
-| 1024 | 14.845 | 6.693 | 4.184 | 2.22x | 3.55x | 1.60x |
-| 4096 | 30.172 | 15.471 | 9.792 | 1.95x | 3.08x | 1.58x |
-| 8192 | 49.437 | 27.988 | 17.004 | 1.77x | 2.91x | 1.65x |
-| 32768 | 161.059 | 106.635 | 64.256 | 1.51x | 2.51x | 1.66x |
+`grouped_mm` is the production path; `grouped_mm/v2` below 1 means the contract
+kernel is slower, which it is everywhere in this direction.
+
+| T | baseline | grouped_mm | native v1 | native v2 | Triton | v1/v2 | grouped_mm/v2 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 0.477 | 0.209 | 0.782 | 0.358 | 0.473 | 2.18x | 0.58x |
+| 16 | 4.277 | 0.737 | 3.558 | 1.416 | 1.818 | 2.51x | 0.52x |
+| 128 | 10.088 | 1.147 | 5.925 | 2.315 | 3.106 | 2.56x | 0.50x |
+| 513 | 11.823 | 1.328 | 6.268 | 2.480 | 3.390 | 2.53x | 0.54x |
+| 1024 | 14.210 | 1.535 | 6.608 | 2.914 | 3.670 | 2.27x | 0.53x |
+| 4096 | 29.604 | 3.587 | 15.200 | 9.850 | 8.967 | 1.54x | 0.36x |
+| 8192 | 49.075 | 6.903 | 28.293 | 19.081 | 16.470 | 1.48x | 0.36x |
+| 32768 | 164.884 | 27.742 | 107.390 | 72.175 | 65.414 | 1.49x | 0.38x |
+
+Under concentrated routing the same columns give `grouped_mm/v2` = 0.64 / 0.51 /
+0.41 / 0.42 / 0.38 / 0.35 / 0.37 / 0.42, i.e. the production path is 1.6-2.9x
+faster there too.
 
 ### Forward + backward, random routing, median ms
 
-| T | baseline | native | Triton | baseline/native | baseline/Triton | native/Triton |
+| T | baseline | native v1 | native v2 | Triton | v1/v2 | baseline/v2 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 16.790 | 6.623 | 1.785 | 2.53x | 9.41x | 3.71x |
-| 16 | 217.986 | 12.660 | 5.108 | 17.22x | 42.68x | 2.48x |
-| 128 | 402.358 | 18.561 | 8.355 | 21.68x | 48.16x | 2.22x |
-| 513 | 413.711 | 20.274 | 9.036 | 20.41x | 45.78x | 2.24x |
-| 1024 | 425.562 | 23.213 | 10.544 | 18.33x | 40.36x | 2.20x |
-| 4096 | 503.439 | 53.893 | 26.169 | 9.34x | 19.24x | 2.06x |
-| 8192 | 600.466 | 96.951 | 47.714 | 6.19x | 12.58x | 2.03x |
-| 32768 | 1198.635 | 354.791 | 183.996 | 3.38x | 6.51x | 1.93x |
+| 1 | 16.655 | 4.365 | 3.595 | 1.773 | 1.21x | 4.63x |
+| 16 | 217.770 | 10.688 | 7.127 | 5.124 | 1.50x | 30.56x |
+| 128 | 403.635 | 16.789 | 10.803 | 8.323 | 1.55x | 37.36x |
+| 513 | 414.544 | 18.510 | 11.237 | 8.983 | 1.65x | 36.89x |
+| 1024 | 425.932 | 21.360 | 12.624 | 10.647 | 1.69x | 33.74x |
+| 4096 | 503.735 | 51.599 | 32.914 | 26.341 | 1.57x | 15.30x |
+| 8192 | 602.836 | 95.971 | 58.188 | 49.231 | 1.65x | 10.36x |
+| 32768 | 1201.012 | 357.091 | 215.282 | 184.260 | 1.66x | 5.58x |
 
 ### Forward + backward, concentrated routing, median ms
 
-| T | baseline | native | Triton | baseline/native | baseline/Triton | native/Triton |
+| T | baseline | native v1 | native v2 | Triton | v1/v2 | baseline/v2 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 16.770 | 6.578 | 1.780 | 2.55x | 9.42x | 3.70x |
-| 16 | 17.430 | 6.693 | 1.772 | 2.60x | 9.84x | 3.78x |
-| 128 | 18.851 | 7.035 | 1.933 | 2.68x | 9.75x | 3.64x |
-| 513 | 24.719 | 11.072 | 3.747 | 2.23x | 6.60x | 2.96x |
-| 1024 | 31.486 | 15.047 | 5.581 | 2.09x | 5.64x | 2.70x |
-| 4096 | 72.829 | 46.002 | 21.156 | 1.58x | 3.44x | 2.17x |
-| 8192 | 132.721 | 91.663 | 44.662 | 1.45x | 2.97x | 2.05x |
-| 32768 | 490.167 | 354.221 | 182.743 | 1.38x | 2.68x | 1.94x |
+| 1 | 16.762 | 4.314 | 3.564 | 1.775 | 1.21x | 4.70x |
+| 16 | 17.422 | 4.429 | 3.717 | 1.772 | 1.19x | 4.69x |
+| 128 | 18.825 | 4.761 | 4.045 | 1.934 | 1.18x | 4.65x |
+| 513 | 24.737 | 8.882 | 6.445 | 3.789 | 1.38x | 3.84x |
+| 1024 | 31.542 | 12.987 | 9.314 | 5.679 | 1.39x | 3.39x |
+| 4096 | 73.493 | 44.880 | 28.405 | 22.144 | 1.58x | 2.59x |
+| 8192 | 135.217 | 89.930 | 55.296 | 45.252 | 1.63x | 2.45x |
+| 32768 | 496.592 | 356.957 | 218.603 | 183.355 | 1.63x | 2.27x |
+
+### Peak memory
+
+Peak allocation increment over the shared weight stack, random routing, MiB
+(`torch.cuda.max_memory_allocated` around one captured call, per candidate):
+
+| Phase | T | baseline | grouped_mm | native (both paths) | Triton |
+| --- | --- | --- | --- | --- | --- |
+| forward | 1 | 38 | 0.2 | 0.1 | 0.1 |
+| forward | 1024 | 148 | 127 | 138 | 109 |
+| forward | 8192 | 913 | 1010 | 1094 | 862 |
+| forward+backward | 1 | 3878 | - | 2496 | 2496 |
+| forward+backward | 1024 | 8775 | - | 2713 | 2684 |
+| forward+backward | 8192 | 10613 | - | 4349 | 4117 |
+
+The forward+backward rows are dominated by the saved FP32 `down` (`[6T,2688]`) and
+the BF16 `up` and `Z` (`[6T,1856]` each); `grouped_mm` keeps no saved state because
+it is forward only. Both native paths allocate identically - both materialize `Z`,
+which is 182 MiB of the 8192 forward+backward row.
 
 Reading the tables:
 
-* forward+backward beats the eager baseline by 2.5-21.7x (native) and 6.5-48x
-  (Triton); forward alone by 1.5-2.2x (native) and 2.5-3.6x (Triton) from T=16 on;
-* Triton is 1.6-2.5x faster than native everywhere. `tl.dot` lowers to wgmma with
-  a software pipeline, while the native path is hand-written `mma.sync` over an
-  unswizzled shared-memory layout - the choice that keeps it bitwise identical to
-  `det_gemm`;
-* forward at T=1 is the one regression: native 0.785 ms against the baseline's
-  0.452 ms (Triton is at parity, 0.475 ms). A six-row payload still pays four
-  grouped launches and their per-CTA segment resolution; the operator wins from
-  T=16 on;
-* concentrated routing touches six experts, so both providers read only non-empty
+* the wgmma path is 1.2-2.6x faster than the mma.sync path: 1.4-2.6x for forward,
+  1.2-1.7x for forward+backward, with the smallest gain in the decode-sized
+  backward where launch and segment-resolution work dominates;
+* forward+backward beats the eager baseline by 2.3-37.4x (v2) and 2.7-47x (Triton);
+  forward alone by 1.3-4.9x (v2) and 1.0-3.6x (Triton);
+* the production grouped GEMM is 1.7-2.8x faster than this operator in the
+  forward (1.6-2.9x concentrated) - the price of the leaf-rounding contract, not
+  of the schedule. Triton, which also skips the per-leaf rounding, sits between
+  the two at 1.2-1.4x of the native path;
+* forward at T=1 is not a regression: the `mma.sync` path's 0.782 ms against a
+  0.477 ms eager baseline was 1.6x slower, the wgmma path is 0.358 ms, 1.33x
+  faster than the baseline and only 1.7x off `grouped_mm` (0.209 ms).
+  `BM=64` starts 6 CTAs instead of 3 on a six-route payload, and the narrower tile
+  is the only change that matters at that size;
+* concentrated routing touches six experts, so every provider reads only non-empty
   experts' weights (T=1: 114 MiB of the 2.4 GiB stack) while the baseline loops
   over all 128 - which is why the baseline loses most in that column.
 
@@ -236,66 +364,98 @@ At T=4096 (24 576 packed rows, 256 expert row tiles) every grouped GEMM has an
 arithmetic intensity of 159-179 FLOP/byte - only 1.1-1.2x the ridge - so the
 roofline for each stage is its *compute* time, about 0.48 ms:
 
-| Stage | GFLOP | GB | AI | roofline | native | of roofline |
-| --- | --- | --- | --- | --- | --- | --- |
-| up | 245.2 | 1.37 | 179 | 0.48 ms | 3.52 ms | 13.6% |
-| down | 245.2 | 1.54 | 159 | 0.48 ms | 3.33 ms | 14.3% |
-| dZ | 245.2 | 1.46 | 168 | 0.48 ms | 4.03 ms | 11.8% |
-| dPacked | 245.2 | 1.41 | 174 | 0.48 ms | 4.07 ms | 11.7% |
-| dW_up | 245.2 | 1.41 | 174 | 0.48 ms | 4.65 ms | 10.3% |
-| dW_down | 245.2 | 1.37 | 179 | 0.48 ms | 4.49 ms | 10.6% |
-| whole forward+backward | 1962 | 8.47 | 232 | 3.82 ms | 53.9 ms | 7.1% |
+| Stage | GFLOP | GB | AI | roofline | v1 ms | of roofline | v2 ms | of roofline |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| up | 245.2 | 1.37 | 179 | 0.48 ms | 5.69 | 8.4% | 3.25 | 14.8% |
+| down | 245.2 | 1.54 | 159 | 0.48 ms | 5.23 | 9.2% | 3.20 | 15.0% |
+| dZ | 245.2 | 1.46 | 168 | 0.48 ms | 6.39 | 7.5% | 3.48 | 13.8% |
+| dPacked | 245.2 | 1.41 | 174 | 0.48 ms | 6.26 | 7.7% | 3.44 | 13.9% |
+| dW_up | 245.2 | 1.41 | 174 | 0.48 ms | 6.16 | 7.8% | 4.71 | 10.2% |
+| dW_down | 245.2 | 1.37 | 179 | 0.48 ms | 6.01 | 8.0% | 4.60 | 10.4% |
+| whole forward+backward | 1962 | 8.47 | 232 | 3.82 ms | 47.6 | 8.0% | 29.5 | 13.0% |
 
-Byte counts assume one weight read per expert per stage (a 9.98 MB expert stack
-fits the 50 MB L2) plus the activations that stage writes. The Triton provider
-lands at 14.6% of the same roofline (26.2 ms).
+The per-stage columns are one routed launch at T=4096 from the same
+`torch.profiler` pass that produces the wall time in the last row; the headline
+tables above are CUDA-graph replays over 20 samples, which is why their whole-row
+medians are 1.1x higher. Byte counts assume one weight read per expert per stage
+(a 9.98 MB expert stack fits the 50 MB L2) plus the activations that stage
+writes. The Triton provider lands at 14.6% of the same roofline (26.2 ms).
 
 So the operator is **not bandwidth-bound**: at these sizes it is marginally
-compute-bound, and both providers are an order of magnitude short of their own
-compute ceiling. Two explanations survived the schedule sweep below:
+compute-bound, and neither provider reaches its own compute ceiling. The
+[schedule sweep](#schedule-sweep) below is what ruled out the v1 path's schedule;
+two structural causes remained, and both are addressed by the v2 path:
 
-1. **The instruction path, read off the SASS.** The native kernel disassembles to
-   612 `HMMA` (mma.sync), 224 `LDSM` (ldmatrix) and a 1552-byte local stack for the
-   leaf tree at 81 registers per thread; the Triton `_grouped_rows_kernel`
-   disassembles to `HGMMA.64` (wgmma) with 8 `LDSM`, no stack and 210 registers,
-   because wgmma consumes A and B straight from shared memory through descriptors.
-   That drops the ldmatrix traffic and the bank-conflict exposure in one step, and
-   it is the difference the schedule sweep could not reach.
-2. **No swizzle.** The tensor maps are pinned to
-   `CU_TENSOR_MAP_SWIZZLE_NONE` because the `ldmatrix` addressing is plain
-   row-major, so a `[BK,BM]` or `[BK,BN]` tile strides 256/128 bytes per row and
-   the transposed-operand `ldmatrix.trans` hits a full bank-conflict set.
-   `det_gemm` makes the same trade, which is what keeps the two bitwise identical.
-   Swizzle pins the inner box at 128 B, so it would force a 64-wide K tile and a
-   re-derived addressing scheme for all four operand layouts.
+1. **The instruction path, read off the SASS.** The v1 kernel disassembles to
+   `HMMA` (mma.sync) + `LDSM` (ldmatrix) with a 1552-byte local stack for the leaf
+   tree at 66-82 registers per thread; wgmma consumes A and B straight from
+   shared memory through descriptors, so v2 drops the whole ldmatrix stage
+   (`HGMMA 6`, `LDSM 0` per tile).
+2. **No swizzle.** v1's tensor maps are pinned to `CU_TENSOR_MAP_SWIZZLE_NONE`
+   because the `ldmatrix` addressing is plain row-major, so a `[BK,BM]` or
+   `[BK,BN]` tile strides 256/128 bytes per row and every `ldmatrix` core hits a
+   bank-conflict set; v2 pins `SWIZZLE_128B`, which forces the 64-wide, two-leaf
+   K tile and a re-derived descriptor for all four operand layouts.
+
+Both are instruction-path decisions, not arithmetic ones: the grouped kernels
+assert that the wgmma path reproduces the mma.sync path bit for bit
+(`test_instruction_paths_agree_bitwise`), and the `det_gemm` parity cases still
+pin the shared arithmetic.
 
 At decode sizes the same measurement says the opposite - T=1 moves 120 MB and
-does 0.16 GFLOP, so its roofline is ~0.03 ms against 0.785 ms measured (4%):
-that column is latency- and padding-bound, which is why fixing the grid bound and
-fusing the combine helped there and the GEMM schedule did not.
+does 0.16 GFLOP, so its roofline is ~0.03 ms against 0.34 ms measured (9% for v2,
+v1 was 4%): that column is latency- and padding-bound, which is why the grid
+bound and the fused combine helped there and the GEMM schedule did not. The v2
+schedule helps it a different way - `BM=64` gives 6 CTAs instead of 3 on a
+six-route payload, and the 2.17x forward gain at T=1 is mostly that.
 
 ### Where the native time goes
 
-`torch.profiler` at T=4096, one forward+backward iteration, per kernel:
+`torch.profiler` at T=4096, one forward+backward iteration, per routed launch
+(the shared expert's six launches are the same six modes at `T` rows instead of
+`6T`, and total 10.3 ms in v1 and 6.0 ms in v2):
 
-| Kernel (native) | ms / launch | launches | Shared-memory layout |
-| --- | --- | --- | --- |
-| `gemm<MODE_WGRAD>` | 4.65 | 2 | transposed A + KN B, `ldmatrix.trans` |
-| `gemm<MODE_WGRAD_R2>` | 4.49 | 2 | same, relu-square on B |
-| `gemm<MODE_DX, EPI>` (dZ) | 4.03 | 2 | KN B |
-| `gemm<MODE_DX>` (dPacked) | 4.07 | 2 | KN B |
-| `gemm<MODE_UP>` | 3.52 | 2 | NK B |
-| `gemm<MODE_DOWN>` | 3.33 | 2 | NK B, relu-square on A |
-| `dweights_leaf` | 0.456 | 1 | FP32 route dot |
-| `dy` | 0.201 | 1 | - |
-| `combine` | 0.100 | 1 | - |
-| `dweights_merge` | 0.030 | 1 | - |
-| total in kernels | **50.6** | | wall 53.9 |
+| Kernel | launches | v1 ms / launch | v2 ms / launch | v1/v2 |
+| --- | --- | --- | --- | --- |
+| `gemm<MODE_UP>` | 2 | 5.69 | 3.25 | 1.75x |
+| `gemm<MODE_DOWN>` | 2 | 5.23 | 3.20 | 1.63x |
+| `gemm<MODE_DX, EPI>` (dZ) | 2 | 6.39 | 3.48 | 1.83x |
+| `gemm<MODE_DX>` (dPacked) | 2 | 6.26 | 3.44 | 1.82x |
+| `gemm<MODE_WGRAD>` (dW_up) | 2 | 6.16 | 4.71 | 1.31x |
+| `gemm<MODE_WGRAD>` (dW_down) | 2 | 6.01 | 4.60 | 1.31x |
+| `dweights_leaf` | 1 | 0.47 | 0.44 | - |
+| `dy` | 1 | 0.20 | 0.20 | - |
+| `combine` | 1 | 0.10 | 0.10 | - |
+| `dweights_merge` | 1 | 0.03 | 0.03 | - |
+| total in kernels | | **47.2** | **29.7** | 1.59x |
 
-The same profile on the Triton provider totals 26.0 ms, with each grouped GEMM
-at 1.9-2.0 ms per launch; the native gap is therefore entirely in the six grouped
-GEMM launches, worst for the weight gradients. Effective throughput at T=4096,
-counting 479 MFLOP per token: native 40 TFLOP/s, Triton 75 TFLOP/s.
+The weight gradient is now the slowest stage and the one that gains least: its
+`K` is the expert segment length, so it pays the tail padding above and runs
+`REG 170` (two CTAs per SM) against 135 for the other modes. Effective throughput
+at T=4096, counting 479 MFLOP per token: v1 41 TFLOP/s, v2 66.5 TFLOP/s, Triton
+75 TFLOP/s.
+
+### Why v2 is the contract's ceiling
+
+The leaf epilogue is SIMT work the contract mandates: per output element, one
+BF16 rounding of the 32-wide leaf and one BF16 tree merge, i.e. one packed
+instruction per two elements for each of the two operations. At T=4096 the
+forward+backward performs 1962 GFLOP, which is 30.7e9 element-leaves (64 FLOP
+each), so one instruction per element-leaf per thread needs 0.96e12
+warp-instructions/s. This GPU issues 132 SM x 4 schedulers x 1.785 GHz = 0.94e12,
+and the measured 29.5 ms corresponds to 1.04e12 element-leaves/s. **The kernel is
+at the SIMT instruction-issue ceiling** for the epilogue the contract demands,
+which is the same wall that keeps `det_gemm` at 14% of peak.
+
+That also explains the residual gap to Triton (26.3 ms, 1.2x) and the larger gap to
+the production grouped GEMM (3.59 ms against 9.85 ms at T=4096, 2.7x in the
+forward): both keep an FP32 accumulator and cast once per output element instead of
+once per 32-wide leaf, so they do `K/32` fewer SIMT passes - they are faster
+precisely because they compute a different (non-contract) reduction. That measured
+2.7x is the contract's price, and it is the number a fixed performance ratio
+against native would have to be set against. Going further under this contract
+means a wider leaf or a single cast, which is an arithmetic decision, not a
+schedule one.
 
 Nsight Compute cannot be used here (`ERR_NVGPUCTRPERM`: an unprivileged container
 may not open the GPU performance counters), so this section is built from
@@ -344,11 +504,13 @@ forward+backward, median of 15 wall-clock iterations:
   change that shrinks the tile (BM=64, 8 warps at BM=128) pays more per-CTA
   prologue and more B-fragment traffic for the same warps.
 
-Closing the remaining 2x therefore means changing the instruction path (wgmma) or
-the shared-memory contract (swizzle), both of which would break
-`test_matches_det_gemm_bitwise` unless `det_gemm` changes with it. That is a
-versioned arithmetic decision, not a tuning fix, so the schedule stays where the
-measurements put it.
+No knob in this space moves the arithmetic, so the sweep found v1's optimum - and
+that optimum is 8% of the roofline. Everything the sweep could reach is exhausted:
+the remaining gap needed the two structural changes above (wgmma and swizzle), and
+`RL_KERNEL_NEMOTRON_EXPERTS_BACKEND=sm90_v2` is exactly those two. They do not
+break `test_matches_det_gemm_bitwise`: the wgmma path reproduces v1's reduction
+bit for bit, which the parity test in
+`tests/backends/cuda/test_nemotron_experts_cuda.py` asserts.
 
 The per-row FP64 report (`--qualify-max-tokens 128`, both providers) gives 8.7e-3
 to 1.3e-2 relative L2 for the forward and the worst gradient. One T=1 sample
@@ -360,25 +522,36 @@ sum; the unit suite, which qualifies at 17 tokens, asserts the same bounds.
 Build and measurements on one NVIDIA H100 NVL (SM90, 95 GiB), CUDA 13.0,
 PyTorch 2.11.0+cu130, `KERNEL_ALIGN_FORCE_SM90=1 KERNEL_ALIGN_DET_GEMM_SM90=1`:
 
-* `pytest tests/backends/cuda/test_nemotron_experts_cuda.py` - 25 passed, no
+* `pytest tests/backends/cuda/test_nemotron_experts_cuda.py` - 28 passed, no
   skips: both providers, the FP64 qualification, bitwise batch and relocation
-  invariance, graph replay, autocast, provider selection and rejection, and the
-  four `det_gemm` bitwise parity cases;
-* `pytest tests/backends/cuda/test_sm90_linear_wrappers.py
-  tests/backends/cuda/test_nemotron_router_cuda.py` - 88 passed (the det_gemm and
-  router contracts are unchanged);
-* `pytest tests/runtime/test_kernel_registry.py
+  invariance, graph replay, autocast, provider selection and rejection, the four
+  `det_gemm` bitwise parity cases, and the three `mma.sync`-vs-`wgmma` bitwise
+  parity cases (core geometry at 17 and 129 tokens, Nemotron geometry at 64);
+* `pytest tests/ops/gemm/test_det_gemm.py
+  tests/backends/cuda/test_sm90_linear_wrappers.py
+  tests/backends/cuda/test_nemotron_router_cuda.py
+  tests/runtime/test_kernel_registry.py
   tests/reference/test_nemotron_experts_reference.py
   tests/reference/test_nemotron_router_reference.py
-  tests/backends/rocm/test_nemotron_experts_rocm.py` - 40 passed, 5 skipped (the
-  ROCm cases skip without a HIP device);
-* the benchmark above ran to completion twice - once on the first build and again
-  after the combine fusion and the grid-bound change - with three sweeps the second
-  time (normal order for 1-4096 and 8192-32768, `--reverse` for 1-4096); every row
-  carries its provider id, weight coverage, `n_e` distribution and FP64 report. The
-  two builds agree to within 2.8% per row; the tables quote the second run;
-* `mkdocs build --strict` succeeds; `mypy --ignore-missing-imports` is clean on
-  the four new modules (the repository keeps 14 pre-existing errors elsewhere).
+  tests/backends/rocm/test_nemotron_experts_rocm.py` - 150 passed, 54 skipped
+  (49 of the skips are `det_gemm`'s "Triton is unavailable" and ROCm `gfx942`
+  rows in this build, 5 are the ROCm provider suite without a HIP device). No file
+  outside this operator's own sources changed, so those suites report what they
+  reported before;
+* `torch.profiler` at T=1024 and T=4096 for both paths; the per-kernel table and
+  the 1.59x kernel-time ratio above come from that pass;
+* `cuobjdump -res-usage` / `-sass` on the built extension for the numbers in
+  [Instruction paths](#instruction-paths) and
+  [Where the native time goes](#where-the-native-time-goes);
+* the benchmark above ran four times (native v2, native v1, native v2 + Triton at
+  1-8192, and the same pair at 32768); every row carries its provider id, weight
+  coverage, `n_e` distribution and FP64 report. The baselines of the v1 and v2 runs
+  agree to 0.1%; the `--reverse` order agrees to a median 0.4%;
+* `black --check --line-length 100` is clean on the three python files touched and
+  `mypy --ignore-missing-imports` is clean on the wrapper; `mkdocs build --strict`
+  succeeds.
 
 The ROCm column has no hardware record: the same Triton source runs on CUDA, but
-a gfx9xx host must re-qualify it before those numbers are quoted.
+a gfx9xx host must re-qualify it before those numbers are quoted. The same applies
+to the two native instruction paths - both are SM90 code paths, but only SM90 was
+measured.

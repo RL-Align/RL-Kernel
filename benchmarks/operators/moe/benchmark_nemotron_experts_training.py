@@ -4,7 +4,10 @@
 
 Baseline: the same math expert by expert with `torch.matmul` in FP32 and a
 weighted, slot-ascending combine - the obvious eager formulation. Its expert span
-list is read once outside the timed region.
+list is read once outside the timed region. `--baselines grouped_mm` adds a
+production-shaped row: `torch._grouped_mm`, the cuBLAS/CUTLASS grouped GEMM that a
+serving stack would call, measured forward only because a grouped MoE's weight
+gradients need a grouped wgrad kernel that `_grouped_mm` does not expose.
 
 Candidates: the provider objects themselves (`NemotronExpertsOp`,
 `TritonNemotronExpertsOp`), so the public validation wrapper is excluded from
@@ -27,6 +30,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import statistics
 from pathlib import Path
 
@@ -151,6 +155,52 @@ def baseline_calls(case, spans, leaves, cotangent):
         )
 
     return forward, backward
+
+
+def grouped_mm_calls(case):
+    """Production-shaped baseline: `torch._grouped_mm` (cuBLAS/CUTLASS grouped GEMM).
+
+    Forward only.  A grouped MoE's weight gradients need a grouped wgrad kernel
+    (Transformer Engine's `GroupedLinear` does dgrad + wgrad in one grouped call);
+    `torch._grouped_mm` groups over the token rows alone, so `dW` - whose reduction
+    length differs per expert - is not expressible with it.  The stacked weights
+    are materialized in the layout each projection needs outside the timed region,
+    exactly as a production layer would store them, and the keep-in-FP32 combine
+    matches the eager baseline so only the GEMM differs.
+    """
+    if not hasattr(torch, "_grouped_mm"):
+        raise RuntimeError("torch._grouped_mm is not available in this build")
+    grouped_mm = torch._grouped_mm
+    packed = case["packed"]
+    tokens = case["x"].shape[0]
+    width = packed.shape[1]
+    device = packed.device
+    weights = case["weights"]
+    offs = case["offsets"][1:].to(torch.int32).contiguous()
+    single = torch.tensor([tokens], dtype=torch.int32, device=device)
+    # (K, N) per group: the up projection contracts over H, the down over F.
+    up_t = case["w_up"].transpose(1, 2).contiguous()
+    down_t = case["w_down"].transpose(1, 2).contiguous()
+    sh1_t = case["w_sh1"].t().contiguous().unsqueeze(0)
+    sh2_t = case["w_sh2"].t().contiguous().unsqueeze(0)
+    packed_rows = case["permutation"].argsort().reshape(tokens, SLOTS)
+
+    def combine(wide, shared):
+        routed = torch.zeros((tokens, width), device=device, dtype=torch.float32)
+        for slot in range(SLOTS):
+            routed = routed + wide[packed_rows[:, slot]].float() * weights[:, slot : slot + 1]
+        return (routed + shared.float()).to(torch.bfloat16)
+
+    def forward():
+        up = grouped_mm(packed, up_t, offs=offs)
+        gate = torch.relu(up.float()).square().to(torch.bfloat16)
+        wide = grouped_mm(gate, down_t, offs=offs)
+        shared_up = grouped_mm(case["x"], sh1_t, offs=single)
+        shared_gate = torch.relu(shared_up.float()).square().to(torch.bfloat16)
+        shared = grouped_mm(shared_gate, sh2_t, offs=single)
+        return combine(wide, shared)
+
+    return forward, None
 
 
 def provider_calls(op, case, leaves, cotangent):
@@ -299,12 +349,37 @@ def main():
     parser.add_argument("--dtype", choices=["bf16"], default="bf16")
     parser.add_argument("--distributions", nargs="+", default=["random", "concentrated"])
     parser.add_argument("--providers", nargs="+", default=["native", "triton"])
+    parser.add_argument(
+        "--baselines",
+        nargs="+",
+        choices=["eager", "grouped_mm"],
+        default=["eager"],
+        help="eager = per-expert FP32 torch.matmul (forward and backward); "
+        "grouped_mm = torch._grouped_mm, the cuBLAS/CUTLASS grouped-GEMM path "
+        "(forward only: its weight gradients need a grouped wgrad kernel)",
+    )
     parser.add_argument("--mode", choices=["graph", "eager"], default="graph")
+    parser.add_argument(
+        "--phases",
+        nargs="+",
+        choices=["forward", "forward_backward"],
+        default=["forward", "forward_backward"],
+        help="restrict the sweep; the forward-only phase is what a forward-only "
+        "baseline such as grouped_mm takes part in",
+    )
     parser.add_argument("--reverse", action="store_true")
     parser.add_argument("--qualify-max-tokens", type=int, default=1024)
+    parser.add_argument(
+        "--native-backend",
+        choices=["auto", "sm90_v1", "sm90_v2"],
+        default="auto",
+        help="instruction path of the native provider; exports "
+        "RL_KERNEL_NEMOTRON_EXPERTS_BACKEND, which both paths answer identically",
+    )
     args = parser.parse_args()
     if args.output.exists():
         parser.error("refusing to overwrite results")
+    os.environ["RL_KERNEL_NEMOTRON_EXPERTS_BACKEND"] = args.native_backend
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
     torch.manual_seed(434)
@@ -326,9 +401,10 @@ def main():
         "provider_ids": {name: op.provider_id for name, op in providers.items()},
         "method": (
             "20 alternating paired samples, 5 executions per sample, median reported; "
-            f"mode={args.mode}; baseline is per-expert FP32 torch.matmul plus a weighted "
-            "slot-ascending combine; cotangents prepared outside timing; the public "
-            "validation wrapper is outside both sides"
+            f"mode={args.mode}; baselines={','.join(args.baselines)} where `baseline` is "
+            "per-expert FP32 torch.matmul and `grouped_mm` is torch._grouped_mm "
+            "(forward only), both with a weighted slot-ascending combine; cotangents "
+            "prepared outside timing; the public validation wrapper is outside both sides"
         ),
         "scope": (
             "grouped up/relu2/down + fixed-order combine + shared expert, forward and "
@@ -350,8 +426,16 @@ def main():
                 cotangent = meta["cotangent"]
                 leaves = leaves_of(case)
                 calls = {}
-                base_forward, base_backward = baseline_calls(case, meta["spans"], leaves, cotangent)
-                calls["baseline"] = (base_forward, base_backward)
+                if "eager" in args.baselines:
+                    base_forward, base_backward = baseline_calls(
+                        case, meta["spans"], leaves, cotangent
+                    )
+                    calls["baseline"] = (base_forward, base_backward)
+                if "grouped_mm" in args.baselines:
+                    try:
+                        calls["grouped_mm"] = grouped_mm_calls(case)
+                    except RuntimeError as error:
+                        print(f"baseline grouped_mm unavailable: {error}", flush=True)
                 for name, op in providers.items():
                     calls[name] = provider_calls(op, case, leaves, cotangent)
                 qualification = {
@@ -364,7 +448,13 @@ def main():
                     "qualification": qualification,
                 }
                 for phase, index in (("forward", 0), ("forward_backward", 1)):
-                    timed = {name: closures[index] for name, closures in calls.items()}
+                    if phase not in args.phases:
+                        continue
+                    timed = {
+                        name: closures[index]
+                        for name, closures in calls.items()
+                        if closures[index] is not None
+                    }
                     measured = paired_measure(timed, args.reverse, args.mode)
                     row = {
                         "tokens": tokens,
@@ -375,10 +465,19 @@ def main():
                         "providers": measured,
                         "diagnostics": diagnostics,
                     }
-                    for name in providers:
+                    for name in measured:
+                        if name == "baseline" or "baseline" not in measured:
+                            continue
                         row[f"speedup_{name}_vs_baseline"] = (
                             measured["baseline"]["median_ms"] / measured[name]["median_ms"]
                         )
+                    if "grouped_mm" in measured:
+                        for name in providers:
+                            if name in measured:
+                                row[f"speedup_{name}_vs_grouped_mm"] = (
+                                    measured["grouped_mm"]["median_ms"]
+                                    / measured[name]["median_ms"]
+                                )
                     result["rows"].append(row)
                     args.output.write_text(json.dumps(result, indent=2))
                     summary = " ".join(
