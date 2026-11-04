@@ -14,6 +14,7 @@ python benchmarks/common/profiler.py --format json --output reports/profile.json
 python benchmarks/operators/sampling/benchmark_sampling.py
 python benchmarks/operators/loss/benchmark_grpo_op.py
 python benchmarks/operators/packing/benchmark_pack.py --smoke
+python benchmarks/operators/logprob/benchmark_softcapped_selected_logprob.py --softcap 30 --output-dir reports/softcapped-selected-logprob
 python benchmarks/backends/rocm/benchmark_rocm_ffn.py --help
 python tools/benchmarking/run_perf.py
 ```
@@ -73,6 +74,13 @@ python tools/benchmarking/run_profile_suite.py \
 
 When adding a new operator, document the benchmark command on the operator page and keep
 the tested shapes close to the target RL workload.
+
+## Device-local ordered reductions
+
+The [ordered reduction comparison](../architecture/ordered-reduction.md#performance-comparison)
+measures public embedded Triton and optional shared Gluon helpers against ordinary
+`torch.sum` and native `tl.sum`. See the [H100 results](ordered-reduction-h100.md)
+for measured gains, remaining overhead and the Graph timing methodology.
 
 ## Adding Workloads
 

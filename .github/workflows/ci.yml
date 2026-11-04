@@ -116,6 +116,11 @@ jobs:
             tests/backends/rocm/test_rocm_lm_head_weight_cache.py \
             -v
 
+      - name: Run Ordered Reduction References (CPU-safe)
+        run: >-
+          python -m pytest tests/reference/reduction
+          tests/benchmarks/test_ordered_reduction_benchmark.py -q
+
       - name: Run WS2 Vocab-Parallel Logprob Tests (CPU-safe)
         run: python -m pytest tests/distributed/tp/test_vocab_parallel_logp.py -v
 
