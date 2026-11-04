@@ -18,7 +18,7 @@ import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from rl_engine.contracts.strict_provider import (
     CallContext,
@@ -40,7 +40,7 @@ ARTIFACTS_SCHEMA = "rl_kernel.strict_provider.artifacts.v1"
 RESULT_SCHEMA = "rl_kernel.strict_provider.result.v1"
 
 
-def _reject(code: str, message: str, field: str | None = None, **details: Any) -> None:
+def _reject(code: str, message: str, field: str | None = None, **details: Any) -> NoReturn:
     raise StrictProviderError(code, message, field=field, **details)
 
 
@@ -562,7 +562,7 @@ def validate_run(
     for reference in worker_summaries:
         summary = _load_artifact(reference, root, expectation, seen)
         worker_id = summary.get("worker_id")
-        if worker_id not in roster or worker_id in received:
+        if not isinstance(worker_id, str) or worker_id not in roster or worker_id in received:
             _reject("duplicate_or_unknown_worker", "Worker summary is duplicate or unexpected")
         received.add(worker_id)
         if any(summary.get(k) != roster[worker_id][k] for k in ("role", "rank")):

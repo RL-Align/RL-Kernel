@@ -77,6 +77,15 @@ def test_worker_roster_multiplicity_and_branch_coverage(bundle, mutation):
         bundle.validate()
 
 
+@pytest.mark.parametrize("worker_id", ["unregistered", 17, ["rollout0"], {"worker": "rollout0"}])
+def test_invalid_summary_worker_id_is_rejected_structurally(bundle, worker_id):
+    bundle.summaries[0]["worker_id"] = worker_id
+    bundle.save()
+    with pytest.raises(StrictProviderError) as exc:
+        bundle.validate()
+    assert exc.value.code == "duplicate_or_unknown_worker"
+
+
 @pytest.mark.parametrize("field", ["lock_id", "run_id", "attempt", "weight_snapshot_id"])
 def test_stale_execution_context_is_rejected(bundle, field):
     bundle.summaries[0][field] = "previous_execution"

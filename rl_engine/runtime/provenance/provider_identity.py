@@ -143,14 +143,15 @@ def observe_imported_extension(module: ModuleType | str) -> dict:
     """
     if isinstance(module, str):
         name = module
-        module = sys.modules.get(name)
+        loaded_module = sys.modules.get(name)
     else:
         name = getattr(module, "__name__", "")
-    if not isinstance(module, ModuleType) or sys.modules.get(name) is not module:
+        loaded_module = module
+    if not isinstance(loaded_module, ModuleType) or sys.modules.get(name) is not loaded_module:
         raise StrictProviderError(
             "unloaded_artifact", "Expected an actual sys.modules instance", name
         )
-    spec = getattr(module, "__spec__", None)
+    spec = getattr(loaded_module, "__spec__", None)
     loader = getattr(spec, "loader", None)
     origin = getattr(spec, "origin", None)
     if not isinstance(loader, importlib.machinery.ExtensionFileLoader) or not origin:
@@ -158,7 +159,7 @@ def observe_imported_extension(module: ModuleType | str) -> dict:
             "not_native_extension", "Module is not loaded by ExtensionFileLoader", name
         )
     path = Path(origin).resolve(strict=True)
-    module_file = getattr(module, "__file__", "")
+    module_file = getattr(loaded_module, "__file__", "")
     if not module_file or Path(module_file).resolve(strict=True) != path:
         raise StrictProviderError(
             "loader_origin_mismatch", "Module file and loader origin differ", name
