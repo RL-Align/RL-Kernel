@@ -163,6 +163,10 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     PYTORCH_NATIVE_MHC_PRE = "rl_engine.reference.mhc.mhc.NativeMHCPreOp"
     PYTORCH_NATIVE_MHC_POST = "rl_engine.reference.mhc.mhc.NativeMHCPostOp"
     PYTORCH_NATIVE_MHC_HEAD = "rl_engine.reference.mhc.mhc.NativeMHCHeadOp"
+    # Batch-invariant linear y = x @ w^T + bias on aiter gemm_a16w16 (ROCm)
+    ROCM_AITER_BATCH_INVARIANT_LINEAR = (
+        "rl_engine.backends.rocm.gemm.aiter_gemm.AiterBatchInvariantLinearOp"
+    )
 
     # Generic fallback
     TRITON_GENERIC = "rl_engine.kernels.ops.triton.generic.TritonOp"
@@ -361,6 +365,27 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             implementation_class_or_factory=None,
             fallback_policy=OperatorFallbackPolicy.RUNTIME_MANAGED,
             version_or_build_fingerprint="runtime-native-ffn-unresolved-v1",
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="batch_invariant_linear",
+            backend_id="rlkernel.rocm.aiter_gemm_a16w16.batch_invariant.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"rocm"}),
+            supported_dtypes=frozenset({"bfloat16"}),
+            supported_topologies={"*": "*"},
+            determinism_or_alignment_properties={
+                "algorithm": "aiter_gemm_a16w16_whole_k_per_shape_config",
+                "batch_invariant": True,
+                "deterministic": True,
+                "backward": "triton_det_gemm_fp32",
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.ENGINE_CONSTRUCTION,
+            implementation_class_or_factory=(
+                "rl_engine.backends.rocm.gemm.aiter_gemm.AiterBatchInvariantLinearOp"
+            ),
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="AiterBatchInvariantLinearOp-launch-config-tables-v1",
         ),
     )
 
@@ -602,8 +627,10 @@ class KernelRegistry:
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
                 ],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
-                # No mHC backend: an empty list makes get_op raise instead of
-                # falling back to the default PYTORCH_NATIVE (logp) op.
+                # No batch-invariant linear or mHC backend: an empty list makes
+                # get_op raise instead of falling back to the default
+                # PYTORCH_NATIVE (logp) op.
+                "batch_invariant_linear": [],
                 "mhc_pre": [],
                 "mhc_post": [],
                 "mhc_head": [],
@@ -666,6 +693,9 @@ class KernelRegistry:
                 ],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
+                # aiter only: a missing aiter must fail, not fall back to a
+                # GEMM whose bits change with the batch.
+                "batch_invariant_linear": [OpBackend.ROCM_AITER_BATCH_INVARIANT_LINEAR],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
@@ -715,7 +745,8 @@ class KernelRegistry:
                     OpBackend.TRITON_RMS_NORM,
                     OpBackend.PYTORCH_NATIVE_RMS_NORM,
                 ],
-                # No mHC backend; see the CUDA entries.
+                # No batch-invariant linear or mHC backend; see the CUDA entries.
+                "batch_invariant_linear": [],
                 "mhc_pre": [],
                 "mhc_post": [],
                 "mhc_head": [],
@@ -748,6 +779,8 @@ class KernelRegistry:
                 "batch_invariant_logp": [OpBackend.PYTORCH_BATCH_INVARIANT_LOGP],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
+                # No batch-invariant linear backend; see the CUDA entries.
+                "batch_invariant_linear": [],
                 "mhc_pre": [OpBackend.PYTORCH_NATIVE_MHC_PRE],
                 "mhc_post": [OpBackend.PYTORCH_NATIVE_MHC_POST],
                 "mhc_head": [OpBackend.PYTORCH_NATIVE_MHC_HEAD],
@@ -822,6 +855,8 @@ class KernelRegistry:
         # No mHC backend on NPU; the CPU references are not copied over.
         for op_type in ("mhc_pre", "mhc_post", "mhc_head"):
             self._priority_map["npu"][op_type] = []
+        # No batch-invariant linear backend on NPU either.
+        self._priority_map["npu"]["batch_invariant_linear"] = []
         logger.info(f"KernelRegistry initialized for {device_ctx.device_type}")
         self._adjust_priority_for_hardware()
         self._adjust_priority_from_env()

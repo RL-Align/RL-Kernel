@@ -244,7 +244,8 @@ def test_npu_registry_preserves_per_operator_cpu_fallbacks(monkeypatch):
         (platform, op_type)
         for platform in ("cuda", "musa", "npu")
         for op_type in ("mhc_pre", "mhc_post", "mhc_head")
-    ],
+    ]
+    + [(platform, "batch_invariant_linear") for platform in ("cuda", "musa", "cpu", "npu")],
 )
 def test_ops_without_a_backend_raise(monkeypatch, platform, op_type):
     registry = KernelRegistry()
