@@ -32,6 +32,7 @@ from rl_engine.validation.operators.gradient_invariance import (
     MissingBackwardError,
 )
 from rl_engine.validation.operators.operator_specs import OP_SPECS, _load_object
+from rl_engine.validation.operators.rope_inputs import qwen_image_grid_prefix
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -218,6 +219,21 @@ GRADIENT_ADAPTERS: dict[str, GradientAdapterSpec] = {
             "rl_engine/backends/cuda/logprob/linear_logp.py",
             "rl_engine/backends/shared/triton/logprob/linear_logp.py",
             "csrc/cuda/logprob/fused_linear_logp_sm90.cu",
+        ),
+    ),
+    # Optional Qwen-Image extension: do not certify it as a Dense Qwen3 chain node.
+    "multi_axis_rope": GradientAdapterSpec(
+        op_name="multi_axis_rope",
+        chain_node="multi_axis_rope",
+        op_class="elementwise",
+        spec_name="multi_axis_rope",
+        tensors=(_DX,),
+        requirement="optional_fused",
+        source_files=(
+            "rl_engine/backends/cuda/rope/multi_axis_rope.py",
+            "rl_engine/backends/shared/triton/rope/multi_axis_rope.py",
+            "rl_engine/backends/shared/triton/rope/_flash_attn_rotary.py",
+            "csrc/cuda/rope/multi_axis_rope.cu",
         ),
     ),
     "rope": GradientAdapterSpec(
@@ -712,6 +728,27 @@ def _row_inputs(
             "weight": params["weight"],
             "bias": None,
         }
+    if op_name == "multi_axis_rope":
+        from rl_engine.ops.rope.multi_axis_rope import build_multi_axis_cos_sin
+
+        if head_dim != 128:
+            raise ValueError("multi_axis_rope gradient adapter requires head_dim=128")
+        rows = _stack_rows(keys, leading, (n_heads, head_dim), device=device, dtype=dtype)
+        # Use the complete logical sample, not this physical call's rows, to
+        # keep grid centers stable under chunks, permutations and padding.
+        lengths: dict[str, int] = {}
+        for sample_id, position in tokens:
+            lengths[sample_id] = max(lengths.get(sample_id, 0), position + 1)
+        grids: dict[str, torch.Tensor] = {}
+        coords = torch.zeros((len(keys), 3), device="cpu", dtype=torch.int64)
+        for row, key in enumerate(keys):
+            if key is not None:
+                sample_id, position = key
+                if sample_id not in grids:
+                    grids[sample_id] = qwen_image_grid_prefix(lengths[sample_id])
+                coords[row] = grids[sample_id][position]
+        cos, sin = build_multi_axis_cos_sin(coords, device=device)
+        return {"x": rows.unsqueeze(0), "cos": cos, "sin": sin}
     if op_name == "rope":
         rows = _stack_rows(keys, leading, (n_heads, head_dim), device=device, dtype=dtype)
         return {
@@ -724,6 +761,10 @@ def _row_inputs(
 
 def _to_rows(op_name: str, value: torch.Tensor, n_rows: int) -> torch.Tensor:
     """Normalize an operator output / input-grad back to (n_rows, *tail)."""
+    if op_name == "multi_axis_rope":
+        if value.shape[0] != 1 or value.shape[1] != n_rows:
+            raise ValueError("multi_axis_rope row adapter expects [1, tokens, heads, 128]")
+        return value.squeeze(0)
     if op_name == "rope":
         # RoPE runs as (1, heads, tokens, head_dim); tokens is the row axis.
         permuted = value.permute(0, 2, 1, 3)
